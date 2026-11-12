@@ -539,10 +539,9 @@ export class Publisher {
     const h = this.head(this.options.dataBranch),
       t = this.git.tree(h),
       ref = dataRef('editor-data-bundle'),
-      old = this.git.head(ref);
-    const prior = old
-      ? this.read<{ sourceCommit: string }>(this.git.tree(old), 'bundle.json')
-      : undefined;
+      old = this.git.head(ref),
+      oldTree = old ? this.git.tree(old) : {};
+    const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
       throw new Error('Bundle source would move backwards');
@@ -576,9 +575,12 @@ export class Publisher {
       pushed: pushedSchema.parse(this.read(t, 'live/pushed.json')),
       publishQueue,
     };
+    // The publisher owns only bundle.json: every other file on the bundle branch (the report
+    // catalogs report-items*.json, rebuilt by the pipeline's report-items job) is carried
+    // forward byte-identical, so no bundle push can delete them.
     const c = this.git.commit(
       old,
-      { 'bundle.json': this.git.writeBlob(json(bundle)) },
+      { ...oldTree, 'bundle.json': this.git.writeBlob(json(bundle)) },
       `Bundle ${h}`,
     );
     this.git.cas(ref, old, c);

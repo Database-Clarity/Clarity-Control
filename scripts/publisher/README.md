@@ -109,6 +109,18 @@ bundle just published). would-be-commits.json lists prerequisite commits; when c
 no Git bundle is emitted. Otherwise fetch would-be-commits.bundle into a clone containing those
 prerequisites to inspect the simulated heads.
 
+The publisher owns only bundle.json on editor-data-bundle. Every bundle push, dry-run included,
+carries every other file of the previous bundle forward byte-identical, so the report catalogs
+(report-items.json and report-items.worker.json, read by web Reports and the Worker's /reports)
+survive it. The same workflow run then rebuilds them in two jobs that replace bundle.yml's catalog
+step with its inputs (generator v2, editor 0acd005c). `report-items` (read-only token, after the
+pipeline job unless the run was cancelled) builds both catalogs for the bundle head it read;
+`report-items-push` (separate runner, contents:write) checks that the head has not moved, that the
+artifact holds exactly the two catalogs, and that each is v1 for that bundle's sourceCommit. It then
+pushes one fast-forward commit leased on that head (never --force), or does nothing when the
+catalogs are already current. A moved head fails the job and leaves the branch untouched; the next
+run rebuilds the catalogs. The workflow's concurrency group serializes all three jobs.
+
 All editor-data pushes (requests, kicks, saves) start the pipeline. GITHUB_TOKEN bundle pushes
 suppress downstream workflows; no workflow_dispatch/schedule is registered on production live.
 The bounded in-run catch-up watchdog runs before/after drain, including empty/failed drains.

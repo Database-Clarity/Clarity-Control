@@ -9,6 +9,11 @@ ON returns 410 for every /push-live request, before authentication/upstream I/O.
 Status/key remain read-only. P1-F adds the remote publishing transport, gated OFF. Enablement
 still requires its independent safety/integration reviews and every gate below. Installed
 dry-run workflows continue to simulate publication; changing the shared switch alone cannot publish.
+The built runtime bakes config/publisher.json in at build time (publisher.mjs carries
+`enabled: false`). Enabling remote writes therefore needs a new template build and PIN from a
+commit whose config says `enabled: true`, reviewed and CI-gated on that exact tree, then a
+re-install of .publisher. Without that rebuild, `publishWritesEnabled: true` in the installed
+config throws "Remote publishing disabled by config", and a hand-edited publisher.mjs fails its PIN.
 
 ## Install dry-run pipeline (root operator in E2)
 
@@ -38,6 +43,9 @@ The runtime also includes the current Link only guards and the set-bonus publica
    The operator then commits and normally pushes ONLY editor-data after review. Neither script
    commits nor pushes. No workflow files are installed on production branches or this editor repo.
 5. Observe pipeline artifact result.json: dryRun:true, publishWritesEnabled:false, no errors.
+   Check the run's report-items and report-items-push jobs are green and editor-data-bundle
+   still holds report-items.json and report-items.worker.json, both with the bundle's
+   sourceCommit (a cold Worker /reports and the web Reports page load).
    Check real bundle sourceCommit is current data head and publishQueue contains only opId,
    requester numeric id/login, hash list and createdAt (invalid requests expose opId/invalid only).
    Confirm data/live/candidate refs have no simulated commits; requests remain pending by design.

@@ -1056,6 +1056,73 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(() => f.pub.bundle()).toThrow('backwards');
     expect(f.git.head('refs/heads/editor-data-bundle')).toBe(newer);
   });
+  it('bundle pushes, dry-run included, carry the report catalogs forward byte-identical', async () => {
+    const f = await setup();
+    const ref = 'refs/heads/editor-data-bundle',
+      source = f.git.head(D)!;
+    // The bundle.yml shape: an orphan commit holding bundle.json and both report catalogs.
+    const catalogs = {
+      'report-items.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{"name":"Thing"}}}\n`,
+      'report-items.worker.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{}}}\n`,
+    };
+    const seeded: Tree = { 'bundle.json': f.git.writeBlob(encode({ sourceCommit: source })) };
+    for (const [p, bytes] of Object.entries(catalogs)) seeded[p] = f.git.writeBlob(bytes);
+    const prior = f.git.commit(undefined, seeded, 'Bundle editor data');
+    f.git.cas(ref, undefined, prior);
+    const latest = f.change(D, { 'save.json': 1 });
+    const checkoutRoot = mkdtempSync(join(tmpdir(), 'carry-pipeline-'));
+    roots.push(checkoutRoot);
+    const checkout = join(checkoutRoot, 'checkout');
+    execFileSync('git', ['clone', '--branch', 'editor-data', '--', f.upstream, checkout], {
+      stdio: 'pipe',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              algorithm: 'Ed25519',
+              publicKey: f.options.publicKey,
+              fingerprint: f.options.keyFingerprint,
+            }),
+          ),
+      ),
+    );
+    await runPipeline(
+      checkout,
+      {
+        ...f.options,
+        repo: 'Database-Clarity/Live-Clarity-Database',
+        keyEndpoint: 'https://worker.invalid/publish/key',
+      },
+      join(checkoutRoot, 'artifacts'),
+    );
+    const carried = (next: string, parent: string, sourceCommit: string) => {
+      const before = f.git.tree(parent),
+        after = f.git.tree(next);
+      expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+      for (const p of Object.keys(catalogs)) {
+        expect(after[p]).toBe(before[p]);
+        expect(f.git.blob(after[p])).toBe(catalogs[p as keyof typeof catalogs]);
+      }
+      expect(after['bundle.json']).not.toBe(before['bundle.json']);
+      expect(f.pub.read<{ sourceCommit: string }>(after, 'bundle.json')!.sourceCommit).toBe(
+        sourceCommit,
+      );
+      expect(
+        execFileSync('git', ['--git-dir', f.upstream, 'rev-parse', `${next}^`], {
+          encoding: 'utf8',
+        }).trim(),
+      ).toBe(parent);
+    };
+    const dryRun = f.git.head(ref)!;
+    carried(dryRun, prior, latest);
+    // The direct bundle path (the remote transport's CAS included) carries them forward, too.
+    const newer = f.change(D, { 'save.json': 2 });
+    f.pub.bundle();
+    carried(f.git.head(ref)!, dryRun, newer);
+  });
   it.each([false, true])(
     'create transport timeout rereads authoritative head (landed=%s)',
     async (landed) => {
