@@ -71,8 +71,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `72b85e52d8a8505b8cfa5b2176e72ea084a70d13` (v2).
-Runtime SHA-256: `97b26bc88a9bc389e93c53a1885685ab7a1d7284cab2e257b85f93f4e98cefae`.
+Current template source: `55c99cf29d85bfee787f69b1fcb620a46f8e3bb5` (v2).
+Runtime SHA-256: `d8d5e8dd98f019041181d9fb15b2cc07289f99744ec321f4827160ec04345d0a`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
@@ -81,6 +81,11 @@ an export that still holds one, and its PIN declares `capabilities: ["elementTag
 Worker's /save and /publish require while the publisher is on (element-tags.test.ts checks the build).
 The current core barrel also includes unused report-schema initialization in this runtime.
 This rebuild also carries the previous bundle's other files (the report catalogs) forward.
+It merges maintainer sandbox picks (config/sandbox-pointers.json, core mergeSandboxPointers with
+the config's generator `sandboxConflicts`) into the aliases it digests and exports, carries the
+picks in bundle.json, and its PIN declares `sandboxPointers`, which the Worker's
+PUT /sandbox-pointers requires while the publisher is on. Fill `sandboxConflicts` in config.json
+from the same pinned generator commit as `aliases`.
 Two consecutive builds and a clean checkout build must reproduce that digest.
 
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency
