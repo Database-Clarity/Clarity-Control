@@ -123,6 +123,27 @@ export function createConflictStore(deps: ConflictDeps) {
     const observedDrafts = new Set<number>();
     // Only unpersisted local edits survive a refresh when their key is absent from storage.
     const dirtySessions = new Set<number>();
+    const parked = new Map<
+      string,
+      {
+        sessions: Record<number, ConflictSession>;
+        dirty: Set<number>;
+        drafts: Drafts;
+      }
+    >();
+    function publish(scope: string, sessions: Record<number, ConflictSession>, dirty: Set<number>) {
+      const storage = deps.storage();
+      if (!storage) throw new Error('Conflict storage is unavailable');
+      for (const hash of dirty) {
+        const session = sessions[hash];
+        if (session) {
+          const published = { ...session, storedAt: Date.now() };
+          storage.setItem(conflictSessionKey(scope, hash), JSON.stringify(published));
+          sessions[hash] = published;
+        } else storage.removeItem(conflictSessionKey(scope, hash));
+        dirty.delete(hash);
+      }
+    }
     function persist() {
       const { scope } = get();
       if (scope === null) return;
@@ -156,11 +177,12 @@ export function createConflictStore(deps: ConflictDeps) {
     const unresolvedRows = (session: ConflictSession) =>
       Object.values(session.rows).filter((choice) => choice === null).length;
     /** Drops sessions whose conflict is over: no marker blocks, no open rows, or no draft left. */
-    function prune() {
+    function prune(onlyHash?: number) {
       const { sessions } = get();
       const { drafts, pending, external, readStartedAt } = deps.drafts.getState();
       let next = sessions;
       for (const session of Object.values(sessions)) {
+        if (onlyHash !== undefined && session.hash !== onlyHash) continue;
         const draft = drafts[session.hash];
         // Our pending/external flags cannot describe another tab's writes. A snapshot
         // read before publication cannot prove that an imported session is finished.
@@ -179,6 +201,38 @@ export function createConflictStore(deps: ConflictDeps) {
         delete next[session.hash];
       }
       if (next !== sessions) commit(next);
+    }
+
+    function refreshSessions(onlyHash?: number) {
+      const { scope } = get();
+      if (scope === null) return;
+      const stored = readSessions(deps.storage(), scope);
+      // Storage is authoritative for deletions. Only local edits not yet stored are kept.
+      const sessions: Record<number, ConflictSession> = {};
+      for (const [key, session] of Object.entries(get().sessions)) {
+        if (onlyHash !== undefined && Number(key) !== onlyHash) {
+          sessions[Number(key)] = session;
+          continue;
+        }
+        if (dirtySessions.has(Number(key))) sessions[Number(key)] = session;
+        else if (stored[Number(key)]?.storedAt !== session.storedAt)
+          observedDrafts.delete(Number(key));
+      }
+      for (const [key, session] of Object.entries(stored)) {
+        if (onlyHash !== undefined && Number(key) !== onlyHash) continue;
+        const mine = get().sessions[Number(key)];
+        if (!mine) {
+          sessions[Number(key)] = session;
+          continue;
+        }
+        const rows = { ...session.rows };
+        for (const [field, choice] of Object.entries(mine.rows))
+          if (choice !== null || !(field in rows)) rows[field] = choice;
+        sessions[Number(key)] = { ...mine, rows, storedAt: session.storedAt };
+      }
+      // Reading another tab's sessions is not a local edit and must not write them back.
+      set({ sessions });
+      prune(onlyHash);
     }
 
     return {
@@ -233,6 +287,8 @@ export function createConflictStore(deps: ConflictDeps) {
         return result;
       },
       choose(hash, field, choice) {
+        // A stale Compare view must not answer a question already resolved in another tab.
+        refreshSessions(hash);
         const session = get().sessions[hash];
         if (!session || !(field in session.rows)) return;
         observedDrafts.add(hash);
@@ -264,55 +320,66 @@ export function createConflictStore(deps: ConflictDeps) {
         prune();
       },
       refresh() {
-        const { scope } = get();
-        if (scope === null) return;
-        const stored = readSessions(deps.storage(), scope);
-        // Storage is authoritative for deletions. Only local edits not yet stored are kept.
-        const sessions: Record<number, ConflictSession> = {};
-        for (const [key, session] of Object.entries(get().sessions)) {
-          if (dirtySessions.has(Number(key))) sessions[Number(key)] = session;
-          else if (stored[Number(key)]?.storedAt !== session.storedAt)
-            observedDrafts.delete(Number(key));
-        }
-        for (const [key, session] of Object.entries(stored)) {
-          const mine = get().sessions[Number(key)];
-          if (!mine) {
-            sessions[Number(key)] = session;
-            continue;
-          }
-          const rows = { ...session.rows };
-          for (const [field, choice] of Object.entries(mine.rows))
-            if (choice !== null || !(field in rows)) rows[field] = choice;
-          sessions[Number(key)] = { ...mine, rows, storedAt: session.storedAt };
-        }
-        // Reading another tab's sessions is not a local edit and must not write them back.
-        set({ sessions });
-        prune();
+        refreshSessions();
       },
       open() {
         return openConflicts(deps.drafts.getState().drafts, rowCounts(get().sessions));
       },
       start() {
         let scope: string | null = null;
+        const stopStored = deps.drafts.getState().onStored((owner, drafts) => {
+          const account = owner ?? 'signed-out';
+          const pending = parked.get(account);
+          // Older writes cannot publish a session whose draft was changed again meanwhile.
+          if (!pending || pending.drafts !== drafts) return;
+          publish(account, pending.sessions, pending.dirty);
+          parked.delete(account);
+        });
         const observe = (
           state: ReturnType<typeof deps.drafts.getState>,
           previous?: ReturnType<typeof deps.drafts.getState>,
         ) => {
+          const owner = state.hydrated ? (state.owner ?? 'signed-out') : null;
+          let failedPrevious = false;
+          if (owner !== scope && scope !== null && dirtySessions.size > 0) {
+            parked.set(scope, {
+              sessions: { ...get().sessions },
+              dirty: new Set(dirtySessions),
+              drafts: previous?.drafts ?? state.drafts,
+            });
+            failedPrevious = (previous?.pending ?? 0) === 0;
+          }
           if (!state.hydrated) {
             scope = null;
             observedDrafts.clear();
             dirtySessions.clear();
             set({ scope: null, sessions: {} });
+            if (failedPrevious)
+              deps.drafts.setState({
+                previousAccountError: `Conflict choices for your previous account were NOT stored. ${previous?.error ?? ''} Keep this tab open, sign back in to that account, and retry draft storage.`,
+              });
             return;
           }
-          const owner = state.owner ?? 'signed-out';
+          // Hydrated owners include the signed-out bucket, so this cannot be null.
+          const account = owner!;
           if (owner !== scope) {
-            scope = owner;
+            scope = account;
             observedDrafts.clear();
             dirtySessions.clear();
-            set({ scope: owner, sessions: readSessions(deps.storage(), owner) });
+            const pending = parked.get(account);
+            const sessions = readSessions(deps.storage(), account);
+            if (pending) {
+              for (const hash of pending.dirty) {
+                dirtySessions.add(hash);
+                if (pending.sessions[hash]) sessions[hash] = pending.sessions[hash]!;
+                else delete sessions[hash];
+              }
+              parked.delete(account);
+            }
+            set({ scope: account, sessions });
           } else if (
             previous &&
+            state.readRevision === previous.readRevision &&
             state.readStartedAt === previous.readStartedAt &&
             state.stored === previous.stored
           ) {
@@ -321,11 +388,25 @@ export function createConflictStore(deps: ConflictDeps) {
             for (const hash of Object.keys(get().sessions))
               if (state.drafts[hash] !== previous.drafts[hash]) observedDrafts.add(Number(hash));
           }
+          if (
+            previous &&
+            (state.readRevision !== previous.readRevision ||
+              state.readStartedAt !== previous.readStartedAt)
+          )
+            get().refresh();
           prune();
           persist();
+          if (failedPrevious)
+            deps.drafts.setState({
+              previousAccountError: `Conflict choices for your previous account were NOT stored. ${previous?.error ?? ''} Keep this tab open, sign back in to that account, and retry draft storage.`,
+            });
         };
         observe(deps.drafts.getState());
-        return deps.drafts.subscribe(observe);
+        const stopDrafts = deps.drafts.subscribe(observe);
+        return () => {
+          stopDrafts();
+          stopStored();
+        };
       },
     };
   });
