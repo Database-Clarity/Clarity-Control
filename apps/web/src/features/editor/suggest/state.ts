@@ -12,7 +12,7 @@ import {
 import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
 import type { MarkupGlobals } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
-import { tagSelection } from '../elementTags';
+import { checkedWrap, tagSelection } from '../elementTags';
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
   caretContext,
@@ -256,8 +256,13 @@ export function insertItem(
 ): Rejection | null {
   if (item.wrap) {
     // An element-tag wrap is judged again on the live text, by its own rules.
-    if (tagSelection(view.state, view.state.facet(suggestHost).globals).kind !== 'wrap')
-      return 'context';
+    const selection = tagSelection(view.state, view.state.facet(suggestHost).globals);
+    const element = /^<([a-z]+) /.exec(item.insert)?.[1] ?? '';
+    const change =
+      selection.kind === 'wrap'
+        ? checkedWrap(view.state, selection.from, selection.to, element)
+        : null;
+    if (!change || change.from !== item.from || change.insert !== item.insert) return 'context';
   } else if (!item.reference) {
     const rejection = insertionRejection(
       view.state,

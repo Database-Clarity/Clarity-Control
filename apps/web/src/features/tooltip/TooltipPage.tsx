@@ -68,6 +68,7 @@ import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { QueueControl } from './QueueControl';
 import { queueContext, queuePath, queueSummary } from '../translations/worklist';
+import { englishDiffFor } from '../translations/source';
 import { categoryDisplay } from '../../services/categoryLabels';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
@@ -684,15 +685,7 @@ function TooltipWorkspace({
               hash={activeHash}
               key={`${activeHash}:${lang}`}
               text={activeTooltip.text.en?.text}
-              diff={
-                translation?.state === 'outdated' && translation.sourceUpdatedAt
-                  ? {
-                      hash: activeHash,
-                      sourceUpdatedAt: translation.sourceUpdatedAt,
-                      current: activeBase.text.en?.text ?? '',
-                    }
-                  : undefined
-              }
+              diff={englishDiffFor(activeBase, lang, translation?.state)}
             />
           )
         }

@@ -64,7 +64,9 @@ export function EnglishDiffContent({
           </button>
         </p>
       )}
-      {source?.kind === 'found' && isMarkupOnly(source.text, current) ? (
+      {source?.kind === 'found' && source.text === current ? (
+        <p>The English has not changed since this translation.</p>
+      ) : source?.kind === 'found' && isMarkupOnly(source.text, current) ? (
         <>
           <p data-markup-only>
             <strong>Markup only:</strong> the English words did not change; only element tags (an

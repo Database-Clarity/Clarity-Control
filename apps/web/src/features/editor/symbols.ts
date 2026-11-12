@@ -587,7 +587,10 @@ const symbolPopover = StateField.define<{ key: string; tooltip: Tooltip } | null
   update(value, transaction) {
     const popover = popoverFor(transaction.state);
     if (!popover) return null;
-    const key = `${popover.source}:${popover.from}:${popover.to}:${popover.editing}`;
+    // The opening markup is part of the key: changing a tag's element (same length, same range)
+    // must rebuild the popover, or its pressed element and actions would act on the old one.
+    const head = transaction.state.sliceDoc(popover.from, Math.min(popover.to, popover.from + 12));
+    const key = `${popover.source}:${popover.from}:${popover.to}:${popover.editing}:${head}`;
     if (value?.key === key) return value;
     const anchor = popover.at ?? popover.from;
     return {

@@ -63,6 +63,30 @@ describe('wrap rules', () => {
     expect(wrapped('<solar/><solar/>Scorch', 'Scorch')).toBe('<solar/><solar Scorch />');
   });
 
+  it('checks the wrap for the element chosen, not only for Solar (code review F2)', () => {
+    // The icon before the selection belongs to an unclosed token: it is not absorbed, and
+    // whatever is written lowers to the old line plus the icon, or nothing is written.
+    for (const element of ['arc', 'solar']) {
+      const doc = '<yellow <arc/>Jolt now';
+      const result = wrapped(doc, 'Jolt', element);
+      if (result !== null)
+        expect(lowerElementTags(result)).toBe(doc.replace('Jolt', `<${element}/>Jolt`));
+    }
+    // Ctrl+Space offers no wrap that fails for its element.
+    const view = select('<yellow <arc/>Jolt now', 'Jolt');
+    for (const item of requestItems(suggestContext(view, true)!, view, globals))
+      if (item.wrap) {
+        const next = view
+          .update({
+            changes: { from: item.from, to: item.to, insert: item.insert },
+          })
+          .state.doc.toString();
+        expect(lowerElementTags(next)).toBe(
+          '<yellow <arc/>' + /^<([a-z]+) /.exec(item.insert)![0].trim() + '/>Jolt now',
+        );
+      }
+  });
+
   it.each([
     ['nothing selected', state('Gain Scorch', 3), 'none'],
     ['two lines', state('Gain\nScorch', 2, 8), tagRefusals.line],
@@ -270,6 +294,34 @@ describe('in the editor', () => {
     pin();
     click('Remove');
     expect(view.state.doc.toString()).toBe('Gain Scorch now');
+  });
+
+  it('the popover follows a change to an element of the same length, both ways', () => {
+    const { view } = mount('Gain <stasis Scorch /> now');
+    act(() => {
+      const [tag] = findTags(view.state.doc.toString());
+      view.dispatch({
+        selection: { anchor: tag!.openTo, head: tag!.closeFrom },
+        effects: pinTag.of(true),
+      });
+    });
+    const popover = () => host.querySelector<HTMLElement>('.cm-symbol-popover')!;
+    const button = (label: string) =>
+      [...popover().querySelectorAll<HTMLButtonElement>('button')].find(
+        (element) => element.textContent === label || element.getAttribute('aria-label') === label,
+      )!;
+    const pressed = () =>
+      popover().querySelector('[aria-pressed="true"]')?.getAttribute('aria-label');
+    act(() => button('Change to Strand').click());
+    expect(view.state.doc.toString()).toBe('Gain <strand Scorch /> now');
+    expect(pressed()).toBe('Strand');
+    expect(popover().querySelector('code')?.textContent).toBe('<strand … />');
+    act(() => button('Change to Stasis').click());
+    expect(view.state.doc.toString()).toBe('Gain <stasis Scorch /> now');
+    expect(pressed()).toBe('Stasis');
+    act(() => button('Change to Strand').click());
+    act(() => button('Unwrap').click());
+    expect(view.state.doc.toString()).toBe('Gain <strand/>Scorch now');
   });
 
   it('keys on pinned tagged text: Alt+Backspace unwraps, Backspace removes', () => {

@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
-import { findTranslationSource } from './source';
+import { englishDiffFor, findTranslationSource } from './source';
 
 function version(updatedAt: string, text = 'original English'): { tooltip: Tooltip } {
   return {
@@ -13,7 +13,9 @@ it('searches paginated versions by English revision, not commit date or translat
   const getHistory = vi
     .fn()
     .mockResolvedValueOnce({ commits: [{ commit: 'a' }] })
-    .mockResolvedValueOnce({ commits: [{ commit: 'b' }] });
+    .mockResolvedValueOnce({ commits: [{ commit: 'b' }] })
+    // A match may continue on the next page (same-time markup edits), so one more page is read.
+    .mockResolvedValueOnce({ commits: [] });
   const getVersion = vi
     .fn()
     .mockResolvedValueOnce(version('2026-02-01T00:00:00Z'))
@@ -51,4 +53,47 @@ it('propagates unavailable history instead of silently claiming no source exists
       getVersion: vi.fn(),
     }),
   ).rejects.toThrow('HTTP 403');
+});
+
+it('takes the oldest English sharing the source time: tagging keeps updatedAt (ELEMENT-TAGS-2)', async () => {
+  const getHistory = vi
+    .fn()
+    .mockResolvedValueOnce({ commits: [{ commit: 'c' }, { commit: 'b' }, { commit: 'a' }] });
+  const getVersion = vi
+    .fn()
+    .mockResolvedValueOnce(version(source, 'Gain <solar Scorch /> and <void Void Breaches />.'))
+    .mockResolvedValueOnce(version(source, 'Gain <solar Scorch /> and <void/>Void Breaches.'))
+    .mockResolvedValueOnce(version('2025-12-01T00:00:00.000Z', 'Older wording.'));
+  expect(await findTranslationSource(1, source, { getHistory, getVersion })).toEqual({
+    kind: 'found',
+    text: 'Gain <solar Scorch /> and <void/>Void Breaches.',
+  });
+  // The last page ending on a match still finds it.
+  const one = vi.fn().mockResolvedValueOnce({ commits: [{ commit: 'a' }] });
+  one.mockResolvedValueOnce({ commits: [] });
+  expect(
+    await findTranslationSource(1, source, {
+      getHistory: one,
+      getVersion: vi.fn().mockResolvedValue(version(source, 'Gain <solar/>Scorch.')),
+    }),
+  ).toEqual({ kind: 'found', text: 'Gain <solar/>Scorch.' });
+});
+
+it('offers the English diff for an outdated translation, and for a current one over tagged English', () => {
+  const tooltip = (english: string) =>
+    ({
+      hash: 7,
+      associated: [],
+      text: {
+        en: { text: english, updatedAt: source, updatedBy: 'e' },
+        de: { text: 'Deutsch', updatedAt: source, updatedBy: 't', sourceUpdatedAt: source },
+      },
+    }) as Tooltip;
+  const diff = { hash: 7, sourceUpdatedAt: source, current: 'Gain <solar Scorch />.' };
+  expect(englishDiffFor(tooltip('Gain <solar Scorch />.'), 'de', 'current')).toEqual(diff);
+  expect(englishDiffFor(tooltip('Gain <solar/>Scorch.'), 'de', 'current')).toBeUndefined();
+  expect(englishDiffFor(tooltip('Gain <solar/>Scorch.'), 'de', 'outdated')).toMatchObject({
+    current: 'Gain <solar/>Scorch.',
+  });
+  expect(englishDiffFor(tooltip('Gain <solar Scorch />.'), 'fr', 'missing')).toBeUndefined();
 });

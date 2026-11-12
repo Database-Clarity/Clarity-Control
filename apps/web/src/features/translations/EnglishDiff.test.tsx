@@ -54,3 +54,9 @@ it('keeps the word diff for a real wording change', async () => {
   expect(host.querySelector('[data-markup-only]')).toBeNull();
   expect(host.textContent).toContain('English when translated');
 });
+
+it('says the English did not change when the source is the current text', async () => {
+  await show('Gain <solar Scorch />.', 'Gain <solar Scorch />.');
+  expect(host.textContent).toContain('has not changed since this translation');
+  expect(host.querySelector('[data-markup-only]')).toBeNull();
+});

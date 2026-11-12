@@ -44,15 +44,47 @@ const refused = (reason: string): TagSelection => ({ kind: 'refused', reason });
 const declaration = /^(?:title |export |var |import |enhanced \(|catalyst \(|exotic perk \(|\) *$)/;
 
 /** The text that replaces `from`..`to` to tag it as `element`, absorbing an icon right before it. */
-export function wrapChange(state: EditorState, from: number, to: number, element: string) {
+export function wrapChange(
+  state: EditorState,
+  from: number,
+  to: number,
+  element: string,
+  absorb = true,
+) {
   const icon = `<${element}/>`;
-  const absorbed = from >= icon.length && state.sliceDoc(from - icon.length, from) === icon;
+  const absorbed =
+    absorb && from >= icon.length && state.sliceDoc(from - icon.length, from) === icon;
   return {
     from: absorbed ? from - icon.length : from,
     to,
     insert: `<${element} ${state.sliceDoc(from, to)} />`,
     absorbed,
   };
+}
+
+/**
+ * The wrap of `from`..`to` as `element`, checked on its own line: it must make exactly one tagged
+ * span where the selection was, and lower to the old line plus the icon (or to the old line itself
+ * when an icon was absorbed). An icon that another token swallows (`<yellow <arc/>Jolt`) is not
+ * absorbed, and a wrap that fits neither way (an unclosed `<` earlier on the line) is null.
+ */
+export function checkedWrap(state: EditorState, from: number, to: number, element: string) {
+  const line = state.doc.lineAt(from);
+  const at = (position: number) => position - line.from;
+  for (const absorb of [true, false]) {
+    const change = wrapChange(state, from, to, element, absorb);
+    if (absorb && !change.absorbed) continue;
+    const next =
+      line.text.slice(0, at(change.from)) + change.insert + line.text.slice(at(change.to));
+    const placed = findElementTags(next).some(
+      (tag) => tag.from === at(change.from) && tag.to === at(change.from) + change.insert.length,
+    );
+    const expected = change.absorbed
+      ? line.text
+      : line.text.slice(0, at(from)) + `<${element}/>` + line.text.slice(at(from));
+    if (placed && lowerElementTags(next) === lowerElementTags(expected)) return change;
+  }
+  return null;
 }
 
 /** Whether the main selection can be tagged with an element, or why not (none: no selection). */
@@ -76,20 +108,9 @@ export function tagSelection(state: EditorState, globals: MarkupGlobals): TagSel
   const rejection = insertionChecker(state, globals)({ from: main.from, to: main.to });
   if (rejection === 'expansion') return refused(tagRefusals.expansion);
   if (rejection) return refused(tagRefusals.tag);
-  // The result must be exactly one tagged span where the selection was, and lower to the old line
-  // plus the icon (or to the old line itself when an icon was absorbed). Anything else, such as an
-  // unclosed `<` earlier on the line that would swallow the new tag, is refused.
-  const change = wrapChange(state, main.from, main.to, 'solar');
-  const at = (position: number) => position - line.from;
-  const next = line.text.slice(0, at(change.from)) + change.insert + line.text.slice(at(change.to));
-  const placed = findElementTags(next).some(
-    (tag) => tag.from === at(change.from) && tag.to === at(change.from) + change.insert.length,
-  );
-  const expected = change.absorbed
-    ? line.text
-    : line.text.slice(0, at(main.from)) + '<solar/>' + line.text.slice(at(main.from));
-  if (!placed || lowerElementTags(next) !== lowerElementTags(expected))
-    return refused(tagRefusals.tag);
+  // The wrap must make exactly one tagged span that lowers to the old line plus the icon
+  // (checkedWrap); every element has the same shape, so Solar stands for them all here.
+  if (!checkedWrap(state, main.from, main.to, 'solar')) return refused(tagRefusals.tag);
   return { kind: 'wrap', from: main.from, to: main.to };
 }
 
@@ -102,7 +123,8 @@ export function wrapTransaction(
   if (!isElementName(element)) return null;
   const selection = tagSelection(state, globals);
   if (selection.kind !== 'wrap') return null;
-  const change = wrapChange(state, selection.from, selection.to, element);
+  const change = checkedWrap(state, selection.from, selection.to, element);
+  if (!change) return null;
   return state.update({
     changes: { from: change.from, to: change.to, insert: change.insert },
     selection: EditorSelection.cursor(change.from + change.insert.length),

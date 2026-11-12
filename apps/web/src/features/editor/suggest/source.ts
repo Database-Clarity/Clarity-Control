@@ -15,7 +15,7 @@ import {
   type Snippet,
 } from '@clarity/core';
 import { insertionChecker, type Rejection } from '../markupInsertion';
-import { elementLabel, isElementName, tagSelection, wrapChange } from '../elementTags';
+import { checkedWrap, elementLabel, isElementName, tagSelection } from '../elementTags';
 import { locateBlocks, locateVariables } from '../references';
 import { englishSymbols, subclassSymbol } from './typedSymbols';
 
@@ -444,8 +444,11 @@ function build(
     const wrap = insertAtStart ? tagSelection(state, globals) : undefined;
     for (const symbol of markupSymbols) {
       if (skip?.has(symbol.id)) continue;
-      if (wrap?.kind === 'wrap' && isElementName(symbol.name)) {
-        const change = wrapChange(state, wrap.from, wrap.to, symbol.name);
+      const change =
+        wrap?.kind === 'wrap' && isElementName(symbol.name)
+          ? checkedWrap(state, wrap.from, wrap.to, symbol.name)
+          : null;
+      if (change) {
         push({
           id: symbol.id,
           category: 'Symbols',
