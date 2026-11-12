@@ -89,8 +89,14 @@ export const ReadingTooltip = memo(function ReadingTooltip({
     if (cache.size >= 128) cache.delete(cache.keys().next().value!);
     cache.set(key, parsed);
   }
+  const nativePopovers =
+    typeof HTMLElement !== 'undefined' &&
+    typeof (HTMLElement.prototype as { showPopover?: unknown }).showPopover === 'function';
   return (
-    <div className={styles.snippet} lang={markupLanguage(lang)}>
+    <div
+      className={[styles.snippet, nativePopovers ? styles.reading : ''].filter(Boolean).join(' ')}
+      lang={markupLanguage(lang)}
+    >
       <Lines lines={parsed.lines} />
     </div>
   );

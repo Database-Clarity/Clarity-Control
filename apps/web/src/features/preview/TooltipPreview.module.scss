@@ -114,6 +114,10 @@ $name-floor: $name-size * 0.75;
     sans-serif;
   overflow-wrap: anywhere;
 }
+// Native top-layer popovers keep term definitions outside this layout boundary.
+.reading {
+  contain: layout style;
+}
 .associated {
   border-top: 1px solid var(--tp-rule);
   padding: 0.5rem;
