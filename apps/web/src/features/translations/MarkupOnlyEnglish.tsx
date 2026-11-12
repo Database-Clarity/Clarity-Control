@@ -4,7 +4,7 @@ import { elementTagNames, findElementTags, type ElementTag } from '@clarity/core
 import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { elementLabel } from '../editor/elementTags';
 import { linePairs, type IconPair } from '../editor/iconPairs';
-import { openSuggest } from '../editor/suggest/state';
+import { moveSuggest, openSuggest, suggestState } from '../editor/suggest/state';
 import { useShowEditor } from '../tooltip/VariantWorkspace';
 import previewStyles from '../preview/TooltipPreview.module.scss';
 import styles from './MarkupOnlyEnglish.module.scss';
@@ -140,7 +140,14 @@ export function MarkupOnlyEnglish({
         scrollIntoView: true,
       });
       view.focus();
-      openSuggest(view, `icon:${pair.element}`);
+      openSuggest(view);
+      // Moved to the element's wrap once the menu has drawn, so its list scrolls to it.
+      requestAnimationFrame(() => {
+        const wrap = suggestState(view.state)?.items.findIndex(
+          (item) => item.wrap && item.id === `icon:${pair.element}`,
+        );
+        if (wrap !== undefined && wrap >= 0) moveSuggest(view, wrap, true);
+      });
     });
   }
 

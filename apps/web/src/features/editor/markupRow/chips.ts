@@ -261,7 +261,7 @@ function keywordChip(state: EditorState, icon: { element: string; to: number }):
     typed: false,
     glyph: { kind: 'icon', name: pair.element },
     markup: change.insert,
-    text: `Tag “${pair.text}” as ${elementLabel(pair.element)}`,
+    text: `Tag as ${elementLabel(pair.element)}`,
     covers: { from: pair.iconFrom, to: pair.to },
   };
 }

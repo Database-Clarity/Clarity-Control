@@ -211,6 +211,8 @@ describe('in the editor', () => {
   it("the icon's popover offers Group with icon; a spaced pair's Cancel keeps it", () => {
     const view = mount('Gain <solar/>Scorch and <arc/> Jolt.');
     act(() => view.dispatch({ selection: { anchor: 5, head: 13 } }));
+    // The row shows no tag label for a selected icon: its popover is where it is acted on.
+    expect(host.querySelector('[data-markup-row] [data-tag-mode]')).toBeNull();
     expect(popoverButton('Group with icon')?.title).toBe(
       'Tag “Scorch” as Solar: <solar Scorch /> (Alt+Enter)',
     );
@@ -288,7 +290,7 @@ describe('keyword chip', () => {
     try {
       expect(insertMarkup(view, solar, globals)).toBe('inserted');
       expect(chipState(view.state)).toMatchObject({
-        text: 'Tag “Firesprite” as Solar',
+        text: 'Tag as Solar',
         markup: '<solar Firesprite />',
         covers: { from: 5, to: 5 + '<solar/>Firesprite'.length },
       });

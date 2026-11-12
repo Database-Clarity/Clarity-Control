@@ -58,7 +58,7 @@ export const suggestHost = Facet.define<SuggestHost, SuggestHost>({
   combine: (hosts) => hosts[hosts.length - 1] ?? { globals: { variables: '', titles: '' } },
 });
 
-const openEffect = StateEffect.define<{ explicit: boolean; prefer?: string }>();
+const openEffect = StateEffect.define<{ explicit: boolean }>();
 const closeEffect = StateEffect.define<null>();
 const moveEffect = StateEffect.define<number>();
 const categoryEffect = StateEffect.define<null>();
@@ -140,11 +140,11 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
     const explicitOpen = transaction.effects.find((effect) => effect.is(openEffect));
     if (transaction.effects.some((effect) => effect.is(closeEffect))) return null;
     if (explicitOpen) {
-      const { explicit, prefer } = explicitOpen.value as { explicit: boolean; prefer?: string };
-      next = derive(transaction.state, explicit, null);
-      // Opened for one option (the translator's "Tag the same words here"): start on it.
-      const preferred = prefer ? (next?.items.findIndex((item) => item.id === prefer) ?? -1) : -1;
-      if (next && preferred >= 0) next = { ...next, index: preferred };
+      next = derive(
+        transaction.state,
+        (explicitOpen.value as { explicit: boolean }).explicit,
+        null,
+      );
     } else if (next && (transaction.docChanged || transaction.selection)) {
       // A selection the author types over has nothing left to transform.
       next =
@@ -203,9 +203,8 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
 export const suggestState = (state: EditorState): SuggestSnapshot | null =>
   state.field(suggestField, false) ?? null;
 
-/** Ctrl+Space; `prefer` starts the menu on that option when it is listed. */
-export function openSuggest(view: EditorView, prefer?: string): void {
-  view.dispatch({ effects: openEffect.of({ explicit: true, prefer }) });
+export function openSuggest(view: EditorView): void {
+  view.dispatch({ effects: openEffect.of({ explicit: true }) });
 }
 export function closeSuggest(view: EditorView): void {
   if (suggestState(view.state)) view.dispatch({ effects: closeEffect.of(null) });

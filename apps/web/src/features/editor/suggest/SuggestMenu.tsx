@@ -157,6 +157,8 @@ export function SuggestMenu({
   /** Where the list is scrolled to and how tall it is, kept here so nothing has to ask the layout. */
   const scrolled = useRef(0);
   const viewHeight = useRef(0);
+  /** Set once the list's height is known, so an option chosen before that is scrolled to then. */
+  const [measured, setMeasured] = useState(false);
   /** The pointer chose the option: it is under the pointer already, so the list must not move. */
   const byPointer = useRef(false);
   /** How many lines the unscrolled list draws: what fits the tallest the menu ever is. */
@@ -243,6 +245,7 @@ export function SuggestMenu({
           if (fit > 0 && natural - fit > 1) node.style.maxHeight = `${fit}px`;
         }
         viewHeight.current = node.clientHeight;
+        if (viewHeight.current) setMeasured(true);
         lastMetrics = next;
         setMetrics(next);
       });
@@ -293,7 +296,7 @@ export function SuggestMenu({
       }
     }
     show(scrolled.current);
-  }, [snapshot.index, rows, rowOf, metrics, show]);
+  }, [snapshot.index, rows, rowOf, metrics, show, measured]);
 
   // An option that cannot go here still shows what it is: its own markup, rendered by itself.
   const previewSource = selected?.unavailable
