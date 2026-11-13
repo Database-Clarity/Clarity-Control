@@ -87,8 +87,11 @@ export function FileBuildStatus({
       title={failed.map((notice) => notice.message).join('\n') || undefined}
     >
       <BuildDot state={failed.length ? 'bad' : state.kind === 'live' ? 'live' : 'warn'} />
-      {word} <When value={state.file.lastUpdate} nowrap /> · v{formatVersion} ·{' '}
-      {formatBytes(state.file.bytes)}
+      {/* No-break spaces: a narrow header wraps the status only after its date. */}
+      {word} <When value={state.file.lastUpdate} nowrap />
+      {' · '}v{formatVersion}
+      {' · '}
+      {formatBytes(state.file.bytes).replace(' ', ' ')}
     </span>
   );
 }
