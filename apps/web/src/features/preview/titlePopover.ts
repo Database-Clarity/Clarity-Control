@@ -32,7 +32,13 @@ export function openTitlePopover(
       )) ||
     rects[0] ||
     anchor.getBoundingClientRect();
-  const { clientWidth: viewW, clientHeight: viewH } = document.documentElement;
+  const root = document.documentElement;
+  // The root's own width leaves out the scrollbar gutter global.scss reserves (a classic 15px
+  // scrollbar), which clientWidth and CSS 100vw can still count; a box over the gutter is clipped
+  // there. Cap and clamp by it, so the box keeps its edge inset and its right border.
+  const viewW = Math.min(root.clientWidth, root.offsetWidth || root.clientWidth),
+    viewH = root.clientHeight;
+  box.style.maxWidth = `min(18.75rem, ${viewW - EDGE * 2}px)`;
   box.style.maxHeight = '';
   const width = box.offsetWidth;
   let height = box.offsetHeight;

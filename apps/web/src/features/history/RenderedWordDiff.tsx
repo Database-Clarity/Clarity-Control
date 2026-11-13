@@ -39,10 +39,20 @@ function Parts({ parts }: { parts: MarkupSpan[] }) {
     );
   });
 }
+// Line references inside a marker label ("line 18", "lines 14–15").
+const RANGE = /(lines? \d+(?:–\d+)?)/;
 function Markers({ markers }: { markers: SourceMarker[] }) {
   return markers.map((marker, index) => (
     <p key={index} className={styles.sourceChange} data-source-change>
-      {marker.label}
+      {marker.label.split(RANGE).map((piece, i) =>
+        i % 2 ? (
+          <span key={i} className={styles.range}>
+            {piece}
+          </span>
+        ) : (
+          piece
+        ),
+      )}
     </p>
   ));
 }
