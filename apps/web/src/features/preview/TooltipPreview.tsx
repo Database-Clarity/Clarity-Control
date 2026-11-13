@@ -29,6 +29,8 @@ export interface TooltipPreviewProps {
   name: string;
   /** Exotic armour: the piece carrying this perk, shown above the perk's name. */
   piece?: string;
+  /** The piece's icon beside the piece row; '' leaves its box empty. */
+  pieceIcon?: string;
   icon?: string;
   categoryLabel?: string;
   globals: MarkupGlobals;
@@ -65,6 +67,7 @@ export function TooltipPreview({
   lang,
   name,
   piece,
+  pieceIcon,
   icon,
   categoryLabel,
   globals,
@@ -93,6 +96,7 @@ export function TooltipPreview({
         <PreviewHeader
           name={name}
           piece={piece}
+          pieceIcon={pieceIcon}
           icon={icon}
           categoryLabel={categoryLabel}
           archiveIcon={archiveIcon}
@@ -120,6 +124,10 @@ export function TooltipPreview({
   );
 }
 
+function bungieUrl(icon: string | undefined): string | undefined {
+  return icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
+}
+
 function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
   const identity = useContext(LivePreviewIdentity);
   const target = useSteppingActivity((state) => (props.live ? state.target : undefined));
@@ -135,9 +143,10 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
         : undefined,
     [target, data, identity?.archiveIcon],
   );
-  const { name, piece, icon, categoryLabel, archiveIcon } =
+  const { name, piece, pieceIcon, icon, categoryLabel, archiveIcon } =
     urgent || (props.live && identity) || props;
-  const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
+  const iconUrl = bungieUrl(icon);
+  const pieceUrl = bungieUrl(pieceIcon);
   return (
     <header className={styles.header}>
       {archiveIcon ? (
@@ -153,7 +162,13 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
             title={piece || undefined}
             aria-hidden={!piece || undefined}
           >
-            {piece}
+            {pieceIcon !== undefined && piece && (
+              // Same box as the finder's: a piece missing from the icon file leaves it empty.
+              <span className={styles.pieceIcon}>
+                {pieceUrl && linkUrl(pieceUrl) && <img src={pieceUrl} alt="" />}
+              </span>
+            )}
+            <span className={styles.pieceName}>{piece}</span>
           </div>
         )}
         <div
