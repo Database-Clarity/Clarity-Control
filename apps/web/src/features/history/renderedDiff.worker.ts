@@ -1,5 +1,5 @@
 import type { MarkupGlobals } from '@clarity/core';
-import { renderedDiff } from './renderedDiff';
+import { presentDiff, renderedDiff } from './renderedDiff';
 import { analyzeSourceOnly } from './sourceOnlyChanges';
 self.onmessage = (
   event: MessageEvent<{ id: number; before: string; after: string; globals: MarkupGlobals }>,
@@ -7,11 +7,10 @@ self.onmessage = (
   const { id, before, after, globals } = event.data;
   try {
     const result = renderedDiff(before, after, globals);
-    self.postMessage({
-      id,
-      // Accounting reads the same final diff the user sees, never a separate render.
-      result: { ...result, sourceAnalysis: analyzeSourceOnly(before, after, globals, result) },
-    });
+    // Accounting reads the word diff the user sees; presentDiff then only adds
+    // marks (merged runs, whole rewritten lines), so every claim stays marked.
+    const sourceAnalysis = analyzeSourceOnly(before, after, globals, result);
+    self.postMessage({ id, result: { ...presentDiff(result), sourceAnalysis } });
   } catch {
     self.postMessage({ id });
   }

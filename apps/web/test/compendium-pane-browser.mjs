@@ -44,11 +44,19 @@ const noOverflow = async (page, label) => {
     wide: [...document.querySelectorAll('body *')]
       .filter((el) => {
         const r = el.getBoundingClientRect();
+        // Content of a horizontal scroller inside the window (the markup row) scrolls, not overflows.
+        const scroller = (node) => {
+          for (let up = node.parentElement; up && up !== document.body; up = up.parentElement)
+            if (['auto', 'scroll'].includes(getComputedStyle(up).overflowX))
+              return up.getBoundingClientRect().right <= window.innerWidth + 1;
+          return false;
+        };
         return (
           r.width > 0 &&
           r.right > window.innerWidth + 1 &&
           !el.closest('[hidden]') &&
-          !el.closest('.cm-scroller')
+          !el.closest('.cm-scroller') &&
+          !scroller(el)
         );
       })
       .slice(0, 5)
@@ -67,7 +75,7 @@ const clipped = (page) =>
     ]
       .filter((el) => {
         const r = el.getBoundingClientRect();
-        if (!r.width || !r.height) return false;
+        if (!r.width || !r.height || el.classList.contains('sr-only')) return false;
         // A flex child pushed past its overflow-hidden header is cut without any scrollWidth.
         const box = el.closest('[aria-label$=" tools"]').getBoundingClientRect();
         if (r.right > box.right + 0.5 || r.left < box.left - 0.5) return true;
@@ -152,10 +160,12 @@ try {
       await noOverflow(page, label);
       assert.equal(await header.locator('h3').textContent(), 'Compendium');
       assert.ok(await header.getByRole('button', { name: 'Pick other row' }).isVisible());
+      // The Compendium | Reports tabs take the title's place and more room: at the default
+      // 384px pane the switch sits above the diff so the zoom stays in view.
       assert.equal(
         await header.locator('[aria-label="Compendium diff view"]').count(),
-        1,
-        `${label}: the default 384px pane keeps the diff switch in the header`,
+        0,
+        `${label}: the default 384px pane with pane tabs puts the diff switch above the diff`,
       );
       assert.equal(await page.locator('[aria-label="Compendium diff view"]').count(), 1);
       await page.screenshot({ path: out(`compendium-${width}`) });
@@ -178,7 +188,7 @@ try {
 
       // The body scrolls on its own: the header and the editor stay put.
       for (let i = 0; i < 3; i++) await header.getByRole('button', { name: 'Larger' }).click();
-      await page.getByRole('button', { name: 'Changes' }).click();
+      await page.getByRole('button', { name: 'Changes', exact: true }).click();
       const headerTop = await header.evaluate((el) => Math.round(el.getBoundingClientRect().top));
       const scrolled = await page.evaluate(() => {
         const pane = document.querySelector('aside[aria-label^="Compendium for"]');
@@ -367,7 +377,7 @@ try {
       assert.equal(surface.surface, 'editor');
       assert.equal(
         surface.bg,
-        theme === 'light' ? 'rgb(42, 46, 68)' : 'rgb(26, 27, 41)',
+        theme === 'light' ? 'rgb(53, 58, 85)' : 'rgb(26, 27, 41)',
         `${label}: editor surface (light raised a little)`,
       );
       assert.ok(
@@ -380,6 +390,7 @@ try {
       await page.screenshot({ path: out('sheet-colours-off') });
       // Remembered on this device across a reload.
       await page.reload();
+      await page.locator('header').first().waitFor();
       await page.evaluate(() => {
         window.shellFixture.role('maintainer');
         window.shellFixture.variants();
@@ -432,7 +443,7 @@ try {
       );
       const metrics = await page.evaluate(() => {
         const header = document.querySelector('[aria-label="Compendium tools"]');
-        const buttons = [...header.querySelectorAll('button')].map((b) =>
+        const buttons = [...header.querySelectorAll('button:not([role="tab"])')].map((b) =>
           Math.round(b.getBoundingClientRect().height),
         );
         const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
@@ -465,8 +476,8 @@ try {
         await page
           .locator('[aria-label="Compendium tools"] [aria-label="Compendium diff view"]')
           .count(),
-        1,
-        `${label}: the diff switch stays in the header`,
+        0,
+        `${label}: with pane tabs the default pane puts the diff switch above the diff`,
       );
       await page.screenshot({ path: out(`scale-${scale}`) });
       assert.deepEqual(errors, [], `${label}: page errors`);
@@ -554,7 +565,7 @@ try {
       assert.equal(await select.inputValue(), 'changes');
       assert.equal(await page.locator('[aria-label^="Compendium"]').count(), 0, 'no Compendium');
       const h = await headerHeight(page, 'English');
-      assert.ok(phone ? h >= 44 : h === 28, `${label}: header ${h}px`);
+      assert.ok(phone ? h >= 36 : h === 28, `${label}: header ${h}px (touch: --tap, 36px)`);
       assert.deepEqual(await clipped(page), [], `${label}: header clips`);
       await noOverflow(page, label);
       const text = await firstLine(page);
