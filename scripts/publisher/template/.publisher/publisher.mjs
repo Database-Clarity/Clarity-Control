@@ -21864,13 +21864,14 @@ function usesEnglishFallback(tooltip, language) {
 function isLegacyAliasStub(entry) {
   return "aliasOf" in entry;
 }
-function mergeLivePerks(live, entries) {
+function mergeLivePerks(live, entries, withdrawable = /* @__PURE__ */ new Set()) {
   const exported = /* @__PURE__ */ new Set();
   for (const entry of Object.values(entries))
     if (!isLegacyAliasStub(entry)) exported.add(entry.hash);
   const merged = { ...live, ...entries };
   for (const [key, value2] of Object.entries(live)) {
-    if (Object.hasOwn(entries, key) || typeof value2 !== "object" || value2 === null) continue;
+    if (!withdrawable.has(key) || Object.hasOwn(entries, key)) continue;
+    if (typeof value2 !== "object" || value2 === null) continue;
     const stub = value2;
     if (stub.aliasKind === "sandbox" && typeof stub.aliasOf === "number" && exported.has(stub.aliasOf))
       delete merged[key];
@@ -22092,6 +22093,10 @@ function sandboxPointerProblem(hash2, to, aliases, conflicts, pointers) {
     return `points at ${to}, which is an alias, not a canonical tooltip`;
   if (Object.hasOwn(pointers, String(to))) return `points at ${to}, another shared sandbox perk`;
   return null;
+}
+function sandboxWithdrawable(pointers, conflicts) {
+  if (!pointers) return /* @__PURE__ */ new Set();
+  return /* @__PURE__ */ new Set([...Object.keys(conflicts), ...Object.keys(pointers.pointers)]);
 }
 function mergeSandboxPointers(aliases, conflicts, pointers) {
   if (!pointers) return aliases;
@@ -23591,6 +23596,11 @@ var Publisher = class {
       pointers
     );
   }
+  /** Live sandbox stubs a publish from this snapshot may withdraw (core sandboxWithdrawable). */
+  withdrawableAt(tree) {
+    const parsed = sandboxPointersSchema.safeParse(this.read(tree, sandboxPointersPath));
+    return parsed.success ? sandboxWithdrawable(parsed.data, this.options.sandboxConflicts ?? {}) : /* @__PURE__ */ new Set();
+  }
   /** Check direct association targets at the drain snapshot, without walking their drafts. */
   checkAssociatedDescriptions(tree, tooltips, aliases = this.options.aliases) {
     const known = new Map(tooltips.map((tooltip) => [tooltip.hash, tooltip]));
@@ -23657,7 +23667,8 @@ var Publisher = class {
     if (!live?.perks || !live.databaseSettings) throw new Error("Invalid live file");
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
-    const bytes = json2({ ...live, perks: mergeLivePerks(live.perks, entries) });
+    const withdrawable = this.withdrawableAt(this.git.tree(r.sourceCommit));
+    const bytes = json2({ ...live, perks: mergeLivePerks(live.perks, entries, withdrawable) });
     return {
       bytes,
       outcome: bytes === this.git.blob(tree["liveDescriptions.json"]) ? "unchanged" : "published"
