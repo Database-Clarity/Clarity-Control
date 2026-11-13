@@ -1,7 +1,7 @@
 import publisherConfig from '../../config/publisher.json';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import { reviewGuidancePlugin } from './reviewGuidanceMiddleware';
 import { manifestFactsSchema } from './src/features/compendium/manifestFactsSchema';
@@ -14,6 +14,21 @@ const eagerCompile = /\/apps\/web\/src\/features\/tooltip\/TooltipPage\.tsx$|\/@
 const compileHint = '//# allFunctionsCalledOnLoad';
 const hinted = (moduleIds: readonly string[]) =>
   moduleIds.some((id) => eagerCompile.test(id.replaceAll('\\', '/')));
+
+/**
+ * Scheduled changes build switch (spec I6). config/scheduled.json belongs to the Worker phase; until
+ * it exists the switch is OFF. A present file must say `"enabled": true` or `false`: a malformed one
+ * fails the build rather than shipping a guess.
+ */
+export function scheduledSwitch(path: string): boolean {
+  if (!existsSync(path)) return false;
+  const config: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const enabled = (config as { enabled?: unknown } | null)?.enabled;
+  if (typeof config !== 'object' || config === null || typeof enabled !== 'boolean')
+    throw new Error(`${path} must be an object with a boolean "enabled"`);
+  return enabled;
+}
+const scheduledConfig = fileURLToPath(new URL('../../config/scheduled.json', import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -188,6 +203,9 @@ export default defineConfig({
   ],
   define: {
     'import.meta.env.VITE_PUBLISHER_ENABLED': JSON.stringify(publisherConfig.enabled ? '1' : '0'),
+    'import.meta.env.VITE_SCHEDULED_ENABLED': JSON.stringify(
+      scheduledSwitch(scheduledConfig) ? '1' : '0',
+    ),
   },
   base: './',
   // JSON.parse is substantially cheaper than compiling a multi-megabyte object literal.
