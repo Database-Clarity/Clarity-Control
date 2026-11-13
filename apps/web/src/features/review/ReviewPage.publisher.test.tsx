@@ -30,6 +30,7 @@ vi.mock('../../services/save/SavePanel', () => ({
 }));
 vi.mock('../compendium/CompendiumBadge', () => ({
   CompendiumBadge: () => null,
+  CompendiumWarmup: () => null,
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
 

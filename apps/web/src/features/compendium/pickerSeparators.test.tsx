@@ -14,6 +14,12 @@ import { PickerGrid } from './PickerGrid';
 import { confirmCompendiumSelection } from './selection';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+/** Lets the grid's own band tasks (MessageChannel) run to completion. */
+async function drainBands() {
+  await act(async () => {
+    for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
 const entry = (text: string): CompendiumGridCell => ({
   row: 2,
   col: 1,
@@ -43,21 +49,16 @@ describe('separator spans do not couple row layout', () => {
     (text) => {
       expect(isPickerSeparator(entry(text).cell)).toBe(true);
       const tab = sheet(text);
-      expect(pickerBands(tab, 1, 10)).toEqual([
-        { first: 1, last: 3 },
-        { first: 4, last: 6 },
-        { first: 7, last: 9 },
-        { first: 10, last: 10 },
-      ]);
+      expect(pickerBands(tab, 1, 10)).toEqual(
+        Array.from({ length: 10 }, (_, index) => ({ first: index + 1, last: index + 1 })),
+      );
       const host = html(text),
         pieces = [...host.querySelectorAll<HTMLTableCellElement>('td[data-separator]')];
       expect(pieces).toHaveLength(9);
       expect(
         pieces.every(
           (piece) =>
-            piece.rowSpan === 1 &&
-            piece.colSpan === 1 &&
-            piece.style.backgroundColor === '',
+            piece.rowSpan === 1 && piece.colSpan === 1 && piece.style.backgroundColor === '',
         ),
       ).toBe(true);
       expect(pieces.filter((piece) => piece.dataset.start === 'true')).toHaveLength(1);
@@ -85,7 +86,7 @@ describe('separator spans do not couple row layout', () => {
     expect(pickerSeparatorLabelRow(cell, 5, 15)).toBe(5);
     expect(html('-', 5, 15).querySelectorAll('[data-multiline]')).toHaveLength(1);
   });
-  it('selects every piece using the original identity and relative offset', () => {
+  it('selects every piece using the original identity and relative offset', async () => {
     const tab = sheet('-'),
       rootHost = document.createElement('div'),
       root = createRoot(rootHost),
@@ -115,6 +116,7 @@ describe('separator spans do not couple row layout', () => {
       onToggle,
     };
     act(() => root.render(createElement(PickerGrid, { ...props, offsets: [] })));
+    await drainBands();
     const buttons = [...rootHost.querySelectorAll<HTMLButtonElement>('[data-separator] button')];
     expect(buttons).toHaveLength(9);
     for (const button of buttons) act(() => button.click());
