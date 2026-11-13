@@ -8,6 +8,10 @@ import { manifestFactsSchema } from './src/features/compendium/manifestFactsSche
 
 const exportsZod = '?exports-zod';
 const exportsCode = /\/apps\/web\/src\/features\/exports\/|\/packages\/export\//;
+// Chunks whose code first runs on the first keystroke after landing: the tooltip page and the
+// shared editor chunk (CodeMirror's view).
+const eagerCompile = /\/apps\/web\/src\/features\/tooltip\/TooltipPage\.tsx$|\/@codemirror\/view\//;
+const compileHint = '//# allFunctionsCalledOnLoad';
 
 export default defineConfig({
   plugins: [
@@ -142,6 +146,35 @@ export default defineConfig({
         );
         this.addWatchFile(path);
         manifestFactsSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+      },
+    },
+    {
+      // V8 explicit compile hint: compile every function of the chunks on the first-keystroke
+      // path while the script streams in (off the main thread), instead of lazily inside the
+      // first keystroke after landing (EDITOR-POLISH-2). Added after minification, which strips
+      // comments; the hint has to be the file's first line.
+      name: 'eager-compile-hint',
+      apply: 'build',
+      enforce: 'post',
+      // After Vite's own generateBundle work, which puts the preload map above the imports.
+      generateBundle: {
+        order: 'post',
+        handler(_options, bundle) {
+          for (const chunk of Object.values(bundle)) {
+            if (chunk.type !== 'chunk') continue;
+            if (!chunk.moduleIds.some((id) => eagerCompile.test(id.replaceAll('\\', '/'))))
+              continue;
+            chunk.code = `${compileHint}\n${chunk.code}`;
+            // One more generated line: shift the source map down by one line.
+            if (chunk.map) chunk.map.mappings = `;${chunk.map.mappings}`;
+            const map = bundle[`${chunk.fileName}.map`];
+            if (map?.type === 'asset' && typeof map.source === 'string') {
+              const json = JSON.parse(map.source) as { mappings: string };
+              json.mappings = `;${json.mappings}`;
+              map.source = JSON.stringify(json);
+            }
+          }
+        },
       },
     },
     react(),
