@@ -218,7 +218,8 @@ inlines it into publisher.mjs; batch.test.ts drains a batch through a freshly bu
 
 - Queue: a `batch` request drains once its notBefore is at or before the runner clock. It sits
   before the first push created at or after max(notBefore, createdAt); pushes keep their git
-  addition order. A batch that is not yet due is neither drained nor counted as pending:
+  addition order. A batch already claimed by its opId (its run died) drains before everything
+  else. A batch that is not yet due is neither drained nor counted as pending:
   bundle.json lists it under `scheduledQueue` (key omitted while empty), and publishQueue batch
   entries add `kind`, `batchId`, and `notBefore`.
 - Claim (I2): at head S, the publisher checks the signature, the key pin, and the requester's
@@ -229,11 +230,14 @@ inlines it into publisher.mjs; batch.test.ts drains a batch through a freshly bu
   fields, `$exists` per R14), then composition (`stale` for C3), and `unpublished` fields are
   refused as stale (root ruling). The manual content checks and the export run before ONE CAS
   commit S → S'. That commit sets status publishing and the claim, marks the due entry claimed,
-  and updates the index. A race or an ambiguous CAS re-reads the head and re-validates from the
-  top. A batch this opId already claimed (a run died after the claim) resumes from S', which is
-  found from first-parent history.
+  and updates the index. A race or an ambiguous CAS returns to run(), which re-reads the queue
+  order and re-validates from the top. A batch this opId already claimed (a run died after the
+  claim) resumes from S'. S' is found by binary search over first-parent history (the claimed
+  commits are one suffix), failing closed unless the boundary is proven.
 - Candidate and live write: the unchanged path, with receipt.sourceCommit = S' and the receipt
-  also carrying `batchId` and `contentRevision`. Entries are the composed tooltips, whose
+  also carrying `batchId` and `contentRevision`. Entries are the composed tooltips (English and
+  the Bungie snapshot keep the stamps activation will keep, so live equals a manual publish of
+  the activated tooltip; content always comes from the proposal), whose
   live/tooltips blobs are rewritten from S' at RECORD and must match the receipt OIDs (fail
   closed).
 - RECORD: one commit. It writes the log (times add `landedAt`, `landedAtSource` 'cas' | 'observed',

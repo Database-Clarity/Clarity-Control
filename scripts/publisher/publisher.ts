@@ -36,6 +36,8 @@ import {
   batchSchema,
   compose,
   schedulePaths,
+  withField,
+  type BatchMember,
   type BatchPublishPayload,
 } from '@clarity/core/schedule';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
@@ -484,7 +486,7 @@ export class Publisher {
     }
     throw new Error('Duplicate closure raced');
   }
-  async operation(opId: string, attempt = 0): Promise<void> {
+  async operation(opId: string): Promise<void> {
     const p = paths(opId),
       s = this.head(this.options.dataBranch),
       tree = this.git.tree(s);
@@ -505,8 +507,6 @@ export class Publisher {
       return;
     }
     const blob = tree[p.request];
-    // A claim retry (attempt > 0) re-reads the head: a request removed meanwhile (unschedule) is gone.
-    if (attempt && !blob) return;
     let candidate = this.candidate(opId, blob);
     if (!candidate) {
       let payload: PublishRequestPayload;
@@ -536,7 +536,7 @@ export class Publisher {
         return;
       }
       if (payload.kind === 'batch') {
-        const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases, attempt);
+        const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
         if (!r) return;
         candidate = this.createCandidate(opId, blob, live, r);
       } else {
@@ -790,13 +790,7 @@ export class Publisher {
         outcomes.push({ hash: m.hash, status: 'stale', fields: activation.fields });
         continue;
       }
-      const composed = compose({
-        hash: m.hash,
-        base: m.base,
-        proposed: m.proposed,
-        snapshot,
-        pushed: pushed[m.hash] !== undefined,
-      });
+      const composed = this.composeMember(m, snapshot, current, pushed[m.hash] !== undefined);
       if (composed.status === 'stale') {
         outcomes.push({ hash: m.hash, status: 'stale', reason: composed.reason });
         continue;
@@ -833,30 +827,60 @@ export class Publisher {
       changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
     };
   }
+  /**
+   * compose() for one member (C1-C4), with the stamps of English and the Bungie snapshot taken
+   * from activation: when current already holds the batch's content for such a field, merge3's
+   * stamped rule keeps current's stamps in RECORD, so live takes them too and equals a manual
+   * publish of the activated tooltip (CONSUMER OUTPUT byte identity). Content always comes from
+   * the proposal (a clean activation has the proposal's content in every non-translation changed
+   * field); translations already match (Q4 takes the upcoming entry whole). `current` is the
+   * saved tooltip at the snapshot the claim validated (S, equal to S' outside schedule/).
+   */
+  composeMember(
+    m: BatchMember,
+    snapshot: Tooltip | null,
+    current: Tooltip | null,
+    pushed: boolean,
+  ): ReturnType<typeof compose> {
+    const result = compose({ hash: m.hash, base: m.base, proposed: m.proposed, snapshot, pushed });
+    if (result.status === 'stale') return result;
+    const activation = activate({ base: m.base, current, proposed: m.proposed });
+    if (!activation.ok) return result;
+    let tooltip = result.tooltip;
+    for (const field of result.changed)
+      if (field === 'text.en' || field === 'bungieSnapshot')
+        tooltip = withField(tooltip, activation.tooltip, field);
+    return { ...result, tooltip };
+  }
   /** S' for a batch this opId already claimed: the oldest commit of the head's claimed run. */
   claimCommit(batchId: string, opId: string): string {
+    // Only the claim commit sets `claim` (opIds are unique) and it stays until RECORD ends the
+    // operation, so the commits claimed by this opId are one suffix of first-parent history:
+    // binary search finds its first commit in O(log n) tree reads, however long the outage.
     const commits = this.git.history(dataRef(this.options.dataBranch));
-    let found: string | undefined;
-    let complete = false;
-    for (let i = commits.length - 1, n = 0; i >= 0 && n < 1000; i--, n++) {
-      const batch = batchSchema.safeParse(
+    const claimedAt = (i: number) =>
+      batchSchema.safeParse(
         this.read<unknown>(this.git.tree(commits[i]), schedulePaths.batch(batchId)),
-      ).data;
-      if (batch?.claim?.opId !== opId) {
-        complete = true;
-        break;
-      }
-      found = commits[i];
+      ).data?.claim?.opId === opId;
+    let unclaimed = 0,
+      claimed = commits.length - 1;
+    // Fail closed unless the boundary is proven: an unclaimed first commit, a claimed head.
+    if (claimed < 1 || !claimedAt(claimed) || claimedAt(unclaimed))
+      throw new Error('Claim commit not found; operator required');
+    while (claimed - unclaimed > 1) {
+      const mid = (unclaimed + claimed) >> 1;
+      if (claimedAt(mid)) claimed = mid;
+      else unclaimed = mid;
     }
-    // Fail closed: a walk that ends (limit or root) still inside the claimed run has not found S'.
-    if (!found || !complete) throw new Error('Claim commit not found; operator required');
-    return found;
+    return commits[claimed];
   }
   /**
    * Validate at S, then CLAIM (spec "Publication path" 4, I2): one CAS S → S' marks the batch
-   * publishing and its due entry claimed. A race or an ambiguous CAS re-reads the head and
+   * publishing and its due entry claimed. A race or an ambiguous CAS returns to run(), which
+   * re-reads the head and the queue order (a request admitted meanwhile may now come first) and
    * re-validates from the top. A batch this opId already claimed (a run died after the claim)
-   * resumes from S'. Returns the frozen receipt, or undefined once the operation is handled.
+   * resumes from S' and drains before any other request. Returns the frozen receipt, or
+   * undefined once the operation is handled or left for the next queue pass.
    */
   async claimBatch(
     opId: string,
@@ -866,7 +890,6 @@ export class Publisher {
     live: string,
     payload: BatchPublishPayload,
     aliases: Aliases,
-    attempt: number,
   ): Promise<Receipt | undefined> {
     const fail = async (failure: Failure) => {
       await this.record(opId, undefined, undefined, failure, blob);
@@ -920,9 +943,8 @@ export class Publisher {
         this.git.cas(dataRef(this.options.dataBranch), s, c);
         sourceCommit = c;
       } catch {
-        // RefRace (a Worker write won) or ambiguous: re-read and re-validate from the top.
-        if (attempt >= 5) throw new Error('Claim unresolved; no later operation may run');
-        await this.operation(opId, attempt + 1);
+        // RefRace (a Worker write won) or ambiguous (it may have landed: then the batch is
+        // claimed and drains first): run() re-reads the queue and re-validates from the top.
         return undefined;
       }
     }
@@ -1016,13 +1038,13 @@ export class Publisher {
     for (const e of receipt.entries) {
       const m = byHash.get(e.hash);
       if (!m) throw new Error(`Receipt member ${e.hash} missing at S'; operator required`);
-      const composed = compose({
-        hash: m.hash,
-        base: m.base,
-        proposed: m.proposed,
-        snapshot: snapshotAt(m.hash),
-        pushed: pushedAt[m.hash] !== undefined,
-      });
+      const saved = this.read<unknown>(frozen, `tooltips/${m.hash}.json`);
+      const composed = this.composeMember(
+        m,
+        snapshotAt(m.hash),
+        saved === undefined ? null : tooltipSchema.parse(saved),
+        pushedAt[m.hash] !== undefined,
+      );
       if (
         composed.status === 'stale' ||
         this.git.writeBlob(json(composed.tooltip)) !== e.tooltipBlob

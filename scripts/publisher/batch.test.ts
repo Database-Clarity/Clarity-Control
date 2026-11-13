@@ -744,6 +744,89 @@ describe('scheduled batches (simulator)', () => {
     expect(() => f.pub.claimCommit(BATCH, OP)).toThrow('operator required');
   });
 
+  it('code P1: a push admitted during the claim race drains first; a failed RECORD recovers the batch first', async () => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    // Sign the push now (createdAt 17:50 < notBefore 17:55) on a side commit; it lands mid-claim.
+    const unsigned = f.head();
+    await f.push(PUSH1, [123], '2030-03-17T17:50:00.000Z');
+    const pending = f.head();
+    f.git.cas(D, pending, unsigned);
+    const cas = f.git.cas.bind(f.git);
+    let raced = false,
+      recordFailed = false;
+    f.git.cas = (ref, old, next) => {
+      if (ref === D && !raced) {
+        // The Worker admits a manual request (signed before notBefore) while the batch plans.
+        raced = true;
+        f.change(D, {
+          [paths(PUSH1).request]: f.read(paths(PUSH1).request, f.git.tree(pending)),
+        });
+      }
+      if (ref === D && !recordFailed && f.pub.receipt(f.git.head(L)!, OP)) {
+        recordFailed = true;
+        throw new Error('record unavailable');
+      }
+      cas(ref, old, next);
+    };
+    await expect(f.pub.run()).rejects.toThrow('record unavailable');
+    expect(raced).toBe(true);
+    expect(f.batchFile().status).toBe('publishing');
+    expect(f.pub.queue(f.head())[0]).toBe(OP);
+    f.git.cas = cas;
+    await f.pub.run();
+    assertPublished(f);
+    const history = f.git.history(L);
+    const landed = (id: string) => history.findIndex((c) => f.git.tree(c)[paths(id).receipt]);
+    expect(landed(PUSH1)).toBeGreaterThan(0);
+    expect(landed(OP)).toBeGreaterThan(landed(PUSH1));
+    expect(f.read<Tooltip>('live/tooltips/123.json')!.text.en!.text).toBe('batch text');
+    expect(JSON.stringify(f.live().perks[123])).toContain('batch text');
+  });
+
+  it('code P2: a claim resumed after more than 1,000 later commits still finds S', async () => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    const cas = f.git.cas.bind(f.git);
+    f.git.cas = (ref, old, next) => {
+      if (ref === paths(OP).candidate) throw new Error('crash');
+      cas(ref, old, next);
+    };
+    await expect(f.pub.run()).rejects.toThrow();
+    f.git.cas = cas;
+    const real = f.git.history(D);
+    const claim = real.find((c) => f.batchAt(c)?.status === 'publishing')!;
+    // 1,500 later claimed commits (a long outage with saves), without building them.
+    const long = [...real, ...Array<string>(1500).fill(real.at(-1)!)];
+    const history = f.git.history.bind(f.git);
+    f.git.history = (ref) => (ref === D ? long : history(ref));
+    expect(f.pub.claimCommit(BATCH, OP)).toBe(claim);
+    await f.pub.run();
+    f.git.history = history;
+    const { receipt } = assertPublished(f);
+    expect(receipt.sourceCommit).toBe(claim);
+  });
+
+  it('code P2: an identical concurrent English edit publishes the activated stamps (byte identity)', async () => {
+    const proposed = proposedEn();
+    const concurrent = tip({ text: { en: entry('batch text', '2030-03-17T13:00:00.000Z') } });
+    const batched = await setup();
+    await batched.schedule([{ hash: 123, base: tip(), proposed }]);
+    batched.change(D, { 'tooltips/123.json': concurrent });
+    await batched.pub.run();
+    assertPublished(batched);
+    expect(batched.read<Tooltip>('tooltips/123.json')).toEqual(concurrent);
+    expect(batched.read<Tooltip>('live/tooltips/123.json')).toEqual(concurrent);
+    const manual = await setup();
+    manual.change(D, { 'tooltips/123.json': concurrent });
+    await manual.push(PUSH1, [123]);
+    await manual.pub.run();
+    expect(manual.receipts(PUSH1)).toHaveLength(1);
+    const bytes = (f: Fixture) => f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']);
+    expect(bytes(batched)).toBe(bytes(manual));
+    expect(batched.read('live/pushed.json')).toEqual(manual.read('live/pushed.json'));
+  });
+
   it('R14: a new tooltip absent at claim and RECORD is created; first publication is whole (C4)', async () => {
     const f = await setup();
     const created = tip({ text: { en: entry('brand new') } }, 125);
