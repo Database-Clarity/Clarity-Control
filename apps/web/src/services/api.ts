@@ -18,7 +18,7 @@ const conflictSchema = z.object({
 export type SaveConflict = z.infer<typeof conflictSchema>;
 export type SaveResult =
   | { kind: 'saved'; commit: string; tooltips: Tooltip[]; savedAt?: number }
-  | { kind: 'conflicts'; conflicts: z.infer<typeof conflictSchema>[] }
+  | { kind: 'conflicts'; conflicts: z.infer<typeof conflictSchema>[]; serverAt?: number }
   | { kind: 'retry'; error: string };
 
 // Sign-in, sessions, `/me`, and authorized requests live in a zod/mini module the public report
@@ -38,6 +38,16 @@ export {
   type Me,
 } from './apiAuth';
 
+/**
+ * The server's clock when it answered (the Worker exposes `Date` to the editor's origins), so
+ * saved-overlay retirement does not depend on the browser clock. Undefined when the header is
+ * missing, unreadable, or out of range: callers then fall back to the browser clock.
+ */
+export function serverTime(response: Response): number | undefined {
+  const time = Date.parse(response.headers.get('Date') ?? '');
+  return Number.isFinite(time) && time > 0 ? time : undefined;
+}
+
 export async function save(changes: Change[], message: string): Promise<SaveResult> {
   const response = await fetch(endpoint('/save'), {
     method: 'POST',
@@ -49,7 +59,10 @@ export async function save(changes: Change[], message: string): Promise<SaveResu
     const data = z
       .union([z.object({ conflicts: z.array(conflictSchema) }), z.object({ error: z.string() })])
       .parse(await response.json());
-    return 'conflicts' in data ? { kind: 'conflicts', ...data } : { kind: 'retry', ...data };
+    const serverAt = serverTime(response);
+    return 'conflicts' in data
+      ? { kind: 'conflicts', ...data, ...(serverAt === undefined ? {} : { serverAt }) }
+      : { kind: 'retry', ...data };
   }
   if (!response.ok) return failure(response);
   const data = z
@@ -60,7 +73,9 @@ export async function save(changes: Change[], message: string): Promise<SaveResu
       savedAt: z.number().int().positive().max(8.64e15).optional().catch(undefined),
     })
     .parse(await response.json());
-  return { kind: 'saved', ...data };
+  // The explicit post-commit time is the more precise one; Date covers bodies without it.
+  const savedAt = data.savedAt ?? serverTime(response);
+  return { kind: 'saved', ...data, ...(savedAt === undefined ? {} : { savedAt }) };
 }
 
 const remoteSettingsSchema = z.object({

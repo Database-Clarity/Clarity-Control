@@ -253,6 +253,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         const outcome = useConflictStore.getState().begin(
           result.conflicts,
           prepared.filter((change) => !conflicted.has(change.hash)),
+          result.serverAt,
         );
         onSaved(conflictNotice(outcome));
         close();

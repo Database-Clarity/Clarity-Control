@@ -97,6 +97,55 @@ describe('worker client', () => {
       });
     },
   );
+  it.each([
+    ['Thu, 12 Nov 2026 10:00:00 GMT', Date.parse('2026-11-12T10:00:00Z')],
+    [null, undefined],
+    ['not a date', undefined],
+    ['Thu, 01 Jan 1970 00:00:00 GMT', undefined],
+  ])('dates field conflicts by the response Date header: %s', async (date, serverAt) => {
+    const conflict = {
+      hash: 123,
+      base: null,
+      head: null,
+      next: { hash: 123, text: {}, associated: [] },
+      fields: ['$exists'],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ conflicts: [conflict] }), {
+          status: 409,
+          headers: date ? { Date: date } : {},
+        }),
+      ),
+    );
+    const { save } = await import('./api');
+    expect(await save([], 'test')).toEqual({
+      kind: 'conflicts',
+      conflicts: [conflict],
+      ...(serverAt === undefined ? {} : { serverAt }),
+    });
+  });
+  it('uses the Date header only when the save body has no server time', async () => {
+    const date = 'Thu, 12 Nov 2026 10:00:00 GMT';
+    const headers = { Date: date, 'Content-Type': 'application/json' };
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ commit: 'abc', tooltips: [], savedAt: 1793491200000 }), {
+            headers,
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ commit: 'abc', tooltips: [] }), { headers }),
+        ),
+    );
+    const { save } = await import('./api');
+    expect(await save([], 'test')).toMatchObject({ savedAt: 1793491200000 });
+    expect(await save([], 'test')).toMatchObject({ savedAt: Date.parse(date) });
+  });
   it('reports API errors and rejects malformed successes', async () => {
     const fetch = vi
       .fn()
