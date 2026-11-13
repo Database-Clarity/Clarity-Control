@@ -1,1 +1,0 @@
-const o="_dialog_6j3wy_1",t="_compact_6j3wy_137",_="_hint_6j3wy_141",c="_caption_6j3wy_150",n="_header_6j3wy_164",a="_body_6j3wy_171",s="_footer_6j3wy_175",e={dialog:o,compact:t,hint:_,caption:c,header:n,body:a,footer:s};export{e as s};
