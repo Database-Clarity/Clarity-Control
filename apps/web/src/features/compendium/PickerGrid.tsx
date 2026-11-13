@@ -118,15 +118,17 @@ export const PickerGrid = memo(function PickerGrid({
         // nothing shows, and a frame still runs between tasks when one is due.
         const left = taskBudgetMs - (performance.now() - start);
         if ((step || first) && left < perRow) return next();
-        // A step is never smaller than before budgeting (1, then 2 rows while hidden; about 3
-        // rows below the region), so a slow machine takes no more steps than it did. Above
-        // that, steps at most double, so one low measurement cannot mount the window at once.
+        // Steps keep their unbudgeted sizes (1, then 2 rows while hidden; about 3 rows below
+        // the region), so a slow machine takes no more steps than it did. While hidden, the
+        // budget only packs more steps into a task (each rechecks the height, so the reveal
+        // never waits on rows past the region); below it, steps grow, at most doubling, so
+        // one low measurement cannot mount the window at once.
         const least = filling ? (lastStep ? 2 : 1) : 3;
         let end = mounted + 1;
         while (
           end < bands.length &&
           (rows(mounted, end) < least ||
-            (end - mounted < 2 * lastStep && rows(mounted, end + 1) * perRow <= left))
+            (!filling && end - mounted < 2 * lastStep && rows(mounted, end + 1) * perRow <= left))
         )
           end++;
         const added = rows(mounted, end);

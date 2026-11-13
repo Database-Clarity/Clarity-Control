@@ -71,14 +71,14 @@ it('fills the region hidden in budgeted tasks, reveals, then finishes without fr
     expect(grid.viewport.getAttribute('aria-busy')).toBe('true');
     expect(grid.viewport.style.visibility).toBe('hidden');
     await drainBands();
-    // 1 ms per row against a 6 ms task budget: steps of 1, 2, 2 rows, then the next task 4,
-    // which overflows the region: revealed with 10 of 15 rows after two tasks.
+    // 1 ms per row against a 6 ms task budget: steps of 1, 2, 2 rows in the first task, then
+    // 2 more, which overflow the region: revealed with 8 of 15 rows after two tasks.
     expect(grid.viewport.dataset.gridFilling).toBe('false');
     expect(grid.viewport.style.visibility).toBe('');
     expect(grid.viewport.dataset.gridComplete).toBe('false');
-    expect(grid.rows()).toBe(10);
+    expect(grid.rows()).toBe(8);
     expect(grid.frames).toHaveBeenCalledOnce();
-    // The reveal paints on its own; the task after that frame mounts the rest.
+    // The reveal paints on its own; the task after that frame mounts the rest (4 + 3 rows).
     act(() => grid.callbacks[0](0));
     await drainBands();
     expect(grid.rows()).toBe(15);
