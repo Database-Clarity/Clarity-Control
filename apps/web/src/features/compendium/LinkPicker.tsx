@@ -3,6 +3,7 @@ import {
   compendiumNameVariants,
   compendiumPreferredTabs,
   normaliseCompendiumName,
+  type CompendiumData,
   type CompendiumMatch,
   type Tooltip,
 } from '@clarity/core';
@@ -21,6 +22,106 @@ import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { apiUrl } from '../../services/api';
 import { pickerRowDetail, pickerRows } from './pickerRows';
+
+/** Tabs in the order the picker searches them for the item's own name: preferred tabs first. */
+function searchOrder(data: CompendiumData, category: string, name: string) {
+  const preferred = compendiumPreferredTabs(category, name);
+  const position = (gid: string) =>
+    preferred.includes(gid) ? preferred.indexOf(gid) : preferred.length;
+  return [...data.tabs].sort((a, b) => position(a.gid) - position(b.gid));
+}
+
+/** The tab, section, query, and anchor a new picker opens on. */
+function pickerStart(
+  data: CompendiumData,
+  category: string,
+  name: string,
+  remembered: string | null,
+) {
+  const names = compendiumNameVariants(category, name).map(normaliseCompendiumName);
+  const preferred = compendiumPreferredTabs(category, name);
+  const suggested = searchOrder(data, category, name).find((tab) =>
+    tab.rows.some((row) =>
+      pickerRowDetail(row).identifiers.some((identifier) => names.includes(identifier)),
+    ),
+  );
+  const initialGid =
+    data.tabs.find((tab) => tab.gid === remembered)?.gid ??
+    suggested?.gid ??
+    data.tabs.find((tab) => preferred.includes(tab.gid))?.gid ??
+    data.tabs.find((tab) => tab.rows.length || tab.grid?.length)?.gid ??
+    '';
+  const initialTab = data.tabs.find((tab) => tab.gid === initialGid);
+  const initialSection = categorySuggestions(data, category, name).find(
+    (hint) => hint.gid === initialGid,
+  )?.section;
+  const exactRow = initialTab?.rows.find((row) => names.includes(pickerRowDetail(row).name));
+  return {
+    gid: initialGid,
+    section: exactRow ? '' : (initialSection ?? ''),
+    query: exactRow ? name : '',
+    row:
+      exactRow ??
+      (initialSection ? initialTab?.rows.find((row) => row.section === initialSection) : undefined),
+  };
+}
+
+/**
+ * The opening lookups, one row per step: each scanned row's names (cached per row, in the
+ * order pickerStart scans them), then the search text of the tab the picker opens on.
+ */
+function* pickerLookups(category: string, name: string) {
+  const data = useCompendiumStore.getState().data;
+  if (!data) return;
+  const names = compendiumNameVariants(category, name).map(normaliseCompendiumName);
+  scan: for (const tab of searchOrder(data, category, name))
+    for (const row of tab.rows) {
+      if (pickerRowDetail(row).identifiers.some((identifier) => names.includes(identifier)))
+        break scan;
+      yield;
+    }
+  let remembered: string | null = null;
+  try {
+    remembered = localStorage.getItem(`clarity-compendium-tab:${category}`);
+  } catch {
+    // The picker reports an unreadable preference itself.
+  }
+  const start = pickerStart(data, category, name, remembered);
+  const tab = data.tabs.find((entry) => entry.gid === start.gid);
+  for (const row of tab?.rows ?? []) {
+    void pickerRowDetail(row).search;
+    void pickerRowDetail(row).name;
+    yield;
+  }
+  pickerRows(tab, category, start.query, start.section);
+}
+
+/**
+ * Opens a picker after the input: its lookups run in tasks of about 12 ms, then the picker
+ * renders. The current pane stays until the picker commits. Returns a cancel function.
+ */
+export function openLinkPickerSoon(category: string, name: string, open: () => void) {
+  const channel = new MessageChannel();
+  const steps = pickerLookups(category, name);
+  const close = () => {
+    channel.port1.close();
+    channel.port2.close();
+  };
+  channel.port1.onmessage = () => {
+    const until = performance.now() + 12;
+    for (let step = 1; ; step++) {
+      if (steps.next().done) {
+        close();
+        open();
+        return;
+      }
+      if (step % 32 === 0 && performance.now() >= until) break;
+    }
+    channel.port2.postMessage(null);
+  };
+  channel.port2.postMessage(null);
+  return close;
+}
 
 const firstRows = 12;
 
@@ -59,41 +160,7 @@ export function LinkPicker({
     } catch (error) {
       storageError = `Cannot read remembered tab: ${errorMessage(error)}`;
     }
-    const names = compendiumNameVariants(category, name).map(normaliseCompendiumName);
-    const preferred = compendiumPreferredTabs(category, name);
-    const suggested = [...data.tabs]
-      .sort((a, b) => {
-        const position = (gid: string) =>
-          preferred.includes(gid) ? preferred.indexOf(gid) : preferred.length;
-        return position(a.gid) - position(b.gid);
-      })
-      .find((tab) =>
-        tab.rows.some((row) =>
-          pickerRowDetail(row).identifiers.some((identifier) => names.includes(identifier)),
-        ),
-      );
-    const initialGid =
-      data.tabs.find((tab) => tab.gid === remembered)?.gid ??
-      suggested?.gid ??
-      data.tabs.find((tab) => preferred.includes(tab.gid))?.gid ??
-      data.tabs.find((tab) => tab.rows.length || tab.grid?.length)?.gid ??
-      '';
-    const initialTab = data.tabs.find((tab) => tab.gid === initialGid);
-    const initialSection = categorySuggestions(data, category, name).find(
-      (hint) => hint.gid === initialGid,
-    )?.section;
-    const exactRow = initialTab?.rows.find((row) => names.includes(pickerRowDetail(row).name));
-    return {
-      gid: initialGid,
-      section: exactRow ? '' : (initialSection ?? ''),
-      query: exactRow ? name : '',
-      row:
-        exactRow ??
-        (initialSection
-          ? initialTab?.rows.find((row) => row.section === initialSection)
-          : undefined),
-      error: storageError,
-    };
+    return { ...pickerStart(data, category, name, remembered), error: storageError };
   }, [data, name, category, preferenceKey]);
   const [initialized, setInitialized] = useState(initial);
   const [section, setSection] = useState(initial.section);

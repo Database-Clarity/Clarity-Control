@@ -38,7 +38,7 @@ import {
 } from './CompendiumDiff';
 import { RichCell } from './RichCell';
 import { SheetCell, SheetColoursToggle } from './sheetSurface';
-import { LinkPicker } from './LinkPicker';
+import { LinkPicker, openLinkPickerSoon } from './LinkPicker';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
@@ -420,6 +420,9 @@ const PaneContents = memo(function PaneContents({
   const saving = useSaveState((state) => state.locked);
   const [picking, setPicking] = useState(false);
   const closePickerForStep = useCallback(() => setPicking(false), []);
+  // Opening runs the picker's lookups in their own task, then renders it: not in the click.
+  const cancelOpen = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => cancelOpen.current?.(), []);
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const [diffMode, setDiffMode] = useCompendiumDiffMode();
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -544,7 +547,26 @@ const PaneContents = memo(function PaneContents({
               disabled={pending}
               aria-pressed={picking}
               aria-label={picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
-              onClick={() => setPicking(!picking)}
+              onClick={() => {
+                // A second click before the picker commits cancels the open, as Close would.
+                if (cancelOpen.current) {
+                  cancelOpen.current();
+                  cancelOpen.current = undefined;
+                } else if (picking) setPicking(false);
+                else {
+                  let opened = false;
+                  const cancel = openLinkPickerSoon(
+                    item?.categoryId ?? 'other',
+                    item?.name ?? base.custom?.name ?? '',
+                    () => {
+                      opened = true;
+                      cancelOpen.current = undefined;
+                      setPicking(true);
+                    },
+                  );
+                  if (!opened) cancelOpen.current = cancel;
+                }
+              }}
             >
               {picking ? 'Close' : link ? 'Relink' : 'Link row'}
             </button>

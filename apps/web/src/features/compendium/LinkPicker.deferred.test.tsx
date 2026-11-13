@@ -3,7 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { CompendiumData, Tooltip } from '@clarity/core';
-import { LinkPicker } from './LinkPicker';
+import { LinkPicker, openLinkPickerSoon } from './LinkPicker';
 import { useCompendiumStore } from './store';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -175,4 +175,16 @@ it('renders the first 12 rows with the input, commits the sheet, then the remain
     host.remove();
     vi.unstubAllGlobals();
   }
+});
+
+it('opens a picker after the input, once its lookups have run, unless cancelled first', async () => {
+  useCompendiumStore.setState({ data: source });
+  const open = vi.fn();
+  openLinkPickerSoon('armor-mod-general', 'Alpha', open);
+  expect(open).not.toHaveBeenCalled();
+  const cancelled = vi.fn();
+  openLinkPickerSoon('armor-mod-general', 'Alpha', cancelled)();
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(open).toHaveBeenCalledOnce();
+  expect(cancelled).not.toHaveBeenCalled();
 });
