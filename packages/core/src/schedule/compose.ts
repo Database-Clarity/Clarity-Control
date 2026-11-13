@@ -1,3 +1,4 @@
+import { merge3 } from '../merge3.js';
 import { tooltipSchema, type Tooltip } from '../schemas.js';
 import { changedFields, fieldValue, sameFieldValue, withField } from './fields.js';
 
@@ -14,16 +15,31 @@ export interface ComposeInput {
 
 export type ComposeResult =
   /**
-   * C1-C2: the published snapshot with every batch-changed field taken from the proposal.
+   * C1-C2: the published snapshot with every batch-changed field taken from the proposal, except
+   * `associated` (non-null base), which applies the batch's additions and removals to the
+   * snapshot with merge3's set rule, exactly as activation applies them to current.
    * `unpublished`: changed fields whose base (current saved at add or rebase) differed from the
-   * snapshot, so the field's saved-but-unpublished work publishes with the batch value. P3 shows
-   * them to the approver; whether P4 refuses them is root's call (see README).
+   * snapshot, so the batch value also carries saved-but-unpublished work on that field, or
+   * reverts a field live moved past base. P3 shows them to the approver; whether P4 refuses
+   * them is root's call (see README). `associated` appears only with a null base.
    */
   | { status: 'overlay'; tooltip: Tooltip; changed: string[]; unpublished: string[] }
   /** C4: never published (no pushed entry, no snapshot): the whole proposal publishes. */
   | { status: 'whole'; tooltip: Tooltip; changed: string[] }
   /** C3: pushed but no snapshot; refuse so saved-unpublished work never leaks (I3). */
   | { status: 'stale'; reason: string };
+
+/** merge3's association set merge (it never conflicts) of base → proposed onto `onto`. */
+function mergeAssociations(base: Tooltip, onto: Tooltip, proposed: Tooltip): number[] {
+  const only = (tooltip: Tooltip): Tooltip => ({
+    hash: tooltip.hash,
+    text: {},
+    associated: tooltip.associated,
+  });
+  const result = merge3(only(base), only(onto), only(proposed));
+  if (!result.ok) throw new Error('Association merge cannot conflict');
+  return result.merged.associated;
+}
 
 export const missingSnapshotReason = 'No published snapshot; publish it manually first or rebase';
 
@@ -39,9 +55,14 @@ export function compose(input: ComposeInput): ComposeResult {
   const changed = changedFields(base, proposed);
   if (snapshot) {
     let tooltip = snapshot;
-    for (const field of changed) tooltip = withField(tooltip, proposed, field);
+    for (const field of changed)
+      tooltip =
+        field === 'associated' && base
+          ? { ...tooltip, associated: mergeAssociations(base, snapshot, proposed) }
+          : withField(tooltip, proposed, field);
     const unpublished = changed.filter(
       (field) =>
+        !(field === 'associated' && base) &&
         !sameFieldValue(
           field,
           base ? fieldValue(base, field) : undefined,

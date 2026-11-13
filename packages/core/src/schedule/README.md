@@ -49,9 +49,13 @@ for every language but English.
 Checked in this order, `base` null included (a null base changes every field `proposed` has):
 
 - `overlay` (C1-C2): a snapshot at S exists: it, with every batch-changed field taken from
-  `proposed` (absent there = removed). `unpublished` lists the changed fields whose base
-  differed from the snapshot: the batch value of such a field also carries saved-but-unpublished
-  work on that field. P3 shows them to the approver; whether P4 refuses them is OPEN for root.
+  `proposed` (absent there = removed), except `associated` with a non-null base: the batch's
+  additions and removals apply to the snapshot by merge3's set rule, exactly as activation
+  applies them to current (so live equals a manual publish of the activated tooltip, and
+  base-only associations never leak). This refines spec C2 for associations; root confirms.
+  `unpublished` lists the changed fields whose base differed from the snapshot: the batch value
+  of such a field also carries saved-but-unpublished work on it, or reverts a field live moved
+  past base. P3 shows them to the approver; whether P4 refuses them is OPEN for root.
 - `stale` (C3): pushed but no snapshot; reason `missingSnapshotReason`.
 - `whole` (C4): never published (no pushed entry, no snapshot): the whole proposal.
 

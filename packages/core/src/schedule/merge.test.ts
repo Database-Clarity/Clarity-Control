@@ -130,11 +130,36 @@ describe('composition C1-C4', () => {
       snapshot: { ...live, associated: [1] },
       pushed: true,
     });
+    // Base-only association 2 stays out of live: the batch adds 3 to the snapshot (sec r2 MUST 1).
     expect(result).toMatchObject({
       status: 'overlay',
       changed: ['text.en', 'associated'],
-      unpublished: ['text.en', 'associated'],
+      unpublished: ['text.en'],
+      tooltip: { associated: [1, 3] },
     });
+  });
+  it('composes associations exactly as activation merges them (sec r2 MUST 1)', () => {
+    // Association 5 was added and published after the batch's base; the batch adds 6.
+    const base: Tooltip = { ...live, associated: [1] };
+    const published: Tooltip = { ...live, associated: [1, 5] };
+    const next: Tooltip = { ...base, associated: [1, 6] };
+    const composed = compose({ hash: 7, base, proposed: next, snapshot: published, pushed: true });
+    const activated = activate({ base, current: published, proposed: next });
+    expect(composed).toMatchObject({
+      status: 'overlay',
+      unpublished: [],
+      tooltip: { associated: [1, 6, 5] },
+    });
+    expect(activated.ok && activated.tooltip.associated).toEqual([1, 6, 5]);
+    // A batch removal applies to live, too.
+    const removal = compose({
+      hash: 7,
+      base: published,
+      proposed: { ...published, associated: [5] },
+      snapshot: { ...live, associated: [1, 5, 8] },
+      pushed: true,
+    });
+    expect(removal.status === 'overlay' && removal.tooltip.associated).toEqual([5, 8]);
   });
   it('base null consults publication history first (code F1)', () => {
     const created: Tooltip = { hash: 7, text: { en: entry('Brand new') }, associated: [] };
