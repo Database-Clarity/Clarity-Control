@@ -30,8 +30,14 @@ interface Part {
   kind: string;
 }
 export interface SourceMarker {
+  /** The current side's rendered line the marker sits above. */
   position: number;
   label: string;
+  /** Raw hunks this marker covers (markers on one rendered line collapse into one). */
+  hunks: number;
+  /** Source lines covered per side, 1-based and inclusive; null where that side is empty. */
+  previous: [number, number] | null;
+  current: [number, number] | null;
 }
 export interface SourceAnalysis {
   markers: SourceMarker[];
@@ -410,14 +416,23 @@ export function accountHunks(
   const sourceLine = (text: string, offset: number) => text.slice(0, offset).split('\n').length;
   const startLine = (text: string, offset: number) =>
     sourceLine(text, offset) + (text[offset] === '\n' ? 1 : 0);
-  const range = (text: string, from: number, to: number) =>
-    !text
-      ? 'not present'
-      : from === to
-        ? `at line ${sourceLine(text, from)}`
-        : startLine(text, from) >= sourceLine(text, Math.max(from, to - 1))
-          ? `line ${sourceLine(text, Math.max(from, to - 1))}`
-          : `lines ${startLine(text, from)}–${sourceLine(text, to - 1)}`;
+  // Per marker, whether each side is only an insertion point ("at line N").
+  const insertion = new Map<SourceMarker, [boolean, boolean]>();
+
+  const inertSpacing = (part: Part, old: string, next: string) =>
+    part.kind === 'source' &&
+    !(old + next).trim() &&
+    breaks(old) === breaks(next) &&
+    (['before', 'after'] as const).every((side) => {
+      const [from, to] = side === 'before' ? [part.from, part.to] : [part.nextFrom, part.nextTo];
+      const { context } = sources[side],
+        text = texts[side];
+      // Both neighbours (or the document edge) render literally, and so does every line touched.
+      const low = text.lastIndexOf('\n', Math.max(0, from - 1)) + 1,
+        end = text.indexOf('\n', to),
+        high = end < 0 ? text.length : end;
+      return context.subarray(low, high).every((bit) => bit === 1);
+    });
 
   const accounts: HunkAccount[] = [];
   const flagged: { side: Side; low: number; high: number }[] = [];
@@ -473,8 +488,11 @@ export function accountHunks(
       }
     }
     // Where a flagged part renders: a shown claim on one of these lines could
-    // be that part's word, or be cancelled by it, so it is not proof.
-    if (!shown)
+    // be that part's word, or be cancelled by it, so it is not proof. Spacing
+    // that keeps its break count between literal, provable text renders no
+    // word or break (production collapses and trims it), so it can neither
+    // stand in for nor cancel a claim: it keeps its own marker only.
+    if (!shown && !inertSpacing(part, old, next))
       for (const [side, from, to] of [
         ['before', part.from, part.to],
         ['after', part.nextFrom, part.nextTo],
@@ -512,7 +530,7 @@ export function accountHunks(
     if (shares || beside) accounts[index] = marker(part, true);
   });
   while (accounts.length < parts.length) accounts.push({ account: 'unchecked' });
-  return accounts;
+  return collapse(accounts);
 
   function marker(part: (typeof parts)[number], provable: boolean): HunkAccount {
     const old = before.slice(part.from, part.to),
@@ -532,13 +550,67 @@ export function accountHunks(
             : part.kind === 'base/enhanced'
               ? 'Base/enhanced pair'
               : part.kind[0].toUpperCase() + part.kind.slice(1)));
-    return {
-      account: 'marker',
-      marker: {
-        position: after ? lineAt('after', part.nextFrom) : 0,
-        label: `Source changed · ${label} · previous ${range(before, part.from, part.to)}; current ${range(after, part.nextFrom, part.nextTo)} · see Raw`,
-      },
+    const lines = (text: string, from: number, to: number): [number, number] | null =>
+      !text
+        ? null
+        : from === to
+          ? [sourceLine(text, from), sourceLine(text, from)]
+          : [
+              Math.min(startLine(text, from), sourceLine(text, Math.max(from, to - 1))),
+              sourceLine(text, Math.max(from, to - 1)),
+            ];
+    const located: SourceMarker = {
+      position: after ? lineAt('after', part.nextFrom) : 0,
+      label,
+      hunks: 1,
+      previous: lines(before, part.from, part.to),
+      current: lines(after, part.nextFrom, part.nextTo),
     };
+    insertion.set(located, [part.from === part.to, part.nextFrom === part.nextTo]);
+    return { account: 'marker', marker: located };
+  }
+
+  /**
+   * One marker per rendered line: every marker account on a line shares one
+   * marker listing its labels once and the union of their source lines, so no
+   * hunk it absorbed loses its location.
+   */
+  function collapse(list: HunkAccount[]): HunkAccount[] {
+    const byLine = new Map<number, SourceMarker>();
+    const kinds = new Map<number, string[]>();
+    for (const entry of list) {
+      if (entry.account !== 'marker') continue;
+      const own = entry.marker;
+      const shared = byLine.get(own.position);
+      if (!shared) {
+        byLine.set(own.position, own);
+        kinds.set(own.position, [own.label]);
+        continue;
+      }
+      const union = (a: [number, number] | null, b: [number, number] | null) =>
+        a && b ? ([Math.min(a[0], b[0]), Math.max(a[1], b[1])] as [number, number]) : (a ?? b);
+      shared.previous = union(shared.previous, own.previous);
+      shared.current = union(shared.current, own.current);
+      const [a, b] = [insertion.get(shared)!, insertion.get(own)!];
+      insertion.set(shared, [a[0] && b[0], a[1] && b[1]]);
+      shared.hunks++;
+      const labels = kinds.get(own.position)!;
+      if (!labels.includes(own.label)) labels.push(own.label);
+      entry.marker = shared;
+    }
+    const describe = (lines: [number, number] | null, at: boolean) =>
+      !lines
+        ? 'not present'
+        : at
+          ? `at line ${lines[0]}`
+          : lines[0] === lines[1]
+            ? `line ${lines[0]}`
+            : `lines ${lines[0]}–${lines[1]}`;
+    for (const [position, shared] of byLine) {
+      const [previous, current] = insertion.get(shared)!;
+      shared.label = `Source changed · ${kinds.get(position)!.join(', ')} · previous ${describe(shared.previous, previous)}; current ${describe(shared.current, current)} · see Raw`;
+    }
+    return list;
   }
 }
 
@@ -552,7 +624,10 @@ export function analyzeSourceOnly(
 ): SourceAnalysis {
   const accounts = accountHunks(before, after, globals, diff, options);
   return {
-    markers: accounts.flatMap((entry) => (entry.account === 'marker' ? [entry.marker] : [])),
+    // Collapsed markers are shared by every hunk they cover: list each once.
+    markers: [
+      ...new Set(accounts.flatMap((entry) => (entry.account === 'marker' ? [entry.marker] : []))),
+    ],
     unchecked: accounts.filter((entry) => entry.account === 'unchecked').length,
   };
 }

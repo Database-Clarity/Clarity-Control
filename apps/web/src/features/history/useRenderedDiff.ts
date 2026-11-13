@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MarkupGlobals } from '@clarity/core';
 import { diagnosticGlobals } from '../editor/diagnosticWorker';
-import { renderedDiff } from './renderedDiff';
+import { presentDiff, renderedDiff } from './renderedDiff';
 import type { SourceAnalysis } from './sourceOnlyChanges';
 
 type Result = ReturnType<typeof renderedDiff> & { sourceAnalysis?: SourceAnalysis };
@@ -21,7 +21,7 @@ export function useRenderedDiff(before: string, after: string, globals: MarkupGl
   const key = useMemo(() => JSON.stringify([before, after, snapshot]), [before, after, snapshot]);
   const [computed, setComputed] = useState<{ key: string; result?: Result }>();
   const initial = useMemo(
-    () => cache.get(key) ?? renderedDiff(before, after, snapshot, !large),
+    () => cache.get(key) ?? presentDiff(renderedDiff(before, after, snapshot, !large)),
     [key, before, after, snapshot, large],
   );
   const cached = cache.get(key);

@@ -122,7 +122,8 @@ describe('working diff (changes since the last save)', () => {
     expect(raw?.closest('[data-overlay-scroll]')).toBeNull();
     expect(panel()?.textContent).toContain('Saved');
     expect(panel()?.textContent).toContain('Unsaved');
-    expect(panel()?.querySelector('ins')?.textContent).toBe(' One. Two. Three.');
+    expect(panel()?.querySelector('ins')?.textContent).toBe('One. Two. Three.');
+    expect(panel()?.textContent).toContain('Deals 20% damage. One. Two. Three.');
     const opened = diffWords.mock.calls.length;
     expect(opened).toBeGreaterThan(0);
 
@@ -130,9 +131,12 @@ describe('working diff (changes since the last save)', () => {
     type(' Five.');
     expect(diffWords).toHaveBeenCalledTimes(opened);
     expect(q('[data-working-diff]')?.getAttribute('aria-busy')).toBe('true');
-    expect(panel()?.querySelector('ins')?.textContent).toBe(' One. Two. Three.');
+    expect(panel()?.querySelector('ins')?.textContent).toBe('One. Two. Three.');
     settle();
-    expect(panel()?.querySelector('ins')?.textContent).toBe(' One. Two. Three. Four. Five.');
+    // Enough added ink promotes the comparison to a whole-line rewrite.
+    expect(panel()?.querySelector('ins')?.textContent).toBe(
+      'Deals 20% damage. One. Two. Three. Four. Five.',
+    );
     expect(q('[data-working-diff]')?.hasAttribute('aria-busy')).toBe(false);
   });
 

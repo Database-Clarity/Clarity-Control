@@ -5,7 +5,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
-import { compendiumHeader, knownDefectSummary } from './known-defects.mjs';
 
 // Step 5b adds: the "Sheet colours" header toggle (sheet backgrounds vs the editor surface, light
 // theme raised, text AA), the pane following the interface scale (85 / 150 %), and translators
@@ -40,36 +39,31 @@ const firstLine = (page) =>
     return rect ? { top: Math.round(rect.top), left: Math.round(rect.left) } : null;
   });
 const noOverflow = async (page, label) => {
-  const overflow = await page.evaluate(() => {
-    const wide = [...document.querySelectorAll('body *')].filter((el) => {
-      const r = el.getBoundingClientRect();
-      return (
-        r.width > 0 &&
-        r.right > window.innerWidth + 1 &&
-        !el.closest('[hidden]') &&
-        !el.closest('.cm-scroller') &&
-        // The markup row scrolls its buttons sideways inside its own box (the box itself must
-        // still fit the window).
-        !el.parentElement?.closest('[data-markup-row] [role=toolbar]') &&
-        // Never-seen measuring copies (e.g. the phone tools' fit clip) are not on screen.
-        window.getComputedStyle(el).visibility !== 'hidden'
-      );
-    });
-    const name = (el) => `${el.tagName}.${String(el.className).slice(0, 40)}`;
-    // Holistic finding 3 pushes the Compendium header's cell scale past the window edge.
-    const inHeader = (el) => el.closest('[aria-label="Compendium tools"]');
-    return {
-      page: document.documentElement.scrollWidth - window.innerWidth,
-      wide: wide
-        .filter((el) => !inHeader(el))
-        .slice(0, 5)
-        .map(name),
-      header: wide.filter(inHeader).slice(0, 5).map(name),
-    };
-  });
+  const overflow = await page.evaluate(() => ({
+    page: document.documentElement.scrollWidth - window.innerWidth,
+    wide: [...document.querySelectorAll('body *')]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        // Content of a horizontal scroller inside the window (the markup row) scrolls, not overflows.
+        const scroller = (node) => {
+          for (let up = node.parentElement; up && up !== document.body; up = up.parentElement)
+            if (['auto', 'scroll'].includes(getComputedStyle(up).overflowX))
+              return up.getBoundingClientRect().right <= window.innerWidth + 1;
+          return false;
+        };
+        return (
+          r.width > 0 &&
+          r.right > window.innerWidth + 1 &&
+          !el.closest('[hidden]') &&
+          !el.closest('.cm-scroller') &&
+          !scroller(el)
+        );
+      })
+      .slice(0, 5)
+      .map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
+  }));
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
-  compendiumHeader(label, overflow.header);
 };
 /** The pane header's controls: nothing clips its own text, nothing wraps, header stays one line. */
 const clipped = (page) =>
@@ -79,52 +73,27 @@ const clipped = (page) =>
         '[aria-label="Compendium tools"] *, [aria-label="English tools"] *',
       ),
     ]
-      .map((el) => {
+      .filter((el) => {
         const r = el.getBoundingClientRect();
-        // A visually hidden title (the pane's h3 while tabs name it) is clipped on purpose.
-        if (!r.width || !r.height || el.closest('.sr-only')) return null;
-        const header = el.closest('[aria-label$=" tools"]');
-        const item = {
-          text: `${el.tagName} ${el.textContent.trim().slice(0, 30)}`,
-          compendium: header.getAttribute('aria-label') === 'Compendium tools',
-        };
+        if (!r.width || !r.height || el.classList.contains('sr-only')) return false;
         // A flex child pushed past its overflow-hidden header is cut without any scrollWidth.
-        const box = header.getBoundingClientRect();
-        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) return { ...item, kind: 'cut' };
+        const box = el.closest('[aria-label$=" tools"]').getBoundingClientRect();
+        if (r.right > box.right + 0.5 || r.left < box.left - 0.5) return true;
         const style = getComputedStyle(el);
-        if (el.scrollWidth > el.clientWidth + 1 && style.overflow !== 'visible')
-          return { ...item, kind: 'cut' };
-        if (el.tagName === 'SELECT') return null;
+        if (el.scrollWidth > el.clientWidth + 1 && style.overflow !== 'visible') return true;
+        if (el.tagName === 'SELECT') return false;
         const line = parseFloat(style.lineHeight) || 16;
-        const wraps =
+        return (
           ['BUTTON', 'H3', 'OUTPUT', 'LABEL'].includes(el.tagName) &&
           r.height >
             Math.max(
               2 * line + 8,
               50 * (parseFloat(getComputedStyle(document.documentElement).fontSize) / 16),
-            );
-        return wraps ? { ...item, kind: 'wrap' } : null;
+            )
+        );
       })
-      .filter(Boolean),
+      .map((el) => `${el.tagName} ${el.textContent.trim().slice(0, 30)}`),
   );
-/**
- * No header control clips or wraps. A Compendium header item cut off by the header's width is
- * holistic finding 3 (a known defect until Holistic UI fixes merges); a wrap, or anything in the
- * English header, fails outright.
- */
-const noClips = async (page, label) => {
-  const all = await clipped(page);
-  const known = all.filter((item) => item.compendium && item.kind === 'cut');
-  assert.deepEqual(
-    all.filter((item) => !known.includes(item)).map((item) => item.text),
-    [],
-    label,
-  );
-  compendiumHeader(
-    label,
-    known.map((item) => item.text),
-  );
-};
 const headerHeight = (page, label) =>
   page.evaluate(
     (name) =>
@@ -187,14 +156,16 @@ try {
       const header = page.locator('[aria-label="Compendium tools"]');
       await header.waitFor();
       assert.equal(await headerHeight(page, 'Compendium'), 28, `${label}: pane header is 28px`);
-      await noClips(page, `${label}: header controls clip or wrap`);
+      assert.deepEqual(await clipped(page), [], `${label}: header controls clip or wrap`);
       await noOverflow(page, label);
       assert.equal(await header.locator('h3').textContent(), 'Compendium');
       assert.ok(await header.getByRole('button', { name: 'Pick other row' }).isVisible());
+      // The Compendium | Reports tabs take the title's place and more room: at the default
+      // 384px pane the switch sits above the diff so the zoom stays in view.
       assert.equal(
         await header.locator('[aria-label="Compendium diff view"]').count(),
-        1,
-        `${label}: the default 384px pane keeps the diff switch in the header`,
+        0,
+        `${label}: the default 384px pane with pane tabs puts the diff switch above the diff`,
       );
       assert.equal(await page.locator('[aria-label="Compendium diff view"]').count(), 1);
       await page.screenshot({ path: out(`compendium-${width}`) });
@@ -212,13 +183,12 @@ try {
       await page.getByRole('button', { name: 'Before / After' }).click();
       assert.deepEqual(await firstLine(page), text, `${label}: pane controls moved the text`);
       await noOverflow(page, `${label} zoomed before/after`);
-      await noClips(page, `${label} zoomed: header clips`);
+      assert.deepEqual(await clipped(page), [], `${label} zoomed: header clips`);
       await page.screenshot({ path: out(`compendium-${width}-zoom70-before-after`) });
 
       // The body scrolls on its own: the header and the editor stay put.
       for (let i = 0; i < 3; i++) await header.getByRole('button', { name: 'Larger' }).click();
-      // The pane's Changes switch (the editor status bar has its own Changes item).
-      await header.getByRole('button', { name: 'Changes', exact: true }).click();
+      await page.getByRole('button', { name: 'Changes', exact: true }).click();
       const headerTop = await header.evaluate((el) => Math.round(el.getBoundingClientRect().top));
       const scrolled = await page.evaluate(() => {
         const pane = document.querySelector('aside[aria-label^="Compendium for"]');
@@ -247,7 +217,7 @@ try {
       assert.equal(await header.locator('[aria-label="Compendium diff view"]').count(), 1);
       assert.equal(await page.locator('[aria-label="Compendium diff view"]').count(), 1);
       assert.equal(await headerHeight(page, 'Compendium'), 28);
-      await noClips(page, `${theme} wide pane: header clips`);
+      assert.deepEqual(await clipped(page), [], `${theme} wide pane: header clips`);
       await noOverflow(page, `${theme} wide pane`);
       await page.screenshot({ path: out('compendium-1440-wide-pane') });
       await context.close();
@@ -268,7 +238,7 @@ try {
         `${theme} 320 pane: the diff switch sits above the diff`,
       );
       assert.equal(await page.locator('[aria-label="Compendium diff view"]').count(), 1);
-      await noClips(page, `${theme} 320 pane: header clips`);
+      assert.deepEqual(await clipped(page), [], `${theme} 320 pane: header clips`);
       await noOverflow(page, `${theme} 320 pane`);
       await page.screenshot({ path: out('compendium-320-pane') });
       await context.close();
@@ -307,7 +277,7 @@ try {
         `${label}: buttons are 24px (${metrics.buttons})`,
       );
       await noOverflow(page, label);
-      await noClips(page, `${label}: header clips`);
+      assert.deepEqual(await clipped(page), [], `${label}: header clips`);
       assert.deepEqual(await firstLine(page), text, `${label}: the picker moved the text`);
       await page.screenshot({ path: out(`picker-${rightWidth}`) });
       await context.close();
@@ -320,7 +290,7 @@ try {
       await page.getByRole('button', { name: 'Compendium', exact: true }).click();
       await page.locator('[aria-label="Compendium tools"]').waitFor();
       await noOverflow(page, `${theme} ${width} compendium`);
-      await noClips(page, `${theme} ${width}: header clips`);
+      assert.deepEqual(await clipped(page), [], `${theme} ${width}: header clips`);
       await page.screenshot({ path: out(`compendium-${width}-swapped`) });
       await page.getByRole('button', { name: 'Compendium', exact: true }).click();
       assert.deepEqual(await firstLine(page), text, `${theme} ${width}: editor back in place`);
@@ -336,7 +306,7 @@ try {
       await page.locator('[aria-label="Compendium tools"]').waitFor();
       const height = await headerHeight(page, 'Compendium');
       assert.ok(height >= 44, `${theme} phone header ${height}px`);
-      await noClips(page, `${theme} phone: header clips`);
+      assert.deepEqual(await clipped(page), [], `${theme} phone: header clips`);
       await noOverflow(page, `${theme} phone compendium`);
       await page.screenshot({ path: out('compendium-390') });
       await context.close();
@@ -407,7 +377,6 @@ try {
       assert.equal(surface.surface, 'editor');
       assert.equal(
         surface.bg,
-        // Light: --sheet-bg, #353a55 since the light-token rework (689a5a9b).
         theme === 'light' ? 'rgb(53, 58, 85)' : 'rgb(26, 27, 41)',
         `${label}: editor surface (light raised a little)`,
       );
@@ -416,12 +385,12 @@ try {
         `${label}: text AA on the editor surface (${surface.minContrast})`,
       );
       assert.deepEqual(await firstLine(page), text, `${label}: toggle moved the text`);
-      await noClips(page, `${label}: header clips`);
+      assert.deepEqual(await clipped(page), [], `${label}: header clips`);
       await noOverflow(page, label);
       await page.screenshot({ path: out('sheet-colours-off') });
       // Remembered on this device across a reload.
       await page.reload();
-      await page.waitForFunction(() => window.shellFixture);
+      await page.locator('header').first().waitFor();
       await page.evaluate(() => {
         window.shellFixture.role('maintainer');
         window.shellFixture.variants();
@@ -474,41 +443,23 @@ try {
       );
       const metrics = await page.evaluate(() => {
         const header = document.querySelector('[aria-label="Compendium tools"]');
-        // The pane tabs (Compendium / Reports, role tab) are underline tabs as tall as the header
-        // (RightPane .tabs, 1.75rem); every other control is 24px x scale.
-        const all = [...header.querySelectorAll('button:not([role=tab])')];
-        const buttons = all.map((b) => Math.round(b.getBoundingClientRect().height));
-        const tabs = [...header.querySelectorAll('button[role=tab]')].map((b) =>
+        const buttons = [...header.querySelectorAll('button:not([role="tab"])')].map((b) =>
           Math.round(b.getBoundingClientRect().height),
-        );
-        const names = all.map(
-          (b) =>
-            `${b.textContent.trim() || b.getAttribute('aria-label')}:${b.getBoundingClientRect().height.toFixed(1)}`,
         );
         const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
         const body = document.querySelector('aside[aria-label^="Compendium for"] [data-scale] p');
-        return {
-          buttons,
-          tabs,
-          names,
-          root,
-          pad: parseFloat(getComputedStyle(body).marginBottom),
-        };
+        return { buttons, root, pad: parseFloat(getComputedStyle(body).marginBottom) };
       });
       assert.ok(
         metrics.buttons.every((h) => h === Math.round((24 * scale) / 100)),
-        `${label}: header controls follow the scale (${metrics.names})`,
-      );
-      assert.ok(
-        metrics.tabs.length === 2 && metrics.tabs.every((h) => h === height),
-        `${label}: pane tabs fill the header (${metrics.tabs})`,
+        `${label}: header controls follow the scale (${metrics.buttons})`,
       );
       assert.equal(
         metrics.pad,
         (6 * metrics.root) / 16,
         `${label}: body spacing follows the scale`,
       );
-      await noClips(page, `${label}: header clips`);
+      assert.deepEqual(await clipped(page), [], `${label}: header clips`);
       await noOverflow(page, label);
       // The pane's width follows the scale (384 design px), so the header keeps its room.
       const pane = await page.evaluate(() =>
@@ -525,8 +476,8 @@ try {
         await page
           .locator('[aria-label="Compendium tools"] [aria-label="Compendium diff view"]')
           .count(),
-        1,
-        `${label}: the diff switch stays in the header`,
+        0,
+        `${label}: with pane tabs the default pane puts the diff switch above the diff`,
       );
       await page.screenshot({ path: out(`scale-${scale}`) });
       assert.deepEqual(errors, [], `${label}: page errors`);
@@ -559,7 +510,7 @@ try {
       await page.locator('[aria-label="Compendium tools"]').waitFor();
       await page.waitForTimeout(300);
       const label = `${theme} phone scale ${scale}`;
-      await noClips(page, `${label}: header cuts a control`);
+      assert.deepEqual(await clipped(page), [], `${label}: header cuts a control`);
       assert.ok(await page.getByRole('button', { name: 'Larger' }).isVisible());
       await noOverflow(page, label);
       await page.screenshot({ path: out(`phone-scale-${scale}`) });
@@ -614,9 +565,8 @@ try {
       assert.equal(await select.inputValue(), 'changes');
       assert.equal(await page.locator('[aria-label^="Compendium"]').count(), 0, 'no Compendium');
       const h = await headerHeight(page, 'English');
-      // A phone header holds touch controls: --tap, 36px with the compact touch size (f126ec68).
-      assert.ok(phone ? h >= 36 : h === 28, `${label}: header ${h}px`);
-      await noClips(page, `${label}: header clips`);
+      assert.ok(phone ? h >= 36 : h === 28, `${label}: header ${h}px (touch: --tap, 36px)`);
+      assert.deepEqual(await clipped(page), [], `${label}: header clips`);
       await noOverflow(page, label);
       const text = await firstLine(page);
       await select.selectOption('current');
@@ -631,7 +581,6 @@ try {
       await context.close();
     }
   }
-  knownDefectSummary();
   console.log('Compendium pane browser checks passed.');
 } finally {
   await browser.close();

@@ -49,18 +49,3 @@ export function statusBarClip(label, cut) {
     'reported in .agents/reports/stale-harnesses.md',
   );
 }
-
-/**
- * Holistic review 2026-11-13 finding 3: with the Reports tab, the Compendium pane header's
- * contents outgrow its box when a linked cell changed, so the cell scale ("− 100% +") is pushed
- * out of view and the title squeezes. Expected to pass once "Holistic UI fixes"
- * (agents/holistic-ui-fixes) merges. `cut` lists the header items that are cut.
- */
-export function compendiumHeader(label, cut) {
-  knownDefect(
-    'compendium-header-overflow',
-    !cut.length,
-    `${label}: Compendium header items cut ${JSON.stringify(cut)}`,
-    'expected to pass after Holistic UI fixes, agents/holistic-ui-fixes',
-  );
-}

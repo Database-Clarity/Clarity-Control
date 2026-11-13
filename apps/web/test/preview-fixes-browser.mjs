@@ -5,7 +5,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
-import { compendiumHeader, knownDefectSummary } from './known-defects.mjs';
 
 // Preview feedback fixes 1 in the real shell on synthetic data: find & replace at the top of the
 // editor (sized with the interface scale, kept across tooltip navigation), the compact All
@@ -46,21 +45,13 @@ const noOverflow = async (page, label) => {
         window.getComputedStyle(el).visibility !== 'hidden'
       );
     });
-    const name = (el) => `${el.tagName}.${String(el.className).slice(0, 40)}`;
-    // Holistic finding 3 pushes the Compendium header's cell scale past the window edge.
-    const inHeader = (el) => el.closest('[aria-label="Compendium tools"]');
     return {
       page: document.documentElement.scrollWidth - window.innerWidth,
-      wide: wide
-        .filter((el) => !inHeader(el))
-        .slice(0, 5)
-        .map(name),
-      header: wide.filter(inHeader).slice(0, 5).map(name),
+      wide: wide.slice(0, 5).map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
     };
   });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
-  compendiumHeader(label, overflow.header);
 };
 
 async function open(theme, viewport, phone, scale) {
@@ -239,7 +230,6 @@ try {
     assert.deepEqual(errors, [], `${theme}: page errors`);
     await context.close();
   }
-  knownDefectSummary();
   console.log('preview fixes: ok');
 } finally {
   await browser.close();
