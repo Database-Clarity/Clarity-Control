@@ -183,3 +183,54 @@ it('uses the preview draft globals without subscribing the comparison to typing'
     useDraftStore.setState(originalDrafts);
   }
 });
+
+it('cancels on close, never caches a partial check, and keeps the diff when the check fails', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const requests: { id: number; before: string; after: string }[] = [];
+  const cancels: number[] = [];
+  const instances: ReplyWorker[] = [];
+  class ReplyWorker {
+    onmessage?: (event: { data: unknown }) => void;
+    onerror?: () => void;
+    constructor() {
+      instances.push(this);
+    }
+    postMessage(request: RenderedDiffRequest) {
+      if ('cancel' in request) cancels.push(request.cancel);
+      else requests.push(request);
+    }
+    terminate() {}
+  }
+  vi.stubGlobal('Worker', ReplyWorker);
+  const before = 'Same\n// old note',
+    after = 'Same\n// new note';
+  const host = document.createElement('div');
+  let root = createRoot(host);
+  const show = () => <RenderedWordDiff before={before} after={after} lang="en" hash={10} />;
+  const reply = (data: object) =>
+    act(async () => instances.at(-1)!.onmessage?.({ data: { id: requests.at(-1)!.id, ...data } }));
+  try {
+    // Closing the view while its check runs cancels it in the worker.
+    await act(async () => root.render(show()));
+    await reply({ result: renderedDiff(before, after, { variables: '', titles: '' }) });
+    expect(host.querySelector('[data-source-change], [data-source-unchecked]')).toBeNull();
+    await act(async () => root.unmount());
+    expect(cancels).toEqual([requests[0].id]);
+    // Reopening after a cancelled check asks again (nothing partial was cached).
+    root = createRoot(host);
+    await act(async () => root.render(show()));
+    expect(requests).toHaveLength(2);
+    // A check that fails after its diff keeps the diff and says it was not checked.
+    await reply({ result: renderedDiff(before, after, { variables: '', titles: '' }) });
+    await reply({ sourceFailed: true });
+    expect(host.querySelector('[data-source-unchecked]')?.textContent).toBe(
+      'Source changes not checked: see Raw',
+    );
+    expect(host.textContent).toContain('Same');
+    expect(host.querySelector('[data-source-change]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    instances.at(-1)?.onerror?.();
+    vi.unstubAllGlobals();
+  }
+});
