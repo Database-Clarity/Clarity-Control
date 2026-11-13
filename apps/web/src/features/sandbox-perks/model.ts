@@ -16,7 +16,6 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import type { Item } from '../../services/generatorSchema';
-import { tooltipImports } from '../../services/tooltipImports';
 import type { SandboxPerkText } from '../manifest/manifestText';
 
 /** The worklist's pre-filled choice (design 2026-11-12); a maintainer confirms every row. */
@@ -114,6 +113,9 @@ function kindOf(categoryIds: readonly string[]): Kind {
 }
 
 const norm = (name: string) => name.trim().toLowerCase();
+/** A target the Worker accepts: not an alias and not itself a shared sandbox perk. */
+const pickable = (hash: number, input: WorklistInput) =>
+  !Object.hasOwn(input.aliases, hash) && !Object.hasOwn(input.conflicts, hash);
 
 function suggest(
   name: string,
@@ -127,12 +129,19 @@ function suggest(
     root !== undefined &&
     input.tooltips[root] &&
     hasTooltipText(input.tooltips[root])
-  )
-    return { bucket: 'same-text', suggestion: { to: root } };
+  ) {
+    // The pick names one of the candidates (the Worker accepts nothing else): the shared root when
+    // it is one, otherwise the first candidate with text (bulk proves they all compile alike).
+    const target =
+      candidates.find((candidate) => candidate.hash === root && candidate.hasText) ??
+      candidates.find((candidate) => candidate.hasText);
+    if (target && pickable(target.hash, input))
+      return { bucket: 'same-text', suggestion: { to: target.hash } };
+  }
   if (!name || noTooltipName.test(name))
     return { bucket: 'suggest-none', suggestion: { none: true } };
   const named = candidates.filter((candidate) => norm(candidate.name) === norm(name));
-  if (named.length === 1 && named[0]!.hasText)
+  if (named.length === 1 && named[0]!.hasText && pickable(named[0]!.hash, input))
     return { bucket: 'name-match', suggestion: { to: named[0]!.hash } };
   if (named.length === candidates.length) return { bucket: 'same-name' };
   return { bucket: 'judgement' };
@@ -238,6 +247,47 @@ export interface CompileContext {
   cache: Map<string, string>;
 }
 
+const compileError = '\u0000error ';
+
+/**
+ * The text a consumer receives for a tooltip in `lang`: English where the translation is stale
+ * (exportLegacy's fallback), for the document itself and for every document it imports.
+ */
+function consumerText(tooltip: Tooltip, lang: Lang): string | undefined {
+  const english = tooltip.text.en;
+  return (usesEnglishFallback(tooltip, lang) && english ? english : tooltip.text[lang])?.text;
+}
+
+const importsByContext = new WeakMap<CompileContext, Map<Lang, Record<string, string>>>();
+/** Imports as consumers resolve them: aliases to their tooltip, each with the fallback applied. */
+function consumerImports(context: CompileContext, lang: Lang): Record<string, string> {
+  let byLang = importsByContext.get(context);
+  if (!byLang) importsByContext.set(context, (byLang = new Map()));
+  let imports = byLang.get(lang);
+  if (!imports) {
+    const read = (key: string | symbol) => {
+      if (typeof key !== 'string') return undefined;
+      const hash = Number(key);
+      if (!Number.isInteger(hash) || String(hash) !== key) return undefined;
+      const tooltip = context.tooltips[resolveAlias(hash, context.aliases)];
+      return tooltip ? (consumerText(tooltip, lang) ?? '') : undefined;
+    };
+    imports = new Proxy<Record<string, string>>(
+      {},
+      {
+        get: (_target, key) => read(key),
+        has: (_target, key) => read(key) !== undefined,
+        getOwnPropertyDescriptor(_target, key) {
+          const value = read(key);
+          return value === undefined ? undefined : { configurable: true, enumerable: true, value };
+        },
+      },
+    );
+    byLang.set(lang, imports);
+  }
+  return imports;
+}
+
 /**
  * What a consumer receives for `hash` in `lang` and `form`, as the editor's compiler (core
  * parseMarkup: imports, globals, conditions, base/enhanced pairs, variables, math) renders it.
@@ -254,24 +304,18 @@ export function compiled(
   const hit = context.cache.get(key);
   if (hit !== undefined) return hit;
   const tooltip = context.tooltips[hash];
-  const entry = tooltip?.text[lang];
   let result = '\u0000missing';
-  if (tooltip && entry?.text.trim()) {
-    const text = usesEnglishFallback(tooltip, lang) ? tooltip.text.en!.text : entry.text;
-    const imports = tooltipImports(
-      context.tooltips as Record<string, Tooltip>,
-      {},
-      lang,
-      context.aliases,
-    );
-    result = JSON.stringify(
-      parseMarkup(text, {
-        imports,
-        variables: imports['2'] ?? '',
-        titles: imports['3'] ?? '',
-        ...(form ? { type: form } : {}),
-      }).lines,
-    );
+  if (tooltip && tooltip.text[lang]?.text.trim()) {
+    const imports = consumerImports(context, lang);
+    const parsed = parseMarkup(consumerText(tooltip, lang) ?? '', {
+      imports,
+      variables: imports['2'] ?? '',
+      titles: imports['3'] ?? '',
+      ...(form ? { type: form } : {}),
+    });
+    // The custom compiler refuses a document with errors (e.g. an unresolved import).
+    const error = parsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+    result = error ? `${compileError}${error.message}` : JSON.stringify(parsed.lines);
   }
   context.cache.set(key, result);
   return result;
@@ -288,12 +332,7 @@ export function previewLine(hash: number, context: CompileContext): string {
   const text = context.tooltips[hash]?.text.en?.text ?? '';
   let result = '';
   if (text.trim()) {
-    const imports = tooltipImports(
-      context.tooltips as Record<string, Tooltip>,
-      {},
-      'en',
-      context.aliases,
-    );
+    const imports = consumerImports(context, 'en');
     const spans = (parts: readonly MarkupSpan[] = []) =>
       parts.map((part) => part.text ?? '').join('');
     for (const line of parseMarkup(text, {
@@ -321,19 +360,6 @@ export function previewLine(hash: number, context: CompileContext): string {
   return result;
 }
 
-/** The first language and form where the candidates' compiled output differs, or null. */
-export function compiledDifference(
-  candidates: readonly number[],
-  context: CompileContext,
-): { lang: Lang; form: 'base' | 'enhanced' } | null {
-  for (const lang of languages)
-    for (const form of forms) {
-      const outputs = new Set(candidates.map((hash) => compiled(hash, lang, form, context)));
-      if (outputs.size > 1) return { lang, form: form ? 'enhanced' : 'base' };
-    }
-  return null;
-}
-
 export interface BulkResult {
   applied: string[];
   skipped: { hash: string; name: string; reason: string }[];
@@ -358,26 +384,27 @@ export async function bulkCheck(
       continue;
     }
     const hashes = row.candidates.map((candidate) => candidate.hash);
-    let difference: string | undefined;
+    // The staged target is one of the compared candidates, so its own output is checked too.
+    let reason = hashes.includes(row.suggestion.to)
+      ? undefined
+      : `${row.suggestion.to} is not one of the tooltips sharing it`;
     for (const lang of languages) {
       for (const form of forms) {
+        if (reason) break;
         if (performance.now() - slice > 8) {
           onProgress?.(index);
           await yieldToBrowser();
           slice = performance.now();
         }
-        if (new Set(hashes.map((hash) => compiled(hash, lang, form, context))).size > 1)
-          difference = `${lang}, ${form ? 'enhanced' : 'base'}`;
-        if (difference) break;
+        const where = `${lang}, ${form ? 'enhanced' : 'base'}`;
+        const outputs = hashes.map((hash) => compiled(hash, lang, form, context));
+        const failed = outputs.find((output) => output.startsWith(compileError));
+        if (failed) reason = `does not compile (${where}): ${failed.slice(compileError.length)}`;
+        else if (new Set(outputs).size > 1) reason = `compiled output differs (${where})`;
       }
-      if (difference) break;
+      if (reason) break;
     }
-    if (difference)
-      result.skipped.push({
-        hash: row.hash,
-        name: row.name,
-        reason: `compiled output differs (${difference})`,
-      });
+    if (reason) result.skipped.push({ hash: row.hash, name: row.name, reason });
     else result.applied.push(row.hash);
   }
   onProgress?.(rows.length);

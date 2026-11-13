@@ -47,6 +47,33 @@ export function isLegacyAliasStub(entry: LegacyExportEntry): entry is LegacyAlia
   return 'aliasOf' in entry;
 }
 
+/**
+ * The live perks after an export: exported entries replace their keys, and a sandbox alias stub
+ * that points at an exported tooltip but is not exported again (its pick was withdrawn, undone,
+ * moved to another tooltip, or the perk stopped being shared) is removed. Every other live record
+ * stays exactly as it is. With no withdrawn stub this is `{ ...live, ...entries }`.
+ */
+export function mergeLivePerks(
+  live: Readonly<Record<string, unknown>>,
+  entries: Readonly<Record<string, LegacyExportEntry>>,
+): Record<string, unknown> {
+  const exported = new Set<number>();
+  for (const entry of Object.values(entries))
+    if (!isLegacyAliasStub(entry)) exported.add(entry.hash);
+  const merged: Record<string, unknown> = { ...live, ...entries };
+  for (const [key, value] of Object.entries(live)) {
+    if (Object.hasOwn(entries, key) || typeof value !== 'object' || value === null) continue;
+    const stub = value as { aliasOf?: unknown; aliasKind?: unknown };
+    if (
+      stub.aliasKind === 'sandbox' &&
+      typeof stub.aliasOf === 'number' &&
+      exported.has(stub.aliasOf)
+    )
+      delete merged[key];
+  }
+  return merged;
+}
+
 export function exportLegacy(
   tooltips: readonly Tooltip[],
   now: number,

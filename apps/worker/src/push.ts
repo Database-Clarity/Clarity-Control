@@ -6,6 +6,7 @@ import {
   publishableHash,
   isTextlessDescription,
   exportLegacy,
+  mergeLivePerks,
   hashSchema,
   pushedSchema,
   tooltipSchema,
@@ -181,7 +182,7 @@ export async function pushLive(
         file.sha,
         {
           ...live,
-          perks: { ...live.perks, ...entries },
+          perks: mergeLivePerks(live.perks, entries),
         },
         user,
       );

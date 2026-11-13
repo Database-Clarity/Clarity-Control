@@ -163,6 +163,14 @@ describe('sandbox picks route', () => {
     expect((await put({ 700: { to: 123 } })).status).toBe(200);
   });
 
+  it('re-checks a target at each head: one emptied during a ref race is refused', async () => {
+    fixture.beforePatch = () => fixture.moveData({ 'tooltips/123.json': tooltip('') });
+    const response = await put({ 700: { to: 123 } });
+    expect(response.status).toBe(422);
+    expect(JSON.stringify((await response.json()).details)).toContain('Tooltip 123');
+    expect(stored()).toBeUndefined();
+  });
+
   it('fails closed on a malformed stored file', async () => {
     fixture.moveData({ [sandboxPointersPath]: { version: 1, pointers: { 700: { to: 123 } } } });
     expect((await get()).status).toBe(502);
@@ -198,6 +206,19 @@ describe('picks in the live export', () => {
     expect((await pushTooltip([123])).status).toBe(200);
     const perks = (fixture.live as { perks: Record<string, unknown> }).perks;
     expect(perks['700']).toEqual({ hash: 700, aliasOf: 123, aliasKind: 'sandbox' });
+  });
+
+  it('withdraws a published stub when its pick becomes "no tooltip" or is undone', async () => {
+    const first = await (await put({ 700: { to: 123 }, 701: { to: 123 } })).json();
+    expect((await pushTooltip([123])).status).toBe(200);
+    const perks = () => (fixture.live as { perks: Record<string, unknown> }).perks;
+    expect(perks()['700']).toEqual({ hash: 700, aliasOf: 123, aliasKind: 'sandbox' });
+    // 700 -> no tooltip, 701 undone: the next push of 123 removes both stubs, keeps 123.
+    expect((await put({ 700: { none: true } }, first.revision)).status).toBe(200);
+    expect((await pushTooltip([123])).status).toBe(200);
+    expect(perks()).not.toHaveProperty('700');
+    expect(perks()).not.toHaveProperty('701');
+    expect(perks()).toHaveProperty('123');
   });
 
   it('ignores a pick once the generator no longer lists the perk as shared', async () => {

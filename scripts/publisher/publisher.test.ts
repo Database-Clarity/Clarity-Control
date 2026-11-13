@@ -1005,6 +1005,88 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(perks['702']).toEqual({ hash: 702, aliasOf: 123, aliasKind: 'sandbox' });
     expect(perks).not.toHaveProperty('701');
   });
+  it('withdraws a published sandbox stub once its pick is undone, keeping other records', async () => {
+    const f = await setup();
+    f.options.sandboxConflicts = { 700: [123, 124], 701: [123, 125] };
+    const pick = (to: number) => ({
+      to,
+      candidates: [123, 124],
+      by: 1,
+      at: '2026-11-12T20:00:00Z',
+    });
+    f.change(D, {
+      'config/sandbox-pointers.json': { version: 1, pointers: { 700: pick(123), 701: pick(123) } },
+    });
+    const both = {
+      700: { to: 123, kind: 'sandbox' as const },
+      701: { to: 123, kind: 'sandbox' as const },
+    };
+    await f.request(A, [123], { 123: await publishableHash(f.tooltip, both) });
+    await f.pub.run();
+    f.assertDone(A);
+    // 700 becomes "no tooltip": publishing 123 again removes its stub; 701 stays.
+    f.change(D, {
+      'config/sandbox-pointers.json': {
+        version: 1,
+        pointers: {
+          700: { none: true, candidates: [123, 124], by: 1, at: '2026-11-12T21:00:00Z' },
+          701: pick(123),
+        },
+      },
+    });
+    await f.request(B, [123], { 123: await publishableHash(f.tooltip, { 701: both[701] }) });
+    await f.pub.run();
+    f.assertDone(B);
+    const perks = f.pub.read<{ perks: Record<string, unknown> }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!.perks;
+    expect(perks).not.toHaveProperty('700');
+    expect(perks['701']).toEqual({ hash: 701, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks).toHaveProperty('123');
+  });
+  it.skipIf(transport !== 'simulator')(
+    'parity verifies a picked receipt with the merged aliases and matches the live bytes',
+    async () => {
+      const f = await setup();
+      f.options.sandboxConflicts = { 700: [123, 124] };
+      f.change(D, {
+        'config/sandbox-pointers.json': {
+          version: 1,
+          pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+        },
+      });
+      await f.request(A, [123], {
+        123: await publishableHash(f.tooltip, { 700: { to: 123, kind: 'sandbox' } }),
+      });
+      await f.pub.run();
+      f.assertDone(A);
+      const dir = mkdtempSync(join(tmpdir(), 'parity-picks-'));
+      roots.push(dir);
+      const config = join(dir, 'config.json');
+      writeFileSync(config, JSON.stringify(f.options));
+      const previous = process.argv;
+      process.argv = [
+        'node',
+        'parity',
+        f.upstream,
+        f.git.head(L)!,
+        paths(A).receipt,
+        config,
+        join(dir, 'missing-adapters.mjs'),
+        join(dir, 'out'),
+      ];
+      try {
+        // It stops at the (absent) converter adapters, after the digest check and the live bytes.
+        await expect(import('./parity.js')).rejects.toThrow(/missing-adapters|Cannot find|ERR_/);
+      } finally {
+        process.argv = previous;
+      }
+      expect(readFileSync(join(dir, 'out', 'expected-liveDescriptions.json'), 'utf8')).toBe(
+        readFileSync(join(dir, 'out', 'actual-liveDescriptions.json'), 'utf8'),
+      );
+    },
+  );
   it('bundle.json carries maintainer sandbox picks only while the file holds some', async () => {
     const f = await setup();
     const bundle = () =>

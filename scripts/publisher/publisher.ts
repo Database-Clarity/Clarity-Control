@@ -9,6 +9,7 @@ import {
   publishMonth,
   publishOpIdSchema,
   exportLegacy,
+  mergeLivePerks,
   findElementTags,
   isTextlessDescription,
   publishableHash,
@@ -214,7 +215,7 @@ export class Publisher {
     if (!live?.perks || !live.databaseSettings) throw new Error('Invalid live file');
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
-    const bytes = json({ ...live, perks: { ...live.perks, ...entries } });
+    const bytes = json({ ...live, perks: mergeLivePerks(live.perks, entries) });
     return {
       bytes,
       outcome: bytes === this.git.blob(tree['liveDescriptions.json']) ? 'unchanged' : 'published',

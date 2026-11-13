@@ -143,7 +143,6 @@ export async function sandboxPointersRoute(
 ): Promise<Response> {
   const input = request.method === 'PUT' ? await body(request, updateSchema, 200_000) : null;
   let generator: { aliases: Aliases; conflicts: Record<string, unknown> } | undefined;
-  const checkedTargets = new Set<number>();
   for (let attempt = 0; attempt < 3; attempt++) {
     const head = await github.head();
     const publisher = exporter.publisherEnabled();
@@ -211,9 +210,8 @@ export async function sandboxPointersRoute(
       const kept = current.pointers[hash];
       return 'to' in pick && !(kept && 'to' in kept && kept.to === pick.to);
     });
-    const targets = [...new Set(changedTo.map(([, pick]) => ('to' in pick ? pick.to : 0)))].filter(
-      (hash) => !checkedTargets.has(hash),
-    );
+    // Re-read at every attempt's head: a target checked at an older head may have lost its text.
+    const targets = [...new Set(changedTo.map(([, pick]) => ('to' in pick ? pick.to : 0)))];
     const ownHashes = changedTo.map(([hash]) => hash);
     if (targets.length || ownHashes.length) {
       const files = await github.files(
@@ -223,7 +221,6 @@ export async function sandboxPointersRoute(
       for (const [index, hash] of targets.entries()) {
         if (!savedWithText(files[index]?.value, hash))
           problems.push(`Tooltip ${hash} does not exist or has no text`);
-        else checkedTargets.add(hash);
       }
       for (const [index, hash] of ownHashes.entries()) {
         if (files[targets.length + index])

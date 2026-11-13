@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SandboxPointers } from '@clarity/core';
+import type { SandboxPointers, Tooltip } from '@clarity/core';
 import { buildRows, bulkCheck, effectivePick, matches, picksToSave, previewLine } from './model';
 import { at, fixture } from './fixture.testSupport';
 
@@ -91,5 +91,70 @@ describe('Choose previews', () => {
     expect(previewLine(13, context)).toBe('Gain Haste.');
     expect(previewLine(17, context)).toBe('Double dodge.');
     expect(previewLine(404, context)).toBe('');
+  });
+});
+
+describe('suggestions and the compiled check match what consumers and the Worker accept', () => {
+  const context = (input: ReturnType<typeof fixture>) => ({
+    tooltips: input.tooltips,
+    aliases: input.aliases,
+    cache: new Map<string, string>(),
+  });
+
+  it('suggests a candidate, never an imported root outside the set', () => {
+    const input = fixture();
+    const t = (input.tooltips = structuredClone(input.tooltips) as Record<string, Tooltip>);
+    // 11 and 13 both import a root (10 and 12) that is not a candidate.
+    input.conflicts = { 700: [11, 13] };
+    t[13] = { ...t[13]!, text: { ...t[11]!.text } };
+    const [row] = buildRows(input);
+    expect(row!.bucket).toBe('same-text');
+    expect(row!.suggestion).toEqual({ to: 11 });
+  });
+
+  it('skips a row whose shared root does not compile (an unresolved import)', async () => {
+    const input = fixture();
+    const t = (input.tooltips = structuredClone(input.tooltips) as Record<string, Tooltip>);
+    input.conflicts = { 700: [10, 11] };
+    t[10]!.text = {
+      en: { ...t[10]!.text.en!, text: 'import main from 12' },
+    };
+    t[11]!.text = {
+      en: { ...t[11]!.text.en!, text: 'import main from 12' },
+    };
+    t[12]!.text.en!.text = 'Visible text.\nimport main from 99999';
+    const result = await bulkCheck(buildRows(input), context(input));
+    expect(result.applied).toEqual([]);
+    expect(result.skipped[0]!.reason).toMatch(/^does not compile \(en, base\)/);
+  });
+
+  it('compiles imports with the stale-translation English fallback, as exported', async () => {
+    const input = fixture();
+    const t = (input.tooltips = structuredClone(input.tooltips) as Record<string, Tooltip>);
+    // German: 10 and 11 import different documents with identical raw German text, but 14's
+    // German is stale, so consumers get 14's (changed) English there.
+    input.conflicts = { 700: [10, 11] };
+    const de = (text: string, sourceUpdatedAt?: string) => ({
+      text,
+      updatedAt: '2026-10-01T00:00:00Z',
+      updatedBy: 'fixture',
+      ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
+    });
+    t[10]!.text = {
+      en: { ...t[10]!.text.en!, text: 'import main from 12' },
+      de: de('import main from 14'),
+    };
+    t[11]!.text = {
+      en: { ...t[11]!.text.en!, text: 'import main from 12' },
+      de: de('import main from 15'),
+    };
+    t[14]!.text = {
+      en: { text: 'Fallback changed.', updatedAt: '2026-11-12T00:00:00Z', updatedBy: 'fixture' },
+      de: de('Gleich.', '2020-01-01T00:00:00Z'),
+    };
+    t[15]!.text = { en: { ...t[15]!.text.en! }, de: de('Gleich.') };
+    const result = await bulkCheck(buildRows(input), context(input));
+    expect(result.applied).toEqual([]);
+    expect(result.skipped[0]!.reason).toBe('compiled output differs (de, base)');
   });
 });

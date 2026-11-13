@@ -5,6 +5,7 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   exportLegacy,
+  mergeLivePerks,
   mergeSandboxPointers,
   publishableHash,
   sandboxPointersPath,
@@ -42,9 +43,6 @@ const actual = git('show', `${commit}:liveDescriptions.json`);
 const tooltips: Tooltip[] = receipt.entries.map((e: { tooltipBlob: string }) =>
   JSON.parse(git('cat-file', 'blob', e.tooltipBlob)),
 );
-for (let i = 0; i < tooltips.length; i++)
-  if ((await publishableHash(tooltips[i])) !== receipt.entries[i].digest)
-    throw new Error('Receipt digest mismatch');
 // The sandbox picks at the receipt's source commit join the aliases exactly as the publisher did.
 let picks: unknown;
 try {
@@ -60,11 +58,16 @@ const aliases =
         config.sandboxConflicts ?? {},
         sandboxPointersSchema.parse(picks),
       );
+// Digests include incoming aliases: verify with the same merged aliases the publisher used.
+for (let i = 0; i < tooltips.length; i++)
+  if ((await publishableHash(tooltips[i], aliases)) !== receipt.entries[i].digest)
+    throw new Error('Receipt digest mismatch');
 const exported = exportLegacy(tooltips, receipt.now, config.facts, aliases);
 const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
 const requester = JSON.parse(request.payload).requester;
 stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);
-const expected = JSON.stringify({ ...base, perks: { ...base.perks, ...exported } }, null, 2) + '\n';
+const expected =
+  JSON.stringify({ ...base, perks: mergeLivePerks(base.perks, exported) }, null, 2) + '\n';
 const out = resolve(outArg);
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'expected-liveDescriptions.json'), expected);

@@ -6,6 +6,7 @@ import {
   sandboxPointersSchema,
   type SandboxPointers,
 } from './sandboxPointers.js';
+import { mergeLivePerks, type LegacyExportEntry } from './exportLegacy.js';
 
 const at = '2026-11-12T20:00:00Z';
 const conflicts = { 700: [101, 103], 701: [102, 103], 702: [101, 102] };
@@ -95,5 +96,31 @@ describe('sandbox picks file', () => {
       },
     });
     expect(Object.keys(applySandboxPicks(current, {}, conflicts, 1, at).pointers)).toEqual([]);
+  });
+});
+
+describe('mergeLivePerks', () => {
+  const live = {
+    101: { hash: 101, editor: {} },
+    700: { hash: 700, aliasOf: 101, aliasKind: 'sandbox' },
+    701: { hash: 701, aliasOf: 102, aliasKind: 'sandbox' },
+    5: { hash: 5, aliasOf: 101, aliasKind: 'frame' },
+    9: { hash: 9, editor: {} },
+  };
+  const entries = {
+    101: { hash: 101, editor: {} },
+    5: { hash: 5, aliasOf: 101, aliasKind: 'frame' as const },
+  } as unknown as Record<string, LegacyExportEntry>;
+
+  it('removes a sandbox stub of an exported tooltip that is no longer exported, and nothing else', () => {
+    const merged = mergeLivePerks(live, entries);
+    expect(merged).not.toHaveProperty('700');
+    // 701 points at 102, which this export did not touch; 9 and the frame stub stay.
+    expect(Object.keys(merged).sort()).toEqual(['101', '5', '701', '9']);
+  });
+
+  it('is the plain spread when nothing was withdrawn', () => {
+    const kept = { ...entries, 700: { hash: 700, aliasOf: 101, aliasKind: 'sandbox' as const } };
+    expect(mergeLivePerks(live, kept)).toEqual({ ...live, ...kept });
   });
 });
