@@ -35,46 +35,80 @@ async function drainBands() {
   });
 }
 
-it('fills the region in small tasks, hidden, then reveals and continues one step per frame', async () => {
+/**
+ * Renders the grid with layout costing `perRow` ms per newly laid-out row (on a mocked clock),
+ * 40 px rows, and a 240 px region. Returns the row counts each task started with.
+ */
+function fillWith(perRow: number) {
   const callbacks: FrameRequestCallback[] = [];
   const frames = vi.fn((callback: FrameRequestCallback) => callbacks.push(callback));
   vi.stubGlobal('requestAnimationFrame', frames);
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  let clock = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => clock);
   const host = document.createElement('div');
   const root = createRoot(host);
+  act(() => root.render(createElement(PickerGrid, props)));
+  const viewport = host.querySelector<HTMLElement>('[role="region"]')!;
+  const body = viewport.firstElementChild!;
+  Object.defineProperty(viewport, 'clientHeight', { value: 240 });
+  let laidOut = 0;
+  vi.spyOn(body, 'getBoundingClientRect').mockImplementation(() => {
+    const count = body.querySelectorAll('tr').length;
+    clock += Math.max(0, count - laidOut) * perRow;
+    laidOut = count;
+    return { height: count * 40 } as DOMRect;
+  });
+  return { host, root, viewport, frames, callbacks, rows: () => host.querySelectorAll('tr').length };
+}
+
+it('fills the region hidden in budgeted tasks, reveals, then finishes without frame waits', async () => {
+  const grid = fillWith(1);
   try {
-    act(() => root.render(createElement(PickerGrid, props)));
-    const viewport = host.querySelector<HTMLElement>('[role="region"]')!;
-    const body = viewport.firstElementChild!;
     // The input/commit task carries one band only; the rest is not laid out there.
-    expect(host.querySelectorAll('tr')).toHaveLength(1);
-    expect(viewport.dataset.gridFilling).toBe('true');
-    expect(viewport.getAttribute('aria-busy')).toBe('true');
-    expect(viewport.style.visibility).toBe('hidden');
-    Object.defineProperty(viewport, 'clientHeight', { value: 240 });
-    const heights: number[] = [];
-    vi.spyOn(body, 'getBoundingClientRect').mockImplementation(() => {
-      heights.push(body.querySelectorAll('tr').length);
-      return { height: body.querySelectorAll('tr').length * 40 } as DOMRect;
-    });
+    expect(grid.rows()).toBe(1);
+    expect(grid.viewport.dataset.gridFilling).toBe('true');
+    expect(grid.viewport.getAttribute('aria-busy')).toBe('true');
+    expect(grid.viewport.style.visibility).toBe('hidden');
     await drainBands();
-    // One band, then two per task (each task measures only what it added) until the rows
-    // overflow the region.
-    expect(heights).toEqual([1, 2, 4, 6, 8]);
-    expect(viewport.dataset.gridFilling).toBe('false');
-    expect(viewport.style.visibility).toBe('');
-    expect(viewport.dataset.gridComplete).toBe('false');
-    expect(host.querySelectorAll('tr')).toHaveLength(8);
-    expect(host.querySelector('[data-cell="9:0"]')).toBeNull();
-    expect(frames).toHaveBeenCalledOnce();
-    // Below the region: about three rows in the task after the next frame.
-    act(() => callbacks[0](0));
+    // 1 ms per row against a 6 ms task budget: steps of 1, 2, 2 rows, then the next task 4,
+    // which overflows the region: revealed with 10 of 15 rows after two tasks.
+    expect(grid.viewport.dataset.gridFilling).toBe('false');
+    expect(grid.viewport.style.visibility).toBe('');
+    expect(grid.viewport.dataset.gridComplete).toBe('false');
+    expect(grid.rows()).toBe(10);
+    expect(grid.frames).toHaveBeenCalledOnce();
+    // The reveal paints on its own; the task after that frame mounts the rest.
+    act(() => grid.callbacks[0](0));
     await drainBands();
-    expect(host.querySelectorAll('tr')).toHaveLength(11);
-    expect(viewport.dataset.gridComplete).toBe('false');
-    expect(frames).toHaveBeenCalledTimes(2);
+    expect(grid.rows()).toBe(15);
+    expect(grid.viewport.dataset.gridComplete).toBe('true');
+    expect(grid.frames).toHaveBeenCalledOnce();
   } finally {
-    act(() => root.unmount());
+    act(() => grid.root.unmount());
+    vi.restoreAllMocks();
+  }
+});
+
+it('keeps each fill task to one band when a row costs more than the budget', async () => {
+  const grid = fillWith(8);
+  const counts: number[] = [];
+  const observer = new MutationObserver(() => counts.push(grid.rows()));
+  observer.observe(grid.viewport, { childList: true, subtree: true });
+  try {
+    await drainBands();
+    // The first task lays out the first band only; every later task adds a single band.
+    expect(grid.viewport.dataset.gridFilling).toBe('false');
+    expect(grid.rows()).toBe(7);
+    act(() => grid.callbacks[0](0));
+    await drainBands();
+    expect(grid.rows()).toBe(15);
+    expect(grid.frames).toHaveBeenCalledOnce();
+    expect(new Set(counts)).toEqual(new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]));
+  } finally {
+    observer.disconnect();
+    act(() => grid.root.unmount());
+    vi.restoreAllMocks();
   }
 });
 
