@@ -206,8 +206,16 @@ export async function sandboxPointersRoute(
       const kept = current.pointers[hash];
       // An undone tombstone is no decision: picking that perk again is a change.
       const changed = !kept || !samePick(kept, pick);
-      // An unchanged pick stays valid as stored (owner: a pick keeps working after its set changes).
-      if (!changed) continue;
+      // An unchanged pick stays valid as stored (owner: a pick keeps working after its set changes),
+      // except that its target must not become a decided perk itself: every exporter's merge would
+      // then drop it (core sandboxPointerProblem, "another shared sandbox perk").
+      if (!changed) {
+        if ('to' in pick && Object.hasOwn(input.picks, String(pick.to)))
+          problems.push(
+            `${pick.to} is the target of the pick for ${hash}; change or undo that pick first`,
+          );
+        continue;
+      }
       if (!Object.hasOwn(generator.conflicts, hash)) {
         problems.push(`${hash} is not a shared sandbox perk`);
         continue;

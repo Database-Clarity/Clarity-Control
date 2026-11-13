@@ -168,6 +168,23 @@ describe('sandbox picks route', () => {
     expect((await put({ 706: { to: 124 } })).status).toBe(200);
   });
 
+  it('refuses a new decision on the target of a kept pick (round-5 counterexample)', async () => {
+    fixture.sandboxConflicts = { ...fixture.sandboxConflicts, 123: [124, 125] };
+    const first = await (await put({ 700: { to: 123 } })).json();
+    expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
+    const refused = await put({ 700: { to: 123 }, 123: { none: true } }, first.revision);
+    expect(refused.status).toBe(422);
+    expect(JSON.stringify((await refused.json()).details)).toContain(
+      '123 is the target of the pick for 700',
+    );
+    expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
+    expect((fixture.live as { perks: Record<string, unknown> }).perks['700']).toEqual({
+      hash: 700,
+      aliasOf: 123,
+      aliasKind: 'sandbox',
+    });
+  });
+
   it('publisher on: refuses saves until the installed build declares the capability', async () => {
     publisherConfig.enabled = true;
     fixture.moveData({ '.publisher/PIN': { sourceSha: 'a'.repeat(40), capabilities: [] } });
