@@ -8,7 +8,7 @@
 // run. If a case fails, lower a cap, never a check. Decisive runs go through the measurement
 // queue (quiet machine).
 //
-// node scripts/publisher/cpu/schedule.mjs [case,...]
+// node scripts/publisher/cpu/schedule.mjs [--prepared] [case,...]
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { createHmac, generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -522,10 +522,13 @@ async function child(name) {
 if (process.argv[2] === '--case') {
   await child(process.argv[3]);
 } else {
-  const wanted = process.argv[2] ? process.argv[2].split(',') : CASES;
+  // `--prepared` reuses the bundle built by an earlier run (measured runs do no build).
+  const prepared = process.argv[2] === '--prepared';
+  const list = prepared ? process.argv[3] : process.argv[2];
+  const wanted = list ? list.split(',') : [...CASES];
   // The baseline always runs: the existing /publish at 100 hashes, accepted by the remote gate.
   if (!wanted.includes('publish-baseline')) wanted.unshift('publish-baseline');
-  await prepare();
+  if (!prepared) await prepare();
   const rows = [];
   for (const name of wanted) {
     if (!KINDS.includes(name.split(':')[0])) throw new Error(`Unknown case ${name}`);
