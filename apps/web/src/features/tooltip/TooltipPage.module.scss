@@ -167,11 +167,19 @@
 }
 .overrideTag {
   display: inline-flex;
+  // The line's last resort: the label ellipsises before any button is cut or covered.
+  flex: 0 1 auto;
   align-items: center;
   gap: 0.25rem;
   min-width: 0;
   color: var(--enhanced);
   font-weight: 700;
+  svg {
+    flex: none;
+  }
+}
+.overrideShort {
+  display: none;
 }
 .paneRight {
   display: inline-flex;
@@ -290,6 +298,83 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+  }
+}
+// An open override adds "↑ Enhanced override" to the line (with a draft, its dot and Discard too),
+// which ran the right-hand buttons out of the header or under the Compendium/Reports toggles. As the
+// header narrows the line gives way in steps instead: the shortcut hint goes and "Grouped N" becomes
+// its icon and N, then the language field shortens and the tag says "↑ Override". The thresholds hold
+// the widest line (a draft open), so nothing changes when the first edit adds Discard. The buttons
+// never shrink; below the last step only the tag's label ellipsises.
+@mixin override-compact {
+  .key {
+    display: none;
+  }
+  .groupedWord {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .groupedIcon {
+    display: inline-block;
+    margin-right: 0.3125rem;
+  }
+  .langSelect {
+    max-width: 7rem;
+    text-overflow: ellipsis;
+  }
+}
+@mixin override-short {
+  .langSelect {
+    max-width: 6rem;
+  }
+  .overrideLong {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .overrideShort {
+    display: inline;
+  }
+}
+.paneHeader:has(> .overrideTag):not(:has(> .queue)) > .paneRight {
+  flex-shrink: 0;
+}
+@container pane-header (max-width: 40rem) {
+  .paneHeader:has(> .overrideTag) {
+    @include override-compact;
+  }
+}
+@container pane-header (max-width: 35rem) {
+  .paneHeader:has(> .overrideTag) {
+    @include override-short;
+  }
+}
+@container pane-header (max-width: 52rem) {
+  .paneHeader:has(> .overrideTag):has(> .paneToggles) {
+    @include override-compact;
+  }
+}
+@container pane-header (max-width: 46rem) {
+  .paneHeader:has(> .overrideTag):has(> .paneToggles) {
+    @include override-short;
+  }
+}
+// The narrowest desktop editor (a 701px window with the toggles): a tighter language field and
+// button groups. (A query cannot change its own container's gap.)
+@container pane-header (max-width: 42rem) {
+  .paneHeader:has(> .overrideTag):has(> .paneToggles) {
+    .langSelect {
+      max-width: 5rem;
+    }
+    .paneRight,
+    .paneToggles {
+      gap: 0.25rem;
     }
   }
 }
