@@ -48,6 +48,15 @@ describe('mergeSandboxPointers', () => {
     expect(sandboxPointerChanged('703', decision('703'), conflicts)).toBe(true);
   });
 
+  it('never merges a pick for a perk a generator alias points into', () => {
+    const aliases = { 80: { to: 700, kind: 'frame' as const } };
+    const pointers: SandboxPointers = {
+      version: 1,
+      pointers: { 700: { to: 101, candidates: [101, 103], by: 1, at } },
+    };
+    expect(mergeSandboxPointers(aliases, conflicts, pointers)).toBe(aliases);
+  });
+
   it('never overrides a generator alias for the same hash', () => {
     const aliases = { 700: { to: 103, kind: 'sandbox' as const } };
     const pointers: SandboxPointers = {

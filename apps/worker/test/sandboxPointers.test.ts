@@ -129,7 +129,7 @@ describe('sandbox picks route', () => {
   });
 
   it('validates picks: shared perk, canonical non-empty target, no own tooltip', async () => {
-    fixture.aliases = { 900: { to: 123, kind: 'frame' } };
+    fixture.aliases = { 900: { to: 123, kind: 'frame' }, 902: { to: 702, kind: 'frame' } };
     fixture.sandboxConflicts = { ...fixture.sandboxConflicts, 703: [123, 900], 704: [123, 2] };
     const cases: [Picks, string][] = [
       [{ 999: { to: 123 } }, '999 is not a shared sandbox perk'],
@@ -138,6 +138,7 @@ describe('sandbox picks route', () => {
       [{ 700: { to: 701 }, 701: { to: 123 } }, 'another shared sandbox perk'],
       // Canonical and with text, but not one of the tooltips sharing 700 (123 and 124).
       [{ 700: { to: 126 } }, 'which is not one of the tooltips sharing it'],
+      [{ 702: { to: 124 } }, 'is the target of a generator alias'],
     ];
     for (const [picks, message] of cases) {
       const response = await put(picks);

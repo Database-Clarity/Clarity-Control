@@ -75,12 +75,25 @@ export function samePick(a: SandboxPick | SandboxPointer, b: SandboxPick | Sandb
   return pickKey(a) === pickKey(b);
 }
 
+const targetSets = new WeakMap<Aliases, Set<number>>();
+/** Every hash some alias points at directly (a picked perk has no alias of its own to chain). */
+function aliasTargets(aliases: Aliases): Set<number> {
+  let targets = targetSets.get(aliases);
+  if (!targets) {
+    targets = new Set();
+    for (const entry of Object.values(aliases))
+      if (entry && typeof entry.to === 'number') targets.add(entry.to);
+    targetSets.set(aliases, targets);
+  }
+  return targets;
+}
+
 /**
  * Why a `to` pointer is not merged, or null when it is. A pick applies while its sandbox hash is
  * still a generator conflict without a generator alias, and its target is canonical (neither a
  * generator alias nor another picked sandbox hash). A changed candidate set does NOT stop it
  * (owner 2026-11-12 "Keep working, flag it"); `sandboxPointerChanged` flags that row instead.
- * Whether the target has text is the exporter's own check: a target that is not exported writes
+ * A perk a generator alias points into is refused too. Whether the target has text is the exporter's own check: a target that is not exported writes
  * no stub (exportLegacy only writes stubs for exported canonical tooltips).
  */
 export function sandboxPointerProblem(
@@ -93,6 +106,8 @@ export function sandboxPointerProblem(
 ): string | null {
   if (!Object.hasOwn(conflicts, hash)) return 'is no longer a shared sandbox perk';
   if (Object.hasOwn(aliases, hash)) return 'already has a generator tooltip pointer';
+  // A generator alias into the perk would re-resolve through the pick (e.g. a frame stub to it).
+  if (aliasTargets(aliases).has(Number(hash))) return 'is the target of a generator alias';
   if (String(to) === hash) return 'cannot point at itself';
   if (Object.hasOwn(aliases, String(to)) || resolveAlias(to, aliases) !== to)
     return `points at ${to}, which is an alias, not a canonical tooltip`;
