@@ -81,25 +81,22 @@ export function CompendiumTab() {
   const ready =
     !!editor && !!data && !authLoading && (!!prepared || typeof Worker === 'undefined');
   const showSkeleton = useSkeletonVisible(!ready && !error, 'tab', false);
-  if (params.get('tab') === 'linked')
-    return (
-      <article className={styles.tab} aria-label="Linked sources changed">
+  // The linked-sources view keeps the review workspace mounted (it renders nothing there): the
+  // queue beside it stays listed instead of loading forever, and Back to the queue rebuilds nothing.
+  const linked = params.get('tab') === 'linked';
+  return (
+    <article
+      className={styles.tab}
+      aria-label={linked ? 'Linked sources changed' : 'Compendium review'}
+    >
+      {linked && (
         <header className={styles.summary}>
           <h1 className={styles.heading}>Linked sources changed</h1>
           <Link to={{ search: withoutTab(params) }} className={styles.counts}>
             ← Back to the review queue
           </Link>
         </header>
-        {error && (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        )}
-        {editor && data && <CompendiumPage />}
-      </article>
-    );
-  return (
-    <article className={styles.tab} aria-label="Compendium review">
+      )}
       {error && (
         <p role="alert" className={styles.alert}>
           {error}{' '}
@@ -113,6 +110,7 @@ export function CompendiumTab() {
           {display.error}
         </p>
       )}
+      {linked && editor && data && <CompendiumPage />}
       {ready && !showSkeleton ? (
         <Workspace
           key={storageKey}
@@ -120,9 +118,11 @@ export function CompendiumTab() {
           editor={editor}
           source={data}
           prepared={prepared}
+          linked={linked}
         />
       ) : (
-        !error && (
+        !error &&
+        !linked && (
           <SkeletonStatus>
             <div className={styles.loading}>
               <SkeletonRows count={1} columns={[40, 30, 10]} rowHeight="1.75rem" />
@@ -164,11 +164,14 @@ function Workspace({
   source,
   storageKey,
   prepared,
+  linked,
 }: {
   editor: EditorData;
   source: CompendiumData;
   storageKey: string;
   prepared?: ReturnType<typeof useDisplayMatches>['reviewPrepared'];
+  /** The linked-sources view is open: publish the queue, render nothing, take no keys. */
+  linked: boolean;
 }) {
   const { progress, update, error: progressError } = useReviewProgress(storageKey);
   const [params, setParams] = useSearchParams();
@@ -442,13 +445,14 @@ function Workspace({
   // ---- keyboard ----
   const handlers = useRef({ confirm, decide, undoLast, select });
   handlers.current = { confirm, decide, undoLast, select };
-  const keyState = useRef({ model, selected, stepIndex, blocks, pending, picker, canEdit });
-  keyState.current = { model, selected, stepIndex, blocks, pending, picker, canEdit };
+  const keyState = useRef({ model, selected, stepIndex, blocks, pending, picker, canEdit, linked });
+  keyState.current = { model, selected, stepIndex, blocks, pending, picker, canEdit, linked };
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (event.defaultPrevented || event.repeat || workspaceShortcutsBlocked(event)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const state = keyState.current;
+      if (state.linked) return;
       const target = event.target instanceof Element ? event.target : undefined;
       const typing = !!target?.closest('input, textarea, select, [contenteditable="true"]');
       const control = !!target?.closest('button, a[href], summary');
@@ -553,6 +557,7 @@ function Workspace({
     () => compendiumChanges(editor.bundle.tooltips, source).length,
     [editor.bundle.tooltips, source],
   );
+  if (linked) return null;
   const linkTo = (show: string) => {
     const next = new URLSearchParams(params);
     next.set('show', show);

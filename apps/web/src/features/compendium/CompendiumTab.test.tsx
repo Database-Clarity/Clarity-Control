@@ -301,6 +301,30 @@ describe('auto-advance pause', () => {
   });
 });
 
+describe('linked sources view', () => {
+  it('keeps the queue listed, takes no review keys, and returns without a rebuild', async () => {
+    vi.useFakeTimers();
+    await mount('/compendium?tab=linked&hash=101', true);
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(host.querySelector('[aria-label="Linked sources changed"]')).toBeTruthy();
+    expect(host.textContent).not.toContain('Loading the review queue');
+    expect(host.querySelector('[aria-selected="true"]')?.id).toBe('cq-row-101');
+    await press('Enter');
+    await press('ArrowDown');
+    expect(Object.keys(useDraftStore.getState().drafts)).toHaveLength(0);
+    expect(route().searchParams.get('tab')).toBe('linked');
+    const back = [...host.querySelectorAll('a')].find((a) => a.textContent?.includes('Back to the'))!;
+    await act(async () => {
+      back.click();
+    });
+    expect(route().searchParams.has('tab')).toBe(false);
+    expect(title()).toContain('Sample 101');
+    expect(host.textContent).not.toContain('Loading the review queue');
+  });
+});
+
 describe('more actions menu', () => {
   const menu = () => bar().querySelector('details')!;
   const openMenu = async () =>
