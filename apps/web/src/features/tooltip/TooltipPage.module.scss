@@ -278,6 +278,27 @@
     margin-left: 0;
   }
 }
+// Toggle mode puts English, Compendium, and Reports on the editor's tool line. When that line is
+// narrow (a tablet, a large UI scale) the tools give way instead of running under those buttons:
+// the shortcut hint goes, and "Grouped N" becomes its icon and N (its title still says it).
+@container pane-header (max-width: 46rem) {
+  .paneHeader:has(> .paneToggles) {
+    .key {
+      display: none;
+    }
+    .groupedWord {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .groupedIcon {
+      display: inline-block;
+      margin-right: 0.3125rem;
+    }
+  }
+}
 // Maintainers' grouped-perks trigger: "Grouped N"; on a phone two stacked squares and N, so the
 // editor's header row keeps to one line (the word stays for screen readers).
 .groupedIcon {

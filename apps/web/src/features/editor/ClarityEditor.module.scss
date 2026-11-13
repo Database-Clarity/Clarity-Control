@@ -251,6 +251,10 @@
   }
   :global(.cm-symbol-hint) {
     color: var(--text2);
+    // Keys and Alt+click: nothing to press on a touch screen, where the buttons say it.
+    @include theme.mobile-or-coarse {
+      display: none;
+    }
   }
   // "Group with icon" on a spaced pair: the question sits right beside its two answers.
   :global(.cm-symbol-ask) {
