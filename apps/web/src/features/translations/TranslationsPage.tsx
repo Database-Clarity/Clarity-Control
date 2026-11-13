@@ -199,8 +199,8 @@ export function TranslationsPage() {
     update({ lang: lang === available[0] ? null : lang, cat: null }, true);
   };
 
-  // Phones: language, category, and the count on the first line; the filter and the state pair on
-  // the second.
+  // Phones: language, category, and the count on the first line; the filter, the state pair, and
+  // Coverage on the second. On a 390 px phone the count moves to the end (see .controls).
   const filterField = (
     <input
       type="search"
@@ -229,81 +229,83 @@ export function TranslationsPage() {
         if (event.key === 'Escape' && coverageOpen) setCoverageOpen(false);
       }}
     >
-      <div className={styles.bar}>
-        <h1>Translations</h1>
-        {language && available.length > 1 && (
-          <label className={styles.languagePicker}>
-            <span className="sr-only">Language</span>
-            <select
-              data-perf-navigation="true"
-              value={language}
-              onChange={(event) => pick(event.target.value as Lang)}
-            >
-              {available.map((lang) => (
-                <option key={lang} value={lang}>
-                  {languageLabel(lang)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {language && available.length === 1 && (
-          <span className={styles.fixedLanguage}>{languageLabel(language)}</span>
-        )}
-        {language && (
-          <>
-            <label className={styles.categories}>
-              <span className="sr-only">Category</span>
+      <div className={styles.controls}>
+        <div className={styles.bar}>
+          <h1>Translations</h1>
+          {language && available.length > 1 && (
+            <label className={styles.languagePicker}>
+              <span className="sr-only">Language</span>
               <select
                 data-perf-navigation="true"
-                value={
-                  category && categories.some((option) => option.id === category) ? category : ''
-                }
-                onChange={(event) => update({ cat: event.target.value || null })}
+                value={language}
+                onChange={(event) => pick(event.target.value as Lang)}
               >
-                <option value="">All categories</option>
-                {categories.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label} ({option.count})
+                {available.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {languageLabel(lang)}
                   </option>
                 ))}
               </select>
             </label>
-            {!phone && filterField}
-            {phone && countLine}
-          </>
+          )}
+          {language && available.length === 1 && (
+            <span className={styles.fixedLanguage}>{languageLabel(language)}</span>
+          )}
+          {language && (
+            <>
+              <label className={styles.categories}>
+                <span className="sr-only">Category</span>
+                <select
+                  data-perf-navigation="true"
+                  value={
+                    category && categories.some((option) => option.id === category) ? category : ''
+                  }
+                  onChange={(event) => update({ cat: event.target.value || null })}
+                >
+                  <option value="">All categories</option>
+                  {categories.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label} ({option.count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!phone && filterField}
+              {phone && countLine}
+            </>
+          )}
+        </div>
+        {language && (
+          <div className={styles.summary}>
+            {phone && filterField}
+            <div role="group" aria-label="Show">
+              {(['outdated', 'missing'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  data-perf-navigation="true"
+                  aria-pressed={state === value}
+                  onClick={() => update({ state: state === value ? null : value })}
+                >
+                  {value === 'outdated' ? 'Outdated' : 'Missing'} {counts[value]}
+                </button>
+              ))}
+            </div>
+            {coverage && (
+              <button
+                type="button"
+                className={styles.coverageToggle}
+                aria-expanded={coverageOpen}
+                aria-controls="translation-coverage"
+                onClick={() => setCoverageOpen(!coverageOpen)}
+              >
+                Coverage
+              </button>
+            )}
+            {!phone && countLine}
+          </div>
         )}
       </div>
-      {language && (
-        <div className={styles.summary}>
-          {phone && filterField}
-          <div role="group" aria-label="Show">
-            {(['outdated', 'missing'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                data-perf-navigation="true"
-                aria-pressed={state === value}
-                onClick={() => update({ state: state === value ? null : value })}
-              >
-                {value === 'outdated' ? 'Outdated' : 'Missing'} {counts[value]}
-              </button>
-            ))}
-          </div>
-          {coverage && (
-            <button
-              type="button"
-              className={styles.coverageToggle}
-              aria-expanded={coverageOpen}
-              aria-controls="translation-coverage"
-              onClick={() => setCoverageOpen(!coverageOpen)}
-            >
-              Coverage
-            </button>
-          )}
-          {!phone && countLine}
-        </div>
-      )}
       <div className={styles.body}>
         {coverage && language && (
           <Coverage
