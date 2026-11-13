@@ -137,6 +137,75 @@ describe('notice strip', () => {
     expect(host.textContent).toContain('Saving');
   });
 
+  it('rises above the editor panels under it, past a stack, never under the header', async () => {
+    // jsdom has no layout: boxes by element, the notice's moved up by the strip's --clear.
+    const rect = (top: number, bottom: number, left: number, right: number) =>
+      ({ top, bottom, left, right, width: right - left, height: bottom - top }) as DOMRect;
+    const panels: Record<string, [number, number]> = {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const box = vi.spyOn(Element.prototype, 'getBoundingClientRect');
+    box.mockImplementation(function (this: Element) {
+      if (this.tagName === 'HEADER') return rect(0, 80, 0, 390);
+      const panel = panels[this.id];
+      if (panel) return rect(...panel, 0, 390);
+      if (this.hasAttribute('data-level')) {
+        const clear = parseFloat(this.parentElement!.style.getPropertyValue('--clear')) || 0;
+        return rect(640 - clear, 700 - clear, 10, 380);
+      }
+      return rect(0, 0, 0, 0);
+    });
+    const header = document.createElement('header');
+    const make = (id: string, attribute: string, edges: [number, number]) => {
+      const element = document.createElement('section');
+      element.id = id;
+      element.setAttribute(attribute, '');
+      panels[id] = edges;
+      document.body.append(element);
+      return element;
+    };
+    document.body.append(header);
+    const bar = make('bar', 'data-editor-status', [650, 680]);
+    const clear = () =>
+      host.querySelector<HTMLElement>('[data-notice-strip]')!.style.getPropertyValue('--clear');
+    try {
+      render([status]);
+      advance(20);
+      // The status bar under the notice: just above it (650 - 4 = 646, from 700).
+      expect(clear()).toBe('54px');
+      // The Working diff opens on top of the bar (before it in the page, as in the editor):
+      // above both (400 - 4 = 396, from 700).
+      const diff = make('diff', 'data-editor-overlay', [400, 650]);
+      await act(async () => void bar.before(diff));
+      advance(20);
+      expect(clear()).toBe('304px');
+      // A panel nearly up to the header: past the bar only (60 tall would end above 84).
+      panels.diff = [130, 650];
+      await act(async () => void document.body.append(document.createElement('span')));
+      window.dispatchEvent(new Event('resize'));
+      advance(20);
+      expect(clear()).toBe('54px');
+      // Panels closed: back where it was.
+      await act(async () => {
+        diff.remove();
+        bar.remove();
+      });
+      advance(20);
+      expect(clear()).toBe('');
+    } finally {
+      box.mockRestore();
+      header.remove();
+      document.getElementById('diff')?.remove();
+      document.getElementById('bar')?.remove();
+    }
+  });
+
   it('counts with the right plural', () => {
     expect(count(1, 'draft')).toBe('1 draft');
     expect(count(2, 'draft')).toBe('2 drafts');
