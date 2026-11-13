@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -104,7 +105,22 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
   const track = DIVIDER_TRACK * k;
   const persist = options.persist ?? true;
   const paused = options.paused ?? false;
-  const containerRef = useRef<HTMLDivElement>(null);
+  // The container is tracked as state so measuring starts when it mounts, not only when `paused`
+  // changes: a page may keep a skeleton up after it is unpaused and mount the columns later.
+  // React writes `current` on mount and unmount, so the setter fires only then.
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const containerRef = useMemo(() => {
+    let node: HTMLDivElement | null = null;
+    return {
+      get current() {
+        return node;
+      },
+      set current(next: HTMLDivElement | null) {
+        node = next;
+        setElement(next);
+      },
+    } as RefObject<HTMLDivElement>;
+  }, []);
   const measuredElement = useRef<HTMLDivElement>();
   const [containerWidth, setContainerWidth] = useState(0);
   const savedPane = useSettingsStore((state) => state.device.panes[storeKey]);
@@ -120,9 +136,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
 
   // Measured before the first paint, so a saved size never shows unclamped for a frame.
   useLayoutEffect(() => {
-    if (paused) return;
-    const element = containerRef.current;
-    if (!element) return;
+    if (paused || !element) return;
     const measure = () => {
       measuredElement.current = element;
       setContainerWidth(element.getBoundingClientRect().width);
@@ -139,7 +153,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
     });
     observer.observe(element, { box: 'border-box' });
     return () => observer.disconnect();
-  }, [paused]);
+  }, [paused, element]);
 
   const fallback =
     (typeof defaultWidth === 'function' ? defaultWidth(containerWidth) : defaultWidth) * k;

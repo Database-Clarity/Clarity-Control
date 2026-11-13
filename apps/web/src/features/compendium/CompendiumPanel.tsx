@@ -41,7 +41,7 @@ import { SheetCell, SheetColoursToggle } from './sheetSurface';
 import { LinkPicker } from './LinkPicker';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
-import { RightPane, RightPaneHeader } from '../../ui/RightPane';
+import { RightPane, RightPaneHeader, usePaneTabsWidth } from '../../ui/RightPane';
 import { SkeletonStatus, useSkeletonVisible } from '../../ui/Skeleton';
 import { useElementWidth } from '../../ui/useElementWidth';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
@@ -65,6 +65,11 @@ import { openDraftSaveReview } from '../../services/save/openReview';
  * with room to spare for font rounding.
  */
 const HEADER_TOGGLE_MIN = 381;
+/**
+ * The "Compendium" title's share of HEADER_TOGGLE_MIN (design pixels, measured 83). Where pane tabs
+ * replace the title (Compendium | Reports) the switch needs that much less plus the tabs' width.
+ */
+const HEADER_TITLE_WIDTH = 83;
 const ApprovalDiff = memo(CompendiumDiff);
 
 /** The retained source stays mounted; its entry-specific picker does not. */
@@ -436,7 +441,11 @@ const PaneContents = memo(function PaneContents({
     window.addEventListener('clarity-ui-scale', measure);
     return () => window.removeEventListener('clarity-ui-scale', measure);
   }, []);
-  const roomy = !touch && (width === undefined || width >= headerMin);
+  const tabsWidth = usePaneTabsWidth(bodyRef);
+  const tabsExtra = tabsWidth
+    ? Math.max(0, tabsWidth - (headerMin / HEADER_TOGGLE_MIN) * HEADER_TITLE_WIDTH)
+    : 0;
+  const roomy = !touch && (width === undefined || width >= headerMin + tabsExtra);
   // Disable pending actions in place. Removing them would dirty the old pane's
   // layout during the editor's read frame, defeating the content handoff.
   const canEdit =
@@ -546,7 +555,7 @@ const PaneContents = memo(function PaneContents({
               aria-label={picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
               onClick={() => setPicking(!picking)}
             >
-              {picking ? 'Close' : link ? 'Relink' : 'Link row'}
+              {picking ? 'Close' : link ? 'Relink' : 'Link'}
             </button>
           )}
           <SheetColoursToggle />
@@ -869,7 +878,7 @@ const PaneContents = memo(function PaneContents({
       )}
       {canEdit && (
         <button type="button" disabled>
-          {pendingLink ? 'Relink' : 'Link row'}
+          {pendingLink ? 'Relink' : 'Link'}
         </button>
       )}
       <SheetColoursToggle disabled />

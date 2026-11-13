@@ -19,6 +19,9 @@
   overflow: hidden;
   white-space: nowrap;
   font-size: 0.8125rem;
+  // The narrowest panes tighten the tab and control spacing (below), so tabs and every control
+  // still fit on the one line.
+  container-type: inline-size;
   @include theme.mobile-or-coarse {
     min-height: var(--tap);
   }
@@ -89,6 +92,17 @@
   select {
     flex: 0 1 auto;
     min-width: 0;
+  }
+}
+@container (max-width: 22rem) {
+  .tabs {
+    gap: 0;
+    button {
+      padding: 0 0.25rem;
+    }
+  }
+  .controls {
+    gap: 0.125rem;
   }
 }
 
