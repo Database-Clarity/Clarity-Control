@@ -81,25 +81,22 @@ export function CompendiumTab() {
   const ready =
     !!editor && !!data && !authLoading && (!!prepared || typeof Worker === 'undefined');
   const showSkeleton = useSkeletonVisible(!ready && !error, 'tab', false);
-  if (params.get('tab') === 'linked')
-    return (
-      <article className={styles.tab} aria-label="Linked sources changed">
+  // The linked-sources view keeps the review workspace mounted (it renders nothing there): the
+  // queue beside it stays listed instead of loading forever, and Back to the queue rebuilds nothing.
+  const linked = params.get('tab') === 'linked';
+  return (
+    <article
+      className={styles.tab}
+      aria-label={linked ? 'Linked sources changed' : 'Compendium review'}
+    >
+      {linked && (
         <header className={styles.summary}>
           <h1 className={styles.heading}>Linked sources changed</h1>
           <Link to={{ search: withoutTab(params) }} className={styles.counts}>
             ← Back to the review queue
           </Link>
         </header>
-        {error && (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        )}
-        {editor && data && <CompendiumPage />}
-      </article>
-    );
-  return (
-    <article className={styles.tab} aria-label="Compendium review">
+      )}
       {error && (
         <p role="alert" className={styles.alert}>
           {error}{' '}
@@ -113,6 +110,7 @@ export function CompendiumTab() {
           {display.error}
         </p>
       )}
+      {linked && editor && data && <CompendiumPage />}
       {ready && !showSkeleton ? (
         <Workspace
           key={storageKey}
@@ -120,9 +118,11 @@ export function CompendiumTab() {
           editor={editor}
           source={data}
           prepared={prepared}
+          linked={linked}
         />
       ) : (
-        !error && (
+        !error &&
+        !linked && (
           <SkeletonStatus>
             <div className={styles.loading}>
               <SkeletonRows count={1} columns={[40, 30, 10]} rowHeight="1.75rem" />
@@ -164,14 +164,21 @@ function Workspace({
   source,
   storageKey,
   prepared,
+  linked,
 }: {
   editor: EditorData;
   source: CompendiumData;
   storageKey: string;
   prepared?: ReturnType<typeof useDisplayMatches>['reviewPrepared'];
+  /** The linked-sources view is open: publish the queue, render nothing, take no keys. */
+  linked: boolean;
 }) {
   const { progress, update, error: progressError } = useReviewProgress(storageKey);
   const [params, setParams] = useSearchParams();
+  // A timer or listener set up in an earlier render must not write back that render's URL: a
+  // search typed or a row tapped since then would be undone.
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
   const { drafts, hydrated } = useDraftStore();
   const user = useAuthStore((state) => state.user);
   const locked = useSaveState((state) => state.locked);
@@ -246,7 +253,15 @@ function Workspace({
   const canEdit = mayDraftLink(user?.role, !!apiUrl, hydrated, locked);
 
   // ---- selection ----
-  const [pending, setPending] = useState<{ from: number; next?: QueueRow; token: number }>();
+  // `searches` are the URL at the decision and the URL holding the decided entry (the router may
+  // apply the hold a render later); any other URL (a search, a filter, a row tapped in the queue,
+  // Back) is the user going elsewhere, which cancels the move.
+  const [pending, setPending] = useState<{
+    from: number;
+    next?: QueueRow;
+    token: number;
+    searches: string[];
+  }>();
   const pendingTimer = useRef<ReturnType<typeof setTimeout>>();
   const [highlight, setHighlight] = useState(-1);
   const [picker, setPicker] = useState(false);
@@ -262,14 +277,18 @@ function Workspace({
     (hash: number | undefined, mode: 'replace' | 'push' = 'replace') => {
       clearPending();
       setPicker(false);
-      const next = new URLSearchParams(params);
+      const next = new URLSearchParams(paramsRef.current);
       next.delete('tab');
       if (hash === undefined) next.delete('hash');
       else next.set('hash', String(hash));
       setParams(next, { replace: mode === 'replace' });
     },
-    [params, setParams, clearPending],
+    [setParams, clearPending],
   );
+  const search = params.toString();
+  useEffect(() => {
+    if (pending && !pending.searches.includes(search)) clearPending();
+  }, [pending, search, clearPending]);
 
   // Publish the model the left column renders; selection and filters travel in the URL.
   const restoreScope = useCallback(
@@ -351,8 +370,9 @@ function Workspace({
   const advanceFrom = (row: QueueRow) => {
     const next = nextOpenRow(model.steps, row.hash);
     // The decided entry stays open (and listed) until the move, so the pause shows what happened.
+    const before = paramsRef.current.toString();
+    const held = new URLSearchParams(paramsRef.current);
     if (routeHash !== row.hash) {
-      const held = new URLSearchParams(params);
       held.set('hash', String(row.hash));
       setParams(held, { replace: true });
     }
@@ -361,7 +381,7 @@ function Workspace({
       return;
     }
     if (pendingTimer.current) clearTimeout(pendingTimer.current);
-    setPending({ from: row.hash, next, token: Date.now() });
+    setPending({ from: row.hash, next, token: Date.now(), searches: [before, held.toString()] });
     pendingTimer.current = setTimeout(() => {
       pendingTimer.current = undefined;
       setPending(undefined);
@@ -425,13 +445,14 @@ function Workspace({
   // ---- keyboard ----
   const handlers = useRef({ confirm, decide, undoLast, select });
   handlers.current = { confirm, decide, undoLast, select };
-  const keyState = useRef({ model, selected, stepIndex, blocks, pending, picker, canEdit });
-  keyState.current = { model, selected, stepIndex, blocks, pending, picker, canEdit };
+  const keyState = useRef({ model, selected, stepIndex, blocks, pending, picker, canEdit, linked });
+  keyState.current = { model, selected, stepIndex, blocks, pending, picker, canEdit, linked };
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (event.defaultPrevented || event.repeat || workspaceShortcutsBlocked(event)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const state = keyState.current;
+      if (state.linked) return;
       const target = event.target instanceof Element ? event.target : undefined;
       const typing = !!target?.closest('input, textarea, select, [contenteditable="true"]');
       const control = !!target?.closest('button, a[href], summary');
@@ -516,8 +537,18 @@ function Workspace({
         handlers.current.undoLast();
       }
     }
+    // Typing in the queue search during the pause keeps the decided entry: the search commits to
+    // the URL only after a short delay, which could land after the move.
+    function input(event: Event) {
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (keyState.current.pending && target?.closest('[data-compendium-search]')) clearPending();
+    }
     window.addEventListener('keydown', keydown);
-    return () => window.removeEventListener('keydown', keydown);
+    window.addEventListener('input', input, true);
+    return () => {
+      window.removeEventListener('keydown', keydown);
+      window.removeEventListener('input', input, true);
+    };
   }, [clearPending]);
 
   // ---- render ----
@@ -526,6 +557,7 @@ function Workspace({
     () => compendiumChanges(editor.bundle.tooltips, source).length,
     [editor.bundle.tooltips, source],
   );
+  if (linked) return null;
   const linkTo = (show: string) => {
     const next = new URLSearchParams(params);
     next.set('show', show);
