@@ -42,6 +42,7 @@ import {
   tooltipFor,
   variantHashes,
 } from '../navigation/catalog';
+import { previewPieceIcon } from '../navigation/groupIcons';
 import { tooltipPath } from '../navigation/stepping';
 import { ShellSlot } from '../navigation/ShellSlots';
 import { useShellColumn } from '../navigation/ShellColumnContext';
@@ -482,6 +483,7 @@ function TooltipWorkspace({
       lang={lang}
       name={selectedGlobal?.name ?? nameOf(hash)}
       piece={baseEntry && previewPiece(baseEntry)}
+      pieceIcon={baseEntry && previewPieceIcon(baseEntry)}
       icon={baseEntry?.icon || undefined}
       categoryLabel={
         readOnly && baseEntry
