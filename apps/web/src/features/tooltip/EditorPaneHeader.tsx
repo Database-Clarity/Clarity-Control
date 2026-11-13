@@ -98,7 +98,8 @@ export function EditorPaneHeader({
       title="Show or hide the markup row at the top of the editor"
       onClick={markup.toggle}
     >
-      Markup tools <kbd className={styles.key}>Ctrl+.</kbd>
+      Markup<span className={styles.markupWord}> tools</span>{' '}
+      <kbd className={styles.key}>Ctrl+.</kbd>
     </button>
   );
   return (

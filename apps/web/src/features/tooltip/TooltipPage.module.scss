@@ -301,80 +301,106 @@
     }
   }
 }
-// An open override adds "↑ Enhanced override" to the line (with a draft, its dot and Discard too),
-// which ran the right-hand buttons out of the header or under the Compendium/Reports toggles. As the
-// header narrows the line gives way in steps instead: the shortcut hint goes and "Grouped N" becomes
-// its icon and N, then the language field shortens and the tag says "↑ Override". The thresholds hold
-// the widest line (a draft open), so nothing changes when the first edit adds Discard. The buttons
-// never shrink; below the last step only the tag's label ellipsises.
-@mixin override-compact {
-  .key {
-    display: none;
-  }
-  .groupedWord {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
-  .groupedIcon {
-    display: inline-block;
-    margin-right: 0.3125rem;
-  }
-  .langSelect {
-    max-width: 7rem;
-    text-overflow: ellipsis;
-  }
-}
-@mixin override-short {
-  .langSelect {
-    max-width: 6rem;
-  }
-  .overrideLong {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
-  .overrideShort {
-    display: inline;
+// An open override adds "↑ Enhanced override" to the line, which ran the right-hand buttons out of
+// the header or under the Compendium/Reports toggles. The line now gives way one step at a time, each
+// only once the line no longer fits: the shortcut hint goes, "Grouped N" becomes its icon and N, the
+// language field shortens, the tag says "↑ Override", the field shortens again, and "Markup tools"
+// says "Markup". The buttons never shrink; below the last step only the tag's label ellipsises.
+// A container query cannot see what the line holds, so each step's width is set per content: the
+// natural widths at UI 100 (they scale with the rem) of the full line with a draft's dot and
+// Discard, Grouped N (maintainers), and the toggles, plus a little slack for text rendering.
+$override-full: 43.4rem; // language 9, tag 8.3, dot and Discard 5.1, Markup tools 8.6, Grouped 4.8, Back 5.5, gaps
+$override-draft: 5.1rem; // the dot, Discard, and their gaps
+$override-grouped: 5.2rem; // "Grouped N" and its gap
+$override-toggles: 10.2rem; // Compendium, Reports, and their gaps
+// Each step and the width it saves; "grouped" saves nothing without the control.
+$override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-narrow 2rem)
+  (markup 1.875rem);
+
+@mixin override-step($step) {
+  @if $step == key {
+    .key {
+      display: none;
+    }
+  } @else if $step == grouped {
+    .groupedWord {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .groupedIcon {
+      display: inline-block;
+      margin-right: 0.3125rem;
+    }
+  } @else if $step == lang {
+    .langSelect {
+      max-width: 7rem;
+      text-overflow: ellipsis;
+    }
+  } @else if $step == short {
+    .overrideLong {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .overrideShort {
+      display: inline;
+    }
+  } @else if $step == lang-narrow {
+    .langSelect {
+      max-width: 5rem;
+    }
+  } @else if $step == markup {
+    .markupWord {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
   }
 }
 .paneHeader:has(> .overrideTag):not(:has(> .queue)) > .paneRight {
   flex-shrink: 0;
 }
-@container pane-header (max-width: 40rem) {
-  .paneHeader:has(> .overrideTag) {
-    @include override-compact;
-  }
-}
-@container pane-header (max-width: 35rem) {
-  .paneHeader:has(> .overrideTag) {
-    @include override-short;
-  }
-}
-@container pane-header (max-width: 52rem) {
-  .paneHeader:has(> .overrideTag):has(> .paneToggles) {
-    @include override-compact;
-  }
-}
-@container pane-header (max-width: 46rem) {
-  .paneHeader:has(> .overrideTag):has(> .paneToggles) {
-    @include override-short;
-  }
-}
-// The narrowest desktop editor (a 701px window with the toggles): a tighter language field and
-// button groups. (A query cannot change its own container's gap.)
-@container pane-header (max-width: 42rem) {
-  .paneHeader:has(> .overrideTag):has(> .paneToggles) {
-    .langSelect {
-      max-width: 5rem;
-    }
-    .paneRight,
-    .paneToggles {
-      gap: 0.25rem;
+@each $draft in (true, false) {
+  @each $grouped in (true, false) {
+    @each $toggles in (true, false) {
+      $state: ':has(> .overrideTag):not(:has(> .queue))';
+      $needed: $override-full;
+      @if $draft {
+        $state: $state + ':has(> .dot)';
+      } @else {
+        $state: $state + ':not(:has(> .dot))';
+        $needed: $needed - $override-draft;
+      }
+      @if $grouped {
+        $state: $state + ':has(.groupedWord)';
+      } @else {
+        $state: $state + ':not(:has(.groupedWord))';
+        $needed: $needed - $override-grouped;
+      }
+      // The toggles stay in the line (hidden) outside toggle mode: the workspace's mode says.
+      $mode: ".workspace:not([data-mode='toggle'])";
+      @if $toggles {
+        $mode: ".workspace[data-mode='toggle']";
+        $needed: $needed + $override-toggles;
+      }
+      @each $step, $saves in $override-steps {
+        @if $step != grouped or $grouped {
+          // The step applies once the line, with every earlier step, no longer fits.
+          @container pane-header (max-width: #{$needed - 0.01rem}) {
+            #{$mode} .paneHeader#{$state} {
+              @include override-step($step);
+            }
+          }
+          $needed: $needed - $saves;
+        }
+      }
     }
   }
 }
