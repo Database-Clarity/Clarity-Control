@@ -171,6 +171,9 @@ describe('the sheet in the editor', () => {
     await act(async () => {
       target.dispatchEvent(event);
     });
+    // Opened before the idle build, the sheet builds a few groups a frame: wait until it is whole.
+    for (let frame = 0; frame < 20 && sheet()?.hasAttribute('data-building'); frame++)
+      await act(() => new Promise((done) => setTimeout(done, 20)));
     return event;
   };
 
