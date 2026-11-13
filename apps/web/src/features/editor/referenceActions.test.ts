@@ -96,3 +96,45 @@ describe('Ctrl+K Ctrl+I popover', () => {
     expect(found.dom.querySelector('.clarity-reference-popover')).toBeNull();
   });
 });
+
+describe('Ctrl link hints', () => {
+  const hint = (view: EditorView) => view.dom.querySelector('.clarity-reference-link')?.textContent;
+  const key = (type: string, ctrlKey: boolean) =>
+    window.dispatchEvent(new KeyboardEvent(type, { key: 'Control', ctrlKey, metaKey: ctrlKey }));
+  test('measures the pointer only when the held state or pointer changes', () => {
+    const doc = 'var mine = 5\n#mine';
+    const view = editor(doc, 0);
+    const at = vi.spyOn(view, 'posAtCoords').mockReturnValue(doc.length - 2);
+    view.dom.dispatchEvent(new MouseEvent('mousemove', { clientX: 5, clientY: 5 }));
+    expect(at).not.toHaveBeenCalled();
+    key('keydown', true);
+    expect(at).toHaveBeenCalledTimes(1);
+    expect(hint(view)).toBe('#mine');
+    // Held Ctrl shortcuts and key repeat do not measure again.
+    for (let i = 0; i < 5; i++) key('keydown', true);
+    expect(at).toHaveBeenCalledTimes(1);
+    view.dom.dispatchEvent(
+      new MouseEvent('mousemove', { clientX: 6, clientY: 5, ctrlKey: true, metaKey: true }),
+    );
+    expect(at).toHaveBeenCalledTimes(2);
+    key('keyup', false);
+    expect(hint(view)).toBeUndefined();
+    key('keyup', false);
+    expect(at).toHaveBeenCalledTimes(2);
+  });
+  test('an edit while held clears the hint and the next pointer move restores it', () => {
+    const doc = 'var mine = 5\n#mine';
+    const view = editor(doc, 0);
+    vi.spyOn(view, 'posAtCoords').mockReturnValue(doc.length - 2);
+    view.dom.dispatchEvent(
+      new MouseEvent('mousemove', { clientX: 5, clientY: 5, ctrlKey: true, metaKey: true }),
+    );
+    expect(hint(view)).toBe('#mine');
+    view.dispatch({ changes: { from: 11, to: 12, insert: '6' } });
+    expect(hint(view)).toBeUndefined();
+    view.dom.dispatchEvent(
+      new MouseEvent('mousemove', { clientX: 5, clientY: 5, ctrlKey: true, metaKey: true }),
+    );
+    expect(hint(view)).toBe('#mine');
+  });
+});
