@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import type { MenuUser } from './links';
 import { compactQuery, useMedia } from '../../ui/useMedia';
 import { Brand } from './Brand';
@@ -71,8 +72,11 @@ const finderSelector = 'section[aria-label="Tooltip navigation"]';
 /**
  * Whether the lockup would leave the finder under its minimum. Measured from the parts that do not
  * depend on the brand (the bar, the tabs, the account end), so switching the artwork can never feed
- * back into the decision, and done in a layout effect so the first paint is already right. Both
- * artworks are always the same height: the swap moves only what is to the right of the brand.
+ * back into the decision. It measures in a resize observer's callback, which comes after the
+ * browser lays the bar out and before that frame paints, and renders a change at once, so the
+ * first paint is already right without laying the page out early inside the render that mounts
+ * it. Both artworks are always the same height: the swap moves only what is to the right of the
+ * brand.
  */
 function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): boolean {
   const [tight, setTight] = useState(false);
@@ -83,7 +87,7 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
       return;
     }
     let present = false;
-    const measure = () => {
+    const measure = (apply: (next: boolean) => void) => {
       const tabs = element.querySelector('nav');
       const end = element.lastElementChild;
       // Not laid out (a test DOM, a hidden tab): nothing to measure, keep the lockup.
@@ -103,21 +107,30 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
         end.getBoundingClientRect().width +
         gap * 3;
       present = element.querySelector(finderSelector) !== null;
-      setTight(
+      apply(
         element.clientWidth - used < (present ? FINDER_MIN_WITH_FINDER_REM : FINDER_MIN_REM) * rem,
       );
     };
-    measure();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    for (const child of element.children) observer.observe(child);
-    // The finder comes and goes with the workspace: measure again when it does.
+    if (typeof ResizeObserver === 'undefined') {
+      measure(setTight);
+      return;
+    }
+    // Outside React's own work, so the change is rendered before the frame paints.
+    const observer = new ResizeObserver(() => measure((next) => flushSync(() => setTight(next))));
+    const watch = () => {
+      observer.observe(element);
+      for (const child of element.children) observer.observe(child);
+    };
+    watch();
+    // The finder comes and goes with the workspace: measure again, after the next layout, when it
+    // does (observing the bar afresh reports it again even at the same size).
     const mutations =
       typeof MutationObserver === 'undefined'
         ? undefined
         : new MutationObserver(() => {
-            if ((element.querySelector(finderSelector) !== null) !== present) measure();
+            if ((element.querySelector(finderSelector) !== null) === present) return;
+            observer.disconnect();
+            watch();
           });
     mutations?.observe(element, { subtree: true, childList: true });
     return () => {

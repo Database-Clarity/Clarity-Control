@@ -303,6 +303,49 @@ describe('workspace tabs and More', () => {
   });
 });
 
+describe('brand', () => {
+  it('measures the bar after layout and swaps the lockup for the mark when the finder lacks room', async () => {
+    let report: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          report = () => callback([], this as unknown as ResizeObserver);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    let width = 1600;
+    const bar = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(() => width);
+    const rect = vi
+      .spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(0, 0, 200, 28));
+    try {
+      await mount(person('maintainer'));
+      // Nothing is read while the header renders: the observer reports once laid out.
+      expect(rect).not.toHaveBeenCalled();
+      expect(q('header img[alt="Clarity Control"]')).not.toBeNull();
+      act(() => report!());
+      expect(rect).toHaveBeenCalled();
+      expect(q('header img[alt="Clarity Control"]')).not.toBeNull();
+      width = 900;
+      act(() => report!());
+      expect(document.querySelector('header img[alt="Clarity Control"]')).toBeNull();
+      expect(q('header [role="img"][aria-label="Clarity Control"]')).not.toBeNull();
+      width = 1600;
+      act(() => report!());
+      expect(q('header img[alt="Clarity Control"]')).not.toBeNull();
+    } finally {
+      bar.mockRestore();
+      rect.mockRestore();
+    }
+  });
+});
+
 describe('Compendium count', () => {
   const badge = async (count: CompendiumCount) => {
     mocks.count = count;
