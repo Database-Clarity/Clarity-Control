@@ -9,7 +9,7 @@ import {
 import { loadGenerator, loadSandboxConflicts } from '../services/generator';
 import { loadBundle, type Bundle } from '../services/bundle';
 import { errorMessage } from '../services/http';
-import { applySavedOverlay } from './savedOverlay';
+import { applySavedOverlay, savedOverlayVersion } from './savedOverlay';
 
 export type Catalog = Awaited<ReturnType<typeof loadGenerator>>;
 export interface EditorData extends Catalog {
@@ -67,6 +67,22 @@ export function sharedSandboxConflicts(): Promise<SandboxConflicts | undefined> 
   return conflictsRequest;
 }
 
+/**
+ * Resolves in a new task. A MessageChannel message is used rather than a timer, which a
+ * background tab would throttle to a second or more.
+ */
+function nextTask(): Promise<void> {
+  if (typeof MessageChannel === 'undefined') return Promise.resolve();
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      resolve();
+    };
+    channel.port2.postMessage(undefined);
+  });
+}
+
 export const useDataStore = create<DataState>((set, get) => ({
   status: 'idle',
   data: null,
@@ -77,15 +93,30 @@ export const useDataStore = create<DataState>((set, get) => ({
     try {
       // The conflicts file is small; it loads alongside, and is awaited only when picks need it.
       const conflicts = sharedSandboxConflicts();
+      // Only a head start for the finder: without it the finder groups the data when it renders.
+      const navigation = import('../features/navigation/catalog').catch(() => undefined);
       const [catalog, bundle] = await Promise.all([loadGenerator(), loadBundle()]);
-      const base: EditorData = {
-        ...catalog,
-        generatorAliases: catalog.aliases,
-        bundle: applySavedOverlay(bundle),
+      const picks = hasSandboxTargets(bundle.sandboxPointers) ? await conflicts : undefined;
+      const assemble = (): EditorData => {
+        const base: EditorData = {
+          ...catalog,
+          generatorAliases: catalog.aliases,
+          bundle: applySavedOverlay(bundle),
+        };
+        return hasSandboxTargets(bundle.sandboxPointers)
+          ? withSandboxPicks(base, bundle.sandboxPointers, picks)
+          : base;
       };
-      const data = hasSandboxTargets(bundle.sandboxPointers)
-        ? withSandboxPicks(base, bundle.sandboxPointers, await conflicts)
-        : base;
+      // Landing work is split into tasks so that none runs long: the responses' parsing above,
+      // the finder's grouping of the catalog here, and the first render of the data after `set`.
+      const prepare = (await navigation)?.prepareNavigationGroups;
+      await nextTask();
+      const overlay = savedOverlayVersion();
+      let data = assemble();
+      prepare?.(data);
+      await nextTask();
+      // A save that finished meanwhile still shows (the finder then groups this data itself).
+      if (savedOverlayVersion() !== overlay) data = assemble();
       set({ status: 'ready', data });
     } catch (error) {
       set({ status: 'error', error: errorMessage(error) });
