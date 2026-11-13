@@ -6,7 +6,7 @@ import { createDraftStore, useDraftStore } from '../../stores/drafts';
 import { useDataStore } from '../../stores/data';
 import { reconcileDrafts } from '../../features/conflicts/rebase';
 import { createIndexedDbStorage, userDraftKey, type Drafts } from '../draftStorage';
-import { acceptSaved, replaceDraft } from '../save/drafts';
+import { acceptSaved, replaceDraft, replaceDraftAt } from '../save/drafts';
 import { editorData, english, tooltip } from '../save/fixtures.testSupport';
 import {
   acceptBatchSaved,
@@ -175,10 +175,50 @@ describe('STATE SWEEP: batch drafts (flag ON, real IndexedDB and BroadcastChanne
     const submitted = { [batchDraftKey(A, 123)]: { base: tooltip, next: changed } };
     expect(() => replaceBatchDraft(A, tooltip, changed, true, batch)).toThrow('Sign in');
     expect(() => replaceBatchDraft(A, tooltip, changed, false, batch)).toThrow('Sign in');
-    expect(() => acceptBatchSaved(A, submitted, [{ hash: 123, proposed: changed }], batch)).toThrow(
-      'Sign in',
-    );
+    expect(() =>
+      acceptBatchSaved(A, submitted, [{ hash: 123, proposed: changed }], 'anyone', batch),
+    ).toThrow('Sign in');
     expect(batch.getState()).toMatchObject({ drafts: {}, pending: 0, error: null });
+  });
+
+  it('misrouted keys are refused before anything changes, so no bucket is poisoned', async () => {
+    const user = nextAccount();
+    const { current, batch, stop } = await tab(user, `keys-${user}`);
+    const other = { ...tooltip, hash: 124 };
+    const update = (next: Tooltip) => ({ ...next, associated: [3] });
+    // A batch key in the Current store, a Current key in the batch store, and keys for another hash.
+    expect(() => current.getState().editAt(batchDraftKey(A, 123), tooltip, 'en', 'x', 'a')).toThrow(
+      'does not belong',
+    );
+    expect(() => current.getState().editAt('124', tooltip, 'en', 'x', 'a')).toThrow(
+      'does not belong',
+    );
+    expect(() => batch.getState().editAt('123', tooltip, 'en', 'x', 'a')).toThrow(
+      'does not belong',
+    );
+    expect(() =>
+      batch.getState().updateDraftsAt([{ key: batchDraftKey(A, 124), base: tooltip, update }]),
+    ).toThrow('does not belong');
+    expect(() =>
+      current.getState().updateDraftsAt([
+        { key: '124', base: other, update },
+        { key: batchDraftKey(A, 123), base: tooltip, update },
+      ]),
+    ).toThrow('does not belong');
+    expect(() => replaceDraftAt(current, batchDraftKey(A, 123), tooltip, tooltip)).toThrow(
+      'does not belong',
+    );
+    expect(() => replaceDraftAt(batch, '123', tooltip, update(tooltip))).toThrow('does not belong');
+    await current.getState().flush();
+    await batch.getState().flush();
+    expect(current.getState()).toMatchObject({ drafts: {}, pending: 0, error: null });
+    expect(batch.getState()).toMatchObject({ drafts: {}, pending: 0, error: null });
+    // Both buckets still read after a reload.
+    stop();
+    const reloaded = await tab(user, `keys-2-${user}`);
+    expect(reloaded.current.getState().error).toBeNull();
+    expect(reloaded.batch.getState().error).toBeNull();
+    reloaded.stop();
   });
 
   it('cross-tab: a batch write flags only the batch store, and Reload or Keep mine recovers', async () => {
@@ -230,13 +270,15 @@ describe('STATE SWEEP: saves returning after a destination switch', () => {
   const retry = vi.fn();
   let batch: BatchDraftStore;
   let fixture: BatchFixture;
+  let owner: string;
   const mine: Tooltip = { ...tooltip, text: { en: { ...english, text: 'Mine' } } };
   beforeEach(async () => {
     retry.mockClear();
     useDraftStore.setState({ ...initial, hydrated: true, retry });
     useDataStore.setState({ data: editorData() });
     batch = createBatchDraftStore(createBatchDraftStorage(`switch-${nextAccount()}`));
-    await batch.getState().activate(nextAccount());
+    owner = nextAccount();
+    await batch.getState().activate(owner);
     fixture = createBatchFixture({
       current: { 123: tooltip },
       user: { id: 1, login: 'alice', role: 'editor' },
@@ -275,7 +317,7 @@ describe('STATE SWEEP: saves returning after a destination switch', () => {
       ...saveBody(submitted),
     });
     expect(saved.status).toBe(200);
-    acceptBatchSaved(id, submitted, saved.body.members, batch);
+    acceptBatchSaved(id, submitted, saved.body.members, owner, batch);
     expect(Object.keys(batch.getState().drafts)).toEqual([batchDraftKey(B, 123)]);
     expect(useDraftStore.getState().drafts).toBe(currentBefore);
     expect(useDataStore.getState().data).toBe(bundleBefore);
@@ -297,7 +339,7 @@ describe('STATE SWEEP: saves returning after a destination switch', () => {
       revision: 1,
       ...saveBody(submitted),
     });
-    acceptBatchSaved(id, submitted, saved.body.members, batch);
+    acceptBatchSaved(id, submitted, saved.body.members, owner, batch);
     const draft = batch.getState().drafts[batchDraftKey(id, 123)];
     expect(draft.base).toEqual(fixture.members.get(id)?.get(123)?.proposed);
     expect(draft.next.text.en?.text).toBe('Upcoming');
@@ -307,8 +349,42 @@ describe('STATE SWEEP: saves returning after a destination switch', () => {
   it('refuses a response for another batch or one that omits a member, keeping the drafts', () => {
     editBatchDraft(A, tooltip, 'en', 'Upcoming', 'alice', batch);
     const submitted = { ...batch.getState().drafts };
-    expect(() => acceptBatchSaved(B, submitted, [], batch)).toThrow('not in batch');
-    expect(() => acceptBatchSaved(A, submitted, [], batch)).toThrow('omitted');
+    expect(() => acceptBatchSaved(B, submitted, [], owner, batch)).toThrow('not in batch');
+    expect(() => acceptBatchSaved(A, submitted, [], owner, batch)).toThrow('omitted');
+    expect(batch.getState().drafts).toEqual(submitted);
+  });
+
+  it('a batch save returning after an account switch never touches the other account', async () => {
+    const created = await post(fixture, '/batches', { name: 'December' });
+    const id = (created.body.batch as { id: string }).id;
+    editBatchDraft(id, tooltip, 'en', 'Alice proposal', 'alice', batch);
+    const submitted = { ...batch.getState().drafts };
+    const alice = owner;
+    const saved = await post(fixture, `/batches/${id}/save`, {
+      revision: 1,
+      ...saveBody(submitted),
+    });
+    // Switch to Bob, who has his own draft for the same batch and hash, before the save returns.
+    const bob = nextAccount();
+    await batch.getState().activate(bob);
+    editBatchDraft(id, tooltip, 'en', 'Bob wording', 'bob', batch);
+    const bobs = batch.getState().drafts;
+    expect(() => acceptBatchSaved(id, submitted, saved.body.members, alice, batch)).toThrow(
+      'account changed',
+    );
+    expect(batch.getState().drafts).toBe(bobs);
+    expect(bobs[batchDraftKey(id, 123)].base).toEqual(tooltip);
+    // Back on Alice, the same response reconciles her drafts.
+    await batch.getState().activate(alice);
+    acceptBatchSaved(id, submitted, saved.body.members, alice, batch);
+    expect(batch.getState().drafts).toEqual({});
+  });
+
+  it('refuses a response member that carries another tooltip, keeping the drafts', () => {
+    editBatchDraft(A, tooltip, 'en', 'Upcoming', 'alice', batch);
+    const submitted = { ...batch.getState().drafts };
+    const wrong = [{ hash: 123, proposed: { ...tooltip, hash: 124 } }];
+    expect(() => acceptBatchSaved(A, submitted, wrong, owner, batch)).toThrow('another tooltip');
     expect(batch.getState().drafts).toEqual(submitted);
   });
 
@@ -332,7 +408,7 @@ describe('STATE SWEEP: saves returning after a destination switch', () => {
     const rebased = { ...batch.getState().drafts };
     const saved = await post(fixture, `/batches/${id}/save`, { revision: 1, ...saveBody(rebased) });
     expect(saved.status).toBe(200);
-    acceptBatchSaved(id, rebased, saved.body.members, batch);
+    acceptBatchSaved(id, rebased, saved.body.members, owner, batch);
     expect(batch.getState().drafts).toEqual({});
   });
 });

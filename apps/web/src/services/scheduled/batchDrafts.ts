@@ -67,8 +67,10 @@ export function createBatchDraftStorage(origin?: string): DraftStorage {
   };
 }
 
+const ownsBatchKey = (key: string, hash: number) => parseBatchDraftKey(key)?.hash === hash;
+
 export function createBatchDraftStore(storage: DraftStorage) {
-  return createDraftStore(storage, { requireOwner: true });
+  return createDraftStore(storage, { requireOwner: true, ownsKey: ownsBatchKey });
 }
 export type BatchDraftStore = ReturnType<typeof createBatchDraftStore>;
 
@@ -161,12 +163,22 @@ export function acceptBatchSaved(
   batchId: string,
   submitted: Drafts,
   members: Pick<BatchMember, 'hash' | 'proposed'>[],
+  /** The account that submitted the save (the store's `owner` when it was sent). */
+  submittedBy: string,
   store: BatchDraftStore = useBatchDraftStore,
 ): void {
-  for (const key of Object.keys(submitted))
-    if (parseBatchDraftKey(key)?.batchId !== batchId)
+  for (const [key, draft] of Object.entries(submitted)) {
+    const parsed = parseBatchDraftKey(key);
+    if (parsed?.batchId !== batchId || parsed.hash !== draft.next.hash)
       throw new Error(`Draft ${key} is not in batch ${batchId}; drafts were retained.`);
+  }
   signedIn(store);
+  // The save came back after an account switch: these drafts belong to another account.
+  if (store.getState().owner !== submittedBy)
+    throw new Error('The account changed during the batch save; drafts were retained.');
+  for (const member of members)
+    if (member.proposed.hash !== member.hash)
+      throw new Error(`Save response member ${member.hash} carries another tooltip.`);
   const proposed = new Map(members.map((member) => [member.hash, member.proposed]));
   const state = store.getState();
   const drafts = reconcileSaved(state.drafts, submitted, (key) =>

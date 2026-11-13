@@ -3,7 +3,6 @@ import { type Lang, type Tooltip } from '@clarity/core';
 import { draftStorage, type Drafts, type DraftStorage } from '../services/draftStorage';
 import { errorMessage } from '../services/http';
 import { reconcileDrafts } from '../features/conflicts/rebase';
-import { scheduledEnabled } from '../services/scheduled/flag';
 
 export interface AdoptionResult {
   adopted: number;
@@ -64,6 +63,13 @@ interface DraftState {
   onDiscard(listener: (hash: number) => void): () => void;
   /** Runs after a bound account write, before it is considered safely stored. */
   onStored(listener: (owner: string | null, drafts: Drafts) => void): () => void;
+  /**
+   * Whether `key` is a key of this store for tooltip `hash`: Current keys are the hash itself,
+   * batch keys `batch:<batchId>:<hash>`. Every keyed write checks it before changing anything, so
+   * a misrouted key can never reach storage (where the bucket's schema would then refuse the
+   * whole bucket on the next read).
+   */
+  ownsKey(key: string, hash: number): boolean;
   retry(): void;
   flush(): Promise<void>;
 }
@@ -90,9 +96,17 @@ export interface DraftStoreOptions {
    * account, so its signed-out bucket stays empty).
    */
   requireOwner?: boolean;
+  /** The store's key rule (see `ownsKey`); default: the Current rule, the hash itself. */
+  ownsKey?: (key: string, hash: number) => boolean;
 }
 
+const currentKey = (key: string, hash: number) => key === String(hash);
+
 export function createDraftStore(storage: DraftStorage, options: DraftStoreOptions = {}) {
+  const ownsKey = options.ownsKey ?? currentKey;
+  const checkKey = (key: string, hash: number) => {
+    if (!ownsKey(key, hash)) throw new Error(`Draft key ${key} does not belong to tooltip ${hash}`);
+  };
   let queue = Promise.resolve();
   let hydration: Promise<void> | undefined;
   let owner: string | null = null;
@@ -307,6 +321,7 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
       editAt(key, base, lang, text, author) {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before editing');
         if (options.requireOwner && owner === null) throw new Error('Sign in to edit these drafts');
+        checkKey(key, base.hash);
         const draft = get().drafts[key] ?? { base, next: base };
         const next: Tooltip = {
           ...draft.next,
@@ -351,6 +366,7 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
       updateDraftsAt(updates) {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before editing');
         if (options.requireOwner && owner === null) throw new Error('Sign in to edit these drafts');
+        for (const { key, base } of updates) checkKey(key, base.hash);
         const drafts: Drafts = { ...get().drafts };
         for (const { key, base, update } of updates) {
           const draft = drafts[key] ?? { base, next: base };
@@ -435,6 +451,7 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
         storedListeners.add(listener);
         return () => void storedListeners.delete(listener);
       },
+      ownsKey,
       retry() {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before retrying storage');
         persist(get().drafts);
@@ -451,7 +468,8 @@ export const useDraftStore = createDraftStore(draftStorage);
 // Batch drafts (scheduled changes, spec R6) live in their own store and IndexedDB buckets and
 // follow this store's account. With the build switch OFF (production default) this never runs:
 // the batch module is not loaded, so nothing reads or writes its buckets (I6).
-if (scheduledEnabled())
+// The test is inline (not scheduledEnabled()) so Rollup sees a constant and drops the chunk.
+if (import.meta.env.VITE_SCHEDULED_ENABLED === '1')
   void import('../services/scheduled/batchDrafts').then(({ linkBatchDrafts, useBatchDraftStore }) =>
     linkBatchDrafts(useDraftStore, useBatchDraftStore),
   );

@@ -6,7 +6,12 @@ import type { Drafts } from '../draftStorage';
 
 /** The part of a draft store (Current or batch) that save reconciliation touches. */
 export interface ReconciledStore {
-  getState(): { hydrated: boolean; drafts: Drafts; retry(): void };
+  getState(): {
+    hydrated: boolean;
+    drafts: Drafts;
+    ownsKey(key: string, hash: number): boolean;
+    retry(): void;
+  };
   setState(partial: { drafts: Drafts }): void;
 }
 
@@ -25,6 +30,8 @@ export function replaceDraftAt(
   if (base.hash !== next.hash) throw new Error('Cannot replace a draft with a different tooltip.');
   const state = store.getState();
   if (!state.hydrated) throw new Error('Draft recovery must finish before editing.');
+  if (!state.ownsKey(key, base.hash))
+    throw new Error(`Draft key ${key} does not belong to tooltip ${base.hash}.`);
   const original = resetBase ? base : (state.drafts[key]?.base ?? base);
   const drafts: Drafts = { ...state.drafts, [key]: { base: original, next } };
   if (stableStringify(original) === stableStringify(next)) delete drafts[key];
