@@ -98,16 +98,30 @@ export function EditorPaneHeader({
       title="Show or hide the markup row at the top of the editor"
       onClick={markup.toggle}
     >
-      Markup tools <kbd className={styles.key}>Ctrl+.</kbd>
+      {/* One flex item: the button's gap must not land between the two words. */}
+      <span>
+        Markup<span className={styles.markupWord}> tools</span>
+      </span>{' '}
+      <kbd className={styles.key}>Ctrl+.</kbd>
     </button>
   );
   return (
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
       {activeOverride && (
-        <span className={styles.overrideTag}>
-          <EnhancedArrow /> Enhanced override
-          {overrides.length > 1 && <span className={styles.ell}>: {activeOverride.name}</span>}
+        // A narrow line says "↑ Override" (the arrow already means enhanced), then ellipsises.
+        <span
+          className={styles.overrideTag}
+          title={`Enhanced override${overrides.length > 1 ? `: ${activeOverride.name}` : ''}`}
+        >
+          <EnhancedArrow />
+          <span className={styles.ell}>
+            <span className={styles.overrideLong}>Enhanced override</span>
+            <span className={styles.overrideShort} aria-hidden="true">
+              Override
+            </span>
+            {overrides.length > 1 && `: ${activeOverride.name}`}
+          </span>
         </span>
       )}
       {!draft && (
