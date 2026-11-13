@@ -726,19 +726,27 @@ p.muted {
     }
   }
 
-  // Name and status on the left; one joined stepper [‹][N of M][›] on the right with Open in
-  // editor right-aligned under it.
+  // Two lines: the name, then one joined stepper [‹][N of M][›] on the right; the status, then
+  // Open in editor on the right. The second line has the full width (the status never runs into
+  // the link; a long one wraps), and the link's var(--tap) hit height is laid out on its own line
+  // instead of reaching up over the stepper.
   .identity {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    column-gap: 0;
-    row-gap: 0.25rem;
+    gap: 0;
+
+    // The line break between the two lines.
+    &::after {
+      content: '';
+      order: 5;
+      flex-basis: 100%;
+    }
   }
 
   .title {
-    grid-column: 1;
-    grid-row: 1;
+    order: 1;
+    flex: 1 1 0;
     padding-inline-end: 0.5rem;
     font-size: var(--ctl-text);
   }
@@ -748,14 +756,15 @@ p.muted {
   }
 
   .kindLabel {
-    grid-column: 1;
-    grid-row: 2;
+    order: 6;
+    flex: 1 1 0;
+    padding-inline-end: 0.5rem;
+    white-space: normal;
   }
 
   .step,
   .position {
     @include stepper.segment;
-    grid-row: 1;
     align-self: center;
   }
 
@@ -764,20 +773,18 @@ p.muted {
   }
 
   .step:first-child {
-    grid-column: 2;
-    grid-row: 1;
+    order: 2;
     height: var(--tap);
   }
 
   .position {
-    grid-column: 3;
+    order: 3;
     margin-inline-start: -1px;
     border-radius: 0;
   }
 
   .step:not(:first-child) {
-    grid-column: 4;
-    grid-row: 1;
+    order: 4;
     height: var(--tap);
     margin-inline-start: -1px;
   }
@@ -792,10 +799,9 @@ p.muted {
   }
 
   .openEditor {
-    grid-column: 2 / -1;
-    grid-row: 2;
-    justify-self: end;
-    margin-inline-start: 0;
+    order: 7;
+    margin-block: 0;
+    margin-inline-start: auto;
   }
 
   @include compact-bar;

@@ -2,7 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigationType } from 'react-router-dom';
 import { useSettingsStore } from '../../stores/settings';
-import { followPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
+import {
+  followPlacement,
+  placeAnchored,
+  viewportWidth,
+  visibleArea,
+} from '../../ui/anchorPlacement';
 import { scaledPx } from '../../ui/scale';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useSettingsPanel } from './panel';
@@ -43,17 +48,21 @@ function anchor(button: Element | null): CSSProperties {
     };
   }
   const rect = button.getBoundingClientRect();
-  // The popover is 30rem wide (at most the window less a margin), whatever the interface scale.
-  const wide = Math.min(scaledPx(width), window.innerWidth - margin * 2);
-  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - wide - margin));
+  // The popover is 30rem wide (at most the window less a margin), whatever the interface scale;
+  // the window's width leaves out the reserved scrollbar gutter.
+  const room = viewportWidth();
+  const wide = Math.min(scaledPx(width), room - margin * 2);
+  const left = Math.max(margin, Math.min(rect.left, room - wide - margin));
   if (rect.top > window.innerHeight / 2)
     return {
       left,
+      width: wide,
       bottom: window.innerHeight - rect.top + gap,
       maxHeight: Math.max(240, rect.top - gap - edge),
     };
   return {
     left,
+    width: wide,
     top: rect.bottom + gap,
     maxHeight: Math.max(240, window.innerHeight - rect.bottom - gap - edge),
   };
