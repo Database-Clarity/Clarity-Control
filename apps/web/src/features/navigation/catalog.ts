@@ -511,12 +511,56 @@ export function groupedSection(
   return result;
 }
 
+/**
+ * The unfiltered item groups of each data set. Classifying and sorting every item costs ~30 ms
+ * (~125 ms at 4x CPU); the finder remounts with the editor workspace, so a return from Review or
+ * Translations would otherwise pay that again for the same data.
+ */
+const browseGroups = new WeakMap<EditorData, CategoryGroup[]>();
+
 export function navigationGroups(
   data: EditorData,
   query: string,
   definitions = globalDefinitions(data.bundle.tooltips),
 ): CategoryGroup[] {
   const search = query.trim().toLocaleLowerCase();
+  let groups = search ? undefined : browseGroups.get(data);
+  if (!groups) {
+    groups = itemGroups(data, search);
+    if (!search) browseGroups.set(data, groups);
+  }
+  const globals: CategoryGroup = {
+    name: 'Globals',
+    sections: globalTypes
+      .map(({ kind, label }) => ({
+        id: `globals-${kind}`,
+        label,
+        group: 'Globals',
+        order: 0,
+        items: definitions
+          .filter(
+            (entry) =>
+              entry.kind === kind && (!search || entry.name.toLocaleLowerCase().includes(search)),
+          )
+          .map((entry) => ({
+            hash: entry.hash,
+            name: entry.name,
+            categoryId: `globals-${kind}`,
+            icon: '',
+            inGameDescription: '',
+            global: entry,
+          })),
+      }))
+      .filter((section) => section.items.length > 0),
+  };
+  if (!globals.sections.length) return [...groups];
+  // An item category in a group named Globals keeps its place and gives way, as Map.set did.
+  const at = groups.findIndex((group) => group.name === 'Globals');
+  return at < 0 ? [...groups, globals] : groups.map((group, i) => (i === at ? globals : group));
+}
+
+/** The item categories (without Globals) whose entries match `search` (lower-cased). */
+function itemGroups(data: EditorData, search: string): CategoryGroup[] {
   const matchingAliases = new Set<number>();
   if (search) {
     for (const alias of Object.keys(data.aliases)) {
@@ -593,30 +637,5 @@ export function navigationGroups(
     });
     groups.set(category.group, group);
   }
-  const globals: CategoryGroup = {
-    name: 'Globals',
-    sections: globalTypes
-      .map(({ kind, label }) => ({
-        id: `globals-${kind}`,
-        label,
-        group: 'Globals',
-        order: 0,
-        items: definitions
-          .filter(
-            (entry) =>
-              entry.kind === kind && (!search || entry.name.toLocaleLowerCase().includes(search)),
-          )
-          .map((entry) => ({
-            hash: entry.hash,
-            name: entry.name,
-            categoryId: `globals-${kind}`,
-            icon: '',
-            inGameDescription: '',
-            global: entry,
-          })),
-      }))
-      .filter((section) => section.items.length > 0),
-  };
-  if (globals.sections.length) groups.set('Globals', globals);
   return [...groups.values()];
 }

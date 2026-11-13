@@ -130,6 +130,20 @@
     color: var(--text2);
     opacity: 1;
   }
+
+  // A narrow popover cuts the hash first, then the name, each with an ellipsis.
+  .name,
+  small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .name {
+    flex: 0 0.01 auto;
+  }
+  small {
+    flex: 0 100 auto;
+  }
 }
 
 .drafts .discard {
