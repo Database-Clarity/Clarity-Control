@@ -135,10 +135,15 @@
       }
     }
 
-    // Fills the line up to the count, or to the edge once the count wraps.
+    // As wide as the chosen category, then fills the line; a name that does not fit beside the
+    // language takes its own line instead of being cut.
     .categories {
-      flex: 1 1 8rem;
+      flex: 1 1 auto;
       min-width: 8rem;
+
+      select {
+        field-sizing: content;
+      }
     }
 
     .languagePicker select,
@@ -200,8 +205,8 @@
 
     input[type='search'] {
       @include controls.field;
-      flex: 1 1 6rem;
-      min-width: 6rem;
+      flex: 1 1 5rem;
+      min-width: 5rem;
       height: var(--tap);
     }
 
