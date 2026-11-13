@@ -12,6 +12,8 @@ const exportsCode = /\/apps\/web\/src\/features\/exports\/|\/packages\/export\//
 // shared editor chunk (CodeMirror's view).
 const eagerCompile = /\/apps\/web\/src\/features\/tooltip\/TooltipPage\.tsx$|\/@codemirror\/view\//;
 const compileHint = '//# allFunctionsCalledOnLoad';
+const hinted = (moduleIds: readonly string[]) =>
+  moduleIds.some((id) => eagerCompile.test(id.replaceAll('\\', '/')));
 
 export default defineConfig({
   plugins: [
@@ -156,14 +158,18 @@ export default defineConfig({
       name: 'eager-compile-hint',
       apply: 'build',
       enforce: 'post',
+      // The line is added after hashing, so it has to change the hash itself: assets are cached
+      // immutable under their names (public/_headers), and returning users would keep the old file.
+      augmentChunkHash(chunk) {
+        if (hinted(chunk.moduleIds)) return compileHint;
+      },
       // After Vite's own generateBundle work, which puts the preload map above the imports.
       generateBundle: {
         order: 'post',
         handler(_options, bundle) {
           for (const chunk of Object.values(bundle)) {
             if (chunk.type !== 'chunk') continue;
-            if (!chunk.moduleIds.some((id) => eagerCompile.test(id.replaceAll('\\', '/'))))
-              continue;
+            if (!hinted(chunk.moduleIds)) continue;
             chunk.code = `${compileHint}\n${chunk.code}`;
             // One more generated line: shift the source map down by one line.
             if (chunk.map) chunk.map.mappings = `;${chunk.map.mappings}`;
