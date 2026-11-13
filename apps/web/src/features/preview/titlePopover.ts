@@ -33,6 +33,9 @@ export function openTitlePopover(
     rects[0] ||
     anchor.getBoundingClientRect();
   const { clientWidth: viewW, clientHeight: viewH } = document.documentElement;
+  // Cap the width by the space left of a classic scrollbar (100vw in CSS includes it), so the
+  // clamped box keeps its edge inset and right border clear of the scrollbar.
+  box.style.maxWidth = `min(18.75rem, ${viewW - EDGE * 2}px)`;
   box.style.maxHeight = '';
   const width = box.offsetWidth;
   let height = box.offsetHeight;

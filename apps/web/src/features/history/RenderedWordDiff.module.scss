@@ -48,6 +48,18 @@
     background: var(--ins-bg);
     text-decoration: underline;
   }
+  // A marker inside the rendered text follows the preview's fixed size (14px, not the UI scale),
+  // so it never outgrows the lines it annotates. It sits above the line it names: the gap goes
+  // before it, away from the paragraph above, and it hugs its own line.
+  .sourceChange {
+    // 12px text; lengths in its own em: 8px gap above, 8px inset, 2px to its line.
+    font-size: calc(12em / 14);
+    margin: calc(8em / 12) calc(8em / 12) calc(2em / 12);
+    padding-inline-start: calc(8em / 12);
+  }
+  .sourceChange:first-child {
+    margin-top: 0;
+  }
   // Structure changes: a gutter bar in the snippet's own padding, so text never moves.
   .lineInsert,
   .lineDelete {

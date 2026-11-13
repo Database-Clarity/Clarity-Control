@@ -462,3 +462,47 @@ it('focuses the restore confirmation and returns Cancel to Restore, keeping Esca
   expect(dialog()).toBeNull();
   expect(document.activeElement).toBe(entries()[0]);
 });
+
+it('Esc on an open term inside the revision closes the term first, then the revision', async () => {
+  // Another tooltip: revisions are cached per tooltip, and this one's are not loaded yet.
+  const term = 'title Detail (\nA definition\n)\nSee <title Details [Detail] /> now';
+  const terms: Record<string, Tooltip> = {
+    [id(3)]: { ...revision(`${term} three`), hash: 11 },
+    [id(2)]: { ...revision(term), hash: 11 },
+    [id(1)]: { ...revision('one'), hash: 11 },
+  };
+  getVersion.mockImplementation((hash: number, sha: string) =>
+    Promise.resolve({ commit: sha, tooltip: (hash === 11 ? terms : versions)[sha] }),
+  );
+  useDataStore.setState({
+    data: {
+      bundle: { tooltips: { 10: base, 11: { ...base, hash: 11 } } },
+      items: {},
+      aliases: {},
+      categories: [],
+    } as unknown as EditorData,
+  });
+  await act(async () => root.render(<HistoryPanel hash={11} />));
+  await wait(410);
+  await act(async () => entries()[0].click());
+  const anchor = await vi.waitFor(() => {
+    const found = dialog()?.querySelector<HTMLElement>('[aria-describedby]');
+    if (!found) throw Error('No term in the rendered revision yet');
+    return found;
+  });
+  await act(async () => anchor.focus());
+  const box = document.getElementById(anchor.getAttribute('aria-describedby')!)!;
+  expect(box.hasAttribute('data-open')).toBe(true);
+  const escape = () =>
+    act(async () => {
+      anchor.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+  await escape();
+  // The term closed; the revision (its host) stays open.
+  expect(box.hasAttribute('data-open')).toBe(false);
+  expect(dialog()).not.toBeNull();
+  await escape();
+  expect(dialog()).toBeNull();
+});
