@@ -99,9 +99,6 @@ const frameOf = (editor: EditorView | null) =>
   editor?.dom.closest<HTMLElement>('[data-view]') ?? null;
 const isKey = (row: HelpRow) => row.keys !== undefined;
 const isCell = (row: HelpRow) => row.id.startsWith('icon:');
-/** Built on demand (see `built`): the groups in its first frame, and one frame's length in ms. */
-const firstGroups = 3;
-const frameMs = 17;
 const optionId = (id: string) => `markup-help-${id.replace(/[^a-zA-Z0-9-]/g, '-')}`;
 
 /**
@@ -258,37 +255,6 @@ export const MarkupHelp = memo(function MarkupHelp({
   };
   const [place, setPlace] = useState(() => measure(frame));
 
-  // Opened before the idle build parked it (no quiet moment since the page loaded, as a quick F1
-  // or a run of clicks gives): the sheet is built hidden, a few groups a frame, so no one frame
-  // renders and lays out all of it, and shows, whole, once every group is in. Parked, it is built.
-  const order = useMemo(() => new Map(columns.flat().map((name, at) => [name, at])), [columns]);
-  const [built, setBuilt] = useState(open ? firstGroups : Infinity);
-  const complete = built >= order.size;
-  // When the last groups were added, and how many: what they cost decides the next frame's share.
-  const pace = useRef<{ at: number; added: number } | null>(null);
-  pace.current ??= { at: performance.now(), added: firstGroups };
-  useEffect(() => {
-    if (complete) return;
-    // After the frame that laid out the groups so far (a timer queued from its animation frame
-    // runs once it has painted), the next ones: as many as the last frame's cost says fit in
-    // about 40 ms, so a fast machine needs two frames, a slow one more, none of them long.
-    let timer = 0;
-    const frame = requestAnimationFrame(() => {
-      timer = window.setTimeout(() => {
-        const now = performance.now();
-        const { at, added } = pace.current!;
-        const each = Math.max(0, now - at - frameMs) / added;
-        const next = each ? Math.max(1, Math.floor(40 / each)) : order.size;
-        pace.current = { at: now, added: Math.min(next, order.size - built) };
-        setBuilt(built + next);
-      });
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(timer);
-    };
-  }, [built, complete, order]);
-
   // Opening starts fresh: no filter, on the markup under the caret (or the menu's option), placed
   // where the editor is now.
   const [shown, setShown] = useState(false);
@@ -314,7 +280,7 @@ export const MarkupHelp = memo(function MarkupHelp({
   useLayoutEffect(() => {
     const editor = view.current;
     const panel = root.current;
-    if (!panel || !open || !complete) return;
+    if (!panel || !open) return;
     // Where focus was (the text, or the button that opened it): closing gives it back.
     const focused = panel.ownerDocument.activeElement;
     // On a phone always, and on a desktop opened with a pointer (Help takes no focus), Help gets
@@ -378,7 +344,7 @@ export const MarkupHelp = memo(function MarkupHelp({
       editor.requestMeasure();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone, open, complete]);
+  }, [phone, open]);
 
   // Hidden, it is laid out once (the first frame after it is built), then skipped until it opens.
   useLayoutEffect(() => {
@@ -586,14 +552,13 @@ export const MarkupHelp = memo(function MarkupHelp({
       id={open ? 'editor-panel-help' : undefined}
       aria-label="Markup help"
       tabIndex={-1}
-      className={`${styles.panel} ${phone ? styles.sheet : frame ? styles.wide : ''} ${open ? '' : styles.parked} ${complete ? '' : styles.building}`}
+      className={`${styles.panel} ${phone ? styles.sheet : frame ? styles.wide : ''} ${open ? '' : styles.parked}`}
       style={place as CSSProperties}
       // Closed: hidden and out of reach until F1 or Help reveals it.
       {...(open ? {} : { inert: '', 'aria-hidden': true })}
       data-editor-overlay={open ? '' : undefined}
       data-editor-portal={open && !phone && frame ? '' : undefined}
       data-markup-help={open ? '' : undefined}
-      data-building={complete ? undefined : ''}
       onKeyDown={(event) => {
         if (event.target === root.current) onKeys(event);
       }}
@@ -654,7 +619,7 @@ export const MarkupHelp = memo(function MarkupHelp({
         <div className={styles.cols}>
           {columns.map((names, index) => (
             <div key={index} className={styles.col} data-col={index + 1}>
-              {names.map((name) => (order.get(name)! < built ? group(name) : null))}
+              {names.map(group)}
             </div>
           ))}
         </div>

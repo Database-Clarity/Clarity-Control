@@ -36,13 +36,6 @@
   }
 }
 
-// Opened before it was built ahead: hidden for the few frames its rows take to render, so it
-// never shows half drawn.
-.building {
-  visibility: hidden;
-  pointer-events: none;
-}
-
 // As wide as the editor and the pane beside it, ending on the status bar's top edge.
 .wide {
   bottom: var(--help-bottom, 1.5rem);
