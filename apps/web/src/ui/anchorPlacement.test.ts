@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { placeAnchored, visibleArea, type PlacementArea } from './anchorPlacement';
+import {
+  placeAnchored,
+  viewportWidth,
+  visibleArea,
+  type PlacementArea,
+} from './anchorPlacement';
 
 // A 390x772 phone, 8px edges.
 const area: PlacementArea = { top: 8, bottom: 764, width: 390, layoutHeight: 772, edge: 8 };
@@ -196,5 +201,51 @@ describe('placeAnchored with the real visible area', () => {
     const area = visibleArea(phoneWindow(480, 52));
     const placed = placeAnchored({ trigger: rect(437, 43), area, width: Infinity, gap: 0 });
     expect(placed).toMatchObject({ side: 'above', bottom: 772 - 437 });
+  });
+});
+
+describe('the scrollbar gutter', () => {
+  // global.scss reserves `scrollbar-gutter: stable` on the root: with a classic 15px scrollbar the
+  // root box is 375 wide in a 390 window, and clientWidth may still report 390.
+  const gutterWindow = (
+    root: { clientWidth?: number; offsetWidth?: number },
+    phone = true,
+    innerWidth = 390,
+  ) =>
+    ({
+      innerWidth,
+      innerHeight: 772,
+      visualViewport: { offsetTop: 0, height: 772 },
+      matchMedia: () => ({ matches: phone }),
+      document: { documentElement: root },
+      getComputedStyle: () => ({ getPropertyValue: () => '', fontSize: '16px' }),
+    }) as unknown as Window;
+
+  it('uses the root box width, not the window width that counts the gutter', () => {
+    expect(viewportWidth(gutterWindow({ clientWidth: 390, offsetWidth: 375 }))).toBe(375);
+    expect(viewportWidth(gutterWindow({ clientWidth: 375, offsetWidth: 375 }))).toBe(375);
+  });
+
+  it('falls back to the window width when the root has no layout', () => {
+    expect(viewportWidth(gutterWindow({}))).toBe(390);
+    expect(viewportWidth(gutterWindow({ clientWidth: 0, offsetWidth: 0 }))).toBe(390);
+  });
+
+  it('keeps a full-width popover its edge inset left of the gutter', () => {
+    const area = visibleArea(gutterWindow({ clientWidth: 390, offsetWidth: 375 }));
+    const placed = placeAnchored({ trigger: rect(100), area, width: Infinity });
+    expect(placed.left).toBe(area.edge);
+    expect(placed.left + placed.width).toBe(375 - area.edge);
+  });
+
+  it('clamps a right-aligned desktop popover left of the gutter', () => {
+    const area = visibleArea(gutterWindow({ clientWidth: 1280, offsetWidth: 1265 }, false, 1280));
+    const placed = placeAnchored({
+      trigger: { top: 0, bottom: 40, left: 1240, right: 1300 },
+      area,
+      width: 560,
+      desktop: true,
+    });
+    expect(placed.left + placed.width).toBe(1265 - 8);
   });
 });
