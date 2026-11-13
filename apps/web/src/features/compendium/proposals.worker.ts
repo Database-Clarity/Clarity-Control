@@ -1,5 +1,6 @@
 import {
   withCompendiumMatchingIndex,
+  retainCompendiumMatchingIndex,
   resolveCompendiumLink,
   type CompendiumData,
 } from '@clarity/core';
@@ -257,6 +258,9 @@ async function process(data: Request) {
       // after priority planning. A selected reply never waits for this asset.
       loadingAsset = loadPreparedAsset();
       source = await fetchingSource;
+      // The worker replaces, never edits, its source: keep one lookup index for
+      // every sliced matching call instead of rebuilding it per slice.
+      retainCompendiumMatchingIndex(source);
       await sendWorkerResultYielding(emit, id, source, undefined, yieldBackgroundReply);
       fingerprint = undefined;
     } else if (data.initialize) {
@@ -279,6 +283,7 @@ async function process(data: Request) {
       editor = input.editor;
       if (input.source) source = input.source;
       if (!source) throw new Error('Compendium source is not loaded.');
+      retainCompendiumMatchingIndex(source);
       const asset = loadingAsset ?? loadPreparedAsset();
       loadingAsset = undefined;
       precomputedDisplay = undefined;
