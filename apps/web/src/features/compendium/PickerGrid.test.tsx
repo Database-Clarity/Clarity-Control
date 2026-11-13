@@ -90,21 +90,23 @@ it('fills the region hidden in budgeted tasks, reveals, then finishes without fr
   }
 });
 
-it('keeps each fill task to one band when a row costs more than the budget', async () => {
+it('keeps the unbudgeted step sizes when a row costs more than the budget', async () => {
   const grid = fillWith(8);
   const counts: number[] = [];
   const observer = new MutationObserver(() => counts.push(grid.rows()));
   observer.observe(grid.viewport, { childList: true, subtree: true });
   try {
     await drainBands();
-    // The first task lays out the first band only; every later task adds a single band.
+    // The first task lays out the first band only; then 1, 2, 2, 2 rows per task (as before
+    // budgeting) until the rows overflow the region.
     expect(grid.viewport.dataset.gridFilling).toBe('false');
-    expect(grid.rows()).toBe(7);
+    expect(grid.rows()).toBe(8);
     act(() => grid.callbacks[0](0));
     await drainBands();
+    // Below the region: three rows per task, without frame waits.
     expect(grid.rows()).toBe(15);
     expect(grid.frames).toHaveBeenCalledOnce();
-    expect(new Set(counts)).toEqual(new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]));
+    expect([...new Set(counts)]).toEqual([2, 4, 6, 8, 11, 14, 15]);
   } finally {
     observer.disconnect();
     act(() => grid.root.unmount());

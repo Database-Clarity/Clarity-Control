@@ -8,8 +8,8 @@ import gridStyles from './PickerGrid.module.scss';
 import { pickerBands, type PickerBand } from './pickerBands';
 
 /**
- * Time a fill task may spend on render and layout. A Compendium burst allows 10 ms tasks at
- * a 60 ms cadence; one step may overshoot by a row's measured cost.
+ * Time a fill task may spend on render and layout before it stops growing its step. A
+ * Compendium burst allows 10 ms tasks at a 60 ms cadence; a step may overshoot by a row.
  */
 const taskBudgetMs = 6;
 
@@ -113,17 +113,20 @@ export const PickerGrid = memo(function PickerGrid({
           }
         }
         if (mounted >= bands.length) return;
-        // Add as many bands as the measured cost fits into this task's budget (at least one
-        // per task after the first), so a fast machine finishes in a task or two and a slow one
-        // keeps every task short. No frame waits between tasks: below the region nothing shows.
+        // Add as many bands as the measured cost fits into this task's budget, so a fast
+        // machine finishes in a task or two. No frame waits between tasks: below the region
+        // nothing shows, and a frame still runs between tasks when one is due.
         const left = taskBudgetMs - (performance.now() - start);
         if ((step || first) && left < perRow) return next();
-        // Steps at most double, so one low measurement cannot mount the whole window at once.
+        // A step is never smaller than before budgeting (1, then 2 rows while hidden; about 3
+        // rows below the region), so a slow machine takes no more steps than it did. Above
+        // that, steps at most double, so one low measurement cannot mount the window at once.
+        const least = filling ? (lastStep ? 2 : 1) : 3;
         let end = mounted + 1;
         while (
           end < bands.length &&
-          end - mounted < 2 * lastStep &&
-          rows(mounted, end + 1) * perRow <= left
+          (rows(mounted, end) < least ||
+            (end - mounted < 2 * lastStep && rows(mounted, end + 1) * perRow <= left))
         )
           end++;
         const added = rows(mounted, end);
