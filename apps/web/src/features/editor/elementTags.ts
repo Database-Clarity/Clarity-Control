@@ -93,6 +93,8 @@ export function tagSelection(state: EditorState, globals: MarkupGlobals): TagSel
   if (ranges.every((range) => range.empty)) return none;
   if (ranges.length > 1) return refused(tagRefusals.ranges);
   const text = state.sliceDoc(main.from, main.to);
+  // A selected icon is the icon's own popover (Group with icon, edit, remove), not a tag attempt.
+  if (/^<[a-z]+\/>$/i.test(text)) return none;
   if (text.includes('\n')) return refused(tagRefusals.line);
   if (!text.trim()) return refused(tagRefusals.blank);
   if (/[<[\]]/.test(text) || text.includes('/>')) return refused(tagRefusals.tag);

@@ -137,6 +137,10 @@ async function setScale(value: number) {
 async function choose(label: string, value: string) {
   const select = field(label);
   await act(async () => {
+    // As a person does: the time zone select lists its zones once focused.
+    select.focus();
+  });
+  await act(async () => {
     select.value = value;
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -231,12 +235,33 @@ describe('Settings popover', () => {
     expect(layoutInert()).toBe(false);
   });
 
+  it('lists the time zones once the select is focused or pressed, keeping the chosen one shown', async () => {
+    await render();
+    await openSettings();
+    const zones = () => [...field('Time zone').options].map((option) => option.value);
+    expect(zones()).toEqual(['auto', 'UTC']);
+    await choose('Time zone', 'Asia/Tokyo');
+    expect(field('Time zone').value).toBe('Asia/Tokyo');
+    expect(zones().length).toBeGreaterThan(3);
+    await act(async () => closeButton().click());
+    await openSettings();
+    // Closed again: just the chosen zone besides Browser and UTC, still selected.
+    expect(zones()).toEqual(['auto', 'UTC', 'Asia/Tokyo']);
+    expect(field('Time zone').value).toBe('Asia/Tokyo');
+    await act(async () => {
+      field('Time zone').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    expect(zones()).toContain('Europe/Berlin');
+  });
+
   it('moves focus in, traps Tab and Shift+Tab, and keeps the page behind inert', async () => {
     await render();
     await openSettings();
     const dialog = popover()!;
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(dialog.contains(document.activeElement)).toBe(true);
+    // The page behind goes inert once the popover has painted (a frame later).
+    await act(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0))));
     expect(layoutInert()).toBe(true);
     const items = [...dialog.querySelectorAll<HTMLElement>('button, select')];
     items.at(-1)!.focus();

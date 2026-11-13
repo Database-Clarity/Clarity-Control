@@ -64,6 +64,15 @@
   &[data-more-end]::after {
     opacity: 1;
   }
+
+  // The docked bar (a phone) is narrow: slimmer fades leave the six element symbols of tag mode
+  // clear of them at 100%.
+  .row[data-docked] > & {
+    &::before,
+    &::after {
+      width: 0.75rem;
+    }
+  }
 }
 
 .scroller {

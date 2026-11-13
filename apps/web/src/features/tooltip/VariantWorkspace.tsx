@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -17,6 +19,13 @@ import { usePaneStatus } from '../compendium/paneStatus';
 import { useReportsTab } from '../reports/pane/tabStore';
 
 type Panel = 'source' | 'translation' | 'preview' | 'compendium' | 'reports';
+
+/**
+ * Shows the editor (the phone's Editor tab, or toggle mode's main slot), for a side pane that acts
+ * on the text ("Tag the same words here"). Does nothing where the editor always shows.
+ */
+const ShowEditorContext = createContext<() => void>(() => {});
+export const useShowEditor = () => useContext(ShowEditorContext);
 const panels: { id: Panel; label: string; toggle: boolean }[] = [
   { id: 'translation', label: 'Editor', toggle: false },
   { id: 'preview', label: 'Preview', toggle: true },
@@ -104,6 +113,11 @@ export function VariantWorkspace({
       remember({ translatePane: id === 'source' ? 'english' : 'compendium' });
   };
   const side = useRef<HTMLDivElement>(null);
+  const showEditor = useRef(() => {});
+  showEditor.current = () => {
+    if (mode !== 'split') open('translation');
+  };
+  const stableShowEditor = useMemo(() => () => showEditor.current(), []);
   const focusTab = useRef(false);
   // The side views that share the right pane, one at a time, through tabs in its header.
   const hasSource = present(source);
@@ -295,12 +309,14 @@ export function VariantWorkspace({
       </div>
       {panel('translation')}
       <div className={styles.side} ref={side}>
-        <RightPaneTabsContext.Provider value={paneTabs}>
-          {panel('source')}
-          {panel('preview')}
-          {panel('compendium')}
-          {panel('reports')}
-        </RightPaneTabsContext.Provider>
+        <ShowEditorContext.Provider value={stableShowEditor}>
+          <RightPaneTabsContext.Provider value={paneTabs}>
+            {panel('source')}
+            {panel('preview')}
+            {panel('compendium')}
+            {panel('reports')}
+          </RightPaneTabsContext.Provider>
+        </ShowEditorContext.Provider>
       </div>
       {split && separator}
     </div>

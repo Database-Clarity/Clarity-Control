@@ -75,7 +75,7 @@ export const MarkupRow = memo(function MarkupRow({
   onSuggest?(): void;
   /** The English text of this tooltip while translating: the docked bar leads with its entries. */
   sourceText?: string;
-  /** Whether the selection can be tagged with an element (the row's "Tag selection:" mode). */
+  /** Whether the selection can be tagged with an element (the row's "Tag selection" mode). */
   tagSelection?: TagSelectionStore;
 }) {
   const tagMode = useSyncExternalStore(
@@ -174,10 +174,14 @@ export const MarkupRow = memo(function MarkupRow({
     const fade = parseFloat(getComputedStyle(element.parentElement!, '::after').width) || 0;
     const { scrollLeft, clientWidth } = element;
     if (first - fade >= scrollLeft && end + fade <= scrollLeft + clientWidth) return;
+    const width = end - first;
     element.scrollLeft =
-      end - first + 2 * fade <= clientWidth
+      width + 2 * fade <= clientWidth
         ? Math.max(0, end + fade - clientWidth)
-        : Math.max(0, first - fade);
+        : width <= clientWidth
+          ? // Only the fades are in the way: centred, every symbol shows whole.
+            Math.max(0, first - (clientWidth - width) / 2)
+          : Math.max(0, first - fade);
   }, [wrapping]);
 
   function focusButton(index: number) {
@@ -258,9 +262,15 @@ export const MarkupRow = memo(function MarkupRow({
           })}
         </div>
       </div>
-      {tagMode.kind === 'wrap' ? (
-        <span className={styles.tagLabel} data-tag-mode="wrap">
-          {docked ? 'Tag:' : 'Tag selection:'}
+      {/* The element symbols' outlined edge marks the mode; the label points back at them. On a
+        phone the bar's width goes to the six symbols instead. */}
+      {tagMode.kind === 'wrap' && !docked ? (
+        <span
+          className={styles.tagLabel}
+          data-tag-mode="wrap"
+          title="The outlined element symbols tag the selection"
+        >
+          <span aria-hidden="true">← </span>Tag selection
         </span>
       ) : tagMode.kind === 'refused' && !docked ? (
         <span

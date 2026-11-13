@@ -241,7 +241,7 @@
     // Never wider than the editor (a phone): the actions wrap onto a second row instead, since a
     // tooltip that does not fit is not shown at all.
     flex-wrap: wrap;
-    max-width: calc(100vw - 1rem);
+    max-width: calc(100vw - 2 * var(--page-x, 0.5rem));
     box-sizing: border-box;
     code {
       font-family: var(--editor-font, Consolas, monospace);
@@ -251,6 +251,19 @@
   }
   :global(.cm-symbol-hint) {
     color: var(--text2);
+    // Keys and Alt+click: nothing to press on a touch screen, where the buttons say it.
+    @include theme.mobile-or-coarse {
+      display: none;
+    }
+  }
+  // "Group with icon" on a spaced pair: the question sits right beside its two answers.
+  :global(.cm-symbol-ask) {
+    color: var(--text);
+    white-space: normal;
+  }
+  :global(.cm-symbol-answers) {
+    display: inline-flex;
+    gap: 0.25rem;
   }
   :global(.cm-symbol-retired) {
     color: var(--diag-warn);

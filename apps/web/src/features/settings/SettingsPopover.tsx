@@ -81,7 +81,12 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
   const [style, setStyle] = useState(place);
   // Changing the interface scale here resizes the popover and its opener: place it again.
   const uiScale = useSettingsStore((state) => state.device.uiScale);
+  const placedScale = useRef(uiScale);
   useLayoutEffect(() => {
+    // The first placement came with the first render; placing again on mount would read layout
+    // in the opening commit and render the whole panel twice.
+    if (placedScale.current === uiScale) return;
+    placedScale.current = uiScale;
     setStyle(place());
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` only reads the opener.
   }, [uiScale]);
@@ -111,13 +116,31 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
   }, []);
   useLayoutEffect(() => {
     const background = layout.current;
-    background?.setAttribute('inert', '');
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    panel.current?.focus();
+    let previousOverflow = '';
+    let locked = false;
+    // The page behind goes inert (and stops scrolling) once the popover has painted: marking it
+    // inert restyles the whole page, which made the opening frame late. Focus is already in the
+    // panel and Tab is trapped there, so nothing behind it can be reached in that one frame.
+    const lock = () => {
+      locked = true;
+      background?.setAttribute('inert', '');
+      previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    };
+    let frame: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (typeof requestAnimationFrame === 'function')
+      frame = requestAnimationFrame(() => (timer = setTimeout(lock, 0)));
+    else lock();
+    // The panel is fixed and placed in view: no scroll, so focusing needs no layout pass here.
+    panel.current?.focus({ preventScroll: true });
     return () => {
-      background?.removeAttribute('inert');
-      document.body.style.overflow = previousOverflow;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      if (locked) {
+        background?.removeAttribute('inert');
+        document.body.style.overflow = previousOverflow;
+      }
       const target =
         opener?.isConnected && !opener.closest('[inert]')
           ? opener
