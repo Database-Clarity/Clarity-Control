@@ -656,6 +656,37 @@ it('never shows the comparison skeleton for a response held for the opening pain
   }
 });
 
+it('counts comparison skeleton frames only after the opening slices finish', async () => {
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const { router, requests } = await mountDelayedReview();
+  const detail = () => host.querySelector('[aria-label="Selected change"]')!;
+  const skeleton = () => detail().querySelector('[aria-busy=true] [aria-hidden=true]');
+  const runFrame = () => {
+    const batch = [...frames];
+    frames.clear();
+    flushSync(() => batch.forEach(([, callback]) => callback(performance.now())));
+  };
+  try {
+    // First paint, then the first row slice: the opening is still warming.
+    act(runFrame);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(useReviewOpening.getState()).toMatchObject({ warming: true });
+    expect(useReviewOpening.getState().limit).toBeGreaterThan(0);
+    act(runFrame);
+    expect(skeleton()).toBeNull();
+    await act(async () => requests[0].resolve('Comparison during the opening'));
+    expect(detail().textContent).toContain('Comparison during the opening');
+  } finally {
+    router.dispose();
+  }
+});
+
 it('still shows the comparison skeleton for a wait that outlasts the opening', async () => {
   let serial = 0;
   const frames = new Map<number, FrameRequestCallback>();
