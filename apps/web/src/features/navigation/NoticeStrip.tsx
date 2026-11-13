@@ -110,12 +110,15 @@ function Notice({ notice, onDismiss }: { notice: ShellNotice; onDismiss(): void 
 /** Editor panels that open upward over the text, and the status bar that opens them. */
 const PANELS = '[data-editor-overlay], [data-editor-status]';
 const GAP = 4;
+/** The narrowest column (rem) the notices squeeze into beside a panel instead of rising. */
+const NARROWEST = 15;
 
 /**
  * Keeps the notices off an open editor panel (the Working diff, a status bar panel) and the
- * editor's status bar (on a phone it can sit right under them): when one is where the notices
- * would be, the strip rises (--clear) until its bottom is just above that panel's top edge, over
- * the text, where it sits anyway with no panel open. It never rises under the header: where the
+ * editor's status bar (on a phone it can sit right under them). A panel ending to their left with
+ * a column of at least NARROWEST beside it narrows them into that column (--room), in place.
+ * One under them otherwise lifts the strip (--clear) until its bottom is just above that panel's
+ * top edge, over the text, where it sits anyway with no panel open. It never rises under the header: where the
  * panels leave no room above them (a phone at a large interface scale), it rises only past the
  * ones it can clear. Runs only while a notice is shown; typing in the text is ignored, and
  * positions are read once per frame at most.
@@ -128,8 +131,13 @@ function useClearPanels(strip: RefObject<HTMLDivElement | null>, shown: boolean)
     const win = doc.defaultView;
     if (!win || typeof ResizeObserver === 'undefined') return;
     let lift = 0;
+    let room = 0;
     let frame = 0;
     let panels: Element[] = [];
+    const set = (name: string, value: number) => {
+      if (value) element.style.setProperty(name, `${value}px`);
+      else element.style.removeProperty(name);
+    };
     const place = () => {
       frame = 0;
       const notes = [...element.children].map((child) => child.getBoundingClientRect());
@@ -137,31 +145,42 @@ function useClearPanels(strip: RefObject<HTMLDivElement | null>, shown: boolean)
       // Where the notices sit without the lift.
       const bottom = Math.max(...notes.map((r) => r.bottom)) + lift;
       const height = bottom - lift - Math.min(...notes.map((r) => r.top));
-      const left = Math.min(...notes.map((r) => r.left));
       const right = Math.max(...notes.map((r) => r.right));
+      // As far left as they reach at full width.
+      const reach = element.getBoundingClientRect().left;
+      const narrowest = NARROWEST * parseFloat(win.getComputedStyle(doc.documentElement).fontSize);
       const boxes = panels
         .map((panel) => panel.getBoundingClientRect())
-        .filter((r) => r.width >= 1 && r.height >= 1 && r.right > left && r.left < right);
-      // Rise above each panel in the way; one stacked on top (the Working diff over the status
-      // bar) can then be in the way in turn. Never under the header: where the stack leaves no
-      // room, they stop at the highest edge that still fits.
+        .filter((r) => r.width >= 1 && r.height >= 1 && r.right > reach && r.left < right);
+      // A panel that ends to their left with a usable column beside it (the Working diff in the
+      // editor column, the preview column beside it): they narrow into that column, staying in
+      // place, rather than leaping up over the other column's content.
+      const beside = boxes.filter(
+        (r) => r.right + GAP + narrowest <= right && r.top < bottom && r.bottom > bottom - height,
+      );
+      const nextRoom = beside.length
+        ? Math.floor(right - Math.max(...beside.map((r) => r.right)) - GAP)
+        : 0;
+      const left = nextRoom ? right - nextRoom : Math.min(...notes.map((r) => r.left));
+      const under = boxes.filter((r) => !beside.includes(r) && r.right > left);
+      // Rise above each panel still under them; one stacked on top (the Working diff over the
+      // status bar) can then be in the way in turn. Never under the header: where the stack
+      // leaves no room, they stop at the highest edge that still fits.
       const ceiling = (doc.querySelector('header')?.getBoundingClientRect().bottom ?? 0) + GAP;
       let edge = bottom;
       let fits = bottom;
       for (;;) {
         // The lowest panel in the way first, so each step up is as small as it can be.
-        const tops = boxes
+        const tops = under
           .filter((r) => r.top - GAP < edge && r.bottom > edge - height)
           .map((r) => r.top - GAP);
         if (!tops.length) break;
         edge = Math.max(...tops);
         if (edge - height >= ceiling) fits = edge;
       }
-      const next = Math.round(bottom - fits);
-      if (next === lift) return;
-      lift = next;
-      if (lift) element.style.setProperty('--clear', `${lift}px`);
-      else element.style.removeProperty('--clear');
+      const nextLift = Math.round(bottom - fits);
+      if (nextRoom !== room) set('--room', (room = nextRoom));
+      if (nextLift !== lift) set('--clear', (lift = nextLift));
     };
     const schedule = () => {
       if (!frame) frame = win.requestAnimationFrame(place);

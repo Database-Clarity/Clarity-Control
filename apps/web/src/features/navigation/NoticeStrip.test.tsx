@@ -141,7 +141,7 @@ describe('notice strip', () => {
     // jsdom has no layout: boxes by element, the notice's moved up by the strip's --clear.
     const rect = (top: number, bottom: number, left: number, right: number) =>
       ({ top, bottom, left, right, width: right - left, height: bottom - top }) as DOMRect;
-    const panels: Record<string, [number, number]> = {};
+    const panels: Record<string, [number, number, number?, number?]> = {};
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -154,7 +154,7 @@ describe('notice strip', () => {
     box.mockImplementation(function (this: Element) {
       if (this.tagName === 'HEADER') return rect(0, 80, 0, 390);
       const panel = panels[this.id];
-      if (panel) return rect(...panel, 0, 390);
+      if (panel) return rect(panel[0], panel[1], panel[2] ?? 0, panel[3] ?? 390);
       if (this.hasAttribute('data-level')) {
         const clear = parseFloat(this.parentElement!.style.getPropertyValue('--clear')) || 0;
         return rect(640 - clear, 700 - clear, 10, 380);
@@ -162,7 +162,7 @@ describe('notice strip', () => {
       return rect(0, 0, 0, 0);
     });
     const header = document.createElement('header');
-    const make = (id: string, attribute: string, edges: [number, number]) => {
+    const make = (id: string, attribute: string, edges: [number, number, number?, number?]) => {
       const element = document.createElement('section');
       element.id = id;
       element.setAttribute(attribute, '');
@@ -191,6 +191,16 @@ describe('notice strip', () => {
       window.dispatchEvent(new Event('resize'));
       advance(20);
       expect(clear()).toBe('54px');
+      // A panel ending to their left with 15rem (240 px) beside it: narrowed into that column
+      // (380 - 100 - 4 = 276), in place; the bar under them still lifts them.
+      document.documentElement.style.fontSize = '16px';
+      panels.diff = [400, 650, 0, 100];
+      window.dispatchEvent(new Event('resize'));
+      advance(20);
+      expect(
+        host.querySelector<HTMLElement>('[data-notice-strip]')!.style.getPropertyValue('--room'),
+      ).toBe('276px');
+      expect(clear()).toBe('54px');
       // Panels closed: back where it was.
       await act(async () => {
         diff.remove();
@@ -198,7 +208,11 @@ describe('notice strip', () => {
       });
       advance(20);
       expect(clear()).toBe('');
+      expect(
+        host.querySelector<HTMLElement>('[data-notice-strip]')!.style.getPropertyValue('--room'),
+      ).toBe('');
     } finally {
+      document.documentElement.style.fontSize = '';
       box.mockRestore();
       header.remove();
       document.getElementById('diff')?.remove();
