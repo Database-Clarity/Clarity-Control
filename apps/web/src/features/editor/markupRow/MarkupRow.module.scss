@@ -78,12 +78,13 @@
     &::after {
       width: 0.75rem;
     }
-    // A wider end fade: a button cut by the pinned Suggest fades out as a whole instead of
-    // leaving a thin edge at full contrast (a sliver that reads as a stray strip). In tag mode it
-    // stays slim, clear of the six element symbols, and its solid half hides the next button's
-    // edge just past them.
+    // A wider end fade, solid for its last quarter: a button cut by the pinned Suggest fades out
+    // as a whole instead of leaving a thin edge at full contrast (a sliver that reads as a stray
+    // strip). In tag mode it stays slim, clear of the six element symbols, and its solid half
+    // hides the next button's edge just past them.
     &::after {
       width: 1.5rem;
+      background: linear-gradient(90deg, transparent, var(--editor) 75%);
     }
     &:has([data-wrap])::after {
       width: 0.75rem;
