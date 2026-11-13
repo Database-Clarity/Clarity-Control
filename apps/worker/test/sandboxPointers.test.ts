@@ -53,6 +53,12 @@ describe('sandbox picks route', () => {
     expect(stored()).toBeUndefined();
   });
 
+  it('answers a non-maintainer 403 even when the body is malformed', async () => {
+    const malformed = await fixture.request('/sandbox-pointers', 'PUT', { picks: 'x' }, 2);
+    expect(malformed.status).toBe(403);
+    expect((await fixture.request('/sandbox-pointers', 'PUT', { picks: 'x' }, 1)).status).toBe(400);
+  });
+
   it('reads an absent file as no picks with a null revision', async () => {
     const response = await get();
     expect(response.status).toBe(200);
@@ -219,6 +225,18 @@ describe('picks in the live export', () => {
     expect(perks()).not.toHaveProperty('700');
     expect(perks()).not.toHaveProperty('701');
     expect(perks()).toHaveProperty('123');
+  });
+
+  it('moves a published stub when its pick is retargeted', async () => {
+    const first = await (await put({ 700: { to: 123 } })).json();
+    expect((await pushTooltip([123])).status).toBe(200);
+    expect((await put({ 700: { to: 124 } }, first.revision)).status).toBe(200);
+    const perks = () => (fixture.live as { perks: Record<string, unknown> }).perks;
+    // Pushing the old target drops the stub (it no longer points there); pushing the new one adds it.
+    expect((await pushTooltip([123])).status).toBe(200);
+    expect(perks()).not.toHaveProperty('700');
+    expect((await pushTooltip([124])).status).toBe(200);
+    expect(perks()['700']).toEqual({ hash: 700, aliasOf: 124, aliasKind: 'sandbox' });
   });
 
   it('ignores a pick once the generator no longer lists the perk as shared', async () => {

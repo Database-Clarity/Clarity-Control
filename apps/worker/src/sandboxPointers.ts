@@ -141,7 +141,14 @@ export async function sandboxPointersRoute(
   github: GitHub,
   user: Identity,
 ): Promise<Response> {
-  const input = request.method === 'PUT' ? await body(request, updateSchema, 200_000) : null;
+  // A malformed body is reported only after the role check: non-maintainers always get 403.
+  let input: z.infer<typeof updateSchema> | null = null;
+  let invalid: unknown;
+  if (request.method === 'PUT')
+    input = await body(request, updateSchema, 200_000).catch((error: unknown) => {
+      invalid = error;
+      return null;
+    });
   let generator: { aliases: Aliases; conflicts: Record<string, unknown> } | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
     const head = await github.head();
@@ -152,6 +159,7 @@ export async function sandboxPointersRoute(
     );
     if (!permissionFile) throw new HttpError(502, 'Required repository file is missing');
     requireAccess(permissionsSchema.parse(permissionFile.value), user, ['maintainer']);
+    if (invalid) throw invalid;
     const stored = storedSandboxPointers(file);
     const revision = file?.sha ?? null;
     const exporting = !publisher || pinMergesSandboxPointers(pin?.value);
