@@ -8,7 +8,12 @@ import {
   type CompendiumSheet,
   type CompendiumGridCell,
 } from './types.js';
-import { compendiumTabId, compendiumTabs, isTrackedCompendiumTab } from './config.js';
+import {
+  compendiumIdentifiers,
+  compendiumTabId,
+  compendiumTabs,
+  isTrackedCompendiumTab,
+} from './config.js';
 import { setBonusCell } from './setBonus.js';
 import { selectCompendiumCells } from './cells.js';
 
@@ -17,7 +22,7 @@ import { selectCompendiumCells } from './cells.js';
 // cannot reuse an earlier source's meaning. Both memory and entry count are bounded.
 const normalized = new Map<string, string>();
 let normalizedCharacters = 0;
-const gramSets = new Map<string, Set<string>>();
+const gramSets = new Map<string, Float64Array>();
 let cachedGrams = 0;
 let gramCharacters = 0;
 
@@ -44,28 +49,46 @@ export function normaliseCompendiumName(name: string): string {
   }
   return value;
 }
-function grams(text: string): Set<string> {
+// A trigram as one exact number: three UTF-16 code units below 2^48. A normalized
+// text shorter than three units is its own single gram, kept in a disjoint negative
+// range (length, then units). Sorted unique codes give the same gram set sizes and
+// intersections as the former string sets, in compact arrays that let the cache
+// hold every source description and tooltip text at once (it used to thrash).
+const UNIT = 0x10000;
+function gramCodes(value: string): Float64Array {
+  if (value.length < 3) {
+    const first = value.length > 0 ? value.charCodeAt(0) : 0;
+    const second = value.length > 1 ? value.charCodeAt(1) : 0;
+    return Float64Array.of(-(1 + value.length * UNIT * UNIT + first * UNIT + second));
+  }
+  const codes = new Float64Array(value.length - 2);
+  for (let index = 0; index < codes.length; index++)
+    codes[index] =
+      (value.charCodeAt(index) * UNIT + value.charCodeAt(index + 1)) * UNIT +
+      value.charCodeAt(index + 2);
+  codes.sort();
+  let unique = 0;
+  for (let index = 0; index < codes.length; index++)
+    if (index === 0 || codes[index] !== codes[unique - 1]) codes[unique++] = codes[index];
+  return codes.subarray(0, unique);
+}
+function grams(text: string): Float64Array {
   const cached = gramSets.get(text);
   if (cached) return cached;
-  const value = normaliseCompendiumName(text);
-  const result = new Set(
-    value.length < 3
-      ? [value]
-      : Array.from({ length: value.length - 2 }, (_, index) => value.slice(index, index + 3)),
-  );
-  if (result.size <= 500_000 && text.length <= 4_000_000) {
+  const result = gramCodes(normaliseCompendiumName(text));
+  if (result.length <= 2_000_000 && text.length <= 8_000_000) {
     while (
-      gramSets.size >= 4096 ||
-      cachedGrams + result.size > 500_000 ||
-      gramCharacters + text.length > 4_000_000
+      gramSets.size >= 16384 ||
+      cachedGrams + result.length > 2_000_000 ||
+      gramCharacters + text.length > 8_000_000
     ) {
       const [key, old] = gramSets.entries().next().value!;
       gramSets.delete(key);
-      cachedGrams -= old.size;
+      cachedGrams -= old.length;
       gramCharacters -= key.length;
     }
     gramSets.set(text, result);
-    cachedGrams += result.size;
+    cachedGrams += result.length;
     gramCharacters += text.length;
   }
   return result;
@@ -75,12 +98,18 @@ export function compendiumSimilarity(left: string, right: string, minimum = 0): 
   if (!left.trim() || !right.trim()) return left === right ? 1 : 0;
   const a = grams(left);
   const b = grams(right);
-  const smaller = a.size <= b.size ? a : b;
-  const larger = a.size <= b.size ? b : a;
-  if ((2 * smaller.size) / (a.size + b.size) < minimum) return 0;
+  const smaller = a.length <= b.length ? a : b;
+  if ((2 * smaller.length) / (a.length + b.length) < minimum) return 0;
   let common = 0;
-  for (const gram of smaller) if (larger.has(gram)) common++;
-  return (2 * common) / (a.size + b.size);
+  for (let i = 0, j = 0; i < a.length && j < b.length;) {
+    if (a[i] === b[j]) {
+      common++;
+      i++;
+      j++;
+    } else if (a[i] < b[j]) i++;
+    else j++;
+  }
+  return (2 * common) / (a.length + b.length);
 }
 export interface CompendiumMatch {
   tab: CompendiumSheet;
@@ -110,19 +139,37 @@ type RowLookup = {
   normalizedTab: Map<string, CompendiumMatch[]>;
   normalized: Map<string, CompendiumMatch[]>;
 };
+type IdentifierLookup = {
+  /** Row positions, ascending, for each compendiumIdentifiers value. */
+  raw: Map<string, number[]>;
+  /** Row positions, ascending, for each normalized compendiumIdentifiers value. */
+  normalized: Map<string, number[]>;
+};
 type MatchingContext = {
   data: CompendiumData;
   rows?: CompendiumMatch[];
   cellRows?: CompendiumMatch[];
   lookups: WeakMap<readonly CompendiumMatch[], RowLookup>;
+  identifiers?: WeakMap<readonly CompendiumMatch[], IdentifierLookup>;
+  logical?: WeakMap<readonly CompendiumMatch[], readonly CompendiumMatch[]>;
 };
 let matchingContext: MatchingContext | undefined;
+const retainedContexts = new WeakMap<CompendiumData, MatchingContext>();
+
+/**
+ * Keep this source's lookups across later withCompendiumMatchingIndex calls.
+ * Only for a source that is never mutated afterwards (the proposals worker replaces,
+ * never edits, its source): sliced matching otherwise rebuilt every index per slice.
+ */
+export function retainCompendiumMatchingIndex(data: CompendiumData) {
+  if (!retainedContexts.has(data)) retainedContexts.set(data, { data, lookups: new WeakMap() });
+}
 
 /** Share lookups during one synchronous, read-only computation over this source. */
 export function withCompendiumMatchingIndex<T>(data: CompendiumData, compute: () => T): T {
   if (matchingContext?.data === data) return compute();
   const previous = matchingContext;
-  matchingContext = { data, lookups: new WeakMap() };
+  matchingContext = retainedContexts.get(data) ?? { data, lookups: new WeakMap() };
   try {
     return compute();
   } finally {
@@ -192,6 +239,34 @@ function matchingLookup(data: CompendiumData, rows: readonly CompendiumMatch[]) 
   }
   matchingContext.lookups.set(rows, index);
   return index;
+}
+
+/**
+ * Inside withCompendiumMatchingIndex: which positions of `rows` have a given
+ * (normalized) compendiumIdentifiers value. Undefined outside an index.
+ */
+export function compendiumIdentifierLookup(
+  data: CompendiumData,
+  rows: readonly CompendiumMatch[],
+): IdentifierLookup | undefined {
+  if (matchingContext?.data !== data) return;
+  const identifiers = (matchingContext.identifiers ??= new WeakMap());
+  const cached = identifiers.get(rows);
+  if (cached) return cached;
+  const lookup: IdentifierLookup = { raw: new Map(), normalized: new Map() };
+  const add = (map: Map<string, number[]>, key: string, position: number) => {
+    const bucket = map.get(key);
+    if (!bucket) map.set(key, [position]);
+    else if (bucket[bucket.length - 1] !== position) bucket.push(position);
+  };
+  rows.forEach(({ row }, position) => {
+    for (const identifier of compendiumIdentifiers(row.name)) {
+      add(lookup.raw, identifier, position);
+      add(lookup.normalized, normaliseCompendiumName(identifier), position);
+    }
+  });
+  identifiers.set(rows, lookup);
+  return lookup;
 }
 
 export function resolveCompendiumLink(
@@ -283,30 +358,13 @@ export function resolveCompendiumLink(
   }
   // Compare logical descriptions, including multipart labels, rather than fragments.
   // Human overrides always travel with their anchor and must resolve completely.
-  const matches: CompendiumMatch[] = [];
-  const groups = new Map<string, CompendiumMatch[]>();
-  for (const entry of all) {
-    const key = JSON.stringify([entry.tab.gid, entry.row.nameNorm, categoryOf(entry)]);
-    const group = groups.get(key) ?? [];
-    group.push(entry);
-    groups.set(key, group);
-  }
-  const seen = new Set<string>();
-  for (const entry of all) {
-    if (link.cells) {
-      const cell =
-        entry.row.anchor && selectCompendiumCells(entry.tab, entry.row.anchor, link.cells);
-      if (cell) matches.push({ ...entry, row: { ...entry.row, cell }, cells: link.cells });
-    } else {
-      const key = JSON.stringify([entry.tab.gid, entry.row.nameNorm, categoryOf(entry)]);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const group = groups.get(key)!;
-      const combined = combineCompendiumMatches(group);
-      if (combined) matches.push(combined);
-      else matches.push(...group);
-    }
-  }
+  const matches: readonly CompendiumMatch[] = link.cells
+    ? all.flatMap((entry) => {
+        const cell =
+          entry.row.anchor && selectCompendiumCells(entry.tab, entry.row.anchor, link.cells!);
+        return cell ? [{ ...entry, row: { ...entry.row, cell }, cells: link.cells }] : [];
+      })
+    : logicalCompendiumMatches(data, all);
   const identical = matches.filter(
     (match) =>
       sameCell(link.snapshot, match.row.cell) &&
@@ -337,6 +395,40 @@ export function resolveCompendiumLink(
   )
     return { status: 'relink-suggested', candidate: candidates[0], candidates };
   return candidates.length ? { status: 'candidates', candidates } : { status: 'missing' };
+}
+/**
+ * Every logical description in source order: one combined match per same-name
+ * group, or the group's rows when they do not combine. It depends on the rows
+ * alone, so an index computes it once; results are copied, never edited.
+ */
+function logicalCompendiumMatches(
+  data: CompendiumData,
+  all: readonly CompendiumMatch[],
+): readonly CompendiumMatch[] {
+  const context = matchingContext?.data === data ? matchingContext : undefined;
+  const cached = context?.logical?.get(all);
+  if (cached) return cached;
+  const matches: CompendiumMatch[] = [];
+  const groups = new Map<string, CompendiumMatch[]>();
+  const keys = all.map((entry) =>
+    JSON.stringify([entry.tab.gid, entry.row.nameNorm, categoryOf(entry)]),
+  );
+  all.forEach((entry, index) => {
+    const group = groups.get(keys[index]) ?? [];
+    group.push(entry);
+    groups.set(keys[index], group);
+  });
+  const seen = new Set<string>();
+  for (const key of keys) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const group = groups.get(key)!;
+    const combined = combineCompendiumMatches(group);
+    if (combined) matches.push(combined);
+    else matches.push(...group);
+  }
+  if (context) (context.logical ??= new WeakMap()).set(all, matches);
+  return matches;
 }
 // Calibrated by relink-calibration.test.ts; suggestions still require human confirmation.
 export const COMPENDIUM_RELINK_THRESHOLD = 0.98;
@@ -377,13 +469,14 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
   );
   // Exotic armour can repeat its item name at the bottom of one merged card.
   // Deduplicate only anchors inside the SAME physical description cell.
+  const exoticArmors = compendiumTabId('Exotic Armors');
   sorted = sorted.filter(
     (match, index) =>
       !sorted
         .slice(0, index)
         .some(
           (previous) =>
-            match.tab.gid === compendiumTabId('Exotic Armors') &&
+            match.tab.gid === exoticArmors &&
             previous.tab.gid === match.tab.gid &&
             match.row.nameNorm === previous.row.nameNorm &&
             match.row.anchor?.col === previous.row.anchor?.col &&
