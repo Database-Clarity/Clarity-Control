@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { aliasesSchema } from '@clarity/core';
+import { aliasesSchema, sandboxConflictsFile, sandboxConflictsSchema } from '@clarity/core';
 import { fetchJson } from './http';
 
 const source =
@@ -26,4 +26,12 @@ export async function loadGenerator(signal?: AbortSignal) {
     items,
     aliases,
   };
+}
+
+/**
+ * The generator's shared sandbox perks (hash -> tooltip identities sharing it). Needed to apply
+ * maintainer picks (core mergeSandboxPointers) and by the Sandbox perks worklist.
+ */
+export function loadSandboxConflicts(signal?: AbortSignal) {
+  return fetchJson(`${source}/${sandboxConflictsFile}`, sandboxConflictsSchema, { signal });
 }

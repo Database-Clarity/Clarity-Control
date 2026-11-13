@@ -19874,7 +19874,7 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
-// packages/core/src/languages.ts
+// packages/core/src/languageCodes.ts
 var languages = [
   "en",
   "de",
@@ -19890,6 +19890,8 @@ var languages = [
   "zh-chs",
   "zh-cht"
 ];
+
+// packages/core/src/languages.ts
 var langSchema = external_exports.enum(languages);
 
 // packages/core/src/legacyStats.ts
@@ -21862,6 +21864,35 @@ function usesEnglishFallback(tooltip, language) {
 function isLegacyAliasStub(entry) {
   return "aliasOf" in entry;
 }
+function aliasStub(alias, aliases, catalog) {
+  const entry = aliases[alias];
+  if (!entry) return void 0;
+  const facts = catalog?.[alias];
+  if (catalog && entry.kind === "frame" && !facts) {
+    throw new Error(`Missing manifest facts for frame alias ${alias}`);
+  }
+  return {
+    hash: Number(alias),
+    aliasOf: resolveAlias(Number(alias), aliases),
+    aliasKind: entry.kind,
+    ...exportFacts(facts)
+  };
+}
+var isRecord = (value2) => typeof value2 === "object" && value2 !== null;
+function mergeLivePerks(live, entries, picks) {
+  const merged = { ...live, ...entries };
+  if (!picks) return merged;
+  for (const key of picks.keys) {
+    if (Object.hasOwn(entries, key)) continue;
+    const current = merged[key];
+    if (isRecord(current) && !("aliasOf" in current)) continue;
+    const stub = aliasStub(key, picks.aliases, picks.catalog);
+    const target = stub && merged[String(stub.aliasOf)];
+    if (stub && isRecord(target) && !("aliasOf" in target)) merged[key] = stub;
+    else delete merged[key];
+  }
+  return merged;
+}
 function exportLegacy(tooltips, now, catalog, aliases = {}) {
   if (!Number.isFinite(now) || now < 0 || !Number.isInteger(now)) {
     throw new TypeError("now must be nonnegative integer epoch milliseconds");
@@ -21953,19 +21984,10 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
       }
     }
   }
-  for (const [alias, { kind }] of Object.entries(aliases)) {
+  for (const alias of Object.keys(aliases)) {
     const target = resolveAlias(Number(alias), aliases);
     if (!canonical[target]) continue;
-    const facts = catalog?.[alias];
-    if (catalog && kind === "frame" && !facts) {
-      throw new Error(`Missing manifest facts for frame alias ${alias}`);
-    }
-    entries[alias] = {
-      hash: Number(alias),
-      aliasOf: target,
-      aliasKind: kind,
-      ...exportFacts(facts)
-    };
+    entries[alias] = aliasStub(alias, aliases, catalog);
   }
   return entries;
 }
@@ -22047,6 +22069,70 @@ function publishMonth(opId) {
   const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   const time3 = [...opId.slice(0, 10)].reduce((n, c) => n * 32 + alphabet.indexOf(c), 0);
   return new Date(time3).toISOString().slice(0, 7);
+}
+
+// packages/core/src/sandboxPointers.ts
+var sandboxPointersPath = "config/sandbox-pointers.json";
+var hashKey2 = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((value2) => Number(value2) <= 4294967295);
+var decided = {
+  /** The generator's candidate set when the pick was made, sorted; flags later changes. */
+  candidates: external_exports.array(hashSchema),
+  /** GitHub numeric id of the maintainer, as in permissions. */
+  by: external_exports.number().int().positive(),
+  at: external_exports.string().datetime({ offset: true })
+};
+var sandboxDecisionSchema = external_exports.union([
+  external_exports.object({ to: hashSchema, ...decided }).strict(),
+  external_exports.object({ none: external_exports.literal(true), ...decided }).strict()
+]);
+var sandboxUndoneSchema = external_exports.object({ state: external_exports.literal("undone"), by: decided.by, at: decided.at }).strict();
+var sandboxPointerSchema = external_exports.union([sandboxDecisionSchema, sandboxUndoneSchema]);
+var sandboxPointersSchema = external_exports.object({ version: external_exports.literal(1), pointers: external_exports.record(hashKey2, sandboxPointerSchema) }).strict();
+var sandboxConflictsSchema = external_exports.record(hashKey2, external_exports.array(hashSchema));
+var sandboxPickSchema = external_exports.union([
+  external_exports.object({ to: hashSchema }).strict(),
+  external_exports.object({ none: external_exports.literal(true) }).strict()
+]);
+function isSandboxDecision(pointer) {
+  return !!pointer && !("state" in pointer);
+}
+var targetSets = /* @__PURE__ */ new WeakMap();
+function aliasTargets(aliases) {
+  let targets = targetSets.get(aliases);
+  if (!targets) {
+    targets = /* @__PURE__ */ new Set();
+    for (const entry of Object.values(aliases))
+      if (entry && typeof entry.to === "number") targets.add(entry.to);
+    targetSets.set(aliases, targets);
+  }
+  return targets;
+}
+function sandboxPointerProblem(hash2, to, aliases, conflicts, pointers) {
+  if (!Object.hasOwn(conflicts, hash2)) return "is no longer a shared sandbox perk";
+  if (Object.hasOwn(aliases, hash2)) return "already has a generator tooltip pointer";
+  if (aliasTargets(aliases).has(Number(hash2))) return "is the target of a generator alias";
+  if (String(to) === hash2) return "cannot point at itself";
+  if (Object.hasOwn(aliases, String(to)) || resolveAlias(to, aliases) !== to)
+    return `points at ${to}, which is an alias, not a canonical tooltip`;
+  if (Object.hasOwn(pointers, String(to))) return `points at ${to}, another shared sandbox perk`;
+  return null;
+}
+function mergeSandboxPointers(aliases, conflicts, pointers) {
+  if (!pointers) return aliases;
+  const decisions = Object.fromEntries(
+    Object.entries(pointers.pointers).filter(([, pointer]) => isSandboxDecision(pointer))
+  );
+  let merged;
+  for (const [hash2, pointer] of Object.entries(decisions)) {
+    if (!("to" in pointer)) continue;
+    if (sandboxPointerProblem(hash2, pointer.to, aliases, conflicts, decisions)) continue;
+    merged ??= { ...aliases };
+    merged[hash2] = { to: pointer.to, kind: "sandbox" };
+  }
+  if (!merged) return aliases;
+  return Object.fromEntries(
+    Object.entries(merged).sort(([a], [b]) => Number(a) - Number(b))
+  );
 }
 
 // packages/core/src/compendium/config.ts
@@ -22163,6 +22249,7 @@ var compendiumCategoryTabs = {
   "weapon-mod": ["1662574278"],
   "armor-set-bonus": ["1287885342"],
   "armor-trait-exotic": ["1500097863", "20898389"],
+  "armor-trait-exotic-class-item": ["20898389"],
   "armor-mod-general": ["1934379638", "1925335732"],
   "armor-mod-combat": ["1934379638", "1925335732"],
   "armor-mod-activity": ["1934379638", "1925335732"],
@@ -23285,12 +23372,12 @@ var syncedSettingsSchema = external_exports.object({
 }).strict();
 
 // packages/core/src/aliasGroups.ts
-var hashKey2 = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((v) => Number(v) <= 4294967295);
+var hashKey3 = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((v) => Number(v) <= 4294967295);
 var actor = external_exports.object({ id: external_exports.string().min(1), login: external_exports.string().min(1) }).strict();
 var aliasGroupsSchema = external_exports.object({
   version: external_exports.literal(1),
   groups: external_exports.record(
-    hashKey2,
+    hashKey3,
     external_exports.object({
       members: external_exports.array(hashSchema).min(2).refine((v) => new Set(v).size === v.length),
       kind: external_exports.enum(["S", "X"]),
@@ -23338,7 +23425,7 @@ var aliasProposalSchema = external_exports.object({
   descriptionDiff: external_exports.enum(["identical", "wording", "numbers"]),
   statsDiff: external_exports.boolean(),
   enhancedLink: hashSchema.optional(),
-  weapons: external_exports.record(hashKey2, external_exports.array(external_exports.object({ hash: hashSchema, name: external_exports.string() }).strict()))
+  weapons: external_exports.record(hashKey3, external_exports.array(external_exports.object({ hash: hashSchema, name: external_exports.string() }).strict()))
 }).strict();
 var aliasProposalsSchema = external_exports.object({
   version: external_exports.literal(1),
@@ -23518,12 +23605,36 @@ var Publisher = class {
   read(tree, path) {
     return tree[path] ? JSON.parse(this.git.blob(tree[path])) : void 0;
   }
+  /**
+   * Generator aliases plus the maintainer sandbox picks at this snapshot (core mergeSandboxPointers,
+   * the same merge as the Worker and the editor). A malformed picks file throws: fail closed.
+   */
+  aliasesAt(tree) {
+    const raw = this.read(tree, sandboxPointersPath);
+    if (raw === void 0) return this.options.aliases;
+    const pointers = sandboxPointersSchema.parse(raw);
+    return mergeSandboxPointers(
+      this.options.aliases,
+      this.options.sandboxConflicts ?? {},
+      pointers
+    );
+  }
+  /**
+   * The live-merge recompute for a publish from this snapshot (core mergeLivePerks): every key the
+   * picks file names, with the same merged aliases the export used. No picks file: none (v2).
+   */
+  pickRecomputeAt(tree) {
+    const raw = this.read(tree, sandboxPointersPath);
+    if (raw === void 0) return void 0;
+    const keys = Object.keys(sandboxPointersSchema.parse(raw).pointers);
+    return keys.length ? { keys, aliases: this.aliasesAt(tree), catalog: this.options.facts } : void 0;
+  }
   /** Check direct association targets at the drain snapshot, without walking their drafts. */
-  checkAssociatedDescriptions(tree, tooltips) {
+  checkAssociatedDescriptions(tree, tooltips, aliases = this.options.aliases) {
     const known = new Map(tooltips.map((tooltip) => [tooltip.hash, tooltip]));
     for (const tooltip of tooltips) {
       for (const reference of tooltip.associated) {
-        const hash2 = resolveAlias(reference, this.options.aliases);
+        const hash2 = resolveAlias(reference, aliases);
         let target = known.get(hash2);
         if (!target) {
           const value2 = this.read(tree, `tooltips/${hash2}.json`);
@@ -23584,7 +23695,8 @@ var Publisher = class {
     if (!live?.perks || !live.databaseSettings) throw new Error("Invalid live file");
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
-    const bytes = json2({ ...live, perks: { ...live.perks, ...entries } });
+    const picks = this.pickRecomputeAt(this.git.tree(r.sourceCommit));
+    const bytes = json2({ ...live, perks: mergeLivePerks(live.perks, entries, picks) });
     return {
       bytes,
       outcome: bytes === this.git.blob(tree["liveDescriptions.json"]) ? "unchanged" : "published"
@@ -23733,16 +23845,29 @@ var Publisher = class {
         );
         return;
       }
+      let aliases;
+      try {
+        aliases = this.aliasesAt(tree);
+      } catch (e) {
+        await this.record(
+          opId,
+          void 0,
+          void 0,
+          { status: "rejected", error: `Invalid ${sandboxPointersPath}: ${String(e)}` },
+          blob
+        );
+        return;
+      }
       const entries = [], tooltips = [], outcomes = [];
       const seen = /* @__PURE__ */ new Set();
       for (const hash2 of payload.hashes) {
-        const canonical = resolveAlias(hash2, this.options.aliases), oid = tree[`tooltips/${canonical}.json`];
+        const canonical = resolveAlias(hash2, aliases), oid = tree[`tooltips/${canonical}.json`];
         const tooltip = tooltipSchema.safeParse(oid ? JSON.parse(this.git.blob(oid)) : void 0);
         if (!tooltip.success || tooltip.data.hash !== canonical) {
           outcomes.push({ hash: canonical, status: "missing" });
           continue;
         }
-        const digest2 = await publishableHash(tooltip.data, this.options.aliases);
+        const digest2 = await publishableHash(tooltip.data, aliases);
         outcomes.push({
           hash: canonical,
           status: digest2 === payload.expected[hash2] ? "accepted" : "stale"
@@ -23768,7 +23893,7 @@ var Publisher = class {
         return;
       }
       try {
-        this.checkAssociatedDescriptions(tree, tooltips);
+        this.checkAssociatedDescriptions(tree, tooltips, aliases);
       } catch (error62) {
         await this.record(
           opId,
@@ -23812,7 +23937,7 @@ var Publisher = class {
         return;
       }
       const now = this.options.now(), pushed = pushedSchema.parse(this.read(tree, "live/pushed.json"));
-      const exported = exportLegacy(tooltips, now, this.options.facts, this.options.aliases);
+      const exported = exportLegacy(tooltips, now, this.options.facts, aliases);
       const unlowered = unloweredEntry(exported);
       if (unlowered !== void 0) {
         await this.record(
@@ -23919,12 +24044,16 @@ var Publisher = class {
         return { opId: id, invalid: true };
       }
     });
+    const sandboxPointers = sandboxPointersSchema.safeParse(
+      this.read(t, sandboxPointersPath)
+    ).data;
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, "config/permissions.json")),
       pushed: pushedSchema.parse(this.read(t, "live/pushed.json")),
+      ...sandboxPointers && Object.keys(sandboxPointers.pointers).length ? { sandboxPointers } : {},
       publishQueue
     };
     const c = this.git.commit(

@@ -17,8 +17,8 @@ config throws "Remote publishing disabled by config", and a hand-edited publishe
 
 ## Install dry-run pipeline (root operator in E2)
 
-Template source PIN: `72b85e52d8a8505b8cfa5b2176e72ea084a70d13`.
-Expected publisher.mjs SHA-256: `97b26bc88a9bc389e93c53a1885685ab7a1d7284cab2e257b85f93f4e98cefae`.
+Template source PIN: `917a3d1ad619283684950189a79bc8b6bde7df56`.
+Expected publisher.mjs SHA-256: `b97e91ac84af3117ed8a7c2211ce4462d863063f5eb06fc46667081623775279`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires

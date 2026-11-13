@@ -970,6 +970,164 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       ],
     });
   });
+  it('merges maintainer sandbox picks: stub for a pick, none for "no tooltip", picked digest', async () => {
+    const f = await setup();
+    f.options.sandboxConflicts = { 700: [123, 124], 701: [123, 125], 702: [123, 126] };
+    const pointers = {
+      version: 1,
+      pointers: {
+        700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' },
+        701: { none: true, candidates: [123, 125], by: 1, at: '2026-11-12T20:00:00Z' },
+        // The generator's set changed since the pick: it keeps working (owner 2026-11-12).
+        702: { to: 123, candidates: [123], by: 1, at: '2026-11-12T20:00:00Z' },
+      },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': pointers });
+    const merged = {
+      700: { to: 123, kind: 'sandbox' as const },
+      702: { to: 123, kind: 'sandbox' as const },
+    };
+    // A review made without the picks is stale against the picked aliases.
+    await f.request(A, [123], { 123: await publishableHash(f.tooltip, {}) });
+    await f.pub.run();
+    expect(
+      f.pub.read<{ result: { status: string } }>(f.git.tree(f.git.head(D)!), paths(A).log)!.result
+        .status,
+    ).toBe('stale');
+    await f.request(B, [123], { 123: await publishableHash(f.tooltip, merged) });
+    await f.pub.run();
+    f.assertDone(B);
+    const perks = f.pub.read<{ perks: Record<string, unknown> }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!.perks;
+    expect(perks['700']).toEqual({ hash: 700, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks['702']).toEqual({ hash: 702, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks).not.toHaveProperty('701');
+  });
+  it('recomputes an undone pick to absent on the next publish, keeping other records', async () => {
+    const f = await setup();
+    f.options.sandboxConflicts = { 700: [123, 124], 701: [123, 125] };
+    const pick = (to: number) => ({
+      to,
+      candidates: [123, 124],
+      by: 1,
+      at: '2026-11-12T20:00:00Z',
+    });
+    f.change(D, {
+      'config/sandbox-pointers.json': { version: 1, pointers: { 700: pick(123), 701: pick(123) } },
+    });
+    const both = {
+      700: { to: 123, kind: 'sandbox' as const },
+      701: { to: 123, kind: 'sandbox' as const },
+    };
+    await f.request(A, [123], { 123: await publishableHash(f.tooltip, both) });
+    await f.pub.run();
+    f.assertDone(A);
+    // 700 is undone (a tombstone): publishing 123 again recomputes it to absent; 701 stays.
+    f.change(D, {
+      'config/sandbox-pointers.json': {
+        version: 1,
+        pointers: {
+          700: { state: 'undone', by: 1, at: '2026-11-12T21:00:00Z' },
+          701: pick(123),
+        },
+      },
+    });
+    await f.request(B, [123], { 123: await publishableHash(f.tooltip, { 701: both[701] }) });
+    await f.pub.run();
+    f.assertDone(B);
+    const perks = f.pub.read<{ perks: Record<string, unknown> }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!.perks;
+    expect(perks).not.toHaveProperty('700');
+    expect(perks['701']).toEqual({ hash: 701, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks).toHaveProperty('123');
+  });
+  it.skipIf(transport !== 'simulator')(
+    'parity verifies a picked receipt with the merged aliases and matches the live bytes',
+    async () => {
+      const f = await setup();
+      f.options.sandboxConflicts = { 700: [123, 124] };
+      f.change(D, {
+        'config/sandbox-pointers.json': {
+          version: 1,
+          pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+        },
+      });
+      await f.request(A, [123], {
+        123: await publishableHash(f.tooltip, { 700: { to: 123, kind: 'sandbox' } }),
+      });
+      await f.pub.run();
+      f.assertDone(A);
+      const dir = mkdtempSync(join(tmpdir(), 'parity-picks-'));
+      roots.push(dir);
+      const config = join(dir, 'config.json');
+      writeFileSync(config, JSON.stringify(f.options));
+      const previous = process.argv;
+      process.argv = [
+        'node',
+        'parity',
+        f.upstream,
+        f.git.head(L)!,
+        paths(A).receipt,
+        config,
+        join(dir, 'missing-adapters.mjs'),
+        join(dir, 'out'),
+      ];
+      try {
+        // It stops at the (absent) converter adapters, after the digest check and the live bytes.
+        await expect(import('./parity.js')).rejects.toThrow(/missing-adapters|Cannot find|ERR_/);
+      } finally {
+        process.argv = previous;
+      }
+      expect(readFileSync(join(dir, 'out', 'expected-liveDescriptions.json'), 'utf8')).toBe(
+        readFileSync(join(dir, 'out', 'actual-liveDescriptions.json'), 'utf8'),
+      );
+    },
+  );
+  it('bundle.json carries maintainer sandbox picks only while the file holds some', async () => {
+    const f = await setup();
+    const bundle = () =>
+      f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+    f.pub.bundle();
+    expect(bundle()).not.toHaveProperty('sandboxPointers');
+    f.change(D, { 'config/sandbox-pointers.json': { version: 1, pointers: {} } });
+    f.pub.bundle();
+    expect(bundle()).not.toHaveProperty('sandboxPointers');
+    const picks = {
+      version: 1,
+      pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': picks });
+    f.pub.bundle();
+    expect(bundle().sandboxPointers).toEqual(picks);
+  });
+  it('rejects a request terminally when the picks file is malformed', async () => {
+    const f = await setup();
+    f.change(D, { 'config/sandbox-pointers.json': { version: 1, pointers: { 700: { to: 1 } } } });
+    await f.request();
+    const before = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(before);
+    expect(
+      f.pub.read<{ result: { status: string; error: string } }>(
+        f.git.tree(f.git.head(D)!),
+        paths(A).log,
+      )!.result,
+    ).toMatchObject({ status: 'rejected', error: expect.stringContaining('sandbox-pointers') });
+    // The bundle still updates; it leaves the malformed picks out.
+    const bundle = f.pub.read<Record<string, unknown>>(
+      f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+      'bundle.json',
+    )!;
+    expect(bundle.sourceCommit).toBe(f.git.head(D));
+    expect(bundle).not.toHaveProperty('sandboxPointers');
+  });
   it.each([false, true])(
     'guard closes a stray request (conflict=%s) without changing original log',
     async (conflict) => {
@@ -1055,6 +1213,34 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.git.cas(D, f.git.head(D), unrelated);
     expect(() => f.pub.bundle()).toThrow('backwards');
     expect(f.git.head('refs/heads/editor-data-bundle')).toBe(newer);
+  });
+  it('a bundle push carries both report catalogs forward and adds the sandbox picks', async () => {
+    const f = await setup();
+    const ref = 'refs/heads/editor-data-bundle',
+      source = f.git.head(D)!;
+    const catalogs = {
+      'report-items.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{"name":"Thing"}}}
+`,
+      'report-items.worker.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{}}}
+`,
+    };
+    const seeded: Tree = { 'bundle.json': f.git.writeBlob(encode({ sourceCommit: source })) };
+    for (const [p, bytes] of Object.entries(catalogs)) seeded[p] = f.git.writeBlob(bytes);
+    f.git.cas(ref, undefined, f.git.commit(undefined, seeded, 'Bundle editor data'));
+    const picks = {
+      version: 1,
+      pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': picks });
+    f.pub.bundle();
+    const tree = f.git.tree(f.git.head(ref)!);
+    expect(Object.keys(tree).sort()).toEqual(
+      ['bundle.json', 'report-items.json', 'report-items.worker.json'].sort(),
+    );
+    for (const [p, bytes] of Object.entries(catalogs)) expect(f.git.blob(tree[p]!)).toBe(bytes);
+    expect(f.pub.read<{ sandboxPointers: unknown }>(tree, 'bundle.json')!.sandboxPointers).toEqual(
+      picks,
+    );
   });
   it('bundle pushes, dry-run included, carry the report catalogs forward byte-identical', async () => {
     const f = await setup();
@@ -1179,8 +1365,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // and budget checks, the link-only empty-description guard, and the set-bonus hold; the
     // element-tag export hold is lifted (exportLegacy lowers; untagged pushes write the same bytes).
     // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
+    // Re-pinned for sandbox picks: push merges config/sandbox-pointers.json (core
+    // mergeSandboxPointers) like the publisher, and merges live perks with core mergeLivePerks
+    // (keys the picks file names are recomputed); with no picks file, as here, every byte is the same.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', '197d9c0acc99bd78901b574d5e8299160fd42665'],
+      ['apps/worker/src/push.ts', '45b21dd0bffce40000d4a701a607010afd258c94'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

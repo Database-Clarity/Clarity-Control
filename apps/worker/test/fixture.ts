@@ -81,6 +81,9 @@ export class Fixture {
   csv = 'Perk,Description\r\n"Thing","Line 1\nLine 2, ""quoted"""\r\n';
   failGoogle = false;
   aliases: Aliases = { 789: { to: 123, kind: 'sandbox' } };
+  /** Generator `sandboxConflicts.json`: shared sandbox perk -> tooltips sharing it. */
+  sandboxConflicts: Record<string, number[]> = {};
+  sandboxConflictReads = 0;
   extraItems: Record<string, unknown> = {};
   /** Generator `weaponTypes.json`; undefined serves a 404 (the file is optional). */
   weaponTypeTable?: unknown;
@@ -301,6 +304,10 @@ export class Fixture {
       if (url.pathname.endsWith('/categories.json'))
         return this.response([{ id: 'perk', legacyType: 'Weapon Perk' }, ...this.extraCategories]);
       if (url.pathname.endsWith('/aliases.json')) return this.response(this.aliases);
+      if (url.pathname.endsWith('/sandboxConflicts.json')) {
+        this.sandboxConflictReads++;
+        return this.response(this.sandboxConflicts);
+      }
       if (url.pathname.endsWith('/weaponTypes.json')) {
         if (this.weaponTypeStatus) return this.response({}, this.weaponTypeStatus);
         return this.weaponTypeTable === undefined

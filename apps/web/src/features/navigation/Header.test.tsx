@@ -179,6 +179,7 @@ describe('workspace tabs and More', () => {
     expect(items.map((item) => item.textContent)).toEqual([
       'Bungie drift',
       'Lost text',
+      'Sandbox perks',
       'Archive',
       'Management',
       'Exports',
@@ -189,12 +190,12 @@ describe('workspace tabs and More', () => {
     expect(document.activeElement).toBe(items[1]);
     await key(items[1], 'ArrowUp');
     await key(items[0], 'ArrowUp');
-    expect(document.activeElement).toBe(items[4]);
-    await key(items[4], 'Home');
+    expect(document.activeElement).toBe(items[5]);
+    await key(items[5], 'Home');
     expect(document.activeElement).toBe(items[0]);
     await key(items[0], 'End');
-    expect(document.activeElement).toBe(items[4]);
-    await key(items[4], 'Escape');
+    expect(document.activeElement).toBe(items[5]);
+    await key(items[5], 'Escape');
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(more);
   });
@@ -229,7 +230,15 @@ describe('workspace tabs and More', () => {
     await click(q('nav[aria-label="Workspaces"] button'));
     expect(
       [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
-    ).toEqual(['Translations', 'Bungie drift', 'Lost text', 'Archive', 'Management', 'Exports']);
+    ).toEqual([
+      'Translations',
+      'Bungie drift',
+      'Lost text',
+      'Sandbox perks',
+      'Archive',
+      'Management',
+      'Exports',
+    ]);
   });
 
   it('promotes Bungie drift, then Management, to tabs only on wide screens', async () => {
@@ -267,7 +276,7 @@ describe('workspace tabs and More', () => {
     await click(q('nav[aria-label="Workspaces"] button'));
     expect(
       [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
-    ).toEqual(['Lost text', 'Archive', 'Exports']);
+    ).toEqual(['Lost text', 'Sandbox perks', 'Archive', 'Exports']);
     // Editors have no Management: Drift alone moves up.
     await act(async () => root.unmount());
     root = createRoot(host);

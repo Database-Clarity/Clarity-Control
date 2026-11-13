@@ -6,6 +6,7 @@ import {
   hashSchema,
   merge3,
   resolveAlias,
+  sandboxPointersPath,
   tooltipSchema,
   type Tooltip,
 } from '@clarity/core';
@@ -18,6 +19,7 @@ import {
   refuseUnlowerableTags,
 } from './elementTags.js';
 import { RefRace, type GitHub } from './github.js';
+import { withSandboxPointers } from './sandboxPointers.js';
 import { body, HttpError, json } from './http.js';
 import { checkEdit, permissions, requireAccess } from './permissions.js';
 import type { Identity } from './types.js';
@@ -66,7 +68,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
     }[] = [];
     const tooltips: Tooltip[] = [];
     const changed: string[] = [];
-    aliases ??= await loadAliases(github.env, github);
+    const generatorAliases = (aliases ??= await loadAliases(github.env, github));
     // One batched read for all current copies: flat subrequests however many tooltips change.
     // While the publisher is the live exporter, a change carrying element-tagged text also reads
     // the publisher's PIN in the same call: only a build declaring the capability lowers tags.
@@ -76,9 +78,12 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       [
         ...input.changes.map(({ hash }) => `tooltips/${hash}.json`),
         ...(readsPin ? [publisherPinPath] : []),
+        sandboxPointersPath,
       ],
       headCommit,
     );
+    // A picked shared sandbox perk is an alias of its target, exactly as push and publish see it.
+    const saveAliases = await withSandboxPointers(github, generatorAliases, current.at(-1));
     let pinLowers = readsPin
       ? pinLowersElementTags(current[input.changes.length]?.value)
       : undefined;
@@ -92,7 +97,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       return pinLowers;
     };
     for (const [index, change] of input.changes.entries()) {
-      const canonical = resolveAlias(change.hash, aliases);
+      const canonical = resolveAlias(change.hash, saveAliases);
       if (canonical !== change.hash) {
         throw new HttpError(
           422,

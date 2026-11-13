@@ -30,6 +30,12 @@ const loadDriftPage = workspacePage(() =>
   import('./features/drift/DriftPage').then((module) => ({ default: module.DriftPage })),
 );
 const DriftPage = () => <AppLazyPage load={loadDriftPage} />;
+const loadSandboxPerksPage = workspacePage(() =>
+  import('./features/sandbox-perks/SandboxPerksPage').then((module) => ({
+    default: module.SandboxPerksPage,
+  })),
+);
+const SandboxPerksPage = () => <AppLazyPage load={loadSandboxPerksPage} />;
 const loadReviewPage = workspacePage(() =>
   import('./features/review/ReviewPage').then((module) => ({ default: module.ReviewPage })),
 );
@@ -62,6 +68,7 @@ const workspaceLoaders: Record<string, () => Promise<unknown>> = {
   '/translations': loadTranslationsPage,
   '/drift': loadDriftPage,
   '/lost-text': () => import('./features/lost-text/LostTextPage'),
+  '/sandbox-perks': loadSandboxPerksPage,
   '/archive': loadArchivePage,
   '/management': loadAdminPage,
 };
@@ -119,6 +126,11 @@ export const routes: RouteObject[] = [
       { path: 'archive', element: <ArchivePage />, handle: { preload: loadArchivePage } },
       { path: 'drift', element: <DriftPage />, handle: { preload: loadDriftPage } },
       { path: 'lost-text', element: <LostTextPage /> },
+      {
+        path: 'sandbox-perks',
+        element: <SandboxPerksPage />,
+        handle: { preload: loadSandboxPerksPage },
+      },
       {
         path: 'translations',
         element: <TranslationsPage />,

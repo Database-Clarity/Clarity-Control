@@ -39,7 +39,32 @@ export async function buildBundle(root, sourceCommit, generatedAt = new Date().t
       throw new Error(`Invalid pushed entry: ${hash}`);
     }
   }
-  return { sourceCommit, generatedAt, tooltips, permissions, pushed };
+  // Maintainer sandbox picks (config/sandbox-pointers.json) ride along for the editor's alias
+  // view; omitted while the file is absent or holds no picks, so such bundles are unchanged. A
+  // malformed file is left out rather than failing the bundle (the Worker fails closed on it).
+  let sandboxPointers;
+  try {
+    sandboxPointers = await readJson(join(root, 'config', 'sandbox-pointers.json'));
+  } catch {
+    sandboxPointers = undefined; // absent or not JSON
+  }
+  const picks = sandboxPointers?.pointers;
+  if (
+    sandboxPointers?.version !== 1 ||
+    !picks ||
+    typeof picks !== 'object' ||
+    Array.isArray(picks) ||
+    !Object.keys(picks).length
+  )
+    sandboxPointers = undefined;
+  return {
+    sourceCommit,
+    generatedAt,
+    tooltips,
+    permissions,
+    pushed,
+    ...(sandboxPointers ? { sandboxPointers } : {}),
+  };
 }
 
 async function main() {
