@@ -16,6 +16,7 @@ import {
 } from '@clarity/core';
 import { insertionChecker, type Rejection } from '../markupInsertion';
 import { checkedWrap, elementLabel, isElementName, tagSelection } from '../elementTags';
+import { groupChange, pairAt } from '../iconPairs';
 import { locateBlocks, locateVariables } from '../references';
 import { englishSymbols, subclassSymbol } from './typedSymbols';
 
@@ -71,6 +72,11 @@ export interface SuggestItem {
   reference?: boolean;
   /** An element-tag wrap of the selection, already judged by the wrap rules (elementTags.ts). */
   wrap?: boolean;
+  /**
+   * "Group with icon" on the pair at the caret (iconPairs.ts), judged by its own rules. A spaced
+   * pair asks before it drops the space.
+   */
+  group?: 'joined' | 'spaced';
   /** Link-like text must not land in a legacy table cell. */
   link?: boolean;
   /** A whole-line style marker: the line may only carry as many as it can show. */
@@ -521,6 +527,42 @@ function build(
   return items;
 }
 
+/**
+ * "Group with icon" for the pair at the caret (its icon, or in its words) or selected: the icon and
+ * its words become one tagged span. None when the selection is exactly the words of a joined pair:
+ * the element wraps there do the same.
+ */
+export function groupItem(state: EditorState, globals: MarkupGlobals): SuggestItem | null {
+  const pair = pairAt(state);
+  if (!pair) return null;
+  const { from, to } = state.selection.main;
+  if (!pair.spaced && from === pair.from && to === pair.to) return null;
+  const change = groupChange(state, pair, globals);
+  if (!change) return null;
+  const element = elementLabel(pair.element);
+  const line = state.doc.lineAt(change.from);
+  return {
+    id: 'transform:group-with-icon',
+    category: 'Transforms',
+    label: 'Group with icon',
+    hint: change.dropsSpace ? 'drops the space' : element,
+    about: change.dropsSpace
+      ? `Tags “${pair.text}” as ${element} with its icon. The space after the icon goes, which changes the text; you are asked first.`
+      : `Tags “${pair.text}” as ${element}: the icon and its words become one tagged span. What readers see stays the same.`,
+    from: change.from,
+    to: change.to,
+    insert: change.insert,
+    stops: [],
+    preview:
+      line.text.slice(0, change.from - line.from) +
+      change.insert +
+      line.text.slice(change.to - line.from),
+    group: change.dropsSpace ? 'spaced' : 'joined',
+    pinned: true,
+    keys: `group icon tag ${pair.element} ${pair.text}`,
+  };
+}
+
 /** The fixed order of everything below the pinned options: the same every time, so it can be learned. */
 const everyOrder: readonly SuggestCategory[] = [
   'Transforms',
@@ -543,7 +585,8 @@ export function requestItems(
   globals: MarkupGlobals,
   recent: readonly string[] = [],
 ): SuggestItem[] {
-  const pinned = suggestItems(context, state, globals, recent);
+  const group = groupItem(state, globals);
+  const pinned = [...(group ? [group] : []), ...suggestItems(context, state, globals, recent)];
   const taken = new Set(pinned.map((item) => item.id));
   const others = build(context, state, globals, true, taken).filter(
     (item) => !context.query || matchScore(item, context.query) > 0,
@@ -572,7 +615,7 @@ export function judgeItems(
   let changed = false;
   const judged = items.map((item) => {
     // A reference to something already defined is not held to the markup-safety rules.
-    if (item.unavailable || item.reference || item.wrap) return item;
+    if (item.unavailable || item.reference || item.wrap || item.group) return item;
     const rejection = check(
       { from: item.from, to: item.to },
       { typed: !selection || item.from === item.to, link: item.link, lineStyle: item.lineStyle },
