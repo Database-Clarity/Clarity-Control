@@ -136,16 +136,13 @@ export function CompendiumQueue() {
   );
   const show = parseShow(params.get('show'));
   const query = params.get('q') ?? '';
-  const select = useCallback(
-    (hash: number) => {
-      const next = new URLSearchParams(paramsRef.current);
-      next.delete('tab');
-      next.set('hash', String(hash));
-      setParamsRef.current(next, { replace: true });
-      closeSheet.current?.();
-    },
-    [],
-  );
+  const select = useCallback((hash: number) => {
+    const next = new URLSearchParams(paramsRef.current);
+    next.delete('tab');
+    next.set('hash', String(hash));
+    setParamsRef.current(next, { replace: true });
+    closeSheet.current?.();
+  }, []);
   const filter = (key: 'show' | 'q', value: string) => {
     const next = new URLSearchParams(paramsRef.current);
     if (value && !(key === 'show' && value === 'open')) next.set(key, value);

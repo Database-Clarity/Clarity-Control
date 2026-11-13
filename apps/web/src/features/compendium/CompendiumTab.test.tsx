@@ -315,7 +315,9 @@ describe('linked sources view', () => {
     await press('ArrowDown');
     expect(Object.keys(useDraftStore.getState().drafts)).toHaveLength(0);
     expect(route().searchParams.get('tab')).toBe('linked');
-    const back = [...host.querySelectorAll('a')].find((a) => a.textContent?.includes('Back to the'))!;
+    const back = [...host.querySelectorAll('a')].find((a) =>
+      a.textContent?.includes('Back to the'),
+    )!;
     await act(async () => {
       back.click();
     });
