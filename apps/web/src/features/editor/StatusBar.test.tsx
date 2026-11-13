@@ -123,6 +123,50 @@ describe('status bar', () => {
     vi.restoreAllMocks();
   });
 
+  it('fits after the browser lays the bar out, never inside the render that mounts it', () => {
+    let report: (() => void) | undefined;
+    const observed: Element[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          report = () => callback([], this as unknown as ResizeObserver);
+        }
+        observe(element: Element) {
+          observed.push(element);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const widths = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return 400 - 60 * Number(this.dataset.fit ?? 0);
+      });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+    const status = () => q('[data-editor-status]')!;
+    render(bar({ issues: [{ severity: 'warning', message: 'x', from: 0, to: 1 }] }));
+    expect(widths).not.toHaveBeenCalled();
+    act(() => report!());
+    expect(status().dataset.fit).toBe('2');
+    // The same size again (its own steps): nothing to do.
+    const measured = widths.mock.calls.length;
+    act(() => report!());
+    expect(widths.mock.calls.length).toBe(measured);
+    // New items: observed afresh, measured when the observer reports after the next layout.
+    widths.mockImplementation(function (this: HTMLElement) {
+      return 280 - 60 * Number(this.dataset.fit ?? 0);
+    });
+    const observations = observed.length;
+    render(bar());
+    expect(widths.mock.calls.length).toBe(measured);
+    expect(observed.length).toBe(observations + 1);
+    act(() => report!());
+    expect(status().dataset.fit).toBe('0');
+    vi.restoreAllMocks();
+  });
+
   it('offers the preview when edits were not previewed or the column is hidden', () => {
     const onShow = vi.fn();
     render(bar({ preview: { unpreviewed: 2, collapsed: true, onShow } }));

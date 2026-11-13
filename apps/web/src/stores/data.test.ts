@@ -3,9 +3,11 @@ import { useDataStore } from './data';
 import { clearSavedOverlay, overlayClockSkewMs, rememberSaved } from './savedOverlay';
 import { loadBundle } from '../services/bundle';
 import { loadGenerator } from '../services/generator';
+import { prepareNavigationGroups } from '../features/navigation/catalog';
 
 vi.mock('../services/bundle', () => ({ loadBundle: vi.fn() }));
 vi.mock('../services/generator', () => ({ loadGenerator: vi.fn() }));
+vi.mock('../features/navigation/catalog', () => ({ prepareNavigationGroups: vi.fn() }));
 
 describe('editor data loading', () => {
   beforeEach(() => {
@@ -102,5 +104,37 @@ describe('editor data loading', () => {
     });
     await useDataStore.getState().load();
     expect(useDataStore.getState().data?.bundle.tooltips[10]).toEqual(tooltip('theirs'));
+  });
+  it('groups the catalog for the finder before publishing it, and still shows a save made meanwhile', async () => {
+    const at = Date.parse('2026-11-01T00:00:00Z');
+    const tooltip = (text: string) => ({
+      hash: 10,
+      text: { en: { text, updatedAt: new Date(at).toISOString(), updatedBy: 'user' } },
+      associated: [],
+    });
+    vi.mocked(loadGenerator).mockResolvedValue({ categories: [], items: {}, aliases: {} });
+    vi.mocked(loadBundle).mockResolvedValue({
+      sourceCommit: 'abc',
+      generatedAt: new Date(at).toISOString(),
+      tooltips: { 10: tooltip('old') },
+      permissions: { users: {} },
+      pushed: {},
+    });
+    const grouped: unknown[] = [];
+    vi.mocked(prepareNavigationGroups).mockImplementation((data) => {
+      expect(useDataStore.getState().status).toBe('loading');
+      grouped.push(data);
+    });
+    await useDataStore.getState().load();
+    // The finder's first render finds the very data it was grouped for.
+    expect(grouped).toEqual([useDataStore.getState().data]);
+    expect(grouped[0]).toBe(useDataStore.getState().data);
+    // A save that lands between the grouping and the publish is not lost.
+    useDataStore.setState({ status: 'idle' });
+    vi.mocked(prepareNavigationGroups).mockImplementation(() =>
+      rememberSaved([tooltip('mine')], [], Date.now()),
+    );
+    await useDataStore.getState().load();
+    expect(useDataStore.getState().data?.bundle.tooltips[10]).toEqual(tooltip('mine'));
   });
 });

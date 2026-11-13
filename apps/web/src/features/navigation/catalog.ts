@@ -518,6 +518,15 @@ export function groupedSection(
  */
 const browseGroups = new WeakMap<EditorData, CategoryGroup[]>();
 
+/**
+ * Groups `data` for the finder ahead of its first render. The data store calls it in a task of
+ * its own before it publishes the data, so the first render of the workspace reuses the groups
+ * instead of adding their cost to the same long task.
+ */
+export function prepareNavigationGroups(data: EditorData): void {
+  if (!browseGroups.has(data)) browseGroups.set(data, itemGroups(data, ''));
+}
+
 export function navigationGroups(
   data: EditorData,
   query: string,
