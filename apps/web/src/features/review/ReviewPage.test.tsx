@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, createElement, useEffect, useLayoutEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import {
   MemoryRouter,
@@ -615,6 +616,102 @@ it('lets the local workspace paint before presenting a fast background compariso
     expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
       'Fast background comparison',
     );
+  } finally {
+    router.dispose();
+  }
+});
+
+it('never shows the comparison skeleton for a response held for the opening paint', async () => {
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const { router, requests } = await mountDelayedReview();
+  const detail = () => host.querySelector('[aria-label="Selected change"]')!;
+  const runFrame = () => {
+    const batch = [...frames];
+    frames.clear();
+    flushSync(() => batch.forEach(([, callback]) => callback(performance.now())));
+  };
+  try {
+    await act(async () => requests[0].resolve('Held comparison'));
+    // Browser order when the row slice runs long: the second frame's callbacks
+    // run before the opening's post-paint timer releases the held response.
+    act(runFrame);
+    act(runFrame);
+    expect(detail().querySelector('[aria-busy=true] [aria-hidden=true]')).toBeNull();
+    // The release lands within the opening's own frames, not after a skeleton minimum.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    for (let round = 0; round < 12 && frames.size; round++)
+      await act(async () => {
+        runFrame();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    expect(detail().textContent).toContain('Held comparison');
+  } finally {
+    router.dispose();
+  }
+});
+
+it('commits a comparison received after the first row slice before its skeleton can show', async () => {
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const { router, requests } = await mountDelayedReview();
+  const detail = () => host.querySelector('[aria-label="Selected change"]')!;
+  const runFrame = () => {
+    const batch = [...frames];
+    frames.clear();
+    flushSync(() => batch.forEach(([, callback]) => callback(performance.now())));
+  };
+  try {
+    // First paint, then the first row slice: the hold is over, the opening still runs.
+    act(runFrame);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(useReviewOpening.getState().limit).toBeGreaterThan(0);
+    // The response is processed without any later task (the row slices own
+    // those); the skeleton's second frame follows right after.
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: false });
+    requests[0].resolve('Received during the slices');
+    for (let tick = 0; tick < 50; tick++) await Promise.resolve();
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    act(runFrame);
+    expect(detail().querySelector('[aria-busy=true] [aria-hidden=true]')).toBeNull();
+    expect(detail().textContent).toContain('Received during the slices');
+  } finally {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    router.dispose();
+  }
+});
+
+it('still shows the comparison skeleton for a wait that outlasts the opening', async () => {
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const { router } = await mountDelayedReview();
+  const detail = () => host.querySelector('[aria-label="Selected change"]')!;
+  try {
+    for (let round = 0; round < 12 && frames.size; round++) {
+      const batch = [...frames];
+      frames.clear();
+      await act(async () => {
+        batch.forEach(([, callback]) => callback(performance.now()));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(useReviewOpening.getState().warming).toBe(false);
+    expect(detail().querySelector('[aria-busy=true] [aria-hidden=true]')).not.toBeNull();
   } finally {
     router.dispose();
   }
