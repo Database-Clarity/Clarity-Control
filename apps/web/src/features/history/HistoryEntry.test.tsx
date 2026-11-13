@@ -435,8 +435,11 @@ it('bridges Tab into a portaled revision and Shift+Tab back to its trigger', asy
       new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
     ),
   );
-  await wait(30);
-  expect(document.activeElement?.textContent).toBe('Restore this revision');
+  // Focus enters the previous revision's last control on the frame after it renders; wait for
+  // that hand-off itself rather than a fixed delay (a slow runner can be later than 30 ms).
+  await act(async () =>
+    vi.waitFor(() => expect(document.activeElement?.textContent).toBe('Restore this revision')),
+  );
   expect(entries()[0].getAttribute('aria-expanded')).toBe('true');
 });
 
