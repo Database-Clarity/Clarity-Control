@@ -520,7 +520,20 @@ const PaneContents = memo(function PaneContents({
   const retainedPane = useRef<ReturnType<typeof RightPane>>();
   const wasStepping = useRef(false);
   const hasContent = useRef(false);
-  const showSkeleton = useSkeletonVisible(waiting, target, hasContent.current);
+  // One discrete step (a finder pick, one Shift+wheel notch) holds the pane through the
+  // stepping quiet and the preview handoff. That hold is not this entry's load time: its
+  // skeleton grace (two frames) starts once the pane may render, so a warm entry shows
+  // directly instead of behind a skeleton's minimum. A burst that moves on to another
+  // entry keeps the skeleton rule from that move on.
+  const burst = useRef<{ target: number; moved: boolean }>();
+  if (!stepping) burst.current = undefined;
+  else if (!burst.current) burst.current = { target, moved: false };
+  else if (burst.current.target !== target) burst.current = { target, moved: true };
+  const showSkeleton = useSkeletonVisible(
+    waiting && (!stepping || !!burst.current?.moved || !hasContent.current),
+    target,
+    hasContent.current,
+  );
   // A shown skeleton outlasts the load by its minimum time; until then ready content waits.
   const holding = waiting || showSkeleton;
   useLayoutEffect(() => {
