@@ -28,6 +28,8 @@ export const sessionSchema = z.object({
   rows: z.record(z.string(), z.enum(['mine', 'theirs']).nullable()),
   /** Published only once the draft write settles. Absent on legacy sessions. */
   storedAt: z.number().finite().optional(),
+  /** Server time of the rejected save (its Date header), dating `head` for the saved overlay. */
+  serverAt: z.number().finite().positive().optional(),
 });
 export type ConflictSession = z.infer<typeof sessionSchema>;
 export type RowChoice = 'mine' | 'theirs';
@@ -47,15 +49,18 @@ export interface BeginResult {
 export interface ConflictDeps {
   drafts: typeof useDraftStore;
   storage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'> | undefined;
-  /** Makes the server's version (null: none) the one the editor shows as saved. */
-  applyHead(hash: number, head: Tooltip | null): void;
+  /**
+   * Makes the server's version (null: none) the one the editor shows as saved. `serverAt` is the
+   * server's clock when it reported that version; absent, the browser clock dates it.
+   */
+  applyHead(hash: number, head: Tooltip | null, serverAt?: number): void;
 }
 
 export interface ConflictState {
   scope: string | null;
   sessions: Record<number, ConflictSession>;
   /** Rebases the drafts of a rejected save on the server's versions and opens the resolution. */
-  begin(conflicts: SaveConflict[], kept?: Change[]): BeginResult;
+  begin(conflicts: SaveConflict[], kept?: Change[], serverAt?: number): BeginResult;
   choose(hash: number, field: string, choice: RowChoice): void;
   /** Merges in what another tab stored for the same account (after Reload). */
   refresh(): void;
@@ -238,7 +243,7 @@ export function createConflictStore(deps: ConflictDeps) {
     return {
       scope: null,
       sessions: {},
-      begin(conflicts, kept = []) {
+      begin(conflicts, kept = [], serverAt) {
         const sessions = { ...get().sessions };
         const result: BeginResult = { markers: 0, tooltips: 0, merged: 0, rows: 0 };
         const drafts = deps.drafts.getState();
@@ -250,19 +255,26 @@ export function createConflictStore(deps: ConflictDeps) {
           const rows: Record<string, null> = {};
           if (rebased) {
             replaceDraft(rebased.base, rebased.next, true);
-            deps.applyHead(hash, head);
+            deps.applyHead(hash, head, serverAt);
             result.markers += rebased.markers;
             result.merged += rebased.mergedLanguages.length;
             for (const field of rebased.rows) rows[field] = null;
           } else {
             // The tooltip exists on one side only: keep my draft and ask what to do with it.
             if (!drafts.drafts[hash]) drafts.updateDraft(base ?? head ?? next, () => next);
-            if (head) deps.applyHead(hash, head);
+            if (head) deps.applyHead(hash, head, serverAt);
             rows['$exists'] = null;
           }
           result.rows += Object.keys(rows).length;
           result.tooltips++;
-          sessions[hash] = { hash, base, head, mine: next, rows };
+          sessions[hash] = {
+            hash,
+            base,
+            head,
+            mine: next,
+            rows,
+            ...(serverAt === undefined ? {} : { serverAt }),
+          };
         }
         // Changes made through a one-shot review (Compendium link, drift) were never drafts:
         // keep the ones that did not conflict, so closing the review loses nothing.
@@ -299,7 +311,8 @@ export function createConflictStore(deps: ConflictDeps) {
           if (session.head === null) {
             // Deleted on the server while I edited. Mine: bring it back (saved as a new tooltip).
             // Theirs: accept the deletion and let my draft go.
-            deps.applyHead(hash, null);
+            // The server reported the deletion when the save was rejected, not now.
+            deps.applyHead(hash, null, session.serverAt);
             if (choice === 'theirs') draftStore.discard(hash);
           } else if (choice === 'mine') {
             // They created it meanwhile. Mine: save on top of theirs.
@@ -413,9 +426,9 @@ export function createConflictStore(deps: ConflictDeps) {
 }
 
 /** Makes the server's version (null: deleted) the one the editor shows as saved. */
-export function applyHeadToData(hash: number, head: Tooltip | null): void {
-  if (head) rememberSaved([head]);
-  else rememberSaved([], [hash]);
+export function applyHeadToData(hash: number, head: Tooltip | null, serverAt?: number): void {
+  if (head) rememberSaved([head], [], Date.now(), serverAt);
+  else rememberSaved([], [hash], Date.now(), serverAt);
   useDataStore.setState(({ data }) => {
     if (!data) return {};
     const tooltips = { ...data.bundle.tooltips };

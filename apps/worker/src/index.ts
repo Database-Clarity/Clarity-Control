@@ -127,6 +127,13 @@ const worker: {
           : 'Authorization, Content-Type',
       );
       headers.set('Access-Control-Max-Age', '600');
+      // The editor dates conflict answers by server time (Date), not by the browser clock.
+      // Routes may expose their own headers (ETag); keep them.
+      const exposed = (headers.get('Access-Control-Expose-Headers') ?? '')
+        .split(',')
+        .map((name) => name.trim())
+        .filter((name) => name && name.toLowerCase() !== 'date');
+      headers.set('Access-Control-Expose-Headers', [...exposed, 'Date'].join(', '));
     }
     headers.set('X-Content-Type-Options', 'nosniff');
     return new Response(response.body, { status: response.status, headers });

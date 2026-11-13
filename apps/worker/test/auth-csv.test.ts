@@ -145,6 +145,8 @@ describe('sessions and OAuth web flow', () => {
     expect(unauthenticated.headers.get('Access-Control-Allow-Origin')).toBe(
       fixture.env.SITE_ORIGIN,
     );
+    expect(unauthenticated.headers.get('Access-Control-Expose-Headers')).toBe('Date');
+    expect(response.headers.has('Access-Control-Expose-Headers')).toBe(false);
   });
 });
 
