@@ -4,22 +4,17 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
+import { startHarnessServer } from './harness-server.mjs';
 
-// Starts its own Vite server (VITE_API_URL set, so the panel treats the user as signed in);
+// Starts its own server (VITE_API_URL set, so the panel treats the user as signed in);
 // all data is synthetic. Screenshots go to argv[2].
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/overhaul-p2s10-shots');
 await mkdir(shots, { recursive: true });
 const port = Number(process.env.HISTORY_HOVER_PORT ?? 5238);
 const url = `http://127.0.0.1:${port}/test/history-hover.html`;
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,

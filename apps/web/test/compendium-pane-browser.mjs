@@ -4,7 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
+import { startHarnessServer } from './harness-server.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // Step 5b adds: the "Sheet colours" header toggle (sheet backgrounds vs the editor surface, light
 // theme raised, text AA), the pane following the interface scale (85 / 150 %), and translators
@@ -20,13 +21,8 @@ await mkdir(shots, { recursive: true });
 const port = 5295;
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -124,7 +120,7 @@ async function open(
     }, rightWidth);
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', collectPageErrors(errors));
   await page.goto(url);
   await page.locator('header').first().waitFor();
   await page.evaluate((who) => {
@@ -159,7 +155,9 @@ try {
       assert.deepEqual(await clipped(page), [], `${label}: header controls clip or wrap`);
       await noOverflow(page, label);
       assert.equal(await header.locator('h3').textContent(), 'Compendium');
-      assert.ok(await header.getByRole('button', { name: 'Pick other row' }).isVisible());
+      // The linked row arrives from matching after load (about 0.2 s on a cold production build),
+      // so wait for it rather than sampling once.
+      await header.getByRole('button', { name: 'Pick other row' }).waitFor({ timeout: 5000 });
       // The Compendium | Reports tabs take the title's place and more room: at the default
       // 384px pane the switch sits above the diff so the zoom stays in view.
       assert.equal(
@@ -421,7 +419,7 @@ try {
       }, scale);
       const page = await context.newPage();
       const errors = [];
-      page.on('pageerror', (error) => errors.push(error.message));
+      page.on('pageerror', collectPageErrors(errors));
       await page.goto(url);
       await page.locator('header').first().waitFor();
       await page.evaluate(() => {
@@ -581,6 +579,7 @@ try {
       await context.close();
     }
   }
+  knownDefectSummary();
   console.log('Compendium pane browser checks passed.');
 } finally {
   await browser.close();

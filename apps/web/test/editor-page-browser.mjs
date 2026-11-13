@@ -4,7 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
+import { startHarnessServer } from './harness-server.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // The editor page (overhaul P2 step 2) in the real shell on synthetic data, both themes, at 390 /
 // 768 / 1280 (+1440, and 800 for the Compendium/English toggle): one editor, the 28px pane header,
@@ -16,13 +17,8 @@ await mkdir(shots, { recursive: true });
 const port = 5292;
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -86,7 +82,7 @@ async function open(theme, viewport, path, { phone = false } = {}) {
   });
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', collectPageErrors(errors));
   await page.goto(url);
   await page.locator('header').first().waitFor();
   await page.evaluate(() => {
@@ -303,6 +299,7 @@ try {
       await context.close();
     }
   }
+  knownDefectSummary();
   console.log('Editor page browser checks passed.');
 } finally {
   await browser.close();

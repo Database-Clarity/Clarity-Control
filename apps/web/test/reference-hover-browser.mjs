@@ -4,21 +4,16 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
+import { startHarnessServer } from './harness-server.mjs';
 
-// Starts its own Vite server; all data is synthetic. Screenshots go to argv[2].
+// Starts its own server; all data is synthetic. Screenshots go to argv[2].
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/hover-globals-shots');
 await mkdir(shots, { recursive: true });
 const port = Number(process.env.REFERENCE_HOVER_PORT ?? 5237);
 const url = `http://127.0.0.1:${port}/test/reference-hover.html`;
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,

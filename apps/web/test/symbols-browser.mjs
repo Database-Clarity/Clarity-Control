@@ -4,8 +4,13 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
-import { knownDefectSummary, statusBarClip } from './known-defects.mjs';
+import { startHarnessServer } from './harness-server.mjs';
+import {
+  allowKnownDefects,
+  collectPageErrors,
+  knownDefectSummary,
+  statusBarClip,
+} from './known-defects.mjs';
 
 // Overhaul P2 step 9 (+ tinted colour tags) in the real shell on synthetic data: icon tags drawn as
 // fixed-width symbols, colour tags hidden with their text tinted in the preview's tag colour, the
@@ -18,13 +23,8 @@ await mkdir(shots, { recursive: true });
 const port = Number(process.env.SYMBOLS_BROWSER_PORT ?? 5299);
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -111,7 +111,7 @@ async function open(theme, viewport, phone, scale) {
     }, scale);
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', collectPageErrors(errors));
   await page.goto(url);
   await page.locator('header').first().waitFor();
   await page.evaluate(() => {
@@ -205,14 +205,17 @@ async function check(theme, width, height, phone, scale, name) {
     page.evaluate(() => {
       const pop = document.querySelector('.cm-symbol-popover').getBoundingClientRect();
       const scroller = document.querySelector('.cm-scroller').getBoundingClientRect();
-      return pop.top >= scroller.top - 0.5 && pop.bottom <= scroller.bottom + 0.5;
+      return pop.top >= scroller.top - 0.5 && pop.bottom <= scroller.bottom + 0.5
+        ? true
+        : `popover ${Math.round(pop.top)}-${Math.round(pop.bottom)}, editor ${Math.round(scroller.top)}-${Math.round(scroller.bottom)}`;
     });
   const before = await lineTops(page);
   if (!phone) {
     // Hover: a popover with the markup, no line moves.
     await page.locator('.cm-symbol').nth(2).hover();
     await page.locator('.cm-symbol-popover').waitFor();
-    assert.ok(await insideScroller(page), `${label}: line-1 popover stays inside the editor`);
+    const hovered = await insideScroller(page);
+    assert.equal(hovered, true, `${label}: line-1 popover stays inside the editor (${hovered})`);
     assert.ok(
       (await page.locator('.cm-symbol-popover code').textContent()).startsWith('<'),
       `${label}: hover popover shows the markup`,
@@ -255,7 +258,8 @@ async function check(theme, width, height, phone, scale, name) {
   // Click selects the symbol: popover with the hint, Enter edits, Esc cancels. Nothing moves.
   await page.locator('.cm-symbol').nth(1).click();
   await page.locator('.cm-symbol-popover').waitFor();
-  assert.ok(await insideScroller(page), `${label}: pinned line-1 popover stays inside the editor`);
+  const pinned = await insideScroller(page);
+  assert.equal(pinned, true, `${label}: pinned line-1 popover stays inside the editor (${pinned})`);
   assert.deepEqual(await lineTops(page), before, `${label}: selecting a symbol moved text`);
   await page.keyboard.press('Enter');
   await page.locator('.cm-symbol-input').waitFor();
@@ -288,8 +292,8 @@ async function check(theme, width, height, phone, scale, name) {
       0,
       `${label}: one raw button`,
     );
-  // At 390 the bar's overflowing items cover Raw (status-bar-390-clip): record whether a tap at
-  // its centre reaches it, then press it directly so the toggle checks still run.
+  // At 390 the bar's overflowing items cover Raw (status-bar-390-clip): a tap at its centre
+  // must reach it.
   await rawButton.scrollIntoViewIfNeeded();
   const cover = await rawButton.evaluate((button) => {
     const r = button.getBoundingClientRect();
@@ -298,7 +302,10 @@ async function check(theme, width, height, phone, scale, name) {
   });
   if (docked) statusBarClip(`${label}: Raw covered by ${cover}`, cover ? [cover] : []);
   else assert.equal(cover, null, `${label}: Raw is covered by ${cover}`);
-  const pressRaw = () => (docked ? rawButton.dispatchEvent('click') : rawButton.click());
+  // A real tap, always; only an ALLOW_KNOWN_DEFECTS=1 run presses a covered Raw directly, so
+  // its toggle checks still run while the defect stands.
+  const pressRaw = () =>
+    cover && allowKnownDefects ? rawButton.dispatchEvent('click') : rawButton.click();
   assert.equal(await rawButton.getAttribute('aria-pressed'), 'false', `${label}: raw is off`);
   assert.ok(
     (await rawButton.getAttribute('title')).includes('Ctrl+Shift+.'),

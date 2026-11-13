@@ -4,7 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
+import { startHarnessServer } from './harness-server.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // Preview feedback fixes 1 in the real shell on synthetic data: find & replace at the top of the
 // editor (sized with the interface scale, kept across tooltip navigation), the compact All
@@ -16,13 +17,8 @@ await mkdir(shots, { recursive: true });
 const port = 5299;
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -38,7 +34,8 @@ const noOverflow = async (page, label) => {
         !el.closest('[hidden]') &&
         !el.closest('.cm-scroller') &&
         // The editor status bar's own buttons are outside this change (they wrap in its box).
-        !el.closest('[class*=StatusBar]') &&
+        // (CSS module classes are hashed in a production build: match the bar's own attribute.)
+        !el.closest('[data-editor-status]') &&
         !String(el.className).includes('_suggest_') &&
         !el.closest('[data-markup-row] [role=toolbar]') &&
         // Never-seen measuring copies (e.g. the phone tools' fit clip) are not on screen.
@@ -67,7 +64,7 @@ async function open(theme, viewport, phone, scale) {
   }, scale);
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', collectPageErrors(errors));
   await page.goto(url);
   await page.locator('header').first().waitFor();
   await page.evaluate(() => {
@@ -230,6 +227,7 @@ try {
     assert.deepEqual(errors, [], `${theme}: page errors`);
     await context.close();
   }
+  knownDefectSummary();
   console.log('preview fixes: ok');
 } finally {
   await browser.close();

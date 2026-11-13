@@ -4,7 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
+import { startHarnessServer } from './harness-server.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // The find & replace widget in the real shell on synthetic data: compact one-row widget top right
 // of the text (nothing below it moves), a replace row behind the chevron, count, toggles, keyboard
@@ -18,13 +19,8 @@ await mkdir(shots, { recursive: true });
 const port = Number(process.env.FIND_WIDGET_PORT ?? 5311);
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -43,7 +39,7 @@ async function open(theme, viewport, phone, scale) {
   }, scale);
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', collectPageErrors(errors));
   await page.goto(url);
   await page.locator('header').first().waitFor();
   await page.evaluate(() => {
@@ -419,4 +415,5 @@ if (failures.length) {
   process.exit(1);
 }
 assert.ok(true);
+knownDefectSummary();
 console.log('find widget browser checks passed');

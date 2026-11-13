@@ -4,8 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
-import { knownDefectSummary, statusBarClip } from './known-defects.mjs';
+import { startHarnessServer } from './harness-server.mjs';
+import { collectPageErrors, knownDefectSummary, statusBarClip } from './known-defects.mjs';
 
 // Overhaul P2 step 8 in the real shell on synthetic data: the markup row (Ctrl+. is the only thing
 // that changes the layout), the All popover and the suggestion chips. Both themes at 390 / 768 /
@@ -17,13 +17,8 @@ await mkdir(shots, { recursive: true });
 const port = 5298;
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -102,7 +97,7 @@ async function open(theme, viewport, phone) {
   });
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', collectPageErrors(errors));
   await page.goto(url);
   await page.locator('header').first().waitFor();
   await page.evaluate(() => {
