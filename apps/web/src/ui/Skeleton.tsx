@@ -174,7 +174,8 @@ function joinSkeletonCycle(clock: SkeletonClock, holder: symbol) {
  * with nothing to keep, show it at once). Once shown it stays at least `skeletonMinimumMs` before
  * the content swaps in. A new root boundary identity starts a clock; consumers share its cycle
  * while any are pending or visible, and through the next frame after the last one releases it.
- * A later wait starts a fresh cycle and minimum. A superseded entry is
+ * A later wait starts a fresh cycle and minimum; a step while the skeleton stays on screen
+ * keeps counting the one it has (owner: the minimum only stops a flash). A superseded entry is
  * discarded immediately, and a warm entry ready by its second frame shows directly. While this returns true
  * the host shows the skeleton instead of content, even if `pending` already turned false.
  */
@@ -193,6 +194,8 @@ export function useSkeletonVisible(
   );
   const shownFor = useRef(identity);
   const shownClock = useRef(activeClock);
+  // When the skeleton was on screen as the entry changed, the minimum keeps counting from then.
+  const onScreenSince = useRef<number | undefined>();
   const holder = useRef(Symbol('skeleton consumer'));
   const membership = useRef<{ clock: SkeletonClock; release(): void }>();
   const holding = pending || visible;
@@ -218,6 +221,7 @@ export function useSkeletonVisible(
   );
   useLayoutEffect(() => {
     const show = () => {
+      onScreenSince.current = undefined;
       activeClock.shownAt ??= Date.now();
       shownAt.current = activeClock.shownAt;
       shownFor.current = identity;
@@ -225,7 +229,7 @@ export function useSkeletonVisible(
       setVisible(true);
     };
     const hide = () => {
-      shownAt.current = undefined;
+      shownAt.current = onScreenSince.current = undefined;
       setVisible(false);
     };
     let active = true;
@@ -242,7 +246,11 @@ export function useSkeletonVisible(
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (visible) {
       if (shownFor.current !== identity || shownClock.current !== activeClock) {
-        // A new entry during the minimum: start over for it.
+        // A new entry while the skeleton is on screen: it gets its own two frames, and a warm
+        // entry still swaps in at once. A slow one keeps the minimum of the skeleton that never
+        // left the screen (it shows from then, so it cannot flash): stepping through skeletons
+        // does not restart the wait on the entry it stops at.
+        onScreenSince.current ??= shownAt.current;
         shownFor.current = identity;
         shownClock.current = activeClock;
         shownAt.current = undefined;
@@ -251,8 +259,9 @@ export function useSkeletonVisible(
         if (!pending) hide();
         else
           afterTwoFrames(() => {
-            activeClock.shownAt ??= Date.now();
+            activeClock.shownAt ??= onScreenSince.current ?? Date.now();
             shownAt.current = activeClock.shownAt;
+            onScreenSince.current = undefined;
           });
       } else {
         activeClock.shownAt ??= shownAt.current;

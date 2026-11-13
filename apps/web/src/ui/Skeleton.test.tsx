@@ -116,19 +116,69 @@ describe('minimum visible time', () => {
     expect(host.textContent).toBe('Retained content');
   });
 
-  it('starts over for a step during the minimum: a slow entry gets a fresh minimum, no stacking', async () => {
+  it('keeps counting the minimum across a step while the skeleton stays on screen, no restart or stacking', async () => {
     await act(async () => root.render(createElement(Pending, { pending: true })));
     await frame();
     await frame();
-    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 100));
+    await act(async () => vi.advanceTimersByTime(100));
     await act(async () => root.render(createElement(Pending, { pending: true, entry: 2 })));
+    expect(shown()).toBe(true);
     await frame();
     await frame();
     await act(async () => vi.advanceTimersByTime(50));
     await act(async () => root.render(createElement(Pending, { pending: false, entry: 2 })));
+    // Shown for 150 ms in all: the rest of the one minimum, not a fresh one.
     expect(shown()).toBe(true);
-    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 50));
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 151));
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(1));
     expect(host.textContent).toBe('Retained content');
+  });
+
+  it('swaps in the entry a flick stops on once it loads, after the skeleton showed through the flick', async () => {
+    await act(async () => root.render(createElement(Pending, { pending: true })));
+    await frame();
+    await frame();
+    // Every step lands on a new entry while the skeleton stays on screen, some within two frames.
+    for (let entry = 2; entry <= 30; entry++) {
+      await act(async () => root.render(createElement(Pending, { pending: true, entry })));
+      if (entry % 3) await frame();
+      await act(async () => vi.advanceTimersByTime(16));
+    }
+    expect(shown()).toBe(true);
+    await frame();
+    await frame();
+    await act(async () => root.render(createElement(Pending, { pending: false, entry: 30 })));
+    expect(host.textContent).toBe('Retained content');
+  });
+
+  it('still swaps a warm entry in at once during the minimum', async () => {
+    await act(async () => root.render(createElement(Pending, { pending: true })));
+    await frame();
+    await frame();
+    await act(async () => vi.advanceTimersByTime(50));
+    await act(async () => root.render(createElement(Pending, { pending: true, entry: 2 })));
+    await frame();
+    await act(async () => root.render(createElement(Pending, { pending: false, entry: 2 })));
+    expect(host.textContent).toBe('Retained content');
+  });
+
+  it('gives a later wait a fresh minimum after the skeleton left the screen', async () => {
+    await act(async () => root.render(createElement(Pending, { pending: true })));
+    await frame();
+    await frame();
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs + 10));
+    await act(async () => root.render(createElement(Pending, { pending: false })));
+    expect(shown()).toBe(false);
+    await act(async () => root.render(createElement(Pending, { pending: true, entry: 2 })));
+    await frame();
+    await frame();
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(20));
+    await act(async () => root.render(createElement(Pending, { pending: false, entry: 2 })));
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 20));
+    expect(shown()).toBe(false);
   });
 
   it('shows a first load at once and keeps it for the minimum', async () => {
