@@ -69,6 +69,15 @@
   width: 1.5rem;
   height: 1.5rem;
 }
+.rowLine {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  > .row {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
 .row {
   text-align: left;
   padding: 0.5rem;

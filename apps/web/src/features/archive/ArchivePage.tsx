@@ -1,7 +1,7 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { languages, removedFromManifest, type Lang } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
@@ -23,6 +23,10 @@ import {
   inactiveArchiveHashes,
 } from './archive';
 import { When } from '../../ui/When';
+import type { ArchiveRestore } from '../queue/sources';
+import { archiveItem } from '../queue/rows';
+import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkThroughBar';
+import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './ArchivePage.module.scss';
 
 export function ArchivePage() {
@@ -46,8 +50,14 @@ function ArchiveContents() {
   const { drafts, hydrated, updateDraft, updateDrafts } = useDraftStore();
   const locked = useSaveState((state) => state.locked);
   const [params, setParams] = useSearchParams();
-  const [query, setQuery] = useState('');
-  const [returned, setReturned] = useState(false);
+  // Leave from a work-through queue brings the view, filter, selection, and scroll back.
+  const restored = returnedState<ArchiveRestore>(useLocation().state);
+  const [query, setQuery] = useState(restored?.query ?? '');
+  const [returned, setReturned] = useState(restored?.returned ?? false);
+  const [picked, setPicked] = useState<ReadonlySet<number>>(
+    () => new Set(restored?.selected ?? []),
+  );
+  const barAnchor = useRef<HTMLDivElement>(null);
   const [picking, setPicking] = useState(false);
   const [targetQuery, setTargetQuery] = useState('');
   const [targetHash, setTargetHash] = useState<number>();
@@ -71,6 +81,7 @@ function ArchiveContents() {
     if (!selectedHash && listRef.current) window.scrollTo(0, scroll.current);
     else if (selectedHash) window.scrollTo(0, 0);
   }, [selectedHash]);
+  useRestoredScroll(barAnchor, restored?.scroll, Boolean(data) && !selectedHash);
   if (status === 'error' || error)
     return (
       <article className={styles.page}>
@@ -106,6 +117,11 @@ function ArchiveContents() {
       </article>
     );
   const entries = returned ? result.returned : result.removed;
+  const shown = entries.filter((tooltip) =>
+    `${archiveIdentity(tooltip, data).name} ${tooltip.hash}`
+      .toLocaleLowerCase()
+      .includes(query.toLocaleLowerCase()),
+  );
   const base = [...result.removed, ...result.returned].find(
     (entry) => String(entry.hash) === selectedHash,
   );
@@ -182,6 +198,20 @@ function ArchiveContents() {
             <option value="returned">Returned</option>
           </select>
         </label>
+        <div ref={barAnchor}>
+          <WorkThroughBar
+            source="archive"
+            selected={shown
+              .filter((tooltip) => picked.has(tooltip.hash))
+              .map((tooltip) => archiveItem(tooltip, data, drafts))}
+            shown={shown.map((tooltip) => archiveItem(tooltip, data, drafts))}
+            restore={
+              { returned, query, selected: [...picked] } satisfies Omit<ArchiveRestore, 'scroll'>
+            }
+            onClear={() => setPicked(new Set())}
+            anchor={barAnchor}
+          />
+        </div>
         {!entries.length && (
           <p>
             {returned
@@ -190,59 +220,69 @@ function ArchiveContents() {
           </p>
         )}
         <ul>
-          {entries
-            .filter((tooltip) =>
-              `${archiveIdentity(tooltip, data).name} ${tooltip.hash}`
-                .toLocaleLowerCase()
-                .includes(query.toLocaleLowerCase()),
-            )
-            .map((tooltip) => {
-              const identity = archiveIdentity(tooltip, data);
-              return (
-                <li key={tooltip.hash} className={styles.card}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      scroll.current = window.scrollY;
-                      const next = new URLSearchParams(params);
-                      next.set('item', String(tooltip.hash));
-                      setParams(next);
+          {shown.map((tooltip) => {
+            const identity = archiveIdentity(tooltip, data);
+            return (
+              <li key={tooltip.hash} className={styles.card}>
+                <label className={bar.select}>
+                  <input
+                    type="checkbox"
+                    checked={picked.has(tooltip.hash)}
+                    aria-label={`Select ${identity.name}`}
+                    onChange={(event) => {
+                      const on = event.target.checked;
+                      setPicked((old) => {
+                        const next = new Set(old);
+                        if (on) next.add(tooltip.hash);
+                        else next.delete(tooltip.hash);
+                        return next;
+                      });
                     }}
-                  >
-                    {identity.name}
-                    {identity.name === `Tooltip ${tooltip.hash}` ? '' : ` (${tooltip.hash})`}
-                  </button>
-                  <p>{archiveCategoryLabel(identity.categoryId, data)}</p>
-                  <p>
-                    <strong>{tooltip.archive ? 'Confirmed' : 'Unconfirmed'}</strong> ·{' '}
-                    {tooltip.archive ? (
-                      <>
-                        Removed <When nowrap value={tooltip.archive.removedAt} />
-                      </>
-                    ) : (
-                      'removal detected from the current manifest'
-                    )}
-                    {data.items[tooltip.hash] && ' · back in manifest'}
-                  </p>
-                  <p>
-                    Languages:{' '}
-                    {languages
-                      .filter((lang) => tooltip.text[lang]?.text.trim())
-                      .map(languageLabel)
-                      .join(', ') || 'none'}
-                  </p>
-                  {tooltip.archive?.successor !== undefined && (
-                    <p>
-                      Successor:{' '}
-                      <Link to={tooltipPath(tooltip.archive.successor, '')}>
-                        {data.items[tooltip.archive.successor]?.name ?? 'Tooltip'} (
-                        {tooltip.archive.successor})
-                      </Link>
-                    </p>
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    scroll.current = window.scrollY;
+                    const next = new URLSearchParams(params);
+                    next.set('item', String(tooltip.hash));
+                    setParams(next);
+                  }}
+                >
+                  {identity.name}
+                  {identity.name === `Tooltip ${tooltip.hash}` ? '' : ` (${tooltip.hash})`}
+                </button>
+                <p>{archiveCategoryLabel(identity.categoryId, data)}</p>
+                <p>
+                  <strong>{tooltip.archive ? 'Confirmed' : 'Unconfirmed'}</strong> ·{' '}
+                  {tooltip.archive ? (
+                    <>
+                      Removed <When nowrap value={tooltip.archive.removedAt} />
+                    </>
+                  ) : (
+                    'removal detected from the current manifest'
                   )}
-                </li>
-              );
-            })}
+                  {data.items[tooltip.hash] && ' · back in manifest'}
+                </p>
+                <p>
+                  Languages:{' '}
+                  {languages
+                    .filter((lang) => tooltip.text[lang]?.text.trim())
+                    .map(languageLabel)
+                    .join(', ') || 'none'}
+                </p>
+                {tooltip.archive?.successor !== undefined && (
+                  <p>
+                    Successor:{' '}
+                    <Link to={tooltipPath(tooltip.archive.successor, '')}>
+                      {data.items[tooltip.archive.successor]?.name ?? 'Tooltip'} (
+                      {tooltip.archive.successor})
+                    </Link>
+                  </p>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </div>
       {selectedHash && (

@@ -1,0 +1,152 @@
+import { create } from 'zustand';
+import type { QueueItem, WorkQueue } from './model';
+
+/**
+ * Where work-through queues live: this browser tab's session storage, with the history entry's
+ * state naming the queue and item (`visitState`).
+ *
+ * Why session storage (and not the queue itself in history state): a queue is one record that
+ * every visit in it updates (position, skipped items, finished). History state belongs to one
+ * entry and the app cannot rewrite earlier entries, so Back would bring back stale copies; a
+ * record keyed by id is shared by every entry. Session storage survives a reload, Back and Forward,
+ * and a switch to another workspace, and it stays per tab, so two tabs never fight over one queue.
+ * The URL stays the tooltip's own: a copied link opens an ordinary visit in any tab.
+ */
+const storageKey = 'clarity-work-through:v1';
+/** Queues kept for Back and Forward after a newer one starts. */
+const kept = 5;
+
+interface Stored {
+  /** The queue this tab is working through; null after Leave or End. */
+  active: string | null;
+  queues: Record<string, WorkQueue>;
+}
+
+/** The session copy, as a reload reads it. */
+export function readStoredQueues(): Stored {
+  try {
+    const raw: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null');
+    if (raw && typeof raw === 'object' && 'queues' in raw) {
+      const stored = raw as Stored;
+      const queues: Record<string, WorkQueue> = {};
+      for (const [id, queue] of Object.entries(stored.queues ?? {}))
+        if (queue?.version === 1 && Array.isArray(queue.items) && Array.isArray(queue.skipped))
+          queues[id] = queue;
+      return { active: stored.active && queues[stored.active] ? stored.active : null, queues };
+    }
+  } catch {
+    // Unreadable storage: start without queues.
+  }
+  return { active: null, queues: {} };
+}
+
+function write(stored: Stored) {
+  try {
+    sessionStorage.setItem(storageKey, JSON.stringify(stored));
+  } catch {
+    // Full or blocked storage: the queue still works until the tab reloads.
+  }
+}
+
+interface QueueStore extends Stored {
+  start(queue: WorkQueue): void;
+  /** The route opened `key` in queue `id`: it becomes current, and an item passed by Next is skipped. */
+  visit(id: string, key: string, passedOpen: boolean): void;
+  /** Next on the last item: the queue ends here (the item is skipped when still open). */
+  finish(id: string, key: string, open: boolean): void;
+  /** Leaves the end-of-queue state so the remaining items can be worked through again. */
+  revisit(id: string): void;
+  /** New membership from the source list (Rebuild queue). */
+  rebuild(id: string, items: QueueItem[]): void;
+  /** Leave or End: the tab no longer works through it (Back still finds it). */
+  end(id: string): void;
+}
+
+function update(
+  state: Stored,
+  id: string,
+  change: (queue: WorkQueue) => WorkQueue,
+  active: string | null = id,
+): Partial<Stored> {
+  const queue = state.queues[id];
+  if (!queue) return {};
+  const next = { active, queues: { ...state.queues, [id]: change(queue) } };
+  write(next);
+  return next;
+}
+
+export const useWorkQueues = create<QueueStore>((set) => ({
+  ...readStoredQueues(),
+  start(queue) {
+    set((state) => {
+      const recent = Object.values(state.queues)
+        .filter((old) => old.id !== queue.id)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, kept - 1);
+      const next = {
+        active: queue.id,
+        queues: Object.fromEntries([...recent, queue].map((q) => [q.id, q])),
+      };
+      write(next);
+      return next;
+    });
+  },
+  visit(id, key, passedOpen) {
+    set((state) => {
+      const queue = state.queues[id];
+      if (!queue) return {};
+      const from = queue.items.findIndex((item) => item.key === queue.current);
+      const to = queue.items.findIndex((item) => item.key === key);
+      if (queue.current === key && !queue.finished && state.active === id) return {};
+      return update(state, id, (old) => ({
+        ...old,
+        current: key,
+        finished: old.current === key ? old.finished : false,
+        skipped:
+          passedOpen && to > from && from >= 0 && !old.skipped.includes(old.current)
+            ? [...old.skipped, old.current]
+            : old.skipped,
+      }));
+    });
+  },
+  finish(id, key, open) {
+    set((state) =>
+      update(state, id, (old) => ({
+        ...old,
+        current: key,
+        finished: true,
+        skipped: open && !old.skipped.includes(key) ? [...old.skipped, key] : old.skipped,
+      })),
+    );
+  },
+  revisit(id) {
+    set((state) => update(state, id, (old) => ({ ...old, finished: false })));
+  },
+  rebuild(id, items) {
+    set((state) =>
+      update(state, id, (old) => {
+        const keys = new Set(items.map((item) => item.key));
+        return {
+          ...old,
+          items,
+          skipped: old.skipped.filter((key) => keys.has(key)),
+          current: keys.has(old.current) ? old.current : (items[0]?.key ?? old.current),
+          finished: false,
+        };
+      }),
+    );
+  },
+  end(id) {
+    set((state) => (state.active === id ? update(state, id, (queue) => queue, null) : {}));
+  },
+}));
+
+/** For tests: forget every queue. */
+export function resetWorkQueues() {
+  try {
+    sessionStorage.removeItem(storageKey);
+  } catch {
+    // ignore
+  }
+  useWorkQueues.setState({ active: null, queues: {} });
+}

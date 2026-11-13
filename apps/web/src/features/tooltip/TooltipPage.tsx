@@ -69,6 +69,10 @@ import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { QueueControl } from './QueueControl';
+import { WorkThroughControl, leaveTarget } from '../queue/QueueControl';
+import { queueSources } from '../queue/sources';
+import { useWorkQueues } from '../queue/store';
+import { useWorkThrough } from '../queue/useQueue';
 import { queueContext, queuePath, queueSummary } from '../translations/worklist';
 import { englishDiffFor } from '../translations/source';
 import { categoryDisplay } from '../../services/categoryLabels';
@@ -263,6 +267,15 @@ function TooltipWorkspace({
     () => (hashOverride === undefined ? queueContext(search, routeState, user) : null),
     [hashOverride, search, routeState, user],
   );
+  // A work-through queue (Bungie drift, Lost text, Archive): active when the history entry names
+  // it, paused on an ordinary editor visit while the tab works through one. On an embedded page
+  // (the Archive's detail) only that page's own queue shows.
+  const workThrough = useWorkThrough(routeState, hashOverride === undefined);
+  const work =
+    !queue && workThrough && (hashOverride === undefined || workThrough.mode === 'active')
+      ? workThrough
+      : null;
+  const endWork = useWorkQueues((state) => state.end);
   function changeLanguage(next: Lang) {
     setRemembered(next);
     setSearch(withLanguage(search, next));
@@ -358,11 +371,11 @@ function TooltipWorkspace({
   const hash = readOnly ? requestedHash : canonical;
   const item = archivedItemFor(hash, data);
   if (!item && !data.bundle.tooltips[hash])
-    return queue ? (
+    return queue || work?.mode === 'active' ? (
       // A queued entry that no longer exists: say so, and keep the way on.
       <p className={styles.queueGone} role="status">
         <span>Tooltip {hash} is no longer available.</span>
-        <QueueControl hash={hash} context={queue} />
+        {queue ? <QueueControl hash={hash} context={queue} /> : <WorkThroughControl work={work!} />}
       </p>
     ) : (
       <h1>Tooltip {hash} not found</h1>
@@ -701,14 +714,27 @@ function TooltipWorkspace({
               />
             )
           }
-          queue={queue && <QueueControl hash={hash} context={queue} />}
+          queue={
+            queue ? (
+              <QueueControl hash={hash} context={queue} />
+            ) : (
+              work && <WorkThroughControl work={work} />
+            )
+          }
           queueBack={
             queue
               ? {
                   to: queuePath(queue, user),
                   label: queueSummary(queue, languageLabel, (id) => categoryDisplay(id).label),
                 }
-              : undefined
+              : work?.mode === 'active'
+                ? {
+                    ...leaveTarget(work.queue),
+                    text: 'Leave queue',
+                    label: queueSources[work.queue.source].label,
+                    onClick: () => endWork(work.queue.id),
+                  }
+                : undefined
           }
         />
       )}

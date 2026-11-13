@@ -1,0 +1,130 @@
+import { useLayoutEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useDraftStore } from '../../stores/drafts';
+import {
+  newQueueId,
+  visitState,
+  type QueueItem,
+  type QueueSourceId,
+  type WorkQueue,
+} from './model';
+import { queueSources } from './sources';
+import { useWorkQueues } from './store';
+import { useSourceContext } from './useQueue';
+import styles from './WorkThroughBar.module.scss';
+
+/** The list state a page gets back on Leave, from the history entry's state (or undefined). */
+export function returnedState<T>(state: unknown): T | undefined {
+  return (state as { workThroughReturn?: T } | null)?.workThroughReturn;
+}
+
+/** The nearest element that scrolls `element` (the page's own scroller when nothing nearer does). */
+export function scrollerOf(element: Element | null): Element {
+  for (let node = element?.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight)
+      return node;
+  }
+  return document.scrollingElement ?? document.documentElement;
+}
+
+/**
+ * Puts the list's scroll position back after Leave, once its rows are in place (`ready`). `scroll`
+ * is the returned position (undefined on an ordinary visit: nothing happens).
+ */
+export function useRestoredScroll(
+  anchor: React.RefObject<Element | null>,
+  scroll: number | undefined,
+  ready: boolean,
+) {
+  const done = useRef(false);
+  useLayoutEffect(() => {
+    if (done.current || !ready || scroll === undefined || !anchor.current) return;
+    done.current = true;
+    scrollerOf(anchor.current).scrollTop = scroll;
+  });
+}
+
+/**
+ * "Work through 3 selected" and "Work through all 40 shown": start a queue of those rows, in the
+ * list's order, and open the first one still to do. The list's state (filters, selection, scroll)
+ * is kept with the queue for Leave and Rebuild queue.
+ */
+export function WorkThroughBar({
+  source,
+  selected,
+  shown,
+  restore,
+  onClear,
+  anchor,
+}: {
+  source: QueueSourceId;
+  /** The selected rows the list shows, in its order. */
+  selected: QueueItem[];
+  /** Every row the list shows, in its order. */
+  shown: QueueItem[];
+  /** The list's own state to come back to (its scroll is read here). */
+  restore: Record<string, unknown>;
+  onClear(): void;
+  /** An element inside the list, to find the list's scroller. */
+  anchor: React.RefObject<Element | null>;
+}) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const start = useWorkQueues((state) => state.start);
+  const context = useSourceContext();
+  const disabled = !context;
+  function begin(scope: WorkQueue['scope'], items: QueueItem[]) {
+    if (!context || !items.length) return;
+    const done = queueSources[source].done(context);
+    const drafts = useDraftStore.getState().drafts;
+    const first = items.find((item) => !done(item, drafts)) ?? items[0]!;
+    const queue: WorkQueue = {
+      version: 1,
+      id: newQueueId(),
+      source,
+      scope,
+      origin: {
+        path: `${location.pathname}${location.search}`,
+        restore: { ...restore, scroll: scrollerOf(anchor.current).scrollTop },
+      },
+      items,
+      skipped: [],
+      current: first.key,
+      finished: false,
+      createdAt: Date.now(),
+      destination: null,
+    };
+    start(queue);
+    navigate(queueSources[source].path(first), {
+      state: visitState({ id: queue.id, key: first.key }),
+    });
+  }
+  return (
+    <div className={styles.bar} role="group" aria-label="Work through">
+      {selected.length > 0 && (
+        <>
+          <button
+            type="button"
+            disabled={disabled}
+            title="Open the selected rows one after another, with Previous and Next (Alt+Page Up, Alt+Page Down)"
+            onClick={() => begin('selected', selected)}
+          >
+            Work through {selected.length} selected
+          </button>
+          <button type="button" className={styles.quiet} onClick={onClear}>
+            Clear selection
+          </button>
+        </>
+      )}
+      <button
+        type="button"
+        disabled={disabled || !shown.length}
+        title="Open every row shown, one after another, with Previous and Next (Alt+Page Up, Alt+Page Down)"
+        onClick={() => begin('shown', shown)}
+      >
+        Work through all {shown.length} shown
+      </button>
+    </div>
+  );
+}

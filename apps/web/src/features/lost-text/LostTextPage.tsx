@@ -18,6 +18,10 @@ import { useSaveState } from '../../services/save/state';
 import { replaceDraft } from '../../services/save/drafts';
 import { errorMessage } from '../../services/http';
 import { When } from '../../ui/When';
+import type { LostRestore } from '../queue/sources';
+import { lostItem } from '../queue/rows';
+import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkThroughBar';
+import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './LostText.module.scss';
 
 const parsed = artifactSchema.safeParse(artifact);
@@ -54,9 +58,16 @@ export function LostTextPage() {
     }
     lastSelected.current = item;
   }, [location.key, item, data]);
-  const [showDismissed, setShowDismissed] = useState(false);
-  const [classFilter, setClassFilter] = useState('');
-  const [query, setQuery] = useState('');
+  // Leave from a work-through queue brings the filters, selection, and scroll back.
+  const returned = returnedState<LostRestore>(location.state);
+  const [showDismissed, setShowDismissed] = useState(returned?.showDismissed ?? false);
+  const [classFilter, setClassFilter] = useState(returned?.classFilter ?? '');
+  const [query, setQuery] = useState(returned?.query ?? '');
+  const [picked, setPicked] = useState<ReadonlySet<string>>(
+    () => new Set(returned?.selected ?? []),
+  );
+  const barAnchor = useRef<HTMLDivElement>(null);
+  useRestoredScroll(barAnchor, returned?.scroll, Boolean(data));
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   useLayoutEffect(() => {
@@ -107,6 +118,7 @@ export function LostTextPage() {
     classFilter === 'all' ? '' : classFilter,
     showDismissed,
   ).filter((r) => `${r.name} ${r.hash}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const queueItems = rows.map((record) => lostItem(record, data));
   const selected = result.records.find((r) => recordKey(r) === params.get('item'));
   const base = selected && data.bundle.tooltips[selected.hash];
   const current = base && (drafts[base.hash]?.next ?? base);
@@ -195,6 +207,24 @@ export function LostTextPage() {
           <p role="status">
             {rows.length} of {result.records.length} records shown
           </p>
+          <div ref={barAnchor}>
+            <WorkThroughBar
+              source="lost-text"
+              selected={queueItems.filter((item) => picked.has(item.key))}
+              shown={queueItems}
+              restore={
+                {
+                  query,
+                  classFilter,
+                  showDismissed,
+                  selected: [...picked],
+                  item,
+                } satisfies Omit<LostRestore, 'scroll'>
+              }
+              onClear={() => setPicked(new Set())}
+              anchor={barAnchor}
+            />
+          </div>
           {!rows.length && (
             <p>
               No blank tooltips with earlier authored text found.
@@ -202,23 +232,41 @@ export function LostTextPage() {
             </p>
           )}
           {rows.map((r) => (
-            <button
-              type="button"
-              className={styles.row}
-              key={recordKey(r)}
-              data-record={recordKey(r)}
-              aria-pressed={selected && recordKey(selected) === recordKey(r)}
-              onClick={() => {
-                setParams({ item: recordKey(r) });
-                setNotice('');
-                setError('');
-              }}
-            >
-              <strong>{data.items[r.hash]?.name ?? r.name}</strong>
-              <span>
-                {r.lang} · {r.classification} · {r.hash}
-              </span>
-            </button>
+            <div className={styles.rowLine} key={recordKey(r)}>
+              <label className={bar.select}>
+                <input
+                  type="checkbox"
+                  checked={picked.has(recordKey(r))}
+                  aria-label={`Select ${data.items[r.hash]?.name ?? r.name}, ${r.lang}`}
+                  onChange={(event) => {
+                    const key = recordKey(r);
+                    const on = event.target.checked;
+                    setPicked((old) => {
+                      const next = new Set(old);
+                      if (on) next.add(key);
+                      else next.delete(key);
+                      return next;
+                    });
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className={styles.row}
+                data-record={recordKey(r)}
+                aria-pressed={selected && recordKey(selected) === recordKey(r)}
+                onClick={() => {
+                  setParams({ item: recordKey(r) });
+                  setNotice('');
+                  setError('');
+                }}
+              >
+                <strong>{data.items[r.hash]?.name ?? r.name}</strong>
+                <span>
+                  {r.lang} · {r.classification} · {r.hash}
+                </span>
+              </button>
+            </div>
           ))}
         </section>
         {selected && (

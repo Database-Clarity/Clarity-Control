@@ -1,0 +1,49 @@
+@use '../../ui/controls';
+@use '../../data/variables' as theme;
+
+// One row of compact buttons above a worklist: same height and style, wrapping as a unit.
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  // The lists' page rules size bare buttons (`.page button`); the doubled class outranks them.
+  &#{&} > button {
+    @include controls.button;
+    min-width: 0;
+    padding: 0 0.625rem;
+    white-space: nowrap;
+  }
+}
+.bar.bar > .quiet {
+  background: transparent;
+  border-color: var(--ghost-edge);
+}
+
+// A row's selection box: the visible box stays small, the label around it is the target.
+.select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  cursor: pointer;
+  // Doubled: the lists' `.page input` rules (padding, tap sizes) must not grow the box itself.
+  &#{&} input {
+    width: 1rem;
+    height: 1rem;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+}
+@include theme.mobile-or-coarse {
+  .select {
+    min-width: var(--tap);
+    min-height: var(--tap);
+  }
+}
