@@ -137,12 +137,17 @@
 
     // As wide as the chosen category, then fills the line; a name that does not fit beside the
     // language takes its own line instead of being cut.
+    // Without field-sizing the select's own width is the longest option, so the 8rem basis stays.
     .categories {
-      flex: 1 1 auto;
+      flex: 1 1 8rem;
       min-width: 8rem;
 
-      select {
-        field-sizing: content;
+      @supports (field-sizing: content) {
+        flex-basis: auto;
+
+        select {
+          field-sizing: content;
+        }
       }
     }
 
