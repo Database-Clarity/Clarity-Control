@@ -67,9 +67,22 @@ function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
     const element = bar.current;
     if (!element) return;
     const reason = element.querySelector<HTMLElement>('[data-status-reason]');
+    const cut = (item: HTMLElement | null | undefined) =>
+      !!item && item.scrollWidth > item.clientWidth + 1;
+    // The preview item may shrink only while it is idle and unreserved (nothing to show). Shown
+    // or reserved, a squeezed item counts as crowded, and its count text cut short steps down
+    // as far as the short labels, as a cut read-only reason does.
+    const preview = element.querySelector<HTMLElement>('[data-status-preview]');
+    const previewHolds =
+      !!preview &&
+      (!preview.hasAttribute('data-inactive') || preview.hasAttribute('data-reserved'));
+    const previewText = previewHolds
+      ? preview.querySelector<HTMLElement>('[data-status-preview-text]')
+      : null;
     const crowded = (step: number) =>
       element.scrollWidth > element.clientWidth + 1 ||
-      (step < shortLabels && !!reason && reason.scrollWidth > reason.clientWidth + 1);
+      (previewHolds && cut(preview)) ||
+      (step < shortLabels && (cut(reason) || cut(previewText)));
     let step = 0;
     element.dataset.fit = '0';
     while (step < fitSteps && crowded(step)) element.dataset.fit = String(++step);
@@ -366,6 +379,7 @@ export function StatusBar({
         >
           <span
             className={styles.previewText}
+            data-status-preview-text
             title={unpreviewed > 0 ? `${plural(unpreviewed, 'change')} not previewed` : undefined}
           >
             {unpreviewed > 0 ? `${unpreviewed} not previewed` : 'Preview hidden'}
