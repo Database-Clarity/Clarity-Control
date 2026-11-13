@@ -91,16 +91,18 @@ it('fills the region hidden in budgeted tasks, reveals, then finishes without fr
 });
 
 it('keeps the unbudgeted step sizes when a row costs more than the budget', async () => {
+  const posts = vi.spyOn(MessagePort.prototype, 'postMessage');
   const grid = fillWith(8);
   const counts: number[] = [];
   const observer = new MutationObserver(() => counts.push(grid.rows()));
   observer.observe(grid.viewport, { childList: true, subtree: true });
   try {
     await drainBands();
-    // The first task lays out the first band only; then 1, 2, 2, 2 rows per task (as before
-    // budgeting) until the rows overflow the region.
+    // The first task lays out the first band and mounts the second; then 2 rows per task (as
+    // before budgeting) until the rows overflow the region: four hidden tasks, no extra one.
     expect(grid.viewport.dataset.gridFilling).toBe('false');
     expect(grid.rows()).toBe(8);
+    expect(posts).toHaveBeenCalledTimes(4);
     act(() => grid.callbacks[0](0));
     await drainBands();
     // Below the region: three rows per task, without frame waits.
