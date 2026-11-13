@@ -2,10 +2,12 @@ import { usePreviewWarnings, type PreviewWarningContext } from '../preview/usePr
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useSyncExternalStore,
   type ComponentProps,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clarity/core';
 import styles from './StatusBar.module.scss';
@@ -46,6 +48,44 @@ export interface GlyphGroup {
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** How far the bar has given up its labels to fit (see `.bar[data-fit]`): 0 as wide as room allows. */
+const fitSteps = 3;
+
+/**
+ * Fits the bar's items on its one line. The width steps in the stylesheet follow the bar's width
+ * alone; with many items (Changes, Help, issues, Raw, warnings, conflicts) a phone's bar still
+ * overflows, so this steps further down (short labels, then glyphs and tight items, then counts
+ * with a mark) until nothing runs past the edge. It measures only when the set of items or the
+ * bar's size changes, never on a caret move or a keystroke that changes neither.
+ */
+function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
+  const fit = useRef<() => void>(() => undefined);
+  fit.current = () => {
+    const element = bar.current;
+    if (!element) return;
+    let step = 0;
+    element.dataset.fit = '0';
+    while (step < fitSteps && element.scrollWidth > element.clientWidth + 1)
+      element.dataset.fit = String(++step);
+  };
+  useLayoutEffect(() => fit.current(), [content]);
+  useEffect(() => {
+    const element = bar.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    let width = element.clientWidth;
+    let height = element.clientHeight;
+    const observer = new ResizeObserver(() => {
+      // Its own steps never resize the bar; a new width or interface scale does.
+      if (element.clientWidth === width && element.clientHeight === height) return;
+      width = element.clientWidth;
+      height = element.clientHeight;
+      fit.current();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [bar]);
+}
 
 /**
  * The line under the editor text: 24px (32px on a phone, where items are 28px targets; 48px Large),
@@ -97,8 +137,25 @@ export function StatusBar({
   const unpreviewed = preview?.review ? liveWarnings : (preview?.unpreviewed ?? 0);
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
+  const root = useRef<HTMLDivElement>(null);
+  const showsPreview = preview ? unpreviewed > 0 || preview.collapsed : undefined;
+  useFit(
+    root,
+    [
+      changes !== undefined,
+      readOnlyReason ?? '',
+      issues.length,
+      retiredCount,
+      glyphCount,
+      conflicts?.count ?? 0,
+      rawView !== undefined && Boolean(onRawView),
+      Boolean(onSuggest),
+      showsPreview,
+    ].join('|'),
+  );
   return (
     <div
+      ref={root}
       className={styles.bar}
       data-editor-status
       aria-label="Editor status"
@@ -159,6 +216,7 @@ export function StatusBar({
         aria-controls="editor-panel-help"
         aria-keyshortcuts="F1"
         aria-label="Markup help"
+        data-mark="?"
         title="Markup help: what you write and what it draws, and the keys (F1)"
         // With the caret in the text, the caret stays there (F1 there opens on its markup).
         onMouseDown={(event) => event.preventDefault()}
@@ -177,9 +235,13 @@ export function StatusBar({
           aria-controls="editor-panel-issues"
           title="Markup issues in this text"
           aria-label={validating ? 'Checking markup' : plural(issues.length, 'markup issue')}
+          data-mark="⊗"
           onClick={() => toggle('issues')}
         >
-          {issues.length} {issues.length === 1 ? 'issue' : 'issues'}
+          <span>
+            {issues.length}
+            <span className={styles.word}> {issues.length === 1 ? 'issue' : 'issues'}</span>
+          </span>
         </button>
       )}
       {rawView !== undefined && onRawView && (
@@ -224,10 +286,12 @@ export function StatusBar({
             aria-controls="editor-panel-glyphs"
             title="Characters that may not display in the game; saving is allowed"
             aria-label={plural(glyphCount, 'character warning')}
+            data-mark="▯"
             onClick={() => toggle('glyphs')}
           >
             <span>
-              {glyphCount}{' '}
+              {glyphCount}
+              <span className={styles.word}> </span>
               <span className={styles.long}>character warning{glyphCount === 1 ? '' : 's'}</span>
               <span className={styles.short}>glyph{glyphCount === 1 ? '' : 's'}</span>
             </span>
@@ -242,9 +306,13 @@ export function StatusBar({
           data-status-conflicts
           title="Unresolved conflicts. F8 jumps to the next, Shift+F8 to the previous."
           aria-label={`${plural(conflicts.count, 'unresolved conflict')}. Jump to the next`}
+          data-mark="⇄"
           onClick={conflicts.onNext}
         >
-          {plural(conflicts.count, 'conflict')}
+          <span>
+            {conflicts.count}
+            <span className={styles.word}> conflict{conflicts.count === 1 ? '' : 's'}</span>
+          </span>
         </button>
       )}
       {onSuggest && (

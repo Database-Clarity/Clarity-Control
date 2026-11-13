@@ -38,20 +38,6 @@ export function knownDefectSummary() {
 }
 
 /**
- * Status bar items cut at the window edge at phone width: the bar keeps its long labels down to a
- * 24rem (384px) container, so at 390 an issue count, Raw (docked markup bar), and a character
- * warning push the last item past the edge, where the bar clips it. `cut` lists those items.
- */
-export function statusBarClip(label, cut) {
-  knownDefect(
-    'status-bar-390-clip',
-    !cut.length,
-    `${label}: status bar items cut at the window edge ${JSON.stringify(cut)}`,
-    'reported in .agents/reports/stale-harnesses.md',
-  );
-}
-
-/**
  * A `pageerror` handler that pushes each page error's message onto `errors`. A superseded
  * Compendium matching session rejects with "Compendium inputs changed." and nothing handles it,
  * so on the production build it surfaces as an uncaught page error whenever the data changes

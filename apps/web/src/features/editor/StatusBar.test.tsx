@@ -66,6 +66,44 @@ describe('status bar', () => {
     expect(q('[data-severity="error"]')).not.toBeNull();
   });
 
+  it('steps its labels down only as far as the items need to fit, and back up when they fit', () => {
+    // jsdom has no layout: each step takes 60px off a 400px row of items in a 300px bar.
+    const widths = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return 400 - 60 * Number(this.dataset.fit ?? 0);
+      });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+    const status = () => q('[data-editor-status]')!;
+    render(bar({ issues: [{ severity: 'warning', message: 'x', from: 0, to: 1 }] }));
+    expect(status().dataset.fit).toBe('2');
+    // Fewer items: back to the widest step that fits.
+    widths.mockImplementation(function (this: HTMLElement) {
+      return 280 - 60 * Number(this.dataset.fit ?? 0);
+    });
+    render(bar());
+    expect(status().dataset.fit).toBe('0');
+    // Never past the last step, even if that still does not fit.
+    widths.mockReturnValue(1000);
+    render(bar({ glyphCount: 2 }));
+    expect(status().dataset.fit).toBe('3');
+    // The counts keep their words for the text and their full names for assistive technology.
+    render(bar({ issues: [{ severity: 'error', message: 'x', from: 0, to: 1 }], glyphCount: 2 }));
+    expect(q('[data-status-issues]')?.textContent).toBe('1 issue');
+    expect(q('[data-status-issues]')?.getAttribute('aria-label')).toBe('1 markup issue');
+    // A caret move alone never measures.
+    const measured = widths.mock.calls.length;
+    render(
+      bar({
+        issues: [{ severity: 'error', message: 'x', from: 0, to: 1 }],
+        glyphCount: 2,
+        line: 9,
+      }),
+    );
+    expect(widths.mock.calls.length).toBe(measured);
+    vi.restoreAllMocks();
+  });
+
   it('offers the preview when edits were not previewed or the column is hidden', () => {
     const onShow = vi.fn();
     render(bar({ preview: { unpreviewed: 2, collapsed: true, onShow } }));

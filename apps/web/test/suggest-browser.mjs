@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { startHarnessServer } from './harness-server.mjs';
-import { collectPageErrors, knownDefectSummary, statusBarClip } from './known-defects.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // Overhaul P2 step 7 in the real shell on synthetic data: the suggestion menu (opened by < and by
 // Ctrl+Space), its category list, rendered detail pane and the phone bottom sheet. Both themes at
@@ -73,7 +73,7 @@ const noOverflow = async (page, label) => {
     await page.screenshot({ path: `${shots}/FAIL-${label.replaceAll(' ', '-')}.png` });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
-  statusBarClip(label, overflow.bar);
+  assert.deepEqual(overflow.bar, [], `${label}: status bar items run past the window`);
 };
 /** The menu fits the window, rows are one line, and (desktop) it stays off the caret line. */
 const menuProblems = (page, phone) =>

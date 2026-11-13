@@ -68,8 +68,61 @@
     }
   }
 
-  > * {
+  // Items keep their size, including the warnings inside the live region (display: contents):
+  // a shrunk item would draw its text over the next one instead of overflowing the bar.
+  > *,
+  > .live > * {
     flex: none;
+  }
+
+  // Too many items for the width (useFit in StatusBar.tsx steps on until they fit): 1 short
+  // labels; 2 also Changes as its glyph, the retired count as its warning sign, and tight items;
+  // 3 also counts with a mark instead of a word (⊗ issues, ▯ characters, ⇄ conflicts, ? help).
+  // Each item keeps its full name for assistive technology and in its tooltip.
+  &[data-fit='1'],
+  &[data-fit='2'],
+  &[data-fit='3'] {
+    .long {
+      display: none;
+    }
+    .short {
+      display: inline;
+    }
+    .previewText {
+      display: none;
+    }
+  }
+  &[data-fit='2'],
+  &[data-fit='3'] {
+    .roomy,
+    .roomy:not(.short) {
+      display: none;
+    }
+    .tiny {
+      display: inline;
+    }
+    .item {
+      padding: 0 0.25rem;
+    }
+  }
+  &[data-fit='3'] {
+    .item {
+      padding: 0 0.125rem;
+    }
+    .item[data-mark] {
+      .word,
+      .long,
+      .short {
+        display: none;
+      }
+      // The mark, then the count after a space, as the retired item's "⚠ 3".
+      &::before {
+        content: attr(data-mark) '\00a0';
+      }
+    }
+    [data-status-help]::before {
+      content: attr(data-mark);
+    }
   }
 
   // Touch: a 28px item row (44px with Large) with no side padding, so the first item's text
@@ -83,7 +136,8 @@
     // The rem-based steps above fire early at a large interface scale (a 360px phone at 150% is
     // under 21rem with room to spare): touch keeps the Changes label and even item padding, and
     // goes to the glyph only on a really narrow bar.
-    .roomy {
+    // Not the retired item's short label (.short.roomy): that one shows only with the short ones.
+    .roomy:not(.short) {
       display: inline;
     }
     .tiny {

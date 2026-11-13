@@ -382,7 +382,10 @@ function TooltipWorkspace({
 
   // A phone's header row would grow for the pause sentence and push the text down; the status bar
   // (fixed height) already says it there.
-  const pausedOnPhone = phone && pausedForOtherTab && access.reason?.startsWith('Paused:');
+  // Only the other-tab pause: an archived or loading text has no markup row to keep.
+  const pausedForOther =
+    !loading && pausedForOtherTab && access.reason?.startsWith('Paused:') === true;
+  const pausedOnPhone = phone && pausedForOther;
   const hosted = column !== null;
   const nameOf = (variant: number) => archivedItemFor(variant, data)?.name ?? `Tooltip ${variant}`;
   const legacyOf = (variant: number) =>
@@ -616,6 +619,7 @@ function TooltipWorkspace({
       usage={usage}
       onOpenTooltip={openDefinition}
       markupRow={markupRow.open}
+      paused={pausedForOther}
       sourceText={lang === 'en' ? undefined : base.text.en?.text}
       conflictSource={conflictSourceOf(variant)}
       workingDiff={
@@ -679,7 +683,9 @@ function TooltipWorkspace({
               : { hash: activeVariant, name: nameOf(activeVariant) }
           }
           markup={
-            access.reason === null ? { open: markupRow.open, toggle: markupRow.toggle } : undefined
+            access.reason === null || pausedForOther
+              ? { open: markupRow.open, toggle: markupRow.toggle }
+              : undefined
           }
           onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
           onBack={() => setPicked({ hash, at: pickedAt, variant: null })}

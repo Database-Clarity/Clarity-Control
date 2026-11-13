@@ -189,6 +189,11 @@ export interface ClarityEditorProps {
   /** Shows the markup row at the top of the editor (the page decides; Ctrl+. flips it). */
   markupRow?: boolean;
   /**
+   * Read-only only for a moment (another tab changed the drafts; the page asks what to do): the
+   * markup row stays, disabled, so the text below it never moves.
+   */
+  paused?: boolean;
+  /**
    * The versions an open conflict started from, for Compare. Without them Compare still shows
    * mine and theirs from the marker block itself.
    */
@@ -262,6 +267,7 @@ export function ClarityEditor({
   readOnlyReason = null,
   preview,
   markupRow = false,
+  paused = false,
   conflictSource,
   workingDiff,
   tooltipHash,
@@ -430,9 +436,10 @@ export function ClarityEditor({
   );
   const conflictCount = useMemo(() => countConflicts(value), [value]);
   const compact = useMedia(`${phoneQuery}, (pointer: coarse)`);
-  // The markup row shows when the page opens it and the text can be edited; on a phone it docks
-  // on the keyboard as a bar (Suggest moves into it, Raw to the status bar).
-  const rowShown = markupRow && (!readOnly || pending);
+  // The markup row shows when the page opens it and the text can be edited, or is paused for a
+  // moment (then disabled, never removed: the text must not jump); on a phone it docks on the
+  // keyboard as a bar (Suggest moves into it, Raw to the status bar).
+  const rowShown = markupRow && (!readOnly || pending || paused);
   const phone = useMedia(phoneQuery);
   const docked = phone && rowShown;
   // Read by the document load, which must not run again when only the screen size changes.
@@ -958,6 +965,7 @@ export function ClarityEditor({
           rawView={symbols && !docked ? rawView : undefined}
           onRawView={flipRawView}
           docked={docked}
+          disabled={readOnly && !pending}
           onSuggest={docked ? suggestHere : undefined}
           sourceText={lang === 'en' ? undefined : sourceText}
           tagSelection={tagMode}

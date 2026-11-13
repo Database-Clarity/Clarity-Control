@@ -5,12 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { startHarnessServer } from './harness-server.mjs';
-import {
-  allowKnownDefects,
-  collectPageErrors,
-  knownDefectSummary,
-  statusBarClip,
-} from './known-defects.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // Overhaul P2 step 9 (+ tinted colour tags) in the real shell on synthetic data: icon tags drawn as
 // fixed-width symbols, colour tags hidden with their text tinted in the preview's tag colour, the
@@ -67,7 +62,7 @@ const noOverflow = async (page, label) => {
   });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
-  statusBarClip(label, overflow.bar);
+  assert.deepEqual(overflow.bar, [], `${label}: status bar items run past the window`);
 };
 
 // Tags do not nest (the converter closes a tag at its first />), so icons and other tags sit beside
@@ -292,7 +287,7 @@ async function check(theme, width, height, phone, scale, name) {
       0,
       `${label}: one raw button`,
     );
-  // At 390 the bar's overflowing items cover Raw (status-bar-390-clip): a tap at its centre
+  // Nothing in the bar covers Raw (at 390 an overflowing item once did): a tap at its centre
   // must reach it.
   await rawButton.scrollIntoViewIfNeeded();
   const cover = await rawButton.evaluate((button) => {
@@ -300,12 +295,9 @@ async function check(theme, width, height, phone, scale, name) {
     const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
     return button.contains(top) ? null : `${top?.tagName}.${top?.className} "${top?.textContent}"`;
   });
-  if (docked) statusBarClip(`${label}: Raw covered by ${cover}`, cover ? [cover] : []);
-  else assert.equal(cover, null, `${label}: Raw is covered by ${cover}`);
-  // A real tap, always; only an ALLOW_KNOWN_DEFECTS=1 run presses a covered Raw directly, so
-  // its toggle checks still run while the defect stands.
-  const pressRaw = () =>
-    cover && allowKnownDefects ? rawButton.dispatchEvent('click') : rawButton.click();
+  assert.equal(cover, null, `${label}: Raw is covered by ${cover}`);
+  // A real tap, always.
+  const pressRaw = () => rawButton.click();
   assert.equal(await rawButton.getAttribute('aria-pressed'), 'false', `${label}: raw is off`);
   assert.ok(
     (await rawButton.getAttribute('title')).includes('Ctrl+Shift+.'),

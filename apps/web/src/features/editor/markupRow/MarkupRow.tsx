@@ -59,6 +59,7 @@ export const MarkupRow = memo(function MarkupRow({
   rawView,
   onRawView,
   docked = false,
+  disabled = false,
   onSuggest,
   sourceText,
   tagSelection,
@@ -71,6 +72,8 @@ export const MarkupRow = memo(function MarkupRow({
   onRawView?(): void;
   /** Fixed to the bottom of the visible page, on the keyboard (a phone). */
   docked?: boolean;
+  /** The text is paused read-only: the row keeps its place but nothing in it can be used. */
+  disabled?: boolean;
   /** Opens the suggestion menu; shown on the docked bar only. */
   onSuggest?(): void;
   /** The English text of this tooltip while translating: the docked bar leads with its entries. */
@@ -208,7 +211,15 @@ export const MarkupRow = memo(function MarkupRow({
 
   let index = -1;
   return (
-    <div ref={bar} className={styles.row} data-markup-row data-docked={docked || undefined}>
+    <div
+      ref={bar}
+      className={styles.row}
+      data-markup-row
+      data-docked={docked || undefined}
+      data-disabled={disabled || undefined}
+      aria-disabled={disabled || undefined}
+      {...(disabled ? { inert: '' } : {})}
+    >
       <div
         className={styles.scrollWrap}
         data-more-start={edges.start || undefined}

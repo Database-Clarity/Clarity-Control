@@ -5,12 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { startHarnessServer } from './harness-server.mjs';
-import {
-  collectPageErrors,
-  knownDefect,
-  knownDefectSummary,
-  statusBarClip,
-} from './known-defects.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // Overhaul P2 step 4 in the real shell on synthetic data: the editor status bar (24px, 52px on a
 // phone), the character-warning and markup-help panels that open UPWARD over the text without
@@ -98,7 +93,7 @@ const noOverflow = async (page, label) => {
   });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
-  statusBarClip(label, overflow.bar);
+  assert.deepEqual(overflow.bar, [], `${label}: status bar items run past the window`);
 };
 /** Everything in the status bar fits on one line and nothing but the flexible texts is cut. */
 const barProblems = (page) =>
@@ -205,15 +200,7 @@ try {
           `${label}: bar height ${barHeight}, want ${want}`,
         );
         const problems = await barProblems(page);
-        // At 390 the warnings that load with the text overflow the bar (status-bar-390-clip).
-        if (width <= 400)
-          knownDefect(
-            'status-bar-390-clip',
-            !problems.length,
-            `${label}: bar problems ${JSON.stringify(problems)}`,
-            'reported in .agents/reports/stale-harnesses.md',
-          );
-        else assert.deepEqual(problems, [], `${label}: bar problems`);
+        assert.deepEqual(problems, [], `${label}: bar problems`);
         await noOverflow(page, label);
 
         // The editor is a light object in the light theme and dark in the dark one.
@@ -283,14 +270,7 @@ try {
           `${label}: typing moved the first line ${JSON.stringify([beforeType, afterType])}`,
         );
         const warned = await barProblems(page);
-        if (width <= 400)
-          knownDefect(
-            'status-bar-390-clip',
-            !warned.length,
-            `${label}: bar problems with warnings ${JSON.stringify(warned)}`,
-            'reported in .agents/reports/stale-harnesses.md',
-          );
-        else assert.deepEqual(warned, [], `${label}: bar problems with warnings`);
+        assert.deepEqual(warned, [], `${label}: bar problems with warnings`);
         const typed = await metrics(page);
         await glyph.click();
         await overlay.waitFor();

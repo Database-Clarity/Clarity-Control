@@ -32,6 +32,12 @@
     border-top: 1px solid var(--editor-edge);
     border-bottom: 0;
   }
+
+  // Paused read-only (another tab changed the drafts): the row keeps its place, so the text
+  // never moves, and its controls take the shared disabled dimming (it is inert meanwhile).
+  &[data-disabled] > * {
+    opacity: 0.45;
+  }
 }
 
 .scrollWrap {

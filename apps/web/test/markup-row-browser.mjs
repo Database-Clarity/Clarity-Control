@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { startHarnessServer } from './harness-server.mjs';
-import { collectPageErrors, knownDefectSummary, statusBarClip } from './known-defects.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // Overhaul P2 step 8 in the real shell on synthetic data: the markup row (Ctrl+. is the only thing
 // that changes the layout), the All popover and the suggestion chips. Both themes at 390 / 768 /
@@ -72,7 +72,7 @@ const noOverflow = async (page, label) => {
   });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
-  statusBarClip(label, overflow.bar);
+  assert.deepEqual(overflow.bar, [], `${label}: status bar items run past the window`);
 };
 
 /**

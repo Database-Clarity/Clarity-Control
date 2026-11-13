@@ -111,6 +111,36 @@ it('keeps caret and undo in authoring form and callbacks preserve native markup'
   expect(changed.mock.calls.at(-1)![0]).toBe(incomplete + '2');
 });
 
+it('keeps the row, disabled, while the text is paused read-only (the text never moves)', () => {
+  const render = (props: { readOnly?: boolean; paused?: boolean }) =>
+    act(() =>
+      root.render(
+        <ClarityEditor
+          value="x"
+          lang="en"
+          globals={globals}
+          markupRow
+          onChange={() => {}}
+          {...props}
+        />,
+      ),
+    );
+  render({});
+  expect(row()?.hasAttribute('inert')).toBe(false);
+  expect(row()?.hasAttribute('data-disabled')).toBe(false);
+  // Another tab's write pauses editing: the row stays where it was, inert and dimmed.
+  render({ readOnly: true, paused: true });
+  expect(row()).not.toBeNull();
+  expect(row()?.hasAttribute('inert')).toBe(true);
+  expect(row()?.getAttribute('aria-disabled')).toBe('true');
+  // Answering the notice gives the row back.
+  render({});
+  expect(row()?.hasAttribute('inert')).toBe(false);
+  // A text that is read-only for good (archive, no access) has no markup row.
+  render({ readOnly: true });
+  expect(row()).toBeNull();
+});
+
 describe('the retired markup options', () => {
   const retired = [
     'inline:center',
