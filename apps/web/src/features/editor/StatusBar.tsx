@@ -59,7 +59,9 @@ const shortLabels = 2;
  * the retired sign alone, Changes as its glyph, then counts with a mark) at which nothing runs past the edge, so labels shorten only
  * as far as the items need. A read-only reason cut short also steps down, as far as the short
  * labels, to give it room. It measures only when the set of items or the bar's size changes,
- * never on a caret move or a keystroke that changes neither.
+ * never on a caret move or a keystroke that changes neither, and it measures after the browser
+ * has laid the page out (a resize observer's callback, before that frame paints), so a newly
+ * mounted editor is never laid out early, inside the render that mounts it, just for the bar.
  */
 function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
   const fit = useRef<() => void>(() => undefined);
@@ -87,22 +89,45 @@ function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
     element.dataset.fit = '0';
     while (step < fitSteps && crowded(step)) element.dataset.fit = String(++step);
   };
-  useLayoutEffect(() => fit.current(), [content]);
-  useEffect(() => {
+  // Asks the observer to fit again after the next layout; null without an observer.
+  const refit = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
     const element = bar.current;
-    if (!element || typeof ResizeObserver === 'undefined') return;
-    let width = element.clientWidth;
-    let height = element.clientHeight;
-    const observer = new ResizeObserver(() => {
-      // Its own steps never resize the bar; a new width or interface scale does.
-      if (element.clientWidth === width && element.clientHeight === height) return;
+    if (!element) return;
+    if (typeof ResizeObserver === 'undefined') {
+      fit.current();
+      return;
+    }
+    let pending = true;
+    let width = -1;
+    let height = -1;
+    const resize = new ResizeObserver(() => {
+      // Its own steps never resize the bar; new items, a new width or interface scale do.
+      if (!pending && element.clientWidth === width && element.clientHeight === height) return;
+      pending = false;
+      fit.current();
       width = element.clientWidth;
       height = element.clientHeight;
-      fit.current();
     });
-    observer.observe(element);
-    return () => observer.disconnect();
+    resize.observe(element);
+    refit.current = () => {
+      // Observing the bar afresh reports it after the next layout, even at the same size.
+      pending = true;
+      resize.unobserve(element);
+      resize.observe(element);
+    };
+    return () => {
+      resize.disconnect();
+      refit.current = null;
+    };
   }, [bar]);
+  const measured = useRef(content);
+  useLayoutEffect(() => {
+    if (measured.current === content) return;
+    measured.current = content;
+    if (refit.current) refit.current();
+    else fit.current();
+  }, [content]);
 }
 
 /**
