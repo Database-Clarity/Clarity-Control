@@ -30,7 +30,7 @@ const equal = (a: unknown, b: unknown) =>
  * `sourceUpdatedAt`, `snapshotAt`). The save enrichers move those stamps only with the content,
  * so a difference in stamps alone is a no-op.
  */
-function sameValue(field: string, a: unknown, b: unknown): boolean {
+export function sameFieldValue(field: string, a: unknown, b: unknown): boolean {
   if (a === undefined || b === undefined) return a === b;
   if (field.startsWith(textPrefix))
     return (a as { text: string }).text === (b as { text: string }).text;
@@ -87,13 +87,13 @@ export function changedFields(base: Tooltip | null, proposed: Tooltip): string[]
   const fields: string[] = [];
   for (const lang of languages) {
     const field = `${textPrefix}${lang}`;
-    if (!sameValue(field, from.text[lang], proposed.text[lang])) fields.push(field);
+    if (!sameFieldValue(field, from.text[lang], proposed.text[lang])) fields.push(field);
   }
   if (!equal(from.associated, proposed.associated)) fields.push('associated');
   const keys = new Set([...Object.keys(from), ...Object.keys(proposed)]);
   for (const key of [...keys].sort()) {
     if (key === 'hash' || key === 'text' || key === 'associated') continue;
-    if (!sameValue(key, fieldValue(from, key), fieldValue(proposed, key))) fields.push(key);
+    if (!sameFieldValue(key, fieldValue(from, key), fieldValue(proposed, key))) fields.push(key);
   }
   return fields;
 }

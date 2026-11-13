@@ -1,6 +1,12 @@
 import { merge3 } from '../merge3.js';
 import { type Tooltip } from '../schemas.js';
-import { changedFields, isTranslationField, withField } from './fields.js';
+import {
+  changedFields,
+  fieldValue,
+  isTranslationField,
+  sameFieldValue,
+  withField,
+} from './fields.js';
 
 /** The existence conflict save.ts reports (base and current disagree on whether the tooltip exists). */
 export const existsField = '$exists';
@@ -42,8 +48,13 @@ function mergeChanged(
     const choice = choices[field] ?? (isTranslationField(field) ? 'upcoming' : undefined);
     if (choice === 'current') continue;
     // merge3 takes `to` whenever `from` equals current, so an unchosen field merges three ways
-    // and a field forced upcoming takes the proposal outright.
-    if (choice === undefined) from = withField(from, base, field);
+    // and a field forced upcoming takes the proposal outright. A current that differs from base
+    // only in stamps counts as unchanged (stamp-only = no-op, R17).
+    if (
+      choice === undefined &&
+      !sameFieldValue(field, fieldValue(base, field), fieldValue(current, field))
+    )
+      from = withField(from, base, field);
     to = withField(to, proposed, field);
   }
   return merge3(from, current, to);
@@ -78,8 +89,10 @@ export type ResolutionResult =
 /**
  * Resolution of an activation conflict (R4, R12) against current at the resolving head: merge
  * over ALL batch-changed fields; clean fields take the batch value, conflicted fields must have
- * a choice, and an explicit choice on any changed field is applied. An `$exists` conflict takes
- * a choice for `$exists`: 'upcoming' writes the whole proposal, 'current' keeps current.
+ * a choice, and an explicit choice on any changed field is applied. Existence: base null with a
+ * current merges against an empty base (current-only fields stay; fields both set differently
+ * need choices; `$exists` is not a choice there). A base whose current is gone needs a choice
+ * for `$exists`: 'upcoming' recreates it from the proposal, 'current' leaves it absent.
  */
 export function resolveActivation({
   base,
@@ -95,16 +108,15 @@ export function resolveActivation({
   for (const [field, choice] of Object.entries(choices))
     if (choice !== 'upcoming' && choice !== 'current')
       throw new Error(`Invalid choice for ${field}`);
-  if (base === null && current === null) {
-    return { ok: true, tooltip: choices[existsField] === 'current' ? null : proposed };
-  }
-  if (base === null || current === null) {
+  if (base !== null && current === null) {
     const choice = choices[existsField];
     if (!choice) return { ok: false, missing: [existsField] };
-    return { ok: true, tooltip: choice === 'upcoming' ? proposed : current };
+    return { ok: true, tooltip: choice === 'upcoming' ? proposed : null };
   }
-  if (choices[existsField]) throw new Error('No existence conflict to resolve');
-  const result = mergeChanged(base, current, proposed, changed, choices);
+  if (choices[existsField]) throw new Error('No existence choice applies here');
+  if (current === null) return { ok: true, tooltip: proposed };
+  const from = base ?? { hash: proposed.hash, text: {}, associated: [] };
+  const result = mergeChanged(from, current, proposed, changed, choices);
   if (!result.ok) return { ok: false, missing: result.conflicts.map(({ field }) => field) };
   return { ok: true, tooltip: result.merged };
 }

@@ -7,11 +7,11 @@ except where a function takes `now`.
 
 ## Files and storage (`schemas.ts`)
 
-- `batchSchema`: `schedule/batches/<id>/batch.json`. Status invariants: draft and cancelled carry no `opId`, `claim`, or `scheduledContentRevision`; scheduled has all three set except `claim`; publishing and published are claimed by their own `opId`; published carries its own published or unchanged `result`.
+- `batchSchema`: `schedule/batches/<id>/batch.json`. Status invariants: draft and cancelled carry no `opId`, `claim`, or `scheduledContentRevision`; scheduled has all three set except `claim`; publishing and published are claimed by their own `opId`; scheduled, publishing, and published keep `scheduledContentRevision` = `contentRevision`; only a published batch carries a published or unchanged `result` (its own); a published result records `landedAt`, `landedAtSource`, `recordedAt`, `exportNow`, and `liveCommit`, an unchanged one `recordedAt`.
 - `batchMemberSchema`: `schedule/batches/<id>/tooltips/<hash>.json`; `base` null = the batch creates the tooltip.
 - `dueSchema`: `schedule/due.json`; one entry per batch and per opId, ≤50.
 - `scheduleIndexSchema`: `schedule/index.json`; ≤50 open + ≤100 terminal; derived, never a guard.
-- `activationConflictSchema`: `schedule/activation-conflicts/<hash>.json`; `fields` = conflicted, `changed` = ALL batch-changed fields (must equal `changedFields(base, proposed)`).
+- `activationConflictSchema`: `schedule/activation-conflicts/<hash>.json`; `fields` = conflicted, `changed` = ALL batch-changed fields (must equal `changedFields(base, proposed)`); `fields` must equal what `activate(base, currentAtRecord, proposed)` reports, so `$exists` appears exactly when R14 says.
 - `notBeforeSchema`: canonical whole UTC minute `YYYY-MM-DDTHH:MM:00.000Z` (string order = time order).
 - `schedulePaths`, `scheduleLimits`: editor-data paths and every bound from the spec (open batches, members, events, lead times, overdue).
 
@@ -32,7 +32,8 @@ for every language but English.
 ## Approval and revisions (`digest.ts`, `revisions.ts`)
 
 - `approvedDigest(members)` = SHA-256 of `approvalInput`: members sorted by hash, each with its
-  full `base` and its `proposed` without translations. Translation saves never change it; add,
+  full `base` and its proposal without translations, where a field that differs from base only
+  in stamps keeps base's value (the R17 no-op set). Translation saves never change it; add,
   remove, a rebase that moves a base, and any other field change do (I5).
 - `isContentChange(before, after)` is true exactly when `approvalInput` changes;
   `nextRevisions(current, contentChanged)` bumps `revision` always and `contentRevision` only
@@ -45,15 +46,20 @@ for every language but English.
 
 `compose({hash, base, proposed, snapshot, pushed})` never reads current saved data:
 
-- `overlay` (C1-C2): snapshot at S with every batch-changed field taken from `proposed`
-  (absent there = removed).
+Checked in this order, `base` null included (a null base changes every field `proposed` has):
+
+- `overlay` (C1-C2): a snapshot at S exists: it, with every batch-changed field taken from
+  `proposed` (absent there = removed). `unpublished` lists the changed fields whose base
+  differed from the snapshot: the batch value of such a field also carries saved-but-unpublished
+  work on that field. P3 shows them to the approver; whether P4 refuses them is OPEN for root.
 - `stale` (C3): pushed but no snapshot; reason `missingSnapshotReason`.
-- `whole` (C4): never published, or `base` null (the batch creates it): the whole proposal.
+- `whole` (C4): never published (no pushed entry, no snapshot): the whole proposal.
 
 ## Activation and resolution (`activate.ts`, I4, Q4, R12, R14)
 
 - `activate({base, current, proposed})`: merge3 restricted to the batch-changed fields; fields
-  the batch did not change keep current. Q4: a translation the batch changed takes the
+  the batch did not change keep current; a current that differs from base only in stamps counts
+  as unchanged. Q4: a translation the batch changed takes the
   upcoming value (including a removal) even if current changed meanwhile. Existence:
   base null + current absent creates; base null + current present, or base + current absent,
   is a `$exists` conflict. The same function decides schedule-time and claim-time staleness
@@ -61,7 +67,10 @@ for every language but English.
 - `resolveActivation({..., choices})`: re-merges against current at the resolving head. Clean
   fields take the batch value; every conflicted field needs a choice (else `missing`, 409); an
   explicit choice on any batch-changed field is applied; a choice for any other field throws.
-  `$exists`: `upcoming` writes the whole proposal, `current` keeps current.
+  Existence: base null + a current merges against an empty base (current-only fields stay;
+  fields both sides set differently need choices). A base whose current is gone needs a
+  `$exists` choice: `upcoming` recreates it from the proposal, `current` leaves it absent
+  (`tooltip: null`). Both absent: the proposal.
 
 ## Time (`zone.ts`)
 

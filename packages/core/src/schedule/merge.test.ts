@@ -84,6 +84,7 @@ describe('composition C1-C4', () => {
     expect(result).toEqual({
       status: 'overlay',
       changed: ['text.en', 'text.de', 'associated'],
+      unpublished: [],
       tooltip: {
         hash: 7,
         text: {
@@ -109,6 +110,53 @@ describe('composition C1-C4', () => {
       pushed: true,
     });
     expect(result.status === 'overlay' && result.tooltip.text.fr).toBeUndefined();
+  });
+  it('flags changed fields that carry saved-but-unpublished work (sec MUST 2)', () => {
+    // English and association 2 were saved after the last publish, then the batch edited both.
+    const saved: Tooltip = {
+      ...live,
+      text: { ...live.text, en: entry('Saved', T1) },
+      associated: [1, 2],
+    };
+    const next: Tooltip = {
+      ...saved,
+      text: { ...saved.text, en: entry('Batch', T2) },
+      associated: [1, 2, 3],
+    };
+    const result = compose({
+      hash: 7,
+      base: saved,
+      proposed: next,
+      snapshot: { ...live, associated: [1] },
+      pushed: true,
+    });
+    expect(result).toMatchObject({
+      status: 'overlay',
+      changed: ['text.en', 'associated'],
+      unpublished: ['text.en', 'associated'],
+    });
+  });
+  it('base null consults publication history first (code F1)', () => {
+    const created: Tooltip = { hash: 7, text: { en: entry('Brand new') }, associated: [] };
+    expect(
+      compose({ hash: 7, base: null, proposed: created, snapshot: null, pushed: true }),
+    ).toEqual({
+      status: 'stale',
+      reason: missingSnapshotReason,
+    });
+    const result = compose({
+      hash: 7,
+      base: null,
+      proposed: created,
+      snapshot: live,
+      pushed: true,
+    });
+    expect(result).toEqual({
+      status: 'overlay',
+      changed: ['text.en'],
+      unpublished: ['text.en'],
+      tooltip: { ...live, text: { ...live.text, en: created.text.en } },
+    });
   });
   it('C3: pushed without a snapshot is stale', () => {
     expect(compose({ hash: 7, base: current, proposed, snapshot: null, pushed: true })).toEqual({
@@ -190,6 +238,14 @@ describe('activation (I4, Q4, R14, R17)', () => {
     };
     const result = activate({ base: current, current: later, proposed: restamped });
     expect(result).toEqual({ ok: true, created: false, changed: [], tooltip: later });
+  });
+  it('a stamp-only current change never conflicts with a batch change', () => {
+    const later: Tooltip = {
+      ...current,
+      text: { ...current.text, en: entry('Old', T2, { updatedBy: 'b' }) },
+    };
+    const result = activate({ base: current, current: later, proposed });
+    expect(result.ok && result.tooltip.text.en).toEqual(proposed.text.en);
   });
   it('merges associations with merge3 rules', () => {
     const later: Tooltip = { ...current, associated: [2, 1, 4] };
@@ -332,31 +388,67 @@ describe('resolution (R4, R12)', () => {
       }),
     ).toThrow(/does not change/);
     const created: Tooltip = { hash: 9, text: { en: entry('Brand new') }, associated: [] };
-    const existing: Tooltip = { hash: 9, text: { en: entry('Someone else') }, associated: [] };
+    const existing: Tooltip = {
+      hash: 9,
+      custom: { name: 'Theirs', categoryId: 'c' },
+      text: { en: entry('Someone else'), de: entry('Jemand', T0, { sourceUpdatedAt: T0 }) },
+      associated: [4],
+    };
+    // Base null with a current: merge against an empty base; current-only fields stay (sec MUST 1).
     expect(
       resolveActivation({ base: null, current: existing, proposed: created, choices: {} }),
+    ).toEqual({ ok: false, missing: ['text.en'] });
+    expect(
+      resolveActivation({
+        base: null,
+        current: existing,
+        proposed: created,
+        choices: { 'text.en': 'upcoming' },
+      }),
     ).toEqual({
-      ok: false,
-      missing: [existsField],
+      ok: true,
+      tooltip: { ...existing, text: { ...existing.text, en: created.text.en } },
     });
     expect(
       resolveActivation({
         base: null,
         current: existing,
         proposed: created,
-        choices: { $exists: 'current' },
+        choices: { 'text.en': 'current' },
       }),
-    ).toEqual({
-      ok: true,
-      tooltip: existing,
-    });
-    expect(
+    ).toEqual({ ok: true, tooltip: existing });
+    expect(() =>
       resolveActivation({
         base: null,
         current: existing,
         proposed: created,
         choices: { $exists: 'upcoming' },
       }),
+    ).toThrow(/No existence choice/);
+    // A base whose current is gone: $exists decides.
+    expect(resolveActivation({ base: current, current: null, proposed, choices: {} })).toEqual({
+      ok: false,
+      missing: [existsField],
+    });
+    expect(
+      resolveActivation({
+        base: current,
+        current: null,
+        proposed,
+        choices: { $exists: 'upcoming' },
+      }),
+    ).toEqual({ ok: true, tooltip: proposed });
+    expect(
+      resolveActivation({
+        base: current,
+        current: null,
+        proposed,
+        choices: { $exists: 'current' },
+      }),
+    ).toEqual({ ok: true, tooltip: null });
+    // Removed again by the time of resolution: creating it is the batch value.
+    expect(
+      resolveActivation({ base: null, current: null, proposed: created, choices: {} }),
     ).toEqual({
       ok: true,
       tooltip: created,

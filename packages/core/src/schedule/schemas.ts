@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { hashSchema } from '../legacy.js';
 import { publishOpIdSchema } from '../publishRequest.js';
 import { timestampSchema, tooltipSchema } from '../schemas.js';
+import { activate } from './activate.js';
 import { changedFields } from './fields.js';
 
 /** Bounds from spec "Free-plan budget" (R7, R13). */
@@ -137,9 +138,12 @@ export const batchResultSchema = z
   .superRefine((value, ctx) => {
     if ((value.landedAt === undefined) !== (value.landedAtSource === undefined))
       ctx.addIssue({ code: 'custom', message: 'landedAt and landedAtSource go together' });
-    const landed = value.status === 'published' || value.status === 'unchanged';
-    if (!landed && (value.landedAt || value.liveCommit))
-      ctx.addIssue({ code: 'custom', message: 'Only a published result has a landing' });
+    const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if (value.status === 'published') {
+      if (!value.landedAt || !value.recordedAt || !value.exportNow || !value.liveCommit)
+        issue('A published result records landedAt, recordedAt, exportNow, and liveCommit');
+    } else if (value.landedAt || value.liveCommit) issue('Only a published result has a landing');
+    if (value.status === 'unchanged' && !value.recordedAt) issue('An unchanged result is recorded');
   });
 
 /** schedule/batches/<batchId>/batch.json */
@@ -173,11 +177,17 @@ export const batchSchema = z
   .superRefine((batch, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (batch.contentRevision > batch.revision) issue('contentRevision exceeds revision');
+    // Scheduled batches take translation edits only, and nothing writes after the claim, so a
+    // scheduled, publishing, or published batch still has the content it was signed for.
     if (
       batch.scheduledContentRevision !== null &&
-      batch.scheduledContentRevision > batch.contentRevision
+      batch.scheduledContentRevision !== batch.contentRevision
     )
-      issue('scheduledContentRevision exceeds contentRevision');
+      issue('scheduledContentRevision differs from contentRevision');
+    // published and unchanged are terminal: only a published batch carries one.
+    const succeeded = batch.result?.status === 'published' || batch.result?.status === 'unchanged';
+    if (succeeded && batch.status !== 'published')
+      issue('Only a published batch carries a successful result');
     switch (batch.status) {
       case 'draft':
       case 'cancelled':
@@ -317,14 +327,25 @@ export const activationConflictSchema = z
   .strict()
   .superRefine((file, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
-    for (const tooltip of [file.base, file.proposed, file.currentAtRecord])
-      if (tooltip && tooltip.hash !== file.hash)
-        issue('Conflict tooltips must carry the file hash');
-    if (file.proposed.hash !== file.hash) return;
+    if (
+      [file.base, file.proposed, file.currentAtRecord].some(
+        (tooltip) => tooltip && tooltip.hash !== file.hash,
+      )
+    ) {
+      issue('Conflict tooltips must carry the file hash');
+      return;
+    }
     const changed = changedFields(file.base, file.proposed);
     if (changed.join('\n') !== file.changed.join('\n'))
       issue('changed must equal the batch-changed fields');
-    if (!file.fields.every((field) => field === '$exists' || changed.includes(field)))
-      issue('Conflicted fields must be batch-changed fields');
+    // The persisted fields are exactly what activation reports for the frozen snapshots
+    // (existence per R14 included), so the file never describes a conflict that did not happen.
+    const result = activate({
+      base: file.base,
+      current: file.currentAtRecord,
+      proposed: file.proposed,
+    });
+    if (result.ok || result.fields.join('\n') !== file.fields.join('\n'))
+      issue('fields must equal the activation conflicts of base, currentAtRecord, and proposed');
   });
 export type ActivationConflict = z.infer<typeof activationConflictSchema>;

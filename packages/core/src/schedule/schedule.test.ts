@@ -58,6 +58,16 @@ describe('approvedDigest (I5)', () => {
     expect(digest).toBe('9de584234ba8b372f5c4edb80984777146dbcda32dc6b5c346afcb29469a107c');
     expect(await approvedDigest([...members].reverse())).toBe(digest);
   });
+  it('ignores a stamp-only English proposal, as changedFields does (code F2)', async () => {
+    const restamped: Tooltip = {
+      ...base,
+      text: { ...base.text, en: entry('Old', T1, { updatedBy: 'b' }) },
+    };
+    const before: DigestMember[] = [{ hash: 7, base, proposed: base }];
+    const after: DigestMember[] = [{ hash: 7, base, proposed: restamped }];
+    expect(await approvedDigest(after)).toBe(await approvedDigest(before));
+    expect(isContentChange(before, after)).toBe(false);
+  });
   it('is stable under translation saves (text and stamps)', async () => {
     const digest = await approvedDigest(members);
     const translated: Tooltip = {
@@ -228,6 +238,8 @@ describe('schemas', () => {
           landedAt: T1,
           landedAtSource: 'cas',
           recordedAt: T1,
+          exportNow: T1,
+          liveCommit: 'f'.repeat(40),
         },
       }),
     ).toBe(true);
@@ -258,6 +270,33 @@ describe('schemas', () => {
     ).toBe(false);
     expect(ok({ ...draft, result: { opId: OP, status: 'published', landedAt: T1 } })).toBe(false);
     expect(ok({ ...draft, events: Array(201).fill(draft.events[0]) })).toBe(false);
+    // Impossible states (code F3, sec MUST 3).
+    const landed = {
+      opId: OP,
+      status: 'published',
+      landedAt: T1,
+      landedAtSource: 'cas',
+      recordedAt: T1,
+      exportNow: T1,
+      liveCommit: 'f'.repeat(40),
+    };
+    expect(ok({ ...scheduled, contentRevision: 2 })).toBe(false);
+    expect(ok({ ...scheduled, status: 'publishing', claim, contentRevision: 2 })).toBe(false);
+    expect(ok({ ...draft, result: landed })).toBe(false);
+    expect(ok({ ...draft, result: { opId: OP, status: 'unchanged', recordedAt: T1 } })).toBe(false);
+    expect(ok({ ...draft, status: 'cancelled', result: landed })).toBe(false);
+    expect(ok({ ...scheduled, opId: OP2, result: landed })).toBe(false);
+    const published = { ...scheduled, status: 'published', claim };
+    for (const key of ['landedAt', 'recordedAt', 'exportNow', 'liveCommit']) {
+      const partial: Record<string, unknown> = { ...landed, landedAtSource: 'cas' };
+      delete partial[key];
+      if (key === 'landedAt') delete partial.landedAtSource;
+      expect(ok({ ...published, result: partial })).toBe(false);
+    }
+    expect(ok({ ...published, result: { opId: OP, status: 'unchanged', recordedAt: T1 } })).toBe(
+      true,
+    );
+    expect(ok({ ...published, result: { opId: OP, status: 'unchanged' } })).toBe(false);
   });
   it('notBefore is a canonical whole UTC minute', () => {
     expect(notBeforeSchema.safeParse('2026-12-03T16:00:00.000Z').success).toBe(true);
@@ -333,6 +372,17 @@ describe('schemas', () => {
         changed: ['text.en', 'text.de', 'associated'],
       }).success,
     ).toBe(true);
+    // Existence must match the frozen snapshots (code F4, sec MUST 3).
+    const parse = (value: object) =>
+      activationConflictSchema.safeParse({ ...conflict, ...value }).success;
+    expect(parse({ fields: ['$exists'] })).toBe(false);
+    expect(parse({ currentAtRecord: null })).toBe(false);
+    expect(parse({ currentAtRecord: null, fields: ['$exists'] })).toBe(true);
+    expect(parse({ fields: ['text.en', 'text.en'] })).toBe(false);
+    expect(parse({ currentAtRecord: base })).toBe(false);
+    // A mismatched hash fails without throwing (code F5).
+    expect(() => parse({ base: { ...base, hash: 8 } })).not.toThrow();
+    expect(parse({ base: { ...base, hash: 8 } })).toBe(false);
   });
 });
 

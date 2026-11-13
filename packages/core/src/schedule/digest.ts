@@ -3,7 +3,7 @@ import { stableStringify } from '../contentHash.js';
 import { hashSchema } from '../legacy.js';
 import { publishOpIdSchema, publishPayloadSchema } from '../publishRequest.js';
 import { type Tooltip } from '../schemas.js';
-import { withoutTranslations } from './fields.js';
+import { nonTranslationChanges, withField, withoutTranslations } from './fields.js';
 import { batchIdSchema, notBeforeSchema, scheduleLimits } from './schemas.js';
 
 async function sha256(text: string): Promise<string> {
@@ -19,9 +19,22 @@ export interface DigestMember {
 }
 
 /**
+ * The non-translation part of a proposal as it publishes and activates: the base (without
+ * translations) with every non-translation batch-changed field taken from the proposal. A
+ * stamp-only difference is not a change (R17), so it never moves the digest.
+ */
+function approvedProposal({ base, proposed }: DigestMember): Tooltip {
+  if (base === null) return withoutTranslations(proposed);
+  let value = withoutTranslations(base);
+  for (const field of nonTranslationChanges(base, proposed))
+    value = withField(value, proposed, field);
+  return value;
+}
+
+/**
  * The canonical text approvedDigest hashes: the member list (sorted by hash) with each member's
- * full base (which only add and rebase set) and its proposal WITHOUT translations (every
- * non-translation key, English included, exact values with stamps). Translation saves never
+ * full base (which only add and rebase set) and its proposal WITHOUT translations, stamp-only
+ * differences from base dropped (approvedProposal; English included, exact values otherwise). Translation saves never
  * change it; membership, any rebase that moves a base, and any other field change do (I5).
  * Exposed for contentRevision (revisions.ts), which bumps exactly when it changes.
  */
@@ -38,7 +51,7 @@ export function approvalInput(members: readonly DigestMember[]): string {
     members: sorted.map((member) => ({
       hash: member.hash,
       base: member.base,
-      proposed: withoutTranslations(member.proposed),
+      proposed: approvedProposal(member),
     })),
   });
 }
