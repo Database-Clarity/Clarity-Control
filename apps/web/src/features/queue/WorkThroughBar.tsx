@@ -73,7 +73,8 @@ export function WorkThroughBar({
   shown: QueueItem[];
   /** The list's own state to come back to (its scroll is read here). */
   restore: Record<string, unknown>;
-  onClear(): void;
+  /** Clear selection beside the start button; left out where the list has its own Clear. */
+  onClear?(): void;
   /** An element inside the list, to find the list's scroller. */
   anchor: React.RefObject<Element | null>;
 }) {
@@ -110,9 +111,11 @@ export function WorkThroughBar({
           >
             Work through {selected.length} selected
           </button>
-          <button type="button" className={styles.quiet} onClick={onClear}>
-            Clear selection
-          </button>
+          {onClear && (
+            <button type="button" className={styles.quiet} onClick={onClear}>
+              Clear selection
+            </button>
+          )}
         </>
       )}
       <button

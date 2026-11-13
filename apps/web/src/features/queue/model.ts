@@ -16,7 +16,7 @@
 import type { Lang } from '@clarity/core';
 
 /** The worklists a queue can come from. */
-export type QueueSourceId = 'drift' | 'lost-text' | 'archive' | 'translations';
+export type QueueSourceId = 'review' | 'drift' | 'lost-text' | 'archive' | 'translations';
 
 export type ItemStatus = 'open' | 'done' | 'skipped';
 
