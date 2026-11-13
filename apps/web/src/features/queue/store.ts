@@ -22,6 +22,13 @@ interface Stored {
   queues: Record<string, WorkQueue>;
 }
 
+/**
+ * A queue's frozen items live under their own key, written only when the queue starts or is
+ * rebuilt: a step (Next, Previous) then writes only the small record (position, skipped), however
+ * long the list.
+ */
+const itemsKey = (id: string) => `${storageKey}:items:${id}`;
+
 /** The session copy, as a reload reads it. */
 export function readStoredQueues(): Stored {
   try {
@@ -29,9 +36,12 @@ export function readStoredQueues(): Stored {
     if (raw && typeof raw === 'object' && 'queues' in raw) {
       const stored = raw as Stored;
       const queues: Record<string, WorkQueue> = {};
-      for (const [id, queue] of Object.entries(stored.queues ?? {}))
+      for (const [id, record] of Object.entries(stored.queues ?? {})) {
+        const items: unknown = JSON.parse(sessionStorage.getItem(itemsKey(id)) ?? 'null');
+        const queue = { ...record, items } as WorkQueue;
         if (queue?.version === 1 && Array.isArray(queue.items) && Array.isArray(queue.skipped))
           queues[id] = queue;
+      }
       return { active: stored.active && queues[stored.active] ? stored.active : null, queues };
     }
   } catch {
@@ -40,9 +50,21 @@ export function readStoredQueues(): Stored {
   return { active: null, queues: {} };
 }
 
-function write(stored: Stored) {
+/** Writes the records; `items` names the queues whose item lists changed (start, rebuild). */
+function write(stored: Stored, items: string[] = [], dropped: string[] = []) {
   try {
-    sessionStorage.setItem(storageKey, JSON.stringify(stored));
+    for (const id of dropped) sessionStorage.removeItem(itemsKey(id));
+    for (const id of items)
+      sessionStorage.setItem(itemsKey(id), JSON.stringify(stored.queues[id]!.items));
+    sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        active: stored.active,
+        queues: Object.fromEntries(
+          Object.entries(stored.queues).map(([id, queue]) => [id, { ...queue, items: undefined }]),
+        ),
+      }),
+    );
   } catch {
     // Full or blocked storage: the queue still works until the tab reloads.
   }
@@ -70,8 +92,9 @@ function update(
 ): Partial<Stored> {
   const queue = state.queues[id];
   if (!queue) return {};
-  const next = { active, queues: { ...state.queues, [id]: change(queue) } };
-  write(next);
+  const changed = change(queue);
+  const next = { active, queues: { ...state.queues, [id]: changed } };
+  write(next, changed.items === queue.items ? [] : [id]);
   return next;
 }
 
@@ -87,7 +110,11 @@ export const useWorkQueues = create<QueueStore>((set) => ({
         active: queue.id,
         queues: Object.fromEntries([...recent, queue].map((q) => [q.id, q])),
       };
-      write(next);
+      write(
+        next,
+        [queue.id],
+        Object.keys(state.queues).filter((id) => !next.queues[id]),
+      );
       return next;
     });
   },
@@ -144,6 +171,8 @@ export const useWorkQueues = create<QueueStore>((set) => ({
 /** For tests: forget every queue. */
 export function resetWorkQueues() {
   try {
+    for (const id of Object.keys(useWorkQueues.getState().queues))
+      sessionStorage.removeItem(itemsKey(id));
     sessionStorage.removeItem(storageKey);
   } catch {
     // ignore

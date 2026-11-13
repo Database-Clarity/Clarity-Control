@@ -1484,8 +1484,12 @@ it('works through selected changes in the editor; Leave keeps only the unsaved o
         host.querySelector<HTMLInputElement>(`input[data-review-toggle="${hash}"]`)!.click(),
       );
     expect(host.textContent).toContain('2 selected');
-    expect(button('Work through all 3 shown')).toBeDefined();
-    await click('Work through 2 selected');
+    // The list column's compact bar: the buttons keep their full names.
+    const named = (name: string) =>
+      host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
+    expect(named('Work through all 3 shown')).not.toBeNull();
+    await act(async () => named('Work through 2 selected')!.click());
+    await flush();
     expect(location!.pathname).toBe('/t/10');
     expect(position()).toBe('1 of 2');
     // A save of the open change finishes it; membership stays as it was.

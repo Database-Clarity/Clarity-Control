@@ -228,9 +228,16 @@ const translations: QueueSource = {
   backText: 'Back to queue',
   path: (item) => (item.detail as TranslationDetail).path,
   done({ data }) {
+    // Saved data only: answers hold for this data set (a save brings a new one).
+    const answers = new Map<string, boolean>();
     return (item) => {
-      const tooltip = data.bundle.tooltips[item.hash];
-      return !tooltip || translationStateOf(tooltip, item.lang!).state === 'current';
+      let answer = answers.get(item.key);
+      if (answer === undefined) {
+        const tooltip = data.bundle.tooltips[item.hash];
+        answer = !tooltip || translationStateOf(tooltip, item.lang!).state === 'current';
+        answers.set(item.key, answer);
+      }
+      return answer;
     };
   },
   async rebuild(queue, { data }) {

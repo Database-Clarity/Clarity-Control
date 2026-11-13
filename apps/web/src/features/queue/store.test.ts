@@ -77,6 +77,21 @@ describe('work-through store', () => {
     ]);
   });
 
+  it('a step writes only the small record, never the frozen items; old queues drop theirs', () => {
+    for (let at = 1; at <= 6; at++) useWorkQueues.getState().start(queue(`q${at}`, at));
+    expect(sessionStorage.getItem('clarity-work-through:v1:items:q1')).toBeNull();
+    expect(sessionStorage.getItem('clarity-work-through:v1:items:q6')).not.toBeNull();
+    const frozen = sessionStorage.getItem('clarity-work-through:v1:items:q6')!;
+    // A sentinel in the items key survives a step: the step never rewrites it.
+    sessionStorage.setItem('clarity-work-through:v1:items:q6', JSON.stringify(['sentinel']));
+    useWorkQueues.getState().visit('q6', 'b', true);
+    expect(sessionStorage.getItem('clarity-work-through:v1:items:q6')).toBe('["sentinel"]');
+    expect(sessionStorage.getItem('clarity-work-through:v1')).not.toContain('"items"');
+    sessionStorage.setItem('clarity-work-through:v1:items:q6', frozen);
+    expect(readStoredQueues().queues.q6!.current).toBe('b');
+    expect(readStoredQueues().queues.q6!.items).toEqual(items);
+  });
+
   it('ignores unreadable session data', () => {
     sessionStorage.setItem('clarity-work-through:v1', '{not json');
     expect(readStoredQueues()).toEqual({ active: null, queues: {} });

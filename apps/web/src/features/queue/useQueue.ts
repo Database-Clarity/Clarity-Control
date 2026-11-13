@@ -22,17 +22,18 @@ export function useSourceContext(): SourceContext | null {
  */
 export function useQueueDone(queue: WorkQueue | undefined): (item: QueueItem) => boolean {
   const context = useSourceContext();
+  // Keyed on the frozen items, not the queue record: a step (new position) keeps the test and its
+  // cached answers.
+  const source = queue?.source;
+  const items = queue?.items;
   const test = useMemo(
-    () => (queue && context ? queueSources[queue.source].done(context) : undefined),
-    [queue, context],
+    () => (source && context ? queueSources[source].done(context) : undefined),
+    [source, context],
   );
   const bits = useDraftStore((state) =>
-    test && queue ? queue.items.map((item) => (test(item, state.drafts) ? '1' : '0')).join('') : '',
+    test && items ? items.map((item) => (test(item, state.drafts) ? '1' : '0')).join('') : '',
   );
-  const index = useMemo(
-    () => new Map(queue?.items.map((item, at) => [item.key, at]) ?? []),
-    [queue],
-  );
+  const index = useMemo(() => new Map(items?.map((item, at) => [item.key, at]) ?? []), [items]);
   return useCallback(
     (item: QueueItem) => (bits ? bits[index.get(item.key) ?? -1] === '1' : false),
     [bits, index],
