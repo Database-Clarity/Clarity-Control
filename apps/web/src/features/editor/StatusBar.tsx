@@ -113,7 +113,7 @@ function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
     refit.current = () => {
       // Observing the bar afresh reports it after the next layout, even at the same size.
       pending = true;
-      resize.unobserve(element);
+      resize.disconnect();
       resize.observe(element);
     };
     return () => {
