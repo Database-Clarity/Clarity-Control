@@ -299,3 +299,27 @@ describe('Artifact Perks', () => {
     expect(artifactOrder(undefined)).toBeGreaterThan(Math.max(...known));
   });
 });
+
+describe('navigationGroups cache', () => {
+  it('reuses the unfiltered item groups of one data set and still lists the current globals', () => {
+    const first = navigationGroups(data, '', []);
+    const again = navigationGroups(data, '', []);
+    // The workspace finder remounts on every return to the editor: the same sections come back.
+    expect(again).not.toBe(first);
+    expect(again.flatMap((group) => group.sections)).toEqual(first.flatMap((g) => g.sections));
+    expect(again[0]!.sections[0]).toBe(first[0]!.sections[0]);
+    const definition = { kind: 'variables', hash: 2, name: 'Speed', definitions: {} };
+    const withGlobals = navigationGroups(data, '', [definition] as never);
+    expect(withGlobals.at(-1)?.name).toBe('Globals');
+    expect(withGlobals.at(-1)?.sections[0]?.items[0]?.global).toBe(definition);
+    expect(withGlobals[0]!.sections[0]).toBe(first[0]!.sections[0]);
+    // A search is never cached, and other data is computed for itself.
+    expect(names(section(exoticWeaponsCategory, data, 'worm')!.items).sort()).toEqual([
+      104, 105, 106,
+    ]);
+    const other = { ...data, items: { 900: items[900] } } as EditorData;
+    expect(navigationGroups(other, '', []).flatMap((g) => g.sections.map((s) => s.id))).toEqual([
+      'armor-mod-activity',
+    ]);
+  });
+});
