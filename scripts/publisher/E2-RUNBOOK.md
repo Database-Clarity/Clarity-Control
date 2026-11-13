@@ -132,3 +132,20 @@ secondary/stats, catalog facts and upload-stamp classes (B1/B2/B3/R1 remain owne
 parity.json reports controls and byte parity; it does NOT automatically approve consumer diffs.
 Review missing/new entries, translations, globals, ordering, and compendium/archive leakage.
 No unexplained difference is acceptable; retain all inputs, pins and output files in the E2 report.
+
+## Scheduled batches (P4; after phase-B step 4, with the enable build)
+
+The P4 runtime changes publisher.mjs, so its template build gets a NEW PIN declaring
+`["elementTags", "sandboxPointers", "scheduledBatches"]`. Re-pin only on the enable build (or a
+later re-install, owner gate G3), never during the phase-B install of b97e91ac. Before
+re-installing: no batch may be `publishing`, and no claimed due.json entry may exist. While the
+installed PIN lacks the capability, the Worker refuses to schedule, so no batch request can be
+waiting for a runtime that cannot drain it. First real batch (G4, converter-v2-test): after its
+RECORD, run parity.mjs on its receipt. Its tooltip blobs are the composed live snapshots, which
+RECORD commits to editor-data under live/tooltips. Then check batch.json `result` (landedAt and
+its source, recordedAt, and exportNow), that schedule/due.json is empty, and that there are no
+unexpected schedule/activation-conflicts files. Rollback: as for the publisher, but first
+unschedule every scheduled batch and let every `publishing` one finish. An older runtime REJECTS
+any pending batch request (it fails the push schema) without returning the batch to draft,
+which would leave batch.json naming a finished opId. A claimed batch with no receipt resumes only
+on a runtime with the capability.

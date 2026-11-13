@@ -106,7 +106,9 @@ export async function runPipeline(
     reports.push({
       sourceCommit: pub.head(options.dataBranch),
       bundleCommit: next,
+      // Due work only: a scheduled batch before its notBefore is listed, never pending.
       pending: queue.length,
+      scheduled: pub.scheduledQueue(pub.head(options.dataBranch)).length,
       recovery: queue.length
         ? 'Pending work: authorized client kick after 3 minutes or maintainer Retry; any save restarts catch-up.'
         : null,
