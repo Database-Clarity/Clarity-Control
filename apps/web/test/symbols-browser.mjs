@@ -196,14 +196,24 @@ async function check(theme, width, height, phone, scale, name) {
   await noOverflow(page, `${label} widgets`);
   await page.screenshot({ path: `${shots}/${name}-widgets.png` });
 
-  const insideScroller = (page) =>
-    page.evaluate(() => {
+  // CodeMirror parks a new tooltip far off screen (top about -10000) until its next measure frame
+  // places it; judge the placement once it is placed (a tooltip never placed still fails here).
+  const insideScroller = async (page) => {
+    await page
+      .waitForFunction(
+        () => document.querySelector('.cm-symbol-popover')?.getBoundingClientRect().top > -1000,
+        null,
+        { timeout: 2000 },
+      )
+      .catch(() => undefined);
+    return page.evaluate(() => {
       const pop = document.querySelector('.cm-symbol-popover').getBoundingClientRect();
       const scroller = document.querySelector('.cm-scroller').getBoundingClientRect();
       return pop.top >= scroller.top - 0.5 && pop.bottom <= scroller.bottom + 0.5
         ? true
         : `popover ${Math.round(pop.top)}-${Math.round(pop.bottom)}, editor ${Math.round(scroller.top)}-${Math.round(scroller.bottom)}`;
     });
+  };
   const before = await lineTops(page);
   if (!phone) {
     // Hover: a popover with the markup, no line moves.
