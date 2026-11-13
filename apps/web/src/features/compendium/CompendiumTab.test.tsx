@@ -11,6 +11,7 @@ import { useSaveState } from '../../services/save/state';
 import { useCompendiumStore } from './store';
 import { useCompendiumQueueStore } from './queueStore';
 import { useAdvanceSetting } from './advanceSetting';
+import { CompendiumQueue } from './CompendiumQueue';
 import { CompendiumTab } from './CompendiumTab';
 
 const captured = vi.hoisted(() => ({ proposals: new Map() }));
@@ -43,17 +44,32 @@ const barButton = (text: string) =>
   [...bar().querySelectorAll('button')].find((button) => button.textContent?.startsWith(text))!;
 const draftLink = (hash: number) => useDraftStore.getState().drafts[hash]?.next.compendium;
 
-async function mount(path = '/compendium') {
+async function mount(path = '/compendium', withQueue = false) {
   await act(async () =>
     root.render(
       createElement(
         MemoryRouter,
         { key: path, initialEntries: [path] },
-        createElement(Fragment, null, createElement(Location), createElement(CompendiumTab)),
+        createElement(
+          Fragment,
+          null,
+          createElement(Location),
+          withQueue && createElement(CompendiumQueue),
+          createElement(CompendiumTab),
+        ),
       ),
     ),
   );
 }
+const typeSearch = async (value: string) => {
+  const input = host.querySelector<HTMLInputElement>('[data-compendium-search]')!;
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  await act(async () => {
+    set.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  return input;
+};
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -236,6 +252,128 @@ describe('auto-advance pause', () => {
       vi.advanceTimersByTime(2000);
     });
     expect(title()).toContain('Sample 105');
+  });
+
+  it('a search typed during the pause keeps the search and the decided entry', async () => {
+    vi.useFakeTimers();
+    useAdvanceSetting.setState({ ms: 300 });
+    await mount('/compendium', true);
+    await press('Enter');
+    expect(bar().textContent).toContain('Next: Sample 101');
+    // Typed late in the pause: its URL commit (150 ms) lands after the move would have.
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    const input = await typeSearch('Sample');
+    expect(bar().textContent).not.toContain('Next:');
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(route().searchParams.get('q')).toBe('Sample');
+    expect(input.value).toBe('Sample');
+    expect(title()).toContain('Sample 100');
+    expect(route().searchParams.get('hash')).toBe('100');
+  });
+
+  it('a row tapped in the queue during the pause wins over the move', async () => {
+    vi.useFakeTimers();
+    useAdvanceSetting.setState({ ms: 600 });
+    // A list viewport tall enough to render every queue row.
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(800);
+    await mount('/compendium', true);
+    // Past the queue skeleton's minimum time.
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    await press('Enter');
+    const rows = [...host.querySelectorAll<HTMLElement>('[role="treeitem"][aria-level="2"]')];
+    const other = rows.find((row) => !/^cq-row-10[01]$/.test(row.id))!;
+    const hash = other.id.replace('cq-row-', '');
+    await act(async () => {
+      other.click();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(title()).toContain(`Sample ${hash}`);
+    expect(route().searchParams.get('hash')).toBe(hash);
+    expect(bar().textContent).not.toContain('Next:');
+  });
+});
+
+describe('linked sources view', () => {
+  it('keeps the queue listed, takes no review keys, and returns without a rebuild', async () => {
+    vi.useFakeTimers();
+    await mount('/compendium?tab=linked&hash=101', true);
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(host.querySelector('[aria-label="Linked sources changed"]')).toBeTruthy();
+    expect(host.textContent).not.toContain('Loading the review queue');
+    expect(host.querySelector('[aria-selected="true"]')?.id).toBe('cq-row-101');
+    await press('Enter');
+    await press('ArrowDown');
+    expect(Object.keys(useDraftStore.getState().drafts)).toHaveLength(0);
+    expect(route().searchParams.get('tab')).toBe('linked');
+    const back = [...host.querySelectorAll('a')].find((a) =>
+      a.textContent?.includes('Back to the'),
+    )!;
+    await act(async () => {
+      back.click();
+    });
+    expect(route().searchParams.has('tab')).toBe(false);
+    expect(title()).toContain('Sample 101');
+    expect(host.textContent).not.toContain('Loading the review queue');
+  });
+});
+
+describe('more actions menu', () => {
+  const menu = () => bar().querySelector('details')!;
+  const openMenu = async () =>
+    act(async () => {
+      menu().open = true;
+      menu().dispatchEvent(new Event('toggle'));
+    });
+
+  it('closes on Escape before the pause sees it, and on a press outside', async () => {
+    vi.useFakeTimers();
+    useAdvanceSetting.setState({ ms: 600 });
+    await mount();
+    await press('Enter');
+    await openMenu();
+    await press('Escape', { cancelable: true });
+    expect(menu().open).toBe(false);
+    expect(document.activeElement).toBe(menu().querySelector('summary'));
+    // One Escape, one thing closed: the pause still runs.
+    expect(bar().textContent).toContain('Next: Sample 101');
+    await act(async () => {
+      vi.advanceTimersByTime(650);
+    });
+    expect(title()).toContain('Sample 101');
+    await openMenu();
+    await act(async () => {
+      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+    expect(menu().open).toBe(false);
+  });
+
+  it('closes once its Undo or pause choice ran', async () => {
+    await mount();
+    await press('s');
+    await openMenu();
+    await act(async () => {
+      menu().querySelector('button')!.click();
+    });
+    expect(menu().open).toBe(false);
+    expect(title()).toContain('Sample 100');
+    await openMenu();
+    const select = menu().querySelector('select')!;
+    await act(async () => {
+      select.value = '1000';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(menu().open).toBe(false);
+    expect(useAdvanceSetting.getState().ms).toBe(1000);
   });
 });
 
