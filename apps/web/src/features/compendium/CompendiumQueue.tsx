@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { VirtualList } from '../../ui/VirtualList';
 import {
@@ -10,6 +10,7 @@ import {
 import { touchQuery, useMedia } from '../../ui/useMedia';
 import { useScaleFactor } from '../../ui/usePaneDivider';
 import { useSettingsStore } from '../../stores/settings';
+import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { useCompendiumQueueStore } from './queueStore';
 import {
   decidedKinds,
@@ -105,6 +106,17 @@ function Header({
 /** The queue behind the Compendium tab: filters and one virtualised, grouped list. */
 export function CompendiumQueue() {
   const [params, setParams] = useSearchParams();
+  // Writes start from the URL as it is now, never from the render a timer or row was set up in;
+  // the router's setter changes with every URL, so rows keep one stable select (no row re-renders
+  // beyond the two whose selection changed).
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+  const setParamsRef = useRef(setParams);
+  setParamsRef.current = setParams;
+  // On a phone the queue is the header's sheet: choosing an entry closes it over the detail.
+  const sheetClose = useContext(FinderSheetCloseContext);
+  const closeSheet = useRef(sheetClose);
+  closeSheet.current = sheetClose;
   const model = useCompendiumQueueStore((state) => state.model);
   const rows = useCompendiumQueueStore((state) => state.rows);
   const showSkeleton = useSkeletonVisible(rows === null, 'queue', false);
@@ -126,23 +138,20 @@ export function CompendiumQueue() {
   const query = params.get('q') ?? '';
   const select = useCallback(
     (hash: number) => {
-      const next = new URLSearchParams(params);
+      const next = new URLSearchParams(paramsRef.current);
       next.delete('tab');
       next.set('hash', String(hash));
-      setParams(next, { replace: true });
+      setParamsRef.current(next, { replace: true });
+      closeSheet.current?.();
     },
-    [params, setParams],
+    [],
   );
-  const filter = (key: 'show' | 'q', value: string) =>
-    setParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        if (value && !(key === 'show' && value === 'open')) next.set(key, value);
-        else next.delete(key);
-        return next;
-      },
-      { replace: true },
-    );
+  const filter = (key: 'show' | 'q', value: string) => {
+    const next = new URLSearchParams(paramsRef.current);
+    if (value && !(key === 'show' && value === 'open')) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  };
   // The box owns what is typed; the URL follows shortly after, so fast typing never loses keys
   // to a route commit, and an outside change (Clear filters, Back) still lands in the box.
   const [text, setText] = useState(query);
@@ -185,14 +194,9 @@ export function CompendiumQueue() {
             onClick={() => {
               setText('');
               pushed.current = '';
-              setParams(
-                (previous) => {
-                  const next = new URLSearchParams(previous);
-                  for (const key of ['show', 'q', 'group']) next.delete(key);
-                  return next;
-                },
-                { replace: true },
-              );
+              const next = new URLSearchParams(paramsRef.current);
+              for (const key of ['show', 'q', 'group']) next.delete(key);
+              setParams(next, { replace: true });
             }}
           >
             Clear filters

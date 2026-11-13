@@ -172,6 +172,10 @@ function Workspace({
 }) {
   const { progress, update, error: progressError } = useReviewProgress(storageKey);
   const [params, setParams] = useSearchParams();
+  // A timer or listener set up in an earlier render must not write back that render's URL: a
+  // search typed or a row tapped since then would be undone.
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
   const { drafts, hydrated } = useDraftStore();
   const user = useAuthStore((state) => state.user);
   const locked = useSaveState((state) => state.locked);
@@ -246,7 +250,15 @@ function Workspace({
   const canEdit = mayDraftLink(user?.role, !!apiUrl, hydrated, locked);
 
   // ---- selection ----
-  const [pending, setPending] = useState<{ from: number; next?: QueueRow; token: number }>();
+  // `searches` are the URL at the decision and the URL holding the decided entry (the router may
+  // apply the hold a render later); any other URL (a search, a filter, a row tapped in the queue,
+  // Back) is the user going elsewhere, which cancels the move.
+  const [pending, setPending] = useState<{
+    from: number;
+    next?: QueueRow;
+    token: number;
+    searches: string[];
+  }>();
   const pendingTimer = useRef<ReturnType<typeof setTimeout>>();
   const [highlight, setHighlight] = useState(-1);
   const [picker, setPicker] = useState(false);
@@ -262,14 +274,18 @@ function Workspace({
     (hash: number | undefined, mode: 'replace' | 'push' = 'replace') => {
       clearPending();
       setPicker(false);
-      const next = new URLSearchParams(params);
+      const next = new URLSearchParams(paramsRef.current);
       next.delete('tab');
       if (hash === undefined) next.delete('hash');
       else next.set('hash', String(hash));
       setParams(next, { replace: mode === 'replace' });
     },
-    [params, setParams, clearPending],
+    [setParams, clearPending],
   );
+  const search = params.toString();
+  useEffect(() => {
+    if (pending && !pending.searches.includes(search)) clearPending();
+  }, [pending, search, clearPending]);
 
   // Publish the model the left column renders; selection and filters travel in the URL.
   const restoreScope = useCallback(
@@ -351,8 +367,9 @@ function Workspace({
   const advanceFrom = (row: QueueRow) => {
     const next = nextOpenRow(model.steps, row.hash);
     // The decided entry stays open (and listed) until the move, so the pause shows what happened.
+    const before = paramsRef.current.toString();
+    const held = new URLSearchParams(paramsRef.current);
     if (routeHash !== row.hash) {
-      const held = new URLSearchParams(params);
       held.set('hash', String(row.hash));
       setParams(held, { replace: true });
     }
@@ -361,7 +378,7 @@ function Workspace({
       return;
     }
     if (pendingTimer.current) clearTimeout(pendingTimer.current);
-    setPending({ from: row.hash, next, token: Date.now() });
+    setPending({ from: row.hash, next, token: Date.now(), searches: [before, held.toString()] });
     pendingTimer.current = setTimeout(() => {
       pendingTimer.current = undefined;
       setPending(undefined);
@@ -516,8 +533,18 @@ function Workspace({
         handlers.current.undoLast();
       }
     }
+    // Typing in the queue search during the pause keeps the decided entry: the search commits to
+    // the URL only after a short delay, which could land after the move.
+    function input(event: Event) {
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (keyState.current.pending && target?.closest('[data-compendium-search]')) clearPending();
+    }
     window.addEventListener('keydown', keydown);
-    return () => window.removeEventListener('keydown', keydown);
+    window.addEventListener('input', input, true);
+    return () => {
+      window.removeEventListener('keydown', keydown);
+      window.removeEventListener('input', input, true);
+    };
   }, [clearPending]);
 
   // ---- render ----
