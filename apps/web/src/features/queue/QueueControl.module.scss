@@ -29,8 +29,9 @@
     @include controls.focus-ring;
   }
 }
-.menuSegment {
-  min-width: 2rem;
+// Doubled: the stepper's segment rule (.queueStepper .queueBack) sets min-width 0.
+.queue.queue .menuSegment {
+  min-width: var(--tap, 2.25rem);
   padding: 0 0.5rem;
 }
 .chevron {
