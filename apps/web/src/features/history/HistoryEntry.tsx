@@ -19,6 +19,7 @@ import { CommitAuthor } from './CommitAuthor';
 import { projectHistory, type HistoryScope } from './scope';
 import { TooltipDiff } from './TooltipDiff';
 import type { RevisionCache, RevisionDiffSource } from './revisions';
+import { innerPopupOwnsEscape } from '../../ui/Popover';
 import popover from '../../ui/Popover.module.scss';
 import styles from './History.module.scss';
 import {
@@ -138,7 +139,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         close(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || innerPopupOwnsEscape(event.target, surface.current)) return;
       event.stopPropagation();
       close(
         Boolean(

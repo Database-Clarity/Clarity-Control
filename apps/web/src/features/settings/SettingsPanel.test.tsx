@@ -384,6 +384,29 @@ describe('Settings popover', () => {
     expect(popover()).toBeNull();
   });
 
+  it('keeps its desktop margin left of the reserved scrollbar gutter', async () => {
+    // global.scss reserves `scrollbar-gutter: stable`: a classic 15px scrollbar leaves the root
+    // 15px narrower than innerWidth, and a popover over the gutter is clipped there.
+    const root = document.documentElement;
+    const rootWidth = window.innerWidth - 15;
+    Object.defineProperty(root, 'offsetWidth', { configurable: true, value: rootWidth });
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(
+        DOMRect.fromRect({ x: window.innerWidth - 40, y: 10, width: 32, height: 32 }),
+      );
+    try {
+      await render();
+      await openSettings();
+      const dialog = popover()!;
+      expect(dialog.style.width).toBe('480px');
+      expect(dialog.style.left).toBe(`${rootWidth - 480 - 8}px`);
+    } finally {
+      rect.mockRestore();
+      delete (root as unknown as { offsetWidth?: number }).offsetWidth;
+    }
+  });
+
   it('prompts after a reload with unsynced changes and can discard them', async () => {
     holder.server.set({ ...defaultSyncedSettings, dateFormat: 'mdy' });
     // What a closed tab leaves behind: a local copy with a pending marker.
