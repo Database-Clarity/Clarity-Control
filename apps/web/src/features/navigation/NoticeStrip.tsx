@@ -196,13 +196,18 @@ function useClearPanels(strip: RefObject<HTMLDivElement | null>, shown: boolean)
       schedule();
     };
     find();
-    // A panel opening or closing; edits inside the text never add or remove one.
+    // A panel opening or closing: added or removed, or a kept one (the markup help sheet) gaining
+    // or losing its marker. Edits inside the text never add or remove one.
     const added = new MutationObserver((records) => {
       if (records.every((r) => r.target instanceof Element && r.target.closest('.cm-content')))
         return;
       find();
     });
-    added.observe(doc.body, { childList: true, subtree: true });
+    added.observe(doc.body, {
+      childList: true,
+      subtree: true,
+      attributeFilter: ['data-editor-overlay', 'data-editor-status'],
+    });
     const viewport = win.visualViewport;
     const options = { capture: true, passive: true } as const;
     win.addEventListener('resize', schedule);

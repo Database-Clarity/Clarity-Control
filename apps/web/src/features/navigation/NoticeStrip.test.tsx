@@ -185,6 +185,13 @@ describe('notice strip', () => {
       await act(async () => void bar.before(diff));
       advance(20);
       expect(clear()).toBe('304px');
+      // A kept panel losing and regaining its marker (the markup help sheet parks this way).
+      await act(async () => void diff.removeAttribute('data-editor-overlay'));
+      advance(20);
+      expect(clear()).toBe('54px');
+      await act(async () => void diff.setAttribute('data-editor-overlay', ''));
+      advance(20);
+      expect(clear()).toBe('304px');
       // A panel nearly up to the header: past the bar only (60 tall would end above 84).
       panels.diff = [130, 650];
       await act(async () => void document.body.append(document.createElement('span')));
