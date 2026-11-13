@@ -10,7 +10,7 @@ import { TooltipPreview } from '../preview/TooltipPreview';
 import { editorName, exoticPiece, listName, navigationGroups, sharesAllOwners } from './catalog';
 import { presentCategories } from '../../services/categoryLabels';
 import { TooltipNavigation } from './TooltipNavigation';
-import { exoticArmourRowIcon } from './groupIcons';
+import { exoticArmourRowIcon, previewPieceIcon } from './groupIcons';
 import armourIcons from './exotic-armor-icons.json';
 
 // Shapes follow the generator's items.json: the perk carries its owning pieces, not the pieces.
@@ -217,20 +217,46 @@ describe('exotic armour in the editor headings', () => {
   });
 
   it('shows the piece above the perk in the preview header, only when there is one', () => {
-    const markup = (piece?: string) =>
+    const markup = (piece?: string, pieceIcon?: string) =>
       renderToStaticMarkup(
         <TooltipPreview
           text=""
           lang="en"
           name="Chaotic Exchanger"
           piece={piece}
+          pieceIcon={pieceIcon}
+          icon="/common/destiny2_content/icons/perk-101.png"
           globals={{ variables: '', titles: '' }}
         />,
       );
     expect(markup('Contraverse Hold')).toMatch(
-      /Contraverse Hold<\/div><div[^>]*>Chaotic Exchanger/,
+      /Contraverse Hold<\/span><\/div><div[^>]*>Chaotic Exchanger/,
     );
     expect(markup()).not.toContain('Contraverse');
+    // The piece icon sits in the piece row; the perk keeps its own icon beside the identity.
+    const withIcon = markup('Contraverse Hold', '/common/destiny2_content/icons/piece.jpg');
+    expect(withIcon).toMatch(
+      /<img[^>]*perk-101\.png[^>]*>.*<img[^>]*piece\.jpg[^>]*><\/span><span[^>]*>Contraverse Hold/,
+    );
+    // A piece missing from the icon file keeps an empty box; no piece icon without a piece name.
+    expect(markup('Contraverse Hold', '')).toMatch(/<span[^>]*><\/span><span[^>]*>Contraverse/);
+    expect(markup('', '/common/destiny2_content/icons/piece.jpg')).not.toContain('piece.jpg');
+  });
+
+  it('gives the header the piece icon only for a named single piece', () => {
+    const contraverse = `${armourIcons.source.prefix}${(armourIcons.icons as Record<string, string>)['1906093346']}`;
+    expect(previewPieceIcon(data.items[101])).toBe(contraverse);
+    // Aeon (several pieces), owner-less perks, and other categories: no piece icon.
+    expect(previewPieceIcon(data.items[103])).toBeUndefined();
+    expect(previewPieceIcon(data.items[102])).toBeUndefined();
+    expect(previewPieceIcon(data.items[20])).toBeUndefined();
+    const striders = perk(6, 'Blastwave Striders', {
+      itemHash: 1188437342,
+      itemName: 'Blastwave Striders',
+      owners: [1188437342],
+      ownerNames: { 1188437342: 'Blastwave Striders' },
+    });
+    expect(previewPieceIcon(striders as never)).toBeUndefined();
   });
 });
 
