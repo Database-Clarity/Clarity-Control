@@ -195,6 +195,7 @@ export function LinkPicker({
   const tab = data.tabs.find((tab) => tab.gid === gid);
   return (
     <section
+      className={styles.linkPicker}
       aria-label="Link a Compendium row"
       aria-busy={pending || rowsPending}
       data-sheet-pending={pending}
@@ -305,7 +306,7 @@ export function LinkPicker({
         const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
         return (
           savedTab && (
-            <div key={key} hidden={!gid || key !== shown?.key}>
+            <div key={key} className={styles.retainedSheet} hidden={!gid || key !== shown?.key}>
               <CellPicker
                 tab={savedTab}
                 data={data}
