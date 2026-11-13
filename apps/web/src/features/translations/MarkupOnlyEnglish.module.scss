@@ -1,0 +1,47 @@
+@use '../../data/variables' as theme;
+@use '../../ui/controls';
+
+// The translator's markup-only English (MarkupOnlyEnglish.tsx): the notice, the current English
+// rendered like the preview, and "Tag the same words here".
+.notice {
+  margin: 0 0 0.5rem;
+}
+
+// Newly tagged spans: a dotted outline, which takes no space, so nothing moves.
+.rendered :global([data-new-tag]) {
+  outline: 1px dotted currentcolor;
+  outline-offset: 1px;
+  border-radius: 1px;
+}
+
+.tagHere {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin: 0.5rem 0 0;
+}
+
+.link {
+  @include controls.control-size;
+  padding: 0;
+  font: inherit;
+  color: var(--link);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  &:hover {
+    text-decoration: underline;
+  }
+  &:focus-visible {
+    @include controls.focus-ring;
+  }
+}
+
+.note {
+  min-width: 0;
+  color: var(--text2);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
