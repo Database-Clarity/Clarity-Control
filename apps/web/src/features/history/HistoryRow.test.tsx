@@ -469,7 +469,7 @@ it('requires scrolling to advance an intersecting sentinel, rather than draining
   }
 });
 
-it('keeps fallback skeletons visible for the shared minimum after classification finishes', async () => {
+it('skips fallback skeletons whose classification finishes before their first frame', async () => {
   vi.useFakeTimers();
   try {
     getHistory.mockResolvedValue({ commits: [commit(1)] });
@@ -477,8 +477,25 @@ it('keeps fallback skeletons visible for the shared minimum after classification
     await act(async () => {
       host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
     });
+    expect(host.querySelector('[data-history-pending]')).toBeNull();
+    expect(host.querySelector('ol li > button')).not.toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('keeps painted fallback skeletons for the minimum after classification finishes', async () => {
+  vi.useFakeTimers();
+  try {
+    getHistory.mockResolvedValue({ commits: [commit(1)] });
+    getVersion.mockImplementation(
+      () => new Promise((done) => setTimeout(() => done({ tooltip }), 50)),
+    );
+    await act(async () => root.render(<HistoryPanel hash={10} />));
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
+    });
     expect(host.querySelector('[data-history-pending]')).not.toBeNull();
-    expect(host.querySelector('ol li > button')).toBeNull();
     // The minimum starts once the skeleton's first frame has painted.
     await act(async () => vi.advanceTimersToNextFrame());
     await act(async () => vi.advanceTimersByTimeAsync(1)); // The post-paint stamp task.

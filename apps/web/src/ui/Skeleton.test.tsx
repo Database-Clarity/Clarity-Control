@@ -131,18 +131,49 @@ describe('minimum visible time', () => {
     expect(host.textContent).toBe('Retained content');
   });
 
-  it('shows a first load at once and keeps it for the minimum from its first paint', async () => {
+  it('shows a first load at once and never paints it when ready before its first frame', async () => {
     await act(async () => root.render(createElement(Pending, { pending: true, content: false })));
+    expect(shown()).toBe(true);
     await act(async () => root.render(createElement(Pending, { pending: false, content: false })));
-    expect(shown()).toBe(true);
-    // Ready before its first frame painted: it still waits for the paint stamp.
-    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs * 2));
-    expect(shown()).toBe(true);
+    expect(host.textContent).toBe('Retained content');
+  });
+
+  it('keeps a painted first load for the minimum from its paint stamp', async () => {
+    await act(async () => root.render(createElement(Pending, { pending: true, content: false })));
     await frame();
+    await act(async () => vi.advanceTimersByTime(0));
+    await act(async () => root.render(createElement(Pending, { pending: false, content: false })));
     await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 1));
     expect(shown()).toBe(true);
     await act(async () => vi.advanceTimersByTime(1));
     expect(shown()).toBe(false);
+  });
+
+  it('bounds the wait when no frame ever renders', async () => {
+    await act(async () => root.render(createElement(Pending, { pending: true, content: false })));
+    await act(async () => vi.advanceTimersByTime(500));
+    await act(async () => root.render(createElement(Pending, { pending: true, content: false })));
+    // Still loading at 500 ms; the page renders no frames, so the stamp falls back at 1000 ms.
+    await act(async () => vi.advanceTimersByTime(500));
+    await act(async () => root.render(createElement(Pending, { pending: false, content: false })));
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 1));
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(shown()).toBe(false);
+  });
+
+  it('swaps in when the document turns hidden while a ready load waits for its stamp', async () => {
+    await act(async () => root.render(createElement(Pending, { pending: true, content: false })));
+    await frame(); // Painted; the stamp task has not run.
+    await act(async () => root.render(createElement(Pending, { pending: false, content: false })));
+    expect(shown()).toBe(true);
+    const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      expect(shown()).toBe(false);
+    } finally {
+      hidden.mockRestore();
+    }
   });
 
   it('counts the minimum from the paint after a busy reveal frame, not from the commit', async () => {

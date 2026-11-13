@@ -142,7 +142,14 @@ export function skeletonLineWidths(
 /** Once painted, a skeleton stays on screen at least this long (ms), so it never only flashes. */
 export const skeletonMinimumMs = 200;
 type SkeletonClock = { shownAt?: number; holders: Set<symbol>; endFrame?: number };
-type PaintWatch = { frame?: number; task?: ReturnType<typeof setTimeout> };
+type PaintWatch = {
+  frame?: number;
+  task?: ReturnType<typeof setTimeout>;
+  fallback?: ReturnType<typeof setTimeout>;
+  onVisibility?: () => void;
+};
+/** A page that renders no frame for this long is not painting; the minimum then starts anyway. */
+const skeletonPaintFallbackMs = 1000;
 const SkeletonClockContext = createContext<SkeletonClock | undefined>(undefined);
 
 function useOwnSkeletonClock(identity: unknown): SkeletonClock {
@@ -217,9 +224,13 @@ export function useSkeletonVisible(
       };
   }, [activeClock, holding]);
   const stopPaintWatch = () => {
-    if (paint.current?.frame !== undefined) cancelAnimationFrame(paint.current.frame);
-    if (paint.current?.task !== undefined) clearTimeout(paint.current.task);
+    const watch = paint.current;
     paint.current = undefined;
+    if (!watch) return;
+    if (watch.frame !== undefined) cancelAnimationFrame(watch.frame);
+    if (watch.task !== undefined) clearTimeout(watch.task);
+    if (watch.fallback !== undefined) clearTimeout(watch.fallback);
+    if (watch.onVisibility) document.removeEventListener('visibilitychange', watch.onVisibility);
   };
   useLayoutEffect(
     () => () => {
@@ -233,26 +244,39 @@ export function useSkeletonVisible(
     // Stamp the clock once the committed skeleton has painted: a task posted after the next
     // frame's callbacks runs after that frame's paint (a commit inside a frame callback paints
     // in that same frame, so the frame step is skipped). Never earlier than the paint, at most a
-    // frame later. A pending entry that finishes before the stamp waits for it.
+    // frame later. An entry that finishes before that frame is never shown; one that finishes
+    // after the frame but before the stamp waits for it. A page that renders no frames (a hidden
+    // or throttled tab) gets the stamp after `skeletonPaintFallbackMs`, or swaps in directly
+    // when it turns hidden with the content ready.
     const watchPaint = (inFrame: boolean) => {
       if (paint.current) return;
       const watch: PaintWatch = {};
       paint.current = watch;
+      const rerun = () => {
+        if (!latest.current.pending) setPainted((n) => n + 1);
+      };
+      const stampNow = () => {
+        if (paint.current !== watch) return;
+        stopPaintWatch();
+        activeClock.shownAt ??= Date.now();
+        shownAt.current = activeClock.shownAt;
+        rerun();
+      };
       const stamp = () => {
-        watch.task = setTimeout(() => {
-          if (paint.current !== watch) return;
-          paint.current = undefined;
-          activeClock.shownAt ??= Date.now();
-          shownAt.current = activeClock.shownAt;
-          if (!latest.current.pending) setPainted((n) => n + 1);
-        }, 0);
+        watch.task = setTimeout(stampNow, 0);
       };
       if (inFrame) stamp();
-      else
+      else {
         watch.frame = requestAnimationFrame(() => {
           watch.frame = undefined;
           stamp();
         });
+        watch.fallback = setTimeout(stampNow, skeletonPaintFallbackMs);
+        watch.onVisibility = () => {
+          if (document.visibilityState === 'hidden') rerun();
+        };
+        document.addEventListener('visibilitychange', watch.onVisibility);
+      }
     };
     const show = (inFrame: boolean) => {
       shownAt.current = activeClock.shownAt;
@@ -290,9 +314,10 @@ export function useSkeletonVisible(
       }
       if (shownAt.current === undefined && !grace.current) shownAt.current = activeClock.shownAt;
       if (shownAt.current === undefined && !grace.current) {
-        // Shown, but its first frame has not painted yet: wait for the paint stamp. A hidden
-        // document paints nothing, so a finished load there swaps in directly.
-        if (!pending && document.visibilityState === 'hidden') hide();
+        // Shown, but not stamped yet. Ready before its first frame (or in a hidden document,
+        // which paints nothing): never shown. Ready after that frame: wait for the stamp.
+        const unpainted = paint.current?.frame !== undefined;
+        if (!pending && (unpainted || document.visibilityState === 'hidden')) hide();
         else watchPaint(false);
       } else if (shownAt.current === undefined) {
         if (!pending) hide();
