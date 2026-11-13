@@ -8,7 +8,7 @@ import { editorData, english } from '../../services/save/fixtures.testSupport';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { analyzeSourceOnly } from './sourceOnlyChanges';
-import type { MarkupGlobals } from '@clarity/core';
+import type { RenderedDiffRequest } from './renderedDiff.worker';
 const settleWorker = () =>
   act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 210));
@@ -31,24 +31,16 @@ it.each([
         instances.push(this);
       }
       terminate() {}
-      postMessage(request: { id: number; before: string; after: string; globals: MarkupGlobals }) {
+      postMessage(request: RenderedDiffRequest) {
+        if ('cancel' in request) return;
         const { id, before, after, globals } = request;
-        queueMicrotask(() =>
-          this.onmessage?.({
-            data: {
-              id,
-              result: (() => {
-                const diff = renderedDiff(before, after, globals);
-                return {
-                  ...diff,
-                  sourceAnalysis: analyzeSourceOnly(before, after, globals, diff, {
-                    budgetMs: 10000,
-                  }),
-                };
-              })(),
-            },
-          }),
-        );
+        // Same order as the worker: the diff, then the complete source check.
+        const diff = renderedDiff(before, after, globals);
+        const sourceAnalysis = analyzeSourceOnly(before, after, globals, diff);
+        queueMicrotask(() => {
+          this.onmessage?.({ data: { id, result: diff } });
+          this.onmessage?.({ data: { id, sourceAnalysis } });
+        });
       }
     }
     vi.stubGlobal('Worker', AutoWorker);
@@ -90,6 +82,7 @@ it.each([
 it('hides provisional long content, ignores obsolete worker replies, and retains content on failure', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const requests: { id: number; before: string; after: string }[] = [];
+  const cancels: number[] = [];
   const instances: FakeWorker[] = [];
   class FakeWorker {
     onmessage?: (event: { data: unknown }) => void;
@@ -97,8 +90,9 @@ it('hides provisional long content, ignores obsolete worker replies, and retains
     constructor() {
       instances.push(this);
     }
-    postMessage(request: (typeof requests)[number]) {
-      requests.push(request);
+    postMessage(request: RenderedDiffRequest) {
+      if ('cancel' in request) cancels.push(request.cancel);
+      else requests.push(request);
     }
     terminate() {}
   }
@@ -118,6 +112,8 @@ it('hides provisional long content, ignores obsolete worker replies, and retains
     expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
     const openingRequests = requests.length;
     await act(async () => root.render(show('Small old', 'Small new1')));
+    // A newer diff cancels the open check in the worker.
+    expect(cancels).toEqual([requests[0].id]);
     await act(async () => root.render(show('Small old', 'Small new2')));
     await act(async () => root.render(show('Small old', 'Small new')));
     expect(requests).toHaveLength(openingRequests);

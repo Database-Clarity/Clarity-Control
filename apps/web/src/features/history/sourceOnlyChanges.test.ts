@@ -4,13 +4,13 @@ import { presentDiff, renderedDiff, type DiffLine, type DiffSpan } from './rende
 import {
   accountHunks,
   analyzeSourceOnly,
+  sourceAnalysisSteps,
   sourceParts,
   type HunkAccount,
   type SourceMarker,
 } from './sourceOnlyChanges';
 
 const globals: MarkupGlobals = { variables: '', titles: '' };
-const options = { budgetMs: 10000, maxParts: 1000 };
 
 /** Marked claim vocabulary per side, rendered line, and word: "side|line|word" → count. */
 function markedTokens(diff: ReturnType<typeof renderedDiff>) {
@@ -45,7 +45,7 @@ function markedTokens(diff: ReturnType<typeof renderedDiff>) {
  */
 function account(before: string, after: string, context = globals) {
   const diff = renderedDiff(before, after, context);
-  const accounts = accountHunks(before, after, context, diff, options);
+  const accounts = accountHunks(before, after, context, diff);
   const parts = sourceParts(before, after);
   expect(accounts).toHaveLength(parts.length);
   const available = markedTokens(diff);
@@ -170,8 +170,7 @@ describe('named repros, forward and reverse', () => {
   it.each(both('', '<pve/>'))(
     'a one-sided structure-only line is shown by a visible bar: %j → %j',
     (before, after) => {
-      const { accounts, diff } = account(before, after);
-      expect(count(accounts, 'unchecked')).toBe(0);
+      const { diff } = account(before, after);
       expect([...diff.before, ...diff.after].some((line: DiffLine) => line.diffKind)).toBe(true);
     },
   );
@@ -207,7 +206,6 @@ describe('named repros, forward and reverse', () => {
     ),
   ])('newly unused definitions keep their production label: %j → %j', (before, after) => {
     const { accounts } = account(before, after);
-    expect(count(accounts, 'unchecked')).toBe(0);
     expect(
       labels(accounts).some((label) => /Variable n changed|Title Detail changed/.test(label)),
     ).toBe(true);
@@ -215,8 +213,7 @@ describe('named repros, forward and reverse', () => {
   it.each(both('var n = 1\n#n damage', 'var n = 2\n#n damage'))(
     'a still-referenced variable change is visible in the diff: %j → %j',
     (before, after) => {
-      const { accounts, diff } = account(before, after);
-      expect(count(accounts, 'unchecked')).toBe(0);
+      const { diff } = account(before, after);
       const marked = (lines: DiffLine[]) =>
         lines
           .flatMap((line) => (line.linesContent ?? []) as DiffSpan[])
@@ -232,9 +229,8 @@ describe('named repros, forward and reverse', () => {
     ...both('<pve Same text />', '<pvp Same text />'),
     ...both('<pve/>Same line', '<bold/>Same line'),
   ])('icon, tag, and tint changes are marked and accounted: %j → %j', (before, after) => {
-    const { accounts, diff } = account(before, after);
+    const { diff } = account(before, after);
     // Each is either proven by its own marked span or line bar, or flagged.
-    expect(count(accounts, 'unchecked')).toBe(0);
     expect(JSON.stringify(diff.before)).toContain('"diffKind":"delete"');
     expect(JSON.stringify(diff.after)).toContain('"diffKind":"insert"');
   });
@@ -299,39 +295,39 @@ it('hidden comment, condition, and declaration edits are flagged with their kind
     }
 });
 
-it('keeps classified markers and reports exactly the unchecked parts at either cap', () => {
-  const before = Array.from({ length: 45 }, (_, i) => `// old ${i}\nSame ${i}`).join('\n');
+it('checks every source part of a long change, with no part cap or time budget', () => {
+  // 120 hidden comment edits: three times the old 40-part cap.
+  const before = Array.from({ length: 120 }, (_, i) => `// old ${i}\nSame ${i}`).join('\n');
   const after = before.replaceAll('old', 'new');
   const diff = renderedDiff(before, after, globals);
-  const all = analyzeSourceOnly(before, after, globals, diff, options);
-  const bounded = analyzeSourceOnly(before, after, globals, diff, { budgetMs: 10000 });
+  const analysis = analyzeSourceOnly(before, after, globals, diff);
   // Markers on one rendered line collapse; each still counts every hunk it covers.
   const covered = (markers: SourceMarker[]) =>
     markers.reduce((total, marker) => total + marker.hunks, 0);
-  expect(all.unchecked).toBe(0);
-  expect(covered(all.markers)).toBe(sourceParts(before, after).length);
-  expect(all.markers.length).toBeLessThan(covered(all.markers));
-  expect(covered(bounded.markers)).toBe(40);
-  expect(bounded.unchecked).toBe(covered(all.markers) - 40);
-  let time = 0;
-  const timed = analyzeSourceOnly(before, after, globals, diff, {
-    now: () => (time += 30),
-    budgetMs: 50,
-  });
-  expect(covered(timed.markers)).toBeLessThan(covered(all.markers));
-  expect(covered(timed.markers) + timed.unchecked).toBe(covered(all.markers));
+  expect(Object.keys(analysis)).toEqual(['markers']);
+  expect(covered(analysis.markers)).toBe(sourceParts(before, after).length);
+  expect(covered(analysis.markers)).toBe(120);
+  expect(analysis.markers.length).toBeLessThan(120);
+  // The stepped form the worker drives pauses once between hunks and ends
+  // with the same complete analysis.
+  const steps = sourceAnalysisSteps(before, after, globals, diff);
+  let pauses = 0,
+    step = steps.next();
+  for (; !step.done; step = steps.next()) pauses++;
+  expect(pauses).toBe(119);
+  expect(JSON.stringify(step.value)).toBe(JSON.stringify(analysis));
 });
 
 it('leaves the production render data byte-identical', () => {
   const text = 'Visible\nvar n = 2\nenhanced (\nHidden\n)';
   const saved = JSON.stringify(parseMarkup(text, globals));
-  analyzeSourceOnly('Old', text, globals, renderedDiff('Old', text, globals), options);
+  analyzeSourceOnly('Old', text, globals, renderedDiff('Old', text, globals));
   expect(JSON.stringify(parseMarkup(text, globals))).toBe(saved);
 });
 
 // Seeded random before/after pairs over text, variables, titles, comments, tags,
 // and blank lines. Every raw hunk must be shown (re-verified against the final
-// diff), flagged, or unchecked; a shown hunk must also change the rendering by
+// diff) or flagged; a shown hunk must also change the rendering by
 // itself, on a rendered line it claimed.
 it('accounts for every hunk of seeded random edits, forward and reverse', () => {
   let seed = 0x5eed1104;
@@ -399,7 +395,6 @@ it('accounts for every hunk of seeded random edits, forward and reverse', () => 
     for (const [before, after] of both(pairText[0], pairText[1])) {
       if (before === after) continue;
       const { accounts } = account(before, after);
-      expect(count(accounts, 'unchecked')).toBe(0);
       const parts = sourceParts(before, after);
       const render = (text: string) => JSON.stringify(parseMarkup(text, globals).lines);
       const rendered = [render(before), render(after)];
