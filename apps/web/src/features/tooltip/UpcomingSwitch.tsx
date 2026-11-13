@@ -139,19 +139,24 @@ function UpcomingControl({
             </button>
           </>
         ) : (
+          // Segments wrap as wholes (a break falls after a "·", never inside a time), so the
+          // name is never cut while the next line has room.
           <>
-            <span className={styles.name}>{batch.name}</span>
-            <span className={styles.meta}>
-              {' · '}
-              {statusLabel[batch.status]}
-              {' · '}
-              {batch.notBefore ? (
-                <time dateTime={batch.notBefore}>{when}</time>
-              ) : (
-                <span className={styles.muted}>No time set</span>
-              )}
-            </span>
-            {staleText && <span className={styles.stale}>{` · ${staleText}`}</span>}
+            <span className={styles.name}>{batch.name} ·</span>{' '}
+            <span className={styles.segment}>{statusLabel[batch.status]} ·</span>{' '}
+            {batch.notBefore ? (
+              <time className={styles.segment} dateTime={batch.notBefore}>
+                {when}
+              </time>
+            ) : (
+              <span className={`${styles.segment} ${styles.muted}`}>No time set</span>
+            )}
+            {staleText && (
+              <>
+                {' '}
+                <span className={`${styles.segment} ${styles.stale}`}>· {staleText}</span>
+              </>
+            )}
           </>
         )}
       </p>
