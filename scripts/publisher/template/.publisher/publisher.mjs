@@ -22093,6 +22093,9 @@ var sandboxPickSchema = external_exports.union([
   external_exports.object({ to: hashSchema }).strict(),
   external_exports.object({ none: external_exports.literal(true) }).strict()
 ]);
+function isSandboxDecision(pointer) {
+  return !!pointer && !("state" in pointer);
+}
 var targetSets = /* @__PURE__ */ new WeakMap();
 function aliasTargets(aliases) {
   let targets = targetSets.get(aliases);
@@ -22116,10 +22119,13 @@ function sandboxPointerProblem(hash2, to, aliases, conflicts, pointers) {
 }
 function mergeSandboxPointers(aliases, conflicts, pointers) {
   if (!pointers) return aliases;
+  const decisions = Object.fromEntries(
+    Object.entries(pointers.pointers).filter(([, pointer]) => isSandboxDecision(pointer))
+  );
   let merged;
-  for (const [hash2, pointer] of Object.entries(pointers.pointers)) {
+  for (const [hash2, pointer] of Object.entries(decisions)) {
     if (!("to" in pointer)) continue;
-    if (sandboxPointerProblem(hash2, pointer.to, aliases, conflicts, pointers.pointers)) continue;
+    if (sandboxPointerProblem(hash2, pointer.to, aliases, conflicts, decisions)) continue;
     merged ??= { ...aliases };
     merged[hash2] = { to: pointer.to, kind: "sandbox" };
   }
