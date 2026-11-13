@@ -1,6 +1,17 @@
 @use '../../ui/controls';
 @use '../../data/variables' as theme;
 
+// The character warnings quote symbols the interface fonts lack (supplemental arrows, block
+// elements). Chromium on Windows draws them from Segoe UI Symbol after a system fallback search
+// that cost a ~100 ms Layout when the panel opened. Name that installed face for these ranges so
+// it resolves directly. It comes after the interface fonts, so anything they cover keeps its font;
+// where the face is not installed this rule is skipped and the browser falls back as before.
+@font-face {
+  font-family: EditorPanelSymbols;
+  src: local('Segoe UI Symbol'), local('SegoeUISymbol');
+  unicode-range: U+2580-259F, U+1F800-1F8FF;
+}
+
 // The editor's status line: fixed height, one line. Only .reason and .hints are flexible text and
 // may ellipsise; every other item keeps its size. Panels open upward over the text (never resize it).
 .bar {
@@ -264,6 +275,7 @@
   max-height: min(70%, 20rem);
   overflow: auto;
   padding: 0.5rem 2.25rem 0.5rem 0.75rem;
+  font-family: Arial, Helvetica, DestinySymbols, EditorPanelSymbols, sans-serif;
   font-size: 0.75rem;
   color: var(--text);
   background: var(--raised);
