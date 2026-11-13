@@ -44,6 +44,11 @@ vi.mock('./useDisplayMatches', () => ({
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
 vi.mock('./LinkPicker', () => ({
+  // The real open runs in later tasks; here it opens at once.
+  openLinkPickerSoon: (_category: string, _name: string, open: () => void) => {
+    open();
+    return () => {};
+  },
   LinkPicker: ({ readOnly }: { readOnly?: boolean }) =>
     createElement(
       'div',

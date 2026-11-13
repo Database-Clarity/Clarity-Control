@@ -61,55 +61,60 @@ export const PickerGrid = memo(function PickerGrid({
   const body = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const bands = useMemo(() => pickerBands(tab, firstRow, lastRow), [tab, firstRow, lastRow]);
-  const [state, setState] = useState({ bands, count: 1 });
-  if (state.bands !== bands) setState({ bands, count: 1 });
-  const count = state.bands === bands ? state.count : 1;
+  const [state, setState] = useState({ bands, count: 1, filled: bands.length < 2 });
+  // The height the region had before this window: a new window fills inside it, hidden,
+  // rather than collapsing to one band and growing back while the user watches.
+  const reserved = useRef<number | undefined>(undefined);
+  if (state.bands !== bands) setState({ bands, count: 1, filled: bands.length < 2 });
+  const current = state.bands === bands ? state : { bands, count: 1, filled: bands.length < 2 };
+  const { count, filled } = current;
   useEffect(() => {
-    if (bands.length < 2 || typeof ResizeObserver === 'undefined') {
-      setState({ bands, count: bands.length });
-      return;
-    }
+    if (bands.length < 2) return;
     let cancelled = false,
       frame = 0,
-      mounted = 1;
+      mounted = 1,
+      step = 1,
+      filling = true;
     const channel = new MessageChannel();
     const schedule = () => {
       if (cancelled || mounted >= bands.length) return;
-      frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(() => channel.port2.postMessage(null));
-      });
+      // The task right after the next frame: the reveal (or the last step) paints on its own.
+      frame = requestAnimationFrame(() => channel.port2.postMessage(null));
     };
     channel.port1.onmessage = () => {
-      if (cancelled || mounted >= bands.length) return;
-      setState({ bands, count: ++mounted });
+      if (cancelled) return;
+      if (filling) {
+        // Bands are added in tasks until the visible region is full, 1, then 2 per task (a
+        // sheet row is hundreds of layout objects): each task lays out only what it added (the
+        // first band carries the first-use font work), and neither the input task nor the
+        // frame's paint carries that work.
+        const height = body.current?.getBoundingClientRect().height ?? 0;
+        const available = viewport.current?.clientHeight ?? 0;
+        if (mounted < bands.length && height <= available + 1) {
+          mounted = Math.min(bands.length, mounted + step);
+          step = 2;
+          flushSync(() => setState({ bands, count: mounted, filled: false }));
+          channel.port2.postMessage(null);
+          return;
+        }
+        filling = false;
+        flushSync(() => setState({ bands, count: mounted, filled: true }));
+        // Same task as the reveal: only the reservation changed since the last layout.
+        reserved.current = viewport.current?.clientHeight || undefined;
+        schedule();
+        return;
+      }
+      if (mounted >= bands.length) return;
+      // Below the visible region: about three rows per step, one step per frame.
+      const first = bands[mounted].first;
+      do mounted++;
+      while (mounted < bands.length && bands[mounted].last - first < 3);
+      setState({ bands, count: mounted, filled: true });
       schedule();
     };
-    let contentHeight = 0,
-      viewportHeight = 0,
-      first = true;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === body.current) contentHeight = entry.contentRect.height;
-        if (entry.target === viewport.current) viewportHeight = entry.contentRect.height;
-      }
-      if (!first || !contentHeight || !viewportHeight) return;
-      first = false;
-      observer.disconnect();
-      // Fill the pane before its first paint, using real band heights. Mounting
-      // the entire window here would turn a short first band into a full-grid
-      // layout. Only the minimum complete bands needed for overflow are urgent.
-      while (mounted < bands.length && contentHeight <= viewportHeight + 1) {
-        flushSync(() => setState({ bands, count: ++mounted }));
-        contentHeight = body.current!.getBoundingClientRect().height;
-        viewportHeight = viewport.current!.clientHeight;
-      }
-      schedule();
-    });
-    observer.observe(body.current!);
-    observer.observe(viewport.current!);
+    channel.port2.postMessage(null);
     return () => {
       cancelled = true;
-      observer.disconnect();
       cancelAnimationFrame(frame);
       channel.port1.close();
       channel.port2.close();
@@ -185,6 +190,9 @@ export const PickerGrid = memo(function PickerGrid({
       aria-label="Sheet cells around the name anchor"
       data-grid-complete={count === bands.length}
       data-grid-bands={count}
+      data-grid-filling={!filled}
+      aria-busy={!filled}
+      style={filled ? undefined : { visibility: 'hidden', minHeight: reserved.current ?? '36rem' }}
       tabIndex={0}
     >
       <div ref={body} style={{ width: `${5 + columns * 14}rem` }}>

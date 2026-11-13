@@ -14,6 +14,11 @@ vi.mock('../../services/api', async (original) => ({
   apiUrl: 'https://api.example',
 }));
 vi.mock('./LinkPicker', () => ({
+  // The real open runs in later tasks; here it opens at once.
+  openLinkPickerSoon: (_category: string, _name: string, open: () => void) => {
+    open();
+    return () => {};
+  },
   LinkPicker: () => createElement('p', null, 'Choose a different row'),
 }));
 vi.mock('./CompendiumDiff', async (original) => ({
