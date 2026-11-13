@@ -353,7 +353,8 @@ async function state(name, real, lib) {
     });
   }
   if (kind === 'publish-conflicts')
-    for (let i = 0; i < 3000; i++) put(`schedule/activation-conflicts/${4000000000 + i}.json`, {});
+    // 1,000 unresolved conflict files (40 fully conflicted batches of 25): names-only listing.
+    for (let i = 0; i < 1000; i++) put(`schedule/activation-conflicts/${4000000000 + i}.json`, {});
   put(`schedule/batches/${ID}/batch.json`, target);
   return { files, members };
 }

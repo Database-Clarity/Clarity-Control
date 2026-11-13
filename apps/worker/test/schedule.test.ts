@@ -267,7 +267,7 @@ describe('role x route matrix on stored members', () => {
       EDITOR,
     );
     expect(add.status).toBe(200);
-    expect(f.subrequests).toBe(7); // + generator aliases for the canonical check
+    expect(f.subrequests).toBe(8); // + aliases (canonical check) + the Q2 listing
     expect((stored(memberPath(456)) as BatchMember).base).toEqual({ ...tooltip(), hash: 456 });
     expect(scheduleIndexSchema.parse(stored('schedule/index.json')).batches[0]!.hashes).toEqual([
       123, 456,

@@ -20,6 +20,7 @@ import {
   isOpenStatus,
   isTranslationField,
   nextRevisions,
+  withoutTranslations,
   schedulePaths,
   type Batch,
   type BatchMember,
@@ -247,13 +248,14 @@ export async function createBatch(
 async function refuseOtherOpenBatches(
   github: GitHub,
   state: ScheduleState,
+  listing: readonly TreeNode[] | null,
   batchId: string,
   hashes: readonly number[],
 ): Promise<void> {
   if (!hashes.length) return;
   const wanted = new Set(hashes);
   const holders = new Map<string, number[]>();
-  for (const dir of state.trees[0] ?? []) {
+  for (const dir of listing ?? []) {
     if (dir.name === batchId || !batchIdSchema.safeParse(dir.name).success) continue;
     const held = memberHashes(child(dir.entries, 'tooltips')).filter((hash) => wanted.has(hash));
     if (held.length) holders.set(dir.name, held);
@@ -301,14 +303,13 @@ export async function saveBatch(
     const state = await readState(github, user, [...scheduleRoles, 'translator'], {
       batchId,
       extra: [sandboxPointersPath],
-      // The full names-only listing: own membership and the Q2 guard at this head.
-      trees: [{ path: 'schedule/batches', depth: 3 }],
+      trees: [{ path: batchDir(batchId), depth: 2 }],
     });
     const batch = requireBatch(state, batchId);
     refuseClaimed(batch);
     refuseRevision(batch, input.revision);
     const access = state.access;
-    const ownDir = state.trees[0]?.find(({ name }) => name === batchId)?.entries;
+    const ownDir = state.trees[0];
     const own = new Set(memberHashes(child(ownDir, 'tooltips')));
     const adds = input.changes.filter(({ hash }) => !own.has(hash)).map(({ hash }) => hash);
     if (adds.length) {
@@ -327,7 +328,15 @@ export async function saveBatch(
             `Tooltip ${hash} is an alias; edit canonical tooltip ${canonical}`,
           );
       }
-      await refuseOtherOpenBatches(github, state, batchId, adds);
+      // Q2 needs every batch's members: a names-only listing of them all, at the SAME head (a
+      // moved head retries the attempt). Edit-only saves never pay for it.
+      const listing = await github.publishSnapshot(
+        [],
+        [],
+        [{ path: 'schedule/batches', depth: 3 }],
+      );
+      if (listing.head !== state.head) continue;
+      await refuseOtherOpenBatches(github, state, listing.trees[0] ?? null, batchId, adds);
     }
     const files = await github.files(
       input.changes.map(({ hash }) =>
@@ -408,7 +417,18 @@ export async function saveBatch(
     }
     if (conflicts.length) return json({ conflicts }, 409);
     if (!written.length) return json({ commit: null, batch, members: [] });
-    const contentChanged = isContentChange(before, written);
+    // approvalInput depends only on membership, bases, and the proposals without translations,
+    // so a save that adds nothing and keeps every non-translation part is no content change
+    // (exact; saves never move a base). Otherwise core decides.
+    const contentChanged =
+      written.length !== before.length ||
+      before.some(
+        (stored, index) =>
+          stableStringify(withoutTranslations(stored.proposed)) !==
+          stableStringify(withoutTranslations(written[index]!.proposed)),
+      )
+        ? isContentChange(before, written)
+        : false;
     // Translation-only edits keep a scheduled batch's signed content (I5).
     if (batch.status !== 'draft' && contentChanged) throw new HttpError(409, 'Unschedule to edit');
     const membership = [...new Set([...own, ...written.map(({ hash }) => hash)])];
