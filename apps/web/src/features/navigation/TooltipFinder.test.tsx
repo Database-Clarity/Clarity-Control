@@ -8,6 +8,7 @@ import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { FinderSheetCloseContext, FinderSheetContext } from './FinderSheetContext';
 import { TooltipNavigation } from './TooltipNavigation';
+import { disposeSteppingActivity } from './steppingActivity';
 import {
   observeNativeDialogShortcutOwner,
   registerWorkspaceShortcutOwner,
@@ -73,8 +74,14 @@ async function mount(path = '/t/10?lang=de', source: EditorData = data) {
 const field = () => host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const options = () => [...host.querySelectorAll<HTMLElement>('[role="option"]')];
 const route = () => host.querySelector('[data-route]')!.textContent;
+/**
+ * Stepping lands through animation frames and a quiet timer measured with
+ * performance.now(). On the fake clock those run in a fixed order, however
+ * slow the machine is, so a wait means simulated time, never wall time.
+ */
+const elapse = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
 async function paintGlobals() {
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 60)));
+  await elapse(60);
 }
 async function type(value: string) {
   await act(async () => {
@@ -90,12 +97,23 @@ async function press(name: string, init: KeyboardEventInit = {}) {
     ...init,
   });
   await act(async () => void field().dispatchEvent(event));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  await elapse(50);
   return event;
 }
 const open = () => act(async () => field().click());
 
 beforeEach(() => {
+  vi.useFakeTimers({
+    toFake: [
+      'setTimeout',
+      'clearTimeout',
+      'setInterval',
+      'clearInterval',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'performance',
+    ],
+  });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   useDraftStore.setState({ drafts: {} });
   host = document.createElement('div');
@@ -106,6 +124,10 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   useDraftStore.setState(originalDrafts);
+  // Held keys and the quiet timer are module state: never let them reach the
+  // next test or fire after the jsdom window is gone.
+  disposeSteppingActivity();
+  vi.useRealTimers();
 });
 
 describe('tooltip finder combobox', () => {
@@ -203,7 +225,7 @@ describe('tooltip finder combobox', () => {
     );
     const next = () => host.querySelector<HTMLButtonElement>('[aria-label="Next tooltip"]')!;
     await act(async () => next().click());
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    await elapse(50);
     expect(route()).toBe('/t/11');
     const modal = document.createElement('dialog');
     modal.setAttribute('open', '');
@@ -211,7 +233,7 @@ describe('tooltip finder combobox', () => {
     const releaseModal = observeNativeDialogShortcutOwner(modal);
     try {
       await act(async () => next().click());
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      await elapse(50);
       expect(route()).toBe('/t/11');
     } finally {
       releaseModal();
@@ -583,13 +605,14 @@ describe('tooltip finder combobox', () => {
 
   it('an open category list owns Shift+wheel: the item does not step under it', async () => {
     await mount();
-    const shiftWheel = () =>
-      act(async () => {
+    const shiftWheel = async () => {
+      await act(async () => {
         window.dispatchEvent(
           new WheelEvent('wheel', { shiftKey: true, deltaY: 100, bubbles: true, cancelable: true }),
         );
-        await new Promise((resolve) => setTimeout(resolve, 50));
       });
+      await elapse(50);
+    };
     await act(async () => picker(host, 'Category')!.click());
     expect(picker(host, 'Category')!.getAttribute('aria-expanded')).toBe('true');
     await shiftWheel();
@@ -717,7 +740,7 @@ describe('finder wheel stepping', () => {
     const wheel = async (target: Element) => {
       const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
       await act(async () => void target.dispatchEvent(event));
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      await elapse(50);
       return event;
     };
     const closed = await wheel(field());

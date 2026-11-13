@@ -1,5 +1,6 @@
-import { SkeletonBoundary } from '../../ui/Skeleton';
+import { LoadingSkeleton, SkeletonBoundary } from '../../ui/Skeleton';
 import { memo, useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { getHistory, type HistoryCommit } from '../../services/history';
 import { CommitAuthor } from '../history/CommitAuthor';
 import { changedFields, changedSummary } from './changedFields';
@@ -37,6 +38,8 @@ export const ReviewDetail = memo(function ReviewDetail({
   const [live, setLive] = useState<
     { tooltip: Tooltip | null; pushedHash: string | null } | undefined
   >(() => preparedReviewLiveValue(entry.tooltip.hash));
+  // The response is in hand but held for the opening's first paint: no longer loading.
+  const [held, setHeld] = useState(false);
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [confirm, setConfirm] = useState(false);
@@ -88,19 +91,26 @@ export const ReviewDetail = memo(function ReviewDetail({
     const { controller, pending, value } = takeReviewLiveRequest(entry.tooltip.hash);
     let stopWaiting: (() => void) | undefined;
     setLive(value);
+    setHeld(false);
     setError(undefined);
     void pending.then(
       (result) => {
         if (controller.signal.aborted) return;
         const opening = useReviewOpening.getState();
-        if (!opening.warming || opening.limit > 0) setLive(result);
+        // Commit a received comparison in this task: a scheduled render can land
+        // after the skeleton's second frame while the opening's row slices run,
+        // and then the skeleton shows and holds its minimum for content in hand.
+        if (!opening.warming || opening.limit > 0) flushSync(() => setLive(result));
         else {
           // A fast response must not add another comparison render before the
           // local workspace's first paint. Input and the GET remain independent.
+          // The skeleton stops counting frames now: this short hold is local,
+          // so it never shows for (or holds back) a comparison already received.
+          flushSync(() => setHeld(true));
           stopWaiting = useReviewOpening.subscribe((state) => {
             if (state.warming && state.limit === 0) return;
             stopWaiting?.();
-            if (!controller.signal.aborted) setLive(result);
+            if (!controller.signal.aborted) flushSync(() => setLive(result));
           });
         }
       },
@@ -163,7 +173,7 @@ export const ReviewDetail = memo(function ReviewDetail({
         </p>
       )}
       <SkeletonBoundary
-        pending={!live}
+        pending={!live && !held}
         error={!!error}
         identity={entry.tooltip.hash}
         label="Loading last pushed text..."
@@ -171,6 +181,7 @@ export const ReviewDetail = memo(function ReviewDetail({
           .map((value) => value?.text ?? '')
           .join('\n')}
       >
+        {!live && held && <LoadingSkeleton label="Loading last pushed text..." visible={false} />}
         {live && (
           <>
             {!live.pushedHash && !summary && (
