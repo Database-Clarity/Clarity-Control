@@ -95,7 +95,8 @@ it('opens on hover with that revision diffed against its predecessor, per langua
   await wait(260);
   expect(dialog()).not.toBeNull();
   // Revision 3 against revision 2: only " three" is new in English, " deux" in French.
-  expect(dialog()!.querySelector('ins')!.textContent).toBe(' three');
+  // The highlight starts on ink; the space stays with the unchanged text.
+  expect(dialog()!.querySelector('ins')!.textContent).toBe('three');
   expect(dialog()!.textContent).not.toContain('French');
   expect(dialog()!.querySelectorAll('ins')).toHaveLength(1);
   expect(dialog()!.querySelector('pre')).toBeNull();

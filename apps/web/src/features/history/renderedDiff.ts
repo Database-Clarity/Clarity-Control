@@ -182,7 +182,8 @@ function compact(parts: DiffSpan[]): DiffSpan[] {
  * Display form of a word diff, applied AFTER source accounting (accountHunks)
  * read it: it only adds marks, so every token a hunk claimed stays marked.
  * - Runs: whitespace between two changes of one kind joins them, so adjacent
- *   changed words read as one highlight instead of one per word.
+ *   changed words read as one highlight instead of one per word; spaces at a
+ *   run's edge stay with the unchanged text beside it.
  * - Rewrites: lines linked by unchanged words form a group (one old line split
  *   into several, or the reverse). When the group's changed ink exceeds the
  *   Compendium Changes threshold (INLINE_MAX_SHARE of (removed + added) /
@@ -219,22 +220,44 @@ export function presentDiff(diff: Diff): Diff {
       eachRun(line, (parts) => parts.map((part) => ({ ...part, diffKind: kind })));
     });
   }
+  const plain = (part: DiffSpan) => part.text !== undefined && !part.link && !part.title;
   for (const line of [...diff.before, ...diff.after])
-    eachRun(line, (parts) =>
-      compact(
+    eachRun(line, (parts) => {
+      const joined = compact(
         parts.map((part, index) => {
           const kind = parts[index - 1]?.diffKind;
           return !part.diffKind &&
             kind &&
             kind === parts[index + 1]?.diffKind &&
-            part.text !== undefined &&
-            !part.text.trim() &&
-            !part.link &&
-            !part.title
+            plain(part) &&
+            !part.text!.trim()
             ? { ...part, diffKind: kind }
             : part;
         }),
-      ),
-    );
+      );
+      // A run's edge spaces belong to the unchanged text beside it (the word
+      // alignment may pair either space), so a highlight starts and ends on ink.
+      return compact(
+        joined.flatMap((part, index) => {
+          const edges = plain(part) && part.diffKind && /^(\s*)(.*?\S)(\s*)$/s.exec(part.text!);
+          if (!edges) return [part];
+          const [, lead, ink, trail] = edges,
+            outside = (text: string, neighbour?: DiffSpan) =>
+              text && neighbour?.diffKind !== part.diffKind ? text : '';
+          const before = outside(lead, joined[index - 1]),
+            after = outside(trail, joined[index + 1]);
+          const unmarked: DiffSpan = { ...part };
+          delete unmarked.diffKind;
+          return [
+            ...(before ? [{ ...unmarked, text: before }] : []),
+            {
+              ...part,
+              text: lead.slice(before.length) + ink + trail.slice(0, trail.length - after.length),
+            },
+            ...(after ? [{ ...unmarked, text: after }] : []),
+          ];
+        }),
+      );
+    });
   return diff;
 }

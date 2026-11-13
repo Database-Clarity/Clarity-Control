@@ -117,6 +117,18 @@ it('joins adjacent changed words into one highlighted run', () => {
   expect(marked(result.after)).toEqual(['x y z']);
   expect(parts(result.after).map((part) => part.text)).toEqual(['Keep ', 'x y z', ' ending']);
 });
+it('keeps the spaces at a run edge with the unchanged text', () => {
+  // The owner's Working diff: three replaced words, then unchanged text.
+  const result = presentDiff(
+    renderedDiff(
+      'Being in Combat for 12 seconds grants a Stack of Chaos Reshaped for 7 seconds.',
+      'Whilst fighting foes for 12 seconds grants a Stack of Chaos Reshaped for 7 seconds.',
+      globals,
+    ),
+  );
+  expect(marked(result.before)).toEqual(['Being in Combat']);
+  expect(marked(result.after)).toEqual(['Whilst fighting foes']);
+});
 it.each([
   ['The quick brown fox jumps', 'A slow red fox sleeps'],
   // One old line split into two new lines is one group.
