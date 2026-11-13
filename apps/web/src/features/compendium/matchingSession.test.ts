@@ -208,3 +208,33 @@ it('reuses early initialization and queues display before proposals finish hydra
   expect(worker.terminate).not.toHaveBeenCalled();
   session.dispose();
 });
+
+it('treats a superseded session as an expected cancellation and rethrows real errors', async () => {
+  vi.resetModules();
+  // A worker that never answers: the session is still initializing when a newer one replaces it.
+  class SilentWorker {
+    onmessage?: (event: MessageEvent) => void;
+    terminate = vi.fn();
+    postMessage() {}
+  }
+  vi.stubGlobal('Worker', SilentWorker);
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => unhandled.push(reason);
+  process.on('unhandledRejection', record);
+  try {
+    const { matchingSession, rethrowUnlessSuperseded, supersededMessage } =
+      await import('./matchingSession');
+    const first = matchingSession(guidedFixture().editor, guidedFixture().source);
+    const next = guidedFixture();
+    // New data: the first session is disposed and its proposals reject, with nothing awaiting them.
+    matchingSession(next.editor, next.source).dispose();
+    await expect(first.proposals).rejects.toThrow(supersededMessage);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(unhandled).toEqual([]);
+    expect(() => rethrowUnlessSuperseded(new Error(supersededMessage))).not.toThrow();
+    const real = new Error('Compendium worker failed. Reload published data to retry.');
+    expect(() => rethrowUnlessSuperseded(real)).toThrow(real);
+  } finally {
+    process.off('unhandledRejection', record);
+  }
+});

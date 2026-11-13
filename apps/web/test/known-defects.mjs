@@ -38,21 +38,11 @@ export function knownDefectSummary() {
 }
 
 /**
- * A `pageerror` handler that pushes each page error's message onto `errors`. A superseded
- * Compendium matching session rejects with "Compendium inputs changed." and nothing handles it,
- * so on the production build it surfaces as an uncaught page error whenever the data changes
- * during matching (every shell fixture load). That message stays a page error (the harness's own
- * error check fails); only an ALLOW_KNOWN_DEFECTS=1 run records it as a known defect instead.
+ * A `pageerror` handler that pushes each page error's message onto `errors` (the harness's own
+ * error check fails on any). A superseded Compendium matching session once surfaced here as an
+ * uncaught "Compendium inputs changed." on the production build (matchingSession.ts now treats
+ * it as an expected cancellation).
  */
 export function collectPageErrors(errors) {
-  return (error) => {
-    if (allowKnownDefects && error.message === 'Compendium inputs changed.')
-      knownDefect(
-        'compendium-cancel-unhandled',
-        false,
-        'uncaught "Compendium inputs changed." page error',
-        'reported in .agents/reports/stale-harnesses.md',
-      );
-    else errors.push(error.message);
-  };
+  return (error) => errors.push(error.message);
 }
