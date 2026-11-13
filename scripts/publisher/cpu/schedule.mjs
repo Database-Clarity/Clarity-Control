@@ -17,6 +17,8 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const REAL_COMMIT = '6ac370e349edcaba526a9f413995eb2b574738e1';
+// The generator's aliases.json (~150 KB) that every save and schedule loads.
+const GENERATOR_COMMIT = '1354e3a8c5cd4e16bf40e136fbdaa966f4dd2a32';
 // The 100 largest non-global tooltips at REAL_COMMIT by blob size (2,027 down to 1,253 bytes).
 const REAL = [
   3993379141, 3640170453, 798520364, 83039194, 1694242448, 3891536761, 988980154, 2984351207,
@@ -66,6 +68,8 @@ const KINDS = [
   'publish-baseline',
 ];
 const CASES = KINDS;
+/** The generator aliases of the running case (child only). */
+let ALIASES = {};
 /** The batch members of the running case (the first N of REAL). */
 let MEMBERS = REAL;
 const out = resolve('scripts/publisher/cpu/dist/schedule');
@@ -86,6 +90,23 @@ async function realTooltips() {
       writeFileSync(file, await response.text());
     }
     all[hash] = JSON.parse(readFileSync(file, 'utf8'));
+  }
+  // The real live/pushed.json (~2,500 entries) and generator aliases, cached beside them.
+  for (const [name, url] of [
+    [
+      'pushed.json',
+      `https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/${REAL_COMMIT}/live/pushed.json`,
+    ],
+    [
+      'aliases.json',
+      `https://raw.githubusercontent.com/Database-Clarity/Description-data-generator/${GENERATOR_COMMIT}/templates/v2/aliases.json`,
+    ],
+  ]) {
+    const file = resolve(cache, name);
+    if (existsSync(file)) continue;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${url}: ${response.status}`);
+    writeFileSync(file, await response.text());
   }
   return all;
 }
@@ -239,11 +260,11 @@ async function state(name, real, lib) {
   put('config/permissions.json', { users: { 1: { login: 'cpu', role: 'maintainer' } } });
   put('.publisher/PIN', { capabilities: ['elementTags', 'scheduledBatches'] });
   for (const hash of GLOBALS) put(`tooltips/${hash}.json`, real[hash]);
-  const pushed = {};
+  const pushed = JSON.parse(readFileSync(resolve(out, 'real', 'pushed.json'), 'utf8'));
   for (const hash of REAL) {
     put(`tooltips/${hash}.json`, real[hash]);
     put(`live/tooltips/${hash}.json`, real[hash]);
-    pushed[hash] = await lib.publishableHash(real[hash], {});
+    pushed[hash] ??= await lib.publishableHash(real[hash], ALIASES);
   }
   put('live/pushed.json', pushed);
   // Full index (50 open + 100 terminal, 100 hashes each) and a full due.json.
@@ -452,7 +473,7 @@ async function request(name, real, members, lib) {
     case 'publish-conflicts': {
       const hashes = REAL;
       const expected = {};
-      for (const hash of hashes) expected[hash] = await lib.publishableHash(real[hash], {});
+      for (const hash of hashes) expected[hash] = await lib.publishableHash(real[hash], ALIASES);
       // A fresh opId per process (the creation window is +-24 h); the state never records it.
       const t = Date.now();
       const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -479,8 +500,9 @@ async function child(name) {
   const real = {};
   for (const hash of [...GLOBALS, ...REAL])
     real[hash] = JSON.parse(readFileSync(resolve(out, 'real', `${hash}.json`), 'utf8'));
+  ALIASES = JSON.parse(readFileSync(resolve(out, 'real', 'aliases.json'), 'utf8'));
   const { files, members } = await state(name, real, lib);
-  globalThis.__scheduleCpu = { files };
+  globalThis.__scheduleCpu = { files, aliases: ALIASES };
   const spec = name.startsWith('cron') ? null : await request(name, real, members, lib);
   const bodyText = spec?.body === undefined ? undefined : JSON.stringify(spec.body);
   const invoke = async () => {

@@ -45,6 +45,13 @@ editor-data with 3 RefRace attempts.
 - Q2 (one open batch per tooltip): an added hash is refused when another batch directory at the
   CAS head lists it under `tooltips/` and that batch's `batch.json` is open. `index.json` is
   never the guard.
+- Q2 cost bound: the listing names every batch directory ever made (terminal ones are kept as
+  history), so it grows by up to 15 member names per batch. The CPU gate covers 149 directories
+  and 10 full-history holders; at roughly 1,000 batches (about 15,000 names) re-measure, or prune
+  terminal directories (a data-model change for root).
+- Every change and every scheduled member must be canonical (an aliased hash is refused with
+  /save's message); a scheduled batch's translation save is refused when composition would report
+  a stale member or `unpublished` fields.
 - Permissions: `checkEdit(access, storedProposed, next)` before and after the merge (archive
   rules included); adds check against current; removing checks the proposal → base revert.
   Translators edit only their languages of existing members and never add, remove, or rebase.

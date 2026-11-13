@@ -75,7 +75,7 @@ export async function fetch(input, init) {
     return new Response(body, { status, headers: { 'Content-Type': 'application/json' } });
   };
   if (url.hostname === 'raw.githubusercontent.com' && url.pathname.endsWith('/aliases.json'))
-    return respond('aliases', () => ({}));
+    return respond('aliases', () => globalThis.__scheduleCpu.aliases ?? {});
   if (url.origin !== 'https://api.github.com') throw new Error(`CPU fixture blocked ${url.href}`);
   if (url.pathname.endsWith('/access_tokens') && method === 'POST')
     return respond('token', () => ({ token: 'synthetic' }));

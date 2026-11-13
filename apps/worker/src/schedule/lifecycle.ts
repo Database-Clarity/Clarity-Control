@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import {
   publishMonth,
-  pushedSchema,
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
@@ -41,6 +40,9 @@ import {
   child,
   indexEntry,
   memberCap,
+  pushedHashes,
+  refuseAliases,
+  unpublishedMessage,
   memberHashes,
   newUlid,
   pinSchedulesBatches,
@@ -181,7 +183,7 @@ export async function scheduleBatch(
       ]),
       state.head,
     );
-    const pushed = state.extra[0] ? pushedSchema.parse(state.extra[0].value) : {};
+    const pushed = pushedHashes(state.extra[0]);
     const members: BatchMember[] = [];
     const composed: Tooltip[] = [];
     const stale: { hash: number; fields?: string[]; reason?: string }[] = [];
@@ -205,7 +207,7 @@ export async function scheduleBatch(
         base: member.base,
         proposed: member.proposed,
         snapshot,
-        pushed: Object.hasOwn(pushed, String(hash)),
+        pushed: pushed.has(hash),
       });
       if (result.status === 'stale') {
         stale.push({ hash, reason: result.reason });
@@ -224,17 +226,15 @@ export async function scheduleBatch(
     if (blocked.length) refuseMembers('Resolve the batch activation first', blocked);
     if (stale.length)
       refuseMembers('Current changed under this batch; rebase the listed tooltips', stale);
-    if (unpublished.length)
-      refuseMembers(
-        'This field has saved changes that are not published yet; publish them first',
-        unpublished,
-      );
+    if (unpublished.length) refuseMembers(unpublishedMessage, unpublished);
     // The manual-publish checks (publish.ts) on what would publish: textless, imports and
     // associations (base/enhanced), element tags the PIN lowers, and held set bonuses.
     generatorAliases ??= await loadAliases(github.env, github);
-    const aliases = pinMergesSandboxPointers(state.pin)
-      ? await withSandboxPointers(github, generatorAliases, state.extra[1])
-      : generatorAliases;
+    const saveAliases = await withSandboxPointers(github, generatorAliases, state.extra[1]);
+    // A member the generator has since aliased would export its target, not the member: refuse
+    // it as /save does, before any check reads documents by canonical hash.
+    refuseAliases(hashes, saveAliases);
+    const aliases = pinMergesSandboxPointers(state.pin) ? saveAliases : generatorAliases;
     const checked = await refuseBaseEnhanced(github, state.head, hashes, aliases, composed);
     const lowers = pinLowersElementTags(state.pin);
     for (const document of checked.values()) refuseUnlowerableTags(document, lowers, 'published');

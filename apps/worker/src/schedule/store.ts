@@ -1,6 +1,6 @@
 import scheduledConfig from '../../../../config/scheduled.json';
 import publisherConfig from '../../../../config/publisher.json';
-import { permissionsSchema, type Permissions } from '@clarity/core';
+import { permissionsSchema, resolveAlias, type Aliases, type Permissions } from '@clarity/core';
 import {
   batchEventSchema,
   batchSchema,
@@ -35,6 +35,30 @@ export const scheduledBatchesCapability = 'scheduledBatches';
 export function pinSchedulesBatches(pin: unknown): boolean {
   const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
   return Array.isArray(capabilities) && capabilities.includes(scheduledBatchesCapability);
+}
+
+/** Every hash must be canonical, with /save's message (an aliased member would export its target). */
+export function refuseAliases(hashes: readonly number[], aliases: Aliases): void {
+  for (const hash of hashes) {
+    const canonical = resolveAlias(hash, aliases);
+    if (canonical !== hash)
+      throw new HttpError(422, `Tooltip ${hash} is an alias; edit canonical tooltip ${canonical}`);
+  }
+}
+
+/** Root ruling after P1: batch fields carrying saved-but-unpublished work are refused (I3). */
+export const unpublishedMessage =
+  'This field has saved changes that are not published yet; publish them first';
+
+/**
+ * The hashes live/pushed.json names. Composition only asks whether a hash was ever pushed, so
+ * the ~2,500-entry marker is checked for shape, not re-validated digest by digest (CPU).
+ */
+export function pushedHashes(file: RepoFile | null | undefined): Set<number> {
+  const value = file?.value ?? {};
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new HttpError(502, 'Invalid live/pushed.json');
+  return new Set(Object.keys(value).map(Number));
 }
 
 /** Roles that may write batches (Q3: trials get no batch access; translators per Permissions). */

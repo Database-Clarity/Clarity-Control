@@ -2,7 +2,6 @@ import { z } from 'zod';
 import {
   hashSchema,
   merge3,
-  resolveAlias,
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
@@ -15,6 +14,7 @@ import {
   batchSchema,
   batchStatusSchema,
   changedFields,
+  compose,
   initialRevisions,
   isContentChange,
   isOpenStatus,
@@ -35,6 +35,9 @@ import { withSandboxPointers } from '../sandboxPointers.js';
 import type { Identity } from '../types.js';
 import {
   appendEvent,
+  pushedHashes,
+  refuseAliases,
+  unpublishedMessage,
   archivedCounter,
   by,
   checkedBatch,
@@ -99,7 +102,15 @@ const removeSchema = z
       .refine((list) => new Set(list).size === list.length, 'Duplicate tooltip hash'),
   })
   .strict();
-const createSchema = z.object({ name: batchSchema.shape.name }).strict();
+// Names land in commit subjects and the UI: no control, format, or bidi characters.
+const createSchema = z
+  .object({
+    name: batchSchema.shape.name.refine(
+      (name) => !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(name),
+      'Name has control or formatting characters',
+    ),
+  })
+  .strict();
 /** Request bodies of batch writes (spec "Free-plan budget": ≤300 KiB, as /publish). */
 const maxBody = 300 * 1024;
 
@@ -332,16 +343,15 @@ export async function saveBatch(
       if (batch.status !== 'draft') throw new HttpError(409, 'Unschedule to edit');
       if (own.size + adds.length > memberCap)
         throw new HttpError(409, `A batch holds at most ${memberCap} tooltips`);
-      aliases ??= await loadAliases(github.env, github);
-      const saveAliases = await withSandboxPointers(github, aliases, state.extra[0]);
-      for (const hash of adds) {
-        const canonical = resolveAlias(hash, saveAliases);
-        if (canonical !== hash)
-          throw new HttpError(
-            422,
-            `Tooltip ${hash} is an alias; edit canonical tooltip ${canonical}`,
-          );
-      }
+    }
+    // Every change must name a canonical tooltip, as /save checks (a member the generator has
+    // since aliased is refused too: publishing it would export its target instead).
+    aliases ??= await loadAliases(github.env, github);
+    refuseAliases(
+      input.changes.map(({ hash }) => hash),
+      await withSandboxPointers(github, aliases, state.extra[0]),
+    );
+    if (adds.length) {
       // Q2 needs every batch's members: a names-only listing of them all, at the SAME head (a
       // moved head retries the attempt). Edit-only saves never pay for it.
       const listing = await github.publishSnapshot(
@@ -352,12 +362,22 @@ export async function saveBatch(
       if (listing.head !== state.head) continue;
       await refuseOtherOpenBatches(github, state, listing.trees[0] ?? null, batchId, adds);
     }
+    // A scheduled batch also reads what composition reads (C1-C4), so a translation save can
+    // never make a field `unpublished` behind the signed request (root ruling after P1).
+    const scheduled = batch.status !== 'draft';
     const files = await github.files(
-      input.changes.map(({ hash }) =>
-        own.has(hash) ? schedulePaths.member(batchId, hash) : tooltipPath(hash),
-      ),
+      [
+        ...input.changes.map(({ hash }) =>
+          own.has(hash) ? schedulePaths.member(batchId, hash) : tooltipPath(hash),
+        ),
+        ...(scheduled
+          ? [...input.changes.map(({ hash }) => `live/tooltips/${hash}.json`), 'live/pushed.json']
+          : []),
+      ],
       state.head,
     );
+    const pushed = scheduled ? pushedHashes(files.at(-1)) : undefined;
+    const blocked: { hash: number; fields?: string[]; reason?: string }[] = [];
     const lowers = lowersTags(state);
     const now = new Date().toISOString();
     const conflicts: Conflict[] = [];
@@ -368,12 +388,14 @@ export async function saveBatch(
       if (own.has(change.hash)) {
         if (!file) throw new HttpError(502, `Batch member ${change.hash} is unreadable`);
         const stored = parseMember(file.value, batchId, change.hash);
-        checkEdit(access, stored.proposed, change.next);
         let merged = change.next;
         if (change.base === null) {
           conflicts.push({ ...change, head: stored.proposed, fields: ['$exists'] });
           continue;
         }
+        // Before the merge against what the client edited, after it against the stored proposal
+        // (save.ts:107/:127); the second check is the authoritative one.
+        checkEdit(access, change.base, change.next);
         if (!sameTooltip(change.base, stored.proposed)) {
           const result = merge3(change.base, stored.proposed, change.next);
           if (!result.ok) {
@@ -400,6 +422,20 @@ export async function saveBatch(
           updatedBy: user.login,
         });
         refuseMemberSize(member);
+        if (pushed) {
+          const snapshotFile = files[input.changes.length + index];
+          const composed = compose({
+            hash: change.hash,
+            base: member.base,
+            proposed: member.proposed,
+            snapshot: snapshotFile ? tooltipSchema.parse(snapshotFile.value) : null,
+            pushed: pushed.has(change.hash),
+          });
+          if (composed.status === 'stale')
+            blocked.push({ hash: change.hash, reason: composed.reason });
+          else if (composed.status === 'overlay' && composed.unpublished.length)
+            blocked.push({ hash: change.hash, fields: composed.unpublished });
+        }
         before.push(stored);
         written.push(member);
       } else {
@@ -433,6 +469,7 @@ export async function saveBatch(
       }
     }
     if (conflicts.length) return json({ conflicts }, 409);
+    if (blocked.length) throw new HttpError(409, unpublishedMessage, { members: blocked });
     if (!written.length) return json({ commit: null, batch, members: [] });
     // approvalInput depends only on membership, bases, and the proposals without translations,
     // so a save that adds nothing and keeps every non-translation part is no content change

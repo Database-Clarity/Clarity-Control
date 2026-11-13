@@ -260,14 +260,14 @@ describe('role x route matrix on stored members', () => {
     );
     expect(en.status).toBe(200);
     expect(en.body.batch.contentRevision).toBe(2);
-    expect(f.subrequests).toBe(6);
+    expect(f.subrequests).toBe(7); // token, state, aliases (canonical check), members, commit 3
     const add = await call(
       `/batches/${ID}/save`,
       saveBody(added, { ...tooltip(), hash: 456 }),
       EDITOR,
     );
     expect(add.status).toBe(200);
-    expect(f.subrequests).toBe(8); // + aliases (canonical check) + the Q2 listing
+    expect(f.subrequests).toBe(8); // + the Q2 listing
     expect((stored(memberPath(456)) as BatchMember).base).toEqual({ ...tooltip(), hash: 456 });
     expect(scheduleIndexSchema.parse(stored('schedule/index.json')).batches[0]!.hashes).toEqual([
       123, 456,
@@ -965,5 +965,57 @@ describe('round-1 review fixes', () => {
     const base = withText(proposal, 'fr', 'x'.repeat(180_000));
     const next = withText(base, 'de', 'Neu');
     expect((await call(`/batches/${ID}/save`, saveBody(next, base))).status).toBe(413);
+  });
+});
+
+describe('round-1 independent review fixes', () => {
+  it('refuses a member the generator has since aliased, at schedule and at save', async () => {
+    f.aliases = { 123: { to: 555, kind: 'sandbox' } };
+    const response = await schedule();
+    expect([response.status, response.body.error]).toEqual([
+      422,
+      'Tooltip 123 is an alias; edit canonical tooltip 555',
+    ]);
+    const proposal = (stored(memberPath()) as BatchMember).proposed;
+    const save = await call(
+      `/batches/${ID}/save`,
+      saveBody(withText(proposal, 'de', 'x'), proposal),
+      TRANSLATOR,
+    );
+    expect(save.status).toBe(422);
+  });
+  it('a scheduled translation save may not make a field unpublished (root ruling)', async () => {
+    // Live is the published snapshot = base; then current German is saved but not published.
+    f.moveData({
+      'live/pushed.json': { 123: 'a'.repeat(64) },
+      'live/tooltips/123.json': tooltip(),
+    });
+    expect((await schedule()).status).toBe(202);
+    const old = stored(memberPath()) as BatchMember;
+    f.moveData({ 'live/tooltips/123.json': withText(tooltip(), 'de', 'Live Deutsch') });
+    const response = await call(
+      `/batches/${ID}/save`,
+      saveBody(withText(old.proposed, 'de', 'Kommend'), old.proposed),
+      TRANSLATOR,
+    );
+    expect(response.status).toBe(409);
+    expect(response.body.details).toEqual({ members: [{ hash: 123, fields: ['text.de'] }] });
+    expect(stored(memberPath())).toEqual(old);
+  });
+  it('a translator edit merges over a moved English proposal (checkEdit against the client base)', async () => {
+    const original = (stored(memberPath()) as BatchMember).proposed;
+    await call(`/batches/${ID}/save`, saveBody(withText(original, 'en', 'v2'), original), EDITOR);
+    const response = await call(
+      `/batches/${ID}/save`,
+      saveBody(withText(original, 'de', 'Kommend'), original),
+      TRANSLATOR,
+    );
+    expect(response.status).toBe(200);
+    const after = (stored(memberPath()) as BatchMember).proposed;
+    expect([after.text.en?.text, after.text.de?.text]).toEqual(['v2', 'Kommend']);
+  });
+  it('refuses batch names with control or bidi characters', async () => {
+    for (const name of ['x\n\nClarity-Changed: 123=en', 'a\u202Eb', 'tab\there'])
+      expect((await call('/batches', { name })).status).toBe(400);
   });
 });
