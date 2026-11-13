@@ -22093,9 +22093,21 @@ var sandboxPickSchema = external_exports.union([
   external_exports.object({ to: hashSchema }).strict(),
   external_exports.object({ none: external_exports.literal(true) }).strict()
 ]);
+var targetSets = /* @__PURE__ */ new WeakMap();
+function aliasTargets(aliases) {
+  let targets = targetSets.get(aliases);
+  if (!targets) {
+    targets = /* @__PURE__ */ new Set();
+    for (const entry of Object.values(aliases))
+      if (entry && typeof entry.to === "number") targets.add(entry.to);
+    targetSets.set(aliases, targets);
+  }
+  return targets;
+}
 function sandboxPointerProblem(hash2, to, aliases, conflicts, pointers) {
   if (!Object.hasOwn(conflicts, hash2)) return "is no longer a shared sandbox perk";
   if (Object.hasOwn(aliases, hash2)) return "already has a generator tooltip pointer";
+  if (aliasTargets(aliases).has(Number(hash2))) return "is the target of a generator alias";
   if (String(to) === hash2) return "cannot point at itself";
   if (Object.hasOwn(aliases, String(to)) || resolveAlias(to, aliases) !== to)
     return `points at ${to}, which is an alias, not a canonical tooltip`;
