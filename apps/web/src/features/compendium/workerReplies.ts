@@ -12,6 +12,8 @@ export interface WorkerReply {
   error?: string;
 }
 type Result = { done: false; partial?: unknown } | { done: true; value: unknown };
+/** The messages one encoded result posted, without their request id: replayable as is. */
+export type EncodedReply = Omit<WorkerReply, 'id'>[];
 
 /** One transferable per result stage; small packets inside it can be decoded lazily. */
 export function sendWorkerResult(
@@ -24,15 +26,20 @@ export function sendWorkerResult(
   writer.finish(encodePrecomputed(value, writer.observe));
 }
 
-/** Yield the encoder too: a paused main-thread decoder must not hide priority messages. */
+/**
+ * Yield the encoder too: a paused main-thread decoder must not hide priority messages.
+ * With `capture`, also keep a copy of every posted message, so an unchanged result can be
+ * replayed later without encoding it again.
+ */
 export async function sendWorkerResultYielding(
   post: (reply: WorkerReply) => void,
   id: number,
   value: unknown,
   partial: unknown,
   yieldWork: () => Promise<void>,
+  capture?: EncodedReply,
 ) {
-  const writer = resultWriter(post, id, partial);
+  const writer = resultWriter(post, id, partial, capture);
   const steps = encodePrecomputedSteps(value, writer.observe);
   for (;;) {
     const end = performance.now() + 2;
@@ -47,7 +54,22 @@ export async function sendWorkerResultYielding(
   }
 }
 
-function resultWriter(post: (reply: WorkerReply) => void, id: number, partial: unknown) {
+/** Post a captured result again for a new request: the same bytes the receiver decodes. */
+export function replayWorkerResult(
+  post: (reply: WorkerReply) => void,
+  id: number,
+  reply: EncodedReply,
+) {
+  // The capture stays cached: transfer a copy, never the cached buffer itself.
+  for (const message of reply) post({ ...message, id, buffer: message.buffer?.slice(0) });
+}
+
+function resultWriter(
+  post: (reply: WorkerReply) => void,
+  id: number,
+  partial: unknown,
+  capture?: EncodedReply,
+) {
   const encoder = new TextEncoder();
   let sent = 0;
   let published = false;
@@ -60,7 +82,9 @@ function resultWriter(post: (reply: WorkerReply) => void, id: number, partial: u
       bytes.set(part, at);
       at += part.length;
     }
-    post({ id, buffer: bytes.buffer, sizes: packets.map((part) => part.length), ...marker });
+    const message = { buffer: bytes.buffer, sizes: packets.map((part) => part.length), ...marker };
+    capture?.push({ ...message, buffer: bytes.buffer.slice(0) });
+    post({ id, ...message });
     packets = [];
   };
   const observe = (current: unknown, root: number, nodes: unknown[]) => {

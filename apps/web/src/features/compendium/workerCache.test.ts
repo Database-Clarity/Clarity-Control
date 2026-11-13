@@ -63,3 +63,29 @@ it('computes without storage and never caches a rejected computation', async () 
   ).rejects.toThrow('Changed inputs');
   expect(await cachedComputation('retry', async () => 'current evidence')).toBe('current evidence');
 });
+
+it('stores a result only after the worker has been quiet, never during a request', async () => {
+  // fake-indexeddb schedules with setImmediate: fake only the worker's quiet timer.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    vi.stubGlobal('indexedDB', new IDBFactory());
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+    const { cacheWriteActivity, cachedComputation, cachedValue } = await import('./workerCache');
+    let finish!: () => void;
+    const request = cacheWriteActivity(new Promise<void>((resolve) => (finish = resolve)));
+    const result = { proposals: new Map([[3, 'match']]) };
+    expect(await cachedComputation('quiet-write', async () => result)).toBe(result);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(put).not.toHaveBeenCalled();
+    // A pending write is still the newest copy for readers in this worker.
+    expect(await cachedValue('quiet-write')).toBe(result);
+    finish();
+    await request;
+    await vi.advanceTimersByTimeAsync(999);
+    expect(put).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(put).toHaveBeenCalled());
+  } finally {
+    vi.useRealTimers();
+  }
+});
