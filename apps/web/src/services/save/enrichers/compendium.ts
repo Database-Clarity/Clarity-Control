@@ -1,4 +1,5 @@
 import {
+  isMarkupOnly,
   resolveCompendiumLink,
   snapshotCompendium,
   type CompendiumData,
@@ -6,9 +7,15 @@ import {
 } from '@clarity/core';
 import { loadCompendium } from '../../compendium';
 
-/** Only an English text change records a fresh Compendium snapshot as reviewed. */
+/**
+ * Only an English text change records a fresh Compendium snapshot as reviewed. Tagging alone
+ * (`<solar/>Scorch` to `<solar Scorch />`, same lowered text) reviews nothing, as in the metadata
+ * and Bungie enrichers; the save panel's source check shares this rule.
+ */
 export function recordsCompendiumSnapshot(before: Tooltip | undefined, next: Tooltip): boolean {
-  return Boolean(next.compendium) && before?.text.en?.text !== next.text.en?.text;
+  const previous = before?.text.en?.text;
+  const current = next.text.en?.text;
+  return Boolean(next.compendium) && previous !== current && !isMarkupOnly(previous, current ?? '');
 }
 
 export async function compendiumEnricher({

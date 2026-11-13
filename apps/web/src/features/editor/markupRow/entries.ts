@@ -482,21 +482,47 @@ export function rowEntries(entries: readonly MarkupEntry[]): (MarkupEntry | type
 
 type RowItem = MarkupEntry | typeof rowSeparator;
 
+const elementIds = new Set(
+  ['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand'].map((name) => `icon:${name}`),
+);
+
 /**
  * The docked bar's order while translating (a phone): the entries the English text uses come
  * first, by where each is first used (ties keep the row's order), then one separator and the rest
- * in the row's order. Without a source text the row's order is returned as it is.
+ * in the row's order. An element icon counts as used in its tagged form too (`<solar Scorch />`),
+ * and the six element icons lead together, from the first one used, so tag mode finds them side
+ * by side. Without a source text the row's order is returned as it is.
  */
 export function leadEntries(items: readonly RowItem[], sourceText?: string): readonly RowItem[] {
   if (!sourceText) return items;
   const used: { entry: MarkupEntry; at: number; order: number }[] = [];
   items.forEach((item, order) => {
     if (item === rowSeparator || !item.usage) return;
-    const at = sourceText.search(new RegExp(item.usage.source, item.usage.flags.replace('g', '')));
+    let at = sourceText.search(new RegExp(item.usage.source, item.usage.flags.replace('g', '')));
+    if (elementIds.has(item.id)) {
+      const tagged = sourceText.indexOf(`<${item.id.slice('icon:'.length)} `);
+      if (tagged >= 0 && (at < 0 || tagged < at)) at = tagged;
+    }
     if (at >= 0) used.push({ entry: item, at, order });
   });
   if (!used.length) return items;
   used.sort((a, b) => a.at - b.at || a.order - b.order);
+  const firstElement = used.find((use) => elementIds.has(use.entry.id));
+  if (firstElement) {
+    // All six right where the first element used sits, in the row's order.
+    const elements = items.flatMap((item, order) =>
+      item !== rowSeparator && elementIds.has(item.id)
+        ? [{ entry: item, at: firstElement.at, order }]
+        : [],
+    );
+    const others = used.filter((use) => !elementIds.has(use.entry.id));
+    const index = others.findIndex(
+      (use) =>
+        use.at > firstElement.at || (use.at === firstElement.at && use.order > firstElement.order),
+    );
+    used.splice(0, used.length, ...others);
+    used.splice(index < 0 ? used.length : index, 0, ...elements);
+  }
   const leading = new Set(used.map((use) => use.entry));
   const rest: RowItem[] = [];
   for (const item of items) {
