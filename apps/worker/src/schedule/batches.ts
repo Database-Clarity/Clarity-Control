@@ -20,6 +20,7 @@ import {
   isOpenStatus,
   isTranslationField,
   nextRevisions,
+  withField,
   withoutTranslations,
   schedulePaths,
   type Batch,
@@ -99,7 +100,8 @@ const removeSchema = z
   })
   .strict();
 const createSchema = z.object({ name: batchSchema.shape.name }).strict();
-const maxBody = 2_000_000;
+/** Request bodies of batch writes (spec "Free-plan budget": ≤300 KiB, as /publish). */
+const maxBody = 300 * 1024;
 
 const batchDir = (batchId: string) => `schedule/batches/${batchId}`;
 const tooltipPath = (hash: number) => `tooltips/${hash}.json`;
@@ -113,6 +115,18 @@ const holderSchema = z.looseObject({
   status: batchStatusSchema,
 });
 const encoder = new TextEncoder();
+
+/**
+ * `from` with each of `fields` taken from `to`. Stored proposals only ever move by a field the
+ * shared changed-field set reports, so a stamp-only difference (R17: a no-op for approvedDigest
+ * and contentRevision) never reaches storage and can never change what publishes (I5).
+ */
+function overlay(from: Tooltip | null, to: Tooltip, fields: readonly string[]): Tooltip {
+  if (from === null) return to;
+  let value = from;
+  for (const field of fields) value = withField(value, to, field);
+  return tooltipSchema.parse(value);
+}
 
 function parseMember(value: unknown, batchId: string, hash: number): BatchMember {
   const member = batchMemberSchema.parse(value);
@@ -377,10 +391,11 @@ export async function saveBatch(
         if (!changed.length) continue; // stamp-only or identical: a no-op (R17)
         if (batch.status !== 'draft' && changed.some((field) => !isTranslationField(field)))
           throw new HttpError(409, 'Unschedule to edit', { hash: change.hash, fields: changed });
-        refuseUnlowerableTags(merged, lowers, 'saved');
+        const proposed = overlay(stored.proposed, merged, changed);
+        refuseUnlowerableTags(proposed, lowers, 'saved');
         const member = batchMemberSchema.parse({
           ...stored,
-          proposed: merged,
+          proposed,
           updatedAt: now,
           updatedBy: user.login,
         });
@@ -401,13 +416,15 @@ export async function saveBatch(
           continue;
         }
         checkEdit(access, current, change.next);
-        if (!changedFields(current, change.next).length) continue; // nothing to stage
-        refuseUnlowerableTags(change.next, lowers, 'saved');
+        const changed = changedFields(current, change.next);
+        if (!changed.length) continue; // nothing to stage
+        const proposed = overlay(current, change.next, changed);
+        refuseUnlowerableTags(proposed, lowers, 'saved');
         const member = batchMemberSchema.parse({
           hash: change.hash,
           base: current,
           baseCommit: state.head,
-          proposed: change.next,
+          proposed,
           updatedAt: now,
           updatedBy: user.login,
         });
@@ -493,14 +510,16 @@ export async function rebaseBatch(
       return json({ error: 'Current changed; rebase again', current }, 409);
     checkEdit(state.access, stored.proposed, input.next);
     checkEdit(state.access, current, input.next);
-    if (!changedFields(current, input.next).length)
+    const changed = changedFields(current, input.next);
+    if (!changed.length)
       throw new HttpError(422, 'Nothing left to publish; remove the tooltip from the batch');
-    refuseUnlowerableTags(input.next, lowersTags(state), 'saved');
+    const proposed = overlay(current, input.next, changed);
+    refuseUnlowerableTags(proposed, lowersTags(state), 'saved');
     const member = batchMemberSchema.parse({
       hash: input.hash,
       base: current,
       baseCommit: state.head,
-      proposed: input.next,
+      proposed,
       updatedAt: new Date().toISOString(),
       updatedBy: user.login,
     });

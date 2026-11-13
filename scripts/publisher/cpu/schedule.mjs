@@ -54,6 +54,7 @@ const KINDS = [
   'create',
   'save-edit',
   'save-edit-cap',
+  'save-max',
   'save-add',
   'schedule',
   'schedule-cap',
@@ -386,6 +387,24 @@ async function request(name, real, members, lib) {
         body: { revision: 2, changes, message: 'Stage translations' },
         status: 200,
         note: `${changes.length} changes`,
+      };
+    }
+    case 'save-max': {
+      // The largest admissible save body (just under the 300 KiB cap): every change carries an
+      // obsolete field in both base and next that the merge drops, so it is accepted (200).
+      const shaped = (n) =>
+        members.map((member) => {
+          const base = withLang(member.proposed, 'fr', 'x'.repeat(n));
+          return { hash: member.hash, base, next: withLang(base, 'de', 'Kommend') };
+        });
+      const size = (n) => bytes({ revision: 2, changes: shaped(n), message: 'Stage' });
+      let n = 0;
+      while (size(n + 256) < 300 * 1024 - 512) n += 256;
+      return {
+        path: `/batches/${ID}/save`,
+        body: { revision: 2, changes: shaped(n), message: 'Stage' },
+        status: 200,
+        note: `${members.length} changes`,
       };
     }
     case 'save-add':

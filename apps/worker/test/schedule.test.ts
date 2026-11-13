@@ -925,3 +925,45 @@ describe('Worker caps (CPU gate, root option A)', () => {
     expect(tooMany.status).toBe(400);
   });
 });
+
+describe('round-1 review fixes', () => {
+  it('never stores a stamp-only difference (scheduled translation save keeps English stamps, I5)', async () => {
+    await schedule();
+    const old = stored(memberPath()) as BatchMember;
+    const digest = await approvedDigest([old]);
+    const next: Tooltip = {
+      ...old.proposed,
+      text: {
+        ...old.proposed.text,
+        en: { ...old.proposed.text.en!, updatedAt: '2027-11-01T00:00:00Z' },
+        de: { text: 'Kommend', updatedAt: '2026-11-13T00:00:00Z', updatedBy: 'dan' },
+      },
+    };
+    const response = await call(`/batches/${ID}/save`, saveBody(next, old.proposed), EDITOR);
+    expect(response.status).toBe(200);
+    const after = stored(memberPath()) as BatchMember;
+    expect(after.proposed.text.en).toEqual(old.proposed.text.en);
+    expect(after.proposed.text.de?.text).toBe('Kommend');
+    expect(await approvedDigest([after])).toBe(digest);
+    expect(storedBatch().contentRevision).toBe(1);
+  });
+  it('adds keep current values for stamp-only fields', async () => {
+    const current = { ...tooltip(), hash: 456 };
+    f.moveData({ 'tooltips/456.json': current });
+    const next = withText(
+      { ...current, text: { en: { ...current.text.en!, updatedAt: '2027-01-01T00:00:00Z' } } },
+      'de',
+      'neu',
+    );
+    expect((await call(`/batches/${ID}/save`, saveBody(next, current))).status).toBe(200);
+    const added = stored(memberPath(456)) as BatchMember;
+    expect(added.proposed.text.en).toEqual(current.text.en);
+    expect(changedFields(added.base, added.proposed)).toEqual(['text.de']);
+  });
+  it('refuses batch write bodies over 300 KiB (as /publish)', async () => {
+    const proposal = (stored(memberPath()) as BatchMember).proposed;
+    const base = withText(proposal, 'fr', 'x'.repeat(180_000));
+    const next = withText(base, 'de', 'Neu');
+    expect((await call(`/batches/${ID}/save`, saveBody(next, base))).status).toBe(413);
+  });
+});
