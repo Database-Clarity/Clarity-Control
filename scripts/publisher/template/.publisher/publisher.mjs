@@ -19874,7 +19874,7 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
-// packages/core/src/languages.ts
+// packages/core/src/languageCodes.ts
 var languages = [
   "en",
   "de",
@@ -19890,6 +19890,8 @@ var languages = [
   "zh-chs",
   "zh-cht"
 ];
+
+// packages/core/src/languages.ts
 var langSchema = external_exports.enum(languages);
 
 // packages/core/src/legacyStats.ts
@@ -21862,6 +21864,19 @@ function usesEnglishFallback(tooltip, language) {
 function isLegacyAliasStub(entry) {
   return "aliasOf" in entry;
 }
+function mergeLivePerks(live, entries) {
+  const exported = /* @__PURE__ */ new Set();
+  for (const entry of Object.values(entries))
+    if (!isLegacyAliasStub(entry)) exported.add(entry.hash);
+  const merged = { ...live, ...entries };
+  for (const [key, value2] of Object.entries(live)) {
+    if (Object.hasOwn(entries, key) || typeof value2 !== "object" || value2 === null) continue;
+    const stub = value2;
+    if (stub.aliasKind === "sandbox" && typeof stub.aliasOf === "number" && exported.has(stub.aliasOf))
+      delete merged[key];
+  }
+  return merged;
+}
 function exportLegacy(tooltips, now, catalog, aliases = {}) {
   if (!Number.isFinite(now) || now < 0 || !Number.isInteger(now)) {
     throw new TypeError("now must be nonnegative integer epoch milliseconds");
@@ -23642,7 +23657,7 @@ var Publisher = class {
     if (!live?.perks || !live.databaseSettings) throw new Error("Invalid live file");
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
-    const bytes = json2({ ...live, perks: { ...live.perks, ...entries } });
+    const bytes = json2({ ...live, perks: mergeLivePerks(live.perks, entries) });
     return {
       bytes,
       outcome: bytes === this.git.blob(tree["liveDescriptions.json"]) ? "unchanged" : "published"
