@@ -196,6 +196,9 @@ export function useSkeletonVisible(
   const shownClock = useRef(activeClock);
   // When the skeleton was on screen as the entry changed, the minimum keeps counting from then.
   const onScreenSince = useRef<number | undefined>();
+  // Pending at the last commit: only then was the visible skeleton surely on screen (a host can
+  // replace it before its minimum ends, e.g. SkeletonBoundary's error).
+  const wasPending = useRef(pending);
   const holder = useRef(Symbol('skeleton consumer'));
   const membership = useRef<{ clock: SkeletonClock; release(): void }>();
   const holding = pending || visible;
@@ -249,8 +252,10 @@ export function useSkeletonVisible(
         // A new entry while the skeleton is on screen: it gets its own two frames, and a warm
         // entry still swaps in at once. A slow one keeps the minimum of the skeleton that never
         // left the screen (it shows from then, so it cannot flash): stepping through skeletons
-        // does not restart the wait on the entry it stops at.
-        onScreenSince.current ??= shownAt.current;
+        // does not restart the wait on the entry it stops at. An entry that had stopped loading
+        // (resolved or failed) carries nothing: the next wait gets a fresh minimum.
+        if (wasPending.current) onScreenSince.current ??= shownAt.current;
+        else onScreenSince.current = undefined;
         shownFor.current = identity;
         shownClock.current = activeClock;
         shownAt.current = undefined;
@@ -275,6 +280,7 @@ export function useSkeletonVisible(
       if (!hasContent) show();
       else afterTwoFrames(show);
     }
+    wasPending.current = pending;
     return () => {
       active = false;
       if (first !== undefined) cancelAnimationFrame(first);

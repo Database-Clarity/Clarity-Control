@@ -152,6 +152,37 @@ describe('minimum visible time', () => {
     expect(host.textContent).toBe('Retained content');
   });
 
+  it('gives the next entry a fresh minimum after an error replaced the skeleton', async () => {
+    const draw = (pending: boolean, identity: number, error = false) =>
+      act(async () =>
+        root.render(
+          <SkeletonBoundary pending={pending} identity={identity} error={error} label="Loading">
+            <p>{error ? 'Failed' : `Item ${identity}`}</p>
+          </SkeletonBoundary>,
+        ),
+      );
+    await draw(false, 1);
+    await draw(true, 1);
+    await frame();
+    await frame();
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(100));
+    await draw(false, 1, true);
+    expect(host.textContent).toBe('Failed');
+    await act(async () => vi.advanceTimersByTime(10));
+    await draw(true, 2);
+    await frame();
+    await frame();
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(40));
+    await draw(false, 2);
+    await act(async () => vi.advanceTimersByTime(50));
+    // Shown 90 ms for this wait: the interrupted minimum of entry 1 does not carry over.
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 90));
+    expect(host.textContent).toBe('Item 2');
+  });
+
   it('still swaps a warm entry in at once during the minimum', async () => {
     await act(async () => root.render(createElement(Pending, { pending: true })));
     await frame();
