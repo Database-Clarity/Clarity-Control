@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  placeAnchored,
-  viewportWidth,
-  visibleArea,
-  type PlacementArea,
-} from './anchorPlacement';
+import { placeAnchored, viewportWidth, visibleArea, type PlacementArea } from './anchorPlacement';
 
 // A 390x772 phone, 8px edges.
 const area: PlacementArea = { top: 8, bottom: 764, width: 390, layoutHeight: 772, edge: 8 };
