@@ -14,10 +14,10 @@ is admission only: the publisher re-checks everything at the claim (I1).
 
 ## Caps (CPU gate, root 2026-11-13 option A)
 
-- `memberCap` = 25 members per batch (core allows 100): scheduling validates every member in
+- `memberCap` = 15 members per batch (core allows 100): scheduling validates every member in
   ONE request inside the Workers Free 10 ms CPU limit. A workflow limit, one constant in
   `store.ts`, so it can move with the measured gate.
-- `saveChangeCap` = 25 changes per batch save request; the web chunks larger saves (P3a).
+- `saveChangeCap` = 15 changes per batch save request; the web chunks larger saves (P3a).
 - `memberByteCap` = 8 KiB per stored member file (the largest real tooltip is 2,112 bytes).
 - Gate: `node scripts/publisher/cpu/schedule.mjs` (local, real largest tooltips, worst stored
   files). Each case's p99 must be at most the existing /publish-100 p99 in the same run; the
@@ -25,17 +25,17 @@ is admission only: the publisher re-checks everything at the claim (I1).
 
 ## Routes (`routes.ts`)
 
-| Route                                     | Roles                                              | Notes                                                  |
-| ----------------------------------------- | -------------------------------------------------- | ------------------------------------------------------ |
-| `GET /batches`                            | maintainer, editor, translator                     | `{head, index}`; members are read from raw at `head`   |
-| `POST /batches {name}`                    | maintainer, editor                                 | ≤50 open batches (by the index: a storage bound)       |
-| `POST /batches/:id/save`                  | maintainer, editor; translator on existing members | /save semantics against the stored proposals           |
-| `POST /batches/:id/rebase`                | maintainer, editor                                 | draft only; base = current at the head                 |
-| `POST /batches/:id/remove`                | maintainer, editor                                 | draft only                                             |
-| `POST /batches/:id/schedule`              | maintainer, editor                                 | draft or scheduled (reschedule)                        |
-| `POST /batches/:id/unschedule`, `/cancel` | maintainer, editor                                 | unclaimed only                                         |
-| `POST /batches/:id/resolve`               | maintainer, editor                                 | published batches with a conflict file                 |
-| `POST /batches/:id/kick`                  | maintainer, editor                                 | overdue (> notBefore + 5 min), scheduled or publishing |
+| Route                                     | Roles                                              | Notes                                                     |
+| ----------------------------------------- | -------------------------------------------------- | --------------------------------------------------------- |
+| `GET /batches`                            | maintainer, editor, translator                     | `{head, index}`; members are read from raw at `head`      |
+| `POST /batches {name}`                    | maintainer, editor                                 | ≤50 open batches (by the index: a storage bound)          |
+| `POST /batches/:id/save`                  | maintainer, editor; translator on existing members | /save semantics against the stored proposals; ≤15 changes |
+| `POST /batches/:id/rebase`                | maintainer, editor                                 | draft only; base = current at the head                    |
+| `POST /batches/:id/remove`                | maintainer, editor                                 | draft only                                                |
+| `POST /batches/:id/schedule`              | maintainer, editor                                 | draft or scheduled (reschedule)                           |
+| `POST /batches/:id/unschedule`, `/cancel` | maintainer, editor                                 | unclaimed only                                            |
+| `POST /batches/:id/resolve`               | maintainer, editor                                 | published batches with a conflict file                    |
+| `POST /batches/:id/kick`                  | maintainer, editor                                 | overdue (> notBefore + 5 min), scheduled or publishing    |
 
 Trials get no batch access at all (Q3). Every write reads ONE head (`readState`: permissions,
 PIN, due, index, batch, and names-only listings in one GraphQL read), checks the client's

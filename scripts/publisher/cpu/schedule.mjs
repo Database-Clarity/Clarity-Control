@@ -270,7 +270,8 @@ async function state(name, real, lib) {
   });
   // 149 other batch directories, each naming 100 members (the Q2 listing), cancelled; the
   // save-add case lets HOLDERS of them hold the added hashes, with full histories.
-  const holders = kind === 'save-add' ? 10 : 0;
+  // save-add:N:H lets H cancelled batches with full histories hold the added hashes (default 10).
+  const holders = kind === 'save-add' ? Number(name.split(':')[2] ?? 10) : 0;
   for (const [i, id] of others.entries()) {
     put(
       `schedule/batches/${id}/batch.json`,
@@ -353,8 +354,9 @@ async function state(name, real, lib) {
     });
   }
   if (kind === 'publish-conflicts')
-    // 1,000 unresolved conflict files (40 fully conflicted batches of 25): names-only listing.
-    for (let i = 0; i < 1000; i++) put(`schedule/activation-conflicts/${4000000000 + i}.json`, {});
+    // publish-conflicts:N: N unresolved conflict files (default 1,000), a names-only listing.
+    for (let i = 0; i < Number(name.split(':')[1] ?? 1000); i++)
+      put(`schedule/activation-conflicts/${4000000000 + i}.json`, {});
   put(`schedule/batches/${ID}/batch.json`, target);
   return { files, members };
 }

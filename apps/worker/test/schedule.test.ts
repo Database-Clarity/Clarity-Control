@@ -890,7 +890,7 @@ describe('GitHub.publishSnapshot trees (names-only listing)', () => {
 describe('Worker caps (CPU gate, root option A)', () => {
   it('admits at most memberCap members per batch and saveChangeCap changes per save', async () => {
     const { memberCap, saveChangeCap } = await import('../src/schedule/store.js');
-    expect([memberCap, saveChangeCap]).toEqual([25, 25]);
+    expect([memberCap, saveChangeCap]).toEqual([15, 15]);
     const hashes = Array.from({ length: memberCap }, (_, i) => 1000 + i);
     const files: Record<string, unknown> = {};
     for (const hash of hashes) {

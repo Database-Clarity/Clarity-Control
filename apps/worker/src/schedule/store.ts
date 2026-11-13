@@ -46,9 +46,9 @@ export const readRoles: Access['role'][] = ['maintainer', 'editor', 'translator'
  * Scheduling validates every member in ONE request inside the Workers Free 10 ms CPU limit, so
  * this is a workflow limit, kept as one constant so it can move with the measured gate.
  */
-export const memberCap = 25;
+export const memberCap = 15;
 /** Changes per POST /batches/:id/save (same gate); the web chunks larger saves (P3a). */
-export const saveChangeCap = 25;
+export const saveChangeCap = 15;
 
 /**
  * Bytes one stored member file may take (base + proposal, pretty JSON). The largest real tooltip
