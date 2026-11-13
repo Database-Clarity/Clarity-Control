@@ -98,7 +98,10 @@ export function EditorPaneHeader({
       title="Show or hide the markup row at the top of the editor"
       onClick={markup.toggle}
     >
-      Markup<span className={styles.markupWord}> tools</span>{' '}
+      {/* One flex item: the button's gap must not land between the two words. */}
+      <span>
+        Markup<span className={styles.markupWord}> tools</span>
+      </span>{' '}
       <kbd className={styles.key}>Ctrl+.</kbd>
     </button>
   );
