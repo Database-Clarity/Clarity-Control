@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { parseMarkup, type MarkupLine } from '@clarity/core';
-import { changedSourceLines, renderedDiff, type DiffSpan } from './renderedDiff';
+import { changedSourceLines, presentDiff, renderedDiff, type DiffSpan } from './renderedDiff';
 
 const globals = { variables: '', titles: '' };
 const parts = (lines: MarkupLine[]): DiffSpan[] =>
@@ -104,4 +104,38 @@ it('marks changed title bodies even when the visible anchor text is unchanged', 
       .map((part) => part.text)
       .join(''),
   ).toContain('New detail');
+});
+
+const marked = (lines: MarkupLine[]) =>
+  parts(lines)
+    .filter((part) => part.diffKind)
+    .map((part) => part.text);
+it('joins adjacent changed words into one highlighted run', () => {
+  // 6 changed of 20 ink characters: a small edit stays inline.
+  const result = presentDiff(renderedDiff('Keep a b c ending', 'Keep x y z ending', globals));
+  expect(marked(result.before)).toEqual(['a b c']);
+  expect(marked(result.after)).toEqual(['x y z']);
+  expect(parts(result.after).map((part) => part.text)).toEqual(['Keep ', 'x y z', ' ending']);
+});
+it.each([
+  ['The quick brown fox jumps', 'A slow red fox sleeps'],
+  // One old line split into two new lines is one group.
+  ['Head! While holding a charge.', 'Head!\nWhile Chaos Reshaped is active now.'],
+])('reads a rewritten line as the old line, then the new line: %j → %j', (before, after) => {
+  const result = presentDiff(renderedDiff(before, after, globals));
+  for (const [lines, text] of [
+    [result.before, before],
+    [result.after, after],
+  ] as const) {
+    expect(parts(lines).every((part) => part.diffKind)).toBe(true);
+    expect(marked(lines).join('\n')).toBe(text);
+  }
+});
+it('keeps unchanged lines and one-sided diffs as they were', () => {
+  const result = presentDiff(renderedDiff('Same line\nOld', 'Same line\nNew', globals));
+  expect(marked(result.before)).toEqual(['Old']);
+  expect(marked(result.after)).toEqual(['New']);
+  expect(parts(result.after)[0]).toEqual({ text: 'Same line' });
+  const added = presentDiff(renderedDiff('', 'Only new', globals));
+  expect(marked(added.after)).toEqual(['Only new']);
 });

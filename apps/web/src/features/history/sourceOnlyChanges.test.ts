@@ -1,25 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { parseMarkup, type MarkupGlobals } from '@clarity/core';
-import { renderedDiff, type DiffLine, type DiffSpan } from './renderedDiff';
+import { presentDiff, renderedDiff, type DiffLine, type DiffSpan } from './renderedDiff';
 import {
   accountHunks,
   analyzeSourceOnly,
   sourceParts,
   type HunkAccount,
+  type SourceMarker,
 } from './sourceOnlyChanges';
 
 const globals: MarkupGlobals = { variables: '', titles: '' };
 const options = { budgetMs: 10000, maxParts: 1000 };
 
-/**
- * Accounts against the real final diff and independently re-verifies every
- * "shown" claim against that diff: each claimed token must be a distinct marked
- * word, icon, link, title, or line structure on the claimed rendered line.
- */
-function account(before: string, after: string, context = globals) {
-  const diff = renderedDiff(before, after, context);
-  const accounts = accountHunks(before, after, context, diff, options);
-  expect(accounts).toHaveLength(sourceParts(before, after).length);
+/** Marked claim vocabulary per side, rendered line, and word: "side|line|word" → count. */
+function markedTokens(diff: ReturnType<typeof renderedDiff>) {
   const available = new Map<string, number>();
   for (const side of ['before', 'after'] as const) {
     const kind = side === 'before' ? 'delete' : 'insert';
@@ -39,6 +33,22 @@ function account(before: string, after: string, context = globals) {
       }
     });
   }
+  return available;
+}
+
+/**
+ * Accounts against the real final diff and independently re-verifies every
+ * "shown" claim against that diff: each claimed token must be a distinct marked
+ * word, icon, link, title, or line structure on the claimed rendered line. Also
+ * checks that the displayed form (presentDiff) keeps every one of those marks,
+ * and that collapsed markers (one per rendered line) cover each hunk they absorbed.
+ */
+function account(before: string, after: string, context = globals) {
+  const diff = renderedDiff(before, after, context);
+  const accounts = accountHunks(before, after, context, diff, options);
+  const parts = sourceParts(before, after);
+  expect(accounts).toHaveLength(parts.length);
+  const available = markedTokens(diff);
   for (const entry of accounts)
     if (entry.account === 'shown')
       for (const [side, line, word] of entry.tokens) {
@@ -46,6 +56,32 @@ function account(before: string, after: string, context = globals) {
         expect(available.get(key) ?? 0, `claimed ${key}`).toBeGreaterThan(0);
         available.set(key, available.get(key)! - 1);
       }
+  // The display form only adds marks: no claimed (or any) mark disappears.
+  const shown = markedTokens(presentDiff(renderedDiff(before, after, context)));
+  for (const [key, total] of markedTokens(diff))
+    expect(shown.get(key) ?? 0, `display keeps ${key}`).toBeGreaterThanOrEqual(total);
+  const line = (text: string, offset: number) => text.slice(0, offset).split('\n').length;
+  const byLine = new Map<number, SourceMarker>();
+  const covers = new Map<SourceMarker, number>();
+  accounts.forEach((entry, index) => {
+    if (entry.account !== 'marker') return;
+    const { marker } = entry,
+      part = parts[index];
+    expect(byLine.get(marker.position) ?? marker, 'one marker per rendered line').toBe(marker);
+    byLine.set(marker.position, marker);
+    covers.set(marker, (covers.get(marker) ?? 0) + 1);
+    for (const [text, range, from, to] of [
+      [before, marker.previous, part.from, part.to],
+      [after, marker.current, part.nextFrom, part.nextTo],
+    ] as const) {
+      if (!text) continue;
+      expect(range![0]).toBeLessThanOrEqual(line(text, from) + 1);
+      expect(range![1]).toBeGreaterThanOrEqual(line(text, Math.max(from, to - 1)));
+    }
+    const kinds = marker.label.split(' · ')[1].split(', ');
+    expect(new Set(kinds).size, marker.label).toBe(kinds.length);
+  });
+  for (const [marker, total] of covers) expect(marker.hunks).toBe(total);
   return { accounts, diff };
 }
 /** Marked occurrences of one claim vocabulary word on one side of a final diff. */
@@ -202,6 +238,40 @@ describe('named repros, forward and reverse', () => {
     expect(JSON.stringify(diff.before)).toContain('"diffKind":"delete"');
     expect(JSON.stringify(diff.after)).toContain('"diffKind":"insert"');
   });
+  it.each(
+    both(
+      '<bold Healing effect is bugged! /> While holding this weapon, a background charge builds at a rate of 5/HPs, healing 5 HP per second. \n\nStowing this weapon immediately dissipates any healing.',
+      '<bold Healing effect is bugged! /> \nWhile Chaos Reshaped x2 is active: \nStowing the weapon or keeping it readied grants healing of 5 HP per second.\n\nStowing this weapon grants the effect.',
+    ),
+  )(
+    'owner case (Chaos Reshaped fe0d76c4): word edits beside a trimmed space are shown, not one marker each: %j → %j',
+    (before, after) => {
+      const { accounts } = account(before, after);
+      const markers = new Set(
+        accounts.flatMap((entry) => (entry.account === 'marker' ? [entry.marker] : [])),
+      );
+      // Only the invisible trailing-space edit keeps a marker; every word edit is shown.
+      expect(markers.size).toBe(1);
+      expect([...markers][0].label).toContain('Line break or spacing');
+      expect([...markers][0].hunks).toBe(1);
+      expect(count(accounts, 'shown')).toBe(accounts.length - 1);
+    },
+  );
+  it.each(both('Old words here // one', 'New words there // two'))(
+    'a hidden edit demotes its line once: one marker lists each kind once: %j → %j',
+    (before, after) => {
+      const { accounts } = account(before, after);
+      const markers = new Set(
+        accounts.flatMap((entry) => (entry.account === 'marker' ? [entry.marker] : [])),
+      );
+      expect(markers.size).toBe(1);
+      const [marker] = markers;
+      expect(marker.hunks).toBe(accounts.length);
+      expect(marker.label).toBe(
+        'Source changed · Markup, Comment · previous line 1; current line 1 · see Raw',
+      );
+    },
+  );
   it('plain word edits need no marker', () => {
     for (const [before, after] of [
       ...both('Deals 20 damage', 'Deals 30 damage'),
@@ -235,16 +305,21 @@ it('keeps classified markers and reports exactly the unchecked parts at either c
   const diff = renderedDiff(before, after, globals);
   const all = analyzeSourceOnly(before, after, globals, diff, options);
   const bounded = analyzeSourceOnly(before, after, globals, diff, { budgetMs: 10000 });
+  // Markers on one rendered line collapse; each still counts every hunk it covers.
+  const covered = (markers: SourceMarker[]) =>
+    markers.reduce((total, marker) => total + marker.hunks, 0);
   expect(all.unchecked).toBe(0);
-  expect(bounded.markers).toHaveLength(40);
-  expect(bounded.unchecked).toBe(all.markers.length - 40);
+  expect(covered(all.markers)).toBe(sourceParts(before, after).length);
+  expect(all.markers.length).toBeLessThan(covered(all.markers));
+  expect(covered(bounded.markers)).toBe(40);
+  expect(bounded.unchecked).toBe(covered(all.markers) - 40);
   let time = 0;
   const timed = analyzeSourceOnly(before, after, globals, diff, {
     now: () => (time += 30),
     budgetMs: 50,
   });
-  expect(timed.markers.length).toBeLessThan(all.markers.length);
-  expect(timed.markers.length + timed.unchecked).toBe(all.markers.length);
+  expect(covered(timed.markers)).toBeLessThan(covered(all.markers));
+  expect(covered(timed.markers) + timed.unchecked).toBe(covered(all.markers));
 });
 
 it('leaves the production render data byte-identical', () => {
@@ -294,6 +369,10 @@ it('accounts for every hunk of seeded random edits, forward and reverse', () => 
       () => `#n ${text()} #m`,
       () => `<unknown ${text()} 🡅 ${text()}`,
       () => `${text()} <pve ${text()}`,
+      // Trailing and doubled spaces: inert spacing must never hide a word edit.
+      () => `${text()} `,
+      () => `${text()}  ${text()}`,
+      () => `<bold ${text()} /> ${text()} `,
     ])();
   const mutate = (lines: string[]) => {
     const next = [...lines];
