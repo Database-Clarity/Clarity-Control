@@ -72,6 +72,25 @@ const HEADER_TOGGLE_MIN = 381;
 const HEADER_TITLE_WIDTH = 83;
 const ApprovalDiff = memo(CompendiumDiff);
 
+/** One stepping gesture, from the entry the pane showed when it started. */
+type Burst = { origin: number; first?: number; moved: boolean; clock?: SkeletonClock };
+type SkeletonClock = NonNullable<Parameters<typeof useSkeletonVisible>[3]>;
+
+/** Records a destination; true once the burst has reached a second one besides its origin. */
+function reachBurstTarget(burst: Burst, target: number) {
+  if (target !== burst.origin) {
+    burst.first ??= target;
+    if (burst.first !== target) burst.moved = true;
+  }
+  return burst.moved;
+}
+
+/** The entry in a published stepping target (`/t/<hash>?…`). */
+function steppingTargetHash(target: string | undefined) {
+  const hash = target && /^\/t\/(\d+)/.exec(target)?.[1];
+  return hash ? Number(hash) : undefined;
+}
+
 /** The retained source stays mounted; its entry-specific picker does not. */
 function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep(): void }) {
   const stepping = useSteppingActivity((state) => state.active);
@@ -525,23 +544,48 @@ const PaneContents = memo(function PaneContents({
   // skeleton grace (two frames) starts once the pane may render, so a warm entry shows
   // directly instead of behind a skeleton's minimum. A burst that reaches a second entry
   // (besides the one the pane shows; a wheel burst can start before its route lands)
-  // keeps the skeleton rule from that move on.
-  const burst = useRef<{ origin: number; first?: number; moved: boolean }>();
+  // keeps the skeleton rule from that move on. The finder's own target counts as well: while
+  // the document is deferred mid-flick the route (and `target`) can hold the first
+  // destination, though the gesture has moved on.
+  const burst = useRef<Burst>();
   if (!stepping) burst.current = undefined;
   else {
     burst.current ??= { origin: base.hash, moved: false };
-    if (target !== burst.current.origin) {
-      burst.current.first ??= target;
-      if (burst.current.first !== target) burst.current.moved = true;
-    }
+    reachBurstTarget(burst.current, target);
   }
+  const [, setMovedBurst] = useState<Burst>();
+  useLayoutEffect(
+    () =>
+      useSteppingActivity.subscribe((state) => {
+        const current = burst.current;
+        const raw = state.active ? steppingTargetHash(state.target) : undefined;
+        if (!current || current.moved || raw === undefined) return;
+        // The route resolves variants to their canonical entry; compare like with like.
+        const data = useDataStore.getState().data;
+        const hash = data ? canonicalHash(raw, data) : raw;
+        // Stepping frames publish this inside flushSync; the pane re-renders after them.
+        if (reachBurstTarget(current, hash)) startTransition(() => setMovedBurst(current));
+      }),
+    [],
+  );
+  // A burst that moved is one wait: its two-frame grace and minimum run once, from the move,
+  // not again for each entry it passes. The skeleton keeps that identity and its own clock (the
+  // page's clock follows the route entry) until it releases, so the entry a flick stops on shows
+  // once ready instead of restarting the minimum.
+  const skeletonBurst = useRef<Burst>();
+  if (burst.current?.moved) skeletonBurst.current ??= burst.current;
+  if (skeletonBurst.current) skeletonBurst.current.clock ??= { holders: new Set() };
   const showSkeleton = useSkeletonVisible(
     waiting && (!stepping || !!burst.current?.moved || !hasContent.current),
-    target,
+    skeletonBurst.current ?? target,
     hasContent.current,
+    skeletonBurst.current?.clock,
   );
   // A shown skeleton outlasts the load by its minimum time; until then ready content waits.
   const holding = waiting || showSkeleton;
+  useLayoutEffect(() => {
+    if (!holding) skeletonBurst.current = undefined;
+  }, [holding]);
   useLayoutEffect(() => {
     if (stepping) wasStepping.current = true;
     else if (!waiting) wasStepping.current = false;
