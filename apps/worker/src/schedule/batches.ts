@@ -1,0 +1,545 @@
+import { z } from 'zod';
+import {
+  contentHash,
+  hashSchema,
+  merge3,
+  resolveAlias,
+  sandboxPointersPath,
+  tooltipSchema,
+  type Aliases,
+  type Tooltip,
+} from '@clarity/core';
+import {
+  batchIdSchema,
+  batchMemberSchema,
+  batchSchema,
+  changedFields,
+  initialRevisions,
+  isContentChange,
+  isOpenStatus,
+  isTranslationField,
+  nextRevisions,
+  scheduleLimits,
+  schedulePaths,
+  type Batch,
+  type BatchMember,
+} from '@clarity/core/schedule';
+import { loadAliases } from '../catalog.js';
+import { pinLowersElementTags, refuseUnlowerableTags } from '../elementTags.js';
+import { blobContent, RefRace, type GitHub, type TreeNode } from '../github.js';
+import { body, HttpError, json } from '../http.js';
+import { checkEdit, type Access } from '../permissions.js';
+import { withSandboxPointers } from '../sandboxPointers.js';
+import type { Identity } from '../types.js';
+import {
+  appendEvent,
+  archivedCounter,
+  by,
+  child,
+  indexEntry,
+  memberByteCap,
+  memberHashes,
+  newUlid,
+  readRoles,
+  readState,
+  refuseClaimed,
+  refuseOpenCap,
+  refuseRevision,
+  requireBatch,
+  scheduleRoles,
+  switches,
+  withIndexEntry,
+  type ScheduleState,
+} from './store.js';
+
+const revisionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const messageSchema = z.string().trim().min(1).max(500);
+const changeSchema = z
+  .object({ hash: hashSchema, base: tooltipSchema.nullable(), next: tooltipSchema })
+  .strict()
+  .refine(({ hash, base, next }) => next.hash === hash && (!base || base.hash === hash), {
+    message: 'Change hash, base hash and next hash must agree',
+  });
+const uniqueHashes = (list: readonly { hash: number }[]) =>
+  new Set(list.map(({ hash }) => hash)).size === list.length;
+const saveSchema = z
+  .object({
+    revision: revisionSchema,
+    changes: z
+      .array(changeSchema)
+      .min(1)
+      .max(scheduleLimits.membersPerBatch)
+      .refine(uniqueHashes, 'Duplicate tooltip hash'),
+    message: messageSchema,
+  })
+  .strict();
+const rebaseSchema = z
+  .object({
+    revision: revisionSchema,
+    hash: hashSchema,
+    base: tooltipSchema.nullable(),
+    next: tooltipSchema,
+  })
+  .strict()
+  .refine(({ hash, base, next }) => next.hash === hash && (!base || base.hash === hash), {
+    message: 'Change hash, base hash and next hash must agree',
+  });
+const removeSchema = z
+  .object({
+    revision: revisionSchema,
+    hashes: z
+      .array(hashSchema)
+      .min(1)
+      .max(scheduleLimits.membersPerBatch)
+      .refine((list) => new Set(list).size === list.length, 'Duplicate tooltip hash'),
+  })
+  .strict();
+const createSchema = z.object({ name: batchSchema.shape.name }).strict();
+const maxBody = 2_000_000;
+
+const batchDir = (batchId: string) => `schedule/batches/${batchId}`;
+const tooltipPath = (hash: number) => `tooltips/${hash}.json`;
+const sameTooltip = async (a: Tooltip | null, b: Tooltip | null) =>
+  a === null || b === null ? a === b : (await contentHash(a)) === (await contentHash(b));
+const encoder = new TextEncoder();
+
+function parseMember(value: unknown, batchId: string, hash: number): BatchMember {
+  const member = batchMemberSchema.parse(value);
+  if (member.hash !== hash)
+    throw new HttpError(502, `Stored member ${hash} of ${batchId} mismatch`);
+  return member;
+}
+
+function refuseMemberSize(member: BatchMember): void {
+  if (encoder.encode(blobContent(member)).byteLength > memberByteCap)
+    throw new HttpError(
+      413,
+      `Tooltip ${member.hash} is too large to stage in a batch (${memberByteCap / 1024} KiB per tooltip)`,
+    );
+}
+
+/** Whether the active exporter lowers element-tagged text (as /save decides, elementTags.ts). */
+function lowersTags(state: ScheduleState): boolean {
+  return !switches.publisher() || pinLowersElementTags(state.pin);
+}
+
+function memberFile(member: BatchMember, batchId: string): [string, BatchMember] {
+  return [schedulePaths.member(batchId, member.hash), member];
+}
+
+/** Writes one batch update (members, deletions, batch.json, index, event archive) by CAS. */
+async function commitBatch(
+  github: GitHub,
+  state: ScheduleState,
+  user: Identity,
+  {
+    batch,
+    action,
+    hashes,
+    members,
+    deletions = [],
+    membership,
+    contentChanged,
+    events,
+    message,
+  }: {
+    batch: Batch;
+    action: Batch['events'][number]['action'];
+    hashes: number[];
+    members: BatchMember[];
+    deletions?: string[];
+    membership: number[];
+    contentChanged: boolean;
+    events: readonly TreeNode[] | null;
+    message: string;
+  },
+) {
+  const now = new Date().toISOString();
+  const revisions = nextRevisions(batch, contentChanged);
+  const appended = await appendEvent(
+    batch,
+    { at: now, by: by(user), action, ...revisions, hashes: [...hashes].sort((a, b) => a - b) },
+    archivedCounter(github, state.head, batch.id, events),
+  );
+  const next = batchSchema.parse({ ...batch, ...revisions, events: appended.events });
+  const index = withIndexEntry(state.index, indexEntry(next, membership, now));
+  const commit = await github.commit(
+    state.head,
+    {
+      ...Object.fromEntries(members.map((member) => memberFile(member, batch.id))),
+      [schedulePaths.batch(batch.id)]: next,
+      [schedulePaths.index]: index,
+      ...(appended.archive ? { [appended.archive.path]: appended.archive.value } : {}),
+    },
+    `${message}\n\nClarity-Batch: ${batch.id}`,
+    user,
+    { baseTree: state.tree, deletions },
+  );
+  return { commit, batch: next };
+}
+
+/** GET /batches: the index at one head; member bodies are fetched from raw at that head. */
+export async function listBatches(github: GitHub, user: Identity): Promise<Response> {
+  const state = await readState(github, user, readRoles);
+  return json({ head: state.head, index: state.index });
+}
+
+/** POST /batches {name} */
+export async function createBatch(
+  request: Request,
+  github: GitHub,
+  user: Identity,
+): Promise<Response> {
+  const { name } = await body(request, createSchema, 4096);
+  const id = newUlid();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const state = await readState(github, user, scheduleRoles, { batchId: id });
+    if (state.batch) throw new HttpError(409, 'Batch id collision; retry');
+    refuseOpenCap(state.index);
+    const now = new Date().toISOString();
+    const batch = batchSchema.parse({
+      id,
+      name,
+      createdBy: by(user),
+      createdAt: now,
+      ...initialRevisions,
+      status: 'draft',
+      notBefore: null,
+      zone: null,
+      opId: null,
+      scheduledContentRevision: null,
+      claim: null,
+      result: null,
+      events: [{ at: now, by: by(user), action: 'create', ...initialRevisions }],
+    } satisfies Batch);
+    const index = withIndexEntry(state.index, indexEntry(batch, [], now));
+    try {
+      const commit = await github.commit(
+        state.head,
+        { [schedulePaths.batch(id)]: batch, [schedulePaths.index]: index },
+        `Create batch "${name}"\n\nClarity-Batch: ${id}`,
+        user,
+        { baseTree: state.tree },
+      );
+      return json({ commit, batch }, 201);
+    } catch (error) {
+      if (!(error instanceof RefRace)) throw error;
+    }
+  }
+  throw new HttpError(409, 'Data branch kept moving; retry');
+}
+
+/**
+ * Q2: refuses hashes that a different OPEN batch already holds, from a names-only listing of
+ * schedule/batches/<id>/tooltips at the CAS head (never index.json). Terminal batches keep their
+ * member files as history, so a listed batch's status decides (one read at the same head).
+ */
+async function refuseOtherOpenBatches(
+  github: GitHub,
+  state: ScheduleState,
+  batchId: string,
+  hashes: readonly number[],
+): Promise<void> {
+  if (!hashes.length) return;
+  const wanted = new Set(hashes);
+  const holders = new Map<string, number[]>();
+  for (const dir of state.trees[0] ?? []) {
+    if (dir.name === batchId || !batchIdSchema.safeParse(dir.name).success) continue;
+    const held = memberHashes(child(dir.entries, 'tooltips')).filter((hash) => wanted.has(hash));
+    if (held.length) holders.set(dir.name, held);
+  }
+  if (!holders.size) return;
+  const ids = [...holders.keys()];
+  const files = await github.files(
+    ids.map((id) => schedulePaths.batch(id)),
+    state.head,
+  );
+  for (const [index, file] of files.entries()) {
+    if (!file) continue; // a directory without batch.json holds no batch
+    const other = batchSchema.parse(file.value);
+    if (other.id !== ids[index]) throw new HttpError(502, 'Stored batch id mismatch');
+    if (isOpenStatus(other.status))
+      throw new HttpError(
+        409,
+        `Tooltip ${holders.get(other.id)![0]} is already in the open batch "${other.name}"; one open batch per tooltip`,
+        { hashes: holders.get(other.id), batchId: other.id },
+      );
+  }
+}
+
+interface Conflict {
+  hash: number;
+  base: Tooltip | null;
+  head: Tooltip | null;
+  next: Tooltip;
+  fields: string[];
+}
+
+/**
+ * POST /batches/:id/save {revision, changes, message}: /save semantics against the members'
+ * stored proposals (spec "Worker API", "Permissions").
+ */
+export async function saveBatch(
+  request: Request,
+  github: GitHub,
+  user: Identity,
+  batchId: string,
+): Promise<Response> {
+  const input = await body(request, saveSchema, maxBody);
+  let aliases: Aliases | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const state = await readState(github, user, [...scheduleRoles, 'translator'], {
+      batchId,
+      extra: [sandboxPointersPath],
+      // The full names-only listing: own membership and the Q2 guard at this head.
+      trees: [{ path: 'schedule/batches', depth: 3 }],
+    });
+    const batch = requireBatch(state, batchId);
+    refuseClaimed(batch);
+    refuseRevision(batch, input.revision);
+    const access = state.access;
+    const ownDir = state.trees[0]?.find(({ name }) => name === batchId)?.entries;
+    const own = new Set(memberHashes(child(ownDir, 'tooltips')));
+    const adds = input.changes.filter(({ hash }) => !own.has(hash)).map(({ hash }) => hash);
+    if (adds.length) {
+      if (access.role === 'translator')
+        throw new HttpError(403, 'Translators may change only tooltips already in the batch');
+      if (batch.status !== 'draft') throw new HttpError(409, 'Unschedule to edit');
+      if (own.size + adds.length > scheduleLimits.membersPerBatch)
+        throw new HttpError(
+          409,
+          `A batch holds at most ${scheduleLimits.membersPerBatch} tooltips`,
+        );
+      aliases ??= await loadAliases(github.env, github);
+      const saveAliases = await withSandboxPointers(github, aliases, state.extra[0]);
+      for (const hash of adds) {
+        const canonical = resolveAlias(hash, saveAliases);
+        if (canonical !== hash)
+          throw new HttpError(
+            422,
+            `Tooltip ${hash} is an alias; edit canonical tooltip ${canonical}`,
+          );
+      }
+      await refuseOtherOpenBatches(github, state, batchId, adds);
+    }
+    const files = await github.files(
+      input.changes.map(({ hash }) =>
+        own.has(hash) ? schedulePaths.member(batchId, hash) : tooltipPath(hash),
+      ),
+      state.head,
+    );
+    const lowers = lowersTags(state);
+    const now = new Date().toISOString();
+    const conflicts: Conflict[] = [];
+    const before: BatchMember[] = [];
+    const written: BatchMember[] = [];
+    for (const [index, change] of input.changes.entries()) {
+      const file = files[index];
+      if (own.has(change.hash)) {
+        if (!file) throw new HttpError(502, `Batch member ${change.hash} is unreadable`);
+        const stored = parseMember(file.value, batchId, change.hash);
+        checkEdit(access, stored.proposed, change.next);
+        let merged = change.next;
+        if (change.base === null) {
+          conflicts.push({ ...change, head: stored.proposed, fields: ['$exists'] });
+          continue;
+        }
+        if (!(await sameTooltip(change.base, stored.proposed))) {
+          const result = merge3(change.base, stored.proposed, change.next);
+          if (!result.ok) {
+            conflicts.push({
+              ...change,
+              head: stored.proposed,
+              fields: result.conflicts.map(({ field }) => field),
+            });
+            continue;
+          }
+          merged = result.merged;
+        }
+        checkEdit(access, stored.proposed, merged);
+        const changed = changedFields(stored.proposed, merged);
+        if (!changed.length) continue; // stamp-only or identical: a no-op (R17)
+        if (batch.status !== 'draft' && changed.some((field) => !isTranslationField(field)))
+          throw new HttpError(409, 'Unschedule to edit', { hash: change.hash, fields: changed });
+        refuseUnlowerableTags(merged, lowers, 'saved');
+        const member = batchMemberSchema.parse({
+          ...stored,
+          proposed: merged,
+          updatedAt: now,
+          updatedBy: user.login,
+        });
+        refuseMemberSize(member);
+        before.push(stored);
+        written.push(member);
+      } else {
+        const current = file ? tooltipSchema.parse(file.value) : null;
+        if (current && current.hash !== change.hash)
+          throw new HttpError(502, 'Stored tooltip hash mismatch');
+        // Adding sets base = current at this head; the client must have started from it.
+        if (!(await sameTooltip(change.base, current))) {
+          conflicts.push({
+            ...change,
+            head: current,
+            fields: change.base === null || current === null ? ['$exists'] : ['$base'],
+          });
+          continue;
+        }
+        checkEdit(access, current, change.next);
+        if (!changedFields(current, change.next).length) continue; // nothing to stage
+        refuseUnlowerableTags(change.next, lowers, 'saved');
+        const member = batchMemberSchema.parse({
+          hash: change.hash,
+          base: current,
+          baseCommit: state.head,
+          proposed: change.next,
+          updatedAt: now,
+          updatedBy: user.login,
+        });
+        refuseMemberSize(member);
+        written.push(member);
+      }
+    }
+    if (conflicts.length) return json({ conflicts }, 409);
+    if (!written.length) return json({ commit: null, batch, members: [] });
+    const contentChanged = isContentChange(before, written);
+    // Translation-only edits keep a scheduled batch's signed content (I5).
+    if (batch.status !== 'draft' && contentChanged) throw new HttpError(409, 'Unschedule to edit');
+    const membership = [...new Set([...own, ...written.map(({ hash }) => hash)])];
+    try {
+      const result = await commitBatch(github, state, user, {
+        batch,
+        action: 'save',
+        hashes: written.map(({ hash }) => hash),
+        members: written,
+        membership,
+        contentChanged,
+        events: child(ownDir, 'events'),
+        message: input.message,
+      });
+      return json({ ...result, members: written, savedAt: Date.now() });
+    } catch (error) {
+      if (!(error instanceof RefRace)) throw error;
+    }
+  }
+  throw new HttpError(409, 'Data branch kept moving; reload and retry your save');
+}
+
+/** Reads a draft batch and its own listing for a maintainer/editor content write. */
+async function draftState(github: GitHub, user: Identity, batchId: string, revision: number) {
+  const state = await readState(github, user, scheduleRoles, {
+    batchId,
+    trees: [{ path: batchDir(batchId), depth: 2 }],
+  });
+  const batch = requireBatch(state, batchId);
+  refuseClaimed(batch);
+  refuseRevision(batch, revision);
+  if (batch.status !== 'draft') throw new HttpError(409, 'Unschedule to edit');
+  const own = memberHashes(child(state.trees[0], 'tooltips'));
+  return { state, batch, own, events: child(state.trees[0], 'events') };
+}
+
+/**
+ * POST /batches/:id/rebase {revision, hash, base, next}: maintainer/editor only (a translator can
+ * never move a base). The new base is current at this head; `next` is the rebased proposal.
+ */
+export async function rebaseBatch(
+  request: Request,
+  github: GitHub,
+  user: Identity,
+  batchId: string,
+): Promise<Response> {
+  const input = await body(request, rebaseSchema, maxBody);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { state, batch, own, events } = await draftState(github, user, batchId, input.revision);
+    if (!own.includes(input.hash))
+      throw new HttpError(404, `Tooltip ${input.hash} is not in this batch`);
+    const [memberRaw, currentRaw] = await github.files(
+      [schedulePaths.member(batchId, input.hash), tooltipPath(input.hash)],
+      state.head,
+    );
+    if (!memberRaw) throw new HttpError(502, `Batch member ${input.hash} is unreadable`);
+    const stored = parseMember(memberRaw.value, batchId, input.hash);
+    const current = currentRaw ? tooltipSchema.parse(currentRaw.value) : null;
+    if (current && current.hash !== input.hash)
+      throw new HttpError(502, 'Stored tooltip hash mismatch');
+    if (!(await sameTooltip(input.base, current)))
+      return json({ error: 'Current changed; rebase again', current }, 409);
+    checkEdit(state.access, stored.proposed, input.next);
+    checkEdit(state.access, current, input.next);
+    if (!changedFields(current, input.next).length)
+      throw new HttpError(422, 'Nothing left to publish; remove the tooltip from the batch');
+    refuseUnlowerableTags(input.next, lowersTags(state), 'saved');
+    const member = batchMemberSchema.parse({
+      hash: input.hash,
+      base: current,
+      baseCommit: state.head,
+      proposed: input.next,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.login,
+    });
+    refuseMemberSize(member);
+    try {
+      const result = await commitBatch(github, state, user, {
+        batch,
+        action: 'rebase',
+        hashes: [input.hash],
+        members: [member],
+        membership: own,
+        contentChanged: isContentChange([stored], [member]),
+        events,
+        message: `Rebase ${input.hash} in batch "${batch.name}"`,
+      });
+      return json({ ...result, members: [member] });
+    } catch (error) {
+      if (!(error instanceof RefRace)) throw error;
+    }
+  }
+  throw new HttpError(409, 'Data branch kept moving; retry');
+}
+
+/** POST /batches/:id/remove {revision, hashes}: maintainer/editor; draft only. */
+export async function removeFromBatch(
+  request: Request,
+  github: GitHub,
+  user: Identity,
+  batchId: string,
+): Promise<Response> {
+  const input = await body(request, removeSchema, 64 * 1024);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { state, batch, own, events } = await draftState(github, user, batchId, input.revision);
+    const missing = input.hashes.filter((hash) => !own.includes(hash));
+    if (missing.length)
+      throw new HttpError(404, `Tooltip ${missing[0]} is not in this batch`, { hashes: missing });
+    const files = await github.files(
+      input.hashes.map((hash) => schedulePaths.member(batchId, hash)),
+      state.head,
+    );
+    const removed = files.map((file, index) => {
+      if (!file) throw new HttpError(502, `Batch member ${input.hashes[index]} is unreadable`);
+      return parseMember(file.value, batchId, input.hashes[index]!);
+    });
+    // Dropping a proposal must be an edit this role could make on the stored member.
+    for (const member of removed)
+      if (member.base) checkEdit(state.access, member.proposed, member.base);
+    const gone = new Set(input.hashes);
+    try {
+      const result = await commitBatch(github, state, user, {
+        batch,
+        action: 'remove',
+        hashes: input.hashes,
+        members: [],
+        deletions: input.hashes.map((hash) => schedulePaths.member(batchId, hash)),
+        membership: own.filter((hash) => !gone.has(hash)),
+        contentChanged: true,
+        events,
+        message: `Remove ${input.hashes.length} tooltip(s) from batch "${batch.name}"`,
+      });
+      return json(result);
+    } catch (error) {
+      if (!(error instanceof RefRace)) throw error;
+    }
+  }
+  throw new HttpError(409, 'Data branch kept moving; retry');
+}
+
+export type { Access };
