@@ -11,7 +11,14 @@ import type { DisplayInput } from './matchingSession';
 import type { prepareMatchingPlan } from './matchingSessionPlanning';
 import { matchingSessionFingerprint } from './matchingSessionFingerprint';
 import { compactMatch } from './compactMatches';
-import { cachedComputation, contentHash } from './workerCache';
+import {
+  bytesHash,
+  cacheWriteActivity,
+  cachedComputation,
+  cachedValue,
+  contentHash,
+  storeValue,
+} from './workerCache';
 import precomputedUrl from './precomputed.v1.json?url';
 import compressedUrl from './precomputed.v1.json.gz?url';
 import { compressedJson } from './compressedJson';
@@ -19,7 +26,12 @@ import { compactDisplay, compactProposal } from './compactMatches';
 import { decodePrecomputed, decodeValueNode } from './precomputedCodec';
 import type { GuidanceDocument } from './guidanceSchema';
 import { matchingInputs } from './matchingInputs';
-import { sendWorkerResultYielding, type WorkerReply } from './workerReplies';
+import {
+  replayWorkerResult,
+  sendWorkerResultYielding,
+  type EncodedReply,
+  type WorkerReply,
+} from './workerReplies';
 const emit = (reply: WorkerReply) =>
   self.postMessage(reply, { transfer: reply.buffer ? [reply.buffer] : [] });
 let editor: EditorData;
@@ -27,6 +39,26 @@ let source: CompendiumData;
 let proposals: Map<number, ReviewProposal>;
 let dataKey: string;
 let fingerprint: string | undefined;
+/** The fetched source's exact bytes, as a cache key (set by every load). */
+let sourceKey: string | undefined;
+/** Stored identity of the current inputs: their bytes -> dataKey and review fingerprint. */
+let identityKey: string | undefined;
+/**
+ * The worker's own proposals and pristine display for the initialized inputs. After a replayed
+ * proposals reply, restoring them waits until something needs them (guidance, a display that is
+ * not stored) or the display reply is out: its stored read must not queue behind this one.
+ */
+let proposalsReady: Promise<void> = Promise.resolve();
+let startProposals: (() => Promise<void>) | undefined;
+function ensureProposals() {
+  const start = startProposals;
+  if (start) {
+    startProposals = undefined;
+    proposalsReady = start();
+    void proposalsReady.catch(() => undefined);
+  }
+  return proposalsReady;
+}
 let latestGuide = 0;
 let latestDisplay = 0;
 let latestPriority = 0;
@@ -123,15 +155,46 @@ self.onmessage = ({ data }: MessageEvent<Request>) => {
       self.postMessage({ id: priority.id, error: 'Superseded Compendium priority request.' });
     latestPriority = data.id ?? 0;
     priority = { ...data.priority, id: latestPriority };
-    void servePriority();
+    void cacheWriteActivity(servePriority());
     return;
   }
   if (data.guide) latestGuide = data.id ?? 0;
   if (data.input) latestDisplay = data.id ?? 0;
   // A source's worker survives editor reloads. Keep each initialized editor consistent
   // through async cache reads; a later generation never mutates an in-flight model.
-  queue = queue.then(() => process(data));
+  queue = cacheWriteActivity(queue.then(() => process(data)));
 };
+/**
+ * Send a result, or replay its stored encoding. Encoding a catalog took longer than the
+ * matching it replays on a reopen: an unchanged result is encoded once per content key.
+ */
+async function sendCachedResult(
+  id: number,
+  key: string,
+  value: () => Promise<unknown>,
+  partial?: (value: unknown) => unknown,
+) {
+  const replyKey = `${key}:reply`;
+  const stored = await cachedValue<EncodedReply>(replyKey);
+  if (stored) {
+    replayWorkerResult(emit, id, stored);
+    return;
+  }
+  const result = await value();
+  const capture: EncodedReply = [];
+  await sendWorkerResultYielding(
+    emit,
+    id,
+    result,
+    partial?.(result),
+    yieldBackgroundReply,
+    capture,
+  );
+  storeValue(replyKey, capture);
+}
+function rememberIdentity() {
+  if (identityKey) storeValue(identityKey, { dataKey, fingerprint });
+}
 async function servePriority() {
   const request = priority;
   if (!request || request.token !== modelToken) return;
@@ -219,6 +282,84 @@ async function servePriority() {
     });
   }
 }
+/** Restore or compute this generation's proposals and pristine display (sliced). */
+async function prepareProposals(
+  preparedKey: string,
+  key: string,
+  asset: ReturnType<typeof loadPreparedAsset>,
+  matchingYield: () => Promise<void>,
+) {
+  const prepared = await cachedComputation<{
+    proposals: Map<number, ReviewProposal>;
+    display?: ReturnType<typeof displayMatches>;
+  }>(preparedKey, async () => {
+    const preparedAsset = await asset.response;
+    // A cache hit needs no asset; preserve the original failure behaviour on
+    // a miss without leaving an early prefetch rejection unhandled.
+    if ('error' in preparedAsset) throw preparedAsset.error;
+    const { prepared: metadata } = preparedAsset;
+    if (metadata?.key === key) {
+      const precomputed = decodePrecomputed(
+        metadata.encoded.nodes,
+        metadata.encoded.root,
+      ) as PreparedAsset;
+      const display = {
+        ...precomputed.display,
+        matches: new Map(precomputed.display.matches),
+      };
+      return {
+        display,
+        proposals: new Map(precomputed.proposals),
+      };
+    }
+    const [{ reviewEvidence }, { proposalFor }, { withCompendiumMatchingIndex }] =
+      await Promise.all([
+        import('./reviewQueue'),
+        import('./rapidReview'),
+        import('@clarity/core'),
+      ]);
+    const entries = reviewEvidence(editor, source, {}, '').filter((entry) => !entry.valid);
+    const computed = new Map<number, ReviewProposal>();
+    let index = 0;
+    while (index < entries.length) {
+      withCompendiumMatchingIndex(source, () => {
+        // Amortize resolver-index construction while bounding navigation's wait.
+        const end = performance.now() + 32;
+        do {
+          const entry = entries[index++];
+          const proposal =
+            priorityProposals.get(entry.hash) ?? proposalFor(entry.base, editor, source);
+          priorityProposals.set(entry.hash, proposal);
+          computed.set(entry.hash, compactProposal(proposal));
+        } while (index < entries.length && performance.now() < end);
+      });
+      await matchingYield();
+    }
+    return { proposals: computed };
+  });
+  // Cache the two halves together. A proposals-only cache hit used to lose
+  // its pristine display model and rerun all guidance on an immediate reload.
+  const tabs = new Map(source.tabs.map((tab) => [tab.gid, tab]));
+  const restore = (match: ReviewProposal['match']) =>
+    match && {
+      ...match,
+      tab: tabs.get(match.tab.gid) ?? match.tab,
+    };
+  // Persist locations rather than a second copy of the entire source grid.
+  // Matching still receives the complete, current source tabs after a hit.
+  proposals = new Map(
+    [...prepared.proposals].map(([hash, proposal]) => [
+      hash,
+      {
+        ...proposal,
+        match: restore(proposal.match),
+        candidates: proposal.candidates.map((match) => restore(match)!),
+      },
+    ]),
+  );
+  for (const [hash, proposal] of proposals) priorityProposals.set(hash, proposal);
+  precomputedDisplay = prepared.display;
+}
 async function yieldBackgroundReply() {
   await new Promise<void>((resolve) => {
     const channel = new MessageChannel();
@@ -245,6 +386,11 @@ async function process(data: Request) {
       return;
     }
     const id = data.id ?? 0;
+    // A generation never replaces inputs under the previous one's background restore.
+    if (data.load || data.initialize) {
+      startProposals = undefined;
+      await proposalsReady.catch(() => undefined);
+    }
     if (data.load) {
       initialized = false;
       modelToken = undefined;
@@ -257,12 +403,17 @@ async function process(data: Request) {
       // Uniform catalog prefetch overlaps source I/O instead of serializing it
       // after priority planning. A selected reply never waits for this asset.
       loadingAsset = loadPreparedAsset();
-      source = await fetchingSource;
+      const fetched = await fetchingSource;
+      sourceKey = fetched.key;
+      fingerprint = undefined;
+      let restored: CompendiumData | undefined;
+      const restore = async () => (restored = await fetched.read());
+      // A stored reply goes out before this worker restores its own copy.
+      await sendCachedResult(id, `${import.meta.url}:${fetched.key}`, restore);
+      source = restored ?? (await restore());
       // The worker replaces, never edits, its source: keep one lookup index for
       // every sliced matching call instead of rebuilding it per slice.
       retainCompendiumMatchingIndex(source);
-      await sendWorkerResultYielding(emit, id, source, undefined, yieldBackgroundReply);
-      fingerprint = undefined;
     } else if (data.initialize) {
       initialized = false;
       failedToken = undefined;
@@ -276,6 +427,8 @@ async function process(data: Request) {
         bytes.set(chunk, at);
         at += chunk.length;
       }
+      // Identical input bytes have the same matching key: a reload does not re-serialize them.
+      const identity = await bytesHash(bytes);
       const input = measured('inputs-parse', () => JSON.parse(new TextDecoder().decode(bytes))) as {
         editor: EditorData;
         source?: CompendiumData;
@@ -292,12 +445,23 @@ async function process(data: Request) {
       priorityPlan = undefined;
       priorityProposals.clear();
       if (input.source) fingerprint = undefined;
+      // The stored identity names these exact bytes plus the exact source bytes, so its key
+      // and fingerprint are the ones the full serialization below would compute again.
+      identityKey =
+        input.source || sourceKey
+          ? `${import.meta.url}:identity:${identity}:${input.source ? 'inline' : sourceKey}`
+          : undefined;
+      const known = identityKey
+        ? await cachedValue<{ dataKey: string; fingerprint?: string }>(identityKey)
+        : undefined;
       // The prepared asset already contains the exact review fingerprint. Reuse it
       // only after validating every matching input, including styled source cells.
       // Never wait for the asset here: an uncached/changed source keeps the same
       // independent current-tooltip path while background preparation continues.
-      dataKey = await contentHash(matchingInputs(editor, source));
+      dataKey = known?.dataKey ?? (await contentHash(matchingInputs(editor, source)));
       if (asset.prepared?.key === dataKey) fingerprint = asset.prepared.fingerprint;
+      else fingerprint ??= known?.fingerprint;
+      const key = dataKey;
       modelToken = data.initialize.token;
       // Install the message handler before loading modules with top-level await.
       // Otherwise a worker can drop the source request during module initialization.
@@ -311,89 +475,31 @@ async function process(data: Request) {
       // Let the current pane run before cache reads and the full catalog.
       await matchingYield();
       await servePriority();
-      const prepared = await cachedComputation<{
-        proposals: Map<number, ReviewProposal>;
-        display?: ReturnType<typeof displayMatches>;
-      }>(`${import.meta.url}:prepared:${dataKey}`, async () => {
-        const preparedAsset = await asset.response;
-        // A cache hit needs no asset; preserve the original failure behaviour on
-        // a miss without leaving an early prefetch rejection unhandled.
-        if ('error' in preparedAsset) throw preparedAsset.error;
-        const { prepared: metadata } = preparedAsset;
-        if (metadata?.key === dataKey) {
-          const precomputed = decodePrecomputed(
-            metadata.encoded.nodes,
-            metadata.encoded.root,
-          ) as PreparedAsset;
-          const display = {
-            ...precomputed.display,
-            matches: new Map(precomputed.display.matches),
-          };
-          return {
-            display,
-            proposals: new Map(precomputed.proposals),
-          };
-        }
-        const [{ reviewEvidence }, { proposalFor }, { withCompendiumMatchingIndex }] =
-          await Promise.all([
-            import('./reviewQueue'),
-            import('./rapidReview'),
-            import('@clarity/core'),
-          ]);
-        const entries = reviewEvidence(editor, source, {}, '').filter((entry) => !entry.valid);
-        const computed = new Map<number, ReviewProposal>();
-        let index = 0;
-        while (index < entries.length) {
-          withCompendiumMatchingIndex(source, () => {
-            // Amortize resolver-index construction while bounding navigation's wait.
-            const end = performance.now() + 32;
-            do {
-              const entry = entries[index++];
-              const proposal =
-                priorityProposals.get(entry.hash) ?? proposalFor(entry.base, editor, source);
-              priorityProposals.set(entry.hash, proposal);
-              computed.set(entry.hash, compactProposal(proposal));
-            } while (index < entries.length && performance.now() < end);
-          });
-          await matchingYield();
-        }
-        return { proposals: computed };
-      });
-      // Cache the two halves together. A proposals-only cache hit used to lose
-      // its pristine display model and rerun all guidance on an immediate reload.
-      const tabs = new Map(source.tabs.map((tab) => [tab.gid, tab]));
-      const restore = (match: ReviewProposal['match']) =>
-        match && {
-          ...match,
-          tab: tabs.get(match.tab.gid) ?? match.tab,
-        };
-      // Persist locations rather than a second copy of the entire source grid.
-      // Matching still receives the complete, current source tabs after a hit.
-      proposals = new Map(
-        [...prepared.proposals].map(([hash, proposal]) => [
-          hash,
-          {
-            ...proposal,
-            match: restore(proposal.match),
-            candidates: proposal.candidates.map((match) => restore(match)!),
-          },
-        ]),
-      );
-      for (const [hash, proposal] of proposals) priorityProposals.set(hash, proposal);
-      precomputedDisplay = prepared.display;
-      await sendWorkerResultYielding(
-        emit,
-        id,
-        new Map([...proposals].map(([hash, proposal]) => [hash, compactProposal(proposal)])),
-        undefined,
-        yieldBackgroundReply,
-      );
+      const preparedKey = `${import.meta.url}:prepared:${key}`;
+      const storedReply = await cachedValue<EncodedReply>(`${preparedKey}:reply`);
+      startProposals = () => prepareProposals(preparedKey, key, asset, matchingYield);
+      if (storedReply) replayWorkerResult(emit, id, storedReply);
+      else {
+        await ensureProposals();
+        const capture: EncodedReply = [];
+        await sendWorkerResultYielding(
+          emit,
+          id,
+          new Map([...proposals].map(([hash, proposal]) => [hash, compactProposal(proposal)])),
+          undefined,
+          yieldBackgroundReply,
+          capture,
+        );
+        storeValue(`${preparedKey}:reply`, capture);
+      }
+      rememberIdentity();
       initialized = true;
     } else if (data.guide) {
       if (!initialized) throw new Error('Compendium initialization has not completed.');
       // Coalesce queued navigation/search requests before any expensive planning work.
       await new Promise((resolve) => setTimeout(resolve, 0));
       if (id !== latestGuide) throw new Error('Superseded Compendium planning request.');
+      await ensureProposals();
       const { document, baseline, scope, categoryId, restored, statuses } = data.guide;
       const currentStatuses = new Map(statuses);
       if (!lastDisplay) throw new Error('Compendium evidence is still loading.');
@@ -438,30 +544,49 @@ async function process(data: Request) {
             (c) => c.comment || Object.keys(c.references ?? {}).length,
           ));
       const key = `${import.meta.url}:display:${dataKey}:${pristine ? 'pristine' : `${editor.bundle.sourceCommit}|${await contentHash(data.input)}`}`;
-      const result = await cachedComputation(key, async () => {
-        if (pristine && precomputedDisplay) return precomputedDisplay;
-        const { finishMatchingPlan, prepareMatchingPlan } = await planningModules();
-        return finishMatchingPlan(
-          prepareMatchingPlan(
-            editor,
+      // A stored reply for the same content key goes out before this worker restores the
+      // value it keeps for guidance and the current pane.
+      const resolve = async () => {
+        const value = await cachedComputation(key, async () => {
+          await ensureProposals();
+          if (pristine && precomputedDisplay) return precomputedDisplay;
+          const { finishMatchingPlan, prepareMatchingPlan } = await planningModules();
+          return finishMatchingPlan(
+            prepareMatchingPlan(
+              editor,
+              source,
+              data.input!,
+              proposals,
+              undefined,
+              undefined,
+              (fingerprint ??= matchingSessionFingerprint(source.tabs)),
+            ),
             source,
-            data.input!,
             proposals,
-            undefined,
-            undefined,
-            (fingerprint ??= matchingSessionFingerprint(source.tabs)),
-          ),
-          source,
-          proposals,
-        );
-      });
-      lastDisplay = result;
-      lastDisplayInputKey = JSON.stringify(data.input);
-      await yieldBackgroundReply();
-      const compact = compactDisplay(result);
-      // The current pane can use the validated match map before review metadata
-      // finishes transferring. Every entry in this map has passed the same gates.
-      await sendWorkerResultYielding(emit, id, compact, compact.matches, yieldBackgroundReply);
+          );
+        });
+        lastDisplay = value;
+        lastDisplayInputKey = JSON.stringify(data.input);
+        return value;
+      };
+      let resolved = false;
+      await sendCachedResult(
+        id,
+        key,
+        async () => {
+          const value = await resolve();
+          resolved = true;
+          await yieldBackgroundReply();
+          return compactDisplay(value);
+        },
+        // The current pane can use the validated match map before review metadata
+        // finishes transferring. Every entry in this map has passed the same gates.
+        (compact) => (compact as ReturnType<typeof compactDisplay>).matches,
+      );
+      if (!resolved) await resolve();
+      rememberIdentity();
+      // Guidance and later displays use the worker's own proposals: restore them now.
+      void ensureProposals();
     }
   } catch (error) {
     if (data.initialize || data.load) modelToken = undefined;
