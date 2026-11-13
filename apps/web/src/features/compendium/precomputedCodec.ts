@@ -70,45 +70,97 @@ export function decodePrecomputed(nodes: unknown[], root: number): unknown {
   return values[root];
 }
 
-/** Same value table, with resumable traversal for background worker replies. */
+/**
+ * Same value table, with resumable traversal for background worker replies.
+ * One step per written value, in encodePrecomputed's post-order: the same nodes,
+ * ids, observe calls, and yields. An explicit stack replaces one nested generator
+ * per value, whose every yield crossed the whole delegation chain.
+ */
 export function* encodePrecomputedSteps(
   value: unknown,
   observe?: (value: unknown, id: number, nodes: unknown[]) => void,
 ): Generator<void, { nodes: unknown[]; root: number }> {
   const nodes: unknown[] = [];
   const ids = new Map<string, number>();
+  // A string node's JSON key is injective and starts with a quote, which no other
+  // node's key does, so strings can be interned by their own text.
+  const strings = new Map<string, number>();
   const objects = new WeakMap<object, number>();
-  function* write(value: unknown): Generator<void, number> {
-    if (value && typeof value === 'object' && objects.has(value)) {
-      const id = objects.get(value)!;
-      observe?.(value, id, nodes);
-      yield;
-      return id;
-    }
-    let node: unknown = value === undefined ? [3] : value;
-    if (value && typeof value === 'object') {
-      const fields: unknown[] = [value instanceof Map ? 2 : Array.isArray(value) ? 0 : 1];
-      if (value instanceof Map) {
-        for (const [key, entry] of value) fields.push(yield* write(key), yield* write(entry));
-      } else if (Array.isArray(value)) {
-        for (const entry of value) fields.push(yield* write(entry));
-      } else {
-        for (const [key, entry] of Object.entries(value))
-          fields.push(yield* write(key), yield* write(entry));
-      }
-      node = fields;
-    }
-    const key = JSON.stringify(node);
-    let id = ids.get(key);
+  const intern = (node: unknown) => {
+    const table = typeof node === 'string' ? strings : ids;
+    const key = typeof node === 'string' ? node : JSON.stringify(node);
+    let id = table.get(key);
     if (id === undefined) {
       id = nodes.length;
       nodes.push(node);
-      ids.set(key, id);
+      table.set(key, id);
     }
-    if (value && typeof value === 'object') objects.set(value, id);
-    observe?.(value, id, nodes);
-    yield;
     return id;
+  };
+  type Frame = {
+    value: object;
+    fields: unknown[];
+    entries: Iterator<unknown>;
+    pairs: boolean;
+    pending?: { entry: unknown };
+  };
+  const stack: Frame[] = [];
+  let next: unknown = value;
+  for (;;) {
+    let id: number | undefined;
+    if (next && typeof next === 'object') {
+      id = objects.get(next);
+      if (id === undefined) {
+        // Map and array iteration stay live, like the for...of loops they replace;
+        // object entries are read once when the object starts.
+        const map = next instanceof Map;
+        const array = Array.isArray(next);
+        stack.push({
+          value: next,
+          fields: [map ? 2 : array ? 0 : 1],
+          entries: map
+            ? (next as Map<unknown, unknown>)[Symbol.iterator]()
+            : array
+              ? (next as unknown[])[Symbol.iterator]()
+              : Object.entries(next)[Symbol.iterator](),
+          pairs: !array,
+        });
+      } else {
+        observe?.(next, id, nodes);
+        yield;
+      }
+    } else {
+      id = intern(next === undefined ? [3] : next);
+      observe?.(next, id, nodes);
+      yield;
+    }
+    // Deliver finished values to their containers until one needs another child.
+    for (;;) {
+      const frame = stack[stack.length - 1];
+      if (id !== undefined) {
+        if (!frame) return { nodes, root: id };
+        frame.fields.push(id);
+        id = undefined;
+      }
+      if (frame.pending) {
+        next = frame.pending.entry;
+        frame.pending = undefined;
+        break;
+      }
+      const step = frame.entries.next();
+      if (!step.done) {
+        if (frame.pairs) {
+          const [key, entry] = step.value as [unknown, unknown];
+          frame.pending = { entry };
+          next = key;
+        } else next = step.value;
+        break;
+      }
+      stack.pop();
+      id = intern(frame.fields);
+      objects.set(frame.value, id);
+      observe?.(frame.value, id, nodes);
+      yield;
+    }
   }
-  return { nodes, root: yield* write(value) };
 }
