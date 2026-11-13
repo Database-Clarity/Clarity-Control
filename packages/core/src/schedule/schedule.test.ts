@@ -383,6 +383,22 @@ describe('schemas', () => {
     // A mismatched hash fails without throwing (code F5).
     expect(() => parse({ base: { ...base, hash: 8 } })).not.toThrow();
     expect(parse({ base: { ...base, hash: 8 } })).toBe(false);
+    // Malformed nested tooltips fail without throwing (code F6).
+    const current = conflict.currentAtRecord;
+    for (const value of [
+      { base: { ...base, associated: [1, 1] } },
+      { proposed: { ...proposed, associated: [1, 1] } },
+      { currentAtRecord: { ...current, associated: [1, 1] } },
+      {
+        currentAtRecord: {
+          ...current,
+          text: { ...current.text, en: { ...current.text.en, updatedAt: 'invalid' } },
+        },
+      },
+    ]) {
+      expect(() => parse(value)).not.toThrow();
+      expect(parse(value)).toBe(false);
+    }
   });
 });
 

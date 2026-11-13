@@ -327,11 +327,12 @@ export const activationConflictSchema = z
   .strict()
   .superRefine((file, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
-    if (
-      [file.base, file.proposed, file.currentAtRecord].some(
-        (tooltip) => tooltip && tooltip.hash !== file.hash,
-      )
-    ) {
+    // Zod runs this refinement even when a nested tooltip failed validation; those issues are
+    // already reported, and activate() below would throw on them.
+    const tooltips = [file.base, file.proposed, file.currentAtRecord];
+    if (tooltips.some((tooltip) => tooltip !== null && !tooltipSchema.safeParse(tooltip).success))
+      return;
+    if (tooltips.some((tooltip) => tooltip && tooltip.hash !== file.hash)) {
       issue('Conflict tooltips must carry the file hash');
       return;
     }
