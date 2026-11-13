@@ -346,4 +346,33 @@ describe('the suggestion menu', () => {
     expect(menu()!.style.getPropertyValue('--menu-top')).toBe('128px');
     expect(menu()!.style.getPropertyValue('--menu-max')).toBe('120px');
   });
+
+  it('below a selection only with room for its least height: else lowered above, off the bar', () => {
+    const view = mount('First line here\nSecond line here\nThird line here');
+    const from = 6;
+    const to = view.state.doc.line(3).from + 5;
+    // 48px above the first line, 106px below the last: neither fits 120px.
+    vi.mocked(EditorView.prototype.coordsAtPos).mockImplementation((pos: number) =>
+      pos === from
+        ? { left: 40, right: 41, top: 60, bottom: 76 }
+        : { left: 40, right: 41, top: 634, bottom: 650 },
+    );
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      left: 0,
+      right: 800,
+      top: 0,
+      bottom: 800,
+      width: 800,
+      height: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    vi.stubGlobal('innerHeight', 768);
+    act(() => view.dispatch({ selection: { anchor: from, head: to } }));
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    // Not below (it would run 14px past the bottom edge): above, lowered to 120px of room.
+    expect(menu()!.style.getPropertyValue('--menu-top')).toBe('128px');
+    expect(menu()!.style.getPropertyValue('--menu-max')).toBe('120px');
+  });
 });

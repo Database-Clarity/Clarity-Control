@@ -68,9 +68,12 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
           Math.max(scroller.top, view.coordsAtPos(context.from, 1)?.top ?? scroller.top),
         )
       : anchor.top;
-  const useBelow = below >= 240 || below >= first - gap - chrome;
   const top = Math.min(anchor.top, Math.max(first, chrome + gap + least));
   const above = top - gap - chrome;
+  // Below only with its least height clear of the bar, unless above has no more: at a caret
+  // (first = top) this is the plain "more room below" rule.
+  const useBelow =
+    below >= 240 || (below >= first - gap - chrome && (below >= least || above < least));
   const space = Math.max(least, Math.min(useBelow ? below : above, tallest));
   // The page's width without its scrollbar; the menu stays inside the editor's column where the
   // column is wide enough for it, so it does not cover the pane beside the text.
