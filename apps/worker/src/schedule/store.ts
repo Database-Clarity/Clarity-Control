@@ -2,7 +2,9 @@ import scheduledConfig from '../../../../config/scheduled.json';
 import publisherConfig from '../../../../config/publisher.json';
 import { permissionsSchema, type Permissions } from '@clarity/core';
 import {
+  batchEventSchema,
   batchSchema,
+  batchStatusSchema,
   dueSchema,
   isOpenStatus,
   scheduleIndexSchema,
@@ -40,12 +42,21 @@ export const scheduleRoles: Access['role'][] = ['maintainer', 'editor'];
 export const readRoles: Access['role'][] = ['maintainer', 'editor', 'translator'];
 
 /**
- * Bytes one stored member file may take (base + proposal, pretty JSON). The largest real tooltip
- * is ~2 KB (editor-data 6ac370e3), so a member with every language translated stays far below;
- * the cap bounds what repeated translation saves can accumulate and the CPU of reading 100
- * members (CPU gate, scripts/publisher/cpu). Lower it, never a check, if the gate fails.
+ * Members per batch the Worker admits (root 2026-11-13, CPU gate option A; core allows 100).
+ * Scheduling validates every member in ONE request inside the Workers Free 10 ms CPU limit, so
+ * this is a workflow limit, kept as one constant so it can move with the measured gate.
  */
-export const memberByteCap = 24 * 1024;
+export const memberCap = 25;
+/** Changes per POST /batches/:id/save (same gate); the web chunks larger saves (P3a). */
+export const saveChangeCap = 25;
+
+/**
+ * Bytes one stored member file may take (base + proposal, pretty JSON). The largest real tooltip
+ * is 2,112 bytes (editor-data 6ac370e3), so its member is about 4.6 KB; the cap bounds what
+ * repeated translation saves can accumulate and the CPU of reading every member (CPU gate,
+ * scripts/publisher/cpu/schedule.mjs). Lower it, never a check, if the gate fails.
+ */
+export const memberByteCap = 8 * 1024;
 
 const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 /** A ULID (batch id, opId): 48-bit millisecond time + 80 random bits, Crockford base32. */
@@ -94,7 +105,7 @@ export async function appendEvent(
   event: Batch['events'][number],
   archivedBefore: () => Promise<number>,
 ): Promise<{ events: Batch['events']; archive?: { path: string; value: { events: unknown[] } } }> {
-  const events = [...batch.events, event];
+  const events = [...batch.events, batchEventSchema.parse(event)];
   const overflow = events.length - scheduleLimits.inlineEvents;
   if (overflow <= 0) return { events };
   const seq = await archivedBefore();
@@ -123,11 +134,51 @@ export function archivedCounter(
   };
 }
 
-// --- index.json and due.json -----------------------------------------------------------------
+// --- Stored batch.json and index.json -------------------------------------------------------
+// CPU (spec "Free-plan budget"): a full history is 200 events of up to 100 hashes, and a full
+// index 150 entries of up to 100 hashes. The Worker never interprets inherited events or other
+// batches' index entries, so they are checked for shape and passed through unchanged; every
+// field the Worker reads, and everything it adds, is validated with the core schemas.
+
+/** batch.json: the full core schema (its invariants included) on all but the inherited events. */
+export function parseBatch(value: unknown): Batch {
+  const { events, ...rest } = (value ?? {}) as Record<string, unknown>;
+  const batch = batchSchema.parse({ ...rest, events: [] });
+  if (
+    !Array.isArray(events) ||
+    events.length > scheduleLimits.inlineEvents ||
+    events.some((event) => !event || typeof event !== 'object' || Array.isArray(event))
+  )
+    throw new HttpError(502, 'Invalid batch event history');
+  return { ...batch, events: events as Batch['events'] };
+}
+
+/** The batch.json a write stores: the core schema on every field (appendEvent checks events). */
+export function checkedBatch(batch: Batch): Batch {
+  const { events, ...rest } = batch;
+  batchSchema.parse({ ...rest, events: [] });
+  if (events.length > scheduleLimits.inlineEvents)
+    throw new HttpError(502, 'Batch history over its inline cap');
+  return batch;
+}
+
 type IndexEntry = ScheduleIndex['batches'][number];
+const indexEntrySchema = scheduleIndexSchema.shape.batches.element;
+const storedIndexSchema = z
+  .object({
+    batches: z
+      .array(z.looseObject({ id: z.string(), status: batchStatusSchema, updatedAt: z.string() }))
+      .max(scheduleLimits.openBatches + scheduleLimits.indexTerminal),
+  })
+  .strict();
+
+/** index.json: derived and advisory; entries are passed through, ids and statuses checked. */
+export function parseIndex(value: unknown): ScheduleIndex {
+  return storedIndexSchema.parse(value) as unknown as ScheduleIndex;
+}
 
 export function indexEntry(batch: Batch, hashes: readonly number[], updatedAt: string): IndexEntry {
-  return {
+  return indexEntrySchema.parse({
     id: batch.id,
     name: batch.name,
     status: batch.status,
@@ -136,7 +187,7 @@ export function indexEntry(batch: Batch, hashes: readonly number[], updatedAt: s
     revision: batch.revision,
     hashes: [...hashes].sort((a, b) => a - b),
     updatedAt,
-  };
+  });
 }
 
 /** index.json with `entry` replacing its batch; only the latest 100 terminal entries are kept. */
@@ -146,7 +197,12 @@ export function withIndexEntry(index: ScheduleIndex, entry: IndexEntry): Schedul
     .filter(({ status }) => !isOpenStatus(status))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
   const dropped = new Set(terminal.slice(scheduleLimits.indexTerminal).map(({ id }) => id));
-  return scheduleIndexSchema.parse({ batches: batches.filter(({ id }) => !dropped.has(id)) });
+  const kept = batches.filter(({ id }) => !dropped.has(id));
+  if (new Set(kept.map(({ id }) => id)).size !== kept.length)
+    throw new HttpError(502, 'Duplicate batch in index.json');
+  if (kept.filter(({ status }) => isOpenStatus(status)).length > scheduleLimits.openBatches)
+    throw new HttpError(409, `At most ${scheduleLimits.openBatches} open batches`);
+  return { batches: kept };
 }
 
 /** Open batches other than `except`, by the index (a storage bound, not a publication guard). */
@@ -219,8 +275,8 @@ export async function readState(
     access,
     pin: snapshot.files[1]?.value ?? null,
     due: snapshot.files[2] ? dueSchema.parse(snapshot.files[2].value) : { entries: [] },
-    index: snapshot.files[3] ? scheduleIndexSchema.parse(snapshot.files[3].value) : { batches: [] },
-    batch: batchFile ? batchSchema.parse(batchFile.value) : null,
+    index: snapshot.files[3] ? parseIndex(snapshot.files[3].value) : { batches: [] },
+    batch: batchFile ? parseBatch(batchFile.value) : null,
     extra: snapshot.files.slice(paths.length - extra.length),
     trees: snapshot.trees,
   };

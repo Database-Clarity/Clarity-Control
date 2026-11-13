@@ -13,7 +13,6 @@ import {
   batchIntentDigest,
   batchMemberSchema,
   batchPublishPayloadSchema,
-  batchSchema,
   checkNotBefore,
   compose,
   dueSchema,
@@ -38,8 +37,10 @@ import {
   appendEvent,
   archivedCounter,
   by,
+  checkedBatch,
   child,
   indexEntry,
+  memberCap,
   memberHashes,
   newUlid,
   pinSchedulesBatches,
@@ -155,6 +156,11 @@ export async function scheduleBatch(
     refuseRevision(batch, input.revision);
     const hashes = memberHashes(child(state.trees[0], 'tooltips'));
     if (!hashes.length) throw new HttpError(422, 'Add a tooltip to the batch first');
+    if (hashes.length > memberCap)
+      throw new HttpError(
+        422,
+        `A batch publishes at most ${memberCap} tooltips; remove some first`,
+      );
     const rescheduling = batch.status === 'scheduled';
     if (!rescheduling && state.due.entries.length >= scheduleLimits.openBatches)
       throw new HttpError(409, `At most ${scheduleLimits.openBatches} scheduled batches`);
@@ -268,7 +274,7 @@ export async function scheduleBatch(
       },
       archivedCounter(github, state.head, batchId, child(state.trees[0], 'events')),
     );
-    const next = batchSchema.parse({
+    const next = checkedBatch({
       ...batch,
       ...revisions,
       status: 'scheduled',
@@ -345,7 +351,7 @@ export async function endSchedule(
       },
       archivedCounter(github, state.head, batchId, child(state.trees[0], 'events')),
     );
-    const next = batchSchema.parse({
+    const next = checkedBatch({
       ...batch,
       ...revisions,
       status: action === 'cancel' ? 'cancelled' : 'draft',

@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import {
-  contentHash,
   hashSchema,
   merge3,
   resolveAlias,
   sandboxPointersPath,
+  stableStringify,
   tooltipSchema,
   type Aliases,
   type Tooltip,
@@ -13,13 +13,13 @@ import {
   batchIdSchema,
   batchMemberSchema,
   batchSchema,
+  batchStatusSchema,
   changedFields,
   initialRevisions,
   isContentChange,
   isOpenStatus,
   isTranslationField,
   nextRevisions,
-  scheduleLimits,
   schedulePaths,
   type Batch,
   type BatchMember,
@@ -35,13 +35,16 @@ import {
   appendEvent,
   archivedCounter,
   by,
+  checkedBatch,
   child,
   indexEntry,
   memberByteCap,
+  memberCap,
   memberHashes,
   newUlid,
   readRoles,
   readState,
+  saveChangeCap,
   refuseClaimed,
   refuseOpenCap,
   refuseRevision,
@@ -68,7 +71,7 @@ const saveSchema = z
     changes: z
       .array(changeSchema)
       .min(1)
-      .max(scheduleLimits.membersPerBatch)
+      .max(saveChangeCap)
       .refine(uniqueHashes, 'Duplicate tooltip hash'),
     message: messageSchema,
   })
@@ -90,7 +93,7 @@ const removeSchema = z
     hashes: z
       .array(hashSchema)
       .min(1)
-      .max(scheduleLimits.membersPerBatch)
+      .max(memberCap)
       .refine((list) => new Set(list).size === list.length, 'Duplicate tooltip hash'),
   })
   .strict();
@@ -99,8 +102,15 @@ const maxBody = 2_000_000;
 
 const batchDir = (batchId: string) => `schedule/batches/${batchId}`;
 const tooltipPath = (hash: number) => `tooltips/${hash}.json`;
-const sameTooltip = async (a: Tooltip | null, b: Tooltip | null) =>
-  a === null || b === null ? a === b : (await contentHash(a)) === (await contentHash(b));
+// Both sides are schema-parsed already: equal canonical text = equal contentHash.
+const sameTooltip = (a: Tooltip | null, b: Tooltip | null) =>
+  a === null || b === null ? a === b : stableStringify(a) === stableStringify(b);
+/** Q2 reads only what it decides on from another batch's batch.json (CPU, full histories). */
+const holderSchema = z.looseObject({
+  id: batchIdSchema,
+  name: batchSchema.shape.name,
+  status: batchStatusSchema,
+});
 const encoder = new TextEncoder();
 
 function parseMember(value: unknown, batchId: string, hash: number): BatchMember {
@@ -161,7 +171,7 @@ async function commitBatch(
     { at: now, by: by(user), action, ...revisions, hashes: [...hashes].sort((a, b) => a - b) },
     archivedCounter(github, state.head, batch.id, events),
   );
-  const next = batchSchema.parse({ ...batch, ...revisions, events: appended.events });
+  const next = checkedBatch({ ...batch, ...revisions, events: appended.events });
   const index = withIndexEntry(state.index, indexEntry(next, membership, now));
   const commit = await github.commit(
     state.head,
@@ -256,7 +266,7 @@ async function refuseOtherOpenBatches(
   );
   for (const [index, file] of files.entries()) {
     if (!file) continue; // a directory without batch.json holds no batch
-    const other = batchSchema.parse(file.value);
+    const other = holderSchema.parse(file.value);
     if (other.id !== ids[index]) throw new HttpError(502, 'Stored batch id mismatch');
     if (isOpenStatus(other.status))
       throw new HttpError(
@@ -305,11 +315,8 @@ export async function saveBatch(
       if (access.role === 'translator')
         throw new HttpError(403, 'Translators may change only tooltips already in the batch');
       if (batch.status !== 'draft') throw new HttpError(409, 'Unschedule to edit');
-      if (own.size + adds.length > scheduleLimits.membersPerBatch)
-        throw new HttpError(
-          409,
-          `A batch holds at most ${scheduleLimits.membersPerBatch} tooltips`,
-        );
+      if (own.size + adds.length > memberCap)
+        throw new HttpError(409, `A batch holds at most ${memberCap} tooltips`);
       aliases ??= await loadAliases(github.env, github);
       const saveAliases = await withSandboxPointers(github, aliases, state.extra[0]);
       for (const hash of adds) {
@@ -344,7 +351,7 @@ export async function saveBatch(
           conflicts.push({ ...change, head: stored.proposed, fields: ['$exists'] });
           continue;
         }
-        if (!(await sameTooltip(change.base, stored.proposed))) {
+        if (!sameTooltip(change.base, stored.proposed)) {
           const result = merge3(change.base, stored.proposed, change.next);
           if (!result.ok) {
             conflicts.push({
@@ -376,7 +383,7 @@ export async function saveBatch(
         if (current && current.hash !== change.hash)
           throw new HttpError(502, 'Stored tooltip hash mismatch');
         // Adding sets base = current at this head; the client must have started from it.
-        if (!(await sameTooltip(change.base, current))) {
+        if (!sameTooltip(change.base, current)) {
           conflicts.push({
             ...change,
             head: current,
@@ -462,7 +469,7 @@ export async function rebaseBatch(
     const current = currentRaw ? tooltipSchema.parse(currentRaw.value) : null;
     if (current && current.hash !== input.hash)
       throw new HttpError(502, 'Stored tooltip hash mismatch');
-    if (!(await sameTooltip(input.base, current)))
+    if (!sameTooltip(input.base, current))
       return json({ error: 'Current changed; rebase again', current }, 409);
     checkEdit(state.access, stored.proposed, input.next);
     checkEdit(state.access, current, input.next);

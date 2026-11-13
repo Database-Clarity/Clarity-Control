@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { contentHash, hashSchema, languages, tooltipSchema, type Tooltip } from '@clarity/core';
 import {
   activationConflictSchema,
-  batchSchema,
   existsField,
   resolveActivation,
   schedulePaths,
@@ -17,6 +16,7 @@ import {
   appendEvent,
   archivedCounter,
   by,
+  checkedBatch,
   indexEntry,
   readState,
   requireBatch,
@@ -146,7 +146,7 @@ export async function resolveBatch(
       { at, by: by(user), action: 'resolve', ...revisions, hashes: [input.hash] },
       archivedCounter(github, state.head, batchId, state.trees[0]),
     );
-    const next = batchSchema.parse({ ...batch, ...revisions, events: appended.events });
+    const next = checkedBatch({ ...batch, ...revisions, events: appended.events });
     const hashes = (state.trees[1] ?? [])
       .map(({ name }) => /^(0|[1-9]\d*)\.json$/.exec(name)?.[1])
       .filter((hash): hash is string => hash !== undefined)
