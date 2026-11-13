@@ -25,11 +25,20 @@ const decided = {
   by: z.number().int().positive(),
   at: z.string().datetime({ offset: true }),
 };
-/** Exactly one of `to` (point at that canonical tooltip) or `none` (confirmed: no tooltip). */
-export const sandboxPointerSchema = z.union([
+/** A decision: exactly one of `to` (point at that canonical tooltip) or `none` (no tooltip). */
+export const sandboxDecisionSchema = z.union([
   z.object({ to: hashSchema, ...decided }).strict(),
   z.object({ none: z.literal(true), ...decided }).strict(),
 ]);
+/**
+ * A pick that was undone (root 2026-11-13): kept as a tombstone so the file still names the perk
+ * and every export recomputes its live entry (core mergeLivePerks). Not "no tooltip": it outputs
+ * exactly what an unreviewed row outputs, and the worklist shows the row as unreviewed.
+ */
+export const sandboxUndoneSchema = z
+  .object({ state: z.literal('undone'), by: decided.by, at: decided.at })
+  .strict();
+export const sandboxPointerSchema = z.union([sandboxDecisionSchema, sandboxUndoneSchema]);
 export const sandboxPointersSchema = z
   .object({ version: z.literal(1), pointers: z.record(hashKey, sandboxPointerSchema) })
   .strict();
@@ -41,6 +50,7 @@ export const sandboxPickSchema = z.union([
 ]);
 
 export type SandboxPointer = z.infer<typeof sandboxPointerSchema>;
+export type SandboxDecision = z.infer<typeof sandboxDecisionSchema>;
 export type SandboxPointers = z.infer<typeof sandboxPointersSchema>;
 export type SandboxConflicts = z.infer<typeof sandboxConflictsSchema>;
 export type SandboxPick = z.infer<typeof sandboxPickSchema>;
@@ -54,8 +64,15 @@ export function sameCandidates(a: readonly number[], b: readonly number[]): bool
   return x.every((value, index) => value === y[index]);
 }
 
+/** A stored entry that is a decision (`to` or `none`), not an undone tombstone. */
+export function isSandboxDecision(pointer: SandboxPointer | undefined): pointer is SandboxDecision {
+  return !!pointer && !('state' in pointer);
+}
+
+const pickKey = (value: SandboxPick | SandboxPointer) =>
+  'to' in value ? `to:${value.to}` : 'none' in value ? 'none' : 'undone';
 export function samePick(a: SandboxPick | SandboxPointer, b: SandboxPick | SandboxPointer) {
-  return 'to' in a ? 'to' in b && a.to === b.to : !('to' in b);
+  return pickKey(a) === pickKey(b);
 }
 
 /**
@@ -86,7 +103,7 @@ export function sandboxPointerProblem(
 /** Whether the generator's candidate set for this pick differs from the one the maintainer saw. */
 export function sandboxPointerChanged(
   hash: string,
-  pointer: SandboxPointer,
+  pointer: SandboxDecision,
   conflicts: SandboxConflicts,
 ): boolean {
   const current = conflicts[hash];
@@ -96,23 +113,10 @@ export function sandboxPointerChanged(
 /**
  * Generator aliases plus every valid `to` pick as a `sandbox` alias. Every path that emits
  * clarityV2 sandbox stubs (Worker push, publisher, the editor's alias view) uses this, so the
- * stubs and the publishable digests agree everywhere. "No tooltip" picks and unreviewed rows add
- * nothing. With no applicable pick the very same `aliases` object is returned (byte-identical
- * output, and alias-keyed caches stay warm).
+ * stubs and the publishable digests agree everywhere. "No tooltip" picks, undone picks, and
+ * unreviewed rows add nothing. With no applicable pick the very same `aliases` object is returned
+ * (byte-identical output, and alias-keyed caches stay warm).
  */
-/**
- * The perks whose live sandbox stubs an export may withdraw (core mergeLivePerks): the effects the
- * generator lists as shared, where picks are made, plus any perk the picks file still names (a
- * retired pick). Without a picks file nothing is withdrawable, so every output stays v2's.
- */
-export function sandboxWithdrawable(
-  pointers: SandboxPointers | null | undefined,
-  conflicts: Readonly<Record<string, unknown>>,
-): Set<string> {
-  if (!pointers) return new Set();
-  return new Set([...Object.keys(conflicts), ...Object.keys(pointers.pointers)]);
-}
-
 export function mergeSandboxPointers(
   aliases: Aliases,
   conflicts: SandboxConflicts,
@@ -139,9 +143,10 @@ export function hasSandboxTargets(pointers: SandboxPointers | null | undefined):
 }
 
 /**
- * The document a save writes: `picks` is the complete desired set. A pick whose decision is
- * unchanged keeps its stored entry (who, when, and the candidate set they saw); a new or changed
- * one records `by`, `at`, and the current candidate set. Omitted hashes are undone (removed).
+ * The document a save writes: `picks` is the complete desired set of decisions. A pick whose
+ * decision is unchanged keeps its stored entry (who, when, and the candidate set they saw); a new
+ * or changed one records `by`, `at`, and the current candidate set. A stored hash the picks omit
+ * becomes (or stays) an undone tombstone, never erased, so exports keep recomputing its entry.
  */
 export function applySandboxPicks(
   current: SandboxPointers,
@@ -162,5 +167,14 @@ export function applySandboxPicks(
     pointers[hash] =
       'to' in pick ? { to: pick.to, candidates, by, at } : { none: true, candidates, by, at };
   }
-  return { version: 1, pointers };
+  for (const [hash, stored] of Object.entries(current.pointers)) {
+    if (Object.hasOwn(picks, hash)) continue;
+    pointers[hash] = isSandboxDecision(stored) ? { state: 'undone', by, at } : stored;
+  }
+  return {
+    version: 1,
+    pointers: Object.fromEntries(
+      Object.entries(pointers).sort(([a], [b]) => Number(a) - Number(b)),
+    ),
+  };
 }

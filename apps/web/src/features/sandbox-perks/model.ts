@@ -1,6 +1,7 @@
 import {
   enhancedMarkupType,
   hasTooltipText,
+  isSandboxDecision,
   languages,
   parseMarkup,
   resolveAlias,
@@ -11,7 +12,7 @@ import {
   type MarkupSpan,
   type SandboxConflicts,
   type SandboxPick,
-  type SandboxPointer,
+  type SandboxDecision,
   type SandboxPointers,
   type Tooltip,
 } from '@clarity/core';
@@ -55,7 +56,8 @@ export interface SandboxRow {
   bucket: Bucket;
   /** The suggested pick, when the bucket has one. */
   suggestion?: SandboxPick;
-  saved?: SandboxPointer;
+  /** The saved decision; an undone tombstone is no decision (the row is unreviewed). */
+  saved?: SandboxDecision;
   /** Saved pick whose candidate set changed since (or the perk is no longer shared). */
   changed: boolean;
   /** No longer listed by the generator (only kept so a saved pick can be undone). */
@@ -149,11 +151,15 @@ function suggest(
 
 /** One row per shared sandbox perk, plus saved picks the generator no longer lists. */
 export function buildRows(input: WorklistInput): SandboxRow[] {
-  const hashes = new Set([...Object.keys(input.conflicts), ...Object.keys(input.saved.pointers)]);
+  const decisions = Object.entries(input.saved.pointers).filter(([, pointer]) =>
+    isSandboxDecision(pointer),
+  );
+  const hashes = new Set([...Object.keys(input.conflicts), ...decisions.map(([hash]) => hash)]);
   const rows: SandboxRow[] = [];
   for (const hash of [...hashes].sort((a, b) => Number(a) - Number(b))) {
     const listed = input.conflicts[hash];
-    const saved = input.saved.pointers[hash];
+    const stored = input.saved.pointers[hash];
+    const saved = isSandboxDecision(stored) ? stored : undefined;
     const raw = listed ?? saved?.candidates ?? [];
     const categoryIds: string[] = [];
     const candidates: Candidate[] = [];
@@ -226,8 +232,10 @@ export function picksToSave(
   staged: Readonly<Record<string, SandboxPick | null>>,
 ): Record<string, SandboxPick> {
   const picks: Record<string, SandboxPick> = {};
-  for (const [hash, pointer] of Object.entries(saved.pointers))
+  for (const [hash, pointer] of Object.entries(saved.pointers)) {
+    if (!isSandboxDecision(pointer)) continue; // undone: the save keeps the tombstone
     picks[hash] = 'to' in pointer ? { to: pointer.to } : { none: true };
+  }
   for (const [hash, pick] of Object.entries(staged)) {
     if (pick) picks[hash] = pick;
     else delete picks[hash];

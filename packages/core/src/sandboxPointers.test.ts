@@ -4,7 +4,7 @@ import {
   mergeSandboxPointers,
   sandboxPointerChanged,
   sandboxPointersSchema,
-  sandboxWithdrawable,
+  type SandboxDecision,
   type SandboxPointers,
 } from './sandboxPointers.js';
 import { mergeLivePerks, type LegacyExportEntry } from './exportLegacy.js';
@@ -42,9 +42,10 @@ describe('mergeSandboxPointers', () => {
       701: { to: 102, kind: 'sandbox' },
     });
     expect(Object.keys(merged)).toEqual(['5', '9', '700', '701']);
-    expect(sandboxPointerChanged('700', pointers.pointers['700']!, conflicts)).toBe(false);
-    expect(sandboxPointerChanged('701', pointers.pointers['701']!, conflicts)).toBe(true);
-    expect(sandboxPointerChanged('703', pointers.pointers['703']!, conflicts)).toBe(true);
+    const decision = (hash: string) => pointers.pointers[hash] as SandboxDecision;
+    expect(sandboxPointerChanged('700', decision('700'), conflicts)).toBe(false);
+    expect(sandboxPointerChanged('701', decision('701'), conflicts)).toBe(true);
+    expect(sandboxPointerChanged('703', decision('703'), conflicts)).toBe(true);
   });
 
   it('never overrides a generator alias for the same hash', () => {
@@ -67,7 +68,20 @@ describe('sandbox picks file', () => {
       sandboxPointersSchema.safeParse({ version: 1, pointers: { 7: { none: true, ...base } } })
         .success,
     ).toBe(true);
-    for (const pick of [{ ...base }, { to: 1, none: true, ...base }, { none: false, ...base }])
+    // An undone tombstone carries who and when only.
+    expect(
+      sandboxPointersSchema.safeParse({
+        version: 1,
+        pointers: { 7: { state: 'undone', by: 1, at } },
+      }).success,
+    ).toBe(true);
+    for (const pick of [
+      { ...base },
+      { to: 1, none: true, ...base },
+      { none: false, ...base },
+      { state: 'undone', to: 1, by: 1, at },
+      { state: 'removed', by: 1, at },
+    ])
       expect(sandboxPointersSchema.safeParse({ version: 1, pointers: { 7: pick } }).success).toBe(
         false,
       );
@@ -96,49 +110,72 @@ describe('sandbox picks file', () => {
         702: { to: 102, candidates: [101, 102], by: 1, at },
       },
     });
-    expect(Object.keys(applySandboxPicks(current, {}, conflicts, 1, at).pointers)).toEqual([]);
+    // Omitted decisions become undone tombstones (never erased); a tombstone stays as stored, and
+    // picking the perk again is a new decision.
+    const undone = applySandboxPicks(current, {}, conflicts, 1, at);
+    expect(undone.pointers).toEqual({
+      700: { state: 'undone', by: 1, at },
+      701: { state: 'undone', by: 1, at },
+    });
+    const later = '2026-11-14T00:00:00Z';
+    expect(applySandboxPicks(undone, { 700: { to: 101 } }, conflicts, 2, later).pointers).toEqual({
+      700: { to: 101, candidates: [101, 103], by: 2, at: later },
+      701: { state: 'undone', by: 1, at },
+    });
   });
 });
 
 describe('mergeLivePerks', () => {
+  const stub = (hash: number, aliasOf: number, aliasKind = 'sandbox') => ({
+    hash,
+    aliasOf,
+    aliasKind,
+  });
   const live = {
     101: { hash: 101, editor: {} },
-    700: { hash: 700, aliasOf: 101, aliasKind: 'sandbox' },
-    701: { hash: 701, aliasOf: 102, aliasKind: 'sandbox' },
-    // A generator sandbox alias the generator has since dropped (not a shared perk).
-    800: { hash: 800, aliasOf: 101, aliasKind: 'sandbox' },
-    5: { hash: 5, aliasOf: 101, aliasKind: 'frame' },
+    102: { hash: 102, editor: {} },
+    700: stub(700, 101),
+    701: stub(701, 102),
+    // The generator's own sandbox stub it has since dropped; no pick names it.
+    800: stub(800, 101),
     9: { hash: 9, editor: {} },
   };
-  const entries = {
-    101: { hash: 101, editor: {} },
-    5: { hash: 5, aliasOf: 101, aliasKind: 'frame' as const },
-  } as unknown as Record<string, LegacyExportEntry>;
-  const pointers: SandboxPointers = { version: 1, pointers: {} };
+  const entries = { 9: { hash: 9, editor: {} } } as unknown as Record<string, LegacyExportEntry>;
 
-  it('removes only withdrawable sandbox stubs of exported tooltips that are not exported again', () => {
-    const merged = mergeLivePerks(
-      live,
-      entries,
-      sandboxWithdrawable(pointers, { 700: [101, 102], 701: [102, 103] }),
-    );
-    expect(merged).not.toHaveProperty('700');
-    // 701 points at 102, which this export did not touch; 800 is the generator's own stale stub.
-    expect(Object.keys(merged).sort()).toEqual(['101', '5', '701', '800', '9']);
-  });
-
-  it('withdraws nothing without a picks file: exactly the v2 spread', () => {
-    expect(sandboxWithdrawable(null, { 700: [101, 102] }).size).toBe(0);
+  it('without a picks file is exactly the v2 spread', () => {
     expect(mergeLivePerks(live, entries)).toEqual({ ...live, ...entries });
   });
 
-  it('keeps a retired pick withdrawable while the file still names it', () => {
-    const retired: SandboxPointers = {
-      version: 1,
-      pointers: { 800: { none: true, candidates: [101, 102], by: 1, at } },
+  it('recomputes every key the picks file names, and only those', () => {
+    // 700 undone (no alias now): absent. 701 retargeted to 101: its stub moves, though neither
+    // 101 nor 102 is in this export. 702 picked to 101: written. 800 is not named: untouched.
+    const aliases = {
+      701: { to: 101, kind: 'sandbox' as const },
+      702: { to: 101, kind: 'sandbox' as const },
     };
-    expect(mergeLivePerks(live, entries, sandboxWithdrawable(retired, {}))).not.toHaveProperty(
-      '800',
-    );
+    const merged = mergeLivePerks(live, entries, { keys: ['700', '701', '702'], aliases });
+    expect(merged).not.toHaveProperty('700');
+    expect(merged['701']).toEqual(stub(701, 101));
+    expect(merged['702']).toEqual(stub(702, 101));
+    expect(merged['800']).toEqual(stub(800, 101));
+  });
+
+  it('gives a key back to the generator once it owns it, and never deletes a tooltip record', () => {
+    const owned = { 700: { to: 102, kind: 'frame' as const } };
+    const merged = mergeLivePerks({ ...live, 703: { hash: 703, editor: {} } }, entries, {
+      keys: ['700', '703'],
+      aliases: owned,
+      catalog: { 700: { name: 'Frame', type: 'frame' } },
+    });
+    expect(merged['700']).toMatchObject({ hash: 700, aliasOf: 102, aliasKind: 'frame' });
+    expect(merged['703']).toEqual({ hash: 703, editor: {} });
+  });
+
+  it('writes no stub whose target is not a live tooltip yet', () => {
+    const merged = mergeLivePerks(live, entries, {
+      keys: ['700'],
+      aliases: { 700: { to: 555, kind: 'sandbox' } },
+    });
+    expect(merged).not.toHaveProperty('700');
   });
 });

@@ -10,7 +10,6 @@ import {
   publishOpIdSchema,
   exportLegacy,
   mergeLivePerks,
-  sandboxWithdrawable,
   findElementTags,
   isTextlessDescription,
   publishableHash,
@@ -128,12 +127,17 @@ export class Publisher {
       pointers,
     );
   }
-  /** Live sandbox stubs a publish from this snapshot may withdraw (core sandboxWithdrawable). */
-  withdrawableAt(tree: Tree): Set<string> {
-    const parsed = sandboxPointersSchema.safeParse(this.read<unknown>(tree, sandboxPointersPath));
-    return parsed.success
-      ? sandboxWithdrawable(parsed.data, this.options.sandboxConflicts ?? {})
-      : new Set();
+  /**
+   * The live-merge recompute for a publish from this snapshot (core mergeLivePerks): every key the
+   * picks file names, with the same merged aliases the export used. No picks file: none (v2).
+   */
+  pickRecomputeAt(tree: Tree) {
+    const raw = this.read<unknown>(tree, sandboxPointersPath);
+    if (raw === undefined) return undefined;
+    const keys = Object.keys(sandboxPointersSchema.parse(raw).pointers);
+    return keys.length
+      ? { keys, aliases: this.aliasesAt(tree), catalog: this.options.facts }
+      : undefined;
   }
   /** Check direct association targets at the drain snapshot, without walking their drafts. */
   checkAssociatedDescriptions(
@@ -223,8 +227,8 @@ export class Publisher {
     if (!live?.perks || !live.databaseSettings) throw new Error('Invalid live file');
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
-    const withdrawable = this.withdrawableAt(this.git.tree(r.sourceCommit));
-    const bytes = json({ ...live, perks: mergeLivePerks(live.perks, entries, withdrawable) });
+    const picks = this.pickRecomputeAt(this.git.tree(r.sourceCommit));
+    const bytes = json({ ...live, perks: mergeLivePerks(live.perks, entries, picks) });
     return {
       bytes,
       outcome: bytes === this.git.blob(tree['liveDescriptions.json']) ? 'unchanged' : 'published',

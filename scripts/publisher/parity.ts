@@ -6,7 +6,6 @@ import { pathToFileURL } from 'node:url';
 import {
   exportLegacy,
   mergeLivePerks,
-  sandboxWithdrawable,
   mergeSandboxPointers,
   publishableHash,
   sandboxPointersPath,
@@ -74,10 +73,13 @@ const expected =
       perks: mergeLivePerks(
         base.perks,
         exported,
-        sandboxWithdrawable(
-          picks === undefined ? null : sandboxPointersSchema.parse(picks),
-          config.sandboxConflicts ?? {},
-        ),
+        picks === undefined
+          ? undefined
+          : {
+              keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
+              aliases,
+              catalog: config.facts,
+            },
       ),
     },
     null,

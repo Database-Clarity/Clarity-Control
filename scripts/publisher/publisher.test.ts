@@ -1005,7 +1005,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(perks['702']).toEqual({ hash: 702, aliasOf: 123, aliasKind: 'sandbox' });
     expect(perks).not.toHaveProperty('701');
   });
-  it('withdraws a published sandbox stub once its pick is undone, keeping other records', async () => {
+  it('recomputes an undone pick to absent on the next publish, keeping other records', async () => {
     const f = await setup();
     f.options.sandboxConflicts = { 700: [123, 124], 701: [123, 125] };
     const pick = (to: number) => ({
@@ -1024,12 +1024,12 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.request(A, [123], { 123: await publishableHash(f.tooltip, both) });
     await f.pub.run();
     f.assertDone(A);
-    // 700 becomes "no tooltip": publishing 123 again removes its stub; 701 stays.
+    // 700 is undone (a tombstone): publishing 123 again recomputes it to absent; 701 stays.
     f.change(D, {
       'config/sandbox-pointers.json': {
         version: 1,
         pointers: {
-          700: { none: true, candidates: [123, 124], by: 1, at: '2026-11-12T21:00:00Z' },
+          700: { state: 'undone', by: 1, at: '2026-11-12T21:00:00Z' },
           701: pick(123),
         },
       },

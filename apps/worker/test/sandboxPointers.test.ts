@@ -107,13 +107,25 @@ describe('sandbox picks route', () => {
     expect(stored()).toEqual({ version: 1, pointers: {} });
   });
 
-  it('keeps an unchanged pick as stored and drops omitted (undone) picks', async () => {
+  it('keeps an unchanged pick as stored and turns an omitted pick into an undone tombstone', async () => {
     const first = await (await put({ 700: { to: 123 }, 701: { to: 123 } })).json();
     vi.setSystemTime(Date.parse('2026-11-13T08:00:00Z'));
     const second = await (await put({ 700: { to: 123 } }, first.revision, 1)).json();
     expect(second.pointers.pointers).toEqual({
       700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' },
+      701: { state: 'undone', by: 1, at: '2026-11-13T08:00:00Z' },
     });
+    // The tombstone stays as stored; picking 701 again is a new decision.
+    const third = await (await put({ 700: { to: 123 } }, second.revision)).json();
+    expect(third.pointers.pointers['701']).toEqual({
+      state: 'undone',
+      by: 1,
+      at: '2026-11-13T08:00:00Z',
+    });
+    const fourth = await (
+      await put({ 700: { to: 123 }, 701: { none: true } }, third.revision)
+    ).json();
+    expect(fourth.pointers.pointers['701']).toMatchObject({ none: true, by: 1 });
   });
 
   it('validates picks: shared perk, canonical non-empty target, no own tooltip', async () => {
@@ -232,11 +244,57 @@ describe('picks in the live export', () => {
     expect((await pushTooltip([123])).status).toBe(200);
     expect((await put({ 700: { to: 124 } }, first.revision)).status).toBe(200);
     const perks = () => (fixture.live as { perks: Record<string, unknown> }).perks;
-    // Pushing the old target drops the stub (it no longer points there); pushing the new one adds it.
+    // Any push recomputes 700: absent while 124 is not live yet, then the stub to 124.
     expect((await pushTooltip([123])).status).toBe(200);
     expect(perks()).not.toHaveProperty('700');
     expect((await pushTooltip([124])).status).toBe(200);
     expect(perks()['700']).toEqual({ hash: 700, aliasOf: 124, aliasKind: 'sandbox' });
+    // And back to 123: a push of either tooltip moves it.
+    const moved = await (await get()).json();
+    expect((await put({ 700: { to: 123 } }, moved.revision)).status).toBe(200);
+    expect((await pushTooltip([124])).status).toBe(200);
+    expect(perks()['700']).toEqual({ hash: 700, aliasOf: 123, aliasKind: 'sandbox' });
+  });
+
+  it('undo on a perk no longer shared clears its stub (round-3 counterexample)', async () => {
+    const first = await (await put({ 700: { to: 123 } })).json();
+    expect((await pushTooltip([123])).status).toBe(200);
+    const perks = () => (fixture.live as { perks: Record<string, unknown> }).perks;
+    expect(perks()['700']).toEqual({ hash: 700, aliasOf: 123, aliasKind: 'sandbox' });
+    // The generator retires 700; the maintainer undoes the retired row and saves.
+    fixture.sandboxConflicts = { 701: [123, 125], 702: [124, 125] };
+    const undone = await put({}, first.revision);
+    expect(undone.status).toBe(200);
+    expect(stored()!.pointers['700']).toMatchObject({ state: 'undone' });
+    expect((await pushTooltip([123])).status).toBe(200);
+    expect(perks()).not.toHaveProperty('700');
+  });
+
+  it('undo on a perk the generator now owns gives the generator its entry back', async () => {
+    const first = await (await put({ 700: { to: 123 } })).json();
+    expect((await pushTooltip([123, 124])).status).toBe(200);
+    // The generator stops sharing 700 and aliases it itself (to 124).
+    fixture.sandboxConflicts = { 701: [123, 125], 702: [124, 125] };
+    fixture.aliases = { 700: { to: 124, kind: 'sandbox' } };
+    expect((await put({}, first.revision)).status).toBe(200);
+    expect((await pushTooltip([123])).status).toBe(200);
+    expect((fixture.live as { perks: Record<string, unknown> }).perks['700']).toEqual({
+      hash: 700,
+      aliasOf: 124,
+      aliasKind: 'sandbox',
+    });
+  });
+
+  it('undo then re-pick writes the stub again', async () => {
+    const first = await (await put({ 700: { to: 123 } })).json();
+    expect((await pushTooltip([123])).status).toBe(200);
+    const undone = await (await put({}, first.revision)).json();
+    expect((await pushTooltip([123])).status).toBe(200);
+    const perks = () => (fixture.live as { perks: Record<string, unknown> }).perks;
+    expect(perks()).not.toHaveProperty('700');
+    expect((await put({ 700: { to: 123 } }, undone.revision)).status).toBe(200);
+    expect((await pushTooltip([123])).status).toBe(200);
+    expect(perks()['700']).toEqual({ hash: 700, aliasOf: 123, aliasKind: 'sandbox' });
   });
 
   it('ignores a pick once the generator no longer lists the perk as shared', async () => {
@@ -246,7 +304,7 @@ describe('picks in the live export', () => {
     expect((fixture.live as { perks: Record<string, unknown> }).perks).not.toHaveProperty('700');
   });
 
-  it('keeps a stale generator sandbox stub: picks only withdraw shared perks, and only with a file', async () => {
+  it('keeps a stale generator sandbox stub: only keys the picks file names are recomputed', async () => {
     const live = fixture.live as { perks: Record<string, unknown> };
     live.perks = { ...live.perks, 800: { hash: 800, aliasOf: 123, aliasKind: 'sandbox' } };
     expect((await pushTooltip([123])).status).toBe(200);
@@ -255,7 +313,7 @@ describe('picks in the live export', () => {
       aliasOf: 123,
       aliasKind: 'sandbox',
     });
-    // With a picks file, a stub outside the shared list (and not named by a pick) still stays.
+    // With a picks file, a stub the file does not name still stays.
     await put({ 701: { none: true } });
     expect((await pushTooltip([123])).status).toBe(200);
     expect((fixture.live as typeof live).perks['800']).toEqual({

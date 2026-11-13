@@ -13,7 +13,8 @@ import {
   sandboxPointersCapability,
   sandboxPointersPath,
   sandboxPointersSchema,
-  sandboxWithdrawable,
+  isSandboxDecision,
+  samePick,
   type Aliases,
   type SandboxConflicts,
   type SandboxPointers,
@@ -60,21 +61,21 @@ export async function withSandboxPointers(
 }
 
 /**
- * Push-live: the merged aliases plus the live stubs this export may withdraw. No picks file: the
- * generator aliases and nothing withdrawable, at no cost (v2 bytes and budget). With a file (even
- * one whose picks are all "no tooltip" or undone) the conflicts are read: 1 subrequest.
+ * Push-live: the merged aliases (as withSandboxPointers) plus every key the picks file names,
+ * whose live entries the export recomputes (core mergeLivePerks). No picks file: no keys, so the
+ * live file merges exactly as in v2; the conflicts are read only when a pick points somewhere.
  */
 export async function pushSandboxPicks(
   github: GitHub,
   aliases: Aliases,
   file: RepoFile | null | undefined,
-): Promise<{ aliases: Aliases; withdrawable: ReadonlySet<string> }> {
+): Promise<{ aliases: Aliases; keys: string[] }> {
   const pointers = storedSandboxPointers(file);
-  if (!pointers) return { aliases, withdrawable: new Set() };
-  const conflicts = await loadSandboxConflicts(github.env, github);
   return {
-    aliases: mergeSandboxPointers(aliases, conflicts, pointers),
-    withdrawable: sandboxWithdrawable(pointers, conflicts),
+    aliases: hasSandboxTargets(pointers)
+      ? mergeSandboxPointers(aliases, await loadSandboxConflicts(github.env, github), pointers)
+      : aliases,
+    keys: pointers ? Object.keys(pointers.pointers) : [],
   };
 }
 
@@ -203,8 +204,8 @@ export async function sandboxPointersRoute(
     const conflicts: SandboxConflicts = {};
     for (const [hash, pick] of Object.entries(input.picks)) {
       const kept = current.pointers[hash];
-      const changed =
-        !kept || ('to' in pick ? !('to' in kept) || kept.to !== pick.to : 'to' in kept);
+      // An undone tombstone is no decision: picking that perk again is a change.
+      const changed = !kept || !samePick(kept, pick);
       // An unchanged pick stays valid as stored (owner: a pick keeps working after its set changes).
       if (!changed) continue;
       if (!Object.hasOwn(generator.conflicts, hash)) {
@@ -263,7 +264,7 @@ export async function sandboxPointersRoute(
       user.id,
       new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     );
-    const count = Object.keys(next.pointers).length;
+    const count = Object.values(next.pointers).filter(isSandboxDecision).length;
     try {
       const commit = await github.commit(
         head,

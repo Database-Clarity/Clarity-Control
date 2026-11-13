@@ -70,8 +70,8 @@ interface Loaded {
   head: string;
   /** Generator aliases plus the sandbox picks at `head`: what this push's stubs and digests use. */
   aliases: Aliases;
-  /** Live sandbox stubs this export may withdraw (core sandboxWithdrawable). */
-  withdrawable: ReadonlySet<string>;
+  /** Every key the picks file names; the live merge recomputes their entries (mergeLivePerks). */
+  pickKeys: string[];
   config: Permissions;
   tooltips: Tooltip[];
   snapshots: Record<string, Tooltip>;
@@ -124,8 +124,8 @@ async function loadAtHead(
   // A malformed marker is reported by the marker step below; here it just means "all changed".
   const pushed =
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
-  const { withdrawable } = picks;
-  return { head, aliases, withdrawable, config, tooltips, snapshots, exportedHashes, pushed };
+  const pickKeys = picks.keys;
+  return { head, aliases, pickKeys, config, tooltips, snapshots, exportedHashes, pushed };
 }
 
 export async function pushLive(
@@ -186,7 +186,13 @@ export async function pushLive(
         file.sha,
         {
           ...live,
-          perks: mergeLivePerks(live.perks, entries, loaded.withdrawable),
+          perks: mergeLivePerks(
+            live.perks,
+            entries,
+            loaded.pickKeys.length
+              ? { keys: loaded.pickKeys, aliases: loaded.aliases, catalog: facts }
+              : undefined,
+          ),
         },
         user,
       );
