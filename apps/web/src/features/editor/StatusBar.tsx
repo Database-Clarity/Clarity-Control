@@ -144,6 +144,14 @@ export function StatusBar({
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
   const root = useRef<HTMLDivElement>(null);
   const showsPreview = preview ? unpreviewed > 0 || preview.collapsed : undefined;
+  // The idle preview item gives its room to the labels until it first shows for this text; from
+  // then on it keeps that room while idle, so a slow render while typing changes the labels at
+  // most once instead of on every render (see .preview[data-reserved]).
+  const reserveKey = String(preview?.review?.canonical ?? '');
+  const reserve = useRef({ key: reserveKey, on: false });
+  if (reserve.current.key !== reserveKey) reserve.current = { key: reserveKey, on: false };
+  if (showsPreview) reserve.current.on = true;
+  const reserved = reserve.current.on;
   useFit(
     root,
     [
@@ -156,6 +164,7 @@ export function StatusBar({
       rawView !== undefined && Boolean(onRawView),
       Boolean(onSuggest),
       showsPreview,
+      reserved,
     ].join('|'),
   );
   return (
@@ -343,13 +352,15 @@ export function StatusBar({
         <span>{keyOf('key-leave')} leaves the editor</span>
         {conflicts && conflicts.count > 0 && <span>{keyOf('key-conflict')} next conflict</span>}
       </span>
-      {/* An idle preview item keeps its place (hidden) so it never pushes items while typing; with
+      {/* An idle preview item stays in place (hidden) but yields its width to the labels until it
+        first shows; once reserved it keeps its room, so it never pushes items while typing. With
         the text read-only nothing is typed, so the read-only reason gets that room instead. */}
       {preview && (showsPreview || !readOnlyReason) && (
         <span
           className={styles.preview}
           data-status-preview
           data-inactive={!(unpreviewed > 0 || preview.collapsed) || undefined}
+          data-reserved={reserved || undefined}
           aria-hidden={!(unpreviewed > 0 || preview.collapsed) || undefined}
           data-attention={unpreviewed > 0 || undefined}
         >

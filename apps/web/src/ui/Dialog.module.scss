@@ -79,6 +79,10 @@
   min-width: 0;
 }
 
+.closeMark {
+  display: none;
+}
+
 // The footer's one primary action is drawn with the accent edge.
 .footer {
   display: flex;
@@ -137,6 +141,22 @@
     box-sizing: border-box;
     padding-block: 0;
     border-bottom: 1px solid var(--line);
+
+    // The square × on the right edge, as the Settings sheet: the same tap size, no text label.
+    .close {
+      flex: none;
+      width: var(--tap);
+      height: var(--tap);
+      padding: 0;
+      font-size: 1.125rem;
+      line-height: 1;
+    }
+    .closeText {
+      display: none;
+    }
+    .closeMark {
+      display: inline;
+    }
 
     h2 {
       margin: 0;

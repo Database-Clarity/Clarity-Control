@@ -127,6 +127,23 @@ describe('status bar', () => {
     expect(q('[data-status-preview] button')?.hasAttribute('disabled')).toBe(true);
   });
 
+  it('lends the idle preview room to the labels until the preview first shows for that text', () => {
+    const onShow = vi.fn();
+    const review = (canonical: number) => ({ canonical, scheduled: [], visible: true });
+    const reserved = () => q('[data-status-preview]')?.hasAttribute('data-reserved');
+    render(bar({ preview: { review: review(1), collapsed: false, onShow } }));
+    expect(reserved()).toBe(false);
+    render(bar({ preview: { review: review(1), collapsed: true, onShow } }));
+    expect(reserved()).toBe(true);
+    // Idle again: it keeps its room, so the labels do not change back and forth.
+    render(bar({ preview: { review: review(1), collapsed: false, onShow } }));
+    expect(q('[data-status-preview]')?.hasAttribute('data-inactive')).toBe(true);
+    expect(reserved()).toBe(true);
+    // Another text starts unreserved.
+    render(bar({ preview: { review: review(2), collapsed: false, onShow } }));
+    expect(reserved()).toBe(false);
+  });
+
   it('toggles a panel through its button', () => {
     const onPanel = vi.fn();
     render(bar({ panel: 'help', onPanel }));

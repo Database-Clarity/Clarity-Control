@@ -47,8 +47,18 @@ export function Dialog({
       <header className={styles.header}>
         <h2>{title}</h2>
         {!compact && (
-          <button type="button" onClick={onClose} disabled={busy} aria-label="Close dialog">
-            Close
+          // A phone sheet shows the square × on its right edge, as the Settings sheet does.
+          <button
+            type="button"
+            className={styles.close}
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close dialog"
+          >
+            <span className={styles.closeText}>Close</span>
+            <span className={styles.closeMark} aria-hidden="true">
+              ×
+            </span>
           </button>
         )}
       </header>
