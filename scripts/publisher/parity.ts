@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import {
   exportLegacy,
   mergeLivePerks,
+  sandboxWithdrawable,
   mergeSandboxPointers,
   publishableHash,
   sandboxPointersPath,
@@ -67,7 +68,21 @@ const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.jso
 const requester = JSON.parse(request.payload).requester;
 stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);
 const expected =
-  JSON.stringify({ ...base, perks: mergeLivePerks(base.perks, exported) }, null, 2) + '\n';
+  JSON.stringify(
+    {
+      ...base,
+      perks: mergeLivePerks(
+        base.perks,
+        exported,
+        sandboxWithdrawable(
+          picks === undefined ? null : sandboxPointersSchema.parse(picks),
+          config.sandboxConflicts ?? {},
+        ),
+      ),
+    },
+    null,
+    2,
+  ) + '\n';
 const out = resolve(outArg);
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'expected-liveDescriptions.json'), expected);

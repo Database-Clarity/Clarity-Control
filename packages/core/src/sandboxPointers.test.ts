@@ -4,6 +4,7 @@ import {
   mergeSandboxPointers,
   sandboxPointerChanged,
   sandboxPointersSchema,
+  sandboxWithdrawable,
   type SandboxPointers,
 } from './sandboxPointers.js';
 import { mergeLivePerks, type LegacyExportEntry } from './exportLegacy.js';
@@ -104,6 +105,8 @@ describe('mergeLivePerks', () => {
     101: { hash: 101, editor: {} },
     700: { hash: 700, aliasOf: 101, aliasKind: 'sandbox' },
     701: { hash: 701, aliasOf: 102, aliasKind: 'sandbox' },
+    // A generator sandbox alias the generator has since dropped (not a shared perk).
+    800: { hash: 800, aliasOf: 101, aliasKind: 'sandbox' },
     5: { hash: 5, aliasOf: 101, aliasKind: 'frame' },
     9: { hash: 9, editor: {} },
   };
@@ -111,16 +114,31 @@ describe('mergeLivePerks', () => {
     101: { hash: 101, editor: {} },
     5: { hash: 5, aliasOf: 101, aliasKind: 'frame' as const },
   } as unknown as Record<string, LegacyExportEntry>;
+  const pointers: SandboxPointers = { version: 1, pointers: {} };
 
-  it('removes a sandbox stub of an exported tooltip that is no longer exported, and nothing else', () => {
-    const merged = mergeLivePerks(live, entries);
+  it('removes only withdrawable sandbox stubs of exported tooltips that are not exported again', () => {
+    const merged = mergeLivePerks(
+      live,
+      entries,
+      sandboxWithdrawable(pointers, { 700: [101, 102], 701: [102, 103] }),
+    );
     expect(merged).not.toHaveProperty('700');
-    // 701 points at 102, which this export did not touch; 9 and the frame stub stay.
-    expect(Object.keys(merged).sort()).toEqual(['101', '5', '701', '9']);
+    // 701 points at 102, which this export did not touch; 800 is the generator's own stale stub.
+    expect(Object.keys(merged).sort()).toEqual(['101', '5', '701', '800', '9']);
   });
 
-  it('is the plain spread when nothing was withdrawn', () => {
-    const kept = { ...entries, 700: { hash: 700, aliasOf: 101, aliasKind: 'sandbox' as const } };
-    expect(mergeLivePerks(live, kept)).toEqual({ ...live, ...kept });
+  it('withdraws nothing without a picks file: exactly the v2 spread', () => {
+    expect(sandboxWithdrawable(null, { 700: [101, 102] }).size).toBe(0);
+    expect(mergeLivePerks(live, entries)).toEqual({ ...live, ...entries });
+  });
+
+  it('keeps a retired pick withdrawable while the file still names it', () => {
+    const retired: SandboxPointers = {
+      version: 1,
+      pointers: { 800: { none: true, candidates: [101, 102], by: 1, at } },
+    };
+    expect(mergeLivePerks(live, entries, sandboxWithdrawable(retired, {}))).not.toHaveProperty(
+      '800',
+    );
   });
 });

@@ -100,6 +100,19 @@ export function sandboxPointerChanged(
  * nothing. With no applicable pick the very same `aliases` object is returned (byte-identical
  * output, and alias-keyed caches stay warm).
  */
+/**
+ * The perks whose live sandbox stubs an export may withdraw (core mergeLivePerks): the effects the
+ * generator lists as shared, where picks are made, plus any perk the picks file still names (a
+ * retired pick). Without a picks file nothing is withdrawable, so every output stays v2's.
+ */
+export function sandboxWithdrawable(
+  pointers: SandboxPointers | null | undefined,
+  conflicts: Readonly<Record<string, unknown>>,
+): Set<string> {
+  if (!pointers) return new Set();
+  return new Set([...Object.keys(conflicts), ...Object.keys(pointers.pointers)]);
+}
+
 export function mergeSandboxPointers(
   aliases: Aliases,
   conflicts: SandboxConflicts,

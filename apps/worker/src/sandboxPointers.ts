@@ -13,6 +13,7 @@ import {
   sandboxPointersCapability,
   sandboxPointersPath,
   sandboxPointersSchema,
+  sandboxWithdrawable,
   type Aliases,
   type SandboxConflicts,
   type SandboxPointers,
@@ -56,6 +57,25 @@ export async function withSandboxPointers(
   const pointers = storedSandboxPointers(file);
   if (!hasSandboxTargets(pointers)) return aliases;
   return mergeSandboxPointers(aliases, await loadSandboxConflicts(github.env, github), pointers);
+}
+
+/**
+ * Push-live: the merged aliases plus the live stubs this export may withdraw. No picks file: the
+ * generator aliases and nothing withdrawable, at no cost (v2 bytes and budget). With a file (even
+ * one whose picks are all "no tooltip" or undone) the conflicts are read: 1 subrequest.
+ */
+export async function pushSandboxPicks(
+  github: GitHub,
+  aliases: Aliases,
+  file: RepoFile | null | undefined,
+): Promise<{ aliases: Aliases; withdrawable: ReadonlySet<string> }> {
+  const pointers = storedSandboxPointers(file);
+  if (!pointers) return { aliases, withdrawable: new Set() };
+  const conflicts = await loadSandboxConflicts(github.env, github);
+  return {
+    aliases: mergeSandboxPointers(aliases, conflicts, pointers),
+    withdrawable: sandboxWithdrawable(pointers, conflicts),
+  };
 }
 
 /**

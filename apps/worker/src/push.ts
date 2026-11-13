@@ -22,7 +22,7 @@ import { blobsPerQuery, RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
 import { stampUploads } from './stamp.js';
-import { withSandboxPointers } from './sandboxPointers.js';
+import { pushSandboxPicks } from './sandboxPointers.js';
 import type { Identity } from './types.js';
 
 /**
@@ -70,6 +70,8 @@ interface Loaded {
   head: string;
   /** Generator aliases plus the sandbox picks at `head`: what this push's stubs and digests use. */
   aliases: Aliases;
+  /** Live sandbox stubs this export may withdraw (core sandboxWithdrawable). */
+  withdrawable: ReadonlySet<string>;
   config: Permissions;
   tooltips: Tooltip[];
   snapshots: Record<string, Tooltip>;
@@ -91,7 +93,8 @@ async function loadAtHead(
     head,
   );
   // Sandbox picks join the generator aliases before any digest or stub (core mergeSandboxPointers).
-  aliases = await withSandboxPointers(github, aliases, files[canonicalHashes.length]);
+  const picks = await pushSandboxPicks(github, aliases, files[canonicalHashes.length]);
+  aliases = picks.aliases;
   const tooltips: Tooltip[] = [];
   const snapshots: Record<string, Tooltip> = {};
   const exportedHashes: Record<string, string> = {};
@@ -121,7 +124,8 @@ async function loadAtHead(
   // A malformed marker is reported by the marker step below; here it just means "all changed".
   const pushed =
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
-  return { head, aliases, config, tooltips, snapshots, exportedHashes, pushed };
+  const { withdrawable } = picks;
+  return { head, aliases, withdrawable, config, tooltips, snapshots, exportedHashes, pushed };
 }
 
 export async function pushLive(
@@ -182,7 +186,7 @@ export async function pushLive(
         file.sha,
         {
           ...live,
-          perks: mergeLivePerks(live.perks, entries),
+          perks: mergeLivePerks(live.perks, entries, loaded.withdrawable),
         },
         user,
       );

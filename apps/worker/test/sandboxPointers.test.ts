@@ -246,6 +246,25 @@ describe('picks in the live export', () => {
     expect((fixture.live as { perks: Record<string, unknown> }).perks).not.toHaveProperty('700');
   });
 
+  it('keeps a stale generator sandbox stub: picks only withdraw shared perks, and only with a file', async () => {
+    const live = fixture.live as { perks: Record<string, unknown> };
+    live.perks = { ...live.perks, 800: { hash: 800, aliasOf: 123, aliasKind: 'sandbox' } };
+    expect((await pushTooltip([123])).status).toBe(200);
+    expect((fixture.live as typeof live).perks['800']).toEqual({
+      hash: 800,
+      aliasOf: 123,
+      aliasKind: 'sandbox',
+    });
+    // With a picks file, a stub outside the shared list (and not named by a pick) still stays.
+    await put({ 701: { none: true } });
+    expect((await pushTooltip([123])).status).toBe(200);
+    expect((fixture.live as typeof live).perks['800']).toEqual({
+      hash: 800,
+      aliasOf: 123,
+      aliasKind: 'sandbox',
+    });
+  });
+
   it('with no picks file the export and its cost are unchanged', async () => {
     fixture.subrequests = 0;
     expect((await pushTooltip([123])).status).toBe(200);

@@ -49,20 +49,23 @@ export function isLegacyAliasStub(entry: LegacyExportEntry): entry is LegacyAlia
 
 /**
  * The live perks after an export: exported entries replace their keys, and a sandbox alias stub
- * that points at an exported tooltip but is not exported again (its pick was withdrawn, undone,
- * moved to another tooltip, or the perk stopped being shared) is removed. Every other live record
- * stays exactly as it is. With no withdrawn stub this is `{ ...live, ...entries }`.
+ * keyed in `withdrawable` (core sandboxWithdrawable: perks a maintainer pick can cover) that points
+ * at an exported tooltip but is not exported again is removed: its pick was set to no tooltip,
+ * undone, or moved. Every other live record stays exactly as it is, including a generator's own
+ * stale stub; with nothing withdrawable (no picks file) this is `{ ...live, ...entries }`, v2.
  */
 export function mergeLivePerks(
   live: Readonly<Record<string, unknown>>,
   entries: Readonly<Record<string, LegacyExportEntry>>,
+  withdrawable: ReadonlySet<string> = new Set(),
 ): Record<string, unknown> {
   const exported = new Set<number>();
   for (const entry of Object.values(entries))
     if (!isLegacyAliasStub(entry)) exported.add(entry.hash);
   const merged: Record<string, unknown> = { ...live, ...entries };
   for (const [key, value] of Object.entries(live)) {
-    if (Object.hasOwn(entries, key) || typeof value !== 'object' || value === null) continue;
+    if (!withdrawable.has(key) || Object.hasOwn(entries, key)) continue;
+    if (typeof value !== 'object' || value === null) continue;
     const stub = value as { aliasOf?: unknown; aliasKind?: unknown };
     if (
       stub.aliasKind === 'sandbox' &&
