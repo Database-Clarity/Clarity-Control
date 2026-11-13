@@ -10,6 +10,7 @@ import {
   isTrackedCompendiumTab,
 } from './config.js';
 import {
+  compendiumIdentifierLookup,
   compendiumSimilarity,
   compendiumMatches,
   combineCompendiumMatches,
@@ -116,6 +117,25 @@ export function autoLinkCompendium(
   const normalized = new Set([...names].map(normaliseCompendiumName));
   const all = compendiumMatches(data);
   const preferred = compendiumPreferredTabs(category, name);
+  // Inside a matching index the four identifier passes below become lookups over
+  // every row, restricted to the same tab, in the same row order.
+  const lookup = compendiumIdentifierLookup(data, all);
+  function indexed(gid: string | undefined): CompendiumMatch[] {
+    const pick = (map: Map<string, number[]>, keys: Iterable<string>) => {
+      const positions = new Set<number>();
+      for (const key of keys) for (const position of map.get(key) ?? []) positions.add(position);
+      return [...positions]
+        .sort((a, b) => a - b)
+        .map((position) => all[position])
+        .filter(({ tab }) => gid === undefined || tab.gid === gid);
+    };
+    const direct = pick(lookup!.raw, [name]);
+    if (direct.length) return direct;
+    const normalizedDirect = pick(lookup!.normalized, [normaliseCompendiumName(name)]);
+    if (normalizedDirect.length) return normalizedDirect;
+    const exact = pick(lookup!.raw, names);
+    return exact.length ? exact : pick(lookup!.normalized, normalized);
+  }
   function matches(rows: readonly CompendiumMatch[]): CompendiumMatch[] {
     const direct = rows.filter(({ row }) =>
       compendiumIdentifiers(row.name).some((identifier) => identifier === name),
@@ -141,10 +161,10 @@ export function autoLinkCompendium(
   }
   let found: CompendiumMatch[] = [];
   for (const gid of preferred) {
-    found = matches(all.filter(({ tab }) => tab.gid === gid));
+    found = lookup ? indexed(gid) : matches(all.filter(({ tab }) => tab.gid === gid));
     if (found.length) break;
   }
-  if (!found.length) found = matches(all);
+  if (!found.length) found = lookup ? indexed(undefined) : matches(all);
   if (
     found.length &&
     found.every(

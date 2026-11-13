@@ -41,7 +41,6 @@ export interface SourceMarker {
 }
 export interface SourceAnalysis {
   markers: SourceMarker[];
-  unchecked: number;
 }
 /** How one raw source hunk is accounted for in the final rendered diff. */
 export type HunkAccount =
@@ -50,8 +49,7 @@ export type HunkAccount =
       /** Final-diff tokens this hunk claimed: [side, rendered line, word or '¶']. */
       tokens: ['before' | 'after', number, string][];
     }
-  | { account: 'marker'; marker: SourceMarker }
-  | { account: 'unchecked' };
+  | { account: 'marker'; marker: SourceMarker };
 
 // Only production recognizers identify markup. Ordinary text is split for the
 // raw diff; recognized blocks remain indivisible, including all-new documents.
@@ -307,19 +305,36 @@ function sourceContext(text: string) {
  * rendered piece it should produce (literal words, complete icon, link, title,
  * and colour tags, line classes, and a line break it adds or removes) claims a
  * distinct marked token on the rendered lines it occupies. Every other hunk
- * inside the budget gets a located marker; the rest are unchecked.
+ * gets a located marker. Every hunk is checked: there is no part cap or time
+ * budget, so one text pair always gets one complete account.
  */
 export function accountHunks(
   before: string,
   after: string,
   globals: MarkupGlobals,
   diff: ReturnType<typeof renderedDiff>,
-  options: { maxParts?: number; budgetMs?: number; now?: () => number } = {},
 ): HunkAccount[] {
-  const now = options.now ?? (() => performance.now()),
-    start = now(),
-    budget = options.budgetMs ?? 50,
-    maxParts = options.maxParts ?? 40;
+  return drain(accountHunkSteps(before, after, globals, diff));
+}
+
+function drain<T>(steps: Generator<void, T>): T {
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return step.value;
+  }
+}
+
+/**
+ * accountHunks as steps: it yields after each raw hunk so a worker can pause
+ * between hunks (and drop a cancelled check). It reads `diff` while it runs,
+ * so the caller must not change `diff` (presentDiff) until it is done.
+ */
+export function* accountHunkSteps(
+  before: string,
+  after: string,
+  globals: MarkupGlobals,
+  diff: ReturnType<typeof renderedDiff>,
+): Generator<void, HunkAccount[]> {
   const parts = sourceParts(before, after);
   const texts = { before, after };
   const sources = { before: sourceContext(before), after: sourceContext(after) };
@@ -437,7 +452,7 @@ export function accountHunks(
   const accounts: HunkAccount[] = [];
   const flagged: { side: Side; low: number; high: number }[] = [];
   for (const part of parts) {
-    if (accounts.length >= maxParts || now() - start >= budget) break;
+    if (accounts.length) yield;
     const old = before.slice(part.from, part.to),
       next = after.slice(part.nextFrom, part.nextTo);
     const expected =
@@ -506,30 +521,20 @@ export function accountHunks(
             high = lead < text.length ? to - trail : to;
           flagged.push({ side, low: lineAt(side, low), high: lineAt(side, high) });
         }
-    // A part whose renders overran the budget is not checked.
-    if (now() - start >= budget) break;
     if (shown) {
       accounts.push({ account: 'shown', tokens: shown });
       continue;
     }
     accounts.push(marker(part, provable));
   }
-  // Demote shown parts that share a rendered line with a flagged part, or sit
-  // beside the first unchecked part (its lines are unknown).
-  const unchecked = parts[accounts.length];
+  // Demote shown parts that share a rendered line with a flagged part.
   accounts.forEach((entry, index) => {
     if (entry.account !== 'shown') return;
-    const part = parts[index];
     const shares = entry.tokens.some(([side, line]) =>
       flagged.some((range) => range.side === side && line >= range.low && line <= range.high),
     );
-    const beside =
-      !!unchecked &&
-      (sourceLine(before, part.to) >= sourceLine(before, unchecked.from) - 1 ||
-        sourceLine(after, part.nextTo) >= sourceLine(after, unchecked.nextFrom) - 1);
-    if (shares || beside) accounts[index] = marker(part, true);
+    if (shares) accounts[index] = marker(parts[index], true);
   });
-  while (accounts.length < parts.length) accounts.push({ account: 'unchecked' });
   return collapse(accounts);
 
   function marker(part: (typeof parts)[number], provable: boolean): HunkAccount {
@@ -620,14 +625,22 @@ export function analyzeSourceOnly(
   after: string,
   globals: MarkupGlobals,
   diff: ReturnType<typeof renderedDiff>,
-  options: { maxParts?: number; budgetMs?: number; now?: () => number } = {},
 ): SourceAnalysis {
-  const accounts = accountHunks(before, after, globals, diff, options);
+  return drain(sourceAnalysisSteps(before, after, globals, diff));
+}
+
+/** analyzeSourceOnly as steps (see accountHunkSteps). */
+export function* sourceAnalysisSteps(
+  before: string,
+  after: string,
+  globals: MarkupGlobals,
+  diff: ReturnType<typeof renderedDiff>,
+): Generator<void, SourceAnalysis> {
+  const accounts = yield* accountHunkSteps(before, after, globals, diff);
   return {
     // Collapsed markers are shared by every hunk they cover: list each once.
     markers: [
       ...new Set(accounts.flatMap((entry) => (entry.account === 'marker' ? [entry.marker] : []))),
     ],
-    unchecked: accounts.filter((entry) => entry.account === 'unchecked').length,
   };
 }
