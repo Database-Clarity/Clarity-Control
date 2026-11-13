@@ -13,7 +13,7 @@ endpoint in this checklist. STOP if any target is unknown, if the live target is
 production, or if `LIVE_BRANCH` is not explicitly `converter-v2-test`. Recheck
 these targets immediately before pushing. The checked-in [configuration](wrangler.jsonc)
 names `Database-Clarity/Live-Clarity-Database`, `editor-data`, and
-`converter-v2-test`, with site https://database-clarity.github.io/Description-editor/v2/
+`converter-v2-test`, with site https://database-clarity.github.io/Clarity-Control/v2/
 and callback on https://clarity-editor-api.cboweris.workers.dev. Configuration
 alone does not prove what is deployed or which API the loaded bundle uses.
 

@@ -93,6 +93,19 @@ describe('status bar', () => {
     });
     render(bar({ readOnlyReason: 'Paused: another tab changed your drafts.' }));
     expect(status().dataset.fit).toBe('2');
+    // A shown preview item squeezed below its content counts as crowded (its key hint would draw
+    // over the position); an idle, unreserved one may shrink freely.
+    const onShow = () => undefined;
+    widths.mockImplementation(function (this: HTMLElement) {
+      if (!this.matches('[data-status-preview]')) return 200;
+      return Number(this.closest<HTMLElement>('[data-editor-status]')!.dataset.fit) < 4 ? 900 : 200;
+    });
+    render(bar({ readOnlyReason: null, preview: { unpreviewed: 1, collapsed: false, onShow } }));
+    expect(status().dataset.fit).toBe('4');
+    root.unmount();
+    root = createRoot(host);
+    render(bar({ preview: { unpreviewed: 0, collapsed: false, onShow } }));
+    expect(status().dataset.fit).toBe('0');
     // The counts keep their words for the text and their full names for assistive technology.
     render(bar({ issues: [{ severity: 'error', message: 'x', from: 0, to: 1 }], glyphCount: 2 }));
     expect(q('[data-status-issues]')?.textContent).toBe('1 issue');
@@ -125,6 +138,23 @@ describe('status bar', () => {
     render(bar({ preview: { unpreviewed: 0, collapsed: false, onShow } }));
     expect(q('[data-status-preview]')?.getAttribute('data-inactive')).toBe('true');
     expect(q('[data-status-preview] button')?.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('lends the idle preview room to the labels until the preview first shows for that text', () => {
+    const onShow = vi.fn();
+    const review = (canonical: number) => ({ canonical, scheduled: [], visible: true });
+    const reserved = () => q('[data-status-preview]')?.hasAttribute('data-reserved');
+    render(bar({ preview: { review: review(1), collapsed: false, onShow } }));
+    expect(reserved()).toBe(false);
+    render(bar({ preview: { review: review(1), collapsed: true, onShow } }));
+    expect(reserved()).toBe(true);
+    // Idle again: it keeps its room, so the labels do not change back and forth.
+    render(bar({ preview: { review: review(1), collapsed: false, onShow } }));
+    expect(q('[data-status-preview]')?.hasAttribute('data-inactive')).toBe(true);
+    expect(reserved()).toBe(true);
+    // Another text starts unreserved.
+    render(bar({ preview: { review: review(2), collapsed: false, onShow } }));
+    expect(reserved()).toBe(false);
   });
 
   it('toggles a panel through its button', () => {

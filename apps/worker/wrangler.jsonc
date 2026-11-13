@@ -32,7 +32,7 @@
   "vars": {
     "SITE_ORIGIN": "https://database-clarity.github.io",
     "SITE_ORIGINS": "https://database-clarity.github.io,https://control.d2clarity.com",
-    "SITE_URL": "https://database-clarity.github.io/Description-editor/v2/",
+    "SITE_URL": "https://database-clarity.github.io/Clarity-Control/v2/",
     "GITHUB_OWNER": "Database-Clarity",
     "GITHUB_REPO": "Live-Clarity-Database",
     "DATA_BRANCH": "editor-data",

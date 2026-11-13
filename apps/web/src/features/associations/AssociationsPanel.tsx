@@ -57,7 +57,12 @@ export function AssociationsPanel({
   return (
     <section aria-label={`Associations for ${hash}`} className={styles.panel}>
       <PanelRow
-        label={`Associated tooltips (${tooltip.associated.length})`}
+        // A narrow column ellipsises the label (see .panel): the title keeps the full name and count.
+        label={
+          <span title={`Associated tooltips (${tooltip.associated.length})`}>
+            Associated tooltips ({tooltip.associated.length})
+          </span>
+        }
         open={open}
         onOpenChange={setOpen}
         summary={names.join(' · ')}

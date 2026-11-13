@@ -1,0 +1,85 @@
+name: Review suite (Blacksmith trial)
+
+# Trial of Blacksmith runners against review-suite.yml (same jobs). The gate
+# never reads it. workflow_dispatch only works once this file is on main, so
+# a push to a blacksmith-trial/** branch starts it too.
+on:
+  push:
+    branches: ['blacksmith-trial/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-suite-blacksmith-${{ github.ref }}
+  cancel-in-progress: false # Let earlier runs finish without cancellation emails.
+
+# Every job ends green and prints a "REVIEW-SUITE PART:" line; the gate
+# (ci_suite.py) needs the checks part and every test shard to decide.
+jobs:
+  checks:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # Keep real outcomes, but do not turn a broken check into a failure email.
+      - id: install
+        continue-on-error: true
+        run: npm ci --no-audit --no-fund
+      - id: typecheck
+        continue-on-error: true
+        run: npm run typecheck
+      - id: lint
+        continue-on-error: true
+        run: npm run lint
+      - id: build
+        continue-on-error: true
+        run: npm run build
+      - name: Report actual check results
+        if: always()
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: >-
+          python3 .github/scripts/review_suite_report.py checks
+          npm-ci=${{ steps.install.outcome }}
+          typecheck=${{ steps.typecheck.outcome }}
+          lint=${{ steps.lint.outcome }}
+          build=${{ steps.build.outcome }}
+
+  test:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Shards are bin-packed by file weight (vitest.config.ts).
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - id: install
+        continue-on-error: true
+        run: npm ci --no-audit --no-fund
+      - id: test
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }} 2>&1 | tee test.log
+      - name: Report actual check results
+        if: always()
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: >-
+          python3 .github/scripts/review_suite_report.py
+          test-${{ matrix.shard }}/${{ strategy.job-total }}
+          npm-ci=${{ steps.install.outcome }}
+          test=${{ steps.test.outcome }}
