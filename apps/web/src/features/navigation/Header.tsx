@@ -1,7 +1,15 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
-import type { MenuUser } from './links';
-import { compactQuery, useMedia } from '../../ui/useMedia';
+import { workspacePath, type MenuUser } from './links';
+import { sessionToken } from '../../services/session';
+import { useAuthStore } from '../../stores/auth';
+import {
+  compactQuery,
+  driftTabQuery,
+  laptopQuery,
+  managementTabQuery,
+  useMedia,
+} from '../../ui/useMedia';
 import { Brand } from './Brand';
 import { DraftButton } from './DraftButton';
 import { IdentityMenu } from './IdentityMenu';
@@ -32,8 +40,11 @@ export function Header({
   overlay?: ReactNode;
 }) {
   const compact = useMedia(compactQuery);
+  // The tab layout band (which workspaces fold or promote) and the workspace (whether the finder
+  // sits in the bar): the header's settled widths are remembered for each pair.
+  const band = `${+useMedia(laptopQuery)}${+useMedia(driftTabQuery)}${+useMedia(managementTabQuery)}`;
   const bar = useRef<HTMLDivElement>(null);
-  const tight = useTightBar(bar, compact);
+  const tight = useTightBar(bar, compact, `${band}|${workspacePath(pathname)}`);
   return (
     <header className={styles.header} data-compact={compact || undefined}>
       <div ref={bar} className={styles.bar}>
@@ -69,17 +80,74 @@ const FINDER_MIN_REM = 25;
 const FINDER_MIN_WITH_FINDER_REM = 41;
 const finderSelector = 'section[aria-label="Tooltip navigation"]';
 
+const settledKey = 'clarity-header-settled:v1';
+/**
+ * A signed-in header as it last settled, in rem: the tabs plus the account end, and the narrowest
+ * window that leaves the finder its room beside the lockup.
+ */
+type Settled = { reserve: number; fits: number };
+
+function readSettled(): Record<string, Settled> {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(settledKey) ?? '{}');
+    return stored && typeof stored === 'object' ? (stored as Record<string, Settled>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The remembered signed-in header, while the bar waits for that account: a stored session being
+ * checked, or an account already known. Until /me answers, the bar shows the signed-out tabs and
+ * Sign in; a returning account then grows the tabs, which used to swap the lockup for the mark
+ * one paint after landing. While the check runs, the remembered widths stand in for the live ones.
+ */
+function remembered(key: string): Settled | undefined {
+  const { loading, user } = useAuthStore.getState();
+  if (!user) {
+    if (!loading) return undefined;
+    try {
+      if (!sessionToken()) return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  const entry = readSettled()[key];
+  return entry && Number.isFinite(entry.reserve) && Number.isFinite(entry.fits) ? entry : undefined;
+}
+
+/**
+ * The first render's answer, before anything is laid out: the remembered narrowest window for the
+ * lockup against the window's width, through a media query (no layout read). A media query's em
+ * is the browser's default font size, which the interface scale multiplies into the rem.
+ */
+function initialTight(key: string, compact: boolean): boolean {
+  if (compact || typeof window === 'undefined' || typeof window.matchMedia !== 'function')
+    return false;
+  const entry = remembered(key);
+  if (!entry) return false;
+  const scale = (Number(document.documentElement.dataset.uiScale) || 100) / 100;
+  return !window.matchMedia(`(min-width: ${entry.fits * scale}em)`).matches;
+}
+
+/** Rounds to an eighth of a rem, the precision the remembered widths keep. */
+const eighth = (rem: number) => Math.round(rem * 8) / 8;
+
 /**
  * Whether the lockup would leave the finder under its minimum. Measured from the parts that do not
  * depend on the brand (the bar, the tabs, the account end), so switching the artwork can never feed
  * back into the decision. It measures in a resize observer's callback, which comes after the
- * browser lays the bar out and before that frame paints, and renders a change at once, so the
- * first paint is already right without laying the page out early inside the render that mounts
- * it. Both artworks are always the same height: the swap moves only what is to the right of the
- * brand.
+ * browser lays the bar out and before that frame paints, and renders a change at once; the first
+ * render starts from the remembered answer, so the first layout is already right without laying
+ * the page out early inside the render that mounts it. Both artworks are always the same height:
+ * the swap moves only what is to the right of the brand.
  */
-function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): boolean {
-  const [tight, setTight] = useState(false);
+function useTightBar(
+  bar: RefObject<HTMLDivElement | null>,
+  compact: boolean,
+  key: string,
+): boolean {
+  const [tight, setTight] = useState(() => initialTight(key, compact));
   useLayoutEffect(() => {
     const element = bar.current;
     if (!element || compact) {
@@ -99,17 +167,32 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
       const brand = element.firstElementChild as HTMLElement | null;
       const brandMargin = brand ? parseFloat(getComputedStyle(brand).marginRight) || 0 : 0;
       const lockup = LOCKUP_HEIGHT_REM * rem * LOCKUP_ASPECT;
-      const used =
-        padding +
-        lockup +
-        brandMargin +
-        tabs.getBoundingClientRect().width +
-        end.getBoundingClientRect().width +
-        gap * 3;
+      const fixed = padding + lockup + brandMargin + gap * 3;
+      const live = tabs.getBoundingClientRect().width + end.getBoundingClientRect().width;
       present = element.querySelector(finderSelector) !== null;
-      apply(
-        element.clientWidth - used < (present ? FINDER_MIN_WITH_FINDER_REM : FINDER_MIN_REM) * rem,
-      );
+      const finderMin = (present ? FINDER_MIN_WITH_FINDER_REM : FINDER_MIN_REM) * rem;
+      const { loading, user } = useAuthStore.getState();
+      if (user && !loading) {
+        // Settled: remember it for the next landing (written only when it changes).
+        const outside = window.innerWidth - element.clientWidth;
+        const settled = {
+          reserve: eighth(live / rem),
+          fits: eighth((outside + fixed + live + finderMin) / rem),
+        };
+        const known = readSettled();
+        const before = known[key];
+        if (before?.reserve !== settled.reserve || before.fits !== settled.fits) {
+          try {
+            localStorage.setItem(settledKey, JSON.stringify({ ...known, [key]: settled }));
+          } catch {
+            /* Storage is optional: the next landing measures as before. */
+          }
+        }
+        apply(element.clientWidth - fixed - live < finderMin);
+        return;
+      }
+      const reserve = (remembered(key)?.reserve ?? 0) * rem;
+      apply(element.clientWidth - fixed - Math.max(live, reserve) < finderMin);
     };
     if (typeof ResizeObserver === 'undefined') {
       measure(setTight);
@@ -133,10 +216,18 @@ function useTightBar(bar: RefObject<HTMLDivElement | null>, compact: boolean): b
             watch();
           });
     mutations?.observe(element, { subtree: true, childList: true });
+    // The session check settles the tabs and the account end: measure again then, even when
+    // nothing resized (remembered widths that did not come true).
+    const auth = useAuthStore.subscribe((state, previous) => {
+      if (state.loading === previous.loading && state.user === previous.user) return;
+      observer.disconnect();
+      watch();
+    });
     return () => {
       observer.disconnect();
       mutations?.disconnect();
+      auth();
     };
-  }, [bar, compact]);
+  }, [bar, compact, key]);
   return tight;
 }

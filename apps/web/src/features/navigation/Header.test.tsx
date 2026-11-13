@@ -76,8 +76,8 @@ function Shell({ user }: { user: User | null }) {
     </>
   );
 }
-async function mount(user: User | null, path = '/') {
-  useAuthStore.setState({ user, loading: false, load: async () => {} });
+async function mount(user: User | null, path = '/', loading = false) {
+  useAuthStore.setState({ user, loading, load: async () => {} });
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={[path]}>
@@ -343,6 +343,85 @@ describe('brand', () => {
       bar.mockRestore();
       rect.mockRestore();
     }
+  });
+});
+
+describe('brand on landing', () => {
+  // A window 1280px wide: width media queries in px or em (16px) answer against it.
+  const viewport = 1280;
+  const media = (query: string) => {
+    const match = /\((min|max)-width:\s*([\d.]+)(px|em)\)/.exec(query);
+    const px = match ? Number(match[2]) * (match[3] === 'em' ? 16 : 1) : 0;
+    return {
+      matches: match ? (match[1] === 'min' ? viewport >= px : viewport <= px) : false,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    } as unknown as MediaQueryList;
+  };
+  const token = `${btoa(JSON.stringify({ exp: 4102444800 })).replace(/=+$/, '')}.sig`;
+  const lockupShown = () => document.querySelector('header img[alt="Clarity Control"]') !== null;
+  let report: (() => void) | undefined;
+  let bar: { mockRestore(): void };
+  let rect: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', media);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          report = () => callback([], this as unknown as ResizeObserver);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    bar = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(viewport);
+    rect = vi
+      .spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(0, 0, 200, 28));
+  });
+  afterEach(() => {
+    bar.mockRestore();
+    rect.mockRestore();
+  });
+
+  it('starts a stored session from the remembered header, without reading layout, until the check settles', async () => {
+    localStorage.setItem('clarity-editor-session', token);
+    // The laptop band at 1280px, on the editor: tabs and account 50rem, lockup fits from 100rem.
+    localStorage.setItem(
+      'clarity-header-settled:v1',
+      JSON.stringify({ '100|/': { reserve: 50, fits: 100 } }),
+    );
+    await mount(null, '/', true);
+    expect(rect).not.toHaveBeenCalled();
+    expect(lockupShown()).toBe(false);
+    // Laid out with the signed-out tabs (400px): the remembered 800px still stands while it waits.
+    act(() => report!());
+    expect(lockupShown()).toBe(false);
+    // The session turns out signed out: measured from the live bar again, the lockup fits.
+    act(() => useAuthStore.setState({ loading: false }));
+    act(() => report!());
+    expect(lockupShown()).toBe(true);
+  });
+
+  it('keeps the lockup on landing without a stored session, and remembers a settled account', async () => {
+    localStorage.setItem(
+      'clarity-header-settled:v1',
+      JSON.stringify({ '100|/': { reserve: 40, fits: 100 } }),
+    );
+    await mount(null, '/', true);
+    expect(lockupShown()).toBe(true);
+    act(() => report!());
+    expect(lockupShown()).toBe(true);
+    vi.stubGlobal('innerWidth', viewport);
+    act(() => useAuthStore.setState({ user: person('maintainer'), loading: false }));
+    act(() => report!());
+    const settled = JSON.parse(localStorage.getItem('clarity-header-settled:v1')!);
+    // Tabs plus account end, 400px at 16px; fits adds the lockup, the finder minimum, and what lies outside the bar.
+    expect(settled['100|/'].reserve).toBe(25);
+    expect(settled['100|/'].fits).toBe(60.25);
   });
 });
 
