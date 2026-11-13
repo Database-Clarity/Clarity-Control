@@ -133,7 +133,10 @@ describe('working diff (changes since the last save)', () => {
     expect(q('[data-working-diff]')?.getAttribute('aria-busy')).toBe('true');
     expect(panel()?.querySelector('ins')?.textContent).toBe('One. Two. Three.');
     settle();
-    expect(panel()?.querySelector('ins')?.textContent).toBe('One. Two. Three. Four. Five.');
+    // Enough added ink promotes the comparison to a whole-line rewrite.
+    expect(panel()?.querySelector('ins')?.textContent).toBe(
+      'Deals 20% damage. One. Two. Three. Four. Five.',
+    );
     expect(q('[data-working-diff]')?.hasAttribute('aria-busy')).toBe(false);
   });
 
