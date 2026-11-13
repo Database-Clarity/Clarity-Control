@@ -196,3 +196,17 @@
   margin: 0;
   color: var(--text2);
 }
+
+// The list's action names itself in full where the header has room, in one word where it does not
+// (the editor's narrowest widths), so the queue never pushes the pane's own buttons out.
+.short {
+  display: none;
+}
+@container pane-header (max-width: 38rem) {
+  .long {
+    display: none;
+  }
+  .short {
+    display: inline;
+  }
+}

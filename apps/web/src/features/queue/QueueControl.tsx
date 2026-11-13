@@ -36,9 +36,19 @@ const DriftPanel = lazy(() => import('./DriftPanel'));
 const LostPanel = lazy(() => import('./LostPanel'));
 
 /** The source's own finishing action, beside the queue: what each list calls done. */
-const panels: Partial<Record<WorkQueue['source'], { label: string; title: string }>> = {
-  drift: { label: 'Bungie change', title: 'The in-game description change, and Mark reviewed' },
-  'lost-text': { label: 'Lost text', title: 'The earlier text, Recover as draft, and Dismiss' },
+const panels: Partial<
+  Record<WorkQueue['source'], { label: string; short: string; title: string }>
+> = {
+  drift: {
+    label: 'Bungie change',
+    short: 'Change',
+    title: 'The in-game description change, and Mark reviewed',
+  },
+  'lost-text': {
+    label: 'Lost text',
+    short: 'Lost',
+    title: 'The earlier text, Recover as draft, and Dismiss',
+  },
 };
 
 function Panel({ queue, item }: { queue: WorkQueue; item: QueueItem }) {
@@ -230,7 +240,16 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       label={panel.label}
       className={header.queueBack}
       width={480}
-      trigger={panel.label}
+      trigger={
+        // A narrow header shows the short word (its title still says it all).
+        <>
+          <span className={styles.long}>{panel.label}</span>
+          <span className={styles.short} aria-hidden="true">
+            {panel.short}
+          </span>
+        </>
+      }
+      triggerLabel={panel.label}
       triggerTitle={panel.title}
     >
       <Panel queue={queue} item={place.current} />

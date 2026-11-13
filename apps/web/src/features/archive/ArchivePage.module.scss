@@ -83,3 +83,11 @@
     }
   }
 }
+
+// The detail's top row: the way back, and a work-through queue's control on the right.
+.detailBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}

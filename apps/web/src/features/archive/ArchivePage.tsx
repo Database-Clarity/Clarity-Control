@@ -26,6 +26,8 @@ import { When } from '../../ui/When';
 import type { ArchiveRestore } from '../queue/sources';
 import { archiveItem } from '../queue/rows';
 import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkThroughBar';
+import { WorkThroughControl } from '../queue/QueueControl';
+import { useWorkThrough } from '../queue/useQueue';
 import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './ArchivePage.module.scss';
 
@@ -51,7 +53,13 @@ function ArchiveContents() {
   const locked = useSaveState((state) => state.locked);
   const [params, setParams] = useSearchParams();
   // Leave from a work-through queue brings the view, filter, selection, and scroll back.
-  const restored = returnedState<ArchiveRestore>(useLocation().state);
+  const { state: routeState } = useLocation();
+  const restored = returnedState<ArchiveRestore>(routeState);
+  // A work-through queue of Archive items: its control sits in the detail's top row (on phones the
+  // detail opens on its preview, where the editor's pane header is out of view).
+  const workThrough = useWorkThrough(routeState, false);
+  const work =
+    workThrough?.mode === 'active' && workThrough.queue.source === 'archive' ? workThrough : null;
   const [query, setQuery] = useState(restored?.query ?? '');
   const [returned, setReturned] = useState(restored?.returned ?? false);
   const [picked, setPicked] = useState<ReadonlySet<number>>(
@@ -287,9 +295,12 @@ function ArchiveContents() {
       </div>
       {selectedHash && (
         <>
-          <button type="button" onClick={back}>
-            Back to Archive
-          </button>
+          <div className={styles.detailBar}>
+            <button type="button" onClick={back}>
+              Back to Archive
+            </button>
+            {work && <WorkThroughControl work={work} />}
+          </div>
           {!base || !current ? (
             <p>This tooltip is no longer in this Archive filter.</p>
           ) : (

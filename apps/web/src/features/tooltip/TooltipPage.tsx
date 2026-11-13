@@ -267,14 +267,11 @@ function TooltipWorkspace({
     () => (hashOverride === undefined ? queueContext(search, routeState, user) : null),
     [hashOverride, search, routeState, user],
   );
-  // A work-through queue (Bungie drift, Lost text, Archive): active when the history entry names
-  // it, paused on an ordinary editor visit while the tab works through one. On an embedded page
-  // (the Archive's detail) only that page's own queue shows.
+  // A work-through queue (Bungie drift, Lost text): active when the history entry names it,
+  // paused on an ordinary editor visit while the tab works through one. An embedded page (the
+  // Archive's detail) shows its queue in its own top row instead.
   const workThrough = useWorkThrough(routeState, hashOverride === undefined);
-  const work =
-    !queue && workThrough && (hashOverride === undefined || workThrough.mode === 'active')
-      ? workThrough
-      : null;
+  const work = !queue && hashOverride === undefined ? workThrough : null;
   const endWork = useWorkQueues((state) => state.end);
   function changeLanguage(next: Lang) {
     setRemembered(next);
