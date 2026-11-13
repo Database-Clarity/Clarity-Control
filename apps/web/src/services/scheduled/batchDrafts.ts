@@ -131,6 +131,14 @@ export function discardBatchDraft(
   store.getState().discardAt(batchDraftKey(batchId, hash));
 }
 
+/**
+ * The store's own edits refuse signed out (`requireOwner`); the save helpers below write its
+ * state directly, so they check the same before changing anything.
+ */
+function signedIn(store: BatchDraftStore) {
+  if (store.getState().owner === null) throw new Error('Sign in to edit these drafts');
+}
+
 /** `replaceDraft` for a batch destination (conflict recovery and rebase: `resetBase`). */
 export function replaceBatchDraft(
   batchId: string,
@@ -139,6 +147,7 @@ export function replaceBatchDraft(
   resetBase = false,
   store: BatchDraftStore = useBatchDraftStore,
 ): void {
+  signedIn(store);
   replaceDraftAt(store, batchDraftKey(batchId, base.hash), base, next, resetBase);
 }
 
@@ -157,6 +166,7 @@ export function acceptBatchSaved(
   for (const key of Object.keys(submitted))
     if (parseBatchDraftKey(key)?.batchId !== batchId)
       throw new Error(`Draft ${key} is not in batch ${batchId}; drafts were retained.`);
+  signedIn(store);
   const proposed = new Map(members.map((member) => [member.hash, member.proposed]));
   const state = store.getState();
   const drafts = reconcileSaved(state.drafts, submitted, (key) =>

@@ -168,6 +168,19 @@ describe('STATE SWEEP: batch drafts (flag ON, real IndexedDB and BroadcastChanne
     expect(() => editBatchDraft(A, tooltip, 'en', 'x', 'anon', batch)).toThrow('Sign in');
   });
 
+  it('signed out, the save helpers refuse before changing drafts or queueing a write', async () => {
+    const batch = createBatchDraftStore(createBatchDraftStorage('signed-out-helpers'));
+    await batch.getState().hydrate();
+    const changed = { ...tooltip, text: { en: { ...english, text: 'Changed' } } };
+    const submitted = { [batchDraftKey(A, 123)]: { base: tooltip, next: changed } };
+    expect(() => replaceBatchDraft(A, tooltip, changed, true, batch)).toThrow('Sign in');
+    expect(() => replaceBatchDraft(A, tooltip, changed, false, batch)).toThrow('Sign in');
+    expect(() => acceptBatchSaved(A, submitted, [{ hash: 123, proposed: changed }], batch)).toThrow(
+      'Sign in',
+    );
+    expect(batch.getState()).toMatchObject({ drafts: {}, pending: 0, error: null });
+  });
+
   it('cross-tab: a batch write flags only the batch store, and Reload or Keep mine recovers', async () => {
     const user = nextAccount();
     const one = await tab(user, `x-1-${user}`);
@@ -433,5 +446,33 @@ describe('fixture Worker batch routes', () => {
       status: 409,
       body: { error: 'Publishing started' },
     });
+  });
+
+  it('remove and rebase answer with the head they wrote, and member reads pin to it', async () => {
+    const { fixture, id, next } = await seeded();
+    const added = await post(fixture, `/batches/${id}/save`, {
+      revision: 2,
+      changes: [{ hash: 124, base: { ...tooltip, hash: 124 }, next: { ...next, hash: 124 } }],
+    });
+    expect(added.body.head).toBe(fixture.head);
+    const raw = (head: string, hash: number) =>
+      fixture.fetch(
+        `https://raw.githubusercontent.com/o/editor-data/${head}/schedule/batches/${id}/tooltips/${hash}.json`,
+      );
+    const removed = await post(fixture, `/batches/${id}/remove`, { revision: 3, hashes: [124] });
+    expect(removed.body.head).toBe(fixture.head);
+    expect((await raw(removed.body.head, 123)).status).toBe(200);
+    expect((await raw(removed.body.head, 124)).status).toBe(404);
+    const rebasedNext = { ...next, associated: [9] };
+    const rebased = await post(fixture, `/batches/${id}/rebase`, {
+      revision: 4,
+      hash: 123,
+      base: tooltip,
+      next: rebasedNext,
+    });
+    expect(rebased.status).toBe(200);
+    expect(rebased.body.head).toBe(fixture.head);
+    const member = (await (await raw(rebased.body.head, 123)).json()) as { proposed: Tooltip };
+    expect(member.proposed).toEqual(rebasedNext);
   });
 });

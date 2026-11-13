@@ -254,7 +254,9 @@ export function createBatchFixture(options: FixtureOptions) {
         const stored = new Map(members.get(id));
         for (const hash of hashes) stored.delete(hash);
         members.set(id, stored);
-        return json(200, { head, batch: write(batch, 'remove', before, hashes) });
+        // write() advances head: build the response after it, so it names the new commit.
+        const next = write(batch, 'remove', before, hashes);
+        return json(200, { head, batch: next });
       }
       case 'rebase': {
         if (!canManage()) return json(403, { error: 'Only editors rebase' });
@@ -274,11 +276,8 @@ export function createBatchFixture(options: FixtureOptions) {
           updatedBy: user.login,
         };
         members.set(id, new Map(members.get(id)).set(hash, rebased));
-        return json(200, {
-          head,
-          batch: write(batch, 'rebase', before, [hash]),
-          members: [rebased],
-        });
+        const next = write(batch, 'rebase', before, [hash]);
+        return json(200, { head, batch: next, members: [rebased] });
       }
       case 'schedule': {
         if (!canManage()) return json(403, { error: 'Only editors schedule' });
