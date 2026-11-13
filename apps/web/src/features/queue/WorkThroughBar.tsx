@@ -22,14 +22,40 @@ export function scrollerOf(element: Element | null): Element {
   return document.scrollingElement ?? document.documentElement;
 }
 
+/** The first row in view: its key (`data-row-key`) and how far its top sits below the scroller's. */
+export interface TopRow {
+  key: string;
+  offset: number;
+}
+
+const viewTop = (scroller: Element) =>
+  scroller === document.scrollingElement || scroller === document.documentElement
+    ? 0
+    : scroller.getBoundingClientRect().top;
+
+/** The first row (`[data-row-key]`) whose bottom is below the scroller's top, if rows carry keys. */
+function topRowOf(scroller: Element): TopRow | undefined {
+  const top = viewTop(scroller);
+  for (const row of scroller.querySelectorAll<HTMLElement>('[data-row-key]')) {
+    const box = row.getBoundingClientRect();
+    if (box.bottom > top) return { key: row.dataset.rowKey!, offset: box.top - top };
+  }
+  return undefined;
+}
+
 /**
  * Puts the list's scroll position back after Leave, once its rows are in place (`ready`). `scroll`
- * is the returned position (undefined on an ordinary visit: nothing happens).
+ * is the returned position (undefined on an ordinary visit: nothing happens). With `top`, the row
+ * that was first in view is put back at its place instead: exact even where rows out of view are
+ * not rendered (their height is an estimate).
  */
 export function useRestoredScroll(
   anchor: React.RefObject<Element | null>,
   scroll: number | undefined,
   ready: boolean,
+  top?: TopRow,
+  /** The position once it holds, for a page that remembers its own scroll per history entry. */
+  onRestored?: (scrollTop: number) => void,
 ) {
   const done = useRef(false);
   const frame = useRef(0);
@@ -39,15 +65,31 @@ export function useRestoredScroll(
     const element = anchor.current;
     const apply = () => {
       const scroller = scrollerOf(element);
+      const row = top && scroller.querySelector(`[data-row-key="${CSS.escape(top.key)}"]`);
+      if (row) {
+        const delta = row.getBoundingClientRect().top - viewTop(scroller) - top.offset;
+        scroller.scrollTop += delta;
+        return Math.abs(delta) <= 1;
+      }
       scroller.scrollTop = scroll;
       return Math.abs(scroller.scrollTop - scroll) <= 1;
     };
-    // The shell may still be settling the page's height (a lazy page's first frames): try again
-    // for a few frames until the position holds.
-    if (apply()) return;
+    // The shell may still be settling the page's height (a lazy page's first frames), and rows
+    // coming into view replace their estimated height: try again for a few frames until it holds.
+    const settled = () => onRestored?.(scrollerOf(element).scrollTop);
+    // A page can mount before the workspace shows it (no layout yet): wait for its first layout
+    // (up to about three seconds) before counting the attempts.
+    const laidOut = () => element.getClientRects().length > 0;
+    if (laidOut() && apply()) return settled();
     let frames = 0;
+    let waited = 0;
     frame.current = requestAnimationFrame(function retry() {
+      if (!laidOut()) {
+        if (++waited < 180) frame.current = requestAnimationFrame(retry);
+        return;
+      }
       if (!apply() && ++frames < 20) frame.current = requestAnimationFrame(retry);
+      else settled();
     });
   });
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
@@ -91,6 +133,7 @@ export function WorkThroughBar({
     const done = queueSources[source].done(context);
     const drafts = useDraftStore.getState().drafts;
     const first = items.find((item) => !done(item, drafts)) ?? items[0]!;
+    const scroller = scrollerOf(anchor.current);
     const { to, state } = startQueue({
       source,
       scope,
@@ -98,7 +141,7 @@ export function WorkThroughBar({
       first,
       origin: {
         path: `${location.pathname}${location.search}`,
-        restore: { ...restore, scroll: scrollerOf(anchor.current).scrollTop },
+        restore: { ...restore, scroll: scroller.scrollTop, top: topRowOf(scroller) },
       },
     });
     navigate(to, { state });

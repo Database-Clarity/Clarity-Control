@@ -19,7 +19,7 @@ import { replaceDraft } from '../../services/save/drafts';
 import { errorMessage } from '../../services/http';
 import { When } from '../../ui/When';
 import type { LostRestore } from '../queue/sources';
-import { lostItem } from '../queue/rows';
+import { lostItem } from '../queue/lostRows';
 import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkThroughBar';
 import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './LostText.module.scss';
@@ -67,7 +67,11 @@ export function LostTextPage() {
     () => new Set(returned?.selected ?? []),
   );
   const barAnchor = useRef<HTMLDivElement>(null);
-  useRestoredScroll(barAnchor, returned?.scroll, Boolean(data));
+  useRestoredScroll(barAnchor, returned?.scroll, Boolean(data), returned?.top, (top) => {
+    // The list's own memory (the layout effect above) must not put it back to the top.
+    scrollPositions.current.set(location.key, top);
+    lastScroll.current = top;
+  });
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   useLayoutEffect(() => {
@@ -219,7 +223,7 @@ export function LostTextPage() {
                   showDismissed,
                   selected: [...picked],
                   item,
-                } satisfies Omit<LostRestore, 'scroll'>
+                } satisfies Omit<LostRestore, 'scroll' | 'top'>
               }
               onClear={() => setPicked(new Set())}
               anchor={barAnchor}
@@ -232,7 +236,7 @@ export function LostTextPage() {
             </p>
           )}
           {rows.map((r) => (
-            <div className={styles.rowLine} key={recordKey(r)}>
+            <div className={styles.rowLine} key={recordKey(r)} data-row-key={recordKey(r)}>
               <label className={bar.select}>
                 <input
                   type="checkbox"

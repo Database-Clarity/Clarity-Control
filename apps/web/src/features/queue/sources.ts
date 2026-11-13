@@ -5,6 +5,7 @@ import type { EditorData } from '../../stores/data';
 import { isDismissed } from '../lost-text/decisions';
 import type { LostText } from '../lost-text/model';
 import { merged, type QueueItem, type QueueSourceId, type WorkQueue } from './model';
+import type { TopRow } from './WorkThroughBar';
 
 export interface SourceContext {
   data: EditorData;
@@ -138,6 +139,8 @@ export interface LostRestore {
   /** The record open in the list's detail, if any. */
   item: string | null;
   scroll: number;
+  /** The row first in view (rows out of view are not rendered, so a pixel offset is not exact). */
+  top?: TopRow;
 }
 
 const lost: QueueSource = {
@@ -158,7 +161,7 @@ const lost: QueueSource = {
     const [{ default: artifact }, { artifactSchema }, { lostRows, lostItem }] = await Promise.all([
       import('../lost-text/lost-text.json'),
       import('../lost-text/model'),
-      import('./rows'),
+      import('./lostRows'),
     ]);
     const parsed = artifactSchema.safeParse(artifact);
     if (!parsed.success) return queue.items;

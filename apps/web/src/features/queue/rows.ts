@@ -3,10 +3,9 @@ import type { Drafts } from '../../services/draftStorage';
 import type { EditorData } from '../../stores/data';
 import { isSetSelector } from '../compendium/itemClassification';
 import { archiveIdentity, inactiveArchiveHashes } from '../archive/archive';
-import { recordKey, visibleRecords, type LostText } from '../lost-text/model';
 import type { QueueItem } from './model';
 
-import { archiveState, type ArchiveRestore, type LostRestore } from './sources';
+import { archiveState, type ArchiveRestore } from './sources';
 
 /**
  * The lists' rows as queue items: used by the list pages to start a queue and, loaded on demand,
@@ -33,32 +32,6 @@ export function driftRows(data: EditorData, query: string): QueueItem[] {
       hash: tooltip.hash,
       name: data.items[tooltip.hash]?.name ?? String(tooltip.hash),
     }));
-}
-
-export function lostItem(record: LostText, data: EditorData): QueueItem {
-  return {
-    key: recordKey(record),
-    hash: record.hash,
-    lang: record.lang,
-    name: data.items[record.hash]?.name ?? record.name,
-    detail: record,
-  };
-}
-
-export function lostRows(
-  records: LostText[],
-  data: EditorData,
-  decisions: Record<string, string>,
-  filters: Pick<LostRestore, 'query' | 'classFilter' | 'showDismissed'>,
-): LostText[] {
-  return visibleRecords(
-    records,
-    data.bundle.tooltips,
-    decisions,
-    filters.classFilter !== '',
-    filters.classFilter === 'all' ? '' : filters.classFilter,
-    filters.showDismissed,
-  ).filter((r) => `${r.name} ${r.hash}`.toLowerCase().includes(filters.query.trim().toLowerCase()));
 }
 
 export function archiveItem(tooltip: Tooltip, data: EditorData, drafts: Drafts): QueueItem {
