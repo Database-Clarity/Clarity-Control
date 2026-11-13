@@ -387,13 +387,13 @@ describe('brand on landing', () => {
     rect.mockRestore();
   });
 
+  const memoryKey = 'clarity-header-settled:v2';
+  const remember = (memory: object) => localStorage.setItem(memoryKey, JSON.stringify(memory));
+
   it('starts a stored session from the remembered header, without reading layout, until the check settles', async () => {
     localStorage.setItem('clarity-editor-session', token);
     // The laptop band at 1280px, on the editor: tabs and account 50rem, lockup fits from 100rem.
-    localStorage.setItem(
-      'clarity-header-settled:v1',
-      JSON.stringify({ '100|/': { reserve: 50, fits: 100 } }),
-    );
+    remember({ exact: { '100|/': { reserve: 50, fits: 100 } } });
     await mount(null, '/', true);
     expect(rect).not.toHaveBeenCalled();
     expect(lockupShown()).toBe(false);
@@ -406,11 +406,46 @@ describe('brand on landing', () => {
     expect(lockupShown()).toBe(true);
   });
 
+  it('plans for an editor’s tabs when nothing is remembered (first sign-in, cleared storage)', async () => {
+    localStorage.setItem('clarity-editor-session', token);
+    // Editor, Review changes, Compendium, Reports, and More with the account end (~34rem), plus the
+    // lockup and the finder's 41rem: about 88rem, wider than 80rem.
+    await mount(null, '/', true);
+    expect(rect).not.toHaveBeenCalled();
+    expect(lockupShown()).toBe(false);
+    // Laid out (this bar has no finder: 25rem), the expected 35rem stands in for the 200px of
+    // signed-out tabs: room at 1280px, none at 1000px, where the live tabs alone would leave room.
+    rect.mockReturnValue(new DOMRect(0, 0, 100, 28));
+    act(() => report!());
+    expect(lockupShown()).toBe(true);
+    vi.stubGlobal('innerWidth', 1000);
+    bar.mockRestore();
+    bar = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+    act(() => report!());
+    expect(lockupShown()).toBe(false);
+  });
+
+  it('estimates a band the account never settled in from its remembered role', async () => {
+    localStorage.setItem('clarity-editor-session', token);
+    // A translator who settled only in the widest band: Editor, Translations, and Reports here
+    // (~23rem) leave the lockup room at 80rem.
+    remember({
+      account: { role: 'translator', projects: false },
+      ratio: 1,
+      exact: { '011|/': { reserve: 22, fits: 76 } },
+    });
+    await mount(null, '/', true);
+    expect(lockupShown()).toBe(true);
+    // The same account with tabs half again as wide as the estimate (the remembered ratio): no room.
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    remember({ account: { role: 'translator', projects: false }, ratio: 1.5 });
+    await mount(null, '/', true);
+    expect(lockupShown()).toBe(false);
+  });
+
   it('keeps the lockup on landing without a stored session, and remembers a settled account', async () => {
-    localStorage.setItem(
-      'clarity-header-settled:v1',
-      JSON.stringify({ '100|/': { reserve: 40, fits: 100 } }),
-    );
+    remember({ exact: { '100|/': { reserve: 40, fits: 100 } } });
     await mount(null, '/', true);
     expect(lockupShown()).toBe(true);
     act(() => report!());
@@ -418,10 +453,13 @@ describe('brand on landing', () => {
     vi.stubGlobal('innerWidth', viewport);
     act(() => useAuthStore.setState({ user: person('maintainer'), loading: false }));
     act(() => report!());
-    const settled = JSON.parse(localStorage.getItem('clarity-header-settled:v1')!);
+    const memory = JSON.parse(localStorage.getItem(memoryKey)!);
     // Tabs plus account end, 400px at 16px; fits adds the lockup, the finder minimum, and what lies outside the bar.
-    expect(settled['100|/'].reserve).toBe(25);
-    expect(settled['100|/'].fits).toBe(60.25);
+    expect(memory.exact['100|/']).toEqual({ reserve: 25, fits: 60.25 });
+    expect(memory.account).toEqual({ role: 'maintainer', projects: false });
+    expect(memory.finder).toEqual({ '/': false });
+    expect(memory.outside).toBe(0);
+    expect(memory.ratio).toBeGreaterThan(0);
   });
 });
 
