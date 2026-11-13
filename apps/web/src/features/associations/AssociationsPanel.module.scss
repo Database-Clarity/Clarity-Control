@@ -1,5 +1,23 @@
 .panel {
   min-width: 0;
+  // In a narrow preview column (768 at a large interface scale) the row's head is narrower than
+  // its label and Add together. Here only, the label yields before Add does: the summary gives up
+  // its room first, then the label ellipsises, so Add always shows whole. (PanelRow keeps its
+  // items unshrunk elsewhere: History needs its label whole.) Head = row > first child.
+  > div > div:first-child {
+    > :first-child {
+      flex: 0 1 auto;
+      min-width: 0;
+      > :last-child {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+    > :nth-child(2):not(:last-child) {
+      flex-shrink: 1000;
+    }
+  }
   input {
     max-width: 100%;
     margin: 0.25rem 0;

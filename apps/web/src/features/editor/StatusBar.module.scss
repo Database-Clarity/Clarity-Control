@@ -260,6 +260,11 @@
   &[data-inactive] {
     visibility: hidden;
   }
+  // Until it first shows, the idle item is fully shrinkable: a crowded bar keeps its long labels
+  // in that room instead of shortening them beside an empty gap. Reserved, it keeps its width.
+  &[data-inactive]:not([data-reserved]) {
+    overflow: hidden;
+  }
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
