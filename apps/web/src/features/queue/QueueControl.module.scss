@@ -29,6 +29,10 @@
     @include controls.focus-ring;
   }
 }
+.menuSegment {
+  min-width: 2rem;
+  padding: 0 0.5rem;
+}
 .chevron {
   width: 0.375rem;
   height: 0.375rem;

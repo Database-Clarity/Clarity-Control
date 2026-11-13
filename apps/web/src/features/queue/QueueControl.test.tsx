@@ -131,8 +131,8 @@ describe('work through Bungie drift', () => {
 
     // Next on the last item ends the queue there.
     act(() => button('›')!.click());
-    expect(position()).toBe('End of queue · 1 skipped');
-    expect(link('Revisit skipped')).toBeDefined();
+    expect(position()).toBe('End · 1 skipped');
+    expect(link('Revisit')).toBeDefined();
 
     await act(async () => link('Bungie drift')!.click());
     expect(location.pathname).toBe('/drift');

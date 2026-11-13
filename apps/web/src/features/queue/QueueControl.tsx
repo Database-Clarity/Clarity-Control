@@ -197,14 +197,17 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       onClick={() => revisit(queue.id)}
       title={`Back to the first item left: ${revisitItem.name}`}
     >
-      {place.skipped === place.left ? 'Revisit skipped' : 'Revisit left'}
+      Revisit
     </Link>
   );
-  const back = (text: string) => (
+  // Phones: the position is the way back (one joined stepper `[‹][12 of 148][›][▾]`), as in the
+  // translator queue; the menu has a segment of its own.
+  const back = (text: string, ariaLabel?: string) => (
     <Link
       to={leave.to}
       state={leave.state}
       className={header.queueBack}
+      aria-label={ariaLabel}
       title={`Leave the queue: back to ${source.label}, with its filters and selection`}
       onClick={onLeave}
     >
@@ -218,7 +221,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       flush
       width={360}
       trigger={trigger}
-      triggerLabel={`${name}: ${label}`}
+      triggerLabel={phone ? `${name}: every item, Rebuild queue` : `${name}: ${label}`}
       triggerTitle={`${source.label}: every item in this queue, and Rebuild queue`}
     >
       {(close) => (
@@ -271,15 +274,19 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
         >
           {place.finished ? (
             <>
-              {menu(label, `${header.queueBack} ${styles.position}`)}
+              {back(label, `Back to ${source.label}, ${label}`)}
               {revisitLink}
             </>
           ) : (
             <>
               {previousStep}
-              {menu(label, `${header.queueBack} ${styles.position}`)}
+              {back(label, `Back to ${source.label}, ${label}`)}
               {nextStep}
             </>
+          )}
+          {menu(
+            <span className={styles.chevron} aria-hidden="true" />,
+            `${header.queueBack} ${styles.menuSegment}`,
           )}
         </span>
       </>

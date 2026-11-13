@@ -33,18 +33,24 @@ export function stateText(row: QueueRow): string {
 export function QueueList({
   rows,
   linkTo,
+  onOpen,
+  restored,
   label,
   signature,
 }: {
   rows: readonly QueueRow[];
   /** Where a row opens the editor, and the queue mode state that goes with it. */
   linkTo(row: QueueRow): { to: string; state: unknown };
+  /** A plain click or Enter opens `row` in queue mode: the queue starts here (`top`: the scroll). */
+  onOpen?(row: QueueRow, top: number): void;
+  /** Leave from that queue: the position and row to come back to. */
+  restored?: { top: number; selected: string | null };
   label: string;
   /** What the rows are filtered by: a position is only restored for the same view. */
   signature: string;
 }) {
   const arrival = useNavigationType();
-  const saved = arrival === 'POP' ? memory.get(signature) : undefined;
+  const saved = restored ?? (arrival === 'POP' ? memory.get(signature) : undefined);
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
   const [selected, setSelected] = useState(() => {
@@ -208,7 +214,18 @@ export function QueueList({
                 title={`${row.name} · ${row.hash}`}
                 onFocus={() => setSelected(index)}
                 // Safari does not focus a link on click; the opened row is still the one to return to.
-                onClick={() => (opened.current = row.key)}
+                onClick={(event) => {
+                  opened.current = row.key;
+                  // A new tab or window (a modified click) is an ordinary visit.
+                  if (
+                    event.button === 0 &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  )
+                    onOpen?.(row, scrolled.current);
+                }}
               >
                 <span className={styles.name}>{row.name}</span>
                 <span className={styles.category}>{row.category}</span>

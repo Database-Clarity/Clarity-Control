@@ -16,7 +16,7 @@
 import type { Lang } from '@clarity/core';
 
 /** The worklists a queue can come from. */
-export type QueueSourceId = 'drift' | 'lost-text' | 'archive';
+export type QueueSourceId = 'drift' | 'lost-text' | 'archive' | 'translations';
 
 export type ItemStatus = 'open' | 'done' | 'skipped';
 
@@ -142,14 +142,14 @@ export function queuePlace(
 
 /**
  * "12 of 148"; "Done · 147 left" once the open item is finished; "Queue done" when nothing is
- * left; "End of queue · 2 skipped" after Next on the last item with skipped ones behind.
+ * left; "End · 2 skipped" after Next on the last item with skipped ones behind.
  */
 export function placeLabel(place: QueuePlace): string {
   if (!place.left) return 'Queue done';
   if (place.finished)
     return place.skipped === place.left
-      ? `End of queue · ${place.skipped} skipped`
-      : `End of queue · ${place.left} left`;
+      ? `End · ${place.skipped} skipped`
+      : `End · ${place.left} left`;
   if (place.index) return `${place.index} of ${place.left}`;
   return `${place.status === 'done' ? 'Done' : 'Not in queue'} · ${place.left} left`;
 }
@@ -168,4 +168,16 @@ export function firstToDo(
 /** A new queue id: random enough for one browser tab's session. */
 export function newQueueId(): string {
   return `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Items for `rows`, keeping the queue's own record of any it already holds. */
+export function merged(queue: WorkQueue, rows: QueueItem[]): QueueItem[] {
+  const old = new Map(queue.items.map((item) => [item.key, item]));
+  const selected =
+    queue.scope === 'selected'
+      ? new Set((queue.origin.restore as { selected?: unknown[] }).selected?.map(String))
+      : undefined;
+  return rows
+    .filter((row) => !selected || selected.has(row.key))
+    .map((row) => old.get(row.key) ?? row);
 }

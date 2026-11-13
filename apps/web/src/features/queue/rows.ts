@@ -4,7 +4,8 @@ import type { EditorData } from '../../stores/data';
 import { isSetSelector } from '../compendium/itemClassification';
 import { archiveIdentity, inactiveArchiveHashes } from '../archive/archive';
 import { recordKey, visibleRecords, type LostText } from '../lost-text/model';
-import type { QueueItem, WorkQueue } from './model';
+import type { QueueItem } from './model';
+
 import { archiveState, type ArchiveRestore, type LostRestore } from './sources';
 
 /**
@@ -12,18 +13,6 @@ import { archiveState, type ArchiveRestore, type LostRestore } from './sources';
  * by Rebuild queue. Kept apart from sources.ts so the editor never loads the lists' code until a
  * rebuild asks for it.
  */
-
-/** Items for `rows`, keeping the queue's own record of any it already holds. */
-export function merged(queue: WorkQueue, rows: QueueItem[]): QueueItem[] {
-  const old = new Map(queue.items.map((item) => [item.key, item]));
-  const selected =
-    queue.scope === 'selected'
-      ? new Set((queue.origin.restore as { selected?: unknown[] }).selected?.map(String))
-      : undefined;
-  return rows
-    .filter((row) => !selected || selected.has(row.key))
-    .map((row) => old.get(row.key) ?? row);
-}
 
 export function driftRows(data: EditorData, query: string): QueueItem[] {
   const search = query.trim().toLocaleLowerCase();

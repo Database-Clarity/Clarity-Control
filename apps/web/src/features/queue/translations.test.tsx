@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
-import { QueueControl } from './QueueControl';
+import { WorkThroughControl } from './QueueControl';
 import { TranslationsPage } from '../translations/TranslationsPage';
-import { queueContext } from '../translations/worklist';
+import { resetWorkQueues, useWorkQueues } from './store';
+import { useWorkThrough } from './useQueue';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import type { User } from '../../services/api';
@@ -78,11 +79,9 @@ function Probe() {
 }
 /** The editor route, reduced to the queue control fed the way TooltipPage feeds it. */
 function Editor() {
-  const hash = Number(useParams().hash);
-  const user = useAuthStore((state) => state.user);
-  const { search, state } = useLocation();
-  const context = queueContext(new URLSearchParams(search), state, user);
-  return context ? <QueueControl hash={hash} context={context} /> : <p>Ordinary visit</p>;
+  const { state } = useLocation();
+  const work = useWorkThrough(state);
+  return work ? <WorkThroughControl work={work} /> : <p>Ordinary visit</p>;
 }
 async function mount(path: string, tooltips = initial()) {
   useDataStore.setState({ status: 'ready', data: build(tooltips) });
@@ -112,6 +111,7 @@ const save = (hash: number) =>
   );
 
 beforeEach(() => {
+  resetWorkQueues();
   vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => setTimeout(run, 0));
   vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
   host = document.createElement('div');
@@ -125,7 +125,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe('queue control', () => {
+describe('Translations queue on the shared model', () => {
   it.each(['/translations', '/translations?cat=perks', '/translations?q=perk&state=missing'])(
     'steps through exactly the rows of the Translations tab, in its order: %s',
     async (path) => {
@@ -191,7 +191,7 @@ describe('queue control', () => {
     expect(host.querySelector('[data-queue] a')?.getAttribute('href')).toBe('/translations');
   });
 
-  it('opens an entry that is not in the queue without an error, offering the first row', async () => {
+  it('a reload keeps the queue: a saved entry still reads Done and Next goes on', async () => {
     await mount('/translations');
     await click(rows()[0]!);
     await save(5);
@@ -214,9 +214,42 @@ describe('queue control', () => {
         </MemoryRouter>,
       ),
     );
-    expect(position()).toBe('Not in queue · 4 left');
+    // Membership is frozen: the reloaded queue still knows where the saved entry was.
+    expect(position()).toBe('Done · 4 left');
     expect(link('Previous in queue')).toBeNull();
     expect(link('Next in queue')?.getAttribute('href')).toBe('/t/2?lang=de');
+  });
+
+  it('membership is frozen: an entry that needs work later does not join', async () => {
+    await mount('/translations');
+    await click(rows()[0]!);
+    expect(position()).toBe('1 of 5');
+    // Tooltip 3 falls behind English elsewhere: the tab lists it, the open queue does not.
+    await act(async () =>
+      useDataStore.setState({
+        data: build(
+          initial().map((entry) =>
+            entry.hash === 3 ? tooltip(3, '2026-01-10T00:00:00.000Z') : entry,
+          ),
+        ),
+      }),
+    );
+    expect(position()).toBe('1 of 5');
+    expect(Object.values(useWorkQueues.getState().queues)[0]!.items).toHaveLength(5);
+  });
+
+  it('a modified click (new tab) starts no queue', async () => {
+    await mount('/translations');
+    // jsdom cannot open a new tab: stop the browser's own follow-up once the app has seen the click.
+    const stop = (event: Event) => event.preventDefault();
+    document.addEventListener('click', stop);
+    await act(async () => {
+      rows()[1]!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+      );
+    });
+    document.removeEventListener('click', stop);
+    expect(useWorkQueues.getState().active).toBeNull();
   });
 
   it('steps with Alt+PageDown and Alt+PageUp, and leaves other keys alone', async () => {
@@ -241,7 +274,7 @@ describe('queue control', () => {
   });
 });
 
-describe('queue control on a phone', () => {
+describe('Translations queue on a phone', () => {
   beforeEach(() => {
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query.includes('max-width: 700px'),
@@ -259,8 +292,9 @@ describe('queue control on a phone', () => {
     const segments = [...host.querySelectorAll('[data-queue] > *')];
     expect(segments.map((segment) => segment.getAttribute('aria-label'))).toEqual([
       'Previous in queue',
-      `Back to the translation queue, 1 of ${total}`,
+      `Back to Translations, 1 of ${total}`,
       expect.stringMatching(/^Next in queue: /),
+      'Translations queue: every item, Rebuild queue',
     ]);
     expect(segments[1]!.textContent).toBe(`1 of ${total}`);
     // The status line stays for screen readers only.
@@ -278,7 +312,7 @@ describe('queue control on a phone', () => {
     expect(status()).toBe(`2 of ${total}`);
     await press({ key: 'PageUp', altKey: true });
     expect(status()).toBe(`1 of ${total}`);
-    await click(link('Back to the translation queue')!);
+    await click(link('Back to Translations')!);
     expect(location.pathname).toBe('/translations');
   });
 });

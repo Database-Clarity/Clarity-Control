@@ -1,15 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDraftStore } from '../../stores/drafts';
-import {
-  newQueueId,
-  visitState,
-  type QueueItem,
-  type QueueSourceId,
-  type WorkQueue,
-} from './model';
+import type { QueueItem, QueueSourceId, WorkQueue } from './model';
+import { startQueue } from './start';
 import { queueSources } from './sources';
-import { useWorkQueues } from './store';
 import { useSourceContext } from './useQueue';
 import styles from './WorkThroughBar.module.scss';
 
@@ -85,7 +79,6 @@ export function WorkThroughBar({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const start = useWorkQueues((state) => state.start);
   const context = useSourceContext();
   const disabled = !context;
   function begin(scope: WorkQueue['scope'], items: QueueItem[]) {
@@ -93,26 +86,17 @@ export function WorkThroughBar({
     const done = queueSources[source].done(context);
     const drafts = useDraftStore.getState().drafts;
     const first = items.find((item) => !done(item, drafts)) ?? items[0]!;
-    const queue: WorkQueue = {
-      version: 1,
-      id: newQueueId(),
+    const { to, state } = startQueue({
       source,
       scope,
+      items,
+      first,
       origin: {
         path: `${location.pathname}${location.search}`,
         restore: { ...restore, scroll: scrollerOf(anchor.current).scrollTop },
       },
-      items,
-      skipped: [],
-      current: first.key,
-      finished: false,
-      createdAt: Date.now(),
-      destination: null,
-    };
-    start(queue);
-    navigate(queueSources[source].path(first), {
-      state: visitState({ id: queue.id, key: first.key }),
     });
+    navigate(to, { state });
   }
   return (
     <div className={styles.bar} role="group" aria-label="Work through">

@@ -68,14 +68,12 @@ import { defaultLanguage, withLanguage } from './language';
 import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
-import { QueueControl } from './QueueControl';
 import { WorkThroughControl, leaveTarget } from '../queue/QueueControl';
 import { queueSources } from '../queue/sources';
 import { useWorkQueues } from '../queue/store';
 import { useWorkThrough } from '../queue/useQueue';
-import { queueContext, queuePath, queueSummary } from '../translations/worklist';
 import { englishDiffFor } from '../translations/source';
-import { categoryDisplay } from '../../services/categoryLabels';
+
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
@@ -105,7 +103,7 @@ import {
 interface WorkspaceRoute {
   parameter?: string;
   search: URLSearchParams;
-  /** The history entry's state: queue mode lives there (see translations/worklist). */
+  /** The history entry's state: queue mode lives there (see queue/model). */
   state: unknown;
   setSearch: ReturnType<typeof useSearchParams>[1];
   navigate: ReturnType<typeof useNavigate>;
@@ -262,16 +260,11 @@ function TooltipWorkspace({
   const markupRow = useMarkupRow();
   const user = useAuthStore((state) => state.user);
   const lang = defaultLanguage(user, search, remembered);
-  // Queue mode: the Translations view this tooltip was opened from. Never on an archive page.
-  const queue = useMemo(
-    () => (hashOverride === undefined ? queueContext(search, routeState, user) : null),
-    [hashOverride, search, routeState, user],
-  );
-  // A work-through queue (Bungie drift, Lost text): active when the history entry names it,
-  // paused on an ordinary editor visit while the tab works through one. An embedded page (the
-  // Archive's detail) shows its queue in its own top row instead.
+  // Queue mode (Translations, Bungie drift, Lost text): active when the history entry names a
+  // queue, paused on an ordinary editor visit while the tab works through one. An embedded page
+  // (the Archive's detail) shows its queue in its own top row instead.
   const workThrough = useWorkThrough(routeState, hashOverride === undefined);
-  const work = !queue && hashOverride === undefined ? workThrough : null;
+  const work = hashOverride === undefined ? workThrough : null;
   const endWork = useWorkQueues((state) => state.end);
   function changeLanguage(next: Lang) {
     setRemembered(next);
@@ -368,11 +361,11 @@ function TooltipWorkspace({
   const hash = readOnly ? requestedHash : canonical;
   const item = archivedItemFor(hash, data);
   if (!item && !data.bundle.tooltips[hash])
-    return queue || work?.mode === 'active' ? (
+    return work?.mode === 'active' ? (
       // A queued entry that no longer exists: say so, and keep the way on.
       <p className={styles.queueGone} role="status">
         <span>Tooltip {hash} is no longer available.</span>
-        {queue ? <QueueControl hash={hash} context={queue} /> : <WorkThroughControl work={work!} />}
+        <WorkThroughControl work={work} />
       </p>
     ) : (
       <h1>Tooltip {hash} not found</h1>
@@ -711,27 +704,18 @@ function TooltipWorkspace({
               />
             )
           }
-          queue={
-            queue ? (
-              <QueueControl hash={hash} context={queue} />
-            ) : (
-              work && <WorkThroughControl work={work} />
-            )
-          }
+          queue={work && <WorkThroughControl work={work} />}
           queueBack={
-            queue
+            work?.mode === 'active'
               ? {
-                  to: queuePath(queue, user),
-                  label: queueSummary(queue, languageLabel, (id) => categoryDisplay(id).label),
+                  ...leaveTarget(work.queue),
+                  text: queueSources[work.queue.source].backText ?? 'Leave queue',
+                  label:
+                    (work.queue.origin.restore as { summary?: string }).summary ??
+                    queueSources[work.queue.source].label,
+                  onClick: () => endWork(work.queue.id),
                 }
-              : work?.mode === 'active'
-                ? {
-                    ...leaveTarget(work.queue),
-                    text: 'Leave queue',
-                    label: queueSources[work.queue.source].label,
-                    onClick: () => endWork(work.queue.id),
-                  }
-                : undefined
+              : undefined
           }
         />
       )}

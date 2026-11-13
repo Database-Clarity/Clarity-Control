@@ -59,9 +59,9 @@ describe('queuePlace', () => {
     expect(placeLabel(queuePlace(queue(), 'd', doneOf('a', 'b', 'c', 'd')))).toBe('Queue done');
     const ended = queuePlace(queue({ finished: true, skipped: ['b', 'd'] }), 'd', doneOf('a', 'c'));
     expect(ended.finished).toBe(true);
-    expect(placeLabel(ended)).toBe('End of queue · 2 skipped');
+    expect(placeLabel(ended)).toBe('End · 2 skipped');
     const left = queuePlace(queue({ finished: true, skipped: ['d'] }), 'd', doneOf('a'));
-    expect(placeLabel(left)).toBe('End of queue · 3 left');
+    expect(placeLabel(left)).toBe('End · 3 left');
   });
 
   it('an item the queue no longer lists starts Next at the first item to do', () => {

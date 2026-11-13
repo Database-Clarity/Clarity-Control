@@ -1,10 +1,10 @@
-import { bungieDrift, type Tooltip } from '@clarity/core';
+import { bungieDrift, translationStateOf, type Lang, type Tooltip } from '@clarity/core';
 import type { User } from '../../services/api';
 import type { Drafts } from '../../services/draftStorage';
 import type { EditorData } from '../../stores/data';
 import { isDismissed } from '../lost-text/decisions';
 import type { LostText } from '../lost-text/model';
-import type { QueueItem, QueueSourceId, WorkQueue } from './model';
+import { merged, type QueueItem, type QueueSourceId, type WorkQueue } from './model';
 
 export interface SourceContext {
   data: EditorData;
@@ -18,6 +18,8 @@ export interface QueueSource {
   label: string;
   /** Where an item is worked on. */
   path(item: QueueItem): string;
+  /** The phone's More row back to the list ("Leave queue" by default). */
+  backText?: string;
   /**
    * The list's completion test, prepared once per data set: whether `item` is finished given the
    * current drafts. Called for every item on every draft change, so it must be cheap.
@@ -60,7 +62,7 @@ const drift: QueueSource = {
     };
   },
   async rebuild(queue, { data }) {
-    const { driftRows, merged } = await import('./rows');
+    const { driftRows } = await import('./rows');
     return merged(queue, driftRows(data, (queue.origin.restore as DriftRestore).query));
   },
 };
@@ -93,12 +95,11 @@ const lost: QueueSource = {
     };
   },
   async rebuild(queue, { data, decisions }) {
-    const [{ default: artifact }, { artifactSchema }, { lostRows, lostItem, merged }] =
-      await Promise.all([
-        import('../lost-text/lost-text.json'),
-        import('../lost-text/model'),
-        import('./rows'),
-      ]);
+    const [{ default: artifact }, { artifactSchema }, { lostRows, lostItem }] = await Promise.all([
+      import('../lost-text/lost-text.json'),
+      import('../lost-text/model'),
+      import('./rows'),
+    ]);
     const parsed = artifactSchema.safeParse(artifact);
     if (!parsed.success) return queue.items;
     const restore = queue.origin.restore as LostRestore;
@@ -132,7 +133,7 @@ const archive: QueueSource = {
     return (item, drafts) => archiveState(current(item.hash, data, drafts)) !== item.detail;
   },
   async rebuild(queue, { data }, drafts) {
-    const { archiveRows, archiveItem, merged } = await import('./rows');
+    const { archiveRows, archiveItem } = await import('./rows');
     return merged(
       queue,
       archiveRows(data, queue.origin.restore as ArchiveRestore).map((tooltip) =>
@@ -142,8 +143,45 @@ const archive: QueueSource = {
   },
 };
 
+// ---- Translations: done once the saved translation is current again (the tab's own rule, so a
+// saved entry reads "Done" at once). ----
+
+export interface TranslationsRestore {
+  language: Lang;
+  state: 'outdated' | 'missing' | null;
+  category: string | null;
+  query: string;
+  /** The list's scroll position and selected row, for Leave. */
+  top: number;
+  selectedRow: string | null;
+  /** The view in words, for the phone's More sheet ("German, all categories"). */
+  summary: string;
+}
+
+/** Where a row opens (an override opens on its base's page), kept with the item. */
+export interface TranslationDetail {
+  path: string;
+}
+
+const translations: QueueSource = {
+  label: 'Translations',
+  backText: 'Back to queue',
+  path: (item) => (item.detail as TranslationDetail).path,
+  done({ data }) {
+    return (item) => {
+      const tooltip = data.bundle.tooltips[item.hash];
+      return !tooltip || translationStateOf(tooltip, item.lang!).state === 'current';
+    };
+  },
+  async rebuild(queue, { data }) {
+    const { translationRows } = await import('./translationRows');
+    return merged(queue, translationRows(data, queue.origin.restore as TranslationsRestore));
+  },
+};
+
 export const queueSources: Record<QueueSourceId, QueueSource> = {
   drift,
   'lost-text': lost,
   archive,
+  translations,
 };
