@@ -1,11 +1,25 @@
 /* global document, window */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
+import { createServer } from 'vite';
 
-// Run with the web dev server on 5238 started with VITE_API_URL set; all data is synthetic.
-const shots = 'D:/GitHub/Description-editor/.agents/reports/overhaul-p2s10-shots';
+// Starts its own Vite server (VITE_API_URL set, so the panel treats the user as signed in);
+// all data is synthetic. Screenshots go to argv[2].
+const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/overhaul-p2s10-shots');
 await mkdir(shots, { recursive: true });
+const port = Number(process.env.HISTORY_HOVER_PORT ?? 5238);
+const url = `http://127.0.0.1:${port}/test/history-hover.html`;
+process.env.VITE_API_URL = 'https://api.fixture.invalid';
+const server = await createServer({
+  root: web,
+  configLoader: 'runner',
+  server: { host: '127.0.0.1', port, strictPort: true },
+});
+await server.listen();
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -31,7 +45,8 @@ async function check(page, label) {
         .map((b) => b.textContent),
     };
   });
-  assert.equal(result.overflow, 0, `${label}: horizontal overflow`);
+  // scrollWidth - clientWidth is negative when nothing overflows (a classic scrollbar).
+  assert.ok(result.overflow <= 0, `${label}: horizontal overflow ${result.overflow}`);
   assert.ok(result.popover.left >= 0 && result.popover.right <= result.width, `${label}: x`);
   assert.ok(result.popover.bottom <= result.height + 1, `${label}: popover bottom in viewport`);
   assert.equal(result.popover.inner, 0, `${label}: popover content overflows sideways`);
@@ -55,7 +70,7 @@ try {
         (t) => document.documentElement.setAttribute('data-theme', t),
         theme,
       );
-      await page.goto('http://127.0.0.1:5238/test/history-hover.html');
+      await page.goto(url);
       await page.evaluate(
         ([t, s]) => {
           document.documentElement.dataset.theme = t;
@@ -106,4 +121,5 @@ try {
   console.log('history hover browser checks passed');
 } finally {
   await browser.close();
+  await server.close();
 }

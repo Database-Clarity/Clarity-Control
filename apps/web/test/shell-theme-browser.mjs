@@ -71,7 +71,8 @@ try {
       const gear = page.locator('[data-settings-button]');
       assert.equal(await gear.count(), 1);
       const box = await gear.boundingBox();
-      if (phone) assert.ok(box.width >= 44 && box.height >= 44, `gear target ${box.width}x${box.height}`);
+      if (phone)
+        assert.ok(box.width >= 44 && box.height >= 44, `gear target ${box.width}x${box.height}`);
       await page.locator('[data-identity-button]').click();
       const menu = page.getByRole('dialog', { name: 'Account' });
       await menu.waitFor();
@@ -97,7 +98,12 @@ try {
   // Phone header buttons follow the interface scale, never under 44px, never overflowing.
   report.phoneButtons = {};
   for (const scale of [85, 100, 115, 125, 150]) {
-    const { context, page } = await open('light', { width: 390, height: 844 }, { uiScale: scale }, true);
+    const { context, page } = await open(
+      'light',
+      { width: 390, height: 844 },
+      { uiScale: scale },
+      true,
+    );
     const sizes = await page.evaluate(() =>
       [...document.querySelectorAll('header > button, header > div > button')]
         .map((b) => {
@@ -106,14 +112,20 @@ try {
         })
         .filter((s) => s.w > 0),
     );
-    const title = await page.locator('header h1, header [data-tooltip-finder]').first().boundingBox();
+    const title = await page
+      .locator('header h1, header [data-tooltip-finder]')
+      .first()
+      .boundingBox();
     report.phoneButtons[scale] = { sizes, titleWidth: Math.round(title.width) };
     for (const s of sizes) {
       assert.ok(s.w >= 44 && s.h >= 44, `scale ${scale}: target ${s.w}x${s.h}`);
       assert.ok(s.right <= 390, `scale ${scale}: button off screen`);
     }
     assert.ok((await overflow(page)) <= 0, `scale ${scale}: overflow`);
-    await page.screenshot({ path: `${shots}/light-390-scale${scale}.png`, clip: { x: 0, y: 0, width: 390, height: 120 } });
+    await page.screenshot({
+      path: `${shots}/light-390-scale${scale}.png`,
+      clip: { x: 0, y: 0, width: 390, height: 120 },
+    });
     await context.close();
   }
 

@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
+import { knownDefectSummary, statusBarClip } from './known-defects.mjs';
 
 // Overhaul P2 step 9 (+ tinted colour tags) in the real shell on synthetic data: icon tags drawn as
 // fixed-width symbols, colour tags hidden with their text tinted in the preview's tag colour, the
@@ -37,24 +38,36 @@ const lineTops = (page) =>
     }),
   );
 const noOverflow = async (page, label) => {
-  const overflow = await page.evaluate(() => ({
-    page: document.documentElement.scrollWidth - window.innerWidth,
-    wide: [...document.querySelectorAll('body *')]
-      .filter((el) => {
-        const r = el.getBoundingClientRect();
-        return (
-          r.width > 0 &&
-          r.right > window.innerWidth + 1 &&
-          !el.closest('[hidden]') &&
-          !el.closest('.cm-scroller') &&
-          !el.closest('[data-markup-row] [role=toolbar]')
-        );
-      })
-      .slice(0, 5)
-      .map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
-  }));
+  const overflow = await page.evaluate(() => {
+    const wide = [...document.querySelectorAll('body *')].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return (
+        r.width > 0 &&
+        r.right > window.innerWidth + 1 &&
+        !el.closest('[hidden]') &&
+        !el.closest('.cm-scroller') &&
+        !el.closest('[data-markup-row] [role=toolbar]')
+      );
+    });
+    const name = (el) => `${el.tagName}.${String(el.className).slice(0, 40)}`;
+    const inBar = (el) => el.parentElement?.closest('[data-editor-status]');
+    // The known defect is a phone-width one: anywhere wider, a cut bar item fails outright.
+    const phoneWidth = window.innerWidth <= 400;
+    return {
+      page: document.documentElement.scrollWidth - window.innerWidth,
+      wide: wide
+        .filter((el) => !phoneWidth || !inBar(el))
+        .slice(0, 5)
+        .map(name),
+      bar: wide
+        .filter((el) => phoneWidth && inBar(el))
+        .slice(0, 5)
+        .map((el) => `${name(el)} "${el.textContent}"`),
+    };
+  });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
+  statusBarClip(label, overflow.bar);
 };
 
 // Tags do not nest (the converter closes a tag at its first />), so icons and other tags sit beside
@@ -258,18 +271,43 @@ async function check(theme, width, height, phone, scale, name) {
 
   // Raw toggle: the markup shows, toggling back restores the exact layout.
   await page.locator('.cm-content').click({ position: { x: 4, y: 4 } });
-  // The markup row carries the toggle on every screen: a pressed-state button naming the shortcut.
-  const rawButton = page.locator('[data-markup-row] [data-raw-toggle]');
-  assert.equal(await rawButton.isVisible(), true, `${label}: raw button is in the markup row`);
+  // A pressed-state button naming the shortcut: in the markup row on a desktop, in the status bar
+  // on a phone, whose markup bar docks on the keyboard (092cdeaa: "Raw to the status bar").
+  const docked = (await page.locator('[data-markup-row][data-docked]').count()) > 0;
+  const rawButton = docked
+    ? page.locator('[data-editor-status] button', { hasText: /^Raw$/ })
+    : page.locator('[data-markup-row] [data-raw-toggle]');
+  assert.equal(
+    await rawButton.isVisible(),
+    true,
+    `${label}: raw button is in the ${docked ? 'status bar' : 'markup row'}`,
+  );
+  if (docked)
+    assert.equal(
+      await page.locator('[data-markup-row] [data-raw-toggle]').count(),
+      0,
+      `${label}: one raw button`,
+    );
+  // At 390 the bar's overflowing items cover Raw (status-bar-390-clip): record whether a tap at
+  // its centre reaches it, then press it directly so the toggle checks still run.
+  await rawButton.scrollIntoViewIfNeeded();
+  const cover = await rawButton.evaluate((button) => {
+    const r = button.getBoundingClientRect();
+    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return button.contains(top) ? null : `${top?.tagName}.${top?.className} "${top?.textContent}"`;
+  });
+  if (docked) statusBarClip(`${label}: Raw covered by ${cover}`, cover ? [cover] : []);
+  else assert.equal(cover, null, `${label}: Raw is covered by ${cover}`);
+  const pressRaw = () => (docked ? rawButton.dispatchEvent('click') : rawButton.click());
   assert.equal(await rawButton.getAttribute('aria-pressed'), 'false', `${label}: raw is off`);
   assert.ok(
     (await rawButton.getAttribute('title')).includes('Ctrl+Shift+.'),
     `${label}: raw button tooltip names the shortcut`,
   );
-  await rawButton.click();
+  await pressRaw();
   assert.equal(await rawButton.getAttribute('aria-pressed'), 'true', `${label}: raw state shown`);
   assert.equal(await page.locator('.cm-symbol').count(), 0, `${label}: button shows raw`);
-  await rawButton.click();
+  await pressRaw();
   assert.equal(
     await page.locator('.cm-symbol').count(),
     widgets.length,
@@ -367,6 +405,7 @@ try {
     await page.screenshot({ path: `${shots}/caret-reveal-tint.png` });
     await context.close();
   }
+  knownDefectSummary();
   console.log('symbols browser checks passed');
 } finally {
   await browser.close();

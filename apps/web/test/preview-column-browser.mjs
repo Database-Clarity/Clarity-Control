@@ -44,7 +44,12 @@ const noOverflow = async (page, label) => {
           r.width > 0 &&
           r.right > window.innerWidth + 1 &&
           !el.closest('[hidden]') &&
-          !el.closest('.cm-scroller')
+          !el.closest('.cm-scroller') &&
+          // The markup row scrolls its buttons sideways inside its own box (the box itself must
+          // still fit the window).
+          !el.parentElement?.closest('[data-markup-row] [role=toolbar]') &&
+          // Never-seen measuring copies (e.g. the phone tools' fit clip) are not on screen.
+          window.getComputedStyle(el).visibility !== 'hidden'
         );
       })
       .slice(0, 5)
@@ -132,7 +137,23 @@ try {
         );
       });
       assert.ok(order, `${label}: header comes before the switch`);
-      assert.deepEqual(await pressed(page), [phone ? 'Enhanced' : 'Compare'], `${label}: default`);
+      // The default view settles once the item's enhanced version is known (Base until then).
+      const want = phone ? 'Enhanced' : 'Compare';
+      await page
+        .waitForFunction(
+          (mode) =>
+            [
+              ...document.querySelectorAll(
+                '[aria-label="Preview version"] button[aria-pressed="true"]',
+              ),
+            ]
+              .map((b) => b.textContent)
+              .join() === mode,
+          want,
+          { timeout: 3000 },
+        )
+        .catch(() => {});
+      assert.deepEqual(await pressed(page), [want], `${label}: default`);
 
       const topBefore = phone ? null : await firstLine(page);
       for (const mode of ['Base', 'Enhanced', 'Compare']) {
@@ -143,10 +164,25 @@ try {
         assert.deepEqual(await pressed(page), [mode], `${label}: ${mode} pressed`);
         assert.deepEqual(await barProblems(page), [], `${label} ${mode}: bar clips or wraps`);
         await noOverflow(page, `${label} ${mode}`);
-        const bar = await page
-          .locator('[aria-label="Preview version"]')
-          .evaluate((el) => Math.round(el.parentElement.getBoundingClientRect().height));
-        assert.equal(bar, phone ? 44 : 28, `${label}: bar height ${bar}`);
+        // The version strip is 28px (on a phone: --tap-sm, 28px at 100%, f126ec68). A phone's
+        // Compare count takes its own line under the strip, the bar's only second line.
+        const bar = await page.locator('[aria-label="Preview version"]').evaluate((el) => {
+          const strip = el.parentElement.getBoundingClientRect();
+          const count = el.parentElement.querySelector('[aria-live="polite"]');
+          const line = count?.getBoundingClientRect();
+          return {
+            height: Math.round(strip.height),
+            countLine: line && line.height ? Math.round(line.height) : 0,
+            countBelow: Boolean(line && line.top >= el.getBoundingClientRect().bottom - 1),
+          };
+        });
+        const ownLine = phone && mode === 'Compare';
+        if (ownLine)
+          assert.ok(
+            bar.countBelow && bar.height <= 28 + bar.countLine + 8,
+            `${label} ${mode}: count line under the strip ${JSON.stringify(bar)}`,
+          );
+        else assert.equal(bar.height, 28, `${label} ${mode}: bar height ${JSON.stringify(bar)}`);
         if (mode === 'Compare') {
           assert.equal(
             (await preview.locator('[aria-live="polite"]').textContent()).trim(),
@@ -207,6 +243,19 @@ try {
   for (const theme of ['dark', 'light']) {
     const { context, page } = await open(theme, { width: 1280, height: 420 });
     await showColumn(page);
+    // The preview takes the kinetic fixture's text (long enough to scroll) once it renders it.
+    const waited = Date.now();
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[aria-label="Hammerhead preview"]')
+          ?.textContent.includes('Scoring multiple'),
+      undefined,
+      { timeout: 10000 },
+    );
+    console.log(
+      `${theme} 1280x420: preview showed the fixture text after ${Date.now() - waited} ms`,
+    );
     const result = await page.evaluate(async () => {
       const header = document.querySelector('[aria-label="Hammerhead preview"] header');
       let scroller = header.parentElement;
@@ -227,6 +276,7 @@ try {
         columnWidth: Math.round(column.width),
       };
     });
+    if (!result.scrolled) await page.screenshot({ path: `${shots}/FAIL-${theme}-1280x420.png` });
     assert.ok(result.scrolled, `${theme}: the column scrolls at 420px`);
     assert.ok(Math.abs(result.headerTop) <= 1, `${theme}: header pinned (${result.headerTop})`);
     assert.ok(Math.abs(result.barTop) <= 1, `${theme}: strip pinned under it (${result.barTop})`);

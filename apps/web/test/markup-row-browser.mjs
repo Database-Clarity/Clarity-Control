@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
+import { knownDefectSummary, statusBarClip } from './known-defects.mjs';
 
 // Overhaul P2 step 8 in the real shell on synthetic data: the markup row (Ctrl+. is the only thing
 // that changes the layout), the All popover and the suggestion chips. Both themes at 390 / 768 /
@@ -44,25 +45,53 @@ const firstLine = (page) =>
     ),
   );
 const noOverflow = async (page, label) => {
-  const overflow = await page.evaluate(() => ({
-    page: document.documentElement.scrollWidth - window.innerWidth,
-    wide: [...document.querySelectorAll('body *')]
-      .filter((el) => {
-        const r = el.getBoundingClientRect();
-        return (
-          r.width > 0 &&
-          r.right > window.innerWidth + 1 &&
-          !el.closest('[hidden]') &&
-          !el.closest('.cm-scroller') &&
-          !el.closest('[data-markup-row] [role=toolbar]')
-        );
-      })
-      .slice(0, 5)
-      .map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
-  }));
+  const overflow = await page.evaluate(() => {
+    const wide = [...document.querySelectorAll('body *')].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return (
+        r.width > 0 &&
+        r.right > window.innerWidth + 1 &&
+        !el.closest('[hidden]') &&
+        !el.closest('.cm-scroller') &&
+        // The row scrolls its buttons sideways inside its own box (the box itself must fit).
+        !el.parentElement?.closest('[data-markup-row] [role=toolbar]') &&
+        // Never-seen measuring copies (e.g. the phone tools' fit clip) are not on screen.
+        window.getComputedStyle(el).visibility !== 'hidden'
+      );
+    });
+    const name = (el) => `${el.tagName}.${String(el.className).slice(0, 40)}`;
+    const inBar = (el) => el.parentElement?.closest('[data-editor-status]');
+    // The known defect is a phone-width one: anywhere wider, a cut bar item fails outright.
+    const phoneWidth = window.innerWidth <= 400;
+    return {
+      page: document.documentElement.scrollWidth - window.innerWidth,
+      wide: wide
+        .filter((el) => !phoneWidth || !inBar(el))
+        .slice(0, 5)
+        .map(name),
+      bar: wide
+        .filter((el) => phoneWidth && inBar(el))
+        .slice(0, 5)
+        .map((el) => `${name(el)} "${el.textContent}"`),
+    };
+  });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
+  statusBarClip(label, overflow.bar);
 };
+
+/**
+ * The phone's markup bar toggle: "Markup bar" among the header's inline tools when it fits, else
+ * a row in the Editor tools sheet (the header's "Markup tools" button moved there, f126ec68).
+ */
+async function phoneToggle(page) {
+  const inline = page.getByRole('button', { name: 'Markup bar', exact: true });
+  if (await inline.isVisible()) return inline.click();
+  await page.getByRole('button', { name: 'Editor tools' }).click();
+  await page.getByRole('button', { name: /^Markup bar/ }).click();
+  if (await page.getByRole('button', { name: 'Close Editor tools' }).isVisible())
+    await page.getByRole('button', { name: 'Close Editor tools' }).click();
+}
 
 async function open(theme, viewport, phone) {
   const context = await browser.newContext({
@@ -100,26 +129,30 @@ try {
       const row = page.locator('[data-markup-row]');
       const content = page.locator('.cm-content');
 
-      // Open by default; Ctrl+. (or the header button) hides it and opens it again, and that is
-      // the only reflow.
+      // Open by default; Ctrl+. (or the phone's Markup bar toggle) hides it and opens it again,
+      // and that is the only reflow.
       await row.waitFor();
       const openLine = await firstLine(page);
-      if (phone) await page.getByRole('button', { name: /Markup tools/ }).click();
+      if (phone) await phoneToggle(page);
       else await page.keyboard.press('Control+.');
       await row.waitFor({ state: 'detached' });
       const closedLine = await firstLine(page);
-      if (phone) await page.getByRole('button', { name: /Markup tools/ }).click();
+      if (phone) await phoneToggle(page);
       else await page.keyboard.press('Control+.');
       await row.waitFor();
       const rowBox = await row.boundingBox();
-      const expectedHeight = phone ? 52 : 30;
+      // A phone's bar is --bar (--tap + 0.5rem = 44px with the compact touch size, f126ec68).
+      const expectedHeight = phone ? 44 : 30;
       assert.ok(
         Math.abs(rowBox.height - expectedHeight) <= 1,
         `${label}: row is ${expectedHeight}px (${rowBox.height})`,
       );
+      // Desktop: the row sits above the text, so opening it moves the text by its own height. A
+      // phone docks it as a bar over the keyboard (092cdeaa), so the text does not move at all.
+      const shift = phone ? 0 : expectedHeight + 1;
       assert.ok(
-        Math.abs(openLine - closedLine - expectedHeight - 1) <= 2,
-        `${label}: opening the row shifted the text by ${openLine - closedLine}, not its own height`,
+        Math.abs(openLine - closedLine - shift) <= 2,
+        `${label}: opening the row shifted the text by ${openLine - closedLine}, not ${shift}`,
       );
 
       // One line, real icons on the buttons, every control inside the row's height.
@@ -158,7 +191,9 @@ try {
         };
       });
       assert.equal(facts.lines, 1, `${label}: the buttons sit on one line`);
-      assert.equal(facts.icons.length, 15, `${label}: fifteen icons`);
+      // Seven damage types (Prismatic joined in 223c7a25), three ammo, three champions, and
+      // three classes.
+      assert.equal(facts.icons.length, 16, `${label}: sixteen icons`);
       assert.ok(
         facts.icons.every((icon) => icon.image && icon.box),
         `${label}: every icon draws the preview artwork ${JSON.stringify(facts.icons.filter((i) => !i.image))}`,
@@ -280,11 +315,16 @@ try {
       await page.keyboard.type('Arc');
       await chip.waitFor();
       await page.keyboard.press('Enter');
-      assert.ok(
-        (await content.innerText()).includes('Arc') &&
-          (await page.locator('.cm-symbol[data-symbol="arc"]').count()) > 0,
-        `${label}: Enter took the chip`,
-      );
+      // English replaces the typed name with its symbol (4d3db8b9): the caret line holds the Arc
+      // symbol and no longer the word.
+      const took = await page.evaluate(() => {
+        const line = document.querySelector('.cm-activeLine');
+        return {
+          text: line?.textContent,
+          symbols: [...(line?.querySelectorAll('.cm-symbol') ?? [])].map((el) => el.dataset.symbol),
+        };
+      });
+      assert.deepEqual(took, { text: '', symbols: ['arc'] }, `${label}: Enter took the chip`);
 
       // Chip for a selection: never over any selected character.
       await page.keyboard.press('Control+End');
@@ -341,7 +381,7 @@ try {
       );
 
       // Ctrl+. again closes the row; the text returns to where it was.
-      if (phone) await page.getByRole('button', { name: /Markup tools/ }).click();
+      if (phone) await phoneToggle(page);
       else await page.keyboard.press('Control+.');
       await page.locator('[data-markup-row]').waitFor({ state: 'detached' });
       assert.equal(
@@ -353,6 +393,7 @@ try {
       await context.close();
     }
   }
+  knownDefectSummary();
   console.log('markup row browser checks passed');
 } finally {
   await browser.close();

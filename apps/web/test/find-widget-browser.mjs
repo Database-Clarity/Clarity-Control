@@ -88,13 +88,35 @@ const widgetFacts = (page) =>
           return new Set([...range.getClientRects()].map((r) => Math.round(r.top / 4))).size > 1;
         })
         .map((node) => `${node.tagName}.${node.className}`),
+      // Touch targets are --tap (36px with the compact touch size at 100%, following the
+      // interface scale; 44px with "Touch control size: Large", f126ec68), not a fixed 44px.
+      tap: (() => {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;visibility:hidden;height:var(--tap)';
+        document.body.append(probe);
+        const tap = probe.getBoundingClientRect().height;
+        probe.remove();
+        return tap;
+      })(),
       small: controls
         .filter((node) => node.tagName !== 'SPAN')
         .map((node) => {
           const r = node.getBoundingClientRect();
-          return { name: node.getAttribute('name') ?? node.className, w: r.width, h: r.height };
-        })
-        .filter((c) => c.h < 43.5 || (c.name !== 'search' && c.name !== 'replace' && c.w < 43.5)),
+          return {
+            name: node.getAttribute('name') ?? node.className,
+            w: r.width,
+            h: r.height,
+            // The phone's search-scope row (This entry / Category / All, and Close moved into it)
+            // is a deliberate compact 1.5rem row (2588b227).
+            scope: Boolean(node.closest('[role=group][aria-label="Search scope"]')),
+          };
+        }),
+      // The field text is --ctl-text (14px at 100%, following the scale); only iOS Safari, which
+      // zooms into smaller fields, gets a 16px floor (controls.ios-field-text).
+      ctlText: parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--ctl-text'),
+      ),
+      rootSize: parseFloat(getComputedStyle(document.documentElement).fontSize),
       firstLine: document.querySelector('.cm-line').getBoundingClientRect().top,
       pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
       count: widget.querySelector('.fw-count').textContent,
@@ -144,9 +166,17 @@ try {
             problems.push('widget leaves the editor');
           if (Math.abs(facts.firstLine - before) > 0.5)
             problems.push(`text moved ${facts.firstLine - before}`);
-          if (phone && facts.small.length)
-            problems.push(`small targets ${JSON.stringify(facts.small)}`);
-          if (phone && facts.fontSize < 16) problems.push(`input font ${facts.fontSize}`);
+          const small = facts.small.filter((c) =>
+            c.scope
+              ? c.h < 1.5 * facts.rootSize - 0.5
+              : c.h < facts.tap - 0.5 ||
+                (c.name !== 'search' && c.name !== 'replace' && c.w < facts.tap - 0.5),
+          );
+          if (phone && small.length)
+            problems.push(`small targets (tap ${facts.tap}) ${JSON.stringify(small)}`);
+          const text = facts.ctlText * facts.rootSize;
+          if (phone && facts.fontSize < text - 0.05)
+            problems.push(`input font ${facts.fontSize} (want ${text})`);
           if (problems.length) failures.push(`${where}: ${problems.join('; ')}`);
         };
         check(await widgetFacts(page), 'open');

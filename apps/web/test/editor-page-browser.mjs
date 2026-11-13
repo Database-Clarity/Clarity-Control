@@ -44,7 +44,12 @@ const noOverflow = async (page, label) => {
           r.width > 0 &&
           r.right > window.innerWidth + 1 &&
           !el.closest('[hidden]') &&
-          !el.closest('.cm-scroller')
+          !el.closest('.cm-scroller') &&
+          // The markup row scrolls its buttons sideways inside its own box (the box itself must
+          // still fit the window).
+          !el.parentElement?.closest('[data-markup-row] [role=toolbar]') &&
+          // Never-seen measuring copies (e.g. the phone tools' fit clip) are not on screen.
+          window.getComputedStyle(el).visibility !== 'hidden'
         );
       })
       .slice(0, 5)
@@ -122,9 +127,11 @@ try {
           .locator('[role="group"][aria-label="Editor tools"] button')
           .allTextContents();
         if (name === 'derived') {
+          // Stored form became the maintainers' "Grouped N" popover (c25439eb): the base and
+          // its derived enhanced version are the two perks that open this entry.
           assert.ok(
-            buttons.some((text) => text.includes('Stored form')),
-            `${label}: Stored form`,
+            buttons.some((text) => /Grouped\s*2$/.test(text.trim())),
+            `${label}: Grouped 2 (${buttons})`,
           );
           assert.ok(
             !buttons.some((text) => text.includes('Edit override')),
@@ -141,12 +148,15 @@ try {
             !buttons.some((text) => text.includes('Edit override')),
             `${label}: blank copy`,
           );
-          assert.ok(!buttons.some((text) => text.includes('Stored form')), `${label}: blank copy`);
         }
         if (!phone && width >= 1280) {
+          // The markup row (30px, open by default since overhaul P2 step 8) sits above the
+          // text; the 80px budget covers the app header and the pane header.
           const top = (await firstLine(page)).top;
-          if (top > 80) await page.screenshot({ path: out(`FAIL-${name}-${width}`) });
-          assert.ok(top <= 80, `${label}: editor first line ${top}px from the top`);
+          const row = await page.locator('[data-markup-row]').boundingBox();
+          const budget = 80 + (row ? Math.round(row.height) + 1 : 0);
+          if (top > budget) await page.screenshot({ path: out(`FAIL-${name}-${width}`) });
+          assert.ok(top <= budget, `${label}: editor first line ${top}px from the top (${budget})`);
         }
         if (width === 800) {
           // 701-850: the pane header toggles the main slot; nothing stacks under the editor.
@@ -197,12 +207,19 @@ try {
       for (let i = 0; i < 70; i++) await page.keyboard.press('Backspace');
       const baseText = await page.locator('.cm-content').first().innerText();
       const topBefore = await firstLine(page);
-      // Details popover: opens over the page, takes no space.
-      await page.getByRole('button', { name: 'Details' }).click();
-      await page.getByRole('dialog', { name: 'Edit history of this text' }).waitFor();
-      assert.deepEqual(await firstLine(page), topBefore, `${label}: Details moved the text`);
-      await page.screenshot({ path: out('details-popover-1280') });
-      await page.keyboard.press('Escape');
+      // The Details button is gone (703af7ac, FB19): the last edit sits on the History row in the
+      // left column, which expands in place without moving the editor text.
+      const history = page.getByRole('button', { name: 'History', exact: true });
+      await history.click();
+      assert.equal(await history.getAttribute('aria-expanded'), 'true', `${label}: History opens`);
+      assert.deepEqual(await firstLine(page), topBefore, `${label}: History moved the text`);
+      await page.screenshot({ path: out('history-open-1280') });
+      await history.click();
+      assert.equal(
+        await history.getAttribute('aria-expanded'),
+        'false',
+        `${label}: History closes`,
+      );
       await page.getByRole('button', { name: 'Edit override' }).click();
       assert.equal(await page.locator('.cm-editor').count(), 2, `${label}: base stays mounted`);
       assert.match(
@@ -218,20 +235,32 @@ try {
         `${label}: base text kept`,
       );
       assert.deepEqual(await firstLine(page), topBefore, `${label}: base editor back in place`);
-      // Maintainer: Stored form on a derived version opens a read-only editor in a popover.
+      // Maintainer: "Grouped 2" on a derived version lists the base and its enhanced version in
+      // a popover (it replaced Stored form, c25439eb) and moves nothing.
       await page.evaluate(() => {
         window.location.hash = '#/t/1000?lang=en';
       });
-      await page.getByRole('button', { name: 'Stored form' }).click();
-      const stored = page.getByRole('dialog', { name: 'Stored form' });
-      await stored.waitFor();
-      assert.equal(await stored.locator('.cm-content[contenteditable="false"]').count(), 1);
-      await page.screenshot({ path: out('stored-form-1280') });
+      await page.locator('.cm-content').first().waitFor();
+      const groupedBefore = await firstLine(page);
+      await page.getByRole('button', { name: /Grouped/ }).click();
+      const grouped = page.getByRole('dialog', { name: 'Grouped manifest perks' });
+      await grouped.waitFor();
+      const groupedText = await grouped.innerText();
+      assert.match(groupedText, /1000/, `${label}: grouped lists the base`);
+      assert.match(groupedText, /2001/, `${label}: grouped lists the enhanced version`);
+      assert.deepEqual(
+        await firstLine(page),
+        groupedBefore,
+        `${label}: grouped popover moved text`,
+      );
+      await page.screenshot({ path: out('grouped-1280') });
+      await page.keyboard.press('Escape');
+      await grouped.waitFor({ state: 'hidden' });
       assert.deepEqual(errors, [], `${label}: no page errors`);
       await context.close();
     }
 
-    // Phone: Editor / Preview / Compendium views, panels mounted, 44px tabs.
+    // Phone: Editor / Preview / Compendium / Reports views, panels mounted, equal touch-size tabs.
     {
       const { context, page } = await open(theme, { width: 390, height: 844 }, '/t/1001?lang=en', {
         phone: true,
@@ -243,11 +272,13 @@ try {
         );
       assert.deepEqual(
         tabs.map(([text]) => text),
-        ['Editor', 'Preview', 'Compendium'],
+        ['Editor', 'Preview', 'Compendium', 'Reports'],
       );
+      // Compact touch size (the default since f126ec68) is 36px at 100% and follows the
+      // interface scale; "Touch control size: Large" restores 44px. The tabs share one height.
       assert.ok(
-        tabs.every(([, height]) => height >= 44),
-        `phone tabs 44px (${tabs})`,
+        tabs.every(([, height]) => height >= 36 && height === tabs[0][1]),
+        `phone tabs 36px (${tabs})`,
       );
       await page.getByRole('tab', { name: 'Preview' }).click();
       assert.equal(await page.locator('.cm-editor').count(), 1, 'editor stays mounted');
@@ -265,7 +296,8 @@ try {
       await page.evaluate(() => window.shellFixture.role('translator'));
       await page.locator('.cm-content').first().waitFor();
       const toggles = await page.locator('[data-toggles] button').allTextContents();
-      assert.deepEqual(toggles, ['English']);
+      // The Reports pane (every role) joined the swaps after this harness was written.
+      assert.deepEqual(toggles, ['English', 'Reports']);
       await noOverflow(page, `${theme} translator 800`);
       await page.screenshot({ path: out('translator-800') });
       await context.close();

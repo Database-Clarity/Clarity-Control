@@ -65,9 +65,44 @@ try {
       const field = page.getByRole('combobox', { name: 'Tooltip' });
       await openList();
       assert.equal(await field.getAttribute('placeholder'), 'Contraverse Hold');
-      const texts = await page
-        .locator('[role="listbox"] [role="option"]')
-        .evaluateAll((rows) => rows.map((row) => row.textContent));
+      // The list is windowed (only rows near the viewport are in the DOM), so walk it by
+      // scrolling and record every row once, keyed by its aria-posinset.
+      const all = await page.evaluate(async () => {
+        const list = document.querySelector('[role="listbox"]');
+        const frame = () => new Promise((done) => window.requestAnimationFrame(() => done()));
+        const clips = (el) => Boolean(el) && el.scrollWidth > el.clientWidth + 1;
+        // Each row is mark, icon (both aria-hidden), name, then the perk/hash line.
+        const nameOf = (row) => row.querySelector(':scope > span:not([aria-hidden])');
+        const seen = new Map();
+        let setSize = 0;
+        const collect = () => {
+          for (const row of list.querySelectorAll('[role="option"]')) {
+            setSize = Number(row.getAttribute('aria-setsize'));
+            seen.set(Number(row.getAttribute('aria-posinset')), {
+              text: row.textContent,
+              title: row.getAttribute('title') ?? '',
+              name: nameOf(row)?.textContent ?? '',
+              cutName: clips(nameOf(row)),
+              cutPerk: [...row.querySelectorAll('small > span:not(:last-child)')].some(clips),
+              cutHash: clips(row.querySelector('small > span:last-child')),
+            });
+          }
+        };
+        list.scrollTop = 0;
+        await frame();
+        collect();
+        while (list.scrollTop + list.clientHeight < list.scrollHeight - 1) {
+          list.scrollTop += Math.max(1, Math.floor(list.clientHeight / 2));
+          await frame();
+          await frame();
+          collect();
+        }
+        list.scrollTop = 0;
+        await frame();
+        return { setSize, rows: [...seen.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]) };
+      });
+      const texts = all.rows.map((row) => row.text);
+      assert.equal(all.setSize, 138, `${theme} ${width}: one row per exotic perk (set size)`);
       assert.equal(texts.length, 138, `${theme} ${width}: one row per exotic perk`);
       assert.ok(texts.some((t) => t.includes('Contraverse Hold')));
       assert.ok(
@@ -77,38 +112,33 @@ try {
       assert.ok(texts.some((t) => t.includes('Chaotic Exchanger · 8507332')));
       // Only the Aeon set's three perks, carried by three different pieces, are shared: the row
       // names the pieces (no extra mark) and keeps the perk legible on the right.
-      const shared = await page
-        .locator('[role="listbox"] [role="option"][title^="Shared perk"]')
-        .evaluateAll((rows) => rows.map((row) => row.textContent));
+      const shared = all.rows
+        .filter((row) => row.title.startsWith('Shared perk'))
+        .map((r) => r.text);
       assert.equal(shared.length, 3, `${theme} ${width}: shared rows ${shared}`);
       assert.ok(shared.every((t) => t.startsWith('Aeon Safe/Soul/Swift')));
       assert.ok(shared.some((t) => t.includes('Sect of Force · 3268255645')));
       assert.ok(!texts.some((t) => t.includes('shared perk')));
-      const names = await page.locator('[role="listbox"] [role="option"]').evaluateAll((rows) =>
-        rows
-          .map((row) => row.children[1])
-          .filter((el) => el.textContent.startsWith('Aeon'))
-          .map((el) => el.scrollWidth > el.clientWidth + 1),
-      );
+      const names = all.rows.filter((row) => row.name.startsWith('Aeon')).map((r) => r.cutName);
       assert.equal(names.length, 3);
       assert.ok(!names.some(Boolean), `${theme} ${width}: Aeon piece names truncate`);
-      // No piece name truncates at any width, and the hash stays whole: a long perk (Mechaneer's
-      // Tricksleeves · Spring-Loaded Mounting) is the only text that gives way.
-      const geometry = await page.evaluate(() => {
-        const clips = (el) => el.scrollWidth > el.clientWidth + 1;
-        const rows = [...document.querySelectorAll('[role="option"]')];
-        return {
-          overflowX: document.documentElement.scrollWidth - window.innerWidth,
-          clipped: rows.filter((row) => clips(row.querySelector('small'))).length,
-          cutNames: rows.filter((row) => clips(row.children[1])).map((row) => row.textContent),
-          cutHashes: rows
-            .filter((row) => clips(row.querySelector('small > span:last-child')))
-            .map((row) => row.textContent),
-        };
-      });
-      assert.ok(geometry.overflowX <= 0, `${theme} ${width}: horizontal overflow`);
-      assert.deepEqual(geometry.cutNames, [], `${theme} ${width}: piece names truncate`);
-      assert.deepEqual(geometry.cutHashes, [], `${theme} ${width}: hashes truncate`);
+      // The hash stays whole. Name and perk each take what they need and share the row only
+      // when both are long (13c12278, owner DESIGN QUALITY): a piece name may give way only on
+      // a row whose perk gives way too.
+      const overflowX = await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      );
+      assert.ok(overflowX <= 0, `${theme} ${width}: horizontal overflow`);
+      assert.deepEqual(
+        all.rows.filter((row) => row.cutName && !row.cutPerk).map((row) => row.text),
+        [],
+        `${theme} ${width}: piece names truncate while the perk has room`,
+      );
+      assert.deepEqual(
+        all.rows.filter((row) => row.cutHash).map((row) => row.text),
+        [],
+        `${theme} ${width}: hashes truncate`,
+      );
       await page.screenshot({ path: `${shots}/${theme}-list-${width}.png` });
       // A perk search resolves to its piece; Enter opens the perk.
       await field.fill('chaotic exch');

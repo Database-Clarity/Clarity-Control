@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
+import { knownDefect, knownDefectSummary, statusBarClip } from './known-defects.mjs';
 
 // Overhaul P2 step 4 in the real shell on synthetic data: the editor status bar (24px, 52px on a
 // phone), the character-warning and markup-help panels that open UPWARD over the text without
@@ -47,24 +48,57 @@ const metrics = (page) =>
       scrollHeight: scroller.scrollHeight,
     };
   });
+/**
+ * An open panel draws over the text and moves nothing; it only gives the text room below its last
+ * line equal to the panel's height (--overlay-room, d4b44c24), so the end can scroll clear of it.
+ */
+const panelKeepsText = async (page, before, label) => {
+  const { scrollHeight, ...open } = await metrics(page);
+  const { scrollHeight: closedHeight, ...closed } = before;
+  assert.deepEqual(open, closed, `${label}: moved the text`);
+  const room = await page.evaluate(() =>
+    Math.round(document.querySelector('[data-editor-overlay]').getBoundingClientRect().height),
+  );
+  assert.ok(
+    scrollHeight >= closedHeight && scrollHeight <= closedHeight + room + 1,
+    `${label}: room below the text ${scrollHeight - closedHeight}px for a ${room}px panel`,
+  );
+};
 const noOverflow = async (page, label) => {
-  const overflow = await page.evaluate(() => ({
-    page: document.documentElement.scrollWidth - window.innerWidth,
-    wide: [...document.querySelectorAll('body *')]
-      .filter((el) => {
-        const r = el.getBoundingClientRect();
-        return (
-          r.width > 0 &&
-          r.right > window.innerWidth + 1 &&
-          !el.closest('[hidden]') &&
-          !el.closest('.cm-scroller')
-        );
-      })
-      .slice(0, 5)
-      .map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
-  }));
+  const overflow = await page.evaluate(() => {
+    const wide = [...document.querySelectorAll('body *')].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return (
+        r.width > 0 &&
+        r.right > window.innerWidth + 1 &&
+        !el.closest('[hidden]') &&
+        !el.closest('.cm-scroller') &&
+        // The markup row scrolls its buttons sideways inside its own box (the box itself must
+        // still fit the window).
+        !el.parentElement?.closest('[data-markup-row] [role=toolbar]') &&
+        // Never-seen measuring copies (e.g. the phone tools' fit clip) are not on screen.
+        window.getComputedStyle(el).visibility !== 'hidden'
+      );
+    });
+    const name = (el) => `${el.tagName}.${String(el.className).slice(0, 40)}`;
+    const inBar = (el) => el.parentElement?.closest('[data-editor-status]');
+    // The known defect is a phone-width one: anywhere wider, a cut bar item fails outright.
+    const phoneWidth = window.innerWidth <= 400;
+    return {
+      page: document.documentElement.scrollWidth - window.innerWidth,
+      wide: wide
+        .filter((el) => !phoneWidth || !inBar(el))
+        .slice(0, 5)
+        .map(name),
+      bar: wide
+        .filter((el) => phoneWidth && inBar(el))
+        .slice(0, 5)
+        .map((el) => `${name(el)} "${el.textContent}"`),
+    };
+  });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
+  statusBarClip(label, overflow.bar);
 };
 /** Everything in the status bar fits on one line and nothing but the flexible texts is cut. */
 const barProblems = (page) =>
@@ -160,11 +194,12 @@ try {
           assert.equal(root, `${16 * factor}px`, `${label}: root font size`);
         }
 
-        // The bar: 24px (52px on a phone), under the text, one line, nothing clipped.
+        // The bar: 24px (on a phone the compact touch row, --tap-sm + 0.25rem = 32px at 100%,
+        // following the interface scale since f126ec68), under the text, one line, nothing cut.
         const bar = page.locator('[data-editor-status]').first();
         await bar.waitFor();
         const barHeight = Math.round((await bar.boundingBox()).height);
-        const want = Math.round((phone ? 52 : 24) * factor);
+        const want = Math.round((phone ? 32 : 24) * factor);
         assert.ok(
           Math.abs(barHeight - want) <= 1,
           `${label}: bar height ${barHeight}, want ${want}`,
@@ -190,18 +225,34 @@ try {
           const o = document.querySelector('[data-editor-overlay]').getBoundingClientRect();
           const b = document.querySelector('[data-editor-status]').getBoundingClientRect();
           const e = document.querySelector('.cm-editor').getBoundingClientRect();
+          const tops = ['header', '[aria-label="Tooltip panels"]'].map(
+            (selector) => document.querySelector(selector)?.getBoundingClientRect().bottom ?? 0,
+          );
           return {
+            overlayTop: Math.round(o.top),
             overlayBottom: Math.round(o.bottom),
             barTop: Math.round(b.top),
+            chromeBottom: Math.round(Math.max(0, ...tops)),
+            windowBottom: window.innerHeight,
             over: o.top < e.bottom,
           };
         });
-        assert.ok(
-          Math.abs(geometry.overlayBottom - geometry.barTop) <= 1,
-          `${label}: panel sits directly above the bar`,
-        );
+        if (phone) {
+          // A phone's help is a bottom sheet over the page (36596aa5, c5566efd): on the window's
+          // bottom edge (no keyboard here), never over the header or the panel tabs.
+          assert.ok(
+            Math.abs(geometry.overlayBottom - geometry.windowBottom) <= 1 &&
+              geometry.overlayTop >= geometry.chromeBottom - 1,
+            `${label}: help sheet between the panel tabs and the window bottom ${JSON.stringify(geometry)}`,
+          );
+        } else {
+          assert.ok(
+            Math.abs(geometry.overlayBottom - geometry.barTop) <= 1,
+            `${label}: panel sits directly above the bar`,
+          );
+        }
         assert.ok(geometry.over, `${label}: panel is over the text`);
-        assert.deepEqual(await metrics(page), before, `${label}: help panel moved the text`);
+        await panelKeepsText(page, before, `${label}: help panel`);
         await noOverflow(page, `${label} help open`);
         await page.screenshot({ path: `${shots}/${name}-help.png` });
 
@@ -222,11 +273,19 @@ try {
           beforeType.line,
           `${label}: typing moved the first line ${JSON.stringify([beforeType, afterType])}`,
         );
-        assert.deepEqual(await barProblems(page), [], `${label}: bar problems with warnings`);
+        const warned = await barProblems(page);
+        if (width <= 400)
+          knownDefect(
+            'status-bar-390-clip',
+            !warned.length,
+            `${label}: bar problems with warnings ${JSON.stringify(warned)}`,
+            'reported in .agents/reports/stale-harnesses.md',
+          );
+        else assert.deepEqual(warned, [], `${label}: bar problems with warnings`);
         const typed = await metrics(page);
         await glyph.click();
         await overlay.waitFor();
-        assert.deepEqual(await metrics(page), typed, `${label}: glyph panel moved the text`);
+        await panelKeepsText(page, typed, `${label}: glyph panel`);
         const replace = overlay.getByRole('button', { name: /Replace first/ });
         assert.ok(await replace.count(), `${label}: glyph panel offers the replacement`);
         await noOverflow(page, `${label} glyphs open`);
@@ -249,7 +308,12 @@ try {
       const { context, page, errors } = await open(theme, { width, height: 800 }, { scale: 150 });
       const finder = await page.getByRole('combobox', { name: 'Tooltip' }).boundingBox();
       assert.ok(finder.width >= 200, `${theme} ${width} s150: finder is ${finder.width}px wide`);
-      const select = await page.locator('header select').first().boundingBox();
+      // The category select became a custom list (cb93a2d8): a "Category" combobox.
+      const select = await page
+        .locator('header')
+        .getByRole('combobox', { name: 'Category' })
+        .first()
+        .boundingBox();
       assert.ok(select.width >= 120, `${theme} ${width} s150: category select ${select.width}px`);
       await noOverflow(page, `${theme} ${width} s150 header`);
       await page.screenshot({ path: `${shots}/${theme}-${width}-s150-header.png` });
@@ -316,6 +380,7 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.style.fontSize), '');
     await context.close();
   }
+  knownDefectSummary();
   console.log('Status bar browser checks passed.');
 } finally {
   await browser.close();

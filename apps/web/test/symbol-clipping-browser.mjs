@@ -197,7 +197,9 @@ const geometry = (page, where, list) =>
         const masked = style.maskImage && style.maskImage !== 'none';
         const sizeText = masked ? style.maskSize : style.backgroundSize;
         const size = sizeText.split(' ').map(px);
-        const image = /url\("?([^")]+)"?\)/.exec(masked ? style.maskImage : style.backgroundImage)?.[1];
+        const image = /url\("?([^")]+)"?\)/.exec(
+          masked ? style.maskImage : style.backgroundImage,
+        )?.[1];
         out.push({
           name,
           image,
