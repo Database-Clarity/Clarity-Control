@@ -24,7 +24,8 @@ import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from '
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { tooltipImports } from '../../services/tooltipImports';
-import { useDataStore } from '../../stores/data';
+import { useDataStore, type EditorData } from '../../stores/data';
+import type { Drafts } from '../../services/draftStorage';
 import { useDraftStore } from '../../stores/drafts';
 import { usePausedForOtherTab, useConflictStore } from '../../stores/conflicts';
 import { ConflictRows } from '../conflicts/ConflictRows';
@@ -70,6 +71,7 @@ import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { QueueControl } from './QueueControl';
+import { useUpcoming } from './UpcomingSwitch';
 import { queueContext, queuePath, queueSummary } from '../translations/worklist';
 import { englishDiffFor } from '../translations/source';
 import { categoryDisplay } from '../../services/categoryLabels';
@@ -273,6 +275,14 @@ function TooltipWorkspace({
     [1, 2, 3].includes(hashOverride ?? Number(parameter)) ? search.get('global') : null,
   );
   const highlightLine = selectedGlobal ? selectedGlobal.lines[lang] : Number(search.get('line'));
+  // Scheduled changes: Current / Upcoming for a member of an open batch (build switch OFF: a
+  // constant; nothing renders or is requested).
+  const upcomingTarget = hashOverride ?? Number(parameter);
+  const upcoming = useUpcoming(
+    data && !readOnly ? canonicalHash(upcomingTarget, data) : upcomingTarget,
+    !readOnly && !selectedGlobal && upcomingTarget > 3,
+  );
+  const future = upcoming.overlay;
   const drafts = useDraftStore((state) => state.drafts);
   // Previews, shared globals and references see "mine" where conflict blocks remain in a draft.
   const shown = useMemo(() => previewDrafts(drafts), [drafts]);
@@ -282,20 +292,16 @@ function TooltipWorkspace({
   const discard = useDraftStore((state) => state.discard);
   const hydrated = useDraftStore((state) => state.hydrated);
   const saving = useSaveState((state) => state.locked);
-  const sharedGlobals = useMemo<MarkupGlobals>(() => {
-    const imports = tooltipImports(data?.bundle.tooltips ?? {}, shown, lang, data?.aliases ?? {});
-    return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
-  }, [data, shown, lang]);
-  // One globals object per type, so renders that share a type share the object (and its parse).
-  const typedGlobals = useMemo(() => {
-    const cache = new Map<string, ScopedMarkupGlobals>();
-    return (type: string | undefined, allowBaseEnhanced: boolean) => {
-      const key = `${type}:${allowBaseEnhanced}`;
-      let globals = cache.get(key);
-      if (!globals) cache.set(key, (globals = { ...sharedGlobals, type, allowBaseEnhanced }));
-      return globals;
-    };
-  }, [sharedGlobals]);
+  const sharedGlobals = useMemo<MarkupGlobals>(
+    () => importGlobals(data, shown, lang),
+    [data, shown, lang],
+  );
+  const typedGlobals = useMemo(() => typedFrom(sharedGlobals), [sharedGlobals]);
+  // Upcoming resolves imports through the same future state (batch members over current saved).
+  const futureGlobals = useMemo(
+    () => (future ? typedFrom(importGlobals(data, future, lang)) : undefined),
+    [data, future, lang],
+  );
   const referenceSources = useMemo(
     () => tooltipTextSources(data?.bundle.tooltips ?? {}, shown, data?.aliases ?? {}),
     [data, shown],
@@ -392,8 +398,8 @@ function TooltipWorkspace({
   const legacyOf = (variant: number) =>
     data.categories.find((category) => category.id === archivedItemFor(variant, data)?.categoryId)
       ?.legacyType;
-  const globalsFor = (variant: number): ScopedMarkupGlobals =>
-    typedGlobals(
+  const globalsFor = (variant: number, typed = typedGlobals): ScopedMarkupGlobals =>
+    typed(
       legacyOf(variant),
       categoriesWithEnhanced(data).has(
         data.items[variant]?.categoryId ?? archivedItemFor(variant, data)?.categoryId ?? '',
@@ -410,8 +416,8 @@ function TooltipWorkspace({
       textOf(variant),
     );
   // What the preview renders: the same text with conflict blocks resolved to "mine".
-  const previewTextOf = (variant: number) =>
-    (shown[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
+  const previewTextOf = (variant: number, source = shown) =>
+    (source[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
   /** The three versions an open conflict started from, for the editor's Compare view. */
   const conflictSourceOf = (variant: number): CompareData | undefined => {
     const session = sessions[variant];
@@ -442,18 +448,22 @@ function TooltipWorkspace({
   const activeTooltip = drafts[activeHash]?.next ?? activeBase;
   const value = previewTextOf(hash);
 
-  const enhancedViews: EnhancedView[] = previewed.map((variant) => {
-    // Derived versions render the base text (drafts included) as their own type; overrides and
-    // archived tooltips show the text they hold.
-    const rendered = readOnly ? undefined : enhancedRender(hash, variant, lang, data, shown);
-    return {
-      hash: variant,
-      name: nameOf(variant),
-      text: rendered ? rendered.text : previewTextOf(variant),
-      globals: globalsFor(variant),
-      derived: rendered?.form === 'derived',
-    };
-  });
+  const viewsOf = (source = shown, typed = typedGlobals): EnhancedView[] =>
+    previewed.map((variant) => {
+      // Derived versions render the base text (drafts included) as their own type; overrides and
+      // archived tooltips show the text they hold.
+      const rendered = readOnly ? undefined : enhancedRender(hash, variant, lang, data, source);
+      return {
+        hash: variant,
+        name: nameOf(variant),
+        text: rendered ? rendered.text : previewTextOf(variant, source),
+        globals: globalsFor(variant, typed),
+        derived: rendered?.form === 'derived',
+      };
+    });
+  const enhancedViews = viewsOf();
+  // Upcoming (read-only): the same views over the batch's future state instead of drafts.
+  const previewViews = future && futureGlobals ? viewsOf(future, futureGlobals) : enhancedViews;
   const baseEntry = archivedItemFor(hash, data);
   const heading = baseEntry ? editorName(baseEntry) : nameOf(hash);
   const baseCategory = classifiedCategory(baseEntry, data);
@@ -471,10 +481,15 @@ function TooltipWorkspace({
       setPreviewMode('enhanced');
     } else setPreviewMode('base');
   };
-  // A deferred preview acknowledges text only after that version actually commits.
+  // A deferred preview acknowledges text only after that version actually commits. Upcoming
+  // shows the batch, not the drafts, so it acknowledges nothing.
   const seen = column
     ? previewedHashes(mode, hash, selectedView).map((variant) => (
-        <PreviewAck key={variant} variant={variant} visible={!column.collapsed && !suspended} />
+        <PreviewAck
+          key={variant}
+          variant={variant}
+          visible={!column.collapsed && !suspended && !future}
+        />
       ))
     : null;
   const previews = (
@@ -500,10 +515,12 @@ function TooltipWorkspace({
               : selectedGlobal.kind === 'titles'
                 ? `<title ${selectedGlobal.name} [${selectedGlobal.name}] />`
                 : `import ${selectedGlobal.name} from global`
-          : value
+          : future
+            ? previewTextOf(hash, future)
+            : value
       }
-      baseGlobals={globalsFor(hash)}
-      enhanced={enhancedViews}
+      baseGlobals={globalsFor(hash, futureGlobals)}
+      enhanced={previewViews}
       mode={mode}
       onMode={setPreviewMode}
       variant={selectedView?.hash}
@@ -511,7 +528,8 @@ function TooltipWorkspace({
       acknowledgement={seen}
       stepping={suspended}
       onDocumentPaint={setPreviewPainted}
-      loadingContent={loading}
+      loadingContent={loading || upcoming.loading}
+      source={upcoming.control}
     />
   );
 
@@ -555,7 +573,7 @@ function TooltipWorkspace({
         review: {
           canonical,
           scheduled: previewedHashes(mode, hash, selectedView),
-          visible: !column.collapsed && !suspended,
+          visible: !column.collapsed && !suspended && !future,
         },
         collapsed: column.collapsed,
         onShow: () => {
@@ -692,6 +710,7 @@ function TooltipWorkspace({
           onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
           onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
           grouped={grouped}
+          destination={upcoming.badge}
           draftLoader={
             draft && (
               <DraftLoader
@@ -789,6 +808,22 @@ function TooltipWorkspace({
       )}
     </>
   );
+}
+
+function importGlobals(data: EditorData | null, source: Drafts, lang: Lang): MarkupGlobals {
+  const imports = tooltipImports(data?.bundle.tooltips ?? {}, source, lang, data?.aliases ?? {});
+  return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
+}
+
+/** One globals object per type, so renders that share a type share the object (and its parse). */
+function typedFrom(shared: MarkupGlobals) {
+  const cache = new Map<string, ScopedMarkupGlobals>();
+  return (type: string | undefined, allowBaseEnhanced: boolean) => {
+    const key = `${type}:${allowBaseEnhanced}`;
+    let globals = cache.get(key);
+    if (!globals) cache.set(key, (globals = { ...shared, type, allowBaseEnhanced }));
+    return globals;
+  };
 }
 
 /** Lower-priority sheet work starts only after the newest editor/preview paint. */
