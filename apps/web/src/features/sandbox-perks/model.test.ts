@@ -71,7 +71,7 @@ describe('compiled check for bulk accept', () => {
     const rows = buildRows(input).filter((row) => row.bucket === 'same-text');
     const result = await bulkCheck(
       rows,
-      { tooltips: input.tooltips, aliases: input.aliases, cache: new Map() },
+      { tooltips: input.tooltips, aliases: input.aliases },
       undefined,
       async () => {},
     );
@@ -86,7 +86,7 @@ describe('compiled check for bulk accept', () => {
 describe('Choose previews', () => {
   it('show the rendered first line, imports resolved, never raw markup', () => {
     const input = fixture();
-    const context = { tooltips: input.tooltips, aliases: input.aliases, cache: new Map() };
+    const context = { tooltips: input.tooltips, aliases: input.aliases };
     expect(previewLine(11, context)).toBe('Gain Haste.');
     expect(previewLine(13, context)).toBe('Gain Haste.');
     expect(previewLine(17, context)).toBe('Double dodge.');
@@ -98,7 +98,6 @@ describe('suggestions and the compiled check match what consumers and the Worker
   const context = (input: ReturnType<typeof fixture>) => ({
     tooltips: input.tooltips,
     aliases: input.aliases,
-    cache: new Map<string, string>(),
   });
 
   it('suggests a candidate, never an imported root outside the set', () => {
@@ -156,5 +155,42 @@ describe('suggestions and the compiled check match what consumers and the Worker
     const result = await bulkCheck(buildRows(input), context(input));
     expect(result.applied).toEqual([]);
     expect(result.skipped[0]!.reason).toBe('compiled output differs (de, base)');
+  });
+});
+
+describe('the compiled check after review round 2', () => {
+  it('decides missing on the exported text: a stale blank translation exports English', async () => {
+    const input = fixture();
+    const t = (input.tooltips = structuredClone(input.tooltips) as Record<string, Tooltip>);
+    input.conflicts = { 701: [12, 13] };
+    t[12]!.text.en!.updatedAt = '2026-11-12T00:00:00Z';
+    t[12]!.text.de = {
+      text: '',
+      updatedAt: '2026-01-01T00:00:00Z',
+      updatedBy: 'fixture',
+      sourceUpdatedAt: '2026-01-01T00:00:00Z',
+    };
+    t[13]!.text.de = { text: '', updatedAt: '2026-11-12T00:00:00Z', updatedBy: 'fixture' };
+    const result = await bulkCheck(buildRows(input), { tooltips: t, aliases: input.aliases });
+    expect(result.applied).toEqual([]);
+    expect(result.skipped[0]!.reason).toBe('compiled output differs (de, base)');
+  });
+
+  it('never reuses output compiled from an older bundle', async () => {
+    const input = fixture();
+    input.conflicts = { 701: [12, 13] };
+    const first = await bulkCheck(buildRows(input), {
+      tooltips: input.tooltips,
+      aliases: input.aliases,
+    });
+    expect(first.applied).toEqual(['701']);
+    const tooltips = structuredClone(input.tooltips) as Record<string, Tooltip>;
+    tooltips[13]!.text.de!.text = 'Changed translation.';
+    const result = await bulkCheck(buildRows({ ...input, tooltips }), {
+      tooltips,
+      aliases: input.aliases,
+    });
+    expect(result.applied).toEqual([]);
+    expect(result.skipped[0]!.reason).toContain('de, base');
   });
 });

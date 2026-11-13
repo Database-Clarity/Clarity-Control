@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { SandboxConflicts, SandboxPick, SandboxPointers } from '@clarity/core';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
@@ -80,7 +80,6 @@ export function SandboxPerksPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [reload, setReload] = useState(0);
-  const compileCache = useRef(new Map<string, string>());
 
   useEffect(() => {
     if (!permitted || !apiUrl) return;
@@ -204,7 +203,7 @@ export function SandboxPerksPage() {
     try {
       const result = await bulkCheck(
         candidates,
-        { tooltips: data.bundle.tooltips, aliases: generatorAliases, cache: compileCache.current },
+        { tooltips: data.bundle.tooltips, aliases: generatorAliases },
         (done) => setProgress({ done, total: candidates.length }),
       );
       const byHash = new Map(candidates.map((row) => [row.hash, row]));
@@ -227,9 +226,7 @@ export function SandboxPerksPage() {
     return row.hash === expanded ? base + 0.5 + (row.candidates.length + 1) * choice : base;
   };
   const compileContext =
-    data && generatorAliases
-      ? { tooltips: data.bundle.tooltips, aliases: generatorAliases, cache: compileCache.current }
-      : null;
+    data && generatorAliases ? { tooltips: data.bundle.tooltips, aliases: generatorAliases } : null;
   const preview = (hash: number) => (compileContext ? previewLine(hash, compileContext) : '');
 
   return (

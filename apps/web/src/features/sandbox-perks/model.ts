@@ -244,7 +244,23 @@ const forms = [undefined, enhancedMarkupType] as const;
 export interface CompileContext {
   tooltips: Readonly<Record<string, Tooltip>>;
   aliases: Aliases;
-  cache: Map<string, string>;
+}
+
+interface Memo {
+  outputs: Map<string, string>;
+  imports: Map<Lang, Record<string, string>>;
+}
+const memos = new WeakMap<object, WeakMap<object, Memo>>();
+/**
+ * Results for exactly these tooltips and aliases: a refreshed bundle or alias map is a new object,
+ * so nothing computed from older text (a dependency, a global, or the document itself) is reused.
+ */
+function memo(context: CompileContext): Memo {
+  let byAliases = memos.get(context.tooltips);
+  if (!byAliases) memos.set(context.tooltips, (byAliases = new WeakMap()));
+  let found = byAliases.get(context.aliases);
+  if (!found) byAliases.set(context.aliases, (found = { outputs: new Map(), imports: new Map() }));
+  return found;
 }
 
 const compileError = '\u0000error ';
@@ -258,11 +274,9 @@ function consumerText(tooltip: Tooltip, lang: Lang): string | undefined {
   return (usesEnglishFallback(tooltip, lang) && english ? english : tooltip.text[lang])?.text;
 }
 
-const importsByContext = new WeakMap<CompileContext, Map<Lang, Record<string, string>>>();
 /** Imports as consumers resolve them: aliases to their tooltip, each with the fallback applied. */
 function consumerImports(context: CompileContext, lang: Lang): Record<string, string> {
-  let byLang = importsByContext.get(context);
-  if (!byLang) importsByContext.set(context, (byLang = new Map()));
+  const byLang = memo(context).imports;
   let imports = byLang.get(lang);
   if (!imports) {
     const read = (key: string | symbol) => {
@@ -301,13 +315,16 @@ export function compiled(
   context: CompileContext,
 ): string {
   const key = `${hash}:${lang}:${form ?? ''}`;
-  const hit = context.cache.get(key);
+  const { outputs } = memo(context);
+  const hit = outputs.get(key);
   if (hit !== undefined) return hit;
   const tooltip = context.tooltips[hash];
+  // Missing or blank is decided on what consumers get: a stale blank translation exports English.
+  const text = tooltip ? consumerText(tooltip, lang) : undefined;
   let result = '\u0000missing';
-  if (tooltip && tooltip.text[lang]?.text.trim()) {
+  if (text?.trim()) {
     const imports = consumerImports(context, lang);
-    const parsed = parseMarkup(consumerText(tooltip, lang) ?? '', {
+    const parsed = parseMarkup(text, {
       imports,
       variables: imports['2'] ?? '',
       titles: imports['3'] ?? '',
@@ -317,7 +334,7 @@ export function compiled(
     const error = parsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     result = error ? `${compileError}${error.message}` : JSON.stringify(parsed.lines);
   }
-  context.cache.set(key, result);
+  outputs.set(key, result);
   return result;
 }
 
@@ -327,7 +344,8 @@ export function compiled(
  */
 export function previewLine(hash: number, context: CompileContext): string {
   const key = `${hash}:preview`;
-  const hit = context.cache.get(key);
+  const { outputs } = memo(context);
+  const hit = outputs.get(key);
   if (hit !== undefined) return hit;
   const text = context.tooltips[hash]?.text.en?.text ?? '';
   let result = '';
@@ -356,7 +374,7 @@ export function previewLine(hash: number, context: CompileContext): string {
       }
     }
   }
-  context.cache.set(key, result);
+  outputs.set(key, result);
   return result;
 }
 

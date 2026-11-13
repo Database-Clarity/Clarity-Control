@@ -196,6 +196,29 @@ describe('Sandbox perks worklist', () => {
     expect(container.textContent).not.toContain('Apply all');
   });
 
+  it('re-checks current text when the editor data is replaced while the page stays open', async () => {
+    await render();
+    await choose(status(), 'same-text');
+    await click(button(container, 'Apply all 3'));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(row('701').dataset.state).toBe('staged');
+    await click(button(container, 'Discard'));
+    const data = useDataStore.getState().data!;
+    const tooltips = structuredClone(data.bundle.tooltips);
+    tooltips['13']!.text.de!.text = 'Changed translation.';
+    await act(async () => {
+      useDataStore.setState({ data: { ...data, bundle: { ...data.bundle, tooltips } } });
+    });
+    await click(button(container, 'Apply all 3'));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(row('701').dataset.state).toBe('open');
+    expect(container.textContent).toContain('701: compiled output differs (de, base)');
+  });
+
   it('shows a stale revision with a reload, and blocks saving while the exporter lacks picks', async () => {
     vi.mocked(putSandboxPointers).mockRejectedValue(
       new Error((await import('../../services/sandboxPointers')).sandboxPointersChangedMessage),
