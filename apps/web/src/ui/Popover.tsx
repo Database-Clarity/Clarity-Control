@@ -20,6 +20,28 @@ import { useWorkspaceShortcutOwner } from './interaction';
 import styles from './Popover.module.scss';
 
 /**
+ * Whether Escape at `target` belongs to a popup nested inside `host` rather than to the host
+ * itself: the focused control has its own open tooltip (a term definition, or a disclosure such as
+ * a diff's style marker that it expands and describes). The host lets that Escape through, the
+ * control closes its popup and consumes the key, and the next Escape closes the host.
+ */
+export function innerPopupOwnsEscape(target: EventTarget | null, host: Node | null | undefined) {
+  if (!(target instanceof Element) || !host?.contains(target)) return false;
+  const described = target.getAttribute('aria-describedby');
+  if (!described) return false;
+  if (target.getAttribute('aria-expanded') === 'true') return true;
+  return described.split(/\s+/).some((id) => {
+    const popup = document.getElementById(id);
+    try {
+      return !!popup?.matches(':popover-open, [data-open]');
+    } catch {
+      // No :popover-open support: the fallback marks an open box with data-open.
+      return !!popup?.hasAttribute('data-open');
+    }
+  });
+}
+
+/**
  * A small non-modal surface anchored to its trigger on every screen size: it floats under the
  * button (right-aligned), or above it when the content fits better there, inside the visible area
  * (on a phone: the page width less the edge inset, clear of the keyboard and the docked bar; see
@@ -185,7 +207,7 @@ export function Popover({
       close(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || innerPopupOwnsEscape(event.target, surface.current)) return;
       event.stopPropagation();
       close(true);
     };

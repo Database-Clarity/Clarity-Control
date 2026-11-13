@@ -345,6 +345,12 @@ describe('editor page composition', () => {
     expect(base.closest('[hidden]')).not.toBeNull();
     expect(editors()[1].closest('[hidden]')).toBeNull();
     expect(host.textContent).toContain('Enhanced override');
+    // A narrow header shows "Override" instead; screen readers hear the full name only once.
+    const tag = host.querySelector('[title="Enhanced override"]')!;
+    expect(tag).not.toBeNull();
+    expect(
+      [...tag.querySelectorAll('[aria-hidden="true"]')].map((node) => node.textContent?.trim()),
+    ).toContain('Override');
     expect(button('Edit override')).toBeUndefined();
     await act(async () => button('Back to base')!.click());
     expect(editors().map((node) => node.dataset.editor)).toEqual(['10']);
