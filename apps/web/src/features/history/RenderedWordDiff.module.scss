@@ -33,6 +33,10 @@
   font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
+// A source line range ("lines 14–15") never breaks at its dash.
+.range {
+  white-space: nowrap;
+}
 .missing {
   color: var(--text2);
   font-style: italic;
@@ -52,9 +56,10 @@
   // so it never outgrows the lines it annotates. It sits above the line it names: the gap goes
   // before it, away from the paragraph above, and it hugs its own line.
   .sourceChange {
-    // 12px text; lengths in its own em: 8px gap above, 8px inset, 2px to its line.
+    // 12px text; lengths in its own em: 8px gap above, 2px to its line. Its bar sits on the
+    // body text's left edge (no third edge beside the text and the gutter bars).
     font-size: calc(12em / 14);
-    margin: calc(8em / 12) calc(8em / 12) calc(2em / 12);
+    margin: calc(8em / 12) 0 calc(2em / 12);
     padding-inline-start: calc(8em / 12);
   }
   .sourceChange:first-child {
