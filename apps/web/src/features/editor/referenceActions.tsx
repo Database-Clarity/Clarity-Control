@@ -17,6 +17,7 @@ import {
   showTooltip,
   type DecorationSet,
   type Tooltip,
+  type ViewUpdate,
 } from '@codemirror/view';
 import type { Lang, MarkupGlobals } from '@clarity/core';
 import { ReferencePopover } from './ReferencePopover';
@@ -211,11 +212,16 @@ export function referenceExtensions(host: ReferenceHost): Extension {
         view.dom.addEventListener('mousemove', this.onMove);
         view.dom.addEventListener('mouseleave', this.onLeave);
       }
+      /** Only a change of the held state refreshes: posAtCoords forces a layout, and
+       * every Ctrl shortcut (and key repeat) would otherwise pay for one per keydown. */
       onKey = (event: KeyboardEvent) => {
-        this.held = modifierHeld(event);
+        const held = modifierHeld(event);
+        if (held === this.held) return;
+        this.held = held;
         this.refresh();
       };
       onBlur = () => {
+        if (!this.held && !this.shown) return;
         this.held = false;
         this.refresh();
       };
@@ -228,6 +234,10 @@ export function referenceExtensions(host: ReferenceHost): Extension {
         this.pointer = null;
         this.refresh();
       };
+      update(update: ViewUpdate) {
+        // The link field drops its mark on any edit; forget it so the next refresh re-shows it.
+        if (update.docChanged) this.shown = null;
+      }
       refresh() {
         let next: { from: number; to: number } | null = null;
         if (this.held && this.pointer) {

@@ -32,6 +32,8 @@ export interface PreviewColumnProps {
   name: string;
   /** Exotic armour: the piece carrying this perk, shown above the perk's name. */
   piece?: string;
+  /** The piece's icon beside the piece row. */
+  pieceIcon?: string;
   icon?: string;
   categoryLabel?: string;
   archiveIcon?: boolean;
@@ -126,6 +128,7 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   lang,
   name,
   piece,
+  pieceIcon,
   icon,
   categoryLabel,
   archiveIcon,
@@ -222,6 +225,7 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
         lang={lang}
         name={name}
         piece={piece}
+        pieceIcon={pieceIcon}
         icon={icon}
         categoryLabel={[categoryLabel, hash].filter(Boolean).join(' · ')}
         globals={shown ? shown.globals : baseGlobals}

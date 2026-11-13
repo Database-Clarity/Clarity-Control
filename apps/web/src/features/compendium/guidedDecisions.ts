@@ -65,20 +65,48 @@ function stableSelection(
   return link && { ...link, snapshotAt: source.fetchedAt };
 }
 
+// Pure facts of a source row name, shared by every entry that scans the same rows.
+const rowNames = new Map<string, { first: string; lines: string[]; full: string }>();
+function rowNameFacts(name: string) {
+  let facts = rowNames.get(name);
+  if (!facts) {
+    if (rowNames.size >= 32768) rowNames.clear();
+    const parts = name.split(/\r?\n/);
+    facts = {
+      first: normaliseCompendiumName(parts[0]),
+      lines: parts.map((line) => normaliseCompendiumName(line.replace(/^↑/, ''))),
+      full: normaliseCompendiumName(name),
+    };
+    rowNames.set(name, facts);
+  }
+  return facts;
+}
+
 // Bounded typo comparison on normalized full names. A close runner-up is ambiguous.
+// The typo rule reads only distances <= 2 and a runner-up gap of 2, so every
+// distance of TYPO_DISTANCE_CAP or more is reported as the cap: same ranking head,
+// same gap test, without the full table for every source row of every entry.
+const TYPO_DISTANCE_CAP = 4;
 function editDistance(a: string, b: string): number {
+  // Insertions alone already cost the length difference.
+  if (Math.abs(a.length - b.length) >= TYPO_DISTANCE_CAP) return TYPO_DISTANCE_CAP;
   let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     const current = [i];
-    for (let j = 1; j <= b.length; j++)
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
       current[j] = Math.min(
         current[j - 1] + 1,
         previous[j] + 1,
         previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
       );
+      if (current[j] < best) best = current[j];
+    }
+    // Row minima never decrease, so the final distance is at least the cap.
+    if (best >= TYPO_DISTANCE_CAP) return TYPO_DISTANCE_CAP;
     previous = current;
   }
-  return previous[b.length];
+  return Math.min(previous[b.length], TYPO_DISTANCE_CAP);
 }
 
 function exoticParentLink(
@@ -540,36 +568,48 @@ export function* guidedDecisionSteps(
         record.id === 'catalog:weapon-catalyst-exotic'
           ? entry.name.replace(/ Catalyst$/, '')
           : entry.name;
+      const catalystName = normaliseCompendiumName(catalyst);
       const candidates = source.tabs
         .filter((tab) => tabs.has(tab.gid))
         .flatMap((tab) =>
           tab.rows.map((row) => {
-            const first = normaliseCompendiumName(row.name.split(/\r?\n/)[0]);
-            const lines = row.name
-              .split(/\r?\n/)
-              .map((line) => normaliseCompendiumName(line.replace(/^↑/, '')));
-            const exact = names.has(normaliseCompendiumName(row.name)) || names.has(first);
-            const token = lines.includes(norm) || first === normaliseCompendiumName(catalyst);
+            const { first, lines, full } = rowNameFacts(row.name);
             return {
               tab,
               row,
-              exact,
-              token,
-              distance: editDistance(norm, first),
-              score: Math.max(...[...names].map((name) => compendiumSimilarity(name, first))),
+              first,
+              exact: names.has(full) || names.has(first),
+              token: lines.includes(norm) || first === catalystName,
+              distance: 0,
+              score: 0,
             };
           }),
         );
       const exact = candidates.filter((candidate) => candidate.exact);
       const token = candidates.filter((candidate) => candidate.token);
-      const ranked = [...candidates].sort((a, b) => b.score - a.score);
-      const typoRanked = [...candidates].sort((a, b) => a.distance - b.distance);
-      const typo =
-        norm.length >= 8 &&
-        typoRanked[0]?.distance <= 2 &&
-        (typoRanked[1]?.distance ?? Infinity) - typoRanked[0].distance >= 2
-          ? typoRanked[0]
-          : undefined;
+      const scored = (candidate: (typeof candidates)[number]) => {
+        candidate.score = Math.max(
+          ...[...names].map((name) => compendiumSimilarity(name, candidate.first)),
+        );
+        return candidate;
+      };
+      // Scores rank rows only when no exact or token row exists, and typo distances
+      // matter only when that ranking is not separated. Compute each on its branch.
+      const ranking = !exact.length && !token.length;
+      const ranked = ranking ? candidates.map(scored).sort((a, b) => b.score - a.score) : [];
+      const separated =
+        ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08;
+      let typo: (typeof candidates)[number] | undefined;
+      if (ranking && !separated && norm.length >= 8) {
+        for (const candidate of candidates)
+          candidate.distance = editDistance(norm, candidate.first);
+        const typoRanked = [...candidates].sort((a, b) => a.distance - b.distance);
+        typo =
+          typoRanked[0]?.distance <= 2 &&
+          (typoRanked[1]?.distance ?? Infinity) - typoRanked[0].distance >= 2
+            ? typoRanked[0]
+            : undefined;
+      }
       const best =
         exact.length === 1
           ? exact[0]
@@ -579,9 +619,11 @@ export function* guidedDecisionSteps(
               ? token[0]
               : token.length
                 ? undefined
-                : ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08
+                : separated
                   ? ranked[0]
                   : typo;
+      // An exact or token choice reports its own score.
+      if (best && !ranking) scored(best);
       if (!best) {
         const proposal = proposals.get(hash);
         if (exact.length > 1 || proposal?.match?.parts) {
@@ -675,8 +717,7 @@ export function* guidedDecisionSteps(
               : 'unique-name-in-learned-tab'
           : token.length === 1
             ? 'exotic-name-line-or-catalyst'
-            : best === typo &&
-                !(ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08)
+            : best === typo && !separated
               ? 'separated-typo-name'
               : 'separated-fuzzy-name';
       return {

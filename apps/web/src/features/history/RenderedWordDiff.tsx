@@ -159,11 +159,6 @@ export function RenderedWordDiff({
             Raw shows the markup
           </p>
         )}
-        {!!sourceAnalysis?.unchecked && (
-          <p className={styles.sourceChange} data-source-unchecked>
-            {sourceAnalysis.unchecked} changes not checked: see Raw
-          </p>
-        )}
         {sourceUnavailable && before !== after && (
           <p className={styles.sourceChange} data-source-unchecked>
             Source changes not checked: see Raw
