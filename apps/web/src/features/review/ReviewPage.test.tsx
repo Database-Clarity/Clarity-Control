@@ -656,6 +656,32 @@ it('never shows the comparison skeleton for a response held for the opening pain
   }
 });
 
+it('still shows the comparison skeleton for a wait that outlasts the opening', async () => {
+  let serial = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames.set(++serial, callback);
+    return serial;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const { router } = await mountDelayedReview();
+  const detail = () => host.querySelector('[aria-label="Selected change"]')!;
+  try {
+    for (let round = 0; round < 12 && frames.size; round++) {
+      const batch = [...frames];
+      frames.clear();
+      await act(async () => {
+        batch.forEach(([, callback]) => callback(performance.now()));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(useReviewOpening.getState().warming).toBe(false);
+    expect(detail().querySelector('[aria-busy=true] [aria-hidden=true]')).not.toBeNull();
+  } finally {
+    router.dispose();
+  }
+});
+
 it('keeps current filters when a retained row opens after the URL changes', async () => {
   bundle.tooltips[20] = { ...structuredClone(tooltip), hash: 20 };
   await useDataStore.getState().load();
