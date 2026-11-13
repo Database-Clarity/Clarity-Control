@@ -7,6 +7,12 @@ import styles from './Compendium.module.scss';
 import gridStyles from './PickerGrid.module.scss';
 import { pickerBands, type PickerBand } from './pickerBands';
 
+/**
+ * Time a fill task may spend on render and layout before it stops growing its step. A
+ * Compendium burst allows 10 ms tasks at a 60 ms cadence; a step may overshoot by a row.
+ */
+const taskBudgetMs = 6;
+
 const GridBand = memo(function GridBand({
   tab,
   band,
@@ -73,49 +79,90 @@ export const PickerGrid = memo(function PickerGrid({
     let cancelled = false,
       frame = 0,
       mounted = 1,
-      step = 1,
-      filling = true;
+      filling = true,
+      // Measured render + layout cost per sheet row (a row is hundreds of layout objects); the
+      // first measurement is the first band's layout, which also carries first-use font work.
+      perRow = 0,
+      lastStep = 0,
+      timer: ReturnType<typeof setTimeout> | undefined;
     const channel = new MessageChannel();
-    const schedule = () => {
-      if (cancelled || mounted >= bands.length) return;
-      // The task right after the next frame: the reveal (or the last step) paints on its own.
-      frame = requestAnimationFrame(() => channel.port2.postMessage(null));
-    };
-    channel.port1.onmessage = () => {
+    // Hidden steps follow each other at once (the reveal waits on them). Below the region,
+    // steps are timers: they queue behind timers other code set in the meantime (paint
+    // stamps that follow the reveal's frame, for one) instead of starving them.
+    const next = () =>
+      filling ? channel.port2.postMessage(null) : (timer = setTimeout(run, 0));
+    // Lays out what is mounted inside this task, never in the frame.
+    const layout = () => body.current?.getBoundingClientRect().height ?? 0;
+    const rows = (from: number, to: number) => bands[to - 1].last - bands[from].first + 1;
+    const run = () => {
       if (cancelled) return;
-      if (filling) {
-        // Bands are added in tasks until the visible region is full, 1, then 2 per task (a
-        // sheet row is hundreds of layout objects): each task lays out only what it added (the
-        // first band carries the first-use font work), and neither the input task nor the
-        // frame's paint carries that work.
-        const height = body.current?.getBoundingClientRect().height ?? 0;
-        const available = viewport.current?.clientHeight ?? 0;
-        if (mounted < bands.length && height <= available + 1) {
-          mounted = Math.min(bands.length, mounted + step);
-          step = 2;
-          flushSync(() => setState({ bands, count: mounted, filled: false }));
-          channel.port2.postMessage(null);
-          return;
-        }
-        filling = false;
-        flushSync(() => setState({ bands, count: mounted, filled: true }));
-        // Same task as the reveal: only the reservation changed since the last layout.
-        reserved.current = viewport.current?.clientHeight || undefined;
-        schedule();
-        return;
+      const start = performance.now();
+      // The first task lays out the first band (mounted with the sheet) and nothing else.
+      const first = !perRow;
+      if (first) {
+        layout();
+        perRow = Math.max(performance.now() - start, 0.01) / rows(0, 1);
       }
-      if (mounted >= bands.length) return;
-      // Below the visible region: about three rows per step, one step per frame.
-      const first = bands[mounted].first;
-      do mounted++;
-      while (mounted < bands.length && bands[mounted].last - first < 3);
-      setState({ bands, count: mounted, filled: true });
-      schedule();
+      for (let step = 0; ; step++) {
+        if (filling) {
+          // Hidden until the visible region is full; the reveal paints in its own frame.
+          const height = layout();
+          const available = viewport.current?.clientHeight ?? 0;
+          if (mounted >= bands.length || height > available + 1) {
+            filling = false;
+            flushSync(() => setState({ bands, count: mounted, filled: true }));
+            // Same task as the reveal: only the reservation changed since the last layout.
+            reserved.current = viewport.current?.clientHeight || undefined;
+            // The rest starts after the reveal's frame, registered after this commit's own
+            // observers so work that reacts to the reveal is not queued behind the fill.
+            if (mounted < bands.length)
+              queueMicrotask(() => {
+                if (!cancelled) frame = requestAnimationFrame(next);
+              });
+            return;
+          }
+        }
+        if (mounted >= bands.length) return;
+        // Add as many bands as the measured cost fits into this task's budget, so a fast
+        // machine finishes in a task or two. No frame waits between tasks: below the region
+        // nothing shows, and a frame still runs between tasks when one is due.
+        const left = taskBudgetMs - (performance.now() - start);
+        if (first && !step && left < perRow) {
+          // As before budgeting: the first task also mounts the second band; the next task's
+          // height read lays it out (an extra task here is an extra frame before the reveal).
+          lastStep = 1;
+          flushSync(() => setState({ bands, count: ++mounted, filled: false }));
+          return next();
+        }
+        if (step && left < perRow) return next();
+        // Steps keep their unbudgeted sizes (1, then 2 rows while hidden; about 3 rows below
+        // the region), so a slow machine takes no more steps than it did. While hidden, the
+        // budget only packs more steps into a task (each rechecks the height, so the reveal
+        // never waits on rows past the region); below it, steps grow, at most doubling, so
+        // one low measurement cannot mount the window at once.
+        const least = filling ? (lastStep ? 2 : 1) : 3;
+        let end = mounted + 1;
+        while (
+          end < bands.length &&
+          (rows(mounted, end) < least ||
+            (!filling && end - mounted < 2 * lastStep && rows(mounted, end + 1) * perRow <= left))
+        )
+          end++;
+        const added = rows(mounted, end);
+        const begun = performance.now();
+        lastStep = end - mounted;
+        mounted = end;
+        flushSync(() => setState({ bands, count: mounted, filled: !filling }));
+        layout();
+        perRow = Math.max(performance.now() - begun, 0.01) / added;
+      }
     };
-    channel.port2.postMessage(null);
+    channel.port1.onmessage = run;
+    next();
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      clearTimeout(timer);
       channel.port1.close();
       channel.port2.close();
     };
