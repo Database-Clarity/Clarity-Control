@@ -296,6 +296,11 @@ try {
         await overlay.waitFor();
         await panelKeepsText(page, typed, `${label}: glyph panel`);
         const replace = overlay.getByRole('button', { name: /Replace first/ });
+        // The offer renders with the panel's content, after it opens: wait for it.
+        await replace
+          .first()
+          .waitFor({ timeout: 5000 })
+          .catch(() => {});
         assert.ok(await replace.count(), `${label}: glyph panel offers the replacement`);
         await noOverflow(page, `${label} glyphs open`);
         const wrapped = await replace.evaluate(
