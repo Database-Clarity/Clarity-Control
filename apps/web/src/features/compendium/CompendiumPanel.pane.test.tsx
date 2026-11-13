@@ -363,8 +363,15 @@ describe('Compendium pane', () => {
     const host = await mount();
     const root = roots.at(-1)!;
     const next = { hash: 9, text: {}, associated: [] } as unknown as Tooltip;
+    // A wheel notch marks stepping before its route lands on the next entry.
     await act(async () =>
-      root.render(createElement(CompendiumPanel, { base: next, stepping: true })),
+      root.render(createElement(CompendiumPanel, { base: linked, stepping: true, target: 5 })),
+    );
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: linked, stepping: true, target: 9 })),
+    );
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: true, target: 9 })),
     );
     // The stepping quiet and preview handoff outlast two frames.
     for (let index = 0; index < 4; index++) await tick();
