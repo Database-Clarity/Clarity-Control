@@ -48,6 +48,19 @@ describe('mergeSandboxPointers', () => {
     expect(sandboxPointerChanged('703', decision('703'), conflicts)).toBe(true);
   });
 
+  it('an undone tombstone never blocks a pick that targets that perk', () => {
+    const pointers: SandboxPointers = {
+      version: 1,
+      pointers: {
+        700: { state: 'undone', by: 1, at },
+        701: { to: 700, candidates: [700, 124], by: 1, at },
+      },
+    };
+    expect(mergeSandboxPointers({}, { 701: [700, 124] }, pointers)).toEqual({
+      701: { to: 700, kind: 'sandbox' },
+    });
+  });
+
   it('never merges a pick for a perk a generator alias points into', () => {
     const aliases = { 80: { to: 700, kind: 'frame' as const } };
     const pointers: SandboxPointers = {

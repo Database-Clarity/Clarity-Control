@@ -138,10 +138,15 @@ export function mergeSandboxPointers(
   pointers: SandboxPointers | null | undefined,
 ): Aliases {
   if (!pointers) return aliases;
+  // Decisions only: an undone tombstone is no pick, so it never blocks a target (as the route,
+  // which validates against the decisions a save sends).
+  const decisions = Object.fromEntries(
+    Object.entries(pointers.pointers).filter(([, pointer]) => isSandboxDecision(pointer)),
+  );
   let merged: Aliases | undefined;
-  for (const [hash, pointer] of Object.entries(pointers.pointers)) {
+  for (const [hash, pointer] of Object.entries(decisions)) {
     if (!('to' in pointer)) continue;
-    if (sandboxPointerProblem(hash, pointer.to, aliases, conflicts, pointers.pointers)) continue;
+    if (sandboxPointerProblem(hash, pointer.to, aliases, conflicts, decisions)) continue;
     merged ??= { ...aliases };
     merged[hash] = { to: pointer.to, kind: 'sandbox' };
   }

@@ -286,6 +286,26 @@ describe('picks in the live export', () => {
     });
   });
 
+  it('exports a pick whose target holds an old undone tombstone (round-4 counterexample)', async () => {
+    const first = await (await put({ 700: { to: 123 } })).json();
+    const second = await (await put({}, first.revision)).json();
+    expect(second.pointers.pointers['700']).toMatchObject({ state: 'undone' });
+    // 700 is no longer shared and now has a saved canonical tooltip of its own.
+    fixture.sandboxConflicts = { 701: [700, 124] };
+    fixture.extraItems = {
+      ...fixture.extraItems,
+      700: { hash: 700, name: 'Now canonical', categoryId: 'perk' },
+    };
+    fixture.moveData({ 'tooltips/700.json': { ...tooltip('Canonical target text.'), hash: 700 } });
+    expect((await put({ 701: { to: 700 } }, second.revision)).status).toBe(200);
+    expect((await pushTooltip([700])).status).toBe(200);
+    expect((fixture.live as { perks: Record<string, unknown> }).perks['701']).toEqual({
+      hash: 701,
+      aliasOf: 700,
+      aliasKind: 'sandbox',
+    });
+  });
+
   it('undo then re-pick writes the stub again', async () => {
     const first = await (await put({ 700: { to: 123 } })).json();
     expect((await pushTooltip([123])).status).toBe(200);
