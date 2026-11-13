@@ -1,6 +1,10 @@
 import type { CompendiumData } from '@clarity/core';
 import { receiveWorkerResult, type WorkerReply } from './workerReplies';
-import { backgroundDecodePaused, onBackgroundDecodeResume } from './paneDecodeActivity';
+import {
+  backgroundDecodePaused,
+  onBackgroundDecodeResume,
+  watchEditorInput,
+} from './paneDecodeActivity';
 
 type Receiver = ReturnType<typeof receiveWorkerResult>;
 type Job = {
@@ -13,6 +17,7 @@ type Job = {
 };
 
 export function createWorkerBridge(worker: Worker) {
+  watchEditorInput();
   let serial = 0;
   let failure: Error | undefined;
   const jobs = new Map<number, Job>();

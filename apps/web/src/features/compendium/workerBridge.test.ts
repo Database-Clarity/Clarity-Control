@@ -1,12 +1,70 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createWorkerBridge } from './workerBridge';
 import { sendWorkerResult } from './workerReplies';
-import { createPaneDecodeGuard } from './paneDecodeActivity';
+import { backgroundDecodePaused, createPaneDecodeGuard } from './paneDecodeActivity';
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+});
+
+it('holds background decode while the editor is typed in, keeps priority, and resumes after quiet', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  const listeners = new Map<string, EventListener>();
+  class FakeElement {
+    constructor(readonly editor: boolean) {}
+    closest(selector: string) {
+      return selector === '.cm-content' && this.editor ? this : null;
+    }
+  }
+  vi.stubGlobal('Element', FakeElement);
+  vi.stubGlobal('document', {
+    addEventListener: (name: string, listener: EventListener) => listeners.set(name, listener),
+  });
+  const idle: IdleRequestCallback[] = [];
+  vi.stubGlobal('scheduler', undefined);
+  vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => idle.push(callback));
+  const deadline = { timeRemaining: () => 50, didTimeout: false };
+  const drain = () => {
+    while (idle.length) idle.shift()!(deadline);
+  };
+  const worker = { postMessage: vi.fn(), terminate: vi.fn() } as unknown as Worker;
+  const bridge = createWorkerBridge(worker);
+  try {
+    const type = (editor: boolean) =>
+      listeners.get('beforeinput')!({ target: new FakeElement(editor) } as unknown as Event);
+    // Input outside the editor (search fields, dialogs) never holds the prefetch.
+    type(false);
+    expect(backgroundDecodePaused()).toBe(false);
+    const background = bridge.request({ input: {} });
+    const published = vi.fn();
+    void background.then(published);
+    type(true);
+    worker.onmessage!.call(worker, { data: { id: 1, value: 'background' } } as MessageEvent);
+    drain();
+    await Promise.resolve();
+    expect(published).not.toHaveBeenCalled();
+    const priority = bridge.request({ priority: { hash: 5 } });
+    worker.onmessage!.call(worker, { data: { id: 2, value: 'pane' } } as MessageEvent);
+    drain();
+    expect(await priority).toBe('pane');
+    // Each key moves the quiet deadline; the burst holds until 300 ms after its last key.
+    vi.advanceTimersByTime(200);
+    type(true);
+    vi.advanceTimersByTime(299);
+    drain();
+    await Promise.resolve();
+    expect(published).not.toHaveBeenCalled();
+    expect(backgroundDecodePaused()).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(backgroundDecodePaused()).toBe(false);
+    drain();
+    expect(await background).toBe('background');
+  } finally {
+    bridge.dispose();
+    vi.useRealTimers();
+  }
 });
 
 it('pauses an active background graph while a pane opens, without blocking its priority reply', async () => {
