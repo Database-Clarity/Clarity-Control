@@ -492,6 +492,19 @@
   vertical-align: middle;
   margin-right: 0.25rem;
 }
+/* A retained anchor sheet keeps its layout while hidden (no display: none), so returning to
+   it shows the cached layout instead of laying out the whole grid in one frame. Out of flow
+   at the picker's full width: it neither takes space nor blocks margin collapsing. */
+.linkPicker {
+  position: relative;
+}
+.retainedSheet[hidden] {
+  display: block;
+  content-visibility: hidden;
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+}
 .rows {
   contain: content;
   overscroll-behavior: contain;

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   compendiumNameVariants,
   compendiumPreferredTabs,
   normaliseCompendiumName,
+  type CompendiumData,
   type CompendiumMatch,
   type Tooltip,
 } from '@clarity/core';
@@ -21,6 +22,108 @@ import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { apiUrl } from '../../services/api';
 import { pickerRowDetail, pickerRows } from './pickerRows';
+
+/** Tabs in the order the picker searches them for the item's own name: preferred tabs first. */
+function searchOrder(data: CompendiumData, category: string, name: string) {
+  const preferred = compendiumPreferredTabs(category, name);
+  const position = (gid: string) =>
+    preferred.includes(gid) ? preferred.indexOf(gid) : preferred.length;
+  return [...data.tabs].sort((a, b) => position(a.gid) - position(b.gid));
+}
+
+/** The tab, section, query, and anchor a new picker opens on. */
+function pickerStart(
+  data: CompendiumData,
+  category: string,
+  name: string,
+  remembered: string | null,
+) {
+  const names = compendiumNameVariants(category, name).map(normaliseCompendiumName);
+  const preferred = compendiumPreferredTabs(category, name);
+  const suggested = searchOrder(data, category, name).find((tab) =>
+    tab.rows.some((row) =>
+      pickerRowDetail(row).identifiers.some((identifier) => names.includes(identifier)),
+    ),
+  );
+  const initialGid =
+    data.tabs.find((tab) => tab.gid === remembered)?.gid ??
+    suggested?.gid ??
+    data.tabs.find((tab) => preferred.includes(tab.gid))?.gid ??
+    data.tabs.find((tab) => tab.rows.length || tab.grid?.length)?.gid ??
+    '';
+  const initialTab = data.tabs.find((tab) => tab.gid === initialGid);
+  const initialSection = categorySuggestions(data, category, name).find(
+    (hint) => hint.gid === initialGid,
+  )?.section;
+  const exactRow = initialTab?.rows.find((row) => names.includes(pickerRowDetail(row).name));
+  return {
+    gid: initialGid,
+    section: exactRow ? '' : (initialSection ?? ''),
+    query: exactRow ? name : '',
+    row:
+      exactRow ??
+      (initialSection ? initialTab?.rows.find((row) => row.section === initialSection) : undefined),
+  };
+}
+
+/**
+ * The opening lookups, one row per step: each scanned row's names (cached per row, in the
+ * order pickerStart scans them), then the search text of the tab the picker opens on.
+ */
+function* pickerLookups(category: string, name: string) {
+  const data = useCompendiumStore.getState().data;
+  if (!data) return;
+  const names = compendiumNameVariants(category, name).map(normaliseCompendiumName);
+  scan: for (const tab of searchOrder(data, category, name))
+    for (const row of tab.rows) {
+      if (pickerRowDetail(row).identifiers.some((identifier) => names.includes(identifier)))
+        break scan;
+      yield;
+    }
+  let remembered: string | null = null;
+  try {
+    remembered = localStorage.getItem(`clarity-compendium-tab:${category}`);
+  } catch {
+    // The picker reports an unreadable preference itself.
+  }
+  const start = pickerStart(data, category, name, remembered);
+  const tab = data.tabs.find((entry) => entry.gid === start.gid);
+  for (const row of tab?.rows ?? []) {
+    void pickerRowDetail(row).search;
+    void pickerRowDetail(row).name;
+    yield;
+  }
+  pickerRows(tab, category, start.query, start.section);
+}
+
+/**
+ * Opens a picker after the input: its lookups run in tasks of about 12 ms, then the picker
+ * renders. The current pane stays until the picker commits. Returns a cancel function.
+ */
+export function openLinkPickerSoon(category: string, name: string, open: () => void) {
+  const channel = new MessageChannel();
+  const steps = pickerLookups(category, name);
+  const close = () => {
+    channel.port1.close();
+    channel.port2.close();
+  };
+  channel.port1.onmessage = () => {
+    const until = performance.now() + 12;
+    for (let step = 1; ; step++) {
+      if (steps.next().done) {
+        close();
+        open();
+        return;
+      }
+      if (step % 32 === 0 && performance.now() >= until) break;
+    }
+    channel.port2.postMessage(null);
+  };
+  channel.port2.postMessage(null);
+  return close;
+}
+
+const firstRows = 12;
 
 export function LinkPicker({
   base,
@@ -57,41 +160,7 @@ export function LinkPicker({
     } catch (error) {
       storageError = `Cannot read remembered tab: ${errorMessage(error)}`;
     }
-    const names = compendiumNameVariants(category, name).map(normaliseCompendiumName);
-    const preferred = compendiumPreferredTabs(category, name);
-    const suggested = [...data.tabs]
-      .sort((a, b) => {
-        const position = (gid: string) =>
-          preferred.includes(gid) ? preferred.indexOf(gid) : preferred.length;
-        return position(a.gid) - position(b.gid);
-      })
-      .find((tab) =>
-        tab.rows.some((row) =>
-          pickerRowDetail(row).identifiers.some((identifier) => names.includes(identifier)),
-        ),
-      );
-    const initialGid =
-      data.tabs.find((tab) => tab.gid === remembered)?.gid ??
-      suggested?.gid ??
-      data.tabs.find((tab) => preferred.includes(tab.gid))?.gid ??
-      data.tabs.find((tab) => tab.rows.length || tab.grid?.length)?.gid ??
-      '';
-    const initialTab = data.tabs.find((tab) => tab.gid === initialGid);
-    const initialSection = categorySuggestions(data, category, name).find(
-      (hint) => hint.gid === initialGid,
-    )?.section;
-    const exactRow = initialTab?.rows.find((row) => names.includes(pickerRowDetail(row).name));
-    return {
-      gid: initialGid,
-      section: exactRow ? '' : (initialSection ?? ''),
-      query: exactRow ? name : '',
-      row:
-        exactRow ??
-        (initialSection
-          ? initialTab?.rows.find((row) => row.section === initialSection)
-          : undefined),
-      error: storageError,
-    };
+    return { ...pickerStart(data, category, name, remembered), error: storageError };
   }, [data, name, category, preferenceKey]);
   const [initialized, setInitialized] = useState(initial);
   const [section, setSection] = useState(initial.section);
@@ -113,12 +182,28 @@ export function LinkPicker({
     Record<string, { gid: string; row?: CompendiumMatch['row'] }>
   >({});
   const cellKey = `${gid}:${anchorRow?.rowIndex}:${anchorRow?.anchor?.col}`;
-  const sheets =
-    visited[cellKey] || !gid ? visited : { ...visited, [cellKey]: { gid, row: anchorRow } };
+  // The sheet for a new anchor mounts in its own (interruptible) render after the input
+  // task has committed and painted the controls, never inside the click or keypress.
+  const [shown, setShown] = useState<{ key: string; gid: string; row?: CompendiumMatch['row'] }>();
+  const pending = !!gid && shown?.key !== cellKey;
   useEffect(() => {
-    if (gid)
-      setVisited((old) => (old[cellKey] ? old : { ...old, [cellKey]: { gid, row: anchorRow } }));
-  }, [gid, anchorRow, cellKey]);
+    if (!pending) return;
+    const target = { key: cellKey, gid, row: anchorRow };
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => startTransition(() => setShown(target));
+    channel.port2.postMessage(null);
+    return () => {
+      channel.port1.close();
+      channel.port2.close();
+    };
+  }, [pending, cellKey, gid, anchorRow]);
+  const sheets = !shown || visited[shown.key] ? visited : { ...visited, [shown.key]: shown };
+  useEffect(() => {
+    if (shown)
+      setVisited((old) =>
+        old[shown.key] ? old : { ...old, [shown.key]: { gid: shown.gid, row: shown.row } },
+      );
+  }, [shown]);
   const { rows, exact } = useMemo(
     () =>
       pickerRows(
@@ -129,6 +214,25 @@ export function LinkPicker({
       ),
     [data, gid, category, query, section],
   );
+  // At most 100 rows. The input task renders the first 12 (the list shows at most about 11:
+  // 24rem at 2.25rem or more per row), the rest follow 22 per task, so neither the opening
+  // click nor a tab change carries every row's render, layout, and paint at once. A pending
+  // sheet commits first: the rows below the first chunk wait for it.
+  const shownTarget = Math.min(100, rows.length);
+  const [rowChunk, setRowChunk] = useState({ rows, count: firstRows });
+  if (rowChunk.rows !== rows) setRowChunk({ rows, count: firstRows });
+  const shownCount = rowChunk.rows === rows ? rowChunk.count : firstRows;
+  const rowsPending = shownCount < shownTarget;
+  useEffect(() => {
+    if (!rowsPending || pending) return;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => setRowChunk({ rows, count: shownCount + 22 });
+    channel.port2.postMessage(null);
+    return () => {
+      channel.port1.close();
+      channel.port2.close();
+    };
+  }, [rows, shownCount, rowsPending, pending]);
   function choose(match: CompendiumMatch) {
     if (!canEdit) return;
     const link = data && confirmCompendiumSelection(match, data);
@@ -157,7 +261,12 @@ export function LinkPicker({
   if (!data) return null;
   const tab = data.tabs.find((tab) => tab.gid === gid);
   return (
-    <section aria-label="Link a Compendium row">
+    <section
+      className={styles.linkPicker}
+      aria-label="Link a Compendium row"
+      aria-busy={pending || rowsPending}
+      data-sheet-pending={pending}
+    >
       <h3>Choose tab and row</h3>
       <label>
         Compendium tab{' '}
@@ -245,7 +354,7 @@ export function LinkPicker({
       {error && <p role="alert">{error}</p>}
       <ul className={styles.rows}>
         {tab &&
-          rows.slice(0, 100).map((row) => (
+          rows.slice(0, Math.min(shownTarget, shownCount)).map((row) => (
             <li key={`${row.rowIndex}:${row.name}`}>
               <small className={styles.rowRange}>
                 <SourceRef location={matchLocation({ tab, row }, data)} show="range" />
@@ -264,7 +373,7 @@ export function LinkPicker({
         const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
         return (
           savedTab && (
-            <div key={key} hidden={key !== cellKey}>
+            <div key={key} className={styles.retainedSheet} hidden={!gid || key !== shown?.key}>
               <CellPicker
                 tab={savedTab}
                 data={data}

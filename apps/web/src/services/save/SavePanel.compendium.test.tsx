@@ -133,6 +133,33 @@ describe('saving over a Compendium source that changed since it was shown', () =
     expect(useCompendiumStore.getState().data).toBe(fresh);
   });
 
+  it('saves a tag-only English edit without fetching or asking for a tick', async () => {
+    mocks.load.mockResolvedValue(source('newer', '2026-10-02T00:00:00Z'));
+    const tagged = (text: string): Tooltip => ({ ...linked, text: { en: { ...english, text } } });
+    const before = tagged('Burns with <solar/>Scorch');
+    const next = tagged('Burns with <solar Scorch />');
+    useDraftStore.setState({ drafts: { 123: { base: before, next } } });
+    mocks.save.mockImplementation(async () => ({
+      kind: 'saved',
+      commit: 'c'.repeat(40),
+      tooltips: [next],
+    }));
+    await render();
+    await act(async () =>
+      useSaveState.setState({
+        locked: true,
+        review: {
+          changes: [{ hash: 123, base: before, next }],
+          submitted: { 123: { base: before, next } },
+        },
+      }),
+    );
+    await clickSave();
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain('Compendium source changed');
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the new diff and records nothing until it is acknowledged', async () => {
     const fresh = source('newer', '2026-10-02T00:00:00Z');
     mocks.load.mockResolvedValue(fresh);

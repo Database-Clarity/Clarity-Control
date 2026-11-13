@@ -28,19 +28,16 @@ const props = {
   onToggle: () => {},
 };
 
-it('fills a short first band without synchronously mounting the entire window', () => {
-  let resize: ResizeObserverCallback;
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      constructor(callback: ResizeObserverCallback) {
-        resize = callback;
-      }
-      observe() {}
-      disconnect() {}
-    },
-  );
-  const frames = vi.fn(() => 1);
+/** Lets the grid's own band tasks (MessageChannel) run to completion. */
+async function drainBands() {
+  await act(async () => {
+    for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+it('fills the region in small tasks, hidden, then reveals and continues one step per frame', async () => {
+  const callbacks: FrameRequestCallback[] = [];
+  const frames = vi.fn((callback: FrameRequestCallback) => callbacks.push(callback));
   vi.stubGlobal('requestAnimationFrame', frames);
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
   const host = document.createElement('div');
@@ -49,36 +46,45 @@ it('fills a short first band without synchronously mounting the entire window', 
     act(() => root.render(createElement(PickerGrid, props)));
     const viewport = host.querySelector<HTMLElement>('[role="region"]')!;
     const body = viewport.firstElementChild!;
+    // The input/commit task carries one band only; the rest is not laid out there.
+    expect(host.querySelectorAll('tr')).toHaveLength(1);
+    expect(viewport.dataset.gridFilling).toBe('true');
+    expect(viewport.getAttribute('aria-busy')).toBe('true');
+    expect(viewport.style.visibility).toBe('hidden');
     Object.defineProperty(viewport, 'clientHeight', { value: 240 });
-    vi.spyOn(body, 'getBoundingClientRect').mockImplementation(
-      () => ({ height: body.querySelectorAll('tr').length * 40 }) as DOMRect,
-    );
-    act(() =>
-      resize!(
-        [
-          { target: body, contentRect: { height: 120 } },
-          { target: viewport, contentRect: { height: 120 } },
-        ] as ResizeObserverEntry[],
-        {} as ResizeObserver,
-      ),
-    );
+    const heights: number[] = [];
+    vi.spyOn(body, 'getBoundingClientRect').mockImplementation(() => {
+      heights.push(body.querySelectorAll('tr').length);
+      return { height: body.querySelectorAll('tr').length * 40 } as DOMRect;
+    });
+    await drainBands();
+    // One band, then two per task (each task measures only what it added) until the rows
+    // overflow the region.
+    expect(heights).toEqual([1, 2, 4, 6, 8]);
+    expect(viewport.dataset.gridFilling).toBe('false');
+    expect(viewport.style.visibility).toBe('');
     expect(viewport.dataset.gridComplete).toBe('false');
-    expect(host.querySelectorAll('tr')).toHaveLength(9);
-    expect(host.querySelector('[data-cell="9:0"]')).not.toBeNull();
-    expect(host.querySelector('[data-cell="10:0"]')).toBeNull();
+    expect(host.querySelectorAll('tr')).toHaveLength(8);
+    expect(host.querySelector('[data-cell="9:0"]')).toBeNull();
     expect(frames).toHaveBeenCalledOnce();
+    // Below the region: about three rows in the task after the next frame.
+    act(() => callbacks[0](0));
+    await drainBands();
+    expect(host.querySelectorAll('tr')).toHaveLength(11);
+    expect(viewport.dataset.gridComplete).toBe('false');
+    expect(frames).toHaveBeenCalledTimes(2);
   } finally {
     act(() => root.unmount());
   }
 });
 
-it('updates old and new selected cells while retaining their original relative offsets', () => {
-  vi.stubGlobal('ResizeObserver', undefined);
+it('updates old and new selected cells while retaining their original relative offsets', async () => {
   const host = document.createElement('div');
   const root = createRoot(host);
   const button = (row: number) => host.querySelector(`button[data-row="${row}"]`)!;
   try {
     act(() => root.render(createElement(PickerGrid, props)));
+    await drainBands();
     expect(button(1).getAttribute('aria-pressed')).toBe('false');
     act(() =>
       root.render(createElement(PickerGrid, { ...props, offsets: [{ dRow: 0, dCol: 0 }] })),

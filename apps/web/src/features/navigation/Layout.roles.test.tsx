@@ -12,6 +12,7 @@ vi.mock('../../services/save/SavePanel', () => ({
 }));
 vi.mock('../compendium/CompendiumBadge', () => ({
   CompendiumBadge: () => null,
+  CompendiumWarmup: () => null,
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
 // Zustand renders its initial state on the server; read the live state instead.

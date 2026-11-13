@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom';
 import type { MenuUser } from './links';
 import { driftTabQuery, laptopQuery, managementTabQuery, useMedia } from '../../ui/useMedia';
-import { CompendiumBadge, useCompendiumCount } from '../compendium/CompendiumBadge';
+import {
+  CompendiumBadge,
+  CompendiumWarmup,
+  useCompendiumCount,
+} from '../compendium/CompendiumBadge';
 import { workspaceMenu, workspacePath, type NavLink } from './links';
 import { ShellOverlay } from './ShellOverlay';
 import { AccountPicture, useIdentity } from './IdentityMenu';
@@ -95,6 +99,7 @@ export function WorkspaceTabs({
     : primary.at(-1)?.to;
   return (
     <nav aria-label="Workspaces" className={styles.tabs}>
+      <CompendiumWarmup />
       <ul>
         {primary.map((link) =>
           link.to === reportsAfter
@@ -183,6 +188,7 @@ export function WorkspaceList({
   return (
     <>
       <nav aria-label="Workspaces" className={styles.list}>
+        <CompendiumWarmup />
         {[...primary, ...more].map(({ to, label }) => (
           <Link
             key={to}
