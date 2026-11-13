@@ -41,6 +41,8 @@ const edge = 8;
 const gap = 4;
 /** The tallest the menu is ever placed. */
 const tallest = 340;
+/** The least height the menu is ever given. */
+const least = 120;
 
 function place(view: EditorView, context: SuggestContext, width: number): Placement | null {
   const anchor = view.coordsAtPos(context.kind === 'selection' ? context.to : context.from);
@@ -53,20 +55,23 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   // The caret line has scrolled out of the editor: the menu goes with it instead of floating on.
   if (!anchor || anchor.bottom <= scroller.top || anchor.top >= scroller.bottom) return null;
   const below = bottomEdge - anchor.bottom - gap - edge;
+  // With the bar docked (a phone), the sticky header and pane tabs cover the top: stay below them.
+  const chrome = Math.max(edge, dockedTopChrome() + gap);
   // A selection over several lines: below, the menu hangs from its last line; above, it sits on
   // its first (or the editor's top edge when that line has scrolled away), so it never covers the
-  // lines it transforms.
-  const top =
+  // lines it transforms. Only when that leaves less than the menu's least height does it sit
+  // lower, as little as that needs, so it never rises over the chrome either.
+  const first =
     context.kind === 'selection' && context.from < context.to
-      ? Math.max(
-          scroller.top,
-          Math.min(anchor.top, view.coordsAtPos(context.from, 1)?.top ?? scroller.top),
+      ? Math.min(
+          anchor.top,
+          Math.max(scroller.top, view.coordsAtPos(context.from, 1)?.top ?? scroller.top),
         )
       : anchor.top;
-  // With the bar docked (a phone), the sticky header and pane tabs cover the top: stay below them.
-  const above = top - gap - Math.max(edge, dockedTopChrome() + gap);
-  const useBelow = below >= 240 || below >= above;
-  const space = Math.max(120, Math.min(useBelow ? below : above, tallest));
+  const useBelow = below >= 240 || below >= first - gap - chrome;
+  const top = Math.min(anchor.top, Math.max(first, chrome + gap + least));
+  const above = top - gap - chrome;
+  const space = Math.max(least, Math.min(useBelow ? below : above, tallest));
   // The page's width without its scrollbar; the menu stays inside the editor's column where the
   // column is wide enough for it, so it does not cover the pane beside the text.
   const pageRight = document.documentElement.clientWidth - edge;

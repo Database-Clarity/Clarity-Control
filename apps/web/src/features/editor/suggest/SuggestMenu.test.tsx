@@ -317,4 +317,33 @@ describe('the suggestion menu', () => {
     expect(menu()!.style.getPropertyValue('--menu-top')).toBe('296px');
     expect(menu()!.style.getPropertyValue('--menu-max')).toBe('288px');
   });
+
+  it('above a selection that starts near the top, sits only as low as its least height needs', () => {
+    const view = mount('First line here\nSecond line here\nThird line here');
+    const from = 6;
+    const to = view.state.doc.line(3).from + 5;
+    // The first selected line is 60px from the top: 48px above it, 40px below the last line.
+    vi.mocked(EditorView.prototype.coordsAtPos).mockImplementation((pos: number) =>
+      pos === from
+        ? { left: 40, right: 41, top: 60, bottom: 76 }
+        : { left: 40, right: 41, top: 700, bottom: 716 },
+    );
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      left: 0,
+      right: 800,
+      top: 0,
+      bottom: 800,
+      width: 800,
+      height: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    vi.stubGlobal('innerHeight', 768);
+    act(() => view.dispatch({ selection: { anchor: from, head: to } }));
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    // 120px tall, hanging from 128 (8 edge + 4 gap + 120 + 4 gap down): never over the top edge.
+    expect(menu()!.style.getPropertyValue('--menu-top')).toBe('128px');
+    expect(menu()!.style.getPropertyValue('--menu-max')).toBe('120px');
+  });
 });
