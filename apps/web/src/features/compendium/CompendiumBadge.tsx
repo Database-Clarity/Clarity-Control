@@ -13,6 +13,7 @@ import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl, pendingCompendiumWorker } from '../../services/compendium';
 import { apiUrl } from '../../services/api';
 import { pickerIdleScheduler, warmPickerRowIndexes } from './pickerRows';
+import { preloadCompendiumTab } from './LazyCompendiumTab';
 
 export type CompendiumCount =
   { state: 'loading' } | { state: 'error' } | { state: 'ready'; count: number };
@@ -31,7 +32,7 @@ export function useCompendiumCount(): CompendiumCount {
   useEffect(() => {
     const start = () => {
       void load();
-      void import('./CompendiumTab');
+      void preloadCompendiumTab();
       // Any source can contain sheet glyphs. Load their shared face during idle prefetch,
       // rather than fetching it on the first entry that happens to use one.
       void document.fonts?.load('16px DestinySymbols').catch(() => undefined);
