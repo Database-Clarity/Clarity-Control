@@ -36,3 +36,21 @@ it('loads on first mount and retries a failed chunk without losing the surroundi
     error.mockRestore();
   }
 });
+
+it('renders an already loaded page in its first commit, with no loading fallback', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const load = vi.fn(async () => ({ default: () => <h1>Compendium</h1> }));
+  try {
+    await act(async () => root.render(<LazyCompendiumTab key="first" load={load} />));
+    expect(host.querySelector('h1')).not.toBeNull();
+    act(() => root.render(<LazyCompendiumTab key="second" load={load} />));
+    // Synchronously after the reopen's commit: content, never the skeleton status.
+    expect(host.querySelector('h1')?.textContent).toBe('Compendium');
+    expect(host.querySelector('[role="status"]')).toBeNull();
+    expect(load).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

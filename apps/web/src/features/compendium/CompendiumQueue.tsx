@@ -119,7 +119,10 @@ export function CompendiumQueue() {
   closeSheet.current = sheetClose;
   const model = useCompendiumQueueStore((state) => state.model);
   const rows = useCompendiumQueueStore((state) => state.rows);
-  const showSkeleton = useSkeletonVisible(rows === null, 'queue', false);
+  // The tab publishes its rows from an effect, a commit after this column mounts. Give them
+  // the clock's two-frame grace (a warm open lists at once) instead of flashing a skeleton
+  // whose 200 ms minimum then held every open of a ready model.
+  const showSkeleton = useSkeletonVisible(rows === null, 'queue', true);
   const error = useCompendiumQueueStore((state) => state.error);
   const selected = useCompendiumQueueStore((state) => state.selected);
   const reinclude = useCompendiumQueueStore((state) => state.reinclude);
@@ -232,6 +235,8 @@ export function CompendiumQueue() {
         <p role="alert" className={styles.note}>
           {error}
         </p>
+      ) : rows === null && !showSkeleton ? (
+        <div className={styles.skeleton} />
       ) : rows === null || showSkeleton ? (
         <div className={styles.skeleton} aria-busy="true">
           <SkeletonStatus>Loading the review queue</SkeletonStatus>

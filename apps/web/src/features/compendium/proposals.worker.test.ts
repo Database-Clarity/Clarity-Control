@@ -294,3 +294,76 @@ it.each([false, true])(
     fingerprint.mockRestore();
   },
 );
+
+it('replays stored source, proposals, and display replies after a reload, without encoding or hashing again', async () => {
+  const { IDBFactory } = await import('fake-indexeddb');
+  const storage = new IDBFactory();
+  const f = guidedFixture();
+  const url = 'https://example.test/compendium.json';
+  const input = { drafts: {}, progress: emptyProgress(), scope: approved.scope };
+  async function session() {
+    vi.resetModules();
+    vi.stubGlobal('indexedDB', storage);
+    vi.stubGlobal('DecompressionStream', undefined);
+    vi.stubGlobal('fetch', async (target: string) =>
+      String(target) === url ? Response.json(f.source) : new Response('', { status: 404 }),
+    );
+    const codec = await import('./precomputedCodec');
+    const cache = await import('./workerCache');
+    const encode = vi.spyOn(codec, 'encodePrecomputedSteps');
+    const hash = vi.spyOn(cache, 'contentHash');
+    const pending = new Map<
+      number,
+      {
+        receive: ReturnType<typeof receiveWorkerResult>;
+        resolve(value: unknown): void;
+        reject(error: Error): void;
+      }
+    >();
+    const worker = {
+      onmessage: null as null | ((event: { data: unknown }) => void),
+      postMessage(reply: WorkerReply) {
+        const job = pending.get(reply.id);
+        if (!job) return;
+        if (reply.error) return job.reject(Error(reply.error));
+        const result = job.receive(reply);
+        if (result.done) job.resolve(result.value);
+      },
+    };
+    vi.stubGlobal('self', worker);
+    await import('./proposals.worker');
+    const request = (id: number, data: object) =>
+      new Promise((resolve, reject) => {
+        pending.set(id, { receive: receiveWorkerResult(), resolve, reject });
+        worker.onmessage!({ data: { id, ...data } });
+      });
+    const source = await request(1, { load: { url } });
+    const bytes = new TextEncoder().encode(JSON.stringify({ editor: f.editor }));
+    worker.onmessage!({ data: { initialChunk: { token: 1, bytes: bytes.buffer } } });
+    const proposals = await request(2, { initialize: { token: 1 } });
+    const display = await request(3, { input });
+    const counts = { encodes: encode.mock.calls.length, hashes: hash.mock.calls.length };
+    // Guidance still has the worker's own restored proposals and display behind it.
+    const guided = await request(4, {
+      guide: {
+        document: { categories: {} },
+        baseline: '',
+        scope: input.scope,
+        categoryId: '',
+        statuses: [],
+        restored: [],
+      },
+    });
+    await cache.flushCacheWrites();
+    return { source, proposals, display, guided, counts };
+  }
+  const cold = await session();
+  expect(cold.counts.encodes).toBeGreaterThanOrEqual(3);
+  expect(cold.counts.hashes).toBeGreaterThan(0);
+  const warm = await session();
+  expect(warm.counts).toEqual({ encodes: 0, hashes: 0 });
+  expect(warm.source).toEqual(cold.source);
+  expect(warm.proposals).toEqual(cold.proposals);
+  expect(warm.display).toEqual(cold.display);
+  expect(warm.guided).toEqual(cold.guided);
+});
