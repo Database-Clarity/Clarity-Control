@@ -65,6 +65,7 @@ export function WorkThroughBar({
   restore,
   onClear,
   anchor,
+  compact = false,
 }: {
   source: QueueSourceId;
   /** The selected rows the list shows, in its order. */
@@ -77,6 +78,9 @@ export function WorkThroughBar({
   onClear?(): void;
   /** An element inside the list, to find the list's scroller. */
   anchor: React.RefObject<Element | null>;
+  /** A narrow column: "Work through" once, then "2 selected" and "All 40 shown" (full names stay
+   * the buttons' accessible names). */
+  compact?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -100,16 +104,26 @@ export function WorkThroughBar({
     navigate(to, { state });
   }
   return (
-    <div className={styles.bar} role="group" aria-label="Work through">
+    <div
+      className={`${styles.bar}${compact ? ` ${styles.compact}` : ''}`}
+      role="group"
+      aria-label="Work through"
+    >
+      {compact && (
+        <span className={styles.lead} aria-hidden="true">
+          Work through
+        </span>
+      )}
       {selected.length > 0 && (
         <>
           <button
             type="button"
             disabled={disabled}
             title="Open the selected rows one after another, with Previous and Next (Alt+Page Up, Alt+Page Down)"
+            aria-label={compact ? `Work through ${selected.length} selected` : undefined}
             onClick={() => begin('selected', selected)}
           >
-            Work through {selected.length} selected
+            {compact ? `${selected.length} selected` : `Work through ${selected.length} selected`}
           </button>
           {onClear && (
             <button type="button" className={styles.quiet} onClick={onClear}>
@@ -122,9 +136,10 @@ export function WorkThroughBar({
         type="button"
         disabled={disabled || !shown.length}
         title="Open every row shown, one after another, with Previous and Next (Alt+Page Up, Alt+Page Down)"
+        aria-label={compact ? `Work through all ${shown.length} shown` : undefined}
         onClick={() => begin('shown', shown)}
       >
-        Work through all {shown.length} shown
+        {compact ? `All ${shown.length} shown` : `Work through all ${shown.length} shown`}
       </button>
     </div>
   );

@@ -130,6 +130,7 @@ export function ReviewSidebar() {
                   } satisfies Omit<ReviewRestore, 'scroll'>
                 }
                 anchor={anchor}
+                compact
               />
             </div>
             {view && view.items.length ? (

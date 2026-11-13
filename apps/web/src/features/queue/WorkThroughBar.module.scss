@@ -16,6 +16,17 @@
     white-space: nowrap;
   }
 }
+// A narrow column: the lead once, the buttons sharing the rest of the row.
+.compact {
+  &#{&} > button {
+    flex: 1 1 auto;
+  }
+}
+.lead {
+  flex: none;
+  color: var(--text2);
+  white-space: nowrap;
+}
 .bar.bar > .quiet {
   background: transparent;
   border-color: var(--ghost-edge);
