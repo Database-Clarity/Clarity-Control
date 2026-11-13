@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { IdentityStatus } from '../../auth/AuthStatus';
 import { AccountPicture } from '../../navigation/AccountPicture';
 import { ShellOverlay } from '../../navigation/ShellOverlay';
@@ -24,27 +24,38 @@ export default function ReportIdentitySheet({
   pictured: boolean;
 }) {
   /**
-   * Focus goes back to the account button in the same step that closes the sheet. The overlay's
-   * own restore runs in an effect, which Preact (the public build) defers past a paint, so focus
-   * would sit on the page body for a frame after Escape. Only when focus is in the sheet: another
-   * overlay taking over keeps its own focus.
+   * The sheet restores focus itself (the overlay's own restore is off). That restore runs in a
+   * passive effect, which Preact (the public build) defers past a paint, so focus sat on the page
+   * body for a frame after Escape; and it always took focus back, even from a field the reporter
+   * had just pressed or another overlay that took over. Here focus goes to the account button only
+   * while it is still in the sheet or was lost with it (the body): when the sheet closes, at once
+   * in the layout pass, and once more after an outside press has settled where it lands.
    */
-  const close = () => {
+  const restore = () => {
     const anchor = anchorRef.current;
-    if (
-      anchor?.isConnected &&
-      !anchor.closest('[inert]') &&
-      document.activeElement?.closest('[data-shell-overlay="Account"]')
-    )
-      anchor.focus({ preventScroll: true });
-    onClose();
+    const active = document.activeElement;
+    if (!anchor?.isConnected || anchor.closest('[inert]')) return;
+    if (active && active !== document.body && !active.closest('[data-shell-overlay="Account"]'))
+      return;
+    anchor.focus({ preventScroll: true });
   };
+  const close = () => {
+    restore();
+    onClose();
+    setTimeout(restore, 0);
+  };
+  const wasOpen = useRef(open);
+  useLayoutEffect(() => {
+    if (wasOpen.current && !open) restore();
+    wasOpen.current = open;
+  });
   return (
     <ShellOverlay
       open={open}
       onClose={close}
       anchorRef={anchorRef}
       label="Account"
+      restoreFocus={false}
       width={320}
       align="end"
     >
