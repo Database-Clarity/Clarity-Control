@@ -53,8 +53,18 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   // The caret line has scrolled out of the editor: the menu goes with it instead of floating on.
   if (!anchor || anchor.bottom <= scroller.top || anchor.top >= scroller.bottom) return null;
   const below = bottomEdge - anchor.bottom - gap - edge;
+  // A selection over several lines: below, the menu hangs from its last line; above, it sits on
+  // its first (or the editor's top edge when that line has scrolled away), so it never covers the
+  // lines it transforms.
+  const top =
+    context.kind === 'selection' && context.from < context.to
+      ? Math.max(
+          scroller.top,
+          Math.min(anchor.top, view.coordsAtPos(context.from, 1)?.top ?? scroller.top),
+        )
+      : anchor.top;
   // With the bar docked (a phone), the sticky header and pane tabs cover the top: stay below them.
-  const above = anchor.top - gap - Math.max(edge, dockedTopChrome() + gap);
+  const above = top - gap - Math.max(edge, dockedTopChrome() + gap);
   const useBelow = below >= 240 || below >= above;
   const space = Math.max(120, Math.min(useBelow ? below : above, tallest));
   // The page's width without its scrollbar; the menu stays inside the editor's column where the
@@ -64,7 +74,7 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   return {
     left: Math.max(edge, Math.min(anchor.left, right - width)),
     // Above the line the menu hangs from this edge (translateY(-100%) in the stylesheet).
-    top: useBelow ? anchor.bottom + gap : anchor.top - gap,
+    top: useBelow ? anchor.bottom + gap : top - gap,
     maxHeight: space,
     above: !useBelow,
   };

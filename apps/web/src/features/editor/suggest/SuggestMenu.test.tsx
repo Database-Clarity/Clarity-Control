@@ -287,4 +287,34 @@ describe('the suggestion menu', () => {
     type(view, ' ');
     expect(menu()).toBeNull();
   });
+
+  it('never covers a multi-line selection: above, it sits on the first line, not the last', () => {
+    const view = mount('First line here\nSecond line here\nThird line here');
+    const from = 6;
+    const to = view.state.doc.line(3).from + 5;
+    // The selection runs from y 300 to y 716 of an 800px editor: no room below its last line.
+    vi.mocked(EditorView.prototype.coordsAtPos).mockImplementation((pos: number) =>
+      pos === from
+        ? { left: 40, right: 41, top: 300, bottom: 316 }
+        : { left: 40, right: 41, top: 700, bottom: 716 },
+    );
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      left: 0,
+      right: 800,
+      top: 0,
+      bottom: 800,
+      width: 800,
+      height: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    vi.stubGlobal('innerHeight', 768);
+    act(() => view.dispatch({ selection: { anchor: from, head: to } }));
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    expect(menu()).not.toBeNull();
+    // Hangs above the first selected line (300 - 4), not from the last one (700 - 4).
+    expect(menu()!.style.getPropertyValue('--menu-top')).toBe('296px');
+    expect(menu()!.style.getPropertyValue('--menu-max')).toBe('288px');
+  });
 });

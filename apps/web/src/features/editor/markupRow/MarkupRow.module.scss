@@ -78,6 +78,16 @@
     &::after {
       width: 0.75rem;
     }
+    // The end fade's solid half hides the thin edge of a button cut by the pinned Suggest (a
+    // sliver that reads as a stray strip); a wider cut still shows as a faded button, more to
+    // scroll to. In tag mode it stays slim, clear of the six element symbols.
+    &::after {
+      width: 1.5rem;
+      background: linear-gradient(90deg, transparent, var(--editor) 50%);
+    }
+    &:has([data-wrap])::after {
+      width: 0.75rem;
+    }
   }
 }
 

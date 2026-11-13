@@ -1,6 +1,7 @@
 import { offersBaseEnhanced } from '../markupScope';
 import {
   memo,
+  startTransition,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -255,6 +256,14 @@ export const MarkupHelp = memo(function MarkupHelp({
   };
   const [place, setPlace] = useState(() => measure(frame));
 
+  // Opened before the idle build parked it (no quiet moment since the page loaded, as a quick F1
+  // or a run of clicks gives): the rows render in a transition, in short slices that never hold
+  // up input, and the sheet shows, whole, once they are ready. Parked, it is built already.
+  const [built, setBuilt] = useState(!open);
+  useEffect(() => {
+    if (!built) startTransition(() => setBuilt(true));
+  }, [built]);
+
   // Opening starts fresh: no filter, on the markup under the caret (or the menu's option), placed
   // where the editor is now.
   const [shown, setShown] = useState(false);
@@ -280,7 +289,7 @@ export const MarkupHelp = memo(function MarkupHelp({
   useLayoutEffect(() => {
     const editor = view.current;
     const panel = root.current;
-    if (!panel || !open) return;
+    if (!panel || !open || !built) return;
     // Where focus was (the text, or the button that opened it): closing gives it back.
     const focused = panel.ownerDocument.activeElement;
     // On a phone always, and on a desktop opened with a pointer (Help takes no focus), Help gets
@@ -344,7 +353,7 @@ export const MarkupHelp = memo(function MarkupHelp({
       editor.requestMeasure();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone, open]);
+  }, [phone, open, built]);
 
   // Hidden, it is laid out once (the first frame after it is built), then skipped until it opens.
   useLayoutEffect(() => {
@@ -552,7 +561,7 @@ export const MarkupHelp = memo(function MarkupHelp({
       id={open ? 'editor-panel-help' : undefined}
       aria-label="Markup help"
       tabIndex={-1}
-      className={`${styles.panel} ${phone ? styles.sheet : frame ? styles.wide : ''} ${open ? '' : styles.parked}`}
+      className={`${styles.panel} ${phone ? styles.sheet : frame ? styles.wide : ''} ${open ? '' : styles.parked} ${built ? '' : styles.building}`}
       style={place as CSSProperties}
       // Closed: hidden and out of reach until F1 or Help reveals it.
       {...(open ? {} : { inert: '', 'aria-hidden': true })}
@@ -617,11 +626,12 @@ export const MarkupHelp = memo(function MarkupHelp({
           </p>
         )}
         <div className={styles.cols}>
-          {columns.map((names, index) => (
-            <div key={index} className={styles.col} data-col={index + 1}>
-              {names.map(group)}
-            </div>
-          ))}
+          {built &&
+            columns.map((names, index) => (
+              <div key={index} className={styles.col} data-col={index + 1}>
+                {names.map(group)}
+              </div>
+            ))}
         </div>
       </div>
       <div className={styles.foot}>
