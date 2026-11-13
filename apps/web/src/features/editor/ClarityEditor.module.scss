@@ -73,6 +73,12 @@
       display: none;
     }
   }
+  // In the fixed desktop frame the shell sizes this slot. On a short screen (a phone on its side,
+  // a large interface scale) the slot can be shorter than the minimum above, and the text box then
+  // painted over the status bar; there it fills the slot and scrolls instead.
+  :global(#shell-root[data-fixed]) & :global(.cm-editor) {
+    min-height: 0;
+  }
   :global(.cm-scroller) {
     // The scroller already clips its contents. Isolate its layout and paint from
     // live preview updates; CodeMirror tooltips live outside this scroller.

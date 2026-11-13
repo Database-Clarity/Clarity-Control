@@ -281,15 +281,23 @@ describe('Compendium pane', () => {
     const host = await mount();
     const root = roots.at(-1)!;
     const content = host.querySelector('[data-scale]');
-    await act(async () =>
-      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true })),
-    );
-    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     const tick = async () => {
       const batch = [...frames.values()];
       frames.clear();
       await act(async () => batch.forEach((callback) => callback(0)));
     };
+    // A single step's hold is not load time: no skeleton however long it lasts.
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true })),
+    );
+    await tick();
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    // Once the burst moves on, the newest entry's two-frame grace applies.
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: true })),
+    );
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     await tick();
     expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     await tick();
@@ -333,6 +341,57 @@ describe('Compendium pane', () => {
     expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('7');
     expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it.each([
+    ['ready within its grace', false],
+    ['still loading', true],
+  ])('counts a single step skeleton grace from the settle, for an entry %s', async (_, slow) => {
+    skeletonTiming.enabled = true;
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const next = { hash: 9, text: {}, associated: [] } as unknown as Tooltip;
+    // A wheel notch marks stepping before its route lands on the next entry.
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: linked, stepping: true, target: 5 })),
+    );
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: linked, stepping: true, target: 9 })),
+    );
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: true, target: 9 })),
+    );
+    // The stepping quiet and preview handoff outlast two frames.
+    for (let index = 0; index < 4; index++) await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('5');
+    matchState.loading = slow;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: false })),
+    );
+    if (!slow) {
+      for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+      expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+      expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('9');
+      expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+      return;
+    }
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
   });
 
   it('retains the mounted pane while the skeleton is deferred and commits the latest entry', async () => {

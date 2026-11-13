@@ -106,23 +106,27 @@ export function CompendiumPaneSkeleton({
   const columnWidth = twoColumns && !phone ? (bodyWidth - remPx) / 2 : bodyWidth;
   // Shape widths use 10pt source units; pane and column geometry stay unscaled.
   const textWidth = Math.max(32, (columnWidth - 2 * 0.8 * remPx * (scale / 100)) / (scale / 100));
+  // The loaded pane puts this line first for a link and last (under the actions) otherwise.
+  const meta = (
+    <p key="meta" className={styles.meta}>
+      {link && (
+        <>
+          <span>
+            {draft && !base.compendium ? 'Draft snapshot' : 'Snapshot'}{' '}
+            <When value={link.snapshotAt} />
+          </span>{' '}
+        </>
+      )}
+      {sourceFetchedAt && (
+        <span>
+          Source fetched <When value={sourceFetchedAt} />
+        </span>
+      )}
+    </p>
+  );
   return (
     <div className={styles.zoom} data-scale={scale} data-pane-skeleton="true">
-      <p className={styles.meta}>
-        {link && (
-          <>
-            <span>
-              {draft && !base.compendium ? 'Draft snapshot' : 'Snapshot'}{' '}
-              <When value={link.snapshotAt} />
-            </span>{' '}
-          </>
-        )}
-        {sourceFetchedAt && (
-          <span>
-            Source fetched <When value={sourceFetchedAt} />
-          </span>
-        )}
-      </p>
+      {link && meta}
       {!link && (
         <SkeletonRegion key="match" className={styles.skeletonStatus}>
           <SkeletonLine width={40} />
@@ -179,6 +183,7 @@ export function CompendiumPaneSkeleton({
           </button>
         </div>
       )}
+      {!link && meta}
     </div>
   );
 }
