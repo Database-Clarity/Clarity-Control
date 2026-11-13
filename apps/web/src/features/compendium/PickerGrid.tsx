@@ -83,13 +83,18 @@ export const PickerGrid = memo(function PickerGrid({
       // Measured render + layout cost per sheet row (a row is hundreds of layout objects); the
       // first measurement is the first band's layout, which also carries first-use font work.
       perRow = 0,
-      lastStep = 0;
+      lastStep = 0,
+      timer: ReturnType<typeof setTimeout> | undefined;
     const channel = new MessageChannel();
-    const next = () => channel.port2.postMessage(null);
+    // Hidden steps follow each other at once (the reveal waits on them). Below the region,
+    // steps are timers: they queue behind timers other code set in the meantime (paint
+    // stamps that follow the reveal's frame, for one) instead of starving them.
+    const next = () =>
+      filling ? channel.port2.postMessage(null) : (timer = setTimeout(run, 0));
     // Lays out what is mounted inside this task, never in the frame.
     const layout = () => body.current?.getBoundingClientRect().height ?? 0;
     const rows = (from: number, to: number) => bands[to - 1].last - bands[from].first + 1;
-    channel.port1.onmessage = () => {
+    const run = () => {
       if (cancelled) return;
       const start = performance.now();
       // The first task lays out the first band (mounted with the sheet) and nothing else.
@@ -108,7 +113,12 @@ export const PickerGrid = memo(function PickerGrid({
             flushSync(() => setState({ bands, count: mounted, filled: true }));
             // Same task as the reveal: only the reservation changed since the last layout.
             reserved.current = viewport.current?.clientHeight || undefined;
-            if (mounted < bands.length) frame = requestAnimationFrame(next);
+            // The rest starts after the reveal's frame, registered after this commit's own
+            // observers so work that reacts to the reveal is not queued behind the fill.
+            if (mounted < bands.length)
+              queueMicrotask(() => {
+                if (!cancelled) frame = requestAnimationFrame(next);
+              });
             return;
           }
         }
@@ -140,10 +150,12 @@ export const PickerGrid = memo(function PickerGrid({
         perRow = Math.max(performance.now() - begun, 0.01) / added;
       }
     };
+    channel.port1.onmessage = run;
     next();
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      clearTimeout(timer);
       channel.port1.close();
       channel.port2.close();
     };

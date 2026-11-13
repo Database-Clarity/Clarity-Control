@@ -114,6 +114,32 @@ it('keeps the unbudgeted step sizes when a row costs more than the budget', asyn
   }
 });
 
+it('lets timers that react to the reveal run before the fill continues', async () => {
+  const grid = fillWith(1);
+  const seen: number[] = [];
+  // Like a paint stamp: on the reveal, wait for the next frame, then a timer.
+  const observer = new MutationObserver(() => {
+    if (grid.viewport.dataset.gridFilling !== 'false' || seen.length) return;
+    seen.push(-1);
+    requestAnimationFrame(() => setTimeout(() => seen.push(grid.rows()), 0));
+  });
+  observer.observe(grid.viewport, { attributes: true });
+  try {
+    await drainBands();
+    expect(grid.rows()).toBe(8);
+    // Both frame callbacks run in the reveal's frame, the stamp's first.
+    expect(grid.callbacks).toHaveLength(2);
+    act(() => grid.callbacks.forEach((callback) => callback(0)));
+    await drainBands();
+    expect(seen).toEqual([-1, 8]);
+    expect(grid.rows()).toBe(15);
+  } finally {
+    observer.disconnect();
+    act(() => grid.root.unmount());
+    vi.restoreAllMocks();
+  }
+});
+
 it('updates old and new selected cells while retaining their original relative offsets', async () => {
   const host = document.createElement('div');
   const root = createRoot(host);
