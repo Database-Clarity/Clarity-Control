@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDraftStore } from '../../stores/drafts';
 import {
@@ -38,11 +38,25 @@ export function useRestoredScroll(
   ready: boolean,
 ) {
   const done = useRef(false);
+  const frame = useRef(0);
   useLayoutEffect(() => {
     if (done.current || !ready || scroll === undefined || !anchor.current) return;
     done.current = true;
-    scrollerOf(anchor.current).scrollTop = scroll;
+    const element = anchor.current;
+    const apply = () => {
+      const scroller = scrollerOf(element);
+      scroller.scrollTop = scroll;
+      return Math.abs(scroller.scrollTop - scroll) <= 1;
+    };
+    // The shell may still be settling the page's height (a lazy page's first frames): try again
+    // for a few frames until the position holds.
+    if (apply()) return;
+    let frames = 0;
+    frame.current = requestAnimationFrame(function retry() {
+      if (!apply() && ++frames < 20) frame.current = requestAnimationFrame(retry);
+    });
   });
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
 }
 
 /**

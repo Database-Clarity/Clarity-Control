@@ -7,7 +7,7 @@ import {
   useLocation,
   type RouterProviderProps,
 } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { DriftPage } from '../drift/DriftPage';
 import { useDataStore, type EditorData } from '../../stores/data';
@@ -160,6 +160,33 @@ describe('work through Bungie drift', () => {
     await act(async () => router.navigate(-1));
     expect(location.pathname).toBe('/t/12');
     expect(position()).toBe('2 of 3');
+  });
+
+  it('Rebuild queue in the menu, then Escape, keeps the page working', async () => {
+    // Chrome's scrollIntoView returns a promise: an effect must never hand it back as a cleanup.
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = () => Promise.resolve() as unknown as void;
+    onTestFinished(() => {
+      Element.prototype.scrollIntoView = original;
+    });
+    act(() => check('Alpha').click());
+    await act(async () => button('Work through 1 selected')!.click());
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-queue] button[aria-haspopup]')!.click(),
+    );
+    const rebuild = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (entry) => entry.textContent === 'Rebuild queue',
+    )!;
+    await act(async () => rebuild.click());
+    for (let wait = 0; wait < 100 && !document.body.textContent?.includes('Rebuilt'); wait++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(document.body.textContent).toContain('Rebuilt: 1 items, 0 new, 0 gone.');
+    await act(async () =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      ),
+    );
+    expect(position()).toBe('1 of 1');
   });
 
   it('End stops the paused queue', async () => {

@@ -208,6 +208,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       flush
       width={360}
       trigger={trigger}
+      triggerLabel={`${name}: ${label}`}
       triggerTitle={`${source.label}: every item in this queue, and Rebuild queue`}
     >
       {(close) => (
@@ -319,7 +320,9 @@ function QueueMenu({
   const leave = leaveTarget(queue);
   const done = queue.items.filter(isDone).length;
   const current = useRef<HTMLLIElement>(null);
-  useEffect(() => current.current?.scrollIntoView({ block: 'nearest' }), []);
+  useEffect(() => {
+    current.current?.scrollIntoView?.({ block: 'nearest' });
+  }, []);
   async function onRebuild() {
     if (!context) return;
     setRebuilding('busy');
