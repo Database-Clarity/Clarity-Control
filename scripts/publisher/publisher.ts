@@ -114,7 +114,15 @@ type Failure = { status: 'stale' | 'rejected' | 'superseded'; error?: string; ou
 /** A pending request as the queue orders it, read WITHOUT verification (ordering only). */
 type QueueEntry =
   | { opId: string; kind: 'push'; createdAt?: number; payload?: PublishPayload }
-  | { opId: string; kind: 'batch'; key: number; due: boolean; payload: BatchPublishPayload };
+  | {
+      opId: string;
+      kind: 'batch';
+      key: number;
+      due: boolean;
+      /** batch.json at the head is publishing under this opId (a claim whose run died). */
+      claimed: boolean;
+      payload: BatchPublishPayload;
+    };
 export interface Options {
   repo: string;
   dataBranch: string;
@@ -225,11 +233,18 @@ export class Publisher {
         const batch = batchPublishPayloadSchema.safeParse(value);
         if (batch.success) {
           const notBefore = Date.parse(batch.data.notBefore);
+          const stored = batchSchema.safeParse(
+            this.read<unknown>(tree, schedulePaths.batch(batch.data.batchId)),
+          ).data;
           return {
             opId,
             kind: 'batch',
             key: Math.max(notBefore, Date.parse(batch.data.createdAt)),
             due: notBefore <= now,
+            claimed:
+              stored?.status === 'publishing' &&
+              stored.opId === opId &&
+              stored.claim?.opId === opId,
             payload: batch.data,
           };
         }
@@ -244,12 +259,15 @@ export class Publisher {
    * a valid batch request, which then fails verification) in git addition order, with each DUE
    * batch request positioned at max(notBefore, createdAt): before the first push created at or
    * after that instant. A batch not yet due (notBefore > runner clock) is neither drained nor
-   * pending work; scheduledQueue lists it.
+   * pending work; scheduledQueue lists it. A batch already CLAIMED by its opId (a run died after
+   * the claim) drains first: it was at the head of the queue when claimed, and a request that
+   * landed after the claim must never publish over its frozen S' (it would be overwritten).
    */
   queue(head: string): string[] {
     const entries = this.pendingRequests(head);
+    const claimed = entries.flatMap((e) => (e.kind === 'batch' && e.claimed ? [e.opId] : []));
     const batches = entries
-      .filter((e) => e.kind === 'batch' && e.due)
+      .filter((e) => e.kind === 'batch' && e.due && !e.claimed)
       .map((e, i) => ({ e, i, key: (e as { key: number }).key }))
       .sort((a, b) => a.key - b.key || a.i - b.i);
     const order: string[] = [];
@@ -259,7 +277,7 @@ export class Publisher {
         while (batches.length && batches[0].key <= e.createdAt) order.push(batches.shift()!.e.opId);
       order.push(e.opId);
     }
-    return [...order, ...batches.map((b) => b.e.opId)];
+    return [...claimed, ...order, ...batches.map((b) => b.e.opId)];
   }
   /** Batch requests not yet due, soonest first (bundle.json `scheduledQueue`). */
   scheduledQueue(head: string): BatchPublishPayload[] {
@@ -819,14 +837,19 @@ export class Publisher {
   claimCommit(batchId: string, opId: string): string {
     const commits = this.git.history(dataRef(this.options.dataBranch));
     let found: string | undefined;
+    let complete = false;
     for (let i = commits.length - 1, n = 0; i >= 0 && n < 1000; i--, n++) {
       const batch = batchSchema.safeParse(
         this.read<unknown>(this.git.tree(commits[i]), schedulePaths.batch(batchId)),
       ).data;
-      if (batch?.claim?.opId !== opId) break;
+      if (batch?.claim?.opId !== opId) {
+        complete = true;
+        break;
+      }
       found = commits[i];
     }
-    if (!found) throw new Error('Claim commit not found; operator required');
+    // Fail closed: a walk that ends (limit or root) still inside the claimed run has not found S'.
+    if (!found || !complete) throw new Error('Claim commit not found; operator required');
     return found;
   }
   /**

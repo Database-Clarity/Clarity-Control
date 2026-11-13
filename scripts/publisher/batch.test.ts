@@ -699,6 +699,51 @@ describe('scheduled batches (simulator)', () => {
     },
   );
 
+  it('sec F1: a claimed batch drains before a push that landed after its claim (never overwritten)', async () => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    const cas = f.git.cas.bind(f.git);
+    f.git.cas = (ref, old, next) => {
+      if (ref === paths(OP).candidate) throw new Error('crash');
+      cas(ref, old, next);
+    };
+    await expect(f.pub.run()).rejects.toThrow('Candidate create unresolved');
+    f.git.cas = cas;
+    expect(f.batchFile().status).toBe('publishing');
+    // A French save and its manual push, signed before notBefore but committed after the claim
+    // (Worker latency or clock skew): by createdAt alone it would sort ahead of the batch.
+    f.change(D, {
+      'tooltips/123.json': tip({ text: { en: entry('reviewed'), fr: entry('sauvé') } }),
+    });
+    await f.push(PUSH1, [123], '2030-03-17T17:54:00.000Z');
+    expect(f.pub.queue(f.head())).toEqual([OP, PUSH1]);
+    await f.pub.run();
+    assertPublished(f);
+    // The push now names a tooltip the batch activation moved: stale, never published over the
+    // batch, and live never held the French text it would have dropped.
+    expect(f.read<{ result: { status: string } }>(paths(PUSH1).log)!.result.status).toBe('stale');
+    expect(f.receipts(PUSH1)).toHaveLength(0);
+    expect(f.read<Tooltip>('tooltips/123.json')!.text).toMatchObject({
+      en: { text: 'batch text' },
+      fr: { text: 'sauvé' },
+    });
+  });
+
+  it('sec F2: claimCommit fails closed when its walk ends inside the claimed run', async () => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    f.git.cas = ((cas) => (ref: string, old: string | undefined, next: string | undefined) => {
+      if (ref === paths(OP).candidate) throw new Error('crash');
+      cas(ref, old, next);
+    })(f.git.cas.bind(f.git));
+    await expect(f.pub.run()).rejects.toThrow();
+    const history = f.git.history(D);
+    const claimedOnly = history.filter((c) => f.batchAt(c)?.status === 'publishing');
+    expect(f.pub.claimCommit(BATCH, OP)).toBe(claimedOnly[0]);
+    f.git.history = () => claimedOnly;
+    expect(() => f.pub.claimCommit(BATCH, OP)).toThrow('operator required');
+  });
+
   it('R14: a new tooltip absent at claim and RECORD is created; first publication is whole (C4)', async () => {
     const f = await setup();
     const created = tip({ text: { en: entry('brand new') } }, 125);
