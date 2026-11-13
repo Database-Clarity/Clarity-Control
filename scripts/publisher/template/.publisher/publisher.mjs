@@ -21864,17 +21864,32 @@ function usesEnglishFallback(tooltip, language) {
 function isLegacyAliasStub(entry) {
   return "aliasOf" in entry;
 }
-function mergeLivePerks(live, entries, withdrawable = /* @__PURE__ */ new Set()) {
-  const exported = /* @__PURE__ */ new Set();
-  for (const entry of Object.values(entries))
-    if (!isLegacyAliasStub(entry)) exported.add(entry.hash);
+function aliasStub(alias, aliases, catalog) {
+  const entry = aliases[alias];
+  if (!entry) return void 0;
+  const facts = catalog?.[alias];
+  if (catalog && entry.kind === "frame" && !facts) {
+    throw new Error(`Missing manifest facts for frame alias ${alias}`);
+  }
+  return {
+    hash: Number(alias),
+    aliasOf: resolveAlias(Number(alias), aliases),
+    aliasKind: entry.kind,
+    ...exportFacts(facts)
+  };
+}
+var isRecord = (value2) => typeof value2 === "object" && value2 !== null;
+function mergeLivePerks(live, entries, picks) {
   const merged = { ...live, ...entries };
-  for (const [key, value2] of Object.entries(live)) {
-    if (!withdrawable.has(key) || Object.hasOwn(entries, key)) continue;
-    if (typeof value2 !== "object" || value2 === null) continue;
-    const stub = value2;
-    if (stub.aliasKind === "sandbox" && typeof stub.aliasOf === "number" && exported.has(stub.aliasOf))
-      delete merged[key];
+  if (!picks) return merged;
+  for (const key of picks.keys) {
+    if (Object.hasOwn(entries, key)) continue;
+    const current = merged[key];
+    if (isRecord(current) && !("aliasOf" in current)) continue;
+    const stub = aliasStub(key, picks.aliases, picks.catalog);
+    const target = stub && merged[String(stub.aliasOf)];
+    if (stub && isRecord(target) && !("aliasOf" in target)) merged[key] = stub;
+    else delete merged[key];
   }
   return merged;
 }
@@ -21969,19 +21984,10 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
       }
     }
   }
-  for (const [alias, { kind }] of Object.entries(aliases)) {
+  for (const alias of Object.keys(aliases)) {
     const target = resolveAlias(Number(alias), aliases);
     if (!canonical[target]) continue;
-    const facts = catalog?.[alias];
-    if (catalog && kind === "frame" && !facts) {
-      throw new Error(`Missing manifest facts for frame alias ${alias}`);
-    }
-    entries[alias] = {
-      hash: Number(alias),
-      aliasOf: target,
-      aliasKind: kind,
-      ...exportFacts(facts)
-    };
+    entries[alias] = aliasStub(alias, aliases, catalog);
   }
   return entries;
 }
@@ -22075,10 +22081,12 @@ var decided = {
   by: external_exports.number().int().positive(),
   at: external_exports.string().datetime({ offset: true })
 };
-var sandboxPointerSchema = external_exports.union([
+var sandboxDecisionSchema = external_exports.union([
   external_exports.object({ to: hashSchema, ...decided }).strict(),
   external_exports.object({ none: external_exports.literal(true), ...decided }).strict()
 ]);
+var sandboxUndoneSchema = external_exports.object({ state: external_exports.literal("undone"), by: decided.by, at: decided.at }).strict();
+var sandboxPointerSchema = external_exports.union([sandboxDecisionSchema, sandboxUndoneSchema]);
 var sandboxPointersSchema = external_exports.object({ version: external_exports.literal(1), pointers: external_exports.record(hashKey2, sandboxPointerSchema) }).strict();
 var sandboxConflictsSchema = external_exports.record(hashKey2, external_exports.array(hashSchema));
 var sandboxPickSchema = external_exports.union([
@@ -22093,10 +22101,6 @@ function sandboxPointerProblem(hash2, to, aliases, conflicts, pointers) {
     return `points at ${to}, which is an alias, not a canonical tooltip`;
   if (Object.hasOwn(pointers, String(to))) return `points at ${to}, another shared sandbox perk`;
   return null;
-}
-function sandboxWithdrawable(pointers, conflicts) {
-  if (!pointers) return /* @__PURE__ */ new Set();
-  return /* @__PURE__ */ new Set([...Object.keys(conflicts), ...Object.keys(pointers.pointers)]);
 }
 function mergeSandboxPointers(aliases, conflicts, pointers) {
   if (!pointers) return aliases;
@@ -22227,6 +22231,7 @@ var compendiumCategoryTabs = {
   "weapon-mod": ["1662574278"],
   "armor-set-bonus": ["1287885342"],
   "armor-trait-exotic": ["1500097863", "20898389"],
+  "armor-trait-exotic-class-item": ["20898389"],
   "armor-mod-general": ["1934379638", "1925335732"],
   "armor-mod-combat": ["1934379638", "1925335732"],
   "armor-mod-activity": ["1934379638", "1925335732"],
@@ -23596,10 +23601,15 @@ var Publisher = class {
       pointers
     );
   }
-  /** Live sandbox stubs a publish from this snapshot may withdraw (core sandboxWithdrawable). */
-  withdrawableAt(tree) {
-    const parsed = sandboxPointersSchema.safeParse(this.read(tree, sandboxPointersPath));
-    return parsed.success ? sandboxWithdrawable(parsed.data, this.options.sandboxConflicts ?? {}) : /* @__PURE__ */ new Set();
+  /**
+   * The live-merge recompute for a publish from this snapshot (core mergeLivePerks): every key the
+   * picks file names, with the same merged aliases the export used. No picks file: none (v2).
+   */
+  pickRecomputeAt(tree) {
+    const raw = this.read(tree, sandboxPointersPath);
+    if (raw === void 0) return void 0;
+    const keys = Object.keys(sandboxPointersSchema.parse(raw).pointers);
+    return keys.length ? { keys, aliases: this.aliasesAt(tree), catalog: this.options.facts } : void 0;
   }
   /** Check direct association targets at the drain snapshot, without walking their drafts. */
   checkAssociatedDescriptions(tree, tooltips, aliases = this.options.aliases) {
@@ -23667,8 +23677,8 @@ var Publisher = class {
     if (!live?.perks || !live.databaseSettings) throw new Error("Invalid live file");
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
-    const withdrawable = this.withdrawableAt(this.git.tree(r.sourceCommit));
-    const bytes = json2({ ...live, perks: mergeLivePerks(live.perks, entries, withdrawable) });
+    const picks = this.pickRecomputeAt(this.git.tree(r.sourceCommit));
+    const bytes = json2({ ...live, perks: mergeLivePerks(live.perks, entries, picks) });
     return {
       bytes,
       outcome: bytes === this.git.blob(tree["liveDescriptions.json"]) ? "unchanged" : "published"
