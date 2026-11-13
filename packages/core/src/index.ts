@@ -7,6 +7,7 @@ export * from './publishRequest.js';
 export * from './migrateLegacy.js';
 export * from './exportLegacy.js';
 export * from './aliases.js';
+export * from './sandboxPointers.js';
 export * from './merge3.js';
 export * from './markup/index.js';
 export * from './validation/index.js';

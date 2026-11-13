@@ -323,6 +323,31 @@ describe('dependency-free bundle', () => {
     expect(await readdir(join(root, 'publish'))).toEqual(['bundle.json']);
   });
 
+  it('carries maintainer sandbox picks only when the file holds some', async () => {
+    const root = await temporaryDirectory();
+    const result = await prepareMigration(database('draft'), database('live'), owner);
+    await writeMigration(root, result);
+    const generatedAt = '2026-10-27T00:00:00.000Z';
+    const plain = await buildBundle(root, sourceCommit, generatedAt);
+    const path = join(root, 'config', 'sandbox-pointers.json');
+    await writeFile(path, '{"version":1,"pointers":{}}');
+    expect(await buildBundle(root, sourceCommit, generatedAt)).toEqual(plain);
+    const picks = {
+      version: 1,
+      pointers: { 700: { to: 42, candidates: [42, 43], by: 1, at: '2026-11-12T20:00:00Z' } },
+    };
+    await writeFile(path, JSON.stringify(picks));
+    expect(await buildBundle(root, sourceCommit, generatedAt)).toEqual({
+      ...plain,
+      sandboxPointers: picks,
+    });
+    // A malformed file is left out, never a failed bundle.
+    for (const bad of ['{"version":2,"pointers":{"1":{}}}', '{"version":1,"pointers":[1]}', '{'])
+      expect(
+        await (await writeFile(path, bad), buildBundle(root, sourceCommit, generatedAt)),
+      ).toEqual(plain);
+  });
+
   it('fails on invalid commit, mismatched hash, missing data or bad pushed digest', async () => {
     const root = await temporaryDirectory();
     await expect(buildBundle(root, 'main')).rejects.toThrow('full source commit');

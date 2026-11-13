@@ -2,6 +2,7 @@ import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
 import { pinLowersElementTags, publisherPinPath, refuseUnlowerableTags } from './elementTags.js';
 import { loadAliases } from './catalog.js';
+import { pinMergesSandboxPointers, withSandboxPointers } from './sandboxPointers.js';
 import { z } from 'zod';
 import {
   classifyPublishIntent,
@@ -12,6 +13,7 @@ import {
   publishMonth,
   publishableHash,
   resolveAlias,
+  sandboxPointersPath,
   publishOpIdSchema,
   publishPayloadSchema,
   stableStringify,
@@ -104,7 +106,8 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
   const digest = await publishIntentDigest(intent);
   const paths = opPaths(value.opId);
   let checkedHead: string | undefined;
-  let aliases: Awaited<ReturnType<typeof loadAliases>> | undefined;
+  let generatorAliases: Awaited<ReturnType<typeof loadAliases>> | undefined;
+  let aliases: Awaited<ReturnType<typeof loadAliases>> = {};
   // Two create attempts plus a final reconciliation. Without imports, at most 13 requests
   // including token, aliases, and native-markup checks; dependency reads use the shared budget.
   // a final read is mandatory even when the last create timed out after landing.
@@ -114,6 +117,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       'config/permissions.json',
       ...paths,
       publisherPinPath,
+      sandboxPointersPath,
     ]);
     requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, [
       'maintainer',
@@ -138,14 +142,20 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       throw new HttpError(400, 'Publish opId outside creation window');
     }
     if (checkedHead !== snapshot.head) {
-      aliases ??= await loadAliases(github.env, github);
+      generatorAliases ??= await loadAliases(github.env, github);
+      // Sandbox picks join the aliases only for a publisher build that merges them itself, so the
+      // reviewed digests match what that build records (an older build: a mismatch refuses).
+      const pin = snapshot.files[1 + paths.length]?.value;
+      aliases = pinMergesSandboxPointers(pin)
+        ? await withSandboxPointers(github, generatorAliases, snapshot.files[2 + paths.length])
+        : generatorAliases;
       const checked = await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
       // A tagged span in a published tooltip or a document it reads (imports, globals 2 and 3)
       // needs a publisher build that lowers it; an older build would export it unlowered.
       const lowers = pinLowersElementTags(snapshot.files[1 + paths.length]?.value);
       for (const document of checked.values()) refuseUnlowerableTags(document, lowers, 'published');
       refuseHeldSetBonuses(
-        value.hashes.flatMap((hash) => checked.get(resolveAlias(hash, aliases!)) ?? []),
+        value.hashes.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
       );
       for (const hash of value.hashes) {
         const tooltip = checked.get(resolveAlias(hash, aliases));

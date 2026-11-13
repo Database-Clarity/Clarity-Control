@@ -19,8 +19,10 @@ writeFileSync(
         .update(readFileSync('scripts/publisher/dist/publisher.mjs'))
         .digest('hex'),
       // What this build can do; the Worker reads it at the data head (apps/worker/src/elementTags.ts):
-      // elementTags = exportLegacy lowers element-tagged text to today's `<solar/>Scorch`.
-      capabilities: ['elementTags'],
+      // elementTags = exportLegacy lowers element-tagged text to today's `<solar/>Scorch`;
+      // sandboxPointers = maintainer picks in config/sandbox-pointers.json join the aliases
+      // (apps/worker/src/sandboxPointers.ts refuses saving picks while the PIN lacks it).
+      capabilities: ['elementTags', 'sandboxPointers'],
     },
     null,
     2,
