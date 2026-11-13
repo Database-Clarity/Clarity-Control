@@ -30,8 +30,9 @@
   border-top: 1px solid var(--editor-edge);
   container-type: inline-size;
 
-  // Narrow editors give up, in this order: key hint on the preview button, the position, then
-  // long labels for short ones. Nothing wraps or ellipsises except the flexible texts.
+  // Narrow editors drop, by width alone: the key hints, then the position, then the preview's
+  // count text. Labels never change here: useFit (StatusBar.tsx) steps them down only as far as
+  // the items need (see [data-fit] below), so one label form shows at a time.
   @container (max-width: 40rem) {
     .hints {
       display: none;
@@ -43,28 +44,8 @@
     }
   }
   @container (max-width: 24rem) {
-    .long {
-      display: none;
-    }
-    .short {
-      display: inline;
-    }
     .previewText {
       display: none;
-    }
-  }
-  // Narrowest (a phone above about 105% interface scale): Changes becomes its glyph, the retired
-  // count keeps only its warning sign, and the items tighten, so the Changes item never pushes
-  // another one out of the bar. Each keeps its full name for assistive technology.
-  @container (max-width: 21rem) {
-    .roomy {
-      display: none;
-    }
-    .tiny {
-      display: inline;
-    }
-    .item {
-      padding: 0 0.125rem;
     }
   }
 
@@ -75,37 +56,47 @@
     flex: none;
   }
 
-  // Too many items for the width (useFit in StatusBar.tsx steps on until they fit): 1 short
-  // labels; 2 also Changes as its glyph, the retired count as its warning sign, and tight items;
-  // 3 also counts with a mark instead of a word (⊗ issues, ▯ characters, ⇄ conflicts, ? help).
-  // Each item keeps its full name for assistive technology and in its tooltip.
+  // Too many items for the width: useFit takes the first step that fits, and each step is
+  // narrower than the one before. 1 tight items; 2 short labels (Help, glyphs, retired); 3 the
+  // retired count as its warning sign alone; 4 Changes as its glyph; 5 counts with a mark instead
+  // of a word (⊗ issues, ▯ characters, ⇄ conflicts, ? help). Each item keeps its full name in
+  // aria-label and its tooltip.
   &[data-fit='1'],
   &[data-fit='2'],
-  &[data-fit='3'] {
+  &[data-fit='3'],
+  &[data-fit='4'] {
+    .item {
+      padding: 0 0.25rem;
+    }
+  }
+  &[data-fit='2'],
+  &[data-fit='3'],
+  &[data-fit='4'],
+  &[data-fit='5'] {
     .long {
       display: none;
     }
     .short {
       display: inline;
     }
-    .previewText {
+  }
+  &[data-fit='3'],
+  &[data-fit='4'],
+  &[data-fit='5'] {
+    .short.roomy {
       display: none;
     }
   }
-  &[data-fit='2'],
-  &[data-fit='3'] {
-    .roomy,
-    .roomy:not(.short) {
+  &[data-fit='4'],
+  &[data-fit='5'] {
+    .roomy {
       display: none;
     }
     .tiny {
       display: inline;
     }
-    .item {
-      padding: 0 0.25rem;
-    }
   }
-  &[data-fit='3'] {
+  &[data-fit='5'] {
     .item {
       padding: 0 0.125rem;
     }
@@ -133,26 +124,8 @@
     padding: 0;
     font-size: var(--ctl-text);
 
-    // The rem-based steps above fire early at a large interface scale (a 360px phone at 150% is
-    // under 21rem with room to spare): touch keeps the Changes label and even item padding, and
-    // goes to the glyph only on a really narrow bar.
-    // Not the retired item's short label (.short.roomy): that one shows only with the short ones.
-    .roomy:not(.short) {
-      display: inline;
-    }
-    .tiny {
-      display: none;
-    }
     .item {
       padding: 0 var(--page-x);
-    }
-    @container (max-width: 260px) {
-      .roomy {
-        display: none;
-      }
-      .tiny {
-        display: inline;
-      }
     }
   }
 }

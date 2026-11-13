@@ -50,24 +50,29 @@ export interface GlyphGroup {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** How far the bar has given up its labels to fit (see `.bar[data-fit]`): 0 as wide as room allows. */
-const fitSteps = 3;
+const fitSteps = 5;
+/** The step with short labels: a cut read-only reason steps no further (it may always ellipsise). */
+const shortLabels = 2;
 
 /**
- * Fits the bar's items on its one line. The width steps in the stylesheet follow the bar's width
- * alone; with many items (Changes, Help, issues, Raw, warnings, conflicts) a phone's bar still
- * overflows, so this steps further down (short labels, then glyphs and tight items, then counts
- * with a mark) until nothing runs past the edge. It measures only when the set of items or the
- * bar's size changes, never on a caret move or a keystroke that changes neither.
+ * Fits the bar's items on its one line: it takes the first step (tight items, short labels,
+ * the retired sign alone, Changes as its glyph, then counts with a mark) at which nothing runs past the edge, so labels shorten only
+ * as far as the items need. A read-only reason cut short also steps down, as far as the short
+ * labels, to give it room. It measures only when the set of items or the bar's size changes,
+ * never on a caret move or a keystroke that changes neither.
  */
 function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
   const fit = useRef<() => void>(() => undefined);
   fit.current = () => {
     const element = bar.current;
     if (!element) return;
+    const reason = element.querySelector<HTMLElement>('[data-status-reason]');
+    const crowded = (step: number) =>
+      element.scrollWidth > element.clientWidth + 1 ||
+      (step < shortLabels && !!reason && reason.scrollWidth > reason.clientWidth + 1);
     let step = 0;
     element.dataset.fit = '0';
-    while (step < fitSteps && element.scrollWidth > element.clientWidth + 1)
-      element.dataset.fit = String(++step);
+    while (step < fitSteps && crowded(step)) element.dataset.fit = String(++step);
   };
   useLayoutEffect(() => fit.current(), [content]);
   useEffect(() => {
@@ -338,7 +343,9 @@ export function StatusBar({
         <span>{keyOf('key-leave')} leaves the editor</span>
         {conflicts && conflicts.count > 0 && <span>{keyOf('key-conflict')} next conflict</span>}
       </span>
-      {preview && (
+      {/* An idle preview item keeps its place (hidden) so it never pushes items while typing; with
+        the text read-only nothing is typed, so the read-only reason gets that room instead. */}
+      {preview && (showsPreview || !readOnlyReason) && (
         <span
           className={styles.preview}
           data-status-preview

@@ -86,7 +86,13 @@ describe('status bar', () => {
     // Never past the last step, even if that still does not fit.
     widths.mockReturnValue(1000);
     render(bar({ glyphCount: 2 }));
-    expect(status().dataset.fit).toBe('3');
+    expect(status().dataset.fit).toBe('5');
+    // A read-only reason cut short steps down as far as the short labels, never further.
+    widths.mockImplementation(function (this: HTMLElement) {
+      return this.matches('[data-status-reason]') ? 900 : 200;
+    });
+    render(bar({ readOnlyReason: 'Paused: another tab changed your drafts.' }));
+    expect(status().dataset.fit).toBe('2');
     // The counts keep their words for the text and their full names for assistive technology.
     render(bar({ issues: [{ severity: 'error', message: 'x', from: 0, to: 1 }], glyphCount: 2 }));
     expect(q('[data-status-issues]')?.textContent).toBe('1 issue');
