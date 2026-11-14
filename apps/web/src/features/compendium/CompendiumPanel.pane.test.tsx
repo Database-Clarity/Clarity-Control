@@ -351,7 +351,7 @@ describe('Compendium pane', () => {
     expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
   });
 
-  it('keeps the header view switch as last loaded while a flick passes other entries', async () => {
+  it('keeps the header view switch as last shown while a flick passes and lands', async () => {
     skeletonTiming.enabled = true;
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
     const frames = new Map<number, FrameRequestCallback>();
@@ -386,6 +386,18 @@ describe('Compendium pane', () => {
       expect(diffViews(header(host))).toHaveLength(1);
     }
     expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
+    // The flick stops; its entry is ready under the skeleton while the minimum still runs. The
+    // header keeps what is on screen until that entry's content replaces the skeleton.
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: plain(9), stepping: false })),
+    );
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
+    expect(diffViews(header(host))).toHaveLength(1);
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs));
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('9');
+    expect(diffViews(header(host))).toHaveLength(0);
   });
 
   it.each([

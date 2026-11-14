@@ -965,15 +965,16 @@ const PaneContents = memo(function PaneContents({
       </div>
     </RightPane>
   );
-  // The header's entry-specific parts (diff view switch, Link or Relink) as last loaded: a hold
-  // keeps them until the next entry loads, so a flick's passing targets never blink them.
-  const loadedHeader = useRef({ comparison: false, linked: false });
+  // The header's entry-specific parts (diff view switch, Link or Relink) as last shown: a hold
+  // keeps them until the next entry's content replaces it on screen, so neither a flick's
+  // passing targets nor a match resolving under the skeleton blink them.
+  const shownHeader = useRef<{ comparison: boolean; linked: boolean }>();
   useLayoutEffect(() => {
     if (!waiting) {
       retainedPane.current = pane;
       hasContent.current = true;
-      loadedHeader.current = { comparison: !!(match || approved), linked: !!link };
     }
+    if (!holding) shownHeader.current = { comparison: !!(match || approved), linked: !!link };
   });
   if (!holding) return pane;
   if (!stepping && !wasStepping.current && !showSkeleton)
@@ -995,8 +996,8 @@ const PaneContents = memo(function PaneContents({
     !!pendingBefore ||
     (!!pendingItem &&
       mayHaveApprovalEvidence(pendingBase.hash, pendingItem.name, pendingItem.categoryId));
-  const loadingHeader = hasContent.current
-    ? paneHeader(loadedHeader.current.comparison, loadedHeader.current.linked, true)
+  const loadingHeader = shownHeader.current
+    ? paneHeader(shownHeader.current.comparison, shownHeader.current.linked, true)
     : paneHeader(expectComparison, !!pendingLink, true);
   // The skeleton stands for the route's entry, which can be ahead of the incoming document.
   const targetItem = data && itemFor(target, data);
