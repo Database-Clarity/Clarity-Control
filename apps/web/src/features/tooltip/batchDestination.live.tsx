@@ -1,9 +1,5 @@
 import { useState } from 'react';
-import { ReadingGlobals, ReadingTooltip } from '../preview/ReadingTooltip';
-import { MarkupOnlyEnglish } from '../translations/MarkupOnlyEnglish';
-import { RightPane, RightPaneHeader } from '../../ui/RightPane';
-import { WordDiff } from '../../ui/diff';
-import { useSettingsStore } from '../../stores/settings';
+import { UpcomingEnglish } from '../translations/upcomingEnglish';
 import styles from './BatchDestination.module.scss';
 import {
   isMarkupOnly,
@@ -186,63 +182,12 @@ export function BatchSave({ editing }: { editing: BatchEditing }) {
   );
 }
 
-/** Batch English only: the source preference is shared with Current's English pane. */
-export function BatchEnglish({
-  hash,
-  current,
-  upcoming,
-  globals,
-}: {
+/** Reuse the Upcoming view's English rules in the editor pane shell. */
+export function BatchEnglish(props: {
   hash: number;
   current: string | undefined;
   upcoming: string;
   globals: MarkupGlobals;
 }) {
-  const remembered = useSettingsStore((state) => state.device.remembered.englishSource);
-  const fallback = useSettingsStore((state) => state.settings.englishSource);
-  const remember = useSettingsStore((state) => state.remember);
-  const changes = (remembered ?? fallback) === 'changes';
-  return (
-    <RightPane
-      label="Upcoming English"
-      header={
-        <RightPaneHeader title="Upcoming English">
-          <label className={styles.shows}>
-            <span>Shows:</span>
-            <select
-              aria-label="Upcoming English shows"
-              value={changes ? 'changes' : 'current'}
-              onChange={(event) =>
-                remember({
-                  englishSource: event.target.value === 'changes' ? 'changes' : 'current',
-                })
-              }
-            >
-              <option value="changes">Changes from current</option>
-              <option value="current">Upcoming English</option>
-            </select>
-          </label>
-        </RightPaneHeader>
-      }
-    >
-      <ReadingGlobals.Provider value={globals}>
-        {!changes ? (
-          <ReadingTooltip text={upcoming} hash={hash} />
-        ) : current === undefined ? (
-          <>
-            <p>New in this batch</p>
-            <ReadingTooltip text={upcoming} hash={hash} />
-          </>
-        ) : current === upcoming ? (
-          <p>The batch does not change the English.</p>
-        ) : isMarkupOnly(current, upcoming) ? (
-          <MarkupOnlyEnglish before={current} current={upcoming} hash={hash} />
-        ) : (
-          <div aria-label="English changes in the batch">
-            <WordDiff before={current} after={upcoming} />
-          </div>
-        )}
-      </ReadingGlobals.Provider>
-    </RightPane>
-  );
+  return <UpcomingEnglish {...props} editor />;
 }
