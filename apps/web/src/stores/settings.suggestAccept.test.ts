@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { createSettingsStore, deviceKey, type SettingsStorage } from './settings';
+import { createSettingsStore, deviceKey, settingsKey, type SettingsStorage } from './settings';
 import { fakeServer, memoryStorage } from './settings.testSupport';
 
 const make = (storage: SettingsStorage) =>
@@ -12,11 +12,11 @@ const make = (storage: SettingsStorage) =>
   });
 const acceptOf = (raw: unknown) =>
   make(memoryStorage({ [deviceKey]: JSON.stringify({ suggestAccept: raw }) }).storage).getState()
-    .device.suggestAccept;
+    .settings.suggestAccept;
 
-describe('device suggestion-chip accept key', () => {
+describe('account suggestion-chip accept key', () => {
   it('defaults to Enter', () => {
-    expect(make(memoryStorage().storage).getState().device.suggestAccept).toBe('enter');
+    expect(make(memoryStorage().storage).getState().settings.suggestAccept).toBe('enter');
   });
 
   it('keeps a stored Tab and recovers from anything else field by field', () => {
@@ -29,22 +29,21 @@ describe('device suggestion-chip accept key', () => {
     expect(make(storage).getState().device).toMatchObject({
       theme: 'light',
       compendiumScale: 80,
-      suggestAccept: 'enter',
     });
   });
 
-  it('is saved on this device only', () => {
+  it('is saved locally in the synced copy', () => {
     const { storage, values } = memoryStorage();
     const store = make(storage);
-    store.getState().updateDevice({ suggestAccept: 'tab' });
-    expect(JSON.parse(values.get(deviceKey)!).suggestAccept).toBe('tab');
-    expect('suggestAccept' in store.getState().settings).toBe(false);
+    store.getState().update({ suggestAccept: 'tab' });
+    expect(JSON.parse(values.get(settingsKey('anonymous'))!).settings.suggestAccept).toBe('tab');
+    expect('suggestAccept' in store.getState().device).toBe(false);
   });
 
   it('is not changed by resetting the pane widths', () => {
     const store = make(memoryStorage().storage);
-    store.getState().updateDevice({ suggestAccept: 'tab' });
+    store.getState().update({ suggestAccept: 'tab' });
     store.getState().resetPaneWidths();
-    expect(store.getState().device.suggestAccept).toBe('tab');
+    expect(store.getState().settings.suggestAccept).toBe('tab');
   });
 });

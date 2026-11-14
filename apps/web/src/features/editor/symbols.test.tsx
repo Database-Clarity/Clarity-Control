@@ -24,7 +24,7 @@ let root: Root;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  useSettingsStore.getState().updateDevice({ symbolReveal: 'popover' });
+  useSettingsStore.getState().update({ symbolReveal: 'popover' });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -548,7 +548,7 @@ describe('symbol view', () => {
   });
 
   it('caret mode shows the raw markup only where the caret is', () => {
-    act(() => useSettingsStore.getState().updateDevice({ symbolReveal: 'caret' }));
+    act(() => useSettingsStore.getState().update({ symbolReveal: 'caret' }));
     const { view } = mount();
     act(() => view.dispatch({ selection: { anchor: doc.indexOf('<arc/>') + 2 } }));
     expect(host.querySelector('.cm-content')!.textContent).toContain('<arc/>');

@@ -12,6 +12,11 @@ export const themeLabels: Record<ThemePreference, string> = {
 };
 
 export const settingLabels: Record<SyncedKey, string> = {
+  editorFont: 'Editor font',
+  suggestAccept: 'Accept suggestion chips with',
+  symbolReveal: 'Show symbol markup',
+  finderWheel: 'Finder wheel',
+  worklistStepping: 'Step through the worklist',
   dateFormat: 'Date format',
   timeDisplay: 'Time display',
   timeZone: 'Time zone',
@@ -20,6 +25,22 @@ export const settingLabels: Record<SyncedKey, string> = {
 };
 
 const valueLabels: { [K in SyncedKey]: Record<string, string> } = {
+  editorFont: {
+    default: 'Default',
+    'fira-code': 'Fira Code',
+    'jetbrains-mono': 'JetBrains Mono',
+    system: 'System monospace',
+  },
+  suggestAccept: { enter: 'Enter', tab: 'Tab' },
+  symbolReveal: {
+    popover: 'In a popover on hover',
+    caret: 'As raw text while the caret is on the symbol',
+  },
+  finderWheel: {
+    entries: 'Shift: entries, Alt+Shift: weapons',
+    groups: 'Shift: weapons, Alt+Shift: entries',
+  },
+  worklistStepping: { true: 'On', false: 'Off' },
   dateFormat: {
     auto: 'Browser default',
     dmy: 'DD Mon YYYY (12 Feb 2023)',
@@ -38,7 +59,7 @@ const valueLabels: { [K in SyncedKey]: Record<string, string> } = {
 
 export function valueLabel<K extends SyncedKey>(key: K, value: SyncedSettings[K]): string {
   if (key === 'timeZone' && value === 'auto') return `Browser (${browserTimeZone()})`;
-  return valueLabels[key][value] ?? value;
+  return valueLabels[key][String(value)] ?? String(value);
 }
 
 export function syncStatusText(state: Pick<SettingsState, 'status' | 'reason' | 'error'>): string {

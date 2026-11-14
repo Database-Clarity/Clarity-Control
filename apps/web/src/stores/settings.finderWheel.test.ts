@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { createSettingsStore, deviceKey, type SettingsStorage } from './settings';
+import { createSettingsStore, deviceKey, settingsKey, type SettingsStorage } from './settings';
 import { fakeServer, memoryStorage } from './settings.testSupport';
 
 const make = (storage: SettingsStorage) =>
@@ -12,11 +12,11 @@ const make = (storage: SettingsStorage) =>
   });
 const wheelOf = (raw: unknown) =>
   make(memoryStorage({ [deviceKey]: JSON.stringify({ finderWheel: raw }) }).storage).getState()
-    .device.finderWheel;
+    .settings.finderWheel;
 
-describe('device finder wheel', () => {
+describe('account finder wheel', () => {
   it('defaults to Shift stepping entries', () => {
-    expect(make(memoryStorage().storage).getState().device.finderWheel).toBe('entries');
+    expect(make(memoryStorage().storage).getState().settings.finderWheel).toBe('entries');
   });
 
   it('keeps a stored swap and recovers from anything else field by field', () => {
@@ -25,11 +25,11 @@ describe('device finder wheel', () => {
     for (const bad of [undefined, null, 'alt', 1, {}, []]) expect(wheelOf(bad)).toBe('entries');
   });
 
-  it('is saved on this device only, never in the synced copy', () => {
+  it('is saved locally in the synced copy', () => {
     const { storage, values } = memoryStorage();
     const store = make(storage);
-    store.getState().updateDevice({ finderWheel: 'groups' });
-    expect(JSON.parse(values.get(deviceKey)!).finderWheel).toBe('groups');
-    expect('finderWheel' in store.getState().settings).toBe(false);
+    store.getState().update({ finderWheel: 'groups' });
+    expect(JSON.parse(values.get(settingsKey('anonymous'))!).settings.finderWheel).toBe('groups');
+    expect('finderWheel' in store.getState().device).toBe(false);
   });
 });

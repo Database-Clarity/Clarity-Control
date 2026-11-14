@@ -87,15 +87,10 @@ describe('device theme', () => {
     });
     expect(make(storage).getState().device).toEqual({
       uiScale: 130,
-      editorFont: 'fira-code',
       editorFontSize: null,
       theme: 'system',
       panes: {},
       compendiumScale: 100,
-      suggestAccept: 'enter',
-      symbolReveal: 'popover',
-      finderWheel: 'entries',
-      worklistStepping: true,
       touchSize: 'compact',
       remembered: { markupToolbar: 'open' },
     });
@@ -130,10 +125,9 @@ describe('device panes', () => {
   it('resets every pane key and the legacy split without touching theme, font or synced settings', () => {
     const { storage, values } = memoryStorage({ [layoutKey]: '70' });
     const store = make(storage);
-    store.getState().update({ dateFormat: 'iso' });
+    store.getState().update({ dateFormat: 'iso', editorFont: 'fira-code' });
     store.getState().updateDevice({
       theme: 'light',
-      editorFont: 'fira-code',
       panes: { 'editor:left': pane, 'review:list': pane },
       compendiumScale: 70,
     });
@@ -141,14 +135,17 @@ describe('device panes', () => {
     expect(store.getState().resetPaneWidths()).toBe(true);
     expect(store.getState().device).toMatchObject({
       theme: 'light',
-      editorFont: 'fira-code',
       panes: {},
       compendiumScale: 100,
     });
     expect(stored(values).panes).toEqual({});
     expect(values.has(layoutKey)).toBe(false);
     expect(store.getState().paneResets).toBe(before + 1);
-    expect(store.getState().settings).toEqual({ ...defaultSyncedSettings, dateFormat: 'iso' });
+    expect(store.getState().settings).toEqual({
+      ...defaultSyncedSettings,
+      dateFormat: 'iso',
+      editorFont: 'fira-code',
+    });
     expect(store.getState().notice).toBe('');
   });
 

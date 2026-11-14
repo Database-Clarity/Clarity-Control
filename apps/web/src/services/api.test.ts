@@ -182,6 +182,11 @@ describe('worker client', () => {
 
   it('reports settings sync failures in plain words, keeping the technical cause apart', async () => {
     const settings = {
+      editorFont: 'default',
+      suggestAccept: 'enter',
+      symbolReveal: 'popover',
+      finderWheel: 'entries',
+      worklistStepping: true,
       dateFormat: 'auto',
       timeDisplay: 'datetime',
       timeZone: 'auto',
