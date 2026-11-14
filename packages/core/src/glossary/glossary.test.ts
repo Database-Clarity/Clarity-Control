@@ -3,6 +3,8 @@ import { applyGlossary } from './apply.js';
 import { compileTerms, matchTerms } from './match.js';
 import { glossaryProse, glossaryTermUsed } from './prose.js';
 import { emptyGlossary, glossaryInputSchema, glossaryKey, glossarySchema } from './schema.js';
+import { parseMarkup } from '../markup/parse.js';
+import { elementTagNames } from '../markup/elementTags.js';
 
 const date = '2026-11-14T12:00:00.000Z';
 const entry = { en: 'Jolt', term: 'Aufschrecken', updatedAt: date, updatedBy: 'alice' };
@@ -119,5 +121,33 @@ describe('glossary matching', () => {
     ).toBe(true);
     expect(glossaryTermUsed(glossaryProse('#Aufschrecken // Aufschrecken'), entry)).toBe(false);
     expect(glossaryTermUsed('電撃状態', { term: '電撃' })).toBe(true);
+  });
+  it('matches visible wrapper text while masking nested and standalone icons', () => {
+    for (const tag of ['yellow', 'background', ...elementTagNames]) {
+      const source = `<${tag} Aufschrecken />`;
+      const rendered = parseMarkup(source);
+      expect(rendered.diagnostics).toEqual([]);
+      expect(rendered.lines[0].linesContent?.map((span) => span.text ?? '').join('')).toBe(
+        'Aufschrecken',
+      );
+      const prose = glossaryProse(source);
+      expect(prose).toHaveLength(source.length);
+      expect(glossaryTermUsed(prose, entry)).toBe(true);
+      expect(matchTerms(prose, compileTerms([{ en: 'Aufschrecken' }]))).toEqual([
+        { from: source.indexOf('Aufschrecken'), to: source.indexOf('Aufschrecken') + 12, entry: 0 },
+      ]);
+    }
+    const source = '<yellow Jolt <arrow/> Aufschrecken />';
+    const rendered = parseMarkup(source);
+    expect(rendered.diagnostics).toEqual([]);
+    expect(rendered.lines[0].linesContent?.map((span) => span.text ?? '').join('')).toBe(
+      'Jolt  Aufschrecken',
+    );
+    const prose = glossaryProse(source);
+    const found = matchTerms(prose, compileTerms([{ en: 'Jolt' }, { en: 'arrow' }]));
+    expect(found.map((match) => source.slice(match.from, match.to))).toEqual(['Jolt']);
+    expect(glossaryTermUsed(prose, { term: 'arrow' })).toBe(false);
+    expect(glossaryTermUsed(prose, entry)).toBe(true);
+    expect(glossaryProse('<arc/> <arc [Jolt] />').trim()).toBe('');
   });
 });
