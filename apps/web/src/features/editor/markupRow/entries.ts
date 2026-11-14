@@ -2,6 +2,7 @@ import { offeredHere, type ScopedMarkupGlobals } from '../markupScope';
 import { type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
+  elementTagNames,
   enhancedArrowMarkup,
   expandSnippet,
   extractVariables,
@@ -439,9 +440,7 @@ export const rowOrder: readonly string[] = [
   'pvp',
   'pair',
   '|',
-  ...['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'].map(
-    (name) => `icon:${name}`,
-  ),
+  ...elementTagNames.map((name) => `icon:${name}`),
   '|',
   ...['primary', 'special', 'heavy'].map((name) => `icon:${name}`),
   '|',
@@ -474,15 +473,13 @@ export function rowEntries(entries: readonly MarkupEntry[]): (MarkupEntry | type
 
 type RowItem = MarkupEntry | typeof rowSeparator;
 
-const elementIds = new Set(
-  ['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand'].map((name) => `icon:${name}`),
-);
+const elementIds = new Set(elementTagNames.map((name) => `icon:${name}`));
 
 /**
  * The docked bar's order while translating (a phone): the entries the English text uses come
  * first, by where each is first used (ties keep the row's order), then one separator and the rest
  * in the row's order. An element icon counts as used in its tagged form too (`<solar Scorch />`),
- * and the six element icons lead together, from the first one used, so tag mode finds them side
+ * and the seven element icons lead together, from the first one used, so tag mode finds them side
  * by side. Without a source text the row's order is returned as it is.
  */
 export function leadEntries(items: readonly RowItem[], sourceText?: string): readonly RowItem[] {
@@ -501,7 +498,7 @@ export function leadEntries(items: readonly RowItem[], sourceText?: string): rea
   used.sort((a, b) => a.at - b.at || a.order - b.order);
   const firstElement = used.find((use) => elementIds.has(use.entry.id));
   if (firstElement) {
-    // All six right where the first element used sits, in the row's order.
+    // All seven right where the first element used sits, in the row's order.
     const elements = items.flatMap((item, order) =>
       item !== rowSeparator && elementIds.has(item.id)
         ? [{ entry: item, at: firstElement.at, order }]

@@ -772,7 +772,7 @@ const symbolEvents = EditorView.domEventHandlers({
 
 /**
  * Element-tagged text's actions: Unwrap (today's `<solar/>Scorch`: the icon stays, the tint goes),
- * Remove (the text alone), and the six elements (Change element; the current one is pressed).
+ * Remove (the text alone), and the seven elements (Change element; the current one is pressed).
  * Buttons never take focus from the text, so the pinned selection stays put.
  */
 function elementActions(view: EditorView, tag: TagRange): HTMLElement[] {

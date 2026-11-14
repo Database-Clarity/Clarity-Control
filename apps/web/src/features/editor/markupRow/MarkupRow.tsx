@@ -308,7 +308,7 @@ export const MarkupRow = memo(function MarkupRow({
         </div>
       </div>
       {/* The element symbols' outlined edge marks the mode; the label points back at them. On a
-        phone the bar's width goes to the six symbols instead. */}
+        phone the bar's width goes to the seven symbols instead. */}
       {tagMode.kind === 'wrap' && !docked ? (
         <span
           className={styles.tagLabel}

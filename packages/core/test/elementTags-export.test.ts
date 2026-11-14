@@ -10,7 +10,9 @@ import { database, tooltip } from './helpers.js';
 import { loweredFixtures, raiseTooltips } from './elementTagCorpus.js';
 
 const unlowered = (value: unknown) =>
-  JSON.stringify(value).match(/<(?:kinetic|arc|solar|void|stasis|strand) [^<>]*\/>|[\uE000\uE001]/);
+  JSON.stringify(value).match(
+    /<(?:kinetic|arc|solar|void|stasis|strand|prismatic) [^<>]*\/>|[\uE000\uE001]/,
+  );
 
 function catalog(perks: Record<string, LegacyPerk>): LegacyCatalog {
   return Object.fromEntries(

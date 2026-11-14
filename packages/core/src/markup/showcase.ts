@@ -50,6 +50,7 @@ An empty variable writes nothing here: #optional
 <void Void-tagged text is tinted in the editor. />
 <stasis Stasis-tagged text is tinted in the editor. />
 <strand Strand-tagged text is tinted in the editor. />
+<prismatic Prismatic-tagged text is tinted in the editor. />
 Exports apply the symbol settings without the text tint.
 enhanced (
 var d = 5

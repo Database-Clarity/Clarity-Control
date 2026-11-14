@@ -6,12 +6,17 @@ import {
   EditorState,
   Transaction,
 } from '@codemirror/state';
-import { findElementTags, lowerElementTags, type MarkupGlobals } from '@clarity/core';
+import {
+  elementTagNames,
+  findElementTags,
+  lowerElementTags,
+  type MarkupGlobals,
+} from '@clarity/core';
 import { checkedWrap, elementLabel, isElementName, tagSelection } from './elementTags';
 import { subclassNameAt } from './suggest/typedSymbols';
 
 /**
- * "Group with icon" (concept B): an existing pair, one of the six element icons right before a
+ * "Group with icon" (concept B): an existing pair, one of the seven element icons right before a
  * word or a known element keyword (`<solar/>Firesprite`, `<arc/>Ionic Trace`), becomes one tagged
  * span (`<solar Firesprite />`). Its lowered form is the text as it was, so nothing a consumer reads
  * changes. A spaced pair (`<solar/> Firesprite`) groups only by dropping the space, which changes
@@ -44,7 +49,7 @@ export const groupAsked = StateField.define<number | null>({
   },
 });
 
-const iconPattern = /<(kinetic|arc|solar|void|stasis|strand)\/>( ?)/g;
+const iconPattern = new RegExp(`<(${elementTagNames.join('|')})/>( ?)`, 'g');
 const plainWord = /^[\p{L}\p{N}][\p{L}\p{N}'’-]*/u;
 
 /** The word or element keyword at the start of `after`, as long as `element` allows. */

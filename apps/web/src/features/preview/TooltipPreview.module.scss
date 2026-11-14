@@ -544,7 +544,7 @@ $symbol: 0.75rem;
   &::before {
     content: none;
   }
-  @each $element in (kinetic, arc, solar, void, stasis, strand) {
+  @each $element in (kinetic, arc, solar, void, stasis, strand, prismatic) {
     &.#{$element} {
       color: var(--el-#{$element});
     }

@@ -76,7 +76,6 @@ const invalid: [name: string, text: string][] = [
   ['open bracket', 'Gain <solar Scorch [x />.'],
   ['close bracket', 'Gain <solar Scorch x] />.'],
   ['unclosed', 'Gain <solar Scorch stacks.'],
-  ['not an element', 'Gain <prismatic Transcendence />.'],
   ['colour tag', 'Gain <yellow Scorch />.'],
   ['missing space before close', 'Gain <solar Scorch/>.'],
 ];

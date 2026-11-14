@@ -40,12 +40,14 @@ describe('leadEntries', () => {
 
   it("leads with the entries Glacial Guard's English text uses, by first use", () => {
     const led = ids(leadEntries(row, glacialGuard));
-    // The six element icons lead together from the first one used (Stasis), in the row's order.
+    // The seven element icons lead together from the first one used (Stasis), in the row's order.
     const elements = ids(row).filter((id) =>
-      ['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand'].some((name) => id === `icon:${name}`),
+      ['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'].some(
+        (name) => id === `icon:${name}`,
+      ),
     );
-    expect(elements).toHaveLength(6);
-    expect(led.slice(0, 10)).toEqual([...elements, 'pve', 'pair', 'pvp', '|']);
+    expect(elements).toHaveLength(7);
+    expect(led.slice(0, 11)).toEqual([...elements, 'pve', 'pair', 'pvp', '|']);
     // The rest keeps the row's order, without doubled or trailing separators, and loses nothing.
     expect(led.filter((id) => id !== '|').sort()).toEqual(
       ids(row)
@@ -353,7 +355,7 @@ describe('the docked keyboard bar', () => {
   it('leads with the English text only while translating, and only docked', () => {
     mount({ lang: 'de', sourceText: glacialGuard });
     const first = () => bar()!.querySelector<HTMLElement>('[data-row-button]')!.dataset.entry;
-    // The six element icons lead together (Stasis is the first used).
+    // The seven element icons lead together (Stasis is the first used).
     expect(first()).toBe('icon:kinetic');
     mount({ lang: 'en', sourceText: glacialGuard });
     expect(first()).toBe('enhanced-arrow');

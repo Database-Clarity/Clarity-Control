@@ -207,7 +207,7 @@
     text-decoration-color: color-mix(in srgb, currentcolor 60%, transparent);
     text-underline-offset: 0.2em;
   }
-  @each $element in (kinetic, arc, solar, void, stasis, strand) {
+  @each $element in (kinetic, arc, solar, void, stasis, strand, prismatic) {
     :global(.cm-el-#{$element}) {
       color: var(--el-#{$element});
     }
