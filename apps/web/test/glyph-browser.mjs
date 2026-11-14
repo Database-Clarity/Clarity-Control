@@ -1,3 +1,4 @@
+/* global document */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -89,3 +90,4 @@ try {
   await browser?.close();
   await rm(output, { recursive: true, force: true });
 }
+
