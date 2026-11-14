@@ -151,7 +151,9 @@ export function SandboxPerksPage() {
 
   const pending = authLoading || (permitted && !!apiUrl && !rows && !error);
   const skeleton = useSkeletonVisible(pending, 'Loading sandbox perks…', true);
-  if (authLoading || (pending && skeleton))
+  // Hold the skeleton until its minimum ends, even after the rows arrive (skeleton outlives
+  // pending); before it reveals, only the status shows, so a quick load never flashes.
+  if (pending || skeleton)
     return <LoadingSkeleton label="Loading sandbox perks…" shape="rows" visible={skeleton} />;
   if (!permitted)
     return (

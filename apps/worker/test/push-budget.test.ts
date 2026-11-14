@@ -4,6 +4,10 @@ import { GitHub, subrequestLimit } from '../src/github.js';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 import { pushTime } from './push-fixture.js';
 
+// The legacy /push-live exporter (switch OFF) under test; the checked-in switch is ON since
+// PUB-ENABLE, and these paths stay for the publisher rollback.
+vi.mock('../../../config/publisher.json', () => ({ default: { enabled: false } }));
+
 // Workers FREE plan: 50 external subrequests per request. Every fetch the Worker makes is
 // counted by the fixture; these tests pin the total for pushes of any size.
 let key: string;

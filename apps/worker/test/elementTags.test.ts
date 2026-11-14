@@ -12,6 +12,8 @@ beforeAll(async () => {
   key = await makePrivateKey();
 });
 beforeEach(() => {
+  // Each test picks the exporter; the checked-in switch is ON (PUB-ENABLE).
+  publisherConfig.enabled = false;
   fixture = new Fixture(key);
 });
 afterEach(() => {
