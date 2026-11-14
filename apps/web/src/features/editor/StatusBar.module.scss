@@ -15,6 +15,7 @@
 // The editor's status line: fixed height, one line. Only .reason and .hints are flexible text and
 // may ellipsise; every other item keeps its size. Panels open upward over the text (never resize it).
 .bar {
+  @include controls.contain-focus-rings;
   flex: none;
   display: flex;
   align-items: center;

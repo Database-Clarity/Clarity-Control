@@ -79,6 +79,12 @@ export type SymbolReveal = (typeof symbolRevealModes)[number];
 export const finderWheelModes = ['entries', 'groups'] as const;
 export type FinderWheel = (typeof finderWheelModes)[number];
 /**
+ * Step through the worklist: while a Work-through queue is active in the editor, Shift+wheel, the
+ * wheel over the finder, and the finder's arrow keys and stepper step the queue's items still to
+ * do instead of the finder's list. Per device; on by default.
+ */
+export const defaultWorklistStepping = true;
+/**
  * Touch control size on this device: compact (about 36px, the default) or large (44px). Applies
  * wherever the touch tokens apply (phones and coarse pointers); written as `data-touch`.
  */
@@ -107,6 +113,7 @@ export const deviceSettingsSchema = z.object({
   suggestAccept: z.enum(suggestAcceptKeys),
   symbolReveal: z.enum(symbolRevealModes),
   finderWheel: z.enum(finderWheelModes),
+  worklistStepping: z.boolean(),
   touchSize: z.enum(touchSizes),
   remembered: rememberedSchema,
 });
@@ -121,6 +128,7 @@ export const defaultDeviceSettings: DeviceSettings = {
   suggestAccept: 'enter',
   symbolReveal: 'popover',
   finderWheel: 'entries',
+  worklistStepping: defaultWorklistStepping,
   touchSize: 'compact',
   remembered: {},
 };
@@ -451,6 +459,10 @@ export function createSettingsStore({
           : 'enter',
       symbolReveal: record.symbolReveal === 'caret' ? 'caret' : 'popover',
       finderWheel: record.finderWheel === 'groups' ? 'groups' : 'entries',
+      worklistStepping:
+        typeof record.worklistStepping === 'boolean'
+          ? record.worklistStepping
+          : defaultWorklistStepping,
       touchSize: record.touchSize === 'large' ? 'large' : 'compact',
       remembered,
     };
