@@ -5,6 +5,7 @@ import {
   enhancedArrowMarkup,
   expandSnippet,
   extractVariables,
+  writeVariable,
   markupSnippets,
   markupSymbols,
   markupTags,
@@ -409,7 +410,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
           about: '',
           from: main.from,
           to: main.to,
-          insert: variableInsert(name, view.state.sliceDoc(main.to, main.to + 1)),
+          insert: writeVariable(name, view.state.sliceDoc(main.to, main.to + 1)),
           stops: [],
           preview: null,
           reference: true,
@@ -423,13 +424,6 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
   return entries.filter((entry) => offeredHere(entry.id, globals));
 }
 
-/**
- * How a variable reference is written before `next` (the character after the insertion): plain
- * `#name`, or `#{name}` when a letter or digit follows and would merge into the name.
- */
-export function variableInsert(name: string, next: string): string {
-  return /^[a-zA-Z0-9]/.test(next) ? `#{${name}}` : `#${name}`;
-}
 
 /** The popover's group order. */
 export const entryGroups = [

@@ -77,9 +77,13 @@ describe('lowering', () => {
     expect(lowerDelimitedMarkup('#{d}x and #{d}px\nnext')).toBe(
       `#d#${holderName('x')} and #d#${holderName('px')}\nvar Zb1wx = x\nvar Zb2wpx = px\nnext`,
     );
-    expect(lowerDelimitedMarkup('<enhanced/>Stronger')).toBe('#e#Zb8wStronger\nvar Zb8wStronger = Stronger');
+    expect(lowerDelimitedMarkup('<enhanced/>Stronger')).toBe(
+      '#e#Zb8wStronger\nvar Zb8wStronger = Stronger',
+    );
     // `empty` is the converter's empty value, so that word is held in two parts.
-    expect(lowerDelimitedMarkup('#{d}empty')).toBe('#d#Zb4wempt#Zb1wy\nvar Zb4wempt = empt\nvar Zb1wy = y');
+    expect(lowerDelimitedMarkup('#{d}empty')).toBe(
+      '#d#Zb4wempt#Zb1wy\nvar Zb4wempt = empt\nvar Zb1wy = y',
+    );
   });
   test('lowering is exact and idempotent; text without the forms is the same string', () => {
     const text = 'Deals #d damage. #e ${1+2} {{a}{b}} #{} #{a b} <enhanced /> #{';
@@ -136,13 +140,29 @@ describe('preview equals the published converter on the lowered text', () => {
     ['global variable', 'Global #{g}x and #g.'],
     ['global title body', 'See <title this [Gt] />.'],
     ['local title', 'var d = 2\ntitle T (\nInside #{d}x\n)\n<title hover [T] />'],
-    ['import of a braced variable', 'import Shared from 77\nAfter.', undefined, {
-      77: 'export Shared (\nvar s = 3\nShared #{s}x\n)',
-    }],
+    [
+      'import of a braced variable',
+      'import Shared from 77\nAfter.',
+      undefined,
+      {
+        77: 'export Shared (\nvar s = 3\nShared #{s}x\n)',
+      },
+    ],
     ['main import', 'import main from 77', undefined, { 77: 'var s = 4\nWhole #{s}y' }],
-    ['arrow on base', 'Base text.\nenhanced (\nvar d = 1\n<enhanced/>Faster by #{d}s.\n)\n<enhanced/>${10+#{d}} total'],
-    ['arrow on enhanced', 'Base text.\nenhanced (\nvar d = 1\n<enhanced/>Faster by #{d}s.\n)\n<enhanced/>${10+#{d}} total', enhancedMarkupType],
-    ['legacy arrow beside the symbol', 'enhanced (\nvar d = 1\n#e old <enhanced/>new\n)', enhancedMarkupType],
+    [
+      'arrow on base',
+      'Base text.\nenhanced (\nvar d = 1\n<enhanced/>Faster by #{d}s.\n)\n<enhanced/>${10+#{d}} total',
+    ],
+    [
+      'arrow on enhanced',
+      'Base text.\nenhanced (\nvar d = 1\n<enhanced/>Faster by #{d}s.\n)\n<enhanced/>${10+#{d}} total',
+      enhancedMarkupType,
+    ],
+    [
+      'legacy arrow beside the symbol',
+      'enhanced (\nvar d = 1\n#e old <enhanced/>new\n)',
+      enhancedMarkupType,
+    ],
     ['symbol merges with a word', 'Up <enhanced/>Stronger', enhancedMarkupType],
     ['comment around a holder', 'var d = 3\n/* #{d}x\n*/ after #{d}y'],
     ['declaration using braces', 'var d = 3\nvar w = #{d}m\nWidth #w and #{w}s.'],

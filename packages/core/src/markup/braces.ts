@@ -46,6 +46,14 @@ export function variableReferences(text: string, offset = 0): VariableReference[
   return found;
 }
 
+/**
+ * How a reference to `name` is written before `next` (the character after it): plain `#name`, or
+ * `#{name}` when a letter or digit follows and would merge into the name.
+ */
+export function writeVariable(name: string, next: string): string {
+  return /^[a-zA-Z0-9]/.test(next) ? `#{${name}}` : `#${name}`;
+}
+
 /** Whether `text` holds an authoring form the legacy pipeline does not read. */
 export function hasDelimitedMarkup(text: string): boolean {
   return /#\{[a-zA-Z0-9]+\}/.test(text) || text.includes(enhancedArrowMarkup);

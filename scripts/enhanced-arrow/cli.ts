@@ -43,7 +43,9 @@ const identical: number[] = JSON.parse(
 ).editorData;
 const inputs = readInputs(need('inputs'));
 const files = readTooltipFiles(need('data'));
-const stored: Tooltip[] = Object.values(files).map((bytes) => tooltipSchema.parse(JSON.parse(bytes)));
+const stored: Tooltip[] = Object.values(files).map((bytes) =>
+  tooltipSchema.parse(JSON.parse(bytes)),
+);
 const byHash = new Map(stored.map((tooltip) => [tooltip.hash, tooltip]));
 
 const texts: CensusText[] = [];
@@ -101,7 +103,10 @@ for (const [name, a, b] of [
     storedSha256: sha256(a),
     rewrittenSha256: sha256(b),
     rewrittenIdentical: a === b,
-    ...(baseline && { baselineSha256: baseline[name], baselineIdentical: baseline[name] === sha256(a) }),
+    ...(baseline && {
+      baselineSha256: baseline[name],
+      baselineIdentical: baseline[name] === sha256(a),
+    }),
   };
   if (!row.rewrittenIdentical || (baseline && !row.baselineIdentical)) failures++;
   parity[name] = row;
@@ -123,7 +128,10 @@ console.log(
       merged: found.merged.length,
       localArrowDefinitions: found.localArrowDefinitions.length,
       rewrittenTexts: plan.length,
-      rewrittenUses: plan.reduce((sum, row) => sum + (row.after.match(/<enhanced\/>/g)?.length ?? 0), 0),
+      rewrittenUses: plan.reduce(
+        (sum, row) => sum + (row.after.match(/<enhanced\/>/g)?.length ?? 0),
+        0,
+      ),
       failures,
     },
     null,

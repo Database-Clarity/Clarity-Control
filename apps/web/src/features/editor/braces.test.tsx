@@ -7,7 +7,9 @@ import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { ClarityEditor } from './ClarityEditor';
 import { useSettingsStore } from '../../stores/settings';
 import { highlightTree, tagHighlighter, tags } from '@lezer/highlight';
-import { markupEntries, variableInsert } from './markupRow/entries';
+import { writeVariable } from '@clarity/core';
+import { markupEntries } from './markupRow/entries';
+import { requestItems, suggestContext } from './suggest/source';
 import { offeredHere } from './markupScope';
 import { referenceInLine } from './references';
 import { findSymbols } from './symbols';
@@ -28,13 +30,28 @@ function highlights(text: string) {
 }
 
 describe('enhanced arrow scope', () => {
-  it.each([true, false])('offers the arrow and its snippets only with base/enhanced (%s)', (allowed) => {
-    const globals = { variables: 'var e = 🡅', titles: '', allowBaseEnhanced: allowed };
-    const ids = markupEntries(globals).map((entry) => entry.id);
-    for (const id of ['base-enhanced-pair', 'enhanced-arrow', 'enhanced-formula', 'enhanced-block'])
-      expect(ids.includes(id)).toBe(allowed);
-    expect(offeredHere('enhanced-arrow', globals)).toBe(allowed);
-    expect(offeredHere('pve', globals)).toBe(true);
+  it.each([true, false])(
+    'offers the arrow and its snippets only with base/enhanced (%s)',
+    (allowed) => {
+      const globals = { variables: 'var e = 🡅', titles: '', allowBaseEnhanced: allowed };
+      const ids = markupEntries(globals).map((entry) => entry.id);
+      for (const id of [
+        'base-enhanced-pair',
+        'enhanced-arrow',
+        'enhanced-formula',
+        'enhanced-block',
+      ])
+        expect(ids.includes(id)).toBe(allowed);
+      expect(offeredHere('enhanced-arrow', globals)).toBe(allowed);
+      expect(offeredHere('pve', globals)).toBe(true);
+    },
+  );
+  it.each([true, false])('Ctrl+Space follows the same gate (%s)', (allowed) => {
+    const globals = { variables: '', titles: '', allowBaseEnhanced: allowed };
+    const state = EditorState.create({ doc: '' });
+    const ids = requestItems(suggestContext(state, true)!, state, globals).map((item) => item.id);
+    for (const id of ['base-enhanced-pair', 'enhanced-formula', 'enhanced-block'])
+      expect(ids.includes(`snippet:${id}`)).toBe(allowed);
   });
   it('writes the symbol, not #e', () => {
     const entries = markupEntries({ variables: '', titles: '', allowBaseEnhanced: true });
@@ -47,11 +64,24 @@ describe('enhanced arrow scope', () => {
 
 describe('delimited variables in the editor', () => {
   it('inserts braces only when a letter or digit follows', () => {
-    expect(variableInsert('d', 'x')).toBe('#{d}');
-    expect(variableInsert('d', '5')).toBe('#{d}');
-    expect(variableInsert('d', ' ')).toBe('#d');
-    expect(variableInsert('d', '')).toBe('#d');
-    expect(variableInsert('d', '%')).toBe('#d');
+    expect(writeVariable('d', 'x')).toBe('#{d}');
+    expect(writeVariable('d', '5')).toBe('#{d}');
+    expect(writeVariable('d', ' ')).toBe('#d');
+    expect(writeVariable('d', '')).toBe('#d');
+    expect(writeVariable('d', '%')).toBe('#d');
+  });
+  it('a completed variable gets braces when letters follow the caret', () => {
+    const globals = { variables: 'var dmg = 5', titles: '' };
+    for (const [doc, insert] of [
+      ['Deals #dmx', '#{dmg}'],
+      ['Deals #dm more', '#dmg'],
+    ] as const) {
+      const state = EditorState.create({ doc, selection: { anchor: 9 } });
+      const item = requestItems(suggestContext(state, false)!, state, globals).find(
+        (entry) => entry.id === 'var:dmg',
+      );
+      expect(item?.insert).toBe(insert);
+    }
   });
   it('hovers and opens #{name} like #name', () => {
     expect(referenceInLine('Deals #{dmg}x', 8)).toEqual({

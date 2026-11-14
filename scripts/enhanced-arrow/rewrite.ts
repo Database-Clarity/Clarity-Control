@@ -39,7 +39,10 @@ function ranges(pattern: RegExp, text: string, group = 0) {
 }
 
 const lineAt = (text: string, at: number) =>
-  text.slice(text.lastIndexOf('\n', at - 1) + 1, (text.indexOf('\n', at) + 1 || text.length + 1) - 1);
+  text.slice(
+    text.lastIndexOf('\n', at - 1) + 1,
+    (text.indexOf('\n', at) + 1 || text.length + 1) - 1,
+  );
 
 /** The rewrite of one text: exact, and the identity on text without a rewritable `#e`. */
 export function rewriteLegacyArrow(text: string): ArrowRewrite {
@@ -72,7 +75,8 @@ export function rewriteLegacyArrow(text: string): ArrowRewrite {
   if (!rewritten.length) return { text, rewritten, skipped };
   const next = out + text.slice(last);
   // Fail closed: the rewrite must lower back to exactly the stored text.
-  if (lowerDelimitedMarkup(next) !== text) throw new Error('Rewrite does not lower to the original');
+  if (lowerDelimitedMarkup(next) !== text)
+    throw new Error('Rewrite does not lower to the original');
   return { text: next, rewritten, skipped };
 }
 

@@ -7,7 +7,9 @@ import type { MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from '../ClarityEditor';
 import { suggestState } from './state';
 
-const globals: MarkupGlobals = {
+// A category with base/enhanced markup, so every option is offered (markupScope.ts).
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
   variables: 'var e = 🡅\nvar damage = 25',
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };

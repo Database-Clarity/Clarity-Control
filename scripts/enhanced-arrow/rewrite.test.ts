@@ -41,8 +41,20 @@ describe('rewriteLegacyArrow', () => {
 describe('census', () => {
   test('counts arrows per language and category, longer names, merges, and local e', () => {
     const result = census([
-      { hash: 10, lang: 'en', category: 'weapon-trait', text: '#e A\n#e B #e', globals: 'var e = x' },
-      { hash: 11, lang: 'en', category: 'weapon-trait', text: 'var d = 1\n#dx #element', globals: 'var e = x' },
+      {
+        hash: 10,
+        lang: 'en',
+        category: 'weapon-trait',
+        text: '#e A\n#e B #e',
+        globals: 'var e = x',
+      },
+      {
+        hash: 11,
+        lang: 'en',
+        category: 'weapon-trait',
+        text: 'var d = 1\n#dx #element',
+        globals: 'var e = x',
+      },
       { hash: 12, lang: 'de', category: 'armor', text: 'var e = y\n#e', globals: '' },
     ]);
     expect(result.arrows).toEqual({

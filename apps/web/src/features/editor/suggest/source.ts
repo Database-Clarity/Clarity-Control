@@ -1,4 +1,4 @@
-import { offersBaseEnhanced } from '../markupScope';
+import { offeredHere } from '../markupScope';
 import type { EditorState } from '@codemirror/state';
 import {
   applicableTransforms,
@@ -10,6 +10,7 @@ import {
   markupSymbols,
   markupTags,
   markupTransforms,
+  writeVariable,
   type ExpandedTemplate,
   type MarkupGlobals,
   type Snippet,
@@ -321,8 +322,9 @@ function build(
         name in documentVariables
           ? 'A variable defined in this tooltip.'
           : 'A global variable, shared by every tooltip.',
-      insert: `#${name}`,
-      usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
+      // `#{name}` when a letter or digit follows the insertion (it would merge into the name).
+      insert: writeVariable(name, context.lineText.charAt(context.to - context.lineFrom)),
+      usage: new RegExp(`#${name}(?![a-zA-Z0-9])|#\\{${name}\\}`),
       reference: true,
       keys: value,
     });
@@ -492,7 +494,8 @@ function build(
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');
     for (const snippet of markupSnippets) {
-      if (snippet.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals)) continue;
+      // The pair and everything that writes the enhanced arrow share one category gate.
+      if (!offeredHere(snippet.id, globals)) continue;
       if (snippet.id === 'enhanced-formula' && !every) continue;
       // The Tags category carries the single tags (colours, PvE, PvP).
       if (snippet.group === 'Format' || snippet.id === 'pve' || snippet.id === 'pvp') continue;

@@ -6,7 +6,9 @@ import { fuzzyScore, suggestContext, suggestItems, type SuggestItem } from './so
 import { recentSuggestions, rememberSuggestion, resetRecentCache } from './recent';
 import { corpusUsage } from './usage';
 
-const globals: MarkupGlobals = {
+// A category with base/enhanced markup, so every option is offered (markupScope.ts).
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
   variables: 'var damage = 25',
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };
