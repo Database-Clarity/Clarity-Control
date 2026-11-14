@@ -120,8 +120,9 @@ const NARROWEST = 15;
  * One under them otherwise lifts the strip (--clear) until its bottom is just above that panel's
  * top edge, over the text, where it sits anyway with no panel open. It never rises under the header: where the
  * panels leave no room above them (a phone at a large interface scale), it rises only past the
- * ones it can clear. Runs only while a notice is shown; typing in the text is ignored, and
- * positions are read once per frame at most.
+ * ones it can clear. Runs only while a notice is shown, and again when one changes (a notice can
+ * widen at the same height); typing in the text is ignored, and positions are read once per frame
+ * at most.
  */
 function useClearPanels(strip: RefObject<HTMLDivElement | null>, shown: boolean) {
   useLayoutEffect(() => {
@@ -208,6 +209,10 @@ function useClearPanels(strip: RefObject<HTMLDivElement | null>, shown: boolean)
       subtree: true,
       attributeFilter: ['data-editor-overlay', 'data-editor-status'],
     });
+    // A notice's own text or actions changing: one can widen at the same height, which the
+    // strip's fixed width hides from the ResizeObserver, and reach a panel beside it.
+    const content = new MutationObserver(schedule);
+    content.observe(element, { childList: true, characterData: true, subtree: true });
     const viewport = win.visualViewport;
     const options = { capture: true, passive: true } as const;
     win.addEventListener('resize', schedule);
@@ -218,6 +223,7 @@ function useClearPanels(strip: RefObject<HTMLDivElement | null>, shown: boolean)
       win.cancelAnimationFrame(frame);
       sizes.disconnect();
       added.disconnect();
+      content.disconnect();
       win.removeEventListener('resize', schedule);
       win.removeEventListener('scroll', schedule, options);
       viewport?.removeEventListener('resize', schedule);
