@@ -1,5 +1,6 @@
 import { merge3 } from '../merge3.js';
 import { tooltipSchema, type Tooltip } from '../schemas.js';
+import { boundTranslationSources } from './stamps.js';
 import { changedFields, fieldValue, sameFieldValue, withField } from './fields.js';
 
 export interface ComposeInput {
@@ -69,8 +70,13 @@ export function compose(input: ComposeInput): ComposeResult {
           fieldValue(snapshot, field),
         ),
     );
-    return { status: 'overlay', tooltip: tooltipSchema.parse(tooltip), changed, unpublished };
+    return {
+      status: 'overlay',
+      tooltip: boundTranslationSources(tooltipSchema.parse(tooltip)),
+      changed,
+      unpublished,
+    };
   }
   if (pushed) return { status: 'stale', reason: missingSnapshotReason };
-  return { status: 'whole', tooltip: proposed, changed };
+  return { status: 'whole', tooltip: boundTranslationSources(proposed), changed };
 }

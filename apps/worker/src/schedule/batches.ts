@@ -384,6 +384,9 @@ export async function saveBatch(
         ...input.changes.map(({ hash }) =>
           own.has(hash) ? schedulePaths.member(batchId, hash) : tooltipPath(hash),
         ),
+        // Current is the displayed source when this batch does not change English. Pin it to
+        // the same CAS head as the member, including on retries.
+        ...input.changes.map(({ hash }) => tooltipPath(hash)),
         ...(scheduled
           ? [...input.changes.map(({ hash }) => `live/tooltips/${hash}.json`), 'live/pushed.json']
           : []),
@@ -432,7 +435,16 @@ export async function saveBatch(
         // A batch save has no "No translation impact" tick (direct saves only, with their audit
         // trailer): an English change needs a new, newer revision.
         checkEnglishRevision(access, stored.proposed, proposed, false);
-        checkTranslationStamps(stored.proposed, proposed);
+        const currentFile = files[input.changes.length + index];
+        const current = currentFile ? tooltipSchema.parse(currentFile.value) : null;
+        if (current && current.hash !== change.hash)
+          throw new HttpError(502, 'Stored tooltip hash mismatch');
+        // Upcoming keeps current English unless the batch changes it. Do not broaden the bound
+        // for an English-changing batch: its translations were written against its proposal.
+        const english = changedFields(stored.base, proposed).includes('text.en')
+          ? proposed.text.en
+          : current?.text.en;
+        checkTranslationStamps(stored.proposed, proposed, english ?? proposed.text.en);
         refuseUnlowerable(proposed, pin, 'saved');
         const member = batchMemberSchema.parse({
           ...stored,
@@ -442,7 +454,7 @@ export async function saveBatch(
         });
         refuseMemberSize(member);
         if (pushed) {
-          const snapshotFile = files[input.changes.length + index];
+          const snapshotFile = files[2 * input.changes.length + index];
           const composed = compose({
             hash: change.hash,
             base: member.base,
