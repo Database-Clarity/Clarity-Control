@@ -1,0 +1,68 @@
+@use '../../ui/controls';
+.form {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  label {
+    display: grid;
+    gap: 0.125rem;
+  }
+  input,
+  textarea {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    font: inherit;
+  }
+  textarea {
+    resize: vertical;
+  }
+  input:not([type='checkbox']),
+  textarea {
+    @include controls.field;
+  }
+  small {
+    color: var(--text3);
+  }
+  p {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}
+.check.check {
+  display: flex;
+  align-items: center;
+  input {
+    width: auto;
+  }
+}
+.actions,
+.conflict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+.actions {
+  justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  padding-top: 0.375rem;
+  background: var(--raised);
+}
+.actions button,
+.conflict button {
+  @include controls.button;
+  white-space: nowrap;
+}
+.actions .primary {
+  border-color: var(--accent-ink);
+  color: var(--pri-text);
+  background: var(--pri-hover);
+}
+@media (max-width: 700px), (pointer: coarse) {
+  .form input:not([type='checkbox']),
+  .check.check {
+    min-height: 2.25rem;
+  }
+}

@@ -2,6 +2,7 @@ import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { findRetiredMarkup, glyphWarnings, maskConflicts } from '@clarity/core';
 import {
   computeDiagnostics,
+  computeMissingTerms,
   type DiagnosticInput,
   type DiagnosticResult,
 } from './diagnosticRequest';
@@ -12,7 +13,7 @@ import { translationParity } from './parity';
 const empty: DiagnosticResult = { issues: [], glyphs: [], retired: [], parity: [] };
 
 export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
-  const { text, lang, globals, requireEnglish, selfHash, sourceText } = input;
+  const { text, lang, globals, requireEnglish, selfHash, sourceText, termCheck } = input;
   const supported = hasDiagnosticWorker();
   const fallback = useMemo(
     () =>
@@ -24,8 +25,17 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
             retired: findRetiredMarkup(maskConflicts(text)),
             parity:
               sourceText === undefined ? [] : translationParity(sourceText, maskConflicts(text)),
+            missingTerms: computeMissingTerms({
+              text,
+              lang,
+              globals,
+              requireEnglish,
+              selfHash,
+              sourceText,
+              termCheck,
+            }),
           },
-    [supported, text, lang, globals, requireEnglish, selfHash, sourceText],
+    [supported, text, lang, globals, requireEnglish, selfHash, sourceText, termCheck],
   );
   const [completed, setCompleted] = useState<{
     input: DiagnosticInput;
@@ -35,7 +45,7 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
   useEffect(() => {
     if (!supported || !active) return;
     let current = true;
-    const captured = { text, lang, globals, requireEnglish, selfHash, sourceText };
+    const captured = { text, lang, globals, requireEnglish, selfHash, sourceText, termCheck };
     const sameDocument =
       requestedDocument.current?.lang === lang && requestedDocument.current.selfHash === selfHash;
     // Snapshotting reachable imports parses markup too. Keep it out of render and
@@ -58,7 +68,7 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
       current = false;
       clearTimeout(timer);
     };
-  }, [active, supported, text, lang, globals, requireEnglish, selfHash, sourceText]);
+  }, [active, supported, text, lang, globals, requireEnglish, selfHash, sourceText, termCheck]);
   const pending =
     active &&
     supported &&
@@ -68,7 +78,8 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
       completed.input.globals !== globals ||
       completed.input.requireEnglish !== requireEnglish ||
       completed.input.selfHash !== selfHash ||
-      completed.input.sourceText !== sourceText);
+      completed.input.sourceText !== sourceText ||
+      completed.input.termCheck !== termCheck);
   const sameDocument = completed?.input.lang === lang && completed?.input.selfHash === selfHash;
   return { ...(fallback ?? (sameDocument ? completed?.result : undefined) ?? empty), pending };
 }

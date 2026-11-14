@@ -654,7 +654,11 @@ export class GitHub {
     files: Record<string, unknown>,
     message: string,
     credits: object,
-    { baseTree, deletions = [] }: { baseTree?: string; deletions?: readonly string[] } = {},
+    {
+      baseTree,
+      deletions = [],
+      rawFiles = {},
+    }: { baseTree?: string; deletions?: readonly string[]; rawFiles?: Record<string, string> } = {},
   ): Promise<string> {
     const base =
       baseTree ??
@@ -663,11 +667,11 @@ export class GitHub {
       await this.result('/git/trees', 'POST', {
         ...(base ? { base_tree: base } : {}),
         tree: [
-          ...Object.entries(files).map(([path, value]) => ({
+          ...Object.entries({ ...files, ...rawFiles }).map(([path, value]) => ({
             path,
             mode: '100644',
             type: 'blob',
-            content: blobContent(value),
+            content: Object.hasOwn(rawFiles, path) ? rawFiles[path] : blobContent(value),
           })),
           // `sha: null` removes the path from the base tree.
           ...deletions.map((path) => ({ path, mode: '100644', type: 'blob', sha: null })),
@@ -703,7 +707,11 @@ export class GitHub {
     files: Record<string, unknown>,
     message: string,
     user: Identity,
-    options: { baseTree?: string; deletions?: readonly string[] } = {},
+    options: {
+      baseTree?: string;
+      deletions?: readonly string[];
+      rawFiles?: Record<string, string>;
+    } = {},
   ): Promise<string> {
     return this.write(this.env.DATA_BRANCH, head, files, message, this.credits(user), options);
   }

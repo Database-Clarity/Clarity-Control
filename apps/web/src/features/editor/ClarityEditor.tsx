@@ -58,6 +58,7 @@ import { useEditorDiagnostics } from './useEditorDiagnostics';
 import { useTooltipTerms } from '../terms/useTooltipTerms';
 import { insertAtCaret } from '../terms/insert';
 import { TermsPanel } from '../terms/TermsPanel';
+import { setTermUsage } from '../terms/usage';
 import { RetiredPanel, retiredIn } from './RetiredPanel';
 import { createCursorPosition } from './cursorPosition';
 import { createTagSelectionStore, tagSelection } from './elementTags';
@@ -433,10 +434,6 @@ export function ClarityEditor({
   // One object per change: the status bar is memoised, and a fresh object on every render would
   // re-render it on every key.
   const termsCount = tooltipTerms.terms.length;
-  const termsStatus = useMemo(
-    () => (termsOn ? { count: termsCount, loading: tooltipTerms.loading } : undefined),
-    [termsOn, termsCount, tooltipTerms.loading],
-  );
   const termsLive = useRef(termsOn);
   termsLive.current = termsOn;
   /** Ctrl+K, G: the same as the bar's Terms item. */
@@ -473,8 +470,20 @@ export function ClarityEditor({
       requireEnglish,
       selfHash: tooltipHash,
       sourceText: parityText,
+      termCheck: tooltipTerms.check,
     },
     !suspended,
+  );
+  const missingTerms = useMemo(() => diagnostics.missingTerms ?? [], [diagnostics.missingTerms]);
+  useEffect(() => {
+    if (tooltipHash !== undefined) setTermUsage(tooltipHash, lang, missingTerms);
+  }, [tooltipHash, lang, missingTerms]);
+  const termsStatus = useMemo(
+    () =>
+      termsOn
+        ? { count: termsCount, loading: tooltipTerms.loading, missing: missingTerms.length }
+        : undefined,
+    [termsOn, termsCount, tooltipTerms.loading, missingTerms.length],
   );
   // Retired markup has its own status item and panel; the generic count would double it.
   const issues = useMemo(
@@ -1054,6 +1063,7 @@ export function ClarityEditor({
           <TermsPanel
             key={`${tooltipHash}:${lang}`}
             terms={tooltipTerms.terms}
+            missing={missingTerms}
             lang={lang}
             canInsert={!readOnly}
             onInsert={insertTerm}

@@ -25,6 +25,12 @@
   border-bottom: 1px dotted var(--text3);
   pointer-events: none;
 }
+.mark[data-missing] {
+  border-bottom-color: var(--warn);
+}
+.warning {
+  color: var(--warn);
+}
 
 // Dense, like the reference popover: 12px on the popover surface, token colours in both themes.
 .popover {
