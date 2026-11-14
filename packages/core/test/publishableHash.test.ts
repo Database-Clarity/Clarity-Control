@@ -235,3 +235,16 @@ test('hashes the legacy form of the text: delimited spellings are not a change',
     await publishableHash(withText('#e2 Stacks')),
   );
 });
+
+test('hashes what the exporters read: element tags are lowered before the delimited forms', async () => {
+  const base = tooltip();
+  const withText = (text: string) => ({ ...base, text: { en: { ...base.text.en!, text } } });
+  // These export different bytes (`<solar #e />` vs `<solar/>#e`), so they must hash differently.
+  expect(await publishableHash(withText('Scorch <solar <enhanced/> /> targets.'))).not.toBe(
+    await publishableHash(withText('Scorch <solar #e /> targets.')),
+  );
+  // A spelling-only element tag change exports the same bytes, so it hashes the same.
+  expect(await publishableHash(withText('<solar Scorch /> targets.'))).toBe(
+    await publishableHash(withText('<solar/>Scorch targets.')),
+  );
+});

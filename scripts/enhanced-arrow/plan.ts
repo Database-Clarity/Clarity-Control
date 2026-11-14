@@ -11,7 +11,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { blobContent, globalsFrom, sha256 } from '../mult-write/rewrite.js';
 import {
   enhancedArrowMarkup,
-  lowerDelimitedMarkup,
+  lowerConsumerMarkup,
   tooltipSchema,
   validateTooltip,
   type MarkupGlobals,
@@ -200,9 +200,10 @@ export function planFile(
     const old = before.text[change.lang as keyof Tooltip['text']]!.text;
     const now = parsedAfter.text[change.lang as keyof Tooltip['text']]!.text.split('\n');
     const { text, handAt } = ruled.get(change.lang)!;
-    // The rule's text lowers to the stored text (exports read lowered text), and the written text
+    // The rule's text lowers to what the stored text lowers to (exporters read lowerConsumerMarkup), and the written text
     // differs from the rule's text only on the hand rows' lines, each exactly before -> after.
-    if (lowerDelimitedMarkup(text) !== old) throw new Error(`${path}: not markup-only`);
+    if (lowerConsumerMarkup(text) !== lowerConsumerMarkup(old))
+      throw new Error(`${path}: not markup-only`);
     const ruleLines = text.split('\n');
     if (ruleLines.length !== now.length) throw new Error(`${path}: line count changed`);
     for (const [index, line] of now.entries()) {
