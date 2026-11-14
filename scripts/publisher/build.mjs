@@ -20,6 +20,12 @@ const runtime = readFileSync(`${dist}/publisher.mjs`, 'utf8');
 for (const marker of ['Claim batch ', 'recordBatch(', 'batchPublishPayloadSchema'])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks scheduled batches (${marker}); refusing its PIN`);
+// Likewise `markupBraces` only for a runtime whose exportLegacy lowers `#{d}` and `<enhanced/>`
+// (core braces.ts lowerConsumerMarkup) and whose unloweredEntry refuses any `#{` left over, so the
+// Worker's save guard (apps/worker/src/elementTags.ts) never trusts a build that would ship them.
+for (const marker of ['lowerConsumerMarkup(', 'text.includes("#{")'])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks markup braces (${marker}); refusing its PIN`);
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -33,8 +39,10 @@ writeFileSync(
       // sandboxPointers = maintainer picks in config/sandbox-pointers.json join the aliases
       // (apps/worker/src/sandboxPointers.ts refuses saving picks while the PIN lacks it);
       // scheduledBatches = `batch` requests are claimed, published, and activated (scheduled
-      // changes P4; the Worker refuses scheduling while the PIN lacks it, spec I6).
-      capabilities: ['elementTags', 'sandboxPointers', 'scheduledBatches'],
+      // changes P4; the Worker refuses scheduling while the PIN lacks it, spec I6);
+      // markupBraces = exportLegacy lowers `#{d}` and `<enhanced/>` to today's `#d` and `#e`
+      // (the Worker refuses saving them while the PIN lacks it).
+      capabilities: ['elementTags', 'sandboxPointers', 'scheduledBatches', 'markupBraces'],
     },
     null,
     2,

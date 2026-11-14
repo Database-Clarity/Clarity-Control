@@ -4,7 +4,14 @@ import { emptyProgress } from './reviewProgress';
 import { receiveWorkerResult, type WorkerReply } from './workerReplies';
 import approved from './approved-guidance.v1.json';
 
-afterEach(() => vi.unstubAllGlobals());
+// Each test's worker module keeps its own quiet-period cache writes. Left pending, a 1 s timer
+// fired during a later test (slow CI) and wrote into that test's IndexedDB stub, pushing it
+// past the stored-entry bound so a replayed reply was evicted. Drain them while this test's
+// own (absent) storage is still stubbed, before the next test resets modules.
+afterEach(async () => {
+  await (await import('./workerCache')).flushCacheWrites();
+  vi.unstubAllGlobals();
+});
 
 it('withholds display results after a failed replacement initialization', async () => {
   vi.resetModules();
