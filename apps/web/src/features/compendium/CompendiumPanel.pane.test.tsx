@@ -311,7 +311,9 @@ describe('Compendium pane', () => {
     expect(skeleton?.textContent).not.toContain('Name');
     expect(skeleton?.textContent).not.toMatch(/tab -?\d/);
     expect(skeleton?.textContent).toContain('Snapshot');
-    expect(skeleton?.querySelector('[class*="actions"] button')?.disabled).toBe(true);
+    expect(skeleton?.querySelector<HTMLButtonElement>('[class*="actions"] button')?.disabled).toBe(
+      true,
+    );
     const region = skeleton?.querySelector('[aria-hidden="true"]');
     const cellRegion = skeleton?.querySelector('[class*="skeletonCell"]');
     const newest = {

@@ -150,8 +150,10 @@ export function CompendiumPaneSkeleton({
       )}
       <SkeletonRegion key="status" className={styles.skeletonStatus}>
         <SkeletonLine width={58} />
-        {/* The sheet source link sits on its own line under the notice. */}
-        {(link || after) && <SkeletonLine width={46} />}
+        {/* The sheet source link sits on its own line under the notice. Reserved before the
+            match is known too: a matched entry (the common case) shows it, and an entry with no
+            row loses the whole sheet cell anyway. */}
+        <SkeletonLine width={46} />
       </SkeletonRegion>
       {comparison && !roomy && <div className={styles.diffModes}>{diffControl}</div>}
       {comparison && differs && mode === 'changes' && (
