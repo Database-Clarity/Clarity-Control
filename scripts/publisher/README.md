@@ -72,8 +72,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `95f493a86e4bb364fafa5a2cc67423cc60a538a4` (v2).
-Runtime SHA-256: `08921d8a3e21542ddcfbadbe43515667f77e4affb746663029150554def9b88e`.
+Current template source: `01fa56802f933f79c1bd53f13e02c36f111674d1` (v2).
+Runtime SHA-256: `f5883017837ee0945cdfcfea6351529595b3b69467da62e2307fce93a81b6e75`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
@@ -92,6 +92,9 @@ braces.ts) in exportLegacy, rejects an export that still holds `#{` or `<enhance
 (unloweredEntry), and its PIN declares `markupBraces`, which the Worker's /save and /publish
 require for them while the publisher is on (build.mjs refuses the PIN without both markers).
 This is the enable build (PUB-ENABLE): config/publisher.json says `enabled: true`.
+Its publishableHash hashes each language's lowered text (ARROW-REWRITE), the same digest as the
+Worker's, so a spelling-only `<enhanced/>` or `#{d}` edit is not stale on publish and records the
+same push marker; the bundle differs from the 95f493a8 build only in that line.
 Two consecutive builds and a clean checkout build must reproduce that digest.
 
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency
