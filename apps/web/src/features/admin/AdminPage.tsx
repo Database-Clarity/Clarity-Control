@@ -14,7 +14,6 @@ import {
 } from '../../services/permissions';
 import { useAuthStore } from '../../stores/auth';
 import { changeAccess, maintainerCount, roles, type Access } from './permissions';
-import pageStyles from '../drift/Status.module.scss';
 import styles from './Admin.module.scss';
 
 export function AdminPage() {
@@ -63,15 +62,15 @@ export function AdminPage() {
     );
   if (!permitted)
     return (
-      <article>
-        <h1>Management</h1>
+      <article className={styles.page}>
+        <Heading />
         <p role="alert">Maintainer access is required to manage permissions.</p>
       </article>
     );
   if (!apiUrl)
     return (
-      <article>
-        <h1>Management</h1>
+      <article className={styles.page}>
+        <Heading />
         <p role="alert">The API is not configured. Permissions cannot be edited.</p>
       </article>
     );
@@ -127,15 +126,18 @@ export function AdminPage() {
   }
   const dirty = JSON.stringify(config) !== JSON.stringify(original);
   return (
-    <article className={pageStyles.page}>
-      <h1>Management</h1>
-      <p>Manage editor access by GitHub account. Changes apply only after saving.</p>
+    <article className={styles.page}>
+      <Heading />
 
       {error && (
         <p role="alert">
           {error}{' '}
           {!config && (
-            <button type="button" onClick={() => setReload((value) => value + 1)}>
+            <button
+              type="button"
+              className={styles.button}
+              onClick={() => setReload((value) => value + 1)}
+            >
               Retry
             </button>
           )}
@@ -144,7 +146,11 @@ export function AdminPage() {
       {stale && (
         <p role="alert">
           {permissionsChangedMessage}{' '}
-          <button type="button" onClick={() => setReload((value) => value + 1)}>
+          <button
+            type="button"
+            className={styles.button}
+            onClick={() => setReload((value) => value + 1)}
+          >
             Reload permissions
           </button>
         </p>
@@ -165,8 +171,8 @@ export function AdminPage() {
         count={config ? Object.keys(config.users).length : 3}
       >
         {config && (
-          <fieldset disabled={busy || loading} style={{ border: 0, padding: 0, minWidth: 0 }}>
-            <legend>Users and access</legend>
+          <fieldset className={styles.fieldset} disabled={busy || loading}>
+            <legend className="sr-only">Users and access</legend>
             <div className={styles.tableWrapper}>
               <table className={styles.table}>
                 <thead>
@@ -174,7 +180,9 @@ export function AdminPage() {
                     <th scope="col">GitHub account</th>
                     <th scope="col">Role</th>
                     <th scope="col">Languages</th>
-                    <th scope="col">Actions</th>
+                    <th scope="col">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -196,6 +204,7 @@ export function AdminPage() {
                           </th>
                           <td>
                             <select
+                              className={styles.field}
                               aria-label={`Role for ${access.login}`}
                               value={access.role}
                               onChange={(event) => {
@@ -253,10 +262,12 @@ export function AdminPage() {
                               'All languages'
                             )}
                           </td>
-                          <td>
+                          <td className={styles.rowActions}>
                             <button
                               type="button"
+                              className={styles.remove}
                               disabled={last}
+                              aria-label={`Remove ${access.login}`}
                               onClick={() => update(id, undefined)}
                             >
                               Remove
@@ -268,41 +279,57 @@ export function AdminPage() {
                 </tbody>
               </table>
             </div>
-            <form className={styles.add} onSubmit={(event) => void add(event)}>
-              <label className={styles.login}>
-                GitHub login
+            <div className={styles.footer}>
+              <form className={styles.add} onSubmit={(event) => void add(event)}>
                 <input
+                  className={styles.field}
                   required
                   autoComplete="off"
+                  aria-label="GitHub login"
+                  placeholder="GitHub login"
                   value={login}
                   onChange={(event) => setLogin(event.target.value)}
                 />
-              </label>
-              <button type="submit">Add account</button>
-            </form>
-            <div className={pageStyles.actions}>
-              <button
-                type="button"
-                disabled={!dirty || stale}
-                onClick={() => void savePermissions()}
-              >
-                {busy ? 'Working...' : 'Save permissions'}
-              </button>
-              <button
-                type="button"
-                disabled={!dirty}
-                onClick={() => {
-                  setConfig(original);
-                  setError(null);
-                  setNotice('Unsaved permission changes discarded.');
-                }}
-              >
-                Discard changes
-              </button>
+                <button type="submit" className={styles.button}>
+                  Add account
+                </button>
+              </form>
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  className={styles.quiet}
+                  disabled={!dirty}
+                  onClick={() => {
+                    setConfig(original);
+                    setError(null);
+                    setNotice('Unsaved permission changes discarded.');
+                  }}
+                >
+                  Discard changes
+                </button>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  disabled={!dirty || stale}
+                  onClick={() => void savePermissions()}
+                >
+                  {busy ? 'Working...' : 'Save permissions'}
+                </button>
+              </div>
             </div>
           </fieldset>
         )}
       </SkeletonBoundary>
     </article>
+  );
+}
+
+/** The page's one heading line: the dense title and what the page does, as on Translations. */
+function Heading() {
+  return (
+    <header className={styles.head}>
+      <h1>Management</h1>
+      <p>Manage editor access by GitHub account. Changes apply only after saving.</p>
+    </header>
   );
 }

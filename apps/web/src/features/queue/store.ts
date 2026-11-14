@@ -74,6 +74,8 @@ interface QueueStore extends Stored {
   start(queue: WorkQueue): void;
   /** The route opened `key` in queue `id`: it becomes current, and an item passed by Next is skipped. */
   visit(id: string, key: string, passedOpen: boolean): void;
+  /** Items a stepping gesture passed with Next while they were open (worklist stepping). */
+  skip(id: string, keys: string[]): void;
   /** Next on the last item: the queue ends here (the item is skipped when still open). */
   finish(id: string, key: string, open: boolean): void;
   /** Leaves the end-of-queue state so the remaining items can be worked through again. */
@@ -134,6 +136,19 @@ export const useWorkQueues = create<QueueStore>((set) => ({
             ? [...old.skipped, old.current]
             : old.skipped,
       }));
+    });
+  },
+  skip(id, keys) {
+    set((state) => {
+      const queue = state.queues[id];
+      const added = keys.filter((key) => !queue?.skipped.includes(key));
+      if (!queue || !added.length) return {};
+      return update(
+        state,
+        id,
+        (old) => ({ ...old, skipped: [...old.skipped, ...added] }),
+        state.active,
+      );
     });
   },
   finish(id, key, open) {
