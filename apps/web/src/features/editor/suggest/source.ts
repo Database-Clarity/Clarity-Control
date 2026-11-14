@@ -225,6 +225,21 @@ const snippetOf = (entry: {
   ...entry,
 });
 
+/**
+ * The bare enhanced arrow symbol, written at the caret, never over the selection. Offered (here,
+ * the markup bar, and All) only where the arrow is (markupScope); the global `e` behind it is
+ * never offered as a variable.
+ */
+export const enhancedArrowSnippet: Snippet = {
+  id: 'enhanced-arrow',
+  label: enhancedArrowMarkup,
+  group: 'Enhanced',
+  template: enhancedArrowMarkup,
+  keywords: 'enhanced arrow e gold up',
+  usage: /<enhanced\/>|#e(?![a-zA-Z0-9])/,
+  about: `The enhanced arrow, written ${enhancedArrowMarkup}.`,
+};
+
 /** The truncated single line a variable's value shows in the list. */
 const shorten = (value: string, length = 28) =>
   value.length > length ? `${value.slice(0, length - 1)}…` : value;
@@ -313,23 +328,11 @@ function build(
 
   /**
    * A variable defined in this tooltip is a document variable; the rest come from the globals.
-   * The global `e` is the enhanced arrow: never offered as a variable, but as `<enhanced/>` where
-   * the arrow is offered (markupScope).
+   * The global `e` is the enhanced arrow: never offered as a variable (`<enhanced/>` is offered
+   * where the arrow is, `arrowItem`).
    */
   const variableItem = (name: string, value: string) => {
-    if (name === 'e' && !(name in documentVariables)) {
-      if (!offeredHere('enhanced-arrow', globals) || skip?.has('snippet:enhanced-arrow')) return;
-      push({
-        id: 'snippet:enhanced-arrow',
-        category: 'Snippets',
-        label: enhancedArrowMarkup,
-        about: `The enhanced arrow, written ${enhancedArrowMarkup}.`,
-        insert: enhancedArrowMarkup,
-        usage: /<enhanced\/>|#e(?![a-zA-Z0-9])/,
-        keys: 'enhanced arrow e gold up',
-      });
-      return;
-    }
+    if (name === 'e' && !(name in documentVariables)) return;
     if (skip?.has(`var:${name}`)) return;
     push({
       id: `var:${name}`,
@@ -404,6 +407,7 @@ function build(
     for (const [name, value] of Object.entries(variables)) {
       variableItem(name, value);
     }
+    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Snippets');
     if (offeredHere('enhanced-formula', globals))
       addSnippet(
         markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
@@ -512,6 +516,7 @@ function build(
       });
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');
+    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Snippets');
     for (const snippet of markupSnippets) {
       // The pair and everything that writes the enhanced arrow share one category gate.
       if (!offeredHere(snippet.id, globals)) continue;

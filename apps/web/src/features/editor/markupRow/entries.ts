@@ -21,7 +21,7 @@ import {
   type Rejection,
 } from '../markupInsertion';
 import { insertItem } from '../suggest/state';
-import type { SuggestItem } from '../suggest/source';
+import { enhancedArrowSnippet as arrowSnippet, type SuggestItem } from '../suggest/source';
 
 /**
  * How an entry looks on its button. The row and the "All" popover draw the same glyphs, so what
@@ -189,16 +189,6 @@ const tagById = (id: string) => {
   const found = markupTags.find((tag) => tag.id === id);
   if (!found) throw new Error(`Missing tag ${id}`);
   return found;
-};
-/** The bare enhanced arrow symbol: written at the caret, never over the selection. */
-const arrowSnippet: Snippet = {
-  id: 'enhanced-arrow',
-  label: enhancedArrowMarkup,
-  group: 'Enhanced',
-  template: enhancedArrowMarkup,
-  keywords: 'enhanced arrow e gold up',
-  usage: /<enhanced\/>|#e(?![a-zA-Z0-9])/,
-  about: `The enhanced arrow, written ${enhancedArrowMarkup}.`,
 };
 
 const sentence = (text: string) => text[0]!.toUpperCase() + text.slice(1);

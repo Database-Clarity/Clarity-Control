@@ -157,6 +157,36 @@ describe('the suggestion menu', () => {
     );
   });
 
+  it('#e + Enter keeps its usual job where the arrow is offered (VAR-BRACES visual round 2)', () => {
+    const NL = String.fromCharCode(10);
+    const view = mount('Gains ');
+    type(view, '#');
+    type(view, 'e');
+    expect(options().map((option) => option.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('<enhanced/>')]),
+    );
+    expect(options().some((option) => /#\{?e\}?(?![a-z$])/.test(option.textContent ?? ''))).toBe(
+      false,
+    );
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe('Gains #e' + NL);
+  });
+
+  it('offers <enhanced/> where the arrow is offered, even without a global e', () => {
+    const view = mount('Gains ', { globals: { ...globals, variables: 'var damage = 25' } });
+    type(view, '#');
+    type(view, 'e');
+    expect(options().some((option) => option.textContent?.startsWith('<enhanced/>'))).toBe(true);
+    for (
+      let i = 0;
+      i < options().length && !selected()!.textContent?.startsWith('<enhanced/>');
+      i++
+    )
+      press(view, 'ArrowDown');
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe('Gains <enhanced/>');
+  });
+
   it('Tab walks the stops of a pair snippet', () => {
     const view = mount('');
     act(() => {

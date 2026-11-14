@@ -768,6 +768,26 @@ describe('resolve', () => {
       'Clarity-Changed: 123=de',
     );
   });
+  it('refuses #{d} and <enhanced/> from the upcoming text unless the PIN declares markupBraces', async () => {
+    const { current } = published();
+    const path = 'schedule/activation-conflicts/123.json';
+    const file = stored(path) as Record<string, Loose>;
+    f.moveData({
+      [path]: { ...file, proposed: withText(file.proposed, 'en', 'Deals #{d}x <enhanced/>.') },
+    });
+    const resolve = async () =>
+      call(`/batches/${ID}/resolve`, {
+        hash: 123,
+        expectedCurrent: await contentHash(current),
+        choices: { 'text.en': 'upcoming' },
+      });
+    const refused = await resolve();
+    expect(refused.status).toBe(422);
+    expect(refused.body.error).toContain('lacks the "markupBraces" capability');
+    f.moveData({ '.publisher/PIN': { capabilities: [...pin.capabilities, 'markupBraces'] } });
+    expect((await resolve()).status).toBe(200);
+    expect((stored('tooltips/123.json') as Tooltip).text.en?.text).toBe('Deals #{d}x <enhanced/>.');
+  });
   it('maps an existence choice that no longer applies to 409 with per-field missing', async () => {
     const { current } = published();
     const response = await call(`/batches/${ID}/resolve`, {
