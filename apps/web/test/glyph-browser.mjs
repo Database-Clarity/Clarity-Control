@@ -48,24 +48,33 @@ try {
     await page.goto(pathToFileURL(join(output, 'test', 'glyph-warning.html')).href);
     const content = page.getByRole('textbox', { name: 'Clarity markup' });
     await content.waitFor();
-    assert.equal(await page.locator('.clarity-validation-warning').count(), 3);
+    assert.equal(await page.locator('.clarity-validation-warning').count(), 4);
     await page.getByText('Save review warnings (saving allowed)', { exact: true }).click();
     if (evidence) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: true });
     const original = await content.innerText();
-    await page.getByRole('button', { name: '3 character warnings', exact: true }).click();
+    await page.getByRole('button', { name: '4 character warnings', exact: true }).click();
     await page
       .getByRole('button', { name: 'Replace first U+1F81A with <arrow/>', exact: true })
       .click();
     assert.equal(await page.locator('[data-symbol="arrow"]').count(), 1);
+    assert.ok((await content.innerText()).includes('🠚'));
+    assert.equal(await page.locator('.clarity-validation-warning').count(), 3);
+    // The second glyph is inside a wrapper and has an absolute offset beyond the first one.
+    await page
+      .getByRole('button', { name: 'Replace first U+1F81A with <arrow/>', exact: true })
+      .click();
+    assert.equal(await page.locator('[data-symbol="arrow"]').count(), 2);
     assert.ok(!(await content.innerText()).includes('🠚'));
     assert.equal(await page.locator('.clarity-validation-warning').count(), 2);
     await page.keyboard.press('Control+z');
-    assert.equal(await content.innerText(), original);
     assert.equal(await page.locator('.clarity-validation-warning').count(), 3);
+    await page.keyboard.press('Control+z');
+    assert.equal(await content.innerText(), original);
+    assert.equal(await page.locator('.clarity-validation-warning').count(), 4);
     await content.press('Control+End');
     await page.keyboard.insertText(' 😀');
-    await page.locator('.clarity-validation-warning').nth(3).waitFor();
-    assert.equal(await page.locator('.clarity-validation-warning').count(), 4);
+    await page.locator('.clarity-validation-warning').nth(4).waitFor();
+    assert.equal(await page.locator('.clarity-validation-warning').count(), 5);
     assert.deepEqual(errors, []);
     await page.close();
   }

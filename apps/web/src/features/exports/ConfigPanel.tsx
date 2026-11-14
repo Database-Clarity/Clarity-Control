@@ -95,17 +95,14 @@ export function ConfigPanel({
           <LegacyNote preset={file.preset} />
           {file.preset === 'clarityV2' && (
             <Section title="Format">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={file.arrowFallback ?? false}
-                  onChange={(event) => {
-                    const fallback = event.currentTarget.checked;
-                    update((current) => setArrowFallback(current, key, fallback));
-                  }}
-                />
-                Use → instead of the arrow symbol
-              </label>
+              <Flag
+                label="Use → instead of the arrow symbol"
+                title="Export the portable → character instead of the arrow drawing."
+                checked={file.arrowFallback ?? false}
+                onChange={(fallback) =>
+                  update((current) => setArrowFallback(current, key, fallback))
+                }
+              />
             </Section>
           )}
         </>
