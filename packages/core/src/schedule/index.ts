@@ -70,3 +70,4 @@ export {
   zonedToUtc,
   type ZonedTime,
 } from './zone.js';
+export { boundTranslationSources } from './stamps.js';

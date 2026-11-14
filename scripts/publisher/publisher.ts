@@ -46,6 +46,7 @@ import {
 import {
   activate,
   activationConflictSchema,
+  boundTranslationSources,
   approvedDigest,
   batchPublishPayloadSchema,
   batchSchema,
@@ -1050,7 +1051,8 @@ export class Publisher {
    * stamped rule keeps current's stamps in RECORD, so live takes them too and equals a manual
    * publish of the activated tooltip (CONSUMER OUTPUT byte identity). Content always comes from
    * the proposal (a clean activation has the proposal's content in every non-translation changed
-   * field); translations already match (Q4 takes the upcoming entry whole). `current` is the
+   * field); translations take the upcoming entry, then source stamps are bounded against final
+   * English exactly as in activation. `current` is the
    * saved tooltip at the snapshot the claim validated (S, equal to S' outside schedule/).
    */
   composeMember(
@@ -1059,15 +1061,20 @@ export class Publisher {
     current: Tooltip | null,
     pushed: boolean,
   ): ReturnType<typeof compose> {
-    const result = compose({ hash: m.hash, base: m.base, proposed: m.proposed, snapshot, pushed });
+    // English stamps are selected below; bounding earlier can age a translation of the final
+    // (convergent) English against the proposal's older revision.
+    const result = compose(
+      { hash: m.hash, base: m.base, proposed: m.proposed, snapshot, pushed },
+      false,
+    );
     if (result.status === 'stale') return result;
     const activation = activate({ base: m.base, current, proposed: m.proposed });
-    if (!activation.ok) return result;
     let tooltip = result.tooltip;
-    for (const field of result.changed)
-      if (field === 'text.en' || field === 'bungieSnapshot')
-        tooltip = withField(tooltip, activation.tooltip, field);
-    return { ...result, tooltip };
+    if (activation.ok)
+      for (const field of result.changed)
+        if (field === 'text.en' || field === 'bungieSnapshot')
+          tooltip = withField(tooltip, activation.tooltip, field);
+    return { ...result, tooltip: boundTranslationSources(tooltip) };
   }
   /** S' for a batch this opId already claimed: the oldest commit of the head's claimed run. */
   claimCommit(batchId: string, opId: string): string {

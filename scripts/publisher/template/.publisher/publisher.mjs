@@ -20899,6 +20899,25 @@ var init_merge3 = __esm({
   }
 });
 
+// packages/core/src/schedule/stamps.ts
+function boundTranslationSources(tooltip) {
+  if (!tooltip.text.en) return tooltip;
+  const englishAt = Date.parse(tooltip.text.en.updatedAt);
+  const text = { ...tooltip.text };
+  for (const lang of languages2) {
+    const entry = text[lang];
+    if (lang !== "en" && entry?.sourceUpdatedAt && Date.parse(entry.sourceUpdatedAt) > englishAt)
+      text[lang] = { ...entry, sourceUpdatedAt: new Date(englishAt - 1).toISOString() };
+  }
+  return { ...tooltip, text };
+}
+var init_stamps = __esm({
+  "packages/core/src/schedule/stamps.ts"() {
+    "use strict";
+    init_languages();
+  }
+});
+
 // packages/core/src/schedule/activate.ts
 function mergeChanged(base, current, proposed, changed, choices = {}) {
   let from = current;
@@ -20915,11 +20934,11 @@ function mergeChanged(base, current, proposed, changed, choices = {}) {
 function activate({ base, current, proposed }) {
   const changed = changedFields(base, proposed);
   if (base === null && current === null)
-    return { ok: true, tooltip: proposed, created: true, changed };
+    return { ok: true, tooltip: boundTranslationSources(proposed), created: true, changed };
   if (base === null || current === null) return { ok: false, fields: [existsField], changed };
   const result = mergeChanged(base, current, proposed, changed);
   if (!result.ok) return { ok: false, fields: result.conflicts.map(({ field }) => field), changed };
-  return { ok: true, tooltip: result.merged, created: false, changed };
+  return { ok: true, tooltip: boundTranslationSources(result.merged), created: false, changed };
 }
 function resolveActivation({
   base,
@@ -20952,6 +20971,7 @@ var init_activate = __esm({
   "packages/core/src/schedule/activate.ts"() {
     "use strict";
     init_merge3();
+    init_stamps();
     init_fields();
     existsField = "$exists";
   }
@@ -21325,7 +21345,7 @@ function mergeAssociations(base, onto, proposed) {
   if (!result.ok) throw new Error("Association merge cannot conflict");
   return result.merged.associated;
 }
-function compose(input2) {
+function compose(input2, boundSources = true) {
   const { hash: hash2, base, proposed, snapshot, pushed } = input2;
   for (const tooltip of [base, proposed, snapshot])
     if (tooltip && tooltipSchema.parse(tooltip).hash !== hash2)
@@ -21342,10 +21362,19 @@ function compose(input2) {
         fieldValue(snapshot, field)
       )
     );
-    return { status: "overlay", tooltip: tooltipSchema.parse(tooltip), changed, unpublished };
+    return {
+      status: "overlay",
+      tooltip: boundSources ? boundTranslationSources(tooltipSchema.parse(tooltip)) : tooltipSchema.parse(tooltip),
+      changed,
+      unpublished
+    };
   }
   if (pushed) return { status: "stale", reason: missingSnapshotReason };
-  return { status: "whole", tooltip: proposed, changed };
+  return {
+    status: "whole",
+    tooltip: boundSources ? boundTranslationSources(proposed) : proposed,
+    changed
+  };
 }
 var missingSnapshotReason;
 var init_compose = __esm({
@@ -21353,6 +21382,7 @@ var init_compose = __esm({
     "use strict";
     init_merge3();
     init_schemas3();
+    init_stamps();
     init_fields();
     missingSnapshotReason = "No published snapshot; publish it manually first or rebase";
   }
@@ -21456,6 +21486,7 @@ __export(schedule_exports, {
   batchResultStatusSchema: () => batchResultStatusSchema,
   batchSchema: () => batchSchema,
   batchStatusSchema: () => batchStatusSchema,
+  boundTranslationSources: () => boundTranslationSources,
   changedFields: () => changedFields,
   checkNotBefore: () => checkNotBefore,
   compose: () => compose,
@@ -21492,6 +21523,7 @@ var init_schedule = __esm({
     init_compose();
     init_activate();
     init_zone();
+    init_stamps();
   }
 });
 
@@ -27632,19 +27664,24 @@ var Publisher = class {
    * stamped rule keeps current's stamps in RECORD, so live takes them too and equals a manual
    * publish of the activated tooltip (CONSUMER OUTPUT byte identity). Content always comes from
    * the proposal (a clean activation has the proposal's content in every non-translation changed
-   * field); translations already match (Q4 takes the upcoming entry whole). `current` is the
+   * field); translations take the upcoming entry, then source stamps are bounded against final
+   * English exactly as in activation. `current` is the
    * saved tooltip at the snapshot the claim validated (S, equal to S' outside schedule/).
    */
   composeMember(m, snapshot, current, pushed) {
-    const result = compose({ hash: m.hash, base: m.base, proposed: m.proposed, snapshot, pushed });
+    const result = compose(
+      { hash: m.hash, base: m.base, proposed: m.proposed, snapshot, pushed },
+      false
+    );
     if (result.status === "stale") return result;
     const activation = activate({ base: m.base, current, proposed: m.proposed });
-    if (!activation.ok) return result;
     let tooltip = result.tooltip;
-    for (const field of result.changed)
-      if (field === "text.en" || field === "bungieSnapshot")
-        tooltip = withField(tooltip, activation.tooltip, field);
-    return { ...result, tooltip };
+    if (activation.ok) {
+      for (const field of result.changed)
+        if (field === "text.en" || field === "bungieSnapshot")
+          tooltip = withField(tooltip, activation.tooltip, field);
+    }
+    return { ...result, tooltip: boundTranslationSources(tooltip) };
   }
   /** S' for a batch this opId already claimed: the oldest commit of the head's claimed run. */
   claimCommit(batchId, opId) {

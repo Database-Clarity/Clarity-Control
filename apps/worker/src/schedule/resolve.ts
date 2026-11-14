@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { contentHash, hashSchema, languages, tooltipSchema, type Tooltip } from '@clarity/core';
 import {
   activationConflictSchema,
+  boundTranslationSources,
   existsField,
   resolveActivation,
   schedulePaths,
@@ -133,7 +134,9 @@ export async function resolveBatch(
     const at = new Date().toISOString();
     // Choosing upcoming English over a newer current one (per-field choices) would commit an
     // older English revision, so current's translations would show current against other text.
-    const tooltip = result.tooltip && alignEnglishRevision(current, result.tooltip, user.login, at);
+    const tooltip =
+      result.tooltip &&
+      boundTranslationSources(alignEnglishRevision(current, result.tooltip, user.login, at));
     if (tooltip) {
       checkEdit(state.access, current, tooltip);
       refuseUnlowerable(tooltip, switches.publisher() ? { value: state.pin } : undefined, 'saved');

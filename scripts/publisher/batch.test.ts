@@ -1414,3 +1414,47 @@ describe('scheduled batches (simulator)', () => {
     expect(batch.status).toBe('published');
   });
 });
+
+it('S4: bound source after publisher adopts convergent current English stamps', async () => {
+  const f = await setup();
+  const source = '2030-03-17T12:00:00.000Z';
+  const proposed = tip({
+    text: {
+      en: entry('identical concurrent wording', source),
+      de: { ...entry('Neu', source), sourceUpdatedAt: source },
+    },
+  });
+  await f.schedule([{ hash: 123, base: tip(), proposed }]);
+  const current = tip({
+    text: { en: entry('identical concurrent wording', '2030-03-17T11:00:00.000Z') },
+  });
+  f.change(D, { 'tooltips/123.json': current });
+  await f.pub.run();
+  assertPublished(f);
+  const live = f.read<Tooltip>('live/tooltips/123.json')!;
+  expect(live.text.en).toEqual(current.text.en);
+  expect(Date.parse(live.text.de!.sourceUpdatedAt!)).toBeLessThan(
+    Date.parse(live.text.en!.updatedAt),
+  );
+  expect(f.read<Tooltip>('tooltips/123.json')!.text.de).toEqual(live.text.de);
+});
+
+it('S5: publication keeps a translation of the convergent projected English current', async () => {
+  const f = await setup();
+  const source = '2030-03-17T13:00:00.000Z';
+  const proposed = tip({
+    text: {
+      en: entry('identical concurrent wording', '2030-03-17T12:00:00.000Z'),
+      de: { ...entry('Neu', source), sourceUpdatedAt: source },
+    },
+  });
+  await f.schedule([{ hash: 123, base: tip(), proposed }]);
+  const current = tip({ text: { en: entry('identical concurrent wording', source) } });
+  f.change(D, { 'tooltips/123.json': current });
+  await f.pub.run();
+  assertPublished(f);
+  const live = f.read<Tooltip>('live/tooltips/123.json')!;
+  expect(live.text.en).toEqual(current.text.en);
+  expect(live.text.de?.sourceUpdatedAt).toBe(source);
+  expect(f.read<Tooltip>('tooltips/123.json')!.text.de).toEqual(live.text.de);
+});

@@ -9,6 +9,8 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import {
+  activate,
+  resolveActivation,
   batchIdSchema,
   batchMemberSchema,
   batchSchema,
@@ -384,6 +386,9 @@ export async function saveBatch(
         ...input.changes.map(({ hash }) =>
           own.has(hash) ? schedulePaths.member(batchId, hash) : tooltipPath(hash),
         ),
+        // Current is the displayed source when this batch does not change English. Pin it to
+        // the same CAS head as the member, including on retries.
+        ...input.changes.map(({ hash }) => tooltipPath(hash)),
         ...(scheduled
           ? [...input.changes.map(({ hash }) => `live/tooltips/${hash}.json`), 'live/pushed.json']
           : []),
@@ -432,7 +437,30 @@ export async function saveBatch(
         // A batch save has no "No translation impact" tick (direct saves only, with their audit
         // trailer): an English change needs a new, newer revision.
         checkEnglishRevision(access, stored.proposed, proposed, false);
-        checkTranslationStamps(stored.proposed, proposed);
+        const currentFile = files[input.changes.length + index];
+        const current = currentFile ? tooltipSchema.parse(currentFile.value) : null;
+        if (current && current.hash !== change.hash)
+          throw new HttpError(502, 'Stored tooltip hash mismatch');
+        // Use the real Upcoming projection: identical concurrent English wording keeps
+        // current's revision, even when the batch itself changed English.
+        const projection = { base: stored.base, current, proposed };
+        const activation = activate(projection);
+        let english = activation.ok ? activation.tooltip.text.en : proposed.text.en;
+        if (!activation.ok) {
+          const choices: Record<string, 'upcoming'> = {};
+          for (const field of activation.fields)
+            if (field !== '$exists' || (stored.base !== null && current === null))
+              choices[field] = 'upcoming';
+          for (let pass = 0; pass < 2; pass++) {
+            const resolved = resolveActivation({ ...projection, choices });
+            if (resolved.ok) {
+              english = resolved.tooltip?.text.en;
+              break;
+            }
+            for (const field of resolved.missing) choices[field] = 'upcoming';
+          }
+        }
+        checkTranslationStamps(stored.proposed, proposed, english ?? proposed.text.en);
         refuseUnlowerable(proposed, pin, 'saved');
         const member = batchMemberSchema.parse({
           ...stored,
@@ -442,7 +470,7 @@ export async function saveBatch(
         });
         refuseMemberSize(member);
         if (pushed) {
-          const snapshotFile = files[input.changes.length + index];
+          const snapshotFile = files[2 * input.changes.length + index];
           const composed = compose({
             hash: change.hash,
             base: member.base,
