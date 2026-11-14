@@ -38,12 +38,18 @@ export function changedSummary(fields: ChangedFields, markerOnly = false): strin
   return parts.join(' · ');
 }
 
-export type ChangeMark = 'Text' | 'Assoc' | 'Alias' | 'New';
+export type ChangeMark = 'Text' | 'Assoc' | 'Alias' | 'New' | 'Remove' | 'Re-add';
 /** The row marks: what kind of change this is, when the live version is known. */
 export function changeMarks(
   fields: ChangedFields | undefined,
-  { isNew, markerOnly }: { isNew: boolean; markerOnly: boolean },
+  {
+    isNew,
+    markerOnly,
+    inactiveChange,
+  }: { isNew: boolean; markerOnly: boolean; inactiveChange?: 'remove' | 'restore' },
 ): ChangeMark[] {
+  if (inactiveChange === 'remove') return ['Remove'];
+  if (inactiveChange === 'restore') return ['Re-add'];
   if (isNew) return fields?.text.length ? ['Text', 'New'] : ['New'];
   if (markerOnly) return ['Alias'];
   if (!fields) return [];

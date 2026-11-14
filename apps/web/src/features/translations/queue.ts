@@ -1,4 +1,5 @@
 import {
+  isMovedInactive,
   isTranslatable,
   translationStateOf,
   type Lang,
@@ -101,13 +102,20 @@ export function translatableEntry(
   tooltip: Tooltip,
   data: EditorData,
 ): (Translatable & { order: number }) | null {
-  if (!isTranslatable(tooltip, data.aliases)) return null;
+  if (
+    !isTranslatable(tooltip, data.aliases) ||
+    isMovedInactive(tooltip.hash, data.bundle.inactiveMoves)
+  )
+    return null;
   const item = itemFor(tooltip.hash, data);
   let categoryId = 'unknown';
   let name = String(tooltip.hash);
   if (item) {
     if (isSetSelector(item)) return null;
-    const classified = listingCategoryId(item, classifyItem(item, tooltip));
+    const classified = listingCategoryId(
+      item,
+      classifyItem(item, tooltip, data.bundle.inactiveMoves),
+    );
     if (classified === inactiveCategory || classified === enhancedPartCategory) return null;
     categoryId = classified;
     name = listName(item, data) || name;

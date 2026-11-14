@@ -54,7 +54,10 @@ export function classifiedCategory(
   data: EditorData,
 ): Category | undefined {
   if (!item) return undefined;
-  const id = listingCategoryId(item, classifyItem(item, data.bundle.tooltips[item.hash]));
+  const id = listingCategoryId(
+    item,
+    classifyItem(item, data.bundle.tooltips[item.hash], data.bundle.inactiveMoves),
+  );
   // An id the catalog does not know is listed under its own "Other: <id>" section.
   return (
     data.categories.find((category) => category.id === id) ??
@@ -609,7 +612,10 @@ function itemGroups(data: EditorData, search: string): CategoryGroup[] {
           matchingAliases.has(item.hash)),
     );
   const classifiedItems = items.map((item): ListedItem => {
-    const id = listingCategoryId(item, classifyItem(item, data.bundle.tooltips[item.hash]));
+    const id = listingCategoryId(
+      item,
+      classifyItem(item, data.bundle.tooltips[item.hash], data.bundle.inactiveMoves),
+    );
     return listedItem(id === item.categoryId ? item : { ...item, categoryId: id }, data);
   });
   const categories = [

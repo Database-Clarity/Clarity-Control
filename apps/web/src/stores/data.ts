@@ -5,6 +5,7 @@ import {
   type Aliases,
   type SandboxConflicts,
   type SandboxPointers,
+  type InactiveMoves,
 } from '@clarity/core';
 import { loadGenerator, loadSandboxConflicts } from '../services/generator';
 import { loadBundle, type Bundle } from '../services/bundle';
@@ -123,3 +124,14 @@ export const useDataStore = create<DataState>((set, get) => ({
     }
   },
 }));
+
+/** A move changes listing and review state immediately; saved tooltip text is untouched. */
+export function applyInactiveMoves(moves: InactiveMoves): void {
+  useDataStore.setState((state) =>
+    state.data
+      ? {
+          data: { ...state.data, bundle: { ...state.data.bundle, inactiveMoves: moves } },
+        }
+      : {},
+  );
+}

@@ -145,13 +145,20 @@ export const ReviewDetail = memo(function ReviewDetail({
     if (fields) record(entry.tooltip.hash, fields);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, entry.tooltip, record]);
-  const summary = entry.markerOnly
-    ? 'Alias marker only: the saved content equals the live version'
-    : live && !live.pushedHash
-      ? `${changedSummary(fields!) || 'All saved text'} · never pushed (no live version)`
-      : fields
-        ? changedSummary(fields) || 'No content differs from the live version'
-        : undefined;
+  const summary =
+    entry.inactiveChange === 'remove'
+      ? 'Pending removal: this item and its alias stubs leave every output when this row is published. Saved text stays editable.'
+      : entry.inactiveChange === 'restore'
+        ? 'Pending re-add: this item returns to every output when this row is published.'
+        : entry.inactiveAliases?.length
+          ? `Publishing this row also applies the saved inactive decisions for alias hashes ${entry.inactiveAliases.join(', ')}.`
+          : entry.markerOnly
+            ? 'Alias marker only: the saved content equals the live version'
+            : live && !live.pushedHash
+              ? `${changedSummary(fields!) || 'All saved text'} · never pushed (no live version)`
+              : fields
+                ? changedSummary(fields) || 'No content differs from the live version'
+                : undefined;
   return (
     <section aria-label="Selected change">
       {summary && (

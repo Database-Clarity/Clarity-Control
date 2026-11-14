@@ -38,10 +38,19 @@ describe('changed fields', () => {
   });
 
   it('marks rows by what changed, with New and Alias independent of the live version', () => {
-    const fields = changedFields(live, tooltip({ en: { text: 'New', ...stamp }, de: live.text.de! }, [2]));
+    const fields = changedFields(
+      live,
+      tooltip({ en: { text: 'New', ...stamp }, de: live.text.de! }, [2]),
+    );
     expect(changeMarks(fields, { isNew: false, markerOnly: false })).toEqual(['Text', 'Assoc']);
     expect(changeMarks(undefined, { isNew: false, markerOnly: false })).toEqual([]);
     expect(changeMarks(undefined, { isNew: true, markerOnly: false })).toEqual(['New']);
     expect(changeMarks(undefined, { isNew: false, markerOnly: true })).toEqual(['Alias']);
+    expect(
+      changeMarks(undefined, { isNew: true, markerOnly: false, inactiveChange: 'remove' }),
+    ).toEqual(['Remove']);
+    expect(
+      changeMarks(undefined, { isNew: false, markerOnly: false, inactiveChange: 'restore' }),
+    ).toEqual(['Re-add']);
   });
 });

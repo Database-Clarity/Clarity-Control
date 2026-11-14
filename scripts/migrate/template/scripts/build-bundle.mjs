@@ -47,7 +47,8 @@ export async function buildBundle(root, sourceCommit, generatedAt = new Date().t
           typeof move.at !== 'string' ||
           !Number.isFinite(Date.parse(move.at)) ||
           (move.note !== undefined && (typeof move.note !== 'string' || move.note.length > 1000)) ||
-          Object.keys(move).some((key) => !['by', 'at', 'note'].includes(key)),
+          (move.inactive !== undefined && move.inactive !== false) ||
+          Object.keys(move).some((key) => !['by', 'at', 'note', 'inactive'].includes(key)),
       ))
   )
     throw new Error('Invalid inactive moves');

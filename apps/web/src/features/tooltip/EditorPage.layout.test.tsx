@@ -13,6 +13,12 @@ import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { useSteppingActivity } from '../navigation/steppingActivity';
 import { useCompendiumStore } from '../compendium/store';
+import { getInactiveMoves, putInactiveMove } from '../../services/inactiveMoves';
+
+vi.mock('../../services/inactiveMoves', () => ({
+  getInactiveMoves: vi.fn(),
+  putInactiveMove: vi.fn(),
+}));
 
 const originalCompendium = useCompendiumStore.getState();
 
@@ -141,6 +147,44 @@ const originals = {
   save: useSaveState.getState(),
 };
 
+it('moves in and out from the mounted editor without changing its text or edit access', async () => {
+  const moves = { 10: { by: 1, at: '2026-11-14T00:00:00Z' } };
+  vi.mocked(getInactiveMoves)
+    .mockResolvedValueOnce({ moves: {}, revision: null })
+    .mockResolvedValueOnce({ moves, revision: 'a'.repeat(40) });
+  vi.mocked(putInactiveMove)
+    .mockResolvedValueOnce({ moves, revision: 'a'.repeat(40) })
+    .mockResolvedValueOnce({ moves: {}, revision: 'b'.repeat(40) });
+  await render();
+  const editor = editors()[0];
+  const confirm = async (trigger: string, action: string) => {
+    await act(async () => button(trigger)!.click());
+    await act(async () => {
+      const input = document.querySelector<HTMLInputElement>('[role=dialog] input')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        'Base perk',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role=dialog] button')]
+        .find((entry) => entry.textContent === action)!
+        .click(),
+    );
+  };
+  await confirm('Move to Inactive', 'Stop exporting');
+  expect(useDataStore.getState().data!.bundle.inactiveMoves).toEqual(moves);
+  expect(host.textContent).toContain('Inactive — excluded from outputs');
+  expect(editors()[0]).toBe(editor);
+  expect(editor.hasAttribute('data-readonly')).toBe(false);
+  expect(editor.textContent).toBe(BASE);
+  await confirm('Move out of Inactive', 'Resume exporting');
+  expect(useDataStore.getState().data!.bundle.inactiveMoves).toEqual({});
+  expect(host.textContent).not.toContain('Inactive — excluded from outputs');
+  expect(editors()[0]).toBe(editor);
+});
+
 let navigateRoute: ReturnType<typeof useNavigate>;
 let currentLocation: ReturnType<typeof useLocation>;
 function PageHarness() {
@@ -165,7 +209,9 @@ async function render(path = '/t/10') {
 }
 const editors = () => [...host.querySelectorAll<HTMLElement>('[data-editor]')];
 const button = (name: string) =>
-  [...host.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === name);
+  [...host.querySelectorAll('button')].find(
+    (entry) => entry.textContent?.trim() === name || entry.getAttribute('aria-label') === name,
+  );
 const signIn = (role: 'maintainer' | 'editor' | 'translator' | null) =>
   useAuthStore.setState({
     user: role ? { id: 1, login: 'alice', role, languages: ['de'] } : null,

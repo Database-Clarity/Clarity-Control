@@ -51,7 +51,8 @@ export function inactiveArchiveHashes(data: EditorData): Set<number> {
       inGameDescription: facts.items[tooltip.hash]?.inventory?.description ?? '',
     };
     if (
-      classifyItem(item, tooltip)?.categoryId === 'inactive-placeholder' ||
+      classifyItem(item, tooltip, data.bundle.inactiveMoves)?.categoryId ===
+        'inactive-placeholder' ||
       facts.items[tooltip.hash]?.inventory?.plug?.plugCategoryIdentifier === 'deprecated'
     )
       inactive.add(tooltip.hash);

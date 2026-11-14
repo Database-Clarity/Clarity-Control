@@ -16,11 +16,15 @@ export function InactiveMoveControl({
   name,
   moves,
   onSaved,
+  className,
+  compact = false,
 }: {
   hash: number;
   name: string;
   moves?: InactiveMoves;
   onSaved(moves: InactiveMoves): void;
+  className?: string;
+  compact?: boolean;
 }) {
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
@@ -79,11 +83,33 @@ export function InactiveMoveControl({
   return (
     <Popover
       label={moved ? 'Move out of Inactive' : 'Move to Inactive'}
-      trigger={moved ? 'Move out of Inactive' : 'Move to Inactive'}
+      trigger={
+        compact ? (
+          <svg
+            aria-hidden="true"
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
+            <circle cx="8" cy="8" r="6" />
+            <path d="M4.5 8h7" />
+          </svg>
+        ) : moved ? (
+          'Move out of Inactive'
+        ) : (
+          'Move to Inactive'
+        )
+      }
+      triggerLabel={moved ? 'Move out of Inactive' : 'Move to Inactive'}
+      triggerTitle={moved ? 'Move out of Inactive' : 'Move to Inactive'}
       open={open}
       onOpenChange={setOpen}
       contain
       width={360}
+      className={className}
     >
       {(close) => (
         <div className={styles.confirm}>

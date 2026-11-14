@@ -1,7 +1,9 @@
+@use '../../ui/controls';
+
 .confirm {
   display: grid;
   gap: 8px;
-  font-size: 12px;
+  font-size: 0.8125rem;
   overflow-wrap: anywhere;
 
   p {
@@ -14,6 +16,7 @@
   }
 
   input {
+    @include controls.field;
     width: 100%;
     min-width: 0;
     box-sizing: border-box;
@@ -27,7 +30,7 @@
   gap: 6px;
 
   button {
-    min-height: 28px;
+    @include controls.button;
     white-space: nowrap;
   }
 }

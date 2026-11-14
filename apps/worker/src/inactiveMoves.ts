@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   hashSchema,
+  isMovedInactive,
   inactiveMovesCapability,
   inactiveMovesPath,
   inactiveMovesSchema,
@@ -62,12 +63,19 @@ export async function inactiveMovesRoute(request: Request, github: GitHub, user:
     const next = { ...moves };
     if (input.inactive) {
       // Repeated move-in is idempotent and preserves attribution.
-      next[input.hash] ??= {
+      if (!isMovedInactive(input.hash, moves))
+        next[input.hash] = {
+          by: user.id,
+          at: new Date().toISOString(),
+          ...(input.note ? { note: input.note } : {}),
+        };
+    } else if (isMovedInactive(input.hash, moves))
+      next[input.hash] = {
+        inactive: false,
         by: user.id,
         at: new Date().toISOString(),
         ...(input.note ? { note: input.note } : {}),
       };
-    } else delete next[input.hash];
     try {
       const commit = await github.commit(
         head,

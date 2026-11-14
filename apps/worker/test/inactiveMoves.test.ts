@@ -42,8 +42,12 @@ it('moves in and out, returns reloadable CAS revisions, and attributes the maint
   });
   const removed = await put(false, saved.revision);
   expect(removed.status).toBe(200);
-  expect((await removed.json()).moves).toEqual({});
-  expect(fixture.current()[inactiveMovesPath]).toEqual({});
+  expect((await removed.json()).moves).toEqual({
+    123: { inactive: false, by: 1, at: expect.any(String) },
+  });
+  expect(fixture.current()[inactiveMovesPath]).toEqual({
+    123: { inactive: false, by: 1, at: expect.any(String) },
+  });
 });
 
 it('rejects stale revisions, including concurrent moves during the commit', async () => {

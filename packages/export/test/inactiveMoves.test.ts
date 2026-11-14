@@ -58,7 +58,15 @@ it('removes only a moved fixture item and its stub from every consumer file', ()
       142: { by: 1, at: '2026-11-14T00:00:00Z' },
     }),
   };
+  const restored = {
+    perks: exportWithInactiveMoves(tooltips, 0, facts, aliases, {
+      142: { by: 1, at: '2026-11-14T00:00:00Z', inactive: false },
+    }),
+  };
   for (const preset of legacyPresets) {
+    expect(buildLegacy(restored, preset), `${preset}: restore`).toEqual(
+      buildLegacy(before, preset),
+    );
     const original = JSON.parse(new TextDecoder().decode(buildLegacy(before, preset)));
     const actual = JSON.parse(new TextDecoder().decode(buildLegacy(after, preset)));
     expect(original, preset).toHaveProperty('142');

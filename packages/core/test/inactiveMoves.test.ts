@@ -4,6 +4,7 @@ import {
   activeAliases,
   exportWithInactiveMoves,
   inactivePublishableHash,
+  selectedInactiveMoves,
   type InactiveMoves,
 } from '../src/inactiveMoves.js';
 import { publishableHash } from '../src/publishableHash.js';
@@ -17,6 +18,13 @@ const other = (text = 'Other') => ({
   text: {
     en: { ...tooltip().text.en!, text },
   },
+});
+
+it('limits a partial publish to selected canonical rows and their stub decisions', () => {
+  const staged = { ...moves, 77: { ...moves[42]!, inactive: false as const }, 99: moves[42]! };
+  expect(selectedInactiveMoves(staged, [99], aliases)).toEqual({ 99: moves[42] });
+  expect(selectedInactiveMoves(staged, [42], aliases)).toEqual({ 42: moves[42], 77: staged[77] });
+  expect(selectedInactiveMoves(staged, [], aliases)).toEqual({});
 });
 
 it('preserves output bytes and digests with an empty file', async () => {

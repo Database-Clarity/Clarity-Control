@@ -22,6 +22,8 @@ export const inactiveMovesSchema = z.record(
       by: z.number().int().positive(),
       at: z.string().datetime({ offset: true }),
       note: z.string().trim().max(1000).optional(),
+      /** Retain a move-out marker so a partial publish can restore this item's stubs. */
+      inactive: z.literal(false).optional(),
     })
     .strict(),
 );
@@ -29,7 +31,19 @@ export type InactiveMoves = z.infer<typeof inactiveMovesSchema>;
 
 /** Item identity is deliberate: moving an alias suppresses that stub alone. */
 export function isMovedInactive(hash: number, moves: InactiveMoves | undefined): boolean {
-  return !!moves && Object.hasOwn(moves, String(hash));
+  return !!moves && Object.hasOwn(moves, String(hash)) && moves[String(hash)]?.inactive !== false;
+}
+
+/** Only a selected canonical row publishes its own move and the decisions for its stubs. */
+export function selectedInactiveMoves(
+  moves: InactiveMoves,
+  hashes: Iterable<number>,
+  aliases: Aliases,
+): InactiveMoves {
+  const selected = new Set(hashes);
+  return Object.fromEntries(
+    Object.entries(moves).filter(([hash]) => selected.has(resolveAlias(Number(hash), aliases))),
+  );
 }
 
 /** Empty files preserve old digests; active rows change when their incoming stubs change. */
@@ -39,19 +53,25 @@ export async function inactivePublishableHash(
   moves: InactiveMoves = {},
 ): Promise<string> {
   if (isMovedInactive(tooltip.hash, moves)) {
-    const bytes = new TextEncoder().encode(stableStringify({ inactive: tooltip.hash }));
-    const digest = await crypto.subtle.digest('SHA-256', bytes);
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
-      '',
-    );
+    return inactiveRemovalHash(tooltip.hash);
   }
   return publishableHash(tooltip, activeAliases(aliases, moves));
 }
 
+/** Stable published removal marker, including for an item with no stored tooltip. */
+export async function inactiveRemovalHash(hash: number): Promise<string> {
+  const bytes = new TextEncoder().encode(stableStringify({ inactive: hash }));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+const activeAliasSnapshots = new WeakMap<Aliases, WeakMap<InactiveMoves, Aliases>>();
 export function activeAliases(aliases: Aliases, moves: InactiveMoves): Aliases {
+  const cached = activeAliasSnapshots.get(aliases)?.get(moves);
+  if (cached) return cached;
   const keys = Object.keys(moves);
-  if (!keys.length) return aliases;
-  return Object.fromEntries(
+  if (!keys.some((key) => isMovedInactive(Number(key), moves))) return aliases;
+  const active = Object.fromEntries(
     Object.entries(aliases)
       .filter(
         ([key]) =>
@@ -64,6 +84,10 @@ export function activeAliases(aliases: Aliases, moves: InactiveMoves): Aliases {
         return [key, to === value.to ? value : { ...value, to }];
       }),
   );
+  let snapshots = activeAliasSnapshots.get(aliases);
+  if (!snapshots) activeAliasSnapshots.set(aliases, (snapshots = new WeakMap()));
+  snapshots.set(moves, active);
+  return active;
 }
 
 /**
@@ -80,7 +104,8 @@ export function exportWithInactiveMoves(
   aliases: Aliases = {},
   moves: InactiveMoves = {},
 ): Record<string, LegacyExportEntry> {
-  if (!Object.keys(moves).length) return exportLegacy(tooltips, now, catalog, aliases);
+  if (!Object.keys(moves).some((hash) => isMovedInactive(Number(hash), moves)))
+    return exportLegacy(tooltips, now, catalog, aliases);
   for (const hash of [1, 2, 3])
     if (isMovedInactive(hash, moves))
       throw new Error(
@@ -123,6 +148,7 @@ export function exportWithInactiveMoves(
   }
   // Keep the original alias map for canonical identity checks, then suppress moved stubs.
   const entries = exportLegacy(kept, now, catalog, aliases);
-  for (const hash of Object.keys(moves)) delete entries[hash];
+  for (const hash of Object.keys(moves))
+    if (isMovedInactive(Number(hash), moves)) delete entries[hash];
   return entries;
 }

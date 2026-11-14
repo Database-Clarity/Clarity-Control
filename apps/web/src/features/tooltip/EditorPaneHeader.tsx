@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
+import { InactiveMoveControl } from './InactiveMoveControl';
+import { applyInactiveMoves, useDataStore } from '../../stores/data';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { PhoneTools, type QueueBack } from './EditorMore';
@@ -46,6 +48,7 @@ export function EditorPaneHeader({
   queueBack,
   draftLoader,
   destination,
+  inactiveControl,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -73,6 +76,8 @@ export function EditorPaneHeader({
   draftLoader?: React.ReactNode;
   /** Scheduled changes: the badge naming the open batch this tooltip is in. */
   destination?: React.ReactNode;
+  /** Maintainer-only inactive move, with its own deliberate confirmation. */
+  inactiveControl?: React.ReactNode;
 }) {
   const phone = useMedia(phoneQuery);
   if (phone)
@@ -90,6 +95,7 @@ export function EditorPaneHeader({
           queueBack,
           draftLoader,
           destination,
+          inactiveControl,
         }}
       />
     );
@@ -172,6 +178,7 @@ export function EditorPaneHeader({
       {markupTools}
       {queue}
       <span className={styles.paneRight}>
+        {inactiveControl}
         {grouped && (
           <Popover
             label="Grouped manifest perks"
@@ -251,6 +258,7 @@ function PhoneToolRow({
   queueBack,
   draftLoader,
   destination,
+  inactiveControl,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   return (
     <>
@@ -260,6 +268,7 @@ function PhoneToolRow({
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
       )}
       {draftLoader}
+      {inactiveControl}
       <PhoneTools
         // The tools fit the room left of them: they measure again when the draft button comes or goes.
         key={draftLoader ? 'after-draft' : 'tools'}
@@ -301,6 +310,7 @@ function PhoneToolRow({
 
 /** The maintainer's read-only list: hash, in-game name, base or enhanced, and how it joined. */
 export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
+  const moves = useDataStore((state) => state.data?.bundle.inactiveMoves);
   // Sandbox perks are not in the item catalog: their names come from the bundled sandbox perk
   // text, loaded once when this list first opens.
   const sandbox = useSandboxPerkText();
@@ -336,12 +346,25 @@ export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
             )}
           </span>
           <span className={styles.groupedHow}>
-            {perk.how}
-            {perk.sharedBy && (
-              <span title={perk.sharedBy.join(', ')}>
-                {' · '}shared by {perk.sharedBy.length} owners
-              </span>
-            )}
+            <span>
+              {perk.how}
+              {perk.sharedBy && (
+                <span title={perk.sharedBy.join(', ')}>
+                  {' · '}shared by {perk.sharedBy.length} owners
+                </span>
+              )}
+            </span>
+            <InactiveMoveControl
+              hash={perk.hash}
+              name={
+                perk.name ||
+                (sandbox && sandboxPerkName(perk.hash, sandbox)) ||
+                `Tooltip ${perk.hash}`
+              }
+              moves={moves}
+              onSaved={applyInactiveMoves}
+              className={styles.ghost}
+            />
           </span>
         </li>
       ))}

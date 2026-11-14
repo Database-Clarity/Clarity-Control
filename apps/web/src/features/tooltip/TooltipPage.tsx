@@ -5,6 +5,7 @@ import { useGlobalDefinition } from '../globals/useGlobals';
 import { GlobalUsages, GlobalUsageCount } from '../globals/GlobalsPage';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
+import { InactiveMoveControl } from './InactiveMoveControl';
 import { useCompendiumStore } from '../compendium/store';
 import {
   memo,
@@ -21,10 +22,16 @@ import { isolateHistory } from '@codemirror/commands';
 import { Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
+import {
+  isMovedInactive,
+  translationQueue,
+  type Lang,
+  type MarkupGlobals,
+  type Tooltip,
+} from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { tooltipImports } from '../../services/tooltipImports';
-import { useDataStore, type EditorData } from '../../stores/data';
+import { applyInactiveMoves, useDataStore, type EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { useDraftStore } from '../../stores/drafts';
 import { usePausedForOtherTab, useConflictStore } from '../../stores/conflicts';
@@ -582,6 +589,9 @@ function TooltipWorkspace({
         </>
       )}
       {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
+      {phone && isMovedInactive(activeHash, data.bundle.inactiveMoves) && (
+        <NoteRow text="Inactive — excluded from outputs when this row is published. Text remains editable." />
+      )}
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
       <ManifestTextRow hash={activeHash} />
@@ -662,37 +672,44 @@ function TooltipWorkspace({
       : undefined;
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
-    <ClarityEditor
-      pending={loading}
-      stepping={suspended && !selectedGlobal}
-      focusHighlight={!selectedGlobal}
-      value={textOf(variant)}
-      lang={lang}
-      globals={globalsFor(variant)}
-      requireEnglish={requiresEnglish(variant)}
-      readOnly={loading || access.reason !== null}
-      readOnlyReason={access.reason}
-      preview={previewStatus}
-      tooltipHash={variant}
-      referenceSources={referenceSources}
-      usage={usage}
-      onOpenTooltip={openDefinition}
-      markupRow={markupRow.open}
-      paused={pausedForOther}
-      sourceText={lang === 'en' ? undefined : base.text.en?.text}
-      conflictSource={conflictSourceOf(variant)}
-      workingDiff={
-        readOnly
-          ? undefined
-          : {
-              saved: drafts[variant]?.base ?? base,
-              current: drafts[variant]?.next ?? base,
-              item: archivedItemFor(variant, data),
-            }
-      }
-      highlightLine={requestedHash === hash && variant === activeHash ? highlightLine : undefined}
-      onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
-    />
+    <div className={styles.editorWithNotice}>
+      {isMovedInactive(variant, data.bundle.inactiveMoves) && (
+        <div className={styles.inactiveNotice} role="note">
+          Inactive — excluded from outputs when this row is published. Text remains editable.
+        </div>
+      )}
+      <ClarityEditor
+        pending={loading}
+        stepping={suspended && !selectedGlobal}
+        focusHighlight={!selectedGlobal}
+        value={textOf(variant)}
+        lang={lang}
+        globals={globalsFor(variant)}
+        requireEnglish={requiresEnglish(variant)}
+        readOnly={loading || access.reason !== null}
+        readOnlyReason={access.reason}
+        preview={previewStatus}
+        tooltipHash={variant}
+        referenceSources={referenceSources}
+        usage={usage}
+        onOpenTooltip={openDefinition}
+        markupRow={markupRow.open}
+        paused={pausedForOther}
+        sourceText={lang === 'en' ? undefined : base.text.en?.text}
+        conflictSource={conflictSourceOf(variant)}
+        workingDiff={
+          readOnly
+            ? undefined
+            : {
+                saved: drafts[variant]?.base ?? base,
+                current: drafts[variant]?.next ?? base,
+                item: archivedItemFor(variant, data),
+              }
+        }
+        highlightLine={requestedHash === hash && variant === activeHash ? highlightLine : undefined}
+        onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
+      />
+    </div>
   );
 
   // An agent-written draft for an empty English tooltip: editors and maintainers only.
@@ -750,6 +767,18 @@ function TooltipWorkspace({
           onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
           grouped={grouped}
           destination={upcoming.badge}
+          inactiveControl={
+            !readOnly && (
+              <InactiveMoveControl
+                hash={activeHash}
+                name={nameOf(activeHash)}
+                moves={data.bundle.inactiveMoves}
+                className={styles.ghost}
+                compact={!phone}
+                onSaved={applyInactiveMoves}
+              />
+            )
+          }
           draftLoader={
             draft && (
               <DraftLoader
