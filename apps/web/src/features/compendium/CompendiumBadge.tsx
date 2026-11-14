@@ -18,18 +18,23 @@ import { preloadCompendiumTab } from './LazyCompendiumTab';
 export type CompendiumCount =
   { state: 'loading' } | { state: 'error' } | { state: 'ready'; count: number };
 
-/** Number of Compendium changes waiting for review. One load owner: whoever mounts this first. */
-export function useCompendiumCount(): CompendiumCount {
+/**
+ * Number of Compendium changes waiting for review. One load owner: whoever mounts this first.
+ * `loads` false (translators: they see only the snapshot saved with the English, owner
+ * 2026-11-10) never fetches or prefetches the live sheet.
+ */
+export function useCompendiumCount(loads = true): CompendiumCount {
   const editor = useDataStore((state) => state.data);
   const tooltips = editor?.bundle.tooltips;
   const { data, error, load } = useCompendiumStore();
   useEffect(() => {
-    if (!editor || data) return;
+    if (!loads || !editor || data) return;
     void load();
     const bridge = pendingCompendiumWorker();
     if (bridge) prewarmMatchingSession(editor, bridge);
-  }, [editor, data, load]);
+  }, [loads, editor, data, load]);
   useEffect(() => {
+    if (!loads) return;
     const start = () => {
       void load();
       void preloadCompendiumTab();
@@ -43,7 +48,7 @@ export function useCompendiumCount(): CompendiumCount {
     }
     const id = setTimeout(start, 0);
     return () => clearTimeout(id);
-  }, [load]);
+  }, [loads, load]);
   const count = useMemo(
     () => (tooltips && data ? compendiumChanges(tooltips, data).length : null),
     [tooltips, data],

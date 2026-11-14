@@ -59,7 +59,8 @@ export function WorkspaceTabs({
   routeFor(to: string): string;
 }) {
   const { primary, more } = useWorkspaceItems(user);
-  const count = useCompendiumCount();
+  // Translators never load the live sheet (their Compendium tab shows the saved snapshot).
+  const count = useCompendiumCount(user?.role !== 'translator');
   const current = workspacePath(pathname);
   const [open, setOpen] = useState(false);
   const moreButton = useRef<HTMLButtonElement>(null);
@@ -183,7 +184,8 @@ export function WorkspaceList({
   onAccount?(): void;
 }) {
   const { primary, more } = workspaceMenu(user);
-  const count = useCompendiumCount();
+  // Translators never load the live sheet (their Compendium tab shows the saved snapshot).
+  const count = useCompendiumCount(user?.role !== 'translator');
   const current = workspacePath(pathname);
   return (
     <>
