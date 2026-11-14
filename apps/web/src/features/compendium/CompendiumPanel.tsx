@@ -234,7 +234,12 @@ function usePaneFrame(
     else if (preparation !== false) schedule();
     return () => {
       controller.abort();
-      if (scheduled !== undefined) cancelAnimationFrame(scheduled);
+      if (scheduled !== undefined) {
+        cancelAnimationFrame(scheduled);
+        // A canceled attempt is not a scheduled handoff: returning to this entry (even the same
+        // object) must schedule, and restart the skeleton's grace, again.
+        setScheduledFor((current) => (current === base ? undefined : current));
+      }
       if (frame.current === scheduled) frame.current = undefined;
     };
   }, [base, displayed, prepare, concurrent, stepping]);

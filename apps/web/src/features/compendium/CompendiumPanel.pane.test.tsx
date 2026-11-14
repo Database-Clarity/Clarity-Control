@@ -351,6 +351,38 @@ describe('Compendium pane', () => {
     expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
   });
 
+  it('restarts the grace when a canceled handoff entry returns as the same object', async () => {
+    skeletonTiming.enabled = true;
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const plain = (hash: number) => ({ hash, text: {}, associated: [] }) as unknown as Tooltip;
+    const returning = plain(9);
+    // B's handoff is scheduled but never runs; C supersedes it while its match loads.
+    await act(async () => root.render(createElement(CompendiumPanel, { base: returning })));
+    matchState.loading = true;
+    await act(async () => root.render(createElement(CompendiumPanel, { base: plain(10) })));
+    await act(async () => root.render(createElement(CompendiumPanel, { base: returning })));
+    await tick();
+    matchState.loading = false;
+    await act(async () => root.render(createElement(CompendiumPanel, { base: returning })));
+    await tick();
+    // Its new handoff frame comes before the skeleton's: ready content shows, no 200 ms hold.
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('9');
+  });
+
   it('keeps the header view switch as last shown while a flick passes and lands', async () => {
     skeletonTiming.enabled = true;
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
