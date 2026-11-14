@@ -25232,7 +25232,9 @@ async function inactiveRemovalHash(hash2) {
 }
 var unreviewedInactiveMessage = "Publish inactive move decisions in Review changes before scheduling or publishing this batch";
 async function hasUnpublishedInactiveMove(hash2, snapshot, pushed, aliases, moves) {
-  if (!Object.keys(selectedInactiveMoves(moves, [hash2], aliases)).length) return false;
+  const selected = Object.values(selectedInactiveMoves(moves, [hash2], aliases));
+  if (!selected.length) return false;
+  if (!snapshot && !pushed && selected.every((move) => move.inactive === false)) return false;
   if (isMovedInactive(hash2, moves) || !snapshot || !pushed) return true;
   return await inactivePublishableHash(snapshot, aliases, moves) !== pushed;
 }
