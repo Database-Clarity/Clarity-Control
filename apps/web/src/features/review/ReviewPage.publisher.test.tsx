@@ -254,6 +254,33 @@ it('confirms, stores and sends one operation, then follows it from Publishing to
   await waitFor(() => expect(host.querySelector('[aria-label="Publish activity"]')).toBeNull());
 });
 
+it('refuses an unselected pending import, then publishes its reviewed closure on retry', async () => {
+  bundle.tooltips[10]!.text.en!.text = 'import main from 20';
+  bundle.tooltips[20] = {
+    ...structuredClone(tooltip),
+    hash: 20,
+    custom: { name: 'Dependency', categoryId: 'other' },
+  };
+  await mount();
+  await waitFor(() => expect(host.querySelector('input[data-review-toggle="10"]')).not.toBeNull());
+  await act(async () =>
+    host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
+  );
+  await click('Publish selected');
+  await click('Publish 1');
+  await waitFor(() =>
+    expect(useReviewSession.getState().error).toContain('Select pending imported tooltip 20'),
+  );
+  expect(posts()).toHaveLength(0);
+  expect(useReviewSession.getState().pushing).toBe(false);
+  await selectAll();
+  await click('Publish selected');
+  await click('Publish 2');
+  await waitFor(() => expect(posts()).toHaveLength(1));
+  expect((posts()[0]!.body as { hashes: number[] }).hashes).toEqual([10, 20]);
+  expect(useReviewSession.getState().error).toBeUndefined();
+});
+
 it('shows stale and failed outcomes and leaves the tooltips pending', async () => {
   await mount();
   await selectAll();

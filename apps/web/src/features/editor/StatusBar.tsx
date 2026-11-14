@@ -13,8 +13,10 @@ import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clari
 import styles from './StatusBar.module.scss';
 import type { CursorPositionStore } from './cursorPosition';
 import { keyOf } from './help/reference';
+import { describeGap, type ParityGap } from './parity';
 
-export type StatusPanel = 'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff';
+export type StatusPanel =
+  'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff' | 'parity' | 'terms';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -152,6 +154,8 @@ export function StatusBar({
   validating = false,
   glyphCount,
   retiredCount = 0,
+  parityCount = 0,
+  terms,
   line,
   column,
   preview,
@@ -169,6 +173,13 @@ export function StatusBar({
   glyphCount: number;
   /** Retired markup forms in the text (core/validation/retired.ts); each is also a warning. */
   retiredCount?: number;
+  /** What the English has that the translation lacks (TR1, parity.ts); 0 for English. */
+  parityCount?: number;
+  /**
+   * Translate mode in a language the account may translate: the tooltip's terms (in-game names),
+   * listed by the Terms item (Ctrl+K, then G). Undefined elsewhere: no item.
+   */
+  terms?: { count: number; loading: boolean };
   line: number;
   column: number;
   preview?: PreviewStatus;
@@ -208,6 +219,10 @@ export function StatusBar({
       issues.length,
       retiredCount,
       glyphCount,
+      // The parity label's width changes only with its digit count and "differs"/"differ": typing a
+      // number can change the count on every key, and each refit lays the bar out again.
+      parityCount <= 1 ? parityCount : `n${String(parityCount).length}`,
+      terms === undefined ? '' : terms.count,
       conflicts?.count ?? 0,
       rawView !== undefined && Boolean(onRawView),
       Boolean(onSuggest),
@@ -289,6 +304,50 @@ export function StatusBar({
         <span className={styles.long}>Markup help</span>
         <span className={styles.short}>Help</span>
       </button>
+      {terms && (
+        // Always drawn while translating (disabled while there is nothing to list), so a
+        // tooltip with terms after one without moves nothing in the bar.
+        <button
+          type="button"
+          className={styles.item}
+          data-status-terms
+          disabled={terms.count === 0 && panel !== 'terms'}
+          aria-expanded={panel === 'terms'}
+          aria-controls="editor-panel-terms"
+          aria-keyshortcuts="Control+K G"
+          aria-label={
+            terms.loading
+              ? 'Terms: loading in-game names'
+              : `${terms.count} ${terms.count === 1 ? 'term' : 'terms'} with in-game names`
+          }
+          data-mark="≡"
+          title={
+            terms.loading
+              ? 'Loading the in-game names for this language'
+              : terms.count
+                ? 'In-game names for the terms in this English, to insert (Ctrl+K, then G)'
+                : 'No terms with in-game names in this English'
+          }
+          onMouseDown={(event) => {
+            // With the caret in the text the caret stays there; the list takes the keys.
+            const text = event.currentTarget
+              .closest('[data-editor-root]')
+              ?.querySelector('.cm-content');
+            if (text?.contains(event.currentTarget.ownerDocument.activeElement))
+              event.preventDefault();
+          }}
+          onClick={() => toggle('terms')}
+        >
+          {terms.count > 0 ? (
+            <span>
+              {terms.count}
+              <span className={styles.word}> {terms.count === 1 ? 'term' : 'terms'}</span>
+            </span>
+          ) : (
+            'Terms'
+          )}
+        </button>
+      )}
       {issues.length > 0 && (
         <button
           type="button"
@@ -338,6 +397,27 @@ export function StatusBar({
               <span aria-hidden="true">⚠</span> {retiredCount}{' '}
               <span className={styles.long}>retired markup</span>
               <span className={`${styles.short} ${styles.roomy}`}>retired</span>
+            </span>
+          </button>
+        )}
+        {parityCount > 0 && (
+          <button
+            type="button"
+            className={styles.item}
+            data-severity="warning"
+            data-status-parity
+            aria-expanded={panel === 'parity'}
+            aria-controls="editor-panel-parity"
+            title="Icons, variables, numbers, or lines the English has and this translation lacks; saving is allowed"
+            aria-label={`${parityCount} ${parityCount === 1 ? 'difference' : 'differences'} from English`}
+            onClick={() => toggle('parity')}
+          >
+            <span>
+              <span aria-hidden="true">⚠</span> {parityCount}{' '}
+              <span className={styles.long}>
+                {parityCount === 1 ? 'differs' : 'differ'} from English
+              </span>
+              <span className={`${styles.short} ${styles.roomy}`}>vs English</span>
             </span>
           </button>
         )}
@@ -596,6 +676,22 @@ export function IssuesPanel({
           </li>
         ))}
         {issues.length > 50 && <li>{issues.length - 50} more issues highlighted in the editor.</li>}
+      </ul>
+    </Overlay>
+  );
+}
+
+/** The parity warnings (TR1): one line per thing the translation has fewer of than the English. */
+export function ParityPanel({ gaps, onClose }: { gaps: readonly ParityGap[]; onClose(): void }) {
+  return (
+    <Overlay id="editor-panel-parity" label="Differences from English" onClose={onClose}>
+      <p className={styles.lead}>The English has these and this translation does not yet.</p>
+      <ul aria-label="Differences from English">
+        {gaps.map((gap) => (
+          <li key={`${gap.kind}:${gap.key}`} data-severity="warning" data-parity={gap.kind}>
+            {describeGap(gap)}
+          </li>
+        ))}
       </ul>
     </Overlay>
   );

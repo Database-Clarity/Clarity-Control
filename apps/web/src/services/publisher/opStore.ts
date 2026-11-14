@@ -12,6 +12,8 @@ export interface PublishOp {
   /** Shared logical publish; each chunk keeps its own immutable request identity. */
   groupId?: string;
   groupSize?: number;
+  /** Stable dependency order; ULID random tails do not encode chunk order. */
+  groupIndex?: number;
   /** Numeric account id the body was confirmed under; another account never resumes it. */
   userId: string;
   createdAt: number;
