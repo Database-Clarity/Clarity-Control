@@ -7,23 +7,6 @@
   min-width: 0;
 }
 
-.editorWithNotice {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  min-width: 0;
-}
-
-.inactiveNotice {
-  flex: none;
-  padding: 0.25rem 0.5rem;
-  border-bottom: 1px solid var(--line);
-  color: var(--text2);
-  font-size: 0.75rem;
-  overflow-wrap: anywhere;
-}
-
 .srOnly {
   position: absolute;
   width: 1px;
