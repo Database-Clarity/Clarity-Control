@@ -6,6 +6,9 @@ import { classifiedCategory, navigationGroups } from '../navigation/catalog';
 import { translatableEntry } from '../translations/queue';
 import type { EditorData } from '../../stores/data';
 import type { Item } from '../../services/generator';
+import { reviewCategories } from './reviewCategories';
+import { reviewQueue } from './reviewQueue';
+import { emptyProgress } from './reviewProgress';
 
 const stamp = { by: 1, at: '2026-11-14T00:00:00Z' };
 const item: Item = {
@@ -77,4 +80,27 @@ it('moves an exotic entry into Inactive in the finder and removes it from transl
   expect(classifiedCategory(item, restored)?.id).toBe(item.categoryId);
   expect(translatableEntry(tooltip, restored)?.hash).toBe(item.hash);
   expect(moved.bundle.tooltips[item.hash]).toBe(tooltip);
+});
+
+it('passes inactive decisions into Compendium sample classification, and restores native rules on move-out', () => {
+  const editor = data({});
+  const source = { fetchedAt: stamp.at, tabs: [] };
+  // Capture ordinary entries first: the reviewQueue exclusion is a separate, still-locked hook.
+  const entries = reviewQueue(editor, source, {}, emptyProgress(), '');
+  const sample = (moves: InactiveMoves) =>
+    reviewCategories(
+      entries,
+      { ...editor, bundle: { ...editor.bundle, inactiveMoves: moves } },
+      new Map(),
+      false,
+    )
+      .flatMap((category) => category.entries)
+      .find((entry) => entry.hash === item.hash)!;
+  const native = sample({}).classification;
+  expect(sample({ [item.hash]: stamp }).classification).toMatchObject({
+    categoryId: inactiveCategory,
+    ruleId: 'maintainer-inactive',
+    excluded: true,
+  });
+  expect(sample({ [item.hash]: { ...stamp, inactive: false } }).classification).toEqual(native);
 });
