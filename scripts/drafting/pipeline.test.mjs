@@ -42,9 +42,10 @@ const item = {
 };
 it('allows enhanced pairs in catalog-confirmed mod categories and excludes unused owner hashes', () => {
   const mod = { ...item, category: 'weapon-mod', source: { text: 'Refills 50% ↑60% of Magazine.' }, enhancedCategory: true };
-  const explained = 'Refills {{50%}{60%}} of the magazine.\n\nenhanced (\n<enhanced/> Refills 60% instead.\n)';
+  const explained = 'Refills {{50%}{60%}} of the magazine.\n\nenhanced (\n<enhanced/> Refill amount is increased (50%<arrow/>60%).\n)';
   expect(validateDraft(mod, explained, editor, app)).toEqual([]);
   expect(validateDraft(mod, 'Refills {{50%}{60%}} of the magazine.', editor, app)).toContain('Style: enhanced value needs a separate enhanced-only explanation');
+  expect(validateDraft(mod, explained.replace('is increased (50%<arrow/>60%)', 'is increased to 60%'), editor, app)).toContain('Style: enhanced explanation must state the change, not only the result');
   expect(validateDraft({ ...mod, enhancedCategory: false }, 'Refills {{50%}{60%}} of the magazine.', editor, app)).toContain('Enhanced markup outside an enhanced-capable category');
   expect([...ownerExcludedHashes]).toEqual([2077016094, 2733010662, 2734970071, 3458160468]);
 });
@@ -144,6 +145,11 @@ it('finds base exotic wording through item names and declines ambiguous base ide
   });
   e.items[102] = { ...e.items[101], hash: 102 };
   expect(baseExoticFor({ name: 'Spirit of Osmiomancy' }, e, (h) => h)).toBeUndefined();
+  e.items = {
+    101: { hash: 101, name: 'Wraithmetal Mail', itemName: "The Dragon's Shadow", categoryId: 'armor-trait-exotic' },
+    102: { hash: 102, name: 'Wish-Dragon Teeth', itemName: "Young Ahamkara's Spine", categoryId: 'armor-trait-exotic' },
+  };
+  expect(baseExoticFor({ name: 'Spirit of the Dragon' }, e, (h) => h)?.hash).toBe(101);
 });
 it('never admits source identity without a real grid range, and respects saved English', () => {
   const f = guidedFixture();

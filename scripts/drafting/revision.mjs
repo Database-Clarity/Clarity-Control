@@ -8,6 +8,57 @@ export const revisionDigest = drafts => createHash('sha256').update(JSON.stringi
   draftDigest: draftDigest(drafts), whatChanged: drafts._meta?.whatChanged,
 })).digest('hex');
 
+export function finalSampleFromTemplate(html, input, drafts, validation, critique) {
+  if (input.styleGuide !== 'v4.11' || input.items.length !== 21 || input.items[0].hash !== 3550545621 ||
+      critique.verdict !== 'APPROVE' || critique.digestsReproduced !== true ||
+      critique.draftDigest !== draftDigest(drafts) || critique.revisionDigest !== revisionDigest(drafts) ||
+      critique.inputDigest !== sampleInputDigest(input) || critique.guideKitSha256 !== input.guideKitSha256 ||
+      drafts._meta.guideKitSha256 !== input.guideKitSha256)
+    throw Error('Exact final-sample approval required');
+  if (Object.keys(validation.errors).length || Object.keys(validation.accepted).length !== 21)
+    throw Error('All 21 validations required');
+  const document = new JSDOM(html).window.document, list = document.querySelector('.list');
+  const template = list?.querySelector('article[data-hash]');
+  if (!template) throw Error('Missing owner sample template');
+  const rows = [], seen = new Set(), names = new Set();
+  for (const item of input.items) {
+    const hash = String(item.hash), confirmation = item.sampleKind === 'confirmation';
+    if (seen.has(hash) || (!confirmation && (input.excludedHashes.includes(item.hash) || input.excludedNames.includes(item.name) || names.has(item.name))))
+      throw Error('Previously shown or duplicate final sample');
+    if (confirmation !== (item.hash === 3550545621) || critique.checksByHash[hash] !== 'PASS' ||
+        validation.accepted[hash] !== drafts[hash] || styleLint(drafts[hash]).length || (!confirmation && !item.ownerPrecedents?.length))
+      throw Error(`Ungated sample ${hash}`);
+    seen.add(hash); names.add(item.name);
+    const row = template.cloneNode(true); row.dataset.hash = hash;
+    row.querySelector('h2').textContent = item.name;
+    row.querySelector('.was .label').textContent = confirmation ? 'Your note' : 'Compendium source';
+    row.querySelector('.note').textContent = confirmation ? item.ownerFeedback.note : item.source.text;
+    row.querySelector('.now .label').textContent = confirmation ? 'New text' : 'Draft text';
+    row.querySelector('.now pre').textContent = drafts[hash];
+    row.querySelectorAll('aside,.inherited,details').forEach(el => el.remove());
+    if (item.baseExotic) {
+      const details = document.createElement('details'), summary = document.createElement('summary'), pre = document.createElement('pre');
+      summary.textContent = `Base exotic: ${item.baseExotic.name}`; pre.textContent = item.baseExotic.english;
+      details.append(summary, pre); row.querySelector('.was').append(details);
+    }
+    const warnings = drafts._meta.sourceWarnings?.[hash] ?? [];
+    if (warnings.length) { const aside = document.createElement('aside'); aside.textContent = warnings.join(' '); row.querySelector('.now').append(aside); }
+    row.querySelector('.changed').textContent = confirmation ? `What changed: ${drafts._meta.whatChanged[hash]}` : `New sample · ${item.group}`;
+    const control = row.querySelector('.fb'); control.dataset.hash = hash;
+    control.querySelector('[role=group]').setAttribute('aria-label', `Verdict for ${item.name}`);
+    control.querySelectorAll('button').forEach(el => el.setAttribute('aria-pressed', 'false'));
+    const note = control.querySelector('textarea'); note.value = ''; note.textContent = ''; note.setAttribute('aria-label', `Optional note for ${item.name}`);
+    control.querySelector('.st').textContent = ''; rows.push(row);
+  }
+  list.replaceChildren(...rows);
+  document.title = 'Final tooltip sample · v4.11'; document.querySelector('h1').textContent = document.title;
+  document.querySelector('.top-in > p').textContent = 'Stunloader confirmation, then 20 new tooltips. The full drafting run remains on hold.';
+  const script = [...document.scripts].find(s => s.textContent.includes("db.collection('feedback410')"));
+  if (!script) throw Error('Unexpected feedback template');
+  script.textContent = script.textContent.replaceAll('feedback410', 'feedback411');
+  return document.documentElement.outerHTML;
+}
+
 // Preserve the owner's published template and CSS; replace reading surfaces only.
 export function revisionFromTemplate(html, input, drafts, validation, critique) {
   const expectedCount = { 'v4.9': 5, 'v4.10': 2 }[input.styleGuide];

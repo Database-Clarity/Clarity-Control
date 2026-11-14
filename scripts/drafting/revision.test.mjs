@@ -1,7 +1,22 @@
 import { expect, it } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { revisionDigest, revisionPage, revisionFromTemplate, feedbackScript } from './revision.mjs';
+import { revisionDigest, revisionPage, revisionFromTemplate, finalSampleFromTemplate, feedbackScript } from './revision.mjs';
 import { draftDigest, sampleInputDigest } from './fresh.mjs';
+
+it('puts Stunloader first, rejects reused fresh items, and isolates feedback411', () => {
+  const input = { styleGuide: 'v4.11', guideKitSha256: 'kit', excludedHashes: [], excludedNames: [], items: [{ hash: 3550545621, name: 'Stunloader', sampleKind: 'confirmation', ownerFeedback: { note: 'Explain the change.' } }, ...Array.from({ length: 20 }, (_, n) => ({ hash: n + 1, name: `Fresh ${n}`, group: 'Subclass', sampleKind: 'fresh', ownerPrecedents: [{ hash: 100 }], source: { text: 'Source.' } }))] };
+  const drafts = { _meta: { guideKitSha256: 'kit', whatChanged: { 3550545621: 'Explained the change.' } } }, validation = { errors: {}, accepted: {} };
+  for (const item of input.items) { drafts[item.hash] = 'Grants a benefit.'; validation.accepted[item.hash] = drafts[item.hash]; }
+  const critique = { verdict: 'APPROVE', digestsReproduced: true, guideKitSha256: 'kit', draftDigest: draftDigest(drafts), revisionDigest: revisionDigest(drafts), inputDigest: sampleInputDigest(input), checksByHash: Object.fromEntries(input.items.map(i => [i.hash, 'PASS'])) };
+  const html = `<html><head><style>.cols{display:grid}</style></head><body><h1></h1><div class="top-in"><p></p></div><div class="list"><article data-hash="3550545621"><h2></h2><section class="was"><div class="label"></div><p class="note"></p></section><section class="now"><div class="label"></div><pre></pre></section><p class="changed"></p><div class="fb"><div role="group"><button></button></div><textarea></textarea><span class="st"></span></div></article></div><script>${feedbackScript.replaceAll('feedback48', 'feedback410')}</script></body></html>`;
+  const result = finalSampleFromTemplate(html, input, drafts, validation, critique), doc = new JSDOM(result).window.document;
+  expect(doc.querySelectorAll('article')).toHaveLength(21);
+  expect(doc.querySelector('article').dataset.hash).toBe('3550545621');
+  expect(doc.querySelector('style').textContent).toBe('.cols{display:grid}');
+  expect(result).toContain("db.collection('feedback411')"); expect(result).not.toContain('feedback410');
+  const reused = { ...input, excludedHashes: [1] };
+  expect(() => finalSampleFromTemplate(html, reused, drafts, validation, { ...critique, inputDigest: sampleInputDigest(reused) })).toThrow('Previously shown');
+});
 
 it('preserves template styling while selecting only five v4.9 changes and feedback49', () => {
   const input = { styleGuide: 'v4.9', guideKitSha256: 'kit', items: Array.from({ length: 5 }, (_, hash) => ({ hash, ownerFeedback: { verdict: 'change', note: "Owner's new note" } })) };

@@ -47,14 +47,17 @@ export function baseExoticFor(item, editor, canonicalHash) {
       base.categoryId === 'armor-trait-exotic' &&
       [base.name, base.itemName ?? ''].some((name) => ` ${normal(name)} `.includes(` ${stem} `)),
   );
-  const bases = new Map(candidates.map((base) => [canonicalHash(base.hash, editor), base]));
+  // Equipment names are stronger identities than thematic perk names (for
+  // example Dragon's Shadow versus Wish-Dragon Teeth/Talons).
+  const equipmentMatches = candidates.filter((base) => ` ${normal(base.itemName ?? '')} `.includes(` ${stem} `));
+  const bases = new Map((equipmentMatches.length ? equipmentMatches : candidates).map((base) => [canonicalHash(base.hash, editor), base]));
   if (bases.size !== 1) return undefined;
   const [hash, base] = [...bases][0];
   const english = editor.bundle.tooltips[hash]?.text.en?.text;
   return english?.trim() ? { hash, name: base.itemName ?? base.name, english } : undefined;
 }
 
-export function buildInputs(editor, source, sourceCommit, app) {
+export function buildInputs(editor, source, sourceCommit, app, { includeExoticWeapons = false } = {}) {
   const evidence = app.reviewEvidence(editor, source, {}, '');
   const proposals = new Map(
     evidence.map((entry) => [entry.hash, app.proposalFor(entry.base, editor, source)]),
@@ -95,7 +98,7 @@ export function buildInputs(editor, source, sourceCommit, app) {
       counts[group][reason]++;
       skipped.push({ hash: entry.hash, name: entry.name, group, reason });
     };
-    if (group === 'Exotic Weapons' || ownerExcludedHashes.has(entry.hash)) {
+    if ((!includeExoticWeapons && group === 'Exotic Weapons') || ownerExcludedHashes.has(entry.hash)) {
       skip('excludedByGuide');
       continue;
     }

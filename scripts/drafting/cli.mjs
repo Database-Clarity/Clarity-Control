@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { buildInputs, selectSample, validateDraft } from './pipeline.mjs';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
+const root = process.env.DRAFTING_APP_ROOT ?? fileURLToPath(new URL('../../', import.meta.url));
 const [command, directory, inputFile, outputFile] = process.argv.slice(2);
 if (!directory || !['inputs', 'offline', 'validate'].includes(command))
   throw new Error(
@@ -20,6 +20,7 @@ await mkdir(directory, { recursive: true });
 const server = await createServer({
   root,
   configFile: false,
+  resolve: { alias: { '@clarity/core': path.join(root, 'packages/core/src/index.ts') } },
   server: { middlewareMode: true, hmr: false },
 });
 try {
@@ -95,7 +96,9 @@ try {
     const source = app.compendiumDataSchema.parse(rawSource);
     source.tabs = source.tabs.filter((tab) => app.isTrackedCompendiumTab(tab.name));
     const result = app.withCompendiumMatchingIndex(source, () =>
-      buildInputs(editor, source, pins.compendium, app),
+      buildInputs(editor, source, pins.compendium, app, {
+        includeExoticWeapons: process.env.DRAFTING_INCLUDE_EXOTIC_WEAPONS === '1',
+      }),
     );
     await write(path.join(directory, 'snapshot.json'), { editor, source, pins });
     await write(path.join(directory, 'inputs.json'), {
