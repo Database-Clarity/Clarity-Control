@@ -5,7 +5,7 @@ import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 
 // Delimited variables (`#{d}`) and the arrow symbol (`<enhanced/>`) on the real save and push
 // routes: accepted on save while the live exporter lowers them (core braces.ts), push-live exports
-// today's `#d` and `#e`, and once the publisher exports, its PIN must declare `delimitedMarkup`.
+// today's `#d` and `#e`, and once the publisher exports, its PIN must declare `markupBraces`.
 let key: string;
 let fixture: Fixture;
 beforeAll(async () => {
@@ -23,7 +23,7 @@ const revision = { updatedAt: '2026-10-02T00:00:00Z', updatedBy: 'bob' };
 const save = (base: Tooltip | null, next: Tooltip, user = 1) =>
   fixture.request('/save', 'POST', { changes: [{ hash: 123, base, next }], message: 'Edit' }, user);
 const pin = { sourceSha: 'a'.repeat(40), sha256: 'b'.repeat(64) };
-const capable = { ...pin, capabilities: ['elementTags', 'delimitedMarkup'] };
+const capable = { ...pin, capabilities: ['elementTags', 'markupBraces'] };
 
 describe('save guard for #{name} and <enhanced/>', () => {
   it('saves both forms while push-live exports, exactly as written', async () => {
@@ -39,13 +39,13 @@ describe('save guard for #{name} and <enhanced/>', () => {
     expect(response.status).toBe(200);
   });
 
-  it('publisher on: refuses them when the PIN lacks delimitedMarkup', async () => {
+  it('publisher on: refuses them when the PIN lacks markupBraces', async () => {
     publisherConfig.enabled = true;
     fixture.moveData({ '.publisher/PIN': { ...pin, capabilities: ['elementTags'] } });
     const response = await save(tooltip(), tooltip('var d = 5\nDeals #{d}x.'));
     expect(response.status).toBe(422);
     expect((await response.json()).error).toBe(
-      `Tooltip 123 (en) contains "#{d}", which can't be saved: the publisher installed in the data branch does not lower it yet (.publisher/PIN lacks the "delimitedMarkup" capability). Write #name or #e for now.`,
+      `Tooltip 123 (en) contains "#{d}", which can't be saved: the publisher installed in the data branch does not lower it yet (.publisher/PIN lacks the "markupBraces" capability). Write #name or #e for now.`,
     );
     const arrow = await save(tooltip(), {
       ...tooltip(),
@@ -56,7 +56,7 @@ describe('save guard for #{name} and <enhanced/>', () => {
     expect(fixture.commits).toHaveLength(0);
   });
 
-  it('publisher on: saves them when the PIN declares delimitedMarkup', async () => {
+  it('publisher on: saves them when the PIN declares markupBraces', async () => {
     publisherConfig.enabled = true;
     fixture.moveData({ '.publisher/PIN': capable });
     expect((await save(tooltip(), tooltip('var d = 5\n<enhanced/>#{d}x'))).status).toBe(200);

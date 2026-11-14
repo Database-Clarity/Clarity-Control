@@ -18,7 +18,7 @@ export const elementTagsCapability = 'elementTags';
  * The PIN capability of a publisher build whose exportLegacy lowers delimited variables (`#{d}`)
  * and the arrow symbol (`<enhanced/>`) to today's `#d` and `#e` (core braces.ts).
  */
-export const delimitedMarkupCapability = 'delimitedMarkup';
+export const markupBracesCapability = 'markupBraces';
 
 /**
  * Which exporter is live. While the publisher switch is off, the live export is this Worker's own
@@ -37,9 +37,9 @@ export function pinLowersElementTags(pin: unknown): boolean {
 }
 
 /** Whether a data-head `.publisher/PIN` value declares that its build lowers `#{d}` and `<enhanced/>`. */
-export function pinLowersDelimitedMarkup(pin: unknown): boolean {
+export function pinLowersMarkupBraces(pin: unknown): boolean {
   const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
-  return Array.isArray(capabilities) && capabilities.includes(delimitedMarkupCapability);
+  return Array.isArray(capabilities) && capabilities.includes(markupBracesCapability);
 }
 
 /** The first language of `tooltip` holding `#{name}` or `<enhanced/>`. */
@@ -64,7 +64,7 @@ export function needsLowering(tooltip: Tooltip): boolean {
 /**
  * Server guard for `#{name}` and `<enhanced/>`: accepted whenever the ACTIVE exporter lowers them
  * (always while push-live exports; once the publisher is on, only a build whose PIN declares
- * `delimitedMarkup`). Unlowered, today's apps would print `#{d}` and drop the arrow.
+ * `markupBraces`). Unlowered, today's apps would print `#{d}` and drop the arrow.
  */
 export function refuseUnlowerableDelimited(tooltip: Tooltip, lowers: boolean, action: string): void {
   if (lowers) return;
@@ -72,7 +72,7 @@ export function refuseUnlowerableDelimited(tooltip: Tooltip, lowers: boolean, ac
   if (!found) return;
   throw new HttpError(
     422,
-    `Tooltip ${tooltip.hash} (${found.lang}) contains "${found.text}", which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${delimitedMarkupCapability}" capability). Write #name or #e for now.`,
+    `Tooltip ${tooltip.hash} (${found.lang}) contains "${found.text}", which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${markupBracesCapability}" capability). Write #name or #e for now.`,
   );
 }
 
@@ -87,7 +87,7 @@ export function refuseUnlowerable(
   refuseUnlowerableTags(tooltip, pin === undefined || pinLowersElementTags(pin.value), action);
   refuseUnlowerableDelimited(
     tooltip,
-    pin === undefined || pinLowersDelimitedMarkup(pin.value),
+    pin === undefined || pinLowersMarkupBraces(pin.value),
     action,
   );
 }
