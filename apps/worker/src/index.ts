@@ -13,6 +13,8 @@ import { pushLive } from './push.js';
 import { sandboxPointersRoute } from './sandboxPointers.js';
 import { save } from './save.js';
 import { reports, purgeReports } from './reports.js';
+import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
+import { minuteCron, scheduleTick } from './schedule/lifecycle.js';
 import { userSettings } from './settings.js';
 import type { Context, Env } from './types.js';
 
@@ -26,8 +28,10 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (!publisherConfig.enabled && ['/publish', '/publish/kick'].includes(path))
     throw new HttpError(503, 'Publisher is not enabled');
   if (request.method === 'GET' && path === '/publish/key') return publishKey(env);
+  if (isBatchPath(path)) refuseWhenOff();
   const user = await identity(request, env);
   const github = new GitHub(env);
+  if (isBatchPath(path)) return batchesRoute(request, path, github, user);
   if (request.method === 'POST' && path === '/publish') return publish(request, github, user);
   if (request.method === 'GET' && path === '/publish/status')
     return publishStatus(request, github, user);
@@ -74,10 +78,13 @@ async function route(request: Request, env: Env): Promise<Response> {
 
 const worker: {
   fetch(request: Request, env: Env, context: Context): Promise<Response>;
-  scheduled(event: unknown, env: Env, context: Context): void;
+  scheduled(event: { cron?: string }, env: Env, context: Context): void;
 } = {
-  scheduled(_event, env, context) {
-    context.waitUntil(purgeReports(env));
+  // Dispatch by trigger: the per-minute trigger (gate G1, phase P5) only drives scheduled
+  // batches; every other trigger keeps today's hourly report purge, so it stays hourly.
+  scheduled(event, env, context) {
+    if (event?.cron === minuteCron) context.waitUntil(scheduleTick(env));
+    else context.waitUntil(purgeReports(env));
   },
   async fetch(request, env) {
     const origin = request.headers.get('Origin');

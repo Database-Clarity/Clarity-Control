@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { maxBuffer } from './childProcess.mjs';
 
 export class RefRace extends Error {}
 export type Tree = Record<string, string>;
@@ -36,6 +37,7 @@ export class LocalRepository implements Repository {
     return execFileSync('git', ['--git-dir', this.path, ...args], {
       input,
       timeout: this.commandTimeout,
+      maxBuffer,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {

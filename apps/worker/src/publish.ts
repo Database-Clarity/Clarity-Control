@@ -18,11 +18,14 @@ import {
   publishPayloadSchema,
   stableStringify,
   validatePublishTime,
+  type Aliases,
 } from '@clarity/core';
 import { unbase64 } from './crypto.js';
 import { body, HttpError, json } from './http.js';
 import { requireAccess } from './permissions.js';
-import type { GitHub, RepoFile } from './github.js';
+import type { GitHub, RepoFile, TreeNode } from './github.js';
+import { schedulePaths } from '@clarity/core/schedule';
+import { switches } from './schedule/store.js';
 import type { Env, Identity } from './types.js';
 
 const envelopeSchema = z.object({ payload: z.string(), sig: z.string() }).strict();
@@ -43,12 +46,12 @@ let signingCache:
   | undefined;
 const statusIdsSchema = z.array(publishOpIdSchema).min(1).max(1);
 const resultStatusSchema = z.object({
-  status: z.enum(['done', 'unchanged', 'stale', 'rejected', 'failed']),
+  status: z.enum(['done', 'unchanged', 'stale', 'rejected', 'failed', 'cancelled']),
 });
 const kickSchema = z.object({ opId: publishOpIdSchema }).strict();
 
 /** PKCS8 PEM secret. Only the public SPKI and its fingerprint may leave this module. */
-async function signingKey(env: Env) {
+export async function signingKey(env: Env) {
   if (!env.PUBLISH_SIGNING_KEY) throw new HttpError(503, 'Publisher is not enabled');
   if (signingCache?.secret === env.PUBLISH_SIGNING_KEY) return signingCache.value;
   try {
@@ -93,6 +96,28 @@ function logged(file: RepoFile | null) {
   return file ? logSchema.parse(file.value) : undefined;
 }
 
+/**
+ * Admission copy of the publisher's guard (R3): a hash whose batch activation conflicted waits for
+ * its resolution before any manual publish. The publisher enforces it again at drain time (I1).
+ */
+function refuseActivationConflicts(
+  listing: readonly TreeNode[] | null | undefined,
+  hashes: readonly number[],
+  aliases: Aliases,
+): void {
+  if (!listing?.length) return;
+  const names = new Set(listing.map(({ name }) => name));
+  const blocked = hashes.filter((hash) => names.has(`${resolveAlias(hash, aliases)}.json`));
+  if (blocked.length)
+    throw new HttpError(
+      409,
+      `Tooltip ${blocked[0]} has an unresolved batch activation; resolve it first`,
+      {
+        hashes: blocked,
+      },
+    );
+}
+
 export async function publish(request: Request, github: GitHub, user: Identity) {
   const value = await body(request, publishBodySchema, 300 * 1024);
   const intent = {
@@ -113,12 +138,13 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
   // a final read is mandatory even when the last create timed out after landing.
   for (let attempt = 0; attempt < 3; attempt++) {
     // The publisher's PIN rides in the same read: its build must lower element-tagged text.
-    const snapshot = await github.publishSnapshot([
-      'config/permissions.json',
-      ...paths,
-      publisherPinPath,
-      sandboxPointersPath,
-    ]);
+    // While scheduled batches are enabled, a names-only listing of the activation conflicts joins
+    // the same read (0 extra subrequests; spec "Activation and conflicts", R3).
+    const snapshot = await github.publishSnapshot(
+      ['config/permissions.json', ...paths, publisherPinPath, sandboxPointersPath],
+      [],
+      switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
+    );
     requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, [
       'maintainer',
       'editor',
@@ -157,6 +183,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       refuseHeldSetBonuses(
         value.hashes.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
       );
+      refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
       for (const hash of value.hashes) {
         const tooltip = checked.get(resolveAlias(hash, aliases));
         if (tooltip && isTextlessDescription(tooltip))
