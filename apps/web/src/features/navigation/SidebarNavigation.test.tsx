@@ -246,6 +246,11 @@ describe('context-aware navigation', () => {
       sheet!.querySelector('[aria-label="Compendium review queue"] [aria-selected="true"]'),
     ).not.toBeNull();
     expect(document.body.style.overflow).toBe('hidden');
+    // The shell turns inert after the opening frame (ShellOverlay, R15).
+    await act(
+      async () =>
+        void (await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))),
+    );
     expect(host.querySelector('#shell-root')?.hasAttribute('inert')).toBe(true);
 
     await act(async () => {
