@@ -19,7 +19,7 @@ import {
   type PublishPayload,
   type Tooltip,
 } from '../../packages/core/src/index.js';
-import { LocalRepository, RefRace, type Tree } from './git.js';
+import { LocalRepository, RefRace, requesterCredits, type Tree } from './git.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { runPipeline } from './pipeline.js';
@@ -237,7 +237,18 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         hash: 125,
         editor: { en: { main: 'Published', secondary: 'Published' } },
       };
-      f.change(L, { 'liveDescriptions.json': { perks: { 125: published }, databaseSettings: {} } });
+      f.change(L, {
+        'liveDescriptions.json': {
+          perks: {
+            ...f.pub.read<{ perks: Record<string, unknown> }>(
+              f.git.tree(f.git.head(L)!),
+              'liveDescriptions.json',
+            )!.perks,
+            125: published,
+          },
+          databaseSettings: {},
+        },
+      });
       const root = { ...f.tooltip, associated: [125] };
       f.change(D, {
         'tooltips/123.json': root,
@@ -278,6 +289,167 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     vi.unstubAllGlobals();
     for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
   });
+  it('refuses a new computed text-less Nail, Meet Hammer row before committing any candidate', async () => {
+    const f = await setup();
+    const source = {
+      ...f.tooltip,
+      hash: 1209885908,
+      custom: { name: 'Nail, Meet Hammer', categoryId: 'perk' },
+      text: { en: { ...f.tooltip.text.en!, text: 'import main from 2152442764' } },
+    };
+    const target = { hash: 2152442764, editor: { en: { main: '', secondary: '' } } };
+    const old = f.pub.read<{ perks: Record<string, unknown>; databaseSettings: unknown }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!;
+    f.change(L, {
+      'liveDescriptions.json': { ...old, perks: { ...old.perks, 2152442764: target } },
+    });
+    f.change(D, { 'tooltips/1209885908.json': source });
+    await f.request(A, [source.hash], { [source.hash]: await publishableHash(source) });
+    f.change(D, {
+      'config/permissions.json': {
+        users: { '1': { login: 'alice', role: 'editor' }, '2': { login: 'bob', role: 'editor' } },
+      },
+    });
+    await f.request(B, [123], undefined, { requester: { id: 2, login: 'bob' } });
+    const live = f.git.head(L);
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(live);
+    const rejected = f.git.head(D)!;
+    expect(f.pub.read(f.git.tree(rejected), paths(A).log)).toMatchObject({
+      result: {
+        status: 'rejected',
+        error: expect.stringMatching(/TextlessConsumerOutput.*1209885908/),
+      },
+    });
+    expect(f.git.git(['show', '-s', '--format=%an <%ae>|%cn <%ce>', rejected]).trim()).toBe(
+      'alice <1+alice@users.noreply.github.com>|clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>',
+    );
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+    await f.pub.run();
+    f.assertDone(B);
+    expect(
+      f.pub.read<Record<string, string>>(f.git.tree(f.git.head(D)!), 'live/pushed.json'),
+    ).not.toHaveProperty('1209885908');
+  });
+
+  it('credits Publish, recovered Record, and bundle commits from the signed requester and app', async () => {
+    const f = await setup();
+    await f.request();
+    const record = f.pub.record.bind(f.pub);
+    f.pub.record = async () => {
+      throw new Error('crash before record');
+    };
+    await expect(f.pub.operation(A)).rejects.toThrow('crash before record');
+    const live = f.git.head(L)!;
+    const identity = (commit: string) =>
+      f.git.git(['show', '-s', '--format=%an <%ae>|%cn <%ce>', commit]).trim();
+    const expected =
+      'alice <1+alice@users.noreply.github.com>|clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>';
+    expect(identity(live)).toBe(expected);
+    f.pub.record = record;
+    const fingerprint = f.options.keyFingerprint,
+      data = f.git.head(D);
+    f.options.keyFingerprint = 'unverified';
+    await expect(f.pub.operation(A)).rejects.toThrow('Invalid credit envelope');
+    expect(f.git.head(D)).toBe(data);
+    f.options.keyFingerprint = fingerprint;
+    await f.pub.operation(A);
+    expect(identity(f.git.head(D)!)).toBe(expected);
+    // Closing a retried request is still attributable to its signed requester.
+    await f.request();
+    await f.pub.operation(A);
+    expect(identity(f.git.head(D)!)).toBe(expected);
+    expect(f.git.head(L)).toBe(live);
+    f.pub.bundle();
+    expect(identity(f.git.head('refs/heads/editor-data-bundle')!)).toBe(
+      'clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>|clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>',
+    );
+  });
+
+  it('does not credit a forged requester, and rejects identity injection', async () => {
+    const f = await setup();
+    const { envelope } = await f.request();
+    const forged = JSON.parse(envelope.payload);
+    forged.requester.login = 'forged';
+    f.change(D, { [paths(A).request]: { ...envelope, payload: stableStringify(forged) } });
+    const live = f.git.head(L);
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(live);
+    expect(f.git.git(['show', '-s', '--format=%an', f.git.head(D)!]).trim()).toBe(
+      'clarity-editor-backend[bot]',
+    );
+    for (const login of ['bad\nInjected', 'bad <email>', 'name@example.com', ''])
+      expect(() => requesterCredits({ id: 1, login })).toThrow('Invalid publisher requester');
+  });
+
+  it('does not allow simulator defaults on a GitHub transport', async () => {
+    const f = await setup();
+    const remote = new RemoteRepository(f.git.path, {
+      repo: 'Database-Clarity/Live-Clarity-Database',
+      token: 'local-test-only',
+    });
+    expect(() => remote.commit(undefined, {}, 'Unattributed')).toThrow(
+      'Remote commits require explicit credits',
+    );
+  });
+
+  it('allows historical computed text-less rows while publishing unrelated text', async () => {
+    const f = await setup();
+    const old = f.pub.read<{ perks: Record<string, unknown>; databaseSettings: unknown }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!;
+    f.change(L, {
+      'liveDescriptions.json': {
+        ...old,
+        perks: {
+          ...old.perks,
+          999: {
+            hash: 999,
+            editor: { en: { main: 'import main from 1000', secondary: 'import main from 1000' } },
+          },
+          1000: { hash: 1000, editor: { en: { main: '', secondary: '' } } },
+        },
+      },
+    });
+    await f.request();
+    await f.pub.operation(A);
+    f.assertDone();
+  });
+
+  it('rejects an unsafe stored candidate before live CAS and continues the queue', async () => {
+    const f = await setup();
+    await f.request();
+    const cas = f.git.cas.bind(f.git);
+    f.git.cas = (ref, old, next) => {
+      if (ref === L) throw new Error('hold live');
+      cas(ref, old, next);
+    };
+    f.options.backoff = async () => {
+      throw new Error('stop before live');
+    };
+    await expect(f.pub.operation(A)).rejects.toThrow('stop before live');
+    f.git.cas = cas;
+    f.options.backoff = async () => {};
+    const live = f.git.head(L),
+      candidate = f.git.head(paths(A).candidate)!;
+    const tree = f.git.tree(candidate);
+    tree['liveDescriptions.json'] = f.git.writeBlob(encode({ perks: {}, databaseSettings: {} }));
+    const unsafe = f.git.commit(live, tree, 'Simulate an older unsafe candidate');
+    f.git.cas(paths(A).candidate, candidate, unsafe);
+    await f.request(B);
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(live);
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: expect.stringContaining('stored candidate differs') },
+    });
+    await f.pub.run();
+    f.assertDone(B);
+  });
+
   async function setup() {
     const root = mkdtempSync(join(tmpdir(), 'publisher-fixture-'));
     roots.push(root);
@@ -328,7 +500,19 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       undefined,
       git.commit(
         undefined,
-        { 'liveDescriptions.json': git.writeBlob(encode({ perks: {}, databaseSettings: {} })) },
+        {
+          'liveDescriptions.json': git.writeBlob(
+            encode({
+              perks: Object.fromEntries(
+                [1, 2, 3].map((hash) => [
+                  hash,
+                  { hash, editor: { en: { main: '', secondary: '' } } },
+                ]),
+              ),
+              databaseSettings: {},
+            }),
+          ),
+        },
         'Seed live',
       ),
     );
@@ -1397,6 +1581,21 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       456: { name: 'Member 456', type: 'Weapon Perk', itemHash: 2456 },
     };
     f.change(D, worker.current());
+    worker.live.perks = {
+      ...f.pub.read<{ perks: Record<string, unknown> }>(
+        f.git.tree(f.git.head(L)!),
+        'liveDescriptions.json',
+      )!.perks,
+      ...(worker.live.perks as Record<string, unknown>),
+    };
+    // This oracle now crosses the real consumer boundary, which reads both editor forms.
+    for (const perk of Object.values(
+      worker.live.perks as Record<
+        string,
+        { editor?: Record<string, { main: string; secondary?: string }> }
+      >,
+    ))
+      for (const text of Object.values(perk.editor ?? {})) text.secondary ??= text.main;
     f.change(L, { 'liveDescriptions.json': worker.live });
     const expected = {
       123: await publishableHash(values.changed, worker.aliases),

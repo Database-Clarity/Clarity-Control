@@ -5,6 +5,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
@@ -27,7 +28,6 @@ import {
   countRows,
   filterRows,
   parseStateFilter,
-  queueFor,
   translationIndex,
   type QueueFilters,
   type QueueRow,
@@ -42,9 +42,66 @@ import { returnedState } from '../queue/WorkThroughBar';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './TranslationsPage.module.scss';
 import { useLeftQueue } from '../queue/useQueue';
+import { useSizeOrder, useChangeSizes, type ChangeSize } from './useChangeSizes';
+import { SkeletonBlock } from '../../ui/Skeleton';
+import skeletonStyles from '../../ui/Skeleton.module.scss';
 
 const searchDelayMs = 200;
 const noRows: readonly QueueRow[] = [];
+
+export function ChangeCount({
+  value,
+  identity,
+  name,
+  onRetry,
+}: {
+  value: ChangeSize | undefined;
+  identity: string;
+  name: string;
+  onRetry(): void;
+}) {
+  const loading = useSkeletonVisible(!value, identity, !!value);
+  return (
+    <span
+      className={styles.changeSize}
+      title={
+        value && 'count' in value
+          ? 'English words added plus removed since this translation'
+          : value && 'error' in value
+            ? value.error
+            : 'Finding English changes'
+      }
+    >
+      {loading ? (
+        <span
+          className={skeletonStyles.region}
+          style={{ display: 'inline-block' }}
+          aria-hidden="true"
+        >
+          <SkeletonBlock height="0.65rem" width="3.5rem" />
+        </span>
+      ) : value && 'count' in value ? (
+        `${value.count} ${value.count === 1 ? 'word' : 'words'}`
+      ) : (
+        <button
+          type="button"
+          className={styles.retrySize}
+          aria-label={`Retry English change size for ${name}`}
+          onClick={(event) => {
+            // The pending/result cell replaces this button. Keep keyboard navigation on its row.
+            event.currentTarget
+              .closest('li')
+              ?.querySelector<HTMLAnchorElement>('a')
+              ?.focus({ preventScroll: true });
+            onRetry();
+          }}
+        >
+          Unavailable
+        </button>
+      )}
+    </span>
+  );
+}
 
 export type TranslationsSource = 'current' | 'upcoming';
 
@@ -195,6 +252,7 @@ function Coverage({
   scope,
   open,
   onPick,
+  maintainer,
 }: {
   index: TranslationIndex;
   languages: readonly Lang[];
@@ -203,7 +261,10 @@ function Coverage({
   scope: { id: string; label: string } | undefined;
   open: boolean;
   onPick(language: Lang): void;
+  maintainer: boolean;
 }) {
+  const [table, setTable] = useState(false);
+  const languagesButton = useRef<HTMLButtonElement>(null);
   const scopeLabel = scope ? `${scope.label} only` : 'All categories';
   return (
     <div
@@ -211,37 +272,109 @@ function Coverage({
       className={styles.coverage}
       data-open={open ? '' : undefined}
       role="group"
-      aria-label={`Coverage by language, ${scopeLabel.toLowerCase()}`}
+      aria-label={
+        table
+          ? 'Coverage by category and language, all categories'
+          : `Coverage by language, ${scopeLabel.toLowerCase()}`
+      }
+      data-table={table ? '' : undefined}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && table) {
+          event.stopPropagation();
+          setTable(false);
+          languagesButton.current?.focus();
+        }
+      }}
     >
-      <div className={styles.coverageTop} aria-hidden="true">
-        <div className={styles.coverageScope} title={scopeLabel}>
-          {scopeLabel}
-        </div>
-        <div className={styles.coverageHead}>
-          <span>Language</span>
-          <span>Translated</span>
-          <span>Outdated</span>
-          <span>Missing</span>
-        </div>
-      </div>
-      {languages.map((lang) => {
-        const { translated, outdated, missing } = index.coverage(lang, scope?.id);
-        return (
+      {maintainer && (
+        <div className={styles.coverageMode} role="group" aria-label="Coverage view">
           <button
-            key={lang}
+            ref={languagesButton}
             type="button"
-            data-perf-navigation="true"
-            aria-pressed={lang === language}
-            aria-label={`${languageLabel(lang)}: ${translated} translated, ${outdated} outdated, ${missing} missing`}
-            onClick={() => onPick(lang)}
+            aria-pressed={!table}
+            onClick={() => setTable(false)}
           >
-            <span>{languageLabel(lang)}</span>
-            <span>{translated}</span>
-            <span data-zero={outdated ? undefined : ''}>{outdated}</span>
-            <span data-zero={missing ? undefined : ''}>{missing}</span>
+            Languages
           </button>
-        );
-      })}
+          <button type="button" aria-pressed={table} onClick={() => setTable(true)}>
+            Categories × languages
+          </button>
+        </div>
+      )}
+      {table ? (
+        <div
+          className={styles.tableScroll}
+          tabIndex={0}
+          role="region"
+          aria-label="Category and language coverage"
+        >
+          <table>
+            <caption>Translated / outdated / missing</caption>
+            <thead>
+              <tr>
+                <th scope="col">Category</th>
+                {languages.map((lang) => (
+                  <th key={lang} scope="col" title={languageLabel(lang)}>
+                    {languageLabel(lang)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {index.categories.map((category) => (
+                <tr key={category.id}>
+                  <th scope="row">{category.label}</th>
+                  {languages.map((lang) => {
+                    const { translated, outdated, missing } = index.coverage(lang, category.id);
+                    return (
+                      <td
+                        key={lang}
+                        title={`${category.label}, ${languageLabel(lang)}: ${translated} translated, ${outdated} outdated, ${missing} missing`}
+                      >
+                        <span data-zero={translated ? undefined : ''}>{translated}</span> /{' '}
+                        <span data-zero={outdated ? undefined : ''}>{outdated}</span> /{' '}
+                        <span data-zero={missing ? undefined : ''}>{missing}</span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <>
+          <div className={styles.coverageTop} aria-hidden="true">
+            <div className={styles.coverageScope} title={scopeLabel}>
+              {scopeLabel}
+            </div>
+            <div className={styles.coverageHead}>
+              <span>Language</span>
+              <span>Translated</span>
+              <span>Outdated</span>
+              <span>Missing</span>
+            </div>
+          </div>
+          {languages.map((lang) => {
+            const { translated, outdated, missing } = index.coverage(lang, scope?.id);
+            return (
+              <button
+                key={lang}
+                type="button"
+                data-perf-navigation="true"
+                aria-pressed={lang === language}
+                aria-label={`${languageLabel(lang)}: ${translated} translated, ${outdated} outdated, ${missing} missing`}
+                onClick={() => onPick(lang)}
+              >
+                <span title={languageLabel(lang)}>{languageLabel(lang)}</span>
+                <span>{translated}</span>
+                <span data-zero={outdated ? undefined : ''}>{outdated}</span>
+                <span data-zero={missing ? undefined : ''}>{missing}</span>
+              </button>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
@@ -261,6 +394,8 @@ export function TranslationsPage() {
   const [text, setText] = useState(query);
   const deferredText = useDeferredValue(text);
   const [coverageOpen, setCoverageOpen] = useState(false);
+  const coverageToggle = useRef<HTMLButtonElement>(null);
+  const [refreshOrder, setRefreshOrder] = useState(0);
   const phone = useMedia(phoneQuery);
   // Leave from the editor's queue brings the list's position and selected row back.
   const returned = returnedState<TranslationsRestore>(useLocation().state);
@@ -278,6 +413,8 @@ export function TranslationsPage() {
     return rememberedSource;
   });
   const source: TranslationsSource = batchesAllowed ? chosenSource : 'current';
+  const small = params.get('sort') === 'small';
+  const { sizes, onVisible, retryFailed } = useChangeSizes(data, source === 'current');
 
   // The URL is the source of truth; typing is debounced into it so every key is not a navigation.
   useEffect(() => setText(query), [query]);
@@ -305,19 +442,17 @@ export function TranslationsPage() {
 
   const index = useMemo(() => (data ? translationIndex(data) : null), [data]);
   const rows = (index && language && index.queue(language)) || noRows;
+  const ordered = useSizeOrder(rows, sizes, small, refreshOrder);
   const categories = useMemo(
     () => (index ? categoryOptions(rows, index.categories) : []),
     [rows, index],
   );
   // The same list, in the same order, that the editor's queue control steps through.
   const shownFilters = useMemo(
-    () => ({ state, category, query: deferredText }),
-    [state, category, deferredText],
+    () => ({ state, category, query: deferredText, sort: small ? ('small' as const) : undefined }),
+    [state, category, deferredText, small],
   );
-  const shown = useMemo(
-    () => (index && language ? queueFor(index, language, shownFilters) : noRows),
-    [index, language, shownFilters],
-  );
+  const shown = useMemo(() => filterRows(ordered, shownFilters), [ordered, shownFilters]);
   // A row opens the editor in queue mode for this view (an override opens on its base's page).
   const linkTo = useCallback(
     (row: QueueRow) => ({
@@ -371,19 +506,23 @@ export function TranslationsPage() {
 
   const translator = user?.role === 'translator';
   const coverage = !translator && available.length > 0;
-  const signature = `${language}|${state}|${category}|${deferredText}`;
+  const signature = `${language}|${state}|${category}|${deferredText}${small ? '|small' : ''}`;
   const filtered = !!(state || category || query);
   const unavailable = !!requested && requested !== 'all' && requested !== language;
   const openFirst = (event: KeyboardEvent) => {
     if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
     // The first match of what is typed now, not of the deferred list.
-    const first = filterRows(rows, { state, category, query: text })[0];
+    const sorted = filterRows(ordered, { state, category, query: text });
+    const first = sorted[0];
     if (!first) return;
     // Back must return to this filter, so it is in the URL before the editor opens.
     if (text !== query) commitText();
-    rememberOpenedFirst(`${language}|${state}|${category}|${text}`, first.key);
-    const filters = { state, category, query: text };
-    const { to, state: visit } = startAt(first, filters, filterRows(rows, filters), 0);
+    rememberOpenedFirst(
+      `${language}|${state}|${category}|${text}${small ? '|small' : ''}`,
+      first.key,
+    );
+    const filters = { state, category, query: text, sort: small ? ('small' as const) : undefined };
+    const { to, state: visit } = startAt(first, filters, sorted, 0);
     void navigate(to, { state: visit });
   };
   const pick = (lang: Lang) => {
@@ -420,6 +559,7 @@ export function TranslationsPage() {
           <select
             data-perf-navigation="true"
             value={language}
+            title={languageLabel(language)}
             onChange={(event) => pick(event.target.value as Lang)}
           >
             {available.map((lang) => (
@@ -443,7 +583,10 @@ export function TranslationsPage() {
     if (text !== query) commitText();
   };
   const onFrameKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape' && coverageOpen) setCoverageOpen(false);
+    if (event.key === 'Escape' && coverageOpen) {
+      setCoverageOpen(false);
+      coverageToggle.current?.focus();
+    }
   };
 
   if (import.meta.env.VITE_SCHEDULED_ENABLED === '1' && source === 'upcoming')
@@ -495,12 +638,18 @@ export function TranslationsPage() {
                 <span className="sr-only">Category</span>
                 <select
                   data-perf-navigation="true"
-                  value={
-                    category && categories.some((option) => option.id === category) ? category : ''
+                  title={
+                    category
+                      ? (categories.find((option) => option.id === category)?.label ?? category)
+                      : 'All categories'
                   }
+                  value={category ?? ''}
                   onChange={(event) => update({ cat: event.target.value || null })}
                 >
                   <option value="">All categories</option>
+                  {category && !categories.some((option) => option.id === category) && (
+                    <option value={category}>Unknown category ({category})</option>
+                  )}
                   {categories.map((option) => (
                     <option key={option.id} value={option.id}>
                       {option.label} ({option.count})
@@ -531,10 +680,33 @@ export function TranslationsPage() {
                 </button>
               ))}
             </div>
+            <label className={styles.sort}>
+              <span className="sr-only">Sort translations</span>
+              <select
+                aria-label="Sort translations"
+                value={small ? 'small' : 'default'}
+                onChange={(event) =>
+                  update({ sort: event.target.value === 'small' ? 'small' : null }, true)
+                }
+              >
+                <option value="default">Oldest changes first</option>
+                <option value="small">Small changes first</option>
+              </select>
+            </label>
+            {small && (
+              <button
+                type="button"
+                title="Sort again using the change sizes learned so far"
+                onClick={() => setRefreshOrder((value) => value + 1)}
+              >
+                Refresh order
+              </button>
+            )}
             {coverage && (
               <button
                 type="button"
                 className={styles.coverageToggle}
+                ref={coverageToggle}
                 aria-expanded={coverageOpen}
                 aria-controls="translation-coverage"
                 onClick={() => setCoverageOpen(!coverageOpen)}
@@ -553,7 +725,15 @@ export function TranslationsPage() {
             index={index}
             languages={available}
             language={language}
-            scope={category ? index.categories.find((option) => option.id === category) : undefined}
+            scope={
+              category
+                ? (index.categories.find((option) => option.id === category) ?? {
+                    id: category,
+                    label: 'Unknown category',
+                  })
+                : undefined
+            }
+            maintainer={user?.role === 'maintainer'}
             open={coverageOpen}
             onPick={pick}
           />
@@ -580,9 +760,20 @@ export function TranslationsPage() {
               rows={shown}
               linkTo={linkTo}
               onOpen={onOpen}
+              onVisible={onVisible}
+              extra={(row) =>
+                row.state === 'outdated' ? (
+                  <ChangeCount
+                    value={sizes.get(row.key)}
+                    identity={row.key}
+                    name={row.name}
+                    onRetry={() => retryFailed(row.key)}
+                  />
+                ) : null
+              }
               restored={
                 returned &&
-                `${returned.language}|${returned.state}|${returned.category}|${returned.query}` ===
+                `${returned.language}|${returned.state}|${returned.category}|${returned.query}${(returned as TranslationsRestore & { sort?: string }).sort === 'small' ? '|small' : ''}` ===
                   signature
                   ? { top: returned.top, selected: returned.selectedRow }
                   : undefined
