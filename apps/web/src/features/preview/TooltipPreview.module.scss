@@ -227,7 +227,8 @@ $name-floor: $name-size * 0.75;
 // header's left edge), a tighter gap, and a smaller icon. The header's height does not change.
 @container preview-column (max-width: 16rem) {
   .header,
-  .description {
+  .description,
+  .diagnostics {
     padding-inline: 0.5rem;
   }
   .header {

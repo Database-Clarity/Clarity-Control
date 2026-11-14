@@ -196,8 +196,8 @@ describe('status bar', () => {
     render(bar({ preview: { unpreviewed: 12, collapsed: false, onShow } }));
     expect(status().hasAttribute('data-count-dropped')).toBe(true);
     expect(status().dataset.fit).toBe('0');
-    // Its full count stays in the title, and the button stays.
-    expect(q('[data-status-preview-text]')?.title).toBe('12 changes not previewed');
+    // The button stays, with the full count in its title.
+    expect(q('[data-status-preview] button')?.title).toBe('12 changes not previewed');
     expect(q('[data-status-preview] button')?.hasAttribute('disabled')).toBe(false);
     // Room again (a wider bar or a shorter count): it comes back.
     countFitsFrom = 0;

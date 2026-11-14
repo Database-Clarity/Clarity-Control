@@ -93,7 +93,7 @@ function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
     delete element.dataset.countDropped;
     steps();
     // A count still cut short once the labels have stepped down would read as a fragment ("1 pr…"):
-    // it drops whole (its title and Show preview stay), and the labels fit again without it.
+    // it drops whole (Show preview keeps the count in its title), and the labels fit again without it.
     if (cut(previewText)) {
       element.dataset.countDropped = '';
       steps();
@@ -426,6 +426,8 @@ export function StatusBar({
             className={styles.item}
             onClick={preview.onShow}
             disabled={!(unpreviewed > 0 || preview.collapsed)}
+            // The count's words stay on the button too, for when useFit drops the count text.
+            title={unpreviewed > 0 ? `${plural(unpreviewed, 'change')} not previewed` : undefined}
           >
             Show preview
             <kbd>Alt+P</kbd>
