@@ -1,3 +1,4 @@
+import { validateText } from '@clarity/core';
 import { expect, test } from 'vitest';
 import { parseMarkup } from '@clarity/core/markup/parse';
 import { buildLegacy, deployedLegacyPresets, newStyleFile } from '../src/index.js';
@@ -48,6 +49,7 @@ test('custom files keep the drawing or emit the configured text fallback', () =>
 
 test.each(['pve', 'pvp', 'yellow', 'bold'])('arrows inherit the %s text style', (style) => {
   const text = `<${style} 30%<arrow/>33% />`;
+  expect(validateText(text, 'en')).toEqual([]);
   expect(parseMarkup(text).lines[0].linesContent).toEqual([
     { text: '30%', classNames: [style] },
     { classNames: [style, 'arrow'] },

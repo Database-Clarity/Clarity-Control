@@ -91,3 +91,12 @@ describe('portable glyph warnings', () => {
     expect(glyphWarnings('safe')).toEqual([]);
   });
 });
+
+test('arrow replacement is safe inside a complete text-style wrapper', () => {
+  for (const text of ['<pve 30%🠚33% />', '<yellow 30%🠚33% />']) {
+    expect(canReplaceGlyph(text, glyphWarnings(text)[0])).toBe(true);
+    expect(validateText(text.replace('🠚', '<arrow/>'), 'en')).toEqual([]);
+  }
+  const incomplete = '<pve 30%🠚33%';
+  expect(canReplaceGlyph(incomplete, glyphWarnings(incomplete)[0])).toBe(false);
+});
