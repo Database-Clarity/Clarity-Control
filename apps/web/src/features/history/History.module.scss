@@ -118,6 +118,12 @@
   }
 }
 
+// TR3 audit line: an English change saved without marking translations outdated.
+.noImpact {
+  font-size: 0.75rem;
+  color: var(--warn);
+}
+
 .message {
   overflow-wrap: anywhere;
   color: var(--text2);

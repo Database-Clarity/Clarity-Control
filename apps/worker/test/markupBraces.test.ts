@@ -64,7 +64,14 @@ describe('save guard for #{name} and <enhanced/>', () => {
     );
     const arrow = await save(tooltip(), {
       ...tooltip(),
-      text: { ...tooltip().text, de: { text: '<enhanced/> Schneller.', ...revision } },
+      text: {
+        ...tooltip().text,
+        de: {
+          text: '<enhanced/> Schneller.',
+          ...revision,
+          sourceUpdatedAt: '2026-10-01T00:00:00Z',
+        },
+      },
     });
     expect(arrow.status).toBe(422);
     expect((await arrow.json()).error).toContain('Tooltip 123 (de) contains "<enhanced/>"');

@@ -19,10 +19,12 @@ import { SourceRef } from '../../features/compendium/SourceRef';
 import { linkLocation, matchLocation } from '../../features/compendium/sourceLocation';
 import { useCompendiumStore } from '../../features/compendium/store';
 import { Dialog } from '../../ui/Dialog';
+import styles from './SavePanel.module.scss';
 import { acceptSaved } from './drafts';
 import { useSaveNotice } from './notice';
 import { permissionError, prepareChanges } from './pipeline';
 import { requestSaveValidation } from './validationWorker';
+import { liveFallback, noImpactAvailable } from './fallback';
 import type { TooltipValidationIssue } from '@clarity/core';
 import { useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
@@ -170,13 +172,28 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const batchSaver = user?.role === 'maintainer' || user?.role === 'editor';
   const batchTarget =
     DestinationRow && batchSaver && destination.kind !== 'current' ? destination : null;
+  // "No translation impact" (TR3): editors and maintainers, direct saves only, and only when an
+  // English wording change on a translated tooltip would otherwise stamp a new English revision.
+  // The Worker enforces the role and records the tick in History.
+  const [noImpact, setNoImpact] = useState(false);
+  const impactChoice = useMemo(() => noImpactAvailable(changes), [changes]);
+  const showImpact = batchSaver && !batchTarget && impactChoice;
+  const noTranslationImpact = showImpact && noImpact;
+  // The languages whose live output this save turns into the English fallback (validated).
+  const fallback = useMemo(
+    () => liveFallback(changes, new Date().toISOString(), noTranslationImpact),
+    [changes, noTranslationImpact],
+  );
   // Linked Compendium cells that changed since they were shown, and the ones the reviewer ticked.
   const [changedSource, setChangedSource] = useState<ChangedSource[]>([]);
   const [freshSource, setFreshSource] = useState<CompendiumData | null>(null);
   const [acknowledged, setAcknowledged] = useState<string | null>(null);
   const needsAcknowledgement =
     changedSource.length > 0 && acknowledged !== sourceKey(changedSource);
-  const validationKey = useMemo(() => JSON.stringify(changes), [changes]);
+  const validationKey = useMemo(
+    () => `${JSON.stringify(changes)}\n${JSON.stringify(fallback)}`,
+    [changes, fallback],
+  );
   const [validated, setValidated] = useState<{
     data: typeof data;
     key: string;
@@ -188,7 +205,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   useEffect(() => {
     let current = true;
     if (data) {
-      void requestSaveValidation(changes, data).then(
+      void requestSaveValidation(changes, data, fallback).then(
         (issues) => {
           if (current) setValidated({ data, key: validationKey, issues, error: null });
         },
@@ -201,7 +218,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     return () => {
       current = false;
     };
-  }, [changes, data, validationKey]);
+  }, [changes, data, fallback, validationKey]);
   const denied = permissionError(changes, user);
   // Marker blocks are also caught by validation; this covers a conflict's non-text rows.
   const unresolved = openConflicts.some((conflict) =>
@@ -252,7 +269,9 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       // A catalogue refresh during storage/source awaits invalidates the reviewed verdict.
       if (useDataStore.getState().data !== data || useSaveState.getState().review !== review)
         throw new Error('The save snapshot changed. Review the current validation before saving.');
-      const prepared = await prepareChanges(changes, user, data, source);
+      const prepared = await prepareChanges(changes, user, data, source, {
+        noTranslationImpact,
+      });
       if (useDataStore.getState().data !== data || useSaveState.getState().review !== review)
         throw new Error('The save snapshot changed. Review the current validation before saving.');
       if (accountChanged(generation)) return;
@@ -291,7 +310,11 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         close();
         return;
       }
-      const result = await save(prepared, message.trim() || `Update ${changes.length} tooltip(s)`);
+      const result = await save(
+        prepared,
+        message.trim() || `Update ${changes.length} tooltip(s)`,
+        noTranslationImpact,
+      );
       if (accountChanged(generation) && result.kind === 'saved') {
         // Switching accounts already closed this review; report through the save notice.
         onSaved(
@@ -437,6 +460,23 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       )}
       {validation?.issues.some((issue) => issue.severity === 'warning') && (
         <p>Warnings do not block saving.</p>
+      )}
+      {showImpact && (
+        <div className={styles.impact}>
+          <input
+            id="save-no-impact"
+            type="checkbox"
+            checked={noImpact}
+            disabled={pending}
+            aria-describedby="save-no-impact-hint"
+            onChange={(event) => setNoImpact(event.target.checked)}
+          />
+          <label htmlFor="save-no-impact">No translation impact</label>
+          <p id="save-no-impact-hint">
+            For wording fixes that keep the meaning: translations stay current, and this change does
+            not count toward their 90-day English fallback. History marks this save.
+          </p>
+        </div>
       )}
       <details>
         <summary>Add commit message</summary>
