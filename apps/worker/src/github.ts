@@ -32,6 +32,33 @@ const graphqlSchema = z.object({
   data: z.object({ repository: z.record(z.string(), z.unknown()).nullable() }).nullable(),
   errors: z.array(z.unknown()).optional(),
 });
+const notFoundError = z.object({
+  type: z.literal('NOT_FOUND'),
+  path: z.tuple([z.literal('repository'), z.literal('ref'), z.literal('target'), z.string()]),
+});
+/**
+ * GitHub reports a `Commit.file(path:)` that resolves to nothing as `null` data plus a top-level
+ * NOT_FOUND error (`object(expression:)` is a silent `null`). Only that exact shape counts as a
+ * missing file: the error must name one `Commit.file` alias the query itself selected, directly
+ * under the commit target, and that field must be `null`. Any other error (or an alias the query
+ * never asked for) still fails the whole read (fail closed).
+ */
+function onlyMissingFiles(
+  errors: readonly unknown[],
+  repository: Record<string, unknown>,
+  aliases: ReadonlySet<string>,
+) {
+  const ref = z.object({ target: z.record(z.string(), z.unknown()) }).safeParse(repository.ref);
+  if (!ref.success) return false;
+  return errors.every((error) => {
+    const parsed = notFoundError.safeParse(error);
+    if (!parsed.success) return false;
+    const alias = parsed.data.path[3];
+    return (
+      aliases.has(alias) && Object.hasOwn(ref.data.target, alias) && ref.data.target[alias] === null
+    );
+  });
+}
 
 export interface RepoFile {
   sha: string;
@@ -257,7 +284,12 @@ export class GitHub {
       .sha;
   }
 
-  private async graphql(query: string, variables: Record<string, string>): Promise<unknown> {
+  /** `fileAliases`: the `Commit.file(path:)` aliases this query selects, which may be absent. */
+  private async graphql(
+    query: string,
+    variables: Record<string, string>,
+    fileAliases: ReadonlySet<string> = new Set(),
+  ): Promise<unknown> {
     const headers = this.headers(await this.installationToken());
     this.spend();
     const response = await fetch('https://api.github.com/graphql', {
@@ -273,10 +305,14 @@ export class GitHub {
     }
     if (!response.ok) throw new HttpError(502, `GitHub batch read failed (${response.status})`);
     const result = graphqlSchema.parse(await response.json());
-    if (result.errors?.length || !result.data?.repository) {
+    const repository = result.data?.repository;
+    if (
+      !repository ||
+      (result.errors?.length && !onlyMissingFiles(result.errors, repository, fileAliases))
+    ) {
       throw new HttpError(502, 'GitHub batch read failed');
     }
-    return result.data.repository;
+    return repository;
   }
 
   /**
@@ -392,6 +428,7 @@ export class GitHub {
         await this.graphql(
           `query($owner:String!,$name:String!,$branch:String!,${declarations}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
           variables,
+          new Set([...paths.map((_, i) => `o${i}`), ...trees.map((_, i) => `t${i}`)]),
         ),
       );
     const target = repository.ref.target;
@@ -452,6 +489,7 @@ export class GitHub {
       await this.graphql(
         `query(${declarations.join(',')}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
         variables,
+        new Set(['perm', ...(projectPath === null ? [] : ['config']), ...(list ? ['dir'] : [])]),
       ),
     );
     if (!repository.ref) throw new HttpError(502, 'Data branch is missing');

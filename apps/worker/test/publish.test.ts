@@ -235,6 +235,78 @@ it('fails closed without the enable-time signing key, and bounds truncated metad
   expect(f.subrequests - before).toBe(2);
 });
 
+it("PUBLISH-502: a first publish survives GitHub's NOT_FOUND errors for absent files", async () => {
+  // Live shape on 2026-11-14 (editor-data 20b0e803): a new opId has no request or log file and
+  // config/sandbox-pointers.json is absent; GitHub answers each with null data AND a NOT_FOUND
+  // error, which the read used to turn into "GitHub batch read failed" (HTTP 502, no write).
+  expect(f.current()['config/sandbox-pointers.json']).toBeUndefined();
+  const graphql = vi.fn<(body: string) => void>();
+  const forward = f.fetch.bind(f);
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await forward(input, init);
+    if (String(input).endsWith('/graphql')) graphql(await response.clone().text());
+    return response;
+  });
+  const response = await f.request('/publish', 'POST', value, 2);
+  expect(response.status).toBe(202);
+  expect(graphql.mock.calls.some(([text]) => text.includes('"NOT_FOUND"'))).toBe(true);
+  expect(f.current()[requestPath]).toBeDefined();
+  // Status for an id the Worker never saw reads the same absent files: "unknown", not 502.
+  const unseen = '01K95H00000000000000000009';
+  expect(await (await f.request(`/publish/status?opId=${unseen}`)).json()).toEqual({
+    operations: [{ opId: unseen, status: 'unknown' }],
+  });
+});
+
+it('PUBLISH-502: any other GraphQL error still fails the read closed, before any write', async () => {
+  const errors: unknown[] = [
+    { type: 'FORBIDDEN', path: ['repository', 'ref', 'target', 'o1'], message: 'no' },
+    // NOT_FOUND naming a field that did resolve (permissions are present).
+    { type: 'NOT_FOUND', path: ['repository', 'ref', 'target', 'o0'], message: 'odd' },
+    // NOT_FOUND on the ref or repository, not on one file.
+    { type: 'NOT_FOUND', path: ['repository', 'ref'], message: 'no branch' },
+    { type: 'NOT_FOUND', message: 'no path' },
+    { type: 'NOT_FOUND', path: ['repository', 'ref', 'target', 'nope'], message: 'unknown alias' },
+    'not an object',
+  ];
+  for (const error of errors) {
+    f.graphqlErrors = [error];
+    const response = await f.request('/publish', 'POST', value, 2);
+    expect(response.status, JSON.stringify(error)).toBe(502);
+    expect(await response.json()).toEqual({ error: 'GitHub batch read failed' });
+  }
+  // A null field the query never selected, with a matching NOT_FOUND: still not a missing file.
+  f.graphqlErrors = [
+    { type: 'NOT_FOUND', path: ['repository', 'ref', 'target', 'notRequested'], message: 'x' },
+  ];
+  f.graphqlTargetExtras = { notRequested: null };
+  const response = await f.request('/publish', 'POST', value, 2);
+  expect(response.status).toBe(502);
+  expect(f.writes).toHaveLength(0);
+  expect(f.current()[requestPath]).toBeUndefined();
+});
+
+it('PUBLISH-502: an absent config/permissions.json still refuses publish, status, and kick', async () => {
+  // Absent files now read as null instead of failing the whole GraphQL read, so this refusal rests
+  // on the permissions parse: pin it.
+  await f.request('/publish', 'POST', value, 2);
+  const writes = f.writes.length;
+  f.moveData({ 'config/permissions.json': undefined });
+  const B = '01K95H00000000000000000002';
+  for (const [path, method, body] of [
+    ['/publish', 'POST', { ...value, opId: B }],
+    [`/publish/status?opId=${A}`, 'GET', undefined],
+    ['/publish/kick', 'POST', { opId: A }],
+  ] as const) {
+    const response = await f.request(path, method, body, 2);
+    expect(response.status, path).toBe(502);
+    expect(await response.json(), path).toEqual({ error: 'Invalid upstream data' });
+  }
+  expect((await f.request('/exports/projects', 'GET', undefined, 1)).status).toBe(502);
+  expect(f.writes).toHaveLength(writes);
+  expect(f.current()[`publish/requests/${B}.json`]).toBeUndefined();
+});
+
 it('status is fixed, bounded to one id and two subrequests; kick is pending-only and three', async () => {
   await f.request('/publish', 'POST', value);
   let before = f.subrequests;
