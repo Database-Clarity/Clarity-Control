@@ -74,7 +74,12 @@ describe('save permission matrix', () => {
 
   it('allows translators to change only their assigned language', async () => {
     const next = tooltip();
-    next.text.de = { text: 'Deutsch', updatedAt: '2026-10-02T00:00:00Z', updatedBy: 'dan' };
+    next.text.de = {
+      text: 'Deutsch',
+      updatedAt: '2026-10-02T00:00:00Z',
+      updatedBy: 'dan',
+      sourceUpdatedAt: '2026-10-01T00:00:00Z',
+    };
     expect((await fixture.request('/save', 'POST', change(tooltip(), next), 4)).status).toBe(200);
   });
 
@@ -132,7 +137,12 @@ describe('save permission matrix', () => {
   it('preserves unowned head fields even when a translator forges the base', async () => {
     const base = tooltip('forged English');
     const next = structuredClone(base);
-    next.text.de = { text: 'Deutsch', updatedAt: '2026-10-02T00:00:00Z', updatedBy: 'dan' };
+    next.text.de = {
+      text: 'Deutsch',
+      updatedAt: '2026-10-02T00:00:00Z',
+      updatedBy: 'dan',
+      sourceUpdatedAt: '2026-10-01T00:00:00Z',
+    };
     const response = await fixture.request('/save', 'POST', change(base, next), 4);
     expect(response.status).toBe(200);
     expect(fixture.current()['tooltips/123.json']).toMatchObject({
@@ -614,6 +624,26 @@ describe('No translation impact (TR3)', () => {
     expect(await response.json()).toMatchObject({
       error: 'Tooltip 123: unchanged de text must keep its stored revision',
     });
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('S1: a changed translation must name its English source revision (trial and translator)', async () => {
+    for (const user of [3, 4]) {
+      const next = translated();
+      next.text.de = { ...next.text.de!, text: 'Deutsch neu' };
+      delete next.text.de.sourceUpdatedAt;
+      const response = await fixture.request('/save', 'POST', change(translated(), next), user);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        error: 'Tooltip 123: the changed de text needs the English revision it translates',
+      });
+    }
+    // The same in one save with a reworded English.
+    const reworded = translated('original, fixed', '2026-10-20T00:00:00Z');
+    reworded.text.de = { ...reworded.text.de!, text: 'Deutsch neu' };
+    delete reworded.text.de.sourceUpdatedAt;
+    expect((await fixture.request('/save', 'POST', change(translated(), reworded), 3)).status).toBe(
+      422,
+    );
     expect(fixture.commits).toHaveLength(0);
   });
   it('O1 R6: a translation cannot claim a source revision newer than its English', async () => {

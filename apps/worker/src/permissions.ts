@@ -183,8 +183,8 @@ export function checkEnglishRevision(
 /**
  * Translation stamps, by the same rule (TR3 triage O1): a translation whose text is unchanged or
  * changed only in markup keeps the stored `updatedAt`, `updatedBy`, and `sourceUpdatedAt`
- * exactly; a changed one may not claim a source revision later than the English it is saved
- * with. Otherwise a crafted save could mark a translation current through an English rewrite
+ * exactly; a changed one next to English must name a source revision no later than the English
+ * it is saved with. Otherwise a crafted save could mark a translation current through an English rewrite
  * (the tick's effect, unflagged) or make it permanently immune to outdated and fallback state.
  * The editor's enricher always satisfies both (it reuses the stored entry, and stamps a changed
  * translation with the English revision).
@@ -208,11 +208,14 @@ export function checkTranslationStamps(head: Tooltip | null, next: Tooltip): voi
         );
       continue;
     }
-    if (
-      english &&
-      after.sourceUpdatedAt !== undefined &&
-      !(Date.parse(after.sourceUpdatedAt) <= Date.parse(english.updatedAt))
-    )
+    // A missing source counts as permanently current in core (never outdated, never English
+    // fallback), so a changed translation next to English must carry one (TR3 sec S1).
+    if (english && after.sourceUpdatedAt === undefined)
+      throw new HttpError(
+        422,
+        `Tooltip ${next.hash}: the changed ${lang} text needs the English revision it translates`,
+      );
+    if (english && !(Date.parse(after.sourceUpdatedAt!) <= Date.parse(english.updatedAt)))
       throw new HttpError(
         422,
         `Tooltip ${next.hash}: the ${lang} source revision is newer than the English revision`,

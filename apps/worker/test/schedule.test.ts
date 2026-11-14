@@ -53,7 +53,13 @@ const withText = (base: Tooltip, lang: 'en' | 'de' | 'fr', text: string): Toolti
   ...base,
   text: {
     ...base.text,
-    [lang]: { text, updatedAt: revisionOf(lang, text), updatedBy: 'alice' },
+    [lang]: {
+      text,
+      updatedAt: revisionOf(lang, text),
+      updatedBy: 'alice',
+      // A translation is stamped against the English it is saved with, as the editor does.
+      ...(lang !== 'en' && base.text.en ? { sourceUpdatedAt: base.text.en.updatedAt } : {}),
+    },
   },
 });
 
@@ -1079,7 +1085,12 @@ describe('round-1 review fixes', () => {
       text: {
         ...old.proposed.text,
         en: { ...old.proposed.text.en!, updatedAt: '2027-11-01T00:00:00Z' },
-        de: { text: 'Kommend', updatedAt: '2026-11-13T00:00:00Z', updatedBy: 'dan' },
+        de: {
+          text: 'Kommend',
+          updatedAt: '2026-11-13T00:00:00Z',
+          updatedBy: 'dan',
+          sourceUpdatedAt: old.proposed.text.en!.updatedAt,
+        },
       },
     };
     const response = await call(`/batches/${ID}/save`, saveBody(next, old.proposed), EDITOR);
@@ -1093,11 +1104,15 @@ describe('round-1 review fixes', () => {
   it('adds keep current values for stamp-only fields', async () => {
     const current = { ...tooltip(), hash: 456 };
     f.moveData({ 'tooltips/456.json': current });
-    const next = withText(
-      { ...current, text: { en: { ...current.text.en!, updatedAt: '2027-01-01T00:00:00Z' } } },
-      'de',
-      'neu',
-    );
+    // German is stamped against the stored English; only the English stamp drifts.
+    const translated = withText(current, 'de', 'neu');
+    const next = {
+      ...translated,
+      text: {
+        ...translated.text,
+        en: { ...current.text.en!, updatedAt: '2027-01-01T00:00:00Z' },
+      },
+    };
     expect((await call(`/batches/${ID}/save`, saveBody(next, current))).status).toBe(200);
     const added = stored(memberPath(456)) as BatchMember;
     expect(added.proposed.text.en).toEqual(current.text.en);

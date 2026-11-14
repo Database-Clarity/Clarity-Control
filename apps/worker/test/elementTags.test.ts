@@ -26,7 +26,10 @@ const save = (base: Tooltip | null, next: Tooltip, user = 1) =>
   fixture.request('/save', 'POST', { changes: [{ hash: 123, base, next }], message: 'Edit' }, user);
 const withText = (lang: 'de' | 'fr', text: string, from = tooltip()): Tooltip => ({
   ...from,
-  text: { ...from.text, [lang]: { text, ...revision } },
+  text: {
+    ...from.text,
+    [lang]: { text, ...revision, sourceUpdatedAt: from.text.en!.updatedAt },
+  },
 });
 const pin = { sourceSha: 'a'.repeat(40), sha256: 'b'.repeat(64) };
 const capable = { ...pin, capabilities: ['elementTags'] };
