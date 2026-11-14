@@ -128,15 +128,29 @@ export function WorkThroughBar({
   const context = useSourceContext();
   const disabled = !context;
   const group = useRef<HTMLDivElement>(null);
-  // Back from a queue (Leave): focus returns to the bar the queue started from.
-  const returned = useRef(returnedState(location.state) !== undefined);
+  // Back from a queue (Leave): focus returns to the bar the queue started from. Keyed on the
+  // history entry: a list that stays mounted under its detail (Archive) sees Leave as a new entry.
+  const focused = useRef<string | null>(null);
+  const isReturn = returnedState(location.state) !== undefined;
   useEffect(() => {
-    if (!returned.current || disabled) return;
-    returned.current = false;
-    group.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({
-      preventScroll: true,
-    });
-  }, [disabled]);
+    if (!isReturn || disabled || focused.current === location.key) return;
+    focused.current = location.key;
+    // The workspace can mount a list before it shows it, and a hidden button takes no focus: try
+    // each frame (about three seconds at most) until focus holds, unless the person has already
+    // put it somewhere else.
+    let frame = 0;
+    let tries = 0;
+    const attempt = () => {
+      const active = document.activeElement;
+      if (tries > 0 && active && active !== document.body) return;
+      const button = group.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+      button?.focus({ preventScroll: true });
+      if (button && document.activeElement === button) return;
+      if (++tries < 180) frame = requestAnimationFrame(attempt);
+    };
+    attempt();
+    return () => cancelAnimationFrame(frame);
+  }, [isReturn, disabled, location.key]);
   function begin(scope: WorkQueue['scope'], items: QueueItem[]) {
     if (!context || !items.length) return;
     const done = queueSources[source].done(context);

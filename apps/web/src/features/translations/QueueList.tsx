@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, useNavigationType } from 'react-router-dom';
 import { behindLabel, type QueueRow } from './queue';
@@ -65,7 +65,12 @@ export function QueueList({
   const observed = useRef({ rowHeight, viewport });
   observed.current = { rowHeight, viewport };
   // Coming back from the editor, focus returns to the row that was opened.
-  const focusAfterRender = useRef(!!saved?.selected && document.activeElement === document.body);
+  // Leave from the queue (`restored`) always does: its link still holds focus as the list mounts.
+  const focusAfterRender = useRef(
+    !!saved?.selected && (restored !== undefined || document.activeElement === document.body),
+  );
+  const focusFrame = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(focusFrame.current), []);
   const scrolled = useRef(saved?.top ?? 0);
 
   useLayoutEffect(() => {
@@ -129,9 +134,18 @@ export function QueueList({
   useLayoutEffect(() => {
     if (!focusAfterRender.current) return;
     focusAfterRender.current = false;
-    host.current
-      ?.querySelector<HTMLAnchorElement>(`[data-index="${kept}"] a`)
-      ?.focus({ preventScroll: true });
+    // The workspace can mount the list before it shows it (a hidden row takes no focus): try each
+    // frame (about three seconds at most) until focus holds, unless it went somewhere else.
+    let tries = 0;
+    const attempt = () => {
+      const active = document.activeElement;
+      if (tries > 0 && active && active !== document.body) return;
+      const row = host.current?.querySelector<HTMLAnchorElement>(`[data-index="${kept}"] a`);
+      row?.focus({ preventScroll: true });
+      if (row && document.activeElement === row) return;
+      if (++tries < 180) focusFrame.current = requestAnimationFrame(attempt);
+    };
+    attempt();
   });
 
   const move = (next: number) => {
