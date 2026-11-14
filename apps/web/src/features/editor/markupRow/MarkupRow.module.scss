@@ -86,9 +86,26 @@
       width: 1.5rem;
       background: linear-gradient(90deg, transparent, var(--editor) 75%);
     }
+    // A symbol cut so that less than half of it shows (--cut-start/--cut-end, set by MarkupRow)
+    // would leave its accent outline just past the slim fade: the fade then widens over the
+    // whole sliver, opaque from 1px before the cut button's edge, so only the gap ramps.
+    &:has([data-wrap])::before {
+      --fade: max(0.75rem, calc(var(--cut-start, 0px) + 4px));
+      width: var(--fade);
+      background: linear-gradient(
+        270deg,
+        transparent,
+        var(--editor) min(100%, calc(var(--fade) - var(--cut-start, 0px) - 1px))
+      );
+    }
     &:has([data-wrap])::after {
-      width: 0.75rem;
-      background: linear-gradient(90deg, transparent, var(--editor) 50%);
+      --fade: max(0.75rem, calc(var(--cut-end, 0px) + 4px));
+      width: var(--fade);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        var(--editor) min(50%, calc(var(--fade) - var(--cut-end, 0px) - 1px))
+      );
     }
   }
 }
