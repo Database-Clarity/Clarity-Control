@@ -865,7 +865,14 @@ describe('scheduled batches (simulator)', () => {
       expect(f.pub.queue(f.head())).toEqual([PUSH1, OP]);
       await f.pub.run();
       assertPublished(f);
+      // Root condition: live = the push, then the batch, each exactly once.
       expect(f.receipts(PUSH1)).toHaveLength(1);
+      expect(f.receipts(OP)).toHaveLength(1);
+      const history = f.git.history(L);
+      const landed = (id: string) => history.findIndex((c) => f.git.tree(c)[paths(id).receipt]);
+      expect(landed(PUSH1)).toBeGreaterThan(0);
+      expect(landed(OP)).toBeGreaterThan(landed(PUSH1));
+      expect(f.read<{ result: { status: string } }>(paths(PUSH1).log)!.result.status).toBe('done');
       // Live equals a manual publish of current: the batch English and the pushed French.
       const current = f.read<Tooltip>('tooltips/123.json')!;
       expect(current.text.en!.text).toBe('batch text');
@@ -874,6 +881,24 @@ describe('scheduled batches (simulator)', () => {
       const perk = JSON.stringify(f.live().perks[123]);
       expect(perk).toContain('batch text');
       expect(perk).toContain('sauvé');
+    },
+  );
+
+  it.each(['schedule/due.json', 'schedule/index.json'])(
+    'code P2: a malformed %s (not even JSON) is left for repair and never stops the drain',
+    async (path) => {
+      const f = await setup();
+      await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+      const h = f.head(),
+        t = f.git.tree(h);
+      t[path] = f.git.writeBlob('{');
+      f.git.cas(D, h, f.git.commit(h, t, 'Corrupt advisory file'));
+      const broken = f.tree()[path];
+      await f.pub.run();
+      const batch = f.batchFile();
+      expect(batch.status).toBe('published');
+      expect(f.receipts()).toHaveLength(1);
+      expect(f.tree()[path]).toBe(broken);
     },
   );
 

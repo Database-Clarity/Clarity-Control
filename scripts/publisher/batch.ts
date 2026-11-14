@@ -89,13 +89,22 @@ export function withEvent(
   return batchSchema.parse({ ...batch, ...update, revision, events });
 }
 
+/** An advisory file's JSON, or undefined when it is missing or not even JSON (left for repair). */
+function advisory(io: TreeIo, tree: Tree, path: string): unknown {
+  try {
+    return io.read<unknown>(tree, path);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Apply `edit` to schedule/due.json. due.json is the cron's trigger, never the authority (the
  * publisher trusts batch.json and the request): a missing or malformed file, or an edit that
  * would make it invalid, is left as it is (repair script), so it can never wedge the queue.
  */
 export function editDue(io: TreeIo, tree: Tree, edit: (entries: Due['entries']) => Due['entries']) {
-  const current = dueSchema.safeParse(io.read<unknown>(tree, schedulePaths.due));
+  const current = dueSchema.safeParse(advisory(io, tree, schedulePaths.due));
   if (!current.success) return;
   const next = dueSchema.safeParse({ entries: edit(current.data.entries) });
   if (!next.success) return;
@@ -108,7 +117,7 @@ export function editDue(io: TreeIo, tree: Tree, edit: (entries: Due['entries']) 
  * malformed index is left for the repair script. Terminal entries beyond the cap drop oldest first.
  */
 export function editIndex(io: TreeIo, tree: Tree, batch: Batch, hashes: number[], at: string) {
-  const current = scheduleIndexSchema.safeParse(io.read<unknown>(tree, schedulePaths.index));
+  const current = scheduleIndexSchema.safeParse(advisory(io, tree, schedulePaths.index));
   if (!current.success) return;
   const entry = {
     id: batch.id,
