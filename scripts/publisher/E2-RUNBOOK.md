@@ -24,8 +24,8 @@ rewrite a published commit or infer author credits from an unsigned receipt fiel
 
 ## Install dry-run pipeline (root operator in E2)
 
-Template source PIN: `83da713384bb0c399209e43851e32fca5e035ca1`.
-Expected publisher.mjs SHA-256: `573b0b23cbf684c7040ec03e55d57e356e698314680ca25e8bdaa77ebfa9616c`.
+Template source PIN: `85957f8bc2463465dbd38c2b14744fe6806b4d11`.
+Expected publisher.mjs SHA-256: `2adf2a3096ad8d519f5c24f8153cc6bd9bc46cb314a675d71c45e23bd0b64ab7`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires

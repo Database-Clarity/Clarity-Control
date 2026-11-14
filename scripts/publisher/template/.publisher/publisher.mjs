@@ -22563,7 +22563,7 @@ var getLineClasses = (line, classNamesArray) => {
 
 // packages/export/src/converter/converterFunctions/lineConverter.ts
 var convertLinesContent = (line, tiles) => {
-  const splittedLine = line.split(/(<\w+ (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>|🡅)/g).filter((line2) => line2 !== "");
+  const splittedLine = line.split(/(<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>|🡅)/g).filter((line2) => line2 !== "");
   return splittedLine.reduce((acc, text) => {
     if (text === "<arrow/>") {
       acc.push({ classNames: ["arrow"] });
@@ -23349,7 +23349,7 @@ function weaponSectionHeadings(text) {
 }
 
 // packages/core/src/markup/lines.ts
-var inlineToken = /<\w+ (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+var inlineToken = /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
 function lineClasses(line, allowed2, offsets) {
   const classNames = allowed2.filter((name) => line.includes(`<${name}/>`));
   let cleanLine = line;
@@ -23373,7 +23373,8 @@ function markupStrayTags(text) {
     for (const segment of line.split(new RegExp(`(${inlineToken.source})`, "g"))) {
       const tags = segment.match(/<\w+/g) ?? [];
       const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
-      const arrows = isToken ? segment.match(/<arrow\/>/g)?.length ?? 0 : 0;
+      const wrapper2 = /^<(\w+) /.exec(segment)?.[1] ?? "";
+      const arrows = isToken && [...markupColors, "background"].includes(wrapper2) && segment.endsWith(" />") ? segment.match(/<arrow\/>/g)?.length ?? 0 : 0;
       if (tags.length > (isToken ? 1 + arrows : 0)) stray.push(tags[0]);
     }
   }
