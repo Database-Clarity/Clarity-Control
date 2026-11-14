@@ -196,6 +196,23 @@ export function ensureBatch(id: string) {
   );
 }
 
+/** Worker-confirmed members replace the preview before their local drafts disappear. */
+export function adoptBatchMembers(id: string, members: readonly BatchMember[]) {
+  const previous = read.get(id);
+  const data = useDataStore.getState().data;
+  const load = upcomingStore().getState().loads[id];
+  if (!previous || !data || load?.state !== 'ready') return;
+  const merged = new Map(previous.members.map((member) => [member.hash, member]));
+  for (const member of members) merged.set(member.hash, member);
+  const next = { revision: previous.revision, members: [...merged.values()] };
+  read.set(id, next);
+  setLoad(id, {
+    state: 'ready',
+    revision: next.revision,
+    upcoming: upcomingState(next.members, data),
+  });
+}
+
 /** Read every open batch's members (the Translations tab's Upcoming view lists them all). */
 export function ensureOpenBatches() {
   for (const id of open.keys()) ensureBatch(id);

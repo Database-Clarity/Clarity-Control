@@ -209,32 +209,23 @@ describe('Translations Upcoming', () => {
       'French: 0 ready, 0 current changed, 0 stale, 3 need translation',
     );
 
-    // Opening a row shows the read-only batch view in this tab; nothing opens the editor.
+    // A row starts a frozen queue for this batch and opens its shared editor destination.
     await act(async () => host.querySelector<HTMLAnchorElement>('li[data-index] a')!.click());
-    expect(location.pathname).toBe('/translations');
-    expect(new URLSearchParams(location.search).get('open')).toBe(`${batch.id}:1`);
-    const view = host.querySelector('[aria-label="Upcoming German translation"]')!;
-    expect(view.querySelector('h1')!.textContent).toBe('Alpha Perk');
-    expect(view.textContent).toContain('Needs translation');
-    expect(view.textContent).toContain('December patch');
-    expect(view.textContent).toContain('Read-only. Editing translations in a batch arrives');
-    expect(view.textContent).toContain('The batch has no German for its English yet.');
-    // The batch English with the change from current English.
-    expect(view.querySelector('del')).toBeNull();
-    expect(view.querySelector('ins')?.textContent).toContain('new');
-    expect(view.querySelector('textarea, [contenteditable="true"], input:not([type])')).toBeNull();
-    expect(view.textContent).toContain('1 of 3');
-    // Next steps through the rows shown; Back returns to the list.
-    await act(async () =>
-      [...view.querySelectorAll('a')].find((link) => link.textContent === 'Next')!.click(),
-    );
-    expect(new URLSearchParams(location.search).get('open')).toBe(`${batch.id}:2`);
-    expect(host.querySelector('h1')!.textContent).toBe('Bravo Perk');
-    expect(host.textContent).toContain('Zwei neu');
-    await act(async () => button('‹ Upcoming')!.click());
-    await settle(() => rows().length > 0);
-    expect(new URLSearchParams(location.search).get('open')).toBeNull();
-    expect(button('Upcoming')?.getAttribute('aria-pressed')).toBe('true');
+    expect(location.pathname).toBe('/t/1');
+    expect(new URLSearchParams(location.search).get('lang')).toBe('de');
+    const { useWorkQueues } = await import('../queue/store');
+    const visit = (location.state as { workThrough: { id: string; key: string } }).workThrough;
+    const queue = useWorkQueues.getState().queues[visit.id]!;
+    expect(queue.destination).toEqual({
+      kind: 'batch',
+      batchId: batch.id,
+      batchName: 'December patch',
+    });
+    expect(queue.items).toHaveLength(3);
+    expect(
+      queue.items.every((item) => (item.detail as { batchId: string }).batchId === batch.id),
+    ).toBe(true);
+    expect(queue.origin.path).toContain('upcoming=1');
     // No write of any kind.
     expect(fixture.log.every((entry) => entry.method === 'GET')).toBe(true);
   });
@@ -299,11 +290,14 @@ describe('Translations Upcoming', () => {
   it('keeps Back to the list entry and its row after stepping', async () => {
     vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
     const batch = await seed();
-    await mount('maintainer');
-    await act(async () => button('Upcoming')!.click());
-    await settle(() => rows().length === 3);
-    const charlie = [...host.querySelectorAll<HTMLAnchorElement>('li[data-index] a')][2]!;
-    await act(async () => charlie.click());
+    await mount('maintainer', undefined, [
+      {
+        pathname: '/translations',
+        search: `?open=${batch.id}:3`,
+        state: { upcomingFromList: false },
+      },
+    ]);
+    await settle(() => new URLSearchParams(location.search).get('open') === `${batch.id}:3`);
     expect(new URLSearchParams(location.search).get('open')).toBe(`${batch.id}:3`);
     await act(async () =>
       [...host.querySelectorAll('a')].find((link) => link.textContent === 'Previous')!.click(),
@@ -312,9 +306,7 @@ describe('Translations Upcoming', () => {
     await act(async () => button('‹ Upcoming')!.click());
     await settle(() => rows().length === 3);
     expect(new URLSearchParams(location.search).get('open')).toBeNull();
-    expect(
-      host.querySelector('li[data-index] a[data-selected]')?.querySelector('span')?.textContent,
-    ).toBe('Charlie Mod');
+    expect(rows()).toHaveLength(3);
   });
 
   it('keeps a filter typed inside the debounce when Enter opens the first match', async () => {
@@ -332,11 +324,14 @@ describe('Translations Upcoming', () => {
     await act(async () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
-    expect(new URLSearchParams(location.search).get('open')).toBe(`${batch.id}:3`);
-    await act(async () => button('‹ Upcoming')!.click());
-    await settle(() => rows().length === 1);
-    expect(new URLSearchParams(location.search).get('q')).toBe('Charlie');
-    expect(new URLSearchParams(location.search).get('open')).toBeNull();
+    expect(location.pathname).toBe('/t/3');
+    const { useWorkQueues } = await import('../queue/store');
+    const visit = (location.state as { workThrough: { id: string } }).workThrough;
+    const queue = useWorkQueues.getState().queues[visit.id]!;
+    expect(queue.destination?.batchId).toBe(batch.id);
+    expect(queue.items).toHaveLength(1);
+    expect((queue.origin.restore as { query: string }).query).toBe('Charlie');
+    expect(new URLSearchParams(queue.origin.path.split('?')[1]).get('q')).toBe('Charlie');
   });
 
   it('says a linked row did not load, with Retry, when its members fail', async () => {

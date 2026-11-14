@@ -15,6 +15,7 @@ import { zonedNotBefore } from '../../services/format/date';
 import { useAuthStore } from '../../stores/auth';
 import { upcomingStore, type OpenBatch, type PreviewSource } from './UpcomingSwitch.store';
 import styles from './UpcomingSwitch.module.scss';
+import { useBatchEditing, type BatchDestination, type BatchEditing } from './batchDestination';
 
 export interface UpcomingView {
   /** The switch and its batch line, above the preview; null when the tooltip is in no open batch. */
@@ -25,6 +26,7 @@ export interface UpcomingView {
   overlay: Drafts | undefined;
   /** Upcoming is chosen and its members are still loading. */
   loading: boolean;
+  editing?: BatchEditing;
 }
 
 const off: UpcomingView = { control: null, badge: null, overlay: undefined, loading: false };
@@ -136,7 +138,13 @@ type BadgeMode = 'name' | 'clock' | 'none';
  * It never draws under the controls beside it. Fit is measured when the header or the badge
  * resizes, when the header's controls change, and when the name changes, never per keystroke.
  */
-function DestinationBadge({ batch }: { batch: OpenBatch }) {
+function DestinationBadge({
+  batch,
+  destination = false,
+}: {
+  batch: OpenBatch;
+  destination?: boolean;
+}) {
   const badge = useRef<HTMLSpanElement>(null);
   const [mode, setMode] = useState<BadgeMode>('name');
   useLayoutEffect(() => {
@@ -173,7 +181,7 @@ function DestinationBadge({ batch }: { batch: OpenBatch }) {
       ref={badge}
       className={styles.badge}
       data-mode={mode}
-      title={`In the open batch "${batch.name}" (${statusLabel[batch.status].toLowerCase()}). Edits here save to Current.`}
+      title={`In the open batch "${batch.name}" (${statusLabel[batch.status].toLowerCase()}). Edits here save to ${destination ? batch.name : 'Current'}.`}
     >
       <svg className={styles.clock} viewBox="0 0 12 12" aria-hidden="true">
         <circle cx="6" cy="6" r="4.75" />
@@ -189,7 +197,11 @@ function DestinationBadge({ batch }: { batch: OpenBatch }) {
 
 const roles = new Set(['maintainer', 'editor', 'translator']);
 
-function useUpcomingLive(hashes: readonly number[], enabled: boolean): UpcomingView {
+function useUpcomingLive(
+  hashes: readonly number[],
+  enabled: boolean,
+  destination?: BatchDestination,
+): UpcomingView {
   const role = useAuthStore((state) => state.user?.role);
   // Trials get no batch access (Q3) and signed-out visitors no listing: nothing is requested.
   const eligible = enabled && role != null && roles.has(role);
@@ -210,18 +222,26 @@ function useUpcomingLive(hashes: readonly number[], enabled: boolean): UpcomingV
   const hash = useStore((state) =>
     eligible ? hashes.find((candidate) => state.memberOf[candidate] !== undefined) : undefined,
   );
-  const batch = useStore((state) => (hash !== undefined ? state.memberOf[hash] : undefined));
+  const batch = useStore((state) =>
+    destination
+      ? Object.values(state.memberOf).find((batch) => batch.id === destination.batchId)
+      : hash !== undefined
+        ? state.memberOf[hash]
+        : undefined,
+  );
   const source = useStore((state) => state.source);
   const setSource = useStore((state) => state.setSource);
   const batchLoad = useStore((state) => (batch ? state.loads[batch.id] : undefined));
-  const wanted = batch !== undefined && source === 'upcoming';
+  const listFailed = useStore((state) => state.listFailed);
+  const editing = useBatchEditing(destination, batch, batchLoad, eligible, listFailed);
+  const wanted = batch !== undefined && (source === 'upcoming' || !!destination);
   const batchId = batch?.id;
   const revision = batch?.revision;
   useEffect(() => {
     if (wanted && batchId) void load().then((module) => module.ensureBatch(batchId));
   }, [wanted, batchId, revision]);
   return useMemo(() => {
-    if (!batch || hash === undefined) return off;
+    if (!batch || hash === undefined) return { ...off, editing };
     const ready = batchLoad?.state === 'ready' ? batchLoad.upcoming : undefined;
     const failed =
       batchLoad?.state === 'failed'
@@ -234,7 +254,19 @@ function useUpcomingLive(hashes: readonly number[], enabled: boolean): UpcomingV
     const retry = () => void load().then((module) => module.ensureBatch(batch.id));
     const overlay = showing === 'upcoming' ? ready?.overlay : undefined;
     return {
-      control: (
+      control: destination ? (
+        <p className={styles.line}>
+          Destination: {batch.name} · {statusLabel[batch.status]}{' '}
+          {failed && (
+            <>
+              <span>{failed}</span>
+              <button type="button" onClick={retry}>
+                Retry
+              </button>
+            </>
+          )}
+        </p>
+      ) : (
         <UpcomingControl
           batch={batch}
           shown={showing}
@@ -247,16 +279,20 @@ function useUpcomingLive(hashes: readonly number[], enabled: boolean): UpcomingV
           onRetry={retry}
         />
       ),
-      badge: <DestinationBadge batch={batch} />,
+      badge: <DestinationBadge batch={batch} destination={!!destination} />,
+      editing,
       overlay,
       loading: showing === 'upcoming' && !overlay,
     };
-  }, [batch, batchLoad, hash, wanted, setSource]);
+  }, [batch, batchLoad, hash, wanted, setSource, destination, editing]);
 }
 
 /**
  * The switch, badge, and future state for the open page's tooltips (`hashes`: its base, then its
  * versions). `enabled` is false where no switch belongs (archive pages, globals).
  */
-export const useUpcoming: (hashes: readonly number[], enabled: boolean) => UpcomingView =
-  import.meta.env.VITE_SCHEDULED_ENABLED === '1' ? useUpcomingLive : () => off;
+export const useUpcoming: (
+  hashes: readonly number[],
+  enabled: boolean,
+  destination?: BatchDestination,
+) => UpcomingView = import.meta.env.VITE_SCHEDULED_ENABLED === '1' ? useUpcomingLive : () => off;

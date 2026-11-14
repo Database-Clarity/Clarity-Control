@@ -30,6 +30,7 @@ export function startQueue({
   first,
   origin,
   focus = false,
+  destination = null,
 }: {
   id?: string;
   source: QueueSourceId;
@@ -39,7 +40,10 @@ export function startQueue({
   origin: WorkQueue['origin'];
   /** Focus the queue's control when the item opens (an entry button; not a row link). */
   focus?: boolean;
+  destination?: WorkQueue['destination'];
 }): { to: string; state: ReturnType<typeof visitState> } {
+  if (destination && import.meta.env.VITE_SCHEDULED_ENABLED !== '1')
+    throw new Error('Scheduled changes are off');
   entryFocus = focus ? id : null;
   useWorkQueues.getState().start({
     version: 1,
@@ -52,7 +56,7 @@ export function startQueue({
     current: first.key,
     finished: false,
     createdAt: Date.now(),
-    destination: null,
+    destination,
   });
   return {
     to: queueSources[source].path(items.find((item) => item.key === first.key) ?? first),

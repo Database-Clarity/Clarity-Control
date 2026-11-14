@@ -836,7 +836,14 @@ function MemberRow({
           <p className={styles.diffSides}>
             “Previous / live” is current saved; “Current” is this batch's version.
           </p>
-          <TooltipDiff before={current} current={view.upcoming} item={item} responsive />
+          <TooltipDiff
+            before={current}
+            current={view.upcoming}
+            item={item}
+            responsive
+            beforeLabel="Current"
+            afterLabel={batch.name}
+          />
         </div>
       )}
     </li>

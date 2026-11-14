@@ -244,6 +244,7 @@ export interface TranslationsRestore {
 /** Where a row opens (an override opens on its base's page), kept with the item. */
 export interface TranslationDetail {
   path: string;
+  batchId?: string;
 }
 
 const translations: QueueSource = {
@@ -263,7 +264,10 @@ const translations: QueueSource = {
       return answer;
     };
   },
-  async rebuild(queue, { data }) {
+  async rebuild(queue, context) {
+    if (queue.destination && import.meta.env.VITE_SCHEDULED_ENABLED === '1')
+      return (await import('./batchQueue')).rebuild(queue, context);
+    const { data } = context;
     const { translationRows } = await import('./translationRows');
     return merged(queue, translationRows(data, queue.origin.restore as TranslationsRestore));
   },

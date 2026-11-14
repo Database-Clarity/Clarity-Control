@@ -97,6 +97,8 @@ export function RenderedWordDiff({
   hash,
   working = false,
   responsive = false,
+  beforeLabel,
+  afterLabel,
 }: {
   before: string;
   after: string;
@@ -104,6 +106,8 @@ export function RenderedWordDiff({
   hash: number;
   working?: boolean;
   responsive?: boolean;
+  beforeLabel?: string;
+  afterLabel?: string;
 }) {
   const data = useDataStore((state) => state.data);
   // Read when the comparison receives a source snapshot; do not subscribe this
@@ -166,11 +170,11 @@ export function RenderedWordDiff({
         )}
         <div className={styles.sides}>
           <div>
-            <strong>{working ? 'Saved' : 'Previous / live'}</strong>
+            <strong>{beforeLabel ?? (working ? 'Saved' : 'Previous / live')}</strong>
             {side(before, result.before)}
           </div>
           <div>
-            <strong>{working ? 'Unsaved' : 'Current'}</strong>
+            <strong>{afterLabel ?? (working ? 'Unsaved' : 'Current')}</strong>
             {side(after, result.after, markers)}
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { batchIdSchema } from '@clarity/core/schedule';
 import type { QueueItem, WorkQueue } from './model';
 
 /**
@@ -39,6 +40,23 @@ export function readStoredQueues(): Stored {
       for (const [id, record] of Object.entries(stored.queues ?? {})) {
         const items: unknown = JSON.parse(sessionStorage.getItem(itemsKey(id)) ?? 'null');
         const queue = { ...record, items } as WorkQueue;
+        if (queue.destination != null) {
+          const destination = queue.destination;
+          if (
+            import.meta.env.VITE_SCHEDULED_ENABLED !== '1' ||
+            destination.kind !== 'batch' ||
+            !batchIdSchema.safeParse(destination.batchId).success ||
+            typeof destination.batchName !== 'string' ||
+            !destination.batchName.trim() ||
+            destination.batchName.length > 80 ||
+            queue.source !== 'translations' ||
+            queue.items.some(
+              (item) =>
+                (item.detail as { batchId?: unknown } | null)?.batchId !== destination.batchId,
+            )
+          )
+            continue;
+        } else queue.destination = null;
         if (queue?.version === 1 && Array.isArray(queue.items) && Array.isArray(queue.skipped))
           queues[id] = queue;
       }

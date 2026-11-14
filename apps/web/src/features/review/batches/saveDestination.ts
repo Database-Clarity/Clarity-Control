@@ -106,6 +106,7 @@ export async function saveReviewToBatch(
   sameAccount: () => boolean,
   /** The save review's enrichment and validation, for the batch's staged drafts. */
   prepare: (changes: Change[]) => Promise<Change[]>,
+  onConfirmed?: (members: BatchMember[]) => void,
 ): Promise<string> {
   const data = useDataStore.getState().data;
   const name = (hash: number) => `${nameFor(data, hash)} (${hash})`;
@@ -213,6 +214,7 @@ export async function saveReviewToBatch(
   let kept = 0;
   const notes: string[] = [];
   if (sameAccount()) {
+    onConfirmed?.(confirmed.map((hash) => shown.get(hash)!));
     // Current drafts: drop the confirmed ones that nobody edited during the save.
     const store = useDraftStore.getState();
     for (const hash of confirmed) {

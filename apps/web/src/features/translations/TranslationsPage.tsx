@@ -274,7 +274,7 @@ export function TranslationsPage() {
     batchRoles.has(user.role);
   // A link to an opened Upcoming row (reload, Back from elsewhere) shows the Upcoming view.
   const [chosenSource, setChosenSource] = useState<TranslationsSource>(() => {
-    if (params.get('open')) rememberedSource = 'upcoming';
+    if (params.get('open') || params.get('upcoming') === '1') rememberedSource = 'upcoming';
     return rememberedSource;
   });
   const source: TranslationsSource = batchesAllowed ? chosenSource : 'current';

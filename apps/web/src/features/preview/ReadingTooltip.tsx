@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { createContext, memo, useContext } from 'react';
 import { markupLanguage, parseMarkup, type Lang, type MarkupGlobals } from '@clarity/core';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -8,6 +8,8 @@ import { previewDrafts, previewText } from '../conflicts/previewDrafts';
 import { archivedItemFor } from '../archive/archive';
 import { Lines } from './TooltipPreview';
 import styles from './TooltipPreview.module.scss';
+
+export const ReadingGlobals = createContext<MarkupGlobals | undefined>(undefined);
 
 const emptyGlobals: MarkupGlobals = { variables: '', titles: '' };
 const catalogs = new WeakMap<EditorData, WeakMap<Drafts, Map<Lang, MarkupGlobals>>>();
@@ -75,7 +77,8 @@ export const ReadingTooltip = memo(function ReadingTooltip({
 }) {
   const data = useDataStore((state) => state.data);
   const drafts = useDraftStore((state) => languageRevision(data, state.drafts, lang));
-  const globals = globalsFor(data, drafts, lang);
+  const supplied = useContext(ReadingGlobals);
+  const globals = supplied ?? globalsFor(data, drafts, lang);
   const category =
     hash === undefined || !data ? undefined : archivedItemFor(hash, data)?.categoryId;
   const type = data?.categories.find((entry) => entry.id === category)?.legacyType;
