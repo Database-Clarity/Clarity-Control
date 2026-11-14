@@ -4,9 +4,19 @@
 // 44px with the per-device Large touch size).
 @use '../data/variables' as theme;
 
+// The focus ring sits just outside a control. --focus-offset carries the offset so a row that
+// clips its overflow can turn every ring inside it inward (contain-focus-rings) instead of cutting
+// it; rings written by hand use var(--focus-offset, <their usual offset>) to follow it too.
 @mixin focus-ring {
   outline: 2px solid var(--accent-ink);
-  outline-offset: 2px;
+  outline-offset: var(--focus-offset, 2px);
+}
+
+// For a one-line row, strip, or scroller with overflow other than visible (pane headers, tool rows,
+// the status bar): focus rings of the controls inside it draw just inside their border instead of
+// outside the row's clip. Nothing moves; only a focused control's ring changes side.
+@mixin contain-focus-rings {
+  --focus-offset: -2px;
 }
 
 @mixin control-size {

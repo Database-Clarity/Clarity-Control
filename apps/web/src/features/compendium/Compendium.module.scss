@@ -433,7 +433,7 @@
   cursor: help;
   &:focus-visible {
     outline: 2px solid var(--style-edge);
-    outline-offset: 1px;
+    outline-offset: var(--focus-offset, 1px);
   }
   // A 44px touch area around the small marker, without moving the line.
   @include theme.mobile-or-coarse {
