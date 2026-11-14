@@ -27,7 +27,7 @@ const revisions = new WeakMap<
 >();
 
 /** A translation edit must not schedule or reparse the unchanged English pane. */
-function languageRevision(data: EditorData | null, drafts: Drafts, lang: Lang): Drafts {
+export function languageRevision(data: EditorData | null, drafts: Drafts, lang: Lang): Drafts {
   if (!data) return drafts;
   let languages = revisions.get(data);
   if (!languages) revisions.set(data, (languages = new Map()));
@@ -50,7 +50,7 @@ function languageRevision(data: EditorData | null, drafts: Drafts, lang: Lang): 
   return drafts;
 }
 
-function globalsFor(data: EditorData | null, drafts: Drafts, lang: Lang) {
+export function globalsFor(data: EditorData | null, drafts: Drafts, lang: Lang) {
   if (!data) return emptyGlobals;
   let snapshots = catalogs.get(data);
   if (!snapshots) catalogs.set(data, (snapshots = new WeakMap()));
@@ -64,6 +64,33 @@ function globalsFor(data: EditorData | null, drafts: Drafts, lang: Lang) {
   }
   return globals;
 }
+
+/** One reading render: the text read as `hash`'s type (an enhanced hash reads its enhanced block). */
+export function readingParse(
+  data: EditorData | null,
+  globals: MarkupGlobals,
+  text: string,
+  hash: number | undefined,
+) {
+  const category =
+    hash === undefined || !data ? undefined : archivedItemFor(hash, data)?.categoryId;
+  const type = data?.categories.find((entry) => entry.id === category)?.legacyType;
+  let cache = renders.get(globals);
+  if (!cache) renders.set(globals, (cache = new Map()));
+  const key = JSON.stringify([type, text]);
+  let parsed = cache.get(key);
+  if (!parsed) {
+    parsed = parseMarkup(previewText(text), { ...globals, type });
+    // Bound each revision's cache; old data and draft snapshots are weakly held.
+    if (cache.size >= 128) cache.delete(cache.keys().next().value!);
+    cache.set(key, parsed);
+  }
+  return parsed;
+}
+
+export const hasNativePopovers = () =>
+  typeof HTMLElement !== 'undefined' &&
+  typeof (HTMLElement.prototype as { showPopover?: unknown }).showPopover === 'function';
 
 /** Reading surfaces share preview spans, styles, and top-layer title popovers. */
 export const ReadingTooltip = memo(function ReadingTooltip({
@@ -79,22 +106,8 @@ export const ReadingTooltip = memo(function ReadingTooltip({
   const drafts = useDraftStore((state) => languageRevision(data, state.drafts, lang));
   const supplied = useContext(ReadingGlobals);
   const globals = supplied ?? globalsFor(data, drafts, lang);
-  const category =
-    hash === undefined || !data ? undefined : archivedItemFor(hash, data)?.categoryId;
-  const type = data?.categories.find((entry) => entry.id === category)?.legacyType;
-  let cache = renders.get(globals);
-  if (!cache) renders.set(globals, (cache = new Map()));
-  const key = JSON.stringify([type, text]);
-  let parsed = cache.get(key);
-  if (!parsed) {
-    parsed = parseMarkup(previewText(text), { ...globals, type });
-    // Bound each revision's cache; old data and draft snapshots are weakly held.
-    if (cache.size >= 128) cache.delete(cache.keys().next().value!);
-    cache.set(key, parsed);
-  }
-  const nativePopovers =
-    typeof HTMLElement !== 'undefined' &&
-    typeof (HTMLElement.prototype as { showPopover?: unknown }).showPopover === 'function';
+  const parsed = readingParse(data, globals, text, hash);
+  const nativePopovers = hasNativePopovers();
   return (
     <div
       className={[styles.snippet, styles.reading, nativePopovers ? styles.containedReading : '']

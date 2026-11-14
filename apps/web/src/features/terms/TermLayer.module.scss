@@ -1,0 +1,92 @@
+@use '../../data/variables' as theme;
+@use '../../ui/controls';
+
+// The open term: a CSS highlight over its text (registered only while its popover is open).
+::highlight(clarity-term-open) {
+  background-color: var(--sel);
+}
+
+// The content lays out exactly as before; the marks sit in an overlay above it (TermLayer
+// drawMarks): a transparent box per line of a term with a dotted bottom edge, so no character
+// moves when marks appear, change, or clear, and the pointer still reaches the text below.
+.layer {
+  position: relative;
+}
+.content {
+  display: contents;
+}
+.marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mark {
+  position: absolute;
+  border-bottom: 1px dotted var(--text3);
+  pointer-events: none;
+}
+
+// Dense, like the reference popover: 12px on the popover surface, token colours in both themes.
+.popover {
+  position: fixed;
+  z-index: 60;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: max-content;
+  min-width: 12rem;
+  max-width: min(22rem, calc(100vw - 1rem));
+  overflow: auto;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  @include controls.overlay-surface;
+  border-radius: 0.25rem;
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.kind {
+  flex: none;
+  color: var(--text3);
+  text-transform: uppercase;
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+}
+.english {
+  min-width: 0;
+  color: var(--text2);
+  overflow-wrap: anywhere;
+}
+.language {
+  flex: none;
+  margin-left: auto;
+  color: var(--text3);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.insert {
+  flex: none;
+  padding: 1px 0.5rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  // Touch: the app's small touch size (28px compact, 44px Large), one easy tap.
+  @include theme.mobile-or-coarse {
+    min-height: var(--tap-sm);
+    padding: 0 0.75rem;
+  }
+}

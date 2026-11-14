@@ -1,0 +1,61 @@
+// The English markup, read-only, on the editor's own surface and colours (ClarityEditor.module.scss
+// draws the same classes inside the editor).
+.raw {
+  font-family: var(--editor-font, Consolas, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--editor-text);
+  background: var(--editor);
+  border: 1px solid var(--editor-edge);
+  border-radius: 2px;
+
+  :global(.cm-editor) {
+    background: transparent;
+  }
+  :global(.cm-content) {
+    padding: 0.25rem 0;
+    caret-color: transparent;
+  }
+  :global(.cm-line) {
+    padding: 0 0.5rem;
+  }
+  :global(.cm-editor.cm-focused) {
+    outline: none;
+  }
+  &:has(:global(.cm-content):focus-visible) {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: -1px;
+  }
+  :global(.cm-selectionBackground),
+  :global(.cm-editor.cm-focused .cm-selectionBackground) {
+    background: var(--editor-sel) !important;
+  }
+  // A base/enhanced pair: base arm in the text colour, enhanced arm in the enhanced colour.
+  :global(.cm-base-arm) {
+    color: var(--editor-text);
+  }
+  :global(.cm-enhanced-arm) {
+    color: var(--enhanced);
+  }
+  :global(.cm-pair-mark) {
+    color: var(--var);
+  }
+  :global(.cm-el-kinetic) {
+    color: var(--el-kinetic);
+  }
+  :global(.cm-el-arc) {
+    color: var(--el-arc);
+  }
+  :global(.cm-el-solar) {
+    color: var(--el-solar);
+  }
+  :global(.cm-el-void) {
+    color: var(--el-void);
+  }
+  :global(.cm-el-stasis) {
+    color: var(--el-stasis);
+  }
+  :global(.cm-el-strand) {
+    color: var(--el-strand);
+  }
+}

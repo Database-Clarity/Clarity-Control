@@ -64,7 +64,7 @@ import { ManifestTextRow } from '../manifest/ManifestTextRow';
 import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
-import { canPushLive } from '../auth/permissions';
+import { canEditLanguage, canPushLive } from '../auth/permissions';
 import { DraftLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
 import { requireEnglish } from './requireEnglish';
@@ -535,6 +535,17 @@ function TooltipWorkspace({
       };
     });
   const enhancedViews = viewsOf(previewed, shown, typedGlobals, () => data);
+  // The translate-mode English pane shows the item's first enhanced version too (owner
+  // 2026-11-14). Its renders take the text and hash as primitives, so a new object costs nothing.
+  const englishVariant = lang !== 'en' && activeHash === hash ? previewed[0] : undefined;
+  const englishEnhancedText =
+    englishVariant === undefined
+      ? undefined
+      : enhancedRender(hash, englishVariant, 'en', data, shown).text;
+  const englishEnhanced =
+    englishVariant === undefined || !englishEnhancedText
+      ? undefined
+      : { hash: englishVariant, text: englishEnhancedText };
   // Upcoming (read-only): the same views over the batch's future state instead of drafts.
   const previewViews = (() => {
     if (!future || !futureGlobals || !futureData) return enhancedViews;
@@ -745,6 +756,7 @@ function TooltipWorkspace({
             : base.text.en?.text
       }
       conflictSource={batchEditing ? undefined : conflictSourceOf(variant)}
+      terms={!readOnly && canEditLanguage(user, lang)}
       workingDiff={
         readOnly
           ? undefined
@@ -890,6 +902,13 @@ function TooltipWorkspace({
               key={`${activeHash}:${lang}`}
               text={activeTooltip.text.en?.text}
               diff={englishDiffFor(activeBase, lang, translation?.state)}
+              enhanced={englishEnhanced}
+              terms={{
+                lang,
+                enabled: !readOnly && canEditLanguage(user, lang),
+                canInsert: access.reason === null,
+                stepping: suspended,
+              }}
             />
           )
         }
