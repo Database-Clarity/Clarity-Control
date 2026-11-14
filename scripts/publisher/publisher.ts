@@ -12,6 +12,7 @@ import {
   exportLegacy,
   mergeLivePerks,
   findElementTags,
+  enhancedArrowMarkup,
   isTextlessDescription,
   publishableHash,
   tooltipSchema,
@@ -59,7 +60,12 @@ export const publishBackoff = () => setTimeout(30_000);
 
 const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
 
-/** The first exported hash whose strings still hold an element-tagged span or a preview marker. */
+/**
+ * The first exported hash whose strings still hold an authoring form that exportLegacy lowers: an
+ * element-tagged span or a preview marker, or a delimited variable or the arrow symbol (`#{`,
+ * `<enhanced/>`; capability markupBraces). Fail closed: today's apps would drop the text or print
+ * the markup. Any `#{` counts, braced name or not (real data has none).
+ */
 export function unloweredEntry(entries: Record<string, unknown>): string | undefined {
   const strings = (value: unknown): string[] =>
     typeof value === 'string'
@@ -67,9 +73,13 @@ export function unloweredEntry(entries: Record<string, unknown>): string | undef
       : value && typeof value === 'object'
         ? Object.values(value).flatMap(strings)
         : [];
+  const unlowered = (text: string) =>
+    /[\uE000\uE001]/.test(text) ||
+    findElementTags(text).length > 0 ||
+    text.includes('#{') ||
+    text.includes(enhancedArrowMarkup);
   for (const [hash, entry] of Object.entries(entries))
-    if (strings(entry).some((text) => /[\uE000\uE001]/.test(text) || findElementTags(text).length))
-      return hash;
+    if (strings(entry).some(unlowered)) return hash;
   return undefined;
 }
 const dataRef = (branch: string) => `refs/heads/${branch}`;
@@ -710,11 +720,12 @@ export class Publisher {
       return { error: setBonusHoldMessage };
     const now = this.options.now();
     const exported = exportLegacy(tooltips, now, this.options.facts, aliases);
-    // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`. An
-    // export that still holds a tagged span (or a preview marker) would make apps drop text.
+    // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`, and
+    // `#{d}` and `<enhanced/>` to `#d` and `#e`. An export that still holds a tagged span, a
+    // preview marker, `#{`, or `<enhanced/>` would make apps drop text or print the markup.
     const unlowered = unloweredEntry(exported);
     if (unlowered !== undefined)
-      return { error: `The export of tooltip ${unlowered} still holds element-tagged text` };
+      return { error: `The export of tooltip ${unlowered} still holds unlowered markup` };
     return { now, exported };
   }
   createCandidate(opId: string, blob: string, live: string, r: Receipt) {

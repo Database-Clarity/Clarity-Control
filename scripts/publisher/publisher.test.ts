@@ -23,6 +23,11 @@ import { LocalRepository, RefRace, type Tree } from './git.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { runPipeline } from './pipeline.js';
+import publisherConfig from '../../config/publisher.json';
+
+// These fixtures run the publisher and the Worker's legacy push-live (the golden oracle) with the
+// build switch OFF, as before PUB-ENABLE turned the checked-in switch ON; a test flips it itself.
+vi.mock('../../config/publisher.json', () => ({ default: { enabled: false } }));
 // Configure before registering the Git subprocess tests (Windows runs exceed 20 seconds).
 vi.setConfig({ testTimeout: 300_000 });
 
@@ -1528,6 +1533,44 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       expect(existsSync(join(f.upstream, 'out'))).toBe(false);
     } finally {
       process.env = originalEnv;
+      remoteGit.mockRestore();
+    }
+  });
+  it('fails closed the same way when the build is ON but the installed config is not', async () => {
+    publisherConfig.enabled = true;
+    const f = await setup();
+    const tokenRead = vi.fn(),
+      networkFetch = vi.fn();
+    vi.stubGlobal('fetch', networkFetch);
+    const remoteGit = vi.spyOn(RemoteRepository.prototype, 'remoteGit');
+    const originalEnv = process.env;
+    process.env = new Proxy(originalEnv, {
+      get(target, key) {
+        if (key === 'GITHUB_TOKEN') tokenRead();
+        return Reflect.get(target, key);
+      },
+    });
+    try {
+      await expect(
+        runPipeline(
+          '.',
+          {
+            ...f.options,
+            repo: 'Database-Clarity/Live-Clarity-Database',
+            keyEndpoint: 'https://worker.invalid',
+            publishWritesEnabled: false,
+          },
+          join(f.upstream, 'out'),
+          true,
+        ),
+      ).rejects.toThrow('disabled by config');
+      expect(tokenRead).not.toHaveBeenCalled();
+      expect(networkFetch).not.toHaveBeenCalled();
+      expect(remoteGit).not.toHaveBeenCalled();
+      expect(existsSync(join(f.upstream, 'out'))).toBe(false);
+    } finally {
+      process.env = originalEnv;
+      publisherConfig.enabled = false;
       remoteGit.mockRestore();
     }
   });
