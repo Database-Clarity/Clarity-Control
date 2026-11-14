@@ -2,17 +2,16 @@ import { languages, usesEnglishFallback, type Lang } from '@clarity/core';
 import type { Change } from '../api';
 import { noImpactApplies, stampRevisions } from './enrichers/metadata';
 
-/** Per changed tooltip, the languages whose live text after this save is the English fallback. */
+/** Per changed tooltip, the languages whose live text after this save is the English text. */
 export type LiveFallback = Record<number, Lang[]>;
 
 /**
- * EXPORT-FALLBACK-VALIDATION: the languages whose LIVE output this save changes to English text.
- * Live output exports a translation more than 90 days of English revisions behind as the English
- * text (core `usesEnglishFallback`), so a save that stamps a new English revision can flip a
- * language to English, and an English edit changes what an already falling-back language shows.
- * Both are listed: the language falls back after the save (stamped exactly as the save will,
- * with the same `now` and tick), and either it did not before or the English text changed.
- * Save validation checks the English text in that language's catalogue, plus its dependents.
+ * EXPORT-FALLBACK-VALIDATION: per changed tooltip, every language whose LIVE output after this
+ * save is the English text. Live output exports a translation more than 90 days of English
+ * revisions behind as the English text (core `usesEnglishFallback`), decided here on the tooltip
+ * stamped exactly as the save will stamp it (same `now` and tick), so a new English revision that
+ * flips a language, an English edit to a language that already falls back, and a save that keeps
+ * the stamps (metadata, markup-only edits) are all covered. Save validation checks the live form.
  * Pure and cheap (no catalogue reads): run per save on the main thread to key the validation.
  */
 export function liveFallback(
@@ -40,14 +39,8 @@ export function liveFallback(
     } catch {
       continue; // A translation without English: validation refuses the save anyway.
     }
-    const englishChanged = (base?.text.en?.text ?? '') !== (next.text.en?.text ?? '');
-    const flipped = languages.filter(
-      (lang) =>
-        lang !== 'en' &&
-        usesEnglishFallback(stamped, lang) &&
-        (englishChanged || !base || !usesEnglishFallback(base, lang)),
-    );
-    if (flipped.length) result[hash] = flipped;
+    const live = languages.filter((lang) => usesEnglishFallback(stamped, lang));
+    if (live.length) result[hash] = live;
   }
   return result;
 }

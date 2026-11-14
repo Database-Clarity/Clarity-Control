@@ -73,18 +73,10 @@ export function saveDependencies(
   // Catalogues and dependents read live text (EXPORT-FALLBACK-VALIDATION): an import of a
   // tooltip whose translation falls back reads its English, as live output does.
   const changedHashes = new Set(changes.map(({ hash }) => hash));
-  // A changed tooltip's draft stamps are not the saved ones yet. Its text in `after` already holds
-  // the save's predicted fallback (validation.withLiveFallback); a language whose text and English
-  // text both stay keeps its stamps, so its stored fallback state.
-  const afterText = (tooltip: Tooltip, lang: Lang) => {
-    if (!changedHashes.has(tooltip.hash)) return liveText(tooltip, lang);
-    const old = before[tooltip.hash];
-    return old &&
-      old.text.en?.text === tooltip.text.en?.text &&
-      old.text[lang]?.text === tooltip.text[lang]?.text
-      ? liveText(old, lang)
-      : (tooltip.text[lang]?.text ?? '');
-  };
+  // A changed tooltip in `after` is already its live form (validation.liveForm, decided on the
+  // save's own stamps); its draft stamps are not the saved ones yet.
+  const afterText = (tooltip: Tooltip, lang: Lang) =>
+    changedHashes.has(tooltip.hash) ? (tooltip.text[lang]?.text ?? '') : liveText(tooltip, lang);
   const catalogs = (
     tooltips: Record<string, Tooltip>,
     textOf: (tooltip: Tooltip, lang: Lang) => string,

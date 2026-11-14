@@ -297,7 +297,7 @@ describe('EXPORT-FALLBACK-VALIDATION: the live English fallback is validated', (
     expect(liveFallback([change], iso(NOW + 1), false)).toEqual({ 124: ['de'] });
     expect(liveFallback([change], iso(NOW + 1), true)).toEqual({});
   });
-  it('lists an already falling-back language when English changes, not for other saves', () => {
+  it('lists an already falling-back language for every save that keeps its stamps', () => {
     const { edit, data } = fixture(91 * DAY);
     expect(liveFallback([edit(english2)], iso(NOW), false)).toEqual({ 124: ['de'] });
     const t124 = data.bundle.tooltips[124]!;
@@ -307,7 +307,7 @@ describe('EXPORT-FALLBACK-VALIDATION: the live English fallback is validated', (
         iso(NOW),
         false,
       ),
-    ).toEqual({});
+    ).toEqual({ 124: ['de'] });
   });
   it('a translation edited in the same save is stamped current: no flip', () => {
     const { edit } = fixture(LIMIT);
@@ -371,9 +371,11 @@ describe('EXPORT-FALLBACK-VALIDATION: the live English fallback is validated', (
         }),
       ).rejects.toThrow(/editors and maintainers|cannot edit/);
   });
-  it('resolves imports through unchanged tooltips that already fall back (code review F1)', () => {
-    // 124's German flips; it imports foo from 125, whose German already falls back, so live German
-    // resolves 125's English, which imports bar from 126 in German: 126 has no German bar.
+  /**
+   * 124's German flips; it imports foo from 125, whose German already falls back, so live German
+   * resolves 125's English, which imports bar from 126 in German: 126 has no German bar.
+   */
+  function nested() {
     const data = editorData();
     const t124: Tooltip = {
       hash: 124,
@@ -384,7 +386,7 @@ describe('EXPORT-FALLBACK-VALIDATION: the live English fallback is validated', (
       hash: 125,
       text: {
         en: entry(hidden('foo', 'import bar from 126')),
-        de: translation(hidden('foo', 'Deutsch sicher'), T0 - 91 * DAY),
+        de: translation(hidden('foo', 'Deutsch sicher <solar/>Scorch'), T0 - 91 * DAY),
       },
       associated: [],
     };
@@ -399,6 +401,12 @@ describe('EXPORT-FALLBACK-VALIDATION: the live English fallback is validated', (
       base: t124,
       next: { ...t124, text: { ...t124.text, en: { ...t124.text.en!, text: english2 } } },
     };
+    return { data, change, t125 };
+  }
+  const unresolvedBar = (from: number) =>
+    expect.stringContaining(`Unresolved import "bar" from ${from}`);
+  it('resolves imports through unchanged tooltips that already fall back (code review F1)', () => {
+    const { data, change } = nested();
     const fallback = liveFallback([change], iso(T0 + DAY), false);
     expect(fallback).toEqual({ 124: ['de'] });
     expect(errors(validateChanges([change], data, fallback))).toEqual([
@@ -409,9 +417,26 @@ describe('EXPORT-FALLBACK-VALIDATION: the live English fallback is validated', (
       }),
     ]);
   });
-  it('validates an unchanged dependent by its live text when its translation falls back', () => {
-    // 131's German falls back, so live German runs its English, which imports bar from 130 in
-    // German. Rewriting 130's German drops bar: the dependent breaks in live output.
+  it('a markup-only translation edit in the same save keeps the import target live (F1a)', () => {
+    const { data, change, t125 } = nested();
+    const markup = hidden('foo', 'Deutsch sicher <solar Scorch />');
+    expect(isMarkupOnly(t125.text.de!.text, markup)).toBe(true);
+    const target: Change = {
+      hash: 125,
+      base: t125,
+      next: { ...t125, text: { ...t125.text, de: { ...t125.text.de!, text: markup } } },
+    };
+    const fallback = liveFallback([change, target], iso(T0 + DAY), false);
+    expect(fallback).toEqual({ 124: ['de'], 125: ['de'] });
+    expect(errors(validateChanges([change, target], data, fallback))).toEqual([
+      expect.objectContaining({ hash: 124, lang: 'de', message: unresolvedBar(126) }),
+    ]);
+  });
+  /**
+   * 131's German falls back, so live German runs its English, which imports bar from 130 in
+   * German. Rewriting 130's German drops bar: the dependent breaks in live output.
+   */
+  function dependent() {
     const data = editorData();
     const t130: Tooltip = {
       hash: 130,
@@ -432,21 +457,59 @@ describe('EXPORT-FALLBACK-VALIDATION: the live English fallback is validated', (
       base: t130,
       next: { ...t130, text: { ...t130.text, de: { ...t130.text.de!, text: 'Neu' } } },
     };
+    return { data, change, t131 };
+  }
+  it('validates an unchanged dependent by its live text when its translation falls back', () => {
+    const { data, change } = dependent();
     expect(liveFallback([change], iso(NOW), false)).toEqual({});
     expect(errors(validateChanges([change], data))).toEqual([
-      expect.objectContaining({
-        hash: 131,
-        lang: 'de',
-        message: expect.stringContaining('Unresolved import "bar" from 130'),
-      }),
+      expect.objectContaining({ hash: 131, lang: 'de', message: unresolvedBar(130) }),
+    ]);
+  });
+  it('a falling-back dependent in the save for a metadata edit is still checked live (F1b)', () => {
+    const { data, change, t131 } = dependent();
+    const metadata: Change = { hash: 131, base: t131, next: { ...t131, associated: [130] } };
+    const fallback = liveFallback([change, metadata], iso(NOW), false);
+    expect(fallback).toEqual({ 131: ['de'] });
+    expect(errors(validateChanges([change, metadata], data, fallback))).toEqual([
+      expect.objectContaining({ hash: 131, lang: 'de', message: unresolvedBar(130) }),
     ]);
   });
   it('an unchanged fallback (no English change) keeps warning-only behaviour', () => {
+    // 124's live German (its English) fails in German, but reads nothing this save changes.
     const { data } = fixture(91 * DAY);
     const t124 = data.bundle.tooltips[124]!;
     const change = { hash: 124, base: t124, next: { ...t124, associated: [5] } };
     const fallback = liveFallback([change], iso(NOW), false);
-    expect(errors(validateChanges([change], data, fallback))).toEqual([]);
+    expect(fallback).toEqual({ 124: ['de'] });
+    const issues = validateChanges([change], data, fallback);
+    expect(errors(issues)).toEqual([]);
+    expect(issues).toContainEqual(
+      expect.objectContaining({ hash: 124, lang: 'de', severity: 'warning' }),
+    );
+  });
+  it('a markup-only edit of a translation that still falls back is checked as edited text', () => {
+    const { data } = fixture(91 * DAY);
+    const t124 = data.bundle.tooltips[124]!;
+    const rawBefore = lines('import nope from 125', 'Mehr <solar/>Scorch');
+    const rawAfter = lines('import nope from 125', 'Mehr <solar Scorch />');
+    const base = { ...t124, text: { ...t124.text, de: { ...t124.text.de!, text: rawBefore } } };
+    data.bundle.tooltips[124] = base;
+    const change: Change = {
+      hash: 124,
+      base,
+      next: { ...base, text: { ...base.text, de: { ...base.text.de!, text: rawAfter } } },
+    };
+    expect(isMarkupOnly(rawBefore, rawAfter)).toBe(true);
+    const fallback = liveFallback([change], iso(NOW), false);
+    expect(fallback).toEqual({ 124: ['de'] });
+    expect(errors(validateChanges([change], data, fallback))).toContainEqual(
+      expect.objectContaining({
+        hash: 124,
+        lang: 'de',
+        message: expect.stringContaining('Unresolved import "nope" from 125'),
+      }),
+    );
   });
 });
 
