@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { applyPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
+import { When } from '../../ui/When';
 import { requestTermMatches } from '../editor/diagnosticWorker';
 import { useShowEditor } from '../tooltip/VariantWorkspace';
 import type { Term } from './termList';
@@ -561,7 +562,7 @@ export function TermPopover({
               {term.glossary && (
                 <small>
                   {term.glossary.updatedBy} ·{' '}
-                  {new Date(term.glossary.updatedAt).toLocaleDateString()}
+                  <When value={term.glossary.updatedAt} />
                 </small>
               )}
               {canEdit && (
