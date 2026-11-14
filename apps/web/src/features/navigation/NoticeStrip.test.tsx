@@ -227,6 +227,57 @@ describe('notice strip', () => {
     }
   });
 
+  it('moves off a panel when a notice widens at the same height', async () => {
+    // jsdom has no layout: a notice reaches left by its text's length, at a fixed height.
+    const rect = (top: number, bottom: number, left: number, right: number) =>
+      ({ top, bottom, left, right, width: right - left, height: bottom - top }) as DOMRect;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const box = vi.spyOn(Element.prototype, 'getBoundingClientRect');
+    box.mockImplementation(function (this: Element) {
+      if (this.id === 'panel') return rect(500, 800, 0, 150);
+      if (this.hasAttribute('data-level')) {
+        const clear = parseFloat(this.parentElement!.style.getPropertyValue('--clear')) || 0;
+        const left = 380 - 6 * (this.textContent ?? '').length;
+        return rect(640 - clear, 680 - clear, left, 380);
+      }
+      return rect(0, 0, 0, 0);
+    });
+    // A panel on the left, under the notice's row but short of its left edge.
+    const panel = document.createElement('section');
+    panel.id = 'panel';
+    panel.setAttribute('data-editor-overlay', '');
+    document.body.append(panel);
+    const clear = () =>
+      host.querySelector<HTMLElement>('[data-notice-strip]')!.style.getPropertyValue('--clear');
+    try {
+      render([{ id: 'n', level: 'warning', text: 'Short notice ×' }]);
+      advance(20);
+      expect(clear()).toBe('');
+      // The same notice's text grows, at the same height, over the panel: it rises above it.
+      await act(async () =>
+        root.render(
+          <NoticeStrip
+            notices={[
+              { id: 'n', level: 'warning', text: 'A much longer notice that reaches left ×' },
+            ]}
+          />,
+        ),
+      );
+      advance(20);
+      expect(clear()).toBe('184px');
+    } finally {
+      box.mockRestore();
+      panel.remove();
+    }
+  });
+
   it('counts with the right plural', () => {
     expect(count(1, 'draft')).toBe('1 draft');
     expect(count(2, 'draft')).toBe('2 drafts');
