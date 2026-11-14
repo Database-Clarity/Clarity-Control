@@ -11,6 +11,7 @@
 }
 
 .head {
+  @include controls.contain-focus-rings;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -42,6 +43,10 @@
   }
 }
 button.toggle {
+  // Room for the inward ring (contain-focus-rings): 4px each side, given back by the margins so
+  // the label and its neighbours stay where they were.
+  padding-inline: 0.25rem;
+  margin-inline: -0.25rem;
   cursor: pointer;
   &:focus-visible {
     @include controls.focus-ring;

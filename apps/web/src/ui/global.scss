@@ -63,7 +63,15 @@ button {
 a:focus-visible,
 button:focus-visible {
   outline: 2px solid var(--accent-ink);
-  outline-offset: 4px;
+  // Inward inside a row that clips its overflow (controls.contain-focus-rings).
+  outline-offset: var(--focus-offset, 4px);
+}
+
+// Tabbing to a control at a scroller's edge scrolls it just into view, which left its outer ring
+// cut by the scroller (the Settings popover at a large scale, a page's last link): keep room for
+// the ring (2px offset + 2px outline, the link's 4px + 2px) when focus scrolls.
+:focus-visible {
+  scroll-margin: 0.375rem;
 }
 
 h1 {

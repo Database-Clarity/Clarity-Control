@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { resolveCompendiumLink, type CompendiumData } from '@clarity/core';
 import { apiUrl, save } from '../api';
 import { loadCompendium } from '../compendium';
@@ -28,6 +28,18 @@ import { useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
 import { SaveSummary } from './SaveSummary';
+import type { Destination } from '../../features/review/batches/saveDestination';
+
+// Scheduled changes (P3a): the Destination row and the batch save path. The build-switch test is
+// inline on the import, so a switch-OFF build has neither (I6).
+const destinationChunk = () =>
+  import.meta.env.VITE_SCHEDULED_ENABLED === '1'
+    ? import('../../features/review/batches/Destination')
+    : Promise.reject(new Error('Scheduled changes are off'));
+const DestinationRow =
+  import.meta.env.VITE_SCHEDULED_ENABLED === '1'
+    ? lazy(() => destinationChunk().then((module) => ({ default: module.DestinationRow })))
+    : null;
 
 /**
  * The save session controller: always mounted by the Layout, independent of any popover, so
@@ -149,6 +161,15 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const [pending, setPending] = useState(false);
   const [remoteCommit, setRemoteCommit] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Where this save goes: Current, or a batch (maintainers and editors, switch ON only).
+  const [destination, setDestination] = useState<Destination>({ kind: 'current' });
+  // A refusal the Destination row foresees (scheduled batch content, member cap).
+  const [destinationBlocked, setDestinationBlocked] = useState<string | null>(null);
+  // Maintainers and editors only (root 2026-11-14: translators get no Destination row until the
+  // later destination task; trials get no batch access, Q3). The Worker stays the guard.
+  const batchSaver = user?.role === 'maintainer' || user?.role === 'editor';
+  const batchTarget =
+    DestinationRow && batchSaver && destination.kind !== 'current' ? destination : null;
   // Linked Compendium cells that changed since they were shown, and the ones the reviewer ticked.
   const [changedSource, setChangedSource] = useState<ChangedSource[]>([]);
   const [freshSource, setFreshSource] = useState<CompendiumData | null>(null);
@@ -194,7 +215,9 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     !validation ||
     validation?.error ||
     validation?.issues.some((issue) => issue.severity === 'error') ||
-    changes.length > 100,
+    changes.length > 100 ||
+    (batchTarget?.kind === 'new' && !batchTarget.name.trim()) ||
+    (batchTarget && destinationBlocked),
   );
   async function submit() {
     if (!data || !user || pending || blocked || remoteCommit) return;
@@ -238,6 +261,36 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       const auth = useAuthStore.getState();
       if (auth.loading || !sameUser(auth.user, user) || auth.token !== sessionToken())
         throw new Error('Your login changed. Close this review and check your role.');
+      if (batchTarget) {
+        // A batch save is several requests: each one goes out only while the session is still
+        // the one checked above (settled auth, same user, same token; the draft generation lags
+        // a token change while /me loads). Asked before create, after awaits, and per chunk.
+        const token = sessionToken();
+        const sameSession = () => {
+          if (accountChanged(generation)) return false;
+          const now = useAuthStore.getState();
+          return (
+            !now.loading &&
+            sameUser(now.user, user) &&
+            now.token === token &&
+            sessionToken() === token
+          );
+        };
+        const { saveReviewToBatch } = await destinationChunk();
+        const notice = await saveReviewToBatch(
+          batchTarget,
+          prepared,
+          message.trim() || `Update ${changes.length} tooltip(s)`,
+          review.submitted,
+          sameSession,
+          (staged) => prepareChanges(staged, user, data, source),
+        );
+        if (accountChanged(generation)) return;
+        if (source) useCompendiumStore.setState({ data: source });
+        onSaved(notice);
+        close();
+        return;
+      }
       const result = await save(prepared, message.trim() || `Update ${changes.length} tooltip(s)`);
       if (accountChanged(generation) && result.kind === 'saved') {
         // Switching accounts already closed this review; report through the save notice.
@@ -300,7 +353,13 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
             disabled={pending || blocked || !data || Boolean(remoteCommit) || needsAcknowledgement}
             onClick={() => void submit()}
           >
-            {pending ? 'Saving...' : !validation && data ? 'Validating...' : 'Save changes'}
+            {pending
+              ? 'Saving...'
+              : !validation && data
+                ? 'Validating...'
+                : batchTarget
+                  ? 'Save to batch'
+                  : 'Save changes'}
           </button>
           <button type="button" disabled={pending} onClick={close}>
             Cancel; keep local drafts
@@ -308,6 +367,17 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         </>
       }
     >
+      {DestinationRow && batchSaver && (
+        <Suspense fallback={null}>
+          <DestinationRow
+            value={destination}
+            changes={changes}
+            disabled={pending}
+            onChange={setDestination}
+            onBlocked={setDestinationBlocked}
+          />
+        </Suspense>
+      )}
       {!validation && data && <p role="status">Validating save...</p>}
       {data && <SaveSummary changes={changes} issues={validation?.issues ?? []} data={data} />}
       {changedSource.length > 0 && data && (

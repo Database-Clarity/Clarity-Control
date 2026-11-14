@@ -58,7 +58,8 @@ export async function reviewRoute({ request }: LoaderFunctionArgs) {
   if (next.toString() !== params.toString())
     return redirect(`/review${next.size ? `?${next}` : ''}`);
   const hash = next.get('hash');
-  if (hash && apiUrl && useAuthStore.getState().user?.role) {
+  // The Batches subview shows no saved change: no live comparison to start.
+  if (hash && apiUrl && useAuthStore.getState().user?.role && params.get('view') !== 'batches') {
     // Hand off the comparison without delaying the local route commit. Search
     // input and repeated keyboard moves must never wait for the live API.
     void startReviewLiveRequest(Number(hash), request.signal).catch(() => {});

@@ -465,7 +465,12 @@ describe('fixture Worker batch routes', () => {
       revision: 1,
       changes: [{ hash: 123, base: tooltip, next }],
     });
-    expect(q2).toMatchObject({ status: 409, body: { error: 'Tooltip 123 is in December' } });
+    expect(q2).toMatchObject({
+      status: 409,
+      body: {
+        error: 'Tooltip 123 is already in the open batch "December"; one open batch per tooltip',
+      },
+    });
 
     fixture.setUser({ id: 2, login: 'trial', role: 'trial' });
     expect((await fixture.fetch('https://worker.test/batches')).status).toBe(403);
