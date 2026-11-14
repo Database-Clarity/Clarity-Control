@@ -72,6 +72,10 @@ export class Fixture {
   /** Every outgoing fetch (what the Workers platform counts as a subrequest). */
   subrequests = 0;
   graphqlCalls = 0;
+  /** Extra top-level errors on every Commit `file(path:)` read (fail-closed checks). */
+  graphqlErrors: unknown[] = [];
+  /** Extra fields on every Commit target in those reads (fields the query never selected). */
+  graphqlTargetExtras: Record<string, unknown> = {};
   /** Serve GraphQL blobs as truncated, so reads fall back to the contents API. */
   truncateGraphql = false;
   /** Break contents-API base64 into 60-column lines, as GitHub does. */
@@ -191,6 +195,27 @@ export class Fixture {
     );
   }
 
+  /**
+   * GitHub answers a `Commit.file(path:)` that resolves to nothing with `null` data AND a
+   * top-level NOT_FOUND error (verified live 2026-11-14), unlike `object(expression:)`, which is
+   * a silent `null`. The fixture reproduces that so reads must tolerate exactly those errors.
+   */
+  private commitResponse(target: Record<string, unknown>, fileAliases: readonly string[]) {
+    const errors = fileAliases
+      .filter((alias) => alias in target && target[alias] === null)
+      .map((alias) => ({
+        type: 'NOT_FOUND',
+        path: ['repository', 'ref', 'target', alias],
+        locations: [{ line: 1, column: 1 }],
+        message: `Could not resolve file for path '${alias}'.`,
+      }))
+      .concat(this.graphqlErrors as never[]);
+    return this.response({
+      data: { repository: { ref: { target: { ...target, ...this.graphqlTargetExtras } } } },
+      ...(errors.length ? { errors } : {}),
+    });
+  }
+
   private response(value: unknown, status = 200) {
     return new Response(JSON.stringify(value), { status });
   }
@@ -232,7 +257,7 @@ export class Fixture {
           }));
         target.dir = entries.length ? { object: { entries } } : null;
       }
-      return this.response({ data: { repository: { ref: { target } } } });
+      return this.commitResponse(target, ['perm', 'config', 'dir']);
     }
     if (input.variables.branch) {
       const files = this.current();
@@ -266,7 +291,10 @@ export class Fixture {
         const selection = input.query.slice(start, end < 0 ? undefined : end);
         target[name] = listTree(files, path, (selection.match(/entries\{/g) ?? []).length);
       }
-      return this.response({ data: { repository: { ref: { target } } } });
+      return this.commitResponse(
+        target,
+        Object.keys(target).filter((key) => /^[ot][0-9]+$/.test(key)),
+      );
     }
 
     for (const [name, expression] of Object.entries(input.variables)) {

@@ -149,7 +149,13 @@ export function groupPublishes(
         error: missing
           ? 'Some local publish records are unavailable. Check live status before publishing again.'
           : failed
-            ? `Publish incomplete: ${successful} of ${members.reduce((count, op) => count + op.hashes.length, 0)} tooltips confirmed live. Check live status before publishing again.`
+            ? `Publish incomplete: ${successful} of ${members.reduce((count, op) => count + op.hashes.length, 0)} tooltips confirmed live.${
+                // The first failed part's own reason (e.g. the Worker's error), so the grouped
+                // row still says why; it describes that part only, never the whole group.
+                failed.error
+                  ? ` First failed part (${failed.hashes.length} tooltips): ${failed.error}`
+                  : ''
+              } Check live status before publishing again.`
             : undefined,
       },
     };

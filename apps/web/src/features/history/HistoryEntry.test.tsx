@@ -322,6 +322,28 @@ it('shows restored and deleted revisions without retrying immutable file absence
   expect(getVersion.mock.calls.filter(([, sha]) => sha === id(2))).toHaveLength(1);
 });
 
+it('keeps the desktop fallback placement left of the reserved scrollbar gutter', async () => {
+  // A classic 15px scrollbar: innerWidth counts the gutter, the root's own box does not.
+  Object.defineProperty(document.documentElement, 'offsetWidth', {
+    value: window.innerWidth - 15,
+    configurable: true,
+  });
+  const row = entries()[0].parentElement!;
+  // An entry near the right edge: no room beside it, so the popover goes below, right-aligned.
+  const bounds = vi
+    .spyOn(row, 'getBoundingClientRect')
+    .mockReturnValue(new DOMRect(window.innerWidth - 424, 200, 400, 50));
+  try {
+    await act(async () => entries()[0].click());
+    const right = parseFloat(dialog()!.style.left) + parseFloat(dialog()!.style.width);
+    expect(dialog()!.style.top).toBe('254px');
+    expect(right).toBe(window.innerWidth - 15 - 8);
+  } finally {
+    bounds.mockRestore();
+    delete (document.documentElement as { offsetWidth?: number }).offsetWidth;
+  }
+});
+
 describe('phone placement', () => {
   let phone = true;
   const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 772, width: 390 });

@@ -662,6 +662,13 @@ describe('mounted Editor navigation interaction ownership', () => {
         document.body.style.overflow = owner ? 'clip' : '';
 
         await click(opener());
+        // The shell turns inert after the opening frame (ShellOverlay, R15).
+        await act(
+          async () =>
+            void (await new Promise((resolve) =>
+              requestAnimationFrame(() => setTimeout(resolve, 0)),
+            )),
+        );
         expect(shellRoot.hasAttribute('inert')).toBe(true);
         expect(document.body.style.overflow).toBe(owner ? 'clip' : '');
 
@@ -678,6 +685,13 @@ describe('mounted Editor navigation interaction ownership', () => {
         const shellRoot = host.querySelector<HTMLElement>('#shell-root')!;
         document.body.style.overflow = 'auto';
         await click(opener());
+        // The shell turns inert after the opening frame (ShellOverlay, R15).
+        await act(
+          async () =>
+            void (await new Promise((resolve) =>
+              requestAnimationFrame(() => setTimeout(resolve, 0)),
+            )),
+        );
         expect(shellRoot.hasAttribute('inert')).toBe(true);
 
         if (cleanup === 'navigation') {
