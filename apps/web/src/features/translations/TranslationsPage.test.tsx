@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { TranslationsPage } from './TranslationsPage';
+import { QueueList } from './QueueList';
+import { translationIndex } from './queue';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import type { User } from '../../services/api';
@@ -116,6 +118,33 @@ afterEach(async () => {
 });
 
 describe('TranslationsPage queue', () => {
+  it('keeps keyboard selection on the same tooltip when learned sizes reorder rows', async () => {
+    const queued = translationIndex(small).queue('de');
+    const render = async (ordered: typeof queued) =>
+      act(async () =>
+        root.render(
+          <MemoryRouter>
+            <QueueList
+              rows={ordered}
+              signature="learned-size-sort"
+              label="Sorted translations"
+              linkTo={(row) => ({ to: `/t/${row.hash}`, state: null })}
+            />
+          </MemoryRouter>,
+        ),
+      );
+    await render(queued);
+    const selected = rows()[0]!;
+    await act(async () => selected.focus());
+    expect(selected.getAttribute('href')).toBe('/t/2');
+    await render([queued[1]!, queued[0]!, queued[2]!]);
+    expect(host.querySelector('a[data-selected]')).toBe(selected);
+    expect(document.activeElement).toBe(selected);
+    await press(selected, 'ArrowDown');
+    expect(host.querySelector('a[data-selected]')?.getAttribute('href')).toBe('/t/4');
+    expect(document.activeElement).toBe(host.querySelector('a[data-selected]'));
+  });
+
   it('toggles a maintainer category × language matrix with full labels and category totals', async () => {
     await mount('/translations?lang=de&cat=mods', person('maintainer'));
     const toggle = [...host.querySelectorAll('button')].find(
@@ -131,6 +160,9 @@ describe('TranslationsPage queue', () => {
     expect(perks.querySelector('td')?.title).toContain(
       'German: 1 translated, 1 outdated, 1 missing',
     );
+    await press(table, 'Escape');
+    expect(host.querySelector('table')).toBeNull();
+    await act(async () => toggle.click());
     await act(async () =>
       [...host.querySelectorAll('button')]
         .find((button) => button.textContent === 'Languages')!
