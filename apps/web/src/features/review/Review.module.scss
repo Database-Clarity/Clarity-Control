@@ -386,8 +386,12 @@
   border: 1px solid var(--ghost-edge);
   border-radius: 0.125rem;
 
-  &[data-mark='New'] {
+  &[data-mark='New'],
+  &[data-mark='Re-add'] {
     color: var(--accent-ink);
+  }
+  &[data-mark='Remove'] {
+    color: var(--warn);
   }
 }
 

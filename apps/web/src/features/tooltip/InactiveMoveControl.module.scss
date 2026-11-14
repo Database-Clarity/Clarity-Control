@@ -1,5 +1,13 @@
 @use '../../ui/controls';
 
+.moved {
+  color: var(--accent-ink);
+}
+
+.error {
+  color: var(--warn);
+}
+
 .confirm {
   display: grid;
   gap: 8px;

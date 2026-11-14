@@ -326,9 +326,9 @@
 // A container query cannot see what the line holds, so each step's width is set per content: the
 // natural widths at UI 100 (they scale with the rem) of the full line with a draft's dot and
 // Discard, Grouped N (maintainers), and the toggles, plus a little slack for text rendering.
-$override-full: 43.4rem; // language 9, tag 8.3, dot and Discard 5.1, Markup tools 8.6, Grouped 4.8, Back 5.5, gaps
+$override-full: 45.9rem; // language 9, tag 8.3, draft 5.1, Markup 8.6, Grouped + inactive 7.3, Back 5.5, gaps
 $override-draft: 5.1rem; // the dot, Discard, and their gaps
-$override-grouped: 5.2rem; // "Grouped N" and its gap
+$override-grouped: 7.7rem; // maintainer controls: "Grouped N", inactive icon, and their gaps
 $override-toggles: 10.2rem; // Compendium, Reports, and their gaps
 // Each step and the width it saves; "grouped" saves nothing without the control.
 $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-narrow 2rem)
@@ -383,6 +383,20 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
 }
 .paneHeader:has(> .overrideTag):not(:has(> .queue)) > .paneRight {
   flex-shrink: 0;
+}
+.inactiveControl {
+  flex: none;
+}
+// At the narrowest desktop panes even the shortened override row needs a second line.
+// Keep every action reachable instead of clipping the final controls.
+.paneHeader:has(.inactiveControl) {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  > .paneRight {
+    flex-wrap: wrap;
+    max-width: 100%;
+    justify-content: flex-end;
+  }
 }
 @each $draft in (true, false) {
   @each $grouped in (true, false) {

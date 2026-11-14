@@ -54,13 +54,45 @@ try {
                 }
                 return Response.json({ moves: state.moves, revision: state.revision });
               }
-              return Response.json({ page: 1, commits: [] });
+              return Response.json(
+                String(url).includes('live=1')
+                  ? { tooltip: null, pushedHash: null }
+                  : { page: 1, commits: [] },
+              );
             };
           },
           { scale, theme },
         );
         const trigger = page.getByRole('button', { name: 'Move to Inactive', exact: true });
-        await trigger.click();
+        if (width <= 700) {
+          assert.equal(await trigger.count(), 0, `${label}: move stays in More`);
+          if (scale === 100)
+            assert.equal(
+              await page.getByRole('button', { name: 'Markup bar', exact: true }).isVisible(),
+              true,
+              `${label}: everyday Markup stays inline`,
+            );
+          const line = await page.evaluate(() => {
+            const language = document
+              .querySelector('select[aria-label="Language"]')
+              .getBoundingClientRect();
+            const more = document
+              .querySelector('button[aria-label="More editor tools"]')
+              .getBoundingClientRect();
+            return { language: language.top, more: more.top };
+          });
+          assert.ok(
+            Math.abs(line.language - line.more) < 2,
+            `${label}: More stays on the language line`,
+          );
+        }
+        const openMove = async (name) => {
+          const control = page.getByRole('button', { name, exact: true });
+          if (!(await control.isVisible()) && width <= 700)
+            await page.getByRole('button', { name: 'More editor tools', exact: true }).click();
+          await control.click();
+        };
+        await openMove('Move to Inactive');
         const dialog = page.getByRole('dialog', { name: 'Move to Inactive', exact: true });
         const input = dialog.locator('input');
         await input.waitFor({ state: 'visible' });
@@ -126,12 +158,16 @@ try {
         await page.screenshot({ path: resolve(output, `${label}-confirm.png`), fullPage: true });
         await page.keyboard.press('Escape');
         assert.equal(await dialog.count(), 0, `${label}: Escape`);
-        await trigger.click();
+        await openMove('Move to Inactive');
         await page.waitForFunction(() => !document.querySelector('[role=dialog] input').disabled);
         assert.equal(await input.inputValue(), '', `${label}: reset`);
         await input.fill('Hammerhead');
         await confirm.click();
-        await page.getByRole('button', { name: 'Move out of Inactive', exact: true }).waitFor();
+        await page.waitForFunction(() => window.inactiveQA.writes === 1);
+        await page
+          .getByRole('note')
+          .filter({ hasText: 'Inactive — excluded from outputs' })
+          .waitFor();
         assert.equal(
           await page
             .getByRole('note')
@@ -146,17 +182,92 @@ try {
           `${label}: still editable`,
         );
         await page.screenshot({ path: resolve(output, `${label}-inactive.png`), fullPage: true });
-        await page.getByRole('button', { name: 'Move out of Inactive', exact: true }).click();
+        if (width === 390 || width === 1280) {
+          await page.evaluate(() => {
+            window.location.hash = '#/review?hash=1000';
+          });
+          await page.getByText(/Pending removal:/).waitFor();
+          await page.locator('[data-mark="Remove"]').first().waitFor();
+          await page.screenshot({
+            path: resolve(output, `${label}-review-removal.png`),
+            fullPage: true,
+          });
+          await page.evaluate(() => {
+            window.location.hash = '#/t/1000?lang=en';
+          });
+          await page.locator('.cm-content:visible').first().waitFor();
+        }
+        await openMove('Move out of Inactive');
         const restore = page.getByRole('dialog', { name: 'Move out of Inactive', exact: true });
         await restore.locator('input').fill('Hammerhead');
         await restore.getByRole('button', { name: 'Resume exporting', exact: true }).click();
-        await trigger.waitFor();
+        await page
+          .getByRole('note')
+          .filter({ hasText: 'Inactive — excluded from outputs' })
+          .waitFor({ state: 'hidden' });
+        if (width > 700) await trigger.waitFor();
         assert.equal(
           await page.evaluate(() => window.inactiveQA.writes),
           2,
           `${label}: move in/out`,
         );
         results.push({ label, layout, moveInOut: true, keysBlocked: true, editable: true });
+        await context.close();
+      }
+  for (const width of [768, 1024, 1280, 1440])
+    for (const theme of ['light', 'dark'])
+      for (const scale of [100, 150]) {
+        const label = `override-draft-${width}-${theme}-${scale}`;
+        const context = await browser.newContext({
+          viewport: { width, height: 1000 },
+          colorScheme: theme,
+        });
+        const page = await context.newPage();
+        await page.goto(`http://127.0.0.1:${port}/test/shell.html#/t/1001?lang=en`);
+        await page.locator('.cm-content').first().waitFor();
+        await page.evaluate(
+          ({ scale, theme }) => {
+            window.shellFixture.role('maintainer');
+            window.shellFixture.variants();
+            window.location.hash = '#/t/1001?lang=en';
+            document.documentElement.style.fontSize = `${scale}%`;
+            document.documentElement.dataset.theme = theme;
+            window.fetch = async () => Response.json({ moves: {}, revision: null });
+          },
+          { scale, theme },
+        );
+        await page
+          .getByRole('button', { name: /^Edit override/ })
+          .first()
+          .click();
+        const editor = page.locator('.cm-content[contenteditable=true]:visible').first();
+        await editor.click();
+        await page.keyboard.type('x');
+        await page
+          .getByRole('group', { name: 'Editor tools', exact: true })
+          .getByRole('img', { name: 'Unsaved draft', exact: true })
+          .waitFor();
+        const layout = await page.evaluate(() => {
+          const header = document.querySelector('[role=group][aria-label="Editor tools"]');
+          const bounds = header.getBoundingClientRect();
+          const controls = [...header.querySelectorAll('button, select')].filter(
+            (node) =>
+              node.getBoundingClientRect().width && getComputedStyle(node).visibility !== 'hidden',
+          );
+          const outside = controls
+            .filter((node) => {
+              const r = node.getBoundingClientRect();
+              return r.left < bounds.left - 1 || r.right > bounds.right + 1;
+            })
+            .map((node) => node.getAttribute('aria-label') || node.textContent);
+          return { outside, headerWidth: bounds.width, controlCount: controls.length };
+        });
+        assert.deepEqual(layout.outside, [], `${label}: unreachable header controls`);
+        await page.getByRole('button', { name: 'Move to Inactive', exact: true }).click();
+        await page.getByRole('dialog', { name: 'Move to Inactive', exact: true }).waitFor();
+        await page.keyboard.press('Escape');
+        await page.screenshot({ path: resolve(output, `${label}.png`), fullPage: true });
+        results.push({ label, layout, inactiveReachable: true });
         await context.close();
       }
   await writeFile(resolve(output, 'results.json'), JSON.stringify(results, null, 2) + '\n');

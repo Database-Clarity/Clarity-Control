@@ -840,15 +840,16 @@ function TooltipWorkspace({
             </>
           }
           inactiveControl={
-            !readOnly && !batchEditing && (
+            !!apiUrl && !readOnly && !batchEditing && user?.role === 'maintainer' && (
               <InactiveHeaderControl
                 hash={activeHash}
                 name={nameOf(activeHash)}
-                className={styles.ghost}
+                className={`${styles.ghost} ${styles.inactiveControl}`}
                 compact={!phone}
               />
             )
           }
+          inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
           draftLoader={
             draft && (
               <DraftLoader

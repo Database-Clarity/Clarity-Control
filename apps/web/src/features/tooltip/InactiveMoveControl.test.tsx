@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useAuthStore } from '../../stores/auth';
 import { getInactiveMoves, putInactiveMove } from '../../services/inactiveMoves';
 import { InactiveMoveControl } from './InactiveMoveControl';
+import { Popover } from '../../ui/Popover';
 
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
 vi.mock('../../services/inactiveMoves', () => ({
@@ -94,6 +95,26 @@ it('requires exact typing, safely focuses Cancel, and ignores autopilot activati
   expect(putInactiveMove).toHaveBeenCalledExactlyOnceWith(42, true, null);
   expect(saved).toHaveBeenCalledWith(moved);
   expect(document.querySelector('[role=dialog]')).toBeNull();
+});
+
+it('keeps a containing tools menu mounted when the pointer confirms its nested move', async () => {
+  await act(async () =>
+    root.render(
+      <Popover label="Tools" trigger="Tools" contain>
+        <InactiveMoveControl hash={42} name="Test perk" onSaved={saved} />
+      </Popover>,
+    ),
+  );
+  await click('Tools');
+  await click('Move to Inactive');
+  await type('Test perk');
+  await act(async () => {
+    button('Stop exporting').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+  });
+  expect(document.querySelectorAll('[role=dialog]')).toHaveLength(2);
+  await click('Stop exporting');
+  expect(putInactiveMove).toHaveBeenCalledExactlyOnceWith(42, true, null);
+  expect(saved).toHaveBeenCalledWith(moved);
 });
 
 it.each(['Escape', 'Back', 'Cancel'])(

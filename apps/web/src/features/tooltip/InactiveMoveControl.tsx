@@ -95,7 +95,7 @@ export function InactiveMoveControl({
             strokeWidth="1.5"
           >
             <circle cx="8" cy="8" r="6" />
-            <path d="M4.5 8h7" />
+            <path d={moved ? 'M4.5 8h7M8 4.5v7' : 'M4.5 8h7'} />
           </svg>
         ) : moved ? (
           'Move out of Inactive'
@@ -109,7 +109,7 @@ export function InactiveMoveControl({
       onOpenChange={setOpen}
       contain
       width={360}
-      className={className}
+      className={[className, moved && styles.moved].filter(Boolean).join(' ')}
     >
       {(close) => (
         <div className={styles.confirm}>
@@ -119,7 +119,7 @@ export function InactiveMoveControl({
           <p>
             {moved
               ? 'Its computed category returns immediately. Its text returns to every output on the next publish of this row.'
-              : 'It moves to Inactive & Placeholders immediately. Its text leaves DIM, light.gg, all seven legacy outputs, and clarityV2 on the next publish of this row. Its alias stubs are removed too. Text stays editable here.'}
+              : 'It moves to Inactive & Placeholders immediately. Its text leaves every output (including DIM, light.gg, and clarityV2) on the next publish of this row. Its alias stubs are removed too. Text stays editable here.'}
           </p>
           <p>Importers must stop reading its text, or move to Inactive too, before publishing.</p>
           <label>
@@ -136,7 +136,11 @@ export function InactiveMoveControl({
               }}
             />
           </label>
-          {error && <p role="alert">{error} Close and reopen to reload, then try again.</p>}
+          {error && (
+            <p role="alert" className={styles.error}>
+              {error.replace(/[.!?]?$/, '.')} Close and reopen to reload, then try again.
+            </p>
+          )}
           {!loaded && !error && <p role="status">Loading current moves…</p>}
           <div className={styles.actions}>
             <button type="button" data-autofocus onClick={() => close()}>

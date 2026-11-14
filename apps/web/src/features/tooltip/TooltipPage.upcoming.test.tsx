@@ -219,6 +219,30 @@ async function mount(
   };
 }
 
+it('hides global inactive moves in both the header and grouped list during a batch visit', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const batch = await seedBatch();
+  const visit = await batchQueueFor(batch, 10);
+  const page = await mount(
+    'maintainer',
+    (visit.first.detail as { path: string }).path,
+    visit.state,
+  );
+  try {
+    await page.settle();
+    expect(document.querySelector('button[aria-label="Move to Inactive"]')).toBeNull();
+    const grouped = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Grouped manifest perks"]',
+    );
+    expect(grouped).not.toBeNull();
+    await act(async () => grouped!.click());
+    expect(document.querySelector('[data-grouped]')).not.toBeNull();
+    expect(document.querySelector('button[aria-label="Move to Inactive"]')).toBeNull();
+  } finally {
+    await page.dispose();
+  }
+});
+
 it('switches the preview between current and the batch future state', async () => {
   vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
   const batch = await seedBatch();

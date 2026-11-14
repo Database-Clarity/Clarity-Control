@@ -186,6 +186,16 @@ it('moves in and out from the mounted editor without changing its text or edit a
 });
 
 let navigateRoute: ReturnType<typeof useNavigate>;
+it('offers only one move action for the open item when its grouped list is open', async () => {
+  await render();
+  await act(async () => button('Grouped manifest perks')!.click());
+  const moves = document.querySelectorAll('button[aria-label="Move to Inactive"]');
+  // One header action, then only the other three grouped hashes.
+  expect(moves).toHaveLength(4);
+  expect(document.querySelector('[data-grouped="10"] button')).toBeNull();
+  expect(document.querySelector('[data-grouped="11"] button')).not.toBeNull();
+});
+
 let currentLocation: ReturnType<typeof useLocation>;
 function PageHarness() {
   navigateRoute = useNavigate();

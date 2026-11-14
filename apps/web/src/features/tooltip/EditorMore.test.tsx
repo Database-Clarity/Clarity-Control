@@ -45,7 +45,10 @@ function handlers() {
     toggle: vi.fn(),
   };
 }
-async function mount(spies: ReturnType<typeof handlers>, props: { draft?: boolean } = {}) {
+async function mount(
+  spies: ReturnType<typeof handlers>,
+  props: { draft?: boolean; inactive?: boolean } = {},
+) {
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={['/t/1?lang=de']}>
@@ -62,6 +65,7 @@ async function mount(spies: ReturnType<typeof handlers>, props: { draft?: boolea
           activeOverride={undefined}
           onEditOverride={spies.onEditOverride}
           onBack={spies.onBack}
+          inactiveControl={props.inactive ? <button>Move to Inactive</button> : undefined}
           grouped={
             [{ hash: 9, name: 'Nine', enhanced: false, how: 'same name', reason: 'name' }] as never
           }
@@ -73,7 +77,8 @@ async function mount(spies: ReturnType<typeof handlers>, props: { draft?: boolea
     ),
   );
 }
-const q = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
+const q = <T extends Element = HTMLElement>(selector: string) =>
+  document.querySelector<T>(selector);
 const button = (name: string) =>
   [...document.querySelectorAll<HTMLElement>('button, a')].find((element) =>
     (element.getAttribute('aria-label') ?? element.textContent ?? '').startsWith(name),
@@ -83,6 +88,15 @@ const click = (element: Element | undefined) =>
 const openMore = () => click(q('button[aria-label="More editor tools"]')!);
 
 describe('More (phone tool row)', () => {
+  it('keeps the inactive action in More instead of the main phone row', async () => {
+    phone(true);
+    await mount(handlers(), { inactive: true });
+    expect(button('Move to Inactive')).toBeUndefined();
+    await openMore();
+    expect(button('Move to Inactive')?.closest('[role=dialog]')?.getAttribute('aria-label')).toBe(
+      'Editor tools',
+    );
+  });
   it('replaces the inline tools on a phone: language, draft dot, queue, More', async () => {
     phone(true);
     await mount(handlers());
@@ -171,6 +185,13 @@ describe('More (phone tool row)', () => {
 });
 
 describe('inline tools (phone tool row)', () => {
+  it('reserves More for a rare action while keeping everyday tools inline when they fit', () => {
+    const layout = { gap: 6, headerGap: 6, more: 36, queue: 0, room: 120 };
+    expect(phoneFit([60], layout, true)).toBe(1);
+    expect(phoneFit([60, 60], layout, true)).toBe(1);
+    expect(phoneFit([60], { ...layout, room: 90 }, true)).toBe(0);
+    expect(phoneFit([60, 60], { ...layout, queue: 120, room: 130 }, true)).toBe(2);
+  });
   it('fits tools in order and never leaves a single tool for More', () => {
     // Everything fits: no More at all.
     expect(fitTools([60, 60, 60], 6, 192, 42)).toBe(3);

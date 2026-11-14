@@ -201,7 +201,16 @@ export function Popover({
     if (!open) return;
     const outside = (event: PointerEvent) => {
       const target = event.target as Node;
+      // A child popup is portaled beside its parent. Its owning trigger still lives inside us;
+      // treating a click in that child as outside would unmount it before its action can run.
+      const child = target instanceof Element ? target.closest('[role="dialog"][id]') : null;
+      const ownsChild =
+        child &&
+        [...(surface.current?.querySelectorAll('[aria-controls]') ?? [])].some(
+          (trigger) => trigger.getAttribute('aria-controls') === child.id,
+        );
       if (
+        ownsChild ||
         surface.current?.contains(target) ||
         button.current?.contains(target) ||
         external.current.anchorElement?.contains(target)

@@ -34,6 +34,7 @@ export function EditorMore({
   queueBack,
   renderGrouped,
   rows,
+  extra,
 }: {
   /** The markup row toggle; undefined where the text is read-only. */
   markup?: { open: boolean; toggle(): void };
@@ -49,6 +50,8 @@ export function EditorMore({
   renderGrouped(perks: GroupedPerk[]): React.ReactNode;
   /** The tools that overflowed the row (the rest are inline); undefined: every tool. */
   rows?: ReadonlySet<ToolId>;
+  /** Rare actions that always stay in More, without taking an inline tool's place. */
+  extra?: React.ReactNode;
 }) {
   const [groupedOpen, setGroupedOpen] = useState(false);
   if (rows) {
@@ -57,7 +60,7 @@ export function EditorMore({
     grouped = rows.has('grouped') ? grouped : undefined;
     overrides = overrides.filter((target) => rows.has(`override:${target.hash}`));
   }
-  if (!markup && !draft && !grouped && !overrides.length && !queueBack) return null;
+  if (!markup && !draft && !grouped && !overrides.length && !queueBack && !extra) return null;
   return (
     <Popover
       label="Editor tools"
@@ -82,6 +85,7 @@ export function EditorMore({
             </button>
           </header>
           <ul className={styles.rows}>
+            {extra && <li>{extra}</li>}
             {markup && (
               <li>
                 <button
@@ -255,8 +259,24 @@ type Layout = {
  * next measurement. Without a queue, More sits on the tools' line. With one, either everything
  * fits on one line, or the queue (and More) wrap below and the tools get the whole line.
  */
-export function phoneFit(widths: readonly number[], layout: Omit<Layout, 'widths'>) {
+export function phoneFit(
+  widths: readonly number[],
+  layout: Omit<Layout, 'widths'>,
+  alwaysMore = false,
+) {
   const { gap, headerGap, room, more, queue } = layout;
+  if (alwaysMore) {
+    const total =
+      widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, widths.length - 1);
+    if (queue && total + headerGap + queue + headerGap + more <= room) return widths.length;
+    const available = queue ? room : room - more - headerGap;
+    let count = 0;
+    let used = 0;
+    while (count < widths.length && used + (count ? gap : 0) + widths[count] <= available) {
+      used += (count ? gap : 0) + widths[count++];
+    }
+    return count;
+  }
   if (!queue) return fitTools(widths, gap, room, more + headerGap);
   const all = widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, widths.length - 1);
   if (all + headerGap + queue <= room) return widths.length;
@@ -337,6 +357,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
     ? phoneFit(
         tools.map((tool) => layout.widths[tool.label] ?? 0),
         layout,
+        Boolean(props.extra),
       )
     : tools.length <= 1
       ? tools.length
@@ -363,12 +384,13 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
             {props.queue}
           </span>
         )}
-        {overflow.size > 0 && (
+        {(overflow.size > 0 || props.extra) && (
           <EditorMore
             {...{ markup, draft, saving, onDiscard, grouped, overrides, onEditOverride }}
             renderGrouped={renderGrouped}
             queueBack={props.queueBack}
             rows={overflow}
+            extra={props.extra}
           />
         )}
       </span>

@@ -49,6 +49,7 @@ export function EditorPaneHeader({
   draftLoader,
   destination,
   inactiveControl,
+  inactiveHash,
   reserveDraft = false,
 }: {
   lang: Lang;
@@ -79,6 +80,8 @@ export function EditorPaneHeader({
   destination?: React.ReactNode;
   /** Maintainer-only inactive move, with its own deliberate confirmation. */
   inactiveControl?: React.ReactNode;
+  /** Undefined on batch visits, where global move actions are unavailable. */
+  inactiveHash?: number;
   reserveDraft?: boolean;
 }) {
   const phone = useMedia(phoneQuery);
@@ -98,6 +101,7 @@ export function EditorPaneHeader({
           draftLoader,
           destination,
           inactiveControl,
+          inactiveHash,
           reserveDraft,
         }}
       />
@@ -193,6 +197,7 @@ export function EditorPaneHeader({
         {grouped && (
           <Popover
             label="Grouped manifest perks"
+            triggerLabel="Grouped manifest perks"
             className={styles.ghost}
             trigger={
               <>
@@ -203,7 +208,7 @@ export function EditorPaneHeader({
             }
             triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
           >
-            <GroupedPerks perks={grouped} />
+            <GroupedPerks perks={grouped} currentHash={inactiveHash} />
           </Popover>
         )}
         {activeOverride ? (
@@ -270,6 +275,7 @@ function PhoneToolRow({
   draftLoader,
   destination,
   inactiveControl,
+  inactiveHash,
   reserveDraft,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   return (
@@ -283,7 +289,6 @@ function PhoneToolRow({
         <span className={styles.dot} style={{ visibility: 'hidden' }} aria-hidden="true" />
       )}
       {draftLoader}
-      {inactiveControl}
       <PhoneTools
         // The tools fit the room left of them: they measure again when the draft button comes or goes.
         key={draftLoader ? 'after-draft' : 'tools'}
@@ -297,7 +302,8 @@ function PhoneToolRow({
         onEditOverride={onEditOverride}
         queueBack={queueBack}
         queue={queue}
-        renderGrouped={(perks) => <GroupedPerks perks={perks} />}
+        renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
+        extra={inactiveControl}
       />
       {reason && (
         <span className={styles.badge} role="status" title={reason}>
@@ -325,7 +331,13 @@ function PhoneToolRow({
 }
 
 /** The maintainer's read-only list: hash, in-game name, base or enhanced, and how it joined. */
-export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
+export function GroupedPerks({
+  perks,
+  currentHash,
+}: {
+  perks: GroupedPerk[];
+  currentHash?: number;
+}) {
   const moves = useDataStore((state) => state.data?.bundle.inactiveMoves);
   // Sandbox perks are not in the item catalog: their names come from the bundled sandbox perk
   // text, loaded once when this list first opens.
@@ -370,17 +382,19 @@ export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
                 </span>
               )}
             </span>
-            <InactiveMoveControl
-              hash={perk.hash}
-              name={
-                perk.name ||
-                (sandbox && sandboxPerkName(perk.hash, sandbox)) ||
-                `Tooltip ${perk.hash}`
-              }
-              moves={moves}
-              onSaved={applyInactiveMoves}
-              className={styles.ghost}
-            />
+            {currentHash !== undefined && perk.hash !== currentHash && (
+              <InactiveMoveControl
+                hash={perk.hash}
+                name={
+                  perk.name ||
+                  (sandbox && sandboxPerkName(perk.hash, sandbox)) ||
+                  `Tooltip ${perk.hash}`
+                }
+                moves={moves}
+                onSaved={applyInactiveMoves}
+                className={styles.ghost}
+              />
+            )}
           </span>
         </li>
       ))}

@@ -240,8 +240,12 @@
     border-radius: 0.125rem;
   }
 
-  small[data-mark='New'] {
+  small[data-mark='New'],
+  small[data-mark='Re-add'] {
     color: var(--accent-ink);
+  }
+  small[data-mark='Remove'] {
+    color: var(--warn);
   }
 }
 
