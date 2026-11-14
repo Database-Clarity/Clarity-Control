@@ -1,6 +1,13 @@
 import { expect, it } from 'vitest';
 import { sourceMathFlags, styleLint } from './style.mjs';
 
+it('blocks repeated owner v4.8 misses before review', () => {
+  for (const text of ['Upon scoring a kill, grants 5 Range.', 'While active:', 'After a 1 second delay, splits.', 'Grants 2 stacks, up to 10 stacks.', 'Retriggering refreshes the duration.', 'Counts damage instances.', 'Grants innate benefits.', 'Deals a total of 10 damage.', 'Allies in the field heal.', '1 Precision Angle Threshold', '4 Unravel seekers', 'Decreased Accuracy Cone Growth'])
+    expect(styleLint(text), text).not.toEqual([]);
+  expect(styleLint('Grants the following benefits while hip-firing:\n• 5 Range\n\nStacks up to 10 times.')).toEqual([]);
+  expect(styleLint('Releases 4 <strand Unravel /> seekers.')).toEqual([]);
+});
+
 it('rejects source phrasing even when markup splits its words', () => {
   for (const text of ['Throws your Grenade.', 'With <primary/>Primary ammo, deals damage.', 'Grants Fixed Grenade Ability Energy.', 'Deals 5 damage over 8 meters.', 'Applies <stasis Freeze />.', 'Fire bursts of 5 projectiles.', 'Dealing Additional damage.', '2x Vent Rate Multiplier.'])
     expect(styleLint(text), text).not.toEqual([]);

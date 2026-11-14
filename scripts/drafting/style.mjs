@@ -3,6 +3,17 @@ export const proseOf = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/
   .replace(/<[a-z][\w-]*\s*/gi, '').replace(/\/>/g, '').replace(/\[[#A-Za-z_][^\]]*\]/g, '');
 
 const banned = [
+  ['HARD Upon opener', /^\s*Upon\b/im],
+  ['HARD condition header', /^\s*(?:While|When|After|If|During|On|With)\b[^\n]*:\s*$/im],
+  ['HARD comma condition prefix', /^\s*(?:After|While|When|Upon|If|During|With)\b[^\n,.!?]*,\s/im],
+  ['HARD attached stack maximum', /,\s*up to\s+[\d.?]+\s+stacks?\b/i],
+  ['HARD redundant duration refresh', /\bretriggering\s+refreshes?\s+the\s+duration\b/i],
+  ['HARD damage instance', /\bdamage\s+instances?\b/i],
+  ['HARD innate', /\binnate\b/i],
+  ['total damage sum', /\btotal(?:s|ling|ing)?\b[^\n.!]{0,70}\bdamage\b|\bdamage\s+in\s+total\b/i],
+  ['ambiguous field reference', /\bin the field\b/i],
+  ['obsolete precision stat', /\bPrecision Angle Threshold\b/i],
+  ['player distance wording', /\benemies\s+less than\s+[\d.?]+\s+meters\s+away\b/i],
   ['ability narration', /\b(?:throws?|performs?)\s+your\b/i],
   ['with Primary ammo', /\bwith\s+Primary\s+ammo\b/i],
   ['multiplier phrasing', /\bmultiplier\b/i],
@@ -13,7 +24,6 @@ const banned = [
   ['plural firing burst', /\bbursts\s+of\b|\b(?:fires?|firing)\s+bursts\b/i],
   ['inflict phrasing', /\binflict(?:s|ing|ed)?\b/i],
   ['Beginning a manual action', /\bbeginning\s+(?:a\s+)?(?:manual\s+)?vent\b/i],
-  ['mid-sentence Stacks or Mods', /\b(?:Stacks|Mods)\b/],
   ['redundant timing tail', /\b(?:of the first|of each other)\b/i],
   ['tick-count tail', /,\s*up to\s+[\d.?]+\s+times\b/i],
   ['bare rank threshold', /\b(?:Elite|Miniboss|Boss|T\d+)\s+(?:or|and)\s+higher\b/i],
@@ -22,6 +32,15 @@ const banned = [
 export function styleLint(english) {
   const prose = proseOf(english);
   const errors = banned.filter(([, pattern]) => pattern.test(prose)).map(([label]) => `Style: ${label}`);
+  for (const match of prose.matchAll(/\b(?:Stacks|Mods)\b/g)) {
+    const prefix = prose.slice(0, match.index), before = prefix.trim();
+    if (before && !/[.!?]$/.test(before) && !/\n\s*\n\s*$/.test(prefix)) errors.push('Style: mid-sentence Stacks or Mods');
+  }
+  const untagged = english.replace(/<[^<>]*\/>/g, '').replace(/^\s*\/\/.*$/gm, '');
+  if (/\bUnravel(?:ing)?\b/.test(untagged)) errors.push('Style: untagged Strand Unravel keyword');
+  if (/\b(?:Unraveling|Unravelling) Projectiles\b/i.test(prose)) errors.push('Style: use Unravel seekers');
+  if (/\bCone Growth\b/.test(english) && !/<title\s+[^<>]*Cone Growth\s+\[[^\]]+\]\s*\/>/.test(english))
+    errors.push('Style: Cone Growth needs its global title');
   for (const fragment of prose.matchAll(/\([^\n)]*\bwith\b[^\n)]*(?:Whisper of|Ember of|Spark of|Echo of|Thread of|Facet of)[^\n)]*\)/gi)) {
     if (/\+\s*[\d.?]/.test(fragment[0])) errors.push('Style: +X with fragment improvement');
     if (/\b(?:seconds?|s|meters?|m)\b/i.test(fragment[0])) errors.push('Style: units in fragment improvement');
@@ -54,4 +73,24 @@ export function sourceMathFlags(item) {
   if (ticks && damage && total && Number(ticks[1]) * Number(damage[1]) !== Number(total[1]))
     return ['The source total does not match its per-tick damage and tick count. Values are retained; the damage model needs verification.'];
   return [];
+}
+
+export function itemStyleLint(item, english) {
+  const errors = styleLint(english);
+  if (item.ownerFeedback?.verdict !== 'change') return errors;
+  const rewrite = /^Rewritten version:\s*\n([\s\S]*)$/.exec(item.ownerFeedback.note ?? '');
+  if (rewrite && english !== rewrite[1]) errors.push('Style: owner rewrite must be verbatim');
+  if (item.name === "Riven's Curse") {
+    if (!english.includes('with 1|2|3|4|5 mods equipped')) errors.push('Style: missing five-mod selector');
+    if (!english.includes('Dreaming City')) errors.push('Style: missing Dreaming City restriction');
+  }
+  if (item.category.startsWith('armor-mod') && /Siphon$/.test(item.name ?? '')) {
+    if (!/^import\b/m.test(english) || !/^var element\s*=/m.test(english))
+      errors.push('Style: elemental Siphon needs canonical import and element override');
+  }
+  if (item.name === 'Stunloader') {
+    if (!/\breserves\b/i.test(english)) errors.push('Style: refill reserves origin missing');
+    if (!/\b60%/.test(english)) errors.push('Style: enhanced refill value missing');
+  }
+  return errors;
 }

@@ -108,6 +108,14 @@ it('does not turn an automatic magazine refill into a manual reload claim', () =
   expect(validateDraft(refill, 'Refills 50% of the magazine.\n\n#Reload', editor, app)).toContain('Unsupported manual-reload claim: source does not say reload');
   expect(validateDraft(refill, 'Refills 50% of the magazine.', editor, app)).toEqual([]);
 });
+it('treats import IDs as references and preserves verbatim owner rewrites', () => {
+  expect(validateDraft(item, 'import main from 2724068510', editor, app)).not.toContain('Unsupported number: 2724068510');
+  expect(validateDraft(item, 'Deals 2724068510 damage.', editor, app)).toContain('Unsupported number: 2724068510');
+  const english = 'The owner supplies this exact sentence. '.repeat(10).trim();
+  const corrected = { ...item, ownerFeedback: { verdict: 'change', note: `Rewritten version:\n${english}` } };
+  expect(validateDraft(corrected, english, editor, app)).not.toContain('Length sanity');
+  expect(validateDraft(corrected, english + ' Changed.', editor, app)).toContain('Length sanity');
+});
 it('finds base exotic wording through item names and declines ambiguous base identities', () => {
   const e = {
     items: {
