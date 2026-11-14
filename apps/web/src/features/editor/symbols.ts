@@ -87,7 +87,8 @@ export interface TagRange {
  * editor tints exactly this (UI-FIXES-2B 7). Icons are separate: they stay symbols wherever they
  * sit (PRODUCT.md "icons stay symbols"), so they are found on their own, not through these tokens.
  */
-const converterToken = /<.+?\/>/g;
+const converterToken =
+  /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/g;
 
 function* lineTokens(text: string, offset: number) {
   let lineFrom = offset;

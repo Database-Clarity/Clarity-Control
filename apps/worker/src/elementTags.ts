@@ -27,6 +27,11 @@ export const markupBracesCapability = 'markupBraces';
  * `elementTags` shipped; such a build leaves the span unlowered and the consumers drop its text.
  */
 export const prismaticTagsCapability = 'prismaticTags';
+export const arrowSymbolCapability = 'arrowSymbol';
+
+function hasArrowSymbol(tooltip: Tooltip): boolean {
+  return Object.values(tooltip.text).some((entry) => entry?.text.includes('<arrow/>'));
+}
 
 /**
  * Which exporter is live. While the publisher switch is off, the live export is this Worker's own
@@ -76,7 +81,7 @@ export function hasDelimitedText(tooltip: Tooltip): boolean {
 
 /** Whether the tooltip holds an authoring form an exporter has to lower (tags, `#{d}`, `<enhanced/>`). */
 export function needsLowering(tooltip: Tooltip): boolean {
-  return hasTaggedText(tooltip) || hasDelimitedText(tooltip);
+  return hasTaggedText(tooltip) || hasDelimitedText(tooltip) || hasArrowSymbol(tooltip);
 }
 
 /**
@@ -115,13 +120,25 @@ export function refuseReservedNames(tooltip: Tooltip): void {
 }
 
 /**
- * Both guards against one PIN value (`undefined` while push-live exports, which always lowers).
+ * Consumer guards against one PIN value. The legacy path lowers tags and braces, but refuses arrows.
  */
 export function refuseUnlowerable(
   tooltip: Tooltip,
   pin: { value: unknown } | undefined,
   action: string,
 ): void {
+  if (hasArrowSymbol(tooltip)) {
+    const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;
+    if (
+      !exporter.publisherEnabled() ||
+      !Array.isArray(capabilities) ||
+      !capabilities.includes(arrowSymbolCapability)
+    )
+      throw new HttpError(
+        422,
+        `Tooltip ${tooltip.hash} contains <arrow/>, which can't be ${action}: an enabled publisher and ${publisherPinPath} with the "${arrowSymbolCapability}" capability are required.`,
+      );
+  }
   refuseUnlowerableTags(
     tooltip,
     pin === undefined || pinLowersElementTags(pin.value),
@@ -197,6 +214,11 @@ export function refuseTaggedEntries(entries: Record<string, unknown>): void {
   for (const [hash, entry] of Object.entries(entries)) {
     if (strings(entry).some((text) => reservedMarker.test(text) || findElementTags(text).length))
       throw new HttpError(422, `The export of tooltip ${hash} still holds element-tagged text`);
+    if (strings(entry).some((text) => text.includes('<arrow/>')))
+      throw new HttpError(
+        422,
+        `The legacy export of tooltip ${hash} still holds <arrow/>; use the enabled publisher with the arrowSymbol capability`,
+      );
     if (strings(entry).some(hasDelimitedMarkup))
       throw new HttpError(422, `The export of tooltip ${hash} still holds #{name} or <enhanced/>`);
   }

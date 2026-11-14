@@ -61,13 +61,21 @@ const isRuleRow = (row: FormatRow): row is RuleRow => (ruleRows as readonly stri
 export const presetFormat = (file: StyleFile): FileFormat =>
   newStyleFile(file.id, file.preset, file.data, file.shape).format;
 
-export function rowValue(format: FileFormat, row: FormatRow): unknown {
+export function rowValue(format: FileFormat, row: FormatRow, shape: Shape = 'lines'): unknown {
   if (isRuleRow(row)) return format[row];
-  return format.symbols[row];
+  return (
+    format.symbols[row] ??
+    (row === 'arrow'
+      ? shape === 'text'
+        ? { mode: 'replace', before: '→', after: '' }
+        : { mode: 'keep' }
+      : undefined)
+  );
 }
 
 export const rowChanged = (file: StyleFile, row: FormatRow) =>
-  JSON.stringify(rowValue(file.format, row)) !== JSON.stringify(rowValue(presetFormat(file), row));
+  JSON.stringify(rowValue(file.format, row, file.shape)) !==
+  JSON.stringify(rowValue(presetFormat(file), row, file.shape));
 
 export const changedRows = (file: StyleFile, rows: readonly FormatRow[] = formatRows) =>
   rows.filter((row) => rowChanged(file, row));
@@ -109,11 +117,31 @@ const styleOnly = (file: ExportFile, edit: (file: StyleFile) => StyleFile): Expo
   isLegacyFile(file) ? file : edit(file);
 
 /** Sets one format row. Leaving Replace (or Inline) remembers its values for the way back. */
+export function setArrowFallback(
+  state: ProjectState,
+  key: string,
+  fallback: boolean,
+): ProjectState {
+  return editFile(state, key, (file) => {
+    if (!isLegacyFile(file) || file.preset !== 'clarityV2') return file;
+    const next = { ...file };
+    if (fallback) next.arrowFallback = true;
+    else if (
+      state.saved.files.some(
+        (saved) => saved.id === file.id && isLegacyFile(saved) && saved.arrowFallback === false,
+      )
+    )
+      next.arrowFallback = false;
+    else delete next.arrowFallback;
+    return next;
+  });
+}
+
 export function setRow(state: ProjectState, key: string, row: FormatRow, value: unknown) {
   const file = state.config.files.find((candidate) => fileKey(candidate) === key);
   if (!file || isLegacyFile(file)) return state;
   const memoryKey = `${key}:${row}`;
-  const current = rowValue(file.format, row) as { mode?: string } | undefined;
+  const current = rowValue(file.format, row, file.shape) as { mode?: string } | undefined;
   let memory = state.memory;
   if (current?.mode === 'replace' || current?.mode === 'inline')
     memory = { ...memory, [memoryKey]: current };
@@ -135,8 +163,9 @@ export function ruleForMode(
 ): unknown {
   const remembered = state.memory[`${fileKey(file)}:${row}`] as { mode?: string } | undefined;
   if (remembered?.mode === mode) return remembered;
-  const preset = rowValue(presetFormat(file), row) as { mode?: string } | undefined;
+  const preset = rowValue(presetFormat(file), row, file.shape) as { mode?: string } | undefined;
   if (preset?.mode === mode) return preset;
+  if (mode === 'replace' && row === 'arrow') return { mode, before: '→', after: '' };
   if (mode === 'replace')
     return row === 'links' ? { mode, pattern: ['', '', '', ''] } : { mode, before: '', after: '' };
   if (mode === 'inline') return { mode, pattern: ['', '', '', ''] };
@@ -146,7 +175,7 @@ export function ruleForMode(
 export const resetRow = (state: ProjectState, key: string, row: FormatRow) => {
   const file = state.config.files.find((candidate) => fileKey(candidate) === key);
   if (!file || isLegacyFile(file)) return state;
-  return setRow(state, key, row, structuredClone(rowValue(presetFormat(file), row)));
+  return setRow(state, key, row, structuredClone(rowValue(presetFormat(file), row, file.shape)));
 };
 
 export const resetRows = (state: ProjectState, key: string, rows: readonly FormatRow[]) =>
@@ -181,7 +210,9 @@ export const setShape = (state: ProjectState, key: string, shape: Shape) =>
       const format = structuredClone(style.format);
       if (shape === 'text') {
         for (const symbol of symbolIds)
-          if (format.symbols[symbol]?.mode === 'keep') format.symbols[symbol] = { mode: 'drop' };
+          if (format.symbols[symbol]?.mode === 'keep')
+            format.symbols[symbol] =
+              symbol === 'arrow' ? { mode: 'replace', before: '→', after: '' } : { mode: 'drop' };
         if (format.titles.mode === 'keep') format.titles = { mode: 'drop' };
         if (format.links.mode === 'keep') format.links = { mode: 'drop' };
       }

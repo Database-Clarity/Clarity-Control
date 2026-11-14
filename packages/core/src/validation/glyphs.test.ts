@@ -65,7 +65,7 @@ describe('portable glyph warnings', () => {
       ['U+E000', 6, 7],
       ['U+1F600', 7, 9],
     ]);
-    expect(warnings[0].replacement).toBe('->');
+    expect(warnings[0].replacement).toBe('<arrow/>');
     expect(warnings[3].replacement).toBeUndefined();
   });
   test('no blind replacement for semantic enhanced markers or invisible text', () => {
@@ -90,4 +90,13 @@ describe('portable glyph warnings', () => {
     expect(glyphWarnings(text)[0].from).toBe(text.length - 2);
     expect(glyphWarnings('safe')).toEqual([]);
   });
+});
+
+test('arrow replacement is safe inside a complete text-style wrapper', () => {
+  for (const text of ['<pve 30%🠚33% />', '<yellow 30%🠚33% />']) {
+    expect(canReplaceGlyph(text, glyphWarnings(text)[0])).toBe(true);
+    expect(validateText(text.replace('🠚', '<arrow/>'), 'en')).toEqual([]);
+  }
+  const incomplete = '<pve 30%🠚33%';
+  expect(canReplaceGlyph(incomplete, glyphWarnings(incomplete)[0])).toBe(false);
 });
