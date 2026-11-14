@@ -21,7 +21,7 @@ export function variantGlobals(globals: MarkupGlobals, enhanced: boolean): Marku
     type: enhanced
       ? enhancedMarkupType
       : globals.type === enhancedMarkupType
-        ? 'Weapon Trait'
+        ? undefined
         : globals.type,
   };
 }

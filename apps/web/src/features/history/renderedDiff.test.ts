@@ -1,8 +1,27 @@
 import { expect, it } from 'vitest';
-import { parseMarkup, type MarkupLine } from '@clarity/core';
-import { changedSourceLines, presentDiff, renderedDiff, type DiffSpan } from './renderedDiff';
+import { enhancedMarkupType, parseMarkup, type MarkupLine } from '@clarity/core';
+import {
+  changedSourceLines,
+  presentDiff,
+  renderedDiff,
+  variantGlobals,
+  type DiffSpan,
+} from './renderedDiff';
 
 const globals = { variables: '', titles: '' };
+it('normalizes an enhanced item to the default base parser mode', () => {
+  const source = 'Shared {{base}{enhanced}}\nenhanced (\nExtra\n)';
+  const enhanced = { ...globals, type: enhancedMarkupType };
+  const base = variantGlobals(enhanced, false);
+  expect(base.type).toBeUndefined();
+  expect(parseMarkup(source, base).lines).toEqual(parseMarkup(source, globals).lines);
+  expect(parseMarkup(source, variantGlobals(base, true)).lines).toEqual(
+    parseMarkup(source, enhanced).lines,
+  );
+  expect(parseMarkup(source, base).lines).not.toEqual(parseMarkup(source, enhanced).lines);
+  const otherMode = { ...globals, type: 'Weapon Catalyst Exotic' };
+  expect(variantGlobals(otherMode, false)).toEqual(otherMode);
+});
 const parts = (lines: MarkupLine[]): DiffSpan[] =>
   lines.flatMap((line) => [
     ...(line.linesContent ?? []),
