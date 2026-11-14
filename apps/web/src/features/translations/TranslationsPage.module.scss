@@ -95,8 +95,13 @@
     flex: 1 1 12rem;
   }
 
+  // A fixed basis, so switching Current / Upcoming (other option lists) never moves the filter.
   .categories {
     flex: 0 1 14rem;
+
+    select {
+      width: 100%;
+    }
   }
 
   @include theme.mobile {
@@ -272,7 +277,8 @@
 
 .coverage {
   flex: none;
-  width: 23rem;
+  // Wide enough for the Upcoming view's extra column, so the switch never moves the list.
+  width: 25rem;
   overflow: auto;
   align-self: stretch;
   font-size: 0.8125rem;
@@ -602,18 +608,14 @@
   }
 }
 
-// Upcoming coverage: Ready, Changed, Stale, and Needs; the rail is a little wider for the extra column.
+// Upcoming coverage: Ready, Changed, Stale, and Needs, in the same rail width.
 .coverage[data-upcoming] {
-  width: 25rem;
-
   .coverageHead,
   button {
     grid-template-columns: minmax(0, 1fr) 3rem 3.75rem 2.75rem 3.25rem;
   }
 
   @container (max-width: 53.99rem) {
-    width: auto;
-
     .coverageHead,
     button {
       grid-template-columns: minmax(0, 1fr) 3rem 3.75rem 2.75rem 3.25rem;

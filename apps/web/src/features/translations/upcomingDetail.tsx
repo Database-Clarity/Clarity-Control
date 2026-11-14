@@ -71,9 +71,11 @@ export function UpcomingDetail({
         </nav>
       </div>
       <p className={styles.detailLine} title={line.join(' · ')}>
-        {line.map((segment, index) => (
-          <span key={index}>{segment}</span>
-        ))}
+        <span className={styles.segments}>
+          {line.map((segment, index) => (
+            <span key={index}>{segment}</span>
+          ))}
+        </span>
       </p>
       <p className={styles.readOnly} role="note">
         Read-only. Editing translations in a batch arrives in a later update.
@@ -106,24 +108,24 @@ export function UpcomingDetail({
                   ).
                 </p>
               )}
+              {row.currentChanged && (
+                <p className={styles.note} data-flag="">
+                  Current {language} was {currentTranslation ? 'edited' : 'removed'} after this
+                  rework. When the batch publishes, the upcoming {language} below
+                  {currentTranslation ? ' replaces it' : ' is restored'}.
+                </p>
+              )}
               {translation && (
                 <ReadingTooltip text={translation.text} lang={row.language} hash={row.hash} />
               )}
-              {row.currentChanged && (
+              {row.currentChanged && currentTranslation && (
                 <div className={styles.changed}>
-                  <p className={styles.note} data-flag="">
-                    Current {language} was {currentTranslation ? 'edited' : 'removed'} after this
-                    rework. When the batch publishes, the upcoming {language} above
-                    {currentTranslation ? ' replaces it' : ' is restored'}.
-                    {currentTranslation && ` Current ${language}:`}
-                  </p>
-                  {currentTranslation && (
-                    <ReadingTooltip
-                      text={currentTranslation.text}
-                      lang={row.language}
-                      hash={row.hash}
-                    />
-                  )}
+                  <p className={styles.note}>Current {language} (replaced at publish):</p>
+                  <ReadingTooltip
+                    text={currentTranslation.text}
+                    lang={row.language}
+                    hash={row.hash}
+                  />
                 </div>
               )}
               {!member.base && <p className={styles.note}>New tooltip: the batch creates it.</p>}

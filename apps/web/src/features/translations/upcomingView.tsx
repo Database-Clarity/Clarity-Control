@@ -61,6 +61,7 @@ function rowState(row: UpcomingRow): RowState {
 
 function UpcomingCoverage({
   rowsFor,
+  loading,
   languages,
   language,
   scope,
@@ -68,6 +69,8 @@ function UpcomingCoverage({
   onPick,
 }: {
   rowsFor(language: Lang): readonly UpcomingRow[];
+  /** Batches are still loading (or the listing failed): counts show a dash, never a false 0. */
+  loading: boolean;
   languages: readonly Lang[];
   language: Lang;
   scope: { id: string; label: string } | undefined;
@@ -97,6 +100,23 @@ function UpcomingCoverage({
         </div>
       </div>
       {languages.map((lang) => {
+        if (loading)
+          return (
+            <button
+              key={lang}
+              type="button"
+              data-perf-navigation="true"
+              aria-pressed={lang === language}
+              aria-label={`${languageLabel(lang)}: not loaded yet`}
+              onClick={() => onPick(lang)}
+            >
+              <span>{languageLabel(lang)}</span>
+              <span data-zero="">–</span>
+              <span data-zero="">–</span>
+              <span data-zero="">–</span>
+              <span data-zero="">–</span>
+            </button>
+          );
         const { ready, changed, stale, needs } = upcomingCoverage(rowsFor(lang), scope?.id);
         return (
           <button
@@ -331,7 +351,7 @@ export default function UpcomingTranslations({
                 title="Needs translation, Stale, and Current changed"
                 onClick={() => setFilter('todo')}
               >
-                To do {counts.todo}
+                To do{listingReady && ` ${counts.todo}`}
               </button>
               <button
                 type="button"
@@ -340,7 +360,7 @@ export default function UpcomingTranslations({
                 title="Translated against the batch English"
                 onClick={() => setFilter('ready')}
               >
-                Ready {counts.ready}
+                Ready{listingReady && ` ${counts.ready}`}
               </button>
             </div>
             {coverage && (
@@ -363,6 +383,7 @@ export default function UpcomingTranslations({
         language && (
           <UpcomingCoverage
             rowsFor={rowsFor}
+            loading={!listingReady}
             languages={available}
             language={language}
             scope={category ? categories.find((option) => option.id === category) : undefined}
