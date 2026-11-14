@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
+import { changeKey, changeSizeMemory } from './changeSize';
 import type { Item } from '../../services/generator';
 import {
   behindLabel,
@@ -8,6 +9,7 @@ import {
   countRows,
   filterRows,
   parseStateFilter,
+  queueFor,
   translationIndex,
 } from './queue';
 
@@ -113,6 +115,23 @@ function fixture(): EditorData {
 describe('translation queue', () => {
   const data = fixture();
   const index = translationIndex(data);
+
+  it('rebuilds the same small-changes order from cached English identities', () => {
+    const tooltip = data.bundle.tooltips[2]!;
+    const key = changeKey({
+      hash: 2,
+      sourceUpdatedAt: tooltip.text.de!.sourceUpdatedAt!,
+      current: tooltip.text.en!.text,
+    });
+    changeSizeMemory.set(key, { count: 1 });
+    try {
+      expect(
+        queueFor(index, 'de', { state: null, category: null, query: '', sort: 'small' })[0]?.hash,
+      ).toBe(2);
+    } finally {
+      changeSizeMemory.delete(key);
+    }
+  });
 
   it('lists only translatable tooltips: no aliases, selectors, placeholders, archived, or blank English', () => {
     expect(index.translatable.map((entry) => entry.hash).sort((a, b) => a - b)).toEqual([

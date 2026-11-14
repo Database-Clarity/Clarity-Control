@@ -34,5 +34,8 @@ describe('worklist helpers', () => {
         user('translator', ['fr']),
       ),
     ).toBe('/translations?cat=perks&q=a+b&state=outdated');
+    expect(queuePath({ ...context, sort: 'small' }, user('translator', ['fr']))).toBe(
+      '/translations?sort=small',
+    );
   });
 });

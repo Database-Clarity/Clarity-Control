@@ -15,6 +15,7 @@ import {
 } from '../compendium/itemClassification';
 import { exoticArmourCategory, exoticArmourLabel, itemFor, listName } from '../navigation/catalog';
 import type { EditorData } from '../../stores/data';
+import { changeKey, changeSizeMemory } from './changeSize';
 
 /** A tooltip that can be translated: shown in the finder, with English text, not a placeholder. */
 export interface Translatable {
@@ -222,6 +223,7 @@ export function parseStateFilter(value: string | null): StateFilter {
 }
 
 export interface QueueFilters {
+  sort?: 'small';
   state: StateFilter;
   category: string | null;
   query: string;
@@ -247,7 +249,20 @@ export function queueFor(
   language: Lang,
   filters: QueueFilters,
 ): readonly QueueRow[] {
-  return filterRows(index.queue(language), filters);
+  const rows = filterRows(index.queue(language), filters);
+  if (filters.sort !== 'small') return rows;
+  const counts = new Map<number, number>();
+  for (const { tooltip } of index.translatable) {
+    const sourceUpdatedAt = tooltip.text[language]?.sourceUpdatedAt;
+    if (!sourceUpdatedAt) continue;
+    const value = changeSizeMemory.get(
+      changeKey({ hash: tooltip.hash, sourceUpdatedAt, current: tooltip.text.en?.text ?? '' }),
+    );
+    if (value && 'count' in value) counts.set(tooltip.hash, value.count);
+  }
+  return [...rows].sort(
+    (a, b) => (counts.get(a.hash) ?? Infinity) - (counts.get(b.hash) ?? Infinity),
+  );
 }
 
 /** Categories that have rows, in finder order, with row counts. */
@@ -257,9 +272,9 @@ export function categoryOptions(
 ): { id: string; label: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const row of rows) counts.set(row.categoryId, (counts.get(row.categoryId) ?? 0) + 1);
-  return categories.flatMap((category) => {
+  return categories.map((category) => {
     const count = counts.get(category.id);
-    return count ? [{ ...category, count }] : [];
+    return { ...category, count: count ?? 0 };
   });
 }
 

@@ -34,6 +34,7 @@ export function queuePath(context: QueueContext, user: User | null | undefined):
   if (context.category) params.set('cat', context.category);
   if (context.query) params.set('q', context.query);
   if (context.state) params.set('state', context.state);
+  if (context.sort === 'small') params.set('sort', 'small');
   const query = params.toString();
   return `/translations${query ? `?${query}` : ''}`;
 }

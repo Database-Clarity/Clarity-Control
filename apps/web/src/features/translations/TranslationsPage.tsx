@@ -42,9 +42,42 @@ import { returnedState } from '../queue/WorkThroughBar';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './TranslationsPage.module.scss';
 import { useLeftQueue } from '../queue/useQueue';
+import { sortBySize, useChangeSizes, type ChangeSize } from './useChangeSizes';
+import { SkeletonBlock } from '../../ui/Skeleton';
+import skeletonStyles from '../../ui/Skeleton.module.scss';
 
 const searchDelayMs = 200;
 const noRows: readonly QueueRow[] = [];
+
+function ChangeCount({ value, identity }: { value: ChangeSize | undefined; identity: string }) {
+  const loading = useSkeletonVisible(!value, identity, !!value);
+  return (
+    <span
+      className={styles.changeSize}
+      title={
+        value && 'count' in value
+          ? 'English words added plus removed since this translation'
+          : value && 'error' in value
+            ? value.error
+            : 'Finding English changes'
+      }
+    >
+      {loading ? (
+        <span
+          className={skeletonStyles.region}
+          style={{ display: 'inline-block' }}
+          aria-hidden="true"
+        >
+          <SkeletonBlock height="0.65rem" width="3.5rem" />
+        </span>
+      ) : value && 'count' in value ? (
+        `${value.count} ${value.count === 1 ? 'word' : 'words'}`
+      ) : (
+        'Unavailable'
+      )}
+    </span>
+  );
+}
 
 export type TranslationsSource = 'current' | 'upcoming';
 
@@ -195,6 +228,7 @@ function Coverage({
   scope,
   open,
   onPick,
+  maintainer,
 }: {
   index: TranslationIndex;
   languages: readonly Lang[];
@@ -203,7 +237,9 @@ function Coverage({
   scope: { id: string; label: string } | undefined;
   open: boolean;
   onPick(language: Lang): void;
+  maintainer: boolean;
 }) {
+  const [table, setTable] = useState(false);
   const scopeLabel = scope ? `${scope.label} only` : 'All categories';
   return (
     <div
@@ -211,37 +247,98 @@ function Coverage({
       className={styles.coverage}
       data-open={open ? '' : undefined}
       role="group"
-      aria-label={`Coverage by language, ${scopeLabel.toLowerCase()}`}
+      aria-label={
+        table
+          ? 'Coverage by category and language, all categories'
+          : `Coverage by language, ${scopeLabel.toLowerCase()}`
+      }
+      data-table={table ? '' : undefined}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') setTable(false);
+      }}
     >
-      <div className={styles.coverageTop} aria-hidden="true">
-        <div className={styles.coverageScope} title={scopeLabel}>
-          {scopeLabel}
-        </div>
-        <div className={styles.coverageHead}>
-          <span>Language</span>
-          <span>Translated</span>
-          <span>Outdated</span>
-          <span>Missing</span>
-        </div>
-      </div>
-      {languages.map((lang) => {
-        const { translated, outdated, missing } = index.coverage(lang, scope?.id);
-        return (
-          <button
-            key={lang}
-            type="button"
-            data-perf-navigation="true"
-            aria-pressed={lang === language}
-            aria-label={`${languageLabel(lang)}: ${translated} translated, ${outdated} outdated, ${missing} missing`}
-            onClick={() => onPick(lang)}
-          >
-            <span>{languageLabel(lang)}</span>
-            <span>{translated}</span>
-            <span data-zero={outdated ? undefined : ''}>{outdated}</span>
-            <span data-zero={missing ? undefined : ''}>{missing}</span>
+      {maintainer && (
+        <div className={styles.coverageMode} role="group" aria-label="Coverage view">
+          <button type="button" aria-pressed={!table} onClick={() => setTable(false)}>
+            Languages
           </button>
-        );
-      })}
+          <button type="button" aria-pressed={table} onClick={() => setTable(true)}>
+            Categories × languages
+          </button>
+        </div>
+      )}
+      {table ? (
+        <div
+          className={styles.tableScroll}
+          tabIndex={0}
+          role="region"
+          aria-label="Category and language coverage"
+        >
+          <table>
+            <caption>Translated / outdated / missing</caption>
+            <thead>
+              <tr>
+                <th scope="col">Category</th>
+                {languages.map((lang) => (
+                  <th key={lang} scope="col" title={languageLabel(lang)}>
+                    {languageLabel(lang)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {index.categories.map((category) => (
+                <tr key={category.id}>
+                  <th scope="row">{category.label}</th>
+                  {languages.map((lang) => {
+                    const { translated, outdated, missing } = index.coverage(lang, category.id);
+                    return (
+                      <td
+                        key={lang}
+                        title={`${category.label}, ${languageLabel(lang)}: ${translated} translated, ${outdated} outdated, ${missing} missing`}
+                      >
+                        {translated} / {outdated} / {missing}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <>
+          <div className={styles.coverageTop} aria-hidden="true">
+            <div className={styles.coverageScope} title={scopeLabel}>
+              {scopeLabel}
+            </div>
+            <div className={styles.coverageHead}>
+              <span>Language</span>
+              <span>Translated</span>
+              <span>Outdated</span>
+              <span>Missing</span>
+            </div>
+          </div>
+          {languages.map((lang) => {
+            const { translated, outdated, missing } = index.coverage(lang, scope?.id);
+            return (
+              <button
+                key={lang}
+                type="button"
+                data-perf-navigation="true"
+                aria-pressed={lang === language}
+                aria-label={`${languageLabel(lang)}: ${translated} translated, ${outdated} outdated, ${missing} missing`}
+                onClick={() => onPick(lang)}
+              >
+                <span title={languageLabel(lang)}>{languageLabel(lang)}</span>
+                <span>{translated}</span>
+                <span data-zero={outdated ? undefined : ''}>{outdated}</span>
+                <span data-zero={missing ? undefined : ''}>{missing}</span>
+              </button>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
@@ -278,6 +375,8 @@ export function TranslationsPage() {
     return rememberedSource;
   });
   const source: TranslationsSource = batchesAllowed ? chosenSource : 'current';
+  const small = params.get('sort') === 'small';
+  const { sizes, onVisible, retryFailed } = useChangeSizes(data, source === 'current');
 
   // The URL is the source of truth; typing is debounced into it so every key is not a navigation.
   useEffect(() => setText(query), [query]);
@@ -311,12 +410,17 @@ export function TranslationsPage() {
   );
   // The same list, in the same order, that the editor's queue control steps through.
   const shownFilters = useMemo(
-    () => ({ state, category, query: deferredText }),
-    [state, category, deferredText],
+    () => ({ state, category, query: deferredText, sort: small ? ('small' as const) : undefined }),
+    [state, category, deferredText, small],
   );
   const shown = useMemo(
-    () => (index && language ? queueFor(index, language, shownFilters) : noRows),
-    [index, language, shownFilters],
+    () =>
+      sortBySize(
+        index && language ? queueFor(index, language, shownFilters) : noRows,
+        sizes,
+        small,
+      ),
+    [index, language, shownFilters, sizes, small],
   );
   // A row opens the editor in queue mode for this view (an override opens on its base's page).
   const linkTo = useCallback(
@@ -371,19 +475,23 @@ export function TranslationsPage() {
 
   const translator = user?.role === 'translator';
   const coverage = !translator && available.length > 0;
-  const signature = `${language}|${state}|${category}|${deferredText}`;
+  const signature = `${language}|${state}|${category}|${deferredText}${small ? '|small' : ''}`;
   const filtered = !!(state || category || query);
   const unavailable = !!requested && requested !== 'all' && requested !== language;
   const openFirst = (event: KeyboardEvent) => {
     if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
     // The first match of what is typed now, not of the deferred list.
-    const first = filterRows(rows, { state, category, query: text })[0];
+    const sorted = sortBySize(filterRows(rows, { state, category, query: text }), sizes, small);
+    const first = sorted[0];
     if (!first) return;
     // Back must return to this filter, so it is in the URL before the editor opens.
     if (text !== query) commitText();
-    rememberOpenedFirst(`${language}|${state}|${category}|${text}`, first.key);
-    const filters = { state, category, query: text };
-    const { to, state: visit } = startAt(first, filters, filterRows(rows, filters), 0);
+    rememberOpenedFirst(
+      `${language}|${state}|${category}|${text}${small ? '|small' : ''}`,
+      first.key,
+    );
+    const filters = { state, category, query: text, sort: small ? ('small' as const) : undefined };
+    const { to, state: visit } = startAt(first, filters, sorted, 0);
     void navigate(to, { state: visit });
   };
   const pick = (lang: Lang) => {
@@ -420,6 +528,7 @@ export function TranslationsPage() {
           <select
             data-perf-navigation="true"
             value={language}
+            title={languageLabel(language)}
             onChange={(event) => pick(event.target.value as Lang)}
           >
             {available.map((lang) => (
@@ -495,12 +604,18 @@ export function TranslationsPage() {
                 <span className="sr-only">Category</span>
                 <select
                   data-perf-navigation="true"
-                  value={
-                    category && categories.some((option) => option.id === category) ? category : ''
+                  title={
+                    category
+                      ? (categories.find((option) => option.id === category)?.label ?? category)
+                      : 'All categories'
                   }
+                  value={category ?? ''}
                   onChange={(event) => update({ cat: event.target.value || null })}
                 >
                   <option value="">All categories</option>
+                  {category && !categories.some((option) => option.id === category) && (
+                    <option value={category}>Unknown category ({category})</option>
+                  )}
                   {categories.map((option) => (
                     <option key={option.id} value={option.id}>
                       {option.label} ({option.count})
@@ -531,6 +646,24 @@ export function TranslationsPage() {
                 </button>
               ))}
             </div>
+            <label className={styles.sort}>
+              <span className="sr-only">Sort translations</span>
+              <select
+                aria-label="Sort translations"
+                value={small ? 'small' : 'default'}
+                onChange={(event) =>
+                  update({ sort: event.target.value === 'small' ? 'small' : null }, true)
+                }
+              >
+                <option value="default">Oldest changes first</option>
+                <option value="small">Small changes first</option>
+              </select>
+            </label>
+            {[...sizes.values()].some((value) => 'error' in value) && (
+              <button type="button" onClick={retryFailed}>
+                Retry change sizes
+              </button>
+            )}
             {coverage && (
               <button
                 type="button"
@@ -553,7 +686,15 @@ export function TranslationsPage() {
             index={index}
             languages={available}
             language={language}
-            scope={category ? index.categories.find((option) => option.id === category) : undefined}
+            scope={
+              category
+                ? (index.categories.find((option) => option.id === category) ?? {
+                    id: category,
+                    label: 'Unknown category',
+                  })
+                : undefined
+            }
+            maintainer={user?.role === 'maintainer'}
             open={coverageOpen}
             onPick={pick}
           />
@@ -580,9 +721,15 @@ export function TranslationsPage() {
               rows={shown}
               linkTo={linkTo}
               onOpen={onOpen}
+              onVisible={onVisible}
+              extra={(row) =>
+                row.state === 'outdated' ? (
+                  <ChangeCount value={sizes.get(row.key)} identity={row.key} />
+                ) : null
+              }
               restored={
                 returned &&
-                `${returned.language}|${returned.state}|${returned.category}|${returned.query}` ===
+                `${returned.language}|${returned.state}|${returned.category}|${returned.query}${(returned as TranslationsRestore & { sort?: string }).sort === 'small' ? '|small' : ''}` ===
                   signature
                   ? { top: returned.top, selected: returned.selectedRow }
                   : undefined

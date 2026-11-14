@@ -116,6 +116,55 @@ afterEach(async () => {
 });
 
 describe('TranslationsPage queue', () => {
+  it('toggles a maintainer category × language matrix with full labels and category totals', async () => {
+    await mount('/translations?lang=de&cat=mods', person('maintainer'));
+    const toggle = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Categories × languages',
+    )!;
+    await act(async () => toggle.click());
+    const table = host.querySelector('table')!;
+    expect(table.querySelector('caption')?.textContent).toBe('Translated / outdated / missing');
+    const perks = [...table.querySelectorAll('tbody tr')].find(
+      (row) => row.querySelector('th')?.textContent === 'Perks',
+    )!;
+    expect(perks.querySelector('td')?.textContent).toBe('1 / 1 / 1');
+    expect(perks.querySelector('td')?.title).toContain(
+      'German: 1 translated, 1 outdated, 1 missing',
+    );
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Languages')!
+        .click(),
+    );
+    expect(host.querySelector('table')).toBeNull();
+    expect(host.querySelector('[aria-label^="German:"] span')?.getAttribute('title')).toBe(
+      'German',
+    );
+    await mount('/translations', person('editor'));
+    expect(
+      [...host.querySelectorAll('button')].some(
+        (button) => button.textContent === 'Categories × languages',
+      ),
+    ).toBe(false);
+  });
+
+  it('stores sort in history and restores it after opening a row, Back, and Forward', async () => {
+    await mount('/translations?lang=de', person('maintainer'));
+    const sort = () => host.querySelector<HTMLSelectElement>('[aria-label="Sort translations"]')!;
+    await act(async () => {
+      sort().value = 'small';
+      sort().dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(location.search).toContain('sort=small');
+    await act(async () => rows()[0]!.click());
+    await act(async () => navigate(-1));
+    expect(sort().value).toBe('small');
+    await act(async () => navigate(-1));
+    expect(sort().value).toBe('default');
+    await act(async () => navigate(1));
+    expect(sort().value).toBe('small');
+  });
+
   it('lists what needs work in the assigned language and opens the editor in translate mode', async () => {
     await mount('/translations', person('translator', ['de']));
     expect(names()).toEqual(['Outdated Perk', 'Missing Perk', 'Missing Mod']);
@@ -222,7 +271,7 @@ describe('TranslationsPage queue', () => {
     expect(scope()).toBe('Coverage by language, all categories');
   });
 
-  it('keeps a fully translated category scoped and ignores unknown ones', async () => {
+  it('keeps fully translated and unknown categories scoped', async () => {
     const done = build(
       [
         tooltip(3, 'English three', { source: '2026-02-01T00:00:00.000Z' }),
@@ -232,14 +281,18 @@ describe('TranslationsPage queue', () => {
     );
     await mount('/translations?lang=de&cat=perks', person('editor'), done);
     expect(host.textContent).toContain('No tooltips match these filters.');
+    expect(host.querySelector('option[value="perks"]')?.textContent).toBe('Perks (0)');
     expect(
       host.querySelector('[role=group] button[aria-label^="German"]')!.getAttribute('aria-label'),
     ).toBe('German: 1 translated, 0 outdated, 0 missing');
     await mount('/translations?lang=de&cat=nope', person('editor'), done);
     expect(
       host.querySelector('[role=group] button[aria-label^="German"]')!.getAttribute('aria-label'),
-    ).toBe('German: 1 translated, 0 outdated, 1 missing');
-    expect(host.textContent).toContain('All categories');
+    ).toBe('German: 0 translated, 0 outdated, 0 missing');
+    expect(host.querySelector<HTMLSelectElement>('option[value="nope"]')?.textContent).toBe(
+      'Unknown category (nope)',
+    );
+    expect(names()).toEqual([]);
   });
 
   it('shows translators no coverage table even with a category filter', async () => {
