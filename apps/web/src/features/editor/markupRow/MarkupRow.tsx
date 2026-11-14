@@ -144,7 +144,7 @@ export const MarkupRow = memo(function MarkupRow({
       // How much shows of a button cut at either edge, when less than half of it does (else 0).
       // Tag mode's slim fades (scrollWrap ::before/::after) widen over such a sliver: its accent
       // outline would otherwise stand at full contrast just past the fade. Read on scroll and
-      // resize only, when layout is already clean.
+      // resize only (never per key); the writes happen after the reads and only on a change.
       const right = scrollLeft + clientWidth;
       let start = 0;
       let end = 0;
