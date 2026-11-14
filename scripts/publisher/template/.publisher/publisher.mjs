@@ -21778,14 +21778,28 @@ function scanBaseEnhanced(text, allowEmpty = false) {
     const from = text.indexOf("{{", cursor);
     if (from < 0) break;
     let pos = from + 2;
+    const braced = (at) => text[at - 1] === "#" ? /^\{[a-zA-Z0-9]+\}/.exec(text.slice(at, at + 64))?.[0].length ?? 0 : 0;
     const arm = () => {
       const begin = pos;
       while (pos < text.length && text[pos] !== "}" && !/[\r\n]/.test(text[pos])) {
         if (text.startsWith("{{", pos)) return null;
         if (text[pos] === "{") {
+          const variable = braced(pos);
+          if (variable) {
+            pos += variable;
+            continue;
+          }
           if (text[pos - 1] !== "$") return null;
-          const end2 = text.indexOf("}", pos);
-          if (end2 < 0 || /[{}\r\n]/.test(text.slice(pos + 1, end2))) return null;
+          let end2 = pos + 1;
+          for (; ; ) {
+            if (end2 >= text.length || /[\r\n]/.test(text[end2])) return null;
+            if (text[end2] === "}") break;
+            if (text[end2] === "{") {
+              const inner = braced(end2);
+              if (!inner) return null;
+              end2 += inner;
+            } else end2++;
+          }
           pos = end2 + 1;
         } else pos++;
       }
@@ -21857,6 +21871,89 @@ function markElementTags(text) {
     marked.set(text, result);
   }
   return result;
+}
+
+// packages/core/src/markup/braces.ts
+var enhancedArrowMarkup = "<enhanced/>";
+var legacyEnhancedArrow = "#e";
+var variableReferencePattern = /#\{([a-zA-Z0-9]+)\}|#([a-zA-Z0-9]+)/g;
+function variableReferences(text, offset = 0) {
+  if (!text.includes("#")) return [];
+  const found = [];
+  for (const match of text.matchAll(variableReferencePattern)) {
+    const from = offset + match.index;
+    found.push({
+      name: match[1] ?? match[2],
+      braced: match[1] !== void 0,
+      from,
+      to: from + match[0].length
+    });
+  }
+  return found;
+}
+var holderName = (word) => `Zb${word.length}w${word}`;
+var holderPattern = /^Zb(\d+)w([a-zA-Z0-9]+)$/;
+function isHolderName(name) {
+  const match = holderPattern.exec(name);
+  return match !== null && Number(match[1]) === match[2].length;
+}
+var reservedNamePattern = /^Zb\d+w/;
+var reservedNameMessage = (name) => `#${name} is a reserved name (braces generate names starting Zb<number>w): rename it.`;
+function reservedNames(text) {
+  const found = [];
+  for (const match of text.matchAll(/^var ([a-zA-Z0-9]+) /gm))
+    if (reservedNamePattern.test(match[1]))
+      found.push({
+        name: match[1],
+        from: match.index + 4,
+        to: match.index + 4 + match[1].length
+      });
+  for (const ref of variableReferences(text))
+    if (reservedNamePattern.test(ref.name)) found.push(ref);
+  return found.sort((a, b) => a.from - b.from);
+}
+var delimited = /#\{([a-zA-Z0-9]+)\}|<enhanced\/>/g;
+function lowerDelimitedMarkup(text) {
+  if (!text.includes("#{") && !text.includes(enhancedArrowMarkup)) return text;
+  const lines = text.split("\n");
+  let changed = false;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (!line.includes("#{") && !line.includes(enhancedArrowMarkup)) continue;
+    const declarations = [];
+    let out = "";
+    let at = 0;
+    for (const match of line.matchAll(delimited)) {
+      if (match.index < at) continue;
+      const legacy = match[1] === void 0 ? legacyEnhancedArrow : `#${match[1]}`;
+      const end = match.index + match[0].length;
+      const word = /^[a-zA-Z0-9]+/.exec(line.slice(end))?.[0];
+      out += line.slice(at, match.index) + legacy;
+      at = end;
+      if (word === void 0) continue;
+      for (const part of word === "empty" ? ["empt", "y"] : [word]) {
+        out += `#${holderName(part)}`;
+        declarations.push(`var ${holderName(part)} = ${part}`);
+      }
+      at = end + word.length;
+    }
+    if (out === "" && at === 0) continue;
+    changed = true;
+    out += line.slice(at);
+    lines[index] = declarations.length ? [out, ...new Set(declarations)].join("\n") : out;
+  }
+  return changed ? lines.join("\n") : text;
+}
+function lowerConsumerMarkup(text) {
+  return lowerDelimitedMarkup(lowerElementTags(text));
+}
+function mergedVariable(name, defined) {
+  if (defined(name)) return void 0;
+  for (let length = name.length - 1; length > 0; length--) {
+    const prefix = name.slice(0, length);
+    if (defined(prefix)) return prefix;
+  }
+  return void 0;
 }
 
 // packages/core/src/exportLegacy.ts
@@ -22244,7 +22341,8 @@ function resolveImports(text, globals, diagnostics) {
       }
       const name = line.match(/(?<=import) .+ (?=from)/)?.[0].trim() ?? "";
       const from = line.match(/(?<=from) (\d+|global)/)?.[0].trim() ?? "";
-      const source = globals.imports?.[from] ?? (from === "global" ? globals.imports?.["1"] : void 0);
+      const raw = globals.imports?.[from] ?? (from === "global" ? globals.imports?.["1"] : void 0);
+      const source = raw === void 0 ? void 0 : lowerDelimitedMarkup(raw);
       const imported = name === "main" || name === "secondary" ? source : extractBlocks(source ?? "", "export")[name];
       if (imported === void 0 && visible) {
         diagnostics.push({
@@ -22416,6 +22514,11 @@ function prepareNativeDocument(text, globals) {
   };
 }
 function prepareMarkup(text, globals, diagnostics, onCondition) {
+  text = lowerDelimitedMarkup(text);
+  if (globals.variables.includes("#{") || globals.variables.includes("<enhanced/>"))
+    globals = { ...globals, variables: lowerDelimitedMarkup(globals.variables) };
+  if (globals.titles.includes("#{") || globals.titles.includes("<enhanced/>"))
+    globals = { ...globals, titles: lowerDelimitedMarkup(globals.titles) };
   text = resolveImports(text, globals, diagnostics);
   const nativePairs = text.includes("{{") || globals.variables.includes("{{") || globals.titles.includes("{{");
   if (nativePairs) {
@@ -22476,10 +22579,10 @@ function parseMarkup(text, globals = { variables: "", titles: "" }) {
     source = clean(source);
     const marked2 = markElementTags(source);
     if (marked2 !== source) tagged = true;
-    return marked2;
+    return lowerDelimitedMarkup(marked2);
   };
   const tinted = parseWith(text, globals, mark);
-  const parsed = tagged ? parseWith(text, globals, (source) => lowerElementTags(clean(source))) : tinted;
+  const parsed = tagged ? parseWith(text, globals, (source) => lowerDelimitedMarkup(lowerElementTags(clean(source)))) : tinted;
   const lines = tagged && JSON.stringify(untinted(tinted.lines)) === JSON.stringify(untinted(parsed.lines)) ? tinted.lines : parsed.lines;
   const diagnostics = parsed.diagnostics;
   if (reserved) diagnostics.push({ severity: "error", message: reservedMarkerMessage });
@@ -22661,21 +22764,21 @@ var markupSnippets = [
     id: "enhanced-block",
     label: "Enhanced section",
     group: "Enhanced",
-    template: "enhanced (\nvar d = {{1:amount}}\n#e {{2:What the enhanced version changes.}}\n)",
+    template: "enhanced (\nvar d = {{1:amount}}\n<enhanced/> {{2:What the enhanced version changes.}}\n)",
     keywords: "enhanced block arrow section var",
     usage: /^enhanced \(/m,
     block: true,
-    about: "The enhanced-only section. The #e line already carries the enhanced arrow.",
+    about: "The enhanced-only section. Its first line already carries the enhanced arrow.",
     help: { block: "enhanced" }
   },
   {
     id: "enhanced-formula",
-    label: "#e${base+#d}",
+    label: "<enhanced/>${base+#{d}}",
     group: "Enhanced",
-    template: "#e${{{1:base}}+#d}",
-    keywords: "enhanced formula e d base add bonus",
-    usage: /#e\$\{/,
-    about: "The base value with the enhanced bonus #d added in the enhanced version.",
+    template: "<enhanced/>${{{1:base}}+#{d}}",
+    keywords: "enhanced formula e d base add bonus arrow",
+    usage: /(?:#e|<enhanced\/>)\$\{/,
+    about: "The base value with the enhanced bonus #{d} added in the enhanced version.",
     help: { block: "enhanced" }
   },
   {
@@ -23373,6 +23476,11 @@ function validateText(text, lang, globals = { variables: "", titles: "" }, requi
   if (requireEnglish && lang === "en" && !text.trim()) {
     add("error", emptyEnglishMessage);
   }
+  let names;
+  const defined = (name) => {
+    names ??= { ...extractVariables(text), ...extractVariables(globals.variables) };
+    return Object.hasOwn(names, name);
+  };
   for (const diagnostic of parseMarkup(text, globals).diagnostics) {
     if (diagnostic.message === baseEnhancedMessage && text.includes("{{")) {
       if (issues.some((issue2) => issue2.message === baseEnhancedMessage)) continue;
@@ -23389,8 +23497,50 @@ function validateText(text, lang, globals = { variables: "", titles: "" }, requi
         continue;
       }
     }
-    const token = diagnostic.message.match(/Unknown variable (#[a-zA-Z0-9]+)/)?.[1];
-    add(diagnostic.severity, diagnostic.message, token);
+    const unknown2 = diagnostic.message.match(/^Unknown variable #([a-zA-Z0-9]+)\.$/)?.[1];
+    if (unknown2 !== void 0) {
+      if (isHolderName(unknown2)) continue;
+      const references = variableReferences(text);
+      const braced = references.find(
+        (ref) => ref.braced && unknown2.startsWith(ref.name) && text.startsWith(unknown2.slice(ref.name.length), ref.to)
+      );
+      const reference = references.find((ref) => ref.name === unknown2 && !ref.braced) ?? references.find((ref) => ref.name === unknown2) ?? braced;
+      if (reference?.braced && reference.name !== unknown2) {
+        const message = `Unknown variable #${reference.name}.`;
+        if (!issues.some((issue2) => issue2.message === message))
+          issues.push({
+            severity: diagnostic.severity,
+            message,
+            from: reference.from,
+            to: reference.to
+          });
+        continue;
+      }
+      if (reference && !reference.braced && mergedVariable(unknown2, defined)) continue;
+      if (reference) {
+        if (!issues.some((issue2) => issue2.message === diagnostic.message))
+          issues.push({
+            severity: diagnostic.severity,
+            message: diagnostic.message,
+            from: reference.from,
+            to: reference.to
+          });
+        continue;
+      }
+    }
+    add(diagnostic.severity, diagnostic.message, unknown2 === void 0 ? void 0 : `#${unknown2}`);
+  }
+  issues.push(
+    ...variableNameIssues(
+      text,
+      defined,
+      [text, globals.variables, globals.titles].some((source) => source.includes("{{"))
+    )
+  );
+  for (const reserved of reservedNames(text)) {
+    const message = reservedNameMessage(reserved.name);
+    if (!issues.some((issue2) => issue2.message === message))
+      issues.push({ severity: "error", message, from: reserved.from, to: reserved.to });
   }
   if (selfHash !== globalVariablesHash && selfHash !== globalTitlesHash) {
     for (const clash of findGlobalNameClashes(text, globals)) {
@@ -23425,6 +23575,57 @@ function validateText(text, lang, globals = { variables: "", titles: "" }, requi
       code: "retired"
     }))
   ];
+}
+function variableNameIssues(text, defined, native) {
+  const issues = [];
+  const push = (issue2) => {
+    if (!issues.some((other) => other.message === issue2.message)) issues.push(issue2);
+  };
+  const { comments } = markupCommentContext(text);
+  const references = variableReferences(text).filter(
+    (ref) => !comments.some((range) => ref.from >= range.from && ref.from < range.to)
+  );
+  for (const ref of references) {
+    if (ref.braced || defined(ref.name) || isHolderName(ref.name)) continue;
+    const merged = mergedVariable(ref.name, defined);
+    if (merged === void 0) continue;
+    const rest = ref.name.slice(merged.length);
+    const fix = merged === "e" ? `${enhancedArrowMarkup}${rest}` : `#{${merged}}${rest}`;
+    push({
+      severity: "warning",
+      message: merged === "e" ? `The enhanced arrow #e merges with the text after it: write ${fix}.` : `Variable #${merged} merges with the text after it: write ${fix}.`,
+      from: ref.from,
+      to: ref.to,
+      code: "merged-variable",
+      fix
+    });
+  }
+  if (native) return issues;
+  const order = [
+    ...new Set(
+      markupVariableReferences(removeMarkupComments(lowerDelimitedMarkup(text))).map(
+        (name) => name.slice(1)
+      )
+    )
+  ];
+  const at = (name) => references.find((ref) => ref.name === name);
+  for (const [index, earlier] of order.entries()) {
+    if (!defined(earlier)) continue;
+    for (const later of order.slice(index + 1)) {
+      if (later.length <= earlier.length || !later.startsWith(earlier)) continue;
+      const holder = isHolderName(later);
+      if (!holder && !defined(later)) continue;
+      const range = (holder ? at(earlier) : at(later)) ?? { from: 0, to: 0 };
+      push({
+        severity: "warning",
+        message: holder ? `Variable #${earlier} clashes with the names braces generate (Zb\u2026): rename #${earlier}.` : `#${earlier} is used before #${later}, so its value also replaces the start of #${later}: rename one of them.`,
+        from: range.from,
+        to: range.to,
+        code: "variable-prefix"
+      });
+    }
+  }
+  return issues;
 }
 
 // packages/core/src/exportLegacy.ts
@@ -23506,7 +23707,7 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
       const translation = tooltip.text[language];
       if (!translation) continue;
       const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
-      const text = lowerElementTags(exported.text);
+      const text = lowerConsumerMarkup(exported.text);
       editor[language] = { main: text, secondary: text };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
@@ -25240,9 +25441,9 @@ var publishBackoff = () => setTimeout(3e4);
 var json3 = (v) => JSON.stringify(v, null, 2) + "\n";
 function unloweredEntry(entries) {
   const strings = (value2) => typeof value2 === "string" ? [value2] : value2 && typeof value2 === "object" ? Object.values(value2).flatMap(strings) : [];
+  const unlowered = (text) => /[\uE000\uE001]/.test(text) || findElementTags(text).length > 0 || text.includes("#{") || text.includes(enhancedArrowMarkup);
   for (const [hash2, entry] of Object.entries(entries))
-    if (strings(entry).some((text) => /[\uE000\uE001]/.test(text) || findElementTags(text).length))
-      return hash2;
+    if (strings(entry).some(unlowered)) return hash2;
   return void 0;
 }
 var dataRef = (branch) => `refs/heads/${branch}`;
@@ -25738,7 +25939,7 @@ var Publisher = class {
     const exported = exportLegacy(tooltips, now, this.options.facts, aliases);
     const unlowered = unloweredEntry(exported);
     if (unlowered !== void 0)
-      return { error: `The export of tooltip ${unlowered} still holds element-tagged text` };
+      return { error: `The export of tooltip ${unlowered} still holds unlowered markup` };
     return { now, exported };
   }
   createCandidate(opId, blob, live, r) {
@@ -26254,7 +26455,7 @@ var RemoteRepository = class extends LocalRepository {
 
 // config/publisher.json
 var publisher_default = {
-  enabled: false
+  enabled: true
 };
 
 // scripts/publisher/pipeline.ts
