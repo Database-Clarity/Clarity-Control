@@ -49,6 +49,20 @@ it('simulator and real file:// Git implement the same publication CAS contract',
   const remote = new RemoteRepository(bare(), { fileUrl: pathToFileURL(bare()).href });
   expect(run(remote)).toEqual(run(simulator));
 });
+it('local Git reads return real-size output beyond the 1 MiB child-process default', () => {
+  // Phase B run 1 hit "spawnSync git ENOBUFS" on the real data repo; fixtures were too small.
+  const repo = new LocalRepository(bare());
+  const bytes = 'x'.repeat(2 << 20);
+  const oid = repo.writeBlob(bytes);
+  const tree = Object.fromEntries(
+    Array.from({ length: 6000 }, (_, i) => [`items/${'p'.repeat(200)}-${i}.json`, oid]),
+  );
+  const head = repo.commit(undefined, tree, 'large');
+  const fresh = new LocalRepository(repo.path);
+  expect(fresh.blob(oid)).toBe(bytes);
+  expect(fresh.tree(head)).toEqual(tree);
+  expect(fresh.additions(head, 'items')).toHaveLength(6000);
+});
 it('real receive-pack timeout remains unresolved and can reconcile the exact commit', async () => {
   const upstream = bare();
   class PushTimeoutRepository extends RemoteRepository {

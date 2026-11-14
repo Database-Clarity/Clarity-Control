@@ -10,12 +10,13 @@ import {
 } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { maxBuffer } from './childProcess.mjs';
 const [checkoutArg, configArg, mode = '--plan'] = process.argv.slice(2);
 if (!checkoutArg || !configArg || !['--plan', '--apply-local'].includes(mode))
   throw new Error('Usage: install.mjs <editor-data checkout> <config.json> [--plan|--apply-local]');
 const checkout = resolve(checkoutArg);
 const git = (...args) =>
-  execFileSync('git', ['-C', checkout, ...args], { encoding: 'utf8' }).trim();
+  execFileSync('git', ['-C', checkout, ...args], { encoding: 'utf8', maxBuffer }).trim();
 if (git('branch', '--show-current') !== 'editor-data' || git('status', '--porcelain'))
   throw new Error('Clean editor-data checkout required');
 if (
