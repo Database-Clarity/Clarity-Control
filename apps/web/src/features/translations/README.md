@@ -26,16 +26,19 @@ The list is virtualized (fixed rows, a bounded DOM window, one tab stop). Up and
 Page Up, Page Down, Home, and End jump, Enter opens it, and Enter in the filter opens the first match. Back
 from the editor restores the language, filters, selection, and scroll position for that history entry.
 
-Queue mode: a row opens the editor with the view's filters in the history entry's state
-(`worklist.ts` `queueState`; the URL is unchanged, and reload, Back, and Forward keep it). With that
-state the editor's pane header shows `tooltip/QueueControl`: "Queue" (back to the same view), the
-position ("12 of 148"), and Previous/Next, also on Alt+PageUp and Alt+PageDown. Its list is
-`queueFor`, the same call the tab makes, read from the loaded data on every render: a saved
-translation leaves at once ("Done · 147 left") and Next goes to what followed it
-(`queuePlace.ts`); an empty list reads "Queue done". Previous and Next are plain links, so the
-leave guard, drafts, and conflicts apply as for any navigation. Another language, the finder, or a
-copied link is an ordinary visit without the control. A row for an enhanced version with text of
-its own opens on its base's page with `variant=` (a plain link would redirect to the base's text).
+Queue mode: a row (or Enter in the filter) starts a work-through queue of the rows shown, at that
+row, on the shared model in `features/queue` (frozen membership, session storage, the queue id in
+the history entry's state; the URL is unchanged, and reload, Back, and Forward keep it). The editor's
+pane header then shows the shared control: "Translations" (Leave: back to the same view, at the
+same row), the position ("12 of 148", a menu of every entry with Rebuild queue), and Previous/Next,
+also on Alt+PageUp and Alt+PageDown. An entry is done when its saved translation is current, the
+tab's own rule: a saved translation reads "Done · 147 left" at once and Next goes to what followed
+it; an entry that falls behind later does not join an open queue (Rebuild queue asks again). Next
+on the last entry ends the queue ("End · 2 skipped", Revisit). Previous and Next are plain links,
+so the leave guard, drafts, and conflicts apply as for any navigation. Another language, the
+finder, or a copied link is an ordinary visit (the control shows the queue paused, with Resume). A
+row for an enhanced version with text of its own opens on its base's page with `variant=` (a plain
+link would redirect to the base's text).
 
 On a non-English tooltip, outdated translations show English changes in the Source panel. A
 single toggle switches to current English and remembers the choice locally. Translators do not

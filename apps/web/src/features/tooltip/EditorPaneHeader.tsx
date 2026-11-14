@@ -4,7 +4,7 @@ import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
-import { PhoneTools } from './EditorMore';
+import { PhoneTools, type QueueBack } from './EditorMore';
 import {
   loadSandboxPerkText,
   sandboxPerkName,
@@ -68,7 +68,7 @@ export function EditorPaneHeader({
   /** Queue mode only: position, Previous, Next, and the way back to the Translations queue. */
   queue?: React.ReactNode;
   /** Queue mode only: the way back to the queue, for the phone's More sheet. */
-  queueBack?: { to: string; label: string };
+  queueBack?: QueueBack;
   /** "Load draft…" for an empty tooltip with an agent-written draft (editors and maintainers). */
   draftLoader?: React.ReactNode;
   /** Scheduled changes: the badge naming the open batch this tooltip is in. */
