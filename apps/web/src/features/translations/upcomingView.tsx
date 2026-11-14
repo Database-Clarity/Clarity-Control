@@ -307,6 +307,8 @@ export default function UpcomingTranslations({
     if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
     const first = filterUpcoming(rows, { state, category, query: text })[0];
     if (!first) return;
+    // Back must return to this filter, so it is in the list's URL before the view opens.
+    if (text !== query) update({ q: text || null });
     rememberOpenedFirst(`upcoming|${language}|${state}|${category}|${text}`, first.key);
     void navigate(openPath(first), { state: { upcomingFromList: true } });
   };

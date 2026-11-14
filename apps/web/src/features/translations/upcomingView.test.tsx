@@ -317,6 +317,28 @@ describe('Translations Upcoming', () => {
     ).toBe('Charlie Mod');
   });
 
+  it('keeps a filter typed inside the debounce when Enter opens the first match', async () => {
+    vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+    const batch = await seed();
+    await mount('maintainer');
+    await act(async () => button('Upcoming')!.click());
+    await settle(() => rows().length === 3);
+    const input = host.querySelector<HTMLInputElement>('input[type=search]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(input, 'Charlie');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(new URLSearchParams(location.search).get('open')).toBe(`${batch.id}:3`);
+    await act(async () => button('‹ Upcoming')!.click());
+    await settle(() => rows().length === 1);
+    expect(new URLSearchParams(location.search).get('q')).toBe('Charlie');
+    expect(new URLSearchParams(location.search).get('open')).toBeNull();
+  });
+
   it('says a linked row did not load, with Retry, when its members fail', async () => {
     vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
     const batch = await seed();
