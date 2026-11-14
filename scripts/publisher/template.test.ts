@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod';
 import { langSchema } from '../../packages/core/src/languages.js';
 import { verifyRuntime } from './pipeline.js';
@@ -312,4 +312,136 @@ it('report-items jobs rebuild both catalogs for the published bundle, leased and
     expect(rejected.stderr).toMatch(/not a catalog for this bundle|Unexpected catalog files/);
     expect(bundleHead()).toBe(racer);
   }
+});
+
+it('the pipeline step publishes for real only when the installed config says publishWritesEnabled: true', () => {
+  const cases: [unknown, string][] = [
+    [true, '--pipeline-publish'],
+    [false, '--pipeline-dry-run'],
+    ['true', '--pipeline-dry-run'],
+    [undefined, '--pipeline-dry-run'],
+  ];
+  for (const [value, mode] of cases) {
+    const ws = mkdtempSync(join(tmpdir(), 'pipeline-mode-'));
+    roots.push(ws);
+    mkdirSync(join(ws, '.publisher'));
+    writeFileSync(
+      join(ws, '.publisher/config.json'),
+      JSON.stringify(value === undefined ? {} : { publishWritesEnabled: value }),
+    );
+    // Stand-in runtime: prints the arguments the workflow gave it.
+    writeFileSync(
+      join(ws, '.publisher/publisher.mjs'),
+      "console.log('ARGS ' + process.argv.slice(2).join(' '));\n",
+    );
+    const result = spawnSync(
+      'bash',
+      ['-c', stepScript('Bundle live data and publish (or simulate)')],
+      {
+        cwd: ws,
+        encoding: 'utf8',
+        env: { ...process.env, ARTIFACT_DIR: 'out' },
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`ARGS ${mode} . .publisher/config.json out\n`);
+  }
+});
+
+describe('install.mjs', () => {
+  const identity = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false'];
+  /** A clean editor-data checkout whose origin names the data repository (never contacted). */
+  function checkout() {
+    const dir = mkdtempSync(join(tmpdir(), 'install-checkout-'));
+    roots.push(dir);
+    const git = (...args: string[]) => execFileSync('git', [...identity, '-C', dir, ...args]);
+    git('init', '-q', '-b', 'editor-data');
+    writeFileSync(join(dir, 'README.md'), 'data\n');
+    mkdirSync(join(dir, '.github/workflows'), { recursive: true });
+    writeFileSync(join(dir, '.github/workflows/bundle.yml'), 'name: bundle\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'Seed');
+    git('remote', 'add', 'origin', 'https://github.com/Database-Clarity/Live-Clarity-Database.git');
+    return dir;
+  }
+  function install(cwd: string, publishWritesEnabled: unknown, mode = '--plan') {
+    const pin = JSON.parse(
+      readFileSync(join(cwd, 'scripts/publisher/template/.publisher/PIN'), 'utf8'),
+    );
+    const example = JSON.parse(
+      readFileSync('scripts/publisher/template/.publisher/config.example.json', 'utf8'),
+    );
+    const config = {
+      ...example,
+      publishWritesEnabled,
+      keyEndpoint: 'https://worker.invalid/publish/key',
+      keyFingerprint: 'a'.repeat(64),
+      publisherSha: pin.sourceSha,
+      generatorSha: 'b'.repeat(40),
+      facts: { 1: { name: 'Perk', type: 'Trait' } },
+      runUrl: 'https://github.com/Database-Clarity/Live-Clarity-Database/actions',
+    };
+    const dir = mkdtempSync(join(tmpdir(), 'install-config-'));
+    roots.push(dir);
+    writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
+    const target = checkout();
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/publisher/install.mjs', target, join(dir, 'config.json'), mode],
+      { cwd, encoding: 'utf8' },
+    );
+    return { ...result, target };
+  }
+
+  it('installs publish writes from the enable build, byte-exact and LF', () => {
+    const result = install('.', true, '--apply-local');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('PUBLISH WRITES ENABLED');
+    const installed = readFileSync(join(result.target, '.github/workflows/pipeline.yml'));
+    expect(installed.includes('\r')).toBe(false);
+    expect(installed.toString('utf8').replace(/\r\n/g, '\n')).toBe(
+      readFileSync('scripts/publisher/template/.github/workflows/pipeline.yml', 'utf8').replace(
+        /\r\n/g,
+        '\n',
+      ),
+    );
+    expect(
+      JSON.parse(readFileSync(join(result.target, '.publisher/config.json'), 'utf8'))
+        .publishWritesEnabled,
+    ).toBe(true);
+  });
+
+  it('keeps a dry-run install possible and refuses a non-boolean switch', () => {
+    const dry = install('.', false);
+    expect(dry.status, dry.stderr).toBe(0);
+    expect(dry.stdout).toContain('Publish transport remains dry-run');
+    const loose = install('.', 'true');
+    expect(loose.status).not.toBe(0);
+    expect(loose.stderr).toContain('publishWritesEnabled must be true or false');
+  });
+
+  it('refuses publish writes for a build whose baked switch is OFF', () => {
+    const root = mkdtempSync(join(tmpdir(), 'install-off-'));
+    roots.push(root);
+    const publisher = join(root, 'scripts/publisher');
+    cpSync('scripts/publisher/template', join(publisher, 'template'), { recursive: true });
+    for (const file of ['install.mjs', 'childProcess.mjs'])
+      cpSync(`scripts/publisher/${file}`, join(publisher, file));
+    const runtimePath = join(publisher, 'template/.publisher/publisher.mjs');
+    const off = readFileSync(runtimePath, 'utf8').replace(
+      /(\/\/ config\/publisher\.json\r?\nvar publisher_default = \{\r?\n {2}enabled: )true/,
+      '$1false',
+    );
+    expect(off).toMatch(/var publisher_default = \{\r?\n {2}enabled: false/);
+    writeFileSync(runtimePath, off);
+    const pinPath = join(publisher, 'template/.publisher/PIN');
+    const pin = JSON.parse(readFileSync(pinPath, 'utf8'));
+    pin.sha256 = createHash('sha256').update(off).digest('hex');
+    writeFileSync(pinPath, JSON.stringify(pin));
+    const refused = install(root, true);
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain('publishWritesEnabled needs a build');
+    const dry = install(root, false);
+    expect(dry.status, dry.stderr).toBe(0);
+  });
 });

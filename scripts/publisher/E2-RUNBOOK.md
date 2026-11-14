@@ -1,7 +1,8 @@
-# E2 operator runbook (P1-E1; writes remain disabled)
+# E2 operator runbook (P1-E1; writes enabled to converter-v2-test by PUB-ENABLE)
 
 Run from the Description-editor checkout. No command here enables the publisher transport.
-The single release switch is `config/publisher.json` (`enabled: false` checked in).
+The single release switch is `config/publisher.json` (`enabled: true` checked in since PUB-ENABLE,
+2026-11-14; LIVE_BRANCH stays converter-v2-test, so writes reach only that branch).
 Vite defines VITE_PUBLISHER_ENABLED from that file, overriding shell/.env values; the Worker
 imports the same file. Rebuild both artifacts from the SAME commit when changing it.
 OFF preserves legacy /push-live and rejects POST /publish and /publish/kick even with a key.
@@ -9,10 +10,11 @@ ON returns 410 for every /push-live request, before authentication/upstream I/O.
 Status/key remain read-only. P1-F adds the remote publishing transport, gated OFF. Enablement
 still requires its independent safety/integration reviews and every gate below. Installed
 dry-run workflows continue to simulate publication; changing the shared switch alone cannot publish.
-The built runtime bakes config/publisher.json in at build time (publisher.mjs carries
-`enabled: false`). Enabling remote writes therefore needs a new template build and PIN from a
+The built runtime bakes config/publisher.json in at build time (the enable build's publisher.mjs
+carries `enabled: true`). Enabling remote writes therefore needed a new template build and PIN from a
 commit whose config says `enabled: true`, reviewed and CI-gated on that exact tree, then a
-re-install of .publisher. Without that rebuild, `publishWritesEnabled: true` in the installed
+re-install of .publisher with `publishWritesEnabled: true` (`install.mjs --pipeline-publish`).
+With an older (enabled: false) build, `publishWritesEnabled: true` in the installed
 config throws "Remote publishing disabled by config", and a hand-edited publisher.mjs fails its PIN.
 
 ## Install dry-run pipeline (root operator in E2)

@@ -87,6 +87,11 @@ the config's generator `sandboxConflicts`) into the aliases it digests and expor
 picks in bundle.json, and its PIN declares `sandboxPointers`, which the Worker's
 PUT /sandbox-pointers requires while the publisher is on. Fill `sandboxConflicts` in config.json
 from the same pinned generator commit as `aliases`.
+It lowers delimited variables and the arrow symbol (`#{d}` to `#d`, `<enhanced/>` to `#e`, core
+braces.ts) in exportLegacy, rejects an export that still holds `#{` or `<enhanced/>`
+(unloweredEntry), and its PIN declares `markupBraces`, which the Worker's /save and /publish
+require for them while the publisher is on (build.mjs refuses the PIN without both markers).
+This is the enable build (PUB-ENABLE): config/publisher.json says `enabled: true`.
 Two consecutive builds and a clean checkout build must reproduce that digest.
 
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency
