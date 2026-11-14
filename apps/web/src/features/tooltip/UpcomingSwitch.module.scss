@@ -154,7 +154,7 @@ $separator: 0.875em;
   cursor: pointer;
   &:focus-visible {
     outline: 2px solid var(--accent-ink);
-    outline-offset: 1px;
+    outline-offset: var(--focus-offset, 1px);
   }
 }
 

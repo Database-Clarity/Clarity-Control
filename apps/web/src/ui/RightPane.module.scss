@@ -10,6 +10,7 @@
 }
 
 .header {
+  @include controls.contain-focus-rings;
   display: flex;
   flex: none;
   align-items: center;
