@@ -17,8 +17,8 @@ config throws "Remote publishing disabled by config", and a hand-edited publishe
 
 ## Install dry-run pipeline (root operator in E2)
 
-Template source PIN: `46374d0da1f6cf072e2ddc4a54b1c0d88a73ef63`.
-Expected publisher.mjs SHA-256: `2489b5cd0af57e25b2dfa6afc1391024b10694437555af4bbc1fd9f0630b1abf`.
+Template source PIN: `aebf545d98ec5037ae7fd576b66734693da3b617`.
+Expected publisher.mjs SHA-256: `2caa8d6d21dc1f61a28315f0a23314c19b192aa865dddb8568dadf4fa286abdc`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
@@ -135,9 +135,10 @@ No unexplained difference is acceptable; retain all inputs, pins and output file
 
 ## Scheduled batches (P4; after phase-B step 4, with the enable build)
 
-The P4 runtime changes publisher.mjs, so its template build gets a NEW PIN declaring
-`["elementTags", "sandboxPointers", "scheduledBatches"]`. Re-pin only on the enable build (or a
-later re-install, owner gate G3), never during the phase-B install of b97e91ac. Before
+The P4 runtime changes publisher.mjs, so its template is re-pinned at the P4 merge (after
+phase-B step 4) with a PIN declaring `["elementTags", "sandboxPointers", "scheduledBatches"]`
+(the source and digest at the top of this runbook). It reaches editor-data only with the enable
+build (step 8) or a later re-install (owner gate G3). Before
 re-installing: no batch may be `publishing`, and no claimed due.json entry may exist. While the
 installed PIN lacks the capability, the Worker refuses to schedule, so no batch request can be
 waiting for a runtime that cannot drain it. First real batch (G4, converter-v2-test): after its

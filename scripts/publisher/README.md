@@ -72,8 +72,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `46374d0da1f6cf072e2ddc4a54b1c0d88a73ef63` (v2).
-Runtime SHA-256: `2489b5cd0af57e25b2dfa6afc1391024b10694437555af4bbc1fd9f0630b1abf`.
+Current template source: `aebf545d98ec5037ae7fd576b66734693da3b617` (v2).
+Runtime SHA-256: `2caa8d6d21dc1f61a28315f0a23314c19b192aa865dddb8568dadf4fa286abdc`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
@@ -256,8 +256,9 @@ inlines it into publisher.mjs; batch.test.ts drains a batch through a freshly bu
   already archived; root ruling), in the same commit. due.json and index.json are advisory: a
   missing or malformed file is left as it is, never a reason to stop the queue.
 - PIN capability `scheduledBatches`: build.mjs refuses to write a PIN unless the bundle contains
-  the claim and batch RECORD. The committed template is NOT re-pinned on this branch (PIN
-  b97e91ac stays until the enable build). `PUBLISHER_DIST` builds into another directory.
+  the claim and batch RECORD. The template is re-pinned with it at the P4 merge (root
+  2026-11-14, after phase-B step 4; "Current template source" above). `PUBLISHER_DIST` builds
+  into another directory.
 
 `npx vitest run scripts/publisher/batch.test.ts` runs every P4 publisher fixture (simulator, with
 the core path also over the local bare remote).
