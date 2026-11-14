@@ -54,6 +54,11 @@ export interface PreviewColumnProps {
   onDocumentPaint?(hash: number): void;
   pendingDocument?: boolean;
   loadingContent?: boolean;
+  /**
+   * Scheduled changes: the Current / Upcoming switch, drawn above the preview at once (never
+   * deferred with the document). The page switches what the text props render; this only shows it.
+   */
+  source?: ReactNode;
 }
 
 const labels: Record<PreviewMode, string> = {
@@ -110,8 +115,10 @@ export function PreviewColumn(props: PreviewColumnProps) {
   }, [pendingDocument, content.hash, content.lang, onDocumentPaint]);
   return (
     <>
+      {props.source}
       <PreviewColumnBody
         {...content}
+        source={undefined}
         mode={content.hash === props.hash ? props.mode : content.mode}
         variant={content.hash === props.hash ? props.variant : content.variant}
         onMode={props.onMode}

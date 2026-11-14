@@ -45,6 +45,7 @@ export function EditorPaneHeader({
   queue,
   queueBack,
   draftLoader,
+  destination,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -70,6 +71,8 @@ export function EditorPaneHeader({
   queueBack?: QueueBack;
   /** "Load draft…" for an empty tooltip with an agent-written draft (editors and maintainers). */
   draftLoader?: React.ReactNode;
+  /** Scheduled changes: the badge naming the open batch this tooltip is in. */
+  destination?: React.ReactNode;
 }) {
   const phone = useMedia(phoneQuery);
   if (phone)
@@ -86,6 +89,7 @@ export function EditorPaneHeader({
           queue,
           queueBack,
           draftLoader,
+          destination,
         }}
       />
     );
@@ -108,6 +112,7 @@ export function EditorPaneHeader({
   return (
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
+      {destination}
       {activeOverride && (
         // A narrow line says "↑ Override" (the arrow already means enhanced), then ellipsises.
         <span
@@ -245,10 +250,12 @@ function PhoneToolRow({
   queue,
   queueBack,
   draftLoader,
+  destination,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   return (
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
+      {destination}
       {draft && (
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
       )}
