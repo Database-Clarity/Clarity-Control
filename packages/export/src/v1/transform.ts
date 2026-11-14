@@ -28,7 +28,7 @@ function ruleFor(name: string, format: FileFormat, notes: TransformNotes): Symbo
     notes.retired.add(name);
     return undefined;
   }
-  const rule = format.symbols[name];
+  const rule = format.symbols[name] ?? (name === 'arrow' ? { mode: 'keep' as const } : undefined);
   if (!rule) notes.unchosen.add(name);
   return rule;
 }
@@ -45,6 +45,8 @@ function span(input: MarkupSpan, context: Context): OutSpan[] {
   const { format, shape } = context;
   const text = input.text ?? '';
   const names = unique(input.classNames);
+  // Resolve the standalone drawing before applying any surrounding text style.
+  if (names.includes('arrow')) names.unshift(...names.splice(names.indexOf('arrow'), 1));
   if (names.includes('link') && input.link !== undefined) {
     const rule = format.links;
     if (rule.mode === 'keep' && shape === 'lines')
@@ -79,7 +81,12 @@ function span(input: MarkupSpan, context: Context): OutSpan[] {
   }
   let out: OutSpan = input.text === undefined ? {} : { text };
   for (const name of names) {
-    const rule = ruleFor(name, format, context.notes);
+    const rule =
+      name === 'arrow' &&
+      shape === 'text' &&
+      (!format.symbols.arrow || format.symbols.arrow.mode === 'keep')
+        ? { mode: 'replace' as const, before: '→', after: '' }
+        : ruleFor(name, format, context.notes);
     if (rule?.mode === 'keep' && shape === 'lines') {
       out = { ...out, classNames: [...(out.classNames ?? []), name] };
     } else if (rule?.mode === 'replace') {
@@ -121,7 +128,42 @@ export function lines(input: readonly MarkupLine[], context: Context): OutLine[]
       if (context.format.spacer === 'keep') output.push({ classNames: ['spacer'] });
       continue;
     }
-    let content = (line.linesContent ?? []).flatMap((part) => span(part, context));
+    let parts = line.linesContent ?? [];
+    const arrowRule =
+      context.format.symbols.arrow ??
+      (context.shape === 'text'
+        ? { mode: 'replace' as const, before: '→', after: '' }
+        : { mode: 'keep' as const });
+    if (arrowRule.mode !== 'keep' && parts.some((part) => part.classNames?.includes('arrow'))) {
+      const joined: MarkupSpan[] = [];
+      for (const input of parts) {
+        const arrow = input.classNames?.includes('arrow');
+        if (arrow && arrowRule.mode === 'drop') continue;
+        const part = arrow
+          ? {
+              ...input,
+              text: arrowRule.mode === 'replace' ? arrowRule.before + arrowRule.after : '',
+              classNames: input.classNames?.filter((name) => name !== 'arrow'),
+            }
+          : input;
+        const last = joined.at(-1);
+        // Resolve the drawing's text before wrapping, so one bold run stays one Markdown pair.
+        if (
+          last &&
+          last.text !== undefined &&
+          part.text !== undefined &&
+          !last.link &&
+          !last.title &&
+          !part.link &&
+          !part.title &&
+          JSON.stringify(last.classNames ?? []) === JSON.stringify(part.classNames ?? [])
+        )
+          joined[joined.length - 1] = { ...last, text: last.text + part.text };
+        else joined.push(part);
+      }
+      parts = joined;
+    }
+    let content = parts.flatMap((part) => span(part, context));
     const classNames: string[] = [];
     for (const name of names) {
       const rule = ruleFor(name, context.format, context.notes);

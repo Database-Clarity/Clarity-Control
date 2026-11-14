@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDataStore, type EditorData } from '../../stores/data';
 import type { Item } from '../../services/generatorSchema';
 import { ManifestTextRow } from './ManifestTextRow';
+import { resetNamesForTests, useNamesStore } from '../terms/names';
 import {
   loadSandboxPerkText,
   manifestSummary,
@@ -129,6 +130,7 @@ describe('ManifestTextRow', () => {
       setItem: (name: string, value: string) => void kept.set(name, value),
     });
     resetSandboxPerkText(perks);
+    resetNamesForTests();
     useDataStore.setState({
       data: {
         categories: [],
@@ -147,8 +149,54 @@ describe('ManifestTextRow', () => {
     resetSandboxPerkText();
     useDataStore.setState({ data: null });
     vi.unstubAllGlobals();
+    resetNamesForTests();
   });
   const show = (hash: number) => act(async () => root.render(<ManifestTextRow hash={hash} />));
+
+  it('localises arriving text, preserves missing rows, and clears it when switching to English', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 404 })),
+    );
+    await act(async () => root.render(<ManifestTextRow hash={1} lang="de" />));
+    expect(host.textContent).toContain('Kills grant');
+    await act(async () =>
+      useNamesStore.setState({
+        byLang: {
+          de: {
+            status: 'ready',
+            file: {
+              v: 1,
+              lang: 'de',
+              manifestVersion: 'm1',
+              names: {},
+              itemNames: {},
+              setNames: {},
+              descriptions: { 1: 'Besiegte Gegner erhöhen den Schaden.' },
+              sandboxPerks: {
+                11: ['Kinetischer Siphon', 'Schnelle Abschüsse erzeugen eine Sphäre.'],
+              },
+            },
+          },
+        },
+      }),
+    );
+    expect(host.querySelector('p button')?.textContent).toBe(
+      'Besiegte Gegner erhöhen den Schaden.',
+    );
+    expect(host.querySelector('p button')?.getAttribute('title')).toContain('Kills grant');
+    await act(async () => root.render(<ManifestTextRow hash={3} lang="de" />));
+    expect(host.textContent).toContain('Kinetischer Siphon');
+    expect(host.textContent).toContain('Schnelle Abschüsse');
+    expect(host.textContent).toContain('While you have an overshield');
+    expect(host.textContent).not.toContain('Besiegte Gegner');
+    await act(async () => host.querySelector('button')!.click());
+    expect(host.textContent).toContain('Schnelle Abschüsse');
+    await act(async () => root.render(<ManifestTextRow hash={1} lang="en" />));
+    expect(host.textContent).toContain('Kills grant');
+    expect(host.textContent).not.toContain('Besiegte Gegner');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 
   it('is open by default with the name, hash, and description, and follows the entry', async () => {
     await show(1);

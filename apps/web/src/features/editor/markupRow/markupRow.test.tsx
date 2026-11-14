@@ -201,6 +201,7 @@ describe('the markup row catalogue', () => {
         'warlock',
         'hunter',
         'titan',
+        'arrow',
       ].map((name) => `icon:${name}`),
       'link',
       'title',
@@ -213,8 +214,8 @@ describe('the markup row catalogue', () => {
       kind: 'arrow',
       text: '',
     });
-    expect(markupIcons).toHaveLength(16);
-    expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(16);
+    expect(markupIcons).toHaveLength(17);
+    expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(17);
   });
 
   it('offers separate PvE and PvP tags next to the pair preset, and no tables anywhere', () => {

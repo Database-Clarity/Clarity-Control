@@ -83,8 +83,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `512affa7529800715bcfe22938828367876e0c6e` (v2).
-Runtime SHA-256: `d8dd34443ca40eca6175bcfaae32550ced4d2d5a7fa35438a904bd8275d77902`.
+Current template source: `85957f8bc2463465dbd38c2b14744fe6806b4d11` (v2).
+Runtime SHA-256: `2adf2a3096ad8d519f5c24f8153cc6bd9bc46cb314a675d71c45e23bd0b64ab7`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
@@ -284,3 +284,20 @@ inlines it into publisher.mjs; batch.test.ts drains a batch through a freshly bu
 
 `npx vitest run scripts/publisher/batch.test.ts` runs every P4 publisher fixture (simulator, with
 the core path also over the local bare remote).
+
+The arrowSymbol capability retains <arrow/> in the shared intermediate. The separately installed converter engine lowers it to 🠚 in the seven legacy files; clarityV2 and custom exports retain the symbol, with → available as their formatting fallback.
+
+## Arrow symbol rollout precondition
+
+Before installing an `arrowSymbol` publisher PIN in editor-data, install the
+`.exports/` converter engine built from source commit
+`83da713384bb0c399209e43851e32fca5e035ca1` or a descendant that includes its arrow
+lowering. Verify that its `buildLegacy` emits U+1F81A for `<arrow/>` in all seven
+old-URL files, and record the installed `.exports/PIN`.
+
+This engine installation is also required before enabling publisher writes to
+the production `converter` branch. The publisher preserves `<arrow/>` in the
+shared `liveDescriptions.json` intermediate; its `arrowSymbol` capability alone
+does not update or verify the downstream converter. An older engine or the held
+npm converter drops the arrow. Keep the Worker's PIN gate closed until both
+components are installed. Installs and cut-over remain owner-gated.

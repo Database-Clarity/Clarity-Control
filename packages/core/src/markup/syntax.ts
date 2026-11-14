@@ -16,6 +16,7 @@ export const markupIcons = [
   'hunter',
   'titan',
   'warlock',
+  'arrow',
 ];
 export const markupEmpty = ['background', 'breakSpaces', 'bold'];
 export const markupLineClasses = [...markupColors, ...markupEmpty];

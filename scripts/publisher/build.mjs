@@ -33,6 +33,8 @@ if (!/elementTagNames = \[[^\]]*"prismatic"/.test(runtime))
 for (const marker of ['applyInactiveLive(', 'inactiveRemovalHash(', 'config/inactive.json'])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks inactive moves (${marker})`);
+if (!runtime.includes('replaceAll("<arrow/>"'))
+  throw new Error('Publisher runtime lacks arrow symbol support; refusing its PIN');
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -51,6 +53,7 @@ writeFileSync(
       // (the Worker refuses saving them while the PIN lacks it);
       // prismaticTags = exportLegacy lowers `<prismatic Text />` too (elementTags builds from before
       // Prismatic joined do not; the Worker refuses Prismatic tags while the PIN lacks it).
+      // arrowSymbol = retain <arrow/> in the intermediate; the separately installed converter engine lowers legacy files.
       capabilities: [
         'elementTags',
         'sandboxPointers',
@@ -58,6 +61,7 @@ writeFileSync(
         'markupBraces',
         'prismaticTags',
         'inactiveMoves',
+        'arrowSymbol',
       ],
     },
     null,

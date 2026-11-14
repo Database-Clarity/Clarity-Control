@@ -35,6 +35,7 @@ An empty variable writes nothing here: #optional
 <stasis/>Stasis damage icon.
 <strand/>Strand damage icon.
 <prismatic/>Prismatic subclass icon.
+30%<arrow/>33%: leads to or becomes.
 <primary/>Primary ammo icon.
 <special/>Special ammo icon.
 <heavy/>Heavy ammo icon.

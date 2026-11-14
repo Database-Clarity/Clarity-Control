@@ -569,3 +569,7 @@ describe('symbol view', () => {
     expect(content()).toContain('<yellow 5');
   });
 });
+
+it('tints the whole text wrapper around an inline arrow', () => {
+  expect(findTags('<pve 20%<arrow/>25% />')).toMatchObject([{ from: 0, to: 22, name: 'pve' }]);
+});
