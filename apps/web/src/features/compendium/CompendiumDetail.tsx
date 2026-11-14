@@ -1,5 +1,5 @@
 import { ReadingTooltip } from '../preview/ReadingTooltip';
-import { memo, useMemo, useState, type ReactNode } from 'react';
+import { memo, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { Link } from 'react-router-dom';
 import type { CompendiumCell, CompendiumData } from '@clarity/core';
@@ -45,6 +45,11 @@ export function exoticOwners(items: readonly Item[]): string[] {
   ];
 }
 
+const nearbyCell: CSSProperties = {
+  contentVisibility: 'auto',
+  containIntrinsicSize: 'auto 4.5em',
+};
+
 function Nearby({ block, source }: { block: CandidateBlock; source: CompendiumData }) {
   const [open, setOpen] = useState(false);
   const { match } = block;
@@ -68,7 +73,8 @@ function Nearby({ block, source }: { block: CandidateBlock; source: CompendiumDa
     >
       <summary>Nearby sheet cells · {source.fetchedAt.slice(0, 10)}</summary>
       {cells?.map((cell) => (
-        <div key={`${cell.row}:${cell.col}`}>
+        // Opening lays out only the cells in view; the rest lay out as they scroll in.
+        <div key={`${cell.row}:${cell.col}`} style={nearbyCell}>
           <small>
             <SourceRef
               location={cellLocation(
