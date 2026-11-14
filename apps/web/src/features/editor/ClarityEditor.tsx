@@ -1,4 +1,4 @@
-import { SkeletonBoundary } from '../../ui/Skeleton';
+import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { offersBaseEnhanced, type ScopedMarkupGlobals } from './markupScope';
 import { listDot } from './listDot';
 import {
@@ -281,6 +281,8 @@ export function ClarityEditor({
   sourceText,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
+  // Held past `pending` until a painted skeleton has had its minimum (ui/Skeleton timing rule).
+  const skeletonShown = useSkeletonVisible(pending, 'content', true);
   const view = useRef<EditorView | null>(null);
   const wasSuspended = useRef(false);
   const restoreFocus = useRef(false);
@@ -951,7 +953,7 @@ export function ClarityEditor({
   return (
     <div
       className={styles.editor}
-      {...(pending ? { inert: '' } : {})}
+      {...(pending || skeletonShown ? { inert: '' } : {})}
       data-editor-root
       data-docked={docked || undefined}
       data-validation-pending={diagnostics.pending || undefined}
@@ -973,9 +975,9 @@ export function ClarityEditor({
       )}
       <div ref={textArea} className={styles.textArea}>
         <div ref={host} className={styles.host} />
-        {pending && (
+        {(pending || skeletonShown) && (
           <div className={styles.loadingContent}>
-            <SkeletonBoundary pending label="Loading editor text…" count={12} />
+            <LoadingSkeleton label="Loading editor text…" count={12} visible={skeletonShown} />
           </div>
         )}
         {open === 'glyphs' && (
