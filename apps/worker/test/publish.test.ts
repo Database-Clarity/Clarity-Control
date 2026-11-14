@@ -275,6 +275,13 @@ it('PUBLISH-502: any other GraphQL error still fails the read closed, before any
     expect(response.status, JSON.stringify(error)).toBe(502);
     expect(await response.json()).toEqual({ error: 'GitHub batch read failed' });
   }
+  // A null field the query never selected, with a matching NOT_FOUND: still not a missing file.
+  f.graphqlErrors = [
+    { type: 'NOT_FOUND', path: ['repository', 'ref', 'target', 'notRequested'], message: 'x' },
+  ];
+  f.graphqlTargetExtras = { notRequested: null };
+  const response = await f.request('/publish', 'POST', value, 2);
+  expect(response.status).toBe(502);
   expect(f.writes).toHaveLength(0);
   expect(f.current()[requestPath]).toBeUndefined();
 });

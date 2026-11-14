@@ -74,6 +74,8 @@ export class Fixture {
   graphqlCalls = 0;
   /** Extra top-level errors on every Commit `file(path:)` read (fail-closed checks). */
   graphqlErrors: unknown[] = [];
+  /** Extra fields on every Commit target in those reads (fields the query never selected). */
+  graphqlTargetExtras: Record<string, unknown> = {};
   /** Serve GraphQL blobs as truncated, so reads fall back to the contents API. */
   truncateGraphql = false;
   /** Break contents-API base64 into 60-column lines, as GitHub does. */
@@ -209,7 +211,7 @@ export class Fixture {
       }))
       .concat(this.graphqlErrors as never[]);
     return this.response({
-      data: { repository: { ref: { target } } },
+      data: { repository: { ref: { target: { ...target, ...this.graphqlTargetExtras } } } },
       ...(errors.length ? { errors } : {}),
     });
   }
