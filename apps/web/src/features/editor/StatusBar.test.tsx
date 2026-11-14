@@ -167,6 +167,46 @@ describe('status bar', () => {
     vi.restoreAllMocks();
   });
 
+  it('drops a preview count whole when the short labels still cut it, never showing a fragment', () => {
+    // jsdom has no layout: the count text is cut while the bar is narrower than it needs.
+    const onShow = () => undefined;
+    const status = () => q('[data-editor-status]')!;
+    let countFitsFrom = Infinity;
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (!this.matches('[data-status-preview-text]')) return 200;
+      const bar = this.closest<HTMLElement>('[data-editor-status]')!;
+      if (bar.hasAttribute('data-count-dropped')) return 0;
+      return Number(bar.dataset.fit) >= countFitsFrom ? 100 : 900;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.matches('[data-status-preview-text]') ? 120 : 300;
+    });
+    // The short labels make room for it: it stays, whole.
+    countFitsFrom = 1;
+    render(bar({ preview: { unpreviewed: 1, collapsed: false, onShow } }));
+    expect(status().dataset.fit).toBe('1');
+    expect(status().hasAttribute('data-count-dropped')).toBe(false);
+    // A longer count no longer fits at any label step: it drops whole, and the labels, which fit
+    // without it, go back to their widest.
+    countFitsFrom = Infinity;
+    render(bar({ preview: { unpreviewed: 12, collapsed: false, onShow } }));
+    expect(status().hasAttribute('data-count-dropped')).toBe(true);
+    expect(status().dataset.fit).toBe('0');
+    // The button stays, with the full count in its title.
+    expect(q('[data-status-preview] button')?.title).toBe('12 changes not previewed');
+    expect(q('[data-status-preview] button')?.hasAttribute('disabled')).toBe(false);
+    // Room again (a wider bar or a shorter count): it comes back.
+    countFitsFrom = 0;
+    render(bar({ preview: { unpreviewed: 3, collapsed: false, onShow } }));
+    expect(status().hasAttribute('data-count-dropped')).toBe(false);
+    expect(status().dataset.fit).toBe('0');
+    vi.restoreAllMocks();
+  });
+
   it('offers the preview when edits were not previewed or the column is hidden', () => {
     const onShow = vi.fn();
     render(bar({ preview: { unpreviewed: 2, collapsed: true, onShow } }));
