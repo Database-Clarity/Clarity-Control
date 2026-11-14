@@ -17,6 +17,8 @@ beforeAll(async () => {
   key = await makePrivateKey();
 });
 beforeEach(() => {
+  // Each test picks the exporter; the checked-in switch is ON (PUB-ENABLE).
+  publisherConfig.enabled = false;
   vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-11-12T20:00:00Z') });
   fixture = new Fixture(key);
   fixture.aliases = {};

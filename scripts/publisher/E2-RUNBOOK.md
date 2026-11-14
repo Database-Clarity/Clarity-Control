@@ -1,7 +1,8 @@
-# E2 operator runbook (P1-E1; writes remain disabled)
+# E2 operator runbook (P1-E1; writes enabled to converter-v2-test by PUB-ENABLE)
 
 Run from the Description-editor checkout. No command here enables the publisher transport.
-The single release switch is `config/publisher.json` (`enabled: false` checked in).
+The single release switch is `config/publisher.json` (`enabled: true` checked in since PUB-ENABLE,
+2026-11-14; LIVE_BRANCH stays converter-v2-test, so writes reach only that branch).
 Vite defines VITE_PUBLISHER_ENABLED from that file, overriding shell/.env values; the Worker
 imports the same file. Rebuild both artifacts from the SAME commit when changing it.
 OFF preserves legacy /push-live and rejects POST /publish and /publish/kick even with a key.
@@ -9,16 +10,17 @@ ON returns 410 for every /push-live request, before authentication/upstream I/O.
 Status/key remain read-only. P1-F adds the remote publishing transport, gated OFF. Enablement
 still requires its independent safety/integration reviews and every gate below. Installed
 dry-run workflows continue to simulate publication; changing the shared switch alone cannot publish.
-The built runtime bakes config/publisher.json in at build time (publisher.mjs carries
-`enabled: false`). Enabling remote writes therefore needs a new template build and PIN from a
+The built runtime bakes config/publisher.json in at build time (the enable build's publisher.mjs
+carries `enabled: true`). Enabling remote writes therefore needed a new template build and PIN from a
 commit whose config says `enabled: true`, reviewed and CI-gated on that exact tree, then a
-re-install of .publisher. Without that rebuild, `publishWritesEnabled: true` in the installed
+re-install of .publisher with `publishWritesEnabled: true` (`install.mjs --pipeline-publish`).
+With an older (enabled: false) build, `publishWritesEnabled: true` in the installed
 config throws "Remote publishing disabled by config", and a hand-edited publisher.mjs fails its PIN.
 
 ## Install dry-run pipeline (root operator in E2)
 
-Template source PIN: `aebf545d98ec5037ae7fd576b66734693da3b617`.
-Expected publisher.mjs SHA-256: `2caa8d6d21dc1f61a28315f0a23314c19b192aa865dddb8568dadf4fa286abdc`.
+Template source PIN: `95f493a86e4bb364fafa5a2cc67423cc60a538a4`.
+Expected publisher.mjs SHA-256: `08921d8a3e21542ddcfbadbe43515667f77e4affb746663029150554def9b88e`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
@@ -136,7 +138,8 @@ No unexplained difference is acceptable; retain all inputs, pins and output file
 ## Scheduled batches (P4; after phase-B step 4, with the enable build)
 
 The P4 runtime changes publisher.mjs, so its template is re-pinned at the P4 merge (after
-phase-B step 4) with a PIN declaring `["elementTags", "sandboxPointers", "scheduledBatches"]`
+phase-B step 4) with a PIN declaring `["elementTags", "sandboxPointers", "scheduledBatches"]` (the enable build
+adds `"markupBraces"`)
 (the source and digest at the top of this runbook). It reaches editor-data only with the enable
 build (step 8) or a later re-install (owner gate G3). Before
 re-installing: no batch may be `publishing`, and no claimed due.json entry may exist. While the

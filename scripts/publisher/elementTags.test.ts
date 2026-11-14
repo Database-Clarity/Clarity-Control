@@ -36,9 +36,26 @@ async function templateExportLegacy(): Promise<typeof exportLegacy> {
 
 const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand) [^<>]*\/>/;
 
-it('declares the elementTags capability in its PIN', () => {
+it('declares the elementTags and markupBraces capabilities in its PIN', () => {
   const pin = JSON.parse(readFileSync(`${root}/PIN`, 'utf8'));
-  expect(pin.capabilities).toEqual(['elementTags', 'sandboxPointers', 'scheduledBatches']);
+  expect(pin.capabilities).toEqual([
+    'elementTags',
+    'sandboxPointers',
+    'scheduledBatches',
+    'markupBraces',
+  ]);
+});
+
+it('markupBraces: the template build lowers #{name} and <enhanced/> exactly as core does', async () => {
+  const templated = await templateExportLegacy();
+  const base = tooltip();
+  const make = (text: string): Tooltip => ({ ...base, text: { en: { ...base.text.en!, text } } });
+  const braced = make('var d = 3\nDeal #{d}x more, #{d} stacks.\n<enhanced/> Faster reload.');
+  const exported = templated([braced], 0);
+  expect(JSON.stringify(exported)).toBe(JSON.stringify(exportLegacy([braced], 0)));
+  expect(JSON.stringify(exported)).not.toMatch(/#\{|<enhanced\/>/);
+  expect(JSON.stringify(exported)).toContain('#e');
+  expect(unloweredEntry(exported)).toBeUndefined();
 });
 
 it('real data: the template build exports raised tags byte for byte as core exports today', async () => {
@@ -73,4 +90,14 @@ it('fails closed on an export that still holds a tagged span or a preview marker
   expect(unloweredEntry(entry('Gain <solar/>Scorch.'))).toBeUndefined();
   expect(unloweredEntry(entry('Gain <solar Scorch />.'))).toBe('42');
   expect(unloweredEntry(entry(`Gain ${String.fromCharCode(0xe000)}Scorch.`))).toBe('42');
+});
+
+it('fails closed on an export that still holds #{ or <enhanced/> (markupBraces)', () => {
+  const entry = (main: string) => ({ 42: { hash: 42, editor: { en: { main, secondary: '' } } } });
+  expect(unloweredEntry(entry('Deal #d#Zb1wx more. #e Faster.'))).toBeUndefined();
+  expect(unloweredEntry(entry('Deal #{d} more.'))).toBe('42');
+  expect(unloweredEntry(entry('Deal #{ more.'))).toBe('42');
+  expect(unloweredEntry(entry('<enhanced/> Faster.'))).toBe('42');
+  // Any string anywhere in the entry, not only the main text.
+  expect(unloweredEntry({ 7: { stats: [{ name: 'x #{d}' }] } })).toBe('7');
 });

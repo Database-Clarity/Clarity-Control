@@ -1265,7 +1265,12 @@ describe('scheduled batches (simulator)', () => {
       env: { ...process.env, PUBLISHER_DIST: dist },
     });
     const pin = JSON.parse(readFileSync(join(dist, 'PIN'), 'utf8'));
-    expect(pin.capabilities).toEqual(['elementTags', 'sandboxPointers', 'scheduledBatches']);
+    expect(pin.capabilities).toEqual([
+      'elementTags',
+      'sandboxPointers',
+      'scheduledBatches',
+      'markupBraces',
+    ]);
     const f = await setup();
     // The dry-run CLI runs on the real clock: schedule a batch that is long due.
     await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }], {

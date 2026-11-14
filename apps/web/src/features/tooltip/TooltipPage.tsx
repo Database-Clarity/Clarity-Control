@@ -1,4 +1,4 @@
-import { SkeletonBoundary } from '../../ui/Skeleton';
+import { SkeletonBoundary, useSkeletonVisible } from '../../ui/Skeleton';
 import { loadingWorkspace } from './TooltipLoadingWorkspace';
 import type { ScopedMarkupGlobals } from '../editor/markupScope';
 import { useGlobalDefinition } from '../globals/useGlobals';
@@ -344,8 +344,11 @@ function TooltipWorkspace({
       },
     });
   }, [showPreview]);
-  if (!data) {
-    if (!loading) return null;
+  // The loading frame's pane skeletons share the page clock: once painted, the frame stays
+  // until their minimum ends, even when the data arrives sooner.
+  const frameHeld = useSkeletonVisible(!data, 'frame', true);
+  if (!data || frameHeld) {
+    if (!data && !loading) return null;
     const frame = loadingWorkspace({
       hash: hashOverride ?? Number(parameter),
       lang,

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import publisherConfig from '../../../config/publisher.json';
 import worker from '../src/index.js';
@@ -17,8 +18,12 @@ afterEach(() => {
   publisherConfig.enabled = false;
   vi.unstubAllGlobals();
 });
-it('defaults OFF and blocks new writes even before auth', async () => {
-  expect(publisherConfig.enabled).toBe(false);
+it('the checked-in switch is ON: publisher writes to converter-v2-test (PUB-ENABLE)', () => {
+  const checkedIn = JSON.parse(readFileSync('config/publisher.json', 'utf8'));
+  expect(checkedIn).toEqual({ enabled: true });
+});
+it('OFF blocks new writes even before auth', async () => {
+  publisherConfig.enabled = false;
   expect((await request('/publish')).status).toBe(503);
   expect((await request('/publish/kick')).status).toBe(503);
   expect((await request('/push-live')).status).toBe(401);
