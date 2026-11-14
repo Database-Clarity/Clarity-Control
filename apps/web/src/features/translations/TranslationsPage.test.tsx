@@ -4,7 +4,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Tooltip } from '@clarity/core';
-import { TranslationsPage } from './TranslationsPage';
+import { TranslationsPage, ChangeCount } from './TranslationsPage';
+import type { ChangeSize } from './changeSize';
+import { QueueList } from './QueueList';
+import { translationIndex } from './queue';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import type { User } from '../../services/api';
@@ -116,6 +119,119 @@ afterEach(async () => {
 });
 
 describe('TranslationsPage queue', () => {
+  it('returns keyboard focus to the row link when retry replaces an unavailable size', async () => {
+    const queued = translationIndex(small).queue('de').slice(0, 1);
+    const render = (value: ChangeSize): void =>
+      root.render(
+        <MemoryRouter>
+          <QueueList
+            rows={queued}
+            signature="retry-size-focus"
+            label="Retry translation sizes"
+            linkTo={(row) => ({ to: `/t/${row.hash}`, state: null })}
+            extra={(row) => (
+              <ChangeCount
+                value={value}
+                identity={row.key}
+                name={row.name}
+                onRetry={() => render({ count: 0 })}
+              />
+            )}
+          />
+        </MemoryRouter>,
+      );
+    await act(async () => render({ error: 'Offline' }));
+    const retry = host.querySelector<HTMLButtonElement>('button')!;
+    await act(async () => {
+      retry.focus();
+      retry.click();
+    });
+    expect(host.querySelector('button')).toBeNull();
+    expect(host.textContent).toContain('0 words');
+    expect(document.activeElement).toBe(host.querySelector('li a'));
+    expect(host.querySelector('a[data-selected]')).toBe(document.activeElement);
+  });
+
+  it('keeps keyboard selection on the same tooltip when learned sizes reorder rows', async () => {
+    const queued = translationIndex(small).queue('de');
+    const render = async (ordered: typeof queued) =>
+      act(async () =>
+        root.render(
+          <MemoryRouter>
+            <QueueList
+              rows={ordered}
+              signature="learned-size-sort"
+              label="Sorted translations"
+              linkTo={(row) => ({ to: `/t/${row.hash}`, state: null })}
+            />
+          </MemoryRouter>,
+        ),
+      );
+    await render(queued);
+    const selected = rows()[0]!;
+    await act(async () => selected.focus());
+    expect(selected.getAttribute('href')).toBe('/t/2');
+    await render([queued[1]!, queued[0]!, queued[2]!]);
+    expect(host.querySelector('a[data-selected]')).toBe(selected);
+    expect(document.activeElement).toBe(selected);
+    await press(selected, 'ArrowDown');
+    expect(host.querySelector('a[data-selected]')?.getAttribute('href')).toBe('/t/4');
+    expect(document.activeElement).toBe(host.querySelector('a[data-selected]'));
+  });
+
+  it('toggles a maintainer category × language matrix with full labels and category totals', async () => {
+    await mount('/translations?lang=de&cat=mods', person('maintainer'));
+    const toggle = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Categories × languages',
+    )!;
+    await act(async () => toggle.click());
+    const table = host.querySelector('table')!;
+    expect(table.querySelector('caption')?.textContent).toBe('Translated / outdated / missing');
+    const perks = [...table.querySelectorAll('tbody tr')].find(
+      (row) => row.querySelector('th')?.textContent === 'Perks',
+    )!;
+    expect(perks.querySelector('td')?.textContent).toBe('1 / 1 / 1');
+    expect(perks.querySelector('td')?.title).toContain(
+      'German: 1 translated, 1 outdated, 1 missing',
+    );
+    await press(table, 'Escape');
+    expect(host.querySelector('table')).toBeNull();
+    expect(document.activeElement?.textContent).toBe('Languages');
+    await act(async () => toggle.click());
+    await act(async () =>
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Languages')!
+        .click(),
+    );
+    expect(host.querySelector('table')).toBeNull();
+    expect(host.querySelector('[aria-label^="German:"] span')?.getAttribute('title')).toBe(
+      'German',
+    );
+    await mount('/translations', person('editor'));
+    expect(
+      [...host.querySelectorAll('button')].some(
+        (button) => button.textContent === 'Categories × languages',
+      ),
+    ).toBe(false);
+  });
+
+  it('stores sort in history and restores it after opening a row, Back, and Forward', async () => {
+    await mount('/translations?lang=de', person('maintainer'));
+    const sort = () => host.querySelector<HTMLSelectElement>('[aria-label="Sort translations"]')!;
+    await act(async () => {
+      sort().value = 'small';
+      sort().dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(location.search).toContain('sort=small');
+    await act(async () => rows()[0]!.click());
+    await act(async () => navigate(-1));
+    expect(sort().value).toBe('small');
+    await act(async () => navigate(-1));
+    expect(sort().value).toBe('default');
+    await act(async () => navigate(1));
+    expect(sort().value).toBe('small');
+  });
+
   it('lists what needs work in the assigned language and opens the editor in translate mode', async () => {
     await mount('/translations', person('translator', ['de']));
     expect(names()).toEqual(['Outdated Perk', 'Missing Perk', 'Missing Mod']);
@@ -222,7 +338,7 @@ describe('TranslationsPage queue', () => {
     expect(scope()).toBe('Coverage by language, all categories');
   });
 
-  it('keeps a fully translated category scoped and ignores unknown ones', async () => {
+  it('keeps fully translated and unknown categories scoped', async () => {
     const done = build(
       [
         tooltip(3, 'English three', { source: '2026-02-01T00:00:00.000Z' }),
@@ -232,14 +348,18 @@ describe('TranslationsPage queue', () => {
     );
     await mount('/translations?lang=de&cat=perks', person('editor'), done);
     expect(host.textContent).toContain('No tooltips match these filters.');
+    expect(host.querySelector('option[value="perks"]')?.textContent).toBe('Perks (0)');
     expect(
       host.querySelector('[role=group] button[aria-label^="German"]')!.getAttribute('aria-label'),
     ).toBe('German: 1 translated, 0 outdated, 0 missing');
     await mount('/translations?lang=de&cat=nope', person('editor'), done);
     expect(
       host.querySelector('[role=group] button[aria-label^="German"]')!.getAttribute('aria-label'),
-    ).toBe('German: 1 translated, 0 outdated, 1 missing');
-    expect(host.textContent).toContain('All categories');
+    ).toBe('German: 0 translated, 0 outdated, 0 missing');
+    expect(host.querySelector<HTMLSelectElement>('option[value="nope"]')?.textContent).toBe(
+      'Unknown category (nope)',
+    );
+    expect(names()).toEqual([]);
   });
 
   it('shows translators no coverage table even with a category filter', async () => {

@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { flushSync } from 'react-dom';
 import { Link, useNavigationType } from 'react-router-dom';
 import { behindLabel, type QueueRow } from './queue';
@@ -65,6 +72,8 @@ export function QueueList<Row extends ListRow = QueueRow>({
   secondary = (row) => (row as unknown as QueueRow).category,
   rowState = (row) => queueRowState(row as unknown as QueueRow),
   title = (row) => `${row.name} · ${row.hash}`,
+  extra,
+  onVisible,
 }: {
   rows: readonly Row[];
   /** Where a row opens the editor, and the queue mode state that goes with it. */
@@ -77,6 +86,8 @@ export function QueueList<Row extends ListRow = QueueRow>({
   rowState?(row: Row): RowState;
   /** The row's tooltip text (default: name and hash). */
   title?(row: Row): string;
+  extra?(row: Row): ReactNode;
+  onVisible?(rows: readonly Row[]): void;
   /** Leave from that queue: the position and row to come back to. */
   restored?: { top: number; selected: string | null };
   label: string;
@@ -91,6 +102,13 @@ export function QueueList<Row extends ListRow = QueueRow>({
     const index = saved?.selected ? rows.findIndex((row) => row.key === saved.selected) : -1;
     return Math.max(0, index);
   });
+  const previousRows = useRef(rows);
+  if (previousRows.current !== rows) {
+    const key = previousRows.current[selected]?.key;
+    previousRows.current = rows;
+    const next = key ? rows.findIndex((row) => row.key === key) : -1;
+    if (next >= 0 && next !== selected) setSelected(next);
+  }
   const [rowHeight, setRowHeight] = useState(defaultRowHeight);
   const [viewport, setViewport] = useState(() => ({
     top: saved?.top ?? 0,
@@ -159,6 +177,12 @@ export function QueueList<Row extends ListRow = QueueRow>({
   const total = rows.length;
   const start = Math.max(0, Math.floor(viewport.top / rowHeight) - overscan);
   const end = Math.min(total, Math.ceil((viewport.top + viewport.height) / rowHeight) + overscan);
+  const visibleStart = Math.max(0, Math.floor(viewport.top / rowHeight));
+  const visibleEnd = Math.min(total, Math.ceil((viewport.top + viewport.height) / rowHeight));
+  useEffect(() => {
+    onVisible?.(rows.slice(visibleStart, visibleEnd));
+    return () => onVisible?.([]);
+  }, [rows, visibleStart, visibleEnd, onVisible]);
   const indices: number[] = [];
   for (let index = start; index < end; index++) indices.push(index);
   // The selected row keeps its place in the tab order and focus, even when scrolled away.
@@ -250,6 +274,7 @@ export function QueueList<Row extends ListRow = QueueRow>({
             <li
               key={row.key}
               className={styles.row}
+              data-extra={extra ? '' : undefined}
               data-index={index}
               aria-posinset={index + 1}
               aria-setsize={total}
@@ -277,7 +302,9 @@ export function QueueList<Row extends ListRow = QueueRow>({
                 }}
               >
                 <span className={styles.name}>{row.name}</span>
-                <span className={styles.category}>{secondary(row)}</span>
+                <span className={styles.category} title={secondary(row)}>
+                  {secondary(row)}
+                </span>
                 <span
                   className={styles.state}
                   data-state={shown.state}
@@ -287,6 +314,7 @@ export function QueueList<Row extends ListRow = QueueRow>({
                   {shown.text}
                 </span>
               </Link>
+              {extra && <span className={styles.extra}>{extra(row)}</span>}
             </li>
           );
         })}
