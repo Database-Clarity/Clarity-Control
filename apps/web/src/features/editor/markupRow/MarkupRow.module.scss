@@ -33,6 +33,12 @@
     border-bottom: 0;
   }
 
+  // Tag mode on the docked bar: "All" steps aside (Suggest lists every option too) so the seven
+  // element symbols fit whole at tap size on a 390px phone. An open All popover keeps its trigger.
+  &[data-docked][data-tag-wrap] .allButton:not([aria-expanded='true']) {
+    display: none;
+  }
+
   // Paused read-only (another tab changed the drafts): the row keeps its place, so the text
   // never moves, and its controls take the shared disabled dimming (it is inert meanwhile).
   &[data-disabled] > * {
@@ -71,7 +77,7 @@
     opacity: 1;
   }
 
-  // The docked bar (a phone) is narrow: slimmer fades leave the six element symbols of tag mode
+  // The docked bar (a phone) is narrow: slimmer fades leave the seven element symbols of tag mode
   // clear of them at 100%.
   .row[data-docked] > & {
     &::before,
@@ -80,7 +86,7 @@
     }
     // A wider end fade, solid for its last quarter: a button cut by the pinned Suggest fades out
     // as a whole instead of leaving a thin edge at full contrast (a sliver that reads as a stray
-    // strip). In tag mode it stays slim, clear of the six element symbols, and its solid half
+    // strip). In tag mode it stays slim, clear of the seven element symbols, and its solid half
     // hides the next button's edge just past them.
     &::after {
       width: 1.5rem;

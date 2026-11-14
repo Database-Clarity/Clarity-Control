@@ -250,6 +250,7 @@ export const MarkupRow = memo(function MarkupRow({
       className={styles.row}
       data-markup-row
       data-docked={docked || undefined}
+      data-tag-wrap={(docked && wrapping) || undefined}
       data-disabled={disabled || undefined}
       aria-disabled={disabled || undefined}
       {...(disabled ? { inert: '' } : {})}
