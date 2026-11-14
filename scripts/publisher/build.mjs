@@ -30,6 +30,8 @@ for (const marker of ['lowerConsumerMarkup(', 'text.includes("#{")'])
 // `elementTags` from before Prismatic joined leaves `<prismatic Text />` unlowered (text lost).
 if (!/elementTagNames = \[[^\]]*"prismatic"/.test(runtime))
   throw new Error('Publisher runtime lacks Prismatic element tags; refusing its PIN');
+if (!runtime.includes('replaceAll("<arrow/>"'))
+  throw new Error('Publisher runtime lacks arrow symbol support; refusing its PIN');
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -48,12 +50,14 @@ writeFileSync(
       // (the Worker refuses saving them while the PIN lacks it);
       // prismaticTags = exportLegacy lowers `<prismatic Text />` too (elementTags builds from before
       // Prismatic joined do not; the Worker refuses Prismatic tags while the PIN lacks it).
+      // arrowSymbol = retain <arrow/> in the intermediate for the new engine; final legacy files lower it.
       capabilities: [
         'elementTags',
         'sandboxPointers',
         'scheduledBatches',
         'markupBraces',
         'prismaticTags',
+        'arrowSymbol',
       ],
     },
     null,
