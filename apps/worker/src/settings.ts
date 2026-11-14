@@ -1,34 +1,31 @@
 import { z } from 'zod';
 import { settingsBodyLimit, stableStringify, syncedSettingsSchema } from '@clarity/core';
 import { base64url, unbase64 } from './crypto.js';
-import { RefRace, type GitHub } from './github.js';
+import type { GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
-import type { Env, Identity } from './types.js';
+import type { Identity } from './types.js';
 
-/**
- * Synced user settings, stored in the PUBLIC repository without revealing who synced what:
- * - a separate branch (`SETTINGS_BRANCH`, default `editor-settings`), so settings writes never
- *   move the data branch tooltip saves use; it is created on the first sync;
- * - one file, `settings.json`: `{ v: 1, entries: { <HMAC-SHA256(id key, user id)>: { iv, ct } } }`;
- * - every entry is AES-256-GCM under ONE server-wide key, with its entry id as associated data
- *   and a plaintext padded to a fixed 512-byte bucket, so all entries have the same size;
- * - every sync re-encrypts EVERY entry with fresh nonces in one commit, so each commit changes
- *   every entry and does not reveal whose settings changed;
- * - commits use the App bot as author and committer, a fixed message and a date rounded down
- *   to the UTC hour;
- * - both keys come from HKDF-SHA256 over SESSION_SECRET, domain-separated by
- *   `clarity-user-settings-v1`, so no new secret is needed.
- * The per-user `revision` lives inside the ciphertext, so other users' syncs (which rewrite
- * every entry) never look like conflicts.
+/** Private D1 rows retain opaque HMAC ids and per-entry AES-GCM authentication.
+ * Keys are domain-separated HKDF derivatives of SESSION_SECRET, as before.
  */
 export const settingsDomain = 'clarity-user-settings-v1';
-export const settingsFile = 'settings.json';
-export const defaultSettingsBranch = 'editor-settings';
-export const settingsBucket = 512;
 const encoder = new TextEncoder();
 
-export const settingsBranch = (env: Env) => env.SETTINGS_BRANCH || defaultSettingsBranch;
+/** Narrow structural D1 contract, matching the Worker's existing binding conventions. */
+export interface SettingsStatement {
+  bind(...values: (string | number | null)[]): SettingsStatement;
+  first<T>(): Promise<T | null>;
+  run(): Promise<{ meta: { changes: number } }>;
+}
+export interface SettingsDatabase {
+  prepare(sql: string): SettingsStatement;
+}
+interface SettingsRow {
+  iv: string;
+  ct: string;
+  revision: string;
+}
 
 const entrySchema = z
   .object({
@@ -40,12 +37,6 @@ const entrySchema = z
   })
   .strict();
 export type SettingsEntry = z.infer<typeof entrySchema>;
-const storeSchema = z
-  .object({
-    v: z.literal(1),
-    entries: z.record(z.string().regex(/^[0-9a-f]{64}$/), z.unknown()),
-  })
-  .strict();
 const plainSchema = z
   .object({ settings: syncedSettingsSchema, revision: z.string().regex(/^[0-9a-f]{32}$/) })
   .strict();
@@ -92,7 +83,7 @@ export async function settingsFileId(secret: string, userId: number): Promise<st
   return hex(await crypto.subtle.sign('HMAC', key, encoder.encode(String(userId))));
 }
 
-/** The one server-wide content key; lets the Worker re-encrypt every entry on each sync. */
+/** Server-wide content key; each row authenticates its own user id. */
 export async function settingsKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'raw',
@@ -110,14 +101,11 @@ export async function encryptEntry(
   id: string,
   plain: Plain,
 ): Promise<SettingsEntry> {
-  const text = JSON.stringify(plain);
-  const size = Math.max(1, Math.ceil(encoder.encode(text).byteLength / settingsBucket));
-  const padded = encoder.encode(text.padEnd(size * settingsBucket, ' '));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: associatedData(id) },
     key,
-    padded,
+    encoder.encode(JSON.stringify(plain)),
   );
   return { iv: base64url(iv), ct: base64url(new Uint8Array(ct)) };
 }
@@ -145,22 +133,6 @@ export async function decryptEntry(
   }
 }
 
-/** Commit time rounded down to the UTC hour (git metadata only; see the report). */
-export const coarseDate = (now = Date.now()) =>
-  new Date(Math.floor(now / 3_600_000) * 3_600_000).toISOString().replace('.000Z', 'Z');
-
-async function load(github: GitHub, key: CryptoKey) {
-  const branch = settingsBranch(github.env);
-  const head = await github.headOrNull(branch);
-  const file = head ? await github.file(settingsFile, head) : null;
-  const store = storeSchema.safeParse(file?.value);
-  const entries = store.success ? store.data.entries : {};
-  const plain = new Map<string, Plain | null>();
-  for (const [id, entry] of Object.entries(entries))
-    plain.set(id, await decryptEntry(key, id, entry));
-  return { branch, head, plain };
-}
-
 /**
  * GET returns `{ settings, revision, unreadable }`; PUT `{ settings, revision }` writes when
  * `revision` matches the caller's stored entry (null = none or unreadable), else 409 with it.
@@ -175,20 +147,28 @@ export async function userSettings(
   const secret = github.env.SESSION_SECRET;
   const id = await settingsFileId(secret, user.id);
   const key = await settingsKey(secret);
+  // Authorization still uses fresh permissions; settings storage never calls GitHub.
+  requireAccess(await permissions(github, await github.head()), user, [
+    'maintainer',
+    'editor',
+    'trial',
+    'translator',
+  ]);
+  const db = github.env.SETTINGS_DB;
+  if (!db) throw new HttpError(503, 'Settings are unavailable');
   for (let attempt = 0; attempt < 3; attempt++) {
-    requireAccess(await permissions(github, await github.head()), user, [
-      'maintainer',
-      'editor',
-      'trial',
-      'translator',
-    ]);
-    const { branch, head, plain } = await load(github, key);
-    const mine = plain.get(id) ?? null;
+    const row = await db
+      .prepare('SELECT iv, ct, revision FROM user_settings WHERE id = ?')
+      .bind(id)
+      .first<SettingsRow>();
+    const decrypted = row ? await decryptEntry(key, id, { iv: row.iv, ct: row.ct }) : null;
+    // The revision is authenticated inside the ciphertext, too.
+    const mine = decrypted?.revision === row?.revision ? decrypted : null;
     const stored = {
       settings: mine?.settings ?? null,
       revision: mine?.revision ?? null,
     };
-    if (!input) return json({ ...stored, unreadable: plain.has(id) && !mine });
+    if (!input) return json({ ...stored, unreadable: row !== null && !mine });
     if (input.revision !== stored.revision) {
       return json({ error: 'Settings changed on another device', ...stored }, 409);
     }
@@ -196,25 +176,26 @@ export async function userSettings(
       return json(stored);
     }
     const revision = hex(crypto.getRandomValues(new Uint8Array(16)));
-    plain.set(id, { settings: input.settings, revision });
-    // Re-encrypt every readable entry with a fresh nonce; unreadable ones are dropped.
-    const entries: Record<string, SettingsEntry> = {};
-    for (const entryId of [...plain.keys()].sort()) {
-      const value = plain.get(entryId);
-      if (value) entries[entryId] = await encryptEntry(key, entryId, value);
-    }
-    try {
-      await github.commitAsBot(
-        branch,
-        head,
-        { [settingsFile]: { v: 1, entries } },
-        'Update synced settings',
-        coarseDate(),
-      );
-      return json({ settings: input.settings, revision });
-    } catch (error) {
-      if (!(error instanceof RefRace)) throw error;
-    }
+    const entry = await encryptEntry(key, id, { settings: input.settings, revision });
+    const at = Date.now();
+    // Compare-and-swap in SQL: two concurrent syncs cannot overwrite each other.
+    // Compare the ciphertext too, so repairing an unreadable row is safe against races.
+    const result = row
+      ? await db
+          .prepare(
+            `UPDATE user_settings SET iv = ?, ct = ?, revision = ?, updated_at = ?
+          WHERE id = ? AND revision = ? AND iv = ? AND ct = ?`,
+          )
+          .bind(entry.iv, entry.ct, revision, at, id, row.revision, row.iv, row.ct)
+          .run()
+      : await db
+          .prepare(
+            `INSERT INTO user_settings (id, iv, ct, revision, updated_at)
+          VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+          )
+          .bind(id, entry.iv, entry.ct, revision, at)
+          .run();
+    if (result.meta.changes === 1) return json({ settings: input.settings, revision });
   }
-  throw new HttpError(409, 'Settings branch kept moving; try syncing again');
+  throw new HttpError(409, 'Settings kept changing; try syncing again');
 }

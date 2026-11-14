@@ -29,8 +29,7 @@ export interface Env {
   COMPENDIUM_REPO?: string;
   COMPENDIUM_REF?: string;
   COMPENDIUM_WORKFLOW?: string;
-  /** Branch for encrypted synced settings; defaults to `editor-settings`. */
-  SETTINGS_BRANCH?: string;
+  SETTINGS_DB?: import('./settings.js').SettingsDatabase;
 }
 
 export interface Identity {
