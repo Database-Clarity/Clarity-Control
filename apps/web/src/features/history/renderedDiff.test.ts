@@ -151,3 +151,40 @@ it('keeps unchanged lines and one-sided diffs as they were', () => {
   const added = presentDiff(renderedDiff('', 'Only new', globals));
   expect(marked(added.after)).toEqual(['Only new']);
 });
+
+it('compares both production variants', async () => {
+  const { compareDiffOutput } = await import('./renderedDiff');
+  const { before, after } = await import('./fixtures/golden-tricorn.json');
+  const globals = { variables: '', titles: '' };
+  expect(compareDiffOutput(before, after, globals)).toMatchObject({
+    base: false,
+    enhanced: false,
+  });
+  expect(compareDiffOutput(after, after.replace('8 seconds', '9 seconds'), globals)).toMatchObject({
+    base: false,
+    enhanced: true,
+  });
+  expect(
+    compareDiffOutput(
+      after,
+      after.replace(
+        'var refresh = refresh the buff duration.',
+        'var refresh = renew the buff duration.',
+      ),
+      globals,
+    ),
+  ).toMatchObject({ base: true, enhanced: false });
+  expect(compareDiffOutput('Same\n// old', 'Same\n// new', globals)).toMatchObject({
+    base: false,
+    enhanced: false,
+  });
+});
+
+it('detects the recorded Chaos Reshaped history text change', async () => {
+  const { compareDiffOutput } = await import('./renderedDiff');
+  const { before, after } = await import('./fixtures/chaos-reshaped.json');
+  expect(compareDiffOutput(before, after, { variables: '', titles: '' })).toMatchObject({
+    base: true,
+    enhanced: true,
+  });
+});

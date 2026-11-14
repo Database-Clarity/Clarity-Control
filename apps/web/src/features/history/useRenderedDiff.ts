@@ -5,7 +5,7 @@ import { presentDiff, renderedDiff } from './renderedDiff';
 import type { SourceAnalysis } from './sourceOnlyChanges';
 import type { RenderedDiffReply, RenderedDiffRequest } from './renderedDiff.worker';
 
-type Result = ReturnType<typeof renderedDiff> & { sourceAnalysis?: SourceAnalysis };
+type Result = NonNullable<RenderedDiffReply['result']> & { sourceAnalysis?: SourceAnalysis };
 let worker: Worker | undefined;
 let sequence = 0;
 // Per request: called with each reply, or with nothing when the worker died.
@@ -28,7 +28,7 @@ export function useRenderedDiff(before: string, after: string, globals: MarkupGl
     result?: Result;
     sourceFailed?: boolean;
   }>();
-  const initial = useMemo(
+  const initial = useMemo<Result>(
     () => cache.get(key) ?? presentDiff(renderedDiff(before, after, snapshot, !large)),
     [key, before, after, snapshot, large],
   );
@@ -46,7 +46,7 @@ export function useRenderedDiff(before: string, after: string, globals: MarkupGl
     const finish = (reply?: RenderedDiffReply) => {
       if (reply?.result) {
         diff = reply.result;
-        if (large) setComputed({ key, result: diff });
+        setComputed({ key, result: diff });
         return;
       }
       pending.delete(id);

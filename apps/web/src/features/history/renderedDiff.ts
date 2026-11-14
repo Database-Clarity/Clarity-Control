@@ -1,4 +1,10 @@
-import { parseMarkup, type MarkupGlobals, type MarkupLine, type MarkupSpan } from '@clarity/core';
+import {
+  enhancedMarkupType,
+  parseMarkup,
+  type MarkupGlobals,
+  type MarkupLine,
+  type MarkupSpan,
+} from '@clarity/core';
 import { diffWords } from '../../ui/diff/diffWords';
 import { INLINE_MAX_SHARE } from '../compendium/compendiumDiffProjection';
 
@@ -7,6 +13,33 @@ export interface DiffSpan extends MarkupSpan {
 }
 /** A line whose structure token (break, spacer, line class, or table) changed. */
 export type DiffLine = MarkupLine & { diffKind?: 'insert' | 'delete' };
+
+/** The same source can render differently in the preview's Base and Enhanced modes. */
+export function variantGlobals(globals: MarkupGlobals, enhanced: boolean): MarkupGlobals {
+  return {
+    ...globals,
+    type: enhanced
+      ? enhancedMarkupType
+      : globals.type === enhancedMarkupType
+        ? 'Weapon Trait'
+        : globals.type,
+  };
+}
+
+/** Compare both preview variants using the production renderer. */
+export function compareDiffOutput(before: string, after: string, globals: MarkupGlobals) {
+  const render = (text: string, enhanced: boolean) =>
+    JSON.stringify(parseMarkup(text, variantGlobals(globals, enhanced)).lines);
+  const baseBefore = render(before, false),
+    baseAfter = render(after, false);
+  const enhancedBefore = render(before, true),
+    enhancedAfter = render(after, true);
+  return {
+    base: baseBefore !== baseAfter,
+    enhanced: enhancedBefore !== enhancedAfter,
+    variantsDiffer: baseBefore !== enhancedBefore || baseAfter !== enhancedAfter,
+  };
+}
 
 /** Source ranges remain visible even when comments, variables, or equivalent tags render alike. */
 export function changedSourceLines(before: string, after: string): string | undefined {

@@ -96,9 +96,9 @@ it('opens on hover with that revision diffed against its predecessor, per langua
   expect(dialog()).not.toBeNull();
   // Revision 3 against revision 2: only " three" is new in English, " deux" in French.
   // The highlight starts on ink; the space stays with the unchanged text.
-  expect(dialog()!.querySelector('ins')!.textContent).toBe('three');
+  expect(dialog()!.querySelector('[data-rendered-body] ins')!.textContent).toBe('three');
   expect(dialog()!.textContent).not.toContain('French');
-  expect(dialog()!.querySelectorAll('ins')).toHaveLength(1);
+  expect(dialog()!.querySelectorAll('[data-rendered-body] ins')).toHaveLength(1);
   expect(dialog()!.querySelector('pre')).toBeNull();
   // The popover floats: it is not inside the list's flow.
   expect(dialog()!.style.left).not.toBe('');
