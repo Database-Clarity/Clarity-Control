@@ -7,6 +7,7 @@ import {
   type Aliases,
   type Tooltip,
 } from '@clarity/core';
+import { refuseReservedNames } from './elementTags.js';
 import type { GitHub } from './github.js';
 import { HttpError } from './http.js';
 
@@ -77,5 +78,8 @@ export async function refuseBaseEnhanced(
     if (target && isTextlessDescription(target))
       throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
   }
+  // Variable names starting like a brace holder (Zb1w…) would take a holder's place in the
+  // export: refused in every document a publish or push reads, as /save refuses them.
+  for (const tooltip of known.values()) refuseReservedNames(tooltip);
   return known;
 }

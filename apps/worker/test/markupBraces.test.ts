@@ -100,7 +100,7 @@ describe('push-live lowers #{name} and <enhanced/>', () => {
     expect(JSON.stringify(fixture.live)).not.toMatch(/#\{[a-zA-Z0-9]+\}|<enhanced\/>/);
   });
 
-  it('refuses stored holder-shaped names in a pushed document and in its imports (code review 2 MUST-1b)', async () => {
+  it('refuses stored holder-shaped names in a pushed document and in its imports (code review 2 MUST-1b; checked in refuseBaseEnhanced, since push.ts is source-pinned)', async () => {
     const before = JSON.stringify(fixture.live);
     fixture.moveData({
       'tooltips/123.json': tooltip('var d = 5\nvar Zb1wx = ORIGINAL\n#{d}x and #Zb1wx'),

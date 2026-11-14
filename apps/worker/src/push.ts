@@ -1,6 +1,6 @@
 import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
-import { refuseReservedNames, refuseTaggedEntries } from './elementTags.js';
+import { refuseTaggedEntries } from './elementTags.js';
 import { z } from 'zod';
 import {
   publishableHash,
@@ -120,10 +120,7 @@ async function loadAtHead(
   refuseHeldSetBonuses(tooltips, facts);
   // Element-tagged text needs no hold here: exportLegacy lowers it to today's format, and the
   // export itself is checked below (refuseTaggedEntries) before anything is written.
-  const closure = await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
-  // Variable names starting like a brace holder (Zb1w…) would take a holder's place in the export:
-  // refused in every published document and its imports, as /save refuses them (elementTags.ts).
-  for (const tooltip of [...tooltips, ...closure.values()]) refuseReservedNames(tooltip);
+  await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
   // A malformed marker is reported by the marker step below; here it just means "all changed".
   const pushed =
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
