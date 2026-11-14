@@ -24,12 +24,19 @@ function highlight(name: string): Highlight {
   return entry;
 }
 
-interface Mark {
+/** One insertable span in the English: what it offers and where it is (a DOM Range). */
+export interface Mark {
   term: Term;
   range: Range;
-  from: number;
-  to: number;
 }
+
+/**
+ * A second source of marks that knows its spans from the rendering itself (number tokens: the
+ * spans parseMarkup tags with data-slot): it returns a Range per span (Range.selectNodeContents
+ * on the element) with what Insert puts in. Its marks share the highlight, hit-testing, popover,
+ * click-to-insert (Term.insertOnClick), and the clearing on every rendering change.
+ */
+export type SpanSource = (root: HTMLElement) => Mark[];
 
 /** The rendered text under `root` as one string, and where each text node starts in it. */
 function readText(root: HTMLElement) {
@@ -99,6 +106,7 @@ export function TermLayer({
   enabled,
   canInsert,
   stepping = false,
+  spanSource,
   children,
 }: {
   lang: Lang;
@@ -108,6 +116,8 @@ export function TermLayer({
   enabled: boolean;
   canInsert: boolean;
   stepping?: boolean;
+  /** Marks found from the rendered spans (number tokens, later); text terms are matched. */
+  spanSource?: SpanSource;
   children: ReactNode;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -116,6 +126,9 @@ export function TermLayer({
   const canInsertRef = useRef(canInsert);
   canInsertRef.current = canInsert;
   const list = useTermList(lang, enabled);
+  const spanSourceRef = useRef(spanSource);
+  spanSourceRef.current = spanSource;
+  const hasSpans = spanSource !== undefined;
   const marks = useRef<Mark[]>([]);
   const [open, setOpen] = useState<{ mark: Mark; pinned: boolean } | null>(null);
   const openRef = useRef(open);
@@ -132,27 +145,31 @@ export function TermLayer({
   // Marks: requested once the text has settled, rebuilt when the rendering changes.
   useLayoutEffect(() => {
     const root = host.current;
-    if (!root || !list || stepping || !highlightsSupported()) return;
+    if (!root || (!list && !hasSpans) || stepping || !highlightsSupported()) return;
     let current = true;
     let frame = 0;
     const build = () => {
       frame = 0;
       clearMarks();
       if (openRef.current) setOpen(null);
+      const all = highlight(markName);
+      const spans = spanSourceRef.current?.(root) ?? [];
+      for (const mark of spans) all.add(mark.range);
+      marks.current = spans;
       const { nodes, starts, text } = readText(root);
-      if (!nodes.length) return;
+      if (!list || !nodes.length) return;
       void requestTermMatches(list, text).then((matches) => {
         if (!current || !nodes.every((node) => node.isConnected)) return;
-        const all = highlight(markName);
-        marks.current = matches.map((match) => {
+        const found = matches.map((match) => {
           const start = locate(nodes, starts, match.from, false);
           const end = locate(nodes, starts, match.to, true);
           const range = document.createRange();
           range.setStart(start.node, start.offset);
           range.setEnd(end.node, end.offset);
           all.add(range);
-          return { term: list.terms[match.entry]!, range, from: match.from, to: match.to };
+          return { term: list.terms[match.entry]!, range };
         });
+        marks.current = [...marks.current, ...found];
       });
     };
     build();
@@ -168,7 +185,7 @@ export function TermLayer({
       cancelAnimationFrame(frame);
       clearMarks();
     };
-  }, [list, stepping, clearMarks]);
+  }, [list, hasSpans, stepping, clearMarks]);
 
   // The open term's background.
   useLayoutEffect(() => {
@@ -202,7 +219,7 @@ export function TermLayer({
   }, []);
   useEffect(() => {
     const root = host.current;
-    if (!root || !list) return;
+    if (!root || (!list && !hasSpans)) return;
     let frame = 0;
     let point = { x: 0, y: 0 };
     const test = () => {
@@ -248,7 +265,7 @@ export function TermLayer({
       root.removeEventListener('pointerleave', leave);
       root.removeEventListener('click', click);
     };
-  }, [list, markAt, scheduleClose]);
+  }, [list, hasSpans, markAt, scheduleClose]);
   useEffect(
     () => () => {
       clearTimeout(timers.current.open);
