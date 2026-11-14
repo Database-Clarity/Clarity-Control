@@ -320,6 +320,7 @@ describe('proven carry and carry-aware merge', () => {
   });
   it.each([
     ['#{g}0', 'var g = 1', {}],
+    ['1#{g}0', 'var g = empty', {}],
     ['#{v}0\nimport v from 100', '', { 100: 'export v (\nvar v = 1\n)' }],
   ] as const)(
     'refuses digits joined to an external reference: %s',
