@@ -26636,9 +26636,19 @@ function isTimeZone(value2) {
   }
 }
 var dateFormats = ["auto", "dmy", "iso", "mdy"];
+var editorFonts = ["default", "fira-code", "jetbrains-mono", "system"];
+var suggestAcceptKeys = ["enter", "tab"];
+var symbolRevealModes = ["popover", "caret"];
+var finderWheelModes = ["entries", "groups"];
+var defaultWorklistStepping = true;
 var timeDisplays = ["date", "datetime", "relative"];
 var timeZoneSchema = external_exports.string().min(1).max(64).refine((value2) => value2 === "auto" || isTimeZone(value2), "Unknown time zone");
 var syncedSettingsSchema = external_exports.object({
+  editorFont: external_exports.enum(editorFonts).default("default"),
+  suggestAccept: external_exports.enum(suggestAcceptKeys).default("enter"),
+  symbolReveal: external_exports.enum(symbolRevealModes).default("popover"),
+  finderWheel: external_exports.enum(finderWheelModes).default("entries"),
+  worklistStepping: external_exports.boolean().default(defaultWorklistStepping),
   dateFormat: external_exports.enum(dateFormats),
   timeDisplay: external_exports.enum(timeDisplays),
   timeZone: timeZoneSchema,
