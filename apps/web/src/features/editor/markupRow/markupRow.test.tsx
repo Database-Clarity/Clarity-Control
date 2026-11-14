@@ -348,6 +348,43 @@ describe('the markup row', () => {
     });
     expect(event.defaultPrevented).toBe(true);
   });
+
+  it('names a button cut to less than half at either edge, for the tag-mode fades', () => {
+    mount('x');
+    const scroller = row()!.querySelector<HTMLElement>('[role=toolbar]')!;
+    const wrap = scroller.parentElement!;
+    // Buttons 40px wide every 44px from 6px, in a 200px strip.
+    const buttons = rowButtons();
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const at = buttons.indexOf(this as HTMLButtonElement);
+      return at < 0 ? 0 : 6 + at * 44;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(40);
+    let scrollLeft = 0;
+    Object.defineProperties(scroller, {
+      clientWidth: { configurable: true, get: () => 200 },
+      scrollWidth: { configurable: true, get: () => 6 + buttons.length * 44 + 6 },
+      scrollLeft: {
+        configurable: true,
+        get: () => scrollLeft,
+        set: (v: number) => (scrollLeft = v),
+      },
+    });
+    const at = (left: number) => {
+      scrollLeft = left;
+      act(() => scroller.dispatchEvent(new Event('scroll')));
+      return [wrap.style.getPropertyValue('--cut-start'), wrap.style.getPropertyValue('--cut-end')];
+    };
+    // The fifth button (182-222) shows 18px of 40 at the end: cut.
+    expect(at(0)).toEqual(['', '18px']);
+    // 28px of it shows: a cut button that reads as one, no widening.
+    expect(at(10)).toEqual(['', '']);
+    // The first shows 16px at the start, the sixth (226-266) 4px at the end.
+    expect(at(30)).toEqual(['16px', '4px']);
+    expect(wrap.hasAttribute('data-more-start')).toBe(true);
+  });
 });
 
 describe('the All popover', () => {

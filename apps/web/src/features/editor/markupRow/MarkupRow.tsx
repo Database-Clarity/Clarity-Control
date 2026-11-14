@@ -133,11 +133,45 @@ export const MarkupRow = memo(function MarkupRow({
   useEffect(() => {
     const element = scroller.current;
     if (!element) return;
-    const measure = () =>
+    const wrap = element.parentElement!;
+    const cuts = { start: '', end: '' };
+    const measure = () => {
+      const { scrollLeft, clientWidth, scrollWidth } = element;
       setEdges({
-        start: element.scrollLeft > 1,
-        end: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+        start: scrollLeft > 1,
+        end: scrollLeft + clientWidth < scrollWidth - 1,
       });
+      // How much shows of a button cut at either edge, when less than half of it does (else 0).
+      // Tag mode's slim fades (scrollWrap ::before/::after) widen over such a sliver: its accent
+      // outline would otherwise stand at full contrast just past the fade. Read on scroll and
+      // resize only (never per key); the writes happen after the reads and only on a change.
+      const right = scrollLeft + clientWidth;
+      let start = 0;
+      let end = 0;
+      for (const child of element.children) {
+        if (!(child instanceof HTMLElement) || !child.hasAttribute('data-row-button')) continue;
+        const left = child.offsetLeft - element.offsetLeft;
+        const width = child.offsetWidth;
+        if (left < scrollLeft && left + width > scrollLeft) {
+          const shows = left + width - scrollLeft;
+          if (shows * 2 <= width) start = shows;
+        } else if (left < right && left + width > right) {
+          const shows = right - left;
+          if (shows * 2 <= width) end = shows;
+          break;
+        }
+      }
+      for (const [edge, shows] of [
+        ['start', start],
+        ['end', end],
+      ] as const) {
+        const value = shows ? `${shows}px` : '';
+        if (cuts[edge] === value) continue;
+        cuts[edge] = value;
+        if (value) wrap.style.setProperty(`--cut-${edge}`, value);
+        else wrap.style.removeProperty(`--cut-${edge}`);
+      }
+    };
     element.addEventListener('scroll', measure, { passive: true });
     const observer =
       typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
