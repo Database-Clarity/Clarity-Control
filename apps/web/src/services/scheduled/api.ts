@@ -387,7 +387,9 @@ const saveResponseSchema = z.looseObject({
  * POST /batches/:id/save in chunks of 15 (draft) or 10 (scheduled) changes, each sent with the
  * revision the previous chunk returned (revision CAS), so no chunk can land on a batch someone
  * else changed meanwhile. A refusal of the first chunk throws its BatchRefusal (nothing saved);
- * a later one throws PartialBatchSave naming what was saved and what was not.
+ * a later one throws PartialBatchSave naming what was saved and what was not. `proceed` is asked
+ * right before each chunk (in the same tick as the request reads the session): false stops the
+ * save there, keeping the chunks already committed.
  */
 export async function saveToBatch(
   batchId: string,
@@ -395,6 +397,7 @@ export async function saveToBatch(
   status: Batch['status'],
   changes: readonly BatchChange[],
   message: string,
+  proceed: () => boolean = () => true,
 ): Promise<BatchSaveResult> {
   batchIdSchema.parse(batchId);
   let expected = revision;
@@ -403,6 +406,7 @@ export async function saveToBatch(
   for (let start = 0; start < changes.length;) {
     const chunk = changes.slice(start, start + size);
     try {
+      if (!proceed()) throw new Error(accountChanged);
       const result = await post(
         `/batches/${batchId}/save`,
         { revision: expected, changes: chunk, message },
@@ -426,6 +430,10 @@ export async function saveToBatch(
   }
   return saved;
 }
+
+/** Why a batch save stopped before a chunk: the signed-in account is not the one that began it. */
+export const accountChanged =
+  'The signed-in account changed during the save, so nothing more was sent';
 
 /** POST /batches/:id/rebase: the member's base becomes current at the head; `next` its proposal. */
 export function rebaseMember(

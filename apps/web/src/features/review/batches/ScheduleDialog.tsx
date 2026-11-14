@@ -10,24 +10,29 @@ import {
   offsetLabel,
   utcLabel,
   zoneOptions,
-} from './scheduleTime';
+} from '../../../services/format/scheduleTime';
 import { Refusal } from './Refusal';
+import { refreshBatches } from './store';
 import styles from './Batches.module.scss';
 
 /**
  * Schedule… / Reschedule…: a date and a minute in the device zone (or a picked one), shown with
  * its UTC time and offset. A time the zone skips is refused; a repeated one asks which offset.
- * Sends the batch revision it was opened on (CAS): a batch that changed meanwhile is refused by
- * the Worker, verbatim, and the dialog stays open with the new state behind it.
+ * Approves the batch revision it was opened on (CAS): when the listing shows a newer revision the
+ * dialog says so and stops; a refusal is shown verbatim and re-lists, so the change shows up here.
  */
 export function ScheduleDialog({
   batch,
+  latest,
   firstPublications,
   names,
   onClose,
   onDone,
 }: {
+  /** The batch as it was when the dialog opened: what this approval covers. */
   batch: Batch;
+  /** The batch as listed now. */
+  latest: Batch;
   /** Members that were never published (C4): they publish whole. */
   firstPublications: number[];
   names: (hash: number) => string;
@@ -49,9 +54,10 @@ export function ScheduleDialog({
   const chosen = chosenNotBefore(choice);
   const reschedule = batch.status === 'scheduled';
   const verb = reschedule ? 'Reschedule' : 'Schedule';
+  const moved = latest.revision !== batch.revision;
 
   async function submit() {
-    if ('error' in chosen || pending) return;
+    if ('error' in chosen || pending || moved) return;
     setPending(true);
     setError(null);
     try {
@@ -61,6 +67,8 @@ export function ScheduleDialog({
       );
     } catch (reason) {
       setError(reason);
+      // The refusal may come from a change elsewhere: list again so `moved` can say so.
+      void refreshBatches();
     } finally {
       setPending(false);
     }
@@ -77,7 +85,7 @@ export function ScheduleDialog({
           <button
             type="button"
             className={styles.primary}
-            disabled={pending || 'error' in chosen}
+            disabled={pending || moved || 'error' in chosen}
             onClick={() => void submit()}
           >
             {pending ? `${verb.replace(/e$/, '')}ing...` : verb}
@@ -179,6 +187,13 @@ export function ScheduleDialog({
         </section>
       )}
       {error !== null && <Refusal error={error} names={names} />}
+      {moved && (
+        <p role="alert" data-batch-moved>
+          {batch.name} changed since this dialog opened (rev {batch.revision} → rev{' '}
+          {latest.revision}). Close it and review the batch again before you {verb.toLowerCase()}{' '}
+          it.
+        </p>
+      )}
     </Dialog>
   );
 }

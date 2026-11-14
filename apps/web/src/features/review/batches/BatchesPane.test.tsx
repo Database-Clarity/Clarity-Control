@@ -422,6 +422,100 @@ describe('Review → Batches', () => {
     await view.click('Resolve');
     await view.settle(() => !view.host.querySelector('[data-conflict="10"]'));
     expect(fixture.conflicts.size).toBe(0);
+    // The resolution is current saved in the editor now (data store and saved overlay).
+    const { useDataStore } = await import('../../../stores/data');
+    expect(useDataStore.getState().data?.bundle.tooltips[10]?.text.en?.text).toBe('Ten, upcoming');
+    await view.unmount();
+  });
+
+  it('approves only the revision the Schedule dialog opened on (code review round 1)', async () => {
+    const batch = await seed();
+    const view = await mount('maintainer');
+    await view.settle(() => view.button('Schedule…')?.disabled === false);
+    await view.click('Schedule…');
+    const dialog = view.host.querySelector<HTMLElement>('[data-dialog]')!;
+    const [date, time] = dialog.querySelectorAll('input');
+    await setInput(dialog.querySelector('select')!, 'UTC');
+    await setInput(date, '2026-12-03');
+    await setInput(time, '16:00');
+    // Another editor adds a tooltip while the dialog is open; the listing picks it up.
+    await call(`/batches/${batch.id}/save`, {
+      revision: 2,
+      changes: [{ hash: 12, base: current[12], next: tooltip(12, 'Twelve, upcoming') }],
+    });
+    const { refreshBatches } = await import('./store');
+    await act(async () => refreshBatches());
+    await view.settle(() => Boolean(view.host.querySelector('[data-batch-moved]')));
+    expect(view.host.querySelector('[data-batch-moved]')?.textContent).toContain('rev 2 → rev 3');
+    // The first-publication list stays the one opened (Kill Clip), and nothing can be sent.
+    expect(
+      [...dialog.querySelectorAll('[aria-label="First publications"] li')].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(['Kill Clip 11']);
+    expect(view.button('Schedule')?.disabled).toBe(true);
+    expect(fixture.batches.get(batch.id)?.status).toBe('draft');
+    await view.unmount();
+  });
+
+  it('re-lists after a Schedule refusal, so a removed member cannot be scheduled blind', async () => {
+    const batch = await seed();
+    const view = await mount('maintainer');
+    await view.settle(() => view.button('Schedule…')?.disabled === false);
+    await view.click('Schedule…');
+    const dialog = view.host.querySelector<HTMLElement>('[data-dialog]')!;
+    const [date, time] = dialog.querySelectorAll('input');
+    await setInput(dialog.querySelector('select')!, 'UTC');
+    await setInput(date, '2026-12-03');
+    await setInput(time, '16:00');
+    // Another tab removes 11 without this page noticing.
+    await call(`/batches/${batch.id}/remove`, { revision: 2, hashes: [11] });
+    await view.click('Schedule');
+    await view.settle(() => Boolean(view.host.querySelector('[data-batch-moved]')));
+    expect(dialog.textContent).toContain('The batch changed; reload it and retry');
+    expect(view.button('Schedule')?.disabled).toBe(true);
+    expect(fixture.batches.get(batch.id)?.status).toBe('draft');
+    await view.unmount();
+  });
+
+  it('adopts the current a resolve refusal returns, then resolves against it', async () => {
+    const batch = await seed();
+    await call(`/batches/${batch.id}/schedule`, {
+      revision: 2,
+      notBefore: '2026-12-03T16:00:00.000Z',
+      zone: 'UTC',
+    });
+    fixture.publish(batch.id);
+    fixture.addConflict(batch.id, 10, tooltip(10, 'Ten, edited before RECORD'));
+    const view = await mount('maintainer');
+    await setCurrent(10, tooltip(10, 'Ten, edited before RECORD'));
+    // Current moves again on the server; this page still shows the RECORD one.
+    fixture.setCurrent(10, tooltip(10, 'Ten, moved again'));
+    await view.settle(() => Boolean(view.host.querySelector('[data-conflict="10"]')));
+    const choose = async (label: string) => {
+      const block = view.host.querySelector<HTMLElement>('[data-conflict="10"]')!;
+      const option = [...block.querySelectorAll('label')].find((node) =>
+        node.textContent?.includes(label),
+      )!;
+      await act(async () => option.querySelector('input')!.click());
+    };
+    await choose('Apply upcoming');
+    await view.click('Resolve');
+    await view.settle(() => view.text().includes('Current changed; review the conflict again'));
+    const { useDataStore } = await import('../../../stores/data');
+    expect(useDataStore.getState().data?.bundle.tooltips[10]?.text.en?.text).toBe(
+      'Ten, moved again',
+    );
+    // The old choice is void: choose again against the new current.
+    expect(view.button('Resolve')?.disabled).toBe(true);
+    expect(view.host.querySelector('[data-conflict="10"]')?.textContent).toContain(
+      'Ten, moved again',
+    );
+    await choose('Apply upcoming');
+    await view.click('Resolve');
+    await view.settle(() => !view.host.querySelector('[data-conflict="10"]'));
+    expect(fixture.conflicts.size).toBe(0);
+    expect(useDataStore.getState().data?.bundle.tooltips[10]?.text.en?.text).toBe('Ten, upcoming');
     await view.unmount();
   });
 

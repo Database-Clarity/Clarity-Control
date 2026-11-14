@@ -327,8 +327,8 @@ export function createBatchFixture(options: FixtureOptions) {
         missing: result.missing,
         current: saved,
       });
+    // As the Worker: a resolution writes its tooltip; null (current absent and kept) writes nothing.
     if (result.tooltip) current.set(hash, result.tooltip);
-    else current.delete(hash);
     conflicts.delete(hash);
     const revisions = { revision: batch.revision + 1, contentRevision: batch.contentRevision };
     const next = batchSchema.parse({

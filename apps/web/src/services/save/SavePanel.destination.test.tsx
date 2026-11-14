@@ -364,6 +364,48 @@ describe('Review save destination (scheduled changes)', () => {
     expect(saves).toBe(2);
   });
 
+  it('stops sending chunks when the signed-in account changes mid-save (code review round 1)', async () => {
+    const hashes = Array.from({ length: 12 }, (_, i) => 500 + i);
+    for (const hash of hashes) fixture.setCurrent(hash, extra(hash));
+    const staged = (hash: number): Tooltip => ({ ...extra(hash), associated: [1] });
+    const { batch } = await call('/batches', { name: 'Switch' });
+    await call(`/batches/${batch.id}/save`, {
+      revision: batch.revision,
+      changes: hashes.map((hash) => ({ hash, base: extra(hash), next: staged(hash) })),
+    });
+    await call(`/batches/${batch.id}/schedule`, {
+      revision: 2,
+      notBefore: '2026-12-03T16:00:00.000Z',
+      zone: 'UTC',
+    });
+    const view = await setup('editor');
+    const german = (hash: number): Tooltip => ({
+      ...staged(hash),
+      text: {
+        ...staged(hash).text,
+        de: { text: `D${hash}`, updatedAt: tooltip.text.en!.updatedAt, updatedBy: 'alice' },
+      },
+    });
+    await view.review(
+      Object.fromEntries(hashes.map((hash) => [hash, { base: staged(hash), next: german(hash) }])),
+    );
+    await view.settle(() => Boolean(view.button('Batch') && !view.button('Batch')!.disabled));
+    await view.click('Batch');
+    // The first chunk (10) commits; the account switches before the second is sent.
+    saveHook = async (count, forward) => {
+      const response = await forward();
+      if (count === 1) view.useDraftStore.setState({ generation: 4 });
+      return response;
+    };
+    await view.click('Save to batch');
+    await view.settle(() => fixture.batches.get(batch.id)!.revision === 4);
+    await view.settle();
+    expect(saves).toBe(1);
+    expect(fixture.members.get(batch.id)?.get(509)?.proposed.text.de?.text).toBe('D509');
+    expect(fixture.members.get(batch.id)?.get(510)?.proposed.text.de).toBeUndefined();
+    expect(fixture.members.get(batch.id)?.get(511)?.proposed.text.de).toBeUndefined();
+  });
+
   it('keeps drafts when the response is lost, then confirms them on the next save', async () => {
     const view = await setup('editor');
     await view.settle(() => Boolean(view.button('New batch…')));

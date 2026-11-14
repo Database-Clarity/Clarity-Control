@@ -43,6 +43,7 @@ import {
 } from './model';
 import { refreshBatches, retryBatch, useBatches } from './store';
 import { ScheduleDialog } from './ScheduleDialog';
+import { adoptCurrent, adoptRefusalCurrent } from './adoptCurrent';
 import { Refusal } from './Refusal';
 import { useNames } from './names';
 import styles from './Batches.module.scss';
@@ -75,7 +76,9 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [confirm, setConfirm] = useState<Action | null>(null);
-  const [dialog, setDialog] = useState(false);
+  // The Schedule dialog approves the revision it was opened on (members and first publications
+  // frozen with it); a newer listed revision disables it (ScheduleDialog `latest`).
+  const [dialog, setDialog] = useState<{ batch: Batch; first: number[] } | null>(null);
   const views = useMemo(
     () =>
       detail && data
@@ -181,7 +184,7 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
           onSchedule={() => {
             setError(null);
             setNotice(null);
-            setDialog(true);
+            setDialog({ batch, first });
           }}
           onNow={() =>
             void run(
@@ -269,15 +272,16 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
       <Events batch={batch} head={detail.head} />
       {dialog && (
         <ScheduleDialog
-          batch={batch}
-          firstPublications={first}
+          batch={dialog.batch}
+          latest={batch}
+          firstPublications={dialog.first}
           names={names}
           onClose={() => {
-            setDialog(false);
+            setDialog(null);
             void refreshBatches();
           }}
           onDone={(message) => {
-            setDialog(false);
+            setDialog(null);
             setNotice(message);
             void refreshBatches();
           }}
@@ -674,7 +678,13 @@ function MemberRow({
       if (!result.ok) throw new Error(`Choose for ${fieldList(result.missing)} first.`);
       if (!result.tooltip)
         throw new Error('Nothing left to publish: remove this tooltip from the batch instead.');
-      await rebaseMember(batch.id, batch.revision, member.hash, current, result.tooltip);
+      try {
+        await rebaseMember(batch.id, batch.revision, member.hash, current, result.tooltip);
+      } catch (error) {
+        // Current moved: take the Worker's, and the choices made against the old one are void.
+        if (adoptRefusalCurrent(member.hash, error)) setChoices({});
+        throw error;
+      }
     });
   }
 
@@ -843,8 +853,12 @@ function ConflictResolver({
     setError(null);
     try {
       const expected = current ? await contentHash(current) : null;
-      await resolveActivationConflict(batch.id, conflict.hash, expected, choices);
+      const result = await resolveActivationConflict(batch.id, conflict.hash, expected, choices);
+      // The resolution is current saved now (null: current was kept as it is).
+      if (result.tooltip) adoptCurrent(conflict.hash, result.tooltip, result.commit);
     } catch (reason) {
+      // Current moved: take the Worker's (the conflict re-renders against it); old choices are void.
+      if (adoptRefusalCurrent(conflict.hash, reason)) setChoices({});
       const refused = reason as { missing?: string[] };
       if (refused.missing?.length) setExtra(refused.missing);
       setError(reason);

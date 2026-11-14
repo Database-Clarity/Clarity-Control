@@ -23,6 +23,7 @@ import { zonedNotBefore } from '../../../services/format/date';
 import {
   BatchRefusal,
   PartialBatchSave,
+  accountChanged,
   createBatch,
   memberCap,
   readBatchMembers,
@@ -108,6 +109,11 @@ export async function saveReviewToBatch(
 ): Promise<string> {
   const data = useDataStore.getState().data;
   const name = (hash: number) => `${nameFor(data, hash)} (${hash})`;
+  // Every write goes out as the account that began the save (code review round 1): checked before
+  // creating, after each await, and right before each chunk (saveToBatch `proceed`).
+  const sameAccountOr = (what: string) => {
+    if (!sameAccount()) throw new Error(`${accountChanged}. ${what} Drafts stay as they are.`);
+  };
   // The Worker's member cap, checked before anything is written (it refuses the same).
   const overCap = (label: string, held: readonly number[], sending: readonly Change[]) => {
     const total = new Set([...held, ...sending.map(({ hash }) => hash)]).size;
@@ -122,6 +128,7 @@ export async function saveReviewToBatch(
   const batchOwner = useBatchDraftStore.getState().owner;
   if (destination.kind === 'new') {
     overCap(destination.name.trim(), [], changes);
+    sameAccountOr('No batch was created.');
     try {
       batch = (await createBatch(destination.name.trim())).batch;
     } catch (error) {
@@ -131,6 +138,7 @@ export async function saveReviewToBatch(
     // The newest listing: the save merges per tooltip on the server, so it builds on the batch
     // as it is now; a write that lands in between is still refused by the revision check.
     await refreshBatches();
+    sameAccountOr('Nothing was saved.');
     const entry = useBatches
       .getState()
       .entries?.find((candidate) => candidate.id === destination.id);
@@ -151,6 +159,7 @@ export async function saveReviewToBatch(
         )
       : [];
     overCap(entry.name, entry.hashes, [...changes, ...stagedChanges]);
+    sameAccountOr('Nothing was saved.');
     batch = entry;
   }
   const all = [...changes, ...stagedChanges];
@@ -160,7 +169,14 @@ export async function saveReviewToBatch(
   let accepted: number[];
   let failure: PartialBatchSave | null = null;
   try {
-    const result = await saveToBatch(batch.id, batch.revision, batch.status, payload, message);
+    const result = await saveToBatch(
+      batch.id,
+      batch.revision,
+      batch.status,
+      payload,
+      message,
+      sameAccount,
+    );
     ({ members, accepted } = result);
   } catch (error) {
     void refreshBatches();
