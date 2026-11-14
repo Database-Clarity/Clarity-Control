@@ -1,0 +1,1 @@
+const o="_region_1l1lz_1",s="_line_1l1lz_32",l="_rowColumn_1l1lz_33",n="_block_1l1lz_53",_="_row_1l1lz_33",t="_status_1l1lz_76",e="_permissions_1l1lz_86",r={region:o,line:s,rowColumn:l,block:n,row:_,status:t,permissions:e};export{r as s};
