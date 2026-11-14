@@ -865,3 +865,19 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
     }
   }
 }
+// The English pane's Raw switch: the diff Raw switch's look (history/RawDiffToggle).
+.rawToggle[role='switch'] {
+  @include controls.button;
+  flex: none;
+  min-height: 1.25rem;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  &[aria-checked='true'] {
+    background: var(--sel);
+    border-color: var(--accent-ink);
+  }
+  @include theme.mobile {
+    min-height: var(--tap-sm);
+  }
+}

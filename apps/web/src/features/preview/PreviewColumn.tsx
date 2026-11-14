@@ -180,23 +180,12 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   // that has one.
   const bar = (
     <div className={styles.bar}>
-      <div className={styles.segmented} role="group" aria-label="Preview version">
-        {(['base', 'enhanced', 'compare'] as const).map((value) => {
-          const missing = !selected && value !== 'base';
-          return (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={effective === value}
-              disabled={missing}
-              title={missing ? 'This item has no enhanced version' : undefined}
-              onClick={() => onMode(value)}
-            >
-              {labels[value]}
-            </button>
-          );
-        })}
-      </div>
+      <VersionSwitch
+        label="Preview version"
+        value={effective}
+        hasEnhanced={Boolean(selected)}
+        onChange={onMode}
+      />
       {selected && enhanced.length > 1 && (
         <select
           className={styles.versions}
@@ -265,6 +254,61 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
 });
 
 /**
+ * Base | Enhanced | Compare: the preview's version strip, also the translate-mode English pane's
+ * (one control, one look). Without an enhanced version the last two stay, dimmed.
+ */
+export function VersionSwitch({
+  label,
+  value,
+  hasEnhanced,
+  onChange,
+  fill,
+}: {
+  label: string;
+  value: PreviewMode;
+  hasEnhanced: boolean;
+  onChange(mode: PreviewMode): void;
+  /** In a pane header: take the row's free room on phones (RightPane `data-pane-fill`). */
+  fill?: boolean;
+}) {
+  return (
+    <div
+      className={styles.segmented}
+      role="group"
+      aria-label={label}
+      data-pane-fill={fill ? '' : undefined}
+    >
+      {(['base', 'enhanced', 'compare'] as const).map((mode) => {
+        const missing = !hasEnhanced && mode !== 'base';
+        return (
+          <button
+            key={mode}
+            type="button"
+            aria-pressed={value === mode}
+            disabled={missing}
+            title={missing ? 'This item has no enhanced version' : undefined}
+            onClick={() => onChange(mode)}
+          >
+            {labels[mode]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The Compare rows of a comparison (compare.ts), as the preview column draws them. */
+export function CompareLines({ comparison }: { comparison: Comparison }) {
+  return (
+    <div className={styles.compare} data-compare="">
+      {comparison.lines.map((entry, index) => (
+        <CompareRow key={index} entry={entry} />
+      ))}
+    </div>
+  );
+}
+
+/**
  * One changed value: struck base value, arrow, enhanced value. The arrow stays with the words on
  * either side of it, so a line never breaks between "5", the arrow and "4"; longer phrases still wrap.
  */
@@ -287,11 +331,9 @@ function ChangeRun({ was, now }: { was: MarkupSpan[]; now: MarkupSpan[] }) {
           role="img"
           aria-label={was.length ? 'becomes' : 'enhanced'}
         />
-        {span(first)}
+        {span(first, previewStyles.now)}
       </span>
-      {now.slice(1).map((part, index) => (
-        <PreviewSpan key={index} part={part} />
-      ))}
+      {span(now.slice(1), previewStyles.now)}
     </>
   );
 }

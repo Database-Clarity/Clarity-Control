@@ -105,6 +105,16 @@
     gap: 0.125rem;
   }
 }
+// Phones hide the title: a control marked data-pane-fill (a version strip) takes the row's room
+// instead of ellipsising its labels beside empty space.
+@media (max-width: 700px) {
+  .controls:has(> [data-pane-fill]) {
+    flex: 1 1 auto;
+    > [data-pane-fill] {
+      flex: 1 1 auto;
+    }
+  }
+}
 
 .body {
   flex: 1 1 auto;

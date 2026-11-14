@@ -35,6 +35,10 @@ export const rememberedSchema = z.object({
   englishSource: syncedSettingsSchema.shape.englishSource.optional(),
   /** Translate mode's right pane: the English text (default) or the Compendium. */
   translatePane: z.enum(['english', 'compendium']).optional(),
+  /** Translate mode's English, for an item with an enhanced version: which version it shows. */
+  englishVersion: z.enum(['base', 'enhanced', 'compare']).optional(),
+  /** Translate mode's English as its raw markup instead of rendered. */
+  englishRaw: z.boolean().optional(),
 });
 export type Remembered = z.infer<typeof rememberedSchema>;
 export const uiScaleMin = 85;
@@ -433,6 +437,8 @@ export function createSettingsStore({
       'compendiumDiff',
       'compendiumSurface',
       'translatePane',
+      'englishVersion',
+      'englishRaw',
     ] as const) {
       const result = rememberedSchema.shape[key].safeParse(stored[key]);
       if (result.success && result.data) Object.assign(remembered, { [key]: result.data });
