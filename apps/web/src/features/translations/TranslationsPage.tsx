@@ -1,10 +1,13 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Lang } from '@clarity/core';
@@ -43,7 +46,30 @@ import { useLeftQueue } from '../queue/useQueue';
 const searchDelayMs = 200;
 const noRows: readonly QueueRow[] = [];
 
-function Loading() {
+export type TranslationsSource = 'current' | 'upcoming';
+
+// Scheduled changes (spec "Editor UX", Translations bullet): the Upcoming view is its own lazy
+// chunk, and the build-switch test sits on the import itself, so a switch-OFF build has neither
+// the view nor its switch (I6: nothing renders, nothing is requested or stored).
+const UpcomingTranslations = lazy(() =>
+  import.meta.env.VITE_SCHEDULED_ENABLED === '1'
+    ? import('./upcomingView')
+    : Promise.reject(new Error('Scheduled changes are off')),
+);
+/** Roles that may read batches (trials get no batch access, Q3; signed-out visitors none). */
+const batchRoles = new Set(['maintainer', 'editor', 'translator']);
+/**
+ * The tab's Current / Upcoming choice: this page's memory only (per browser tab, never stored or
+ * synced, and separate from the editor's preview switch), so a reload starts on Current.
+ */
+let rememberedSource: TranslationsSource = 'current';
+
+/** Tests: forget the remembered choice. */
+export function resetTranslationsSource() {
+  rememberedSource = 'current';
+}
+
+export function Loading() {
   return (
     <div className={styles.page}>
       <SkeletonStatus>Loading translation queue</SkeletonStatus>
@@ -52,6 +78,114 @@ function Loading() {
       </SkeletonRegion>
     </div>
   );
+}
+
+/**
+ * The tab's layout, shared by the Current queue and the Upcoming view: the heading bar, the
+ * summary line, and the body (an optional coverage rail beside the listing).
+ */
+export function TranslationsFrame({
+  rail,
+  bar,
+  summary,
+  coverage,
+  listing,
+  onClickCapture,
+  onKeyDown,
+  upcoming = false,
+}: {
+  rail: boolean;
+  /** The Upcoming view: its rows carry longer state names. */
+  upcoming?: boolean;
+  bar: ReactNode;
+  summary: ReactNode;
+  coverage: ReactNode;
+  listing: ReactNode;
+  onClickCapture?(): void;
+  onKeyDown?(event: KeyboardEvent): void;
+}) {
+  return (
+    <section
+      className={styles.page}
+      data-rail={rail ? '' : undefined}
+      aria-label="Translation queue"
+      onClickCapture={onClickCapture}
+      onKeyDown={onKeyDown}
+    >
+      <div className={styles.controls}>
+        <div className={styles.bar}>
+          <h1>Translations</h1>
+          {bar}
+        </div>
+        {summary && <div className={styles.summary}>{summary}</div>}
+      </div>
+      <div className={styles.body}>
+        {coverage}
+        <div className={styles.listing} data-upcoming={upcoming ? '' : undefined}>
+          {listing}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Current | Upcoming, beside the heading (its own full-width line on phones). */
+function SourceSwitch({
+  source,
+  onSource,
+}: {
+  source: TranslationsSource;
+  onSource(source: TranslationsSource): void;
+}) {
+  return (
+    <div className={styles.sourceSwitch} role="group" aria-label="Translations to show">
+      {(['current', 'upcoming'] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          data-perf-navigation="true"
+          aria-pressed={source === value}
+          title={
+            value === 'current'
+              ? 'Translations of the saved English'
+              : 'Translations of English that open scheduled batches change'
+          }
+          onClick={() => onSource(value)}
+        >
+          {value === 'current' ? 'Current' : 'Upcoming'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** What the Upcoming view gets from the page: the URL state, the shared controls, and actions. */
+export interface UpcomingPageProps {
+  language: Lang | undefined;
+  available: readonly Lang[];
+  translator: boolean;
+  /** The requested language is not one of the reader's (it shows the first available instead). */
+  unavailable: string | null;
+  category: string | null;
+  query: string;
+  text: string;
+  setText(text: string): void;
+  deferredText: string;
+  stateParam: string | null;
+  /** The row whose read-only batch view is open (`?open=<batchId>:<hash>`), if any. */
+  opened: string | null;
+  phone: boolean;
+  update(changes: Record<string, string | null>, push?: boolean): void;
+  onPick(language: Lang): void;
+  coverageOpen: boolean;
+  setCoverageOpen(open: boolean): void;
+  /** The language picker (or the fixed language), as the Current queue shows it. */
+  languageControl: ReactNode;
+  sourceSwitch: ReactNode;
+  /** The filter field, with the view's own Enter handler. */
+  filterField(onKeyDown: (event: KeyboardEvent) => void): ReactNode;
+  onClickCapture(): void;
+  onKeyDown(event: KeyboardEvent): void;
 }
 
 function Coverage({
@@ -133,6 +267,17 @@ export function TranslationsPage() {
   // The queue a row opens: its id rides in the row link's state, and the queue itself starts in
   // the click, with the rows shown at that moment (frozen from then on).
   const [pendingId] = useState(newQueueId);
+  // Upcoming (scheduled changes) only in a switch-ON build, for roles that may read batches.
+  const batchesAllowed =
+    import.meta.env.VITE_SCHEDULED_ENABLED === '1' &&
+    user?.role != null &&
+    batchRoles.has(user.role);
+  // A link to an opened Upcoming row (reload, Back from elsewhere) shows the Upcoming view.
+  const [chosenSource, setChosenSource] = useState<TranslationsSource>(() => {
+    if (params.get('open')) rememberedSource = 'upcoming';
+    return rememberedSource;
+  });
+  const source: TranslationsSource = batchesAllowed ? chosenSource : 'current';
 
   // The URL is the source of truth; typing is debounced into it so every key is not a navigation.
   useEffect(() => setText(query), [query]);
@@ -245,59 +390,105 @@ export function TranslationsPage() {
     setCoverageOpen(false);
     update({ lang: lang === available[0] ? null : lang, cat: null }, true);
   };
+  const chooseSource = (next: TranslationsSource) => {
+    if (next === source) return;
+    rememberedSource = next;
+    setChosenSource(next);
+    setCoverageOpen(false);
+    // Each view has its own state filter; the language, category, and text carry over.
+    if (params.get('state') || params.get('open')) update({ state: null, open: null });
+  };
 
   // Phones: language, category, and the count on the first line; the filter, the state pair, and
   // Coverage on the second. On a 390 px phone the count moves to the end (see .controls).
-  const filterField = (
+  const renderFilter = (onKeyDown: (event: KeyboardEvent) => void) => (
     <input
       type="search"
       aria-label="Filter by name, hash, or category"
       placeholder={phone ? 'Filter' : 'Filter name, hash, or category'}
       value={text}
       onChange={(event) => setText(event.target.value)}
-      onKeyDown={openFirst}
+      onKeyDown={onKeyDown}
     />
   );
+  const filterField = renderFilter(openFirst);
+  const languageControl = (
+    <>
+      {language && available.length > 1 && (
+        <label className={styles.languagePicker}>
+          <span className="sr-only">Language</span>
+          <select
+            data-perf-navigation="true"
+            value={language}
+            onChange={(event) => pick(event.target.value as Lang)}
+          >
+            {available.map((lang) => (
+              <option key={lang} value={lang}>
+                {languageLabel(lang)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {language && available.length === 1 && (
+        <span className={styles.fixedLanguage}>{languageLabel(language)}</span>
+      )}
+    </>
+  );
+  const sourceSwitch = batchesAllowed ? (
+    <SourceSwitch source={source} onSource={chooseSource} />
+  ) : null;
+  const onClickCapture = () => {
+    // Opening a row inside the typing debounce must not lose the filter on Back.
+    if (text !== query) commitText();
+  };
+  const onFrameKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && coverageOpen) setCoverageOpen(false);
+  };
+
+  if (import.meta.env.VITE_SCHEDULED_ENABLED === '1' && source === 'upcoming')
+    return (
+      <Suspense fallback={<Loading />}>
+        <UpcomingTranslations
+          language={language}
+          available={available}
+          translator={translator}
+          unavailable={unavailable ? requested : null}
+          category={category}
+          query={query}
+          text={text}
+          setText={setText}
+          deferredText={deferredText}
+          stateParam={params.get('state')}
+          opened={params.get('open')}
+          phone={phone}
+          update={update}
+          onPick={pick}
+          coverageOpen={coverageOpen}
+          setCoverageOpen={setCoverageOpen}
+          languageControl={languageControl}
+          sourceSwitch={sourceSwitch}
+          filterField={renderFilter}
+          onClickCapture={onClickCapture}
+          onKeyDown={onFrameKeyDown}
+        />
+      </Suspense>
+    );
+
   const countLine = (
     <span className={styles.count} role="status">
       {filtered ? `${shown.length} of ${rows.length}` : `${rows.length} to translate`}
     </span>
   );
   return (
-    <section
-      className={styles.page}
-      data-rail={coverage ? '' : undefined}
-      aria-label="Translation queue"
-      onClickCapture={() => {
-        // Opening a row inside the typing debounce must not lose the filter on Back.
-        if (text !== query) commitText();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape' && coverageOpen) setCoverageOpen(false);
-      }}
-    >
-      <div className={styles.controls}>
-        <div className={styles.bar}>
-          <h1>Translations</h1>
-          {language && available.length > 1 && (
-            <label className={styles.languagePicker}>
-              <span className="sr-only">Language</span>
-              <select
-                data-perf-navigation="true"
-                value={language}
-                onChange={(event) => pick(event.target.value as Lang)}
-              >
-                {available.map((lang) => (
-                  <option key={lang} value={lang}>
-                    {languageLabel(lang)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {language && available.length === 1 && (
-            <span className={styles.fixedLanguage}>{languageLabel(language)}</span>
-          )}
+    <TranslationsFrame
+      rail={coverage}
+      onClickCapture={onClickCapture}
+      onKeyDown={onFrameKeyDown}
+      bar={
+        <>
+          {sourceSwitch}
+          {languageControl}
           {language && (
             <>
               <label className={styles.categories}>
@@ -321,9 +512,11 @@ export function TranslationsPage() {
               {phone && countLine}
             </>
           )}
-        </div>
-        {language && (
-          <div className={styles.summary}>
+        </>
+      }
+      summary={
+        language && (
+          <>
             {phone && filterField}
             <div role="group" aria-label="Show">
               {(['outdated', 'missing'] as const).map((value) => (
@@ -350,11 +543,12 @@ export function TranslationsPage() {
               </button>
             )}
             {!phone && countLine}
-          </div>
-        )}
-      </div>
-      <div className={styles.body}>
-        {coverage && language && (
+          </>
+        )
+      }
+      coverage={
+        coverage &&
+        language && (
           <Coverage
             index={index}
             languages={available}
@@ -363,8 +557,10 @@ export function TranslationsPage() {
             open={coverageOpen}
             onPick={pick}
           />
-        )}
-        <div className={styles.listing}>
+        )
+      }
+      listing={
+        <>
           {unavailable && (
             <p className={styles.empty} role="status">
               {languageLabel(requested)} is not one of your assigned languages. Showing{' '}
@@ -411,8 +607,8 @@ export function TranslationsPage() {
               )}
             </p>
           )}
-        </div>
-      </div>
-    </section>
+        </>
+      }
+    />
   );
 }

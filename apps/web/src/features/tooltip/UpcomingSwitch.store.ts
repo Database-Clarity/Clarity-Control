@@ -1,4 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
+import type { BatchMember } from '@clarity/core/schedule';
 import type { Drafts } from '../../services/draftStorage';
 
 /** An open batch (draft, scheduled, or publishing) as schedule/index.json lists it. */
@@ -17,6 +18,8 @@ export interface UpcomingState {
   overlay: Drafts;
   /** Per member: non-translation fields current changed since the batch's base (stale, R14). */
   stale: Readonly<Record<number, readonly string[]>>;
+  /** The member files themselves (base and proposed), for the Translations Upcoming rows. */
+  members: Readonly<Record<number, BatchMember>>;
 }
 
 export type BatchLoad =
@@ -29,6 +32,8 @@ export type PreviewSource = 'current' | 'upcoming';
 export interface UpcomingStore {
   /** The editor-data head of the latest listing (null before the first one). */
   head: string | null;
+  /** The latest listing failed (offline, signed out, server switch off); cleared by the next success. */
+  listFailed: boolean;
   /** Hash -> its open batch (Q2: at most one). Only members appear. */
   memberOf: Readonly<Record<number, OpenBatch>>;
   /** Members and their future state, per batch id. */
@@ -47,6 +52,7 @@ let store: UseBoundStore<StoreApi<UpcomingStore>> | undefined;
 export function upcomingStore() {
   store ??= create<UpcomingStore>((set) => ({
     head: null,
+    listFailed: false,
     memberOf: {},
     loads: {},
     source: 'current',
