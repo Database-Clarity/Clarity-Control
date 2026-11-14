@@ -16,6 +16,7 @@ import {
   type Aliases,
 } from '../../packages/core/src/index.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
+import { maxBuffer } from './childProcess.mjs';
 const [repo, commit, receiptPath, configPath, adapterPath, outArg] = process.argv.slice(2);
 if (!outArg)
   throw new Error(
@@ -24,7 +25,7 @@ if (!outArg)
 const git = (...args: string[]) =>
   execFileSync('git', ['-C', resolve(repo), ...args], {
     encoding: 'utf8',
-    maxBuffer: 100 * 1024 * 1024,
+    maxBuffer,
   });
 const read = (ref: string, path: string) => JSON.parse(git('show', `${ref}:${path}`));
 const receipt = read(commit, receiptPath);
