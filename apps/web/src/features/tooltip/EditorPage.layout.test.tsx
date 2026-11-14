@@ -157,32 +157,30 @@ it('moves in and out from the mounted editor without changing its text or edit a
     .mockResolvedValueOnce({ moves: {}, revision: 'b'.repeat(40) });
   await render();
   const editor = editors()[0];
-  const confirm = async (trigger: string, action: string) => {
+  const confirm = async (trigger: string) => {
     await act(async () => button(trigger)!.click());
-    await act(async () => {
-      const input = document.querySelector<HTMLInputElement>('[role=dialog] input')!;
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
-        input,
-        'Base perk',
-      );
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    const dialog = document.querySelector('[role=dialog]')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.tagName).toBe('DIV');
+    expect(dialog.querySelector('input')).toBeNull();
     await act(async () =>
-      [...document.querySelectorAll<HTMLButtonElement>('[role=dialog] button')]
-        .find((entry) => entry.textContent === action)!
+      [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+        .find((entry) => entry.textContent === 'Move')!
         .click(),
     );
   };
-  await confirm('Move to Inactive', 'Stop exporting');
+  await confirm('Move to Inactive');
   expect(useDataStore.getState().data!.bundle.inactiveMoves).toEqual(moves);
   expect(host.textContent).toContain('Inactive — excluded from outputs');
   expect(editors()[0]).toBe(editor);
   expect(editor.hasAttribute('data-readonly')).toBe(false);
   expect(editor.textContent).toBe(BASE);
-  await confirm('Move out of Inactive', 'Resume exporting');
+  await confirm('Move out of Inactive');
   expect(useDataStore.getState().data!.bundle.inactiveMoves).toEqual({});
   expect(host.textContent).not.toContain('Inactive — excluded from outputs');
   expect(editors()[0]).toBe(editor);
+  expect(editor.hasAttribute('data-readonly')).toBe(false);
+  expect(editor.textContent).toBe(BASE);
 });
 
 let navigateRoute: ReturnType<typeof useNavigate>;
