@@ -3,6 +3,7 @@ import { createHash, createPublicKey } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { maxBuffer } from './childProcess.mjs';
 import { LocalRepository } from './git.js';
 import { RemoteRepository } from './remote.js';
 import publisherConfig from '../../config/publisher.json';
@@ -18,6 +19,7 @@ const gitAt = (cwd: string, args: string[]) =>
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe'],
     timeout: 120_000,
+    maxBuffer,
   });
 
 export function simulationArtifact(repo: LocalRepository, out: string, bases: string[]) {
@@ -106,7 +108,9 @@ export async function runPipeline(
     reports.push({
       sourceCommit: pub.head(options.dataBranch),
       bundleCommit: next,
+      // Due work only: a scheduled batch before its notBefore is listed, never pending.
       pending: queue.length,
+      scheduled: pub.scheduledQueue(pub.head(options.dataBranch)).length,
       recovery: queue.length
         ? 'Pending work: authorized client kick after 3 minutes or maintainer Retry; any save restarts catch-up.'
         : null,

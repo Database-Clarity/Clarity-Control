@@ -106,6 +106,8 @@ export class Fixture {
   /** Public GitHub accounts served by GET /users/:login. */
   accounts: Record<string, { id: number; login: string; type: string }> = {};
   accountLookups = 0;
+  /** Kick files created through the Contents API (by request path). */
+  kicks = new Set<string>();
 
   constructor(privateKey: string) {
     this.env = {
@@ -255,6 +257,14 @@ export class Fixture {
                       }),
                 },
               };
+      }
+      for (const [name, path] of Object.entries(input.variables)) {
+        if (!/^t[0-9]+$/.test(name)) continue;
+        // Depth = nested `entries{` in this listing's selection (publishSnapshot `trees`).
+        const start = input.query.indexOf(`${name}:file(path:$${name})`);
+        const end = input.query.indexOf(' t', start + 1);
+        const selection = input.query.slice(start, end < 0 ? undefined : end);
+        target[name] = listTree(files, path, (selection.match(/entries\{/g) ?? []).length);
       }
       return this.response({ data: { repository: { ref: { target } } } });
     }
@@ -421,6 +431,9 @@ export class Fixture {
       return this.response({ object: { sha: this.dataHead } });
     }
     if (path.startsWith('/contents/publish/kicks/') && method === 'PUT') {
+      // A create without a sha of an existing name is refused, as GitHub does.
+      if (this.kicks.has(path)) return this.response({ message: 'sha missing' }, 422);
+      this.kicks.add(path);
       this.writes.push(objectSchema.parse(raw));
       return this.response({ commit: { sha: sha(this.sequence++) } }, 201);
     }
@@ -445,6 +458,29 @@ export class Fixture {
     if (path === '/commits') return this.response(this.history);
     throw new Error(`Unexpected mock request: ${method} ${url.href}`);
   }
+}
+
+/** Names-only GraphQL listing of `dir` in a flat file map, `depth` levels deep (null: missing). */
+function listTree(files: Record<string, unknown>, dir: string, depth: number): unknown {
+  const prefix = `${dir}/`;
+  const paths = Object.keys(files).filter((path) => path.startsWith(prefix));
+  if (!paths.length) return null;
+  const level = (base: string, left: number): unknown => {
+    const children = new Map<string, boolean>();
+    for (const path of paths) {
+      if (!path.startsWith(base)) continue;
+      const rest = path.slice(base.length);
+      const slash = rest.indexOf('/');
+      const name = slash < 0 ? rest : rest.slice(0, slash);
+      children.set(name, children.get(name) || slash >= 0);
+    }
+    return {
+      entries: [...children].map(([name, isDir]) =>
+        left <= 1 ? { name } : { name, object: isDir ? level(`${base}${name}/`, left - 1) : {} },
+      ),
+    };
+  };
+  return { object: level(prefix, depth) };
 }
 
 function expectGoogleUrl(url: URL) {
