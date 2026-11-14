@@ -18,6 +18,8 @@ export const namesFileSchema = z.object({
   names: z.record(hashKey, z.string()),
   itemNames: z.record(hashKey, z.string()),
   setNames: z.record(hashKey, z.string()),
+  descriptions: z.record(hashKey, z.string()).optional(),
+  sandboxPerks: z.record(hashKey, z.tuple([z.string(), z.string()])).optional(),
 });
 export type NamesFile = z.infer<typeof namesFileSchema>;
 

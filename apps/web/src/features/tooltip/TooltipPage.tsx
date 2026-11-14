@@ -595,7 +595,7 @@ function TooltipWorkspace({
       {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
-      <ManifestTextRow hash={activeHash} />
+      <ManifestTextRow hash={activeHash} lang={lang} />
       {!readOnly && <AssociationsPanel hash={activeHash} suspended={suspended} />}
       <HistoryPanel
         language={lang}

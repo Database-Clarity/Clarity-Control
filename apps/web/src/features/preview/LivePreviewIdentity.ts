@@ -6,6 +6,7 @@ import { previewPieceIcon } from '../navigation/groupIcons';
 
 /** Route identity paints independently of the deferred editor and preview document. */
 export interface PreviewIdentity {
+  hash?: number;
   name: string;
   piece?: string;
   /** The piece's icon beside the piece row ('' = a piece missing from the icon file). */
@@ -27,6 +28,7 @@ export function previewIdentityFor(
   const archived =
     readOnly || Boolean(data && hash > 3 && !data.items[hash] && !tooltipFor(hash, data).custom);
   return {
+    hash,
     name: item?.name ?? `Tooltip ${hash}`,
     piece: item ? previewPiece(item) : undefined,
     pieceIcon: item ? previewPieceIcon(item) : undefined,

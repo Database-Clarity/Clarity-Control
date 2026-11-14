@@ -7,6 +7,70 @@ import { LivePreviewIdentity } from './LivePreviewIdentity';
 import { TooltipPreview } from './TooltipPreview';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { publishSteppingTarget, settleStepping } from '../navigation/steppingActivity';
+import { resetNamesForTests, useNamesStore } from '../terms/names';
+
+it('shows the live identity in the preview language, with English available to reveal', async () => {
+  const host = document.createElement('div');
+  const originalData = useDataStore.getState();
+  const root = createRoot(host);
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const file = {
+    v: 1 as const,
+    lang: 'de',
+    manifestVersion: 'm1',
+    names: { 20: 'Neuer Gegenstand', 21: 'Nächster Gegenstand' },
+    itemNames: {},
+    setNames: {},
+  };
+  const markup = (lang: 'en' | 'de') =>
+    createElement(
+      LivePreviewIdentity.Provider,
+      { value: { hash: 20, name: 'Newest item' } },
+      createElement(TooltipPreview, {
+        name: 'Previous item',
+        text: 'Body',
+        lang,
+        globals: { variables: '', titles: '' },
+        fill: true,
+      }),
+    );
+  try {
+    await act(async () => root.render(markup('de')));
+    act(() => useNamesStore.setState({ byLang: { de: { status: 'ready', file } } }));
+    expect(host.innerHTML).toContain('Neuer Gegenstand');
+    expect(host.innerHTML).toContain('title="Newest item"');
+    expect(host.innerHTML).not.toContain('Previous item</');
+    act(() =>
+      useDataStore.setState({
+        data: {
+          categories: [],
+          aliases: {},
+          items: {
+            21: {
+              hash: 21,
+              name: 'Next item',
+              icon: '',
+              categoryId: 'test',
+              inGameDescription: '',
+            },
+          },
+          bundle: { tooltips: {} },
+        } as unknown as EditorData,
+      }),
+    );
+    act(() => publishSteppingTarget('/t/21?lang=de', () => {}));
+    expect(host.querySelector('header')?.textContent).toContain('Nächster Gegenstand');
+    expect(host.textContent).toContain('Body');
+    act(settleStepping);
+    act(() => root.render(markup('en')));
+    expect(host.innerHTML).not.toContain('Neuer Gegenstand');
+    expect(host.innerHTML).not.toContain('show English original');
+  } finally {
+    await act(async () => root.unmount());
+    resetNamesForTests();
+    useDataStore.setState(originalData);
+  }
+});
 
 it('paints the newest workspace header while keeping the previous description visible', () => {
   const props = {

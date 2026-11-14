@@ -18,9 +18,17 @@ import {
 } from '@clarity/core';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { canonicalHash, classifiedCategory, itemFor, tooltipFor } from '../navigation/catalog';
+import {
+  canonicalHash,
+  classifiedCategory,
+  itemFor,
+  previewPiece,
+  tooltipFor,
+} from '../navigation/catalog';
 import styles from './TooltipPreview.module.scss';
 import { Lines, linkUrl } from './MarkupRenderer';
+import { useLocalisedManifest } from '../manifest/localisedManifest';
+import { EnglishReveal } from '../manifest/EnglishReveal';
 export { classNames, Lines, PreviewSpan } from './MarkupRenderer';
 
 export interface TooltipPreviewProps {
@@ -94,6 +102,8 @@ export function TooltipPreview({
     >
       <div className={styles.top}>
         <PreviewHeader
+          hash={tooltipHash}
+          lang={lang}
           name={name}
           piece={piece}
           pieceIcon={pieceIcon}
@@ -128,7 +138,7 @@ function bungieUrl(icon: string | undefined): string | undefined {
   return icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
 }
 
-function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
+function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
   const identity = useContext(LivePreviewIdentity);
   const target = useSteppingActivity((state) => (props.live ? state.target : undefined));
   const data = useDataStore((state) => (target ? state.data : null));
@@ -143,8 +153,29 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
         : undefined,
     [target, data, identity?.archiveIcon],
   );
-  const { name, piece, pieceIcon, icon, categoryLabel, archiveIcon } =
+  const { hash, name, piece, pieceIcon, icon, categoryLabel, archiveIcon } =
     urgent || (props.live && identity) || props;
+  const localised = useLocalisedManifest(props.lang);
+  const translatedName = hash === undefined ? undefined : localised?.names[hash];
+  const item = useDataStore((state) =>
+    props.lang === 'en' || hash === undefined ? undefined : state.data?.items[hash],
+  );
+  const translatedPiece =
+    item && localised && piece
+      ? previewPiece({
+          ...item,
+          name: translatedName || name,
+          itemName: (item.itemHash && localised.itemNames[item.itemHash]) || item.itemName,
+          ownerNames:
+            item.ownerNames &&
+            Object.fromEntries(
+              Object.entries(item.ownerNames).map(([owner, english]) => [
+                owner,
+                localised.itemNames[owner] || english,
+              ]),
+            ),
+        })
+      : undefined;
   const iconUrl = bungieUrl(icon);
   const pieceUrl = bungieUrl(pieceIcon);
   return (
@@ -168,15 +199,17 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
                 {pieceUrl && linkUrl(pieceUrl) && <img src={pieceUrl} alt="" />}
               </span>
             )}
-            <span className={styles.pieceName}>{piece}</span>
+            <span className={styles.pieceName}>
+              <EnglishReveal english={piece} translated={translatedPiece} lang={props.lang} />
+            </span>
           </div>
         )}
         <div
           className={styles.name}
           title={name}
-          style={{ '--name-em': nameWidthEm(name) } as CSSProperties}
+          style={{ '--name-em': nameWidthEm(translatedName || name) } as CSSProperties}
         >
-          {name}
+          <EnglishReveal english={name} translated={translatedName} lang={props.lang} />
         </div>
         {categoryLabel && (
           <div className={styles.category} title={categoryLabel}>
