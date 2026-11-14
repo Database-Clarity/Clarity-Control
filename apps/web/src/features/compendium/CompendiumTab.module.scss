@@ -38,7 +38,7 @@
 
     &:focus-visible {
       outline: 2px solid var(--accent-ink);
-      outline-offset: 1px;
+      outline-offset: var(--focus-offset, 1px);
     }
   }
 
@@ -49,7 +49,7 @@
 
   a:focus-visible {
     outline: 2px solid var(--accent-ink);
-    outline-offset: 1px;
+    outline-offset: var(--focus-offset, 1px);
   }
 }
 
@@ -351,7 +351,7 @@ p.muted {
 
   summary:focus-visible {
     outline: 2px solid var(--accent-ink);
-    outline-offset: 2px;
+    outline-offset: var(--focus-offset, 2px);
   }
 
   small {
@@ -487,7 +487,6 @@ p.muted {
   }
 }
 
-
 // The compact bar: Confirm, Pick, Not needed, Skip, and one menu for the rest.
 @mixin compact-bar {
   .undoInline,
@@ -530,7 +529,7 @@ p.muted {
 
     &:focus-visible {
       outline: 2px solid var(--accent-ink);
-      outline-offset: 1px;
+      outline-offset: var(--focus-offset, 1px);
     }
   }
 }
