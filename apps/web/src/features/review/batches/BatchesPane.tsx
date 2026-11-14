@@ -3,7 +3,7 @@
  * batches; the main column shows the open one (`?view=batches&batch=<id>`). Loaded only with the
  * build switch ON, for maintainers, editors, and translators (ReviewPage, ReviewSidebar).
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { isOpenStatus } from '@clarity/core/schedule';
 import { useAuthStore } from '../../../stores/auth';
@@ -102,14 +102,13 @@ function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean })
         </span>
         <span className={styles.rowFacts}>
           {facts.map((fact, index) => (
-            <span
-              key={fact}
-              className={styles.segment}
-              data-stale={fact.endsWith('stale') || undefined}
-            >
-              {index ? '· ' : ''}
-              {fact}
-            </span>
+            <Fragment key={fact}>
+              {index ? ' ' : ''}
+              <span className={styles.segment} data-stale={fact.endsWith('stale') || undefined}>
+                {index ? '· ' : ''}
+                {fact}
+              </span>
+            </Fragment>
           ))}
         </span>
       </Link>

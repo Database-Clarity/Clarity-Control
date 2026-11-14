@@ -755,6 +755,9 @@ function MemberRow({
       {error !== null && <Refusal error={error} names={names} />}
       {open && (
         <div className={styles.diff}>
+          <p className={styles.diffSides}>
+            “Previous / live” is current saved; “Current” is this batch's version.
+          </p>
           <TooltipDiff before={current} current={view.upcoming} item={item} responsive />
         </div>
       )}
