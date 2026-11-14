@@ -162,6 +162,32 @@ describe('minimum visible time', () => {
     expect(shown()).toBe(false);
   });
 
+  it('restarts the minimum at the first frame after a no-frame fallback stamp', async () => {
+    await act(async () => root.render(createElement(Pending, { pending: true, content: false })));
+    // No frame renders (hidden, throttled, or frozen page): the fallback stamps at 1000 ms.
+    await act(async () => vi.advanceTimersByTime(4000));
+    expect(shown()).toBe(true);
+    await frame(); // Rendering resumes: this frame paints the skeleton.
+    await act(async () => vi.advanceTimersByTime(0));
+    await act(async () => vi.advanceTimersByTime(10));
+    await act(async () => root.render(createElement(Pending, { pending: false, content: false })));
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 11));
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(shown()).toBe(false);
+  });
+
+  it('holds a load that finishes between the resume frame and its stamp', async () => {
+    await act(async () => root.render(createElement(Pending, { pending: true, content: false })));
+    await act(async () => vi.advanceTimersByTime(4000));
+    await frame(); // Resume frame; its stamp task has not run yet.
+    await act(async () => root.render(createElement(Pending, { pending: false, content: false })));
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 1));
+    expect(shown()).toBe(true);
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(shown()).toBe(false);
+  });
+
   it('swaps in when the document turns hidden while a ready load waits for its stamp', async () => {
     await act(async () => root.render(createElement(Pending, { pending: true, content: false })));
     await frame(); // Painted; the stamp task has not run.

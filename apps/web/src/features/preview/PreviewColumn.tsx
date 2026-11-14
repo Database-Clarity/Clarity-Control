@@ -1,4 +1,4 @@
-import { SkeletonBoundary } from '../../ui/Skeleton';
+import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import {
   memo,
   startTransition,
@@ -149,6 +149,8 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   pendingDocument,
   loadingContent,
 }: PreviewColumnProps) {
+  // Held past `loadingContent` until a painted skeleton has had its minimum (ui/Skeleton rule).
+  const skeletonShown = useSkeletonVisible(Boolean(loadingContent), hash, true);
   const selected = enhanced.find((entry) => entry.hash === variant) ?? enhanced[0];
   const effective: PreviewMode = selected ? mode : 'base';
   const selectedText = selected?.text;
@@ -241,12 +243,12 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
         bar={bar}
         fill
       >
-        {loadingContent ? (
-          <SkeletonBoundary
-            pending
+        {loadingContent || skeletonShown ? (
+          <LoadingSkeleton
             label="Loading preview text…"
             count={12}
             text={baseText || undefined}
+            visible={skeletonShown}
           />
         ) : (
           comparison && (

@@ -1,4 +1,4 @@
-import { SkeletonBoundary } from '../../ui/Skeleton';
+import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { useGlobalCatalog, useGlobalHover } from '../globals/useGlobals';
 import { globalPath, type GlobalDefinition } from '../globals/model';
 import { useCompendiumStore } from '../compendium/store';
@@ -1350,7 +1350,9 @@ export function TooltipNavigation({
   data: EditorData | null;
   variant?: 'bar' | 'sheet';
 }) {
-  if (data) return <LoadedTooltipNavigation data={data} variant={variant} />;
+  // A painted position skeleton keeps its minimum after the catalogue arrives.
+  const held = useSkeletonVisible(!data, 'catalogue', true);
+  if (data && !held) return <LoadedTooltipNavigation data={data} variant={variant} />;
   return (
     <FinderFrame variant={variant}>
       <FinderPicker
@@ -1375,7 +1377,7 @@ export function TooltipNavigation({
         </div>
       </div>
       <span className={styles.position}>
-        <SkeletonBoundary pending label="Loading tooltip position…" count={1} />
+        <LoadingSkeleton label="Loading tooltip position…" count={1} visible={held} />
       </span>
     </FinderFrame>
   );

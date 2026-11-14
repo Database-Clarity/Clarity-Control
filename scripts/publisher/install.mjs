@@ -34,6 +34,20 @@ if (
 )
   throw new Error('PIN mismatch');
 const config = JSON.parse(readFileSync(resolve(configArg)));
+// The installed pipeline publishes for real exactly when config.publishWritesEnabled is true
+// (pipeline.yml picks --pipeline-publish). Refuse that config for a build whose baked switch
+// (config/publisher.json at the PIN source) is OFF: it would throw on every run instead.
+const runtime = readFileSync(join(template, '.publisher/publisher.mjs'), 'utf8');
+const baked =
+  /\/\/ config\/publisher\.json\r?\nvar publisher_default = \{\r?\n {2}enabled: (true|false)\r?\n\};/.exec(
+    runtime,
+  )?.[1];
+if (baked === undefined) throw new Error('Runtime build switch not found');
+if (typeof config.publishWritesEnabled !== 'boolean')
+  throw new Error('config.publishWritesEnabled must be true or false');
+if (config.publishWritesEnabled && baked !== 'true')
+  throw new Error('publishWritesEnabled needs a build whose config/publisher.json is enabled');
+const writes = config.publishWritesEnabled;
 if (
   config.repo !== 'Database-Clarity/Live-Clarity-Database' ||
   config.dataBranch !== 'editor-data' ||
@@ -48,7 +62,11 @@ if (
 )
   throw new Error('Complete verified public config required');
 console.log(
-  'Plan: retire bundle.yml; copy pipeline.yml and pinned .publisher; install public config. Publish transport remains dry-run. No commit/push.',
+  `Plan: retire bundle.yml; copy pipeline.yml and pinned .publisher; install public config. ${
+    writes
+      ? 'PUBLISH WRITES ENABLED: the pipeline runs --pipeline-publish and writes converter-v2-test.'
+      : 'Publish transport remains dry-run.'
+  } No commit/push.`,
 );
 if (mode === '--apply-local') {
   const dir = join(checkout, '.publisher');
