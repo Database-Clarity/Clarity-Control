@@ -1,5 +1,6 @@
 import type { Lang } from '../languages.js';
 import { variableReferences } from '../markup/braces.js';
+import { markupImports } from '../markup/prepare.js';
 import { numberBlockOpen, numberProse, numberSlots } from '../markup/numberSlots.js';
 import type { NumberMap, Tooltip } from '../schemas.js';
 
@@ -7,7 +8,7 @@ export interface NumberVariable {
   name: string;
   value: string;
   from: number;
-  conditional: boolean;
+  ambiguous: boolean;
 }
 /** Keep duplicates and block placement: extractVariables deliberately discards both. */
 export function numberVariables(text: string): NumberVariable[] {
@@ -18,16 +19,20 @@ export function numberVariables(text: string): NumberVariable[] {
   for (const [index, line] of text.replace(/\r/g, ' ').split('\n').entries()) {
     const match = /^var ([a-zA-Z0-9]+) = (.+)$/.exec(line);
     const visible = /^var ([a-zA-Z0-9]+) = (.+)$/.exec(prose[index]);
-    if (match)
+    if (match) {
+      const value = (visible ?? match)[2];
       result.push({
         name: match[1],
-        value: (visible ?? match)[2].trim(),
-        from: offset + line.length - match[2].length,
+        value: value.trim(),
+        from: offset + line.length - match[2].length + value.length - value.trimStart().length,
         // The real preparer reads declarations before stripping comments. A hidden
         // declaration is therefore ambiguous, even though it has no prose value slot.
-        conditional:
-          !visible || blocks.some((block) => /^(enhanced|catalyst|exotic perk) /.test(block)),
+        ambiguous:
+          !visible ||
+          /\/\*|\/\//.test(match[2]) ||
+          blocks.some((block) => /^(enhanced|catalyst|exotic perk) /.test(block)),
       });
+    }
     if (numberBlockOpen.test(line.trim())) blocks.push(line.trim());
     else if (/^\)\s*$/.test(line.trim())) blocks.pop();
     offset += line.length + 1;
@@ -54,11 +59,29 @@ export function formulaLocals(formula: string, text: string): Set<string> {
 export function freezeFormula(
   formula: string,
   english: string,
-  ids: readonly number[],
+  numbers: NumberMap,
   translations: Tooltip['text'],
 ): NumberMap['retired'][string] {
   const variables = numberVariables(english);
   const locals = formulaLocals(formula, english);
+  const prefixAmbiguity = (source: string) => {
+    const names = [
+      ...numberVariables(source).map((variable) => variable.name),
+      ...variableReferences(source).map((ref) => ref.name),
+    ];
+    return [...locals].some((name) =>
+      names.some((other) => other !== name && (other.startsWith(name) || name.startsWith(other))),
+    );
+  };
+  const retiredSources = Object.values(numbers.retired)
+    .flatMap((value) => (value === null ? [] : [typeof value === 'string' ? value : value.value]))
+    .join('\n');
+  // Imported overrides and legacy prefix substitution make local ownership unproven.
+  if (
+    locals.size &&
+    (markupImports(english).length || prefixAmbiguity(english + '\n' + retiredSources))
+  )
+    return null;
   const values = new Map<string, string>();
   const visiting = new Set<string>();
   let valid = true;
@@ -76,7 +99,7 @@ export function freezeFormula(
         let value = values.get(ref.name);
         if (value === undefined) {
           const definitions = variables.filter((entry) => entry.name === ref.name);
-          if (definitions.length !== 1 || definitions[0].conditional) {
+          if (definitions.length !== 1 || definitions[0].ambiguous) {
             valid = false;
             return '';
           }
@@ -104,17 +127,20 @@ export function freezeFormula(
   for (const [lang, entry] of Object.entries(translations)) {
     if (lang === 'en') continue;
     const definitions = numberVariables(entry.text);
-    const agrees = [...locals].every((name) => {
-      const own = definitions.filter((variable) => variable.name === name);
-      if (own.length !== 1 || own[0].conditional) return false;
-      const original = variables.find((variable) => variable.name === name)!;
-      const slot = slots.findIndex(
-        (slot) => slot.from === original.from && slot.value === original.value,
-      );
-      return (
-        own[0].value === values.get(name) || (slot >= 0 && own[0].value === `#{=${ids[slot]}}`)
-      );
-    });
+    const agrees =
+      !(locals.size && (markupImports(entry.text).length || prefixAmbiguity(entry.text))) &&
+      [...locals].every((name) => {
+        const own = definitions.filter((variable) => variable.name === name);
+        if (own.length !== 1 || own[0].ambiguous) return false;
+        const original = variables.find((variable) => variable.name === name)!;
+        const slot = slots.findIndex(
+          (slot) => slot.from === original.from && slot.value === original.value,
+        );
+        return (
+          own[0].value === values.get(name) ||
+          (slot >= 0 && own[0].value === `#{=${numbers.ids[slot]}}`)
+        );
+      });
     if (!agrees) fallback.push(lang as Lang);
   }
   return fallback.length ? { value: frozen, fallback: fallback.sort() } : frozen;

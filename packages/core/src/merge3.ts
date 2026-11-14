@@ -71,13 +71,12 @@ export function merge3(base: Tooltip, head: Tooltip, next: Tooltip): MergeResult
         original &&
         oldEnglish &&
         english &&
-        oldEnglish.text !== english.text &&
+        original.sourceUpdatedAt === oldEnglish.updatedAt &&
         original.text === entry.text &&
         original.updatedBy === entry.updatedBy &&
-        entry.updatedAt === english.updatedAt &&
-        entry.sourceUpdatedAt === english.updatedAt &&
-        !equal(original, entry) &&
-        canCarryNumbers(oldEnglish, english, original),
+        entry.updatedAt === entry.sourceUpdatedAt &&
+        Date.parse(entry.sourceUpdatedAt ?? '') > Date.parse(oldEnglish.updatedAt) &&
+        Date.parse(entry.updatedAt) <= Date.parse(english.updatedAt),
       );
     const edited =
       language !== 'en' && original && theirs && mine

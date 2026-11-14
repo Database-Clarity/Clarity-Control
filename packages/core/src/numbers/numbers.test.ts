@@ -357,6 +357,67 @@ describe('proven carry and carry-aware merge', () => {
 });
 
 describe('retired formula freezing', () => {
+  it.each(['/* note */ 10', '10 // note'])(
+    'fails closed on commented numeric declaration %s',
+    (value) => {
+      const old = tooltip('Damage ${5+#d}.\nvar d = ' + value, 'Schaden #{=1}.\nvar d = ' + value);
+      const next = update(old, 'Nothing.');
+      expect(next.text.en!.numbers?.retired[1]).toBeNull();
+      expect(usesEnglishFallback(next, 'de')).toBe(true);
+    },
+  );
+  it('fails closed on legacy variable-prefix substitution', () => {
+    const old = tooltip(
+      'Damage ${5+#d+#d5}.\nvar d = 1\nvar d5 = 2',
+      'Schaden #{=1}.\nvar d = #{=2}\nvar d5 = #{=3}',
+    );
+    const next = update(old, 'Nothing.');
+    expect(next.text.en!.numbers?.retired[1]).toBeNull();
+    expect(usesEnglishFallback(next, 'de')).toBe(true);
+  });
+  it('checks prefix ambiguity in the translation, including references outside the formula', () => {
+    const old = tooltip(
+      'Damage ${5+#d}.\nvar d = 1',
+      'Schaden #{=1}, extra #d5.\nvar d = #{=2}\nvar d5 = 2',
+    );
+    const next = update(old, 'Nothing.');
+    expect(next.text.en!.numbers?.retired[1]).toEqual({ value: '${5+1}', fallback: ['de'] });
+    expect(usesEnglishFallback(next, 'de')).toBe(true);
+  });
+  it('falls back when imports may override a local declaration, through the real resolver', () => {
+    const imported = 'export stats (\nvar d = 20\n)';
+    const old = tooltip(
+      'import stats from 100\nDamage ${5+#d}.\nvar d = 10',
+      'var d = #{=2}\nimport stats from 100\nSchaden #{=1}.',
+    );
+    expect(
+      prepareMarkup(
+        resolveNumberTokens(old.text.de!.text, numberValues(old.text.en!)),
+        { variables: '', titles: '', imports: { 100: imported } },
+        [],
+      ).text,
+    ).toBe('Schaden 25.');
+    const next = update(old, 'Nothing.');
+    expect(usesEnglishFallback(next, 'de')).toBe(true);
+    const translationOnly = tooltip('Damage ${5+#d}.\nvar d = 10', old.text.de!.text);
+    expect(update(translationOnly, 'Nothing.').text.en!.numbers?.retired[1]).toEqual({
+      value: '${5+10}',
+      fallback: ['de'],
+    });
+  });
+  it('matches the numeric slot after extra declaration whitespace', () => {
+    const old = tooltip('Damage ${5+#d}.\nvar d =  \t10', 'Schaden #{=1}.\nvar d = #{=2}');
+    const next = update(old, 'Nothing.');
+    expect(next.text.en!.numbers?.retired[1]).toBe('${5+10}');
+    expect(usesEnglishFallback(next, 'de')).toBe(false);
+    expect(
+      prepareMarkup(
+        resolveNumberTokens(next.text.de!.text, numberValues(next.text.en!)),
+        { variables: '', titles: '' },
+        [],
+      ).text,
+    ).toBe('Schaden 15.');
+  });
   it('fails closed when a commented declaration also participates in the real resolver', () => {
     const old = tooltip(
       'Damage ${5+#d}.\nvar d = 10\n/*\nvar d = 20\n*/',
@@ -488,6 +549,28 @@ it('P8 and P10: seeded coverage subsets and retirement histories', () => {
     }
   }
 });
+
+it.each(['Damage 7.', 'Damage 5.', 'New damage 7.'])(
+  'merges an intermediate carry followed by %s without a false content conflict',
+  (english) => {
+    const base = tooltip('Damage 5.', 'Schaden #{=1}.');
+    const first = carryNumberTranslations(base, update(base, 'Damage 6.')).tooltip;
+    const laterDate = '2026-11-03T00:00:00.000Z';
+    const second = update(first, english);
+    second.text.en!.updatedAt = laterDate;
+    const head = carryNumberTranslations(first, second).tooltip;
+    const translator = structuredClone(base);
+    translator.text.de!.text = 'Neuer Schaden #{=1}.';
+    translator.text.de!.updatedAt = laterDate;
+    for (const result of [merge3(base, head, translator), merge3(base, translator, head)]) {
+      if (!result.ok) throw new Error(JSON.stringify(result.conflicts));
+      expect(result.merged.text.de).toEqual({
+        ...translator.text.de,
+        sourceUpdatedAt: english === 'New damage 7.' ? oldDate : laterDate,
+      });
+    }
+  },
+);
 
 it('P3 and P9: every word-step carry has equal, uniquely anchored windows', () => {
   const context = (source: string) => {

@@ -102,7 +102,7 @@ export function reconcileNumberMap(
         ),
       );
       next.retired[id] =
-        slot.kind === 'M' ? freezeFormula(slot.value, old.text, map.ids, referencing) : slot.value;
+        slot.kind === 'M' ? freezeFormula(slot.value, old.text, map, referencing) : slot.value;
     }
   }
   for (const id of Object.keys(next.retired))
