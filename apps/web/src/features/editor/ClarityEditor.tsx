@@ -430,6 +430,13 @@ export function ClarityEditor({
   const parityText = lang === 'en' ? undefined : sourceText;
   const termsOn = termsEnabled && lang !== 'en';
   const tooltipTerms = useTooltipTerms(lang, termsOn && !suspended && !stepping, parityText);
+  // One object per change: the status bar is memoised, and a fresh object on every render would
+  // re-render it on every key.
+  const termsCount = tooltipTerms.terms.length;
+  const termsStatus = useMemo(
+    () => (termsOn ? { count: termsCount, loading: tooltipTerms.loading } : undefined),
+    [termsOn, termsCount, tooltipTerms.loading],
+  );
   const termsLive = useRef(termsOn);
   termsLive.current = termsOn;
   /** Ctrl+K, G: the same as the bar's Terms item. */
@@ -1125,9 +1132,7 @@ export function ClarityEditor({
         glyphCount={glyphCount}
         retiredCount={retiredCount}
         parityCount={parityCount}
-        terms={
-          termsOn ? { count: tooltipTerms.terms.length, loading: tooltipTerms.loading } : undefined
-        }
+        terms={termsStatus}
         cursor={cursor}
         preview={preview}
         conflicts={
