@@ -81,8 +81,8 @@ it('hides a textless re-add until there is real saved content to export', async 
     false,
   );
   expect(await pendingTooltips(restored)).toEqual([]);
-  restored.bundle.tooltips[123] = tooltip;
-  const entries = await pendingTooltips(restored);
+  const edited = data(restored.bundle.inactiveMoves!, restored.bundle.pushed, true);
+  const entries = await pendingTooltips(edited);
   expect(entries[0].inactiveChange).toBe('restore');
   expect(selectedPending(new Set([123]), entries)).toEqual([123]);
 });

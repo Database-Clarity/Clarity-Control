@@ -25230,6 +25230,12 @@ async function inactiveRemovalHash(hash2) {
   const digest2 = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest2), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+var unreviewedInactiveMessage = "Publish inactive move decisions in Review changes before scheduling or publishing this batch";
+async function hasUnpublishedInactiveMove(hash2, snapshot, pushed, aliases, moves) {
+  if (!Object.keys(selectedInactiveMoves(moves, [hash2], aliases)).length) return false;
+  if (isMovedInactive(hash2, moves) || !snapshot || !pushed) return true;
+  return await inactivePublishableHash(snapshot, aliases, moves) !== pushed;
+}
 var activeAliasSnapshots = /* @__PURE__ */ new WeakMap();
 function activeAliases(aliases, moves) {
   const cached2 = activeAliasSnapshots.get(aliases)?.get(moves);
@@ -25295,7 +25301,7 @@ function exportWithInactiveMoves(tooltips, now, catalog, aliases = {}, moves = {
     if (isMovedInactive(Number(hash2), moves)) delete entries[hash2];
   return entries;
 }
-function applyInactiveLive(perks, moves, hashes, aliases) {
+function applyInactiveLive(perks, moves, hashes, aliases, previous = perks) {
   if (!Object.keys(moves).length) return perks;
   const selected = selectedInactiveMoves(moves, hashes, aliases);
   const result = { ...perks };
@@ -25305,6 +25311,8 @@ function applyInactiveLive(perks, moves, hashes, aliases) {
     delete result[hash2];
     removed.add(hash2);
   };
+  for (const key of Object.keys(moves))
+    if (!Object.hasOwn(selected, key) && !Object.hasOwn(previous, key)) erase(Number(key));
   for (const key of Object.keys(selected)) {
     const hash2 = Number(key);
     if (!isMovedInactive(hash2, selected)) continue;
@@ -26985,9 +26993,13 @@ var Publisher = class {
     );
   }
   movesAt(tree) {
-    const parsed = inactiveMovesSchema.safeParse(this.read(tree, inactiveMovesPath) ?? {});
-    if (!parsed.success) throw new ConsumerOutputRejected(`Invalid ${inactiveMovesPath}`);
-    return parsed.data;
+    try {
+      return inactiveMovesSchema.parse(
+        tree[inactiveMovesPath] ? this.read(tree, inactiveMovesPath) : {}
+      );
+    } catch {
+      throw new ConsumerOutputRejected(`Invalid ${inactiveMovesPath}`);
+    }
   }
   /**
    * The live-merge recompute for a publish from this snapshot (core mergeLivePerks): every key the
@@ -27147,7 +27159,8 @@ var Publisher = class {
         mergeLivePerks(live.perks, entries, picks),
         this.movesAt(sourceTree),
         r.entries.map((e) => e.hash),
-        this.aliasesAt(sourceTree)
+        this.aliasesAt(sourceTree),
+        live.perks
       );
     } catch (error62) {
       throw new ConsumerOutputRejected(String(error62));
@@ -27599,6 +27612,7 @@ var Publisher = class {
     }
     const outcomes = [];
     const tooltips = [];
+    const moves = this.movesAt(tree);
     for (const m of members2) {
       const stored = (path) => {
         const value2 = this.read(tree, path);
@@ -27616,6 +27630,10 @@ var Publisher = class {
       }
       if (resolveAlias(m.hash, aliases) !== m.hash) {
         outcomes.push({ hash: m.hash, status: "alias" });
+        continue;
+      }
+      if (await hasUnpublishedInactiveMove(m.hash, snapshot, pushed[m.hash], aliases, moves)) {
+        outcomes.push({ hash: m.hash, status: "stale", reason: unreviewedInactiveMessage });
         continue;
       }
       const activation = activate({ base: m.base, current, proposed: m.proposed });
@@ -27950,13 +27968,18 @@ var Publisher = class {
     const sandboxPointers = sandboxPointersSchema.safeParse(
       this.read(t, sandboxPointersPath)
     ).data;
+    let inactiveMoves;
+    try {
+      if (t[inactiveMovesPath]) inactiveMoves = this.movesAt(t);
+    } catch {
+    }
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, "config/permissions.json")),
       pushed: pushedSchema.parse(this.read(t, "live/pushed.json")),
-      ...inactiveMovesSchema.safeParse(this.read(t, inactiveMovesPath)).success ? { inactiveMoves: this.read(t, inactiveMovesPath) } : {},
+      ...inactiveMoves ? { inactiveMoves } : {},
       ...sandboxPointers && Object.keys(sandboxPointers.pointers).length ? { sandboxPointers } : {},
       publishQueue,
       ...scheduledQueue.length ? { scheduledQueue } : {}

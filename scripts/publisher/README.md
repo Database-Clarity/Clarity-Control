@@ -83,8 +83,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `e82e14531dcbdb78f1c8c4081e4ed8b35e2901d8` (v2).
-Runtime SHA-256: `d65d59078f08b6a4991a26e8645fc03baf8645c27b40e2f7606d24668c988144`.
+Current template source: `8d2ae2e3ef81cbb2af896eadaadbb2937de867cc` (v2).
+Runtime SHA-256: `60c343c5571d0ede5eaa40031850fb842bacac40ec755741f5b5a1e229404b39`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
