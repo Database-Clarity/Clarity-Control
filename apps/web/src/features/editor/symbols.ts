@@ -20,6 +20,7 @@ import {
   type Tooltip,
 } from '@codemirror/view';
 import {
+  enhancedArrowMarkup,
   elementTagNames,
   elementTagToken,
   elementTextTinted,
@@ -97,18 +98,20 @@ function* lineTokens(text: string, offset: number) {
   }
 }
 
-/** The symbol name of the enhanced arrow, written `#e` (the global variable e). */
+/** The symbol name of the enhanced arrow, written `<enhanced/>` (or the legacy `#e`). */
 export const enhancedArrowSymbol = 'enhanced-arrow';
 
 /**
  * Finds every icon tag in a text, including one written inside another tag, and every enhanced
- * arrow (`#e`, also the one in front of `#e${base+#d}`), which is drawn as a symbol like the icons.
+ * arrow (`<enhanced/>`, also the one in front of `<enhanced/>${base+#{d}}`), which is drawn as a
+ * symbol like the icons. The legacy spelling `#e` is drawn the same way.
  */
 export function findSymbols(text: string, offset = 0): SymbolRange[] {
   const found: SymbolRange[] = [];
   for (const match of text.matchAll(/<(\w+)\/>|#e(?![A-Za-z0-9])/g)) {
-    const name = match[1] ?? enhancedArrowSymbol;
-    if (match[1] !== undefined && !icons.has(name)) continue;
+    const arrow = match[1] === undefined || match[1] === 'enhanced';
+    const name = arrow ? enhancedArrowSymbol : match[1]!;
+    if (!arrow && !icons.has(name)) continue;
     const from = offset + (match.index ?? 0);
     found.push({ from, to: from + match[0].length, kind: 'icon', name });
   }
@@ -519,6 +522,32 @@ function popoverDom(view: EditorView, popover: Popover) {
       note.className = 'cm-symbol-retired';
       note.textContent = 'Retired';
       dom.append(note);
+    }
+    // The legacy arrow `#e` still renders but is no longer offered (owner 2026-11-14).
+    const legacyArrow = !tag && markup === '#e';
+    if (legacyArrow) {
+      const note = document.createElement('span');
+      note.className = 'cm-symbol-legacy';
+      note.textContent = 'Old spelling';
+      note.title = `The enhanced arrow is now written ${enhancedArrowMarkup}.`;
+      dom.append(note);
+    }
+    if (popover.source === 'selected' && !view.state.readOnly && legacyArrow) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cm-symbol-fix';
+      button.textContent = `Use ${enhancedArrowMarkup}`;
+      button.addEventListener('mousedown', (event) => event.preventDefault());
+      button.addEventListener('click', () => {
+        if (view.state.sliceDoc(popover.from, popover.to) === '#e')
+          view.dispatch({
+            changes: { from: popover.from, to: popover.to, insert: enhancedArrowMarkup },
+            selection: { anchor: popover.from, head: popover.from + enhancedArrowMarkup.length },
+            userEvent: 'input.fix',
+          });
+        view.focus();
+      });
+      dom.append(button);
     }
     if (popover.source === 'selected' && !view.state.readOnly) {
       if (tag && retired) {

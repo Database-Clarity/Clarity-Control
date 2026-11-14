@@ -320,7 +320,7 @@ export function readAliasProposals(input: unknown, tooltips: Readonly<Record<str
         ? own[0]!
         : proposal.canonical;
     const enhancedMarkup = Object.values(tooltips[canonical]?.text ?? {}).some((t) =>
-      /enhanced\s*\(|#e\b/.test(t?.text ?? ''),
+      /enhanced\s*\(|#e\b|<enhanced\/>/.test(t?.text ?? ''),
     );
     return {
       ...proposal,
@@ -350,7 +350,7 @@ export function enhancedWordingNeeded(
     const base = items[item.baseHash];
     if (!base || item.inGameDescription === base.inGameDescription) continue;
     const baseHash = aliasCanonicalHash(item.hash, items, aliases);
-    if (/enhanced\s*\(|#e\b/.test(tooltips[baseHash]?.text.en?.text ?? '')) continue;
+    if (/enhanced\s*\(|#e\b|<enhanced\/>/.test(tooltips[baseHash]?.text.en?.text ?? '')) continue;
     const row = result.get(baseHash) ?? { baseHash, enhancedHashes: [] };
     const target = resolveAlias(item.hash, aliases);
     if (!row.enhancedHashes.includes(target)) row.enhancedHashes.push(target);

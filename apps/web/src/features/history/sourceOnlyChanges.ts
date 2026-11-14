@@ -227,7 +227,7 @@ function sourceContext(text: string) {
     // A reference's value can change with another hunk (a declaration, global,
     // or import) and cancel or supply words on its line, so a line holding one
     // never proves an edit. Neither do construct lines.
-    if (/#[a-zA-Z0-9]/.test(line) || constructLines.some((pattern) => pattern.test(line)))
+    if (/#\{?[a-zA-Z0-9]|<enhanced\/>/.test(line) || constructLines.some((pattern) => pattern.test(line)))
       clear(start, end + 1);
     for (const match of line.matchAll(/\$\{.+?\}/g))
       clear(start + match.index, start + match.index + match[0].length);

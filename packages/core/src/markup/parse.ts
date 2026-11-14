@@ -1,3 +1,4 @@
+import { lowerDelimitedMarkup } from './braces.js';
 import { elementTextMarkers, lowerElementTags, markElementTags } from './elementTags.js';
 import { markupStrayTags, parseLines } from './lines.js';
 import { prepareMarkup, prepareNativeTitle, markupVariableReferences } from './prepare.js';
@@ -17,7 +18,8 @@ export const reservedMarkerMessage =
 
 /**
  * Element-tagged spans. Every document a parse reads (the text, the global variables and titles,
- * each import it resolves) is lowered as consumers receive it. To tint the tagged text, the
+ * each import it resolves) is lowered as consumers receive it, delimited variables and the arrow
+ * symbol included (braces.ts). To tint the tagged text, the
  * parse first runs on the lowered documents with preview markers around each tagged text; when
  * any document held a tag, it also parses the plain lowered documents and keeps the tinted lines
  * only if, without the tint, they render exactly the same. Otherwise (markers changed how
@@ -40,11 +42,11 @@ export function parseMarkup(
     source = clean(source);
     const marked = markElementTags(source);
     if (marked !== source) tagged = true;
-    return marked;
+    return lowerDelimitedMarkup(marked);
   };
   const tinted = parseWith(text, globals, mark);
   const parsed = tagged
-    ? parseWith(text, globals, (source) => lowerElementTags(clean(source)))
+    ? parseWith(text, globals, (source) => lowerDelimitedMarkup(lowerElementTags(clean(source))))
     : tinted;
   const lines =
     tagged && JSON.stringify(untinted(tinted.lines)) === JSON.stringify(untinted(parsed.lines))

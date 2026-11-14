@@ -94,16 +94,6 @@ export function markElementTags(text: string): string {
   return result;
 }
 
-/**
- * A markup-only edit: element tags added, changed, or removed (`<solar/>Scorch` and
- * `<solar Scorch />`) while the lowered text, what every consumer reads, stays exactly the same.
- */
-export function isMarkupOnly(before: string | undefined, after: string): boolean {
-  return (
-    before !== undefined && before !== after && lowerElementTags(before) === lowerElementTags(after)
-  );
-}
-
 /** Whether the preview draws a tagged span's text in the element tint (see `unsafeTint`). */
 export function elementTextTinted(text: string): boolean {
   return !unsafeTint.test(text.trim());

@@ -72,7 +72,7 @@ describe('options', () => {
   test('the enhanced section is offered on a free line and carries the enhanced arrow', () => {
     const free = menu('enh', true)!;
     const block = free.items.find((item) => item.id === 'snippet:enhanced-block')!;
-    expect(block.insert).toContain('\n#e ');
+    expect(block.insert).toContain('\n<enhanced/> ');
     expect(block.preview).toContain('enhanced (');
     // Not in the middle of a sentence, where a multi-line declaration cannot go.
     expect(

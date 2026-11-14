@@ -274,6 +274,10 @@
   :global(.cm-symbol-retired) {
     color: var(--diag-warn);
   }
+  // The legacy arrow `#e`: still renders, an info-level note beside its fix.
+  :global(.cm-symbol-legacy) {
+    color: var(--text2);
+  }
   :global(.cm-symbol-fix) {
     @include controls.button;
     min-height: 1.25rem;

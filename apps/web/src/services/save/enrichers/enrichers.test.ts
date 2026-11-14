@@ -217,3 +217,35 @@ describe('markup-only edits (element tags)', () => {
     expect(result.text.fr?.sourceUpdatedAt).toBe('2025-01-01T00:00:00.000Z');
   });
 });
+
+describe('markup-only edits (delimited variables and the arrow symbol)', () => {
+  const english = { ...en, text: 'Lasts #d s.\nenhanced (\nvar d = 1\n#e Faster.\n)' };
+  const original: Tooltip = {
+    hash: 10,
+    text: { en: english, fr: { ...fr, text: 'Dure #d s.' } },
+    associated: [],
+  };
+  const withEnglish = (text: string): Tooltip => ({
+    ...original,
+    text: { ...original.text, en: { ...english, text } },
+  });
+
+  it('braces and the symbol keep the English revision and leave the translation current', async () => {
+    vi.useFakeTimers().setSystemTime(new Date(now));
+    const text = 'Lasts #{d} s.\nenhanced (\nvar d = 1\n<enhanced/> Faster.\n)';
+    const result = await enrichTooltip({ before: original, next: withEnglish(text), user });
+    expect(result.text.en).toEqual({ ...english, text });
+    expect(result.text.fr).toBe(original.text.fr);
+  });
+
+  it('braces that change what is read (#dx to #{d}x) are a real change and stamp', async () => {
+    vi.useFakeTimers().setSystemTime(new Date(now));
+    const before = withEnglish('var d = 1\nLasts #dx.');
+    const result = await enrichTooltip({
+      before,
+      next: { ...before, text: { ...before.text, en: { ...before.text.en!, text: 'var d = 1\nLasts #{d}x.' } } },
+      user,
+    });
+    expect(result.text.en?.updatedAt).toBe(now);
+  });
+});

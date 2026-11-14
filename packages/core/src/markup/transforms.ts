@@ -33,7 +33,7 @@ const bareNumber = new RegExp(String.raw`^\s*(${value})\s*$`);
 const bracketed = new RegExp(String.raw`^\s*\[(${value})\]\s*$`);
 const valueList = new RegExp(String.raw`^\s*${value}(?:\s*,\s*${value}){1,}\s*$`);
 
-const hasMarkup = (text: string) => /[<>]|\/>|#[a-zA-Z0-9]|\$\{/.test(text);
+const hasMarkup = (text: string) => /[<>]|\/>|#\{?[a-zA-Z0-9]|\$\{/.test(text);
 
 /** Applies a single-line rule to every line; null when no line changed. */
 function perLine(input: string, rule: (line: string) => string | null): string | null {

@@ -238,7 +238,7 @@ describe('the suggestion menu', () => {
     expect(index).toBeGreaterThan(-1);
     act(() => options()[index]!.click());
     expect(view.state.doc.toString()).toBe(
-      'Base text.\n\nenhanced (\nvar d = amount\n#e What the enhanced version changes.\n)',
+      'Base text.\n\nenhanced (\nvar d = amount\n<enhanced/> What the enhanced version changes.\n)',
     );
   });
 

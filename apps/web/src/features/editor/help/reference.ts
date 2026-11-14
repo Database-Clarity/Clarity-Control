@@ -52,10 +52,10 @@ export const helpBlocks: Readonly<Record<string, HelpBlock>> = {
   enhanced: {
     enhanced: true,
     lines: [
-      { text: 'for #e${7+#d} seconds', row: 'enhanced-formula' },
+      { text: 'for <enhanced/>${7+#{d}} seconds', row: 'enhanced-formula' },
       { text: 'enhanced (', row: 'enhanced-block' },
       { text: 'var d = 1', row: 'enhanced-formula' },
-      { text: '#e Lasts longer.', row: 'enhanced-arrow' },
+      { text: '<enhanced/> Lasts longer.', row: 'enhanced-arrow' },
       { text: ')', row: 'enhanced-block' },
     ],
   },
@@ -72,7 +72,8 @@ export const helpBlocks: Readonly<Record<string, HelpBlock>> = {
 
 /**
  * Examples never depend on the app's data: the sheet works before the data has loaded, and a
- * global named like an example's variable cannot change a row. #e is the global variable e.
+ * global named like an example's variable cannot change a row. The arrow `<enhanced/>` is read
+ * as the legacy `#e`, the global variable e.
  */
 export const helpGlobals: MarkupGlobals = {
   variables: 'var e = 🡅',
@@ -122,6 +123,14 @@ const extraRows: readonly Omit<HelpRow, 'words'>[] = [
     about: 'The value empty makes #name write nothing, which hides an optional sentence.',
   },
   {
+    id: 'var-braces',
+    group: 'Variables and math',
+    label: 'Variable before letters',
+    example: 'var w = 10\n#{w}px wide',
+    note: 'Braces end the name.',
+    about: 'Write #{name} when letters or digits follow, so they are not read as part of the name.',
+  },
+  {
     id: 'math',
     group: 'Variables and math',
     label: 'Math',
@@ -134,6 +143,7 @@ const extraWords: Record<string, string> = {
   comment: 'comment note slash hidden',
   blank: 'blank empty line gap spacer space',
   'var-empty': 'variable empty nothing blank',
+  'var-braces': 'variable braces curly delimit merge letters after name',
   math: 'math formula calculate dollar plus minus times',
 };
 
@@ -289,7 +299,7 @@ export const helpLayout: Readonly<Record<string, readonly string[]>> = {
   Icons: ['icon-word', ...icons],
   'Comments and spacing': ['comment', 'blank'],
   Enhanced: ['base-enhanced-pair', 'enhanced-formula', 'enhanced-block', 'enhanced-arrow'],
-  'Variables and math': ['decl-var', 'var-empty', 'math'],
+  'Variables and math': ['decl-var', 'var-braces', 'var-empty', 'math'],
   References: ['link', 'title', 'decl-title'],
   Sharing: ['decl-import', 'decl-export', 'decl-export-hidden'],
   ...Object.fromEntries(
@@ -442,8 +452,10 @@ const within = (column: number, match: RegExpMatchArray) =>
 function rowInLine(line: string, column: number): string | null {
   if (baseEnhancedPairs(line).some((pair) => column >= pair.from && column <= pair.to))
     return 'base-enhanced-pair';
-  for (const match of line.matchAll(/#e\$\{[^}]*\}|\$\{[^}]*\}/g))
-    if (within(column, match)) return match[0].startsWith('#e') ? 'enhanced-formula' : 'math';
+  for (const match of line.matchAll(
+    /(?:#e|<enhanced\/>)\$\{(?:#\{[a-zA-Z0-9]+\}|[^}])*\}|\$\{(?:#\{[a-zA-Z0-9]+\}|[^}])*\}/g,
+  ))
+    if (within(column, match)) return match[0].startsWith('$') ? 'math' : 'enhanced-formula';
   for (const match of line.matchAll(/<([a-zA-Z]+)(?:\s[^<>]*?)?\/>/g)) {
     if (!within(column, match)) continue;
     const name = match[1]!;
@@ -458,13 +470,15 @@ function rowInLine(line: string, column: number): string | null {
     if (name === 'yellow') return 'inline:yellow';
     if (name === 'link') return 'link';
     if (name === 'title') return 'title';
+    if (name === 'enhanced' && match[0] === '<enhanced/>') return 'enhanced-arrow';
     if ((markupIcons as readonly string[]).includes(name))
       return /^[A-Za-z]/.test(line.slice(match.index! + match[0].length))
         ? 'icon-word'
         : `icon:${name}`;
   }
-  for (const match of line.matchAll(/#e(?![a-zA-Z0-9])|#[a-zA-Z0-9]+/g))
-    if (within(column, match)) return match[0] === '#e' ? 'enhanced-arrow' : 'decl-var';
+  for (const match of line.matchAll(/#e(?![a-zA-Z0-9])|#\{[a-zA-Z0-9]+\}|#[a-zA-Z0-9]+/g))
+    if (within(column, match))
+      return match[0] === '#e' ? 'enhanced-arrow' : match[0][1] === '{' ? 'var-braces' : 'decl-var';
   if (/^enhanced \(/.test(line)) return 'enhanced-block';
   if (/^title .+ \(/.test(line)) return 'decl-title';
   if (/^var /.test(line)) return /=\s*empty\s*$/.test(line) ? 'var-empty' : 'decl-var';

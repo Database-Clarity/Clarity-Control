@@ -15,6 +15,8 @@ export interface ReferencePopoverProps {
   /** Present only when the definition can be reached. */
   onOpen?: () => void;
   openShortcut: string;
+  /** A missing variable that merges a defined one with the text after it, and its one-click fix. */
+  fix?: { message: string; label: string; onApply: () => void };
 }
 
 function kindLabel(resolved: ResolvedReference): string {
@@ -43,6 +45,7 @@ export function ReferencePopover({
   globals,
   onOpen,
   openShortcut,
+  fix,
 }: ReferencePopoverProps) {
   const { shown, hidden } = useMemo(() => {
     const lines = (resolved.value ?? '').split('\n');
@@ -58,7 +61,12 @@ export function ReferencePopover({
           <code className={styles.name}>{resolved.label}</code>
           <strong className={styles.missing}>Not defined</strong>
         </div>
-        <p className={styles.note}>{resolved.reason}</p>
+        <p className={styles.note}>{fix?.message ?? resolved.reason}</p>
+        {fix && (
+          <button type="button" className={styles.open} onClick={fix.onApply}>
+            {fix.label}
+          </button>
+        )}
       </div>
     );
   }

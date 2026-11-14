@@ -1,7 +1,8 @@
-import { offersBaseEnhanced, type ScopedMarkupGlobals } from '../markupScope';
+import { offeredHere, type ScopedMarkupGlobals } from '../markupScope';
 import { type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
+  enhancedArrowMarkup,
   expandSnippet,
   extractVariables,
   markupSnippets,
@@ -114,7 +115,7 @@ export function templateItem(
     keys: '',
   };
   if (entry.plain) {
-    // Plain text that never replaces the selection (a `#e`): it goes in at the caret.
+    // Plain text that never replaces the selection (the arrow): it goes in at the caret.
     const expanded = expandSnippet(snippet, '');
     return {
       ...base,
@@ -159,7 +160,7 @@ function viaTemplate(
     help: snippet.help,
     ...entry,
     run(view, globals) {
-      if (entry.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals)) return 'context';
+      if (!offeredHere(entry.id, globals)) return 'context';
       const blocked = guard(view);
       if (blocked) return blocked;
       const item = templateItem(view.state, {
@@ -188,15 +189,15 @@ const tagById = (id: string) => {
   if (!found) throw new Error(`Missing tag ${id}`);
   return found;
 };
-/** The bare enhanced arrow: plain text written at the caret, never over the selection. */
+/** The bare enhanced arrow symbol: written at the caret, never over the selection. */
 const arrowSnippet: Snippet = {
   id: 'enhanced-arrow',
-  label: '#e',
+  label: enhancedArrowMarkup,
   group: 'Enhanced',
-  template: '#e',
+  template: enhancedArrowMarkup,
   keywords: 'enhanced arrow e gold up',
-  usage: /#e(?![a-zA-Z0-9])/,
-  about: 'The enhanced arrow, written #e.',
+  usage: /<enhanced\/>|#e(?![a-zA-Z0-9])/,
+  about: `The enhanced arrow, written ${enhancedArrowMarkup}.`,
 };
 
 const sentence = (text: string) => text[0]!.toUpperCase() + text.slice(1);
@@ -273,12 +274,12 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
     viaTemplate(arrowSnippet, {
       id: 'enhanced-arrow',
       group: 'Enhanced',
-      label: 'Enhanced arrow (#e)',
-      markup: '#e',
+      label: 'Enhanced arrow',
+      markup: enhancedArrowMarkup,
       keys: 'enhanced arrow e gold up',
       glyph: { kind: 'arrow', text: '' },
-      about: 'The enhanced arrow, written #e.',
-      usage: /#e(?![a-zA-Z0-9])/,
+      about: arrowSnippet.about,
+      usage: arrowSnippet.usage,
       help: { block: 'enhanced' },
       plain: true,
     }),
@@ -296,7 +297,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       id: 'enhanced-formula',
       group: 'Enhanced',
       label: 'Base with enhanced bonus',
-      markup: '#e${base+#d}',
+      markup: '<enhanced/>${base+#{d}}',
       keys: snippetById('enhanced-formula').keywords,
       glyph: { kind: 'arrow', text: '${X+#d}' },
       usage: snippetById('enhanced-formula').usage,
@@ -393,7 +394,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       markup: `#${name}`,
       keys: value,
       glyph: { kind: 'mono', text: `#${name}` },
-      usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
+      usage: new RegExp(`#${name}(?![a-zA-Z0-9])|#\\{${name}\\}`),
       about: value
         ? `A variable: ${value.length > 60 ? `${value.slice(0, 59)}…` : value}`
         : 'A variable.',
@@ -408,7 +409,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
           about: '',
           from: main.from,
           to: main.to,
-          insert: `#${name}`,
+          insert: variableInsert(name, view.state.sliceDoc(main.to, main.to + 1)),
           stops: [],
           preview: null,
           reference: true,
@@ -419,9 +420,15 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       },
     });
   }
-  return entries.filter(
-    (entry) => entry.id !== 'base-enhanced-pair' || offersBaseEnhanced(globals),
-  );
+  return entries.filter((entry) => offeredHere(entry.id, globals));
+}
+
+/**
+ * How a variable reference is written before `next` (the character after the insertion): plain
+ * `#name`, or `#{name}` when a letter or digit follows and would merge into the name.
+ */
+export function variableInsert(name: string, next: string): string {
+  return /^[a-zA-Z0-9]/.test(next) ? `#{${name}}` : `#${name}`;
 }
 
 /** The popover's group order. */

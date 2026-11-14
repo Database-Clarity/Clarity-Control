@@ -1,4 +1,10 @@
-import { findElementTags, type Lang, type Tooltip } from '@clarity/core';
+import {
+  enhancedArrowMarkup,
+  findElementTags,
+  hasDelimitedMarkup,
+  type Lang,
+  type Tooltip,
+} from '@clarity/core';
 import publisherConfig from '../../../config/publisher.json';
 import { HttpError } from './http.js';
 
@@ -8,6 +14,11 @@ const reservedMarker = /[\uE000\uE001]/;
 export const publisherPinPath = '.publisher/PIN';
 /** The PIN capability of a publisher build whose exportLegacy lowers element-tagged text. */
 export const elementTagsCapability = 'elementTags';
+/**
+ * The PIN capability of a publisher build whose exportLegacy lowers delimited variables (`#{d}`)
+ * and the arrow symbol (`<enhanced/>`) to today's `#d` and `#e` (core braces.ts).
+ */
+export const delimitedMarkupCapability = 'delimitedMarkup';
 
 /**
  * Which exporter is live. While the publisher switch is off, the live export is this Worker's own
@@ -23,6 +34,62 @@ export const exporter = {
 export function pinLowersElementTags(pin: unknown): boolean {
   const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
   return Array.isArray(capabilities) && capabilities.includes(elementTagsCapability);
+}
+
+/** Whether a data-head `.publisher/PIN` value declares that its build lowers `#{d}` and `<enhanced/>`. */
+export function pinLowersDelimitedMarkup(pin: unknown): boolean {
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(delimitedMarkupCapability);
+}
+
+/** The first language of `tooltip` holding `#{name}` or `<enhanced/>`. */
+function firstDelimited(tooltip: Tooltip) {
+  for (const [lang, entry] of Object.entries(tooltip.text) as [Lang, { text: string }][]) {
+    if (!hasDelimitedMarkup(entry.text)) continue;
+    const text = /#\{[a-zA-Z0-9]+\}/.exec(entry.text)?.[0] ?? enhancedArrowMarkup;
+    return { lang, text };
+  }
+  return undefined;
+}
+
+export function hasDelimitedText(tooltip: Tooltip): boolean {
+  return firstDelimited(tooltip) !== undefined;
+}
+
+/** Whether the tooltip holds an authoring form an exporter has to lower (tags, `#{d}`, `<enhanced/>`). */
+export function needsLowering(tooltip: Tooltip): boolean {
+  return hasTaggedText(tooltip) || hasDelimitedText(tooltip);
+}
+
+/**
+ * Server guard for `#{name}` and `<enhanced/>`: accepted whenever the ACTIVE exporter lowers them
+ * (always while push-live exports; once the publisher is on, only a build whose PIN declares
+ * `delimitedMarkup`). Unlowered, today's apps would print `#{d}` and drop the arrow.
+ */
+export function refuseUnlowerableDelimited(tooltip: Tooltip, lowers: boolean, action: string): void {
+  if (lowers) return;
+  const found = firstDelimited(tooltip);
+  if (!found) return;
+  throw new HttpError(
+    422,
+    `Tooltip ${tooltip.hash} (${found.lang}) contains "${found.text}", which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${delimitedMarkupCapability}" capability). Write #name or #e for now.`,
+  );
+}
+
+/**
+ * Both guards against one PIN value (`undefined` while push-live exports, which always lowers).
+ */
+export function refuseUnlowerable(
+  tooltip: Tooltip,
+  pin: { value: unknown } | undefined,
+  action: string,
+): void {
+  refuseUnlowerableTags(tooltip, pin === undefined || pinLowersElementTags(pin.value), action);
+  refuseUnlowerableDelimited(
+    tooltip,
+    pin === undefined || pinLowersDelimitedMarkup(pin.value),
+    action,
+  );
 }
 
 /** The first language of `tooltip` holding a tagged span, with that span. */
@@ -66,7 +133,10 @@ export function refuseUnlowerableTags(tooltip: Tooltip, lowers: boolean, action:
   );
 }
 
-/** Fail closed on the export itself: no exported string may carry a tagged span or a marker. */
+/**
+ * Fail closed on the export itself: no exported string may carry a tagged span, a marker, a
+ * delimited variable, or the arrow symbol.
+ */
 export function refuseTaggedEntries(entries: Record<string, unknown>): void {
   const strings = (value: unknown): string[] =>
     typeof value === 'string'
@@ -77,5 +147,7 @@ export function refuseTaggedEntries(entries: Record<string, unknown>): void {
   for (const [hash, entry] of Object.entries(entries)) {
     if (strings(entry).some((text) => reservedMarker.test(text) || findElementTags(text).length))
       throw new HttpError(422, `The export of tooltip ${hash} still holds element-tagged text`);
+    if (strings(entry).some(hasDelimitedMarkup))
+      throw new HttpError(422, `The export of tooltip ${hash} still holds #{name} or <enhanced/>`);
   }
 }

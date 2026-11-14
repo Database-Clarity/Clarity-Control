@@ -296,11 +296,11 @@ describe('the markup row', () => {
     expect(second.state.doc.toString()).toBe('y <pvp [value] />');
   });
 
-  it('the enhanced arrow is plain #e at the caret and never replaces the selection', () => {
+  it('the enhanced arrow symbol goes in at the caret and never replaces the selection', () => {
     const view = mount('Amount 5');
     act(() => view.dispatch({ selection: { anchor: 7, head: 8 } }));
     click(entryButton('enhanced-arrow'));
-    expect(view.state.doc.toString()).toBe('Amount 5#e');
+    expect(view.state.doc.toString()).toBe('Amount 5<enhanced/>');
   });
 
   it('says why when the document refuses an insertion, and changes nothing', () => {
@@ -327,7 +327,7 @@ describe('the markup row', () => {
     expect(document.activeElement).toBe(buttons[0]);
     // 1 = enhanced arrow
     key(buttons[0]!, '1');
-    expect(view.state.doc.toString()).toBe('Deals #e');
+    expect(view.state.doc.toString()).toBe('Deals <enhanced/>');
     key(buttons[0]!, 'End');
     expect(document.activeElement).toBe(buttons.at(-1));
   });
@@ -437,7 +437,7 @@ describe('the All popover', () => {
 });
 
 describe('inserting an enhanced section from the popover', () => {
-  it('writes the section with its #e arrow line already filled in, on a line of its own', () => {
+  it('writes the section with its arrow line already filled in, on a line of its own', () => {
     const view = mount('Reload speed up.');
     const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (node) => node.textContent?.trim() === 'All',
@@ -449,9 +449,9 @@ describe('inserting an enhanced section from the popover', () => {
     click(section);
     const text = view.state.doc.toString();
     expect(text.startsWith('Reload speed up.' + NL + 'enhanced (' + NL)).toBe(true);
-    // The #e line is the enhanced arrow line, and it ships with text to replace.
+    // The <enhanced/> line is the enhanced arrow line, and it ships with text to replace.
     expect(text.endsWith(NL + ')')).toBe(true);
-    expect(text.split(NL).some((line) => line.startsWith('#e ') && line.length > 3)).toBe(true);
+    expect(text.split(NL).some((line) => line.startsWith('<enhanced/> ') && line.length > 12)).toBe(true);
   });
 });
 

@@ -21,6 +21,7 @@ PvE and PvP values can share a line: <pve 10 /> <pvp [5] />
 Values per Stack: <pve 10|20|30 />. Pipes separate each Stack's value.
 {{Base perks use this text.}{Enhanced perks replace the base text with this line.}}
 A variable supplies #amount; math doubles it to \${#amount * 2}.
+Braces end a variable's name, so letters can follow it: #{amount}px.
 An empty variable writes nothing here: #optional
 <title Hover for a definition [Showcase] />
 <link This text opens a web link [https://d2clarity.com] />
@@ -53,7 +54,7 @@ Exports apply the symbol settings without the text tint.
 enhanced (
 var d = 5
 Only enhanced perks show this section.
-#e\${10+#d} is the enhanced value: base 10 plus 5.
+<enhanced/>\${10+#{d}} is the enhanced value: base 10 plus 5.
 )
 export Showcase (
 An export shares this text with other tooltips.
