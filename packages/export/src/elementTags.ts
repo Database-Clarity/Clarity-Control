@@ -10,10 +10,7 @@ import type { LegacyInput } from './legacy.js';
  * Input without those forms comes back as the same object, so nothing is copied.
  */
 export function lowerInput<T extends LegacyInput>(input: T, arrow?: 'legacy' | 'fallback'): T {
-  const lower = (text: string) => {
-    const lowered = lowerConsumerMarkup(text);
-    return arrow ? lowered.replaceAll('<arrow/>', arrow === 'legacy' ? '🠚' : '→') : lowered;
-  };
+  const lower = (text: string) => lowerConsumerMarkup(text, arrow);
   let perks: LegacyInput['perks'] | undefined;
   for (const [hash, perk] of Object.entries(input.perks)) {
     if (!('editor' in perk) || !perk.editor) continue;
