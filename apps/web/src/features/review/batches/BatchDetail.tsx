@@ -24,6 +24,7 @@ import {
   type BatchEvent,
 } from '../../../services/scheduled/api';
 import { canPushLive } from '../../auth/permissions';
+import { stampEnglish } from '../../../services/save/enrichers/metadata';
 import { itemFor } from '../../navigation/catalog';
 import { TooltipDiff } from '../../history/TooltipDiff';
 import {
@@ -700,7 +701,11 @@ function MemberRow({
       if (!result.tooltip)
         throw new Error('Nothing left to publish: remove this tooltip from the batch instead.');
       try {
-        await rebaseMember(batch.id, batch.revision, member.hash, current, result.tooltip);
+        // A chosen upcoming English can be older than current's: stamp it as a save would (the
+        // Worker refuses a kept or older English revision on rebase).
+        const login = useAuthStore.getState().user?.login ?? '';
+        const next = stampEnglish(current, result.tooltip, login, new Date().toISOString());
+        await rebaseMember(batch.id, batch.revision, member.hash, current, next);
       } catch (error) {
         // Current moved: take the Worker's, and the choices made against the old one are void.
         if (adoptRefusalCurrent(member.hash, error)) setChoices({});

@@ -1,6 +1,6 @@
 import { createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { contentHash, publishMonth, type Tooltip } from '@clarity/core';
+import { contentHash, publishMonth, translationStateOf, type Tooltip } from '@clarity/core';
 import {
   activate,
   approvedDigest,
@@ -39,11 +39,27 @@ const EDITOR = 2;
 const TRIAL = 3;
 const TRANSLATOR = 4;
 
+// A new English text is a newer revision, as the editor's save stamps it (the Worker refuses an
+// English change that keeps its revision in a batch). The same text always gets the same stamp.
+const englishRevisions = new Map<string, number>();
+const revisionOf = (lang: string, text: string) => {
+  if (lang !== 'en') return '2026-11-01T00:00:00Z';
+  if (!englishRevisions.has(text)) englishRevisions.set(text, englishRevisions.size + 1);
+  return new Date(
+    Date.parse('2026-11-01T00:00:00Z') + englishRevisions.get(text)! * 1000,
+  ).toISOString();
+};
 const withText = (base: Tooltip, lang: 'en' | 'de' | 'fr', text: string): Tooltip => ({
   ...base,
   text: {
     ...base.text,
-    [lang]: { text, updatedAt: '2026-11-01T00:00:00Z', updatedBy: 'alice' },
+    [lang]: {
+      text,
+      updatedAt: revisionOf(lang, text),
+      updatedBy: 'alice',
+      // A translation is stamped against the English it is saved with, as the editor does.
+      ...(lang !== 'en' && base.text.en ? { sourceUpdatedAt: base.text.en.updatedAt } : {}),
+    },
   },
 });
 
@@ -301,6 +317,40 @@ describe('role x route matrix on stored members', () => {
     );
   });
 
+  it('rebase refuses an English change that keeps or backdates the current revision', async () => {
+    const proposed = (stored(memberPath()) as BatchMember).proposed;
+    const current = withText(tooltip(), 'fr', 'courant');
+    f.moveData({ 'tooltips/123.json': current });
+    const rebase = (en: Tooltip['text']['en']) =>
+      call(
+        `/batches/${ID}/rebase`,
+        {
+          revision: storedBatch().revision,
+          hash: 123,
+          base: current,
+          next: { ...proposed, text: { ...proposed.text, en } },
+        },
+        EDITOR,
+      );
+    const kept = await rebase({ ...current.text.en!, text: 'silently reworded' });
+    expect(kept.status).toBe(422);
+    expect(kept.body.error).toBe(
+      'Tooltip 123: English text changed without a new English revision',
+    );
+    const older = await rebase({
+      ...current.text.en!,
+      text: 'reworded',
+      updatedAt: '2026-09-01T00:00:00Z',
+    });
+    expect(older.status).toBe(422);
+    expect(stored(memberPath())).toMatchObject({ proposed });
+    const newer = await rebase({
+      ...current.text.en!,
+      text: 'reworded',
+      updatedAt: '2026-10-20T00:00:00Z',
+    });
+    expect(newer.status).toBe(200);
+  });
   it('rebase and remove: maintainer and editor only', async () => {
     const proposed = (stored(memberPath()) as BatchMember).proposed;
     f.moveData({ 'tooltips/123.json': withText(tooltip(), 'fr', 'courant') });
@@ -627,6 +677,25 @@ describe('Q2 one open batch per tooltip', () => {
 });
 
 describe('save semantics', () => {
+  it('refuses an English change that keeps its revision: batches have no "No translation impact"', async () => {
+    const storedProposal = (stored(memberPath()) as BatchMember).proposed;
+    const next = {
+      ...storedProposal,
+      text: { ...storedProposal.text, en: { ...storedProposal.text.en!, text: 'kept revision' } },
+    };
+    const response = await call(
+      `/batches/${ID}/save`,
+      { ...saveBody(next, storedProposal), noTranslationImpact: true },
+      EDITOR,
+    );
+    expect(response.status).toBe(400);
+    const plain = await call(`/batches/${ID}/save`, saveBody(next, storedProposal), EDITOR);
+    expect(plain.status).toBe(422);
+    expect(plain.body.error).toBe(
+      'Tooltip 123: English text changed without a new English revision',
+    );
+    expect((stored(memberPath()) as BatchMember).proposed).toEqual(storedProposal);
+  });
   it('merges against the stored proposal and reports conflicts like /save', async () => {
     const storedProposal = (stored(memberPath()) as BatchMember).proposed;
     // A client that started before a translator's save still merges cleanly.
@@ -767,6 +836,43 @@ describe('resolve', () => {
     expect(String(f.commits.at(-1)!.message).trimEnd().split('\n').at(-1)).toBe(
       'Clarity-Changed: 123=de',
     );
+  });
+  it('choosing upcoming English older than current restamps it, so current translations show outdated', async () => {
+    const { current } = published();
+    const withFrench: Tooltip = {
+      ...current,
+      text: {
+        ...current.text,
+        fr: {
+          text: 'courant',
+          updatedAt: current.text.en!.updatedAt,
+          updatedBy: 'eve',
+          sourceUpdatedAt: current.text.en!.updatedAt,
+        },
+      },
+    };
+    f.moveData({ 'tooltips/123.json': withFrench });
+    const file = stored('schedule/activation-conflicts/123.json') as BatchMember & {
+      currentAtRecord: Tooltip;
+    };
+    // The upcoming English is the older revision here.
+    expect(Date.parse(file.proposed.text.en!.updatedAt)).toBeLessThan(
+      Date.parse(current.text.en!.updatedAt),
+    );
+    const ok = await call(`/batches/${ID}/resolve`, {
+      hash: 123,
+      expectedCurrent: await contentHash(withFrench),
+      choices: { 'text.en': 'upcoming' },
+    });
+    expect(ok.status).toBe(200);
+    const written = stored('tooltips/123.json') as Tooltip;
+    expect(written.text.en?.text).toBe('upcoming');
+    expect(Date.parse(written.text.en!.updatedAt)).toBeGreaterThan(
+      Date.parse(current.text.en!.updatedAt),
+    );
+    expect(written.text.en?.updatedBy).toBe('alice');
+    expect(written.text.fr).toEqual(withFrench.text.fr);
+    expect(translationStateOf(written, 'fr').state).toBe('outdated');
   });
   it('refuses #{d} and <enhanced/> from the upcoming text unless the PIN declares markupBraces', async () => {
     const { current } = published();
@@ -979,7 +1085,12 @@ describe('round-1 review fixes', () => {
       text: {
         ...old.proposed.text,
         en: { ...old.proposed.text.en!, updatedAt: '2027-11-01T00:00:00Z' },
-        de: { text: 'Kommend', updatedAt: '2026-11-13T00:00:00Z', updatedBy: 'dan' },
+        de: {
+          text: 'Kommend',
+          updatedAt: '2026-11-13T00:00:00Z',
+          updatedBy: 'dan',
+          sourceUpdatedAt: old.proposed.text.en!.updatedAt,
+        },
       },
     };
     const response = await call(`/batches/${ID}/save`, saveBody(next, old.proposed), EDITOR);
@@ -993,11 +1104,15 @@ describe('round-1 review fixes', () => {
   it('adds keep current values for stamp-only fields', async () => {
     const current = { ...tooltip(), hash: 456 };
     f.moveData({ 'tooltips/456.json': current });
-    const next = withText(
-      { ...current, text: { en: { ...current.text.en!, updatedAt: '2027-01-01T00:00:00Z' } } },
-      'de',
-      'neu',
-    );
+    // German is stamped against the stored English; only the English stamp drifts.
+    const translated = withText(current, 'de', 'neu');
+    const next = {
+      ...translated,
+      text: {
+        ...translated.text,
+        en: { ...current.text.en!, updatedAt: '2027-01-01T00:00:00Z' },
+      },
+    };
     expect((await call(`/batches/${ID}/save`, saveBody(next, current))).status).toBe(200);
     const added = stored(memberPath(456)) as BatchMember;
     expect(added.proposed.text.en).toEqual(current.text.en);

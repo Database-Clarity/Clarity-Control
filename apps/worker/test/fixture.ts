@@ -7,9 +7,20 @@ import { signToken } from '../src/crypto.js';
 import type { Env } from '../src/types.js';
 
 export const sha = (number: number) => number.toString(16).padStart(40, '0');
-export const tooltip = (text = 'original'): Tooltip => ({
+/**
+ * Edited English carries a newer revision than 'original', as the editor's save stamps it: the
+ * Worker refuses an English change that keeps the revision without "No translation impact".
+ */
+export const tooltip = (text = 'original', updatedAt?: string): Tooltip => ({
   hash: 123,
-  text: { en: { text, updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'alice' } },
+  text: {
+    en: {
+      text,
+      updatedAt:
+        updatedAt ?? (text === 'original' ? '2026-10-01T00:00:00Z' : '2026-10-01T00:00:01Z'),
+      updatedBy: 'alice',
+    },
+  },
   associated: [],
 });
 export const config: Permissions = {

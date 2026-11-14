@@ -61,6 +61,8 @@ export interface HistoryEntryProps {
   item?: Item;
   /** Translators restore only their languages; shown as a note. */
   translator: boolean;
+  /** The save marked this tooltip's English change "No translation impact" (TR3 audit line). */
+  noTranslationImpact?: boolean;
   /** Restore is offered only when the page may edit and drafts have loaded. */
   canRestore: boolean;
   /** Published artifacts compare the selected state to its next published state. */
@@ -283,6 +285,14 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         <span className={styles.message}>
           {entry.message.split(/\r?\n/, 1)[0]} <code>{entry.commit.slice(0, 8)}</code>
         </span>
+        {props.noTranslationImpact && (
+          <span
+            className={styles.noImpact}
+            title="Marked at save as having no translation impact: translations stayed current."
+          >
+            English change marked: no translation impact
+          </span>
+        )}
       </button>
       {open &&
         createPortal(

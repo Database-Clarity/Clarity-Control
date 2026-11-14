@@ -12,6 +12,10 @@ export type SaveEnricher = (ctx: {
   item?: Item;
   /** Pinned Compendium source (what the save panel showed); fetched when absent. */
   compendium?: CompendiumData;
+  /** The save's one revision time (ISO); save validation predicted the fallback with it. */
+  now?: string;
+  /** "No translation impact" ticked: English wording changes keep the English revision. */
+  noTranslationImpact?: boolean;
 }) => Promise<Tooltip>;
 
 export const saveEnrichers: SaveEnricher[] = [metadata, bungie, compendiumEnricher];

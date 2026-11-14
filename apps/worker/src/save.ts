@@ -20,7 +20,13 @@ import {
 import { RefRace, type GitHub } from './github.js';
 import { withSandboxPointers } from './sandboxPointers.js';
 import { body, HttpError, json } from './http.js';
-import { checkEdit, permissions, requireAccess } from './permissions.js';
+import {
+  checkEdit,
+  checkEnglishRevision,
+  checkTranslationStamps,
+  permissions,
+  requireAccess,
+} from './permissions.js';
 import type { Identity } from './types.js';
 
 const changeSchema = z
@@ -44,6 +50,9 @@ const saveSchema = z
         'Duplicate tooltip hash',
       ),
     message: z.string().trim().min(1).max(500),
+    // "No translation impact" (TR3): English wording changes keep their English revision.
+    // Sent only when ticked; ignored for saves without such a change (checkEnglishRevision).
+    noTranslationImpact: z.boolean().optional(),
   })
   .strict();
 
@@ -67,6 +76,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
     }[] = [];
     const tooltips: Tooltip[] = [];
     const changed: string[] = [];
+    const kept: number[] = [];
     const generatorAliases = (aliases ??= await loadAliases(github.env, github));
     // One batched read for all current copies: flat subrequests however many tooltips change.
     // While the publisher is the live exporter, a change carrying element-tagged text, `#{name}`,
@@ -124,6 +134,10 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
         continue;
       }
       checkEdit(access, head, merged);
+      // Against the real head, after the merge: what this commit does to the English revision.
+      if (checkEnglishRevision(access, head, merged, input.noTranslationImpact === true) === 'kept')
+        kept.push(merged.hash);
+      checkTranslationStamps(head, merged);
       refuseUnlowerable(merged, await exporterPin(merged), 'saved');
       tooltips.push(merged);
       // Per-tooltip hints avoid attributing another item in a batch to this file.
@@ -148,7 +162,9 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       const commit = await github.commit(
         headCommit,
         Object.fromEntries(tooltips.map((tooltip) => [`tooltips/${tooltip.hash}.json`, tooltip])),
-        `${input.message}\n\nClarity-Changed: ${changed.join(';')}`,
+        // Clarity-Changed stays the final line (History reads it there). The audit line lists the
+        // tooltips whose English change kept its revision: translations were not marked outdated.
+        `${input.message}\n\n${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(',')}\n` : ''}Clarity-Changed: ${changed.join(';')}`,
         user,
       );
       // Explicit body time is readable cross-origin without exposing response headers.
