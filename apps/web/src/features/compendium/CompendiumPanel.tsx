@@ -965,10 +965,14 @@ const PaneContents = memo(function PaneContents({
       </div>
     </RightPane>
   );
+  // The header's entry-specific parts (diff view switch, Link or Relink) as last loaded: a hold
+  // keeps them until the next entry loads, so a flick's passing targets never blink them.
+  const loadedHeader = useRef({ comparison: false, linked: false });
   useLayoutEffect(() => {
     if (!waiting) {
       retainedPane.current = pane;
       hasContent.current = true;
+      loadedHeader.current = { comparison: !!(match || approved), linked: !!link };
     }
   });
   if (!holding) return pane;
@@ -991,17 +995,17 @@ const PaneContents = memo(function PaneContents({
     !!pendingBefore ||
     (!!pendingItem &&
       mayHaveApprovalEvidence(pendingBase.hash, pendingItem.name, pendingItem.categoryId));
-  // While the skeleton shows, the header describes the incoming entry; while the held entry is
-  // still on screen, that entry.
-  const loadingHeader = showSkeleton
-    ? paneHeader(expectComparison, !!pendingLink, true)
-    : paneHeader(!!(match || approved), !!link, true);
+  const loadingHeader = hasContent.current
+    ? paneHeader(loadedHeader.current.comparison, loadedHeader.current.linked, true)
+    : paneHeader(expectComparison, !!pendingLink, true);
+  // The skeleton stands for the route's entry, which can be ahead of the incoming document.
+  const targetItem = data && itemFor(target, data);
   return cloneElement(previous ?? pane, {
     busy: true,
     // The pane's name follows what it shows: the held entry until the skeleton replaces it.
     label:
       showSkeleton || !previous
-        ? `Compendium for ${pendingItem?.name ?? pendingBase.hash}`
+        ? `Compendium for ${targetItem?.name ?? target}`
         : previous.props.label,
     header: loadingHeader,
     children: (

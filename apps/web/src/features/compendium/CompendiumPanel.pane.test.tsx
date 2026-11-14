@@ -351,6 +351,43 @@ describe('Compendium pane', () => {
     expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
   });
 
+  it('keeps the header view switch as last loaded while a flick passes other entries', async () => {
+    skeletonTiming.enabled = true;
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    useCompendiumStore.setState({
+      data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] },
+    } as never);
+    width = 520;
+    const host = await mount();
+    const root = roots.at(-1)!;
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    // The loaded linked entry compares: its roomy header carries the view switch.
+    expect(diffViews(header(host))).toHaveLength(1);
+    const plain = (hash: number) => ({ hash, text: {}, associated: [] }) as unknown as Tooltip;
+    for (const hash of [6, 8, 9]) {
+      await act(async () =>
+        root.render(createElement(CompendiumPanel, { base: plain(hash), stepping: true })),
+      );
+      await tick();
+      await tick();
+      // U-OWN1: passing entries (no link, nothing to compare) never remove it mid-flick.
+      expect(diffViews(header(host))).toHaveLength(1);
+    }
+    expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
+  });
+
   it.each([
     ['its route', 'route'],
     ['the finder target while its route is deferred', 'finder'],
