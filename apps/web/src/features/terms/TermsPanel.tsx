@@ -4,10 +4,15 @@ import { languageLabel } from '../../languageLabels';
 import { Overlay } from '../editor/StatusBar';
 import type { Term } from './termList';
 import styles from './TermsPanel.module.scss';
+import { Popover } from '../../ui/Popover';
+import { TermForm } from './TermForm';
+import { canEditGlossary, ensureGlossary, useGlossaryStore } from '../../stores/glossary';
+import { useAuthStore } from '../../stores/auth';
 
 interface Row {
   term: Term;
   name: string;
+  inGame?: boolean;
 }
 
 /**
@@ -21,15 +26,28 @@ export function TermsPanel({
   canInsert,
   onInsert,
   onClose,
+  missing = [],
 }: {
   terms: readonly Term[];
   lang: Lang;
   canInsert: boolean;
   onInsert(text: string): void;
   onClose(): void;
+  missing?: readonly string[];
 }) {
-  const rows: Row[] = terms.flatMap((term) => term.official.map((name) => ({ term, name })));
+  const rows: Row[] = terms
+    .flatMap((term) => [
+      ...term.official.map((name) => ({ term, name })),
+      ...(term.inGame ?? [])
+        .filter((name) => !term.official.includes(name))
+        .map((name) => ({ term, name, inGame: true })),
+    ])
+    .sort((a, b) => Number(missing.includes(b.term.en)) - Number(missing.includes(a.term.en)));
   const [active, setActive] = useState(0);
+  const [form, setForm] = useState<'add' | 'edit' | null>(null);
+  useAuthStore((state) => state.user);
+  const glossary = useGlossaryStore((state) => state.byLang[lang]);
+  const canEdit = canEditGlossary(lang) && !!glossary?.remote && !glossary.loading;
   const list = useRef<HTMLUListElement>(null);
   const id = useId();
   // After the overlay has noted where focus came from (it returns there on close).
@@ -41,6 +59,11 @@ export function TermsPanel({
     list.current?.querySelector(`[data-row="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [active]);
   const onKeyDown = (event: KeyboardEvent) => {
+    if (canEdit && (event.key.toLowerCase() === 'a' || event.key.toLowerCase() === 'e')) {
+      event.preventDefault();
+      setForm(event.key.toLowerCase() === 'a' ? 'add' : 'edit');
+      return;
+    }
     const move = { ArrowDown: 1, ArrowUp: -1 }[event.key];
     if (move) {
       event.preventDefault();
@@ -57,9 +80,22 @@ export function TermsPanel({
     <Overlay
       id="editor-panel-terms"
       label="Terms"
-      heading={`Terms · in-game names in ${languageLabel(lang)}`}
+      heading={`Terms · ${languageLabel(lang)}`}
       onClose={onClose}
     >
+      {!rows.length && (
+        <p className={styles.message}>
+          No terms in this tooltip yet. Select words in the English text, or add a term here.
+        </p>
+      )}
+      {glossary?.error && (
+        <p role="alert" className={styles.message}>
+          Glossary unavailable.{' '}
+          <button type="button" onClick={() => ensureGlossary(lang, true)}>
+            Retry
+          </button>
+        </p>
+      )}
       <ul
         ref={list}
         className={styles.list}
@@ -77,6 +113,7 @@ export function TermsPanel({
             role="option"
             aria-selected={index === active}
             className={styles.row}
+            data-missing={(!row.inGame && missing.includes(row.term.en)) || undefined}
             onPointerMove={() => setActive(index)}
             // The whole row inserts (one easy tap on a phone); Insert shows what a tap does.
             onMouseDown={(event) => event.preventDefault()}
@@ -84,8 +121,12 @@ export function TermsPanel({
           >
             <span className={styles.english} lang="en">
               {row.term.en}
+              {row.inGame && <small> · In game</small>}
             </span>
-            <strong className={styles.name}>{row.name}</strong>
+            <strong className={styles.name}>
+              {row.name}
+              {!row.inGame && missing.includes(row.term.en) && <small> · Missing</small>}
+            </strong>
             {canInsert && (
               <button
                 type="button"
@@ -99,6 +140,40 @@ export function TermsPanel({
           </li>
         ))}
       </ul>
+      {canEdit && (
+        <div className={styles.actions}>
+          <Popover
+            label="Add glossary term"
+            trigger="Add term"
+            width={340}
+            open={form === 'add'}
+            onOpenChange={(open) => setForm(open ? 'add' : null)}
+            contain
+          >
+            {(close) => <TermForm lang={lang} onClose={close} />}
+          </Popover>
+          {rows[active] && (
+            <Popover
+              label="Edit glossary term"
+              trigger={rows[active].term.glossary ? 'Edit term' : 'Add entry'}
+              width={340}
+              open={form === 'edit'}
+              onOpenChange={(open) => setForm(open ? 'edit' : null)}
+              contain
+            >
+              {(close) => (
+                <TermForm
+                  key={rows[active].term.en}
+                  lang={lang}
+                  entry={rows[active].term.glossary}
+                  english={rows[active].term.en}
+                  onClose={close}
+                />
+              )}
+            </Popover>
+          )}
+        </div>
+      )}
       <p className={styles.hint}>
         <kbd>↑</kbd> <kbd>↓</kbd> move
         {canInsert && (

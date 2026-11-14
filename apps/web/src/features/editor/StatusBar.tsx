@@ -179,7 +179,7 @@ export function StatusBar({
    * Translate mode in a language the account may translate: the tooltip's terms (in-game names),
    * listed by the Terms item (Ctrl+K, then G). Undefined elsewhere: no item.
    */
-  terms?: { count: number; loading: boolean };
+  terms?: { count: number; loading: boolean; missing?: number };
   line: number;
   column: number;
   preview?: PreviewStatus;
@@ -222,7 +222,7 @@ export function StatusBar({
       // The parity label's width changes only with its digit count and "differs"/"differ": typing a
       // number can change the count on every key, and each refit lays the bar out again.
       parityCount <= 1 ? parityCount : `n${String(parityCount).length}`,
-      terms === undefined ? '' : terms.count,
+      terms === undefined ? '' : `${terms.count}:${terms.missing ?? 0}`,
       conflicts?.count ?? 0,
       rawView !== undefined && Boolean(onRawView),
       Boolean(onSuggest),
@@ -311,22 +311,25 @@ export function StatusBar({
           type="button"
           className={styles.item}
           data-status-terms
-          disabled={terms.count === 0 && panel !== 'terms'}
+          disabled={terms.loading && terms.count === 0 && panel !== 'terms'}
+          data-severity={terms.missing ? 'warning' : undefined}
           aria-expanded={panel === 'terms'}
           aria-controls="editor-panel-terms"
           aria-keyshortcuts="Control+K G"
           aria-label={
             terms.loading
-              ? 'Terms: loading in-game names'
-              : `${terms.count} ${terms.count === 1 ? 'term' : 'terms'} with in-game names`
+              ? 'Terms: loading'
+              : terms.missing
+                ? `${terms.missing} ${terms.missing === 1 ? 'term missing' : 'terms missing'} from this translation`
+                : `${terms.count} ${terms.count === 1 ? 'term' : 'terms'} in this English`
           }
           data-mark="≡"
           title={
             terms.loading
-              ? 'Loading the in-game names for this language'
+              ? 'Loading terms for this language'
               : terms.count
-                ? 'In-game names for the terms in this English, to insert (Ctrl+K, then G)'
-                : 'No terms with in-game names in this English'
+                ? 'Agreed terms and in-game names to insert (Ctrl+K, then G)'
+                : 'No terms in this English yet; open Terms to add one'
           }
           onMouseDown={(event) => {
             // With the caret in the text the caret stays there; the list takes the keys.
@@ -338,7 +341,15 @@ export function StatusBar({
           }}
           onClick={() => toggle('terms')}
         >
-          {terms.count > 0 ? (
+          {terms.missing ? (
+            <span>
+              ⚠ {terms.missing}
+              <span className={styles.word}>
+                {' '}
+                {terms.missing === 1 ? 'term missing' : 'terms missing'}
+              </span>
+            </span>
+          ) : terms.count > 0 ? (
             <span>
               {terms.count}
               <span className={styles.word}> {terms.count === 1 ? 'term' : 'terms'}</span>

@@ -3,12 +3,17 @@ import { createPortal } from 'react-dom';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { applyPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
+import { When } from '../../ui/When';
 import { requestTermMatches } from '../editor/diagnosticWorker';
 import { useShowEditor } from '../tooltip/VariantWorkspace';
 import type { Term } from './termList';
 import { useTermList } from './useTermList';
 import { insertAtCaret, translationView } from './insert';
 import styles from './TermLayer.module.scss';
+import { canEditGlossary, useGlossaryStore } from '../../stores/glossary';
+import { useAuthStore } from '../../stores/auth';
+import { TermForm } from './TermForm';
+import { missingFor, useTermUsage } from './usage';
 
 /** The open term's background: a CSS highlight, registered only while a popover is open. */
 const openName = 'clarity-term-open';
@@ -24,7 +29,12 @@ const highlightsSupported = () =>
  * registered CSS highlight makes Chrome repaint the marked text and the page on every DOM change
  * anywhere, measured at about 1.8 ms per key). Returns how many marks it drew.
  */
-function drawMarks(host: HTMLElement, overlay: HTMLElement, marks: Mark[]) {
+function drawMarks(
+  host: HTMLElement,
+  overlay: HTMLElement,
+  marks: Mark[],
+  missing: readonly string[],
+) {
   const origin = host.getBoundingClientRect();
   const boxes = document.createDocumentFragment();
   for (const mark of marks)
@@ -32,6 +42,8 @@ function drawMarks(host: HTMLElement, overlay: HTMLElement, marks: Mark[]) {
       if (rect.width < 1 || rect.height < 1) continue;
       const box = document.createElement('span');
       box.className = styles.mark!;
+      box.dataset.termEn = mark.term.en;
+      if (missing.includes(mark.term.en)) box.dataset.missing = '';
       box.style.left = `${rect.left - origin.left}px`;
       box.style.top = `${rect.top - origin.top}px`;
       box.style.width = `${rect.width}px`;
@@ -62,6 +74,7 @@ function readText(root: HTMLElement) {
   const starts: number[] = [];
   let text = '';
   let block: Element | null = null;
+  let parent: Element | null = null;
   const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     // A title's body (role="tooltip") is not on screen until its own popover opens.
     acceptNode: (node) =>
@@ -72,8 +85,9 @@ function readText(root: HTMLElement) {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const owner = node.parentElement?.closest('div, p, li, td, th') ?? null;
     // Separate lines and cells never join into one word.
-    if (block !== null && owner !== block) text += '\n';
+    if (block !== null && (owner !== block || node.parentElement !== parent)) text += '\n';
     block = owner;
+    parent = node.parentElement;
     nodes.push(node as Text);
     starts.push(text.length);
     text += (node as Text).data;
@@ -146,6 +160,17 @@ export function TermLayer({
   const canInsertRef = useRef(canInsert);
   canInsertRef.current = canInsert;
   const list = useTermList(lang, enabled);
+  const missing = useTermUsage((state) => missingFor(state.documents, hash, lang));
+  const missingRef = useRef(missing);
+  missingRef.current = missing;
+  useLayoutEffect(() => {
+    for (const box of overlay.current?.children ?? []) {
+      const element = box as HTMLElement;
+      if (missing.includes(element.dataset.termEn ?? '')) element.dataset.missing = '';
+      else delete element.dataset.missing;
+    }
+  }, [missing]);
+  useAuthStore((state) => state.user);
   const spanSourceRef = useRef(spanSource);
   spanSourceRef.current = spanSource;
   const hasSpans = spanSource !== undefined;
@@ -172,7 +197,7 @@ export function TermLayer({
     let generation = 0;
     let frame = 0;
     let redraw = 0;
-    const draw = () => drawMarks(frameHost, layer, marks.current);
+    const draw = () => drawMarks(frameHost, layer, marks.current, missingRef.current);
     const build = () => {
       const mine = ++generation;
       frame = 0;
@@ -324,7 +349,23 @@ export function TermLayer({
   const insert = (text: string) => insertRef.current(text);
 
   return (
-    <div ref={host} className={styles.layer}>
+    <div
+      ref={host}
+      className={styles.layer}
+      onPointerUp={() => {
+        if (!enabled || !canEditGlossary(lang)) return;
+        const selection = window.getSelection();
+        if (!selection?.rangeCount || selection.isCollapsed) return;
+        const range = selection.getRangeAt(0);
+        const en = selection.toString().trim();
+        if (!content.current?.contains(range.commonAncestorContainer) || !en || en.length > 60)
+          return;
+        setOpen({
+          mark: { range: range.cloneRange(), term: { en, kind: 'name', official: [] } },
+          pinned: true,
+        });
+      }}
+    >
       <div ref={content} className={styles.content}>
         {children}
       </div>
@@ -332,6 +373,7 @@ export function TermLayer({
       {open && (
         <TermPopover
           term={open.mark.term}
+          missing={missing.includes(open.mark.term.en)}
           anchor={open.mark.range}
           lang={lang}
           canInsert={canInsert}
@@ -347,6 +389,7 @@ export function TermLayer({
 
 export function TermPopover({
   term,
+  missing = false,
   anchor,
   lang,
   canInsert,
@@ -356,6 +399,7 @@ export function TermPopover({
   onPointerLeave,
 }: {
   term: Term;
+  missing?: boolean;
   anchor: Range;
   lang: Lang;
   canInsert: boolean;
@@ -365,6 +409,19 @@ export function TermPopover({
   onPointerLeave?(): void;
 }) {
   const surface = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState(false);
+  useAuthStore((state) => state.user);
+  const ready = useGlossaryStore(
+    (state) => !!state.byLang[lang]?.remote && !state.byLang[lang]?.loading,
+  );
+  const canEdit = ready && canEditGlossary(lang);
+  const kind = term.glossary
+    ? 'Agreed term'
+    : !term.official.length
+      ? 'New term'
+      : term.kind === 'keyword'
+        ? 'Keyword'
+        : 'In game';
   const close = useRef(onClose);
   close.current = onClose;
   useLayoutEffect(() => {
@@ -412,7 +469,7 @@ export function TermPopover({
       window.removeEventListener('scroll', schedule, true);
       window.removeEventListener('resize', schedule);
     };
-  }, [anchor]);
+  }, [anchor, editing]);
   // Esc, or a press anywhere else, closes it.
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -448,35 +505,75 @@ export function TermPopover({
       ref={surface}
       className={styles.popover}
       role="dialog"
-      aria-label={`${term.en}: in-game name`}
+      aria-label={`${term.en}: ${kind.toLowerCase()}`}
       data-term-popover
       onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
+      onPointerLeave={editing ? undefined : onPointerLeave}
     >
       <div className={styles.head}>
-        <span className={styles.kind}>{term.kind === 'keyword' ? 'Keyword' : 'In game'}</span>
+        <span className={styles.kind}>{kind}</span>
         <span className={styles.english} lang="en">
           {term.en}
         </span>
         <span className={styles.language}>{languageLabel(lang)}</span>
       </div>
-      {term.official.map((name) => (
-        <div key={name} className={styles.row}>
-          <strong className={styles.name}>{name}</strong>
-          {canInsert && (
-            <button
-              type="button"
-              className={styles.insert}
-              title="Insert at the caret in the translation"
-              // The editor's selection is what Insert replaces: pressing must not move focus first.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onInsert(name)}
-            >
-              Insert
-            </button>
+      {editing && canEdit ? (
+        <TermForm lang={lang} entry={term.glossary} english={term.en} onClose={onClose} />
+      ) : (
+        <>
+          {term.official.map((name) => (
+            <div key={name} className={styles.row}>
+              <strong className={styles.name}>{name}</strong>
+              {canInsert && (
+                <button
+                  type="button"
+                  className={styles.insert}
+                  title="Insert at the caret in the translation"
+                  // The editor's selection is what Insert replaces: pressing must not move focus first.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onInsert(name)}
+                >
+                  Insert
+                </button>
+              )}
+            </div>
+          ))}
+          {term.inGame
+            ?.filter((name) => name !== term.glossary?.term)
+            .map((name) => (
+              <div className={styles.row} key={name}>
+                <span className={styles.name}>In game: {name}</span>
+                {canInsert && (
+                  <button
+                    type="button"
+                    className={styles.insert}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onInsert(name)}
+                  >
+                    Insert
+                  </button>
+                )}
+              </div>
+            ))}
+          {term.glossary?.note && <p>{term.glossary.note}</p>}
+          {missing && <p className={styles.warning}>Not in this translation yet.</p>}
+          {(term.glossary || canEdit) && (
+            <div className={styles.footer}>
+              {term.glossary && (
+                <small>
+                  {term.glossary.updatedBy} ·{' '}
+                  <When value={term.glossary.updatedAt} />
+                </small>
+              )}
+              {canEdit && (
+                <button type="button" className={styles.edit} onClick={() => setEditing(true)}>
+                  {term.glossary ? 'Edit' : term.official.length ? 'Add entry' : 'Add term'}
+                </button>
+              )}
+            </div>
           )}
-        </div>
-      ))}
+        </>
+      )}
     </div>,
     document.body,
   );

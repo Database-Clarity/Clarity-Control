@@ -6,6 +6,7 @@ import { managePermissions, history } from './admin.js';
 import { compendiumRefresh } from './compendium.js';
 import { exportsRoute } from './exports.js';
 import { GitHub } from './github.js';
+import { glossaryRoute } from './glossary.js';
 import { HttpError, json } from './http.js';
 import { partnerProjects, permissions, roleOf } from './permissions.js';
 import { publish, publishKey, publishStatus, publishKick } from './publish.js';
@@ -31,6 +32,9 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (isBatchPath(path)) refuseWhenOff();
   const user = await identity(request, env);
   const github = new GitHub(env);
+  const glossary = /^\/glossary\/([^/]+)$/.exec(path);
+  if (glossary && ['GET', 'POST'].includes(request.method))
+    return glossaryRoute(request, github, user, glossary[1]);
   if (isBatchPath(path)) return batchesRoute(request, path, github, user);
   if (request.method === 'POST' && path === '/publish') return publish(request, github, user);
   if (request.method === 'GET' && path === '/publish/status')

@@ -55,6 +55,7 @@ let failed = false;
 let sequence = 0;
 const jobs = new Map<number, { resolve(result: never): void; reject(error: Error): void }>();
 const results = new WeakMap<MarkupGlobals, Map<string, Promise<DiagnosticResult>>>();
+const sentChecks = new Set<string>();
 
 export const hasDiagnosticWorker = () => !failed && typeof Worker !== 'undefined';
 
@@ -62,6 +63,7 @@ function getWorker() {
   if (!hasDiagnosticWorker()) throw new Error('Markup worker unavailable');
   if (worker) return worker;
   worker = new Worker(new URL('./diagnostics.worker.ts', import.meta.url), { type: 'module' });
+  sentChecks.clear();
   worker.onmessage = (
     event: MessageEvent<{ id: number; result?: DiagnosticResult | TermsReply; error?: string }>,
   ) => {
@@ -91,6 +93,7 @@ export function requestDiagnostics(input: DiagnosticInput): Promise<DiagnosticRe
     input.requireEnglish,
     input.selfHash,
     input.sourceText,
+    input.termCheck?.id,
   ]);
   const cached = cache.get(key);
   if (cached) return cached;
@@ -99,7 +102,15 @@ export function requestDiagnostics(input: DiagnosticInput): Promise<DiagnosticRe
     try {
       const target = getWorker();
       jobs.set(id, { resolve, reject });
-      target.postMessage({ id, input: { ...input, globals } });
+      let termCheck = input.termCheck;
+      if (termCheck) {
+        if (sentChecks.has(termCheck.id)) termCheck = { id: termCheck.id };
+        else {
+          if (sentChecks.size >= 32) sentChecks.delete(sentChecks.values().next().value!);
+          sentChecks.add(termCheck.id);
+        }
+      }
+      target.postMessage({ id, input: { ...input, globals, termCheck } });
     } catch (error) {
       jobs.delete(id);
       failed = true;
