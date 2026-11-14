@@ -412,10 +412,10 @@ export function ClarityEditor({
   const [suggestion, setSuggestion] = useState<SuggestSnapshot | null>(null);
   const onSuggest = useRef((snapshot: SuggestSnapshot | null) => setSuggestion(snapshot));
   const [chip, setChip] = useState<Chip | null>(null);
-  const acceptKey = useSettingsStore((state) => state.device.suggestAccept);
+  const acceptKey = useSettingsStore((state) => state.settings.suggestAccept);
   const acceptKeyRef = useRef(acceptKey);
   acceptKeyRef.current = acceptKey;
-  const symbolReveal = useSettingsStore((state) => state.device.symbolReveal);
+  const symbolReveal = useSettingsStore((state) => state.settings.symbolReveal);
   const revealRef = useRef(symbolReveal);
   revealRef.current = symbolReveal;
   const rawRef = useRef(false);

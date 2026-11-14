@@ -181,7 +181,7 @@ beforeEach(() => {
   useAuthStore.setState({ user: null, loading: false });
   usePreviewReviewStore.setState({ scope: null, entries: {}, prompt: null });
   useSettingsStore.getState().setPane('editor:left', { width: 336, collapsed: true });
-  useSettingsStore.getState().updateDevice({ worklistStepping: true });
+  useSettingsStore.getState().update({ worklistStepping: true });
   resetWorkQueues();
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
@@ -203,7 +203,7 @@ afterEach(async () => {
   router.dispose();
   disposeSteppingActivity();
   resetWorkQueues();
-  useSettingsStore.getState().updateDevice({ worklistStepping: true });
+  useSettingsStore.getState().update({ worklistStepping: true });
   useSettingsStore.getState().setPane('editor:left', null);
   host.remove();
   delete (window as { matchMedia?: unknown }).matchMedia;
@@ -278,14 +278,14 @@ describe('worklist stepping', () => {
 
   it('steps the finder list when the device setting is off (the queue pauses, as before)', async () => {
     await mount();
-    await act(async () => useSettingsStore.getState().updateDevice({ worklistStepping: false }));
+    await act(async () => useSettingsStore.getState().update({ worklistStepping: false }));
     await shiftWheel();
     expect(route()).toBe('/t/102');
     expect(visitKey()).toBeUndefined();
     expect(host.querySelector('[data-queue][data-paused]')).not.toBeNull();
     await rest();
     // Flipping it back on mid-queue: Resume returns to the queue, and stepping follows it again.
-    await act(async () => useSettingsStore.getState().updateDevice({ worklistStepping: true }));
+    await act(async () => useSettingsStore.getState().update({ worklistStepping: true }));
     await act(async () =>
       host.querySelector<HTMLAnchorElement>('[data-queue][data-paused] a')!.click(),
     );
@@ -350,7 +350,7 @@ describe('worklist stepping', () => {
     await mount();
     await shiftWheel();
     expect(route()).toBe('/t/104');
-    await act(async () => useSettingsStore.getState().updateDevice({ worklistStepping: false }));
+    await act(async () => useSettingsStore.getState().update({ worklistStepping: false }));
     // The same gesture, now list steps back over the queue's origin.
     await shiftWheel(-100);
     await shiftWheel(-100);

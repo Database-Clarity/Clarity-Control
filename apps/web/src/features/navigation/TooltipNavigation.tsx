@@ -450,11 +450,11 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const [allCategories, setAllCategories] = useState(false);
   // Widens a weapon's (or an activity's) list to every group of the category.
   const [allGroups, setAllGroups] = useState(false);
-  const swapWheel = useSettingsStore((state) => state.device.finderWheel) === 'groups';
+  const swapWheel = useSettingsStore((state) => state.settings.finderWheel) === 'groups';
   const swapWheelRef = useRef(swapWheel);
   swapWheelRef.current = swapWheel;
   // Worklist stepping: with a Work-through queue active, the stepping gestures step the queue.
-  const worklistStepping = useSettingsStore((state) => state.device.worklistStepping);
+  const worklistStepping = useSettingsStore((state) => state.settings.worklistStepping);
   const worklistSteppingRef = useRef(worklistStepping);
   worklistSteppingRef.current = worklistStepping;
   // "q" + whether the queue can step back and forward; '' when the gestures step the list.
