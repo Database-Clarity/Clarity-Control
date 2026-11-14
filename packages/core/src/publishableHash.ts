@@ -1,13 +1,17 @@
 import { incomingAliases, type Aliases } from './aliases.js';
 import { stableStringify } from './contentHash.js';
 import { usesEnglishFallback } from './exportLegacy.js';
+import { lowerDelimitedMarkup } from './markup/braces.js';
 import { tooltipSchema, type Tooltip } from './schemas.js';
 
 /**
  * Digest of what a push would publish: the text each language is exported with (so a stale
  * translation that falls back to English hashes as the English text), which languages fall back
  * (so a fallback flip invalidates a review even if the words happen to match), associations and
- * the custom definition. When `aliases` are given, the aliases that resolve to this tooltip are
+ * the custom definition. Text is hashed in its legacy form (lowerDelimitedMarkup, which every
+ * exporter reads), so a spelling-only change such as `#e` -> `<enhanced/>` or `#d` -> `#{d}` is not
+ * a pending change; on text without `#{name}` or `<enhanced/>` that form is the text itself, so
+ * every digest recorded before the delimited forms existed still matches. When `aliases` are given, the aliases that resolve to this tooltip are
  * included too (a push also writes their stubs). Tooltips with neither a fallback nor aliases hash
  * exactly as before.
  */
@@ -23,7 +27,7 @@ export async function publishableHash(tooltip: Tooltip, aliases: Aliases = {}): 
       text: Object.fromEntries(
         Object.entries(parsed.text).map(([language, value]) => [
           language,
-          fallback.includes(language) && english ? english.text : value.text,
+          lowerDelimitedMarkup(fallback.includes(language) && english ? english.text : value.text),
         ]),
       ),
       associated: parsed.associated,

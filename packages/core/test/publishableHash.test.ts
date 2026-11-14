@@ -218,3 +218,20 @@ test('digesting thousands of tooltips against thousands of aliases stays linear'
   // A scan of every alias per tooltip was ~60x the plain cost; the index adds a small constant.
   expect(indexed).toBeLessThan(plain * 15 + 300);
 });
+
+test('hashes the legacy form of the text: delimited spellings are not a change', async () => {
+  const base = tooltip();
+  const withText = (text: string) => ({ ...base, text: { en: { ...base.text.en!, text } } });
+  const plain = await publishableHash(withText('#e Deals #d damage.'));
+  expect(await publishableHash(withText('<enhanced/> Deals #{d} damage.'))).toBe(plain);
+  // Text without delimited forms hashes exactly as before (the raw text is the legacy form).
+  expect(plain).toBe(
+    createHash('sha256')
+      .update(stableStringify({ text: { en: '#e Deals #d damage.' }, associated: [] }))
+      .digest('hex'),
+  );
+  // A form followed by a word gets a holder variable: a different legacy text, so a change.
+  expect(await publishableHash(withText('<enhanced/>2 Stacks'))).not.toBe(
+    await publishableHash(withText('#e2 Stacks')),
+  );
+});
