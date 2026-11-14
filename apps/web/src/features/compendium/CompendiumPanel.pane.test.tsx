@@ -481,6 +481,47 @@ describe('Compendium pane', () => {
     expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
   });
 
+  it('shows a single step entry whose handoff frame is the skeleton grace frame (no skeleton)', async () => {
+    skeletonTiming.enabled = true;
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const next = { hash: 9, text: {}, associated: [] } as unknown as Tooltip;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: true, target: 9 })),
+    );
+    for (let index = 0; index < 4; index++) await tick();
+    // The step settles while its match reply is a frame away.
+    matchState.loading = true;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: false })),
+    );
+    await tick();
+    matchState.loading = false;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: false })),
+    );
+    // Its frame is the one where a grace counted from the settle showed the skeleton first
+    // (which then held its 200 ms minimum, although the entry committed before the paint).
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('9');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+  });
+
   it('retains the mounted pane while the skeleton is deferred and commits the latest entry', async () => {
     const frames = new Map<number, FrameRequestCallback>();
     let serial = 0;
@@ -506,9 +547,8 @@ describe('Compendium pane', () => {
         root.render(createElement(CompendiumPanel, { base: { ...linked, hash }, stepping: true })),
       );
       expect(host.querySelector('[data-scale]')).toBe(content);
-      expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe(
-        `Compendium for ${hash}`,
-      );
+      // Its name stays with the held entry it still shows (U26), not the next one.
+      expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
       expect(content.getAttribute('data-match-hash')).toBe('5');
       expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
       expect(content.hasAttribute('inert')).toBe(true);

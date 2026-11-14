@@ -19,7 +19,7 @@ import {
   type Tooltip,
   type CompendiumCell,
 } from '@clarity/core';
-import { approvalEvidence } from './approvalEvidence';
+import { approvalEvidence, mayHaveApprovalEvidence } from './approvalEvidence';
 import { usePreparedPaneDiff } from './usePreparedPaneDiff';
 import { CompendiumPaneSkeleton, rememberPaneSkeleton } from './CompendiumPaneSkeleton';
 import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compendiumDiffCache';
@@ -182,7 +182,10 @@ function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
   );
 }
 
-/** Let the editor finish its frame's DOM reads before replacing the rich pane. */
+/**
+ * Let the editor finish its frame's DOM reads before replacing the rich pane. Also returns
+ * whether the handoff frame for `base` is scheduled: from then on the pane may render.
+ */
 function usePaneFrame(
   base: Tooltip,
   prepare: (signal: AbortSignal) => Promise<void> | false | undefined,
@@ -190,12 +193,15 @@ function usePaneFrame(
   stepping: boolean,
 ) {
   const [ready, setReady] = useState(base);
+  const [scheduledFor, setScheduledFor] = useState<Tooltip>();
   const committed = useRef(base);
   const frame = useRef<number>();
   const generation = useRef(0);
   // A frame callback can fire just before a newer navigation render. Its queued
   // update must not make that superseded tooltip visible, even for one commit.
   const displayed = !stepping && ready === base ? base : committed.current;
+  // A later visit to the same entry schedules its own frame again.
+  if (displayed === base && scheduledFor) setScheduledFor(undefined);
   useLayoutEffect(() => {
     committed.current = displayed;
   }, [displayed]);
@@ -225,6 +231,7 @@ function usePaneFrame(
         else flushSync(() => setReady(base));
       });
       frame.current = scheduled;
+      setScheduledFor(base);
     };
     const preparation = prepare(controller.signal);
     if (preparation) void preparation.then(schedule, schedule);
@@ -235,7 +242,7 @@ function usePaneFrame(
       if (frame.current === scheduled) frame.current = undefined;
     };
   }, [base, displayed, prepare, concurrent, stepping]);
-  return displayed;
+  return [displayed, scheduledFor === base] as const;
 }
 
 export function CompendiumPanel({
@@ -342,7 +349,7 @@ export function CompendiumPanel({
     },
     [awaitingMatch, comparison, diffMode, stepping],
   );
-  const displayed = usePaneFrame(
+  const [displayed, handoffScheduled] = usePaneFrame(
     base,
     prepare,
     !!comparison && !sameCell(comparison.before, comparison.after),
@@ -377,6 +384,7 @@ export function CompendiumPanel({
     <PaneContents
       base={displayed}
       pending={displayed !== base}
+      handoffScheduled={handoffScheduled}
       stepping={stepping}
       pendingBase={incomingBase}
       target={target ?? incomingBase.hash}
@@ -388,6 +396,7 @@ export function CompendiumPanel({
           : incomingLink
       }
       pendingDraft={!!drafts[incomingBase.hash]?.next.compendium}
+      pendingBefore={!stepping ? comparison?.before : undefined}
       pendingCell={!stepping ? (comparison?.after ?? incomingMatch?.row.cell) : undefined}
       link={retainedLink.current.value}
       draft={!!draft && !!link}
@@ -405,11 +414,13 @@ export function CompendiumPanel({
 const PaneContents = memo(function PaneContents({
   base,
   pending: navigating,
+  handoffScheduled,
   stepping,
   pendingBase,
   target,
   pendingLink,
   pendingDraft,
+  pendingBefore,
   pendingCell,
   link,
   draft,
@@ -421,11 +432,14 @@ const PaneContents = memo(function PaneContents({
 }: {
   base: Tooltip;
   pending: boolean;
+  /** The pane's frame for the incoming entry is scheduled (its preparation is done). */
+  handoffScheduled: boolean;
   stepping: boolean;
   pendingBase: Tooltip;
   target: number;
   pendingLink: Tooltip['compendium'];
   pendingDraft: boolean;
+  pendingBefore?: CompendiumCell;
   pendingCell?: CompendiumCell;
   link: Tooltip['compendium'];
   draft: boolean;
@@ -575,9 +589,21 @@ const PaneContents = memo(function PaneContents({
   const skeletonBurst = useRef<Burst>();
   if (burst.current?.moved) skeletonBurst.current ??= burst.current;
   if (skeletonBurst.current) skeletonBurst.current.clock ??= { holders: new Set() };
+  // After one step the pane may render once its handoff frame is scheduled (match and diff
+  // prepared). Counted only from the step's end, the skeleton's two frames ran ahead of the
+  // pane's own frame callback in the same frame, so a pane that committed before that frame's
+  // paint still got a skeleton and its 200 ms minimum. Until the skeleton shows, scheduling the
+  // handoff restarts its grace (a new identity), so the pane's frame comes first.
+  const shown = useRef(false);
+  const stepIdentity = useRef({ target, scheduled: handoffScheduled });
+  if (
+    stepIdentity.current.target !== target ||
+    (!shown.current && stepIdentity.current.scheduled !== handoffScheduled)
+  )
+    stepIdentity.current = { target, scheduled: handoffScheduled };
   const showSkeleton = useSkeletonVisible(
     waiting && (!stepping || !!burst.current?.moved || !hasContent.current),
-    skeletonBurst.current ?? target,
+    skeletonBurst.current ?? stepIdentity.current,
     hasContent.current,
     skeletonBurst.current?.clock,
   );
@@ -585,7 +611,8 @@ const PaneContents = memo(function PaneContents({
   const holding = waiting || showSkeleton;
   useLayoutEffect(() => {
     if (!holding) skeletonBurst.current = undefined;
-  }, [holding]);
+    shown.current = showSkeleton;
+  }, [holding, showSkeleton]);
   useLayoutEffect(() => {
     if (stepping) wasStepping.current = true;
     else if (!waiting) wasStepping.current = false;
@@ -956,9 +983,15 @@ const PaneContents = memo(function PaneContents({
   const previous = retainedPane.current;
   const oldContent = previous?.props.children;
   const pendingItem = data && itemFor(pendingBase.hash, data);
+  // A matched entry with approval evidence compares like a link: reserve its switch and rows.
+  const expectComparison =
+    !!pendingLink ||
+    !!pendingBefore ||
+    (!!pendingItem &&
+      mayHaveApprovalEvidence(pendingBase.hash, pendingItem.name, pendingItem.categoryId));
   const loadingHeader = (
     <RightPaneHeader title="Compendium">
-      {pendingLink && roomy && (
+      {expectComparison && roomy && (
         <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
       )}
       {canEdit && (
@@ -972,7 +1005,11 @@ const PaneContents = memo(function PaneContents({
   );
   return cloneElement(previous ?? pane, {
     busy: true,
-    label: `Compendium for ${pendingItem?.name ?? pendingBase.hash}`,
+    // The pane's name follows what it shows: the held entry until the skeleton replaces it.
+    label:
+      showSkeleton || !previous
+        ? `Compendium for ${pendingItem?.name ?? pendingBase.hash}`
+        : previous.props.label,
     header: loadingHeader,
     children: (
       <>
@@ -987,7 +1024,9 @@ const PaneContents = memo(function PaneContents({
             base={pendingBase}
             link={pendingLink}
             draft={pendingDraft}
+            before={pendingBefore}
             after={pendingCell}
+            expectComparison={expectComparison}
             sourceFetchedAt={compendium?.fetchedAt}
             width={width}
             scale={scale}
