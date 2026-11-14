@@ -90,7 +90,9 @@ export function loadingWorkspace({
         </section>
       }
       preview={column ? null : <div className={styles.inlinePreview}>{preview}</div>}
-      compendium={!readOnly && user?.role !== 'translator' ? pane('Compendium') : null}
+      compendium={
+        !readOnly && (user?.role !== 'translator' || lang !== 'en') ? pane('Compendium') : null
+      }
       reports={
         !readOnly &&
         hash > 3 &&

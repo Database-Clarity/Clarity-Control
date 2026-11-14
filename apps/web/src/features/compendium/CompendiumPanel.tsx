@@ -26,7 +26,7 @@ import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compend
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { compendiumScales, useSettingsStore } from '../../stores/settings';
+import { useSettingsStore } from '../../stores/settings';
 import { apiUrl } from '../../services/api';
 import { reviewSaveChanges, useSaveState } from '../../services/save/state';
 import { canonicalHash, itemFor } from '../navigation/catalog';
@@ -38,6 +38,7 @@ import {
 } from './CompendiumDiff';
 import { RichCell } from './RichCell';
 import { SheetCell, SheetColoursToggle } from './sheetSurface';
+import { ScaleControl } from './ScaleControl';
 import { LinkPicker, openLinkPickerSoon } from './LinkPicker';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
@@ -150,31 +151,6 @@ function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep():
     <div ref={attach} className={styles.picker} data-inline-link-picker>
       {children}
     </div>
-  );
-}
-
-/** Compendium zoom (70–150 %), kept on this device: − / value / +. */
-function ScaleControl() {
-  const scale = useSettingsStore((state) => state.device.compendiumScale);
-  const updateDevice = useSettingsStore((state) => state.updateDevice);
-  const index = Math.max(0, compendiumScales.indexOf(scale as (typeof compendiumScales)[number]));
-  const step = (by: number) =>
-    updateDevice({ compendiumScale: compendiumScales[index + by] ?? scale });
-  return (
-    <span className={styles.scale} role="group" aria-label="Compendium zoom">
-      <button type="button" aria-label="Smaller" disabled={index === 0} onClick={() => step(-1)}>
-        −
-      </button>
-      <output aria-live="polite">{scale}%</output>
-      <button
-        type="button"
-        aria-label="Larger"
-        disabled={index === compendiumScales.length - 1}
-        onClick={() => step(1)}
-      >
-        +
-      </button>
-    </span>
   );
 }
 
