@@ -127,7 +127,8 @@ function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep():
       if (
         owner.activeElement !== owner.body &&
         owner.activeElement?.isConnected &&
-        !owner.activeElement.matches(':disabled') &&
+        // The header's Link stays painted while the entry is pending, but takes no clicks.
+        !owner.activeElement.matches(':disabled, [aria-disabled="true"]') &&
         !owner.activeElement.closest('[hidden], [inert]')
       )
         return;
@@ -153,7 +154,7 @@ function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep():
 }
 
 /** Compendium zoom (70–150 %), kept on this device: − / value / +. */
-function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
+function ScaleControl() {
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const updateDevice = useSettingsStore((state) => state.updateDevice);
   const index = Math.max(0, compendiumScales.indexOf(scale as (typeof compendiumScales)[number]));
@@ -161,19 +162,14 @@ function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
     updateDevice({ compendiumScale: compendiumScales[index + by] ?? scale });
   return (
     <span className={styles.scale} role="group" aria-label="Compendium zoom">
-      <button
-        type="button"
-        aria-label="Smaller"
-        disabled={disabled || index === 0}
-        onClick={() => step(-1)}
-      >
+      <button type="button" aria-label="Smaller" disabled={index === 0} onClick={() => step(-1)}>
         −
       </button>
       <output aria-live="polite">{scale}%</output>
       <button
         type="button"
         aria-label="Larger"
-        disabled={disabled || index === compendiumScales.length - 1}
+        disabled={index === compendiumScales.length - 1}
         onClick={() => step(1)}
       >
         +
@@ -630,50 +626,56 @@ const PaneContents = memo(function PaneContents({
   }, [waiting, base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter]);
 
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
+  // One header for the loaded and the loading pane, so its controls stay painted and unchanged
+  // through every entry switch (U-OWN1). Sheet colours, zoom, and the diff view are device
+  // settings and never disable; Link keeps its look and only ignores clicks while the entry is
+  // pending (`locked`), since it acts on the entry.
+  const paneHeader = (comparison: boolean, linked: boolean, locked: boolean) => (
+    <RightPaneHeader title="Compendium">
+      {comparison && roomy && diffToggle}
+      {canEdit && (
+        <button
+          type="button"
+          className={styles.headerButton}
+          aria-disabled={locked || undefined}
+          aria-pressed={picking}
+          aria-label={picking ? 'Close picker' : linked ? 'Pick other row' : 'Link a row'}
+          onClick={() => {
+            if (locked) return;
+            // A second click before the picker commits cancels the open, as Close would.
+            if (cancelOpen.current) {
+              cancelOpen.current();
+              cancelOpen.current = undefined;
+            } else if (picking) setPicking(false);
+            else {
+              let opened = false;
+              const cancel = openLinkPickerSoon(
+                item?.categoryId ?? 'other',
+                item?.name ?? base.custom?.name ?? '',
+                () => {
+                  opened = true;
+                  cancelOpen.current = undefined;
+                  setPicking(true);
+                },
+              );
+              if (!opened) cancelOpen.current = cancel;
+            }
+          }}
+        >
+          {picking ? 'Close' : linked ? 'Relink' : 'Link'}
+        </button>
+      )}
+      <SheetColoursToggle />
+      <ScaleControl />
+    </RightPaneHeader>
+  );
   const pane = (
     <RightPane
       className={styles.pane}
       busy={pending}
       label={`Compendium for ${item?.name ?? base.hash}`}
       bodyRef={bodyRef}
-      header={
-        <RightPaneHeader title="Compendium">
-          {(match || approved) && roomy && diffToggle}
-          {canEdit && (
-            <button
-              type="button"
-              className={styles.headerButton}
-              disabled={pending}
-              aria-pressed={picking}
-              aria-label={picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
-              onClick={() => {
-                // A second click before the picker commits cancels the open, as Close would.
-                if (cancelOpen.current) {
-                  cancelOpen.current();
-                  cancelOpen.current = undefined;
-                } else if (picking) setPicking(false);
-                else {
-                  let opened = false;
-                  const cancel = openLinkPickerSoon(
-                    item?.categoryId ?? 'other',
-                    item?.name ?? base.custom?.name ?? '',
-                    () => {
-                      opened = true;
-                      cancelOpen.current = undefined;
-                      setPicking(true);
-                    },
-                  );
-                  if (!opened) cancelOpen.current = cancel;
-                }
-              }}
-            >
-              {picking ? 'Close' : link ? 'Relink' : 'Link'}
-            </button>
-          )}
-          <SheetColoursToggle />
-          <ScaleControl />
-        </RightPaneHeader>
-      }
+      header={paneHeader(!!(match || approved), !!link, pending)}
     >
       <div
         className={styles.zoom}
@@ -989,20 +991,11 @@ const PaneContents = memo(function PaneContents({
     !!pendingBefore ||
     (!!pendingItem &&
       mayHaveApprovalEvidence(pendingBase.hash, pendingItem.name, pendingItem.categoryId));
-  const loadingHeader = (
-    <RightPaneHeader title="Compendium">
-      {expectComparison && roomy && (
-        <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
-      )}
-      {canEdit && (
-        <button type="button" disabled>
-          {pendingLink ? 'Relink' : 'Link'}
-        </button>
-      )}
-      <SheetColoursToggle disabled />
-      <ScaleControl disabled />
-    </RightPaneHeader>
-  );
+  // While the skeleton shows, the header describes the incoming entry; while the held entry is
+  // still on screen, that entry.
+  const loadingHeader = showSkeleton
+    ? paneHeader(expectComparison, !!pendingLink, true)
+    : paneHeader(!!(match || approved), !!link, true);
   return cloneElement(previous ?? pane, {
     busy: true,
     // The pane's name follows what it shows: the held entry until the skeleton replaces it.
@@ -1036,9 +1029,7 @@ const PaneContents = memo(function PaneContents({
             canEdit={canEdit}
             canReview={canReview}
             roomy={roomy}
-            diffControl={
-              <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
-            }
+            diffControl={diffToggle}
           />
         )}
       </>

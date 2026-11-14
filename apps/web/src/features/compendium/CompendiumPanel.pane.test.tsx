@@ -311,7 +311,7 @@ describe('Compendium pane', () => {
     expect(skeleton?.textContent).not.toContain('Name');
     expect(skeleton?.textContent).not.toMatch(/tab -?\d/);
     expect(skeleton?.textContent).toContain('Snapshot');
-    expect(skeleton?.querySelector('button')?.disabled).toBe(true);
+    expect(skeleton?.querySelector('[class*="actions"] button')?.disabled).toBe(true);
     const region = skeleton?.querySelector('[aria-hidden="true"]');
     const cellRegion = skeleton?.querySelector('[class*="skeletonCell"]');
     const newest = {
@@ -541,6 +541,8 @@ describe('Compendium pane', () => {
     );
     expect(host.innerHTML).toBe(original);
     const content = host.querySelector('[data-scale]')!;
+    const tools = header(host).innerHTML;
+    const controls = [...header(host).querySelectorAll('button')];
     const prepare = vi.spyOn(diffCache, 'prepareCompendiumDiff').mockReturnValue(undefined);
     for (const hash of [6, 7]) {
       await act(async () =>
@@ -552,9 +554,12 @@ describe('Compendium pane', () => {
       expect(content.getAttribute('data-match-hash')).toBe('5');
       expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
       expect(content.hasAttribute('inert')).toBe(true);
-      expect(
-        [...header(host).querySelectorAll('button')].every((control) => control.disabled),
-      ).toBe(true);
+      // U-OWN1: the header controls stay painted and unchanged; only Link ignores clicks.
+      expect([...header(host).querySelectorAll('button')]).toEqual(controls);
+      expect(controls.some((control) => control.disabled)).toBe(false);
+      expect(button(host, 'Relink')?.className).toContain('headerButton');
+      expect(button(host, 'Relink')?.getAttribute('aria-disabled')).toBe('true');
+      expect(header(host).innerHTML.replace(/ aria-disabled="true"/, '')).toBe(tools);
       expect(host.querySelector('[role="status"]')?.textContent).toBe('Loading Compendium…');
       expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
       expect(vi.mocked(useDisplayMatches).mock.calls.at(-1)?.[4]).toBe(5);
