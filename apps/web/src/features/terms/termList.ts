@@ -2,6 +2,12 @@ import type { Lang } from '@clarity/core';
 import type { Item } from '../../services/generator';
 import type { NamesFile } from './names';
 import type { TermEntry } from './match';
+import { englishEndings } from './match';
+import {
+  glossaryKey,
+  type Glossary,
+  type GlossaryEntry,
+} from '../../../../../packages/core/src/glossary/schema';
 
 /**
  * One resolved list per language of things in the English a translator can insert: official
@@ -9,13 +15,53 @@ import type { TermEntry } from './match';
  * tokens (spec in progress) join as further kinds on the same list, so the marks, the popover, the
  * Terms list, and Insert stay one path.
  */
-export type TermKind = 'keyword' | 'name';
+export type TermKind = 'keyword' | 'name' | 'glossary';
 export interface Term extends TermEntry {
   kind: TermKind;
   /** What Insert puts in the translation, most used first (an English name can map to several). */
   official: string[];
+  glossary?: GlossaryEntry;
+  inGame?: string[];
   /** Clicking the mark inserts at once (a single exact insert, such as a number token). */
   insertOnClick?: boolean;
+}
+
+/** Overlay agreed terms on the existing source; names remain available as the secondary row. */
+export function mergeGlossary(
+  list: TermList | undefined,
+  glossary: Glossary,
+  revision: string | null,
+): TermList {
+  const official = new Map((list?.terms ?? []).map((term) => [glossaryKey(term.en), term]));
+  const terms: Term[] = [];
+  for (const entry of Object.values(glossary.terms)) {
+    const inGame = new Set<string>();
+    for (const spelling of [entry.en, ...(entry.also ?? [])]) {
+      const key = glossaryKey(spelling);
+      const last = /[\p{L}\p{N}]+$/u.exec(key);
+      const keys = last
+        ? [...englishEndings(last[0])].map((word) => key.slice(0, last.index) + word)
+        : [key];
+      for (const form of keys) {
+        for (const name of official.get(form)?.official ?? []) inGame.add(name);
+        official.delete(form);
+      }
+    }
+    const next: Term = {
+      ...entry,
+      kind: 'glossary',
+      glossary: entry,
+      official: [entry.term],
+      inGame: [...inGame],
+    };
+    terms.push(next);
+  }
+  terms.push(...official.values());
+  return {
+    id: `${list?.id ?? glossary.lang}:glossary:${revision}:${++sequence}`,
+    lang: glossary.lang,
+    terms,
+  };
 }
 export interface TermList {
   /** Stable for this list's lifetime: the worker keeps the compiled list under it. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Tooltip } from '../schemas.js';
+import { usesEnglishFallback } from '../exportLegacy.js';
 import {
   activate,
   changedFields,
@@ -100,6 +101,35 @@ describe('composition C1-C4', () => {
     expect(result.tooltip.custom).toBeUndefined();
     expect(result.tooltip.text.it).toBeUndefined();
   });
+  it.each([90 * 86400000, 90 * 86400000 + 1])(
+    'keeps future sources outdated and real fallback gaps unchanged (%s ms)',
+    (gap) => {
+      const snapshot = {
+        ...live,
+        text: {
+          ...live.text,
+          fr: entry('Vieux', T0, { sourceUpdatedAt: new Date(Date.parse(T0) - gap).toISOString() }),
+        },
+      };
+      const next: Tooltip = {
+        ...snapshot,
+        text: { ...snapshot.text, de: entry('Neu', T2, { sourceUpdatedAt: T2 }) },
+      };
+      const result = compose({ hash: 7, base: snapshot, proposed: next, snapshot, pushed: true });
+      expect(result.status).toBe('overlay');
+      if (result.status !== 'overlay') throw new Error();
+      expect(result.tooltip.text.en).toEqual(snapshot.text.en);
+      expect(result.tooltip.text.de).toEqual({
+        ...next.text.de,
+        sourceUpdatedAt: new Date(Date.parse(T0) - 1).toISOString(),
+      });
+      expect(result.tooltip.text.fr).toEqual(snapshot.text.fr);
+      expect(usesEnglishFallback(result.tooltip, 'de')).toBe(false);
+      expect(usesEnglishFallback(result.tooltip, 'fr')).toBe(gap > 90 * 86400000);
+      expect(next.text.de?.sourceUpdatedAt).toBe(T2);
+    },
+  );
+
   it('C2 removes a field the batch removed', () => {
     const text = omit(proposed.text, 'fr');
     const result = compose({

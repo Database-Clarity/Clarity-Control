@@ -1,3 +1,4 @@
+@use '../../ui/controls';
 // Dense rows like the other status panels; a phone gets 44px rows with the name free to wrap.
 // Doubled class: wins over the panels' bulleted-list rule (.overlay ul) without !important. Rows
 // line up with the caption (0.75rem from the edge) and Insert with Close.
@@ -35,6 +36,17 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.row[data-missing] .name {
+  color: var(--warn);
+}
+.actions {
+  display: flex;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+}
+.actions button {
+  @include controls.button;
+}
 .insert {
   padding: 1px 0.5rem;
   font-size: 0.75rem;
@@ -45,6 +57,10 @@
   padding: 0 0.75rem;
   color: var(--text3);
   font-size: 0.6875rem;
+}
+.message.message {
+  margin: 0.25rem 0;
+  padding: 0 0.75rem;
 }
 @media (max-width: 700px), (pointer: coarse) {
   .row {

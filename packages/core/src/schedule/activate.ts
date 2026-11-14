@@ -1,4 +1,5 @@
 import { merge3 } from '../merge3.js';
+import { boundTranslationSources } from './stamps.js';
 import { type Tooltip } from '../schemas.js';
 import {
   changedFields,
@@ -68,11 +69,11 @@ function mergeChanged(
 export function activate({ base, current, proposed }: ActivationInput): ActivationResult {
   const changed = changedFields(base, proposed);
   if (base === null && current === null)
-    return { ok: true, tooltip: proposed, created: true, changed };
+    return { ok: true, tooltip: boundTranslationSources(proposed), created: true, changed };
   if (base === null || current === null) return { ok: false, fields: [existsField], changed };
   const result = mergeChanged(base, current, proposed, changed);
   if (!result.ok) return { ok: false, fields: result.conflicts.map(({ field }) => field), changed };
-  return { ok: true, tooltip: result.merged, created: false, changed };
+  return { ok: true, tooltip: boundTranslationSources(result.merged), created: false, changed };
 }
 
 export interface ResolutionInput extends ActivationInput {

@@ -1,5 +1,5 @@
 import type { MarkupGlobals } from '@clarity/core';
-import { presentDiff, renderedDiff } from './renderedDiff';
+import { compareDiffOutput, presentDiff, renderedDiff, variantGlobals } from './renderedDiff';
 import { sourceAnalysisSteps, type SourceAnalysis } from './sourceOnlyChanges';
 
 /** A comparison request, or a request to drop one (a newer diff or a closed view). */
@@ -12,7 +12,10 @@ export type RenderedDiffRequest =
  */
 export type RenderedDiffReply = {
   id: number;
-  result?: ReturnType<typeof renderedDiff>;
+  result?: ReturnType<typeof renderedDiff> & {
+    output?: ReturnType<typeof compareDiffOutput>;
+    enhanced?: ReturnType<typeof renderedDiff>;
+  };
   sourceAnalysis?: SourceAnalysis;
   sourceFailed?: true;
 };
@@ -42,7 +45,17 @@ async function run({ id, before, after, globals }: Job) {
     // marks (merged runs, whole rewritten lines) in place, so the check reads
     // its own copy and the presented diff can paint first.
     steps = sourceAnalysisSteps(before, after, globals, structuredClone(result));
-    reply({ id, result: presentDiff(result) });
+    const output = compareDiffOutput(before, after, globals);
+    reply({
+      id,
+      result: {
+        ...presentDiff(result),
+        output,
+        enhanced: output.variantsDiffer
+          ? presentDiff(renderedDiff(before, after, variantGlobals(globals, true)))
+          : undefined,
+      },
+    });
   } catch {
     reply({ id });
     return;
