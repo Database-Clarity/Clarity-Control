@@ -112,17 +112,17 @@ export function UpcomingDetail({
               {row.currentChanged && (
                 <div className={styles.changed}>
                   <p className={styles.note} data-flag="">
-                    Current {language} was edited after this rework. When the batch publishes, the
-                    upcoming {language} above replaces it.
+                    Current {language} was {currentTranslation ? 'edited' : 'removed'} after this
+                    rework. When the batch publishes, the upcoming {language} above
+                    {currentTranslation ? ' replaces it' : ' is restored'}.
+                    {currentTranslation && ` Current ${language}:`}
                   </p>
-                  {currentTranslation ? (
+                  {currentTranslation && (
                     <ReadingTooltip
                       text={currentTranslation.text}
                       lang={row.language}
                       hash={row.hash}
                     />
-                  ) : (
-                    <p className={styles.note}>Current {language} was removed.</p>
                   )}
                 </div>
               )}

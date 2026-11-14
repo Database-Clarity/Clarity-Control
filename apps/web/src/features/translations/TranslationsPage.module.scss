@@ -622,7 +622,8 @@
 }
 
 .listing[data-upcoming] .row a {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 14rem) 8.5rem;
+  // The second column carries the batch name beside the category when several batches list rows.
+  grid-template-columns: minmax(0, 1fr) minmax(0, 24rem) 8.5rem;
 
   @container (max-width: 36rem) {
     grid-template-columns: minmax(0, 1fr) auto;
