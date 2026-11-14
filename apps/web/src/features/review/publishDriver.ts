@@ -12,6 +12,12 @@ export const publishTiming = {
   waitingMs: 180_000,
   autoKickMs: 180_000,
   manualKickGapMs: 30_000,
+  /**
+   * A Worker-reported 500/502 (its own JSON error, not an edge page) is resent this many times in
+   * total; then, once the Worker confirms it holds no request for the opId, the operation fails
+   * with the Worker's message instead of retrying forever.
+   */
+  workerErrorAttempts: 3,
   /** Resend backoff for an operation the Worker has not yet acknowledged. */
   sendBackoffMs: (attempt: number) => Math.min(60_000, 2_000 * 2 ** attempt),
   /** Another tab's attempt this recent is left alone. */
@@ -547,9 +553,35 @@ export class PublishDriver {
       count,
       at: this.deps.now() + publishTiming.sendBackoffMs(count - 1),
     });
+    // The Worker's own 500/502 names a failure a resend will not fix by itself (a broken read, bad
+    // stored data). 503 is its "retry the same opId" answer; edge pages carry no Worker message.
+    const workerError =
+      (status === 500 || status === 502) && reason instanceof PublishHttpError && reason.fromWorker;
+    if (workerError && count >= publishTiming.workerErrorAttempts) {
+      // A create may have landed during an earlier attempt: only the Worker's "unknown" settles it.
+      let remote: RemoteStatus | 'unknown' | undefined;
+      try {
+        remote = await this.deps.api.status(op.opId);
+      } catch {
+        remote = undefined;
+      }
+      if (remote !== undefined && remote !== 'unknown')
+        return void (await this.adopt(op.opId, remote));
+      if (remote === 'unknown') {
+        await this.settle(op.opId, {
+          status: 'failed',
+          error: `The Worker could not take this publish (HTTP ${status}: ${message.slice(0, 160)}). Nothing was queued. Publish again later, or report this error.`,
+        });
+        return;
+      }
+    }
     this.note(
       op.opId,
-      status === 0 ? 'Offline; retrying.' : `Worker busy (HTTP ${status}); retrying.`,
+      status === 0
+        ? 'Offline; retrying.'
+        : workerError
+          ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
+          : `Worker busy (HTTP ${status}); retrying.`,
     );
   }
 

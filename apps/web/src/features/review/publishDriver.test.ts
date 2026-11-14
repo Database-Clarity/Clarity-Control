@@ -138,6 +138,70 @@ it('retries 5xx and 429 with backoff, but gives up on a definite rejection', asy
   expect(created.opId).not.toBe(ops()[1]!.opId);
 });
 
+it("PUBLISH-502: a Worker's own 502 shows its message, then fails once the Worker has no record", async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  h.api.post.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  h.api.status.mockResolvedValue('unknown');
+  const created = await driver.create(inputs);
+  await settle();
+  expect(op().status).toBe('created');
+  expect(usePublishState.getState().notes[created.opId]).toBe(
+    'Worker error (HTTP 502: GitHub batch read failed); retrying.',
+  );
+  expect(h.api.status).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(
+    publishTiming.sendBackoffMs(0) + publishTiming.sendBackoffMs(1) + 200,
+  );
+  expect(h.api.post).toHaveBeenCalledTimes(publishTiming.workerErrorAttempts);
+  expect(h.api.status).toHaveBeenCalledWith(created.opId);
+  expect(op().status).toBe('failed');
+  expect(op().error).toMatch(/HTTP 502: GitHub batch read failed.*Nothing was queued/);
+  // Finished: no further resends.
+  await vi.advanceTimersByTimeAsync(300_000);
+  expect(h.api.post).toHaveBeenCalledTimes(publishTiming.workerErrorAttempts);
+});
+
+it('PUBLISH-502: a Worker 502 after a landed create adopts the pending request instead of failing', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  h.api.post.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  h.api.status.mockResolvedValue('pending');
+  await driver.create(inputs);
+  await settle();
+  await vi.advanceTimersByTimeAsync(
+    publishTiming.sendBackoffMs(0) + publishTiming.sendBackoffMs(1) + 200,
+  );
+  expect(op().status).toBe('pending');
+});
+
+it('PUBLISH-502: edge 5xx pages, Worker 503s, and an unreachable status check keep retrying', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  // An edge 502 page has no Worker message: still "busy", never failed by count.
+  h.api.post.mockRejectedValue(new PublishHttpError(502, '<html>Bad gateway</html>'));
+  const created = await driver.create(inputs);
+  await vi.advanceTimersByTimeAsync(200_000);
+  expect(op().status).toBe('created');
+  expect(usePublishState.getState().notes[created.opId]).toBe('Worker busy (HTTP 502); retrying.');
+  expect(h.api.status).not.toHaveBeenCalled();
+  // The Worker's 503 means "retry the same opId".
+  h.api.post.mockRejectedValue(new PublishHttpError(503, 'Publish create unresolved', true));
+  await vi.advanceTimersByTimeAsync(200_000);
+  expect(op().status).toBe('created');
+  expect(h.api.status).not.toHaveBeenCalled();
+  // A Worker 502 whose status check also fails cannot prove nothing was queued: keep retrying.
+  h.api.post.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  h.api.status.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  await vi.advanceTimersByTimeAsync(200_000);
+  expect(h.api.status).toHaveBeenCalled();
+  expect(op().status).toBe('created');
+  expect(usePublishState.getState().notes[created.opId]).toMatch(/^Worker error \(HTTP 502/);
+});
+
 it('resumes a stored operation after a reload with the same opId and body', async () => {
   const h = harness();
   const first = h.make();
