@@ -348,6 +348,26 @@ describe('dependency-free bundle', () => {
       ).toEqual(plain);
   });
 
+  it('carries inactive moves without changing empty-file bytes, and fails closed on bad storage', async () => {
+    const root = await temporaryDirectory();
+    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner));
+    const generatedAt = '2026-11-14T00:00:00Z';
+    const plain = await buildBundle(root, sourceCommit, generatedAt);
+    const path = join(root, 'config', 'inactive.json');
+    await writeFile(path, '{}');
+    expect(await buildBundle(root, sourceCommit, generatedAt)).toEqual(plain);
+    const moves = { 42: { by: 1, at: generatedAt, note: 'Deprecated' } };
+    await writeFile(path, JSON.stringify(moves));
+    expect(await buildBundle(root, sourceCommit, generatedAt)).toEqual({
+      ...plain,
+      inactiveMoves: moves,
+    });
+    for (const bad of ['{', '[]', '{"42":{"by":1}}']) {
+      await writeFile(path, bad);
+      await expect(buildBundle(root, sourceCommit, generatedAt)).rejects.toThrow();
+    }
+  });
+
   it('fails on invalid commit, mismatched hash, missing data or bad pushed digest', async () => {
     const root = await temporaryDirectory();
     await expect(buildBundle(root, 'main')).rejects.toThrow('full source commit');

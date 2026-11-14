@@ -2,6 +2,7 @@ import {
   permissionsSchema,
   pushedSchema,
   sandboxPointersSchema,
+  inactiveMovesSchema,
   tooltipSchema,
 } from '@clarity/core';
 import { z } from 'zod';
@@ -17,6 +18,8 @@ export const bundleSchema = z.object({
     ),
   permissions: permissionsSchema,
   pushed: pushedSchema,
+  /** Maintainer moves fail closed: a malformed file must not silently restore exports. */
+  inactiveMoves: inactiveMovesSchema.optional(),
   /** Maintainer picks for shared sandbox perks (config/sandbox-pointers.json); absent while none. */
   sandboxPointers: sandboxPointersSchema
     .optional()

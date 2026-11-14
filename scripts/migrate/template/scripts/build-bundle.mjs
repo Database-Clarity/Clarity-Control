@@ -24,6 +24,33 @@ export async function buildBundle(root, sourceCommit, generatedAt = new Date().t
   }
   const permissions = await readJson(join(root, 'config', 'permissions.json'));
   const pushed = await readJson(join(root, 'live', 'pushed.json'));
+  let inactiveMoves;
+  try {
+    inactiveMoves = await readJson(join(root, 'config', 'inactive.json'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  if (
+    inactiveMoves !== undefined &&
+    (!inactiveMoves ||
+      typeof inactiveMoves !== 'object' ||
+      Array.isArray(inactiveMoves) ||
+      Object.entries(inactiveMoves).some(
+        ([hash, move]) =>
+          !/^(0|[1-9]\d*)$/.test(hash) ||
+          Number(hash) > 0xffffffff ||
+          !move ||
+          typeof move !== 'object' ||
+          Array.isArray(move) ||
+          !Number.isInteger(move.by) ||
+          move.by <= 0 ||
+          typeof move.at !== 'string' ||
+          !Number.isFinite(Date.parse(move.at)) ||
+          (move.note !== undefined && (typeof move.note !== 'string' || move.note.length > 1000)) ||
+          Object.keys(move).some((key) => !['by', 'at', 'note'].includes(key)),
+      ))
+  )
+    throw new Error('Invalid inactive moves');
   if (!permissions || typeof permissions.users !== 'object' || permissions.users === null) {
     throw new Error('Invalid permissions users');
   }
@@ -63,6 +90,7 @@ export async function buildBundle(root, sourceCommit, generatedAt = new Date().t
     tooltips,
     permissions,
     pushed,
+    ...(inactiveMoves && Object.keys(inactiveMoves).length ? { inactiveMoves } : {}),
     ...(sandboxPointers ? { sandboxPointers } : {}),
   };
 }

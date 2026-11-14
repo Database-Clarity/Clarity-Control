@@ -1,0 +1,33 @@
+.confirm {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+
+  p {
+    margin: 0;
+  }
+
+  label {
+    display: grid;
+    gap: 4px;
+  }
+
+  input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+
+  button {
+    min-height: 28px;
+    white-space: nowrap;
+  }
+}
