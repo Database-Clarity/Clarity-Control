@@ -81,14 +81,33 @@ const clamp = (value: number, low: number, high: number) => Math.max(low, Math.m
  * saved sizes are design pixels, so a pane keeps its share of the window at every scale.
  */
 export function useScaleFactor(): number {
-  const [factor, setFactor] = useState(() => scaledPx(1));
+  const [factor, setFactor] = useState(currentScaleFactor);
   useEffect(() => {
-    const update = () => setFactor(scaledPx(1));
+    scaleReaders++;
+    const update = () => setFactor(currentScaleFactor());
     update();
     window.addEventListener('clarity-ui-scale', update);
-    return () => window.removeEventListener('clarity-ui-scale', update);
+    return () => {
+      window.removeEventListener('clarity-ui-scale', update);
+      if (--scaleReaders === 0) knownScaleFactor = undefined;
+    };
   }, []);
   return factor;
+}
+
+/**
+ * The root font size only changes with a `clarity-ui-scale` announcement, so one reading serves
+ * every mounted pane until the next one (and is dropped when none is mounted). Reading it on each
+ * mount forced a style recalculation of the freshly committed page (3.5-5.5 ms per editor handoff).
+ */
+let knownScaleFactor: number | undefined;
+let scaleReaders = 0;
+if (typeof window !== 'undefined')
+  window.addEventListener('clarity-ui-scale', () => {
+    knownScaleFactor = undefined;
+  });
+function currentScaleFactor(): number {
+  return (knownScaleFactor ??= scaledPx(1));
 }
 
 /**

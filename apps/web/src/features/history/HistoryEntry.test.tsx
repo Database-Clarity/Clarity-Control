@@ -443,6 +443,78 @@ it('bridges Tab into a portaled revision and Shift+Tab back to its trigger', asy
   expect(entries()[0].getAttribute('aria-expanded')).toBe('true');
 });
 
+/**
+ * Shows a tooltip whose revisions are not cached yet (revisions are cached per tooltip) and holds
+ * their loads until the returned release, so a revision has no controls when focus reaches it.
+ * Each caller passes its own hash: the cache outlives a test.
+ */
+async function holdRevisionLoads(hash: number) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  getVersion.mockImplementation(async (_hash: number, sha: string) => {
+    await gate;
+    return { commit: sha, tooltip: { ...versions[sha], hash } };
+  });
+  // Trailers classify the list without loading any revision.
+  getHistory.mockResolvedValue({
+    page: 1,
+    commits: [3, 2, 1].map((n) => ({
+      ...commit(n),
+      message: `Edit ${n}
+
+Clarity-Changed: ${hash}=en`,
+    })),
+  });
+  useDataStore.setState({
+    data: {
+      bundle: { tooltips: { 10: base, [hash]: { ...base, hash } } },
+      items: {},
+      aliases: {},
+      categories: [],
+    } as unknown as EditorData,
+  });
+  await act(async () => root.render(<HistoryPanel hash={hash} />));
+  await wait(410);
+  return release;
+}
+
+it('Shift+Tab into a revision that is still loading enters its last control once it loads', async () => {
+  const release = await holdRevisionLoads(12);
+  await act(async () => entries()[1].focus());
+  await act(async () =>
+    entries()[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  await wait(50);
+  expect(dialog()!.textContent).not.toContain('Restore this revision');
+  expect(document.activeElement).toBe(entries()[0]);
+  await act(async () => release());
+  await act(async () =>
+    vi.waitFor(() => expect(document.activeElement?.textContent).toBe('Restore this revision')),
+  );
+  expect(entries()[0].getAttribute('aria-expanded')).toBe('true');
+});
+
+it('drops a pending Shift+Tab hand-off when focus moves on before the revision loads', async () => {
+  const release = await holdRevisionLoads(13);
+  await act(async () => entries()[1].focus());
+  await act(async () =>
+    entries()[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(entries()[0]);
+  await act(async () => entries()[2].focus());
+  await act(async () => release());
+  await wait(50);
+  expect(document.activeElement).toBe(entries()[2]);
+  // A later keyboard open of the first revision does not jump into it either.
+  await act(async () => entries()[0].focus());
+  await wait(50);
+  expect(document.activeElement).toBe(entries()[0]);
+});
+
 it('focuses the restore confirmation and returns Cancel to Restore, keeping Escape usable', async () => {
   await act(async () => entries()[0].click());
   await wait(0);
