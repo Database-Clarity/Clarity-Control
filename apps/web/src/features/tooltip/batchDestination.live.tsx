@@ -208,7 +208,7 @@ export function BatchEnglish({
       header={
         <RightPaneHeader title="Upcoming English">
           <label className={styles.shows}>
-            Shows:
+            <span>Shows:</span>
             <select
               aria-label="Upcoming English shows"
               value={changes ? 'changes' : 'current'}

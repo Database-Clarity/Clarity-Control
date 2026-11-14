@@ -16,7 +16,9 @@
     overflow-wrap: anywhere;
   }
 }
-.shows {
+label.shows {
+  flex: 0 1 auto;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
@@ -29,5 +31,11 @@
     min-width: 0;
     max-width: 100%;
     font-size: inherit;
+  }
+}
+
+@container (max-width: 30rem) {
+  .shows > span {
+    display: none;
   }
 }

@@ -342,7 +342,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       data-queue
       data-finished={finished}
     >
-      {back(source.label)}
+      {back(queue.destination?.batchName ?? source.label)}
       {menu(
         <>
           <span role="status">{label}</span>

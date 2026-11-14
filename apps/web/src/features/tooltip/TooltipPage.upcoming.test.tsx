@@ -419,29 +419,27 @@ it('routes an active batch queue into its own drafts and English, then leaves ba
   const { useDraftStore } = await import('../../stores/drafts');
   await useBatchDraftStore.getState().activate('1');
   const key = `${batch.id}:10:de`;
-  useWorkQueues
-    .getState()
-    .start({
-      version: 1,
-      id: 'batch-route',
-      source: 'translations',
-      scope: 'shown',
-      origin: { path: '/translations', restore: {} },
-      items: [
-        {
-          key,
-          hash: 10,
-          lang: 'de',
-          name: 'A base',
-          detail: { path: '/t/10?lang=de', batchId: batch.id },
-        },
-      ],
-      skipped: [],
-      current: key,
-      finished: false,
-      createdAt: Date.now(),
-      destination: { kind: 'batch', batchId: batch.id, batchName: 'December patch' } as never,
-    });
+  useWorkQueues.getState().start({
+    version: 1,
+    id: 'batch-route',
+    source: 'translations',
+    scope: 'shown',
+    origin: { path: '/translations', restore: {} },
+    items: [
+      {
+        key,
+        hash: 10,
+        lang: 'de',
+        name: 'A base',
+        detail: { path: '/t/10?lang=de', batchId: batch.id },
+      },
+    ],
+    skipped: [],
+    current: key,
+    finished: false,
+    createdAt: Date.now(),
+    destination: { kind: 'batch', batchId: batch.id, batchName: 'December patch' } as never,
+  });
   const page = await mount('translator', '/t/10?lang=de', {
     workThrough: { id: 'batch-route', key },
   });
@@ -459,6 +457,12 @@ it('routes an active batch queue into its own drafts and English, then leaves ba
     const draft = useBatchDraftStore.getState().drafts[batchDraftKey(batch.id, 10)]!;
     expect(draft.next.text.de?.text).toBe('Batch German');
     expect(draft.next.text.de?.sourceUpdatedAt).toBe(draft.base.text.en?.updatedAt);
+    await page.settle(() => page.host.textContent!.includes('Queue done'));
+    expect(page.host.textContent).toContain('Queue done');
+    await act(async () => useBatchDraftStore.getState().discardAt(batchDraftKey(batch.id, 10)));
+    await page.settle(() => page.host.textContent!.includes('1 of 1'));
+    expect(page.host.textContent).toContain('1 of 1');
+    await act(async () => editorProps.current!.onChange('Batch German'));
     expect(useDraftStore.getState().drafts).toEqual({});
     const state = page.router.state.location.state;
     await act(async () => page.router.navigate('/t/10?lang=fr', { state }));
