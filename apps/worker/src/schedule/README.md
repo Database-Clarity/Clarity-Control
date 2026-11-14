@@ -18,6 +18,9 @@ is admission only: the publisher re-checks everything at the claim (I1).
   ONE request inside the Workers Free 10 ms CPU limit. A workflow limit, one constant in
   `store.ts`, so it can move with the measured gate.
 - `saveChangeCap` = 15 changes per batch save request; the web chunks larger saves (P3a).
+- `scheduledSaveChangeCap` = 10 changes per save into a scheduled batch (422 above it): those
+  saves also compose every member against pushed.json and the live snapshots, and the gate
+  failed at 15 (job 013003-28804) and passed at 10. The check stays; only the cap moved.
 - `memberByteCap` = 8 KiB per stored member file (the largest real tooltip is 2,112 bytes).
 - Gate: `node scripts/publisher/cpu/schedule.mjs` (local, real largest tooltips, worst stored
   files). Each case's p99 must be at most the existing /publish-100 p99 in the same run; the

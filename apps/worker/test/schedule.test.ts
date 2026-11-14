@@ -889,8 +889,9 @@ describe('GitHub.publishSnapshot trees (names-only listing)', () => {
 
 describe('Worker caps (CPU gate, root option A)', () => {
   it('admits at most memberCap members per batch and saveChangeCap changes per save', async () => {
-    const { memberCap, saveChangeCap } = await import('../src/schedule/store.js');
-    expect([memberCap, saveChangeCap]).toEqual([15, 15]);
+    const { memberCap, saveChangeCap, scheduledSaveChangeCap } =
+      await import('../src/schedule/store.js');
+    expect([memberCap, saveChangeCap, scheduledSaveChangeCap]).toEqual([15, 15, 10]);
     const hashes = Array.from({ length: memberCap }, (_, i) => 1000 + i);
     const files: Record<string, unknown> = {};
     for (const hash of hashes) {
@@ -923,6 +924,28 @@ describe('Worker caps (CPU gate, root option A)', () => {
       message: 'Too many',
     });
     expect(tooMany.status).toBe(400);
+  });
+  it('a scheduled batch takes at most scheduledSaveChangeCap changes per save', async () => {
+    const { scheduledSaveChangeCap } = await import('../src/schedule/store.js');
+    expect((await schedule()).status).toBe(202);
+    const old = stored(memberPath()) as BatchMember;
+    f.subrequests = 0;
+    const response = await call(`/batches/${ID}/save`, {
+      revision: storedBatch().revision,
+      changes: Array.from({ length: scheduledSaveChangeCap + 1 }, (_, i) => ({
+        hash: 2000 + i,
+        base: null,
+        next: { ...tooltip(), hash: 2000 + i },
+      })),
+      message: 'Too many',
+    });
+    expect([response.status, response.body.error]).toEqual([
+      422,
+      `A scheduled batch takes at most ${scheduledSaveChangeCap} changes per save`,
+    ]);
+    // Refused after the one state read: no aliases, snapshots, or pushed.json are loaded.
+    expect(f.subrequests).toBe(2);
+    expect(stored(memberPath())).toEqual(old);
   });
 });
 

@@ -6,6 +6,7 @@ export {
   memberByteCap,
   memberCap,
   saveChangeCap,
+  scheduledSaveChangeCap,
 } from '../../../apps/worker/src/schedule/store.ts';
 export { contentHash, publishableHash } from '@clarity/core';
 export default worker;

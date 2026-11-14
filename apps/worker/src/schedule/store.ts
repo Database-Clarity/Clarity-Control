@@ -73,6 +73,13 @@ export const readRoles: Access['role'][] = ['maintainer', 'editor', 'translator'
 export const memberCap = 15;
 /** Changes per POST /batches/:id/save (same gate); the web chunks larger saves (P3a). */
 export const saveChangeCap = 15;
+/**
+ * Changes per save into a scheduled (non-draft) batch. Those saves also read live/pushed.json and
+ * every member's published snapshot and compose each member, so they cost more per change; the
+ * same relative gate failed at 15 and passed at 10 (job 013003-28804). The check stays; the cap
+ * moved.
+ */
+export const scheduledSaveChangeCap = 10;
 
 /**
  * Bytes one stored member file may take (base + proposal, pretty JSON). The largest real tooltip

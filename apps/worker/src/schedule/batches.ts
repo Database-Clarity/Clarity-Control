@@ -50,6 +50,7 @@ import {
   readRoles,
   readState,
   saveChangeCap,
+  scheduledSaveChangeCap,
   refuseClaimed,
   refuseOpenCap,
   refuseRevision,
@@ -333,6 +334,11 @@ export async function saveBatch(
     const batch = requireBatch(state, batchId);
     refuseClaimed(batch);
     refuseRevision(batch, input.revision);
+    if (batch.status !== 'draft' && input.changes.length > scheduledSaveChangeCap)
+      throw new HttpError(
+        422,
+        `A scheduled batch takes at most ${scheduledSaveChangeCap} changes per save`,
+      );
     const access = state.access;
     const ownDir = state.trees[0];
     const own = new Set(memberHashes(child(ownDir, 'tooltips')));
