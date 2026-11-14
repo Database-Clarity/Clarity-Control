@@ -97,6 +97,17 @@ it('keeps stored drafts as plain text rather than HTML-escaped presentation stri
   for (const escaped of ['&#x27;', '&#39;', '&apos;', '&amp;'])
     expect(validateDraft(item, `Your weapon${escaped}s damage.`, editor, app)).toContain('HTML entities in draft text; use raw characters');
 });
+it('licenses fragment result arithmetic only for verified pairs in this source', () => {
+  const input = { ...item, source: { text: 'Field lasts 7+2 seconds.' }, fragmentImprovements: [{ fragment: 'Whisper of Durance', base: 7, bonus: 2, total: 9, sourceText: 'Durance extends this field.' }] };
+  expect(validateDraft(input, 'Field lasts 7s (9 with <stasis Whisper of Durance />).', editor, app)).toEqual([]);
+  expect(validateDraft(input, 'Deals 9 damage.', editor, app)).toContain('Unsupported number: 9');
+  expect(validateDraft({ ...input, fragmentImprovements: [] }, 'Field lasts 7s (9 with <stasis Whisper of Durance />).', editor, app)).toContain('Unsupported number: 9');
+});
+it('does not turn an automatic magazine refill into a manual reload claim', () => {
+  const refill = { ...item, source: { text: 'Refills 50% of Magazine.' } };
+  expect(validateDraft(refill, 'Refills 50% of the magazine.\n\n#Reload', editor, app)).toContain('Unsupported manual-reload claim: source does not say reload');
+  expect(validateDraft(refill, 'Refills 50% of the magazine.', editor, app)).toEqual([]);
+});
 it('finds base exotic wording through item names and declines ambiguous base identities', () => {
   const e = {
     items: {

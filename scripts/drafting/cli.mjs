@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
-import { buildInputs, selectSample, validateDraft, sampleHtml } from './pipeline.mjs';
+import { buildInputs, selectSample, validateDraft } from './pipeline.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const [command, directory, inputFile, outputFile] = process.argv.slice(2);
@@ -136,7 +136,8 @@ try {
       else accepted[item.hash] = drafts[item.hash];
     }
     await write(path.join(directory, 'validation.json'), { accepted, errors });
-    await writeFile(path.join(directory, 'sample.html'), sampleHtml(inputs, accepted, errors));
+    // Validation produces evidence only. Owner-facing HTML must go through the
+    // exact-digest independent-critique gate in fresh.mjs.
     console.log(JSON.stringify({ accepted: Object.keys(accepted).length, errors }, null, 2));
     if (Object.keys(errors).length) process.exitCode = 1;
   }

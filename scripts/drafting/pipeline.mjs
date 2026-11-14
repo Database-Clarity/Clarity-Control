@@ -1,4 +1,5 @@
 // Offline drafting policy. Matching, source ranges, schemas, and markup stay app-owned.
+import { proseOf, styleLint } from './style.mjs';
 export const groups = [
   'Exotic Weapons',
   'Weapon Perks',
@@ -175,9 +176,12 @@ export function convertedNumbers(source) {
 export function validateDraft(item, english, editor, app) {
   if (typeof english !== 'string' || !english.trim()) return ['Missing English'];
   const errors = [];
+  errors.push(...styleLint(english));
+  if (/^\s*#Reload\s*$/m.test(english) && !/\breloads?\b/i.test(item.source.text))
+    errors.push('Unsupported manual-reload claim: source does not say reload');
   if (/&(?:#x[\da-f]+|#\d+|[a-z][a-z\d]+);/i.test(english))
     errors.push('HTML entities in draft text; use raw characters');
-  if (english.length > 20000 || english.length > Math.max(240, item.source.text.length * 1.5))
+  if (english.length > 20000 || proseOf(english).length > Math.max(240, item.source.text.length * 1.5))
     errors.push('Length sanity');
   const imports = app.tooltipImports(editor.bundle.tooltips, {}, 'en', editor.aliases);
   const globals = {
@@ -212,7 +216,20 @@ export function validateDraft(item, english, editor, app) {
         ? phrase.replace(/\d+(?:\.\d+)?/, '')
         : phrase,
   );
-  for (const number of numbers(literalEnglish))
+  // Resulting fragment values require an explicit base+bonus from THIS cell and
+  // a named supplemental fragment cell. Remove only that parenthetical result.
+  const withFragments = literalEnglish.replace(/\(([\d.]+)(\?)?\s+with\s+<\w+\s+([^<>]+?)\s*\/>\)/g,
+    (phrase, total, question, name) => (item.fragmentImprovements ?? []).some((proof) =>
+      proof.fragment === name && proof.sourceText && !question &&
+      String(proof.total) === String(Number(total)) &&
+      item.source.text.includes(`${proof.base}+${proof.bonus}`) &&
+      Number(proof.base) + Number(proof.bonus) === Number(total)
+    ) ? phrase.replace(/[\d.]+/, '') : phrase);
+  // The owner-established Siphon family uses one count per source tier. This
+  // licenses selector digits only, never those digits elsewhere in the prose.
+  const withSelectors = item.category.startsWith('armor-mod') && /Siphon$/.test(item.name ?? '')
+    ? withFragments.replace(/with 1\|2\|3 mods equipped/g, 'with mods equipped') : withFragments;
+  for (const number of numbers(withSelectors))
     if (!allowed.has(number)) errors.push(`Unsupported number: ${number}`);
   // Exotic cross-references must both exist and be present in the supplied evidence.
   const names = new Set(
