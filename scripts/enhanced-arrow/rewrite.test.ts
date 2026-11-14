@@ -38,6 +38,21 @@ describe('rewriteLegacyArrow', () => {
   });
 });
 
+describe('mixed old and new syntax (code review MUST-2, SHOULD-1)', () => {
+  test('rewrites #e beside braces and keeps the braces as written', () => {
+    const text = 'var d = 5\n#e #{d}x and #{d}';
+    const result = rewriteLegacyArrow(text);
+    expect(result.text).toBe('var d = 5\n<enhanced/> #{d}x and #{d}');
+    expect(lowerConsumerMarkup(result.text)).toBe(lowerConsumerMarkup(text));
+  });
+  test('counts equal source lines separately', () => {
+    const result = census([
+      { hash: 10, lang: 'en', category: 'weapon-trait', text: '#e same\n#e same', globals: '' },
+    ]);
+    expect(result.arrows.en!['weapon-trait']).toEqual({ texts: 1, lines: 2, uses: 2 });
+  });
+});
+
 describe('census', () => {
   test('counts arrows per language and category, longer names, merges, and local e', () => {
     const result = census([

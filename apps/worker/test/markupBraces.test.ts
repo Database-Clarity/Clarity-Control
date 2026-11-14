@@ -39,6 +39,19 @@ describe('save guard for #{name} and <enhanced/>', () => {
     expect(response.status).toBe(200);
   });
 
+  it('refuses holder-shaped variable names whatever the exporter (code review MUST-1)', async () => {
+    for (const enabled of [false, true]) {
+      publisherConfig.enabled = enabled;
+      fixture.moveData({ '.publisher/PIN': capable });
+      const response = await save(tooltip(), tooltip('var Zb1wx = ORIGINAL\nDeals #Zb1wx.'));
+      expect(response.status).toBe(422);
+      expect(((await response.json()) as { error: string }).error).toBe(
+        'Tooltip 123 (en): #Zb1wx is a reserved name (braces generate names starting Zb<number>w): rename it.',
+      );
+    }
+    expect((await save(tooltip(), tooltip('var Zoom = 2\n#Zoom'))).status).toBe(200);
+  });
+
   it('publisher on: refuses them when the PIN lacks markupBraces', async () => {
     publisherConfig.enabled = true;
     fixture.moveData({ '.publisher/PIN': { ...pin, capabilities: ['elementTags'] } });

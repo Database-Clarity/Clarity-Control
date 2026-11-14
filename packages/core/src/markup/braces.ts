@@ -74,6 +74,31 @@ export function isHolderName(name: string): boolean {
   return match !== null && Number(match[1]) === match[2]!.length;
 }
 
+/**
+ * Names starting like a holder (`Zb1w…`) are reserved: an authored, global, or imported variable
+ * of that name would take a holder's place (`var Zb1wx = Q` turns `#{d}x` into `5Q`). Validation
+ * refuses them and so does the Worker; real data has none.
+ */
+export const reservedNamePattern = /^Zb\d+w/;
+
+export const reservedNameMessage = (name: string) =>
+  `#${name} is a reserved name (braces generate names starting Zb<number>w): rename it.`;
+
+/** Every variable definition and reference in `text` that uses a reserved name. */
+export function reservedNames(text: string): { name: string; from: number; to: number }[] {
+  const found: { name: string; from: number; to: number }[] = [];
+  for (const match of text.matchAll(/^var ([a-zA-Z0-9]+) /gm))
+    if (reservedNamePattern.test(match[1]!))
+      found.push({
+        name: match[1]!,
+        from: match.index + 4,
+        to: match.index + 4 + match[1]!.length,
+      });
+  for (const ref of variableReferences(text))
+    if (reservedNamePattern.test(ref.name)) found.push(ref);
+  return found.sort((a, b) => a.from - b.from);
+}
+
 const delimited = /#\{([a-zA-Z0-9]+)\}|<enhanced\/>/g;
 
 /**

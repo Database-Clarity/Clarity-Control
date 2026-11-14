@@ -244,6 +244,23 @@ describe('validation', () => {
       }),
     ]);
   });
+  test('holder-shaped names are reserved (code review MUST-1)', () => {
+    const message =
+      '#Zb1wx is a reserved name (braces generate names starting Zb<number>w): rename it.';
+    expect(
+      validateText('var d = 5\nvar Zb1wx = ORIGINAL\n#{d}x and #Zb1wx', 'en', globals),
+    ).toEqual([expect.objectContaining({ severity: 'error', message, from: 14, to: 19 })]);
+    // A global of that name is refused where it is defined: in the globals tooltip itself.
+    expect(validateText('var Zb1wx = WRONG', 'en', globals, true, 2)).toEqual([
+      expect.objectContaining({ severity: 'error', message, from: 4, to: 9 }),
+    ]);
+    expect(validateText('var Zb12w = x\nvar Zoom = 2\n#Zoom', 'en', globals)).toEqual([
+      expect.objectContaining({
+        message:
+          '#Zb12w is a reserved name (braces generate names starting Zb<number>w): rename it.',
+      }),
+    ]);
+  });
   test('the delimited form is clean; unknown variables still warn at their source', () => {
     expect(validateText('var d = 5\nDeals #{d}x damage.', 'en', globals)).toEqual([]);
     expect(validateText('Deals #{q}x.', 'en', globals)).toEqual([

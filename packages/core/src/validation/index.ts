@@ -21,6 +21,8 @@ import {
   isHolderName,
   lowerDelimitedMarkup,
   mergedVariable,
+  reservedNameMessage,
+  reservedNames,
   variableReferences,
 } from '../markup/braces.js';
 import { extractVariables } from '../markup/syntax.js';
@@ -182,6 +184,11 @@ export function validateText(
       [text, globals.variables, globals.titles].some((source) => source.includes('{{')),
     ),
   );
+  for (const reserved of reservedNames(text)) {
+    const message = reservedNameMessage(reserved.name);
+    if (!issues.some((issue) => issue.message === message))
+      issues.push({ severity: 'error', message, from: reserved.from, to: reserved.to });
+  }
   if (selfHash !== globalVariablesHash && selfHash !== globalTitlesHash) {
     // The exporter lets a global silently win over a local definition of the same name.
     for (const clash of findGlobalNameClashes(text, globals)) {

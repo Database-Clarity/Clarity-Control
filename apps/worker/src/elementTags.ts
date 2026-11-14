@@ -2,6 +2,8 @@ import {
   enhancedArrowMarkup,
   findElementTags,
   hasDelimitedMarkup,
+  reservedNameMessage,
+  reservedNames,
   type Lang,
   type Tooltip,
 } from '@clarity/core';
@@ -66,7 +68,12 @@ export function needsLowering(tooltip: Tooltip): boolean {
  * (always while push-live exports; once the publisher is on, only a build whose PIN declares
  * `markupBraces`). Unlowered, today's apps would print `#{d}` and drop the arrow.
  */
-export function refuseUnlowerableDelimited(tooltip: Tooltip, lowers: boolean, action: string): void {
+export function refuseUnlowerableDelimited(
+  tooltip: Tooltip,
+  lowers: boolean,
+  action: string,
+): void {
+  refuseReservedNames(tooltip);
   if (lowers) return;
   const found = firstDelimited(tooltip);
   if (!found) return;
@@ -74,6 +81,21 @@ export function refuseUnlowerableDelimited(tooltip: Tooltip, lowers: boolean, ac
     422,
     `Tooltip ${tooltip.hash} (${found.lang}) contains "${found.text}", which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${markupBracesCapability}" capability). Write #name or #e for now.`,
   );
+}
+
+/**
+ * Variable names starting like a brace holder (`Zb1w…`, core braces.ts) are refused whatever the
+ * exporter: one would take a holder's place in every tooltip that writes `#{d}x`.
+ */
+export function refuseReservedNames(tooltip: Tooltip): void {
+  for (const [lang, entry] of Object.entries(tooltip.text) as [Lang, { text: string }][]) {
+    const [found] = reservedNames(entry.text);
+    if (found)
+      throw new HttpError(
+        422,
+        `Tooltip ${tooltip.hash} (${lang}): ${reservedNameMessage(found.name)}`,
+      );
+  }
 }
 
 /**

@@ -74,8 +74,9 @@ export function rewriteLegacyArrow(text: string): ArrowRewrite {
   }
   if (!rewritten.length) return { text, rewritten, skipped };
   const next = out + text.slice(last);
-  // Fail closed: the rewrite must lower back to exactly the stored text.
-  if (lowerDelimitedMarkup(next) !== text)
+  // Fail closed: the rewrite must lower to exactly what the stored text lowers to (every exporter
+  // reads the lowered text, so exports stay byte-identical; stored braces stay as written).
+  if (lowerDelimitedMarkup(next) !== lowerDelimitedMarkup(text))
     throw new Error('Rewrite does not lower to the original');
   return { text: next, rewritten, skipped };
 }
@@ -122,7 +123,8 @@ export function census(texts: readonly CensusText[]): Census {
       const row = ((result.arrows[lang] ??= {})[category] ??= { texts: 0, lines: 0, uses: 0 });
       row.texts++;
       row.uses += rewrite.rewritten.length;
-      row.lines += new Set(rewrite.rewritten.map((at) => lineAt(text, at))).size;
+      // Source lines, by where they start (two equal lines count twice).
+      row.lines += new Set(rewrite.rewritten.map((at) => text.lastIndexOf('\n', at - 1))).size;
     }
     for (const match of text.matchAll(/#e[a-zA-Z0-9]+/g))
       result.longerNames[match[0]] = (result.longerNames[match[0]] ?? 0) + 1;
