@@ -3,6 +3,10 @@ import { legacyPublishableHash, publishableHash } from '@clarity/core';
 import { subrequestLimit } from '../src/github.js';
 import { Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 
+// The legacy /push-live exporter (switch OFF) under test; the checked-in switch is ON since
+// PUB-ENABLE, and these paths stay for the publisher rollback.
+vi.mock('../../../config/publisher.json', () => ({ default: { enabled: false } }));
+
 let key: string;
 let fixture: Fixture;
 beforeAll(async () => {
