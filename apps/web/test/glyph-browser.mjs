@@ -1,3 +1,4 @@
+/* global document */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -6,6 +7,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { build } from 'vite';
+const warnings = async (page, count) => {
+  await page.waitForFunction((expected) => document.querySelectorAll('.clarity-validation-warning').length === expected, count);
+  assert.equal(await page.locator('.clarity-validation-warning').count(), count);
+};
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const browserPath = [
   process.env.PICKER_BROWSER,
@@ -23,6 +28,7 @@ try {
     root: web,
     base: './',
     logLevel: 'error',
+    worker: { format: 'es' },
     build: {
       target: 'esnext',
       outDir: output,
@@ -47,23 +53,33 @@ try {
     await page.goto(pathToFileURL(join(output, 'test', 'glyph-warning.html')).href);
     const content = page.getByRole('textbox', { name: 'Clarity markup' });
     await content.waitFor();
-    assert.equal(await page.locator('.clarity-validation-warning').count(), 3);
+    await warnings(page, 4);
     await page.getByText('Save review warnings (saving allowed)', { exact: true }).click();
     if (evidence) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: true });
     const original = await content.innerText();
-    await page.getByRole('button', { name: 'Replace first U+1F81A with ->', exact: true }).click();
-    assert.match(await content.innerText(), /20% -> 30%/);
-    assert.equal(await page.locator('.clarity-validation-warning').count(), 2);
+    await page.getByRole('button', { name: '4 character warnings', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Replace first U+1F81A with <arrow/>', exact: true })
+      .click();
+    assert.equal(await page.locator('[data-symbol="arrow"]').count(), 1);
+    assert.ok((await content.innerText()).includes('🠚'));
+    await warnings(page, 3);
+    // The second glyph is inside a wrapper and has an absolute offset beyond the first one.
+    await page
+      .getByRole('button', { name: 'Replace first U+1F81A with <arrow/>', exact: true })
+      .click();
+    assert.equal(await page.locator('[data-symbol="arrow"]').count(), 2);
+    assert.ok(!(await content.innerText()).includes('🠚'));
+    await warnings(page, 2);
+    await page.keyboard.press('Control+z');
+    await warnings(page, 3);
     await page.keyboard.press('Control+z');
     assert.equal(await content.innerText(), original);
-    assert.equal(await page.locator('.clarity-validation-warning').count(), 3);
+    await warnings(page, 4);
     await content.press('Control+End');
     await page.keyboard.insertText(' 😀');
-    await page
-      .getByRole('status')
-      .getByText(/U\+1F600/)
-      .waitFor();
-    assert.equal(await page.locator('.clarity-validation-warning').count(), 4);
+    await page.locator('.clarity-validation-warning').nth(4).waitFor();
+    await warnings(page, 5);
     assert.deepEqual(errors, []);
     await page.close();
   }
@@ -74,3 +90,4 @@ try {
   await browser?.close();
   await rm(output, { recursive: true, force: true });
 }
+

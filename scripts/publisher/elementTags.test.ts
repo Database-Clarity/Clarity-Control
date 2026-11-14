@@ -44,6 +44,7 @@ it('declares the elementTags, markupBraces, and prismaticTags capabilities in it
     'scheduledBatches',
     'markupBraces',
     'prismaticTags',
+    'arrowSymbol',
   ]);
 });
 
@@ -101,4 +102,14 @@ it('fails closed on an export that still holds #{ or <enhanced/> (markupBraces)'
   expect(unloweredEntry(entry('<enhanced/> Faster.'))).toBe('42');
   // Any string anywhere in the entry, not only the main text.
   expect(unloweredEntry({ 7: { stats: [{ name: 'x #{d}' }] } })).toBe('7');
+});
+
+it('arrowSymbol: template retains the new arrow in the shared intermediate', async () => {
+  const templated = await templateExportLegacy();
+  const base = tooltip();
+  const source: Tooltip = { ...base, text: { en: { ...base.text.en!, text: '30%<arrow/>33%' } } };
+  const exported = templated([source], 0);
+  expect(JSON.stringify(exported)).toBe(JSON.stringify(exportLegacy([source], 0)));
+  expect(JSON.stringify(exported)).toContain('<arrow/>');
+  expect(unloweredEntry(exported)).toBeUndefined();
 });

@@ -7,7 +7,7 @@ window.fetch = async () =>
   new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
 function Fixture() {
   const [value, setValue] = useState(
-    'Synthetic tooltip — no production data\n\n• Damage increases 20% 🠚 30% for 5 seconds.\n• Enhanced marker: 🡅\n• Unverified symbol: ▛\n• Safe text: Café × 2, 90°, “quoted” …',
+    'Synthetic tooltip — no production data\n\n• Damage increases 20% 🠚 30% for 5 seconds, and <pve 1🠚2 />.\n• Enhanced marker: 🡅\n• Unverified symbol: ▛\n• Safe text: Café × 2, 90°, “quoted” …',
   );
   return (
     <main style={{ maxWidth: 850, margin: '30px auto', padding: 12 }}>

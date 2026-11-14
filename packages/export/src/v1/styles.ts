@@ -38,6 +38,7 @@ const markdownSymbols = (icons: 'words' | 'drop') =>
   every((symbol) => {
     if ((iconSymbols as readonly string[]).includes(symbol))
       return icons === 'words' ? replace(iconWords[symbol as keyof typeof iconWords]) : drop;
+    if (symbol === 'arrow') return replace('→');
     if (symbol === 'bold') return replace('**', '**');
     if (symbol === 'enhancedArrow') return replace('[enh]');
     return drop;
@@ -73,7 +74,7 @@ export const styleFormats: Record<Style, FileFormat> = {
     spacer: 'keep',
   },
   plain: {
-    symbols: every(() => drop),
+    symbols: { ...every(() => drop), arrow: replace('→') },
     titles: { mode: 'drop' },
     links: { mode: 'drop' },
     elementTags: false,
@@ -104,7 +105,8 @@ export function newStyleFile(
   const format = structuredClone(styleFormats[style]);
   if (shape === 'text') {
     for (const symbol of symbolIds)
-      if (format.symbols[symbol]?.mode === 'keep') format.symbols[symbol] = drop;
+      if (format.symbols[symbol]?.mode === 'keep')
+        format.symbols[symbol] = symbol === 'arrow' ? replace('→') : drop;
     if (format.titles.mode === 'keep') format.titles = { mode: 'drop' };
     if (format.links.mode === 'keep') format.links = { mode: 'drop' };
   }

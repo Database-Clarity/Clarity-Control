@@ -116,7 +116,10 @@ export function compile(input: LegacyInput, file: ExportFile, options: CompileOp
   if (isLegacyFile(file)) {
     if (hasRawPair(input))
       throw new Error('Base/enhanced markup needs the new converter; legacy presets refuse it');
-    const bytes = buildLegacy(input, file.preset, { identical: options.identical });
+    const bytes = buildLegacy(input, file.preset, {
+      identical: options.identical,
+      arrowFallback: file.arrowFallback,
+    });
     return {
       stages: compileStages,
       ran: ['resolve', 'select-rows', 'references', 'serialise'],

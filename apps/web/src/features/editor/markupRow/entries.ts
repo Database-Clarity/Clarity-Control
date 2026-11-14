@@ -250,7 +250,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
         glyph: { kind: 'icon', name: symbol.name },
         usage: symbol.usage,
         about: symbol.about,
-        help: { example: `<${symbol.name}/>` },
+        help: { example: symbol.name === 'arrow' ? '30%<arrow/>33%' : `<${symbol.name}/>` },
       }),
     ),
     viaTemplate(snippetById('icon-word'), {
@@ -447,6 +447,7 @@ export const rowOrder: readonly string[] = [
   ...['barrier', 'overload', 'unstoppable'].map((name) => `icon:${name}`),
   '|',
   ...['warlock', 'hunter', 'titan'].map((name) => `icon:${name}`),
+  'icon:arrow',
   '|',
   'link',
   'title',

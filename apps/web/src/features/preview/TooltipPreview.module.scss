@@ -598,3 +598,18 @@ $symbol: 0.75rem;
     }
   }
 }
+
+// Design B, on the same 12px grid as the enhanced arrow, following the surrounding text size.
+.arrow {
+  &::before {
+    content: '';
+    display: inline-block;
+    width: 0.857143em;
+    height: 0.857143em;
+    margin: 0 0.142857em;
+    vertical-align: -0.071429em;
+    background: currentColor;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M11.25 6 6.75 9.5V7h-6V5h6V2.5Z'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+}
