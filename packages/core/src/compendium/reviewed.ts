@@ -1,3 +1,4 @@
+import { normaliseCompendiumEnglish } from './englishEvidence.js';
 import { resolveAlias, type Aliases } from '../aliases.js';
 import type { Tooltip } from '../schemas.js';
 import type { CompendiumItem } from './link.js';
@@ -51,7 +52,9 @@ export function reviewedCompendiumLink(
       current.hash !== Number(hash) ||
       item.name !== expected.name ||
       item.categoryId !== expected.category ||
-      current.text.en?.text !== expected.template ||
+      current.text.en?.text === undefined ||
+      normaliseCompendiumEnglish(current.text.en.text) !==
+        normaliseCompendiumEnglish(expected.template) ||
       resolveAlias(Number(hash), aliases) !== Number(hash)
     )
       return false;
