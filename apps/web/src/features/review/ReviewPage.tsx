@@ -36,10 +36,12 @@ import {
   retainReviewPage,
   useReviewOpening,
 } from './opening';
+import { useLeftQueue } from '../queue/useQueue';
 
 const count = new Intl.NumberFormat('en');
 
 export function ReviewPage() {
+  useLeftQueue();
   const opening = useReviewOpening((state) => state.warming);
   const openingToken = useReviewOpening((state) => state.token);
   const article = useRef<HTMLElement>(null);
@@ -283,7 +285,7 @@ export function ReviewPage() {
         pending.has(hash) &&
         !pending.get(hash)!.unpublishable &&
         !inFlight.has(hash) &&
-        reviewStamp(data.bundle.tooltips[hash]) === restore.stamps[hash],
+        reviewStamp(data.bundle.tooltips[hash], data.aliases) === restore.stamps[hash],
     );
     if (kept.length) useReviewQueue.setState({ selected: new Set(kept) });
   }, [loading, data, entries, inFlight]);

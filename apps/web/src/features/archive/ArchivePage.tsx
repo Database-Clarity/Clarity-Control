@@ -27,11 +27,12 @@ import type { ArchiveRestore } from '../queue/sources';
 import { archiveItem } from '../queue/rows';
 import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkThroughBar';
 import { WorkThroughControl } from '../queue/QueueControl';
-import { useWorkThrough } from '../queue/useQueue';
+import { useWorkThrough, useLeftQueue } from '../queue/useQueue';
 import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './ArchivePage.module.scss';
 
 export function ArchivePage() {
+  useLeftQueue();
   const { data, status, error } = useDataStore();
   return (
     <SkeletonBoundary

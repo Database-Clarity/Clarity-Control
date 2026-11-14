@@ -5,7 +5,10 @@ import type { Drafts } from '../../services/draftStorage';
 import type { EditorData } from '../../stores/data';
 import type { LostText } from '../lost-text/model';
 import { fingerprint, recordKey } from '../lost-text/model';
-import { archiveState, queueSources } from './sources';
+import { editorPath } from './editorPath';
+import { lostItem } from './lostRows';
+import { driftRows } from './rows';
+import { archiveState, queueSources, reviewStamp } from './sources';
 
 const stamp = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'x' };
 const tip = (hash: number, change: Partial<Tooltip> = {}): Tooltip => ({
@@ -65,5 +68,54 @@ describe('completion hooks', () => {
     expect(done(queued, draft(confirmed))).toBe(true);
     // Discarding the draft reopens it.
     expect(done(queued, {})).toBe(false);
+  });
+
+  it('Review: a markup-only save of the same length and time still counts as saved again', () => {
+    const before = tip(5, {
+      text: { en: { text: '<solar Scorch /> and <solar/>Scorch', ...stamp } },
+    });
+    const after = tip(5, {
+      text: { en: { text: '<solar/>Scorch and <solar Scorch />', ...stamp } },
+    });
+    expect(after.text.en!.text.length).toBe(before.text.en!.text.length);
+    const queued = { key: '5', hash: 5, name: 'Five', detail: reviewStamp(before, {}) };
+    expect(
+      queueSources.review.done({ data: data([before]), user: null, decisions: {} })(queued, {}),
+    ).toBe(false);
+    expect(
+      queueSources.review.done({ data: data([after]), user: null, decisions: {} })(queued, {}),
+    ).toBe(true);
+    // An alias newly pointing here changes what a push publishes too.
+    const aliased = {
+      ...data([before]),
+      aliases: { 6: { to: 5, kind: 'sandbox' } },
+    } as unknown as EditorData;
+    expect(queueSources.review.done({ data: aliased, user: null, decisions: {} })(queued, {})).toBe(
+      true,
+    );
+  });
+});
+
+describe('editor paths', () => {
+  const enhanced = {
+    ...data([tip(10), tip(11)]),
+    items: { 10: { hash: 10, name: 'Base' }, 11: { hash: 11, name: 'Enhanced', baseHash: 10 } },
+  } as unknown as EditorData;
+
+  it('opens an enhanced override on its base with the variant named (base 10, override 11)', () => {
+    expect(editorPath(11, enhanced)).toBe('/t/10?variant=11');
+    expect(editorPath(10, enhanced)).toBe('/t/10');
+    expect(editorPath(11, enhanced, 'de')).toBe('/t/10?lang=de&variant=11');
+  });
+
+  it('every list source opens the override, not the base', () => {
+    const record = { hash: 11, lang: 'fr', name: 'Enhanced' } as LostText;
+    expect(queueSources['lost-text'].path(lostItem(record, enhanced))).toBe(
+      '/t/10?lang=fr&variant=11',
+    );
+    const item = { key: '11', hash: 11, name: 'Enhanced', path: editorPath(11, enhanced) };
+    expect(queueSources.drift.path(item)).toBe('/t/10?variant=11');
+    expect(queueSources.review.path(item)).toBe('/t/10?variant=11');
+    expect(driftRows(enhanced, '').every((row) => row.path)).toBe(true);
   });
 });

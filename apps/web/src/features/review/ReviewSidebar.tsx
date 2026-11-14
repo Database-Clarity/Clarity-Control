@@ -125,7 +125,10 @@ export function ReviewSidebar() {
                     markerOpen,
                     selected: [...selected],
                     stamps: Object.fromEntries(
-                      [...selected].map((hash) => [hash, reviewStamp(data?.bundle.tooltips[hash])]),
+                      [...selected].map((hash) => [
+                        hash,
+                        data ? reviewStamp(data.bundle.tooltips[hash], data.aliases) : 'gone',
+                      ]),
                     ),
                   } satisfies Omit<ReviewRestore, 'scroll'>
                 }

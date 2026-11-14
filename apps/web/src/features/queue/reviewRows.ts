@@ -1,6 +1,7 @@
 import type { EditorData } from '../../stores/data';
 import type { PendingTooltip } from '../review/model';
 import { queueView } from '../review/queueModel';
+import { editorPath } from './editorPath';
 import type { QueueItem } from './model';
 import { reviewStamp, type ReviewRestore } from './sources';
 
@@ -11,7 +12,8 @@ export function reviewItem(entry: PendingTooltip, data: EditorData): QueueItem {
     key: String(hash),
     hash,
     name: entry.name,
-    detail: reviewStamp(data.bundle.tooltips[hash] ?? entry.tooltip),
+    path: editorPath(hash, data),
+    detail: reviewStamp(data.bundle.tooltips[hash] ?? entry.tooltip, data.aliases),
   };
 }
 

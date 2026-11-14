@@ -71,7 +71,6 @@ import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { WorkThroughControl, leaveTarget } from '../queue/QueueControl';
 import { queueSources } from '../queue/sources';
-import { useWorkQueues } from '../queue/store';
 import { useWorkThrough } from '../queue/useQueue';
 import { englishDiffFor } from '../translations/source';
 
@@ -266,7 +265,6 @@ function TooltipWorkspace({
   // (the Archive's detail) shows its queue in its own top row instead.
   const workThrough = useWorkThrough(routeState, hashOverride === undefined);
   const work = hashOverride === undefined ? workThrough : null;
-  const endWork = useWorkQueues((state) => state.end);
   function changeLanguage(next: Lang) {
     setRemembered(next);
     setSearch(withLanguage(search, next));
@@ -715,7 +713,6 @@ function TooltipWorkspace({
                   label:
                     (work.queue.origin.restore as { summary?: string }).summary ??
                     queueSources[work.queue.source].label,
-                  onClick: () => endWork(work.queue.id),
                 }
               : undefined
           }

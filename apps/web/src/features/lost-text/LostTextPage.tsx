@@ -23,9 +23,11 @@ import { lostItem } from '../queue/lostRows';
 import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkThroughBar';
 import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './LostText.module.scss';
+import { useLeftQueue } from '../queue/useQueue';
 
 const parsed = artifactSchema.safeParse(artifact);
 export function LostTextPage() {
+  useLeftQueue();
   const data = useDataStore((s) => s.data);
   const user = useAuthStore((s) => s.user);
   const { drafts, hydrated } = useDraftStore();

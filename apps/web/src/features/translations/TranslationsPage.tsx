@@ -38,6 +38,7 @@ import { translationItem } from '../queue/translationRows';
 import { returnedState } from '../queue/WorkThroughBar';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './TranslationsPage.module.scss';
+import { useLeftQueue } from '../queue/useQueue';
 
 const searchDelayMs = 200;
 const noRows: readonly QueueRow[] = [];
@@ -112,6 +113,7 @@ function Coverage({
 }
 
 export function TranslationsPage() {
+  useLeftQueue();
   const data = useDataStore((state) => state.data);
   const { user, loading } = useAuthStore();
   const [params, setParams] = useSearchParams();

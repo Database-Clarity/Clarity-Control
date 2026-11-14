@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import {
   createMemoryRouter,
   RouterProvider,
+  useBlocker,
   useLocation,
   type RouterProviderProps,
 } from 'react-router-dom';
@@ -61,8 +62,11 @@ let router: RouterProviderProps['router'];
 let location: ReturnType<typeof useLocation>;
 
 /** The editor route, reduced to the work-through control fed the way TooltipPage feeds it. */
+let blocking = false;
 function Editor() {
   location = useLocation();
+  // The editor's leave guard, reduced to refusing every navigation while `blocking` is set.
+  useBlocker(() => blocking);
   const work = useWorkThrough(location.state);
   return <div data-editor>{work && <WorkThroughControl work={work} />}</div>;
 }
@@ -72,6 +76,7 @@ function List() {
 }
 
 beforeEach(() => {
+  blocking = false;
   resetWorkQueues();
   useDataStore.setState({ data: build() });
   useAuthStore.setState({ user: { login: 'person', role: 'editor' } as unknown as User });
@@ -199,5 +204,51 @@ describe('work through Bungie drift', () => {
     await act(async () => router.navigate('/t/12'));
     act(() => button('End')!.click());
     expect(host.querySelector('[data-queue]')).toBeNull();
+  });
+
+  it('Leave and Revisit change the queue only once their navigation lands', async () => {
+    await act(async () => button('Work through all 3 shown')!.click());
+    const id = useWorkQueues.getState().active;
+    expect(id).not.toBeNull();
+
+    // A refused Leave (the leave guard says no) keeps the queue working where it was.
+    blocking = true;
+    await act(async () => link('Bungie drift')!.click());
+    expect(location.pathname).toBe('/t/11');
+    expect(useWorkQueues.getState().active).toBe(id);
+    expect(position()).toBe('1 of 3');
+
+    // A modified click opens another tab: this tab's queue stays as it is.
+    blocking = false;
+    // (jsdom cannot open the tab itself.)
+    const noTab = (event: Event) => event.preventDefault();
+    host.addEventListener('click', noTab);
+    onTestFinished(() => host.removeEventListener('click', noTab));
+    await act(async () => {
+      link('Bungie drift')!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+      );
+    });
+    expect(location.pathname).toBe('/t/11');
+    expect(useWorkQueues.getState().active).toBe(id);
+
+    // Next to the end, then a refused Revisit leaves it ended; an accepted one reopens it.
+    await act(async () => link('Next in queue')!.click());
+    await act(async () => link('Next in queue')!.click());
+    act(() => button('›')!.click());
+    expect(position()).toBe('End · 3 skipped');
+    blocking = true;
+    await act(async () => link('Revisit')!.click());
+    expect(useWorkQueues.getState().queues[id!]!.finished).toBe(true);
+    blocking = false;
+    await act(async () => link('Revisit')!.click());
+    expect(location.pathname).toBe('/t/11');
+    expect(useWorkQueues.getState().queues[id!]!.finished).toBe(false);
+    expect(position()).toBe('1 of 3');
+
+    // An accepted Leave ends it once the list is reached; Back to the entry does not restart it.
+    await act(async () => link('Bungie drift')!.click());
+    expect(location.pathname).toBe('/drift');
+    expect(useWorkQueues.getState().active).toBeNull();
   });
 });

@@ -30,6 +30,11 @@ export interface QueueItem {
   name: string;
   /** What the source needs to judge or finish the item (a lost-text record, a starting state). */
   detail?: unknown;
+  /**
+   * Where the item opens in the editor: the canonical tooltip with `variant=` for an enhanced
+   * override (a plain `/t/<override>` redirects to its base and loses the override).
+   */
+  path?: string;
 }
 
 export interface WorkQueue {
@@ -62,10 +67,14 @@ export interface WorkQueue {
 export interface QueueVisit {
   id: string;
   key: string;
+  /** Revisit from the end of the queue: it leaves the end state once this item opens. */
+  revisit?: boolean;
 }
 
 export function visitState(visit: QueueVisit): { workThrough: QueueVisit } {
-  return { workThrough: { id: visit.id, key: visit.key } };
+  return {
+    workThrough: { id: visit.id, key: visit.key, ...(visit.revisit ? { revisit: true } : {}) },
+  };
 }
 
 /** The queue visit in a history entry's state, or null on an ordinary visit. */
@@ -73,7 +82,7 @@ export function visitOf(state: unknown): QueueVisit | null {
   const visit = (state as { workThrough?: Partial<QueueVisit> } | null)?.workThrough;
   if (!visit || typeof visit !== 'object') return null;
   return typeof visit.id === 'string' && typeof visit.key === 'string'
-    ? { id: visit.id, key: visit.key }
+    ? { id: visit.id, key: visit.key, ...(visit.revisit === true ? { revisit: true } : {}) }
     : null;
 }
 
@@ -179,5 +188,10 @@ export function merged(queue: WorkQueue, rows: QueueItem[]): QueueItem[] {
       : undefined;
   return rows
     .filter((row) => !selected || selected.has(row.key))
-    .map((row) => old.get(row.key) ?? row);
+    .map((row) => {
+      // A kept item keeps its starting state; where it opens follows the current catalog.
+      const kept = old.get(row.key);
+      if (!kept) return row;
+      return row.path === undefined ? kept : { ...kept, path: row.path };
+    });
 }

@@ -1,4 +1,5 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -57,4 +58,19 @@ export function useWorkThrough(routeState: unknown, allowPaused = true): WorkThr
   if (visit && visited) return { mode: 'active', queue: visited, visit };
   if (active && !active.finished) return { mode: 'paused', queue: active };
   return null;
+}
+
+/**
+ * A list page that Leave came back to ends the queue it left (named in the history entry's state).
+ * The queue ends only once the list is reached: a Leave the leave guard refuses, or one opened in
+ * another tab, leaves it running. Back to the queue's entry works it again; Forward here leaves.
+ */
+export function useLeftQueue(): void {
+  const { key, state } = useLocation();
+  const left = (state as { workThroughLeft?: unknown } | null)?.workThroughLeft;
+  useEffect(() => {
+    if (typeof left !== 'string') return;
+    const store = useWorkQueues.getState();
+    if (store.active === left) store.end(left);
+  }, [key, left]);
 }

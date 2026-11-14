@@ -64,9 +64,16 @@ function Panel({ queue, item }: { queue: WorkQueue; item: QueueItem }) {
   );
 }
 
-/** The way back to the list: its filters, selection, and scroll come back with it. */
+/**
+ * The way back to the list: its filters, selection, and scroll come back with it. The queue ends
+ * when the list receives this state (`useLeftQueue`), so a Leave the leave guard refuses, or one
+ * opened in another tab, changes nothing.
+ */
 export function leaveTarget(queue: WorkQueue) {
-  return { to: queue.origin.path, state: { workThroughReturn: queue.origin.restore } };
+  return {
+    to: queue.origin.path,
+    state: { workThroughReturn: queue.origin.restore, workThroughLeft: queue.id },
+  };
 }
 
 /**
@@ -119,19 +126,19 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
   const visitItem = useWorkQueues((state) => state.visit);
   const finish = useWorkQueues((state) => state.finish);
   const revisit = useWorkQueues((state) => state.revisit);
-  const end = useWorkQueues((state) => state.end);
   const passedRef = useRef({ queue, isDone });
   passedRef.current = { queue, isDone };
   useEffect(() => {
+    // Revisit applies once its item opens (a refused or new-tab Revisit changes nothing).
+    if (visit.revisit) revisit(visit.id);
     const { queue: latest, isDone: done } = passedRef.current;
     const passed = latest.items.find((item) => item.key === latest.current);
     visitItem(visit.id, visit.key, Boolean(passed && !done(passed)));
-  }, [visit.id, visit.key, visitItem]);
+  }, [visit.id, visit.key, visit.revisit, visitItem, revisit]);
 
   const label = placeLabel(place);
   const name = `${source.label} queue`;
   const leave = leaveTarget(queue);
-  const onLeave = () => end(queue.id);
 
   const step = (
     item: QueueItem | undefined,
@@ -193,9 +200,8 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
   const revisitLink = revisitItem && (
     <Link
       to={source.path(revisitItem)}
-      state={visitState({ id: queue.id, key: revisitItem.key })}
+      state={visitState({ id: queue.id, key: revisitItem.key, revisit: true })}
       className={header.queueBack}
-      onClick={() => revisit(queue.id)}
       title={`Back to the first item left: ${revisitItem.name}`}
     >
       Revisit
@@ -209,7 +215,6 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       className={header.queueBack}
       aria-label={ariaLabel}
       title={`Leave the queue: back to ${source.label}, with its filters and selection`}
-      onClick={onLeave}
     >
       {text}
     </Link>
@@ -239,7 +244,6 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
           place={place}
           visit={visit}
           isDone={isDone}
-          onLeave={onLeave}
           close={close}
           panel={phone && panels[queue.source] ? place.current : undefined}
         />
@@ -342,7 +346,6 @@ function QueueMenu({
   place,
   visit,
   isDone,
-  onLeave,
   close,
   panel,
 }: {
@@ -350,7 +353,6 @@ function QueueMenu({
   place: QueuePlace;
   visit: QueueVisit;
   isDone: (item: QueueItem) => boolean;
-  onLeave(): void;
   close(restoreFocus?: boolean): void;
   /** Phones: the source's finishing action for this item sits at the top of the menu. */
   panel?: QueueItem;
@@ -426,14 +428,7 @@ function QueueMenu({
         >
           {rebuilding === 'busy' ? 'Rebuilding…' : 'Rebuild queue'}
         </button>
-        <Link
-          to={leave.to}
-          state={leave.state}
-          onClick={() => {
-            onLeave();
-            close(false);
-          }}
-        >
+        <Link to={leave.to} state={leave.state} onClick={() => close(false)}>
           Leave queue
         </Link>
         {rebuilding !== 'idle' && rebuilding !== 'busy' && (

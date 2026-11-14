@@ -15,8 +15,11 @@ import type { DriftRestore } from '../queue/sources';
 import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkThroughBar';
 import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './Status.module.scss';
+import { useLeftQueue } from '../queue/useQueue';
+import { editorPath } from '../queue/editorPath';
 
 export function DriftPage() {
+  useLeftQueue();
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   // Leave from a work-through queue brings the filter, selection, and scroll back.
@@ -54,6 +57,7 @@ export function DriftPage() {
     key: String(tooltip.hash),
     hash: tooltip.hash,
     name: data.items[tooltip.hash]?.name ?? String(tooltip.hash),
+    path: editorPath(tooltip.hash, data),
   }));
   function toggle(hash: number, on: boolean) {
     setSelected((old) => {

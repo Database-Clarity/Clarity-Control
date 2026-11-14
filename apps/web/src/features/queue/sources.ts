@@ -1,4 +1,12 @@
-import { bungieDrift, translationStateOf, type Lang, type Tooltip } from '@clarity/core';
+import {
+  bungieDrift,
+  incomingAliases,
+  stableStringify,
+  translationStateOf,
+  type Aliases,
+  type Lang,
+  type Tooltip,
+} from '@clarity/core';
 import type { User } from '../../services/api';
 import type { Drafts } from '../../services/draftStorage';
 import type { EditorData } from '../../stores/data';
@@ -56,21 +64,33 @@ export interface ReviewRestore {
 }
 
 /**
- * The saved version of what a push publishes: each language's text (by its save time and length),
- * the associations, and the custom definition. Any save of those changes it.
+ * The saved version of what a push publishes: a digest of exactly the inputs core's
+ * publishableHash reads (each language's saved text with its times, the associations, the custom
+ * definition, and the aliases pointing here). Any save of those changes it, markup-only ones too.
  */
-export function reviewStamp(tooltip: Tooltip | undefined): string {
+export function reviewStamp(tooltip: Tooltip | undefined, aliases: Aliases): string {
   if (!tooltip) return 'gone';
-  const text = Object.entries(tooltip.text)
-    .map(([lang, value]) => `${lang}@${value!.updatedAt}#${value!.text.length}`)
-    .join(',');
-  const custom = tooltip.custom ? `${tooltip.custom.name}/${tooltip.custom.categoryId}` : '';
-  return `${text}|${tooltip.associated.join(',')}|${custom}`;
+  const { hash, text, associated, custom } = tooltip;
+  return digest(
+    stableStringify({ text, associated, custom, aliases: incomingAliases(hash, aliases) }),
+  );
+}
+
+/** Two independent 32-bit string hashes (FNV-1a and a djb2 variant): 64 bits, synchronous. */
+function digest(value: string): string {
+  let fnv = 0x811c9dc5;
+  let djb = 5381;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    fnv = Math.imul(fnv ^ code, 0x01000193);
+    djb = (Math.imul(djb, 33) + code) | 0;
+  }
+  return `${(fnv >>> 0).toString(36)}.${(djb >>> 0).toString(36)}.${value.length}`;
 }
 
 const review: QueueSource = {
   label: 'Review changes',
-  path: (item) => `/t/${item.hash}`,
+  path: (item) => item.path ?? `/t/${item.hash}`,
   done({ data }) {
     const answers = new Map<number, boolean>();
     return (item) => {
@@ -78,7 +98,7 @@ const review: QueueSource = {
       if (answer === undefined)
         answers.set(
           item.hash,
-          (answer = reviewStamp(data.bundle.tooltips[item.hash]) !== item.detail),
+          (answer = reviewStamp(data.bundle.tooltips[item.hash], data.aliases) !== item.detail),
         );
       return answer;
     };
@@ -113,7 +133,7 @@ export function stillDrifts(hash: number, data: EditorData): boolean {
 
 const drift: QueueSource = {
   label: 'Bungie drift',
-  path: (item) => `/t/${item.hash}`,
+  path: (item) => item.path ?? `/t/${item.hash}`,
   done({ data }) {
     const answers = new Map<number, boolean>();
     return (item) => {
@@ -145,7 +165,7 @@ export interface LostRestore {
 
 const lost: QueueSource = {
   label: 'Lost text',
-  path: (item) => `/t/${item.hash}?lang=${item.lang ?? 'en'}`,
+  path: (item) => item.path ?? `/t/${item.hash}?lang=${item.lang ?? 'en'}`,
   done({ data, decisions }) {
     return (item, drafts) => {
       const record = item.detail as LostText;
