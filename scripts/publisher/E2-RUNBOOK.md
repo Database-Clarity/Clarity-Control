@@ -24,6 +24,8 @@ rewrite a published commit or infer author credits from an unsigned receipt fiel
 
 ## Install dry-run pipeline (root operator in E2)
 
+Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precondition](README.md#arrow-symbol-rollout-precondition).
+
 Template source PIN: `85957f8bc2463465dbd38c2b14744fe6806b4d11`.
 Expected publisher.mjs SHA-256: `2adf2a3096ad8d519f5c24f8153cc6bd9bc46cb314a675d71c45e23bd0b64ab7`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
