@@ -539,3 +539,92 @@
   flex: 1 1 0;
   min-height: 0;
 }
+
+// Current | Upcoming (scheduled changes, switch-ON builds only): a joined pair beside the heading,
+// the same height as the pickers; on phones its own full-width line above them, like the editor's
+// preview switch. Upcoming, when chosen, carries the editor's cyan "future" mark.
+.sourceSwitch {
+  display: flex;
+  flex: none;
+
+  button {
+    @include controls.button;
+    padding: 0 0.625rem;
+    color: var(--text2);
+    border-radius: 0;
+
+    & + button {
+      margin-left: -1px;
+    }
+
+    &:first-child {
+      border-radius: 0.25rem 0 0 0.25rem;
+    }
+
+    &:last-child {
+      border-radius: 0 0.25rem 0.25rem 0;
+    }
+
+    &[aria-pressed='true'] {
+      position: relative;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--sel);
+      border-color: var(--accent-ink);
+    }
+
+    &:last-child[aria-pressed='true'] {
+      color: var(--link);
+      border-color: var(--cyan-edge);
+    }
+  }
+
+  @include theme.mobile {
+    flex: 0 0 100%;
+
+    button {
+      flex: 1 1 0;
+      min-width: 0;
+      height: var(--tap);
+    }
+  }
+}
+
+// Upcoming states: work left reads as a warning, Stale and Current changed as the stronger flag.
+.row .state {
+  &[data-state='needs'] {
+    color: var(--warn);
+  }
+
+  &[data-state='stale'],
+  &[data-state='changed'] {
+    color: var(--danger);
+  }
+}
+
+// Upcoming coverage: Ready, Changed, Stale, and Needs; the rail is a little wider for the extra column.
+.coverage[data-upcoming] {
+  width: 25rem;
+
+  .coverageHead,
+  button {
+    grid-template-columns: minmax(0, 1fr) 3rem 3.75rem 2.75rem 3.25rem;
+  }
+
+  @container (max-width: 53.99rem) {
+    width: auto;
+
+    .coverageHead,
+    button {
+      grid-template-columns: minmax(0, 1fr) 3rem 3.75rem 2.75rem 3.25rem;
+    }
+  }
+}
+
+.listing[data-upcoming] .row a {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 14rem) 8.5rem;
+
+  @container (max-width: 36rem) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
