@@ -768,6 +768,26 @@ describe('resolve', () => {
       'Clarity-Changed: 123=de',
     );
   });
+  it('refuses #{d} and <enhanced/> from the upcoming text unless the PIN declares markupBraces', async () => {
+    const { current } = published();
+    const path = 'schedule/activation-conflicts/123.json';
+    const file = stored(path) as Record<string, Loose>;
+    f.moveData({
+      [path]: { ...file, proposed: withText(file.proposed, 'en', 'Deals #{d}x <enhanced/>.') },
+    });
+    const resolve = async () =>
+      call(`/batches/${ID}/resolve`, {
+        hash: 123,
+        expectedCurrent: await contentHash(current),
+        choices: { 'text.en': 'upcoming' },
+      });
+    const refused = await resolve();
+    expect(refused.status).toBe(422);
+    expect(refused.body.error).toContain('lacks the "markupBraces" capability');
+    f.moveData({ '.publisher/PIN': { capabilities: [...pin.capabilities, 'markupBraces'] } });
+    expect((await resolve()).status).toBe(200);
+    expect((stored('tooltips/123.json') as Tooltip).text.en?.text).toBe('Deals #{d}x <enhanced/>.');
+  });
   it('maps an existence choice that no longer applies to 409 with per-field missing', async () => {
     const { current } = published();
     const response = await call(`/batches/${ID}/resolve`, {
@@ -1061,5 +1081,66 @@ describe('round-1 independent review fixes', () => {
   it('refuses batch names with control or bidi characters', async () => {
     for (const name of ['x\n\nClarity-Changed: 123=en', 'a\u202Eb', 'tab\there'])
       expect((await call('/batches', { name })).status).toBe(400);
+  });
+});
+
+describe('markupBraces gate on batch paths (VAR-BRACES output review MUST-1)', () => {
+  const braced = 'Deals #{d}x <enhanced/>.';
+  const refused = (response: { status: number; body: Record<string, Loose> }) => {
+    expect(response.status).toBe(422);
+    expect(response.body.error).toContain('lacks the "markupBraces" capability');
+  };
+  const withBraces = () =>
+    f.moveData({ '.publisher/PIN': { capabilities: [...pin.capabilities, 'markupBraces'] } });
+
+  it('save (edit and add) refuses #{d} and <enhanced/> unless the PIN declares markupBraces', async () => {
+    const proposal = (stored(memberPath()) as BatchMember).proposed;
+    const edit = () =>
+      call(`/batches/${ID}/save`, saveBody(withText(proposal, 'en', braced), proposal));
+    refused(await edit());
+    const fresh = { ...tooltip(), hash: 456 };
+    f.moveData({ 'tooltips/456.json': fresh });
+    const add = () => call(`/batches/${ID}/save`, saveBody(withText(fresh, 'en', braced), fresh));
+    refused(await add());
+    withBraces();
+    expect((await edit()).status).toBe(200);
+    expect((await add()).status).toBe(200);
+  });
+
+  it('rebase refuses them too', async () => {
+    const proposed = (stored(memberPath()) as BatchMember).proposed;
+    f.moveData({ 'tooltips/123.json': withText(tooltip(), 'fr', 'courant') });
+    const rebase = () =>
+      call(`/batches/${ID}/rebase`, {
+        revision: storedBatch().revision,
+        hash: 123,
+        base: withText(tooltip(), 'fr', 'courant'),
+        next: withText(withText(proposed, 'fr', 'courant'), 'en', braced),
+      });
+    refused(await rebase());
+    withBraces();
+    expect((await rebase()).status).toBe(200);
+  });
+
+  it('scheduling refuses a stored member that holds them', async () => {
+    f.moveData({ [memberPath()]: member(withText(tooltip(), 'en', braced)) });
+    refused(await schedule(MAINTAINER, { notBefore: 'now' }));
+    withBraces();
+    expect((await schedule(MAINTAINER, { notBefore: 'now' })).status).toBe(202);
+  });
+
+  it('/publish refuses them while the publisher is on', async () => {
+    const { publishableHash } = await import('@clarity/core');
+    const current = withText(tooltip(), 'en', braced);
+    f.moveData({ 'tooltips/123.json': current });
+    const publish = async () =>
+      call('/publish', {
+        opId: newUlid(),
+        hashes: [123],
+        expected: { 123: await publishableHash(current, f.aliases) },
+      });
+    refused(await publish());
+    withBraces();
+    expect((await publish()).status).toBe(202);
   });
 });

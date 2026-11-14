@@ -62,6 +62,15 @@
   }
 }
 
+// "Work through N selected" and "Work through all N shown", under the filters.
+.workThrough {
+  flex: none;
+  > [role='group'] {
+    margin: 0;
+    gap: 0.25rem;
+  }
+}
+
 .viewport {
   position: relative;
   // Its own height is the whole track; the column (or the phone sheet) bounds it.

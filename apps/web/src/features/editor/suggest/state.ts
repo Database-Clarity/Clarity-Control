@@ -10,7 +10,7 @@ import {
   type Extension,
 } from '@codemirror/state';
 import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
-import type { MarkupGlobals } from '@clarity/core';
+import { extractVariables, lowerDelimitedMarkup, type MarkupGlobals } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
 import { checkedWrap, tagSelection } from '../elementTags';
 import { askGroup, groupChange, pairAt } from '../iconPairs';
@@ -365,17 +365,37 @@ const whenOpen =
 /** The part of the menu that follows the language and globals; goes in the reconfigurable block. */
 export const suggestConfiguration = (host: SuggestHost): Extension => suggestHost.of(host);
 
+/** Whether the typed `#name` in a variable context already names a defined variable. */
+function finishedReference(state: EditorState, context: SuggestContext): boolean {
+  if (context.kind !== 'variable') return false;
+  const name = /^#([a-zA-Z0-9]+)$/.exec(state.sliceDoc(context.from, context.to))?.[1];
+  if (name === undefined) return false;
+  const { globals } = state.facet(suggestHost);
+  return (
+    Object.hasOwn(extractVariables(state.doc.toString()), name) ||
+    Object.hasOwn(extractVariables(globals.variables), name)
+  );
+}
+
 /**
  * Enter and Tab insert the highlighted option. When it would only re-type what is already there
  * (the author finished the word, e.g. `#e`), the menu steps aside and the key keeps its usual job.
+ * Until the author picks an option, two more cases count: an option that only re-spells it
+ * (`#{name}` after `#name`, `<enhanced/>` after `#e`: both lower to what is typed, braces.ts),
+ * and a finished reference to a defined name, so `#e` (the global arrow, never offered as a
+ * variable) + Enter starts a new line whatever the menu lists first. A picked option goes in.
  */
 function accept(view: EditorView, snapshot: SuggestSnapshot): boolean {
   const item = snapshot.items[snapshot.index];
+  const typed = item && view.state.sliceDoc(item.from, item.to);
   if (
     item &&
     !item.unavailable &&
     !item.stops.length &&
-    item.insert === view.state.sliceDoc(item.from, item.to)
+    (item.insert === typed ||
+      (!snapshot.picked &&
+        (lowerDelimitedMarkup(item.insert) === typed ||
+          finishedReference(view.state, snapshot.context))))
   ) {
     closeSuggest(view);
     return false;

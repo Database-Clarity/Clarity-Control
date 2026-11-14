@@ -1,0 +1,233 @@
+// Current / Upcoming above the preview: one full-width two-way switch (28px, phones: the text tab
+// strip at --tap-sm), then one dense line naming the batch, its status, and the not-before time.
+// Upcoming is marked in the cyan family (--link text, --cyan-edge rule: readable in both themes) so
+// a future state is never mistaken for the saved one.
+@use '../../data/variables' as theme;
+@use '../../ui/tabs';
+
+.upcoming {
+  min-width: 0;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--hair);
+}
+
+.switch {
+  display: flex;
+  height: 1.75rem;
+  padding: 0.25rem 0.375rem 0;
+  button {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    overflow: hidden;
+    font: inherit;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--text2);
+    background: transparent;
+    border: 1px solid var(--ctl-edge);
+    border-radius: 0 0.25rem 0.25rem 0;
+    cursor: pointer;
+    &:first-child {
+      border-right: 0;
+      border-radius: 0.25rem 0 0 0.25rem;
+    }
+    &:hover {
+      color: var(--text);
+    }
+    &[aria-pressed='true'] {
+      font-weight: 700;
+      color: var(--text);
+      background: var(--sel);
+      box-shadow: inset 0 -2px 0 var(--accent-ink);
+    }
+    &:last-child[aria-pressed='true'] {
+      color: var(--link);
+      box-shadow: inset 0 -2px 0 var(--cyan-edge);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--accent-ink);
+      outline-offset: -2px;
+    }
+  }
+  @include theme.mobile {
+    @include tabs.strip;
+    height: var(--tap-sm);
+    padding: 0;
+    button {
+      @include tabs.tab('[aria-pressed="true"]');
+      display: block;
+      flex: 1 1 0;
+      height: 100%;
+      padding: 0 0.25rem;
+      overflow: hidden;
+      line-height: calc(var(--tap-sm) - 2px);
+      text-align: center;
+      text-overflow: ellipsis;
+      border-radius: 0;
+      &:first-child {
+        border-radius: 0;
+      }
+      &[aria-pressed='true'] {
+        background: transparent;
+        box-shadow: none;
+      }
+      &:last-child[aria-pressed='true'] {
+        color: var(--link);
+        border-bottom-color: var(--cyan-edge);
+        box-shadow: none;
+      }
+    }
+  }
+}
+
+.line {
+  min-width: 0;
+  margin: 0;
+  padding: 0.125rem 0.375rem 0.1875rem;
+  font-size: 0.6875rem;
+  line-height: 1.0625rem;
+  color: var(--text2);
+  @include theme.mobile {
+    padding-block: 0.25rem;
+    font-size: 0.75rem;
+  }
+}
+
+$separator: 0.875em;
+// The clip has no padding, so the separator pulled left of it is really hidden.
+.clip {
+  display: block;
+  overflow: hidden;
+}
+// Every segment draws its separator before it, and the row starts one separator to the left of the
+// clipped line: the first segment of each wrapped line hides its "·" under the edge.
+.segments {
+  display: flex;
+  flex-wrap: wrap;
+  margin-left: -$separator;
+}
+
+.segment {
+  min-width: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  &::before {
+    content: '·';
+    display: inline-block;
+    width: $separator;
+    text-align: center;
+    color: var(--text2);
+    font-weight: 400;
+  }
+}
+
+.name {
+  font-weight: 700;
+  color: var(--text);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--text3);
+}
+
+.stale {
+  color: var(--warn);
+}
+
+.failed {
+  color: var(--warn);
+}
+
+.retry {
+  margin-left: 0.5rem;
+  padding: 0;
+  font: inherit;
+  color: var(--link);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+  &:focus-visible {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: 1px;
+  }
+}
+
+// The pane header badge: clock + name while the whole name fits (measured), else the clock alone,
+// else nothing (when even the clock would push the header's controls out of the row).
+// span: the header's `> * { flex: none }` must not keep it from shrinking; it never shrinks below
+// the clock, so it never draws under the controls beside it.
+span.badge {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0.75rem;
+  color: var(--link);
+  font-weight: 700;
+  white-space: nowrap;
+  &[data-mode='none']:not([data-measure]) {
+    display: none;
+  }
+  &[data-mode='clock']:not([data-measure]) .badgeText,
+  &[data-measure='clock'] .badgeText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+
+.clock {
+  flex: none;
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linecap: round;
+}
+
+.badgeText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// A narrower pane drops the word "Batch:" before it would show only the clock.
+@container pane-header (max-width: 44rem) {
+  .badgeWord {
+    display: none;
+  }
+}
+
+// Upcoming: a cyan rule down the preview's edge, so the preview reads as intentionally different
+// from the Current text in the editor.
+.upcoming[data-upcoming='upcoming'] + :global(section) {
+  position: relative;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 1;
+    width: 2px;
+    background: var(--cyan-edge);
+    pointer-events: none;
+  }
+}
+
+// Phones: the preview card runs full-bleed (TooltipPreview), so the switch and its line do too.
+@media (max-width: 700px) {
+  :global([data-panel='preview']) .upcoming {
+    margin-inline: calc(-1 * var(--page-x));
+  }
+  :global([data-panel='preview']) .line {
+    padding-inline: var(--page-x);
+  }
+}

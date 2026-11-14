@@ -19,9 +19,9 @@ import {
   type Tooltip,
   type ViewUpdate,
 } from '@codemirror/view';
-import type { Lang, MarkupGlobals } from '@clarity/core';
+import { enhancedArrowMarkup, mergedVariable, type Lang, type MarkupGlobals } from '@clarity/core';
 import { ReferencePopover } from './ReferencePopover';
-import { drawnSymbolAt } from './symbols';
+import { drawnSymbolAt, findSymbols } from './symbols';
 import {
   isInComment,
   localDefinitions,
@@ -50,6 +50,14 @@ export const openShortcut = isMac ? 'F12 · ⌘Click' : 'F12 · Ctrl+Click';
 
 function modifierHeld(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
   return isMac ? event.metaKey : event.ctrlKey;
+}
+
+/** Whether `range` is exactly a symbol's markup (the legacy arrow `#e`). */
+function symbolRange(state: EditorState, range: { from: number; to: number }): boolean {
+  const line = state.doc.lineAt(range.from);
+  return findSymbols(line.text, line.from).some(
+    (symbol) => symbol.from === range.from && symbol.to === range.to,
+  );
 }
 
 /** The reference touching `pos`, ignoring comments. Offsets are document offsets. */
@@ -133,12 +141,54 @@ export function referenceExtensions(host: ReferenceHost): Extension {
     return resolved;
   };
 
-  const build = (view: EditorView, resolved: ResolvedReference, announce: boolean) => {
+  /**
+   * `#dx` with only `var d`: the plain reference merges d with the text after it. The fix writes
+   * the delimited `#{d}x` (or `<enhanced/>x` for the arrow e), in place, as one undoable change.
+   */
+  const mergeFix = (
+    view: EditorView,
+    found: LineReference & { range: { from: number; to: number } },
+    resolved: ResolvedReference,
+  ) => {
+    if (found.kind !== 'variable' || found.braced || resolved.status !== 'missing') return;
+    const state = view.state;
+    const merged = mergedVariable(
+      found.name,
+      (name) => resolve(state, { ...found, name }).status === 'found',
+    );
+    if (merged === undefined || view.state.readOnly) return;
+    const rest = found.name.slice(merged.length);
+    const insert = merged === 'e' ? `${enhancedArrowMarkup}${rest}` : `#{${merged}}${rest}`;
+    const source = state.sliceDoc(found.range.from, found.range.to);
+    return {
+      message:
+        merged === 'e'
+          ? 'The enhanced arrow #e merges with the text after it.'
+          : `Variable #${merged} merges with the text after it.`,
+      label: `Write ${insert}`,
+      onApply: () => {
+        if (view.state.sliceDoc(found.range.from, found.range.to) === source)
+          view.dispatch({
+            changes: { from: found.range.from, to: found.range.to, insert },
+            userEvent: 'input.fix',
+          });
+        view.focus();
+      },
+    };
+  };
+
+  const build = (
+    view: EditorView,
+    found: LineReference & { range: { from: number; to: number } },
+    announce: boolean,
+  ) => {
+    const resolved = resolve(view.state, found);
     const dom = document.createElement('div');
     dom.className = 'clarity-reference-popover';
     if (announce) dom.setAttribute('role', 'status');
     const root = createRoot(dom);
     const doc = view.state.doc.toString();
+    const fix = mergeFix(view, found, resolved);
     flushSync(() =>
       root.render(
         <ReferencePopover
@@ -146,6 +196,7 @@ export function referenceExtensions(host: ReferenceHost): Extension {
           lang={host.lang}
           globals={renderGlobals(host, doc)}
           openShortcut={openShortcut}
+          fix={fix}
           onOpen={
             canOpen(resolved, host)
               ? () => {
@@ -166,7 +217,7 @@ export function referenceExtensions(host: ReferenceHost): Extension {
       pos: found.range.from,
       end: found.range.to,
       above: true,
-      create: (view) => build(view, resolve(view.state, found), side === 0),
+      create: (view) => build(view, found, side === 0),
     };
   };
 
@@ -294,7 +345,9 @@ export function referenceExtensions(host: ReferenceHost): Extension {
         if (modifierHeld(event) || !window.matchMedia?.('(pointer: coarse)').matches) return false;
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
         const found = pos === null ? null : referenceAtPosition(view.state.doc, pos, 0);
-        if (found) view.dispatch({ effects: showReference.of(found.range) });
+        // The legacy arrow `#e` is a symbol: its own popover (Old spelling) answers the tap.
+        if (found && !symbolRange(view.state, found.range))
+          view.dispatch({ effects: showReference.of(found.range) });
         return false;
       },
     }),

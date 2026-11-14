@@ -1,9 +1,11 @@
-import { offersBaseEnhanced, type ScopedMarkupGlobals } from '../markupScope';
+import { offeredHere, type ScopedMarkupGlobals } from '../markupScope';
 import { type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
+  enhancedArrowMarkup,
   expandSnippet,
   extractVariables,
+  writeVariable,
   markupSnippets,
   markupSymbols,
   markupTags,
@@ -19,7 +21,7 @@ import {
   type Rejection,
 } from '../markupInsertion';
 import { insertItem } from '../suggest/state';
-import type { SuggestItem } from '../suggest/source';
+import { enhancedArrowSnippet as arrowSnippet, type SuggestItem } from '../suggest/source';
 
 /**
  * How an entry looks on its button. The row and the "All" popover draw the same glyphs, so what
@@ -114,7 +116,7 @@ export function templateItem(
     keys: '',
   };
   if (entry.plain) {
-    // Plain text that never replaces the selection (a `#e`): it goes in at the caret.
+    // Plain text that never replaces the selection (the arrow): it goes in at the caret.
     const expanded = expandSnippet(snippet, '');
     return {
       ...base,
@@ -159,7 +161,7 @@ function viaTemplate(
     help: snippet.help,
     ...entry,
     run(view, globals) {
-      if (entry.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals)) return 'context';
+      if (!offeredHere(entry.id, globals)) return 'context';
       const blocked = guard(view);
       if (blocked) return blocked;
       const item = templateItem(view.state, {
@@ -187,16 +189,6 @@ const tagById = (id: string) => {
   const found = markupTags.find((tag) => tag.id === id);
   if (!found) throw new Error(`Missing tag ${id}`);
   return found;
-};
-/** The bare enhanced arrow: plain text written at the caret, never over the selection. */
-const arrowSnippet: Snippet = {
-  id: 'enhanced-arrow',
-  label: '#e',
-  group: 'Enhanced',
-  template: '#e',
-  keywords: 'enhanced arrow e gold up',
-  usage: /#e(?![a-zA-Z0-9])/,
-  about: 'The enhanced arrow, written #e.',
 };
 
 const sentence = (text: string) => text[0]!.toUpperCase() + text.slice(1);
@@ -273,12 +265,12 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
     viaTemplate(arrowSnippet, {
       id: 'enhanced-arrow',
       group: 'Enhanced',
-      label: 'Enhanced arrow (#e)',
-      markup: '#e',
+      label: 'Enhanced arrow',
+      markup: enhancedArrowMarkup,
       keys: 'enhanced arrow e gold up',
       glyph: { kind: 'arrow', text: '' },
-      about: 'The enhanced arrow, written #e.',
-      usage: /#e(?![a-zA-Z0-9])/,
+      about: arrowSnippet.about,
+      usage: arrowSnippet.usage,
       help: { block: 'enhanced' },
       plain: true,
     }),
@@ -296,9 +288,9 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       id: 'enhanced-formula',
       group: 'Enhanced',
       label: 'Base with enhanced bonus',
-      markup: '#e${base+#d}',
+      markup: '<enhanced/>${base+#{d}}',
       keys: snippetById('enhanced-formula').keywords,
-      glyph: { kind: 'arrow', text: '${X+#d}' },
+      glyph: { kind: 'arrow', text: '${X+#{d}}' },
       usage: snippetById('enhanced-formula').usage,
       about: snippetById('enhanced-formula').about,
     }),
@@ -386,14 +378,16 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
   const variables = { ...documentVariables, ...extractVariables(globals.variables) };
   for (const [name, value] of Object.entries(variables)) {
     const own = name in documentVariables;
+    // The global `e` is the enhanced arrow, offered as `<enhanced/>` behind the gate above.
+    if (name === 'e' && !own) continue;
     entries.push({
       id: `var:${name}`,
       group: own ? 'Variables' : 'Global variables',
       label: `#${name}`,
-      markup: `#${name}`,
+      markup: writeVariable(name),
       keys: value,
       glyph: { kind: 'mono', text: `#${name}` },
-      usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
+      usage: new RegExp(`#${name}(?![a-zA-Z0-9])|#\\{${name}\\}`),
       about: value
         ? `A variable: ${value.length > 60 ? `${value.slice(0, 59)}…` : value}`
         : 'A variable.',
@@ -408,7 +402,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
           about: '',
           from: main.from,
           to: main.to,
-          insert: `#${name}`,
+          insert: writeVariable(name),
           stops: [],
           preview: null,
           reference: true,
@@ -419,9 +413,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       },
     });
   }
-  return entries.filter(
-    (entry) => entry.id !== 'base-enhanced-pair' || offersBaseEnhanced(globals),
-  );
+  return entries.filter((entry) => offeredHere(entry.id, globals));
 }
 
 /** The popover's group order. */

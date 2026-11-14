@@ -27,6 +27,8 @@ import { useReviewMarks } from './reviewMarks';
 import { queueView, stepRow } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import { filterParams, useInFlight } from './ReviewSidebar';
+import { returnedState } from '../queue/WorkThroughBar';
+import { reviewStamp, type ReviewRestore } from '../queue/sources';
 import styles from './Review.module.scss';
 import {
   advanceReviewOpening,
@@ -34,10 +36,12 @@ import {
   retainReviewPage,
   useReviewOpening,
 } from './opening';
+import { useLeftQueue } from '../queue/useQueue';
 
 const count = new Intl.NumberFormat('en');
 
 export function ReviewPage() {
+  useLeftQueue();
   const opening = useReviewOpening((state) => state.warming);
   const openingToken = useReviewOpening((state) => state.token);
   const article = useRef<HTMLElement>(null);
@@ -268,6 +272,23 @@ export function ReviewPage() {
     setSearchParams(params, { replace: true });
   }, [current, loading, searchParams, setSearchParams]);
   useEffect(() => clearSelection(), [user, clearSelection]);
+  // Leave from a work-through queue (after the clears above, which run on every mount): the publish selection comes back, but only for rows still
+  // saved as they were when the queue began (a row saved meanwhile is unreviewed again).
+  const returned = useRef(returnedState<ReviewRestore>(routeLocation.state));
+  useEffect(() => {
+    const restore = returned.current;
+    if (loading || !restore || !data) return;
+    returned.current = undefined;
+    const pending = new Map(entries.map((entry) => [entry.tooltip.hash, entry]));
+    const kept = restore.selected.filter(
+      (hash) =>
+        pending.has(hash) &&
+        !pending.get(hash)!.unpublishable &&
+        !inFlight.has(hash) &&
+        reviewStamp(data.bundle.tooltips[hash], data.aliases) === restore.stamps[hash],
+    );
+    if (kept.length) useReviewQueue.setState({ selected: new Set(kept) });
+  }, [loading, data, entries, inFlight]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (event.defaultPrevented || workspaceShortcutsBlocked(event)) return;

@@ -21,6 +21,7 @@ const coveredHelp: Record<string, RegExp> = {
   comment: /\/\/.*\n\/\*/,
   blank: /\n\n/,
   'var-empty': /^var optional = empty/m,
+  'var-braces': /#\{[a-zA-Z0-9]+\}[a-zA-Z0-9]/,
   math: /\$\{[^}]+\}/,
 };
 

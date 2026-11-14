@@ -10,7 +10,12 @@ import { keepParagraphInView, paragraphAt } from '../scrollMargins';
 import { leadEntries, markupEntries, rowEntries, rowSeparator, type MarkupEntry } from './entries';
 import { useKeyboardFollow, followKeyboard, useKeyboardInset } from '../../../ui/useKeyboardInset';
 
-const globals: MarkupGlobals = { variables: 'var damage = 25', titles: '' };
+// A category with base/enhanced markup: the enhanced arrow leads the row (markupScope.ts).
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  variables: 'var damage = 25',
+  titles: '',
+  allowBaseEnhanced: true,
+};
 
 /** Glacial Guard's saved English text (live data). */
 const glacialGuard = [
@@ -370,7 +375,7 @@ describe('the docked keyboard bar', () => {
     act(() => button.dispatchEvent(press));
     expect(press.defaultPrevented).toBe(true);
     act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(view.state.doc.toString()).toBe('abc#e');
+    expect(view.state.doc.toString()).toBe('abc<enhanced/>');
     expect(document.activeElement).toBe(view.contentDOM);
     const suggest = bar()!.querySelector<HTMLButtonElement>('[data-suggest-button]')!;
     const suggestPress = new MouseEvent('mousedown', { bubbles: true, cancelable: true });

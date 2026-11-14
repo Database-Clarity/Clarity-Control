@@ -1,7 +1,8 @@
-import { offersBaseEnhanced } from '../markupScope';
+import { offeredHere } from '../markupScope';
 import type { EditorState } from '@codemirror/state';
 import {
   applicableTransforms,
+  enhancedArrowMarkup,
   expandSnippet,
   expandTemplate,
   extractBlocks,
@@ -10,6 +11,7 @@ import {
   markupSymbols,
   markupTags,
   markupTransforms,
+  writeVariable,
   type ExpandedTemplate,
   type MarkupGlobals,
   type Snippet,
@@ -223,6 +225,21 @@ const snippetOf = (entry: {
   ...entry,
 });
 
+/**
+ * The bare enhanced arrow symbol, written at the caret, never over the selection. Offered (here,
+ * the markup bar, and All) only where the arrow is (markupScope); the global `e` behind it is
+ * never offered as a variable.
+ */
+export const enhancedArrowSnippet: Snippet = {
+  id: 'enhanced-arrow',
+  label: enhancedArrowMarkup,
+  group: 'Enhanced',
+  template: enhancedArrowMarkup,
+  keywords: 'enhanced arrow e gold up',
+  usage: /<enhanced\/>|#e(?![a-zA-Z0-9])/,
+  about: `The enhanced arrow, written ${enhancedArrowMarkup}.`,
+};
+
 /** The truncated single line a variable's value shows in the list. */
 const shorten = (value: string, length = 28) =>
   value.length > length ? `${value.slice(0, length - 1)}…` : value;
@@ -309,9 +326,14 @@ function build(
   };
   const query = context.query;
 
-  /** A variable defined in this tooltip is a document variable; the rest come from the globals. */
-  const variableItem = (name: string, value: string) =>
-    !skip?.has(`var:${name}`) &&
+  /**
+   * A variable defined in this tooltip is a document variable; the rest come from the globals.
+   * The global `e` is the enhanced arrow: never offered as a variable (`<enhanced/>` is offered
+   * where the arrow is, `arrowItem`).
+   */
+  const variableItem = (name: string, value: string) => {
+    if (name === 'e' && !(name in documentVariables)) return;
+    if (skip?.has(`var:${name}`)) return;
     push({
       id: `var:${name}`,
       category: name in documentVariables ? 'Variables' : 'Globals',
@@ -321,11 +343,12 @@ function build(
         name in documentVariables
           ? 'A variable defined in this tooltip.'
           : 'A global variable, shared by every tooltip.',
-      insert: `#${name}`,
-      usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
+      insert: writeVariable(name),
+      usage: new RegExp(`#${name}(?![a-zA-Z0-9])|#\\{${name}\\}`),
       reference: true,
       keys: value,
     });
+  };
   const addSnippet = (snippet: Snippet, category: SuggestCategory) => {
     // A multi-line declaration needs a line of its own.
     const id = `${category === 'Tags' ? '' : 'snippet:'}${snippet.id}`;
@@ -384,10 +407,12 @@ function build(
     for (const [name, value] of Object.entries(variables)) {
       variableItem(name, value);
     }
-    addSnippet(
-      markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
-      'Snippets',
-    );
+    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Snippets');
+    if (offeredHere('enhanced-formula', globals))
+      addSnippet(
+        markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
+        'Snippets',
+      );
   }
 
   if (context.kind === 'title-name' && !every) {
@@ -491,8 +516,10 @@ function build(
       });
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');
+    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Snippets');
     for (const snippet of markupSnippets) {
-      if (snippet.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals)) continue;
+      // The pair and everything that writes the enhanced arrow share one category gate.
+      if (!offeredHere(snippet.id, globals)) continue;
       if (snippet.id === 'enhanced-formula' && !every) continue;
       // The Tags category carries the single tags (colours, PvE, PvP).
       if (snippet.group === 'Format' || snippet.id === 'pve' || snippet.id === 'pvp') continue;

@@ -10,7 +10,7 @@ import {
   showcaseText,
 } from '@clarity/core/markup/showcase';
 import { parseMarkup, type MarkupGlobals, type MarkupLine } from '@clarity/core/markup/parse';
-import { lowerElementTags } from '@clarity/core/markup/elementTags';
+import { lowerConsumerMarkup } from '@clarity/core/markup/braces';
 import {
   expandAliases,
   isAliasStub,
@@ -249,7 +249,7 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   if (data.includeShowcase) {
     const descriptions: Descriptions = {};
     // Match lowerInput's consumer representation, including its removal of preview-only tint.
-    const { lines, diagnostics } = parseMarkup(lowerElementTags(showcaseText), showcaseGlobals);
+    const { lines, diagnostics } = parseMarkup(lowerConsumerMarkup(showcaseText), showcaseGlobals);
     if (diagnostics.length) throw new Error('Invalid built-in showcase markup');
     // English example in each selected language: self-contained, never translated by data.
     for (const language of languages)

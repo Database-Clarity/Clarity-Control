@@ -1,6 +1,6 @@
 import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
-import { pinLowersElementTags, publisherPinPath, refuseUnlowerableTags } from './elementTags.js';
+import { publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { loadAliases } from './catalog.js';
 import { pinMergesSandboxPointers, withSandboxPointers } from './sandboxPointers.js';
 import { z } from 'zod';
@@ -176,10 +176,11 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
         ? await withSandboxPointers(github, generatorAliases, snapshot.files[2 + paths.length])
         : generatorAliases;
       const checked = await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
-      // A tagged span in a published tooltip or a document it reads (imports, globals 2 and 3)
-      // needs a publisher build that lowers it; an older build would export it unlowered.
-      const lowers = pinLowersElementTags(snapshot.files[1 + paths.length]?.value);
-      for (const document of checked.values()) refuseUnlowerableTags(document, lowers, 'published');
+      // A tagged span, `#{name}`, or `<enhanced/>` in a published tooltip or a document it reads
+      // (imports, globals 2 and 3) needs a publisher build that lowers it; an older build would
+      // export it unlowered.
+      for (const document of checked.values())
+        refuseUnlowerable(document, { value: pin }, 'published');
       refuseHeldSetBonuses(
         value.hashes.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
       );

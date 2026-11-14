@@ -27,14 +27,31 @@ export function scanBaseEnhanced(
     const from = text.indexOf('{{', cursor);
     if (from < 0) break;
     let pos = from + 2;
+    /** The length of a delimited variable `#{name}` at `at` (its `#` is at `at - 1`), or 0. */
+    const braced = (at: number) =>
+      text[at - 1] === '#' ? (/^\{[a-zA-Z0-9]+\}/.exec(text.slice(at, at + 64))?.[0].length ?? 0) : 0;
     const arm = (): string | null => {
       const begin = pos;
       while (pos < text.length && text[pos] !== '}' && !/[\r\n]/.test(text[pos])) {
         if (text.startsWith('{{', pos)) return null;
         if (text[pos] === '{') {
+          const variable = braced(pos);
+          if (variable) {
+            pos += variable;
+            continue;
+          }
           if (text[pos - 1] !== '$') return null;
-          const end = text.indexOf('}', pos);
-          if (end < 0 || /[{}\r\n]/.test(text.slice(pos + 1, end))) return null;
+          // A math block ends at its first `}`; a `#{name}` inside it is part of the formula.
+          let end = pos + 1;
+          for (;;) {
+            if (end >= text.length || /[\r\n]/.test(text[end])) return null;
+            if (text[end] === '}') break;
+            if (text[end] === '{') {
+              const inner = braced(end);
+              if (!inner) return null;
+              end += inner;
+            } else end++;
+          }
           pos = end + 1;
         } else pos++;
       }

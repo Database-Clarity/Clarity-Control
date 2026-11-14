@@ -51,7 +51,9 @@ export function buildGlobalUsageIndex(tooltips: Readonly<Record<string, Tooltip>
         .split('\n')
         .forEach((source, index) => {
           const references = [
-            ...[...source.matchAll(/#([a-zA-Z0-9]+)/g)].map((match) => `variables:${match[1]}`),
+            ...[...source.matchAll(/#\{([a-zA-Z0-9]+)\}|#([a-zA-Z0-9]+)/g)].map(
+              (match) => `variables:${match[1] ?? match[2]}`,
+            ),
             ...[...source.matchAll(/<title .+? \[([^\]]+)\] \/>/g)].map(
               (match) => `titles:${match[1]}`,
             ),

@@ -10,7 +10,8 @@ import {
   markupIcons,
 } from '@clarity/core';
 
-const emptyTag = new RegExp(`<(${[...markupIcons, ...markupEmpty].join('|')})/>`);
+// The arrow symbol `<enhanced/>` reads like the icons.
+const emptyTag = new RegExp(`<(${[...markupIcons, ...markupEmpty, 'enhanced'].join('|')})/>`);
 const textTag = new RegExp(`<(${markupColors.join('|')})\\b`);
 // Prose runs stop at every possible markup boundary; inside a table also at its cell pipes.
 const prose = /^[^<#$[/{]+/;
@@ -96,7 +97,7 @@ export const clarityLanguage = StreamLanguage.define({
       // arm and the rest, up to the closing brace, the enhanced arm.
       if (state.math === 'base') {
         state.math = 'close';
-        if (stream.match(/-?[^}+*/-]+|-/)) {
+        if (stream.match(/-?(?:#\{[a-zA-Z0-9]+\}|[^}+*/-])+|-/)) {
           if (stream.eol() || stream.peek() === '}') return 'number';
           state.math = 'rest';
           return 'baseArm';
@@ -105,7 +106,7 @@ export const clarityLanguage = StreamLanguage.define({
       }
       if (state.math === 'rest') {
         state.math = 'close';
-        if (stream.match(/[^}]+/)) return 'enhancedArm';
+        if (stream.match(/(?:#\{[a-zA-Z0-9]+\}|[^}])+/)) return 'enhancedArm';
       }
       state.math = null;
       if (stream.eat('}')) return 'pairMark';
@@ -144,7 +145,7 @@ export const clarityLanguage = StreamLanguage.define({
       if (stream.match(/[A-z0-9]+/)) return 'string';
     }
     if (stream.sol() && stream.match(/^\)/)) return 'keyword';
-    if (stream.match(/#[a-zA-Z0-9]+/)) return 'variableName';
+    if (stream.match(/#\{[a-zA-Z0-9]+\}|#[a-zA-Z0-9]+/)) return 'variableName';
     if (stream.match('${')) {
       state.math = 'base';
       return 'pairMark';

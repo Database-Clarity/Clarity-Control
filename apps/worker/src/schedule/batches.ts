@@ -27,7 +27,7 @@ import {
   type BatchMember,
 } from '@clarity/core/schedule';
 import { loadAliases } from '../catalog.js';
-import { pinLowersElementTags, refuseUnlowerableTags } from '../elementTags.js';
+import { refuseUnlowerable } from '../elementTags.js';
 import { blobContent, RefRace, type GitHub, type TreeNode } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { checkEdit, type Access } from '../permissions.js';
@@ -155,9 +155,12 @@ function refuseMemberSize(member: BatchMember): void {
     );
 }
 
-/** Whether the active exporter lowers element-tagged text (as /save decides, elementTags.ts). */
-function lowersTags(state: ScheduleState): boolean {
-  return !switches.publisher() || pinLowersElementTags(state.pin);
+/**
+ * The PIN the active exporter's lowering is judged by, as /save decides (elementTags.ts): none
+ * while push-live exports (it lowers element tags, `#{d}`, and `<enhanced/>`), else the data head's.
+ */
+function exporterPin(state: ScheduleState): { value: unknown } | undefined {
+  return switches.publisher() ? { value: state.pin } : undefined;
 }
 
 function memberFile(member: BatchMember, batchId: string): [string, BatchMember] {
@@ -385,7 +388,7 @@ export async function saveBatch(
     const pushed = scheduled ? pushedHashes(files.at(-1)) : undefined;
     const blocked: { hash: number; fields: string[] }[] = [];
     const stale: { hash: number; reason: string }[] = [];
-    const lowers = lowersTags(state);
+    const pin = exporterPin(state);
     const now = new Date().toISOString();
     const conflicts: Conflict[] = [];
     const before: BatchMember[] = [];
@@ -421,7 +424,7 @@ export async function saveBatch(
         if (batch.status !== 'draft' && changed.some((field) => !isTranslationField(field)))
           throw new HttpError(409, 'Unschedule to edit', { hash: change.hash, fields: changed });
         const proposed = overlay(stored.proposed, merged, changed);
-        refuseUnlowerableTags(proposed, lowers, 'saved');
+        refuseUnlowerable(proposed, pin, 'saved');
         const member = batchMemberSchema.parse({
           ...stored,
           proposed,
@@ -462,7 +465,7 @@ export async function saveBatch(
         const changed = changedFields(current, change.next);
         if (!changed.length) continue; // nothing to stage
         const proposed = overlay(current, change.next, changed);
-        refuseUnlowerableTags(proposed, lowers, 'saved');
+        refuseUnlowerable(proposed, pin, 'saved');
         const member = batchMemberSchema.parse({
           hash: change.hash,
           base: current,
@@ -564,7 +567,7 @@ export async function rebaseBatch(
     if (!changed.length)
       throw new HttpError(422, 'Nothing left to publish; remove the tooltip from the batch');
     const proposed = overlay(current, input.next, changed);
-    refuseUnlowerableTags(proposed, lowersTags(state), 'saved');
+    refuseUnlowerable(proposed, exporterPin(state), 'saved');
     const member = batchMemberSchema.parse({
       hash: input.hash,
       base: current,

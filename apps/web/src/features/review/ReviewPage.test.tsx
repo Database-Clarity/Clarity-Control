@@ -25,6 +25,9 @@ import { reviewRoute } from './route';
 import { ReviewSidebar } from './ReviewSidebar';
 import { useReviewQueue } from './queueStore';
 import { beginReviewOpening, useReviewOpening } from './opening';
+import { WorkThroughControl } from '../queue/QueueControl';
+import { resetWorkQueues } from '../queue/store';
+import { useWorkThrough } from '../queue/useQueue';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
@@ -1438,4 +1441,104 @@ it('does not cap the selection at 100', async () => {
   await click('Push 121 live');
   await waitForPush();
   expect(JSON.parse(post.mock.calls[0][0]!.body as string).hashes).toHaveLength(121);
+});
+
+it('works through selected changes in the editor; Leave keeps only the unsaved ones picked', async () => {
+  for (const hash of [20, 30]) bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      [10, 20, 30].map((hash) => [
+        hash,
+        { hash, name: `Abacus ${hash}`, categoryId: 'other', icon: '', inGameDescription: '' },
+      ]),
+    ) as never,
+    aliases: {},
+  });
+  await useDataStore.getState().load();
+  await pendingTooltips(useDataStore.getState().data!);
+  resetWorkQueues();
+  let location: ReturnType<typeof useLocation> | undefined;
+  function Editor() {
+    location = useLocation();
+    const work = useWorkThrough(location.state);
+    return <div data-editor>{work && <WorkThroughControl work={work} />}</div>;
+  }
+  function Review() {
+    location = useLocation();
+    return withList();
+  }
+  const router = createMemoryRouter(
+    [
+      { path: '/review', element: <Review /> },
+      { path: '/t/:hash', element: <Editor /> },
+    ],
+    { initialEntries: ['/review'] },
+  );
+  const position = () => host.querySelector('[data-queue] [role="status"]')?.textContent;
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await waitForReview();
+    for (const hash of [10, 20])
+      await act(async () =>
+        host.querySelector<HTMLInputElement>(`input[data-review-toggle="${hash}"]`)!.click(),
+      );
+    expect(host.textContent).toContain('2 selected');
+    // The list column's compact bar: the buttons keep their full names.
+    const named = (name: string) =>
+      host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
+    expect(named('Work through all 3 shown')).not.toBeNull();
+    await act(async () => named('Work through 2 selected')!.click());
+    await flush();
+    expect(location!.pathname).toBe('/t/10');
+    expect(position()).toBe('1 of 2');
+    // A save of the open change finishes it; membership stays as it was.
+    const data = useDataStore.getState().data!;
+    act(() =>
+      useDataStore.setState({
+        data: {
+          ...data,
+          bundle: {
+            ...data.bundle,
+            tooltips: {
+              ...data.bundle.tooltips,
+              10: {
+                ...data.bundle.tooltips[10]!,
+                text: {
+                  en: { text: 'Saved again', updatedAt: '2026-02-01T00:00:00Z', updatedBy: 'x' },
+                },
+              },
+            },
+          },
+        },
+      }),
+    );
+    expect(position()).toBe('Done · 1 left');
+    await act(async () =>
+      [...host.querySelectorAll<HTMLAnchorElement>('[data-queue] a')]
+        .find((link) => link.getAttribute('aria-label')?.startsWith('Next in queue'))!
+        .click(),
+    );
+    expect(location!.pathname).toBe('/t/20');
+    // The position counts what is left to do.
+    expect(position()).toBe('1 of 1');
+    await act(async () =>
+      [...host.querySelectorAll<HTMLAnchorElement>('[data-queue] a')]
+        .find((link) => link.textContent === 'Review changes')!
+        .click(),
+    );
+    await waitForReview();
+    expect(location!.pathname).toBe('/review');
+    expect(location!.search).toContain('hash=10');
+    // The saved change is unreviewed again: only the untouched one is picked.
+    await waitFor(() => expect(host.textContent).toContain('1 selected'));
+    expect(host.querySelector<HTMLInputElement>('input[data-review-toggle="20"]')!.checked).toBe(
+      true,
+    );
+    expect(host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.checked).toBe(
+      false,
+    );
+  } finally {
+    router.dispose();
+  }
 });

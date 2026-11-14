@@ -149,7 +149,9 @@ it('explains classes, action consequences and dates before taking an action', ()
   expect(container.textContent).toContain(
     'Unclear — authorship or manifest evidence is inconclusive',
   );
-  expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+  expect(
+    container.querySelectorAll('input[type="checkbox"]:not([aria-label^="Select "])'),
+  ).toHaveLength(1);
 });
 it('selects copies directly without an overlapping include-copies checkbox', () => {
   render();

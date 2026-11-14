@@ -12,7 +12,7 @@ import {
   markupInlineRanges,
   markupLineClasses,
   markupRetired,
-  markupVariableReferences,
+  variableReferences,
   type MarkupGlobals,
 } from '@clarity/core';
 import { isElementName, wrapTransaction } from './elementTags';
@@ -97,9 +97,11 @@ function expandedContext(text: string, globals: MarkupGlobals): PreparedContext 
     }
   }
   if (markupImports(expanded).length) return null;
-  for (const reference of markupVariableReferences(expanded)) {
+  // `#name` and `#{name}` (braces.ts), each spelling replaced like the converter replaces it.
+  const references = variableReferences(expanded).map(({ from, to }) => expanded.slice(from, to));
+  for (const reference of references) {
     const variables = { ...extractVariables(expanded), ...extractVariables(globals.variables) };
-    const value = variables[reference.slice(1)];
+    const value = variables[reference.replace(/^#\{?|\}$/g, '')];
     if (value === undefined || structural.test(value)) return null;
     let from = expanded.indexOf(reference);
     while (from !== -1) {
@@ -187,8 +189,11 @@ function protectedRanges(state: EditorState, comments: { from: number; to: numbe
     // (expandedContext already refuses variables whose values could change the markup around
     // them). The renderer evaluates math up to the next `}` on the line (`\${.+?}`), so an
     // unclosed or empty block protects everything after it on its line.
-    for (const match of line.text.matchAll(/#[a-zA-Z0-9]+|\$\{(?:[^}\n]+\}|[^\n]*$)/g)) {
-      const open = match[0].startsWith('${') && !/^\$\{[^}]+\}$/.test(match[0]);
+    for (const match of line.text.matchAll(
+      /#\{[a-zA-Z0-9]+\}|#[a-zA-Z0-9]+|\$\{(?:(?:#\{[a-zA-Z0-9]+\}|[^}\n])+\}|[^\n]*$)/g,
+    )) {
+      const open =
+        match[0].startsWith('${') && !/^\$\{(?:#\{[a-zA-Z0-9]+\}|[^}])+\}$/.test(match[0]);
       tokens.push({
         from: line.from + match.index,
         to: open ? line.to : line.from + match.index + match[0].length,

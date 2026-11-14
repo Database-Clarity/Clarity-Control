@@ -122,3 +122,44 @@ export function formatDate(
   }
   return format.format(0, 'minute');
 }
+
+function zonedParts(date: Date, timeZone: string, withDay: boolean, withYear: boolean) {
+  const values = Object.fromEntries(
+    dateFormat('en-GB', {
+      timeZone,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value]),
+  );
+  const time = `${values.hour}:${values.minute}`;
+  if (!withDay) return time;
+  return `${values.weekday} ${values.day} ${values.month}${withYear ? ` ${values.year}` : ''} ${time}`;
+}
+
+/**
+ * A scheduled batch's not-before time, "Tue 3 Dec 17:00 · 16:00 UTC": the device's zone, then UTC
+ * (with its own day when the day differs). The year appears only outside the current one. A device
+ * on UTC (or with no known zone) shows one time.
+ */
+export function zonedNotBefore(
+  value: string | number | Date,
+  now: Date = new Date(),
+  timeZone: string = browserTimeZone(),
+): string {
+  const date = parseDate(value);
+  if (!date) return unknownTime;
+  const withYear = date.getUTCFullYear() !== now.getUTCFullYear();
+  const utcDay = zonedParts(date, 'UTC', true, withYear);
+  if (timeZone === 'UTC' || timeZone === 'Etc/UTC' || timeZone === 'unknown')
+    return `${utcDay} UTC`;
+  const shown = zonedParts(date, timeZone, true, withYear);
+  const sameDay = utcDay.slice(0, -5) === shown.slice(0, -5);
+  return `${shown} · ${sameDay ? zonedParts(date, 'UTC', false, false) : utcDay} UTC`;
+}

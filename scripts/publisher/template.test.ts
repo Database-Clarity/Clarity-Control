@@ -21,9 +21,9 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
   const root = 'scripts/publisher/template/.publisher';
   const pin = verifyRuntime(root);
   expect(pin).toEqual({
-    sourceSha: '46374d0da1f6cf072e2ddc4a54b1c0d88a73ef63',
-    sha256: '2489b5cd0af57e25b2dfa6afc1391024b10694437555af4bbc1fd9f0630b1abf',
-    capabilities: ['elementTags', 'sandboxPointers'],
+    sourceSha: 'aebf545d98ec5037ae7fd576b66734693da3b617',
+    sha256: '2caa8d6d21dc1f61a28315f0a23314c19b192aa865dddb8568dadf4fa286abdc',
+    capabilities: ['elementTags', 'sandboxPointers', 'scheduledBatches'],
   });
   expect(
     createHash('sha256')
@@ -40,10 +40,20 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
 it('initializes bundled report schemas without reading globals or performing I/O', () => {
   const runtime = readFileSync('scripts/publisher/template/.publisher/publisher.mjs', 'utf8');
   const start = runtime.indexOf('// packages/core/src/reports/schemas.ts\n');
-  const end = runtime.indexOf('// apps/worker/src/stamp.ts\n', start);
+  // The report section ends at the next bundled module's header (esbuild's `// <path>` line).
+  const next = /^\/\/ (?:packages|apps|scripts)\/\S+$/gm;
+  next.lastIndex = start + 1;
+  const end = next.exec(runtime)?.index ?? -1;
   expect(start).toBeGreaterThan(0);
   expect(end).toBeGreaterThan(start);
-  const globals: Record<string, unknown> = { external_exports: z, langSchema };
+  // zod and languages are lazily initialised bundle modules since the request union imports the
+  // schedule subpath on demand: their init calls are the bundle's own, satisfied by the globals.
+  const globals: Record<string, unknown> = {
+    external_exports: z,
+    langSchema,
+    init_zod: () => undefined,
+    init_languages: () => undefined,
+  };
   const context = new Proxy(globals, {
     get(target, key) {
       if (typeof key === 'string' && Object.hasOwn(target, key)) return target[key];

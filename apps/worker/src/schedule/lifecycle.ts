@@ -25,7 +25,7 @@ import {
 } from '@clarity/core/schedule';
 import { refuseBaseEnhanced } from '../baseEnhanced.js';
 import { loadAliases } from '../catalog.js';
-import { pinLowersElementTags, refuseUnlowerableTags } from '../elementTags.js';
+import { refuseUnlowerable } from '../elementTags.js';
 import { GitHub, RefRace, type RepoFile } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
@@ -228,7 +228,7 @@ export async function scheduleBatch(
       refuseMembers('Current changed under this batch; rebase the listed tooltips', stale);
     if (unpublished.length) refuseMembers(unpublishedMessage, unpublished);
     // The manual-publish checks (publish.ts) on what would publish: textless, imports and
-    // associations (base/enhanced), element tags the PIN lowers, and held set bonuses.
+    // associations (base/enhanced), element tags, `#{d}`, and `<enhanced/>` the PIN lowers, and held set bonuses.
     generatorAliases ??= await loadAliases(github.env, github);
     const saveAliases = await withSandboxPointers(github, generatorAliases, state.extra[1]);
     // A member the generator has since aliased would export its target, not the member: refuse
@@ -236,8 +236,8 @@ export async function scheduleBatch(
     refuseAliases(hashes, saveAliases);
     const aliases = pinMergesSandboxPointers(state.pin) ? saveAliases : generatorAliases;
     const checked = await refuseBaseEnhanced(github, state.head, hashes, aliases, composed);
-    const lowers = pinLowersElementTags(state.pin);
-    for (const document of checked.values()) refuseUnlowerableTags(document, lowers, 'published');
+    for (const document of checked.values())
+      refuseUnlowerable(document, { value: state.pin }, 'published');
     refuseHeldSetBonuses(composed);
 
     const at = new Date(now).toISOString();

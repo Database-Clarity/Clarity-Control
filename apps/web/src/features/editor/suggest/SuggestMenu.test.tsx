@@ -7,7 +7,9 @@ import type { MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from '../ClarityEditor';
 import { suggestState } from './state';
 
-const globals: MarkupGlobals = {
+// A category with base/enhanced markup, so every option is offered (markupScope.ts).
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
   variables: 'var e = 🡅\nvar damage = 25',
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };
@@ -155,6 +157,36 @@ describe('the suggestion menu', () => {
     );
   });
 
+  it('#e + Enter keeps its usual job where the arrow is offered (VAR-BRACES visual round 2)', () => {
+    const NL = String.fromCharCode(10);
+    const view = mount('Gains ');
+    type(view, '#');
+    type(view, 'e');
+    expect(options().map((option) => option.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('<enhanced/>')]),
+    );
+    expect(options().some((option) => /#\{?e\}?(?![a-z$])/.test(option.textContent ?? ''))).toBe(
+      false,
+    );
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe('Gains #e' + NL);
+  });
+
+  it('offers <enhanced/> where the arrow is offered, even without a global e', () => {
+    const view = mount('Gains ', { globals: { ...globals, variables: 'var damage = 25' } });
+    type(view, '#');
+    type(view, 'e');
+    expect(options().some((option) => option.textContent?.startsWith('<enhanced/>'))).toBe(true);
+    for (
+      let i = 0;
+      i < options().length && !selected()!.textContent?.startsWith('<enhanced/>');
+      i++
+    )
+      press(view, 'ArrowDown');
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe('Gains <enhanced/>');
+  });
+
   it('Tab walks the stops of a pair snippet', () => {
     const view = mount('');
     act(() => {
@@ -238,7 +270,7 @@ describe('the suggestion menu', () => {
     expect(index).toBeGreaterThan(-1);
     act(() => options()[index]!.click());
     expect(view.state.doc.toString()).toBe(
-      'Base text.\n\nenhanced (\nvar d = amount\n#e What the enhanced version changes.\n)',
+      'Base text.\n\nenhanced (\nvar d = amount\n<enhanced/> What the enhanced version changes.\n)',
     );
   });
 
