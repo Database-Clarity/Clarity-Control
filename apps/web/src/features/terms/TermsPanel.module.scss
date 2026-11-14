@@ -58,6 +58,10 @@
   color: var(--text3);
   font-size: 0.6875rem;
 }
+.message.message {
+  margin: 0.25rem 0;
+  padding: 0 0.75rem;
+}
 @media (max-width: 700px), (pointer: coarse) {
   .row {
     min-height: 2.75rem;

@@ -963,7 +963,7 @@ export function ClarityEditor({
     (panel === 'conflicts' && conflictCount === 0) ||
     (panel === 'retired' && retiredCount === 0) ||
     (panel === 'parity' && parityCount === 0) ||
-    (panel === 'terms' && (!termsOn || tooltipTerms.terms.length === 0)) ||
+    (panel === 'terms' && !termsOn) ||
     (panel === 'issues' && issues.length === 0)
       ? null
       : panel;

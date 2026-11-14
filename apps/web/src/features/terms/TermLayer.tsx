@@ -414,6 +414,13 @@ export function TermPopover({
     (state) => !!state.byLang[lang]?.remote && !state.byLang[lang]?.loading,
   );
   const canEdit = ready && canEditGlossary(lang);
+  const kind = term.glossary
+    ? 'Agreed term'
+    : !term.official.length
+      ? 'New term'
+      : term.kind === 'keyword'
+        ? 'Keyword'
+        : 'In game';
   const close = useRef(onClose);
   close.current = onClose;
   useLayoutEffect(() => {
@@ -497,15 +504,13 @@ export function TermPopover({
       ref={surface}
       className={styles.popover}
       role="dialog"
-      aria-label={`${term.en}: in-game name`}
+      aria-label={`${term.en}: ${kind.toLowerCase()}`}
       data-term-popover
       onPointerEnter={onPointerEnter}
       onPointerLeave={editing ? undefined : onPointerLeave}
     >
       <div className={styles.head}>
-        <span className={styles.kind}>
-          {term.glossary ? 'Agreed term' : term.kind === 'keyword' ? 'Keyword' : 'In game'}
-        </span>
+        <span className={styles.kind}>{kind}</span>
         <span className={styles.english} lang="en">
           {term.en}
         </span>
@@ -551,15 +556,20 @@ export function TermPopover({
             ))}
           {term.glossary?.note && <p>{term.glossary.note}</p>}
           {missing && <p className={styles.warning}>Not in this translation yet.</p>}
-          {term.glossary && (
-            <small>
-              {term.glossary.updatedBy} · {new Date(term.glossary.updatedAt).toLocaleDateString()}
-            </small>
-          )}
-          {canEdit && (
-            <button type="button" className={styles.insert} onClick={() => setEditing(true)}>
-              {term.glossary ? 'Edit' : term.official.length ? 'Add entry' : 'Add term'}
-            </button>
+          {(term.glossary || canEdit) && (
+            <div className={styles.footer}>
+              {term.glossary && (
+                <small>
+                  {term.glossary.updatedBy} ·{' '}
+                  {new Date(term.glossary.updatedAt).toLocaleDateString()}
+                </small>
+              )}
+              {canEdit && (
+                <button type="button" className={styles.edit} onClick={() => setEditing(true)}>
+                  {term.glossary ? 'Edit' : term.official.length ? 'Add entry' : 'Add term'}
+                </button>
+              )}
+            </div>
           )}
         </>
       )}

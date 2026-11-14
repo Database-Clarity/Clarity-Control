@@ -84,10 +84,12 @@ export function TermsPanel({
       onClose={onClose}
     >
       {!rows.length && (
-        <p>No terms in this tooltip yet. Select words in the English text, or add a term here.</p>
+        <p className={styles.message}>
+          No terms in this tooltip yet. Select words in the English text, or add a term here.
+        </p>
       )}
       {glossary?.error && (
-        <p role="alert">
+        <p role="alert" className={styles.message}>
           Glossary unavailable.{' '}
           <button type="button" onClick={() => ensureGlossary(lang, true)}>
             Retry
