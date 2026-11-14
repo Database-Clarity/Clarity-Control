@@ -14,18 +14,24 @@ vi.mock('../editor', () => ({
   ClarityEditor: ({ tooltipHash }: { tooltipHash: number }) => <div data-editor={tooltipHash} />,
 }));
 // The preview column is drawn by its own tests; here it reports what the page asked it to render.
+const shownProps: { current?: PreviewColumnProps } = {};
 vi.mock('../preview', () => ({
-  PreviewColumn: (props: PreviewColumnProps) => (
-    <div
-      data-preview=""
-      data-text={props.baseText}
-      data-enhanced={props.enhanced.map((view) => view.text).join('|')}
-      data-import={props.baseGlobals.imports?.['13'] ?? ''}
-      data-loading={String(Boolean(props.loadingContent))}
-    >
-      {props.source}
-    </div>
-  ),
+  PreviewColumn: (props: PreviewColumnProps) => {
+    shownProps.current = props;
+    return (
+      <div
+        data-preview=""
+        data-text={props.baseText}
+        data-enhanced={props.enhanced.map((view) => view.text).join('|')}
+        data-import={props.baseGlobals.imports?.['13'] ?? ''}
+        data-loading={String(Boolean(props.loadingContent))}
+        data-mode={props.mode}
+        data-variant={props.variant ?? ''}
+      >
+        {props.source}
+      </div>
+    );
+  },
 }));
 vi.mock('../history/HistoryPanel', () => ({ HistoryPanel: () => null }));
 vi.mock('../compendium/CompendiumPanel', () => ({ CompendiumPanel: () => null }));
@@ -43,6 +49,8 @@ const current = {
   11: tooltip(11, 'English 10 import 13 from tooltip'),
   12: tooltip(12, 'English 12'),
   13: tooltip(13, 'English 13'),
+  // A derived same-type copy: neither an enhanced pair nor an override, so Current previews it not.
+  14: tooltip(14, 'English 10 import 13 from tooltip'),
 };
 const data = {
   aliases: {},
@@ -61,6 +69,7 @@ const data = {
     11: { hash: 11, name: 'A enhanced', icon: '', categoryId: 'perks-enhanced', baseHash: 10 },
     12: { hash: 12, name: 'Other', icon: '', categoryId: 'perks' },
     13: { hash: 13, name: 'Imported', icon: '', categoryId: 'perks' },
+    14: { hash: 14, name: 'A copy', icon: '', categoryId: 'perks', baseHash: 10 },
   },
   bundle: {
     sourceCommit: 'test',
@@ -320,6 +329,63 @@ it('renders an override the batch stages for a derived enhanced version', async 
     await act(async () => page.button('Current')!.click());
     await page.settle();
     expect(page.preview().dataset.enhanced).toBe('English 10 import 13 from tooltip');
+  } finally {
+    await page.dispose();
+  }
+});
+
+it('offers Upcoming when the batch holds only an enhanced version', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const { batch } = await call('/batches', { name: 'Enhanced only' });
+  await call(`/batches/${batch.id}/save`, {
+    revision: batch.revision,
+    changes: [{ hash: 11, base: current[11], next: tooltip(11, 'Future override') }],
+  });
+  for (const path of ['/t/11', '/t/10']) {
+    const page = await mount('maintainer', path);
+    try {
+      expect(page.line()).toBe('Enhanced only · Draft · No time set');
+      expect(page.host.textContent).toContain('Batch: Enhanced only');
+      await act(async () => page.button('Upcoming')!.click());
+      await page.settle(() => page.preview().dataset.enhanced === 'Future override');
+      // The base is not in the batch: its current text, and no false "no batch file" failure.
+      expect(page.preview().dataset.text).toBe('English 10 import 13 from tooltip');
+      expect(page.preview().dataset.enhanced).toBe('Future override');
+      expect(page.button('Retry')).toBeUndefined();
+    } finally {
+      await page.dispose();
+    }
+  }
+});
+
+it('selects and shows a version the batch adds in Upcoming', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const { batch } = await call('/batches', { name: 'Copy override' });
+  await call(`/batches/${batch.id}/save`, {
+    revision: batch.revision,
+    changes: [
+      { hash: 10, base: current[10], next: tooltip(10, 'Future base') },
+      { hash: 14, base: current[14], next: tooltip(14, 'Future copy override') },
+    ],
+  });
+  const page = await mount('maintainer');
+  try {
+    expect(page.preview().dataset.enhanced).toBe('English 10 import 13 from tooltip');
+    await act(async () => page.button('Upcoming')!.click());
+    await page.settle(() => page.preview().dataset.text === 'Future base');
+    expect(page.preview().dataset.enhanced).toBe('Future base|Future copy override');
+    await act(async () => {
+      shownProps.current!.onVariant(14);
+      shownProps.current!.onMode('enhanced');
+    });
+    await page.settle();
+    expect(page.preview().dataset.mode).toBe('enhanced');
+    expect(page.preview().dataset.variant).toBe('14');
+    // Back on Current the copy is not previewed: the selection falls back to the enhanced pair.
+    await act(async () => page.button('Current')!.click());
+    await page.settle();
+    expect(page.preview().dataset.enhanced).toBe('English 10 import 13 from tooltip');
+    expect(page.preview().dataset.variant).toBe('11');
   } finally {
     await page.dispose();
   }

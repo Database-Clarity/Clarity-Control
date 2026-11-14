@@ -189,7 +189,7 @@ function DestinationBadge({ batch }: { batch: OpenBatch }) {
 
 const roles = new Set(['maintainer', 'editor', 'translator']);
 
-function useUpcomingLive(hash: number, enabled: boolean): UpcomingView {
+function useUpcomingLive(hashes: readonly number[], enabled: boolean): UpcomingView {
   const role = useAuthStore((state) => state.user?.role);
   // Trials get no batch access (Q3) and signed-out visitors no listing: nothing is requested.
   const eligible = enabled && role != null && roles.has(role);
@@ -206,7 +206,11 @@ function useUpcomingLive(hash: number, enabled: boolean): UpcomingView {
       stop?.();
     };
   }, [eligible]);
-  const batch = useStore((state) => (eligible ? state.memberOf[hash] : undefined));
+  // The first of the page's tooltips (its base, then its versions) that an open batch holds.
+  const hash = useStore((state) =>
+    eligible ? hashes.find((candidate) => state.memberOf[candidate] !== undefined) : undefined,
+  );
+  const batch = useStore((state) => (hash !== undefined ? state.memberOf[hash] : undefined));
   const source = useStore((state) => state.source);
   const setSource = useStore((state) => state.setSource);
   const batchLoad = useStore((state) => (batch ? state.loads[batch.id] : undefined));
@@ -217,7 +221,7 @@ function useUpcomingLive(hash: number, enabled: boolean): UpcomingView {
     if (wanted && batchId) void load().then((module) => module.ensureBatch(batchId));
   }, [wanted, batchId, revision]);
   return useMemo(() => {
-    if (!batch) return off;
+    if (!batch || hash === undefined) return off;
     const ready = batchLoad?.state === 'ready' ? batchLoad.upcoming : undefined;
     const failed =
       batchLoad?.state === 'failed'
@@ -251,8 +255,8 @@ function useUpcomingLive(hash: number, enabled: boolean): UpcomingView {
 }
 
 /**
- * The switch, badge, and future state for the open tooltip. `enabled` is false where no switch
- * belongs (archive pages, globals).
+ * The switch, badge, and future state for the open page's tooltips (`hashes`: its base, then its
+ * versions). `enabled` is false where no switch belongs (archive pages, globals).
  */
-export const useUpcoming: (hash: number, enabled: boolean) => UpcomingView =
+export const useUpcoming: (hashes: readonly number[], enabled: boolean) => UpcomingView =
   import.meta.env.VITE_SCHEDULED_ENABLED === '1' ? useUpcomingLive : () => off;

@@ -278,9 +278,10 @@ function TooltipWorkspace({
   const highlightLine = selectedGlobal ? selectedGlobal.lines[lang] : Number(search.get('line'));
   // Scheduled changes: Current / Upcoming for a member of an open batch (build switch OFF: a
   // constant; nothing renders or is requested).
+  // The page edits a base and its versions, so a batch holding any of them counts (base first).
   const upcomingTarget = hashOverride ?? Number(parameter);
   const upcoming = useUpcoming(
-    data && !readOnly ? canonicalHash(upcomingTarget, data) : upcomingTarget,
+    data && !readOnly ? variantHashes(canonicalHash(upcomingTarget, data), data) : [upcomingTarget],
     !readOnly && !selectedGlobal && upcomingTarget > 3,
   );
   const future = upcoming.overlay;
@@ -495,6 +496,12 @@ function TooltipWorkspace({
   const selectedView =
     enhancedViews.find((view) => view.hash === pickedVariant) ?? enhancedViews[0];
   const mode = effectiveMode(previewMode, phone, selectedView !== undefined);
+  // What the preview shows: under Upcoming, the selection and mode come from the future views (a
+  // version the batch adds can be picked). Review and acknowledgements stay on Current's views.
+  const shownView = future
+    ? (previewViews.find((view) => view.hash === pickedVariant) ?? previewViews[0])
+    : selectedView;
+  const shownMode = future ? effectiveMode(previewMode, phone, shownView !== undefined) : mode;
   reveal.current = () => {
     const unseen = usePreviewReviewStore.getState().unreviewed(canonical);
     const shownNow = previewedHashes(mode, hash, selectedView);
@@ -545,9 +552,9 @@ function TooltipWorkspace({
       }
       baseGlobals={globalsFor(hash, futureGlobals)}
       enhanced={previewViews}
-      mode={mode}
+      mode={shownMode}
       onMode={setPreviewMode}
-      variant={selectedView?.hash}
+      variant={shownView?.hash}
       onVariant={onPreviewVariant}
       acknowledgement={seen}
       stepping={suspended}
