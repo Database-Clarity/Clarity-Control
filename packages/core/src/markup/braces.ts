@@ -1,4 +1,5 @@
 import { lowerElementTags } from './elementTags.js';
+import { resolveNumberTokens, type NumberValues } from '../numbers/map.js';
 
 /**
  * Delimited variables (`#{name}`) and the enhanced arrow symbol (`<enhanced/>`), owner 2026-11-14.
@@ -154,12 +155,23 @@ export function lowerConsumerMarkup(text: string): string {
  * removed (`<solar/>Scorch` and `<solar Scorch />`, `#d ` and `#{d} `, `#e` and `<enhanced/>`)
  * while the lowered text, what every consumer reads, stays exactly the same.
  */
-export function isMarkupOnly(before: string | undefined, after: string): boolean {
-  return (
-    before !== undefined &&
-    before !== after &&
-    lowerConsumerMarkup(before) === lowerConsumerMarkup(after)
-  );
+export function isMarkupOnly(
+  before: string | undefined,
+  after: string,
+  values?: NumberValues,
+  afterValues = values,
+): boolean {
+  const lower = (text: string, map?: NumberValues) =>
+    lowerConsumerMarkup(map ? resolveNumberTokens(text, map) : text);
+  try {
+    return (
+      before !== undefined &&
+      before !== after &&
+      lower(before, values) === lower(after, afterValues)
+    );
+  } catch {
+    return false;
+  } // Invalid tokens are diagnosed by validation, not revision prediction.
 }
 
 /**

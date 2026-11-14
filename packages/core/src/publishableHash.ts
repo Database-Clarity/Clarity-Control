@@ -35,6 +35,7 @@ export async function publishableHash(tooltip: Tooltip, aliases: Aliases = {}): 
       ),
       associated: parsed.associated,
       custom: parsed.custom,
+      numbers: english?.numbers,
       ...(fallback.length ? { fallback: fallback.sort() } : {}),
       ...(incoming.length ? { aliases: incoming } : {}),
     }),

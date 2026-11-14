@@ -1,6 +1,7 @@
 import { stableStringify } from './contentHash.js';
 import { languages } from './languages.js';
-import { tooltipSchema, type Tooltip } from './schemas.js';
+import { tooltipSchema, type LangText, type Tooltip } from './schemas.js';
+import { canCarryNumbers } from './numbers/carry.js';
 
 export interface MergeConflict {
   field: string;
@@ -60,12 +61,44 @@ export function merge3(base: Tooltip, head: Tooltip, next: Tooltip): MergeResult
   }
   const text: Tooltip['text'] = {};
   for (const language of languages) {
+    const original = base.text[language],
+      theirs = head.text[language],
+      mine = next.text[language];
+    const oldEnglish = base.text.en;
+    // A real number carry changes only revision metadata, never translated words or authors.
+    const carried = (entry: LangText, english: LangText | undefined) =>
+      Boolean(
+        original &&
+        oldEnglish &&
+        english &&
+        oldEnglish.text !== english.text &&
+        original.text === entry.text &&
+        original.updatedBy === entry.updatedBy &&
+        entry.updatedAt === english.updatedAt &&
+        entry.sourceUpdatedAt === english.updatedAt &&
+        !equal(original, entry) &&
+        canCarryNumbers(oldEnglish, english, original),
+      );
+    const edited =
+      language !== 'en' && original && theirs && mine
+        ? carried(theirs, head.text.en) && mine.text !== original.text
+          ? mine
+          : carried(mine, next.text.en) && theirs.text !== original.text
+            ? theirs
+            : undefined
+        : undefined;
+    if (edited && oldEnglish && text.en) {
+      text[language] = canCarryNumbers(oldEnglish, text.en, edited)
+        ? { ...edited, sourceUpdatedAt: text.en.updatedAt }
+        : edited;
+      continue;
+    }
     const value = stamped(
       `text.${language}`,
       base.text[language],
       head.text[language],
       next.text[language],
-      (entry) => entry.text,
+      (entry) => (language === 'en' ? { text: entry.text, numbers: entry.numbers } : entry.text),
     );
     if (value !== undefined) text[language] = value;
   }

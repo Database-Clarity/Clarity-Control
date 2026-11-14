@@ -30,6 +30,7 @@ import type { MarkupGlobals } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
 import { glyphWarnings } from './glyphs.js';
 import { retiredWarnings } from './retired.js';
+import { numberTokenIssues, validateNumberTooltip } from './numbers.js';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning';
@@ -101,6 +102,7 @@ export function validateText(
   selfHash?: number,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  issues.push(...numberTokenIssues(text, lang, selfHash));
   function add(severity: ValidationIssue['severity'], message: string, token?: string) {
     const from = token ? Math.max(0, text.indexOf(token)) : 0;
     const to = Math.min(text.length, from + (token?.length ?? text.length));
@@ -312,6 +314,7 @@ export function validateTooltip(
   const languages = new Set<Lang>(['en', ...(Object.keys(tooltip.text) as Lang[])]);
   // Reserved global documents are declaration libraries, not English descriptions.
   const requireEnglish = tooltip.hash > 3;
+  const numberIssues = validateNumberTooltip(tooltip);
   return [...languages].flatMap((lang) => {
     const text = tooltip.text[lang]?.text ?? '';
     const edited = !base || (base.text[lang]?.text ?? '') !== text;
@@ -326,8 +329,19 @@ export function validateTooltip(
           context.aliases,
         )
       : undefined;
-    const issues =
+    const textIssues =
       recorded?.issues ?? validateText(text, lang, globals, requireEnglish && edited, tooltip.hash);
+    const issues = [
+      ...textIssues,
+      ...numberIssues
+        .filter((issue) => issue.lang === lang)
+        .filter(
+          (issue) =>
+            !textIssues.some(
+              (other) => other.message === issue.message && other.from === issue.from,
+            ),
+        ),
+    ];
     const uses =
       !edited && issues.some((issue) => issue.severity === 'error')
         ? recorded && context?.affectedBy(recorded.reads)
