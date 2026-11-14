@@ -420,11 +420,12 @@ describe('Review save destination (scheduled changes)', () => {
     expect(view.useSaveNotice.getState().notice).toMatch(/^Saved 2 tooltips to Staged;/);
   });
 
-  it('lets translators save into an existing batch (no New batch), and offers nothing with the switch OFF', async () => {
+  it('offers no destination to translators, nor with the switch OFF', async () => {
     let view = await setup('translator');
-    await view.settle(() => Boolean(view.button('Current')));
-    expect(view.button('New batch…')).toBeUndefined();
-    expect(view.button('Save changes')).toBeTruthy();
+    await view.settle(() => Boolean(view.button('Save changes')));
+    expect(host.querySelector('[data-destination]')).toBeNull();
+    expect(view.button('Batch')).toBeUndefined();
+    expect(fixture.log).toEqual([]);
     await act(async () => root.unmount());
     host.remove();
     fixture.log.length = 0;

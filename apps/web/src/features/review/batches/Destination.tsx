@@ -21,15 +21,12 @@ export { saveReviewToBatch } from './saveDestination';
 export function DestinationRow({
   value,
   hashes,
-  canCreate,
   disabled,
   onChange,
 }: {
   value: Destination;
   /** The tooltips under review. */
   hashes: readonly number[];
-  /** Maintainers and editors create batches; translators save into existing ones only. */
-  canCreate: boolean;
   disabled: boolean;
   onChange(value: Destination): void;
 }) {
@@ -93,11 +90,9 @@ export function DestinationRow({
         >
           Batch
         </button>
-        {canCreate && (
-          <button type="button" aria-pressed={value.kind === 'new'} onClick={() => pick('new')}>
-            New batch…
-          </button>
-        )}
+        <button type="button" aria-pressed={value.kind === 'new'} onClick={() => pick('new')}>
+          New batch…
+        </button>
       </span>
       {value.kind === 'batch' && (
         <select
@@ -134,7 +129,6 @@ export function DestinationRow({
           Current saved text stays as it is; the drafts move into the batch.
           {staged > 0 &&
             ` Also saves ${staged} ${staged === 1 ? 'draft' : 'drafts'} already staged for this batch.`}
-          {!canCreate && ' Translators save their languages of tooltips already in the batch.'}
         </p>
       )}
       {elsewhere.length > 0 && (

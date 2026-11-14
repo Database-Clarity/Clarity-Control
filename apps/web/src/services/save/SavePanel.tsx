@@ -28,7 +28,6 @@ import { useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
 import { SaveSummary } from './SaveSummary';
-import { canReadBatches } from '../../features/review/subview';
 import type { Destination } from '../../features/review/batches/saveDestination';
 
 // Scheduled changes (P3a): the Destination row and the batch save path. The build-switch test is
@@ -164,10 +163,11 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const [error, setError] = useState<string | null>(null);
   // Where this save goes: Current, or a batch (maintainers and editors, switch ON only).
   const [destination, setDestination] = useState<Destination>({ kind: 'current' });
-  // Maintainers, editors, and translators (the server's rules decide what each may save; trials
-  // get no batch access, Q3).
+  // Maintainers and editors only (root 2026-11-14: translators get no Destination row until the
+  // later destination task; trials get no batch access, Q3). The Worker stays the guard.
+  const batchSaver = user?.role === 'maintainer' || user?.role === 'editor';
   const batchTarget =
-    DestinationRow && canReadBatches(user) && destination.kind !== 'current' ? destination : null;
+    DestinationRow && batchSaver && destination.kind !== 'current' ? destination : null;
   // Linked Compendium cells that changed since they were shown, and the ones the reviewer ticked.
   const [changedSource, setChangedSource] = useState<ChangedSource[]>([]);
   const [freshSource, setFreshSource] = useState<CompendiumData | null>(null);
@@ -350,12 +350,11 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         </>
       }
     >
-      {DestinationRow && canReadBatches(user) && (
+      {DestinationRow && batchSaver && (
         <Suspense fallback={null}>
           <DestinationRow
             value={destination}
             hashes={changes.map(({ hash }) => hash)}
-            canCreate={user?.role === 'maintainer' || user?.role === 'editor'}
             disabled={pending}
             onChange={setDestination}
           />
