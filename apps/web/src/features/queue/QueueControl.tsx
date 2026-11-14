@@ -28,6 +28,7 @@ import {
 } from './model';
 import { queueSources } from './sources';
 import { takeEntryFocus } from './start';
+import { withEditorPaths } from './editorPath';
 import { useWorkQueues } from './store';
 import { useQueueDone, useSourceContext, type WorkThrough } from './useQueue';
 import header from '../tooltip/TooltipPage.module.scss';
@@ -375,7 +376,7 @@ function QueueMenu({
       const items = await source.rebuild(queue, context, useDraftStore.getState().drafts);
       const added = items.filter((item) => !before.has(item.key)).length;
       const gone = before.size - (items.length - added);
-      rebuild(queue.id, items);
+      rebuild(queue.id, withEditorPaths(queue.source, items, context.data));
       setRebuilding(`Rebuilt: ${items.length} items, ${added} new, ${gone} gone.`);
     } catch {
       setRebuilding('The list could not be read again. Try again.');

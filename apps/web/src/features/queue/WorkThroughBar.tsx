@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDraftStore } from '../../stores/drafts';
 import type { QueueItem, QueueSourceId, WorkQueue } from './model';
+import { withEditorPaths } from './editorPath';
 import { startQueue } from './start';
 import { queueSources } from './sources';
 import { useSourceContext } from './useQueue';
@@ -160,7 +161,7 @@ export function WorkThroughBar({
     const { to, state } = startQueue({
       source,
       scope,
-      items,
+      items: withEditorPaths(source, items, context.data),
       first,
       origin: {
         path: `${location.pathname}${location.search}`,

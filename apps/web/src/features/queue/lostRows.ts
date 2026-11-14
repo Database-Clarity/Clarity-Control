@@ -1,6 +1,5 @@
 import type { EditorData } from '../../stores/data';
 import { recordKey, visibleRecords, type LostText } from '../lost-text/model';
-import { editorPath } from './editorPath';
 import type { QueueItem } from './model';
 import type { LostRestore } from './sources';
 
@@ -12,7 +11,6 @@ export function lostItem(record: LostText, data: EditorData): QueueItem {
     hash: record.hash,
     lang: record.lang,
     name: data.items[record.hash]?.name ?? record.name,
-    path: editorPath(record.hash, data, record.lang),
     detail: record,
   };
 }

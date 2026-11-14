@@ -3,7 +3,6 @@ import type { Drafts } from '../../services/draftStorage';
 import type { EditorData } from '../../stores/data';
 import { isSetSelector } from '../compendium/itemClassification';
 import { archiveIdentity, inactiveArchiveHashes } from '../archive/archive';
-import { editorPath } from './editorPath';
 import type { QueueItem } from './model';
 
 import { archiveState, type ArchiveRestore } from './sources';
@@ -32,7 +31,6 @@ export function driftRows(data: EditorData, query: string): QueueItem[] {
       key: String(tooltip.hash),
       hash: tooltip.hash,
       name: data.items[tooltip.hash]?.name ?? String(tooltip.hash),
-      path: editorPath(tooltip.hash, data),
     }));
 }
 

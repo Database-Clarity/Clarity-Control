@@ -188,10 +188,5 @@ export function merged(queue: WorkQueue, rows: QueueItem[]): QueueItem[] {
       : undefined;
   return rows
     .filter((row) => !selected || selected.has(row.key))
-    .map((row) => {
-      // A kept item keeps its starting state; where it opens follows the current catalog.
-      const kept = old.get(row.key);
-      if (!kept) return row;
-      return row.path === undefined ? kept : { ...kept, path: row.path };
-    });
+    .map((row) => old.get(row.key) ?? row);
 }

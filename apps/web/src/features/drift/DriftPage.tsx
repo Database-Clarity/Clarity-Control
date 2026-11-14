@@ -16,7 +16,6 @@ import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkT
 import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './Status.module.scss';
 import { useLeftQueue } from '../queue/useQueue';
-import { editorPath } from '../queue/editorPath';
 
 export function DriftPage() {
   useLeftQueue();
@@ -57,7 +56,6 @@ export function DriftPage() {
     key: String(tooltip.hash),
     hash: tooltip.hash,
     name: data.items[tooltip.hash]?.name ?? String(tooltip.hash),
-    path: editorPath(tooltip.hash, data),
   }));
   function toggle(hash: number, on: boolean) {
     setSelected((old) => {

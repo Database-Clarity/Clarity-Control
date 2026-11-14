@@ -5,9 +5,7 @@ import type { Drafts } from '../../services/draftStorage';
 import type { EditorData } from '../../stores/data';
 import type { LostText } from '../lost-text/model';
 import { fingerprint, recordKey } from '../lost-text/model';
-import { editorPath } from './editorPath';
-import { lostItem } from './lostRows';
-import { driftRows } from './rows';
+import { editorPath, withEditorPaths } from './editorPath';
 import { archiveState, queueSources, reviewStamp } from './sources';
 
 const stamp = { updatedAt: '2026-01-01T00:00:00.000Z', updatedBy: 'x' };
@@ -109,13 +107,17 @@ describe('editor paths', () => {
   });
 
   it('every list source opens the override, not the base', () => {
-    const record = { hash: 11, lang: 'fr', name: 'Enhanced' } as LostText;
-    expect(queueSources['lost-text'].path(lostItem(record, enhanced))).toBe(
-      '/t/10?lang=fr&variant=11',
+    const lost = { key: 'k', hash: 11, lang: 'fr' as const, name: 'Enhanced' };
+    const plain = { key: '11', hash: 11, name: 'Enhanced' };
+    const [lostPath] = withEditorPaths('lost-text', [lost], enhanced);
+    expect(queueSources['lost-text'].path(lostPath!)).toBe('/t/10?lang=fr&variant=11');
+    expect(queueSources.drift.path(withEditorPaths('drift', [plain], enhanced)[0]!)).toBe(
+      '/t/10?variant=11',
     );
-    const item = { key: '11', hash: 11, name: 'Enhanced', path: editorPath(11, enhanced) };
-    expect(queueSources.drift.path(item)).toBe('/t/10?variant=11');
-    expect(queueSources.review.path(item)).toBe('/t/10?variant=11');
-    expect(driftRows(enhanced, '').every((row) => row.path)).toBe(true);
+    expect(queueSources.review.path(withEditorPaths('review', [plain], enhanced)[0]!)).toBe(
+      '/t/10?variant=11',
+    );
+    // Archive opens its own page; Translations items carry their path already.
+    expect(withEditorPaths('archive', [plain], enhanced)[0]).toBe(plain);
   });
 });

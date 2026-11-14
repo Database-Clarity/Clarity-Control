@@ -55,7 +55,7 @@ export function startQueue({
     destination: null,
   });
   return {
-    to: queueSources[source].path(first),
+    to: queueSources[source].path(items.find((item) => item.key === first.key) ?? first),
     state: visitState({ id, key: first.key }),
   };
 }
