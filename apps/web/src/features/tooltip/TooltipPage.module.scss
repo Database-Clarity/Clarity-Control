@@ -229,7 +229,8 @@
 // The control has to fit beside a draft's Discard in the narrowest editor (480px). As the header
 // narrows, queue mode first drops the shortcut hint; below 38rem (a work-through queue names its
 // list and carries the list's action) the control takes a row of its own, as on a phone and in
-// toggle mode, so the language field and "Markup tools" keep their full text. The row is there
+// toggle mode, so the language field keeps its usual width (v2's 9rem cap) and "Markup tools"
+// its full text. The row is there
 // for the whole visit: nothing moves when a draft appears.
 @container pane-header (max-width: 44rem) {
   .paneHeader:has(> .queue) .key {
