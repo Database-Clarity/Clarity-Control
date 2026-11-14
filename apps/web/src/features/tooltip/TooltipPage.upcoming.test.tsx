@@ -875,3 +875,69 @@ it('keeps moved Current German visible while a French batch draft is authored an
     await page.dispose();
   }
 });
+it('keeps newer batch German visible while French is drafted and saved', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const batch = await seedBatch();
+  const visit = await batchQueueFor(batch, 10);
+  fixture.setUser({ id: 1, login: 'm', role: 'translator', languages: ['de', 'fr'] });
+  const page = await mount(
+    'translator',
+    (visit.first.detail as { path: string }).path,
+    visit.state,
+    ['de', 'fr'],
+  );
+  try {
+    await page.settle(() => editorProps.current?.readOnly === false);
+    const language = async (lang: string) => {
+      const select = page.host.querySelector<HTMLSelectElement>('select[aria-label="Language"]')!;
+      await act(async () => {
+        select.value = lang;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await page.settle();
+    };
+    await language('fr');
+    await act(async () => editorProps.current!.onChange('Local French rework'));
+    const old = fixture.members.get(batch.id)!.get(10)!;
+    fixture.setUser({ id: 1, login: 'm', role: 'maintainer' });
+    await call(`/batches/${batch.id}/save`, {
+      revision: fixture.batches.get(batch.id)!.revision,
+      changes: [
+        {
+          hash: 10,
+          base: old.proposed,
+          next: {
+            ...old.proposed,
+            text: { ...old.proposed.text, de: { ...stamp, text: 'New German saved by colleague' } },
+          },
+        },
+      ],
+    });
+    fixture.setUser({ id: 1, login: 'm', role: 'translator', languages: ['de', 'fr'] });
+    const { refreshBatches } = await import('./UpcomingSwitch.load');
+    const { upcomingStore } = await import('./UpcomingSwitch.store');
+    const revision = fixture.batches.get(batch.id)!.revision;
+    await act(async () => refreshBatches());
+    await page.settle(() => {
+      const load = upcomingStore().getState().loads[batch.id];
+      return load?.state === 'ready' && load.revision === revision;
+    });
+    await language('de');
+    const load = upcomingStore().getState().loads[batch.id]!;
+    if (load.state !== 'ready') throw Error('not ready');
+    const displayed = editorProps.current?.value;
+    const loaded = load.upcoming.overlay[10]!.next.text.de?.text;
+    const { saveBatchDrafts } = await import('./batchDestination.live');
+    let notice = '';
+    await act(async () => {
+      notice = await saveBatchDrafts(batch.id);
+    });
+    const saved = fixture.members.get(batch.id)!.get(10)!;
+    expect(notice).toContain('Saved 1 tooltip');
+    expect(saved.proposed.text.de?.text).toBe(loaded);
+    expect(saved.proposed.text.fr?.text).toBe('Local French rework');
+    expect(displayed).toBe(loaded);
+  } finally {
+    await page.dispose();
+  }
+});

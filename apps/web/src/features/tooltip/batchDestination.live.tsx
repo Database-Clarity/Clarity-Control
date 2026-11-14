@@ -37,7 +37,18 @@ export function drafts(source: Drafts, batchId: string): Drafts {
   return upcomingState(
     [...staged].flatMap(([hash, draft]) => {
       const member = load.upcoming.members[hash];
-      return member ? [{ ...member, proposed: draft.next }] : [];
+      if (!member) return [];
+      const proposed = { ...member.proposed, text: { ...member.proposed.text } };
+      for (const lang of languages) {
+        if (
+          stableStringify(draft.base.text[lang] ?? null) ===
+          stableStringify(draft.next.text[lang] ?? null)
+        )
+          continue;
+        if (draft.next.text[lang]) proposed.text[lang] = draft.next.text[lang];
+        else delete proposed.text[lang];
+      }
+      return [{ ...member, proposed }];
     }),
     data,
   ).overlay;
