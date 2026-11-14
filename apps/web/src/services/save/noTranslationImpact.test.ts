@@ -371,6 +371,76 @@ describe('EXPORT-FALLBACK-VALIDATION: the live English fallback is validated', (
         }),
       ).rejects.toThrow(/editors and maintainers|cannot edit/);
   });
+  it('resolves imports through unchanged tooltips that already fall back (code review F1)', () => {
+    // 124's German flips; it imports foo from 125, whose German already falls back, so live German
+    // resolves 125's English, which imports bar from 126 in German: 126 has no German bar.
+    const data = editorData();
+    const t124: Tooltip = {
+      hash: 124,
+      text: { en: entry('import foo from 125'), de: translation('Deutsch bisher', T0 - LIMIT) },
+      associated: [],
+    };
+    const t125: Tooltip = {
+      hash: 125,
+      text: {
+        en: entry(hidden('foo', 'import bar from 126')),
+        de: translation(hidden('foo', 'Deutsch sicher'), T0 - 91 * DAY),
+      },
+      associated: [],
+    };
+    const t126: Tooltip = {
+      hash: 126,
+      text: { en: entry(hidden('bar', 'Bar')), de: translation('Kein Export', T0) },
+      associated: [],
+    };
+    Object.assign(data.bundle.tooltips, { 124: t124, 125: t125, 126: t126 });
+    const change: Change = {
+      hash: 124,
+      base: t124,
+      next: { ...t124, text: { ...t124.text, en: { ...t124.text.en!, text: english2 } } },
+    };
+    const fallback = liveFallback([change], iso(T0 + DAY), false);
+    expect(fallback).toEqual({ 124: ['de'] });
+    expect(errors(validateChanges([change], data, fallback))).toEqual([
+      expect.objectContaining({
+        hash: 124,
+        lang: 'de',
+        message: expect.stringMatching(/Unresolved import "bar" from 126.*live German output/),
+      }),
+    ]);
+  });
+  it('validates an unchanged dependent by its live text when its translation falls back', () => {
+    // 131's German falls back, so live German runs its English, which imports bar from 130 in
+    // German. Rewriting 130's German drops bar: the dependent breaks in live output.
+    const data = editorData();
+    const t130: Tooltip = {
+      hash: 130,
+      text: { en: entry('English 130'), de: translation(hidden('bar', 'Bar'), T0) },
+      associated: [],
+    };
+    const t131: Tooltip = {
+      hash: 131,
+      text: {
+        en: entry('import bar from 130'),
+        de: translation('Kein Import', T0 - 91 * DAY),
+      },
+      associated: [],
+    };
+    Object.assign(data.bundle.tooltips, { 130: t130, 131: t131 });
+    const change: Change = {
+      hash: 130,
+      base: t130,
+      next: { ...t130, text: { ...t130.text, de: { ...t130.text.de!, text: 'Neu' } } },
+    };
+    expect(liveFallback([change], iso(NOW), false)).toEqual({});
+    expect(errors(validateChanges([change], data))).toEqual([
+      expect.objectContaining({
+        hash: 131,
+        lang: 'de',
+        message: expect.stringContaining('Unresolved import "bar" from 130'),
+      }),
+    ]);
+  });
   it('an unchanged fallback (no English change) keeps warning-only behaviour', () => {
     const { data } = fixture(91 * DAY);
     const t124 = data.bundle.tooltips[124]!;
