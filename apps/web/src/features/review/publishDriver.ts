@@ -495,6 +495,9 @@ export class PublishDriver {
   }
 
   private async sendFailed(op: PublishOp, reason: unknown) {
+    // Called right after send() checked the generation; every await below re-checks it, so a
+    // reply that lands after a restart or account switch never settles, adopts, or notes.
+    const generation = this.generation;
     const status = reason instanceof PublishHttpError ? reason.status : 0;
     const message = reason instanceof Error ? reason.message : 'Unknown error';
     if (status === 401) {
@@ -521,10 +524,12 @@ export class PublishDriver {
       // Never a new opId: ask the Worker whether it knows this one.
       try {
         const remote = await this.deps.api.status(op.opId);
+        if (generation !== this.generation) return;
         if (remote !== 'unknown') return void (await this.adopt(op.opId, remote));
       } catch {
         // The Worker really did reject the body; report that below.
       }
+      if (generation !== this.generation) return;
       await this.settle(op.opId, {
         status: 'failed',
         error: /creation window/i.test(message)
@@ -565,12 +570,13 @@ export class PublishDriver {
       } catch {
         remote = undefined;
       }
+      if (generation !== this.generation) return;
       if (remote !== undefined && remote !== 'unknown')
         return void (await this.adopt(op.opId, remote));
       if (remote === 'unknown') {
         await this.settle(op.opId, {
           status: 'failed',
-          error: `The Worker could not take this publish (HTTP ${status}: ${message.slice(0, 160)}). Nothing was queued. Publish again later, or report this error.`,
+          error: `Worker error (HTTP ${status}: ${message.slice(0, 160)}); the Worker holds no request for these tooltips. Publish again later, or report this error.`,
         });
         return;
       }

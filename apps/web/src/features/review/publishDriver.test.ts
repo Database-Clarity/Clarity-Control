@@ -157,7 +157,7 @@ it("PUBLISH-502: a Worker's own 502 shows its message, then fails once the Worke
   expect(h.api.post).toHaveBeenCalledTimes(publishTiming.workerErrorAttempts);
   expect(h.api.status).toHaveBeenCalledWith(created.opId);
   expect(op().status).toBe('failed');
-  expect(op().error).toMatch(/HTTP 502: GitHub batch read failed.*Nothing was queued/);
+  expect(op().error).toMatch(/HTTP 502: GitHub batch read failed.*holds no request/);
   // Finished: no further resends.
   await vi.advanceTimersByTimeAsync(300_000);
   expect(h.api.post).toHaveBeenCalledTimes(publishTiming.workerErrorAttempts);
@@ -175,6 +175,67 @@ it('PUBLISH-502: a Worker 502 after a landed create adopts the pending request i
     publishTiming.sendBackoffMs(0) + publishTiming.sendBackoffMs(1) + 200,
   );
   expect(op().status).toBe('pending');
+});
+
+/** Drives one operation to its third Worker 502, with the status lookup held open. */
+async function heldThirdAttempt(h: Harness, driver: PublishDriver) {
+  let answer!: (value: RemoteStatus | 'unknown') => void;
+  let refuse!: (reason: unknown) => void;
+  h.api.post.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  h.api.status.mockImplementation(
+    () =>
+      new Promise((resolve, reject) => {
+        answer = resolve;
+        refuse = reject;
+      }),
+  );
+  const created = await driver.create(inputs);
+  await vi.advanceTimersByTimeAsync(
+    publishTiming.sendBackoffMs(0) + publishTiming.sendBackoffMs(1) + 200,
+  );
+  expect(h.api.status).toHaveBeenCalledTimes(1);
+  return {
+    created,
+    answer: (v: RemoteStatus | 'unknown') => answer(v),
+    refuse: (r: unknown) => refuse(r),
+  };
+}
+
+it('PUBLISH-502: a status reply from before a same-account restart never settles the resent publish', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const held = await heldThirdAttempt(h, driver);
+  // A token refresh restarts the driver for the same account; its resend is accepted.
+  h.api.post.mockReset();
+  h.api.post.mockResolvedValue({ status: 'pending' as const });
+  h.api.status.mockReset();
+  h.api.status.mockResolvedValue('pending');
+  await driver.start('1');
+  await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 100);
+  expect(op().status).toBe('pending');
+  held.answer('unknown');
+  await settle();
+  expect(op().status).toBe('pending');
+  expect(h.store.records.get(held.created.opId)?.status).toBe('pending');
+});
+
+it('PUBLISH-502: a status reply from before an account switch has no effect on either account', async () => {
+  for (const outcome of ['unknown', 'done', 'pending', 'reject'] as const) {
+    const h = harness();
+    const driver = h.make();
+    await driver.start('1');
+    const held = await heldThirdAttempt(h, driver);
+    await driver.start('2');
+    if (outcome === 'reject') held.refuse(new PublishHttpError(502, 'late', true));
+    else held.answer(outcome);
+    await settle();
+    expect(h.acked, outcome).toEqual([]);
+    expect(usePublishState.getState().notes, outcome).toEqual({});
+    expect(usePublishState.getState().ops, outcome).toEqual([]);
+    expect(h.store.records.get(held.created.opId)?.status, outcome).toBe('created');
+    driver.stop();
+  }
 });
 
 it('PUBLISH-502: edge 5xx pages, Worker 503s, and an unreachable status check keep retrying', async () => {
