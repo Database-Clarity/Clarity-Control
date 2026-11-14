@@ -8,6 +8,8 @@ export const groups = [
   'Set Bonuses',
   'Exotic Class Items',
 ];
+// Owner 2026-11-15: moving to Inactive & Placeholders; no draft is needed.
+export const ownerExcludedHashes = new Set([2077016094, 2733010662, 2734970071, 3458160468]);
 export function groupFor(category) {
   if (
     [
@@ -93,7 +95,7 @@ export function buildInputs(editor, source, sourceCommit, app) {
       counts[group][reason]++;
       skipped.push({ hash: entry.hash, name: entry.name, group, reason });
     };
-    if (group === 'Exotic Weapons') {
+    if (group === 'Exotic Weapons' || ownerExcludedHashes.has(entry.hash)) {
       skip('excludedByGuide');
       continue;
     }
@@ -127,6 +129,7 @@ export function buildInputs(editor, source, sourceCommit, app) {
       hash: entry.hash,
       name: item.name,
       category: item.categoryId,
+      enhancedCategory: app.categoriesWithEnhanced?.(editor).has(item.categoryId) ?? false,
       group,
       source: { tab: location.tab, gid: location.gid, range, text },
       sourceCommit,
@@ -249,8 +252,8 @@ export function validateDraft(item, english, editor, app) {
     if (!names.has(name) || !evidence.includes(name))
       errors.push(`Unsupported item name: ${match[1]}`);
   }
-  if (item.category !== 'weapon-trait' && /\{\{|^enhanced \(/m.test(english))
-    errors.push('Enhanced markup outside weapon-trait');
+  if (item.category !== 'weapon-trait' && !item.enhancedCategory && /\{\{|<enhanced\/>|^enhanced \(/m.test(english))
+    errors.push('Enhanced markup outside an enhanced-capable category');
   return [...new Set(errors)];
 }
 

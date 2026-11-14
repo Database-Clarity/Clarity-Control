@@ -2,10 +2,47 @@ import { escapeHtml } from './pipeline.mjs';
 import { draftDigest, sampleInputDigest } from './fresh.mjs';
 import { styleLint } from './style.mjs';
 import { createHash } from 'node:crypto';
+import { JSDOM } from 'jsdom';
 
 export const revisionDigest = drafts => createHash('sha256').update(JSON.stringify({
   draftDigest: draftDigest(drafts), whatChanged: drafts._meta?.whatChanged,
 })).digest('hex');
+
+// Preserve the owner's published template and CSS; replace reading surfaces only.
+export function revisionFromTemplate(html, input, drafts, validation, critique) {
+  if (input.styleGuide !== 'v4.9' || input.items.length !== 5 || critique.verdict !== 'APPROVE' ||
+      critique.digestsReproduced !== true || critique.draftDigest !== draftDigest(drafts) ||
+      critique.revisionDigest !== revisionDigest(drafts) || critique.inputDigest !== sampleInputDigest(input) ||
+      critique.guideKitSha256 !== input.guideKitSha256 || drafts._meta.guideKitSha256 !== input.guideKitSha256)
+    throw Error('Exact v4.9 approval required');
+  if (Object.keys(validation.errors).length || Object.keys(validation.accepted).length !== 5)
+    throw Error('All five validations required');
+  const document = new JSDOM(html).window.document;
+  const wanted = new Map(input.items.map(i => [String(i.hash), i]));
+  for (const row of document.querySelectorAll('article[data-hash]')) {
+    const hash = row.dataset.hash, item = wanted.get(hash);
+    if (!item) { row.remove(); continue; }
+    if (item.ownerFeedback.verdict !== 'change' || critique.checksByHash[hash] !== 'PASS' ||
+        validation.accepted[hash] !== drafts[hash] || styleLint(drafts[hash]).length || !drafts._meta.whatChanged[hash])
+      throw Error(`Ungated revision ${hash}`);
+    row.querySelector('.note').textContent = item.ownerFeedback.note;
+    row.querySelector('pre').textContent = drafts[hash];
+    row.querySelector('.changed').textContent = 'What changed: ' + drafts._meta.whatChanged[hash];
+    row.querySelectorAll('aside,.inherited').forEach(el => el.remove());
+    row.querySelectorAll('button').forEach(el => el.setAttribute('aria-pressed', 'false'));
+    row.querySelector('textarea').value = '';
+    row.querySelector('textarea').textContent = '';
+    row.querySelector('.st').textContent = '';
+  }
+  if (document.querySelectorAll('article[data-hash]').length !== 5) throw Error('Template lacks a revised row');
+  document.title = 'Tooltip revisions · v4.9';
+  document.querySelector('h1').textContent = 'Tooltip revisions · v4.9';
+  document.querySelector('.top-in > p').textContent = '5 revised tooltips. Your note, new text, and what changed. Approved texts are retained; unused mods are excluded.';
+  const script = [...document.scripts].find(s => s.textContent.includes("db.collection('feedback48')"));
+  if (!script) throw Error('Unexpected feedback template');
+  script.textContent = script.textContent.replaceAll('feedback48', 'feedback49');
+  return document.documentElement.outerHTML;
+}
 
 export function revisionPage(input, drafts, validation, critique) {
   const hashes = input.items.map(i => String(i.hash));

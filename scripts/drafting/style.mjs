@@ -91,6 +91,8 @@ export function itemStyleLint(item, english) {
   if (item.name === 'Stunloader') {
     if (!/\breserves\b/i.test(english)) errors.push('Style: refill reserves origin missing');
     if (!/\b60%/.test(english)) errors.push('Style: enhanced refill value missing');
+    if (item.enhancedCategory && (!/\{\{/.test(english) || !/<enhanced\/>/.test(english)))
+      errors.push('Style: use native base/enhanced markup and arrow');
   }
   return errors;
 }

@@ -37,6 +37,7 @@ try {
       'apps/web/src/services/editorDrafts.ts',
       'apps/web/src/features/navigation/catalog.ts',
       'apps/web/src/services/tooltipImports.ts',
+      'apps/web/src/features/tooltip/variants.ts',
     ].map(load),
   );
   const app = Object.assign({}, ...modules, {

@@ -8,6 +8,7 @@ import {
   sampleHtml,
   validateDraft,
   buildInputs,
+  ownerExcludedHashes,
 } from './pipeline.mjs';
 import { guidedFixture } from '../../apps/web/test/guided-fixture.ts';
 import { reviewEvidence } from '../../apps/web/src/features/compendium/reviewQueue.ts';
@@ -39,6 +40,12 @@ const item = {
   source: { text: 'Grants 12% damage for 5 seconds.' },
   baseExotic: { english: 'Grants 99% damage.' },
 };
+it('allows enhanced pairs in catalog-confirmed mod categories and excludes unused owner hashes', () => {
+  const mod = { ...item, category: 'weapon-mod', source: { text: 'Refills 50% ↑60% of Magazine.' }, enhancedCategory: true };
+  expect(validateDraft(mod, 'Refills {{50%}{60%}} of the magazine.', editor, app)).toEqual([]);
+  expect(validateDraft({ ...mod, enhancedCategory: false }, 'Refills {{50%}{60%}} of the magazine.', editor, app)).toContain('Enhanced markup outside an enhanced-capable category');
+  expect([...ownerExcludedHashes]).toEqual([2077016094, 2733010662, 2734970071, 3458160468]);
+});
 it('compares complete number tokens and never borrows class-item values from the base exotic', () => {
   expect([...numbers('12% 1.25x <title refill [G_100] /> #Chunk2')]).toEqual(['12', '1.25']);
   expect([...numbers('x10 [x5] Slow Stacks')]).toEqual(['10', '5']);
@@ -48,13 +55,13 @@ it('compares complete number tokens and never borrows class-item values from the
   );
   expect(validateDraft(item, 'Grants 12% damage for 5 seconds.', editor, app)).toEqual([]);
 });
-it('rejects parser errors, retired markup, invented exotic names, and non-trait enhanced markup', () => {
+it('rejects parser errors, retired markup, invented names, and enhanced markup in unsupported categories', () => {
   expect(validateDraft(item, '<blue damage />', editor, app)).toContain('Retired markup');
   expect(validateDraft(item, '<yellow Imaginary Gun />', editor, app)).toContain(
     'Unsupported item name: Imaginary Gun',
   );
   expect(validateDraft(item, '{{12}{5}}', editor, app)).toContain(
-    'Enhanced markup outside weapon-trait',
+    'Enhanced markup outside an enhanced-capable category',
   );
   expect(validateDraft(item, '\uE000', editor, app).length).toBeGreaterThan(0);
 });

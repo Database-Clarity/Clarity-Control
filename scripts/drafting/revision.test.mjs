@@ -1,7 +1,24 @@
 import { expect, it } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { revisionDigest, revisionPage } from './revision.mjs';
+import { revisionDigest, revisionPage, revisionFromTemplate, feedbackScript } from './revision.mjs';
 import { draftDigest, sampleInputDigest } from './fresh.mjs';
+
+it('preserves template styling while selecting only five v4.9 changes and feedback49', () => {
+  const input = { styleGuide: 'v4.9', guideKitSha256: 'kit', items: Array.from({ length: 5 }, (_, hash) => ({ hash, ownerFeedback: { verdict: 'change', note: "Owner's new note" } })) };
+  const drafts = { _meta: { guideKitSha256: 'kit', whatChanged: {} } }, validation = { accepted: {}, errors: {} };
+  for (const { hash } of input.items) { drafts[hash] = "The weapon's new text."; drafts._meta.whatChanged[hash] = 'Changed the wording.'; validation.accepted[hash] = drafts[hash]; }
+  const critique = { verdict: 'APPROVE', digestsReproduced: true, guideKitSha256: 'kit', draftDigest: draftDigest(drafts), revisionDigest: revisionDigest(drafts), inputDigest: sampleInputDigest(input), checksByHash: Object.fromEntries(input.items.map(i => [i.hash, 'PASS'])) };
+  const rows = Array.from({ length: 6 }, (_, hash) => `<article data-hash="${hash}"><p class="note">Old note</p><pre>Old text</pre><p class="changed"></p><button aria-pressed="true"></button><textarea>Old answer</textarea><span class="st">Saved</span></article>`).join('');
+  const html = `<html><head><style>.cols{display:grid}</style></head><body><h1></h1><div class="top-in"><p></p></div>${rows}<script>${feedbackScript}</script></body></html>`;
+  const result = revisionFromTemplate(html, input, drafts, validation, critique), doc = new JSDOM(result).window.document;
+  expect(doc.querySelector('style').textContent).toBe('.cols{display:grid}');
+  expect(doc.querySelectorAll('article')).toHaveLength(5);
+  expect(doc.querySelector('.note').textContent).toBe("Owner's new note");
+  expect(doc.querySelector('textarea').textContent).toBe('');
+  expect(result).toContain("db.collection('feedback49')");
+  expect(result).not.toContain('feedback48');
+  expect(() => revisionFromTemplate(html, input, drafts, validation, { ...critique, digestsReproduced: false })).toThrow('approval');
+});
 
 it('gates every revised row and saves only deliberate new verdicts to feedback48', async () => {
   const importHashes = [2077016094, 2733010662, 2734970071, 3458160468];
