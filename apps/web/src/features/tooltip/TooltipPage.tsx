@@ -79,6 +79,7 @@ import { englishDiffFor } from '../translations/source';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
+import { SavedCompendiumPane } from '../compendium/SavedCompendiumPane';
 import {
   categoriesWithEnhanced,
   editableOverrides,
@@ -621,12 +622,15 @@ function TooltipWorkspace({
   const translation = translationQueue([activeBase], [lang], data.aliases)[0];
   const compendiumPane = selectedGlobal ? (
     <GlobalUsages hash={selectedGlobal.hash} name={selectedGlobal.name} />
-  ) : !readOnly && user?.role !== 'translator' ? (
+  ) : readOnly ? null : user?.role !== 'translator' ? (
     <SteppingCompendium
       base={activeBase}
       active={suspended || loading}
       ready={!loading && previewPainted === hash}
     />
+  ) : lang !== 'en' ? (
+    // Translators: read-only, only the snapshot saved with the last English save (no sheet load).
+    <SavedCompendiumPane base={activeBase} name={item?.name} />
   ) : null;
   // Roles that may see reports, in a language they may read, beside another side pane (the tab
   // shares the right pane; it never takes a pane of its own).

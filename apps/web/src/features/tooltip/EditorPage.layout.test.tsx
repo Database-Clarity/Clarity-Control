@@ -12,6 +12,9 @@ import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { useSteppingActivity } from '../navigation/steppingActivity';
+import { useCompendiumStore } from '../compendium/store';
+
+const originalCompendium = useCompendiumStore.getState();
 
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
@@ -464,16 +467,114 @@ describe('editor page composition', () => {
     expect(button('Grouped 4')).toBeUndefined();
   });
 
-  it('gives a translator the same editor and rows, with English but no Compendium', async () => {
+  it('gives a translator the same editor and rows, with English and the saved Compendium only', async () => {
     signIn('translator');
     await render('/t/10?lang=de');
     expect(editors().map((node) => node.dataset.editor)).toEqual(['10']);
+    // Never the live, matching Compendium panel.
     expect(host.querySelector('[data-compendium]')).toBeNull();
     expect(button('English')).toBeDefined();
-    expect(button('Compendium')).toBeUndefined();
+    expect(button('Compendium')).toBeDefined();
     expect(host.querySelector('[data-associations]')).not.toBeNull();
     expect(host.querySelector('[data-history]')).not.toBeNull();
     expect(button('Grouped 4')).toBeUndefined();
+  });
+
+  describe('translator Compendium tab (read-only, saved snapshot only)', () => {
+    const snapshot = {
+      gid: '42',
+      rowKey: 'Base perk',
+      section: 'Raid Specific',
+      sourceAnchor: { row: 12, col: 1 },
+      cells: [{ dRow: 0, dCol: 2 }],
+      snapshot: {
+        plain: 'Saved sheet words',
+        runs: [{ text: 'Saved sheet words', bold: true as const }],
+      },
+      snapshotAt: '2026-11-01T10:00:00Z',
+    };
+    const withSnapshot = (link?: typeof snapshot) => {
+      const tooltips = {
+        ...data.bundle.tooltips,
+        10: { ...data.bundle.tooltips[10], compendium: link },
+      };
+      useDataStore.setState({
+        data: { ...data, bundle: { ...data.bundle, tooltips } } as EditorData,
+      });
+    };
+    const openCompendium = async () => {
+      await act(async () => button('Compendium')!.click());
+      return host.querySelector<HTMLElement>('[data-saved-compendium]')!;
+    };
+    // Every write the editors' pane offers; none may render for a translator.
+    const writeActions =
+      /^(Link|Relink|Close|Confirm|Not needed|Unlink|Choose another|Review & save draft|Use this|Accept)/;
+    let fetchSpy: { mock: { calls: unknown[][] }; mockRestore(): void };
+    let load: ReturnType<typeof vi.fn<(force?: boolean) => Promise<void>>>;
+    beforeEach(() => {
+      signIn('translator');
+      fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no network in tests'));
+      load = vi.fn<(force?: boolean) => Promise<void>>(async () => {});
+      useCompendiumStore.setState({ load });
+    });
+    afterEach(() => {
+      fetchSpy.mockRestore();
+      useCompendiumStore.setState(originalCompendium);
+    });
+    const expectNoLiveSheet = () => {
+      expect(load).not.toHaveBeenCalled();
+      expect(
+        fetchSpy.mock.calls.map(([url]) => String(url)).filter((url) => /compendium/i.test(url)),
+      ).toEqual([]);
+    };
+
+    it('shows only the snapshot saved with the English, its source, and no write action', async () => {
+      withSnapshot(snapshot);
+      await render('/t/10?lang=de');
+      const pane = await openCompendium();
+      expect(pane.dataset.savedCompendium).toBe('saved');
+      expect(pane.textContent).toContain('Saved sheet words');
+      expect(pane.textContent).toContain('Saved with the English');
+      expect(pane.textContent).toContain('Raid Specific');
+      const source = pane.querySelector<HTMLAnchorElement>('[data-source-ref]')!;
+      expect(source.textContent).toContain('D12');
+      expect(source.href).toContain('gid=42');
+      expect(host.querySelector('[data-compendium]')).toBeNull();
+      const aside = pane.closest('aside')!;
+      const labels = [...aside.querySelectorAll('button')].map(
+        (entry) => entry.textContent?.trim() ?? '',
+      );
+      expect(labels.filter((label) => writeActions.test(label))).toEqual([]);
+      expectNoLiveSheet();
+    });
+
+    it('says so when no snapshot was saved, with no live fallback', async () => {
+      withSnapshot(undefined);
+      await render('/t/10?lang=de');
+      const pane = await openCompendium();
+      expect(pane.dataset.savedCompendium).toBe('none');
+      expect(pane.textContent).toBe('No Compendium text was saved with the English yet');
+      expect(pane.closest('aside')!.querySelectorAll('button')).toHaveLength(0);
+      expectNoLiveSheet();
+    });
+
+    it('keeps the Compendium out of English mode for a translator', async () => {
+      withSnapshot(snapshot);
+      await render('/t/10?lang=en');
+      expect(button('Compendium')).toBeUndefined();
+      expect(host.querySelector('[data-saved-compendium]')).toBeNull();
+    });
+
+    it('leaves editors and maintainers on the live panel', async () => {
+      withSnapshot(snapshot);
+      for (const role of ['editor', 'maintainer'] as const) {
+        signIn(role);
+        await render('/t/10?lang=de');
+        await act(async () => button('Compendium')!.click());
+        expect(host.querySelector('[data-compendium]')).not.toBeNull();
+        expect(host.querySelector('[data-saved-compendium]')).toBeNull();
+      }
+    });
   });
 
   it('shows the read-only reason as a header badge when signed out, with no Discard or override action', async () => {
