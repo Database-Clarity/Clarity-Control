@@ -89,11 +89,13 @@ export function leaveTarget(queue: WorkQueue) {
  */
 export const WorkThroughControl = memo(function WorkThroughControl({
   work,
+  actions,
 }: {
   work: WorkThrough;
+  actions?: ReactNode;
 }) {
   return work.mode === 'active' ? (
-    <ActiveControl queue={work.queue} visit={work.visit} />
+    <ActiveControl queue={work.queue} visit={work.visit} actions={actions} />
   ) : (
     <PausedControl queue={work.queue} />
   );
@@ -117,7 +119,15 @@ function useStepKeys() {
   return { previous, next };
 }
 
-function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }) {
+function ActiveControl({
+  queue,
+  visit,
+  actions,
+}: {
+  queue: WorkQueue;
+  visit: QueueVisit;
+  actions?: ReactNode;
+}) {
   const isDone = useQueueDone(queue);
   const { pathname, key: entry } = useLocation();
   const phone = useMedia(phoneQuery);
@@ -159,7 +169,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
   }, [entry, visit.id, visit.key, visit.revisit, visitItem, revisit]);
 
   const label = placeLabel(place);
-  const name = `${source.label} queue`;
+  const name = `${source.label}${queue.destination ? ` · ${queue.destination.batchName}` : ''} queue`;
   const leave = leaveTarget(queue);
 
   const step = (
@@ -316,6 +326,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
           role="group"
           aria-label={name}
           data-queue
+          data-batch={queue.destination ? '' : undefined}
           data-finished={finished}
         >
           {place.finished ? (
@@ -342,7 +353,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       data-queue
       data-finished={finished}
     >
-      {back(source.label)}
+      {back(queue.destination?.batchName ?? source.label)}
       {menu(
         <>
           <span role="status">{label}</span>
@@ -350,6 +361,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
         </>,
         `${header.queuePosition} ${styles.position}`,
       )}
+      {actions}
       {place.finished ? (
         revisitLink
       ) : (
@@ -413,7 +425,7 @@ function QueueMenu({
         </section>
       )}
       <header className={styles.menuHead}>
-        <strong>{source.label}</strong>
+        <strong>{queue.destination?.batchName ?? source.label}</strong>
         <span>
           {queue.items.length} {queue.scope === 'selected' ? 'selected' : 'shown'} · {done} done
           {place.skipped ? ` · ${place.skipped} skipped` : ''}
@@ -477,12 +489,12 @@ function PausedControl({ queue }: { queue: WorkQueue }) {
     <span
       className={`${header.queue} ${styles.queue}`}
       role="group"
-      aria-label={`${source.label} queue, paused`}
+      aria-label={`${source.label}${queue.destination ? ` · ${queue.destination.batchName}` : ''} queue, paused`}
       data-queue
       data-paused
     >
       <span className={`${header.queuePosition} ${styles.paused}`} role="status">
-        {source.label} · paused
+        {queue.destination?.batchName ?? source.label} · paused
       </span>
       {/* Phones: one joined pair at the stepper's height. */}
       <span className={styles.pausedActions}>

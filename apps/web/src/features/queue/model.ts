@@ -57,10 +57,9 @@ export interface WorkQueue {
   finished: boolean;
   createdAt: number;
   /**
-   * Reserved for scheduled changes (batch destinations): the queue model keeps a place for a
-   * destination, but none is built yet. Always null.
+   * Frozen draft destination. A batch queue never writes to Current.
    */
-  destination: null;
+  destination: { kind: 'batch'; batchId: string; batchName: string } | null;
 }
 
 /** The queue a route belongs to, carried in the history entry's state next to an unchanged URL. */

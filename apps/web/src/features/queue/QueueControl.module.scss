@@ -241,3 +241,17 @@
     display: inline;
   }
 }
+
+// Reserve the completed label's width: typing must not wrap the phone stepper.
+@media (max-width: 700px) {
+  .queue[data-batch] .phonePosition {
+    width: 16ch;
+    min-width: 0;
+    > span:first-child {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+}

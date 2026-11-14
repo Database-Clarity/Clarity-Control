@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -25,6 +25,17 @@ export function useQueueDone(queue: WorkQueue | undefined): (item: QueueItem) =>
   const context = useSourceContext();
   // Keyed on the frozen items, not the queue record: a step (new position) keeps the test and its
   // cached answers.
+  const [batchRuntime, setBatchRuntime] = useState<typeof import('./batchQueue')>();
+  const batchId =
+    import.meta.env.VITE_SCHEDULED_ENABLED === '1' ? queue?.destination?.batchId : undefined;
+  useEffect(() => {
+    if (batchId) void import('./batchQueue').then(setBatchRuntime);
+  }, [batchId]);
+  const batchBits = useSyncExternalStore(batchRuntime?.subscribe ?? (() => () => {}), () =>
+    batchId && queue && context && batchRuntime
+      ? queue.items.map((item) => (batchRuntime.done(queue, context, item) ? '1' : '0')).join('')
+      : '',
+  );
   const source = queue?.source;
   const items = queue?.items;
   const test = useMemo(
@@ -36,8 +47,11 @@ export function useQueueDone(queue: WorkQueue | undefined): (item: QueueItem) =>
   );
   const index = useMemo(() => new Map(items?.map((item, at) => [item.key, at]) ?? []), [items]);
   return useCallback(
-    (item: QueueItem) => (bits ? bits[index.get(item.key) ?? -1] === '1' : false),
-    [bits, index],
+    (item: QueueItem) => {
+      const answers = batchId ? batchBits : bits;
+      return answers ? answers[index.get(item.key) ?? -1] === '1' : false;
+    },
+    [bits, batchBits, batchId, index],
   );
 }
 

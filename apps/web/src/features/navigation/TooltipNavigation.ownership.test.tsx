@@ -15,6 +15,11 @@ import { publishSteppingTarget, settleStepping, useSteppingActivity } from './st
 import type { ClarityEditorProps } from '../editor';
 import { observeNativeDialogShortcutOwner, workspaceShortcutsBlocked } from '../../ui/interaction';
 
+vi.mock('../../services/api', async (original) => ({
+  ...(await original<typeof import('../../services/api')>()),
+  apiUrl: 'https://worker.example/',
+}));
+
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
   SaveController: () => null,
@@ -344,6 +349,7 @@ describe('mounted Editor navigation interaction ownership', () => {
   });
 
   it('lands the newest document before typing immediately after a Shift flick stops', async () => {
+    useAuthStore.setState({ user: { id: 1, login: 'local draft', role: 'editor' } });
     vi.useFakeTimers();
     try {
       await mount();
@@ -431,6 +437,7 @@ describe('mounted Editor navigation interaction ownership', () => {
     },
   );
   it('catches up before editing a retained document, so the new item owns the input', async () => {
+    useAuthStore.setState({ user: { id: 1, login: 'local draft', role: 'editor' } });
     await mount();
     const edit = vi.fn();
     useDraftStore.setState({ edit });
