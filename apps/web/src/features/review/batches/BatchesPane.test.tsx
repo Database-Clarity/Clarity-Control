@@ -314,6 +314,33 @@ describe('Review → Batches', () => {
     await view.unmount();
   });
 
+  it('confirms Publish now for the revision shown, and drops the confirmation when it moves (code review round 2)', async () => {
+    const batch = await seed();
+    const view = await mount('maintainer');
+    await view.settle(() => view.button('Publish now')?.disabled === false);
+    await view.click('Publish now');
+    expect(view.text()).toContain('live now, through the publisher?');
+    // Race: another editor adds a tooltip before this page re-lists. Confirming sends rev 2.
+    await call(`/batches/${batch.id}/save`, {
+      revision: 2,
+      changes: [{ hash: 12, base: current[12], next: tooltip(12, 'Twelve, upcoming') }],
+    });
+    await view.click('Publish now');
+    await view.settle(() => view.text().includes('The batch changed; reload it and retry'));
+    expect(fixture.batches.get(batch.id)?.status).toBe('draft');
+    // A new confirmation at rev 3; the batch moves to rev 4 while it is open.
+    await view.settle(() => view.text().includes('rev 3') && Boolean(view.button('Publish now')));
+    await view.click('Publish now');
+    await call(`/batches/${batch.id}/remove`, { revision: 3, hashes: [12] });
+    const { refreshBatches } = await import('./store');
+    await act(async () => refreshBatches());
+    await view.settle(() => view.text().includes('changed while you were confirming'));
+    expect(view.text()).toContain('rev 3 → rev 4');
+    expect(view.host.querySelector('[aria-label="Confirm publish now"]')).toBeNull();
+    expect(fixture.batches.get(batch.id)?.status).toBe('draft');
+    await view.unmount();
+  });
+
   it('shows the Worker refusal verbatim when the batch changed meanwhile, then the new state', async () => {
     const batch = await seed();
     const view = await mount('maintainer');

@@ -6,13 +6,13 @@ import type { Tooltip } from '@clarity/core';
 import { createBatchFixture, type BatchFixture } from '../scheduled/fixtureWorker.testSupport';
 import { editorData, tooltip } from './fixtures.testSupport';
 
-const mocks = vi.hoisted(() => ({ save: vi.fn() }));
+const mocks = vi.hoisted(() => ({ save: vi.fn(), token: 'token-a' }));
 vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api')>()),
   apiUrl: 'https://worker.example',
   save: mocks.save,
 }));
-vi.mock('../session', () => ({ sessionToken: () => 'token-a' }));
+vi.mock('../session', () => ({ sessionToken: () => mocks.token }));
 vi.mock('./pipeline', () => ({
   permissionError: () => null,
   validateChanges: () => [],
@@ -144,6 +144,7 @@ beforeEach(() => {
   for (const name of ['localStorage', 'sessionStorage'])
     vi.stubGlobal(name, { getItem: () => null, setItem() {}, removeItem() {} });
   mocks.save.mockReset();
+  mocks.token = 'token-a';
   onSave = undefined;
   saveHook = undefined;
   saves = 0;
@@ -404,6 +405,53 @@ describe('Review save destination (scheduled changes)', () => {
     expect(fixture.members.get(batch.id)?.get(509)?.proposed.text.de?.text).toBe('D509');
     expect(fixture.members.get(batch.id)?.get(510)?.proposed.text.de).toBeUndefined();
     expect(fixture.members.get(batch.id)?.get(511)?.proposed.text.de).toBeUndefined();
+  });
+
+  it('stops sending chunks when the session token changes while /me reloads (code review round 2)', async () => {
+    const hashes = Array.from({ length: 12 }, (_, i) => 600 + i);
+    for (const hash of hashes) fixture.setCurrent(hash, extra(hash));
+    const staged = (hash: number): Tooltip => ({ ...extra(hash), associated: [1] });
+    const { batch } = await call('/batches', { name: 'Token' });
+    await call(`/batches/${batch.id}/save`, {
+      revision: batch.revision,
+      changes: hashes.map((hash) => ({ hash, base: extra(hash), next: staged(hash) })),
+    });
+    await call(`/batches/${batch.id}/schedule`, {
+      revision: 2,
+      notBefore: '2026-12-03T16:00:00.000Z',
+      zone: 'UTC',
+    });
+    const view = await setup('editor');
+    const { useAuthStore } = await import('../../stores/auth');
+    const german = (hash: number): Tooltip => ({
+      ...staged(hash),
+      text: {
+        ...staged(hash).text,
+        de: { text: `D${hash}`, updatedAt: tooltip.text.en!.updatedAt, updatedBy: 'alice' },
+      },
+    });
+    await view.review(
+      Object.fromEntries(hashes.map((hash) => [hash, { base: staged(hash), next: german(hash) }])),
+    );
+    await view.settle(() => Boolean(view.button('Batch') && !view.button('Batch')!.disabled));
+    await view.click('Batch');
+    // After chunk 1 another tab signs in as someone else: new token, /me pending, and the draft
+    // generation has not moved yet.
+    saveHook = async (count, forward) => {
+      const response = await forward();
+      if (count === 1) {
+        mocks.token = 'token-b';
+        useAuthStore.setState({ token: 'token-b', loading: true });
+      }
+      return response;
+    };
+    await view.click('Save to batch');
+    await view.settle(() => fixture.batches.get(batch.id)!.revision === 4);
+    await view.settle();
+    expect(view.useDraftStore.getState().generation).toBe(3);
+    expect(saves).toBe(1);
+    expect(fixture.members.get(batch.id)?.get(610)?.proposed.text.de).toBeUndefined();
+    expect(fixture.members.get(batch.id)?.get(611)?.proposed.text.de).toBeUndefined();
   });
 
   it('keeps drafts when the response is lost, then confirms them on the next save', async () => {

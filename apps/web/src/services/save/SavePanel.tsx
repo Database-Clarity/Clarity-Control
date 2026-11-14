@@ -262,13 +262,27 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       if (auth.loading || !sameUser(auth.user, user) || auth.token !== sessionToken())
         throw new Error('Your login changed. Close this review and check your role.');
       if (batchTarget) {
+        // A batch save is several requests: each one goes out only while the session is still
+        // the one checked above (settled auth, same user, same token; the draft generation lags
+        // a token change while /me loads). Asked before create, after awaits, and per chunk.
+        const token = sessionToken();
+        const sameSession = () => {
+          if (accountChanged(generation)) return false;
+          const now = useAuthStore.getState();
+          return (
+            !now.loading &&
+            sameUser(now.user, user) &&
+            now.token === token &&
+            sessionToken() === token
+          );
+        };
         const { saveReviewToBatch } = await destinationChunk();
         const notice = await saveReviewToBatch(
           batchTarget,
           prepared,
           message.trim() || `Update ${changes.length} tooltip(s)`,
           review.submitted,
-          () => !accountChanged(generation),
+          sameSession,
           (staged) => prepareChanges(staged, user, data, source),
         );
         if (accountChanged(generation)) return;

@@ -102,7 +102,7 @@ export async function saveReviewToBatch(
   changes: readonly Change[],
   message: string,
   submitted: Drafts,
-  /** False once the signed-in account changed after the save began. */
+  /** False once the session changed after the save began (account, token, or auth reloading). */
   sameAccount: () => boolean,
   /** The save review's enrichment and validation, for the batch's staged drafts. */
   prepare: (changes: Change[]) => Promise<Change[]>,

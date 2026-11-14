@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { contentHash, mergeTextWithMarkers, type Tooltip } from '@clarity/core';
 import {
@@ -75,7 +75,9 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
   const [pending, setPending] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [confirm, setConfirm] = useState<Action | null>(null);
+  // An in-place confirmation approves the revision it was opened on (code review round 2): its
+  // write sends that revision, and a newer listed revision drops it with a note.
+  const [confirm, setConfirm] = useState<{ action: Action; revision: number } | null>(null);
   // The Schedule dialog approves the revision it was opened on (members and first publications
   // frozen with it); a newer listed revision disables it (ScheduleDialog `latest`).
   const [dialog, setDialog] = useState<{ batch: Batch; first: number[] } | null>(null);
@@ -95,6 +97,14 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
         : [],
     [detail, data],
   );
+  const shownRevision = detail?.batch.revision;
+  useEffect(() => {
+    if (!confirm || shownRevision === undefined || confirm.revision === shownRevision) return;
+    setConfirm(null);
+    setNotice(
+      `${entry.name} changed while you were confirming (rev ${confirm.revision} → rev ${shownRevision}). Review it and choose again.`,
+    );
+  }, [confirm, shownRevision, entry.name]);
   if (!detail)
     return load?.state === 'failed' ? (
       <p role="alert" className={styles.note}>
@@ -178,9 +188,9 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
           blocked={blocked}
           scheduleBlock={scheduleBlock}
           pending={pending}
-          confirm={confirm}
+          confirm={confirm?.revision === batch.revision ? confirm.action : null}
           members={detail.members.length}
-          onConfirm={setConfirm}
+          onConfirm={(action) => setConfirm(action ? { action, revision: batch.revision } : null)}
           onSchedule={() => {
             setError(null);
             setNotice(null);
@@ -189,14 +199,25 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
           onNow={() =>
             void run(
               'now',
-              () => scheduleBatch(batch.id, batch.revision, 'now', batch.zone ?? 'UTC'),
+              () =>
+                scheduleBatch(
+                  batch.id,
+                  confirm?.action === 'now' ? confirm.revision : batch.revision,
+                  'now',
+                  batch.zone ?? 'UTC',
+                ),
               `${batch.name} is queued to publish now.`,
             )
           }
           onEnd={(action) =>
             void run(
               action,
-              () => endBatchSchedule(batch.id, batch.revision, action),
+              () =>
+                endBatchSchedule(
+                  batch.id,
+                  confirm?.action === action ? confirm.revision : batch.revision,
+                  action,
+                ),
               action === 'cancel'
                 ? `${batch.name} cancelled. Nothing from it will publish.`
                 : `${batch.name} unscheduled: back to draft.`,
