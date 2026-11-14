@@ -296,6 +296,48 @@ describe('Translations Upcoming', () => {
     expect(rows()).toEqual([]);
   });
 
+  it('keeps Back to the list entry and its row after stepping', async () => {
+    vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+    const batch = await seed();
+    await mount('maintainer');
+    await act(async () => button('Upcoming')!.click());
+    await settle(() => rows().length === 3);
+    const charlie = [...host.querySelectorAll<HTMLAnchorElement>('li[data-index] a')][2]!;
+    await act(async () => charlie.click());
+    expect(new URLSearchParams(location.search).get('open')).toBe(`${batch.id}:3`);
+    await act(async () =>
+      [...host.querySelectorAll('a')].find((link) => link.textContent === 'Previous')!.click(),
+    );
+    expect(new URLSearchParams(location.search).get('open')).toBe(`${batch.id}:2`);
+    await act(async () => button('‹ Upcoming')!.click());
+    await settle(() => rows().length === 3);
+    expect(new URLSearchParams(location.search).get('open')).toBeNull();
+    expect(
+      host.querySelector('li[data-index] a[data-selected]')?.querySelector('span')?.textContent,
+    ).toBe('Charlie Mod');
+  });
+
+  it('says a linked row did not load, with Retry, when its members fail', async () => {
+    vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+    const batch = await seed();
+    let fail = true;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      fail && new Request(input, init).url.includes('raw.githubusercontent.com')
+        ? Promise.resolve(new Response('fail', { status: 500 }))
+        : fixture.fetch(input, init),
+    );
+    await mount('maintainer', undefined, [
+      { pathname: '/translations', search: `?open=${batch.id}:2` },
+    ]);
+    await settle(() => host.textContent!.includes('did not load'));
+    expect(host.textContent).toContain('"December patch" did not load.');
+    expect(host.textContent).not.toContain('no longer upcoming');
+    fail = false;
+    await act(async () => button('Retry')!.click());
+    await settle(() => host.querySelector('h1')?.textContent === 'Bravo Perk');
+    expect(host.querySelector('h1')!.textContent).toBe('Bravo Perk');
+  });
+
   it('shows a translator only assigned languages and no coverage', async () => {
     vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
     await seed();

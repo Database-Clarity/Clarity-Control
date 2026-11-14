@@ -254,12 +254,27 @@ export default function UpcomingTranslations({
             previous: step(-1),
             next: step(1),
             position: at >= 0 ? `${at + 1} of ${shown.length}` : undefined,
+            state: routeState,
           }}
           onBack={back}
         />
       );
     }
-    const waiting = !listingReady && !listFailed;
+    // Why the row is not shown: still loading, a load failed (with its Retry), or truly gone.
+    const openedBatch = opened.split(':')[0];
+    const failedBatch = failed.find((batch) => batch.id === openedBatch);
+    const listingFailed = listFailed && head === null;
+    const waiting =
+      !listingFailed &&
+      !failedBatch &&
+      (head === null || pending.some((b) => b.id === openedBatch));
+    const message = listingFailed
+      ? 'Scheduled batches did not load.'
+      : failedBatch
+        ? `"${failedBatch.name}" did not load.`
+        : waiting
+          ? 'Loading the upcoming translation…'
+          : 'This row is no longer upcoming: its batch closed, or current English caught up.';
     return (
       <TranslationsFrame
         rail={false}
@@ -267,10 +282,16 @@ export default function UpcomingTranslations({
         summary={null}
         coverage={null}
         listing={
-          <p className={styles.empty} role="status">
-            {waiting
-              ? 'Loading the upcoming translation…'
-              : 'This row is no longer upcoming: its batch closed, or current English caught up.'}
+          <p className={styles.empty} role={listingFailed || failedBatch ? 'alert' : 'status'}>
+            {message}
+            {(listingFailed || failedBatch) && (
+              <button
+                type="button"
+                onClick={() => (failedBatch ? ensureBatch(failedBatch.id) : void refreshBatches())}
+              >
+                Retry
+              </button>
+            )}
             {!waiting && (
               <button type="button" onClick={back}>
                 Back to Upcoming

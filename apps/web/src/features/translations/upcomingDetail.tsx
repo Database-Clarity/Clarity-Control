@@ -27,6 +27,8 @@ export interface DetailSteps {
   previous?: string;
   next?: string;
   position?: string;
+  /** The entry's history state, kept by Previous/Next so Back still returns to the list entry. */
+  state?: unknown;
 }
 
 export function UpcomingDetail({
@@ -65,9 +67,9 @@ export function UpcomingDetail({
           {upcomingStateText[row.state]}
         </span>
         <nav className={styles.steps} aria-label="Upcoming rows">
-          <StepLink to={steps.previous} label="Previous" />
+          <StepLink to={steps.previous} state={steps.state} label="Previous" />
           {steps.position && <span className={styles.position}>{steps.position}</span>}
-          <StepLink to={steps.next} label="Next" />
+          <StepLink to={steps.next} state={steps.state} label="Next" />
         </nav>
       </div>
       <p className={styles.detailLine} title={line.join(' · ')}>
@@ -144,9 +146,11 @@ export function UpcomingDetail({
   );
 }
 
-function StepLink({ to, label }: { to: string | undefined; label: string }) {
+// Stepping replaces this entry (Back skips the rows stepped through) and keeps its state, so a
+// view opened from the list still goes back to that list entry and its remembered row.
+function StepLink({ to, state, label }: { to: string | undefined; state: unknown; label: string }) {
   return to ? (
-    <Link to={to} replace data-perf-navigation="true" className={styles.step}>
+    <Link to={to} replace state={state} data-perf-navigation="true" className={styles.step}>
       {label}
     </Link>
   ) : (
