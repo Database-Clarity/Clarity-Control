@@ -368,14 +368,16 @@ export const suggestConfiguration = (host: SuggestHost): Extension => suggestHos
 /**
  * Enter and Tab insert the highlighted option. When it would only re-type what is already there
  * (the author finished the word, e.g. `#e`), the menu steps aside and the key keeps its usual job.
+ * A finished plain `#name` counts too: the variable's `#{name}` would only re-spell it.
  */
 function accept(view: EditorView, snapshot: SuggestSnapshot): boolean {
   const item = snapshot.items[snapshot.index];
+  const typed = item && view.state.sliceDoc(item.from, item.to);
   if (
     item &&
     !item.unavailable &&
     !item.stops.length &&
-    item.insert === view.state.sliceDoc(item.from, item.to)
+    (item.insert === typed || (item.id.startsWith('var:') && typed === `#${item.id.slice(4)}`))
   ) {
     closeSuggest(view);
     return false;

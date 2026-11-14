@@ -392,7 +392,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       id: `var:${name}`,
       group: own ? 'Variables' : 'Global variables',
       label: `#${name}`,
-      markup: `#${name}`,
+      markup: writeVariable(name),
       keys: value,
       glyph: { kind: 'mono', text: `#${name}` },
       usage: new RegExp(`#${name}(?![a-zA-Z0-9])|#\\{${name}\\}`),
@@ -410,7 +410,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
           about: '',
           from: main.from,
           to: main.to,
-          insert: writeVariable(name, view.state.sliceDoc(main.to, main.to + 1)),
+          insert: writeVariable(name),
           stops: [],
           preview: null,
           reference: true,
@@ -423,7 +423,6 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
   }
   return entries.filter((entry) => offeredHere(entry.id, globals));
 }
-
 
 /** The popover's group order. */
 export const entryGroups = [

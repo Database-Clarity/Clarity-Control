@@ -322,8 +322,7 @@ function build(
         name in documentVariables
           ? 'A variable defined in this tooltip.'
           : 'A global variable, shared by every tooltip.',
-      // `#{name}` when a letter or digit follows the insertion (it would merge into the name).
-      insert: writeVariable(name, context.lineText.charAt(context.to - context.lineFrom)),
+      insert: writeVariable(name),
       usage: new RegExp(`#${name}(?![a-zA-Z0-9])|#\\{${name}\\}`),
       reference: true,
       keys: value,

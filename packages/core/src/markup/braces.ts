@@ -47,11 +47,12 @@ export function variableReferences(text: string, offset = 0): VariableReference[
 }
 
 /**
- * How a reference to `name` is written before `next` (the character after it): plain `#name`, or
- * `#{name}` when a letter or digit follows and would merge into the name.
+ * How the editor writes a reference to `name` (completions, Ctrl+Space, the markup bar, fixes):
+ * always `#{name}`, so text typed after it never merges into the name (owner 2026-11-14). A typed
+ * plain `#name` stays valid.
  */
-export function writeVariable(name: string, next: string): string {
-  return /^[a-zA-Z0-9]/.test(next) ? `#{${name}}` : `#${name}`;
+export function writeVariable(name: string): string {
+  return `#{${name}}`;
 }
 
 /** Whether `text` holds an authoring form the legacy pipeline does not read. */

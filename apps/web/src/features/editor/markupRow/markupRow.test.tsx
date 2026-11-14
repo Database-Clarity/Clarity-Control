@@ -468,7 +468,7 @@ describe('the All popover', () => {
     )!;
     expect(damage).toBeTruthy();
     click(damage);
-    expect(view.state.doc.toString()).toBe('Hit for #damage');
+    expect(view.state.doc.toString()).toBe('Hit for #{damage}');
     expect(document.body.querySelector('[data-all-popover]')).toBeNull();
   });
 });

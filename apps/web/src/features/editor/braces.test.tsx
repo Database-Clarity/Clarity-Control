@@ -9,7 +9,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { highlightTree, tagHighlighter, tags } from '@lezer/highlight';
 import { writeVariable } from '@clarity/core';
 import { markupEntries } from './markupRow/entries';
-import { requestItems, suggestContext } from './suggest/source';
+import { requestItems, suggestContext, suggestItems } from './suggest/source';
 import { offeredHere } from './markupScope';
 import { referenceInLine } from './references';
 import { findSymbols } from './symbols';
@@ -63,25 +63,24 @@ describe('enhanced arrow scope', () => {
 });
 
 describe('delimited variables in the editor', () => {
-  it('inserts braces only when a letter or digit follows', () => {
-    expect(writeVariable('d', 'x')).toBe('#{d}');
-    expect(writeVariable('d', '5')).toBe('#{d}');
-    expect(writeVariable('d', ' ')).toBe('#d');
-    expect(writeVariable('d', '')).toBe('#d');
-    expect(writeVariable('d', '%')).toBe('#d');
+  it('always writes braces (owner 2026-11-14)', () => {
+    expect(writeVariable('d')).toBe('#{d}');
   });
-  it('a completed variable gets braces when letters follow the caret', () => {
+  it('a completed variable always gets braces, whatever follows the caret', () => {
     const globals = { variables: 'var dmg = 5', titles: '' };
-    for (const [doc, insert] of [
-      ['Deals #dmx', '#{dmg}'],
-      ['Deals #dm more', '#dmg'],
-    ] as const) {
+    for (const doc of ['Deals #dmx', 'Deals #dm more', 'Deals #dm']) {
       const state = EditorState.create({ doc, selection: { anchor: 9 } });
-      const item = requestItems(suggestContext(state, false)!, state, globals).find(
-        (entry) => entry.id === 'var:dmg',
-      );
-      expect(item?.insert).toBe(insert);
+      for (const items of [
+        requestItems(suggestContext(state, false)!, state, globals),
+        suggestItems(suggestContext(state, true)!, state, globals),
+      ])
+        expect(items.find((entry) => entry.id === 'var:dmg')?.insert).toBe('#{dmg}');
     }
+  });
+  it('the markup bar and All write #{name} for every variable', () => {
+    const entries = markupEntries({ variables: 'var g = 1', titles: '' }, 'var d = 2');
+    for (const id of ['var:d', 'var:g'])
+      expect(entries.find((entry) => entry.id === id)?.markup).toMatch(/^#\{[dg]\}$/);
   });
   it('hovers and opens #{name} like #name', () => {
     expect(referenceInLine('Deals #{dmg}x', 8)).toEqual({
