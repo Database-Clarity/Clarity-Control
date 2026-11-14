@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { maxBuffer } from './childProcess.mjs';
 // PUBLISHER_DIST lets a test build into its own directory (default: the shared dist).
 const dist = process.env.PUBLISHER_DIST ?? 'scripts/publisher/dist';
 await build({
@@ -23,7 +24,7 @@ writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
     {
-      sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', maxBuffer }).trim(),
       sha256: createHash('sha256')
         .update(readFileSync(`${dist}/publisher.mjs`))
         .digest('hex'),

@@ -34,6 +34,7 @@ import {
 import { LocalRepository, RefRace, type Tree } from './git.js';
 import { RemoteRepository } from './remote.js';
 import { Publisher, paths, type Options } from './publisher.js';
+import { maxBuffer } from './childProcess.mjs';
 import { eventsArchive, resolveActivationMessage, supersededMessage } from './batch.js';
 
 vi.setConfig({ testTimeout: 300_000 });
@@ -75,12 +76,12 @@ interface MemberSpec {
 async function setup(transport: 'simulator' | 'remote' = 'simulator') {
   const root = mkdtempSync(join(tmpdir(), 'batch-fixture-'));
   roots.push(root);
-  execFileSync('git', ['init', '--bare', root], { stdio: 'pipe' });
-  execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true']);
+  execFileSync('git', ['init', '--bare', root], { stdio: 'pipe', maxBuffer });
+  execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true'], { maxBuffer });
   const cache = mkdtempSync(join(tmpdir(), 'batch-cache-'));
   roots.push(cache);
-  execFileSync('git', ['init', '--bare', cache], { stdio: 'pipe' });
-  execFileSync('git', ['--git-dir', cache, 'config', 'publisher.simulator', 'true']);
+  execFileSync('git', ['init', '--bare', cache], { stdio: 'pipe', maxBuffer });
+  execFileSync('git', ['--git-dir', cache, 'config', 'publisher.simulator', 'true'], { maxBuffer });
   const git =
     transport === 'simulator'
       ? new LocalRepository(root)
@@ -1260,6 +1261,7 @@ describe('scheduled batches (simulator)', () => {
     roots.push(dist);
     execFileSync(process.execPath, ['scripts/publisher/build.mjs'], {
       stdio: 'pipe',
+      maxBuffer,
       env: { ...process.env, PUBLISHER_DIST: dist },
     });
     const pin = JSON.parse(readFileSync(join(dist, 'PIN'), 'utf8'));
@@ -1283,7 +1285,7 @@ describe('scheduled batches (simulator)', () => {
         join(dir, 'config.json'),
         join(dir, 'out'),
       ],
-      { stdio: 'pipe' },
+      { stdio: 'pipe', maxBuffer },
     );
     const result = JSON.parse(readFileSync(join(dir, 'out', 'result.json'), 'utf8'));
     expect(result.error).toBeNull();
@@ -1291,13 +1293,13 @@ describe('scheduled batches (simulator)', () => {
     execFileSync(
       'git',
       ['clone', '--mirror', join(dir, 'out', 'would-be-commits.bundle'), replay],
-      { stdio: 'pipe' },
+      { stdio: 'pipe', maxBuffer },
     );
     const batch = JSON.parse(
       execFileSync(
         'git',
         ['--git-dir', replay, 'show', `${result.dataHead}:schedule/batches/${BATCH}/batch.json`],
-        { encoding: 'utf8' },
+        { encoding: 'utf8', maxBuffer },
       ),
     );
     expect(batch.status).toBe('published');
