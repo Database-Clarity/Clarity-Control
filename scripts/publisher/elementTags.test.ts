@@ -38,7 +38,7 @@ const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand) [^<>]*\/>/;
 
 it('declares the elementTags capability in its PIN', () => {
   const pin = JSON.parse(readFileSync(`${root}/PIN`, 'utf8'));
-  expect(pin.capabilities).toEqual(['elementTags', 'sandboxPointers']);
+  expect(pin.capabilities).toEqual(['elementTags', 'sandboxPointers', 'scheduledBatches']);
 });
 
 it('real data: the template build exports raised tags byte for byte as core exports today', async () => {

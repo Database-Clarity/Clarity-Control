@@ -22,7 +22,8 @@ resolve the recording commit from first-parent history of the log path. Rejected
 no liveCommit. Bundle updates use CAS and source ancestry, including on failed/empty drains.
 
 Request creation is head-bound CAS. A caller must consult `classifyPublishIntent` at each fresh head;
-creation timestamps are checked only for a new operation. No batches or coalescing are implemented.
+creation timestamps are checked only for a new operation. No coalescing is implemented; scheduled
+batches (`kind: 'batch'`) are described in "Scheduled batches (P4)" below.
 
 ## Worker request API (P1-B, writes disabled until enable-time secret)
 
@@ -71,8 +72,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `46374d0da1f6cf072e2ddc4a54b1c0d88a73ef63` (v2).
-Runtime SHA-256: `2489b5cd0af57e25b2dfa6afc1391024b10694437555af4bbc1fd9f0630b1abf`.
+Current template source: `aebf545d98ec5037ae7fd576b66734693da3b617` (v2).
+Runtime SHA-256: `2caa8d6d21dc1f61a28315f0a23314c19b192aa865dddb8568dadf4fa286abdc`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
@@ -205,3 +206,59 @@ The entire publisher fixture suite runs for both the simulator and local bare re
 file:// with real receive-pack. A separate contract compares CAS/tree/history results; faults
 cover dropped responses before/after pushes and a real pre-receive timeout. Tests use no
 GitHub publication calls. Run `npm test -- scripts/publisher --maxWorkers=2`.
+
+## Scheduled batches (P4, merge held until phase-B step 4)
+
+Spec: `.agents/reports/scheduled-changes/spec.md` (local coordination file). Contracts come only
+from `@clarity/core/schedule`; `packages/core/src/publishRequest.ts` adds the request union
+(`parsePublishRequestPayload`, `publishRequestIntentDigest`). `push` keeps its schema and digest
+byte-identical. The batch member is loaded with a dynamic import, because core/schedule reads
+publishRequest exports at load time and a static import would form a load-order cycle. esbuild
+inlines it into publisher.mjs; batch.test.ts drains a batch through a freshly built runtime.
+
+- Queue: a `batch` request drains once its notBefore is at or before the runner clock. It sits
+  before the first push created at or after max(notBefore, createdAt); pushes keep their git
+  addition order. A batch already claimed by its opId (its run died) drains before everything
+  else. A batch that is not yet due is neither drained nor counted as pending:
+  bundle.json lists it under `scheduledQueue` (key omitted while empty), and publishQueue batch
+  entries add `kind`, `batchId`, and `notBefore`.
+- Claim (I2): at head S, the publisher checks the signature, the key pin, and the requester's
+  role. batch.json must be `scheduled` for this opId, with the signed contentRevision and
+  notBefore; anything else is `superseded`. The members must equal the signed hash list, and
+  approvedDigest is recomputed from them (`rejected` on a mismatch). A hash with an activation
+  conflict file is rejected. Per member: non-translation merge3 against current (`stale` with
+  fields, `$exists` per R14), then composition (`stale` for C3), and `unpublished` fields are
+  refused as stale (root ruling). The manual content checks and the export run before ONE CAS
+  commit S → S'. That commit sets status publishing and the claim, marks the due entry claimed,
+  and updates the index. A race or an ambiguous CAS returns to run(), which re-reads the queue
+  order and re-validates from the top. A batch this opId already claimed (a run died after the
+  claim) resumes from S'. S' is found by binary search over first-parent history (the claimed
+  commits are one suffix), failing closed unless the boundary is proven.
+- Candidate and live write: the unchanged path, with receipt.sourceCommit = S' and the receipt
+  also carrying `batchId` and `contentRevision`. Entries are the composed tooltips (English and
+  the Bungie snapshot keep the stamps activation will keep, so live equals a manual publish of
+  the activated tooltip; content always comes from the proposal), whose
+  live/tooltips blobs are rewritten from S' at RECORD and must match the receipt OIDs (fail
+  closed).
+- RECORD: one commit. It writes the log (times add `landedAt`, `landedAtSource` 'cas' | 'observed',
+  and `recordedAt`, all ISO), pushed.json, and the composed live snapshots. Activation runs per
+  member: merge3(base@S', current@H, proposed@S') with Q4 and R14. A clean member writes
+  tooltips/<hash>.json; a conflicted one keeps current and gets
+  schedule/activation-conflicts/<hash>.json (never overwritten). batch.json becomes `published`
+  (or a published batch with an `unchanged` result), the due entry is removed, and the index is
+  updated.
+- Failure without a live write (stale, rejected, superseded): the same RECORD commit returns
+  the batch to draft (opId, claim, notBefore, and zone null, `result` kept), but only while
+  batch.json still names this opId (R15). The opId's due entry is removed either way.
+- Every manual `push` naming a hash with a conflict file is rejected before candidate creation
+  ("Resolve the batch activation first", R3).
+- Events past 200 move to `schedule/batches/<id>/events/<seq>.json` (seq = the 8-digit count
+  already archived; root ruling), in the same commit. due.json and index.json are advisory: a
+  missing or malformed file is left as it is, never a reason to stop the queue.
+- PIN capability `scheduledBatches`: build.mjs refuses to write a PIN unless the bundle contains
+  the claim and batch RECORD. The template is re-pinned with it at the P4 merge (root
+  2026-11-14, after phase-B step 4; "Current template source" above). `PUBLISHER_DIST` builds
+  into another directory.
+
+`npx vitest run scripts/publisher/batch.test.ts` runs every P4 publisher fixture (simulator, with
+the core path also over the local bare remote).
