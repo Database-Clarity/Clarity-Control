@@ -90,21 +90,45 @@
   font-size: 0.6875rem;
   line-height: 1.0625rem;
   color: var(--text2);
-  overflow-wrap: anywhere;
   @include theme.mobile {
     padding-block: 0.25rem;
     font-size: 0.75rem;
   }
 }
 
-.name {
-  font-weight: 700;
-  color: var(--text);
+$separator: 0.875em;
+// The clip has no padding, so the separator pulled left of it is really hidden.
+.clip {
+  display: block;
+  overflow: hidden;
+}
+// Every segment draws its separator before it, and the row starts one separator to the left of the
+// clipped line: the first segment of each wrapped line hides its "·" under the edge.
+.segments {
+  display: flex;
+  flex-wrap: wrap;
+  margin-left: -$separator;
 }
 
 .segment {
+  min-width: 0;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  &::before {
+    content: '·';
+    display: inline-block;
+    width: $separator;
+    text-align: center;
+    color: var(--text2);
+    font-weight: 400;
+  }
+}
+
+.name {
+  font-weight: 700;
+  color: var(--text);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .muted {
@@ -134,17 +158,30 @@
   }
 }
 
-// The pane header badge: one ellipsising label after the language, like the override tag (span:
-// the header's `> * { flex: none }` must not keep it from shrinking).
+// The pane header badge: clock + name while the whole name fits (measured), else the clock alone,
+// else nothing (when even the clock would push the header's controls out of the row).
+// span: the header's `> * { flex: none }` must not keep it from shrinking; it never shrinks below
+// the clock, so it never draws under the controls beside it.
 span.badge {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
   gap: 0.25rem;
-  min-width: 0;
+  min-width: 0.75rem;
   color: var(--link);
   font-weight: 700;
   white-space: nowrap;
+  &[data-mode='none']:not([data-measure]) {
+    display: none;
+  }
+  &[data-mode='clock']:not([data-measure]) .badgeText,
+  &[data-measure='clock'] .badgeText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
 }
 
 .clock {
@@ -163,20 +200,34 @@ span.badge {
   text-overflow: ellipsis;
 }
 
-// A narrow pane keeps the batch name; the word "Batch:" goes first. Where even a short name would
-// be cut to a few letters, the clock alone stays (its title and the hidden name still say which).
+// A narrower pane drops the word "Batch:" before it would show only the clock.
 @container pane-header (max-width: 44rem) {
   .badgeWord {
     display: none;
   }
 }
-@container pane-header (max-width: 30rem) {
-  .badgeText {
+
+// Upcoming: a cyan rule down the preview's edge, so the preview reads as intentionally different
+// from the Current text in the editor.
+.upcoming[data-upcoming='upcoming'] + :global(section) {
+  position: relative;
+  &::after {
+    content: '';
     position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+    inset: 0 auto 0 0;
+    z-index: 1;
+    width: 2px;
+    background: var(--cyan-edge);
+    pointer-events: none;
+  }
+}
+
+// Phones: the preview card runs full-bleed (TooltipPreview), so the switch and its line do too.
+@media (max-width: 700px) {
+  :global([data-panel='preview']) .upcoming {
+    margin-inline: calc(-1 * var(--page-x));
+  }
+  :global([data-panel='preview']) .line {
+    padding-inline: var(--page-x);
   }
 }

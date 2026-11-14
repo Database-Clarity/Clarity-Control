@@ -7,7 +7,7 @@
  * With the build switch OFF (I6) `useUpcoming` is a constant: nothing renders, nothing is requested
  * or stored, and Rollup drops this module's live half and its lazy chunk (the test is inline).
  */
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { languages, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import type { Drafts } from '../../services/draftStorage';
@@ -139,35 +139,77 @@ function UpcomingControl({
             </button>
           </>
         ) : (
-          // Segments wrap as wholes (a break falls after a "·", never inside a time), so the
-          // name is never cut while the next line has room.
-          <>
-            <span className={styles.name}>{batch.name} ·</span>{' '}
-            <span className={styles.segment}>{statusLabel[batch.status]} ·</span>{' '}
-            {batch.notBefore ? (
-              <time className={styles.segment} dateTime={batch.notBefore}>
-                {when}
-              </time>
-            ) : (
-              <span className={`${styles.segment} ${styles.muted}`}>No time set</span>
-            )}
-            {staleText && (
-              <>
-                {' '}
-                <span className={`${styles.segment} ${styles.stale}`}>· {staleText}</span>
-              </>
-            )}
-          </>
+          // Segments wrap as wholes (never inside a time). Each draws its "·" before it, and the
+          // row starts one separator to the left inside a clipped line, so a separator never
+          // dangles at the start or end of a wrapped line.
+          <span className={styles.clip}>
+            <span className={styles.segments}>
+              <span className={`${styles.segment} ${styles.name}`}>{batch.name}</span>
+              <span className={styles.segment}>{statusLabel[batch.status]}</span>
+              {batch.notBefore ? (
+                <time className={styles.segment} dateTime={batch.notBefore}>
+                  {when}
+                </time>
+              ) : (
+                <span className={`${styles.segment} ${styles.muted}`}>No time set</span>
+              )}
+              {staleText && (
+                <span className={`${styles.segment} ${styles.stale}`}>{staleText}</span>
+              )}
+            </span>
+          </span>
         )}
       </p>
     </div>
   );
 }
 
+type BadgeMode = 'name' | 'clock' | 'none';
+
+/**
+ * The pane header badge: clock + batch name while the whole name fits; otherwise the clock alone
+ * (the name stays in the title and for screen readers); and nothing when even the clock would push
+ * the header's controls out of the row (the batch line above the preview still names the batch).
+ * It never draws under the controls beside it. Fit is measured when the header or the badge
+ * resizes, when the header's controls change, and when the name changes, never per keystroke.
+ */
 function DestinationBadge({ batch }: { batch: OpenBatch }) {
+  const badge = useRef<HTMLSpanElement>(null);
+  const [mode, setMode] = useState<BadgeMode>('name');
+  useLayoutEffect(() => {
+    const element = badge.current;
+    const header = element?.parentElement;
+    if (!element || !header || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      // Lay the badge out in each candidate mode, read whether it fits, then let React apply it.
+      const text = element.lastElementChild as HTMLElement;
+      element.dataset.measure = 'name';
+      let next: BadgeMode = text.scrollWidth <= text.clientWidth + 1 ? 'name' : 'clock';
+      if (next === 'clock') {
+        element.dataset.measure = 'clock';
+        if (header.scrollWidth > header.clientWidth + 1) next = 'none';
+      }
+      delete element.dataset.measure;
+      setMode(next);
+    };
+    // The observer's first callback (after layout, before paint) measures; no forced layout here.
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    observer.observe(element);
+    // Controls that join the header later (the draft dot, translation-mode buttons) take room
+    // without resizing it: re-measure when its children change (rare, never per keystroke).
+    const children = new MutationObserver(measure);
+    children.observe(header, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      children.disconnect();
+    };
+  }, [batch.name]);
   return (
     <span
+      ref={badge}
       className={styles.badge}
+      data-mode={mode}
       title={`In the open batch "${batch.name}" (${statusLabel[batch.status].toLowerCase()}). Edits here save to Current.`}
     >
       <svg className={styles.clock} viewBox="0 0 12 12" aria-hidden="true">

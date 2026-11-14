@@ -152,6 +152,8 @@ async function mount(role: 'maintainer' | 'translator' | 'trial', path = '/t/10'
   const listings = () => fixture.log.filter((entry) => entry.path === '/batches').length;
   await settle(() => role === 'trial' || listings() > 0);
   const preview = () => host.querySelector<HTMLElement>('[data-preview]')!;
+  /** The batch line as read (its title: the segments joined by the separators drawn between them). */
+  const line = () => host.querySelector<HTMLElement>('[data-upcoming] p')?.title;
   const button = (text: string) =>
     [...host.querySelectorAll('button')].find((node) => node.textContent === text);
   return {
@@ -159,6 +161,7 @@ async function mount(role: 'maintainer' | 'translator' | 'trial', path = '/t/10'
     router,
     settle,
     preview,
+    line,
     button,
     async dispose() {
       await act(async () => root.unmount());
@@ -177,7 +180,7 @@ it('switches the preview between current and the batch future state', async () =
     // A member: the switch above the preview and the badge in the pane header; Current first.
     expect(page.button('Current')?.getAttribute('aria-pressed')).toBe('true');
     expect(page.host.textContent).toContain('Batch: December patch');
-    expect(page.host.textContent).toContain('December patch · Draft · No time set');
+    expect(page.line()).toBe('December patch · Draft · No time set');
     expect(page.preview().dataset.text).toBe('English 10 import 13 from tooltip');
     expect(page.preview().dataset.import).toBe('English 13');
     // Upcoming: members are read once, then the page renders the future state (base, enhanced,
@@ -222,7 +225,7 @@ it('switches the preview between current and the batch future state', async () =
     });
     await act(async () => refreshBatches());
     await page.settle(() => page.host.textContent?.includes('Scheduled') === true);
-    expect(page.host.textContent).toMatch(/December patch · Scheduled · Thu 3 Dec \d\d:00/);
+    expect(page.line()).toMatch(/^December patch · Scheduled · Thu 3 Dec \d\d:00( · 16:00)? UTC$/);
 
     // Current saved moved under the batch: the line names the stale field.
     const { useDataStore } = await import('../../stores/data');
@@ -235,7 +238,7 @@ it('switches the preview between current and the batch future state', async () =
       }),
     );
     await page.settle();
-    expect(page.host.textContent).toContain('Current changed: English');
+    expect(page.line()).toMatch(/ · Current changed: English$/);
     expect(page.preview().dataset.text).toBe('Later 13');
 
     // Cancelled: no longer open, so the switch and badge go and Current renders.
