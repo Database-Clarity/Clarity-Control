@@ -1,6 +1,12 @@
 import { createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { contentHash, publishMonth, translationStateOf, type Tooltip } from '@clarity/core';
+import {
+  contentHash,
+  publishMonth,
+  translationStateOf,
+  usesEnglishFallback,
+  type Tooltip,
+} from '@clarity/core';
 import {
   activate,
   approvedDigest,
@@ -289,6 +295,66 @@ describe('role x route matrix on stored members', () => {
       123, 456,
     ]);
   });
+
+  it.each([
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ])(
+    'S5: translator saves after current English moves (batch changes English: %s, scheduled: %s)',
+    async (changesEnglish, scheduled) => {
+      const base = tooltip();
+      const proposal = withText(
+        changesEnglish ? withText(base, 'en', 'upcoming') : base,
+        'de',
+        'Alt',
+      );
+      f.moveData({ [memberPath()]: member(proposal, base) });
+      if (scheduled) expect((await schedule()).status).toBe(202);
+      const digest = await approvedDigest([stored(memberPath()) as BatchMember]);
+      // Use the real direct-save route to advance current independently of the batch.
+      const current = withText(base, 'en', 'current moved after staging');
+      expect(
+        (
+          await call(
+            '/save',
+            { changes: [{ hash: 123, base, next: current }], message: 'Move current English' },
+            EDITOR,
+          )
+        ).status,
+      ).toBe(200);
+      const translated = withText(proposal, 'de', 'Neu');
+      // batchDestination.live preserves the displayed future English as the source.
+      const next = {
+        ...translated,
+        text: {
+          ...translated.text,
+          de: {
+            ...translated.text.de!,
+            sourceUpdatedAt: (changesEnglish ? proposal : current).text.en!.updatedAt,
+          },
+        },
+      };
+      const result = await call(`/batches/${ID}/save`, saveBody(next, proposal), TRANSLATOR);
+      expect(result.status).toBe(200);
+      const written = (stored(memberPath()) as BatchMember).proposed;
+      expect(written.text.en).toEqual(proposal.text.en);
+      expect(written.text.de).toEqual(next.text.de);
+      expect(await approvedDigest([stored(memberPath()) as BatchMember])).toBe(digest);
+      expect(storedBatch().contentRevision).toBe(1);
+      const forged = {
+        ...written,
+        text: {
+          ...written.text,
+          de: { ...written.text.de!, text: 'Forged', sourceUpdatedAt: '2099-01-01T00:00:00Z' },
+        },
+      };
+      const refused = await call(`/batches/${ID}/save`, saveBody(forged, written), TRANSLATOR);
+      expect(refused.status).toBe(422);
+      expect((stored(memberPath()) as BatchMember).proposed).toEqual(written);
+    },
+  );
 
   it('archive rules apply to batch members exactly as to /save (R5)', async () => {
     const current = (stored(memberPath()) as BatchMember).proposed;
@@ -837,6 +903,32 @@ describe('resolve', () => {
       'Clarity-Changed: 123=de',
     );
   });
+  it('S4: keeping older current English marks an upcoming translation outdated without fallback', async () => {
+    const { current } = published();
+    const path = 'schedule/activation-conflicts/123.json';
+    const conflict = stored(path) as { proposed: Tooltip };
+    const upcoming = withText(withText(tooltip(), 'en', 'later upcoming'), 'de', 'Kommend');
+    f.moveData({ [path]: { ...(stored(path) as object), proposed: upcoming } });
+    expect(Date.parse(upcoming.text.de!.sourceUpdatedAt!)).toBeGreaterThan(
+      Date.parse(current.text.en!.updatedAt),
+    );
+    const result = await call(`/batches/${ID}/resolve`, {
+      hash: 123,
+      expectedCurrent: await contentHash(current),
+      choices: { 'text.en': 'current' },
+    });
+    expect(result.status).toBe(200);
+    const written = stored('tooltips/123.json') as Tooltip;
+    expect(written.text.en).toEqual(current.text.en);
+    expect(written.text.de).toEqual({
+      ...upcoming.text.de,
+      sourceUpdatedAt: new Date(Date.parse(current.text.en!.updatedAt) - 1).toISOString(),
+    });
+    expect(translationStateOf(written, 'de').state).toBe('outdated');
+    expect(usesEnglishFallback(written, 'de')).toBe(false);
+    expect(conflict.proposed.text.de?.text).toBe('Kommend');
+  });
+
   it('choosing upcoming English older than current restamps it, so current translations show outdated', async () => {
     const { current } = published();
     const withFrench: Tooltip = {
@@ -1259,3 +1351,34 @@ describe('markupBraces gate on batch paths (VAR-BRACES output review MUST-1)', (
     expect((await publish()).status).toBe(202);
   });
 });
+
+it.each([false, true])(
+  'S5: actual Upcoming source for convergent English, scheduled %s',
+  async (scheduled) => {
+    const base = tooltip();
+    const proposal = withText(
+      tooltip('identical concurrent wording', '2026-11-01T00:00:00.000Z'),
+      'de',
+      'Alt',
+    );
+    f.moveData({ [memberPath()]: member(proposal, base) });
+    if (scheduled) expect((await schedule()).status).toBe(202);
+    const current = tooltip('identical concurrent wording', '2026-11-02T00:00:00.000Z');
+    expect(
+      (
+        await call(
+          '/save',
+          { changes: [{ hash: 123, base, next: current }], message: 'Current converges' },
+          EDITOR,
+        )
+      ).status,
+    ).toBe(200);
+    const future = activate({ base, current, proposed: proposal });
+    if (!future.ok) throw new Error('Expected clean activation');
+    expect(future.tooltip.text.en).toEqual(current.text.en);
+    const translated = withText(proposal, 'de', 'Neu');
+    translated.text.de!.sourceUpdatedAt = future.tooltip.text.en!.updatedAt;
+    const result = await call(`/batches/${ID}/save`, saveBody(translated, proposal), TRANSLATOR);
+    expect(result.status).toBe(200);
+  },
+);
