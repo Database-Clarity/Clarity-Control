@@ -72,8 +72,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `aebf545d98ec5037ae7fd576b66734693da3b617` (v2).
-Runtime SHA-256: `2caa8d6d21dc1f61a28315f0a23314c19b192aa865dddb8568dadf4fa286abdc`.
+Current template source: `95f493a86e4bb364fafa5a2cc67423cc60a538a4` (v2).
+Runtime SHA-256: `08921d8a3e21542ddcfbadbe43515667f77e4affb746663029150554def9b88e`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
@@ -87,6 +87,11 @@ the config's generator `sandboxConflicts`) into the aliases it digests and expor
 picks in bundle.json, and its PIN declares `sandboxPointers`, which the Worker's
 PUT /sandbox-pointers requires while the publisher is on. Fill `sandboxConflicts` in config.json
 from the same pinned generator commit as `aliases`.
+It lowers delimited variables and the arrow symbol (`#{d}` to `#d`, `<enhanced/>` to `#e`, core
+braces.ts) in exportLegacy, rejects an export that still holds `#{` or `<enhanced/>`
+(unloweredEntry), and its PIN declares `markupBraces`, which the Worker's /save and /publish
+require for them while the publisher is on (build.mjs refuses the PIN without both markers).
+This is the enable build (PUB-ENABLE): config/publisher.json says `enabled: true`.
 Two consecutive builds and a clean checkout build must reproduce that digest.
 
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency

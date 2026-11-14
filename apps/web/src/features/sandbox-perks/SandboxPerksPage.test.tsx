@@ -244,3 +244,43 @@ describe('Sandbox perks worklist', () => {
     expect(button(container, 'Save').disabled).toBe(true);
   });
 });
+
+describe('Sandbox perks loading skeleton', () => {
+  it('keeps a painted skeleton for the minimum when the rows arrive early', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    try {
+      let resolve!: (value: Awaited<ReturnType<typeof getSandboxPointers>>) => void;
+      vi.mocked(getSandboxPointers).mockReturnValue(new Promise((done) => (resolve = done)));
+      const frame = () => act(async () => frames.splice(0).forEach((callback) => callback(0)));
+      const skeleton = () => !!container.querySelector('[aria-busy="true"] [aria-hidden="true"]');
+      await act(async () =>
+        root.render(
+          <MemoryRouter initialEntries={['/sandbox-perks']}>
+            <SandboxPerksPage />
+          </MemoryRouter>,
+        ),
+      );
+      expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+      expect(skeleton()).toBe(false); // Nothing flashes before the second frame.
+      await frame();
+      await frame(); // Reveals the skeleton.
+      await act(async () => vi.advanceTimersByTime(0)); // Paint stamp.
+      expect(skeleton()).toBe(true);
+      await act(async () => resolve({ revision: null, pointers: empty, exporting: true }));
+      await act(async () => vi.advanceTimersByTime(150));
+      expect(skeleton()).toBe(true);
+      expect(rows()).toHaveLength(0);
+      await act(async () => vi.advanceTimersByTime(50));
+      expect(skeleton()).toBe(false);
+      expect(rows().length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+});
