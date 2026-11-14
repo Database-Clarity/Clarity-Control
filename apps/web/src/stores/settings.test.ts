@@ -78,6 +78,7 @@ describe('settings store: local storage', () => {
       suggestAccept: 'enter',
       symbolReveal: 'popover',
       finderWheel: 'entries',
+      worklistStepping: true,
       touchSize: 'compact',
       remembered: {},
     });

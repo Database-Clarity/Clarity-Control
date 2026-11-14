@@ -95,6 +95,7 @@ describe('device theme', () => {
       suggestAccept: 'enter',
       symbolReveal: 'popover',
       finderWheel: 'entries',
+      worklistStepping: true,
       touchSize: 'compact',
       remembered: { markupToolbar: 'open' },
     });

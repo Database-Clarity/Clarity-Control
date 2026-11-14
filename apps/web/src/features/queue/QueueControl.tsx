@@ -3,6 +3,7 @@ import {
   memo,
   Suspense,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type MouseEvent,
@@ -14,7 +15,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { Popover } from '../../ui/Popover';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
-import { pulseStepping } from '../navigation/steppingActivity';
+import { pulseStepping, useSteppingActivity } from '../navigation/steppingActivity';
 import {
   firstToDo,
   placeLabel,
@@ -31,6 +32,7 @@ import { takeEntryFocus } from './start';
 import { withEditorPaths } from './editorPath';
 import { useWorkQueues } from './store';
 import { useQueueDone, useSourceContext, type WorkThrough } from './useQueue';
+import { pendingVisit, publishQueueStepper } from './worklistStepping';
 import header from '../tooltip/TooltipPage.module.scss';
 import styles from './QueueControl.module.scss';
 
@@ -120,8 +122,25 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
   const { pathname, key: entry } = useLocation();
   const phone = useMedia(phoneQuery);
   const source = queueSources[queue.source];
-  const place = queuePlace(queue, visit.key, isDone);
+  // A worklist gesture (Shift+wheel, the finder's arrows) shows its newest item with the header
+  // and editor, before the route lands.
+  const pending = pendingVisit(useSteppingActivity((state) => state.target));
+  const shownKey = pending?.id === queue.id ? pending.key : visit.key;
+  const place = queuePlace(queue, shownKey, isDone);
   const { previous, next } = useStepKeys();
+
+  // The finder steps this queue while it is on screen (worklist stepping); Archive has no finder.
+  // A new visit replaces the published one in place; only unmounting withdraws it.
+  const withdraw = useRef<() => void>();
+  useLayoutEffect(() => {
+    if (queue.source === 'archive') return;
+    withdraw.current = publishQueueStepper({
+      queue,
+      visit: { id: visit.id, key: visit.key },
+      isDone,
+    });
+  }, [queue, visit.id, visit.key, isDone]);
+  useLayoutEffect(() => () => withdraw.current?.(), []);
 
   // Opening an item makes it the queue's current one; Next past an open item skips it.
   const visitItem = useWorkQueues((state) => state.visit);

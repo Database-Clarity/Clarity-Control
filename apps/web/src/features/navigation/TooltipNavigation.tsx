@@ -80,6 +80,20 @@ import styles from './TooltipFinder.module.scss';
 import { FinderPicker, type PickerSection } from './FinderPicker';
 import { FinderIcon } from './FinderIcon';
 import { exoticArmourRowIcon, groupIcon } from './groupIcons';
+import {
+  clearStepStates,
+  finishQueue,
+  flushPassed,
+  hasStepState,
+  notePassed,
+  pendingVisit,
+  queueEdges,
+  queueStepTarget,
+  rememberStepState,
+  stepStateFor,
+  useQueueStepper,
+  type QueueStepper,
+} from '../queue/worklistStepping';
 
 // Stepping asks the preview leave guard before it moves anything; see createStepping.
 const pathname = (route: string) => route.split('?')[0];
@@ -439,6 +453,12 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const swapWheel = useSettingsStore((state) => state.device.finderWheel) === 'groups';
   const swapWheelRef = useRef(swapWheel);
   swapWheelRef.current = swapWheel;
+  // Worklist stepping: with a Work-through queue active, the stepping gestures step the queue.
+  const worklistStepping = useSettingsStore((state) => state.device.worklistStepping);
+  const worklistSteppingRef = useRef(worklistStepping);
+  worklistSteppingRef.current = worklistStepping;
+  // "q" + whether the queue can step back and forward; '' when the gestures step the list.
+  const queueMode = useQueueStepper((state) => (worklistStepping ? queueEdges(state.current) : ''));
   const base = useId();
   const listId = `${base}-list`;
   const optionId = (row: Row) => `${base}-o${row.key}`;
@@ -516,8 +536,25 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const scope = scopeLists(place.all, place.group);
   const entry: Entry = { hash, group: place.group };
   const position = categoryPosition(entry, scope.list, scope.index);
-  const current = useRef({ pathname: location.pathname, search: location.search });
-  current.current = { pathname: location.pathname, search: location.search };
+  const current = useRef({
+    pathname: location.pathname,
+    search: location.search,
+    state: location.state as unknown,
+  });
+  current.current = {
+    pathname: location.pathname,
+    search: location.search,
+    state: location.state as unknown,
+  };
+  // Stepping lands and commits plain paths; a route a worklist gesture stepped to (and the
+  // gesture's origin) keeps its queue visit in the history entry's state.
+  const go = (target: string, options: { replace: boolean; flushSync?: boolean }) =>
+    navigateRef.current(
+      target,
+      hasStepState(target) ? { ...options, state: stepStateFor(target) } : options,
+    );
+  const goRef = useRef(go);
+  goRef.current = go;
   const field = useRef<HTMLInputElement>(null);
   useWorkspaceShortcutOwner(field, open && (variant !== 'sheet' || sheetOpen));
   const list = useRef<HTMLUListElement>(null);
@@ -551,7 +588,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const [stepping] = useState(() =>
     createStepping(
       (target, options) => {
-        if (!options.flushSync) return navigateRef.current(target, options);
+        if (!options.flushSync) return goRef.current(target, options);
         flushSync(() => publishSteppingTarget(target, landNewest, resumeNewest));
         // Identity lands now; route work waits when the document is deferred.
         // A free frame resumes only the newest target. History replaces the
@@ -571,7 +608,10 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
                 }
               }),
             cancel: (id) => cancelAnimationFrame(id),
-            end: clearSteppingTarget,
+            end: (committed) => {
+              flushPassed();
+              clearSteppingTarget(committed);
+            },
             allow: () => {
               if (!workspaceShortcutsBlocked(new Event('stepping'))) return true;
               // Phone Previous/Next deliberately belong to the finder sheet itself.
@@ -589,7 +629,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const landNewest = useCallback(() => {
     const land = (target: string, options: { replace: boolean; flushSync?: boolean }) => {
       if (`${current.current.pathname}${current.current.search}` !== target)
-        navigateRef.current(target, options);
+        goRef.current(target, options);
     };
     if (stepping.target) stepping.flush(land);
     else {
@@ -600,7 +640,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const resumeNewest = useCallback(() => {
     const target = stepping.target ?? useSteppingActivity.getState().target;
     if (target && `${current.current.pathname}${current.current.search}` !== target)
-      navigateRef.current(target, { replace: true, flushSync: true });
+      goRef.current(target, { replace: true, flushSync: true });
   }, [stepping]);
   const [wheelStepper] = useState(createWheelStepper);
   const step = useRef<(direction: number) => boolean>(() => false);
@@ -617,13 +657,22 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     const at = Number(where.pathname.split('/')[2]);
     return { where, hash: at, ...placeOf(at, where.search) };
   };
-  /** Moves to `target` unless there is none (the scope's end) or the guard refuses. */
-  const stepTo = (target: StepTarget | undefined) => {
+  /**
+   * Moves to `target` unless there is none (the scope's end) or the guard refuses. `state` is the
+   * queue visit of a worklist step.
+   */
+  const stepTo = (target: StepTarget | undefined, state?: unknown) => {
     if (!target) {
       // A free-spin gesture can reach the category boundary long before its wheel
       // packets stop. Keep pending panel work cancelled until the input rests.
       if (useSteppingActivity.getState().active) pulseStepping();
       return false;
+    }
+    if (!stepping.target && useSteppingActivity.getState().target === undefined) clearStepStates();
+    if (state !== undefined) {
+      const here = `${current.current.pathname}${current.current.search}`;
+      if (target.from === here) rememberStepState(here, current.current.state, true);
+      rememberStepState(target.to.path, state);
     }
     // Refused before anything moves: the selection, the pending history entry and the timer stay.
     if (!stepping.step(target.from, target.to.path)) return false;
@@ -643,7 +692,43 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           search,
           (grouped && scopeValue(entry, all, grouped.firstGroup)) || null,
         );
+  const queueStepper = () =>
+    worklistSteppingRef.current ? useQueueStepper.getState().current : null;
+  /** The queue item a gesture is on: its newest pending step, else the route's own. */
+  const queueKey = (stepper: QueueStepper) => {
+    const pending = pendingVisit(stepping.target ?? useSteppingActivity.getState().target);
+    return pending?.id === stepper.queue.id ? pending.key : stepper.visit.key;
+  };
+  const queueTarget = (stepper: QueueStepper, direction: number) => {
+    const key = queueKey(stepper);
+    const found = queueStepTarget(stepper, key, direction);
+    // Next past the last item ends the queue, but only as a fresh gesture on the route's own item:
+    // a spin or a held key that reaches the last item stops there.
+    if (
+      found?.kind === 'finish' &&
+      (key !== stepper.visit.key || stepping.target || useSteppingActivity.getState().active)
+    )
+      return undefined;
+    return found;
+  };
+  const stepQueue = (stepper: QueueStepper, direction: number) => {
+    const found = queueTarget(stepper, direction);
+    if (found?.kind === 'finish') {
+      finishQueue(stepper, stepper.visit.key);
+      return true;
+    }
+    const key = queueKey(stepper);
+    const where = stepLocation();
+    const moved = stepTo(
+      found && stepRoute(where, { hash: found.item.hash, group: '' }, found.path),
+      found?.state,
+    );
+    if (moved && direction > 0) notePassed(stepper.queue.id, key);
+    return moved;
+  };
   step.current = (direction) => {
+    const stepper = queueStepper();
+    if (stepper) return stepQueue(stepper, direction);
     const at = stepAt();
     const { list, index } = scopeLists(at.all, at.group);
     return stepTo(
@@ -660,10 +745,15 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     return { at, first: next?.entries[0] };
   };
   stepGroup.current = (direction) => {
+    // A queue has no groups: every stepping gesture steps its items.
+    const stepper = queueStepper();
+    if (stepper) return stepQueue(stepper, direction);
     const { at, first } = groupTarget(direction);
     return stepTo(first && stepRoute(at.where, first, scopeRoute(first, at.all, at.where.search)));
   };
   canStep.current = (direction, kind) => {
+    const stepper = queueStepper();
+    if (stepper) return queueTarget(stepper, direction) !== undefined;
     if (kind === 'group') return groupTarget(direction).first !== undefined;
     const at = stepAt();
     const { list, index } = scopeLists(at.all, at.group);
@@ -948,7 +1038,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       return;
     }
     if (!open) {
-      const paging = (event.key === 'PageDown' || event.key === 'PageUp') && grouped;
+      const paging =
+        (event.key === 'PageDown' || event.key === 'PageUp') && (grouped || queueMode !== '');
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || paging) {
         // Closed, the arrows keep stepping through the category, as the dropdown always did;
         // PageUp/PageDown step the weapons or activities.
@@ -1263,11 +1354,15 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           <div className={styles.sheetBar}>
             {categoryNode}
             {/* Touch screens have no Shift+wheel: one compact row steps through the category, beside the category; the group row goes under both. */}
-            <div role="group" aria-label="Step within category" className={styles.stepper}>
+            <div
+              role="group"
+              aria-label={queueMode ? 'Step through the queue' : 'Step within category'}
+              className={styles.stepper}
+            >
               <button
                 type="button"
-                aria-label="Previous tooltip"
-                disabled={position.previous === undefined}
+                aria-label={queueMode ? 'Previous queue item' : 'Previous tooltip'}
+                disabled={queueMode ? queueMode[1] !== '1' : position.previous === undefined}
                 onClick={() => step.current(-1)}
               >
                 ‹
@@ -1275,8 +1370,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
               {positionNode}
               <button
                 type="button"
-                aria-label="Next tooltip"
-                disabled={position.next === undefined}
+                aria-label={queueMode ? 'Next queue item' : 'Next tooltip'}
+                disabled={queueMode ? queueMode[2] !== '1' : position.next === undefined}
                 onClick={() => step.current(1)}
               >
                 ›
@@ -1291,7 +1386,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
                 <button
                   type="button"
                   aria-label={`Previous ${grouped?.groupLabel.toLowerCase()}`}
-                  disabled={!neighbourGroup(-1)}
+                  disabled={Boolean(queueMode) || !neighbourGroup(-1)}
                   onClick={() => stepGroup.current(-1)}
                 >
                   ‹
@@ -1300,7 +1395,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
                 <button
                   type="button"
                   aria-label={`Next ${grouped?.groupLabel.toLowerCase()}`}
-                  disabled={!neighbourGroup(1)}
+                  disabled={Boolean(queueMode) || !neighbourGroup(1)}
                   onClick={() => stepGroup.current(1)}
                 >
                   ›
@@ -1324,10 +1419,20 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         </small>
       )}
       <small id="tooltip-stepping-help" className="sr-only">
-        Type to search. {entryKeys}+Scroll anywhere steps within this category and stops at its
-        ends; the arrow keys step too while the list is closed.
-        {grouped &&
-          ` ${groupKeys}+Scroll and Page Up/Down step ${grouped.groupLabel.toLowerCase()}s, stopping at the ends.`}{' '}
+        {queueMode ? (
+          <>
+            Type to search. Shift+Scroll anywhere steps through the work-through queue&apos;s items
+            still to do and stops at its ends; the arrow keys and Page Up/Down step too while the
+            list is closed.
+          </>
+        ) : (
+          <>
+            Type to search. {entryKeys}+Scroll anywhere steps within this category and stops at its
+            ends; the arrow keys step too while the list is closed.
+            {grouped &&
+              ` ${groupKeys}+Scroll and Page Up/Down step ${grouped.groupLabel.toLowerCase()}s, stopping at the ends.`}
+          </>
+        )}{' '}
         * = unsaved draft.
       </small>
     </FinderFrame>
