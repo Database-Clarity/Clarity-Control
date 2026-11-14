@@ -1,5 +1,6 @@
 import { isSetSelector } from './itemClassification';
 import {
+  isMovedInactive,
   normaliseCompendiumEnglish,
   resolveAlias,
   resolveCompendiumLink,
@@ -25,6 +26,7 @@ export function reviewEvidence(
     .flatMap((hash) => {
       // Enhanced tooltips can own distinct text; aliases never own a link.
       if (hash <= 3 || resolveAlias(hash, editor.aliases) !== hash) return [];
+      if (isMovedInactive(hash, editor.bundle.inactiveMoves)) return [];
       const base = tooltipFor(hash, editor);
       if (base.archive) return [];
       const item = itemFor(hash, editor);
