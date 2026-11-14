@@ -683,7 +683,7 @@ function FormatSection({
             <FormatRowView
               key={row}
               row={row}
-              rule={rowValue(file.format, row)}
+              rule={rowValue(file.format, row, file.shape)}
               shape={file.shape}
               changed={rowChanged(file, row)}
               onSet={onSet}
@@ -701,7 +701,7 @@ function FormatSection({
             <FormatRowView
               key={row}
               row={row}
-              rule={rowValue(file.format, row)}
+              rule={rowValue(file.format, row, file.shape)}
               shape={file.shape}
               changed={rowChanged(file, row)}
               onSet={onSet}

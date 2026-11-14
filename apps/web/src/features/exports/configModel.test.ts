@@ -23,6 +23,7 @@ import {
   resetRows,
   ruleForMode,
   rowChanged,
+  rowValue,
   setData,
   setArrowFallback,
   setPreset,
@@ -322,4 +323,15 @@ it('changing a structured export to text keeps arrows as portable text', () => {
   const state = fromConfig({ schema: 1, id: 'arrows', name: 'Arrows', files: [file] }, 'revision');
   const next = setShape(state, fileKey(file), 'text').config.files[0] as StyleFile;
   expect(next.format.symbols.arrow).toEqual({ mode: 'replace', before: '→', after: '' });
+});
+
+it('shows the effective portable arrow default for older text-shape configs', () => {
+  const file = newStyleFile('old-arrow', 'plain');
+  delete file.format.symbols.arrow;
+  expect(rowValue(file.format, 'arrow', file.shape)).toEqual({
+    mode: 'replace',
+    before: '→',
+    after: '',
+  });
+  expect(rowChanged(file, 'arrow')).toBe(false);
 });

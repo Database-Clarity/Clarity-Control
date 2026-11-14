@@ -2,7 +2,7 @@ import { classNameList } from '../data.js'
 import { CellContent, DescriptionLine, LinesContent } from '../types.js'
 
 export const convertLinesContent = (line: string, tiles: { [key: string]: DescriptionLine[] }) => {
-  const splittedLine = line.split(/(<\w+ (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>|🡅)/g).filter((line) => line !== '')
+  const splittedLine = line.split(/(<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>|🡅)/g).filter((line) => line !== '')
   return splittedLine.reduce((acc, text) => {
     if (text === '<arrow/>') {
       acc.push({ classNames: ['arrow'] })

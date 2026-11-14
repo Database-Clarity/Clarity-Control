@@ -50,7 +50,7 @@ writeFileSync(
       // (the Worker refuses saving them while the PIN lacks it);
       // prismaticTags = exportLegacy lowers `<prismatic Text />` too (elementTags builds from before
       // Prismatic joined do not; the Worker refuses Prismatic tags while the PIN lacks it).
-      // arrowSymbol = retain <arrow/> in the intermediate for the new engine; final legacy files lower it.
+      // arrowSymbol = retain <arrow/> in the intermediate; the separately installed converter engine lowers legacy files.
       capabilities: [
         'elementTags',
         'sandboxPointers',

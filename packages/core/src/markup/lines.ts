@@ -14,7 +14,8 @@ import {
 import type { MarkupLine, MarkupSpan } from './types.js';
 import { weaponSectionHeadings } from './weaponHeadings.js';
 
-const inlineToken = /<\w+ (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+const inlineToken =
+  /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
 
 function lineClasses(line: string, allowed: string[], offsets?: number[]) {
   const classNames = allowed.filter((name) => line.includes(`<${name}/>`));
@@ -57,7 +58,11 @@ export function markupStrayTags(text: string): string[] {
       const tags = segment.match(/<\w+/g) ?? [];
       // A complete token holds one tag; a second `<word` inside it means a missing `/>`.
       const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
-      const arrows = isToken ? (segment.match(/<arrow\/>/g)?.length ?? 0) : 0;
+      const wrapper = /^<(\w+) /.exec(segment)?.[1] ?? '';
+      const arrows =
+        isToken && [...markupColors, 'background'].includes(wrapper) && segment.endsWith(' />')
+          ? (segment.match(/<arrow\/>/g)?.length ?? 0)
+          : 0;
       if (tags.length > (isToken ? 1 + arrows : 0)) stray.push(tags[0]!);
     }
   }

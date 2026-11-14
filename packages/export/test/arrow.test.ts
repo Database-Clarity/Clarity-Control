@@ -61,5 +61,22 @@ test('the text fallback keeps surrounding formatting', () => {
   const file = newStyleFile('arrow-markdown', 'markdown');
   expect(
     transform(parseMarkup('<bold 30%<arrow/>33% />').lines, file.format, 'text', emptyNotes()),
-  ).toBe('**30%****→****33%**');
+  ).toBe('**30%→33%**');
+});
+
+test.each([
+  '<link 30%<arrow/>33% [https://example.com] />',
+  '<title Range<arrow/>Reload [Foo] />',
+  '<formula 30%<arrow/>33% [1] />',
+])('unsupported nested arrow in %s is diagnosed, never emitted as literal markup', (text) => {
+  expect(validateText(text, 'en').length).toBeGreaterThan(0);
+  const lines = parseMarkup(text).lines;
+  expect(JSON.stringify(lines)).not.toContain('<arrow/>');
+  const file = newStyleFile('unsupported-arrow', 'structured');
+  expect(JSON.stringify(transform(lines, file.format, 'lines', emptyNotes()))).not.toContain(
+    '<arrow/>',
+  );
+  expect(new TextDecoder().decode(buildLegacy(inputWith(text), 'clarityV2'))).not.toContain(
+    '<arrow/>',
+  );
 });

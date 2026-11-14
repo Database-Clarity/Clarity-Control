@@ -128,7 +128,42 @@ export function lines(input: readonly MarkupLine[], context: Context): OutLine[]
       if (context.format.spacer === 'keep') output.push({ classNames: ['spacer'] });
       continue;
     }
-    let content = (line.linesContent ?? []).flatMap((part) => span(part, context));
+    let parts = line.linesContent ?? [];
+    const arrowRule =
+      context.format.symbols.arrow ??
+      (context.shape === 'text'
+        ? { mode: 'replace' as const, before: '→', after: '' }
+        : { mode: 'keep' as const });
+    if (arrowRule.mode !== 'keep' && parts.some((part) => part.classNames?.includes('arrow'))) {
+      const joined: MarkupSpan[] = [];
+      for (const input of parts) {
+        const arrow = input.classNames?.includes('arrow');
+        if (arrow && arrowRule.mode === 'drop') continue;
+        const part = arrow
+          ? {
+              ...input,
+              text: arrowRule.mode === 'replace' ? arrowRule.before + arrowRule.after : '',
+              classNames: input.classNames?.filter((name) => name !== 'arrow'),
+            }
+          : input;
+        const last = joined.at(-1);
+        // Resolve the drawing's text before wrapping, so one bold run stays one Markdown pair.
+        if (
+          last &&
+          last.text !== undefined &&
+          part.text !== undefined &&
+          !last.link &&
+          !last.title &&
+          !part.link &&
+          !part.title &&
+          JSON.stringify(last.classNames ?? []) === JSON.stringify(part.classNames ?? [])
+        )
+          joined[joined.length - 1] = { ...last, text: last.text + part.text };
+        else joined.push(part);
+      }
+      parts = joined;
+    }
+    let content = parts.flatMap((part) => span(part, context));
     const classNames: string[] = [];
     for (const name of names) {
       const rule = ruleFor(name, context.format, context.notes);
