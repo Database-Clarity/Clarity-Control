@@ -46,7 +46,7 @@ export function useRenderedDiff(before: string, after: string, globals: MarkupGl
     const finish = (reply?: RenderedDiffReply) => {
       if (reply?.result) {
         diff = reply.result;
-        setComputed({ key, result: diff });
+        if (large) setComputed({ key, result: diff });
         return;
       }
       pending.delete(id);
