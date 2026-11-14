@@ -89,6 +89,21 @@ export function numbersOf(lines: readonly string[]): string[] {
   return found;
 }
 
+/**
+ * The English as a reader sees it, roughly: prose lines with tags reduced to their text, maths and
+ * variable names removed. For matching terms when the rendered pane is not on screen.
+ */
+export function readableProse(text: string): string {
+  return proseLines(text)
+    .map((line) =>
+      line
+        .replace(inlineToken, (token) => ` ${elementTag.exec(token)?.[1] ?? ''} `)
+        .replace(mathPattern, ' ')
+        .replace(variableReferencePattern, ' '),
+    )
+    .join('\n');
+}
+
 const rules: readonly [Exclude<ParityKind, 'lines'>, (lines: readonly string[]) => string[]][] = [
   ['icon', iconsOf],
   ['variable', variablesOf],

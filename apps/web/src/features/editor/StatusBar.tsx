@@ -16,7 +16,7 @@ import { keyOf } from './help/reference';
 import { describeGap, type ParityGap } from './parity';
 
 export type StatusPanel =
-  'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff' | 'parity';
+  'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff' | 'parity' | 'terms';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -155,6 +155,7 @@ export function StatusBar({
   glyphCount,
   retiredCount = 0,
   parityCount = 0,
+  terms,
   line,
   column,
   preview,
@@ -174,6 +175,11 @@ export function StatusBar({
   retiredCount?: number;
   /** What the English has that the translation lacks (TR1, parity.ts); 0 for English. */
   parityCount?: number;
+  /**
+   * Translate mode in a language the account may translate: the tooltip's terms (in-game names),
+   * listed by the Terms item (Ctrl+K, then G). Undefined elsewhere: no item.
+   */
+  terms?: { count: number; loading: boolean };
   line: number;
   column: number;
   preview?: PreviewStatus;
@@ -214,6 +220,7 @@ export function StatusBar({
       retiredCount,
       glyphCount,
       parityCount,
+      terms === undefined ? '' : terms.count,
       conflicts?.count ?? 0,
       rawView !== undefined && Boolean(onRawView),
       Boolean(onSuggest),
@@ -295,6 +302,50 @@ export function StatusBar({
         <span className={styles.long}>Markup help</span>
         <span className={styles.short}>Help</span>
       </button>
+      {terms && (
+        // Always drawn while translating (disabled while there is nothing to list), so a
+        // tooltip with terms after one without moves nothing in the bar.
+        <button
+          type="button"
+          className={styles.item}
+          data-status-terms
+          disabled={terms.count === 0 && panel !== 'terms'}
+          aria-expanded={panel === 'terms'}
+          aria-controls="editor-panel-terms"
+          aria-keyshortcuts="Control+K G"
+          aria-label={
+            terms.loading
+              ? 'Terms: loading in-game names'
+              : `${terms.count} ${terms.count === 1 ? 'term' : 'terms'} with in-game names`
+          }
+          data-mark="≡"
+          title={
+            terms.loading
+              ? 'Loading the in-game names for this language'
+              : terms.count
+                ? 'In-game names for the terms in this English, to insert (Ctrl+K, then G)'
+                : 'No terms with in-game names in this English'
+          }
+          onMouseDown={(event) => {
+            // With the caret in the text the caret stays there; the list takes the keys.
+            const text = event.currentTarget
+              .closest('[data-editor-root]')
+              ?.querySelector('.cm-content');
+            if (text?.contains(event.currentTarget.ownerDocument.activeElement))
+              event.preventDefault();
+          }}
+          onClick={() => toggle('terms')}
+        >
+          {terms.count > 0 ? (
+            <span>
+              {terms.count}
+              <span className={styles.word}> {terms.count === 1 ? 'term' : 'terms'}</span>
+            </span>
+          ) : (
+            'Terms'
+          )}
+        </button>
+      )}
       {issues.length > 0 && (
         <button
           type="button"

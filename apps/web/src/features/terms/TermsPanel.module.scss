@@ -1,0 +1,53 @@
+// Dense rows like the other status panels; a phone gets 44px rows with the name free to wrap.
+// Doubled class: wins over the panels' bulleted-list rule (.overlay ul) without !important. Rows
+// line up with the caption (0.75rem from the edge) and Insert with Close.
+.list.list {
+  margin: 0;
+  padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+  list-style: none;
+  outline: none;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+  padding: 1px 0.25rem;
+  border-radius: 2px;
+}
+.row[aria-selected='true'] {
+  background: var(--sel);
+}
+.list:focus-visible .row[aria-selected='true'] {
+  outline: 1px solid var(--link);
+  outline-offset: -1px;
+}
+.english {
+  min-width: 0;
+  color: var(--text2);
+  overflow-wrap: anywhere;
+}
+.name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.insert {
+  padding: 1px 0.5rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.hint.hint {
+  margin: 0 0 0.375rem;
+  padding: 0 0.75rem;
+  color: var(--text3);
+  font-size: 0.6875rem;
+}
+@media (max-width: 700px), (pointer: coarse) {
+  .row {
+    min-height: 2.75rem;
+  }
+  .hint.hint {
+    display: none;
+  }
+}

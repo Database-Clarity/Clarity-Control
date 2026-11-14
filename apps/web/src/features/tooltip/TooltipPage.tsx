@@ -676,6 +676,7 @@ function TooltipWorkspace({
       markupRow={markupRow.open}
       paused={pausedForOther}
       sourceText={lang === 'en' ? undefined : base.text.en?.text}
+      terms={!readOnly && canEditLanguage(user, lang)}
       conflictSource={conflictSourceOf(variant)}
       workingDiff={
         readOnly

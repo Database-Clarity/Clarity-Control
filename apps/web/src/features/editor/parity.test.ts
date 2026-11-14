@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeDiagnostics } from './diagnosticRequest';
-import { describeGap, translationParity, type ParityGap } from './parity';
+import { describeGap, readableProse, translationParity, type ParityGap } from './parity';
 
 const gap = (
   kind: ParityGap['kind'],
@@ -98,6 +98,21 @@ describe('computeDiagnostics parity', () => {
     expect(computeDiagnostics({ ...base, text: 'Text' }).parity).toEqual([]);
     expect(computeDiagnostics({ ...base, text: 'Text', sourceText: 'Text 5' }).parity).toEqual([
       gap('number', '5', 1, 0),
+    ]);
+  });
+});
+
+describe('readableProse', () => {
+  it('keeps what a reader sees and drops markup, maths, variables, comments, and structure', () => {
+    const english = [
+      'var d = 1',
+      'Applies <arc/>Jolt and <void Volatile />. // note',
+      'For #d ${#d * 2} seconds.',
+      ')',
+    ].join('\n');
+    expect(readableProse(english).split('\n')).toEqual([
+      'Applies   Jolt and  Volatile .',
+      'For     seconds.',
     ]);
   });
 });

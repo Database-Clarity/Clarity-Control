@@ -4,15 +4,18 @@ import type { NamesFile } from './names';
 import type { TermEntry } from './match';
 
 /**
- * One resolved term list per language: official game names now (computed from the names file,
- * never stored); the glossary (TR9) will overlay its own entries on the same list, so marks,
- * popover, and Insert stay one path.
+ * One resolved list per language of things in the English a translator can insert: official
+ * game names now (computed from the names file, never stored). Glossary terms (TR9) and number
+ * tokens (spec in progress) join as further kinds on the same list, so the marks, the popover, the
+ * Terms list, and Insert stay one path.
  */
 export type TermKind = 'keyword' | 'name';
 export interface Term extends TermEntry {
   kind: TermKind;
-  /** The in-game names in the language, most used first (one English name can map to several). */
+  /** What Insert puts in the translation, most used first (an English name can map to several). */
   official: string[];
+  /** Clicking the mark inserts at once (a single exact insert, such as a number token). */
+  insertOnClick?: boolean;
 }
 export interface TermList {
   /** Stable for this list's lifetime: the worker keeps the compiled list under it. */

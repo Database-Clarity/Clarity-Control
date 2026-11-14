@@ -55,6 +55,9 @@ import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
 import { useEditorDiagnostics } from './useEditorDiagnostics';
+import { useTooltipTerms } from '../terms/useTooltipTerms';
+import { insertAtCaret } from '../terms/insert';
+import { TermsPanel } from '../terms/TermsPanel';
 import { RetiredPanel, retiredIn } from './RetiredPanel';
 import { createCursorPosition } from './cursorPosition';
 import { createTagSelectionStore, tagSelection } from './elementTags';
@@ -225,6 +228,11 @@ export interface ClarityEditorProps {
    * leads with the entries it uses. Undefined for English.
    */
   sourceText?: string;
+  /**
+   * Translate mode in a language the account may translate: the Terms list (in-game names for the
+   * English's terms, Ctrl+K then G). The English pane shows the same terms as marks.
+   */
+  terms?: boolean;
 }
 
 /** The reference host's live getters, plus the English a translation is checked against. */
@@ -291,6 +299,7 @@ export function ClarityEditor({
   suspended = false,
   stepping = false,
   sourceText,
+  terms: termsEnabled = false,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   // Held past `pending` until a painted skeleton has had its minimum (ui/Skeleton timing rule).
@@ -419,6 +428,20 @@ export function ClarityEditor({
   const [cursor] = useState(createCursorPosition);
   const [tagMode] = useState(createTagSelectionStore);
   const parityText = lang === 'en' ? undefined : sourceText;
+  const termsOn = termsEnabled && lang !== 'en';
+  const tooltipTerms = useTooltipTerms(lang, termsOn && !suspended && !stepping, parityText);
+  const termsLive = useRef(termsOn);
+  termsLive.current = termsOn;
+  /** Ctrl+K, G: the same as the bar's Terms item. */
+  const toggleTerms = useRef(() => {
+    if (!termsLive.current) return false;
+    setPanel((current) => (current === 'terms' ? null : 'terms'));
+    return true;
+  });
+  const insertTerm = useCallback((text: string) => {
+    setPanel(null);
+    if (view.current) insertAtCaret(view.current, text);
+  }, []);
   const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip, parityText });
   const references = useRef<EditorReferences>({
     sources: () => referenceLive.current.referenceSources,
@@ -668,6 +691,8 @@ export function ClarityEditor({
         // VS Code's "Compare with Saved". Ctrl may stay held for the D, as with Ctrl+K Ctrl+I.
         { key: 'Mod-k d', run: () => toggleDiff.current() },
         { key: 'Mod-k Mod-d', run: () => toggleDiff.current() },
+        { key: 'Mod-k g', run: () => toggleTerms.current() },
+        { key: 'Mod-k Mod-g', run: () => toggleTerms.current() },
         { key: 'F1', run: (editor) => toggleHelp.current(editor), preventDefault: true },
         { key: 'Mod-/', run: toggleComment },
         { key: 'Mod-h', run: openReplace, scope: 'editor search-panel', preventDefault: true },
@@ -922,6 +947,7 @@ export function ClarityEditor({
     (panel === 'conflicts' && conflictCount === 0) ||
     (panel === 'retired' && retiredCount === 0) ||
     (panel === 'parity' && parityCount === 0) ||
+    (panel === 'terms' && (!termsOn || tooltipTerms.terms.length === 0)) ||
     (panel === 'issues' && issues.length === 0)
       ? null
       : panel;
@@ -1017,6 +1043,16 @@ export function ClarityEditor({
         )}
         {open === 'issues' && <IssuesPanel issues={issues} onClose={closeAndFocus} />}
         {open === 'parity' && <ParityPanel gaps={diagnostics.parity} onClose={closeAndFocus} />}
+        {open === 'terms' && (
+          <TermsPanel
+            key={`${tooltipHash}:${lang}`}
+            terms={tooltipTerms.terms}
+            lang={lang}
+            canInsert={!readOnly}
+            onInsert={insertTerm}
+            onClose={closeAndFocus}
+          />
+        )}
         {(open === 'help' || helpParked) && (
           <Suspense fallback={null}>
             <MarkupHelp
@@ -1089,6 +1125,9 @@ export function ClarityEditor({
         glyphCount={glyphCount}
         retiredCount={retiredCount}
         parityCount={parityCount}
+        terms={
+          termsOn ? { count: tooltipTerms.terms.length, loading: tooltipTerms.loading } : undefined
+        }
         cursor={cursor}
         preview={preview}
         conflicts={

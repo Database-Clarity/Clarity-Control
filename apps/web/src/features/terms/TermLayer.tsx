@@ -1,23 +1,13 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Lang } from '@clarity/core';
-import { EditorView } from '@codemirror/view';
-import { Transaction } from '@codemirror/state';
-import { useDataStore } from '../../stores/data';
 import { languageLabel } from '../../languageLabels';
 import { applyPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
 import { requestTermMatches } from '../editor/diagnosticWorker';
 import { useShowEditor } from '../tooltip/VariantWorkspace';
-import { ensureNames, useNamesStore } from './names';
-import { buildTermList, type Term, type TermList } from './termList';
+import type { Term } from './termList';
+import { useTermList } from './useTermList';
+import { insertAtCaret, translationView } from './insert';
 import styles from './TermLayer.module.scss';
 
 /** Highlight names (TermLayer.module.scss styles them): every term, and the one open. */
@@ -32,19 +22,6 @@ function highlight(name: string): Highlight {
   let entry = CSS.highlights.get(name);
   if (!entry) CSS.highlights.set(name, (entry = new Highlight()));
   return entry;
-}
-
-/** The official-name list for `lang`, once its names file is here; undefined until then. */
-export function useTermList(lang: Lang, enabled: boolean): TermList | undefined {
-  useEffect(() => {
-    if (enabled) ensureNames(lang);
-  }, [enabled, lang]);
-  const state = useNamesStore((store) => (enabled ? store.byLang[lang] : undefined));
-  const items = useDataStore((store) => store.data?.items);
-  return useMemo(
-    () => (state?.status === 'ready' && items ? buildTermList(items, state.file, lang) : undefined),
-    [state, items, lang],
-  );
 }
 
 interface Mark {
@@ -134,6 +111,10 @@ export function TermLayer({
   children: ReactNode;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const hashRef = useRef(hash);
+  hashRef.current = hash;
+  const canInsertRef = useRef(canInsert);
+  canInsertRef.current = canInsert;
   const list = useTermList(lang, enabled);
   const marks = useRef<Mark[]>([]);
   const [open, setOpen] = useState<{ mark: Mark; pinned: boolean } | null>(null);
@@ -252,7 +233,11 @@ export function TermLayer({
       if (!mark) return;
       clearTimeout(timers.current.open);
       cancelClose();
-      setOpen({ mark, pinned: true });
+      // A source with one exact insert (number tokens, later) inserts on the click itself.
+      const [only] = mark.term.official;
+      if (mark.term.insertOnClick && canInsertRef.current && mark.term.official.length === 1)
+        insertRef.current(only!);
+      else setOpen({ mark, pinned: true });
     };
     root.addEventListener('pointermove', move, { passive: true });
     root.addEventListener('pointerleave', leave);
@@ -273,20 +258,12 @@ export function TermLayer({
   );
 
   const showEditor = useShowEditor();
-  const insert = (name: string) => {
-    const root = document.querySelector<HTMLElement>(`.cm-editor[data-tooltip-hash="${hash}"]`);
-    const view = root && EditorView.findFromDOM(root);
+  const insertRef = useRef((text: string) => {
     setOpen(null);
-    if (!view || view.state.readOnly) return;
-    view.dispatch({
-      ...view.state.replaceSelection(name),
-      annotations: Transaction.userEvent.of('input.paste'),
-      scrollIntoView: true,
-    });
-    showEditor();
-    // A hidden editor (the phone's Editor tab, toggle mode's slot) lays out before it takes focus.
-    requestAnimationFrame(() => requestAnimationFrame(() => view.focus()));
-  };
+    const view = translationView(hashRef.current);
+    if (view && insertAtCaret(view, text)) showEditor();
+  });
+  const insert = (text: string) => insertRef.current(text);
 
   return (
     <div ref={host} className={styles.layer}>
