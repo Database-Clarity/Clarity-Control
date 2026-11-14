@@ -63,7 +63,8 @@ export async function cachedComputation<T>(key: string, compute: () => Promise<T
 const pendingWrites = new Map<string, unknown>();
 const quietMs = 1000;
 let activeWork = 0;
-let writing = false;
+/** The running write loop, if any. */
+let writing: Promise<void> | undefined;
 let writeTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleWrites() {
   if (writeTimer !== undefined) clearTimeout(writeTimer);
@@ -74,19 +75,19 @@ function scheduleWrites() {
     void writePending(() => activeWork > 0);
   }, quietMs);
 }
-async function writePending(stop: () => boolean) {
-  if (writing) return;
-  writing = true;
-  try {
+function writePending(stop: () => boolean) {
+  // finally() always settles in a later microtask, so `writing` is set before it is cleared.
+  writing ??= (async () => {
     while (pendingWrites.size && !stop()) {
       const [key, value] = pendingWrites.entries().next().value!;
       pendingWrites.delete(key);
       await persist(key, value);
     }
-  } finally {
-    writing = false;
+  })().finally(() => {
+    writing = undefined;
     scheduleWrites();
-  }
+  });
+  return writing;
 }
 /** Hold stored writes while a request runs; they resume after the next quiet period. */
 export function cacheWriteActivity<T>(work: Promise<T>): Promise<T> {
@@ -101,10 +102,16 @@ export function cacheWriteActivity<T>(work: Promise<T>): Promise<T> {
   return work;
 }
 /** Write every pending result now (tests, and callers about to hand storage to a new owner). */
-export function flushCacheWrites() {
-  if (writeTimer !== undefined) clearTimeout(writeTimer);
-  writeTimer = undefined;
-  return writePending(() => false);
+export async function flushCacheWrites() {
+  // A quiet-period write loop may already be running, and may stop early for a request:
+  // wait for it, then write whatever it left. Resolves only once nothing is pending.
+  for (;;) {
+    if (writeTimer !== undefined) clearTimeout(writeTimer);
+    writeTimer = undefined;
+    if (writing) await writing;
+    else if (pendingWrites.size) await writePending(() => false);
+    else return;
+  }
 }
 
 async function persist(key: string, value: unknown) {
