@@ -433,7 +433,10 @@ it('requires explicit destination review before staging one target draft and the
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Raw diff"]')!.click());
   expect(localStorage.getItem('clarity-diff-raw:v1')).toBe('false');
 
-  expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
+  expect(
+    host.querySelector<HTMLInputElement>('input[type="checkbox"]:not([aria-label^="Select "])')
+      ?.checked,
+  ).toBe(true);
   expect(updateDrafts).not.toHaveBeenCalled();
   await act(async () => button('Confirm association as drafts').click());
   expect(updateDrafts).toHaveBeenCalledTimes(1);

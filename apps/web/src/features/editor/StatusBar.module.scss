@@ -48,6 +48,10 @@
       display: none;
     }
   }
+  // useFit drops a count that would still be cut short at the step it settles on.
+  &[data-count-dropped] .previewText {
+    display: none;
+  }
 
   // Items keep their size, including the warnings inside the live region (display: contents):
   // a shrunk item would draw its text over the next one instead of overflowing the bar.

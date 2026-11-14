@@ -9,7 +9,8 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { disposeSteppingActivity } from '../navigation/steppingActivity';
-import { queueState } from '../translations/worklist';
+import { startQueue } from '../queue/start';
+import { resetWorkQueues } from '../queue/store';
 
 vi.mock('../editor', () => ({
   ClarityEditor: ({ tooltipHash }: { tooltipHash: number }) => <div data-editor={tooltipHash} />,
@@ -49,9 +50,33 @@ it('queue navigation overrides a local variant pick on the same base', async () 
     user: { id: 1, login: 'review', role: 'translator', languages: ['de'] },
     loading: false,
   });
-  const filters = { state: null, category: null, query: '' };
+  // A Translations queue of the base and its override (opened on the base's page).
+  resetWorkQueues();
+  const items = [
+    {
+      key: '10:de',
+      hash: 10,
+      lang: 'de' as const,
+      name: 'A base',
+      detail: { path: '/t/10?lang=de' },
+    },
+    {
+      key: '11:de',
+      hash: 11,
+      lang: 'de' as const,
+      name: 'B enhanced',
+      detail: { path: '/t/10?lang=de&variant=11' },
+    },
+  ];
+  const { state } = startQueue({
+    source: 'translations',
+    scope: 'shown',
+    items,
+    first: items[0]!,
+    origin: { path: '/translations', restore: {} },
+  });
   const router = createMemoryRouter([{ path: '/t/:hash', element: <TooltipPage /> }], {
-    initialEntries: [{ pathname: '/t/10', search: '?lang=de', state: queueState(filters, 10) }],
+    initialEntries: [{ pathname: '/t/10', search: '?lang=de', state }],
   });
   const host = document.createElement('div');
   document.body.append(host);

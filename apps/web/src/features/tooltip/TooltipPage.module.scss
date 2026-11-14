@@ -227,26 +227,41 @@
   font-variant-numeric: tabular-nums;
 }
 // The control has to fit beside a draft's Discard in the narrowest editor (480px). As the header
-// narrows, queue mode first drops the shortcut hint, then shortens the language field, and lets an
-// override's button ellipsise; the control itself never shrinks or clips.
+// narrows, queue mode first drops the shortcut hint; below 38rem (a work-through queue names its
+// list and carries the list's action) the control takes a row of its own, as on a phone and in
+// toggle mode, so the language field keeps its usual width (v2's 9rem cap) and "Markup tools"
+// its full text. The row is there
+// for the whole visit: nothing moves when a draft appears.
 @container pane-header (max-width: 44rem) {
   .paneHeader:has(> .queue) .key {
     display: none;
   }
 }
-@container pane-header (max-width: 38rem) {
+@media (min-width: 701px) {
+  // The header is its own container, so its wrapping is set here; only the query's children
+  // change with its width (the queue takes the second row below 38rem).
   .paneHeader:has(> .queue) {
-    gap: 0.375rem;
-    .langSelect {
-      max-width: 6rem;
-      text-overflow: ellipsis;
-    }
-    .paneRight > button {
-      display: block;
-      flex: 0 1 auto;
-      min-width: 2.5rem;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  @container pane-header (max-width: 38rem) {
+    .paneHeader:has(> .queue) {
+      .queue {
+        order: 2;
+        flex: 1 1 100%;
+        min-width: 0;
+        margin-left: 0;
+        + .paneRight {
+          margin-left: auto;
+        }
+      }
+      .queuePosition {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
   }
 }
@@ -278,10 +293,11 @@
   }
 }
 // Toggle mode adds the English and Compendium buttons to the same line. Below this width the
-// line cannot hold them and the control (48.5rem with a draft and an override), so the control
-// takes a row of its own, as on a phone.
+// line cannot hold them and the widest queue control (58.5rem with a draft and an override: a
+// work-through queue names its list and carries the list's action, e.g. "Bungie drift 12 of 40
+// Bungie change < >"), so the control takes a row of its own, as on a phone.
 // The row is there for the whole visit: nothing moves when a draft appears.
-@container workspace (max-width: 49rem) {
+@container workspace (max-width: 59rem) {
   .workspace[data-mode='toggle'] .paneHeader:has(> .queue) {
     flex-wrap: wrap;
     row-gap: 2px;

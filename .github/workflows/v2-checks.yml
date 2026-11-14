@@ -1,8 +1,8 @@
 name: v2 checks
 
 on:
-  push:
-    branches: [v2]
+  # No push trigger: every v2 fast-forward first passes the exact-tree Review suite
+  # (ci_suite.py), so a push run only repeats it and emails the owner on flakes.
   pull_request:
     branches: [v2]
 

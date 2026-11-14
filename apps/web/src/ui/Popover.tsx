@@ -57,6 +57,7 @@ export function Popover({
   triggerTitle,
   triggerLabel,
   flush = false,
+  bodyClassName,
   contain = false,
   gap = 4,
   clearTop,
@@ -77,6 +78,8 @@ export function Popover({
   triggerLabel?: string;
   /** The content runs edge to edge (a menu of rows with its own header): no body padding. */
   flush?: boolean;
+  /** A class for the scrolling body around the content (a menu that lays out its own rows). */
+  bodyClassName?: string;
   /**
    * A sheet of actions (More): opening moves focus to its first row (after a Close button), Tab
    * cycles inside it, and it owns the workspace shortcuts while open (Alt+PageDown does not step the
@@ -275,7 +278,11 @@ export function Popover({
       {open &&
         createPortal(
           <div ref={surface} id={id} role="dialog" aria-label={label} className={styles.surface}>
-            <div className={flush ? `${styles.body} ${styles.flush}` : styles.body}>
+            <div
+              className={[styles.body, flush && styles.flush, bodyClassName]
+                .filter(Boolean)
+                .join(' ')}
+            >
               {typeof children === 'function'
                 ? children((restore = true) => close(restore))
                 : children}
