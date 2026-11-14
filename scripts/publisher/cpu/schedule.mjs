@@ -51,6 +51,7 @@ const LANGS = [
   'zh-cht',
 ];
 // `kind:N` runs a kind at N members per batch; default: the Worker's cap (memberCap).
+// The save kinds also take a `-sched` suffix (a scheduled target batch).
 const KINDS = [
   'list',
   'create',
@@ -254,7 +255,10 @@ function ulid(n) {
 }
 
 async function state(name, real, lib) {
-  const kind = name.split(':')[0];
+  // `<kind>-sched` runs a save kind against a SCHEDULED batch: translation-only saves that also
+  // read the live snapshots and pushed.json and compose every member (round-2 code review).
+  const sched = name.split(':')[0].endsWith('-sched');
+  const kind = name.split(':')[0].replace(/-sched$/, '');
   const files = new Map();
   const put = (path, value) => files.set(path, value);
   put('config/permissions.json', { users: { 1: { login: 'cpu', role: 'maintainer' } } });
@@ -323,7 +327,15 @@ async function state(name, real, lib) {
   if (kind !== 'save-add')
     for (const member of members)
       put(`schedule/batches/${ID}/tooltips/${member.hash}.json`, member);
-  let target = batch();
+  let target = sched
+    ? batch({
+        status: 'scheduled',
+        opId: OP,
+        notBefore: '2026-12-01T00:00:00.000Z',
+        zone: 'Europe/Berlin',
+        scheduledContentRevision: 1,
+      })
+    : batch();
   if (kind === 'unschedule' || kind === 'kick')
     target = batch({
       status: 'scheduled',
@@ -385,7 +397,7 @@ async function state(name, real, lib) {
 
 async function request(name, real, members, lib) {
   const minute = new Date(Math.ceil((Date.now() + 30 * 60_000) / 60_000) * 60_000).toISOString();
-  switch (name.split(':')[0]) {
+  switch (name.split(':')[0].replace(/-sched$/, '')) {
     case 'list':
       return { method: 'GET', path: '/batches', status: 200 };
     case 'create':
@@ -574,7 +586,8 @@ if (process.argv[2] === '--case') {
   if (!prepared) await prepare();
   const rows = [];
   for (const name of wanted) {
-    if (!KINDS.includes(name.split(':')[0])) throw new Error(`Unknown case ${name}`);
+    if (!KINDS.includes(name.split(':')[0].replace(/-sched$/, '')))
+      throw new Error(`Unknown case ${name}`);
     rows.push(
       JSON.parse(
         execFileSync(process.execPath, [import.meta.filename, '--case', name], {
