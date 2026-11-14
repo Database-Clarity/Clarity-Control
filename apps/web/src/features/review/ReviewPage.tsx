@@ -1,5 +1,13 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
@@ -37,6 +45,14 @@ import {
   useReviewOpening,
 } from './opening';
 import { useLeftQueue } from '../queue/useQueue';
+import {
+  BatchesHeader,
+  BatchesMain,
+  SubviewSwitch,
+  canReadBatches,
+  preloadBatches,
+  reviewSubview,
+} from './subview';
 
 const count = new Intl.NumberFormat('en');
 
@@ -116,6 +132,11 @@ export function ReviewPage() {
   const data = useDataStore((state) => state.data);
   const load = useDataStore((state) => state.load);
   const user = useAuthStore((state) => state.user);
+  // Saved | Batches (scheduled changes; build switch OFF or no batch role: always Saved).
+  const subview = reviewSubview(searchParams, user);
+  const batchesView = useRef(subview === 'batches');
+  batchesView.current = subview === 'batches';
+  useEffect(() => preloadBatches(user), [user]);
   const drafts = useDraftStore((state) => state.drafts);
   const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
   const prepared = useMemo(
@@ -293,6 +314,8 @@ export function ReviewPage() {
     function keydown(event: KeyboardEvent) {
       if (event.defaultPrevented || workspaceShortcutsBlocked(event)) return;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || pushing) return;
+      // The Saved list's keys (Space, P, arrows) never act on it while Batches is shown.
+      if (batchesView.current) return;
       if (
         event.target instanceof Element &&
         event.target.closest(
@@ -358,6 +381,28 @@ export function ReviewPage() {
     ? pushing || !!current.unpublishable || inFlight.has(current.tooltip.hash)
     : true;
 
+  const switcher =
+    SubviewSwitch && canReadBatches(user) ? (
+      <Suspense fallback={null}>
+        <SubviewSwitch />
+      </Suspense>
+    ) : null;
+  if (subview === 'batches' && BatchesMain && BatchesHeader)
+    return (
+      <article className={styles.page} data-subview="batches">
+        <header className={styles.summary}>
+          <h1 className={styles.readyStatus}>Review changes: batches</h1>
+          {switcher}
+          <Suspense fallback={null}>
+            <BatchesHeader />
+          </Suspense>
+        </header>
+        <Suspense fallback={<p className={styles.note}>Loading batches…</p>}>
+          <BatchesMain />
+        </Suspense>
+      </article>
+    );
+
   return (
     <>
       <p role="status" className={opening ? styles.openingStatus : styles.readyStatus}>
@@ -366,6 +411,7 @@ export function ReviewPage() {
       <article ref={article} aria-busy={loading} className={styles.page}>
         <header className={styles.summary}>
           <h1 className={styles.readyStatus}>Review changes</h1>
+          {switcher}
           <p className={styles.counts}>
             <span className={styles.segment}>
               <b>{count.format(changeCount)}</b> {changeCount === 1 ? 'change' : 'changes'}

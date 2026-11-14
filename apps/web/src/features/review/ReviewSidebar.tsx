@@ -1,5 +1,5 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
-import { useMemo, useRef } from 'react';
+import { Suspense, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { publisherEnabled } from '../../services/publisher/flag';
 import { activeHashes, usePublishState } from './publishDriver';
@@ -12,6 +12,8 @@ import { useDataStore } from '../../stores/data';
 import { WorkThroughBar } from '../queue/WorkThroughBar';
 import { reviewItem } from '../queue/reviewRows';
 import { reviewStamp, type ReviewRestore } from '../queue/sources';
+import { useAuthStore } from '../../stores/auth';
+import { BatchesList, reviewSubview } from './subview';
 import styles from './ReviewQueue.module.scss';
 
 /** Hashes inside a publish that is still queued or being sent; they cannot be picked again. */
@@ -44,8 +46,21 @@ export function filterParams(
   return next;
 }
 
-/** The Review left column (and the phone's list sheet): filters over the grouped queue. */
+/** The Review left column (and the phone's list sheet): the Saved queue, or the batch list. */
 export function ReviewSidebar() {
+  const [searchParams] = useSearchParams();
+  const user = useAuthStore((state) => state.user);
+  if (reviewSubview(searchParams, user) === 'batches' && BatchesList)
+    return (
+      <Suspense fallback={null}>
+        <BatchesList />
+      </Suspense>
+    );
+  return <SavedSidebar />;
+}
+
+/** The Saved subview's left column: filters over the grouped queue. */
+function SavedSidebar() {
   const entries = useReviewQueue((state) => state.entries);
   const collapsed = useReviewQueue((state) => state.collapsed);
   const markerOpen = useReviewQueue((state) => state.markerOpen);

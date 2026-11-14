@@ -1,14 +1,24 @@
 /**
- * Scheduled changes: the read side of the batch routes (spec "Worker API"), shared by the editor's
- * Current / Upcoming switch (P3b) and the later Review UI. `listBatches` asks the Worker for the
- * index and the editor-data head it read; member bodies are then read from raw.githubusercontent.com
- * at THAT head (commit-pinned, public, zero Worker CPU), parsed and validated off the main thread,
- * and cached per head. With the build switch OFF (I6) every call throws before any request, and the
- * callers never load this module (they gate on the inline `import.meta.env` test).
+ * Scheduled changes: the batch routes (spec "Worker API"), shared by the editor's Current /
+ * Upcoming switch (P3b) and the Review Batches subview and save destination (P3a). `listBatches`
+ * asks the Worker for the index and the editor-data head it read; member bodies, batch.json, event
+ * pages, and activation conflicts are then read from raw.githubusercontent.com at THAT head
+ * (commit-pinned, public, zero Worker CPU) and cached per head. Writes go to the Worker, which is
+ * the guard; its refusals reach the UI verbatim (BatchRefusal). With the build switch OFF (I6)
+ * every call throws before any request, and the callers never load this module (they gate on the
+ * inline `import.meta.env` test).
  */
+import { tooltipSchema, type Tooltip } from '@clarity/core';
 import {
+  activationConflictSchema,
+  batchEventSchema,
+  batchIdSchema,
+  batchMemberSchema,
+  batchSchema,
   scheduleIndexSchema,
   schedulePaths,
+  type ActivationConflict,
+  type Batch,
   type BatchMember,
   type ScheduleIndex,
 } from '@clarity/core/schedule';
@@ -53,6 +63,8 @@ const maxHeads = 4;
 export function setRawFetch(next: Fetcher | undefined) {
   fetcher = next ?? network;
   members.clear();
+  batchFiles.clear();
+  conflictFiles.clear();
   keptHeads.length = 0;
 }
 
@@ -145,4 +157,336 @@ export async function readBatchMembers(
     }
   }
   return Promise.all(hashes.map((hash) => members.get(key(hash))!));
+}
+
+// --- Batch detail reads (P3a): batch.json, event overflow pages, and activation conflicts -----
+
+const batchFiles = new Map<string, Promise<Batch | null>>();
+const conflictFiles = new Map<string, Promise<ActivationConflict | null>>();
+
+async function rawJson(head: string, path: string): Promise<unknown> {
+  const response = await fetcher(`${rawSource}/${head}/${path}`);
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+  return JSON.parse(await response.text()) as unknown;
+}
+
+/** Caches one commit-pinned read; a failure is dropped so a retry fetches again. */
+function cached<T>(cache: Map<string, Promise<T>>, key: string, read: () => Promise<T>) {
+  let entry = cache.get(key);
+  if (!entry) {
+    const created = read();
+    entry = created;
+    cache.set(key, created);
+    if (cache.size > 128) cache.delete(cache.keys().next().value!);
+    created.catch(() => {
+      if (cache.get(key) === created) cache.delete(key);
+    });
+  }
+  return entry;
+}
+
+/** schedule/batches/<id>/batch.json at `head` (null: no such batch at that commit). */
+export function readBatch(head: string, batchId: string): Promise<Batch | null> {
+  requireEnabled();
+  headSchema.parse(head);
+  batchIdSchema.parse(batchId);
+  return cached(batchFiles, `${head}/${batchId}`, async () => {
+    const value = await rawJson(head, schedulePaths.batch(batchId));
+    if (value === undefined) return null;
+    const batch = batchSchema.parse(value);
+    if (batch.id !== batchId) throw new Error(`batch.json of ${batchId} names ${batch.id}`);
+    return batch;
+  });
+}
+
+const eventPageSchema = z.object({ events: z.array(batchEventSchema).min(1) }).strict();
+export type BatchEvent = Batch['events'][number];
+/** schedule/batches/<id>/events/<seq>.json (root ruling 2026-11-13: seq = events archived before). */
+export const eventPagePath = (batchId: string, seq: number) =>
+  `schedule/batches/${batchId}/events/${String(seq).padStart(8, '0')}.json`;
+
+/**
+ * The events a batch moved out of batch.json (oldest first), read page by page from 00000000 at
+ * `head` until a page is missing. Only asked for when the detail shows its older events.
+ */
+export async function readArchivedEvents(head: string, batchId: string): Promise<BatchEvent[]> {
+  requireEnabled();
+  headSchema.parse(head);
+  batchIdSchema.parse(batchId);
+  const events: BatchEvent[] = [];
+  // Bounded: every page holds at least one event.
+  for (let page = 0; page < 10_000; page++) {
+    const value = await rawJson(head, eventPagePath(batchId, events.length));
+    if (value === undefined) return events;
+    events.push(...eventPageSchema.parse(value).events);
+  }
+  throw new Error('Too many archived event pages');
+}
+
+/** schedule/activation-conflicts/<hash>.json at `head` for each hash (null: none). */
+export function readActivationConflicts(
+  head: string,
+  hashes: readonly number[],
+): Promise<(ActivationConflict | null)[]> {
+  requireEnabled();
+  headSchema.parse(head);
+  return Promise.all(
+    hashes.map((hash) =>
+      cached(conflictFiles, `${head}/${hash}`, async () => {
+        const value = await rawJson(head, schedulePaths.conflict(hash));
+        if (value === undefined) return null;
+        const conflict = activationConflictSchema.parse(value);
+        if (conflict.hash !== hash) throw new Error(`Conflict file ${hash} holds ${conflict.hash}`);
+        return conflict;
+      }),
+    ),
+  );
+}
+
+// --- Batch writes (P3a). The Worker is the guard; its refusals reach the UI verbatim. ---------
+
+/** Changes per POST /batches/:id/save (Worker caps, root ruling after P1; apps/worker store.ts). */
+export const saveChunk = { draft: 15, scheduled: 10 } as const;
+/** Tooltips per batch the Worker admits (apps/worker store.ts memberCap); the UI warns before it. */
+export const memberCap = 15;
+
+const memberRefusalSchema = z.looseObject({
+  hash: z.number(),
+  fields: z.array(z.string()).optional(),
+  reason: z.string().optional(),
+});
+const refusalSchema = z.looseObject({
+  error: z.string(),
+  details: z
+    .looseObject({
+      members: z.array(memberRefusalSchema).optional(),
+      revision: z.number().optional(),
+      hash: z.number().optional(),
+      hashes: z.array(z.number()).optional(),
+      fields: z.array(z.string()).optional(),
+    })
+    .optional(),
+  missing: z.array(z.string()).optional(),
+  current: tooltipSchema.nullable().optional(),
+});
+const conflictsSchema = z.object({
+  conflicts: z.array(z.looseObject({ hash: z.number(), fields: z.array(z.string()) })),
+});
+
+export interface MemberRefusal {
+  hash: number;
+  fields?: string[];
+  reason?: string;
+}
+
+/** A refused batch request: the Worker's own message, plus what it listed per tooltip. */
+export class BatchRefusal extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly members: MemberRefusal[] = [],
+    /** 409 "The batch changed": the batch's revision now. */
+    readonly revision?: number,
+    /** Resolve and rebase: current at the head the Worker read. */
+    readonly current?: Tooltip | null,
+    /** Resolve: fields that now need a choice. */
+    readonly missing?: string[],
+    /** Save: the Worker answered with per-tooltip merge conflicts (nothing was written). */
+    readonly conflicts = false,
+  ) {
+    super(message);
+    this.name = 'BatchRefusal';
+  }
+}
+
+async function refusal(response: Response): Promise<BatchRefusal> {
+  const text = await response.text();
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return new BatchRefusal(response.status, text.trim() || `HTTP ${response.status}`);
+  }
+  const conflicts = conflictsSchema.safeParse(value);
+  if (conflicts.success)
+    return new BatchRefusal(
+      response.status,
+      'These tooltips changed in the batch or in current meanwhile',
+      conflicts.data.conflicts.map(({ hash, fields }) => ({ hash, fields })),
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+  const parsed = refusalSchema.safeParse(value);
+  if (!parsed.success) return new BatchRefusal(response.status, text.trim());
+  const { error, details, missing, current } = parsed.data;
+  const members =
+    details?.members?.map(({ hash, fields, reason }) => ({ hash, fields, reason })) ??
+    (details?.hash !== undefined
+      ? [{ hash: details.hash, fields: details.fields }]
+      : (details?.hashes?.map((hash) => ({ hash })) ?? []));
+  return new BatchRefusal(response.status, error, members, details?.revision, current, missing);
+}
+
+async function post<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
+  requireEnabled();
+  const response = await apiRequest(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw await refusal(response);
+  return schema.parse(await response.json());
+}
+
+const writeSchema = z.looseObject({ commit: headSchema, batch: batchSchema });
+
+/** POST /batches {name}: a new draft batch. */
+export function createBatch(name: string) {
+  return post('/batches', { name }, writeSchema);
+}
+
+export interface BatchChange {
+  hash: number;
+  base: Tooltip | null;
+  next: Tooltip;
+}
+
+export interface BatchSaveResult {
+  /** The batch after the last committed chunk (null: nothing was committed). */
+  batch: Batch | null;
+  /** Members the Worker wrote, across every chunk. */
+  members: BatchMember[];
+  /** One commit per chunk that changed something. */
+  commits: string[];
+  /** Hashes of the changes in chunks that committed (or were no-ops). */
+  accepted: number[];
+}
+
+/** A chunked save that stopped part way: earlier chunks are committed; the rest were not sent. */
+export class PartialBatchSave extends Error {
+  constructor(
+    readonly saved: BatchSaveResult,
+    readonly reason: Error,
+    readonly unsaved: number[],
+  ) {
+    super(reason.message);
+    this.name = 'PartialBatchSave';
+  }
+}
+
+const saveResponseSchema = z.looseObject({
+  commit: headSchema.nullable(),
+  batch: batchSchema,
+  members: z.array(batchMemberSchema),
+});
+
+/**
+ * POST /batches/:id/save in chunks of 15 (draft) or 10 (scheduled) changes, each sent with the
+ * revision the previous chunk returned (revision CAS), so no chunk can land on a batch someone
+ * else changed meanwhile. A refusal of the first chunk throws its BatchRefusal (nothing saved);
+ * a later one throws PartialBatchSave naming what was saved and what was not.
+ */
+export async function saveToBatch(
+  batchId: string,
+  revision: number,
+  status: Batch['status'],
+  changes: readonly BatchChange[],
+  message: string,
+): Promise<BatchSaveResult> {
+  batchIdSchema.parse(batchId);
+  let expected = revision;
+  let size: number = status === 'draft' ? saveChunk.draft : saveChunk.scheduled;
+  const saved: BatchSaveResult = { batch: null, members: [], commits: [], accepted: [] };
+  for (let start = 0; start < changes.length;) {
+    const chunk = changes.slice(start, start + size);
+    try {
+      const result = await post(
+        `/batches/${batchId}/save`,
+        { revision: expected, changes: chunk, message },
+        saveResponseSchema,
+      );
+      saved.batch = result.batch;
+      saved.members.push(...result.members);
+      saved.accepted.push(...chunk.map(({ hash }) => hash));
+      if (result.commit) saved.commits.push(result.commit);
+      expected = result.batch.revision;
+      size = result.batch.status === 'draft' ? saveChunk.draft : saveChunk.scheduled;
+      start += chunk.length;
+    } catch (error) {
+      if (!saved.accepted.length) throw error;
+      throw new PartialBatchSave(
+        saved,
+        error instanceof Error ? error : new Error(String(error)),
+        changes.slice(start).map(({ hash }) => hash),
+      );
+    }
+  }
+  return saved;
+}
+
+/** POST /batches/:id/rebase: the member's base becomes current at the head; `next` its proposal. */
+export function rebaseMember(
+  batchId: string,
+  revision: number,
+  hash: number,
+  base: Tooltip | null,
+  next: Tooltip,
+) {
+  return post(
+    `/batches/${batchId}/rebase`,
+    { revision, hash, base, next },
+    writeSchema.extend({ members: z.array(batchMemberSchema) }),
+  );
+}
+
+export function removeFromBatch(batchId: string, revision: number, hashes: number[]) {
+  return post(`/batches/${batchId}/remove`, { revision, hashes }, writeSchema);
+}
+
+/** Schedule or reschedule; `'now'` is Publish now (the Worker takes the current minute). */
+export function scheduleBatch(
+  batchId: string,
+  revision: number,
+  notBefore: string | 'now',
+  zone: string,
+) {
+  return post(
+    `/batches/${batchId}/schedule`,
+    { revision, notBefore, zone },
+    writeSchema.extend({ opId: z.string(), firstPublications: z.array(z.number()).optional() }),
+  );
+}
+
+export function endBatchSchedule(
+  batchId: string,
+  revision: number,
+  action: 'unschedule' | 'cancel',
+) {
+  return post(`/batches/${batchId}/${action}`, { revision }, writeSchema);
+}
+
+/** POST /batches/:id/resolve: Apply upcoming / Keep current per conflicted field. */
+export function resolveActivationConflict(
+  batchId: string,
+  hash: number,
+  expectedCurrent: string | null,
+  choices: Record<string, 'upcoming' | 'current'>,
+) {
+  return post(
+    `/batches/${batchId}/resolve`,
+    { hash, expectedCurrent, choices },
+    writeSchema.extend({ tooltip: tooltipSchema.nullable() }),
+  );
+}
+
+/** POST /batches/:id/kick: re-trigger an overdue batch. */
+export function kickBatch(batchId: string) {
+  return post(
+    `/batches/${batchId}/kick`,
+    {},
+    z.looseObject({ batchId: z.string(), status: z.string() }),
+  );
 }
