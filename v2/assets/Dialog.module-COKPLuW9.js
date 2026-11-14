@@ -1,0 +1,1 @@
+const o="_dialog_1ba9s_1",s="_compact_1ba9s_137",_="_form_1ba9s_141",c="_hint_1ba9s_146",t="_caption_1ba9s_155",a="_header_1ba9s_169",e="_body_1ba9s_176",n="_closeMark_1ba9s_180",b="_footer_1ba9s_184",l="_close_1ba9s_180",r="_closeText_1ba9s_241",d={dialog:o,compact:s,form:_,hint:c,caption:t,header:a,body:e,closeMark:n,footer:b,close:l,closeText:r};export{d as s};
