@@ -19,7 +19,7 @@ import {
   type Tooltip,
   type CompendiumCell,
 } from '@clarity/core';
-import { approvalEvidence } from './approvalEvidence';
+import { approvalEvidence, mayHaveApprovalEvidence } from './approvalEvidence';
 import { usePreparedPaneDiff } from './usePreparedPaneDiff';
 import { CompendiumPaneSkeleton, rememberPaneSkeleton } from './CompendiumPaneSkeleton';
 import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compendiumDiffCache';
@@ -127,7 +127,8 @@ function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep():
       if (
         owner.activeElement !== owner.body &&
         owner.activeElement?.isConnected &&
-        !owner.activeElement.matches(':disabled') &&
+        // The header's Link stays painted while the entry is pending, but takes no clicks.
+        !owner.activeElement.matches(':disabled, [aria-disabled="true"]') &&
         !owner.activeElement.closest('[hidden], [inert]')
       )
         return;
@@ -153,7 +154,7 @@ function InlineLinkPicker({ children, onStep }: { children: ReactNode; onStep():
 }
 
 /** Compendium zoom (70–150 %), kept on this device: − / value / +. */
-function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
+function ScaleControl() {
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const updateDevice = useSettingsStore((state) => state.updateDevice);
   const index = Math.max(0, compendiumScales.indexOf(scale as (typeof compendiumScales)[number]));
@@ -161,19 +162,14 @@ function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
     updateDevice({ compendiumScale: compendiumScales[index + by] ?? scale });
   return (
     <span className={styles.scale} role="group" aria-label="Compendium zoom">
-      <button
-        type="button"
-        aria-label="Smaller"
-        disabled={disabled || index === 0}
-        onClick={() => step(-1)}
-      >
+      <button type="button" aria-label="Smaller" disabled={index === 0} onClick={() => step(-1)}>
         −
       </button>
       <output aria-live="polite">{scale}%</output>
       <button
         type="button"
         aria-label="Larger"
-        disabled={disabled || index === compendiumScales.length - 1}
+        disabled={index === compendiumScales.length - 1}
         onClick={() => step(1)}
       >
         +
@@ -182,7 +178,10 @@ function ScaleControl({ disabled = false }: { disabled?: boolean } = {}) {
   );
 }
 
-/** Let the editor finish its frame's DOM reads before replacing the rich pane. */
+/**
+ * Let the editor finish its frame's DOM reads before replacing the rich pane. Also returns
+ * whether the handoff frame for `base` is scheduled: from then on the pane may render.
+ */
 function usePaneFrame(
   base: Tooltip,
   prepare: (signal: AbortSignal) => Promise<void> | false | undefined,
@@ -190,12 +189,15 @@ function usePaneFrame(
   stepping: boolean,
 ) {
   const [ready, setReady] = useState(base);
+  const [scheduledFor, setScheduledFor] = useState<Tooltip>();
   const committed = useRef(base);
   const frame = useRef<number>();
   const generation = useRef(0);
   // A frame callback can fire just before a newer navigation render. Its queued
   // update must not make that superseded tooltip visible, even for one commit.
   const displayed = !stepping && ready === base ? base : committed.current;
+  // A later visit to the same entry schedules its own frame again.
+  if (displayed === base && scheduledFor) setScheduledFor(undefined);
   useLayoutEffect(() => {
     committed.current = displayed;
   }, [displayed]);
@@ -225,17 +227,23 @@ function usePaneFrame(
         else flushSync(() => setReady(base));
       });
       frame.current = scheduled;
+      setScheduledFor(base);
     };
     const preparation = prepare(controller.signal);
     if (preparation) void preparation.then(schedule, schedule);
     else if (preparation !== false) schedule();
     return () => {
       controller.abort();
-      if (scheduled !== undefined) cancelAnimationFrame(scheduled);
+      if (scheduled !== undefined) {
+        cancelAnimationFrame(scheduled);
+        // A canceled attempt is not a scheduled handoff: returning to this entry (even the same
+        // object) must schedule, and restart the skeleton's grace, again.
+        setScheduledFor((current) => (current === base ? undefined : current));
+      }
       if (frame.current === scheduled) frame.current = undefined;
     };
   }, [base, displayed, prepare, concurrent, stepping]);
-  return displayed;
+  return [displayed, scheduledFor === base] as const;
 }
 
 export function CompendiumPanel({
@@ -342,7 +350,7 @@ export function CompendiumPanel({
     },
     [awaitingMatch, comparison, diffMode, stepping],
   );
-  const displayed = usePaneFrame(
+  const [displayed, handoffScheduled] = usePaneFrame(
     base,
     prepare,
     !!comparison && !sameCell(comparison.before, comparison.after),
@@ -377,6 +385,7 @@ export function CompendiumPanel({
     <PaneContents
       base={displayed}
       pending={displayed !== base}
+      handoffScheduled={handoffScheduled}
       stepping={stepping}
       pendingBase={incomingBase}
       target={target ?? incomingBase.hash}
@@ -388,6 +397,7 @@ export function CompendiumPanel({
           : incomingLink
       }
       pendingDraft={!!drafts[incomingBase.hash]?.next.compendium}
+      pendingBefore={!stepping ? comparison?.before : undefined}
       pendingCell={!stepping ? (comparison?.after ?? incomingMatch?.row.cell) : undefined}
       link={retainedLink.current.value}
       draft={!!draft && !!link}
@@ -405,11 +415,13 @@ export function CompendiumPanel({
 const PaneContents = memo(function PaneContents({
   base,
   pending: navigating,
+  handoffScheduled,
   stepping,
   pendingBase,
   target,
   pendingLink,
   pendingDraft,
+  pendingBefore,
   pendingCell,
   link,
   draft,
@@ -421,11 +433,14 @@ const PaneContents = memo(function PaneContents({
 }: {
   base: Tooltip;
   pending: boolean;
+  /** The pane's frame for the incoming entry is scheduled (its preparation is done). */
+  handoffScheduled: boolean;
   stepping: boolean;
   pendingBase: Tooltip;
   target: number;
   pendingLink: Tooltip['compendium'];
   pendingDraft: boolean;
+  pendingBefore?: CompendiumCell;
   pendingCell?: CompendiumCell;
   link: Tooltip['compendium'];
   draft: boolean;
@@ -575,9 +590,21 @@ const PaneContents = memo(function PaneContents({
   const skeletonBurst = useRef<Burst>();
   if (burst.current?.moved) skeletonBurst.current ??= burst.current;
   if (skeletonBurst.current) skeletonBurst.current.clock ??= { holders: new Set() };
+  // After one step the pane may render once its handoff frame is scheduled (match and diff
+  // prepared). Counted only from the step's end, the skeleton's two frames ran ahead of the
+  // pane's own frame callback in the same frame, so a pane that committed before that frame's
+  // paint still got a skeleton and its 200 ms minimum. Until the skeleton shows, scheduling the
+  // handoff restarts its grace (a new identity), so the pane's frame comes first.
+  const shown = useRef(false);
+  const stepIdentity = useRef({ target, scheduled: handoffScheduled });
+  if (
+    stepIdentity.current.target !== target ||
+    (!shown.current && stepIdentity.current.scheduled !== handoffScheduled)
+  )
+    stepIdentity.current = { target, scheduled: handoffScheduled };
   const showSkeleton = useSkeletonVisible(
     waiting && (!stepping || !!burst.current?.moved || !hasContent.current),
-    skeletonBurst.current ?? target,
+    skeletonBurst.current ?? stepIdentity.current,
     hasContent.current,
     skeletonBurst.current?.clock,
   );
@@ -585,7 +612,8 @@ const PaneContents = memo(function PaneContents({
   const holding = waiting || showSkeleton;
   useLayoutEffect(() => {
     if (!holding) skeletonBurst.current = undefined;
-  }, [holding]);
+    shown.current = showSkeleton;
+  }, [holding, showSkeleton]);
   useLayoutEffect(() => {
     if (stepping) wasStepping.current = true;
     else if (!waiting) wasStepping.current = false;
@@ -603,50 +631,56 @@ const PaneContents = memo(function PaneContents({
   }, [waiting, base.hash, compendium?.fetchedAt, comparisonBefore, comparisonAfter]);
 
   const diffToggle = <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} />;
+  // One header for the loaded and the loading pane, so its controls stay painted and unchanged
+  // through every entry switch (U-OWN1). Sheet colours, zoom, and the diff view are device
+  // settings and never disable; Link keeps its look and only ignores clicks while the entry is
+  // pending (`locked`), since it acts on the entry.
+  const paneHeader = (comparison: boolean, linked: boolean, locked: boolean) => (
+    <RightPaneHeader title="Compendium">
+      {comparison && roomy && diffToggle}
+      {canEdit && (
+        <button
+          type="button"
+          className={styles.headerButton}
+          aria-disabled={locked || undefined}
+          aria-pressed={picking}
+          aria-label={picking ? 'Close picker' : linked ? 'Pick other row' : 'Link a row'}
+          onClick={() => {
+            if (locked) return;
+            // A second click before the picker commits cancels the open, as Close would.
+            if (cancelOpen.current) {
+              cancelOpen.current();
+              cancelOpen.current = undefined;
+            } else if (picking) setPicking(false);
+            else {
+              let opened = false;
+              const cancel = openLinkPickerSoon(
+                item?.categoryId ?? 'other',
+                item?.name ?? base.custom?.name ?? '',
+                () => {
+                  opened = true;
+                  cancelOpen.current = undefined;
+                  setPicking(true);
+                },
+              );
+              if (!opened) cancelOpen.current = cancel;
+            }
+          }}
+        >
+          {picking ? 'Close' : linked ? 'Relink' : 'Link'}
+        </button>
+      )}
+      <SheetColoursToggle />
+      <ScaleControl />
+    </RightPaneHeader>
+  );
   const pane = (
     <RightPane
       className={styles.pane}
       busy={pending}
       label={`Compendium for ${item?.name ?? base.hash}`}
       bodyRef={bodyRef}
-      header={
-        <RightPaneHeader title="Compendium">
-          {(match || approved) && roomy && diffToggle}
-          {canEdit && (
-            <button
-              type="button"
-              className={styles.headerButton}
-              disabled={pending}
-              aria-pressed={picking}
-              aria-label={picking ? 'Close picker' : link ? 'Pick other row' : 'Link a row'}
-              onClick={() => {
-                // A second click before the picker commits cancels the open, as Close would.
-                if (cancelOpen.current) {
-                  cancelOpen.current();
-                  cancelOpen.current = undefined;
-                } else if (picking) setPicking(false);
-                else {
-                  let opened = false;
-                  const cancel = openLinkPickerSoon(
-                    item?.categoryId ?? 'other',
-                    item?.name ?? base.custom?.name ?? '',
-                    () => {
-                      opened = true;
-                      cancelOpen.current = undefined;
-                      setPicking(true);
-                    },
-                  );
-                  if (!opened) cancelOpen.current = cancel;
-                }
-              }}
-            >
-              {picking ? 'Close' : link ? 'Relink' : 'Link'}
-            </button>
-          )}
-          <SheetColoursToggle />
-          <ScaleControl />
-        </RightPaneHeader>
-      }
+      header={paneHeader(!!(match || approved), !!link, pending)}
     >
       <div
         className={styles.zoom}
@@ -936,11 +970,16 @@ const PaneContents = memo(function PaneContents({
       </div>
     </RightPane>
   );
+  // The header's entry-specific parts (diff view switch, Link or Relink) as last shown: a hold
+  // keeps them until the next entry's content replaces it on screen, so neither a flick's
+  // passing targets nor a match resolving under the skeleton blink them.
+  const shownHeader = useRef<{ comparison: boolean; linked: boolean }>();
   useLayoutEffect(() => {
     if (!waiting) {
       retainedPane.current = pane;
       hasContent.current = true;
     }
+    if (!holding) shownHeader.current = { comparison: !!(match || approved), linked: !!link };
   });
   if (!holding) return pane;
   if (!stepping && !wasStepping.current && !showSkeleton)
@@ -956,23 +995,24 @@ const PaneContents = memo(function PaneContents({
   const previous = retainedPane.current;
   const oldContent = previous?.props.children;
   const pendingItem = data && itemFor(pendingBase.hash, data);
-  const loadingHeader = (
-    <RightPaneHeader title="Compendium">
-      {pendingLink && roomy && (
-        <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
-      )}
-      {canEdit && (
-        <button type="button" disabled>
-          {pendingLink ? 'Relink' : 'Link'}
-        </button>
-      )}
-      <SheetColoursToggle disabled />
-      <ScaleControl disabled />
-    </RightPaneHeader>
-  );
+  // A matched entry with approval evidence compares like a link: reserve its switch and rows.
+  const expectComparison =
+    !!pendingLink ||
+    !!pendingBefore ||
+    (!!pendingItem &&
+      mayHaveApprovalEvidence(pendingBase.hash, pendingItem.name, pendingItem.categoryId));
+  const loadingHeader = shownHeader.current
+    ? paneHeader(shownHeader.current.comparison, shownHeader.current.linked, true)
+    : paneHeader(expectComparison, !!pendingLink, true);
+  // The skeleton stands for the route's entry, which can be ahead of the incoming document.
+  const targetItem = data && itemFor(target, data);
   return cloneElement(previous ?? pane, {
     busy: true,
-    label: `Compendium for ${pendingItem?.name ?? pendingBase.hash}`,
+    // The pane's name follows what it shows: the held entry until the skeleton replaces it.
+    label:
+      showSkeleton || !previous
+        ? `Compendium for ${targetItem?.name ?? target}`
+        : previous.props.label,
     header: loadingHeader,
     children: (
       <>
@@ -987,7 +1027,9 @@ const PaneContents = memo(function PaneContents({
             base={pendingBase}
             link={pendingLink}
             draft={pendingDraft}
+            before={pendingBefore}
             after={pendingCell}
+            expectComparison={expectComparison}
             sourceFetchedAt={compendium?.fetchedAt}
             width={width}
             scale={scale}
@@ -997,9 +1039,7 @@ const PaneContents = memo(function PaneContents({
             canEdit={canEdit}
             canReview={canReview}
             roomy={roomy}
-            diffControl={
-              <CompendiumDiffModeToggle mode={diffMode} onChange={setDiffMode} disabled />
-            }
+            diffControl={diffToggle}
           />
         )}
       </>

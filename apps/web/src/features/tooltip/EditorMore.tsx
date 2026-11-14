@@ -6,6 +6,18 @@ import type { GroupedPerk } from './grouping';
 import type { OverrideTarget } from './EditorPaneHeader';
 import styles from './EditorMore.module.scss';
 
+/** The way back from queue mode to its list (the phone's More sheet). */
+export interface QueueBack {
+  to: string;
+  /** What the list shows ("German, all categories"; "Bungie drift"). */
+  label: string;
+  /** The row's words; "Back to queue" by default. */
+  text?: string;
+  /** History state for the list (its filters, selection, and scroll). */
+  state?: unknown;
+  onClick?(): void;
+}
+
 /**
  * Phones: the editor's rarely used tools in one bottom sheet, in place of the inline buttons the
  * desktop tool row keeps. Every row calls the same handler as the button it replaces. Rendered
@@ -32,8 +44,8 @@ export function EditorMore({
   /** The enhanced overrides to open (empty while one is open: its way back stays in the row). */
   overrides: OverrideTarget[];
   onEditOverride(hash: number): void;
-  /** Queue mode: the way back to the Translations queue and what it shows. */
-  queueBack?: { to: string; label: string };
+  /** Queue mode: the way back to the queue's list and what it shows. */
+  queueBack?: QueueBack;
   renderGrouped(perks: GroupedPerk[]): React.ReactNode;
   /** The tools that overflowed the row (the rest are inline); undefined: every tool. */
   rows?: ReadonlySet<ToolId>;
@@ -123,8 +135,15 @@ export function EditorMore({
             ))}
             {queueBack && (
               <li>
-                <Link to={queueBack.to} onClick={() => close(false)}>
-                  <span>Back to queue</span>
+                <Link
+                  to={queueBack.to}
+                  state={queueBack.state}
+                  onClick={() => {
+                    queueBack.onClick?.();
+                    close(false);
+                  }}
+                >
+                  <span>{queueBack.text ?? 'Back to queue'}</span>
                   <small>{queueBack.label}</small>
                 </Link>
               </li>

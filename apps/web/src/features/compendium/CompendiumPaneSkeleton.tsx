@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { CompendiumCell, Tooltip } from '@clarity/core';
+import { sameCell, type CompendiumCell, type Tooltip } from '@clarity/core';
 import {
   SkeletonLine,
   SkeletonRegion,
@@ -14,7 +14,7 @@ import styles from './Compendium.module.scss';
 const shapes = new WeakMap<CompendiumCell, SkeletonTextShape>();
 const entries = new Map<
   number,
-  { revision?: string; before?: SkeletonTextShape; after: SkeletonTextShape }
+  { revision?: string; before?: SkeletonTextShape; after: SkeletonTextShape; differs: boolean }
 >();
 function shapeFor(cell: CompendiumCell) {
   let shape = shapes.get(cell);
@@ -40,7 +40,12 @@ export function rememberPaneSkeleton(
 ) {
   if (!after) return;
   if (entries.size >= 64) entries.delete(entries.keys().next().value!);
-  entries.set(hash, { revision, before: before && shapeFor(before), after: shapeFor(after) });
+  entries.set(hash, {
+    revision,
+    before: before && shapeFor(before),
+    after: shapeFor(after),
+    differs: !!before && !sameCell(before, after),
+  });
 }
 
 function Cell({
@@ -68,7 +73,9 @@ export function CompendiumPaneSkeleton({
   base,
   link,
   draft,
+  before: incomingBefore,
   after,
+  expectComparison = false,
   sourceFetchedAt,
   width,
   scale,
@@ -83,7 +90,11 @@ export function CompendiumPaneSkeleton({
   base: Tooltip;
   link: Tooltip['compendium'];
   draft: boolean;
+  /** The incoming comparison's earlier cell, when the pane already knows it. */
+  before?: CompendiumCell;
   after?: CompendiumCell;
+  /** The entry has approval evidence, so its loaded pane will most likely compare. */
+  expectComparison?: boolean;
   sourceFetchedAt?: string;
   width?: number;
   scale: number;
@@ -99,8 +110,13 @@ export function CompendiumPaneSkeleton({
   const previous = cached?.revision === sourceFetchedAt ? cached : undefined;
   const snapshot = link && shapeFor(link.snapshot);
   const current = after ? shapeFor(after) : (previous?.after ?? snapshot);
-  const before = snapshot ?? previous?.before;
-  const comparison = !!before;
+  const before =
+    snapshot ?? (incomingBefore ? shapeFor(incomingBefore) : previous?.before) ?? undefined;
+  // The loaded pane reserves the view switch (narrow panes) for every comparison, and the
+  // legend only when the cells differ.
+  const comparison = !!before || expectComparison;
+  const differs =
+    incomingBefore && after ? !sameCell(incomingBefore, after) : (previous?.differs ?? false);
   const twoColumns = comparison && mode === 'before-after';
   const bodyWidth = width && width > 0 ? width : 384;
   const columnWidth = twoColumns && !phone ? (bodyWidth - remPx) / 2 : bodyWidth;
@@ -134,11 +150,13 @@ export function CompendiumPaneSkeleton({
       )}
       <SkeletonRegion key="status" className={styles.skeletonStatus}>
         <SkeletonLine width={58} />
-        {/* The sheet source link sits on its own line under the notice. */}
-        {(link || after) && <SkeletonLine width={46} />}
+        {/* The sheet source link sits on its own line under the notice. Reserved before the
+            match is known too: a matched entry (the common case) shows it, and an entry with no
+            row loses the whole sheet cell anyway. */}
+        <SkeletonLine width={46} />
       </SkeletonRegion>
       {comparison && !roomy && <div className={styles.diffModes}>{diffControl}</div>}
-      {comparison && mode === 'changes' && (
+      {comparison && differs && mode === 'changes' && (
         <SkeletonRegion key="legend" className={styles.key}>
           <SkeletonLine width={85} />
         </SkeletonRegion>
@@ -147,7 +165,7 @@ export function CompendiumPaneSkeleton({
         <div key="comparison" className={styles.comparison}>
           <section>
             <h4>Snapshot</h4>
-            <Cell scale={scale} shape={before} textWidth={textWidth} />
+            <Cell scale={scale} shape={before ?? current} textWidth={textWidth} />
           </section>
           <section>
             <h4>Current</h4>

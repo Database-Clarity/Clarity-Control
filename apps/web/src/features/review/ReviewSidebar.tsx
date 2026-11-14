@@ -1,5 +1,5 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { publisherEnabled } from '../../services/publisher/flag';
 import { activeHashes, usePublishState } from './publishDriver';
@@ -8,6 +8,10 @@ import { useReviewQueue } from './queueStore';
 import { ReviewQueue } from './ReviewQueue';
 import { useReviewSession } from './session';
 import type { PendingTooltip } from './model';
+import { useDataStore } from '../../stores/data';
+import { WorkThroughBar } from '../queue/WorkThroughBar';
+import { reviewItem } from '../queue/reviewRows';
+import { reviewStamp, type ReviewRestore } from '../queue/sources';
 import styles from './ReviewQueue.module.scss';
 
 /** Hashes inside a publish that is still queued or being sent; they cannot be picked again. */
@@ -61,6 +65,19 @@ export function ReviewSidebar() {
       if (!markerOnly && !seen.has(categoryId)) seen.set(categoryId, category);
     return [...seen];
   }, [entries]);
+  const data = useDataStore((state) => state.data);
+  const selected = useReviewQueue((state) => state.selected);
+  const anchor = useRef<HTMLDivElement>(null);
+  // The rows the list shows (collapsed groups hide theirs), as queue items, in the list's order.
+  const shownItems = useMemo(
+    () =>
+      view && data
+        ? view.ordered
+            .filter(({ tooltip }) => view.shown.has(tooltip.hash))
+            .map((entry) => reviewItem(entry, data))
+        : [],
+    [view, data],
+  );
   const update = (nextQuery: string, nextCategory: string) =>
     setSearchParams(filterParams(searchParams, entries ?? [], nextQuery, nextCategory), {
       replace: true,
@@ -93,6 +110,31 @@ export function ReviewSidebar() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div ref={anchor} className={styles.workThrough}>
+              <WorkThroughBar
+                source="review"
+                selected={shownItems.filter((item) => selected.has(item.hash))}
+                shown={shownItems}
+                restore={
+                  {
+                    query,
+                    category: categoryFilter,
+                    hash: searchParams.get('hash'),
+                    collapsed: [...collapsed],
+                    markerOpen,
+                    selected: [...selected],
+                    stamps: Object.fromEntries(
+                      [...selected].map((hash) => [
+                        hash,
+                        data ? reviewStamp(data.bundle.tooltips[hash], data.aliases) : 'gone',
+                      ]),
+                    ),
+                  } satisfies Omit<ReviewRestore, 'scroll'>
+                }
+                anchor={anchor}
+                dense
+              />
             </div>
             {view && view.items.length ? (
               <ReviewQueue

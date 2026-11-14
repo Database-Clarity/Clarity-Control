@@ -36,7 +36,11 @@ vi.mock('./TooltipNavigation', () => ({
     ),
 }));
 
-const editorData = { bundle: { sourceCommit: 'fixture' } } as unknown as EditorData;
+// The fields the Review column reads for its entries (Work through stamps them): tooltips and aliases.
+const editorData = {
+  bundle: { sourceCommit: 'fixture', tooltips: {} },
+  aliases: {},
+} as unknown as EditorData;
 let host: HTMLDivElement;
 let root: Root;
 

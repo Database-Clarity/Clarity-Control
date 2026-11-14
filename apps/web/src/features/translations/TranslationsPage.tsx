@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { canonicalHash } from '../navigation/catalog';
@@ -26,12 +26,19 @@ import {
   parseStateFilter,
   queueFor,
   translationIndex,
+  type QueueFilters,
   type QueueRow,
   type TranslationIndex,
 } from './queue';
-import { availableLanguages, entryPath, queueState } from './worklist';
+import { availableLanguages, entryPath, queuePath, queueSummary } from './worklist';
+import { newQueueId, visitState } from '../queue/model';
+import type { TranslationsRestore } from '../queue/sources';
+import { startQueue } from '../queue/start';
+import { translationItem } from '../queue/translationRows';
+import { returnedState } from '../queue/WorkThroughBar';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './TranslationsPage.module.scss';
+import { useLeftQueue } from '../queue/useQueue';
 
 const searchDelayMs = 200;
 const noRows: readonly QueueRow[] = [];
@@ -106,6 +113,7 @@ function Coverage({
 }
 
 export function TranslationsPage() {
+  useLeftQueue();
   const data = useDataStore((state) => state.data);
   const { user, loading } = useAuthStore();
   const [params, setParams] = useSearchParams();
@@ -120,6 +128,11 @@ export function TranslationsPage() {
   const deferredText = useDeferredValue(text);
   const [coverageOpen, setCoverageOpen] = useState(false);
   const phone = useMedia(phoneQuery);
+  // Leave from the editor's queue brings the list's position and selected row back.
+  const returned = returnedState<TranslationsRestore>(useLocation().state);
+  // The queue a row opens: its id rides in the row link's state, and the queue itself starts in
+  // the click, with the rows shown at that moment (frozen from then on).
+  const [pendingId] = useState(newQueueId);
 
   // The URL is the source of truth; typing is debounced into it so every key is not a navigation.
   useEffect(() => setText(query), [query]);
@@ -164,9 +177,43 @@ export function TranslationsPage() {
   const linkTo = useCallback(
     (row: QueueRow) => ({
       to: entryPath(row, data ? canonicalHash(row.hash, data) : row.hash),
-      state: queueState(shownFilters, row.hash),
+      state: visitState({ id: pendingId, key: row.key }),
     }),
-    [data, shownFilters],
+    [data, pendingId],
+  );
+  const startAt = useCallback(
+    (
+      first: QueueRow,
+      filters: QueueFilters,
+      rows: readonly QueueRow[],
+      top: number,
+      id?: string,
+    ) => {
+      const view = { language: language!, ...filters };
+      const categoryLabel = (id: string) =>
+        index?.categories.find((entry) => entry.id === id)?.label ?? id;
+      return startQueue({
+        id,
+        source: 'translations',
+        scope: 'shown',
+        items: rows.map((row) => translationItem(row, data!)),
+        first: translationItem(first, data!),
+        origin: {
+          path: queuePath(view, user),
+          restore: {
+            ...view,
+            top,
+            selectedRow: first.key,
+            summary: queueSummary(view, languageLabel, categoryLabel),
+          } satisfies TranslationsRestore,
+        },
+      });
+    },
+    [language, index, data, user],
+  );
+  const onOpen = useCallback(
+    (row: QueueRow, top: number) => startAt(row, shownFilters, shown, top, pendingId),
+    [startAt, shownFilters, shown, pendingId],
   );
   // The state buttons count what the category filter leaves, like the coverage table.
   const counts = useMemo(
@@ -190,9 +237,9 @@ export function TranslationsPage() {
     // Back must return to this filter, so it is in the URL before the editor opens.
     if (text !== query) commitText();
     rememberOpenedFirst(`${language}|${state}|${category}|${text}`, first.key);
-    void navigate(entryPath(first, canonicalHash(first.hash, data!)), {
-      state: queueState({ state, category, query: text }, first.hash),
-    });
+    const filters = { state, category, query: text };
+    const { to, state: visit } = startAt(first, filters, filterRows(rows, filters), 0);
+    void navigate(to, { state: visit });
   };
   const pick = (lang: Lang) => {
     setCoverageOpen(false);
@@ -336,6 +383,14 @@ export function TranslationsPage() {
               signature={signature}
               rows={shown}
               linkTo={linkTo}
+              onOpen={onOpen}
+              restored={
+                returned &&
+                `${returned.language}|${returned.state}|${returned.category}|${returned.query}` ===
+                  signature
+                  ? { top: returned.top, selected: returned.selectedRow }
+                  : undefined
+              }
               label={`${languageLabel(language)} tooltips to translate`}
             />
           ) : (
