@@ -66,6 +66,7 @@ import {
   ConflictPanel,
   GlyphPanel,
   IssuesPanel,
+  ParityPanel,
   CursorStatusBar,
   type PreviewStatus,
   type StatusPanel,
@@ -226,12 +227,17 @@ export interface ClarityEditorProps {
   sourceText?: string;
 }
 
+/** The reference host's live getters, plus the English a translation is checked against. */
+type EditorReferences = Omit<ReferenceHost, 'lang' | 'globals'> & {
+  sourceText(): string | undefined;
+};
+
 function configuration(
   lang: Lang,
   globals: MarkupGlobals,
   readOnly: boolean,
   requireEnglish: boolean,
-  references: Omit<ReferenceHost, 'lang' | 'globals'>,
+  references: EditorReferences,
   onSuggest: (snapshot: SuggestSnapshot | null) => void,
   chips: { acceptKey(): SuggestAccept; onChange(chip: Chip | null): void },
 ) {
@@ -248,7 +254,13 @@ function configuration(
     }),
     suggestConfiguration({ globals, onChange: onSuggest }),
     chipHost.of({ globals, ...chips }),
-    validationDiagnostics(lang, globals, requireEnglish, references.selfHash),
+    validationDiagnostics(
+      lang,
+      globals,
+      requireEnglish,
+      references.selfHash,
+      references.sourceText,
+    ),
     referenceExtensions({ ...references, lang, globals }),
     globalFindExtension({ ...references, lang, globals }),
   ];
@@ -406,11 +418,13 @@ export function ClarityEditor({
   });
   const [cursor] = useState(createCursorPosition);
   const [tagMode] = useState(createTagSelectionStore);
-  const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip });
-  const references = useRef<Omit<ReferenceHost, 'lang' | 'globals'>>({
+  const parityText = lang === 'en' ? undefined : sourceText;
+  const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip, parityText });
+  const references = useRef<EditorReferences>({
     sources: () => referenceLive.current.referenceSources,
     selfHash: () => referenceLive.current.tooltipHash,
     navigate: () => referenceLive.current.onOpenTooltip,
+    sourceText: () => referenceLive.current.parityText,
   });
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
   initial.current = { value, lang, globals, readOnly, requireEnglish };
@@ -428,6 +442,7 @@ export function ClarityEditor({
       globals,
       requireEnglish,
       selfHash: tooltipHash,
+      sourceText: parityText,
     },
     !suspended,
   );
@@ -596,8 +611,8 @@ export function ClarityEditor({
       setSymbolReveal(view.current, symbolReveal);
   }, [symbolReveal, suspended]);
   useLayoutEffect(() => {
-    referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip };
-  }, [tooltipHash, referenceSources, onOpenTooltip]);
+    referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip, parityText };
+  }, [tooltipHash, referenceSources, onOpenTooltip, parityText]);
   useEffect(() => {
     if (suspended || view.current || !host.current) return;
     const initialConfiguration = config.current.of(
@@ -892,6 +907,7 @@ export function ClarityEditor({
 
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   const retiredCount = diagnostics.retired.length;
+  const parityCount = diagnostics.parity.length;
   // A panel for something that has gone away closes itself.
   // The issues panel closes for good at zero issues (a later issue never reopens it over the text);
   // focus it held goes back to the text.
@@ -905,6 +921,7 @@ export function ClarityEditor({
     (panel === 'glyphs' && glyphCount === 0) ||
     (panel === 'conflicts' && conflictCount === 0) ||
     (panel === 'retired' && retiredCount === 0) ||
+    (panel === 'parity' && parityCount === 0) ||
     (panel === 'issues' && issues.length === 0)
       ? null
       : panel;
@@ -999,6 +1016,7 @@ export function ClarityEditor({
           />
         )}
         {open === 'issues' && <IssuesPanel issues={issues} onClose={closeAndFocus} />}
+        {open === 'parity' && <ParityPanel gaps={diagnostics.parity} onClose={closeAndFocus} />}
         {(open === 'help' || helpParked) && (
           <Suspense fallback={null}>
             <MarkupHelp
@@ -1070,6 +1088,7 @@ export function ClarityEditor({
         issues={issues}
         glyphCount={glyphCount}
         retiredCount={retiredCount}
+        parityCount={parityCount}
         cursor={cursor}
         preview={preview}
         conflicts={

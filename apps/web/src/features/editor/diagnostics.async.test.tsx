@@ -64,6 +64,7 @@ const answer = async (text: string, message: string) =>
         issues: message ? [{ severity: 'warning', message, from: 0, to: text.length }] : [],
         glyphs: [],
         retired: [],
+        parity: [],
       });
   });
 const advance = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));

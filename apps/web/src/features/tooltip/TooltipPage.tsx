@@ -64,7 +64,7 @@ import { ManifestTextRow } from '../manifest/ManifestTextRow';
 import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
-import { canPushLive } from '../auth/permissions';
+import { canEditLanguage, canPushLive } from '../auth/permissions';
 import { DraftLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
 import { requireEnglish } from './requireEnglish';
@@ -794,6 +794,12 @@ function TooltipWorkspace({
               key={`${activeHash}:${lang}`}
               text={activeTooltip.text.en?.text}
               diff={englishDiffFor(activeBase, lang, translation?.state)}
+              terms={{
+                lang,
+                enabled: !readOnly && canEditLanguage(user, lang),
+                canInsert: access.reason === null,
+                stepping: suspended,
+              }}
             />
           )
         }

@@ -1,4 +1,6 @@
+import type { Lang } from '@clarity/core';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
+import { TermLayer } from '../terms/TermLayer';
 import { EnglishDiffContent } from '../translations/EnglishDiff';
 import { useSettingsStore } from '../../stores/settings';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
@@ -13,10 +15,16 @@ export function TranslationSource({
   text,
   diff,
   hash,
+  terms,
 }: {
   text: string | undefined;
   hash?: number;
   diff?: { hash: number; sourceUpdatedAt: string; current: string };
+  /**
+   * Official game names over the current English (TR2): `enabled` for a language the account may
+   * translate (its names file loads lazily), `canInsert` while the translation can be edited.
+   */
+  terms?: { lang: Lang; enabled: boolean; canInsert: boolean; stepping: boolean };
 }) {
   const remembered = useSettingsStore((state) => state.device.remembered.englishSource);
   const fallback = useSettingsStore((state) => state.settings.englishSource);
@@ -50,6 +58,16 @@ export function TranslationSource({
     >
       {diff && showChanges ? (
         <EnglishDiffContent {...diff} />
+      ) : text && terms && hash !== undefined ? (
+        <TermLayer
+          lang={terms.lang}
+          hash={hash}
+          enabled={terms.enabled}
+          canInsert={terms.canInsert}
+          stepping={terms.stepping}
+        >
+          <ReadingTooltip text={text} hash={hash} />
+        </TermLayer>
       ) : text ? (
         <ReadingTooltip text={text} hash={hash} />
       ) : (

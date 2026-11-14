@@ -71,6 +71,7 @@ export function validationDiagnostics(
   globals: MarkupGlobals,
   requireEnglish = true,
   selfHash: () => number | undefined = () => undefined,
+  sourceText: () => string | undefined = () => undefined,
 ) {
   if (!hasDiagnosticWorker())
     return EditorView.decorations.compute(['doc'], (state) =>
@@ -103,6 +104,9 @@ export function validationDiagnostics(
             globals,
             requireEnglish,
             selfHash: selfHash(),
+            // The same input as the status bar's request (useEditorDiagnostics), so both share
+            // one worker job per text.
+            sourceText: sourceText(),
           };
           const apply = (issues: readonly ValidationIssue[]) => {
             if (!this.alive || this.revision !== revision || view.state.doc !== doc) return;

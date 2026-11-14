@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { aliasesSchema, sandboxConflictsFile, sandboxConflictsSchema } from '@clarity/core';
 import { fetchJson } from './http';
 
-const source =
+export const generatorSource =
   'https://raw.githubusercontent.com/Database-Clarity/Description-data-generator/v2/templates/v2';
+const source = generatorSource;
 
 export {
   categorySchema,

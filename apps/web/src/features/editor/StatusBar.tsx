@@ -13,8 +13,10 @@ import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clari
 import styles from './StatusBar.module.scss';
 import type { CursorPositionStore } from './cursorPosition';
 import { keyOf } from './help/reference';
+import { describeGap, type ParityGap } from './parity';
 
-export type StatusPanel = 'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff';
+export type StatusPanel =
+  'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff' | 'parity';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -152,6 +154,7 @@ export function StatusBar({
   validating = false,
   glyphCount,
   retiredCount = 0,
+  parityCount = 0,
   line,
   column,
   preview,
@@ -169,6 +172,8 @@ export function StatusBar({
   glyphCount: number;
   /** Retired markup forms in the text (core/validation/retired.ts); each is also a warning. */
   retiredCount?: number;
+  /** What the English has that the translation lacks (TR1, parity.ts); 0 for English. */
+  parityCount?: number;
   line: number;
   column: number;
   preview?: PreviewStatus;
@@ -208,6 +213,7 @@ export function StatusBar({
       issues.length,
       retiredCount,
       glyphCount,
+      parityCount,
       conflicts?.count ?? 0,
       rawView !== undefined && Boolean(onRawView),
       Boolean(onSuggest),
@@ -338,6 +344,27 @@ export function StatusBar({
               <span aria-hidden="true">⚠</span> {retiredCount}{' '}
               <span className={styles.long}>retired markup</span>
               <span className={`${styles.short} ${styles.roomy}`}>retired</span>
+            </span>
+          </button>
+        )}
+        {parityCount > 0 && (
+          <button
+            type="button"
+            className={styles.item}
+            data-severity="warning"
+            data-status-parity
+            aria-expanded={panel === 'parity'}
+            aria-controls="editor-panel-parity"
+            title="Icons, variables, numbers, or lines the English has and this translation lacks; saving is allowed"
+            aria-label={`${parityCount} ${parityCount === 1 ? 'difference' : 'differences'} from English`}
+            onClick={() => toggle('parity')}
+          >
+            <span>
+              <span aria-hidden="true">⚠</span> {parityCount}{' '}
+              <span className={styles.long}>
+                {parityCount === 1 ? 'differs' : 'differ'} from English
+              </span>
+              <span className={`${styles.short} ${styles.roomy}`}>vs English</span>
             </span>
           </button>
         )}
@@ -596,6 +623,22 @@ export function IssuesPanel({
           </li>
         ))}
         {issues.length > 50 && <li>{issues.length - 50} more issues highlighted in the editor.</li>}
+      </ul>
+    </Overlay>
+  );
+}
+
+/** The parity warnings (TR1): one line per thing the translation has fewer of than the English. */
+export function ParityPanel({ gaps, onClose }: { gaps: readonly ParityGap[]; onClose(): void }) {
+  return (
+    <Overlay id="editor-panel-parity" label="Differences from English" onClose={onClose}>
+      <p className={styles.lead}>The English has these and this translation does not yet.</p>
+      <ul aria-label="Differences from English">
+        {gaps.map((gap) => (
+          <li key={`${gap.kind}:${gap.key}`} data-severity="warning" data-parity={gap.kind}>
+            {describeGap(gap)}
+          </li>
+        ))}
       </ul>
     </Overlay>
   );
