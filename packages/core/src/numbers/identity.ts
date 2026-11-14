@@ -1,4 +1,5 @@
 import { diffArrays } from 'diff';
+import { lowerConsumerMarkup } from '../markup/braces.js';
 import {
   numberProse,
   numberSlots,
@@ -87,6 +88,17 @@ export function alignSlots(before: string, after: string): SlotAlignment {
   if (numberTemplate(before, old) === numberTemplate(after, next)) {
     old.forEach((_, index) => keep(index, index, 'value'));
     result.kind = result.changed.length ? 'value' : 'same';
+    return result;
+  }
+  // Approved markup-only exception: preserve ids only with identical consumer bytes
+  // and an identical ordered list of slot kinds and values.
+  if (
+    old.length === next.length &&
+    old.every((slot, i) => slot.kind === next[i].kind && slot.value === next[i].value) &&
+    lowerConsumerMarkup(before) === lowerConsumerMarkup(after)
+  ) {
+    old.forEach((_, index) => keep(index, index, 'value'));
+    result.kind = 'same';
     return result;
   }
   const oldLines = units(numberProse(before), old),

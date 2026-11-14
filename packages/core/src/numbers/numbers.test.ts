@@ -92,6 +92,27 @@ describe('number grammar', () => {
 
 describe('stable number identity', () => {
   it.each([
+    ['Deals 10 #e damage.', 'Deals 10 <enhanced/> damage.'],
+    ['Deals 10 #d damage.', 'Deals 10 #{d} damage.'],
+    ['<solar/>Scorch 10 damage.', '<solar Scorch /> 10 damage.'],
+  ])('preserves ordered ids on an exact markup-only respelling: %s', (before, after) => {
+    const alignment = alignSlots(before, after);
+    expect([...alignment.map]).toEqual([[0, 0]]);
+    expect(alignment.kind).toBe('same');
+    expect(alignment.changed).toEqual([]);
+    const old = tooltip(before, 'Schaden #{=1}.');
+    const next = update(old, after);
+    expect(next.text.en!.numbers).toBeUndefined();
+  });
+  it('does not apply the markup-only exception when a number changes too', () => {
+    const before = 'Deals 10 #e damage.',
+      after = 'Deals 20 <enhanced/> damage.';
+    expect(alignSlots(before, after).map.size).toBe(0);
+    expect(update(tooltip(before, 'Schaden #{=1}.'), after).text.en!.numbers?.retired[1]).toBe(
+      '10',
+    );
+  });
+  it.each([
     [
       'owner value-only',
       'Grants 5 stacks. Each lasts 5 seconds.',
@@ -277,6 +298,48 @@ describe('maps, validation, and export', () => {
 });
 
 describe('proven carry and carry-aware merge', () => {
+  it.each([
+    '#{=1}스택을 얻습니다. 최대 5스택.',
+    '#{=1}秒間持続（基本5秒間）。',
+    '#{=1} Stapel (5fach).',
+    '#{=1}层，最多5层。',
+  ])('refuses an old literal embedded in translated words: %s', (text) => {
+    const old = tooltip('Grants 5 stacks.', text);
+    expect(
+      canCarryNumbers(old.text.en!, update(old, 'Grants 6 stacks.').text.en!, old.text.de!),
+    ).toBe(false);
+  });
+  it('refuses a typed old formula result adjacent to CJK characters', () => {
+    const old = tooltip(
+      'var d = 5\nDeals ${#d*2} damage.',
+      'var d = #{=1}\n造成#{=2}点伤害（即10点）。',
+    );
+    expect(
+      canCarryNumbers(
+        old.text.en!,
+        update(old, 'var d = 6\nDeals ${#d*2} damage.').text.en!,
+        old.text.de!,
+      ),
+    ).toBe(false);
+  });
+  it('ignores old literals in comments, without joining digits across removed tokens', () => {
+    const old = tooltip('Grants 5 stacks.', '#{=1} Stapel. // 5fach');
+    const next = update(old, 'Grants 6 stacks.');
+    expect(canCarryNumbers(old.text.en!, next.text.en!, old.text.de!)).toBe(true);
+    expect(canCarryNumbers(old.text.en!, next.text.en!, translated('5#{=1}0'))).toBe(false);
+  });
+  it('keeps the complete head map on a retry of identical authored English', () => {
+    const base = tooltip('Damage 5.', 'Schaden #{=1}.');
+    const head = update(base, 'Grants 3 and 5 damage.');
+    const retry = structuredClone(head);
+    delete retry.text.en!.numbers;
+    retry.text.en!.updatedAt = '2026-11-03T00:00:00.000Z';
+    expect(head.text.en!.numbers?.retired[1]).toBe('5');
+    expect(merge3(base, head, retry)).toEqual({ ok: true, merged: head });
+    const stale = structuredClone(retry);
+    stale.text.en!.numbers = { ids: [7, 8], next: 9, retired: {} };
+    expect(merge3(base, head, stale)).toEqual({ ok: true, merged: head });
+  });
   it('tracks a changed var value when its digits also appear in the variable name', () => {
     const old = tooltip('Damage ${#d5*2}.\nvar d5 = 5', '10 Schaden\nvar d5 = #{=2}');
     const next = update(old, 'Damage ${#d5*2}.\nvar d5 = 6');

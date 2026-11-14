@@ -1,4 +1,4 @@
-import { numberSlots } from '../markup/numberSlots.js';
+import { numberProse } from '../markup/numberSlots.js';
 import { markupConditions, prepareMarkup } from '../markup/prepare.js';
 import type { LangText, Tooltip } from '../schemas.js';
 import { formulaLocals, numberVariables } from './freeze.js';
@@ -67,11 +67,10 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
         .flatMap(numericLiterals)
         .forEach((value) => oldValues.add(value));
   }
-  const literalText = translation.text.replace(/#\{=[^}\n]*(?:}|$)/gm, '');
+  const literalText = numberProse(translation.text).replace(/#\{=[^}\n]*(?:}|$)/gm, ' ');
   // Check both readings of commas: ambiguity can prevent carry, never falsely prove it.
   for (const source of [literalText, literalText.replace(/(\d),(?=\d)/g, '$1.')])
-    for (const slot of numberSlots(source))
-      if (numericLiterals(slot.value).some((value) => oldValues.has(value))) return false;
+    if (numericLiterals(source).some((value) => oldValues.has(value))) return false;
   return true;
 }
 

@@ -78,14 +78,11 @@ export function merge3(base: Tooltip, head: Tooltip, next: Tooltip): MergeResult
         Date.parse(entry.sourceUpdatedAt ?? '') > Date.parse(oldEnglish.updatedAt) &&
         Date.parse(entry.updatedAt) <= Date.parse(english.updatedAt),
       );
-    const edited =
-      language !== 'en' && original && theirs && mine
-        ? carried(theirs, head.text.en) && mine.text !== original.text
-          ? mine
-          : carried(mine, next.text.en) && theirs.text !== original.text
-            ? theirs
-            : undefined
-        : undefined;
+    let edited: LangText | undefined;
+    if (language !== 'en' && original && theirs && mine) {
+      if (carried(theirs, head.text.en) && mine.text !== original.text) edited = mine;
+      else if (carried(mine, next.text.en) && theirs.text !== original.text) edited = theirs;
+    }
     if (edited && oldEnglish && text.en) {
       text[language] = canCarryNumbers(oldEnglish, text.en, edited)
         ? { ...edited, sourceUpdatedAt: text.en.updatedAt }
@@ -97,7 +94,8 @@ export function merge3(base: Tooltip, head: Tooltip, next: Tooltip): MergeResult
       base.text[language],
       head.text[language],
       next.text[language],
-      (entry) => (language === 'en' ? { text: entry.text, numbers: entry.numbers } : entry.text),
+      // Retries keep the complete saved entry, including its authoritative number map.
+      (entry) => entry.text,
     );
     if (value !== undefined) text[language] = value;
   }
