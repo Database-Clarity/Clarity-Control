@@ -37,6 +37,38 @@ export interface RepoFile {
   sha: string;
   value: unknown;
 }
+
+/** A names-only directory entry; `entries` is set when the entry is a directory listed deeper. */
+export interface TreeNode {
+  name: string;
+  entries?: TreeNode[];
+}
+
+/**
+ * Parses a names-only `file(path){object{... on Tree{entries{...}}}}` selection (see
+ * publishSnapshot `trees`). null: the path is missing or is not a directory. Hand-written rather
+ * than a recursive zod schema: listings can hold thousands of names, and this runs in request CPU.
+ */
+function treeNodes(raw: unknown, depth: number): TreeNode[] | null {
+  const bad = () => new HttpError(502, 'Invalid GitHub tree listing');
+  const list = (object: unknown, level: number): TreeNode[] | null => {
+    if (object === null || typeof object !== 'object') throw bad();
+    const entries = (object as { entries?: unknown }).entries;
+    if (entries === undefined) return null; // a blob, not a directory
+    if (!Array.isArray(entries)) throw bad();
+    return entries.map((entry: unknown) => {
+      const { name, object: child } = (entry ?? {}) as { name?: unknown; object?: unknown };
+      if (typeof name !== 'string' || !name) throw bad();
+      if (level <= 1 || child === undefined || child === null) return { name };
+      const nested = list(child, level - 1);
+      return nested ? { name, entries: nested } : { name };
+    });
+  };
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'object') throw bad();
+  const object = (raw as { object?: unknown }).object;
+  return object === null || object === undefined ? null : list(object, depth);
+}
 export interface BlobRef {
   ref: string;
   path: string;
@@ -304,22 +336,47 @@ export class GitHub {
     return this.blobs(paths.map((path) => ({ ref, path })));
   }
 
-  /** One head and its files, all selected through that Commit. No fallback reads: bounded. */
-  async publishSnapshot(paths: readonly string[], oidOnly: readonly string[] = []) {
-    if (paths.length > 41 || paths.some((p) => !pathPattern.test(p) || p.includes('..')))
+  /**
+   * One head and its files, all selected through that Commit. No fallback reads: bounded.
+   * `trees` adds names-only listings of directories at the same Commit (no blob text, no oids),
+   * `depth` levels deep, in the SAME GraphQL subrequest; a missing directory lists as null.
+   */
+  async publishSnapshot(
+    paths: readonly string[],
+    oidOnly: readonly string[] = [],
+    trees: readonly { path: string; depth: number }[] = [],
+  ) {
+    const invalid = (p: string) => !pathPattern.test(p) || p.includes('..') || p.includes('//');
+    if (
+      paths.length + trees.length > 41 ||
+      paths.some(invalid) ||
+      trees.some(
+        ({ path, depth }) => invalid(path) || !Number.isInteger(depth) || depth < 1 || depth > 3,
+      )
+    )
       throw new HttpError(400, 'Invalid publish paths');
-    const selections = paths
-      .map(
+    const entries = (depth: number): string =>
+      `entries{name${depth > 1 ? ` object{... on Tree{${entries(depth - 1)}}}` : ''}}`;
+    const selections = [
+      ...paths.map(
         (path, i) =>
           `o${i}:file(path:$p${i}){object{... on Blob{${oidOnly.includes(path) ? 'oid' : 'oid isTruncated text'}}}}`,
-      )
-      .join(' ');
+      ),
+      ...trees.map(
+        ({ depth }, i) => `t${i}:file(path:$t${i}){object{... on Tree{${entries(depth)}}}}`,
+      ),
+    ].join(' ');
     const variables: Record<string, string> = {
       owner: this.env.GITHUB_OWNER,
       name: this.env.GITHUB_REPO,
       branch: `refs/heads/${this.env.DATA_BRANCH}`,
     };
     paths.forEach((p, i) => (variables[`p${i}`] = p));
+    trees.forEach(({ path }, i) => (variables[`t${i}`] = path));
+    const declarations = [
+      ...paths.map((_, i) => `$p${i}:String!`),
+      ...trees.map((_, i) => `$t${i}:String!`),
+    ].join(',');
     const repository = z
       .object({
         ref: z.object({
@@ -333,7 +390,7 @@ export class GitHub {
       })
       .parse(
         await this.graphql(
-          `query($owner:String!,$name:String!,$branch:String!,${paths.map((_, i) => `$p${i}:String!`).join(',')}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
+          `query($owner:String!,$name:String!,$branch:String!,${declarations}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
           variables,
         ),
       );
@@ -352,7 +409,8 @@ export class GitHub {
         throw new HttpError(502, 'Publish metadata is too large or unreadable');
       return { sha: entry.object.oid, value: parseJsonFile(entry.object.text, path) };
     });
-    return { head: target.oid, tree: target.tree.oid, files };
+    const listed = trees.map(({ depth }, i) => treeNodes(target[`t${i}`], depth));
+    return { head: target.oid, tree: target.tree.oid, files, trees: listed };
   }
 
   /**
