@@ -76,7 +76,11 @@ export async function hasUnpublishedInactiveMove(
   aliases: Aliases,
   moves: InactiveMoves,
 ): Promise<boolean> {
-  if (!Object.keys(selectedInactiveMoves(moves, [hash], aliases)).length) return false;
+  const selected = Object.values(selectedInactiveMoves(moves, [hash], aliases));
+  if (!selected.length) return false;
+  // Moving a never-published item in and back out has no live decision to review.
+  // A published removal still has a pushed marker and must use Review to re-add text.
+  if (!snapshot && !pushed && selected.every((move) => move.inactive === false)) return false;
   if (isMovedInactive(hash, moves) || !snapshot || !pushed) return true;
   return (await inactivePublishableHash(snapshot, aliases, moves)) !== pushed;
 }

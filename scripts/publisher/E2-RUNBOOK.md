@@ -25,6 +25,7 @@ rewrite a published commit or infer author credits from an unsigned receipt fiel
 ## Install dry-run pipeline (root operator in E2)
 
 Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precondition](README.md#arrow-symbol-rollout-precondition).
+While `config/inactive.json` is non-empty, never roll back to a PIN without `inactiveMoves`.
 
 Template source PIN: `8ca4014eaf992d66b3acc56fcefc7ef1bde2eeb7`.
 Expected publisher.mjs SHA-256: `60c343c5571d0ede5eaa40031850fb842bacac40ec755741f5b5a1e229404b39`.

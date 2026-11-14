@@ -64,9 +64,12 @@ try {
           { scale, theme },
         );
         // Font changes settle through the tool row's ResizeObserver before layout assertions.
-        await page.evaluate(() => new Promise((resolve) => {
-          window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
-        }));
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => {
+              window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+            }),
+        );
         const trigger = page.getByRole('button', { name: 'Move to Inactive', exact: true });
         if (width <= 700) {
           assert.equal(await trigger.count(), 0, `${label}: move stays in More`);
@@ -98,20 +101,23 @@ try {
         };
         await openMove('Move to Inactive');
         const dialog = page.getByRole('dialog', { name: 'Move to Inactive', exact: true });
-        const input = dialog.locator('input');
-        await input.waitFor({ state: 'visible' });
-        await page.waitForFunction(() => !document.querySelector('[role=dialog] input').disabled);
+        const confirm = dialog.getByRole('button', { name: 'Move', exact: true });
+        await confirm.waitFor({ state: 'visible' });
+        await page.waitForFunction(() => {
+          const dialog = document.querySelector('[role=dialog][aria-label="Move to Inactive"]');
+          return [...dialog.querySelectorAll('button')].some(
+            (button) => button.textContent === 'Move' && !button.disabled,
+          );
+        });
         assert.equal(
-          await dialog
-            .getByRole('button', { name: 'Cancel', exact: true })
-            .evaluate((node) => node === document.activeElement),
+          await dialog.evaluate(
+            (node) =>
+              node.contains(document.activeElement) && document.activeElement.tagName === 'DIV',
+          ),
           true,
-          `${label}: Cancel focus`,
+          `${label}: explanation focus`,
         );
-        const confirm = dialog.getByRole('button', { name: 'Stop exporting', exact: true });
-        assert.equal(await confirm.isDisabled(), true, `${label}: empty confirmation`);
-        await input.fill('Hammerhead');
-        await confirm.focus();
+        assert.equal(await dialog.locator('input').count(), 0, `${label}: no typed-name step`);
         await page.keyboard.press('Enter');
         await page.keyboard.press('Space');
         assert.equal(
@@ -163,10 +169,31 @@ try {
         await page.keyboard.press('Escape');
         assert.equal(await dialog.count(), 0, `${label}: Escape`);
         await openMove('Move to Inactive');
-        await page.waitForFunction(() => !document.querySelector('[role=dialog] input').disabled);
-        assert.equal(await input.inputValue(), '', `${label}: reset`);
-        await input.fill('Hammerhead');
-        await confirm.click();
+        await page.waitForFunction(() => {
+          const dialog = document.querySelector('[role=dialog][aria-label="Move to Inactive"]');
+          return [...dialog.querySelectorAll('button')].some(
+            (button) => button.textContent === 'Move' && !button.disabled,
+          );
+        });
+        // Native browser activation: opening keys cannot confirm; Tab must reach Move first.
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('Space');
+        assert.equal(await page.evaluate(() => window.inactiveQA.writes), 0, `${label}: reopen`);
+        await page.keyboard.press('Tab');
+        assert.equal(
+          await dialog
+            .getByRole('button', { name: 'Cancel', exact: true })
+            .evaluate((node) => node === document.activeElement),
+          true,
+          `${label}: first Tab reaches Cancel`,
+        );
+        await page.keyboard.press('Tab');
+        assert.equal(
+          await confirm.evaluate((node) => node === document.activeElement),
+          true,
+          `${label}: Tab reaches Move`,
+        );
+        await page.keyboard.press('Enter');
         await page.waitForFunction(() => window.inactiveQA.writes === 1);
         await page
           .getByRole('note')
@@ -203,8 +230,27 @@ try {
         }
         await openMove('Move out of Inactive');
         const restore = page.getByRole('dialog', { name: 'Move out of Inactive', exact: true });
-        await restore.locator('input').fill('Hammerhead');
-        await restore.getByRole('button', { name: 'Resume exporting', exact: true }).click();
+        const restoreMove = restore.getByRole('button', { name: 'Move', exact: true });
+        await page.waitForFunction(() => {
+          const dialog = document.querySelector('[role=dialog][aria-label="Move out of Inactive"]');
+          return [...dialog.querySelectorAll('button')].some(
+            (button) => button.textContent === 'Move' && !button.disabled,
+          );
+        });
+        await page.keyboard.press('Space');
+        assert.equal(
+          await page.evaluate(() => window.inactiveQA.writes),
+          1,
+          `${label}: restore opening Space`,
+        );
+        await page.keyboard.press('Tab');
+        await page.keyboard.press('Tab');
+        assert.equal(
+          await restoreMove.evaluate((node) => node === document.activeElement),
+          true,
+          `${label}: Tab reaches restore Move`,
+        );
+        await page.keyboard.press('Space');
         await page
           .getByRole('note')
           .filter({ hasText: 'Inactive — excluded from outputs' })
@@ -215,7 +261,15 @@ try {
           2,
           `${label}: move in/out`,
         );
-        results.push({ label, layout, moveInOut: true, keysBlocked: true, editable: true });
+        results.push({
+          label,
+          layout,
+          moveInOut: true,
+          openingKeysBlocked: true,
+          tabEnterConfirms: true,
+          tabSpaceRestores: true,
+          editable: true,
+        });
         await context.close();
       }
   for (const width of [768, 1024, 1280, 1440])

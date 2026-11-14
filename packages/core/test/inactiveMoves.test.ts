@@ -4,6 +4,7 @@ import {
   activeAliases,
   exportWithInactiveMoves,
   inactivePublishableHash,
+  inactiveRemovalHash,
   selectedInactiveMoves,
   applyInactiveLive,
   hasUnpublishedInactiveMove,
@@ -54,6 +55,24 @@ it('admits batches only after their canonical and alias move decisions are alrea
   );
   expect(await hasUnpublishedInactiveMove(42, tooltip(), original, aliases, aliasOut)).toBe(false);
   expect(await hasUnpublishedInactiveMove(42, tooltip(), original, aliases, moves)).toBe(true);
+});
+
+it('allows never-published move-outs without admitting a published removal or active exclusion', async () => {
+  const out = { 42: { ...moves[42]!, inactive: false as const } };
+  expect(await hasUnpublishedInactiveMove(42, null, undefined, aliases, out)).toBe(false);
+  const removed = await inactiveRemovalHash(42);
+  expect(await hasUnpublishedInactiveMove(42, null, removed, aliases, out)).toBe(true);
+  expect(await hasUnpublishedInactiveMove(42, tooltip(), removed, aliases, out)).toBe(true);
+  expect(await hasUnpublishedInactiveMove(42, null, undefined, aliases, moves)).toBe(true);
+  expect(
+    await hasUnpublishedInactiveMove(42, null, undefined, aliases, { ...out, 77: moves[42]! }),
+  ).toBe(true);
+  expect(
+    await hasUnpublishedInactiveMove(42, null, undefined, aliases, {
+      ...out,
+      77: { ...moves[42]!, inactive: false },
+    }),
+  ).toBe(false);
 });
 
 it('removes selected live rows and old stubs, while unrelated staged decisions stay unpublished', () => {

@@ -10,7 +10,7 @@ import { useAuthStore } from '../../stores/auth';
 import { Popover } from '../../ui/Popover';
 import styles from './InactiveMoveControl.module.scss';
 
-/** A deliberate, typed confirmation. Only Cancel gets automatic focus from Popover. */
+/** Focus the explanation first; confirming requires navigating to the Move button. */
 export function InactiveMoveControl({
   hash,
   name,
@@ -29,7 +29,7 @@ export function InactiveMoveControl({
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
   const [open, setOpen] = useState(false);
-  const [typed, setTyped] = useState('');
+  const explanation = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState<LoadedInactiveMoves | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +38,6 @@ export function InactiveMoveControl({
   const confirmationName = name.trim() || `Tooltip ${hash}`;
   const allowed = !!apiUrl && user?.role === 'maintainer' && (hash < 1 || hash > 3);
   useEffect(() => {
-    setTyped('');
     setLoaded(null);
     setError(null);
     if (!open || !allowed) return;
@@ -57,8 +56,11 @@ export function InactiveMoveControl({
   useEffect(() => {
     setOpen(false);
   }, [hash, user, token]);
+  useEffect(() => {
+    if (open) explanation.current?.focus();
+  }, [open]);
   const save = async () => {
-    if (!allowed || !loaded || typed !== confirmationName || savingRef.current) return;
+    if (!allowed || !loaded || savingRef.current) return;
     const identity = useAuthStore.getState();
     savingRef.current = true;
     setSaving(true);
@@ -73,7 +75,6 @@ export function InactiveMoveControl({
       setError(reason instanceof Error ? reason.message : 'Cannot save inactive move');
       // A conflict requires closing and reopening for a fresh revision and confirmation.
       setLoaded(null);
-      setTyped('');
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -112,7 +113,7 @@ export function InactiveMoveControl({
       className={[className, moved && styles.moved].filter(Boolean).join(' ')}
     >
       {(close) => (
-        <div className={styles.confirm}>
+        <div className={styles.confirm} ref={explanation} tabIndex={-1}>
           <strong>
             {moved ? 'Resume exporting' : 'Stop exporting'} {confirmationName}?
           </strong>
@@ -122,20 +123,6 @@ export function InactiveMoveControl({
               : 'It moves to Inactive & Placeholders immediately. Its text leaves every output (including DIM, light.gg, and clarityV2) on the next publish of this row. Its alias stubs are removed too. Text stays editable here.'}
           </p>
           <p>Importers must stop reading its text, or move to Inactive too, before publishing.</p>
-          <label>
-            Type “{confirmationName}” to continue
-            <input
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={!loaded || saving}
-              onPaste={(event) => event.preventDefault()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') event.preventDefault();
-              }}
-            />
-          </label>
           {error && (
             <p role="alert" className={styles.error}>
               {error.replace(/[.!?]?$/, '.')} Close and reopen to reload, then try again.
@@ -143,20 +130,17 @@ export function InactiveMoveControl({
           )}
           {!loaded && !error && <p role="status">Loading current moves…</p>}
           <div className={styles.actions}>
-            <button type="button" data-autofocus onClick={() => close()}>
+            <button type="button" onClick={() => close()}>
               Cancel
             </button>
             <button
               type="button"
-              disabled={!loaded || typed !== confirmationName || saving}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') event.preventDefault();
-              }}
+              disabled={!loaded || saving}
               onClick={() => {
                 void save();
               }}
             >
-              {saving ? 'Saving…' : moved ? 'Resume exporting' : 'Stop exporting'}
+              {saving ? 'Saving…' : 'Move'}
             </button>
           </div>
         </div>

@@ -49,14 +49,6 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
-async function type(value: string) {
-  await act(async () => {
-    const input = document.querySelector('input')!;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-}
-
 it.each([1, 2, 3])('hides the inactive action for required global %s', async (hash) => {
   await render(hash);
   expect(host.textContent).toBe('');
@@ -70,33 +62,34 @@ it('hides the action and reads nothing for non-maintainers', async () => {
   expect(getInactiveMoves).not.toHaveBeenCalled();
 });
 
-it('requires an explicit identity even for an item with an empty manifest name', async () => {
+it('names an item with an empty manifest name in the confirmation', async () => {
   await act(async () => root.render(<InactiveMoveControl hash={42} name=" " onSaved={saved} />));
   await click('Move to Inactive');
-  expect(button('Stop exporting').disabled).toBe(true);
-  await type('Tooltip 42');
-  expect(button('Stop exporting').disabled).toBe(false);
+  expect(document.querySelector('[role=dialog]')!.textContent).toContain('Tooltip 42');
+  expect(document.querySelector('input')).toBeNull();
 });
 
-it('requires exact typing, safely focuses Cancel, and ignores autopilot activation', async () => {
+it('focuses the explanation, ignores autopilot keys there, and permits focused Move keys', async () => {
   await render();
   await click('Move to Inactive');
-  expect(document.activeElement).toBe(button('Cancel'));
-  expect(button('Stop exporting').disabled).toBe(true);
-  await click('Stop exporting');
-  expect(putInactiveMove).not.toHaveBeenCalled();
-  await type('Test');
-  expect(button('Stop exporting').disabled).toBe(true);
-  await type('Test perk');
-  expect(button('Stop exporting').disabled).toBe(false);
+  const explanation = document.activeElement!;
+  expect(explanation.tagName).toBe('DIV');
+  expect(explanation.closest('[role=dialog]')).not.toBeNull();
+  expect(button('Move').disabled).toBe(false);
   for (const key of ['Enter', ' ']) {
     const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
-    expect(button('Stop exporting').dispatchEvent(event)).toBe(false);
+    explanation.dispatchEvent(event);
   }
   expect(putInactiveMove).not.toHaveBeenCalled();
+  button('Move').focus();
+  for (const key of ['Enter', ' ']) {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    expect(button('Move').dispatchEvent(event)).toBe(true);
+  }
+  // jsdom has no native keyboard activation; the browser regression checks Tab + Enter/Space.
   await act(async () => {
-    button('Stop exporting').click();
-    button('Stop exporting').click();
+    button('Move').click();
+    button('Move').click();
   });
   expect(putInactiveMove).toHaveBeenCalledExactlyOnceWith(42, true, null);
   expect(saved).toHaveBeenCalledWith(moved);
@@ -113,12 +106,11 @@ it('keeps a containing tools menu mounted when the pointer confirms its nested m
   );
   await click('Tools');
   await click('Move to Inactive');
-  await type('Test perk');
   await act(async () => {
-    button('Stop exporting').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    button('Move').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
   });
   expect(document.querySelectorAll('[role=dialog]')).toHaveLength(2);
-  await click('Stop exporting');
+  await click('Move');
   expect(putInactiveMove).toHaveBeenCalledExactlyOnceWith(42, true, null);
   expect(saved).toHaveBeenCalledWith(moved);
 });
@@ -128,7 +120,6 @@ it.each(['Escape', 'Back', 'Cancel'])(
   async (action) => {
     await render();
     await click('Move to Inactive');
-    await type('Test perk');
     await act(async () => {
       if (action === 'Back') window.dispatchEvent(new PopStateEvent('popstate'));
       else if (action === 'Cancel') button('Cancel').click();
@@ -137,8 +128,8 @@ it.each(['Escape', 'Back', 'Cancel'])(
     expect(document.querySelector('[role=dialog]')).toBeNull();
     expect(putInactiveMove).not.toHaveBeenCalled();
     await click('Move to Inactive');
-    expect(document.querySelector('input')!.value).toBe('');
-    expect(button('Stop exporting').disabled).toBe(true);
+    expect(document.activeElement?.tagName).toBe('DIV');
+    expect(button('Move').disabled).toBe(false);
   },
 );
 
@@ -146,19 +137,17 @@ it('reads the fresh move state and uses the loaded revision for move-out', async
   vi.mocked(getInactiveMoves).mockResolvedValue({ moves: moved, revision: 'b'.repeat(40) });
   await render();
   await click('Move to Inactive');
-  await type('Test perk');
-  await click('Resume exporting');
+  await click('Move');
   expect(putInactiveMove).toHaveBeenCalledWith(42, false, 'b'.repeat(40));
 });
 
 it('closes on role switch and item change, and makes conflicts require a fresh confirmation', async () => {
   await render();
   await click('Move to Inactive');
-  await type('Test perk');
   vi.mocked(putInactiveMove).mockRejectedValueOnce(new Error('Inactive moves changed; reload'));
-  await click('Stop exporting');
+  await click('Move');
   expect(document.querySelector('[role=alert]')!.textContent).toContain('reload');
-  expect(button('Stop exporting').disabled).toBe(true);
+  expect(button('Move').disabled).toBe(true);
   await render(99);
   expect(document.querySelector('[role=dialog]')).toBeNull();
   await click('Move to Inactive');

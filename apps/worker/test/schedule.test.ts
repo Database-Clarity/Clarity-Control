@@ -170,6 +170,18 @@ const schedule = (id = MAINTAINER, extra: Record<string, unknown> = {}) =>
     id,
   );
 
+it('schedules a never-published item moved back out of Inactive', async () => {
+  f.moveData({
+    '.publisher/PIN': { capabilities: ['elementTags', 'scheduledBatches', 'inactiveMoves'] },
+    'config/inactive.json': {
+      123: { by: 1, at: '2026-11-14T00:00:00Z', inactive: false },
+    },
+  });
+  const response = await schedule();
+  expect(response.status).toBe(202);
+  expect(storedBatch().status).toBe('scheduled');
+});
+
 it.each([true, false])(
   'refuses unreviewed inactive decisions when scheduling (inactive=%s)',
   async (inactive) => {
