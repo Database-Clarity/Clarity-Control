@@ -164,9 +164,24 @@ export function ShellOverlay({
     if (!open) return;
     const root = document.getElementById('shell-root');
     const previousOverflow = document.body.style.overflow;
-    const previousInert = root?.getAttribute('inert') ?? null;
+    // The shell turns inert after the opening frame has painted, not in this commit: inert
+    // restyles the whole page, and the focus move below would force that inside the opening
+    // click (7-13 ms at 5x CPU on the Compendium workspace, R15). Focus moves in at once and the
+    // Tab trap below holds it, so only pointer input could reach the page during that one frame,
+    // and an outside press closes the overlay anyway.
+    let previousInert: string | null = null;
+    let applied = false;
+    let frame = 0;
+    let timer = 0;
     if (modal) {
-      root?.setAttribute('inert', '');
+      frame = requestAnimationFrame(() => {
+        timer = window.setTimeout(() => {
+          if (!root) return;
+          previousInert = root.getAttribute('inert');
+          root.setAttribute('inert', '');
+          applied = true;
+        }, 0);
+      });
       if (fill) document.body.style.overflow = 'hidden';
     }
     const outside = (event: MouseEvent | TouchEvent) => {
@@ -182,9 +197,14 @@ export function ShellOverlay({
     return () => {
       document.removeEventListener('mousedown', outside, true);
       if (modal) {
+        // A close before the deferred inert landed cancels it and leaves the shell untouched.
+        cancelAnimationFrame(frame);
+        window.clearTimeout(timer);
         // Put back exactly what was there: another owner may have made the shell inert first.
-        if (previousInert === null) root?.removeAttribute('inert');
-        else root?.setAttribute('inert', previousInert);
+        if (applied) {
+          if (previousInert === null) root?.removeAttribute('inert');
+          else root?.setAttribute('inert', previousInert);
+        }
         document.body.style.overflow = previousOverflow;
       }
     };
