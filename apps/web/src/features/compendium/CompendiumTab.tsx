@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CompendiumPage } from './CompendiumPage';
 import { compendiumChanges } from './tracking';
-import type { CompendiumData } from '@clarity/core';
+import type { CompendiumData, Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
@@ -45,6 +45,7 @@ import {
   reviewedEntries,
 } from './reviewViewCache';
 import { researchSuggestions } from './researchSuggestions';
+import type { CompendiumSuggestion } from './suggestions';
 import { confirmCompendiumSelection } from './selection';
 import { useCompendiumStore } from './store';
 import { useDisplayMatches } from './useDisplayMatches';
@@ -54,6 +55,23 @@ import { groupManifestItems } from './manifestItems';
 import styles from './CompendiumTab.module.scss';
 
 const number = new Intl.NumberFormat('en');
+const noHints: CompendiumSuggestion[] = [];
+type StageLink = NonNullable<Tooltip['compendium']>;
+
+// Opening or closing the picker stage changes none of the detail's props, so the entry behind
+// the stage is not rendered again (nor its blocks rebuilt) for either.
+const Detail = memo(CompendiumDetail);
+
+/**
+ * The stage's picker. Rendered only while the stage is open (PickerStage keeps a closed stage's
+ * contents as they were), so the research hints are computed when the picker is first used.
+ */
+function StagePicker({
+  hints,
+  ...props
+}: Omit<Parameters<typeof LinkPicker>[0], 'suggestions'> & { hints(): CompendiumSuggestion[] }) {
+  return <LinkPicker {...props} suggestions={hints()} />;
+}
 
 type Undo = {
   progress: ReviewProgress;
@@ -265,6 +283,7 @@ function Workspace({
   const pendingTimer = useRef<ReturnType<typeof setTimeout>>();
   const [highlight, setHighlight] = useState(-1);
   const [picker, setPicker] = useState(false);
+  const closePicker = useCallback(() => setPicker(false), []);
   const [message, setMessage] = useState('');
   const [undo, setUndo] = useState<Undo>();
   const clearPending = useCallback(() => {
@@ -339,17 +358,24 @@ function Workspace({
     () => (selected ? (groupManifestItems(editor.items, editor.aliases).get(selected.hash) ?? []) : []),
     [selected, editor.items, editor.aliases],
   );
-  const wantsHints = !!selected && (picker || selected.kind === 'candidates' || selected.kind === 'none');
-  const hints = useMemo(
-    () =>
-      wantsHints && selected && selectedEntry
-        ? researchSuggestions(selected.hash, source, selectedEntry.category, selectedEntry.name)
-        : [],
-    [wantsHints, selected, selectedEntry, source],
-  );
+  // The entry's research hints, computed once per entry on first use: as blocks for entries
+  // without a proposal, and as the picker's suggested places for every entry.
+  const hintHash = selected?.hash;
+  const hintCategory = selectedEntry?.category;
+  const hintName = selectedEntry?.name;
+  const hintsFor = useMemo(() => {
+    let hints: CompendiumSuggestion[] | undefined;
+    return () =>
+      (hints ??=
+        hintHash !== undefined && hintCategory !== undefined && hintName !== undefined
+          ? researchSuggestions(hintHash, source, hintCategory, hintName)
+          : noHints);
+  }, [hintHash, hintCategory, hintName, source]);
+  const blockHints =
+    selected && (selected.kind === 'candidates' || selected.kind === 'none') ? hintsFor() : noHints;
   const blocks = useMemo(
-    () => (selected ? candidateBlocks({ decision, proposal, source, hints }) : []),
-    [selected, decision, proposal, source, hints],
+    () => (selected ? candidateBlocks({ decision, proposal, source, hints: blockHints }) : []),
+    [selected, decision, proposal, source, blockHints],
   );
   const approved = useMemo(() => {
     if (selected?.kind !== 'changed' || !selectedEntry || !blocks[0]) return undefined;
@@ -551,6 +577,60 @@ function Workspace({
     };
   }, [clearPending]);
 
+  // ---- stable props for the detail and the stage, so toggling the picker re-renders neither ----
+  const beforeLinked = (link: StageLink) => {
+    if (selected && selectedEntry)
+      snapshot(selected.hash, [
+        { base: selectedEntry.base, before: selectedEntry.next.compendium, after: link },
+      ]);
+  };
+  const linkedNow = () => {
+    if (!selected || !selectedEntry) return;
+    update((state) => recordDecision(state, selected.hash, selectedEntry.evidence, 'open'));
+    setPicker(false);
+    setMessage(`${selected.name}: link drafted, not saved.`);
+    advanceFrom(selected);
+  };
+  const stage = useRef({ beforeLinked, linked: linkedNow });
+  stage.current = { beforeLinked, linked: linkedNow };
+  const onBeforeLinked = useCallback((link: StageLink) => stage.current.beforeLinked(link), []);
+  const onLinked = useCallback(() => stage.current.linked(), []);
+  const stageBase: Tooltip | undefined = selectedEntry?.base;
+  const stagePicker = useMemo(
+    () =>
+      hintHash !== undefined &&
+      stageBase &&
+      hintName !== undefined &&
+      hintCategory !== undefined ? (
+        <StagePicker
+          key={hintHash}
+          base={stageBase}
+          name={hintName}
+          category={hintCategory}
+          hints={hintsFor}
+          readOnly={!canEdit}
+          onBeforeLinked={onBeforeLinked}
+          onLinked={onLinked}
+        />
+      ) : null,
+    [hintHash, stageBase, hintName, hintCategory, hintsFor, canEdit, onBeforeLinked, onLinked],
+  );
+  const steps = model.steps;
+  const onStep = useCallback(
+    (direction: -1 | 1) => {
+      const to = steps[Math.max(0, stepIndex) + direction];
+      if (to) select(to.hash);
+    },
+    [steps, stepIndex, select],
+  );
+  const onReinclude = useCallback(() => {
+    if (selected) reinclude(selected);
+  }, [selected, reinclude]);
+  const position = useMemo(
+    () => (stepIndex >= 0 ? { index: stepIndex + 1, total: steps.length } : undefined),
+    [stepIndex, steps.length],
+  );
+
   // ---- render ----
   const draftCount = Object.keys(drafts).length;
   const linkedChanges = useMemo(
@@ -620,10 +700,10 @@ function Workspace({
           </div>
         </SkeletonStatus>
       ) : selected ? (
-        <CompendiumDetail
+        <Detail
           row={selected}
           categoryLabel={categoryOf(selected.category)}
-          position={stepIndex >= 0 ? { index: stepIndex + 1, total: model.steps.length } : undefined}
+          position={position}
           manifest={manifestItems}
           currentText={selectedEntry?.next.text.en?.text}
           blocks={blocks}
@@ -633,13 +713,8 @@ function Workspace({
           approved={approved}
           stale={selectedEntry?.stale}
           outsideFilter={fromEditor}
-          onReinclude={
-            selected.kind === 'not-needed' && canEdit !== undefined ? () => reinclude(selected) : undefined
-          }
-          onStep={(direction) => {
-            const to = model.steps[Math.max(0, stepIndex) + direction];
-            if (to) select(to.hash);
-          }}
+          onReinclude={selected.kind === 'not-needed' ? onReinclude : undefined}
+          onStep={onStep}
         />
       ) : (
         <section className={styles.emptyState} aria-label="Nothing to show">
@@ -675,26 +750,8 @@ function Workspace({
         />
       )}
       {selected && selectedEntry && (
-        <PickerStage open={picker} onBack={() => setPicker(false)}>
-          <LinkPicker
-            key={selected.hash}
-            base={selectedEntry.base}
-            name={selectedEntry.name}
-            category={selectedEntry.category}
-            suggestions={hints}
-            readOnly={!canEdit}
-            onBeforeLinked={(link) =>
-              snapshot(selected.hash, [
-                { base: selectedEntry.base, before: selectedEntry.next.compendium, after: link },
-              ])
-            }
-            onLinked={() => {
-              update((state) => recordDecision(state, selected.hash, selectedEntry.evidence, 'open'));
-              setPicker(false);
-              setMessage(`${selected.name}: link drafted, not saved.`);
-              advanceFrom(selected);
-            }}
-          />
+        <PickerStage open={picker} onBack={closePicker}>
+          {stagePicker}
         </PickerStage>
       )}
     </>
