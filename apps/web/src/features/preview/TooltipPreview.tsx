@@ -205,7 +205,12 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
               </span>
             )}
             <span className={styles.pieceName}>
-              <EnglishReveal english={piece} translated={translatedPiece} lang={props.lang} />
+              <EnglishReveal
+                english={piece}
+                translated={translatedPiece}
+                lang={props.lang}
+                showTranslation
+              />
             </span>
           </div>
         )}
@@ -214,7 +219,12 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
           title={name}
           style={{ '--name-em': nameWidthEm(translatedName || name) } as CSSProperties}
         >
-          <EnglishReveal english={name} translated={translatedName} lang={props.lang} />
+          <EnglishReveal
+            english={name}
+            translated={translatedName}
+            lang={props.lang}
+            showTranslation
+          />
         </div>
         {categoryLabel && (
           <div className={styles.category} title={categoryLabel}>

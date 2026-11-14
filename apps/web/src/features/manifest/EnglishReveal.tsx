@@ -7,10 +7,13 @@ export function EnglishReveal({
   english,
   translated,
   lang,
+  showTranslation = false,
 }: {
   english: string;
   translated: string | undefined;
   lang: Lang;
+  /** Names may be ellipsised: keep the full official spelling readable in the reveal. */
+  showTranslation?: boolean;
 }) {
   if (!translated?.trim() || translated === english || lang === 'en') return <>{english}</>;
   return (
@@ -18,11 +21,16 @@ export function EnglishReveal({
       key={`${lang}:${english}`}
       label="English original"
       trigger={<span lang={markupLanguage(lang)}>{translated}</span>}
-      triggerTitle={english}
+      triggerTitle={showTranslation ? `${translated}\n${english}` : english}
       triggerLabel={`${translated} — show English original`}
       className={styles.trigger}
       width={400}
     >
+      {showTranslation && (
+        <div className={`${styles.original} ${styles.translation}`} lang={markupLanguage(lang)}>
+          {translated}
+        </div>
+      )}
       <div className={styles.original} lang="en">
         {english}
       </div>
