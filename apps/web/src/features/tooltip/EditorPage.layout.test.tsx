@@ -537,7 +537,11 @@ describe('editor page composition', () => {
       expect(pane.textContent).toContain('Saved with the English');
       expect(pane.textContent).toContain('Raid Specific');
       const source = pane.querySelector<HTMLAnchorElement>('[data-source-ref]')!;
+      // One link for section and range; no placeholder tab name shown or announced.
+      expect(source.textContent).toContain('Raid Specific');
       expect(source.textContent).toContain('D12');
+      expect(source.textContent).not.toContain('Sheet tab');
+      expect(source.title).toBe('Open in the sheet: Raid Specific · D12');
       expect(source.href).toContain('gid=42');
       expect(host.querySelector('[data-compendium]')).toBeNull();
       const aside = pane.closest('aside')!;

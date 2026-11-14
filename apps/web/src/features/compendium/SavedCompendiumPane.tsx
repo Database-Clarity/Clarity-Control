@@ -1,4 +1,4 @@
-import type { Tooltip } from '@clarity/core';
+import type { CompendiumLink, Tooltip } from '@clarity/core';
 import { useSettingsStore } from '../../stores/settings';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import { When } from '../../ui/When';
@@ -6,7 +6,7 @@ import { CellScale } from './CompendiumDiff';
 import { ScaleControl } from './ScaleControl';
 import { RichCell } from './RichCell';
 import { SheetCell, SheetColoursToggle } from './sheetSurface';
-import { linkLocation } from './sourceLocation';
+import { linkLocation, unknownPosition, type SourceLocation } from './sourceLocation';
 import { SourceRef } from './SourceRef';
 import styles from './Compendium.module.scss';
 
@@ -15,14 +15,12 @@ import styles from './Compendium.module.scss';
  * stored with the last English save (`tooltip.compendium.snapshot`). Never the current sheet,
  * never a diff, never the matcher's candidates, and no live fallback when nothing was saved:
  * this pane fetches nothing and offers no confirm, pick, link, or match action (the Worker
- * refuses translators' Compendium writes regardless). The snapshot carries no tab name, so the
- * source link names its section and range and opens the sheet at that tab.
+ * refuses translators' Compendium writes regardless).
  */
 export function SavedCompendiumPane({ base, name }: { base: Tooltip; name?: string }) {
   const scale = useSettingsStore((state) => state.device.compendiumScale);
   const link = base.compendium;
-  // No source passed: the location is built from the saved link alone (no sheet load).
-  const where = link ? linkLocation(link) : undefined;
+  const where = link ? savedLocation(link) : undefined;
   return (
     <RightPane
       className={styles.pane}
@@ -45,14 +43,11 @@ export function SavedCompendiumPane({ base, name }: { base: Tooltip; name?: stri
       >
         {link && where ? (
           <>
-            <p className={styles.meta}>
+            <p className={`${styles.meta} ${styles.savedMeta}`}>
               <span>
                 Saved with the English <When value={link.snapshotAt} />
               </span>
-              <span>
-                {where.section && `${where.section} · `}
-                <SourceRef location={where} show="range" />
-              </span>
+              <SourceRef location={where} />
             </p>
             <CellScale scale={scale}>
               <SheetCell background={link.snapshot.background}>
@@ -61,9 +56,30 @@ export function SavedCompendiumPane({ base, name }: { base: Tooltip; name?: stri
             </CellScale>
           </>
         ) : (
-          <p className={styles.meta}>No Compendium text was saved with the English yet</p>
+          <p className={`${styles.meta} ${styles.savedEmpty}`}>
+            No Compendium text was saved with the English yet
+          </p>
         )}
       </div>
     </RightPane>
   );
+}
+
+/**
+ * Where the saved snapshot came from, from the saved link alone (no sheet load). The link carries
+ * no tab name, so the one link reads `section · range` (`Compendium sheet · range` without a
+ * section) and opens the sheet at that tab; no placeholder tab name is shown or announced.
+ */
+function savedLocation(link: CompendiumLink): SourceLocation {
+  const { section, range, href, gid, unknown } = linkLocation(link);
+  // The section is the place; a link without one names the sheet itself.
+  const place = section ?? 'Compendium sheet';
+  return {
+    tab: place,
+    range,
+    unknown,
+    gid,
+    href,
+    label: `${place} · ${range ?? unknownPosition}`,
+  };
 }
