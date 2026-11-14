@@ -25121,6 +25121,179 @@ function mergeSandboxPointers(aliases, conflicts, pointers) {
   );
 }
 
+// packages/core/src/inactiveMoves.ts
+init_zod();
+init_contentHash();
+init_languages();
+var inactiveMovesPath = "config/inactive.json";
+var inactiveHashKey = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((value2) => Number(value2) <= 4294967295);
+var inactiveMovesSchema = external_exports.record(
+  inactiveHashKey,
+  external_exports.object({
+    by: external_exports.number().int().positive(),
+    at: external_exports.string().datetime({ offset: true }),
+    note: external_exports.string().trim().max(1e3).optional(),
+    /** Retain a move-out marker so a partial publish can restore this item's stubs. */
+    inactive: external_exports.literal(false).optional()
+  }).strict()
+);
+function isMovedInactive(hash2, moves) {
+  return !!moves && Object.hasOwn(moves, String(hash2)) && moves[String(hash2)]?.inactive !== false;
+}
+function selectedInactiveMoves(moves, hashes, aliases) {
+  const selected = new Set(hashes);
+  return Object.fromEntries(
+    Object.entries(moves).filter(([hash2]) => selected.has(resolveAlias(Number(hash2), aliases)))
+  );
+}
+async function inactivePublishableHash(tooltip, aliases, moves = {}) {
+  if (isMovedInactive(tooltip.hash, moves)) {
+    return inactiveRemovalHash(tooltip.hash);
+  }
+  return publishableHash(tooltip, activeAliases(aliases, moves));
+}
+async function inactiveRemovalHash(hash2) {
+  const bytes = new TextEncoder().encode(stableStringify({ inactive: hash2 }));
+  const digest2 = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest2), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+var activeAliasSnapshots = /* @__PURE__ */ new WeakMap();
+function activeAliases(aliases, moves) {
+  const cached2 = activeAliasSnapshots.get(aliases)?.get(moves);
+  if (cached2) return cached2;
+  const keys = Object.keys(moves);
+  if (!keys.some((key) => isMovedInactive(Number(key), moves))) return aliases;
+  const active = Object.fromEntries(
+    Object.entries(aliases).filter(
+      ([key]) => !isMovedInactive(Number(key), moves) && !isMovedInactive(resolveAlias(Number(key), aliases), moves)
+    ).map(([key, value2]) => {
+      const to = resolveAlias(Number(key), aliases);
+      return [key, to === value2.to ? value2 : { ...value2, to }];
+    })
+  );
+  let snapshots = activeAliasSnapshots.get(aliases);
+  if (!snapshots) activeAliasSnapshots.set(aliases, snapshots = /* @__PURE__ */ new WeakMap());
+  snapshots.set(moves, active);
+  return active;
+}
+function exportWithInactiveMoves(tooltips, now, catalog, aliases = {}, moves = {}) {
+  if (!Object.keys(moves).some((hash2) => isMovedInactive(Number(hash2), moves)))
+    return exportLegacy(tooltips, now, catalog, aliases);
+  for (const hash2 of [1, 2, 3])
+    if (isMovedInactive(hash2, moves))
+      throw new Error(
+        `Global tooltip ${hash2} is a required output input; move it out of Inactive before publishing`
+      );
+  const kept = tooltips.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
+  for (const language of languages2) {
+    const imports = Object.fromEntries(
+      tooltips.map((tooltip) => {
+        const text = usesEnglishFallback(tooltip, language) ? tooltip.text.en : tooltip.text[language];
+        return [tooltip.hash, lowerConsumerMarkup(text?.text ?? "")];
+      })
+    );
+    for (const alias of Object.keys(aliases))
+      imports[alias] = imports[resolveAlias(Number(alias), aliases)] ?? "";
+    for (const tooltip of kept) {
+      for (const hash2 of tooltip.associated)
+        if (isMovedInactive(resolveAlias(hash2, aliases), moves))
+          throw new Error(`Tooltip ${tooltip.hash} associates inactive tooltip ${hash2}`);
+      const text = imports[tooltip.hash];
+      if (!text) continue;
+      const { reads } = validateTextWithReads(
+        text,
+        language,
+        {
+          imports,
+          variables: imports[2] ?? "",
+          titles: imports[3] ?? ""
+        },
+        false,
+        tooltip.hash,
+        aliases
+      );
+      for (const [key, hash2] of reads.imports)
+        if (isMovedInactive(hash2, moves) || isMovedInactive(Number(key), moves))
+          throw new Error(`Tooltip ${tooltip.hash} imports inactive tooltip ${hash2} (${language})`);
+    }
+  }
+  const entries = exportLegacy(kept, now, catalog, aliases);
+  for (const hash2 of Object.keys(moves))
+    if (isMovedInactive(Number(hash2), moves)) delete entries[hash2];
+  return entries;
+}
+function applyInactiveLive(perks, moves, hashes, aliases) {
+  if (!Object.keys(moves).length) return perks;
+  const selected = selectedInactiveMoves(moves, hashes, aliases);
+  const result = { ...perks };
+  const removed = /* @__PURE__ */ new Set();
+  const record2 = (value2) => !!value2 && typeof value2 === "object" && !Array.isArray(value2);
+  const erase = (hash2) => {
+    delete result[hash2];
+    removed.add(hash2);
+  };
+  for (const key of Object.keys(selected)) {
+    const hash2 = Number(key);
+    if (!isMovedInactive(hash2, selected)) continue;
+    if ([1, 2, 3].includes(hash2))
+      throw new Error(`Global tooltip ${hash2} is a required output input`);
+    erase(hash2);
+    if (resolveAlias(hash2, aliases) === hash2) {
+      for (const [stub, value2] of Object.entries(result))
+        if (record2(value2) && value2.aliasOf === hash2 || Object.hasOwn(aliases, stub) && resolveAlias(Number(stub), aliases) === hash2)
+          erase(Number(stub));
+    }
+  }
+  for (const key of Object.keys(moves)) if (!Object.hasOwn(result, key)) removed.add(Number(key));
+  if (!removed.size) return result;
+  const liveAliases = { ...aliases };
+  for (const [key, value2] of Object.entries(perks))
+    if (record2(value2) && typeof value2.aliasOf === "number")
+      liveAliases[key] = { to: value2.aliasOf, kind: "name" };
+  for (const language of languages2)
+    for (const field of ["main", "secondary"]) {
+      const imports = {};
+      for (const [key, value2] of Object.entries(result)) {
+        if (!record2(value2) || "aliasOf" in value2) continue;
+        const editor = value2.editor;
+        if (!record2(editor)) throw new Error(`Invalid live tooltip ${key}`);
+        const translation = editor[language];
+        imports[key] = record2(translation) && typeof translation[field] === "string" ? translation[field] : "";
+      }
+      for (const [key, value2] of Object.entries(result))
+        if (record2(value2) && typeof value2.aliasOf === "number")
+          imports[key] = imports[value2.aliasOf] ?? "";
+      for (const [key, value2] of Object.entries(result)) {
+        if (!record2(value2) || "aliasOf" in value2) continue;
+        if (Array.isArray(value2.associated)) {
+          for (const hash2 of value2.associated)
+            if (typeof hash2 === "number" && (removed.has(hash2) || removed.has(resolveAlias(hash2, liveAliases))))
+              throw new Error(`Tooltip ${key} associates inactive tooltip ${hash2}`);
+        }
+        const text = imports[key];
+        if (!text) continue;
+        const { reads } = validateTextWithReads(
+          text,
+          language,
+          {
+            imports,
+            variables: imports[2] ?? "",
+            titles: imports[3] ?? ""
+          },
+          false,
+          Number(key),
+          liveAliases
+        );
+        for (const [source, hash2] of reads.imports)
+          if (removed.has(hash2) || removed.has(Number(source)))
+            throw new Error(
+              `Tooltip ${key} imports inactive tooltip ${hash2} (${language}, ${field})`
+            );
+      }
+    }
+  return result;
+}
+
 // packages/core/src/index.ts
 init_merge3();
 
@@ -26738,6 +26911,11 @@ var Publisher = class {
       pointers
     );
   }
+  movesAt(tree) {
+    const parsed = inactiveMovesSchema.safeParse(this.read(tree, inactiveMovesPath) ?? {});
+    if (!parsed.success) throw new ConsumerOutputRejected(`Invalid ${inactiveMovesPath}`);
+    return parsed.data;
+  }
   /**
    * The live-merge recompute for a publish from this snapshot (core mergeLivePerks): every key the
    * picks file names, with the same merged aliases the export used. No picks file: none (v2).
@@ -26889,11 +27067,27 @@ var Publisher = class {
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
     const picks = this.pickRecomputeAt(this.git.tree(r.sourceCommit));
-    const merged = { ...live, perks: mergeLivePerks(live.perks, entries, picks) };
+    let perks;
+    try {
+      const sourceTree = this.git.tree(r.sourceCommit);
+      perks = applyInactiveLive(
+        mergeLivePerks(live.perks, entries, picks),
+        this.movesAt(sourceTree),
+        r.entries.map((e) => e.hash),
+        this.aliasesAt(sourceTree)
+      );
+    } catch (error62) {
+      throw new ConsumerOutputRejected(String(error62));
+    }
+    const merged = { ...live, perks };
     const bytes = json3(merged);
     const checkKey = createHash("sha256").update(tree["liveDescriptions.json"]).update(bytes).digest("hex");
     if (!this.checkedOutputs.has(checkKey)) {
-      for (const preset of deployedLegacyPresets) {
+      const hasMoves = Object.keys(this.movesAt(this.git.tree(r.sourceCommit))).length > 0;
+      for (const preset of [
+        ...deployedLegacyPresets,
+        ...hasMoves ? ["clarityV2"] : []
+      ]) {
         const convert = (input2) => {
           try {
             return JSON.parse(new TextDecoder().decode(buildLegacy(input2, preset)));
@@ -27118,6 +27312,7 @@ var Publisher = class {
         if (!r) return;
         candidate = this.createCandidate(opId, blob, live, r);
       } else {
+        const moves = this.movesAt(tree);
         const entries = [], tooltips = [], outcomes = [];
         const seen = /* @__PURE__ */ new Set();
         const blocked = [...new Set(payload.hashes.map((h) => resolveAlias(h, aliases)))].filter(
@@ -27135,18 +27330,24 @@ var Publisher = class {
         }
         for (const hash2 of payload.hashes) {
           const canonical = resolveAlias(hash2, aliases), oid = tree[`tooltips/${canonical}.json`];
-          const tooltip = tooltipSchema.safeParse(oid ? JSON.parse(this.git.blob(oid)) : void 0);
+          const tooltip = tooltipSchema.safeParse(
+            oid ? JSON.parse(this.git.blob(oid)) : isMovedInactive(canonical, moves) ? { hash: canonical, text: {}, associated: [] } : void 0
+          );
           if (!tooltip.success || tooltip.data.hash !== canonical) {
             outcomes.push({ hash: canonical, status: "missing" });
             continue;
           }
-          const digest2 = await publishableHash(tooltip.data, aliases);
+          const digest2 = await inactivePublishableHash(tooltip.data, aliases, moves);
           outcomes.push({
             hash: canonical,
             status: digest2 === payload.expected[hash2] ? "accepted" : "stale"
           });
           if (!seen.has(canonical)) {
-            entries.push({ hash: canonical, digest: digest2, tooltipBlob: oid });
+            entries.push({
+              hash: canonical,
+              digest: digest2,
+              tooltipBlob: oid ?? this.git.writeBlob(json3(tooltip.data))
+            });
             tooltips.push(tooltip.data);
             seen.add(canonical);
           }
@@ -27244,22 +27445,33 @@ var Publisher = class {
    * same messages). An error is a terminal rejection before any write.
    */
   checkAndExport(tree, tooltips, aliases) {
-    if (tooltips.some(isTextlessDescription)) return { error: "Tooltip has no text to publish" };
+    const moves = selectedInactiveMoves(
+      this.movesAt(tree),
+      tooltips.map((t) => t.hash),
+      aliases
+    );
+    const active = tooltips.filter((t) => !isMovedInactive(t.hash, moves));
+    if (active.some(isTextlessDescription)) return { error: "Tooltip has no text to publish" };
     try {
-      this.checkAssociatedDescriptions(tree, tooltips, aliases);
+      this.checkAssociatedDescriptions(tree, active, aliases);
     } catch (error62) {
       return { error: String(error62) };
     }
-    if (tooltips.some((t) => !t.custom && !this.options.facts[t.hash]))
+    if (active.some((t) => !t.custom && !this.options.facts[t.hash]))
       return { error: "Missing generator facts" };
-    if (tooltips.some(
+    if (active.some(
       (tooltip) => Object.values(tooltip.text).some((translation) => translation?.text.includes("{{"))
     ))
       return { error: baseEnhancedPublishMessage };
-    if (tooltips.some((t) => isHeldSetBonus(t, this.options.facts[t.hash])))
+    if (active.some((t) => isHeldSetBonus(t, this.options.facts[t.hash])))
       return { error: setBonusHoldMessage };
     const now = this.options.now();
-    const exported = exportLegacy(tooltips, now, this.options.facts, aliases);
+    let exported;
+    try {
+      exported = exportWithInactiveMoves(tooltips, now, this.options.facts, aliases, moves);
+    } catch (error62) {
+      throw new ConsumerOutputRejected(String(error62));
+    }
     const unlowered = unloweredEntry(exported);
     if (unlowered !== void 0)
       return { error: `The export of tooltip ${unlowered} still holds unlowered markup` };
@@ -27363,7 +27575,7 @@ var Publisher = class {
     for (const tooltip of tooltips)
       entries.push({
         hash: tooltip.hash,
-        digest: await publishableHash(tooltip, aliases),
+        digest: await inactivePublishableHash(tooltip, aliases, this.movesAt(tree)),
         tooltipBlob: this.git.writeBlob(json3(tooltip))
       });
     return {
@@ -27666,6 +27878,7 @@ var Publisher = class {
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, "config/permissions.json")),
       pushed: pushedSchema.parse(this.read(t, "live/pushed.json")),
+      ...inactiveMovesSchema.safeParse(this.read(t, inactiveMovesPath)).success ? { inactiveMoves: this.read(t, inactiveMovesPath) } : {},
       ...sandboxPointers && Object.keys(sandboxPointers.pointers).length ? { sandboxPointers } : {},
       publishQueue,
       ...scheduledQueue.length ? { scheduledQueue } : {}

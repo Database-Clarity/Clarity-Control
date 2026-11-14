@@ -44,6 +44,7 @@ it('declares the elementTags, markupBraces, and prismaticTags capabilities in it
     'scheduledBatches',
     'markupBraces',
     'prismaticTags',
+    'inactiveMoves',
   ]);
 });
 
