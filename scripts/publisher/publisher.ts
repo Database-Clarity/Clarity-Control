@@ -15,11 +15,18 @@ import {
   publishMonth,
   publishOpIdSchema,
   exportLegacy,
+  exportWithInactiveMoves,
+  applyInactiveLive,
+  inactiveMovesPath,
+  inactiveMovesSchema,
+  inactivePublishableHash,
+  isMovedInactive,
+  selectedInactiveMoves,
+  type InactiveMoves,
   mergeLivePerks,
   findElementTags,
   enhancedArrowMarkup,
   isTextlessDescription,
-  publishableHash,
   tooltipSchema,
   permissionsSchema,
   pushedSchema,
@@ -209,6 +216,11 @@ export class Publisher {
       this.options.sandboxConflicts ?? {},
       pointers,
     );
+  }
+  movesAt(tree: Tree): InactiveMoves {
+    const parsed = inactiveMovesSchema.safeParse(this.read<unknown>(tree, inactiveMovesPath) ?? {});
+    if (!parsed.success) throw new ConsumerOutputRejected(`Invalid ${inactiveMovesPath}`);
+    return parsed.data;
   }
   /**
    * The live-merge recompute for a publish from this snapshot (core mergeLivePerks): every key the
@@ -416,7 +428,19 @@ export class Publisher {
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
     const picks = this.pickRecomputeAt(this.git.tree(r.sourceCommit));
-    const merged = { ...live, perks: mergeLivePerks(live.perks, entries, picks) };
+    let perks: Record<string, unknown>;
+    try {
+      const sourceTree = this.git.tree(r.sourceCommit);
+      perks = applyInactiveLive(
+        mergeLivePerks(live.perks, entries, picks),
+        this.movesAt(sourceTree),
+        r.entries.map((e) => e.hash),
+        this.aliasesAt(sourceTree),
+      );
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
+    const merged = { ...live, perks };
     const bytes = json(merged);
     const checkKey = createHash('sha256')
       .update(tree['liveDescriptions.json'])
@@ -425,7 +449,11 @@ export class Publisher {
     // Run the actual consumer converter at both snapshots. Historical empty rows are tolerated;
     // newly empty rows stop candidate creation, including rebases and crash recovery.
     if (!this.checkedOutputs.has(checkKey)) {
-      for (const preset of deployedLegacyPresets) {
+      const hasMoves = Object.keys(this.movesAt(this.git.tree(r.sourceCommit))).length > 0;
+      for (const preset of [
+        ...deployedLegacyPresets,
+        ...(hasMoves ? ['clarityV2' as const] : []),
+      ]) {
         const convert = (
           input: unknown,
         ): Record<string, { descriptions?: Record<string, unknown>; aliasOf?: number }> => {
@@ -687,6 +715,7 @@ export class Publisher {
         if (!r) return;
         candidate = this.createCandidate(opId, blob, live, r);
       } else {
+        const moves = this.movesAt(tree);
         const entries: Entry[] = [],
           tooltips: Tooltip[] = [],
           outcomes: { hash: number; status: string }[] = [];
@@ -709,18 +738,28 @@ export class Publisher {
         for (const hash of payload.hashes) {
           const canonical = resolveAlias(hash, aliases),
             oid = tree[`tooltips/${canonical}.json`];
-          const tooltip = tooltipSchema.safeParse(oid ? JSON.parse(this.git.blob(oid)) : undefined);
+          const tooltip = tooltipSchema.safeParse(
+            oid
+              ? JSON.parse(this.git.blob(oid))
+              : isMovedInactive(canonical, moves)
+                ? { hash: canonical, text: {}, associated: [] }
+                : undefined,
+          );
           if (!tooltip.success || tooltip.data.hash !== canonical) {
             outcomes.push({ hash: canonical, status: 'missing' });
             continue;
           }
-          const digest = await publishableHash(tooltip.data, aliases);
+          const digest = await inactivePublishableHash(tooltip.data, aliases, moves);
           outcomes.push({
             hash: canonical,
             status: digest === payload.expected[hash] ? 'accepted' : 'stale',
           });
           if (!seen.has(canonical)) {
-            entries.push({ hash: canonical, digest, tooltipBlob: oid });
+            entries.push({
+              hash: canonical,
+              digest,
+              tooltipBlob: oid ?? this.git.writeBlob(json(tooltip.data)),
+            });
             tooltips.push(tooltip.data);
             seen.add(canonical);
           }
@@ -828,28 +867,39 @@ export class Publisher {
     tooltips: Tooltip[],
     aliases: Aliases,
   ): { error: string } | { now: number; exported: ReturnType<typeof exportLegacy> } {
-    if (tooltips.some(isTextlessDescription)) return { error: 'Tooltip has no text to publish' };
+    const moves = selectedInactiveMoves(
+      this.movesAt(tree),
+      tooltips.map((t) => t.hash),
+      aliases,
+    );
+    const active = tooltips.filter((t) => !isMovedInactive(t.hash, moves));
+    if (active.some(isTextlessDescription)) return { error: 'Tooltip has no text to publish' };
     try {
-      this.checkAssociatedDescriptions(tree, tooltips, aliases);
+      this.checkAssociatedDescriptions(tree, active, aliases);
     } catch (error) {
       return { error: String(error) };
     }
-    if (tooltips.some((t) => !t.custom && !this.options.facts[t.hash]))
+    if (active.some((t) => !t.custom && !this.options.facts[t.hash]))
       return { error: 'Missing generator facts' };
     // The data head can advance after the Worker signs. In particular, stale
     // translation fallback can hide raw native markup from publishableHash.
     // Reject it terminally instead of letting exportLegacy wedge the queue.
     if (
-      tooltips.some((tooltip) =>
+      active.some((tooltip) =>
         Object.values(tooltip.text).some((translation) => translation?.text.includes('{{')),
       )
     )
       return { error: baseEnhancedPublishMessage };
     // Set bonuses wait for cut-over (owner 2026-11-11): a terminal rejection before any write.
-    if (tooltips.some((t) => isHeldSetBonus(t, this.options.facts[t.hash])))
+    if (active.some((t) => isHeldSetBonus(t, this.options.facts[t.hash])))
       return { error: setBonusHoldMessage };
     const now = this.options.now();
-    const exported = exportLegacy(tooltips, now, this.options.facts, aliases);
+    let exported: ReturnType<typeof exportLegacy>;
+    try {
+      exported = exportWithInactiveMoves(tooltips, now, this.options.facts, aliases, moves);
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
     // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`, and
     // `#{d}` and `<enhanced/>` to `#d` and `#e`. An export that still holds a tagged span, a
     // preview marker, `#{`, or `<enhanced/>` would make apps drop text or print the markup.
@@ -972,7 +1022,7 @@ export class Publisher {
     for (const tooltip of tooltips)
       entries.push({
         hash: tooltip.hash,
-        digest: await publishableHash(tooltip, aliases),
+        digest: await inactivePublishableHash(tooltip, aliases, this.movesAt(tree)),
         tooltipBlob: this.git.writeBlob(json(tooltip)),
       });
     return {
@@ -1334,6 +1384,9 @@ export class Publisher {
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, 'config/permissions.json')),
       pushed: pushedSchema.parse(this.read(t, 'live/pushed.json')),
+      ...(inactiveMovesSchema.safeParse(this.read<unknown>(t, inactiveMovesPath)).success
+        ? { inactiveMoves: this.read<unknown>(t, inactiveMovesPath) }
+        : {}),
       ...(sandboxPointers && Object.keys(sandboxPointers.pointers).length
         ? { sandboxPointers }
         : {}),

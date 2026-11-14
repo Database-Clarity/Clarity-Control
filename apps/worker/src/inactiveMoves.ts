@@ -12,6 +12,7 @@ import { blobContent, blobSha, RefRace, type GitHub, type RepoFile } from './git
 import { body, HttpError, json } from './http.js';
 import { requireAccess } from './permissions.js';
 import type { Identity } from './types.js';
+import { exporter, publisherPinPath } from './elementTags.js';
 
 const updateSchema = z
   .object({
@@ -48,8 +49,12 @@ export async function inactiveMovesRoute(request: Request, github: GitHub, user:
     });
   for (let attempt = 0; attempt < 3; attempt++) {
     const head = await github.head();
-    const [permissions, file] = await github.files(
-      ['config/permissions.json', inactiveMovesPath],
+    const [permissions, file, pin] = await github.files(
+      [
+        'config/permissions.json',
+        inactiveMovesPath,
+        ...(exporter.publisherEnabled() ? [publisherPinPath] : []),
+      ],
       head,
     );
     if (!permissions) throw new HttpError(502, 'Required repository file is missing');
@@ -60,6 +65,12 @@ export async function inactiveMovesRoute(request: Request, github: GitHub, user:
     if (!input) return json({ revision, moves });
     if (input.revision !== revision)
       throw new HttpError(409, 'Inactive moves changed since they were loaded; reload and retry');
+    // Older signed/queued requests must not run on a runtime that would ignore a newly saved move.
+    if (exporter.publisherEnabled() && !pinAppliesInactiveMoves(pin?.value))
+      throw new HttpError(
+        409,
+        'The installed publisher lacks the "inactiveMoves" capability; update it before saving moves',
+      );
     const next = { ...moves };
     if (input.inactive) {
       // Repeated move-in is idempotent and preserves attribution.

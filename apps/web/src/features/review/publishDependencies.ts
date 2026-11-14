@@ -1,5 +1,7 @@
 import {
   languages,
+  isMovedInactive,
+  type InactiveMoves,
   resolveAlias,
   validateTextWithReads,
   usesEnglishFallback,
@@ -13,9 +15,11 @@ export function publishDependencies(
   aliases: Aliases,
   pending: ReadonlySet<number>,
   selected: readonly Tooltip[],
+  moves: InactiveMoves = {},
 ): Map<number, number[]> {
   const result = new Map<number, Set<number>>(selected.map((t) => [t.hash, new Set()]));
-  for (const tooltip of selected)
+  const active = selected.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
+  for (const tooltip of active)
     for (const hash of tooltip.associated) {
       const canonical = resolveAlias(hash, aliases);
       if (pending.has(canonical)) result.get(tooltip.hash)!.add(canonical);
@@ -40,7 +44,7 @@ export function publishDependencies(
         return target[resolveAlias(key === 'global' ? 1 : Number(key), aliases)];
       },
     });
-    for (const tooltip of selected) {
+    for (const tooltip of active) {
       const deps = result.get(tooltip.hash)!;
       const text = usesEnglishFallback(tooltip, lang)
         ? tooltip.text.en?.text
@@ -59,6 +63,17 @@ export function publishDependencies(
       // Keep pending global libraries ahead of every consumer, conservatively.
       for (const hash of [1, 2, 3]) if (pending.has(hash)) deps.add(hash);
     }
+  }
+  const removal = selected.find((tooltip) => isMovedInactive(tooltip.hash, moves));
+  if (removal) {
+    // A saved importer may already have dropped an import that its live text still reads.
+    // Keep the full reviewed selection together; the publisher checks the real live candidate.
+    // A hub gives one closed group with linear memory, and existing Worker caps still apply.
+    for (const tooltip of selected)
+      if (tooltip.hash !== removal.hash) {
+        result.get(removal.hash)!.add(tooltip.hash);
+        result.get(tooltip.hash)!.add(removal.hash);
+      }
   }
   return new Map([...result].map(([hash, deps]) => [hash, [...deps]]));
 }

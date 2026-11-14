@@ -30,6 +30,8 @@ import { GitHub, RefRace, type RepoFile } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
 import { pinMergesSandboxPointers, withSandboxPointers } from '../sandboxPointers.js';
+import { pinAppliesInactiveMoves, storedInactiveMoves } from '../inactiveMoves.js';
+import { inactiveMovesPath, isMovedInactive, selectedInactiveMoves } from '@clarity/core';
 import { refuseHeldSetBonuses } from '../setBonusHold.js';
 import type { Env, Identity } from '../types.js';
 import {
@@ -144,7 +146,7 @@ export async function scheduleBatch(
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, scheduleRoles, {
       batchId,
-      extra: ['live/pushed.json', sandboxPointersPath],
+      extra: ['live/pushed.json', sandboxPointersPath, inactiveMovesPath],
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
     });
     if (!pinSchedulesBatches(state.pin))
@@ -235,10 +237,25 @@ export async function scheduleBatch(
     // it as /save does, before any check reads documents by canonical hash.
     refuseAliases(hashes, saveAliases);
     const aliases = pinMergesSandboxPointers(state.pin) ? saveAliases : generatorAliases;
-    const checked = await refuseBaseEnhanced(github, state.head, hashes, aliases, composed);
+    const moves = storedInactiveMoves(state.extra[2]);
+    if (
+      Object.keys(selectedInactiveMoves(moves, hashes, aliases)).length &&
+      !pinAppliesInactiveMoves(state.pin)
+    )
+      throw new HttpError(422, 'The installed publisher lacks the "inactiveMoves" capability');
+    const active = composed.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
+    const checked = active.length
+      ? await refuseBaseEnhanced(
+          github,
+          state.head,
+          active.map((t) => t.hash),
+          aliases,
+          active,
+        )
+      : new Map();
     for (const document of checked.values())
       refuseUnlowerable(document, { value: state.pin }, 'published');
-    refuseHeldSetBonuses(composed);
+    refuseHeldSetBonuses(active);
 
     const at = new Date(now).toISOString();
     const intent = {

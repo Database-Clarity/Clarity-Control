@@ -30,6 +30,9 @@ for (const marker of ['lowerConsumerMarkup(', 'text.includes("#{")'])
 // `elementTags` from before Prismatic joined leaves `<prismatic Text />` unlowered (text lost).
 if (!/elementTagNames = \[[^\]]*"prismatic"/.test(runtime))
   throw new Error('Publisher runtime lacks Prismatic element tags; refusing its PIN');
+for (const marker of ['applyInactiveLive(', 'inactiveRemovalHash(', 'config/inactive.json'])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks inactive moves (${marker})`);
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -54,6 +57,7 @@ writeFileSync(
         'scheduledBatches',
         'markupBraces',
         'prismaticTags',
+        'inactiveMoves',
       ],
     },
     null,

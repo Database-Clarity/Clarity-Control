@@ -4,10 +4,14 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  exportLegacy,
+  exportWithInactiveMoves,
+  applyInactiveLive,
+  inactiveMovesPath,
+  inactiveMovesSchema,
+  inactivePublishableHash,
+  selectedInactiveMoves,
   mergeLivePerks,
   mergeSandboxPointers,
-  publishableHash,
   sandboxPointersPath,
   sandboxPointersSchema,
   type SandboxConflicts,
@@ -59,11 +63,21 @@ const aliases =
         config.sandboxConflicts ?? {},
         sandboxPointersSchema.parse(picks),
       );
+const moves = git('ls-tree', '--name-only', receipt.sourceCommit, '--', inactiveMovesPath).trim()
+  ? inactiveMovesSchema.parse(read(receipt.sourceCommit, inactiveMovesPath))
+  : {};
 // Digests include incoming aliases: verify with the same merged aliases the publisher used.
 for (let i = 0; i < tooltips.length; i++)
-  if ((await publishableHash(tooltips[i], aliases)) !== receipt.entries[i].digest)
+  if ((await inactivePublishableHash(tooltips[i], aliases, moves)) !== receipt.entries[i].digest)
     throw new Error('Receipt digest mismatch');
-const exported = exportLegacy(tooltips, receipt.now, config.facts, aliases);
+const hashes = tooltips.map((tooltip) => tooltip.hash);
+const exported = exportWithInactiveMoves(
+  tooltips,
+  receipt.now,
+  config.facts,
+  aliases,
+  selectedInactiveMoves(moves, hashes, aliases),
+);
 const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
 const requester = JSON.parse(request.payload).requester;
 stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);
@@ -71,16 +85,21 @@ const expected =
   JSON.stringify(
     {
       ...base,
-      perks: mergeLivePerks(
-        base.perks,
-        exported,
-        picks === undefined
-          ? undefined
-          : {
-              keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
-              aliases,
-              catalog: config.facts,
-            },
+      perks: applyInactiveLive(
+        mergeLivePerks(
+          base.perks,
+          exported,
+          picks === undefined
+            ? undefined
+            : {
+                keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
+                aliases,
+                catalog: config.facts,
+              },
+        ),
+        moves,
+        hashes,
+        aliases,
       ),
     },
     null,

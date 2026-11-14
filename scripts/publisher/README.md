@@ -21,6 +21,17 @@ Terminal logs contain recordCommit:null because embedding a commit's own hash is
 resolve the recording commit from first-parent history of the log path. Rejected/stale operations have
 no liveCommit. Bundle updates use CAS and source ancestry, including on failed/empty drains.
 
+Maintainer moves in `config/inactive.json` require PIN capability `inactiveMoves`.
+Saving a move changes editor classification immediately; outputs change only when its canonical
+review row publishes. A publish applies that row's decision and its alias decisions, while other
+staged moves remain unpublished. Move-out markers (`inactive: false`) retain re-add intent.
+The receipt's source commit freezes these decisions for retries, rebases, and parity checks.
+Canonical removal also removes its live alias stubs. Every retained live importer and association
+must remain valid: removal is rejected before a candidate or live write when a consumer still
+reads removed text. Edit/publish that importer first, or select its edit/removal together with the
+target. Selections containing a removal stay in one dependency group within the existing Worker
+caps, so a previously saved importer edit and its target removal cannot split across chunks.
+
 Request creation is head-bound CAS. A caller must consult `classifyPublishIntent` at each fresh head;
 creation timestamps are checked only for a new operation. No coalescing is implemented; scheduled
 batches (`kind: 'batch'`) are described in "Scheduled batches (P4)" below.

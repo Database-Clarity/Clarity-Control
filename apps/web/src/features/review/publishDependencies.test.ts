@@ -1,11 +1,38 @@
 import { expect, it } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { publishDependencies } from './publishDependencies';
+import { publishChunks } from './publishDriver';
 const t = (hash: number, text: string): Tooltip => ({
   hash,
   text: { en: { text, updatedAt: '2026-11-01T00:00:00Z', updatedBy: 'alice' } },
   associated: [],
 });
+it('keeps removals and edited importers together without reading text being removed', () => {
+  const target = t(100, 'import main from 999');
+  const edited = t(200, 'No longer imports 100');
+  const selected = [target, edited];
+  const moves = { 100: { by: 1, at: '2026-11-14T00:00:00Z' } };
+  const deps = publishDependencies(
+    { 100: target, 200: edited },
+    {},
+    new Set([100, 200, 999]),
+    selected,
+    moves,
+  );
+  expect(deps.get(100)).toEqual([200]);
+  expect(deps.get(200)).toContain(100);
+  expect(
+    publishChunks(
+      selected.map((t) => ({
+        hash: t.hash,
+        digest: 'a'.repeat(64),
+        previous: undefined,
+        dependencies: deps.get(t.hash),
+      })),
+    ),
+  ).toHaveLength(1);
+});
+
 it('observes exact, nested, alias, and cyclic imports through the real resolver', () => {
   const tooltips = Object.fromEntries(
     [

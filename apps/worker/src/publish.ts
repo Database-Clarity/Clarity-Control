@@ -3,6 +3,7 @@ import { refuseHeldSetBonuses } from './setBonusHold.js';
 import { publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { loadAliases } from './catalog.js';
 import { pinMergesSandboxPointers, withSandboxPointers } from './sandboxPointers.js';
+import { pinAppliesInactiveMoves, storedInactiveMoves } from './inactiveMoves.js';
 import { z } from 'zod';
 import {
   classifyPublishIntent,
@@ -11,7 +12,11 @@ import {
   publishBodySchema,
   publishIntentDigest,
   publishMonth,
-  publishableHash,
+  inactivePublishableHash,
+  inactiveRemovalHash,
+  inactiveMovesPath,
+  isMovedInactive,
+  selectedInactiveMoves,
   resolveAlias,
   sandboxPointersPath,
   publishOpIdSchema,
@@ -19,6 +24,7 @@ import {
   stableStringify,
   validatePublishTime,
   type Aliases,
+  type Tooltip,
 } from '@clarity/core';
 import { unbase64 } from './crypto.js';
 import { body, HttpError, json } from './http.js';
@@ -141,7 +147,13 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
     // While scheduled batches are enabled, a names-only listing of the activation conflicts joins
     // the same read (0 extra subrequests; spec "Activation and conflicts", R3).
     const snapshot = await github.publishSnapshot(
-      ['config/permissions.json', ...paths, publisherPinPath, sandboxPointersPath],
+      [
+        'config/permissions.json',
+        ...paths,
+        publisherPinPath,
+        sandboxPointersPath,
+        inactiveMovesPath,
+      ],
       [],
       switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
     );
@@ -175,21 +187,49 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       aliases = pinMergesSandboxPointers(pin)
         ? await withSandboxPointers(github, generatorAliases, snapshot.files[2 + paths.length])
         : generatorAliases;
-      const checked = await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
+      const moves = storedInactiveMoves(snapshot.files[3 + paths.length]);
+      if (
+        Object.keys(
+          selectedInactiveMoves(
+            moves,
+            value.hashes.map((hash) => resolveAlias(hash, aliases)),
+            aliases,
+          ),
+        ).length &&
+        !pinAppliesInactiveMoves(pin)
+      )
+        throw new HttpError(
+          409,
+          'The installed publisher lacks the "inactiveMoves" capability; update it before publishing these rows',
+        );
+      const active = value.hashes.filter(
+        (hash) => !isMovedInactive(resolveAlias(hash, aliases), moves),
+      );
+      const checked = active.length
+        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases)
+        : new Map<number, Tooltip>();
       // A tagged span, `#{name}`, or `<enhanced/>` in a published tooltip or a document it reads
       // (imports, globals 2 and 3) needs a publisher build that lowers it; an older build would
       // export it unlowered.
       for (const document of checked.values())
         refuseUnlowerable(document, { value: pin }, 'published');
       refuseHeldSetBonuses(
-        value.hashes.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
+        active.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
       );
       refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
       for (const hash of value.hashes) {
+        if (isMovedInactive(resolveAlias(hash, aliases), moves)) {
+          if ((await inactiveRemovalHash(resolveAlias(hash, aliases))) !== value.expected[hash])
+            throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
+          continue;
+        }
         const tooltip = checked.get(resolveAlias(hash, aliases));
         if (tooltip && isTextlessDescription(tooltip))
           throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
-        if (!tooltip || (await publishableHash(tooltip, aliases)) !== value.expected[hash]) {
+        if (
+          !tooltip ||
+          (await inactivePublishableHash(tooltip, aliases, moves)) !== value.expected[hash]
+        ) {
           throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
         }
       }

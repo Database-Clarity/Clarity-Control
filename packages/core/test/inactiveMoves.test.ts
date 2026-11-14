@@ -5,6 +5,7 @@ import {
   exportWithInactiveMoves,
   inactivePublishableHash,
   selectedInactiveMoves,
+  applyInactiveLive,
   type InactiveMoves,
 } from '../src/inactiveMoves.js';
 import { publishableHash } from '../src/publishableHash.js';
@@ -19,6 +20,36 @@ const other = (text = 'Other') => ({
     en: { ...tooltip().text.en!, text },
   },
 });
+
+it('removes selected live rows and old stubs, while unrelated staged decisions stay unpublished', () => {
+  const live = exportLegacy([tooltip(), other()], 0, undefined, aliases);
+  expect(applyInactiveLive(live, moves, [99], aliases)).toEqual(live);
+  expect(Object.keys(applyInactiveLive(live, moves, [42], aliases))).toEqual(['99']);
+  expect(live[42]).toBeDefined();
+});
+
+it.each(['main', 'secondary'] as const)(
+  'fails closed on retained live %s imports and title bodies',
+  (field) => {
+    const live = exportLegacy([tooltip(), other()], 0, undefined, aliases);
+    const entry = live[99];
+    if ('aliasOf' in entry) throw new Error('fixture');
+    entry.editor.en![field] = 'import main from 77';
+    expect(() => applyInactiveLive(live, moves, [42], aliases)).toThrow(/imports inactive/);
+    entry.editor.en![field] = '<title Details [Read] />';
+    live[3] = {
+      ...entry,
+      hash: 3,
+      editor: {
+        en: {
+          main: 'title Read (\nimport main from 42\n)',
+          secondary: 'title Read (\nimport main from 42\n)',
+        },
+      },
+    };
+    expect(() => applyInactiveLive(live, moves, [42], aliases)).toThrow(/imports inactive/);
+  },
+);
 
 it('limits a partial publish to selected canonical rows and their stub decisions', () => {
   const staged = { ...moves, 77: { ...moves[42]!, inactive: false as const }, 99: moves[42]! };

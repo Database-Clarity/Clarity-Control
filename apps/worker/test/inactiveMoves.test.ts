@@ -1,5 +1,12 @@
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { inactiveMovesPath } from '@clarity/core';
+import {
+  inactiveMovesPath,
+  inactiveRemovalHash,
+  inactivePublishableHash,
+  type Tooltip,
+} from '@clarity/core';
+import publisherConfig from '../../../config/publisher.json';
+import { generateKeyPairSync } from 'node:crypto';
 import { blobOid, Fixture, makePrivateKey } from './fixture.js';
 
 let key: string;
@@ -9,13 +16,83 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   fixture = new Fixture(key);
+  fixture.moveData({
+    '.publisher/PIN': {
+      sourceSha: 'a'.repeat(40),
+      capabilities: [
+        'inactiveMoves',
+        'sandboxPointers',
+        'markupBraces',
+        'elementTags',
+        'prismaticTags',
+      ],
+    },
+  });
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 const get = (user = 1) => fixture.request('/inactive-moves', 'GET', undefined, user);
 const put = (inactive = true, revision: string | null = null, user = 1) =>
   fixture.request('/inactive-moves', 'PUT', { hash: 123, inactive, revision }, user);
+
+it('gates saves and signed publish admission on the installed capability', async () => {
+  publisherConfig.enabled = true;
+  const saved = await (await put()).json();
+  fixture.moveData({ '.publisher/PIN': { capabilities: [] } });
+  expect((await put(false, saved.revision)).status).toBe(409);
+  const opId = '01K95H00000000000000000001';
+  const time = [...opId.slice(0, 10)].reduce(
+    (n, c) => n * 32 + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'.indexOf(c),
+    0,
+  );
+  vi.useFakeTimers({ toFake: ['Date'], now: time });
+  fixture.env.PUBLISH_SIGNING_KEY = generateKeyPairSync('ed25519')
+    .privateKey.export({ type: 'pkcs8', format: 'pem' })
+    .toString();
+  const input = { opId, hashes: [123], expected: { 123: await inactiveRemovalHash(123) } };
+  expect((await fixture.request('/publish', 'POST', input)).status).toBe(409);
+  fixture.moveData({ '.publisher/PIN': { capabilities: ['inactiveMoves'] } });
+  expect((await fixture.request('/publish', 'POST', input)).status).toBe(202);
+});
+
+it('legacy push removes only selected output rows, preserves saved text, and restores on publish', async () => {
+  const enabled = publisherConfig.enabled;
+  publisherConfig.enabled = false;
+  try {
+    expect((await fixture.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
+    const original = fixture.current()['tooltips/123.json'];
+    const moved = await (await put()).json();
+    expect((fixture.live.perks as Record<string, unknown>)[123]).toBeDefined();
+    expect(
+      (
+        await fixture.request('/push-live', 'POST', {
+          hashes: [123],
+          expected: { 123: await inactiveRemovalHash(123) },
+        })
+      ).status,
+    ).toBe(200);
+    expect((fixture.live.perks as Record<string, unknown>)[123]).toBeUndefined();
+    expect((fixture.live.perks as Record<string, unknown>)[789]).toBeUndefined();
+    expect(fixture.current()['tooltips/123.json']).toEqual(original);
+    const out = await (await put(false, moved.revision)).json();
+    expect((fixture.live.perks as Record<string, unknown>)[123]).toBeUndefined();
+    expect(
+      (
+        await fixture.request('/push-live', 'POST', {
+          hashes: [123],
+          expected: {
+            123: await inactivePublishableHash(original as Tooltip, fixture.aliases, out.moves),
+          },
+        })
+      ).status,
+    ).toBe(200);
+    expect((fixture.live.perks as Record<string, unknown>)[123]).toBeDefined();
+  } finally {
+    publisherConfig.enabled = enabled;
+  }
+});
 
 it('refuses editors, translators, trials, and unknown accounts before body validation', async () => {
   for (const user of [2, 3, 4, 99]) {

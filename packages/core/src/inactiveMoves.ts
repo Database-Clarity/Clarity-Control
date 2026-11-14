@@ -125,7 +125,7 @@ export function exportWithInactiveMoves(
       imports[alias] = imports[resolveAlias(Number(alias), aliases)] ?? '';
     for (const tooltip of kept) {
       for (const hash of tooltip.associated)
-        if (isMovedInactive(hash, moves) || isMovedInactive(resolveAlias(hash, aliases), moves))
+        if (isMovedInactive(resolveAlias(hash, aliases), moves))
           throw new Error(`Tooltip ${tooltip.hash} associates inactive tooltip ${hash}`);
       const text = imports[tooltip.hash];
       if (!text) continue;
@@ -151,4 +151,95 @@ export function exportWithInactiveMoves(
   for (const hash of Object.keys(moves))
     if (isMovedInactive(Number(hash), moves)) delete entries[hash];
   return entries;
+}
+
+/**
+ * Apply only the selected rows' decisions to an already merged live candidate. Other staged
+ * moves cannot leak into an unrelated publish. Validate retained live text, not saved drafts:
+ * an importer must be edited/published, or removed in the same operation, before its target.
+ */
+export function applyInactiveLive(
+  perks: Readonly<Record<string, unknown>>,
+  moves: InactiveMoves,
+  hashes: Iterable<number>,
+  aliases: Aliases,
+): Record<string, unknown> {
+  if (!Object.keys(moves).length) return perks as Record<string, unknown>;
+  const selected = selectedInactiveMoves(moves, hashes, aliases);
+  const result = { ...perks };
+  const removed = new Set<number>();
+  const record = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === 'object' && !Array.isArray(value);
+  const erase = (hash: number) => {
+    delete result[hash];
+    removed.add(hash);
+  };
+  for (const key of Object.keys(selected)) {
+    const hash = Number(key);
+    if (!isMovedInactive(hash, selected)) continue;
+    if ([1, 2, 3].includes(hash))
+      throw new Error(`Global tooltip ${hash} is a required output input`);
+    erase(hash);
+    // A canonical removal also removes old live stubs, even if the generator no longer lists them.
+    if (resolveAlias(hash, aliases) === hash)
+      for (const [stub, value] of Object.entries(result))
+        if (
+          (record(value) && value.aliasOf === hash) ||
+          (Object.hasOwn(aliases, stub) && resolveAlias(Number(stub), aliases) === hash)
+        )
+          erase(Number(stub));
+  }
+  // Move-out markers stay absent until their own row re-adds them. Staged move-ins that are
+  // still live remain available to unrelated publishers, exactly as the live file says.
+  for (const key of Object.keys(moves)) if (!Object.hasOwn(result, key)) removed.add(Number(key));
+  if (!removed.size) return result;
+  const liveAliases: Aliases = { ...aliases };
+  for (const [key, value] of Object.entries(perks))
+    if (record(value) && typeof value.aliasOf === 'number')
+      liveAliases[key] = { to: value.aliasOf, kind: 'name' };
+  for (const language of languages)
+    for (const field of ['main', 'secondary'] as const) {
+      const imports: Record<string, string> = {};
+      for (const [key, value] of Object.entries(result)) {
+        if (!record(value) || 'aliasOf' in value) continue;
+        const editor = value.editor;
+        if (!record(editor)) throw new Error(`Invalid live tooltip ${key}`);
+        const translation = editor[language];
+        imports[key] =
+          record(translation) && typeof translation[field] === 'string' ? translation[field] : '';
+      }
+      for (const [key, value] of Object.entries(result))
+        if (record(value) && typeof value.aliasOf === 'number')
+          imports[key] = imports[value.aliasOf] ?? '';
+      for (const [key, value] of Object.entries(result)) {
+        if (!record(value) || 'aliasOf' in value) continue;
+        if (Array.isArray(value.associated))
+          for (const hash of value.associated)
+            if (
+              typeof hash === 'number' &&
+              (removed.has(hash) || removed.has(resolveAlias(hash, liveAliases)))
+            )
+              throw new Error(`Tooltip ${key} associates inactive tooltip ${hash}`);
+        const text = imports[key];
+        if (!text) continue;
+        const { reads } = validateTextWithReads(
+          text,
+          language,
+          {
+            imports,
+            variables: imports[2] ?? '',
+            titles: imports[3] ?? '',
+          },
+          false,
+          Number(key),
+          liveAliases,
+        );
+        for (const [source, hash] of reads.imports)
+          if (removed.has(hash) || removed.has(Number(source)))
+            throw new Error(
+              `Tooltip ${key} imports inactive tooltip ${hash} (${language}, ${field})`,
+            );
+      }
+    }
+  return result;
 }

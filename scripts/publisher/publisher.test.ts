@@ -14,6 +14,9 @@ import {
   setBonusHoldMessage,
   publishIntentDigest,
   publishableHash,
+  inactivePublishableHash,
+  inactiveRemovalHash,
+  exportLegacy,
   classifyPublishIntent,
   validatePublishBody,
   type PublishPayload,
@@ -24,6 +27,7 @@ import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { runPipeline } from './pipeline.js';
 import publisherConfig from '../../config/publisher.json';
+import { buildLegacy, legacyPresets, type LegacyInput } from '../../packages/export/src/legacy.js';
 
 // These fixtures run the publisher and the Worker's legacy push-live (the golden oracle) with the
 // build switch OFF, as before PUB-ENABLE turned the checked-in switch ON; a test flips it itself.
@@ -448,6 +452,169 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     });
     await f.pub.run();
     f.assertDone(B);
+  });
+
+  it('inactive: publishes only selected removals and re-adds, with exact eight-format output and unchanged saved text', async () => {
+    const f = await setup();
+    f.options.aliases[789] = { to: 123, kind: 'frame' };
+    f.options.facts[789] = { name: 'Frame copy', type: 'perk' };
+    f.options.facts[124] = { name: 'Retained', type: 'perk' };
+    const other = {
+      ...f.tooltip,
+      hash: 124,
+      text: { en: { ...f.tooltip.text.en!, text: 'Retained' } },
+    };
+    f.change(D, { 'tooltips/124.json': other });
+    await f.request(A, [123, 124], {
+      123: await publishableHash(f.tooltip, f.options.aliases),
+      124: await publishableHash(other, f.options.aliases),
+    });
+    await f.pub.run();
+    f.assertDone(A);
+    const readLive = () =>
+      f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    const before = readLive();
+    const stamp = { by: 1, at: '2026-11-14T00:00:00Z' };
+    const moves = { 123: stamp, 124: stamp };
+    f.change(D, { 'config/inactive.json': moves });
+    expect(readLive()).toEqual(before);
+    await f.request(B, [123], { 123: await inactiveRemovalHash(123) });
+    await f.pub.run();
+    f.assertDone(B);
+    const after = readLive();
+    expect(after.perks[123]).toBeUndefined();
+    expect(after.perks[789]).toBeUndefined();
+    expect(after.perks[124]).toEqual(before.perks[124]);
+    for (const preset of legacyPresets) {
+      const original = JSON.parse(new TextDecoder().decode(buildLegacy(before, preset)));
+      const actual = JSON.parse(new TextDecoder().decode(buildLegacy(after, preset)));
+      delete original[123];
+      delete original[789];
+      expect(actual, preset).toEqual(original);
+    }
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'tooltips/123.json')).toEqual(f.tooltip);
+    const restored = { ...moves, 123: { ...stamp, inactive: false as const } };
+    f.change(D, { 'config/inactive.json': restored });
+    const C = A.slice(0, -1) + '3';
+    await f.request(C, [123], {
+      123: await inactivePublishableHash(f.tooltip, f.options.aliases, restored),
+    });
+    await f.pub.run();
+    f.assertDone(C);
+    expect(readLive().perks[123]).toBeDefined();
+    expect(readLive().perks[789]).toBeDefined();
+    expect(readLive().perks[124]).toEqual(before.perks[124]);
+  });
+
+  it('inactive: refuses retained live importers before any candidate, then accepts an atomic importer edit and removal', async () => {
+    const f = await setup();
+    f.options.facts[125] = { name: 'Importer', type: 'perk' };
+    const importer = {
+      ...f.tooltip,
+      hash: 125,
+      text: { en: { ...f.tooltip.text.en!, text: 'import main from 123' } },
+    };
+    const edited = { ...importer, text: { en: { ...importer.text.en!, text: 'No import now' } } };
+    const originalLive = f.pub.read<LegacyInput>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!;
+    f.change(L, {
+      'liveDescriptions.json': {
+        ...originalLive,
+        perks: {
+          ...originalLive.perks,
+          ...exportLegacy([f.tooltip, importer], pushTime, f.options.facts),
+        },
+      },
+    });
+    f.change(D, {
+      'tooltips/125.json': edited,
+      'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } },
+    });
+    const before = f.git.head(L);
+    await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(before);
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: expect.stringContaining('imports inactive') },
+    });
+    await f.request(B, [123, 125], {
+      123: await inactiveRemovalHash(123),
+      125: await publishableHash(edited),
+    });
+    await f.pub.run();
+    f.assertDone(B);
+    const live = f.pub.read<{ perks: Record<string, unknown> }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!;
+    expect(live.perks[123]).toBeUndefined();
+    expect(live.perks[125]).toBeDefined();
+  });
+
+  it('inactive: refuses malformed storage terminally, and permits a textless item removal without a tooltip file', async () => {
+    const f = await setup();
+    f.change(D, { 'config/inactive.json': { 123: { by: 'bad' } } });
+    await f.request(A);
+    const before = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(before);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: expect.stringContaining('config/inactive.json') },
+    });
+    f.change(D, { 'config/inactive.json': { 555: { by: 1, at: '2026-11-14T00:00:00Z' } } });
+    await f.request(B, [555], { 555: await inactiveRemovalHash(555) });
+    await f.pub.run();
+    f.assertDone(B);
+    expect(f.git.tree(f.git.head(D)!)['tooltips/555.json']).toBeUndefined();
+  });
+
+  it('inactive: rebase rejects a live importer added after candidate creation', async () => {
+    const f = await setup();
+    const seed = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    f.change(L, { 'liveDescriptions.json': { ...seed, perks: { ...seed.perks, ...exportLegacy([f.tooltip], pushTime, f.options.facts) } } });
+    f.change(D, { 'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } } });
+    await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+    const cas = f.git.cas.bind(f.git);
+    let race = true;
+    const spy = vi.spyOn(f.git, 'cas').mockImplementation((ref, old, next) => {
+      if (ref === L && race) {
+        race = false;
+        const live = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+        f.options.facts[125] = { name: 'Concurrent importer', type: 'perk' };
+        const importer = { ...f.tooltip, hash: 125, text: { en: { ...f.tooltip.text.en!, text: 'import main from 123' } } };
+        f.change(L, { 'liveDescriptions.json': { ...live, perks: { ...live.perks, ...exportLegacy([importer], pushTime, f.options.facts) } } });
+      }
+      cas(ref, old, next);
+    });
+    try { await f.pub.run(); } finally { spy.mockRestore(); }
+    expect(race).toBe(false);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({ result: { status: 'rejected', error: expect.stringContaining('imports inactive') } });
+    const live = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    expect(live.perks[123]).toBeDefined(); expect(live.perks[125]).toBeDefined();
+  });
+
+  it('inactive: a frozen candidate retains its move when the data file changes before landing', async () => {
+    const f = await setup();
+    const stamp = { by: 1, at: '2026-11-14T00:00:00Z' };
+    f.change(D, { 'config/inactive.json': { 123: stamp } });
+    await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+    const cas = f.git.cas.bind(f.git);
+    let changed = false;
+    const spy = vi.spyOn(f.git, 'cas').mockImplementation((ref, old, next) => {
+      cas(ref, old, next);
+      if (ref === paths(A).candidate && !changed) {
+        changed = true;
+        f.change(D, { 'config/inactive.json': { 123: { ...stamp, inactive: false } } });
+      }
+    });
+    try { await f.pub.run(); } finally { spy.mockRestore(); }
+    f.assertDone(A);
+    expect(changed).toBe(true);
+    expect(f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!.perks[123]).toBeUndefined();
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'config/inactive.json')).toEqual({ 123: { ...stamp, inactive: false } });
   });
 
   async function setup() {
