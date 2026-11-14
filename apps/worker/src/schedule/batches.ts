@@ -9,6 +9,8 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import {
+  activate,
+  resolveActivation,
   batchIdSchema,
   batchMemberSchema,
   batchSchema,
@@ -439,11 +441,25 @@ export async function saveBatch(
         const current = currentFile ? tooltipSchema.parse(currentFile.value) : null;
         if (current && current.hash !== change.hash)
           throw new HttpError(502, 'Stored tooltip hash mismatch');
-        // Upcoming keeps current English unless the batch changes it. Do not broaden the bound
-        // for an English-changing batch: its translations were written against its proposal.
-        const english = changedFields(stored.base, proposed).includes('text.en')
-          ? proposed.text.en
-          : current?.text.en;
+        // Use the real Upcoming projection: identical concurrent English wording keeps
+        // current's revision, even when the batch itself changed English.
+        const projection = { base: stored.base, current, proposed };
+        const activation = activate(projection);
+        let english = activation.ok ? activation.tooltip.text.en : proposed.text.en;
+        if (!activation.ok) {
+          const choices: Record<string, 'upcoming'> = {};
+          for (const field of activation.fields)
+            if (field !== '$exists' || (stored.base !== null && current === null))
+              choices[field] = 'upcoming';
+          for (let pass = 0; pass < 2; pass++) {
+            const resolved = resolveActivation({ ...projection, choices });
+            if (resolved.ok) {
+              english = resolved.tooltip?.text.en;
+              break;
+            }
+            for (const field of resolved.missing) choices[field] = 'upcoming';
+          }
+        }
         checkTranslationStamps(stored.proposed, proposed, english ?? proposed.text.en);
         refuseUnlowerable(proposed, pin, 'saved');
         const member = batchMemberSchema.parse({

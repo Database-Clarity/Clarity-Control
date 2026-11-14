@@ -111,7 +111,7 @@ describe('composition C1-C4', () => {
           fr: entry('Vieux', T0, { sourceUpdatedAt: new Date(Date.parse(T0) - gap).toISOString() }),
         },
       };
-      const next = {
+      const next: Tooltip = {
         ...snapshot,
         text: { ...snapshot.text, de: entry('Neu', T2, { sourceUpdatedAt: T2 }) },
       };
@@ -126,7 +126,7 @@ describe('composition C1-C4', () => {
       expect(result.tooltip.text.fr).toEqual(snapshot.text.fr);
       expect(usesEnglishFallback(result.tooltip, 'de')).toBe(false);
       expect(usesEnglishFallback(result.tooltip, 'fr')).toBe(gap > 90 * 86400000);
-      expect(next.text.de.sourceUpdatedAt).toBe(T2);
+      expect(next.text.de?.sourceUpdatedAt).toBe(T2);
     },
   );
 

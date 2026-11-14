@@ -47,8 +47,9 @@ export const missingSnapshotReason = 'No published snapshot; publish it manually
 /**
  * What a batch publishes for one member (spec "Composition", I3). Never reads current saved
  * data: unrelated saved-but-unpublished work on the tooltip stays out of live.
+ * The publisher defers source bounding until it has selected the final English stamps.
  */
-export function compose(input: ComposeInput): ComposeResult {
+export function compose(input: ComposeInput, boundSources = true): ComposeResult {
   const { hash, base, proposed, snapshot, pushed } = input;
   for (const tooltip of [base, proposed, snapshot])
     if (tooltip && tooltipSchema.parse(tooltip).hash !== hash)
@@ -72,11 +73,17 @@ export function compose(input: ComposeInput): ComposeResult {
     );
     return {
       status: 'overlay',
-      tooltip: boundTranslationSources(tooltipSchema.parse(tooltip)),
+      tooltip: boundSources
+        ? boundTranslationSources(tooltipSchema.parse(tooltip))
+        : tooltipSchema.parse(tooltip),
       changed,
       unpublished,
     };
   }
   if (pushed) return { status: 'stale', reason: missingSnapshotReason };
-  return { status: 'whole', tooltip: boundTranslationSources(proposed), changed };
+  return {
+    status: 'whole',
+    tooltip: boundSources ? boundTranslationSources(proposed) : proposed,
+    changed,
+  };
 }

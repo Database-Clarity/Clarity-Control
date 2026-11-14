@@ -1351,3 +1351,34 @@ describe('markupBraces gate on batch paths (VAR-BRACES output review MUST-1)', (
     expect((await publish()).status).toBe(202);
   });
 });
+
+it.each([false, true])(
+  'S5: actual Upcoming source for convergent English, scheduled %s',
+  async (scheduled) => {
+    const base = tooltip();
+    const proposal = withText(
+      tooltip('identical concurrent wording', '2026-11-01T00:00:00.000Z'),
+      'de',
+      'Alt',
+    );
+    f.moveData({ [memberPath()]: member(proposal, base) });
+    if (scheduled) expect((await schedule()).status).toBe(202);
+    const current = tooltip('identical concurrent wording', '2026-11-02T00:00:00.000Z');
+    expect(
+      (
+        await call(
+          '/save',
+          { changes: [{ hash: 123, base, next: current }], message: 'Current converges' },
+          EDITOR,
+        )
+      ).status,
+    ).toBe(200);
+    const future = activate({ base, current, proposed: proposal });
+    if (!future.ok) throw new Error('Expected clean activation');
+    expect(future.tooltip.text.en).toEqual(current.text.en);
+    const translated = withText(proposal, 'de', 'Neu');
+    translated.text.de!.sourceUpdatedAt = future.tooltip.text.en!.updatedAt;
+    const result = await call(`/batches/${ID}/save`, saveBody(translated, proposal), TRANSLATOR);
+    expect(result.status).toBe(200);
+  },
+);
