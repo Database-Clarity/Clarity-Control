@@ -1,9 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { contentHash, mergeTextWithMarkers, type Tooltip } from '@clarity/core';
 import {
   existsField,
   fieldValue,
+  isOpenStatus,
   resolveActivation,
   type ActivationChoice,
   type ActivationConflict,
@@ -78,13 +79,16 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
   const views = useMemo(
     () =>
       detail && data
-        ? detail.members.map((member) =>
-            memberView(
+        ? detail.members.map((member) => {
+            const view = memberView(
               member,
               data.bundle.tooltips[member.hash] ?? null,
               member.hash in data.bundle.pushed,
-            ),
-          )
+            );
+            // Published or cancelled: nothing rebases any more. Fields current kept at activation
+            // are the activation conflicts above.
+            return isOpenStatus(detail.batch.status) ? view : { ...view, stale: [] };
+          })
         : [],
     [detail, data],
   );
@@ -149,12 +153,12 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
       </div>
       <StatusLines batch={batch} overdue={overdue} names={names} />
       <p className={styles.line}>
-        Created by {actor(batch.createdBy.login)} {at(batch.createdAt)}
+        Created by <Handle login={batch.createdBy.login} /> {at(batch.createdAt)}
         {scheduler && (
           <>
             {' '}
             · {scheduler.action === 'reschedule' ? 'rescheduled' : 'scheduled'} by{' '}
-            {actor(scheduler.by.login)}
+            <Handle login={scheduler.by.login} />
           </>
         )}
         {coverage.needed > 0 && (
@@ -243,7 +247,11 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
           Changes ({detail.members.length})
           {stale.length > 0 && <span className={styles.staleCount}> · {stale.length} stale</span>}
         </h3>
-        {!views.length && <p className={styles.note}>No tooltips in this batch yet.</p>}
+        {!views.length && (
+          <p className={styles.note}>
+            {isOpenStatus(batch.status) ? 'No tooltips in this batch yet.' : 'No tooltips.'}
+          </p>
+        )}
         <ul className={styles.members}>
           {views.map((view) => (
             <MemberRow
@@ -253,6 +261,7 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
               manage={manage}
               blocked={blocked}
               name={names(view.member.hash)}
+              conflicted={detail.conflicts.some((conflict) => conflict.hash === view.member.hash)}
             />
           ))}
         </ul>
@@ -292,14 +301,31 @@ function StatusLines({
   const due = batch.notBefore ? Date.parse(batch.notBefore) : null;
   const soon =
     batch.status === 'scheduled' && due !== null && due - Date.now() <= soonMs && !overdue;
+  const cancel =
+    batch.status === 'cancelled'
+      ? [...batch.events].reverse().find((event) => event.action === 'cancel')
+      : undefined;
   return (
     <>
-      <p className={styles.line} data-not-before>
-        {batch.notBefore
-          ? `Not published before ${at(batch.notBefore)}${batch.zone ? ` (chosen in ${batch.zone})` : ''}`
-          : 'No time set'}
-        {soon && ' · about to publish'}
-      </p>
+      {batch.status === 'cancelled' ? (
+        <p className={styles.line} data-status-line>
+          Cancelled
+          {cancel && (
+            <>
+              {' '}
+              {at(cancel.at)} by <Handle login={cancel.by.login} />
+            </>
+          )}
+          : nothing in it publishes.
+        </p>
+      ) : (
+        <p className={styles.line} data-not-before>
+          {batch.notBefore
+            ? `Not published before ${at(batch.notBefore)}${batch.zone ? ` (chosen in ${batch.zone})` : ''}`
+            : 'No time set'}
+          {soon && ' · about to publish'}
+        </p>
+      )}
       {batch.status === 'publishing' && batch.claim && (
         <p className={styles.line} data-status-line>
           Publishing: started {at(batch.claim.claimedAt)}
@@ -491,15 +517,15 @@ function TextBlock({ base, mine, theirs }: { base: string; mine: string; theirs:
         }
         if (/^={7}\s*$/.test(line) && part === 'mine') {
           part = 'theirs';
-          return <span key={index} className={styles.blockRule} aria-hidden="true" />;
-        }
-        if (/^>{7}/.test(line) && part === 'theirs') {
-          part = 'both';
           return (
             <span key={index} className={styles.blockMarker}>
               Current (theirs)
             </span>
           );
+        }
+        if (/^>{7}/.test(line) && part === 'theirs') {
+          part = 'both';
+          return <span key={index} className={styles.blockRule} aria-hidden="true" />;
         }
         return (
           <span key={index} className={part === 'both' ? undefined : styles[part]}>
@@ -550,6 +576,7 @@ function Choices({
   choices,
   labels,
   disabled,
+  readOnly = false,
   onChoose,
   render,
 }: {
@@ -557,29 +584,34 @@ function Choices({
   choices: Record<string, ActivationChoice>;
   labels: [string, string];
   disabled: boolean;
+  /** Show the values only: nobody here can choose (wrong status or role). */
+  readOnly?: boolean;
   onChoose(field: string, choice: ActivationChoice): void;
   render(field: string): ReactNode;
 }) {
+  const group = useId();
   return (
     <>
       {fields.map((field) => (
         <fieldset key={field} className={styles.choice}>
           <legend>{fieldLabel(field)}</legend>
           {render(field)}
-          <span className={styles.choiceButtons}>
-            {(['upcoming', 'current'] as const).map((value, index) => (
-              <label key={value}>
-                <input
-                  type="radio"
-                  name={`${field}`}
-                  checked={choices[field] === value}
-                  disabled={disabled}
-                  onChange={() => onChoose(field, value)}
-                />
-                {labels[index]}
-              </label>
-            ))}
-          </span>
+          {!readOnly && (
+            <span className={styles.choiceButtons}>
+              {(['upcoming', 'current'] as const).map((value, index) => (
+                <label key={value}>
+                  <input
+                    type="radio"
+                    name={`${group}-${field}`}
+                    checked={choices[field] === value}
+                    disabled={disabled}
+                    onChange={() => onChoose(field, value)}
+                  />
+                  {labels[index]}
+                </label>
+              ))}
+            </span>
+          )}
         </fieldset>
       ))}
     </>
@@ -592,12 +624,15 @@ function MemberRow({
   manage,
   blocked,
   name,
+  conflicted,
 }: {
   view: MemberView;
   batch: Batch;
   manage: boolean;
   blocked: boolean;
   name: string;
+  /** Current kept fields of this tooltip at activation (Activation conflicts). */
+  conflicted: boolean;
 }) {
   const data = useDataStore((state) => state.data);
   const [open, setOpen] = useState(false);
@@ -662,18 +697,27 @@ function MemberRow({
             {name}
           </span>
         </button>
-        <span className={styles.muted}>{member.hash}</span>
-        <span className={styles.memberFields}>{fieldList(view.changed) || 'no field changes'}</span>
-        {view.first && (
-          <small className={styles.mark} title="Never published: the whole tooltip publishes">
-            First publication
-          </small>
-        )}
-        {stale.length > 0 && (
-          <small className={styles.markWarn} title="Current changed under the batch">
-            Stale: {fieldList(stale)}
-          </small>
-        )}
+        <span className={styles.memberInfo}>
+          <span className={styles.muted}>{member.hash}</span>
+          <span className={styles.memberFields}>
+            {fieldList(view.changed) || 'no field changes'}
+          </span>
+          {view.first && (
+            <small className={styles.mark} title="Never published: the whole tooltip publishes">
+              First publication
+            </small>
+          )}
+          {stale.length > 0 && (
+            <small className={styles.markWarn} title="Current changed under the batch">
+              Stale: {fieldList(stale)}
+            </small>
+          )}
+          {conflicted && (
+            <small className={styles.markWarn} title="See Activation conflicts above">
+              Activation conflict
+            </small>
+          )}
+        </span>
         <span className={styles.memberEnd}>
           <Link to={`/t/${member.hash}`}>Open ↗</Link>
           {manage && draft && !confirmRemove && (
@@ -720,13 +764,16 @@ function MemberRow({
               ? manage
                 ? ' Choose a side for each, then Rebase: the batch then builds on current.'
                 : ''
-              : ' Unschedule the batch to rebase it.'}
+              : batch.status === 'scheduled'
+                ? ' Unschedule the batch to rebase it.'
+                : ' This run refuses it; rebase once the batch is back in draft.'}
           </p>
           <Choices
             fields={needed.length ? needed : stale}
             choices={choices}
             labels={['Keep batch', 'Use current']}
             disabled={!manage || !draft || blocked || pending}
+            readOnly={!manage || !draft}
             onChoose={(field, choice) => setChoices({ ...choices, [field]: choice })}
             render={(field) => (
               <FieldValues
@@ -818,6 +865,7 @@ function ConflictResolver({
         choices={choices}
         labels={['Apply upcoming', 'Keep current']}
         disabled={!manage || blocked || pending}
+        readOnly={!manage}
         onChoose={(field, choice) => setChoices({ ...choices, [field]: choice })}
         render={(field) => (
           <FieldValues
@@ -847,6 +895,11 @@ function ConflictResolver({
 }
 
 const shownEvents = 8;
+
+/** "@login" that never breaks across lines. */
+function Handle({ login }: { login: string }) {
+  return <span className={styles.handle}>{actor(login)}</span>;
+}
 
 function Events({ batch, head }: { batch: Batch; head: string }) {
   const [all, setAll] = useState(false);
@@ -878,7 +931,7 @@ function Events({ batch, head }: { batch: Batch; head: string }) {
       <ol className={styles.events}>
         {visible.map((event, index) => (
           <li key={`${event.at}-${event.revision}-${index}`}>
-            <span className={styles.muted}>{at(event.at)}</span> {actor(event.by.login)}{' '}
+            <span className={styles.muted}>{at(event.at)}</span> <Handle login={event.by.login} />{' '}
             {eventLabel(event.action)}
             {event.hashes?.length ? ` · ${plural(event.hashes.length, 'tooltip')}` : ''}
             {event.notBefore ? ` · for ${at(event.notBefore)}` : ''}

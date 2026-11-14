@@ -209,7 +209,10 @@ describe('Review save destination (scheduled changes)', () => {
     await view.settle(() => Boolean(view.button('Batch') && !view.button('Batch')!.disabled));
     await view.click('Batch');
     expect(host.querySelector('[data-destination-note]')?.textContent).toContain(
-      'A scheduled batch takes translation edits only.',
+      'Not published before Thu 3 Dec',
+    );
+    expect(host.querySelector('[data-scheduled-refusal]')?.textContent).toContain(
+      'A scheduled batch takes translation edits of its own tooltips only.',
     );
     // A translation edit goes into the scheduled batch; the draft is edited while it saves.
     const german: Tooltip = {
@@ -228,11 +231,33 @@ describe('Review save destination (scheduled changes)', () => {
         },
       }),
     );
-    // 123 is not a member: a scheduled batch refuses adds, verbatim.
-    await view.click('Save to batch');
-    await view.settle(() => host.textContent!.includes('Unschedule to edit'));
-    expect(host.textContent).toContain('Nothing was saved to December patch. Unschedule to edit');
+    // 123 is not a member: a scheduled batch refuses adds, so the row names it and Save is off.
+    await view.settle(() => Boolean(host.querySelector('[data-scheduled-refusal]')));
+    expect(host.querySelector('[data-scheduled-refusal]')?.textContent).toContain(
+      'Perk (123): not in the batch',
+    );
+    expect(view.button('Save to batch')!.disabled).toBe(true);
+    expect(saves).toBe(0);
     expect(view.useDraftStore.getState().drafts[123]).toBeTruthy();
+    // An English edit of a member is content too: named by field, Save stays off.
+    const english: Tooltip = {
+      ...extra(200),
+      associated: [5],
+      text: { ...extra(200).text, en: { ...extra(200).text.en!, text: 'New English' } },
+    };
+    await act(async () =>
+      view.useSaveState.setState({
+        locked: true,
+        review: {
+          changes: [{ hash: 200, base: { ...extra(200), associated: [5] }, next: english }],
+          submitted: { 200: { base: { ...extra(200), associated: [5] }, next: english } },
+        },
+      }),
+    );
+    await view.settle(() =>
+      Boolean(host.querySelector('[data-scheduled-refusal]')?.textContent?.includes('English')),
+    );
+    expect(view.button('Save to batch')!.disabled).toBe(true);
     // A member's translation: saved, and a draft edited meanwhile stays in Current.
     const member: Tooltip = {
       ...extra(200),

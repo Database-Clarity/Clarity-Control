@@ -240,6 +240,12 @@ describe('Review → Batches', () => {
     // The conflict block: mine = batch, theirs = current.
     expect(block.textContent).toContain('Batch (mine)');
     expect(block.textContent).toContain('Current (theirs)');
+    // Each caption sits above its own lines.
+    const pre = block.querySelector('pre')!.textContent!;
+    const order = ['Batch (mine)', 'Ten, upcoming', 'Current (theirs)', 'Ten, edited in current'];
+    expect(order.map((part) => pre.indexOf(part))).toEqual(
+      order.map((part) => pre.indexOf(part)).sort((x, y) => x - y),
+    );
     expect(view.button('Rebase')?.disabled).toBe(true);
     const keep = [...block.querySelectorAll('label')].find((node) =>
       node.textContent?.includes('Keep batch'),
@@ -402,6 +408,12 @@ describe('Review → Batches', () => {
     await view.settle(() => Boolean(view.host.querySelector('[data-conflict="10"]')));
     const block = view.host.querySelector<HTMLElement>('[data-conflict="10"]')!;
     expect(view.text()).toContain('Activation conflicts (1)');
+    // Published: no stale block or rebase talk for the member, only a pointer to the conflict.
+    expect(view.host.querySelector('[data-stale-block]')).toBeNull();
+    expect(view.host.querySelector('[data-member="10"]')?.textContent).toContain(
+      'Activation conflict',
+    );
+    expect(view.text()).not.toContain('Unschedule the batch to rebase it.');
     expect(view.button('Resolve')?.disabled).toBe(true);
     const apply = [...block.querySelectorAll('label')].find((node) =>
       node.textContent?.includes('Apply upcoming'),

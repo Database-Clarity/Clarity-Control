@@ -40,6 +40,12 @@
   width: min(28rem, calc(100vw - 2rem));
 }
 
+// A few fields (the batch schedule dialog): medium width, top-anchored so it never re-centres.
+.form {
+  width: min(36rem, calc(100vw - 2rem));
+  margin-top: min(12vh, 6rem);
+}
+
 .hint {
   margin-left: 0.5rem;
   font:

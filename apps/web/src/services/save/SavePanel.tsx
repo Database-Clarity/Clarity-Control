@@ -163,6 +163,8 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const [error, setError] = useState<string | null>(null);
   // Where this save goes: Current, or a batch (maintainers and editors, switch ON only).
   const [destination, setDestination] = useState<Destination>({ kind: 'current' });
+  // A refusal the Destination row foresees (scheduled batch content, member cap).
+  const [destinationBlocked, setDestinationBlocked] = useState<string | null>(null);
   // Maintainers and editors only (root 2026-11-14: translators get no Destination row until the
   // later destination task; trials get no batch access, Q3). The Worker stays the guard.
   const batchSaver = user?.role === 'maintainer' || user?.role === 'editor';
@@ -214,7 +216,8 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     validation?.error ||
     validation?.issues.some((issue) => issue.severity === 'error') ||
     changes.length > 100 ||
-    (batchTarget?.kind === 'new' && !batchTarget.name.trim()),
+    (batchTarget?.kind === 'new' && !batchTarget.name.trim()) ||
+    (batchTarget && destinationBlocked),
   );
   async function submit() {
     if (!data || !user || pending || blocked || remoteCommit) return;
@@ -354,9 +357,10 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         <Suspense fallback={null}>
           <DestinationRow
             value={destination}
-            hashes={changes.map(({ hash }) => hash)}
+            changes={changes}
             disabled={pending}
             onChange={setDestination}
+            onBlocked={setDestinationBlocked}
           />
         </Suspense>
       )}

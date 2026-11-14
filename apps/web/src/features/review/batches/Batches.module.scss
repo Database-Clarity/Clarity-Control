@@ -67,17 +67,18 @@
   font-size: 0.8125rem;
 }
 
+// Left edges line up with the list rows' text (0.75rem padding + 2px rail).
 .newBatch {
   @include controls.button;
   align-self: flex-start;
-  margin: 0 0.5rem 0.375rem;
+  margin: 0 0.5rem 0.375rem calc(0.75rem + 2px);
 }
 
 .newForm {
   display: flex;
   flex-wrap: wrap;
   gap: 0.375rem;
-  margin: 0 0.5rem 0.375rem;
+  margin: 0 0.5rem 0.375rem calc(0.75rem + 2px);
 
   input {
     @include controls.field;
@@ -364,7 +365,6 @@
 
 .memberHead {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.125rem 0.5rem;
   min-height: 1.75rem;
@@ -410,6 +410,16 @@
   }
 }
 
+// Hash, fields, and badges wrap inside; the actions keep the title line.
+.memberInfo {
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem 0.5rem;
+  min-width: 0;
+}
+
 .memberName {
   min-width: 0;
   overflow: hidden;
@@ -418,7 +428,6 @@
 }
 
 .memberFields {
-  flex: 1 1 8rem;
   min-width: 0;
   color: var(--text2);
 }
@@ -548,10 +557,16 @@
   padding: 0;
   list-style: none;
 
+  // Hanging indent: wrapped lines sit under the text, the time stays the line's start.
   li {
-    padding: 0.0625rem 0;
+    padding: 0.0625rem 0 0.0625rem 1rem;
+    text-indent: -1rem;
     overflow-wrap: anywhere;
   }
+}
+
+.handle {
+  white-space: nowrap;
 }
 
 // ---- schedule dialog ----
@@ -633,6 +648,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.375rem 0.5rem;
+  // A fieldset is min-content wide by default: let the select and note shrink to the dialog.
+  min-inline-size: 0;
   margin: 0 0 0.5rem;
   padding: 0;
   border: 0;
@@ -647,12 +664,13 @@
   select,
   input {
     @include controls.field;
+    flex: 1 1 10rem;
     min-width: 0;
     max-width: 100%;
   }
 
-  input {
-    flex: 1 1 10rem;
+  select {
+    text-overflow: ellipsis;
   }
 }
 
@@ -688,6 +706,7 @@
 
 .destinationNote {
   flex: 1 0 100%;
+  min-width: 0;
   margin: 0;
   font-size: 0.75rem;
   color: var(--text2);

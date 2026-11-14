@@ -70,6 +70,7 @@ export function ScheduleDialog({
     <Dialog
       title={`${verb} ${batch.name}`}
       busy={pending}
+      form
       onClose={onClose}
       footer={
         <>

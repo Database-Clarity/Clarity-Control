@@ -1,8 +1,10 @@
 import { useEffect, useMemo } from 'react';
+import { nonTranslationChanges } from '@clarity/core/schedule';
+import type { Change } from '../../../services/api';
 import { zonedNotBefore } from '../../../services/format/date';
 import { memberCap } from '../../../services/scheduled/api';
 import { draftsOfBatch, useBatchDraftStore } from '../../../services/scheduled/batchDrafts';
-import { orderBatches, statusLabel } from './model';
+import { fieldList, orderBatches, statusLabel } from './model';
 import { nameFor } from './names';
 import { startBatches, useBatches } from './store';
 import { useDataStore } from '../../../stores/data';
@@ -20,16 +22,20 @@ export { saveReviewToBatch } from './saveDestination';
  */
 export function DestinationRow({
   value,
-  hashes,
+  changes,
   disabled,
   onChange,
+  onBlocked,
 }: {
   value: Destination;
-  /** The tooltips under review. */
-  hashes: readonly number[];
+  /** The changes under review. */
+  changes: readonly Change[];
   disabled: boolean;
   onChange(value: Destination): void;
+  /** Why Save to batch is off (a refusal the Worker would give), or null. */
+  onBlocked(reason: string | null): void;
 }) {
+  const hashes = useMemo(() => changes.map(({ hash }) => hash), [changes]);
   useEffect(startBatches, []);
   const entries = useBatches((state) => state.entries);
   const listError = useBatches((state) => state.listError);
@@ -65,6 +71,21 @@ export function DestinationRow({
       );
   }, [entries, hashes, value]);
   const total = value.kind === 'current' ? 0 : new Set([...(chosen?.hashes ?? []), ...hashes]).size;
+  // A scheduled batch takes translation edits of its own tooltips only (I5): anything else is the
+  // Worker's 409 "Unschedule to edit", so name it now and keep Save to batch off.
+  const refused = useMemo(() => {
+    if (chosen?.status !== 'scheduled') return [];
+    const held = new Set(chosen.hashes);
+    return changes.flatMap((change) => {
+      const label = `${nameFor(data, change.hash)} (${change.hash})`;
+      if (!held.has(change.hash)) return [`${label}: not in the batch`];
+      const fields = nonTranslationChanges(change.base, change.next);
+      return fields.length ? [`${label}: ${fieldList(fields)}`] : [];
+    });
+  }, [chosen, changes, data]);
+  const blockedBy = refused.length ? 'scheduled' : total > memberCap ? 'cap' : null;
+  useEffect(() => onBlocked(blockedBy), [blockedBy, onBlocked]);
+  useEffect(() => () => onBlocked(null), [onBlocked]);
   const pick = (kind: Destination['kind']) => {
     if (kind === 'current') onChange({ kind });
     else if (kind === 'new') onChange({ kind, name: value.kind === 'new' ? value.name : '' });
@@ -123,7 +144,7 @@ export function DestinationRow({
             ? 'Creates a draft batch and saves these changes into it. Nothing publishes until it is scheduled.'
             : chosen
               ? chosen.notBefore
-                ? `Not published before ${zonedNotBefore(chosen.notBefore)}.${chosen.status === 'scheduled' ? ' A scheduled batch takes translation edits only.' : ''}`
+                ? `Not published before ${zonedNotBefore(chosen.notBefore)}.${chosen.status === 'scheduled' && !refused.length ? ' A scheduled batch takes translation edits only.' : ''}`
                 : 'Draft batch: no time set yet.'
               : ''}{' '}
           Current saved text stays as it is; the drafts move into the batch.
@@ -135,6 +156,12 @@ export function DestinationRow({
         <p className={styles.destinationNote} role="note">
           Already in another open batch (one batch per tooltip):{' '}
           {elsewhere.map(({ hash, batch }) => `${nameFor(data, hash)} (${batch})`).join(', ')}.
+        </p>
+      )}
+      {refused.length > 0 && (
+        <p className={styles.destinationNote} role="alert" data-scheduled-refusal>
+          A scheduled batch takes translation edits of its own tooltips only. Unschedule it first
+          (Review → Batches), or save these to Current: {refused.join('; ')}.
         </p>
       )}
       {total > memberCap && (
