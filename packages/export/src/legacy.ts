@@ -43,6 +43,8 @@ export type LegacyOptions = {
    * leave such entries out (all but crayon and vaultZero) skip them. Empty when not given.
    */
   identical?: Iterable<string | number>;
+  /** clarityV2: use the portable arrow character instead of the symbol. */
+  arrowFallback?: boolean;
 };
 
 /** The file name of a preset at the old URLs, with its exact case (`lightGG.json`, `vaultZero.json`). */
@@ -92,7 +94,16 @@ export function buildLegacy(
 ): Uint8Array {
   if (!isLegacyPreset(preset)) throw new Error(`Unknown legacy preset: ${String(preset)}`);
   const identical = new Set([...(options.identical ?? [])].map(String));
-  const output = databaseConverter(preset, withSetBonusType(lowerInput(input).perks), identical);
+  const output = databaseConverter(
+    preset,
+    withSetBonusType(
+      lowerInput(
+        input,
+        preset === 'clarityV2' ? (options.arrowFallback ? 'fallback' : undefined) : 'legacy',
+      ).perks,
+    ),
+    identical,
+  );
   const text = customJsonStringify(output, ['stat', 'multiplier', 'weaponTypes', 'classNames']);
   return encoder.encode(text);
 }

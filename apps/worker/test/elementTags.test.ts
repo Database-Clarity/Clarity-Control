@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkup, type Tooltip } from '@clarity/core';
+import { refuseUnlowerable } from '../src/elementTags.js';
 import publisherConfig from '../../../config/publisher.json';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 
@@ -235,5 +236,45 @@ describe('push-live lowers element-tagged text (hold lifted)', () => {
     const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
     expect(response.status).toBe(200);
     expect(fixture.commits).toHaveLength(1);
+  });
+});
+
+describe('arrow symbol capability', () => {
+  it('refuses legacy push-live without writing, even with a capable PIN', async () => {
+    fixture.moveData({
+      'tooltips/123.json': tooltip('30%<arrow/>33%'),
+      '.publisher/PIN': { ...pin, capabilities: ['arrowSymbol'] },
+    });
+    const before = structuredClone(fixture.live);
+    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status).toBe(422);
+    expect(fixture.live).toEqual(before);
+    expect(fixture.writes).toHaveLength(0);
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('refuses the publish guard with a capable PIN when the publisher is disabled', () => {
+    expect(() =>
+      refuseUnlowerable(
+        tooltip('<arrow/>'),
+        { value: { capabilities: ['arrowSymbol'] } },
+        'published',
+      ),
+    ).toThrow('arrowSymbol');
+  });
+  it('refuses arrow saves while the publisher is disabled', async () => {
+    const refused = await save(tooltip(), tooltip('30%<arrow/>33%'));
+    expect(refused.status).toBe(422);
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('refuses an old PIN, and saves once the PIN declares arrowSymbol', async () => {
+    publisherConfig.enabled = true;
+    fixture.moveData({ '.publisher/PIN': pin });
+    const next = tooltip('30%<arrow/>33%');
+    const refused = await save(tooltip(), next);
+    expect(refused.status).toBe(422);
+    expect((await refused.json()).error).toContain('arrowSymbol');
+    expect(fixture.commits).toHaveLength(0);
+    fixture.moveData({ '.publisher/PIN': { ...pin, capabilities: ['arrowSymbol'] } });
+    expect((await save(tooltip(), next)).status).toBe(200);
   });
 });

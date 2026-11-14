@@ -14,7 +14,8 @@ import {
 import type { MarkupLine, MarkupSpan } from './types.js';
 import { weaponSectionHeadings } from './weaponHeadings.js';
 
-const inlineToken = /<.+?\/>/;
+const inlineToken =
+  /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
 
 function lineClasses(line: string, allowed: string[], offsets?: number[]) {
   const classNames = allowed.filter((name) => line.includes(`<${name}/>`));
@@ -57,7 +58,12 @@ export function markupStrayTags(text: string): string[] {
       const tags = segment.match(/<\w+/g) ?? [];
       // A complete token holds one tag; a second `<word` inside it means a missing `/>`.
       const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
-      if (tags.length > (isToken ? 1 : 0)) stray.push(tags[0]!);
+      const wrapper = /^<(\w+) /.exec(segment)?.[1] ?? '';
+      const arrows =
+        isToken && [...markupColors, 'background'].includes(wrapper) && segment.endsWith(' />')
+          ? (segment.match(/<arrow\/>/g)?.length ?? 0)
+          : 0;
+      if (tags.length > (isToken ? 1 + arrows : 0)) stray.push(tags[0]!);
     }
   }
   return stray;
@@ -166,6 +172,16 @@ function lineSpans(text: string, titles: Record<string, MarkupLine[]>): MarkupSp
   const wrapper = text.match(/<\w+/)?.[0].slice(1);
   if (wrapper === undefined) return [{ text }];
   if ([...markupColors, 'background', 'bold'].includes(wrapper)) {
+    const inner = text.replace(new RegExp(`^<${wrapper} | />$`, 'g'), '');
+    if (inner.includes('<arrow/>'))
+      return inner
+        .split(/(<arrow\/>)/)
+        .filter(Boolean)
+        .map((part) =>
+          part === '<arrow/>'
+            ? { classNames: [wrapper, 'arrow'] }
+            : { text: part, classNames: [wrapper] },
+        );
     return [{ text: text.replace(new RegExp(`<${wrapper} | />`, 'g'), ''), classNames: [wrapper] }];
   }
   if ([...markupIcons, ...markupEmpty].includes(wrapper)) return [{ classNames: [wrapper] }];

@@ -23,7 +23,9 @@ import {
   resetRows,
   ruleForMode,
   rowChanged,
+  rowValue,
   setData,
+  setArrowFallback,
   setPreset,
   setRow,
   setShape,
@@ -300,4 +302,36 @@ describe('G-ROUNDTRIP', () => {
       }),
     ).toThrow();
   });
+});
+
+it('clarityV2 arrow formatting restores the original config when toggled back', () => {
+  const config: ExportConfig = {
+    schema: 1,
+    id: 'arrows',
+    name: 'Arrows',
+    files: [{ id: 'symbol-file', preset: 'clarityV2', formatVersion: 1 }],
+  };
+  const state = fromConfig(config, 'revision');
+  const key = fileKey(config.files[0]);
+  const fallback = setArrowFallback(state, key, true);
+  expect(fallback.config.files[0]).toHaveProperty('arrowFallback', true);
+  expect(setArrowFallback(fallback, key, false).config).toEqual(config);
+});
+
+it('changing a structured export to text keeps arrows as portable text', () => {
+  const file = newStyleFile('arrow-file', 'structured');
+  const state = fromConfig({ schema: 1, id: 'arrows', name: 'Arrows', files: [file] }, 'revision');
+  const next = setShape(state, fileKey(file), 'text').config.files[0] as StyleFile;
+  expect(next.format.symbols.arrow).toEqual({ mode: 'replace', before: '→', after: '' });
+});
+
+it('shows the effective portable arrow default for older text-shape configs', () => {
+  const file = newStyleFile('old-arrow', 'plain');
+  delete file.format.symbols.arrow;
+  expect(rowValue(file.format, 'arrow', file.shape)).toEqual({
+    mode: 'replace',
+    before: '→',
+    after: '',
+  });
+  expect(rowChanged(file, 'arrow')).toBe(false);
 });

@@ -1314,6 +1314,7 @@ describe('scheduled batches (simulator)', () => {
       'scheduledBatches',
       'markupBraces',
       'prismaticTags',
+      'arrowSymbol',
     ]);
     const f = await setup();
     // The dry-run CLI runs on the real clock: schedule a batch that is long due.

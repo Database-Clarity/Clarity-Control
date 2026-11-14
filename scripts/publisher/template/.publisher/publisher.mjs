@@ -21865,7 +21865,7 @@ var classNameList = {
   withText: [...textColoring, "background", "bold"],
   empty: [...images, ...empty],
   withExtraFunctionality: ["link", "title", "formula"],
-  extra: ["enhancedArrow", "spacer"],
+  extra: ["arrow", "enhancedArrow", "spacer"],
   table
 };
 var allClassNames = Object.values(classNameList).flat();
@@ -22595,8 +22595,12 @@ var getLineClasses = (line, classNamesArray) => {
 
 // packages/export/src/converter/converterFunctions/lineConverter.ts
 var convertLinesContent = (line, tiles) => {
-  const splittedLine = line.split(/(<.+?\/>|🡅)/g).filter((line2) => line2 !== "");
+  const splittedLine = line.split(/(<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>|🡅)/g).filter((line2) => line2 !== "");
   return splittedLine.reduce((acc, text) => {
+    if (text === "<arrow/>") {
+      acc.push({ classNames: ["arrow"] });
+      return acc;
+    }
     if (text === "\u{1F845}") {
       acc.push({
         text: "\u{1F845}",
@@ -22613,7 +22617,11 @@ var convertLinesContent = (line, tiles) => {
     }
     const { empty: empty2, withText } = classNameList;
     if (withText.includes(wrappersName)) {
-      acc.push({
+      if (text.includes("<arrow/>")) {
+        const inner = text.replace(new RegExp(`^<${wrappersName} | />$`, "g"), "");
+        for (const part of inner.split(/(<arrow\/>)/).filter(Boolean))
+          acc.push(part === "<arrow/>" ? { classNames: [wrappersName, "arrow"] } : { text: part, classNames: [wrappersName] });
+      } else acc.push({
         text: text.replace(new RegExp(`<${wrappersName} | />`, "g"), ""),
         classNames: [wrappersName]
       });
@@ -23091,8 +23099,9 @@ function lowerDelimitedMarkup(text) {
   }
   return changed ? lines.join("\n") : text;
 }
-function lowerConsumerMarkup(text) {
-  return lowerDelimitedMarkup(lowerElementTags(text));
+function lowerConsumerMarkup(text, arrow) {
+  const lowered = lowerDelimitedMarkup(lowerElementTags(text));
+  return arrow ? lowered.replaceAll("<arrow/>", arrow === "legacy" ? "\u{1F81A}" : "\u2192") : lowered;
 }
 function mergedVariable(name, defined) {
   if (defined(name)) return void 0;
@@ -23104,15 +23113,16 @@ function mergedVariable(name, defined) {
 }
 
 // packages/export/src/elementTags.ts
-function lowerInput(input2) {
+function lowerInput(input2, arrow) {
+  const lower2 = (text) => lowerConsumerMarkup(text, arrow);
   let perks;
   for (const [hash2, perk] of Object.entries(input2.perks)) {
     if (!("editor" in perk) || !perk.editor) continue;
     let editor;
     for (const [language, text] of Object.entries(perk.editor)) {
       if (!text) continue;
-      const main2 = lowerConsumerMarkup(text.main);
-      const secondary = lowerConsumerMarkup(text.secondary);
+      const main2 = lower2(text.main);
+      const secondary = lower2(text.secondary);
       if (main2 === text.main && secondary === text.secondary) continue;
       editor ??= { ...perk.editor };
       editor[language] = { ...text, main: main2, secondary };
@@ -23162,7 +23172,16 @@ var isLegacyPreset = (preset) => legacyPresets.includes(preset) && Object.hasOwn
 function buildLegacy(input2, preset, options = {}) {
   if (!isLegacyPreset(preset)) throw new Error(`Unknown legacy preset: ${String(preset)}`);
   const identical = new Set([...options.identical ?? []].map(String));
-  const output2 = databaseConverter(preset, withSetBonusType(lowerInput(input2).perks), identical);
+  const output2 = databaseConverter(
+    preset,
+    withSetBonusType(
+      lowerInput(
+        input2,
+        preset === "clarityV2" ? options.arrowFallback ? "fallback" : void 0 : "legacy"
+      ).perks
+    ),
+    identical
+  );
   const text = customJsonStringify(output2, ["stat", "multiplier", "weaponTypes", "classNames"]);
   return encoder.encode(text);
 }
@@ -23295,7 +23314,8 @@ var markupIcons = [
   "unstoppable",
   "hunter",
   "titan",
-  "warlock"
+  "warlock",
+  "arrow"
 ];
 var markupEmpty = ["background", "breakSpaces", "bold"];
 var markupLineClasses = [...markupColors, ...markupEmpty];
@@ -23361,7 +23381,7 @@ function weaponSectionHeadings(text) {
 }
 
 // packages/core/src/markup/lines.ts
-var inlineToken = /<.+?\/>/;
+var inlineToken = /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
 function lineClasses(line, allowed2, offsets) {
   const classNames = allowed2.filter((name) => line.includes(`<${name}/>`));
   let cleanLine = line;
@@ -23385,7 +23405,9 @@ function markupStrayTags(text) {
     for (const segment of line.split(new RegExp(`(${inlineToken.source})`, "g"))) {
       const tags = segment.match(/<\w+/g) ?? [];
       const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
-      if (tags.length > (isToken ? 1 : 0)) stray.push(tags[0]);
+      const wrapper2 = /^<(\w+) /.exec(segment)?.[1] ?? "";
+      const arrows = isToken && [...markupColors, "background"].includes(wrapper2) && segment.endsWith(" />") ? segment.match(/<arrow\/>/g)?.length ?? 0 : 0;
+      if (tags.length > (isToken ? 1 + arrows : 0)) stray.push(tags[0]);
     }
   }
   return stray;
@@ -23465,6 +23487,11 @@ function lineSpans(text, titles) {
   const wrapper2 = text.match(/<\w+/)?.[0].slice(1);
   if (wrapper2 === void 0) return [{ text }];
   if ([...markupColors, "background", "bold"].includes(wrapper2)) {
+    const inner = text.replace(new RegExp(`^<${wrapper2} | />$`, "g"), "");
+    if (inner.includes("<arrow/>"))
+      return inner.split(/(<arrow\/>)/).filter(Boolean).map(
+        (part) => part === "<arrow/>" ? { classNames: [wrapper2, "arrow"] } : { text: part, classNames: [wrapper2] }
+      );
     return [{ text: text.replace(new RegExp(`<${wrapper2} | />`, "g"), ""), classNames: [wrapper2] }];
   }
   if ([...markupIcons, ...markupEmpty].includes(wrapper2)) return [{ classNames: [wrapper2] }];
@@ -23981,6 +24008,16 @@ var wrap = (tag, about) => ({
 });
 var markupSnippets = [
   {
+    id: "arrow-values",
+    label: "Value becomes another",
+    group: "Values",
+    template: "{{1:30%}}<arrow/>{{2:33%}}",
+    keywords: "arrow leads to becomes change value",
+    usage: /<arrow\/>/,
+    about: "Two values joined by an arrow in the surrounding text colour.",
+    help: { example: "30%<arrow/>33%" }
+  },
+  {
     id: "base-enhanced-pair",
     label: "Base and enhanced text",
     group: "Enhanced",
@@ -24195,6 +24232,7 @@ var markupTags = [
   }
 ];
 var iconAbout = {
+  arrow: "An arrow meaning leads to or becomes, drawn in the surrounding text colour.",
   kinetic: "Kinetic damage icon.",
   arc: "Arc damage icon.",
   solar: "Solar damage icon.",
@@ -24277,7 +24315,10 @@ var glyphPolicy = {
   ],
   characters: "	\n\r\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026\u2190\u2191\u2192\u2193\u21D2\u2264\u2265\u2260\u2212\u221E\u2665\u2116\u2060\u3000\u3001\u3002\u3003\u3005\u3006\u3007\u3008\u3009\u300A\u300B\u300C\u300D\u300E\u300F\u3010\u3011\u3014\u3015\u301C",
   knownRisk: {
-    "\u{1F81A}": { reason: "Supplemental arrow needs a font some devices do not have.", replacement: "->" },
+    "\u{1F81A}": {
+      reason: "Supplemental arrow needs a font some devices do not have.",
+      replacement: "<arrow/>"
+    },
     "\u{1F805}": { reason: "Supplemental arrow needs a font some devices do not have.", replacement: "^" },
     "\u{1F845}": { reason: "Enhanced-perk marker: consumer support varies; DIM handles it specially." },
     "\uFEFF": {
