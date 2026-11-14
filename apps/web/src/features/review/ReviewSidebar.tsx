@@ -3,7 +3,7 @@ import { Suspense, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { publisherEnabled } from '../../services/publisher/flag';
 import { activeHashes, usePublishState } from './publishDriver';
-import { matchesFilter, queueView } from './queueModel';
+import { markerGroup, matchesFilter, queueView } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import { ReviewQueue } from './ReviewQueue';
 import { useReviewSession } from './session';
@@ -93,6 +93,17 @@ function SavedSidebar() {
         : [],
     [view, data],
   );
+  // Collapse all / Expand all acts on the category groups the filters show; the marker-only group
+  // keeps its own rule (collapsed until opened).
+  const shownGroups = useMemo(
+    () =>
+      view?.items.flatMap((item) =>
+        item.kind === 'group' && item.id !== markerGroup ? [item] : [],
+      ) ?? [],
+    [view],
+  );
+  const anyOpen = shownGroups.some((group) => !group.collapsed);
+  const setGroupsCollapsed = useReviewQueue((state) => state.setGroupsCollapsed);
   const update = (nextQuery: string, nextCategory: string) =>
     setSearchParams(filterParams(searchParams, entries ?? [], nextQuery, nextCategory), {
       replace: true,
@@ -126,30 +137,49 @@ function SavedSidebar() {
                 ))}
               </select>
             </div>
-            <div ref={anchor} className={styles.workThrough}>
-              <WorkThroughBar
-                source="review"
-                selected={shownItems.filter((item) => selected.has(item.hash))}
-                shown={shownItems}
-                restore={
-                  {
-                    query,
-                    category: categoryFilter,
-                    hash: searchParams.get('hash'),
-                    collapsed: [...collapsed],
-                    markerOpen,
-                    selected: [...selected],
-                    stamps: Object.fromEntries(
-                      [...selected].map((hash) => [
-                        hash,
-                        data ? reviewStamp(data.bundle.tooltips[hash], data.aliases) : 'gone',
-                      ]),
-                    ),
-                  } satisfies Omit<ReviewRestore, 'scroll'>
-                }
-                anchor={anchor}
-                dense
-              />
+            <div className={styles.listBar}>
+              <div ref={anchor} className={styles.workThrough}>
+                <WorkThroughBar
+                  source="review"
+                  selected={shownItems.filter((item) => selected.has(item.hash))}
+                  shown={shownItems}
+                  restore={
+                    {
+                      query,
+                      category: categoryFilter,
+                      hash: searchParams.get('hash'),
+                      collapsed: [...collapsed],
+                      markerOpen,
+                      selected: [...selected],
+                      stamps: Object.fromEntries(
+                        [...selected].map((hash) => [
+                          hash,
+                          data ? reviewStamp(data.bundle.tooltips[hash], data.aliases) : 'gone',
+                        ]),
+                      ),
+                    } satisfies Omit<ReviewRestore, 'scroll'>
+                  }
+                  anchor={anchor}
+                  dense
+                />
+              </div>
+              {shownGroups.length > 0 && (
+                <button
+                  type="button"
+                  className={styles.collapseAll}
+                  data-perf-navigation="true"
+                  onClick={() =>
+                    setGroupsCollapsed(
+                      shownGroups.map((group) => group.id),
+                      anyOpen,
+                    )
+                  }
+                >
+                  {/* Both labels share one cell, so the button keeps its width as the label flips. */}
+                  <span aria-hidden={!anyOpen || undefined}>Collapse all</span>
+                  <span aria-hidden={anyOpen || undefined}>Expand all</span>
+                </button>
+              )}
             </div>
             {view && view.items.length ? (
               <ReviewQueue

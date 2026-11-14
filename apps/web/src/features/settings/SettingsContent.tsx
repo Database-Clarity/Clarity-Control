@@ -358,6 +358,16 @@ export function SettingsContent() {
           </select>
         </label>
         <label>
+          Step through the worklist
+          <select
+            value={device.worklistStepping ? 'on' : 'off'}
+            onChange={(event) => updateDevice({ worklistStepping: event.target.value === 'on' })}
+          >
+            <option value="on">On (Shift+wheel and arrows stay in the queue)</option>
+            <option value="off">Off (they step the finder&apos;s list)</option>
+          </select>
+        </label>
+        <label>
           Interface scale
           <ScaleControl value={device.uiScale} onCommit={(uiScale) => updateDevice({ uiScale })} />
         </label>
