@@ -20,7 +20,7 @@ const updateSchema = z
       .string()
       .regex(/^[0-9a-f]{40}$/)
       .nullable(),
-    hash: hashSchema,
+    hash: hashSchema.refine((hash) => hash < 1 || hash > 3, 'Global definitions cannot be moved'),
     inactive: z.boolean(),
     note: z.string().trim().max(1000).optional(),
   })

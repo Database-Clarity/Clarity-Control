@@ -20,6 +20,8 @@ import {
   inactiveMovesPath,
   inactiveMovesSchema,
   inactivePublishableHash,
+  hasUnpublishedInactiveMove,
+  unreviewedInactiveMessage,
   isMovedInactive,
   selectedInactiveMoves,
   type InactiveMoves,
@@ -218,9 +220,13 @@ export class Publisher {
     );
   }
   movesAt(tree: Tree): InactiveMoves {
-    const parsed = inactiveMovesSchema.safeParse(this.read<unknown>(tree, inactiveMovesPath) ?? {});
-    if (!parsed.success) throw new ConsumerOutputRejected(`Invalid ${inactiveMovesPath}`);
-    return parsed.data;
+    try {
+      return inactiveMovesSchema.parse(
+        tree[inactiveMovesPath] ? this.read<unknown>(tree, inactiveMovesPath) : {},
+      );
+    } catch {
+      throw new ConsumerOutputRejected(`Invalid ${inactiveMovesPath}`);
+    }
   }
   /**
    * The live-merge recompute for a publish from this snapshot (core mergeLivePerks): every key the
@@ -436,6 +442,7 @@ export class Publisher {
         this.movesAt(sourceTree),
         r.entries.map((e) => e.hash),
         this.aliasesAt(sourceTree),
+        live.perks,
       );
     } catch (error) {
       throw new ConsumerOutputRejected(String(error));
@@ -970,6 +977,7 @@ export class Publisher {
     }
     const outcomes: { hash: number; status: string; fields?: string[]; reason?: string }[] = [];
     const tooltips: Tooltip[] = [];
+    const moves = this.movesAt(tree);
     for (const m of members) {
       const stored = (path: string) => {
         const value = this.read<unknown>(tree, path);
@@ -987,6 +995,10 @@ export class Publisher {
       }
       if (resolveAlias(m.hash, aliases) !== m.hash) {
         outcomes.push({ hash: m.hash, status: 'alias' });
+        continue;
+      }
+      if (await hasUnpublishedInactiveMove(m.hash, snapshot, pushed[m.hash], aliases, moves)) {
+        outcomes.push({ hash: m.hash, status: 'stale', reason: unreviewedInactiveMessage });
         continue;
       }
       // Non-translation merge3 against current (translations follow Q4 and never block).
@@ -1378,15 +1390,19 @@ export class Publisher {
     const sandboxPointers = sandboxPointersSchema.safeParse(
       this.read<unknown>(t, sandboxPointersPath),
     ).data;
+    let inactiveMoves: InactiveMoves | undefined;
+    try {
+      if (t[inactiveMovesPath]) inactiveMoves = this.movesAt(t);
+    } catch {
+      // Invalid JSON and invalid shapes must not wedge terminal rejection or bundle refresh.
+    }
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, 'config/permissions.json')),
       pushed: pushedSchema.parse(this.read(t, 'live/pushed.json')),
-      ...(inactiveMovesSchema.safeParse(this.read<unknown>(t, inactiveMovesPath)).success
-        ? { inactiveMoves: this.read<unknown>(t, inactiveMovesPath) }
-        : {}),
+      ...(inactiveMoves ? { inactiveMoves } : {}),
       ...(sandboxPointers && Object.keys(sandboxPointers.pointers).length
         ? { sandboxPointers }
         : {}),

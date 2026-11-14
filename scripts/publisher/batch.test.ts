@@ -28,6 +28,8 @@ import {
   publishIntentDigest,
   publishRequestIntentDigest,
   publishableHash,
+  inactivePublishableHash,
+  inactiveRemovalHash,
   stableStringify,
   type PublishPayload,
   type Tooltip,
@@ -433,6 +435,62 @@ describe('request union (publishRequest.ts)', () => {
 });
 
 describe.each(['simulator', 'remote'] as const)('%s: scheduled batch core path', (transport) => {
+  it.each([true, false])(
+    'inactive: refuses an unreviewed move saved after text approval (inactive=%s)',
+    async (inactive) => {
+      const f = await setup(transport);
+      await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+      f.change(D, {
+        'config/inactive.json': {
+          123: { by: 1, at: '2026-11-14T00:00:00Z', ...(!inactive ? { inactive: false } : {}) },
+        },
+        ...(!inactive ? { 'live/pushed.json': { 123: await inactiveRemovalHash(123) } } : {}),
+      });
+      const before = f.git.head(L);
+      const markers = f.read('live/pushed.json');
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      expect(f.read('live/pushed.json')).toEqual(markers);
+      expect(f.batchFile().status).toBe('draft');
+      expect(f.read(paths(OP).log)).toMatchObject({
+        result: {
+          status: 'stale',
+          outcomes: [{ hash: 123, reason: expect.stringContaining('inactive move decisions') }],
+        },
+      });
+      expect(f.git.head(paths(OP).candidate)).toBeUndefined();
+    },
+  );
+
+  it('inactive: allows an already published alias exclusion without restoring its pick stub', async () => {
+    const f = await setup(transport);
+    f.options.sandboxConflicts = { 700: [123, 124] };
+    const moves = { 700: { by: 1, at: '2026-11-14T00:00:00Z' } };
+    f.change(D, {
+      'config/sandbox-pointers.json': {
+        version: 1,
+        pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-14T00:00:00Z' } },
+      },
+      'config/inactive.json': moves,
+    });
+    const aliases = f.pub.aliasesAt(f.tree());
+    f.change(D, {
+      'live/pushed.json': { 123: await inactivePublishableHash(tip(), aliases, moves) },
+    });
+    const live = f.live();
+    f.change(L, {
+      'liveDescriptions.json': {
+        ...live,
+        perks: { ...live.perks, ...exportLegacy([tip()], START, f.options.facts) },
+      },
+    });
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    await f.pub.run();
+    assertPublished(f);
+    expect(f.live().perks[123]).toBeDefined();
+    expect(f.live().perks[700]).toBeUndefined();
+  });
+
   it('records an output refusal without claiming the batch and drains the next push', async () => {
     const f = await setup(transport);
     f.change(D, { 'tooltips/124.json': tip({}, 124) });

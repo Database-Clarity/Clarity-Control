@@ -227,6 +227,7 @@ export async function pushLive(
         loaded.moves,
         canonicalHashes,
         loaded.aliases,
+        live.perks,
       );
     } catch (error) {
       throw new HttpError(422, String(error));

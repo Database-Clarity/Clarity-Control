@@ -840,7 +840,11 @@ function TooltipWorkspace({
             </>
           }
           inactiveControl={
-            !!apiUrl && !readOnly && !batchEditing && user?.role === 'maintainer' && (
+            !!apiUrl &&
+            !readOnly &&
+            !batchEditing &&
+            (activeHash < 1 || activeHash > 3) &&
+            user?.role === 'maintainer' && (
               <InactiveHeaderControl
                 hash={activeHash}
                 name={nameOf(activeHash)}

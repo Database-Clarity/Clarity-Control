@@ -1,6 +1,12 @@
 import { createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { contentHash, publishMonth, translationStateOf, type Tooltip } from '@clarity/core';
+import {
+  contentHash,
+  publishMonth,
+  translationStateOf,
+  inactiveRemovalHash,
+  type Tooltip,
+} from '@clarity/core';
 import {
   activate,
   approvedDigest,
@@ -162,6 +168,29 @@ const schedule = (id = MAINTAINER, extra: Record<string, unknown> = {}) =>
     { revision: storedBatch().revision, notBefore: later(), zone: 'Europe/Berlin', ...extra },
     id,
   );
+
+it.each([true, false])(
+  'refuses unreviewed inactive decisions when scheduling (inactive=%s)',
+  async (inactive) => {
+    f.moveData({
+      '.publisher/PIN': { capabilities: ['elementTags', 'scheduledBatches', 'inactiveMoves'] },
+      'config/inactive.json': {
+        123: { by: 1, at: '2026-11-14T00:00:00Z', ...(!inactive ? { inactive: false } : {}) },
+      },
+      ...(!inactive
+        ? {
+            'live/pushed.json': { 123: await inactiveRemovalHash(123) },
+            'live/tooltips/123.json': tooltip(),
+          }
+        : {}),
+    });
+    const count = f.commits.length;
+    const response = await schedule();
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain('inactive move decisions');
+    expect(f.commits).toHaveLength(count);
+  },
+);
 
 describe('switch OFF', () => {
   it('answers 503 on every route before auth and the cron makes no I/O', async () => {

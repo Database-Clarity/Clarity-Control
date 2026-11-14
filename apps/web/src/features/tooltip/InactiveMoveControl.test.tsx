@@ -57,6 +57,12 @@ async function type(value: string) {
   });
 }
 
+it.each([1, 2, 3])('hides the inactive action for required global %s', async (hash) => {
+  await render(hash);
+  expect(host.textContent).toBe('');
+  expect(getInactiveMoves).not.toHaveBeenCalled();
+});
+
 it('hides the action and reads nothing for non-maintainers', async () => {
   useAuthStore.setState({ user: { id: 2, login: 'bob', role: 'editor' } });
   await render();

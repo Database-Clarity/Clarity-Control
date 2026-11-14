@@ -137,9 +137,7 @@ async function computePending(
   }
   const tooltips = Object.values(sources).filter(
     (tooltip) =>
-      (!isTextlessDescription(tooltip) ||
-        isMovedInactive(tooltip.hash, moves) ||
-        (Object.hasOwn(moves, String(tooltip.hash)) && !!pushed[tooltip.hash])) &&
+      (!isTextlessDescription(tooltip) || isMovedInactive(tooltip.hash, moves)) &&
       resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
   );
   const digests = await fingerprintDigests(tooltips, activeAliases(data.aliases, moves));

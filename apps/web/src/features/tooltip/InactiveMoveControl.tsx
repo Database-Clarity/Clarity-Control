@@ -36,7 +36,7 @@ export function InactiveMoveControl({
   const savingRef = useRef(false);
   const moved = isMovedInactive(hash, loaded?.moves ?? moves);
   const confirmationName = name.trim() || `Tooltip ${hash}`;
-  const allowed = !!apiUrl && user?.role === 'maintainer';
+  const allowed = !!apiUrl && user?.role === 'maintainer' && (hash < 1 || hash > 3);
   useEffect(() => {
     setTyped('');
     setLoaded(null);

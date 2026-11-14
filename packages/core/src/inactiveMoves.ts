@@ -65,6 +65,22 @@ export async function inactiveRemovalHash(hash: number): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+export const unreviewedInactiveMessage =
+  'Publish inactive move decisions in Review changes before scheduling or publishing this batch';
+
+/** A text batch has no inactive intent: only an already published move may affect its output. */
+export async function hasUnpublishedInactiveMove(
+  hash: number,
+  snapshot: Tooltip | null,
+  pushed: string | undefined,
+  aliases: Aliases,
+  moves: InactiveMoves,
+): Promise<boolean> {
+  if (!Object.keys(selectedInactiveMoves(moves, [hash], aliases)).length) return false;
+  if (isMovedInactive(hash, moves) || !snapshot || !pushed) return true;
+  return (await inactivePublishableHash(snapshot, aliases, moves)) !== pushed;
+}
+
 const activeAliasSnapshots = new WeakMap<Aliases, WeakMap<InactiveMoves, Aliases>>();
 export function activeAliases(aliases: Aliases, moves: InactiveMoves): Aliases {
   const cached = activeAliasSnapshots.get(aliases)?.get(moves);
@@ -163,6 +179,7 @@ export function applyInactiveLive(
   moves: InactiveMoves,
   hashes: Iterable<number>,
   aliases: Aliases,
+  previous: Readonly<Record<string, unknown>> = perks,
 ): Record<string, unknown> {
   if (!Object.keys(moves).length) return perks as Record<string, unknown>;
   const selected = selectedInactiveMoves(moves, hashes, aliases);
@@ -174,6 +191,10 @@ export function applyInactiveLive(
     delete result[hash];
     removed.add(hash);
   };
+  // Pick recomputation can recreate a missing stub. Only its selected canonical row may
+  // re-add it; both move-in and move-out markers retain the pre-merge published absence.
+  for (const key of Object.keys(moves))
+    if (!Object.hasOwn(selected, key) && !Object.hasOwn(previous, key)) erase(Number(key));
   for (const key of Object.keys(selected)) {
     const hash = Number(key);
     if (!isMovedInactive(hash, selected)) continue;

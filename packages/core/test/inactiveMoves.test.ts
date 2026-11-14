@@ -1,11 +1,12 @@
 import { expect, it } from 'vitest';
-import { exportLegacy } from '../src/exportLegacy.js';
+import { exportLegacy, mergeLivePerks } from '../src/exportLegacy.js';
 import {
   activeAliases,
   exportWithInactiveMoves,
   inactivePublishableHash,
   selectedInactiveMoves,
   applyInactiveLive,
+  hasUnpublishedInactiveMove,
   type InactiveMoves,
 } from '../src/inactiveMoves.js';
 import { publishableHash } from '../src/publishableHash.js';
@@ -19,6 +20,40 @@ const other = (text = 'Other') => ({
   text: {
     en: { ...tooltip().text.en!, text },
   },
+});
+
+it.each([true, false])(
+  'preserves an absent unselected pick stub through recomputation (inactive=%s)',
+  (inactive) => {
+    const before = exportLegacy([tooltip(), other()], 0, undefined, aliases);
+    delete before[77];
+    const state = { 77: { ...moves[42]!, ...(!inactive ? { inactive: false as const } : {}) } };
+    const updated = exportLegacy([other('Changed')], 1);
+    const merged = mergeLivePerks(before, updated, { keys: ['77'], aliases });
+    expect(merged[77]).toBeDefined();
+    const unrelated = applyInactiveLive(merged, state, [99], aliases, before);
+    expect(unrelated[77]).toBeUndefined();
+    expect(unrelated[42]).toEqual(before[42]);
+    expect(unrelated[99]).toEqual(updated[99]);
+    const selected = applyInactiveLive(merged, state, [42], aliases, before);
+    expect(selected[77] !== undefined).toBe(!inactive);
+  },
+);
+
+it('admits batches only after their canonical and alias move decisions are already published', async () => {
+  const original = await publishableHash(tooltip(), aliases);
+  const aliasIn = { 77: moves[42]! };
+  const aliasRemoved = await inactivePublishableHash(tooltip(), aliases, aliasIn);
+  expect(await hasUnpublishedInactiveMove(42, tooltip(), original, aliases, aliasIn)).toBe(true);
+  expect(await hasUnpublishedInactiveMove(42, tooltip(), aliasRemoved, aliases, aliasIn)).toBe(
+    false,
+  );
+  const aliasOut = { 77: { ...moves[42]!, inactive: false as const } };
+  expect(await hasUnpublishedInactiveMove(42, tooltip(), aliasRemoved, aliases, aliasOut)).toBe(
+    true,
+  );
+  expect(await hasUnpublishedInactiveMove(42, tooltip(), original, aliases, aliasOut)).toBe(false);
+  expect(await hasUnpublishedInactiveMove(42, tooltip(), original, aliases, moves)).toBe(true);
 });
 
 it('removes selected live rows and old stubs, while unrelated staged decisions stay unpublished', () => {

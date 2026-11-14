@@ -74,6 +74,19 @@ it('makes textless or unstored removals selectable without creating a tooltip do
   expect(current.bundle.tooltips).toEqual({});
 });
 
+it('hides a textless re-add until there is real saved content to export', async () => {
+  const restored = data(
+    { 123: { ...stamp, inactive: false } },
+    { 123: await inactiveRemovalHash(123) },
+    false,
+  );
+  expect(await pendingTooltips(restored)).toEqual([]);
+  restored.bundle.tooltips[123] = tooltip;
+  const entries = await pendingTooltips(restored);
+  expect(entries[0].inactiveChange).toBe('restore');
+  expect(selectedPending(new Set([123]), entries)).toEqual([123]);
+});
+
 it('reviews an alias-only removal and re-add on its canonical row instead of hiding it as marker-only', async () => {
   const moved = data({ 789: stamp }, {});
   moved.bundle.pushed[123] = await publishableHash(tooltip, moved.aliases);

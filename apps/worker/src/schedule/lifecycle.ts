@@ -4,6 +4,8 @@ import {
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
+  hasUnpublishedInactiveMove,
+  unreviewedInactiveMessage,
   type Tooltip,
 } from '@clarity/core';
 import {
@@ -188,6 +190,7 @@ export async function scheduleBatch(
     const pushed = pushedHashes(state.extra[0]);
     const members: BatchMember[] = [];
     const composed: Tooltip[] = [];
+    const snapshots = new Map<number, Tooltip | null>();
     const stale: { hash: number; fields?: string[]; reason?: string }[] = [];
     const unpublished: { hash: number; fields: string[] }[] = [];
     const blocked: { hash: number; reason: string }[] = [];
@@ -204,6 +207,7 @@ export async function scheduleBatch(
       if (conflictRaw) blocked.push({ hash, reason: 'Resolve the batch activation first' });
       const current = currentRaw ? tooltipSchema.parse(currentRaw.value) : null;
       const snapshot = snapshotRaw ? tooltipSchema.parse(snapshotRaw.value) : null;
+      snapshots.set(hash, snapshot);
       const result = compose({
         hash,
         base: member.base,
@@ -243,6 +247,20 @@ export async function scheduleBatch(
       !pinAppliesInactiveMoves(state.pin)
     )
       throw new HttpError(422, 'The installed publisher lacks the "inactiveMoves" capability');
+    const pendingMoves: { hash: number; reason: string }[] = [];
+    const markers = (state.extra[0]?.value ?? {}) as Record<string, string>;
+    for (const hash of hashes)
+      if (
+        await hasUnpublishedInactiveMove(
+          hash,
+          snapshots.get(hash) ?? null,
+          markers[hash],
+          aliases,
+          moves,
+        )
+      )
+        pendingMoves.push({ hash, reason: unreviewedInactiveMessage });
+    if (pendingMoves.length) refuseMembers(unreviewedInactiveMessage, pendingMoves);
     const active = composed.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
     const checked = active.length
       ? await refuseBaseEnhanced(

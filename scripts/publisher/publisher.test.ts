@@ -454,6 +454,74 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.assertDone(B);
   });
 
+  it.each([true, false])(
+    'inactive: an unrelated publish cannot restore an absent pick stub (inactive=%s)',
+    async (inactive) => {
+      const f = await setup();
+      f.options.sandboxConflicts = { 700: [123, 124] };
+      f.options.facts[124] = { name: 'Other', type: 'perk' };
+      const other = {
+        ...f.tooltip,
+        hash: 124,
+        text: { en: { ...f.tooltip.text.en!, text: 'Other' } },
+      };
+      f.change(D, {
+        'tooltips/124.json': other,
+        'config/sandbox-pointers.json': {
+          version: 1,
+          pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-14T00:00:00Z' } },
+        },
+        'config/inactive.json': {
+          700: { by: 1, at: '2026-11-14T00:00:00Z', ...(!inactive ? { inactive: false } : {}) },
+        },
+      });
+      const before = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+      f.change(L, {
+        'liveDescriptions.json': {
+          ...before,
+          perks: { ...before.perks, ...exportLegacy([f.tooltip], pushTime, f.options.facts) },
+        },
+      });
+      await f.request(A, [124], { 124: await publishableHash(other) });
+      await f.pub.run();
+      f.assertDone(A);
+      const after = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+      expect(after.perks[123]).toBeDefined();
+      expect(after.perks[124]).toBeDefined();
+      expect(after.perks[700]).toBeUndefined();
+    },
+  );
+
+  it.each(['{', 'null'])(
+    'inactive: malformed JSON %s is rejected terminally without wedging bundle or later requests',
+    async (raw) => {
+      const f = await setup();
+      await f.request(A);
+      await f.request(B);
+      const h = f.git.head(D)!,
+        tree = f.git.tree(h);
+      tree['config/inactive.json'] = f.git.writeBlob(raw);
+      f.git.cas(D, h, f.git.commit(h, tree, 'Invalid inactive fixture'));
+      const before = f.git.head(L);
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      for (const id of [A, B])
+        expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(id).log)).toMatchObject({
+          result: { status: 'rejected', error: expect.stringContaining('config/inactive.json') },
+        });
+      const bundle = f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+      expect(bundle.inactiveMoves).toBeUndefined();
+      f.change(D, { 'config/inactive.json': {} });
+      const C = A.slice(0, -1) + '3';
+      await f.request(C);
+      await f.pub.run();
+      f.assertDone(C);
+    },
+  );
+
   it('inactive: publishes only selected removals and re-adds, with exact eight-format output and unchanged saved text', async () => {
     const f = await setup();
     f.options.aliases[789] = { to: 123, kind: 'frame' };
@@ -574,7 +642,12 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   it('inactive: rebase rejects a live importer added after candidate creation', async () => {
     const f = await setup();
     const seed = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
-    f.change(L, { 'liveDescriptions.json': { ...seed, perks: { ...seed.perks, ...exportLegacy([f.tooltip], pushTime, f.options.facts) } } });
+    f.change(L, {
+      'liveDescriptions.json': {
+        ...seed,
+        perks: { ...seed.perks, ...exportLegacy([f.tooltip], pushTime, f.options.facts) },
+      },
+    });
     f.change(D, { 'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } } });
     await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
     const cas = f.git.cas.bind(f.git);
@@ -584,16 +657,32 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         race = false;
         const live = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
         f.options.facts[125] = { name: 'Concurrent importer', type: 'perk' };
-        const importer = { ...f.tooltip, hash: 125, text: { en: { ...f.tooltip.text.en!, text: 'import main from 123' } } };
-        f.change(L, { 'liveDescriptions.json': { ...live, perks: { ...live.perks, ...exportLegacy([importer], pushTime, f.options.facts) } } });
+        const importer = {
+          ...f.tooltip,
+          hash: 125,
+          text: { en: { ...f.tooltip.text.en!, text: 'import main from 123' } },
+        };
+        f.change(L, {
+          'liveDescriptions.json': {
+            ...live,
+            perks: { ...live.perks, ...exportLegacy([importer], pushTime, f.options.facts) },
+          },
+        });
       }
       cas(ref, old, next);
     });
-    try { await f.pub.run(); } finally { spy.mockRestore(); }
+    try {
+      await f.pub.run();
+    } finally {
+      spy.mockRestore();
+    }
     expect(race).toBe(false);
-    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({ result: { status: 'rejected', error: expect.stringContaining('imports inactive') } });
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: expect.stringContaining('imports inactive') },
+    });
     const live = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
-    expect(live.perks[123]).toBeDefined(); expect(live.perks[125]).toBeDefined();
+    expect(live.perks[123]).toBeDefined();
+    expect(live.perks[125]).toBeDefined();
   });
 
   it('inactive: a frozen candidate retains its move when the data file changes before landing', async () => {
@@ -610,11 +699,19 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         f.change(D, { 'config/inactive.json': { 123: { ...stamp, inactive: false } } });
       }
     });
-    try { await f.pub.run(); } finally { spy.mockRestore(); }
+    try {
+      await f.pub.run();
+    } finally {
+      spy.mockRestore();
+    }
     f.assertDone(A);
     expect(changed).toBe(true);
-    expect(f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!.perks[123]).toBeUndefined();
-    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'config/inactive.json')).toEqual({ 123: { ...stamp, inactive: false } });
+    expect(
+      f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!.perks[123],
+    ).toBeUndefined();
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'config/inactive.json')).toEqual({
+      123: { ...stamp, inactive: false },
+    });
   });
 
   async function setup() {
@@ -1725,7 +1822,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // mergeSandboxPointers) like the publisher, and merges live perks with core mergeLivePerks
     // (keys the picks file names are recomputed); with no picks file, as here, every byte is the same.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', '45b21dd0bffce40000d4a701a607010afd258c94'],
+      ['apps/worker/src/push.ts', 'a8ddaf850869b50f6d1e3d3f5b98e28e0ad92947'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

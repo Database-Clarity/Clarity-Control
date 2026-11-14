@@ -100,6 +100,7 @@ const expected =
         moves,
         hashes,
         aliases,
+        base.perks,
       ),
     },
     null,
