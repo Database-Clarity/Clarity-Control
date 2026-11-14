@@ -220,6 +220,26 @@ it('PUBLISH-502: a status reply from before a same-account restart never settles
   expect(h.store.records.get(held.created.opId)?.status).toBe('pending');
 });
 
+it('PUBLISH-502: a late "unknown" never fails a record another tab already stored as pending', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const held = await heldThirdAttempt(h, driver);
+  // Another tab's resend of the same opId landed and stored `pending`.
+  await h.store.update(held.created.opId, (op) => ({
+    ...op,
+    status: 'pending',
+    acceptedAt: Date.now(),
+  }));
+  h.api.status.mockReset();
+  h.api.status.mockResolvedValue('pending');
+  held.answer('unknown');
+  await settle();
+  expect(h.store.records.get(held.created.opId)?.status).toBe('pending');
+  expect(op().status).toBe('pending');
+  expect(op().error).toBeUndefined();
+});
+
 it('PUBLISH-502: a status reply from before an account switch has no effect on either account', async () => {
   for (const outcome of ['unknown', 'done', 'pending', 'reject'] as const) {
     const h = harness();

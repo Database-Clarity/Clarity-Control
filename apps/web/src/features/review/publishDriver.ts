@@ -411,9 +411,18 @@ export class PublishDriver {
   }
 
   /** Persist a status change, mirror it into state, and acknowledge a successful finish. */
-  private async settle(opId: string, patch: Partial<PublishOp>) {
+  /**
+   * `whileCreated`: a failure inferred from the Worker's "unknown" applies only while the stored
+   * record is still `created`. Another tab (or an earlier send) may have stored `pending` meanwhile;
+   * then the record is kept as stored and this tab follows it instead.
+   */
+  private async settle(opId: string, patch: Partial<PublishOp>, whileCreated = false) {
     const stored = await this.deps.store
-      .update(opId, (op) => ({ ...op, ...patch, updatedAt: this.deps.now() }))
+      .update(opId, (op) =>
+        whileCreated && op.status !== 'created'
+          ? undefined
+          : { ...op, ...patch, updatedAt: this.deps.now() },
+      )
       .catch(() => undefined);
     if (!stored) return;
     this.note(opId, undefined);
@@ -466,11 +475,15 @@ export class PublishDriver {
         }
         if (generation !== this.generation) return;
         if (remote === 'unknown')
-          await this.settle(opId, {
-            status: 'failed',
-            error:
-              'The Worker has no record of this publish and it is too old to send. Publish again.',
-          });
+          await this.settle(
+            opId,
+            {
+              status: 'failed',
+              error:
+                'The Worker has no record of this publish and it is too old to send. Publish again.',
+            },
+            true,
+          );
         else await this.adopt(opId, remote);
         return;
       }
@@ -530,12 +543,16 @@ export class PublishDriver {
         // The Worker really did reject the body; report that below.
       }
       if (generation !== this.generation) return;
-      await this.settle(op.opId, {
-        status: 'failed',
-        error: /creation window/i.test(message)
-          ? 'The Worker rejected this publish because its time is outside the allowed window. Check your device clock, then publish again.'
-          : `The Worker rejected this publish (${message.slice(0, 120)}). Publish again.`,
-      });
+      await this.settle(
+        op.opId,
+        {
+          status: 'failed',
+          error: /creation window/i.test(message)
+            ? 'The Worker rejected this publish because its time is outside the allowed window. Check your device clock, then publish again.'
+            : `The Worker rejected this publish (${message.slice(0, 120)}). Publish again.`,
+        },
+        true,
+      );
       return;
     }
     if (status === 413) {
@@ -574,10 +591,14 @@ export class PublishDriver {
       if (remote !== undefined && remote !== 'unknown')
         return void (await this.adopt(op.opId, remote));
       if (remote === 'unknown') {
-        await this.settle(op.opId, {
-          status: 'failed',
-          error: `Worker error (HTTP ${status}: ${message.slice(0, 160)}); the Worker holds no request for these tooltips. Publish again later, or report this error.`,
-        });
+        await this.settle(
+          op.opId,
+          {
+            status: 'failed',
+            error: `Worker error (HTTP ${status}: ${message.slice(0, 160)}); the Worker holds no request for these tooltips. Publish again later, or report this error.`,
+          },
+          true,
+        );
         return;
       }
     }

@@ -286,6 +286,27 @@ it('PUBLISH-502: any other GraphQL error still fails the read closed, before any
   expect(f.current()[requestPath]).toBeUndefined();
 });
 
+it('PUBLISH-502: an absent config/permissions.json still refuses publish, status, and kick', async () => {
+  // Absent files now read as null instead of failing the whole GraphQL read, so this refusal rests
+  // on the permissions parse: pin it.
+  await f.request('/publish', 'POST', value, 2);
+  const writes = f.writes.length;
+  f.moveData({ 'config/permissions.json': undefined });
+  const B = '01K95H00000000000000000002';
+  for (const [path, method, body] of [
+    ['/publish', 'POST', { ...value, opId: B }],
+    [`/publish/status?opId=${A}`, 'GET', undefined],
+    ['/publish/kick', 'POST', { opId: A }],
+  ] as const) {
+    const response = await f.request(path, method, body, 2);
+    expect(response.status, path).toBe(502);
+    expect(await response.json(), path).toEqual({ error: 'Invalid upstream data' });
+  }
+  expect((await f.request('/exports/projects', 'GET', undefined, 1)).status).toBe(502);
+  expect(f.writes).toHaveLength(writes);
+  expect(f.current()[`publish/requests/${B}.json`]).toBeUndefined();
+});
+
 it('status is fixed, bounded to one id and two subrequests; kick is pending-only and three', async () => {
   await f.request('/publish', 'POST', value);
   let before = f.subrequests;
