@@ -827,6 +827,56 @@ describe('scheduled batches (simulator)', () => {
     expect(batched.read('live/pushed.json')).toEqual(manual.read('live/pushed.json'));
   });
 
+  it.each(['landed, RECORD failed', 'frozen candidate'] as const)(
+    'sec N1: a push in flight (%s) drains before a "Publish now" batch committed after its run began',
+    async (state) => {
+      const f = await setup();
+      f.clock.now = Date.parse('2030-03-17T17:55:20.000Z');
+      const saved = tip({ text: { en: entry('reviewed'), fr: entry('sauvé') } });
+      f.change(D, { 'tooltips/123.json': saved });
+      await f.push(PUSH1, [123], '2030-03-17T17:55:10.000Z');
+      const cas = f.git.cas.bind(f.git);
+      let failed = false;
+      f.git.cas = (ref, old, next) => {
+        if (state === 'frozen candidate' && ref === L) throw new Error('crash');
+        if (
+          state !== 'frozen candidate' &&
+          ref === D &&
+          !failed &&
+          f.pub.receipt(f.git.head(L)!, PUSH1)
+        ) {
+          failed = true;
+          throw new Error('record unavailable');
+        }
+        cas(ref, old, next);
+      };
+      f.options.backoff = async () => {
+        throw new Error('runner crash');
+      };
+      await expect(f.pub.run()).rejects.toThrow();
+      f.git.cas = cas;
+      f.options.backoff = async () => {};
+      // "Publish now" signed at 17:55:00 (before the push) whose commit landed after run 1 began.
+      await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }], {
+        notBefore: '2030-03-17T17:55:00.000Z',
+        createdAt: '2030-03-17T17:55:00.000Z',
+      });
+      f.clock.now = Date.parse('2030-03-17T17:56:00.000Z');
+      expect(f.pub.queue(f.head())).toEqual([PUSH1, OP]);
+      await f.pub.run();
+      assertPublished(f);
+      expect(f.receipts(PUSH1)).toHaveLength(1);
+      // Live equals a manual publish of current: the batch English and the pushed French.
+      const current = f.read<Tooltip>('tooltips/123.json')!;
+      expect(current.text.en!.text).toBe('batch text');
+      expect(current.text.fr!.text).toBe('sauvé');
+      expect(f.read<Tooltip>('live/tooltips/123.json')).toEqual(current);
+      const perk = JSON.stringify(f.live().perks[123]);
+      expect(perk).toContain('batch text');
+      expect(perk).toContain('sauvé');
+    },
+  );
+
   it('R14: a new tooltip absent at claim and RECORD is created; first publication is whole (C4)', async () => {
     const f = await setup();
     const created = tip({ text: { en: entry('brand new') } }, 125);

@@ -261,19 +261,33 @@ export class Publisher {
    * a valid batch request, which then fails verification) in git addition order, with each DUE
    * batch request positioned at max(notBefore, createdAt): before the first push created at or
    * after that instant. A batch not yet due (notBefore > runner clock) is neither drained nor
-   * pending work; scheduledQueue lists it. A batch already CLAIMED by its opId (a run died after
-   * the claim) drains first: it was at the head of the queue when claimed, and a request that
-   * landed after the claim must never publish over its frozen S' (it would be overwritten).
+   * pending work; scheduledQueue lists it. IN-FLIGHT operations drain before all fresh work, in
+   * that order: a batch already CLAIMED by its opId, and any request with a publish candidate or
+   * a receipt on live that is not yet recorded (a run died). Each was at the head of the queue
+   * when it froze its inputs, and a request ordered ahead of it later (a batch committed after
+   * the push's run began, or a push landing after a claim) would publish in between: the frozen
+   * operation would then revert it on live, or it would drop the frozen one's live output.
    */
   queue(head: string): string[] {
     const entries = this.pendingRequests(head);
-    const claimed = entries.flatMap((e) => (e.kind === 'batch' && e.claimed ? [e.opId] : []));
-    const batches = entries
-      .filter((e) => e.kind === 'batch' && e.due && !e.claimed)
+    // Only a fresh due batch can be ordered ahead of a request that is already in flight (pushes
+    // keep addition order), so the ref and receipt probes run only then (a remote head() is a
+    // network round trip per request).
+    const reorders = entries.some((e) => e.kind === 'batch' && e.due && !e.claimed);
+    const liveHead = reorders ? this.git.head(dataRef(this.options.liveBranch)) : undefined;
+    const inFlight = (e: QueueEntry) =>
+      (e.kind === 'batch' && e.claimed) ||
+      (reorders &&
+        ((liveHead !== undefined && this.receipt(liveHead, e.opId) !== undefined) ||
+          this.git.head(paths(e.opId).candidate) !== undefined));
+    const fresh = entries.filter((e) => !inFlight(e));
+    const claimed = entries.filter(inFlight).map((e) => e.opId);
+    const batches = fresh
+      .filter((e) => e.kind === 'batch' && e.due)
       .map((e, i) => ({ e, i, key: (e as { key: number }).key }))
       .sort((a, b) => a.key - b.key || a.i - b.i);
     const order: string[] = [];
-    for (const e of entries) {
+    for (const e of fresh) {
       if (e.kind === 'batch') continue;
       if (e.createdAt !== undefined)
         while (batches.length && batches[0].key <= e.createdAt) order.push(batches.shift()!.e.opId);
