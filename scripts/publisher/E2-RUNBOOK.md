@@ -27,7 +27,7 @@ rewrite a published commit or infer author credits from an unsigned receipt fiel
 Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precondition](README.md#arrow-symbol-rollout-precondition).
 While `config/inactive.json` is non-empty, never roll back to a PIN without `inactiveMoves`.
 
-Template source PIN: `9baeb05b3a0431d0dadd193d4161032eece707d1`.
+Template source PIN: `00681cfc5655141e9b73928636f70c4a896a60e0`.
 Expected publisher.mjs SHA-256: `2592fc5d51565731db6b3cef077df771136931c1add263911d92302d4dd32a59`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
