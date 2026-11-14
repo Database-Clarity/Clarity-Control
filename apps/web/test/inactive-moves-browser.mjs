@@ -63,6 +63,10 @@ try {
           },
           { scale, theme },
         );
+        // Font changes settle through the tool row's ResizeObserver before layout assertions.
+        await page.evaluate(() => new Promise((resolve) => {
+          window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+        }));
         const trigger = page.getByRole('button', { name: 'Move to Inactive', exact: true });
         if (width <= 700) {
           assert.equal(await trigger.count(), 0, `${label}: move stays in More`);
@@ -83,7 +87,7 @@ try {
           });
           assert.ok(
             Math.abs(line.language - line.more) < 2,
-            `${label}: More stays on the language line`,
+            `${label}: More stays on the language line ${JSON.stringify(line)}`,
           );
         }
         const openMove = async (name) => {
