@@ -28,7 +28,7 @@ function ruleFor(name: string, format: FileFormat, notes: TransformNotes): Symbo
     notes.retired.add(name);
     return undefined;
   }
-  const rule = format.symbols[name];
+  const rule = format.symbols[name] ?? (name === 'arrow' ? { mode: 'keep' as const } : undefined);
   if (!rule) notes.unchosen.add(name);
   return rule;
 }
@@ -45,6 +45,8 @@ function span(input: MarkupSpan, context: Context): OutSpan[] {
   const { format, shape } = context;
   const text = input.text ?? '';
   const names = unique(input.classNames);
+  // Resolve the standalone drawing before applying any surrounding text style.
+  if (names.includes('arrow')) names.unshift(...names.splice(names.indexOf('arrow'), 1));
   if (names.includes('link') && input.link !== undefined) {
     const rule = format.links;
     if (rule.mode === 'keep' && shape === 'lines')
@@ -79,7 +81,12 @@ function span(input: MarkupSpan, context: Context): OutSpan[] {
   }
   let out: OutSpan = input.text === undefined ? {} : { text };
   for (const name of names) {
-    const rule = ruleFor(name, format, context.notes);
+    const rule =
+      name === 'arrow' &&
+      shape === 'text' &&
+      (!format.symbols.arrow || format.symbols.arrow.mode === 'keep')
+        ? { mode: 'replace' as const, before: '→', after: '' }
+        : ruleFor(name, format, context.notes);
     if (rule?.mode === 'keep' && shape === 'lines') {
       out = { ...out, classNames: [...(out.classNames ?? []), name] };
     } else if (rule?.mode === 'replace') {

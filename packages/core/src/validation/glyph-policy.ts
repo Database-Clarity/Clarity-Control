@@ -40,7 +40,10 @@ export const glyphPolicy = {
   ],
   characters: '\t\n\r–—‘’“”•…←↑→↓⇒≤≥≠−∞♥№\u2060\u3000、。〃々〆〇〈〉《》「」『』【】〔〕〜',
   knownRisk: {
-    '🠚': { reason: 'Supplemental arrow needs a font some devices do not have.', replacement: '->' },
+    '🠚': {
+      reason: 'Supplemental arrow needs a font some devices do not have.',
+      replacement: '<arrow/>',
+    },
     '🠅': { reason: 'Supplemental arrow needs a font some devices do not have.', replacement: '^' },
     '🡅': { reason: 'Enhanced-perk marker: consumer support varies; DIM handles it specially.' },
     '\uFEFF': {

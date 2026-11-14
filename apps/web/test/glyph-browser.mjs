@@ -23,6 +23,7 @@ try {
     root: web,
     base: './',
     logLevel: 'error',
+    worker: { format: 'es' },
     build: {
       target: 'esnext',
       outDir: output,
@@ -51,18 +52,19 @@ try {
     await page.getByText('Save review warnings (saving allowed)', { exact: true }).click();
     if (evidence) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: true });
     const original = await content.innerText();
-    await page.getByRole('button', { name: 'Replace first U+1F81A with ->', exact: true }).click();
-    assert.match(await content.innerText(), /20% -> 30%/);
+    await page.getByRole('button', { name: '3 character warnings', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Replace first U+1F81A with <arrow/>', exact: true })
+      .click();
+    assert.equal(await page.locator('[data-symbol="arrow"]').count(), 1);
+    assert.ok(!(await content.innerText()).includes('🠚'));
     assert.equal(await page.locator('.clarity-validation-warning').count(), 2);
     await page.keyboard.press('Control+z');
     assert.equal(await content.innerText(), original);
     assert.equal(await page.locator('.clarity-validation-warning').count(), 3);
     await content.press('Control+End');
     await page.keyboard.insertText(' 😀');
-    await page
-      .getByRole('status')
-      .getByText(/U\+1F600/)
-      .waitFor();
+    await page.locator('.clarity-validation-warning').nth(3).waitFor();
     assert.equal(await page.locator('.clarity-validation-warning').count(), 4);
     assert.deepEqual(errors, []);
     await page.close();

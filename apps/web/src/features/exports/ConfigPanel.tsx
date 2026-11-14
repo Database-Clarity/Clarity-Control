@@ -42,6 +42,7 @@ import {
   rowValue,
   ruleRows,
   setData,
+  setArrowFallback,
   setPreset,
   setRow,
   setShape,
@@ -90,7 +91,24 @@ export function ConfigPanel({
         onRenamed={onRenamed}
       />
       {isLegacyFile(file) ? (
-        <LegacyNote preset={file.preset} />
+        <>
+          <LegacyNote preset={file.preset} />
+          {file.preset === 'clarityV2' && (
+            <Section title="Format">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={file.arrowFallback ?? false}
+                  onChange={(event) => {
+                    const fallback = event.currentTarget.checked;
+                    update((current) => setArrowFallback(current, key, fallback));
+                  }}
+                />
+                Use → instead of the arrow symbol
+              </label>
+            </Section>
+          )}
+        </>
       ) : (
         <>
           <DataSection file={file} fileKey={key} update={update} />
@@ -571,6 +589,7 @@ const symbolLabels: Record<string, string> = {
   hunter: 'Hunter',
   titan: 'Titan',
   warlock: 'Warlock',
+  arrow: 'Arrow',
   enhancedArrow: 'Enhanced arrow',
   bold: 'Bold',
   yellow: 'Yellow',

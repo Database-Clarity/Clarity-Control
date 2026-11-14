@@ -231,3 +231,22 @@ describe('push-live lowers element-tagged text (hold lifted)', () => {
     expect(fixture.commits).toHaveLength(1);
   });
 });
+
+describe('arrow symbol capability', () => {
+  it('refuses arrow saves while the publisher is disabled', async () => {
+    const refused = await save(tooltip(), tooltip('30%<arrow/>33%'));
+    expect(refused.status).toBe(422);
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('refuses an old PIN, and saves once the PIN declares arrowSymbol', async () => {
+    publisherConfig.enabled = true;
+    fixture.moveData({ '.publisher/PIN': pin });
+    const next = tooltip('30%<arrow/>33%');
+    const refused = await save(tooltip(), next);
+    expect(refused.status).toBe(422);
+    expect((await refused.json()).error).toContain('arrowSymbol');
+    expect(fixture.commits).toHaveLength(0);
+    fixture.moveData({ '.publisher/PIN': { ...pin, capabilities: ['arrowSymbol'] } });
+    expect((await save(tooltip(), next)).status).toBe(200);
+  });
+});

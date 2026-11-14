@@ -9,15 +9,19 @@ import type { LegacyInput } from './legacy.js';
  * editor's exporters already lower (core exportLegacy); this keeps the engine exact on any input.
  * Input without those forms comes back as the same object, so nothing is copied.
  */
-export function lowerInput<T extends LegacyInput>(input: T): T {
+export function lowerInput<T extends LegacyInput>(input: T, arrow?: 'legacy' | 'fallback'): T {
+  const lower = (text: string) => {
+    const lowered = lowerConsumerMarkup(text);
+    return arrow ? lowered.replaceAll('<arrow/>', arrow === 'legacy' ? '🠚' : '→') : lowered;
+  };
   let perks: LegacyInput['perks'] | undefined;
   for (const [hash, perk] of Object.entries(input.perks)) {
     if (!('editor' in perk) || !perk.editor) continue;
     let editor: typeof perk.editor | undefined;
     for (const [language, text] of Object.entries(perk.editor)) {
       if (!text) continue;
-      const main = lowerConsumerMarkup(text.main);
-      const secondary = lowerConsumerMarkup(text.secondary);
+      const main = lower(text.main);
+      const secondary = lower(text.secondary);
       if (main === text.main && secondary === text.secondary) continue;
       editor ??= { ...perk.editor };
       editor[language as keyof typeof editor] = { ...text, main, secondary };

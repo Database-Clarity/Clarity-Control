@@ -2,8 +2,12 @@ import { classNameList } from '../data.js'
 import { CellContent, DescriptionLine, LinesContent } from '../types.js'
 
 export const convertLinesContent = (line: string, tiles: { [key: string]: DescriptionLine[] }) => {
-  const splittedLine = line.split(/(<.+?\/>|🡅)/g).filter((line) => line !== '')
+  const splittedLine = line.split(/(<\w+ (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>|🡅)/g).filter((line) => line !== '')
   return splittedLine.reduce((acc, text) => {
+    if (text === '<arrow/>') {
+      acc.push({ classNames: ['arrow'] })
+      return acc
+    }
     if (text === '🡅') {
       acc.push({
         text: '🡅',
@@ -26,7 +30,11 @@ export const convertLinesContent = (line: string, tiles: { [key: string]: Descri
 
     // wrapper with text inside
     if (withText.includes(wrappersName as (typeof withText)[number])) {
-      acc.push({
+      if (text.includes('<arrow/>')) {
+        const inner = text.replace(new RegExp(`^<${wrappersName} | />$`, 'g'), '')
+        for (const part of inner.split(/(<arrow\/>)/).filter(Boolean))
+          acc.push(part === '<arrow/>' ? { classNames: [wrappersName, 'arrow'] } : { text: part, classNames: [wrappersName] })
+      } else acc.push({
         text: text.replace(new RegExp(`<${wrappersName} | />`, 'g'), ''),
         classNames: [wrappersName]
       })

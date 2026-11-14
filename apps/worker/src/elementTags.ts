@@ -27,6 +27,11 @@ export const markupBracesCapability = 'markupBraces';
  * `elementTags` shipped; such a build leaves the span unlowered and the consumers drop its text.
  */
 export const prismaticTagsCapability = 'prismaticTags';
+export const arrowSymbolCapability = 'arrowSymbol';
+
+function hasArrowSymbol(tooltip: Tooltip): boolean {
+  return Object.values(tooltip.text).some((entry) => entry?.text.includes('<arrow/>'));
+}
 
 /**
  * Which exporter is live. While the publisher switch is off, the live export is this Worker's own
@@ -76,7 +81,7 @@ export function hasDelimitedText(tooltip: Tooltip): boolean {
 
 /** Whether the tooltip holds an authoring form an exporter has to lower (tags, `#{d}`, `<enhanced/>`). */
 export function needsLowering(tooltip: Tooltip): boolean {
-  return hasTaggedText(tooltip) || hasDelimitedText(tooltip);
+  return hasTaggedText(tooltip) || hasDelimitedText(tooltip) || hasArrowSymbol(tooltip);
 }
 
 /**
@@ -122,6 +127,14 @@ export function refuseUnlowerable(
   pin: { value: unknown } | undefined,
   action: string,
 ): void {
+  if (hasArrowSymbol(tooltip)) {
+    const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;
+    if (!Array.isArray(capabilities) || !capabilities.includes(arrowSymbolCapability))
+      throw new HttpError(
+        422,
+        `Tooltip ${tooltip.hash} contains <arrow/>, which can't be ${action}: ${publisherPinPath} lacks the "${arrowSymbolCapability}" capability.`,
+      );
+  }
   refuseUnlowerableTags(
     tooltip,
     pin === undefined || pinLowersElementTags(pin.value),

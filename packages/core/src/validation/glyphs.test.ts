@@ -65,7 +65,7 @@ describe('portable glyph warnings', () => {
       ['U+E000', 6, 7],
       ['U+1F600', 7, 9],
     ]);
-    expect(warnings[0].replacement).toBe('->');
+    expect(warnings[0].replacement).toBe('<arrow/>');
     expect(warnings[3].replacement).toBeUndefined();
   });
   test('no blind replacement for semantic enhanced markers or invisible text', () => {

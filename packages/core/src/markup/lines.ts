@@ -14,7 +14,7 @@ import {
 import type { MarkupLine, MarkupSpan } from './types.js';
 import { weaponSectionHeadings } from './weaponHeadings.js';
 
-const inlineToken = /<.+?\/>/;
+const inlineToken = /<\w+ (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
 
 function lineClasses(line: string, allowed: string[], offsets?: number[]) {
   const classNames = allowed.filter((name) => line.includes(`<${name}/>`));
@@ -166,6 +166,16 @@ function lineSpans(text: string, titles: Record<string, MarkupLine[]>): MarkupSp
   const wrapper = text.match(/<\w+/)?.[0].slice(1);
   if (wrapper === undefined) return [{ text }];
   if ([...markupColors, 'background', 'bold'].includes(wrapper)) {
+    const inner = text.replace(new RegExp(`^<${wrapper} | />$`, 'g'), '');
+    if (inner.includes('<arrow/>'))
+      return inner
+        .split(/(<arrow\/>)/)
+        .filter(Boolean)
+        .map((part) =>
+          part === '<arrow/>'
+            ? { classNames: [wrapper, 'arrow'] }
+            : { text: part, classNames: [wrapper] },
+        );
     return [{ text: text.replace(new RegExp(`<${wrapper} | />`, 'g'), ''), classNames: [wrapper] }];
   }
   if ([...markupIcons, ...markupEmpty].includes(wrapper)) return [{ classNames: [wrapper] }];

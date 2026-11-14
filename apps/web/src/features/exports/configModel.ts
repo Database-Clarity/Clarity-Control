@@ -63,7 +63,7 @@ export const presetFormat = (file: StyleFile): FileFormat =>
 
 export function rowValue(format: FileFormat, row: FormatRow): unknown {
   if (isRuleRow(row)) return format[row];
-  return format.symbols[row];
+  return format.symbols[row] ?? (row === 'arrow' ? { mode: 'keep' } : undefined);
 }
 
 export const rowChanged = (file: StyleFile, row: FormatRow) =>
@@ -109,6 +109,26 @@ const styleOnly = (file: ExportFile, edit: (file: StyleFile) => StyleFile): Expo
   isLegacyFile(file) ? file : edit(file);
 
 /** Sets one format row. Leaving Replace (or Inline) remembers its values for the way back. */
+export function setArrowFallback(
+  state: ProjectState,
+  key: string,
+  fallback: boolean,
+): ProjectState {
+  return editFile(state, key, (file) => {
+    if (!isLegacyFile(file) || file.preset !== 'clarityV2') return file;
+    const next = { ...file };
+    if (fallback) next.arrowFallback = true;
+    else if (
+      state.saved.files.some(
+        (saved) => saved.id === file.id && isLegacyFile(saved) && saved.arrowFallback === false,
+      )
+    )
+      next.arrowFallback = false;
+    else delete next.arrowFallback;
+    return next;
+  });
+}
+
 export function setRow(state: ProjectState, key: string, row: FormatRow, value: unknown) {
   const file = state.config.files.find((candidate) => fileKey(candidate) === key);
   if (!file || isLegacyFile(file)) return state;
@@ -137,6 +157,7 @@ export function ruleForMode(
   if (remembered?.mode === mode) return remembered;
   const preset = rowValue(presetFormat(file), row) as { mode?: string } | undefined;
   if (preset?.mode === mode) return preset;
+  if (mode === 'replace' && row === 'arrow') return { mode, before: '→', after: '' };
   if (mode === 'replace')
     return row === 'links' ? { mode, pattern: ['', '', '', ''] } : { mode, before: '', after: '' };
   if (mode === 'inline') return { mode, pattern: ['', '', '', ''] };
@@ -181,7 +202,9 @@ export const setShape = (state: ProjectState, key: string, shape: Shape) =>
       const format = structuredClone(style.format);
       if (shape === 'text') {
         for (const symbol of symbolIds)
-          if (format.symbols[symbol]?.mode === 'keep') format.symbols[symbol] = { mode: 'drop' };
+          if (format.symbols[symbol]?.mode === 'keep')
+            format.symbols[symbol] =
+              symbol === 'arrow' ? { mode: 'replace', before: '→', after: '' } : { mode: 'drop' };
         if (format.titles.mode === 'keep') format.titles = { mode: 'drop' };
         if (format.links.mode === 'keep') format.links = { mode: 'drop' };
       }
