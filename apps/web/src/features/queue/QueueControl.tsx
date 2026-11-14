@@ -234,6 +234,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       label={name}
       className={className}
       flush
+      bodyClassName={styles.menuBody}
       width={360}
       trigger={trigger}
       triggerLabel={`${name}: ${label}`}

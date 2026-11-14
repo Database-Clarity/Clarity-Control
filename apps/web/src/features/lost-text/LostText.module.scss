@@ -1,4 +1,5 @@
 @use '../../ui/controls';
+@use '../../data/variables' as theme;
 
 .page {
   box-sizing: border-box;
@@ -81,6 +82,15 @@
   > .row {
     flex: 1 1 auto;
     min-width: 0;
+  }
+}
+// A row whose checkbox has not joined yet keeps its place (the checkbox column's width and gap).
+.checkPending {
+  padding-left: calc(1.75rem + 0.25rem);
+}
+@include theme.mobile-or-coarse {
+  .checkPending {
+    padding-left: calc(var(--tap) + 0.25rem);
   }
 }
 .row {

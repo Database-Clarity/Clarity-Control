@@ -63,8 +63,10 @@
 
 // ---- the queue's menu: every item with its status, Rebuild queue, Leave ----
 // The popover's body passes its height down (it is bounded by the space above the phone's markup
-// dock), so the item list and the phone's list action shrink and the footer always shows.
-*:has(> .menu) {
+// dock), so the item list and the phone's list action shrink and the footer always shows. (A class,
+// not `*:has(> .menu)`: that rule made every element in the app check its children on each style
+// pass, and cost Lost text's open a frame.)
+.menuBody {
   display: flex;
   flex-direction: column;
 }

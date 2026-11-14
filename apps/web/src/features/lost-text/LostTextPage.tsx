@@ -1,6 +1,6 @@
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import artifact from './lost-text.json';
 import {
@@ -26,6 +26,13 @@ import styles from './LostText.module.scss';
 import { useLeftQueue } from '../queue/useQueue';
 
 const parsed = artifactSchema.safeParse(artifact);
+/**
+ * Row checkboxes shown at once on an ordinary open (more rows than a tall screen shows); the rest
+ * join a batch per frame after the first paint. Hundreds of native checkboxes made the list open a
+ * frame later than without selection.
+ */
+const FIRST_CHECKS = 40;
+const CHECKS_PER_FRAME = 80;
 export function LostTextPage() {
   useLeftQueue();
   const data = useDataStore((s) => s.data);
@@ -80,6 +87,20 @@ export function LostTextPage() {
     // Phone notices sit above the workspace and must be visible after an action.
     if ((notice || error) && pageRef.current) pageRef.current.scrollTop = 0;
   }, [notice, error]);
+  // Leave's return shows its selection at once: every checkbox from the start.
+  const [checks, setChecks] = useState(returned !== undefined ? Infinity : FIRST_CHECKS);
+  const records = parsed.success ? parsed.data.records.length : 0;
+  useEffect(() => {
+    if (!data || checks >= records) return;
+    let timer = 0;
+    const frame = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => setChecks((count) => count + CHECKS_PER_FRAME));
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [checks, records, data]);
   const storageKey = `clarity-lost-text:v1:${user?.id ?? 'anonymous'}`;
   const [stored, setStored] = useState<{ key: string; decisions: Record<string, string> }>({
     key: '',
@@ -126,6 +147,7 @@ export function LostTextPage() {
   ).filter((r) => `${r.name} ${r.hash}`.toLowerCase().includes(query.trim().toLowerCase()));
   const queueItems = rows.map((record) => lostItem(record, data));
   const selected = result.records.find((r) => recordKey(r) === params.get('item'));
+  const selectedKey = selected ? recordKey(selected) : undefined;
   const base = selected && data.bundle.tooltips[selected.hash];
   const current = base && (drafts[base.hash]?.next ?? base);
   const editable = canRecover(user);
@@ -237,43 +259,53 @@ export function LostTextPage() {
               {(query || classFilter) && ' Try another filter.'}
             </p>
           )}
-          {rows.map((r) => (
-            <div className={styles.rowLine} key={recordKey(r)} data-row-key={recordKey(r)}>
-              <label className={bar.select}>
-                <input
-                  type="checkbox"
-                  checked={picked.has(recordKey(r))}
-                  aria-label={`Select ${data.items[r.hash]?.name ?? r.name}, ${r.lang}`}
-                  onChange={(event) => {
-                    const key = recordKey(r);
-                    const on = event.target.checked;
-                    setPicked((old) => {
-                      const next = new Set(old);
-                      if (on) next.add(key);
-                      else next.delete(key);
-                      return next;
-                    });
-                  }}
-                />
-              </label>
-              <button
-                type="button"
-                className={styles.row}
-                data-record={recordKey(r)}
-                aria-pressed={selected && recordKey(selected) === recordKey(r)}
-                onClick={() => {
-                  setParams({ item: recordKey(r) });
-                  setNotice('');
-                  setError('');
-                }}
+          {rows.map((r, index) => {
+            const key = recordKey(r);
+            const check = index < checks;
+            const name = data.items[r.hash]?.name ?? r.name;
+            return (
+              <div
+                className={check ? styles.rowLine : `${styles.rowLine} ${styles.checkPending}`}
+                key={key}
+                data-row-key={key}
               >
-                <strong>{data.items[r.hash]?.name ?? r.name}</strong>
-                <span>
-                  {r.lang} · {r.classification} · {r.hash}
-                </span>
-              </button>
-            </div>
-          ))}
+                {check && (
+                  <label className={bar.select}>
+                    <input
+                      type="checkbox"
+                      checked={picked.has(key)}
+                      aria-label={`Select ${name}, ${r.lang}`}
+                      onChange={(event) => {
+                        const on = event.target.checked;
+                        setPicked((old) => {
+                          const next = new Set(old);
+                          if (on) next.add(key);
+                          else next.delete(key);
+                          return next;
+                        });
+                      }}
+                    />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  className={styles.row}
+                  data-record={key}
+                  aria-pressed={selectedKey === undefined ? undefined : selectedKey === key}
+                  onClick={() => {
+                    setParams({ item: key });
+                    setNotice('');
+                    setError('');
+                  }}
+                >
+                  <strong>{name}</strong>
+                  <span>
+                    {r.lang} · {r.classification} · {r.hash}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
         </section>
         {selected && (
           <section
