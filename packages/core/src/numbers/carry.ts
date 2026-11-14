@@ -31,8 +31,18 @@ export function changedNumberSlots(before: string, after: string): Set<number> {
 }
 
 function numericLiterals(source: string): string[] {
-  return [...source.matchAll(/[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g)].map((match) =>
-    String(Number(match[0].replaceAll(',', ''))),
+  const normalized = source.normalize('NFKC');
+  // Compare unsigned values: a hyphen may be a range, and translated wording may
+  // express the sign. Ambiguous decimal/grouping readings may prevent carry.
+  const readings = [
+    normalized,
+    normalized.replace(/(\d),(?=\d)/g, '$1.'),
+    normalized.replace(/(?<=\d)[. ]+(?=\d{3}(?!\d))/g, ''),
+  ];
+  return readings.flatMap((text) =>
+    [...text.matchAll(/(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g)].map((match) =>
+      String(Number(match[0].replaceAll(',', ''))),
+    ),
   );
 }
 function renderFormula(source: string, english: string): string[] {
@@ -68,9 +78,7 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
         .forEach((value) => oldValues.add(value));
   }
   const literalText = numberProse(translation.text).replace(/#\{=[^}\n]*(?:}|$)/gm, ' ');
-  // Check both readings of commas: ambiguity can prevent carry, never falsely prove it.
-  for (const source of [literalText, literalText.replace(/(\d),(?=\d)/g, '$1.')])
-    if (numericLiterals(source).some((value) => oldValues.has(value))) return false;
+  if (numericLiterals(literalText).some((value) => oldValues.has(value))) return false;
   return true;
 }
 

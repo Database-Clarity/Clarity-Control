@@ -299,6 +299,18 @@ describe('maps, validation, and export', () => {
 
 describe('proven carry and carry-aware merge', () => {
   it.each([
+    ['Lasts 10 seconds.', 'Lasts 12 seconds.', 'Dauer #{=1} s (Basis 5-10 s).'],
+    ['Recoil -10.', 'Recoil -12.', 'Rückstoß #{=1} (verringert um 10).'],
+    ['Deals 10,000 damage.', 'Deals 12,000 damage.', '#{=1} Schaden (vorher 10.000).'],
+    ['Deals 10,000 damage.', 'Deals 12,000 damage.', '#{=1} dégâts (avant 10 000).'],
+    ['Deals 10,000 damage.', 'Deals 12,000 damage.', '#{=1} dégâts (avant 10 000).'],
+    ['Lasts 10 seconds.', 'Lasts 12 seconds.', '#{=1}秒持続（基本１０秒）。'],
+    ['Lasts 4.5 seconds.', 'Lasts 6.5 seconds.', '#{=1}秒持続（基本４，５秒）。'],
+  ])('P8 refuses ambiguous signed, grouped, and full-width copies: %s', (before, after, text) => {
+    const old = tooltip(before, text);
+    expect(canCarryNumbers(old.text.en!, update(old, after).text.en!, old.text.de!)).toBe(false);
+  });
+  it.each([
     '#{=1}스택을 얻습니다. 최대 5스택.',
     '#{=1}秒間持続（基本5秒間）。',
     '#{=1} Stapel (5fach).',
