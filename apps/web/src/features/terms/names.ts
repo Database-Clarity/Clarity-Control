@@ -85,6 +85,10 @@ async function writeCache(lang: Lang, file: NamesFile | undefined): Promise<void
 
 /** Languages already requested this session: one network check per language per session. */
 const requested = new Set<Lang>();
+/** After a failed request (offline), when the language may be requested again. */
+const retryAt = new Map<Lang, number>();
+/** Stepping remounts the English pane per tooltip: a failure waits this long before a retry. */
+export const namesRetryMs = 60_000;
 
 /**
  * Loads one language's names, once per session: the device's cached copy first (shown at once),
@@ -92,8 +96,9 @@ const requested = new Set<Lang>();
  * copy (marked stale); offline without one is an error; a missing file is `missing`.
  */
 export function ensureNames(lang: Lang): void {
-  if (lang === 'en' || requested.has(lang)) return;
+  if (lang === 'en' || requested.has(lang) || Date.now() < (retryAt.get(lang) ?? 0)) return;
   requested.add(lang);
+  retryAt.delete(lang);
   setState(lang, { status: 'loading' });
   void (async () => {
     const cached = await readCache(lang);
@@ -113,8 +118,9 @@ export function ensureNames(lang: Lang): void {
     } catch (error) {
       if (cached) setState(lang, { status: 'ready', file: cached, stale: true });
       else {
-        // A later visit to this language may retry (the connection may be back).
+        // A later visit to this language may retry once the connection may be back.
         requested.delete(lang);
+        retryAt.set(lang, Date.now() + namesRetryMs);
         setState(lang, { status: 'error', error: errorMessage(error) });
       }
     }
@@ -124,5 +130,6 @@ export function ensureNames(lang: Lang): void {
 /** Tests only: forget the session's requests and loaded names. */
 export function resetNamesForTests(): void {
   requested.clear();
+  retryAt.clear();
   useNamesStore.setState({ byLang: {} });
 }

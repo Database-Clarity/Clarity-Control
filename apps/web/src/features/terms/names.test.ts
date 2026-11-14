@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ensureNames, namesUrl, resetNamesForTests, useNamesStore } from './names';
+import { ensureNames, namesRetryMs, namesUrl, resetNamesForTests, useNamesStore } from './names';
 
 const file = {
   v: 1,
@@ -15,6 +15,7 @@ const settle = () =>
 describe('ensureNames', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     resetNamesForTests();
   });
 
@@ -47,7 +48,7 @@ describe('ensureNames', () => {
     expect(useNamesStore.getState().byLang.de).toEqual({ status: 'missing' });
   });
 
-  it('reports an offline failure and retries on the next request', async () => {
+  it('reports an offline failure and retries after a pause', async () => {
     const fetch = vi.fn(async (): Promise<Response> => {
       throw new TypeError('Failed to fetch');
     });
@@ -56,6 +57,10 @@ describe('ensureNames', () => {
     await settle();
     expect(useNamesStore.getState().byLang.de?.status).toBe('error');
     fetch.mockImplementation(async () => new Response(JSON.stringify(file)));
+    // Stepping to the next tooltip right away does not request again.
+    ensureNames('de');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + namesRetryMs);
     ensureNames('de');
     await vi.waitFor(() => expect(useNamesStore.getState().byLang.de?.status).toBe('ready'));
     expect(fetch).toHaveBeenCalledTimes(2);
