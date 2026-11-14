@@ -147,6 +147,8 @@ type PaintWatch = {
   task?: ReturnType<typeof setTimeout>;
   fallback?: ReturnType<typeof setTimeout>;
   onVisibility?: () => void;
+  /** After a fallback stamp, the first real frame moves the stamp to that paint. */
+  resume?: number;
 };
 /** A page that renders no frame for this long is not painting; the minimum then starts anyway. */
 const skeletonPaintFallbackMs = 1000;
@@ -230,6 +232,7 @@ export function useSkeletonVisible(
     if (watch.frame !== undefined) cancelAnimationFrame(watch.frame);
     if (watch.task !== undefined) clearTimeout(watch.task);
     if (watch.fallback !== undefined) clearTimeout(watch.fallback);
+    if (watch.resume !== undefined) cancelAnimationFrame(watch.resume);
     if (watch.onVisibility) document.removeEventListener('visibilitychange', watch.onVisibility);
   };
   useLayoutEffect(
@@ -248,6 +251,37 @@ export function useSkeletonVisible(
     // after the frame but before the stamp waits for it. A page that renders no frames (a hidden
     // or throttled tab) gets the stamp after `skeletonPaintFallbackMs`, or swaps in directly
     // when it turns hidden with the content ready.
+    // The fallback stamped a skeleton no frame had painted yet (hidden, throttled, or frozen
+    // page). When rendering resumes, its first frame paints the skeleton: restart the minimum
+    // there, so a load finishing just after the resume still gets its full time on screen.
+    const resumeWatch = (stamped: number) => {
+      const watch: PaintWatch = {};
+      paint.current = watch;
+      let current = stamped;
+      // Move this cycle's stamp later, never earlier; a newer cycle or entry is left alone.
+      const restamp = () => {
+        if (paint.current !== watch) return false;
+        if (activeClock.shownAt !== current || shownAt.current !== current) return false;
+        current = Math.max(current, Date.now());
+        activeClock.shownAt = shownAt.current = current;
+        return true;
+      };
+      watch.resume = requestAnimationFrame(() => {
+        watch.resume = undefined;
+        // Provisional (just before that paint) so a load finishing now still waits, then the
+        // task after the paint sets the final stamp, as for a normal reveal.
+        if (!restamp()) {
+          if (paint.current === watch) paint.current = undefined;
+          return;
+        }
+        setPainted((n) => n + 1);
+        watch.task = setTimeout(() => {
+          watch.task = undefined;
+          if (restamp()) setPainted((n) => n + 1);
+          if (paint.current === watch) paint.current = undefined;
+        }, 0);
+      });
+    };
     const watchPaint = (inFrame: boolean) => {
       if (paint.current) return;
       const watch: PaintWatch = {};
@@ -257,9 +291,11 @@ export function useSkeletonVisible(
       };
       const stampNow = () => {
         if (paint.current !== watch) return;
+        const unpainted = watch.frame !== undefined;
         stopPaintWatch();
         activeClock.shownAt ??= Date.now();
         shownAt.current = activeClock.shownAt;
+        if (unpainted) resumeWatch(activeClock.shownAt);
         rerun();
       };
       const stamp = () => {
