@@ -23,6 +23,11 @@ export function canReplaceGlyph(text: string, warning: GlyphWarning): boolean {
   if (warning.replacement === undefined) return false;
   if (!/[<>]/.test(warning.replacement)) return true;
   const prefix = text.slice(text.lastIndexOf('\n', warning.from - 1) + 1, warning.from);
+  if (
+    warning.replacement === '<arrow/>' &&
+    /<(?:pve|pvp|bold|yellow|blue|green|purple|center) [^<>]*$/.test(prefix)
+  )
+    return /^(?:[^<>]|<arrow\/>)* \/>/.test(text.slice(warning.to).split('\n')[0]);
   return prefix.lastIndexOf('<') <= prefix.lastIndexOf('>');
 }
 

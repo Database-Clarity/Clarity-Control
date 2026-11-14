@@ -546,7 +546,8 @@ export function ClarityEditor({
     if (from < 0) return;
     const text = editor.state.doc.toString();
     const warning = glyphWarnings(text.slice(from, from + character.length))[0];
-    if (!warning || !canReplaceGlyph(text, { ...warning, from })) return;
+    if (!warning || !canReplaceGlyph(text, { ...warning, from, to: from + character.length }))
+      return;
     editor.dispatch({
       changes: { from, to: from + character.length, insert: replacement },
       selection: { anchor: from + replacement.length },
