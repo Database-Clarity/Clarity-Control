@@ -4,6 +4,7 @@ import {
   emptyGlossary,
   glossaryInputSchema,
   glossaryLangSchema,
+  maxGlossaryBytes,
   type Glossary,
 } from '../../../packages/core/src/glossary/schema.js';
 import { blobSha, RefRace, type GitHub } from './github.js';
@@ -43,7 +44,7 @@ export async function glossaryRoute(
         403,
         'Only this language’s translators and maintainers may edit its glossary',
       );
-    const file = await github.file(path, head);
+    const file = await github.file(path, head, write);
     // GET forwards the stored document; the client validates what it renders.
     if (!write)
       return json({ revision: file?.sha ?? null, glossary: file?.value ?? emptyGlossary(lang) });
@@ -79,6 +80,12 @@ export async function glossaryRoute(
           : value,
       2,
     )}\n`;
+    const size = new TextEncoder().encode(content).byteLength;
+    if (size > maxGlossaryBytes && size >= (file?.size ?? 0))
+      throw new HttpError(
+        400,
+        'This language’s glossary is limited to 256 KiB. Remove entries or shorten existing entries before adding more.',
+      );
     try {
       const commit = await github.commit(
         head,
@@ -87,11 +94,16 @@ export async function glossaryRoute(
         user,
         { rawFiles: { [path]: content } },
       );
-      return json({
-        commit,
-        revision: await blobSha(content),
-        glossary,
-      });
+      const revision = await blobSha(content);
+      return new Response(
+        `{"commit":${JSON.stringify(commit)},"revision":${JSON.stringify(revision)},"glossary":${content}}`,
+        {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store',
+          },
+        },
+      );
     } catch (error) {
       if (!(error instanceof RefRace)) throw error;
     }

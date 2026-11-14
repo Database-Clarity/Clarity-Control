@@ -68,6 +68,7 @@ export function TermForm({
       ...(matchCase ? { matchCase: true } : {}),
     });
     if (!parsed.success) {
+      setRetryOps(undefined);
       setError(parsed.error.issues.map((issue) => issue.message).join('; '));
       return;
     }
@@ -86,6 +87,7 @@ export function TermForm({
       onChangeCapture={() => {
         setError('');
         setConflict(undefined);
+        setRetryOps(undefined);
       }}
       onKeyDown={(event) => {
         event.stopPropagation();

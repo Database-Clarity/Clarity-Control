@@ -86,6 +86,27 @@ it('refuses a save if the credential changed before the auth store refreshed', a
   await expect(saveGlossary('de', [op])).rejects.toThrow('sign-in changed');
   expect(postGlossary).not.toHaveBeenCalled();
 });
+it('clears loading and permits retry when the credential expires before auth refresh', async () => {
+  let resolve!: (remote: typeof empty) => void;
+  vi.mocked(getGlossary).mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  ensureGlossary('de');
+  await flush();
+  expect(useGlossaryStore.getState().byLang.de?.loading).toBe(true);
+  vi.mocked(sessionToken).mockReturnValue(null);
+  resolve(empty);
+  await flush();
+  expect(useGlossaryStore.getState().byLang.de?.loading).toBe(false);
+  expect(useGlossaryStore.getState().byLang.de?.error).toContain('sign-in changed');
+  vi.mocked(sessionToken).mockReturnValue('session');
+  ensureGlossary('de');
+  await flush();
+  expect(getGlossary).toHaveBeenCalledTimes(2);
+  expect(useGlossaryStore.getState().byLang.de?.remote).toEqual(empty);
+});
 it('preserves the committed list on save failure and conflict, and ignores sign-out responses', async () => {
   ensureGlossary('de');
   await flush();

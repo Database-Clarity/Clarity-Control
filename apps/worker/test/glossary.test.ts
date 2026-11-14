@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { config, Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 import worker from '../src/index.js';
-import { maxGlossaryTerms } from '../../../packages/core/src/glossary/schema.js';
+import { maxGlossaryTerms, maxGlossaryBytes } from '../../../packages/core/src/glossary/schema.js';
 
 let key: string;
 let fixture: Fixture;
@@ -145,4 +145,46 @@ it('refuses growth beyond the language cap, while allowing an atomic remove and 
       })
     ).status,
   ).toBe(200);
+});
+it('refuses oversized UTF-8 growth but permits shrinking a file already over the byte cap', async () => {
+  const terms = Object.fromEntries(
+    Array.from({ length: 100 }, (_, index) => [
+      `wide ${index}`,
+      {
+        en: `Wide ${index}`,
+        term: '界'.repeat(80),
+        note: '界'.repeat(240),
+        also: Array(8).fill('界'.repeat(60)),
+        forms: Array(8).fill('界'.repeat(60)),
+        updatedAt: '2026-11-14T00:00:00Z',
+        updatedBy: 'alice',
+      },
+    ]),
+  );
+  const glossary = { v: 1, lang: 'de', terms };
+  // Fixture serves compact JSON; the shrink remains smaller even after canonical formatting.
+  const beforeSize = new TextEncoder().encode(JSON.stringify(glossary)).byteLength;
+  expect(beforeSize).toBeGreaterThan(maxGlossaryBytes);
+  fixture.moveData({ 'glossary/de.json': glossary });
+  const head = fixture.dataHead;
+  const refused = await fixture.request('/glossary/de', 'POST', add);
+  expect(refused.status).toBe(400);
+  expect((await refused.json()).error).toContain('256 KiB');
+  expect(fixture.dataHead).toBe(head);
+  const result = await fixture.request('/glossary/de', 'POST', {
+    ops: Array.from({ length: 10 }, (_, index) => ({
+      key: `wide ${index}`,
+      base: terms[`wide ${index}`],
+      next: null,
+    })),
+  });
+  expect(result.status).toBe(200);
+  const remote = await result.json();
+  expect(Object.keys(remote.glossary.terms)).toHaveLength(90);
+  const afterSize = new TextEncoder().encode(
+    `${JSON.stringify(remote.glossary, null, 2)}\n`,
+  ).byteLength;
+  expect(afterSize).toBeLessThan(beforeSize);
+  expect(afterSize).toBeGreaterThan(maxGlossaryBytes);
+  expect((await (await fixture.request('/glossary/de')).json()).revision).toBe(remote.revision);
 });

@@ -4,6 +4,7 @@ import { langSchema, type Lang } from '../languages.js';
 export const glossaryKey = (en: string) =>
   en.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
 export const maxGlossaryTerms = 1000;
+export const maxGlossaryBytes = 256 * 1024;
 export const glossaryLangSchema = langSchema.refine(
   (lang) => lang !== 'en',
   'English has no glossary',

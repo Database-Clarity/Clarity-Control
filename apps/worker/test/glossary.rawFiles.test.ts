@@ -28,4 +28,15 @@ it('preserves existing object commit bytes while optional raw files are committe
     },
     { path: 'raw.json', content: raw },
   ]);
+  const ordinary = await github.file('object.json', fixture.dataHead);
+  expect(ordinary).toEqual({
+    sha: expect.any(String),
+    value: { value: 'unchanged', nested: { n: 2 } },
+  });
+  const sized = await github.file('object.json', fixture.dataHead, true);
+  expect(sized).toEqual({
+    ...ordinary,
+    // Fixture serves compact JSON on reads, independently of the tree's pretty commit bytes.
+    size: 38,
+  });
 });

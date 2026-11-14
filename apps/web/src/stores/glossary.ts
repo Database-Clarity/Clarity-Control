@@ -85,18 +85,39 @@ export function ensureGlossary(lang: Lang, retry = false): void {
   if (!sameSession(auth)) return;
   requested.add(lang);
   const valid = () => sameSession(auth);
+  const expired = () => {
+    // Do not overwrite a new account's state; expose Retry while auth refresh catches up.
+    const current = useAuthStore.getState();
+    if (current.user !== auth.user || current.token !== auth.token) return;
+    requested.delete(lang);
+    update(lang, {
+      ...useGlossaryStore.getState().byLang[lang],
+      loading: false,
+      error: 'Your sign-in changed. Sign in again, then retry the glossary.',
+    });
+  };
   update(lang, { ...useGlossaryStore.getState().byLang[lang], loading: true });
   void (async () => {
     const cached = await cache(lang);
-    if (!valid()) return;
+    if (!valid()) {
+      expired();
+      return;
+    }
     if (cached && !useGlossaryStore.getState().byLang[lang]?.remote)
       update(lang, { remote: cached, loading: true });
     try {
       const remote = await getGlossary(lang);
-      if (!valid()) return;
+      if (!valid()) {
+        expired();
+        return;
+      }
       update(lang, { remote });
       await cache(lang, remote);
     } catch (error) {
+      if (!valid()) {
+        expired();
+        return;
+      }
       if (valid())
         update(lang, {
           ...useGlossaryStore.getState().byLang[lang],

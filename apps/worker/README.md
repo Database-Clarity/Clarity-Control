@@ -33,6 +33,9 @@ never from a request or token. Permissions are read on every request and retry
 | `GET /settings`                           | Authorized member token                                                  | `{ settings: SyncedSettings \| null, revision, unreadable }`                        |
 | `PUT /settings`                           | `{ settings, revision: string \| null }`, at most 4096 bytes             | `{ settings, revision }`; 409 `{ error, settings, revision }`                       |
 
+Glossaries are limited to 1,000 terms and 256 KiB of UTF-8 JSON. A save that
+shrinks an existing file over the byte limit is still allowed.
+
 History entries additionally include `login` and `avatar` (nullable); `author`
 retains the git-name fallback. Push-live accepts an optional `expected` map of
 reviewed publishable digests and rejects changed selections with 409 before writing.
