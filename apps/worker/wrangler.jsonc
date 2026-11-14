@@ -8,6 +8,12 @@
   // D1 databases created by root 2026-11-11 (clarity-reports, clarity-reports-files).
   "d1_databases": [
     {
+      "binding": "SETTINGS_DB",
+      "database_name": "clarity-settings",
+      "database_id": "ea8c3a7f-e446-46c9-840f-404a05eb1b91",
+      "migrations_dir": "migrations/settings",
+    },
+    {
       "binding": "REPORTS_DB",
       "database_name": "clarity-reports",
       "database_id": "cc64d535-2c2b-47d1-b531-500334536610",
