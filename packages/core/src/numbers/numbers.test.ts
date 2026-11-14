@@ -4,7 +4,7 @@ import { formatNumbers } from '../markup/numberFormat.js';
 import { prepareMarkup } from '../markup/prepare.js';
 import { parseMarkup } from '../markup/parse.js';
 import { isMarkupOnly, lowerConsumerMarkup } from '../markup/braces.js';
-import { scanBaseEnhanced } from '../markup/baseEnhanced.js';
+import { enhancedMarkupType, scanBaseEnhanced } from '../markup/baseEnhanced.js';
 import { alignSlots } from './identity.js';
 import { carryNumberTranslations, canCarryNumbers, changedNumberSlots } from './carry.js';
 import {
@@ -298,6 +298,55 @@ describe('maps, validation, and export', () => {
 });
 
 describe('proven carry and carry-aware merge', () => {
+  it('requires formula coverage through every duplicate local declaration', () => {
+    const old = tooltip(
+      'Damage ${#d * 2}.\nvar d = 5\nenhanced (\nvar d = #x\n)\nvar x = 10',
+      'Schaden 20 (Basis #{=3}).',
+    );
+    const next = update(old, old.text.en!.text.replace('x = 10', 'x = 20'));
+    const globals = { variables: '', titles: '', type: enhancedMarkupType };
+    expect(prepareMarkup(old.text.en!.text, globals, []).text).toBe('Damage 20.');
+    expect(prepareMarkup(next.text.en!.text, globals, []).text).toBe('Damage 40.');
+    expect([...changedNumberSlots(old.text.en!.text, next.text.en!.text)]).toEqual([2, 0]);
+    expect(carryNumberTranslations(old, next).carried).toEqual([]);
+  });
+  it.each(['#d * #g', '#d * #a'])(
+    'refuses carry when a changed formula depends on a shared variable: %s',
+    (formula) => {
+      const alias = formula.includes('#a') ? '\nvar a = #g' : '';
+      const old = tooltip(
+        `Damage \${${formula}}.\nvar d = 5${alias}`,
+        'Schaden #{=1} (vorher 10).\nvar d = #{=2}' + alias,
+      );
+      const next = update(old, old.text.en!.text.replace('d = 5', 'd = 6'));
+      const render = (item: Tooltip, lang: 'en' | 'de') => {
+        const exported = exportLegacy([item], 0)[42];
+        if ('aliasOf' in exported) throw Error('alias');
+        return prepareMarkup(
+          exported.editor[lang]!.main!,
+          { variables: 'var g = 2', titles: '' },
+          [],
+        ).text;
+      };
+      expect(render(old, 'en')).toBe('Damage 10.');
+      expect(render(next, 'en')).toBe('Damage 12.');
+      expect(render(next, 'de')).toBe('Schaden 12 (vorher 10).');
+      expect(carryNumberTranslations(old, next).carried).toEqual([]);
+    },
+  );
+  it.each(['1<enhanced/>0\nenhanced (\nUnused.\n)', '#{v}0\nvar v = 1', '1#{v}0\nvar v = empty'])(
+    'refuses a stale literal joined by consumer substitutions: %s',
+    (literal) => {
+      const old = tooltip('Damage 10.', `#{=1} Schaden. ${literal}`);
+      const next = update(old, 'Damage 20.');
+      const exported = exportLegacy([old], 0)[42];
+      if ('aliasOf' in exported) throw Error('alias');
+      expect(prepareMarkup(exported.editor.de!.main!, { variables: '', titles: '' }, []).text).toBe(
+        '10 Schaden. 10',
+      );
+      expect(carryNumberTranslations(old, next).carried).toEqual([]);
+    },
+  );
   it('requires token coverage for an actual legacy prefix-driven formula change', () => {
     const old = tooltip('Damage ${#{d5}}.\nvar d = 10\n#d', 'Schaden 105, #{=2}.\nvar d = #{=2}');
     const next = update(old, 'Damage ${#{d5}}.\nvar d = 20\n#d');

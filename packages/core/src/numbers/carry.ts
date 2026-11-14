@@ -1,4 +1,5 @@
 import { markupConditions, prepareMarkup, removeMarkupComments } from '../markup/prepare.js';
+import { variableReferences } from '../markup/braces.js';
 import type { LangText, Tooltip } from '../schemas.js';
 import { formulaLocals, numberVariables } from './freeze.js';
 import { alignSlots } from './identity.js';
@@ -44,14 +45,11 @@ function numericLiterals(source: string): string[] {
     ),
   );
 }
-function renderFormula(source: string, english: string): string[] {
+function renderVariants(source: string): string[] {
   // Use the real preparer, including condition blocks, declarations, and nested-math behaviour.
   // Probe each supported variant: a literal copy of any old rendering prevents carry.
   return [undefined, ...markupConditions.map(([, type]) => type)].map(
-    (type) =>
-      prepareMarkup(source + '\n' + english, { variables: '', titles: '', type }, []).text.split(
-        '\n',
-      )[0],
+    (type) => prepareMarkup(source, { variables: '', titles: '', type }, []).text,
   );
 }
 
@@ -71,13 +69,31 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
   for (const index of changed) {
     const slot = alignment.before[index];
     numericLiterals(slot.value).forEach((value) => oldValues.add(value));
-    if (slot.kind === 'M')
-      renderFormula(slot.value, before.text)
+    if (slot.kind === 'M') {
+      const definitions = numberVariables(before.text);
+      const names = new Set(definitions.map((local) => local.name));
+      const locals = formulaLocals(slot.value, before.text);
+      const sources = [
+        slot.value,
+        ...definitions.filter((local) => locals.has(local.name)).map((local) => local.value),
+      ];
+      // Without globals, the preparer may consume an unresolved formula's numeric
+      // prefix. Source references must prove that its old result is locally known.
+      if (sources.some((source) => variableReferences(source).some((ref) => !names.has(ref.name))))
+        return false;
+      renderVariants(slot.value + '\n' + before.text)
+        .map((text) => text.split('\n')[0])
         .flatMap(numericLiterals)
         .forEach((value) => oldValues.add(value));
+    }
   }
   const literalText = removeMarkupComments(translation.text).replace(/#\{=[^}\n]*(?:}|$)/gm, ' ');
-  if (numericLiterals(literalText).some((value) => oldValues.has(value))) return false;
+  if (
+    [literalText, ...renderVariants(literalText)]
+      .flatMap(numericLiterals)
+      .some((value) => oldValues.has(value))
+  )
+    return false;
   return true;
 }
 

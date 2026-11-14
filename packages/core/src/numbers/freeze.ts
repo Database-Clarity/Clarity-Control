@@ -44,10 +44,12 @@ export function numberVariables(text: string): NumberVariable[] {
 export function formulaLocals(formula: string, text: string): Set<string> {
   const definitions = numberVariables(text);
   const result = new Set<string>();
+  const visited = new Set<NumberVariable>();
   const visit = (source: string) => {
     for (const ref of variableReferences(source)) {
       for (const local of definitions.filter((entry) => ref.name.startsWith(entry.name))) {
-        if (result.has(local.name)) continue;
+        if (visited.has(local)) continue;
+        visited.add(local);
         result.add(local.name);
         visit(local.value);
       }
