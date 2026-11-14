@@ -74,8 +74,6 @@ afterEach(() => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  // scaledPx keeps the root size until a scale change is announced: forget a stubbed one.
-  window.dispatchEvent(new Event('clarity-ui-scale'));
 });
 
 describe('workspace divider', () => {

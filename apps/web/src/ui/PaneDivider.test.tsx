@@ -93,8 +93,6 @@ afterEach(() => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  // scaledPx keeps the root size until a scale change is announced: forget a stubbed one.
-  window.dispatchEvent(new Event('clarity-ui-scale'));
 });
 
 describe('PaneDivider', () => {
@@ -206,6 +204,8 @@ describe('PaneDivider', () => {
           ? ({ fontSize: `${rootPx}px` } as CSSStyleDeclaration)
           : real(element, pseudo),
       );
+      // The factor is read once per announcement, so a fresh stub is announced too.
+      setRoot(16);
     });
 
     it('scales limits, the default and the saved size from design pixels, and follows a scale change', () => {
@@ -233,6 +233,29 @@ describe('PaneDivider', () => {
       expect(stored()).toEqual({ width: 392, collapsed: false });
       setRoot(16);
       expect(shown()).toBe(392);
+    });
+
+    it('reads the root size once per announcement, not on every pane mount', () => {
+      const rootReads = () =>
+        vi
+          .mocked(window.getComputedStyle)
+          .mock.calls.filter(([element]) => element === document.documentElement).length;
+      containerWidth = 1920;
+      const before = rootReads();
+      const pane = { sizes: 'end', min: 320, max: 640, defaultWidth: 384 } as const;
+      act(() =>
+        root.render(
+          <>
+            <Harness {...pane} />
+            <Harness {...pane} />
+          </>,
+        ),
+      );
+      expect(rootReads()).toBe(before + 1);
+      expect(shown()).toBe(384);
+      setRoot(24);
+      expect(rootReads()).toBe(before + 2);
+      expect(shown()).toBe(576);
     });
 
     it('keeps the editor its minimum share: the viewport clamp uses scaled reserve and divider', () => {

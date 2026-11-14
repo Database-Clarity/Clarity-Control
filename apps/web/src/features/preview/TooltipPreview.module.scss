@@ -222,27 +222,28 @@ $name-floor: $name-size * 0.75;
   flex-direction: column;
   padding: 0.375rem 0.625rem;
 }
-// A narrow preview column (a tablet-width window, or a large interface scale) gives the names
-// the room the edges and the perk icon spare: tighter side padding (the description keeps the
-// header's left edge), a tighter gap, and a smaller icon. The header's height does not change.
-@container preview-column (max-width: 16rem) {
-  .header,
-  .description,
-  .diagnostics {
-    padding-inline: 0.5rem;
-  }
-  .header {
-    gap: 0.375rem;
-  }
-  .icon {
-    width: 1.75rem;
-    height: 1.75rem;
-  }
-}
 .diagnostics {
   display: block;
   padding: 0.375rem 0.625rem;
   font-size: 0.75rem;
+}
+// A narrow preview column (a tablet-width window, or a large interface scale) gives the names
+// the room the edges and the perk icon spare: tighter side padding (the description and the markup
+// issues keep the header's left edge), a tighter gap, and a smaller icon. The header's height does
+// not change. Only the column's own preview: associated previews inside it keep their layout.
+@container preview-column (max-width: 16rem) {
+  .fill > .top > .header,
+  .fill > .description,
+  .fill > .diagnostics {
+    padding-inline: 0.5rem;
+  }
+  .fill > .top > .header {
+    gap: 0.375rem;
+  }
+  .fill > .top > .header > .icon {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
 }
 .pvp {
   color: var(--tp-pvp);
