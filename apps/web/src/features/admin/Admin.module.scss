@@ -1,8 +1,100 @@
 @use '../../data/variables' as theme;
+@use '../../ui/controls';
+
+// Management: the app's dense list-page look (Translations, Review): one heading line, a compact
+// table, and the shared controls (28px on desktop, var(--tap) on phones and coarse pointers).
+.page {
+  max-width: 64rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--text);
+
+  p {
+    margin: 0.5rem 0;
+  }
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+  margin-bottom: 0.5rem;
+
+  h1 {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.75rem;
+  }
+
+  p {
+    margin: 0;
+    color: var(--text2);
+  }
+}
+
+.button {
+  @include controls.button;
+  white-space: nowrap;
+}
+
+.primary {
+  @include controls.button;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--pri-text);
+  background: var(--pri-hover);
+  border-color: var(--accent-ink);
+}
+
+.quiet {
+  @include controls.button;
+  white-space: nowrap;
+  color: var(--text2);
+  background: transparent;
+  border-color: var(--ghost-edge);
+
+  &:hover:not(:disabled) {
+    color: var(--text);
+  }
+}
+
+// Destructive, so never the filled default: danger ink on a ghost button.
+.remove {
+  @include controls.button;
+  white-space: nowrap;
+  color: var(--bad-ink);
+  background: transparent;
+  border-color: var(--ghost-edge);
+
+  &:hover:not(:disabled) {
+    border-color: var(--bad-ink);
+  }
+}
+
+.field {
+  @include controls.field;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+select.field {
+  padding-inline-end: 0.25rem;
+}
+
+.fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 
 .tableWrapper {
   overflow-x: auto;
 }
+
 .table {
   width: 100%;
   // No fixed minimum: at 768px and a large interface scale a 42rem table scrolled Remove out of
@@ -10,36 +102,80 @@
   min-width: 0;
   border-collapse: collapse;
   overflow-wrap: normal;
+
   th,
   td {
-    padding: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    // Text lines sit on the controls' 28px line, so a row of text and controls shares a baseline.
+    line-height: 1.75rem;
     text-align: left;
     vertical-align: top;
-    border-bottom: 1px solid var(--box-edge);
+    border-bottom: 1px solid var(--hair);
   }
-  th {
-    color: var(--muted);
+
+  thead th {
+    padding-block: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text2);
   }
+
+  tbody th {
+    font-weight: 400;
+
+    // A login is one word: never broken at its hyphens while the languages can wrap instead.
+    a {
+      white-space: nowrap;
+    }
+  }
+
   small {
-    display: block;
-    margin-top: 0.4rem;
-  }
-  button {
+    margin-inline-start: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text3);
     white-space: nowrap;
   }
+
+  .rowActions {
+    width: 1%;
+    text-align: right;
+  }
+
+  // Controls keep their own box: the cells' text line-height must not grow them past the selects.
+  button,
+  select {
+    line-height: normal;
+  }
+
+  // "Last maintainer" under the role, flush with the select's left edge.
+  td:first-of-type small {
+    display: block;
+    margin: 0;
+    line-height: 1.25rem;
+  }
+
+  @include theme.mobile-or-coarse {
+    th,
+    td {
+      line-height: var(--tap);
+    }
+  }
 }
+
 .languages {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
+  gap: 0 0.75rem;
   min-width: 13rem;
+
   label {
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
     white-space: nowrap;
   }
-  // A plain box, not the page's padded field: the label row is the tap target.
+
+  // A plain box, not a padded field: the label row is the tap target.
   input[type='checkbox'] {
     width: 1rem;
     height: 1rem;
@@ -48,8 +184,11 @@
     margin: 0;
     padding: 0;
   }
+
+  // The table's inline note style, on its own line here.
   small {
     flex-basis: 100%;
+    margin-inline-start: 0;
   }
 }
 
@@ -64,6 +203,7 @@
 @include theme.mobile {
   .table {
     min-width: 0;
+
     thead {
       position: absolute;
       width: 1px;
@@ -71,14 +211,16 @@
       overflow: hidden;
       clip-path: inset(50%);
     }
+
     tbody tr {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto auto;
       align-items: start;
-      gap: 0.25rem 0.5rem;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid var(--box-edge);
+      gap: 0 0.5rem;
+      padding: 0.375rem 0;
+      border-bottom: 1px solid var(--hair);
     }
+
     th,
     td {
       display: block;
@@ -86,40 +228,71 @@
       border: 0;
       min-width: 0;
     }
-    tbody th a {
-      overflow-wrap: anywhere;
+
+    // The account: login on the tap line, its ID under it.
+    tbody th {
+      line-height: 1.25rem;
+      padding-block: calc((var(--tap) - 1.25rem) / 2) 0;
+
+      a {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      small {
+        display: block;
+        margin: 0;
+      }
     }
-    small {
-      margin-top: 0.125rem;
-    }
+
     // The languages cell: last, full width.
     td:nth-of-type(2) {
       order: 1;
       grid-column: 1 / -1;
     }
   }
+
   .languages {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
     min-width: 0;
     gap: 0 0.75rem;
+
     label {
       white-space: normal;
     }
+
     // "No translation languages assigned": its own full-width line under the grid.
     small {
       grid-column: 1 / -1;
     }
   }
 }
-.add {
-  margin: 1.5rem 0;
+
+// Under the table: add an account on the left, Discard and Save on the right; wraps on phones.
+.footer {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
-  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-top: 0.75rem;
 }
-.login {
-  display: grid;
-  gap: 0.4rem;
+
+.add {
+  display: flex;
+  flex: 0 1 22rem;
+  gap: 0.375rem;
+  min-width: 0;
+
+  input {
+    flex: 1 1 auto;
+    width: 0;
+  }
+}
+
+.actions {
+  display: flex;
+  gap: 0.375rem;
+  margin-inline-start: auto;
 }
