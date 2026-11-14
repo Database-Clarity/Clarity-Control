@@ -24,12 +24,23 @@ import { prepareChanges } from '../../services/save/pipeline';
 import { saveReviewToBatch } from '../review/batches/saveDestination';
 import type { BatchEditing } from './batchDestination';
 import { upcomingStore } from './UpcomingSwitch.store';
-import { adoptBatchMembers } from './UpcomingSwitch.load';
+import { adoptBatchMembers, upcomingState } from './UpcomingSwitch.load';
 
 export const subscribe = useBatchDraftStore.subscribe;
 export const snapshot = useBatchDraftStore.getState;
 export function drafts(source: Drafts, batchId: string): Drafts {
-  return Object.fromEntries(draftsOfBatch(source, batchId));
+  const staged = draftsOfBatch(source, batchId);
+  const data = useDataStore.getState().data;
+  const load = upcomingStore().getState().loads[batchId];
+  if (!data || load?.state !== 'ready') return Object.fromEntries(staged);
+  // Display the activation result; stored drafts keep their proposal merge bases for saving.
+  return upcomingState(
+    [...staged].flatMap(([hash, draft]) => {
+      const member = load.upcoming.members[hash];
+      return member ? [{ ...member, proposed: draft.next }] : [];
+    }),
+    data,
+  ).overlay;
 }
 export const discard = discardBatchDraft;
 /** Keep the proposal as the merge base, but attribute translation text to the future English. */

@@ -9,8 +9,7 @@ import {
   parseUpcomingFilter,
 } from '../translations/upcoming';
 import { ensureBatch, refreshBatches } from '../tooltip/UpcomingSwitch.load';
-import { tooltipPath } from '../navigation/stepping';
-import { canonicalHash } from '../navigation/catalog';
+import { upcomingItem } from './startUpcoming';
 import { merged } from './model';
 
 export function subscribe(listener: () => void) {
@@ -92,17 +91,6 @@ export async function rebuild(queue: WorkQueue, context: SourceContext): Promise
   );
   return merged(
     queue,
-    rows.map((row) => {
-      const canonical = canonicalHash(row.hash, context.data);
-      const query = new URLSearchParams({ lang: row.language });
-      if (canonical !== row.hash) query.set('variant', String(row.hash));
-      return {
-        key: row.key,
-        hash: row.hash,
-        lang: row.language,
-        name: row.name,
-        detail: { path: tooltipPath(canonical, query.toString()), batchId: id },
-      };
-    }),
+    rows.map((row) => upcomingItem(row, context.data)),
   );
 }

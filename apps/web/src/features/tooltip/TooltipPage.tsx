@@ -493,7 +493,9 @@ function TooltipWorkspace({
   // Enhanced versions: previewed next to the base; the ones with text of their own can be opened.
   const others = variantHashes(hash, data).filter((variant) => variant !== hash);
   const previewed = readOnly ? others : previewedVariants(hash, data);
-  const overrides = readOnly ? [] : editableOverrides(hash, data);
+  const overrides = readOnly
+    ? []
+    : editableOverrides(hash, batchEditing ? (futureData ?? data) : data);
   const grouped = !readOnly && user?.role === 'maintainer' ? groupedPerks(hash, data) : undefined;
   // A canonical redirect drops line/variant highlights, just like tooltipPath.
   const requested = requestedHash === hash ? Number(search.get('variant')) : NaN;

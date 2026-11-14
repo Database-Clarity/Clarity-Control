@@ -1,20 +1,18 @@
 import type { UpcomingRow, UpcomingFilters } from '../translations/upcoming';
 import type { EditorData } from '../../stores/data';
 import { canonicalHash } from '../navigation/catalog';
-import { tooltipPath } from '../navigation/stepping';
+import { entryPath } from '../translations/worklist';
 import { startQueue } from './start';
 import type { QueueItem } from './model';
 
 export function upcomingItem(row: UpcomingRow, data: EditorData): QueueItem {
   const canonical = canonicalHash(row.hash, data);
-  const query = new URLSearchParams({ lang: row.language });
-  if (canonical !== row.hash) query.set('variant', String(row.hash));
   return {
     key: row.key,
     hash: row.hash,
     lang: row.language,
     name: row.name,
-    detail: { path: tooltipPath(canonical, query.toString()), batchId: row.batchId },
+    detail: { path: entryPath(row, canonical), batchId: row.batchId },
   };
 }
 export function startUpcomingQueue(
