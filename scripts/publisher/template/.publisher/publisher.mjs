@@ -11,6 +11,9 @@ import { tmpdir as tmpdir3 } from "node:os";
 import { dirname, join as join3, resolve as resolve3 } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// scripts/publisher/childProcess.mjs
+var maxBuffer = 1 << 30;
+
 // scripts/publisher/git.ts
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, realpathSync } from "node:fs";
@@ -36,6 +39,7 @@ var LocalRepository = class {
     return execFileSync("git", ["--git-dir", this.path, ...args], {
       input: input2,
       timeout: this.commandTimeout,
+      maxBuffer,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
       env: {
@@ -24179,7 +24183,8 @@ var bundleRef = "refs/heads/editor-data-bundle";
 var gitAt = (cwd, args) => execFileSync2("git", ["-C", cwd, ...args], {
   encoding: "utf8",
   stdio: ["pipe", "pipe", "pipe"],
-  timeout: 12e4
+  timeout: 12e4,
+  maxBuffer
 });
 function simulationArtifact(repo, out, bases) {
   const revisions = ["--branches", "--not", ...bases];
@@ -24337,10 +24342,13 @@ async function main() {
   try {
     const repo = join3(temp, "simulator.git");
     execFileSync3("git", ["clone", "--mirror", "--no-hardlinks", "--", local, repo], {
-      stdio: "pipe"
+      stdio: "pipe",
+      maxBuffer
     });
-    execFileSync3("git", ["--git-dir", repo, "remote", "remove", "origin"]);
-    execFileSync3("git", ["--git-dir", repo, "config", "publisher.simulator", "true"]);
+    execFileSync3("git", ["--git-dir", repo, "remote", "remove", "origin"], { maxBuffer });
+    execFileSync3("git", ["--git-dir", repo, "config", "publisher.simulator", "true"], {
+      maxBuffer
+    });
     const git = new LocalRepository(repo);
     const options = JSON.parse(readFileSync2(config2, "utf8"));
     const publisher = new Publisher(git, { ...options, now: Date.now });
@@ -24351,14 +24359,11 @@ async function main() {
       failure2 = e;
     }
     mkdirSync2(out, { recursive: true });
-    execFileSync3("git", [
-      "--git-dir",
-      repo,
-      "bundle",
-      "create",
-      join3(out, "would-be-commits.bundle"),
-      "--all"
-    ]);
+    execFileSync3(
+      "git",
+      ["--git-dir", repo, "bundle", "create", join3(out, "would-be-commits.bundle"), "--all"],
+      { maxBuffer }
+    );
     writeFileSync2(
       join3(out, "result.json"),
       JSON.stringify(
