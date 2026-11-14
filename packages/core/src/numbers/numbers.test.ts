@@ -298,6 +298,46 @@ describe('maps, validation, and export', () => {
 });
 
 describe('proven carry and carry-aware merge', () => {
+  it('refuses a changed formula whose local can be overridden by an import', () => {
+    const old = tooltip(
+      'Damage ${#d * #k}.\nvar d = 5\nvar k = 2\nimport stats from 100',
+      'Schaden #{=1} (vorher 14).\nvar d = #{=2}\nvar k = #{=3}\nimport stats from 100',
+    );
+    const next = update(old, old.text.en!.text.replace('k = 2', 'k = 3'));
+    const globals = {
+      variables: '',
+      titles: '',
+      imports: { 100: 'export stats (\nvar d = 7\n)' },
+    };
+    expect(prepareMarkup(old.text.en!.text, globals, []).text).toBe('Damage 14.');
+    expect(prepareMarkup(next.text.en!.text, globals, []).text).toBe('Damage 21.');
+    const exported = exportLegacy([next], 0)[42];
+    if ('aliasOf' in exported) throw Error('alias');
+    expect(prepareMarkup(exported.editor.de!.main!, globals, []).text).toBe(
+      'Schaden 21 (vorher 14).',
+    );
+    expect(carryNumberTranslations(old, next).carried).toEqual([]);
+  });
+  it.each([
+    ['#{g}0', 'var g = 1', {}],
+    ['#{v}0\nimport v from 100', '', { 100: 'export v (\nvar v = 1\n)' }],
+  ] as const)(
+    'refuses digits joined to an external reference: %s',
+    (literal, variables, imports) => {
+      const old = tooltip('Damage 10.', `#{=1} Schaden. ${literal}`);
+      const next = update(old, 'Damage 20.');
+      const exported = exportLegacy([old], 0)[42];
+      if ('aliasOf' in exported) throw Error('alias');
+      expect(
+        prepareMarkup(exported.editor.de!.main!, { variables, titles: '', imports }, []).text,
+      ).toBe('10 Schaden. 10');
+      expect(carryNumberTranslations(old, next).carried).toEqual([]);
+    },
+  );
+  it('still carries an isolated shared text reference', () => {
+    const old = tooltip('Damage 10.', '#{=1} Schaden. #{CombatantClassifications}');
+    expect(carryNumberTranslations(old, update(old, 'Damage 20.')).carried).toEqual(['de']);
+  });
   it('requires formula coverage through every duplicate local declaration', () => {
     const old = tooltip(
       'Damage ${#d * 2}.\nvar d = 5\nenhanced (\nvar d = #x\n)\nvar x = 10',

@@ -1,5 +1,10 @@
-import { markupConditions, prepareMarkup, removeMarkupComments } from '../markup/prepare.js';
-import { variableReferences } from '../markup/braces.js';
+import {
+  markupConditions,
+  markupImports,
+  prepareMarkup,
+  removeMarkupComments,
+} from '../markup/prepare.js';
+import { variableReferencePattern, variableReferences } from '../markup/braces.js';
 import type { LangText, Tooltip } from '../schemas.js';
 import { formulaLocals, numberVariables } from './freeze.js';
 import { alignSlots } from './identity.js';
@@ -73,6 +78,7 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
       const definitions = numberVariables(before.text);
       const names = new Set(definitions.map((local) => local.name));
       const locals = formulaLocals(slot.value, before.text);
+      if (locals.size && markupImports(before.text).length) return false;
       const sources = [
         slot.value,
         ...definitions.filter((local) => locals.has(local.name)).map((local) => local.value),
@@ -87,13 +93,19 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
         .forEach((value) => oldValues.add(value));
     }
   }
-  const literalText = removeMarkupComments(translation.text).replace(/#\{=[^}\n]*(?:}|$)/gm, ' ');
-  if (
-    [literalText, ...renderVariants(literalText)]
-      .flatMap(numericLiterals)
-      .some((value) => oldValues.has(value))
-  )
-    return false;
+  let literalText = removeMarkupComments(translation.text).replace(/#\{=[^}\n]*(?:}|$)/gm, ' ');
+  const localNames = new Set(
+    markupImports(literalText).length
+      ? []
+      : numberVariables(literalText).map((local) => local.name),
+  );
+  literalText = literalText.replace(variableReferencePattern, (reference, braced, legacy) =>
+    localNames.has(braced ?? legacy) ? reference : '\uE000',
+  );
+  const scans = [literalText, ...renderVariants(literalText)].map((text) => text.normalize('NFKC'));
+  // Unknown external values may contribute digits; a visible join cannot prove carry.
+  if (scans.some((text) => /\uE000[\d\uE000]|\d\uE000/.test(text))) return false;
+  if (scans.flatMap(numericLiterals).some((value) => oldValues.has(value))) return false;
   return true;
 }
 
