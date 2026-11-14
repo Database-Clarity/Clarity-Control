@@ -277,6 +277,12 @@ describe('maps, validation, and export', () => {
 });
 
 describe('proven carry and carry-aware merge', () => {
+  it('tracks a changed var value when its digits also appear in the variable name', () => {
+    const old = tooltip('Damage ${#d5*2}.\nvar d5 = 5', '10 Schaden\nvar d5 = #{=2}');
+    const next = update(old, 'Damage ${#d5*2}.\nvar d5 = 6');
+    expect([...changedNumberSlots(old.text.en!.text, next.text.en!.text)]).toEqual([1, 0]);
+    expect(canCarryNumbers(old.text.en!, next.text.en!, old.text.de!)).toBe(false);
+  });
   it('P8: requires coverage, rejects old literals and stale translations, and keeps author', () => {
     const original = tooltip(
       'Grants 5 stacks. Lasts 5 seconds.',
@@ -351,6 +357,22 @@ describe('proven carry and carry-aware merge', () => {
 });
 
 describe('retired formula freezing', () => {
+  it('fails closed when a commented declaration also participates in the real resolver', () => {
+    const old = tooltip(
+      'Damage ${5+#d}.\nvar d = 10\n/*\nvar d = 20\n*/',
+      'Schaden #{=1}.\nvar d = #{=2}\n/*\nvar d = 20\n*/',
+    );
+    expect(
+      prepareMarkup(
+        resolveNumberTokens(old.text.de!.text, numberValues(old.text.en!)),
+        { variables: '', titles: '' },
+        [],
+      ).text,
+    ).toBe('Schaden 25.');
+    const next = update(old, 'Nothing.');
+    expect(next.text.en!.numbers?.retired[1]).toBeNull();
+    expect(usesEnglishFallback(next, 'de')).toBe(true);
+  });
   it('P10: freezes locals, records language disagreement, and stays frozen across later edits', () => {
     const old = tooltip('Damage ${5+#d}.\nvar d = 10', 'Schaden #{=1}.\nvar d = #{=2}');
     old.text.fr = translated('Dégâts #{=1}.\nvar d = 20');

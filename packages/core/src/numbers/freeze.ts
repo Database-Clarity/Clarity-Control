@@ -14,14 +14,19 @@ export function numberVariables(text: string): NumberVariable[] {
   const result: NumberVariable[] = [];
   let offset = 0;
   const blocks: string[] = [];
-  for (const line of numberProse(text).split('\n')) {
+  const prose = numberProse(text).split('\n');
+  for (const [index, line] of text.replace(/\r/g, ' ').split('\n').entries()) {
     const match = /^var ([a-zA-Z0-9]+) = (.+)$/.exec(line);
+    const visible = /^var ([a-zA-Z0-9]+) = (.+)$/.exec(prose[index]);
     if (match)
       result.push({
         name: match[1],
-        value: match[2].trim(),
-        from: offset + line.indexOf(match[2]),
-        conditional: blocks.some((block) => /^(enhanced|catalyst|exotic perk) /.test(block)),
+        value: (visible ?? match)[2].trim(),
+        from: offset + line.length - match[2].length,
+        // The real preparer reads declarations before stripping comments. A hidden
+        // declaration is therefore ambiguous, even though it has no prose value slot.
+        conditional:
+          !visible || blocks.some((block) => /^(enhanced|catalyst|exotic perk) /.test(block)),
       });
     if (numberBlockOpen.test(line.trim())) blocks.push(line.trim());
     else if (/^\)\s*$/.test(line.trim())) blocks.pop();
