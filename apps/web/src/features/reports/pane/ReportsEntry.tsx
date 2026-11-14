@@ -74,7 +74,7 @@ function Worklist({
     event.preventDefault();
     items[(to + items.length) % items.length]?.focus();
   };
-  if (!rows.length) return <p className={styles.empty}>No open reports.</p>;
+  if (!rows.length) return <p className={styles.empty}>No open reports</p>;
   return (
     <ul ref={list} className={className ?? styles.list} onKeyDown={keys}>
       {rows.map((row, index) => (
@@ -156,7 +156,8 @@ export function ReportsEntry({
         onClose={() => setOpen(false)}
         label="Open reports"
         anchorRef={button}
-        width={320}
+        // Nothing to list: a one-line popover sized to its message, not the worklist's width.
+        width={failed || rows.length ? 320 : 144}
         modal={false}
       >
         {failed ? (

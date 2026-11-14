@@ -62,9 +62,44 @@
   }
 }
 
-// "Work through N selected" and "Work through all N shown", under the filters.
-.workThrough {
+// Under the filters: "Work through N selected" and "Work through all N shown", then
+// Collapse all / Expand all at the end of the same line.
+.listBar {
+  display: flex;
+  // A narrow column wraps "Work through" above its buttons: the toggle stays on the buttons' line.
+  align-items: flex-end;
+  gap: 0.25rem;
   flex: none;
+  min-width: 0;
+}
+
+.collapseAll {
+  @include controls.button;
+  flex: none;
+  display: inline-grid;
+  padding: 0 0.5rem;
+  white-space: nowrap;
+  color: var(--text2);
+  background: transparent;
+  border-color: var(--ghost-edge);
+
+  &:hover:not(:disabled) {
+    color: var(--text);
+  }
+
+  // Both labels in one cell; only the current one shows.
+  > span {
+    grid-area: 1 / 1;
+    text-align: center;
+  }
+  > [aria-hidden] {
+    visibility: hidden;
+  }
+}
+
+.workThrough {
+  flex: 1 1 auto;
+  min-width: 0;
   > [role='group'] {
     margin: 0;
     gap: 0.25rem;
