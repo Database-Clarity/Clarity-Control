@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { hashSchema } from './legacy.js';
 import { stableStringify } from './contentHash.js';
+import type { BatchPublishPayload } from './schedule/index.js';
 
 export const publishOpIdSchema = z.string().regex(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
@@ -96,4 +97,27 @@ export function validatePublishTime(opId: string, now: number) {
   const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
   const time = [...opId.slice(0, 10)].reduce((n, c) => n * 32 + alphabet.indexOf(c), 0);
   if (Math.abs(time - now) > 86_400_000) throw new Error('Publish opId outside creation window');
+}
+
+/**
+ * The request union (spec scheduled-changes "Data model"): `push` (above, byte-identical) or
+ * `batch` (the P1 schema, `@clarity/core/schedule` batchPublishPayloadSchema). The batch member
+ * is loaded lazily: schedule/digest.ts and schedule/schemas.ts read this module's exports at load
+ * time, so a static import here is a cycle that fails whenever this module loads first (the
+ * barrel does). The type-only import above is erased and safe.
+ */
+export type PublishRequestPayload = PublishPayload | BatchPublishPayload;
+const schedule = () => import('./schedule/index.js');
+
+/** Parse one signed payload of either kind (strict; the `kind` literal discriminates). */
+export async function parsePublishRequestPayload(value: unknown): Promise<PublishRequestPayload> {
+  if ((value as { kind?: unknown } | null)?.kind === 'batch')
+    return (await schedule()).batchPublishPayloadSchema.parse(value);
+  return publishPayloadSchema.parse(value);
+}
+
+/** The intent digest of either kind: publishIntentDigest for `push`, batchIntentDigest for `batch`. */
+export async function publishRequestIntentDigest(value: PublishRequestPayload): Promise<string> {
+  if (value.kind === 'batch') return (await schedule()).batchIntentDigest(value);
+  return publishIntentDigest(value);
 }
