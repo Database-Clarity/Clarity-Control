@@ -73,39 +73,70 @@ export function translationIndex(data: EditorData): TranslationIndex {
   return index;
 }
 
+const categoryMaps = new WeakMap<EditorData, Map<string, EditorData['categories'][number]>>();
+
+function categoryMap(data: EditorData) {
+  let map = categoryMaps.get(data);
+  if (!map)
+    categoryMaps.set(
+      data,
+      (map = new Map(
+        [
+          ...data.categories,
+          ...derivedCategories.filter(
+            (c) => !data.categories.some((existing) => existing.id === c.id),
+          ),
+        ].map((category) => [category.id, category] as const),
+      )),
+    );
+  return map;
+}
+
+/**
+ * `tooltip` as a Translations row source (name, category, search text), or null when it is never
+ * translatable: aliases, archived tooltips, tooltips without English text, set selectors, Inactive
+ * & Placeholder Items, and enhanced weapon parts. `order` is the category's finder order.
+ */
+export function translatableEntry(
+  tooltip: Tooltip,
+  data: EditorData,
+): (Translatable & { order: number }) | null {
+  if (!isTranslatable(tooltip, data.aliases)) return null;
+  const item = itemFor(tooltip.hash, data);
+  let categoryId = 'unknown';
+  let name = String(tooltip.hash);
+  if (item) {
+    if (isSetSelector(item)) return null;
+    const classified = listingCategoryId(item, classifyItem(item, tooltip));
+    if (classified === inactiveCategory || classified === enhancedPartCategory) return null;
+    categoryId = classified;
+    name = listName(item, data) || name;
+  }
+  const category = categoryMap(data).get(categoryId);
+  const label =
+    categoryId === exoticArmourCategory ? exoticArmourLabel : (category?.label ?? 'Other');
+  return {
+    tooltip,
+    hash: tooltip.hash,
+    name,
+    categoryId,
+    category: label,
+    haystack: `${name}
+${tooltip.hash}
+${label}`.toLowerCase(),
+    order: category?.order ?? 9999,
+  };
+}
+
 function buildIndex(data: EditorData): TranslationIndex {
-  const categories = new Map(
-    [
-      ...data.categories,
-      ...derivedCategories.filter((c) => !data.categories.some((existing) => existing.id === c.id)),
-    ].map((category) => [category.id, category] as const),
-  );
   const translatable: Translatable[] = [];
   const order = new Map<string, number>();
   for (const tooltip of Object.values(data.bundle.tooltips)) {
-    if (!isTranslatable(tooltip, data.aliases)) continue;
-    const item = itemFor(tooltip.hash, data);
-    let categoryId = 'unknown';
-    let name = String(tooltip.hash);
-    if (item) {
-      if (isSetSelector(item)) continue;
-      const classified = listingCategoryId(item, classifyItem(item, tooltip));
-      if (classified === inactiveCategory || classified === enhancedPartCategory) continue;
-      categoryId = classified;
-      name = listName(item, data) || name;
-    }
-    const category = categories.get(categoryId);
-    if (!order.has(categoryId)) order.set(categoryId, category?.order ?? 9999);
-    const label =
-      categoryId === exoticArmourCategory ? exoticArmourLabel : (category?.label ?? 'Other');
-    translatable.push({
-      tooltip,
-      hash: tooltip.hash,
-      name,
-      categoryId,
-      category: label,
-      haystack: `${name}\n${tooltip.hash}\n${label}`.toLowerCase(),
-    });
+    const entry = translatableEntry(tooltip, data);
+    if (!entry) continue;
+    const { order: categoryOrder, ...row } = entry;
+    if (!order.has(row.categoryId)) order.set(row.categoryId, categoryOrder);
+    translatable.push(row);
   }
   translatable.sort(
     (a, b) =>
