@@ -298,6 +298,31 @@ describe('maps, validation, and export', () => {
 });
 
 describe('proven carry and carry-aware merge', () => {
+  it('requires token coverage for an actual legacy prefix-driven formula change', () => {
+    const old = tooltip('Damage ${#{d5}}.\nvar d = 10\n#d', 'Schaden 105, #{=2}.\nvar d = #{=2}');
+    const next = update(old, 'Damage ${#{d5}}.\nvar d = 20\n#d');
+    expect([...changedNumberSlots(old.text.en!.text, next.text.en!.text)]).toEqual([1, 0]);
+    expect(prepareMarkup(old.text.en!.text, { variables: '', titles: '' }, []).text).toBe(
+      'Damage 105.\n10',
+    );
+    expect(prepareMarkup(next.text.en!.text, { variables: '', titles: '' }, []).text).toBe(
+      'Damage 205.\n20',
+    );
+    expect(carryNumberTranslations(old, next).carried).toEqual([]);
+  });
+  it.each(['1/* note */0', '1\r0'])(
+    'refuses an old literal joined by consumer cleanup: %s',
+    (literal) => {
+      const old = tooltip('Damage 10.', `#{=1} Schaden. ${literal} Schaden.`);
+      const next = update(old, 'Damage 20.');
+      const exported = exportLegacy([old], 0)[42];
+      if ('aliasOf' in exported) throw Error('alias');
+      expect(prepareMarkup(exported.editor.de!.main!, { variables: '', titles: '' }, []).text).toBe(
+        '10 Schaden. 10 Schaden.',
+      );
+      expect(carryNumberTranslations(old, next).carried).toEqual([]);
+    },
+  );
   it.each([
     ['Lasts 10 seconds.', 'Lasts 12 seconds.', 'Dauer #{=1} s (Basis 5-10 s).'],
     ['Recoil -10.', 'Recoil -12.', 'Rückstoß #{=1} (verringert um 10).'],
@@ -432,6 +457,23 @@ describe('proven carry and carry-aware merge', () => {
 });
 
 describe('retired formula freezing', () => {
+  it('fails closed when an unresolved longer reference depends on a shorter local prefix', () => {
+    const old = tooltip('Damage ${#{d5}}.\nvar d = 10\n#d', 'Schaden #{=1}, #d.\nvar d = #{=2}');
+    const render = (item: Tooltip) => {
+      const exported = exportLegacy([item], 0)[42];
+      if ('aliasOf' in exported) throw Error('alias');
+      return prepareMarkup(exported.editor.de!.main!, { variables: '', titles: '' }, []).text;
+    };
+    expect(render(old)).toBe('Schaden 105, 10.');
+    const retired = update(old, 'Nothing.\nvar d = 10');
+    expect(retired.text.en!.numbers?.retired[1]).toBeNull();
+    expect(usesEnglishFallback(retired, 'de')).toBe(true);
+    const later = update(retired, 'Nothing.\nvar d = 20');
+    expect(later.text.en!.numbers?.retired[1]).toBeNull();
+    expect(usesEnglishFallback(later, 'de')).toBe(true);
+    expect(render(retired)).toBe('Nothing.');
+    expect(render(later)).toBe('Nothing.');
+  });
   it.each(['/* note */ 10', '10 // note'])(
     'fails closed on commented numeric declaration %s',
     (value) => {

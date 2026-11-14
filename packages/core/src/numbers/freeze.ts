@@ -40,16 +40,17 @@ export function numberVariables(text: string): NumberVariable[] {
   return result;
 }
 
-/** Dependencies include transitive locals; missing names are shared/imported, and stay references. */
+/** Include transitive local prefixes too: the legacy preparer can substitute d inside d5. */
 export function formulaLocals(formula: string, text: string): Set<string> {
   const definitions = numberVariables(text);
   const result = new Set<string>();
   const visit = (source: string) => {
     for (const ref of variableReferences(source)) {
-      const locals = definitions.filter((entry) => entry.name === ref.name);
-      if (!locals.length || result.has(ref.name)) continue;
-      result.add(ref.name);
-      for (const local of locals) visit(local.value);
+      for (const local of definitions.filter((entry) => ref.name.startsWith(entry.name))) {
+        if (result.has(local.name)) continue;
+        result.add(local.name);
+        visit(local.value);
+      }
     }
   };
   visit(formula);

@@ -1,5 +1,4 @@
-import { numberProse } from '../markup/numberSlots.js';
-import { markupConditions, prepareMarkup } from '../markup/prepare.js';
+import { markupConditions, prepareMarkup, removeMarkupComments } from '../markup/prepare.js';
 import type { LangText, Tooltip } from '../schemas.js';
 import { formulaLocals, numberVariables } from './freeze.js';
 import { alignSlots } from './identity.js';
@@ -77,7 +76,7 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
         .flatMap(numericLiterals)
         .forEach((value) => oldValues.add(value));
   }
-  const literalText = numberProse(translation.text).replace(/#\{=[^}\n]*(?:}|$)/gm, ' ');
+  const literalText = removeMarkupComments(translation.text).replace(/#\{=[^}\n]*(?:}|$)/gm, ' ');
   if (numericLiterals(literalText).some((value) => oldValues.has(value))) return false;
   return true;
 }
