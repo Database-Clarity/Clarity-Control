@@ -34,15 +34,16 @@ async function templateExportLegacy(): Promise<typeof exportLegacy> {
   return (await import(pathToFileURL(file).href)).exportLegacy;
 }
 
-const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand) [^<>]*\/>/;
+const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand|prismatic) [^<>]*\/>/;
 
-it('declares the elementTags and markupBraces capabilities in its PIN', () => {
+it('declares the elementTags, markupBraces, and prismaticTags capabilities in its PIN', () => {
   const pin = JSON.parse(readFileSync(`${root}/PIN`, 'utf8'));
   expect(pin.capabilities).toEqual([
     'elementTags',
     'sandboxPointers',
     'scheduledBatches',
     'markupBraces',
+    'prismaticTags',
   ]);
 });
 

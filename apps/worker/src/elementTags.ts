@@ -21,6 +21,12 @@ export const elementTagsCapability = 'elementTags';
  * and the arrow symbol (`<enhanced/>`) to today's `#d` and `#e` (core braces.ts).
  */
 export const markupBracesCapability = 'markupBraces';
+/**
+ * The PIN capability of a publisher build whose exportLegacy also lowers Prismatic-tagged text
+ * (`<prismatic Transcendence />`). Prismatic joined the element tags after builds declaring
+ * `elementTags` shipped; such a build leaves the span unlowered and the consumers drop its text.
+ */
+export const prismaticTagsCapability = 'prismaticTags';
 
 /**
  * Which exporter is live. While the publisher switch is off, the live export is this Worker's own
@@ -42,6 +48,16 @@ export function pinLowersElementTags(pin: unknown): boolean {
 export function pinLowersMarkupBraces(pin: unknown): boolean {
   const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
   return Array.isArray(capabilities) && capabilities.includes(markupBracesCapability);
+}
+
+/** Whether a data-head `.publisher/PIN` value declares that its build lowers Prismatic tags too. */
+export function pinLowersPrismaticTags(pin: unknown): boolean {
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  return (
+    Array.isArray(capabilities) &&
+    capabilities.includes(elementTagsCapability) &&
+    capabilities.includes(prismaticTagsCapability)
+  );
 }
 
 /** The first language of `tooltip` holding `#{name}` or `<enhanced/>`. */
@@ -106,7 +122,12 @@ export function refuseUnlowerable(
   pin: { value: unknown } | undefined,
   action: string,
 ): void {
-  refuseUnlowerableTags(tooltip, pin === undefined || pinLowersElementTags(pin.value), action);
+  refuseUnlowerableTags(
+    tooltip,
+    pin === undefined || pinLowersElementTags(pin.value),
+    action,
+    pin === undefined || pinLowersPrismaticTags(pin.value),
+  );
   refuseUnlowerableDelimited(
     tooltip,
     pin === undefined || pinLowersMarkupBraces(pin.value),
@@ -114,10 +135,10 @@ export function refuseUnlowerable(
   );
 }
 
-/** The first language of `tooltip` holding a tagged span, with that span. */
-function firstTag(tooltip: Tooltip) {
+/** The first language of `tooltip` holding a tagged span (of `element` only, if given), with it. */
+function firstTag(tooltip: Tooltip, element?: string) {
   for (const [lang, entry] of Object.entries(tooltip.text) as [Lang, { text: string }][]) {
-    const [tag] = findElementTags(entry.text);
+    const tag = findElementTags(entry.text).find((found) => !element || found.element === element);
     if (tag) return { lang, tag, text: entry.text.slice(tag.from, tag.to) };
   }
   return undefined;
@@ -143,15 +164,22 @@ export function refuseReservedMarkers(tooltip: Tooltip): void {
  * ACTIVE exporter cannot lower it to today's `<solar/>Scorch`; unlowered, today's apps would show
  * only the icon and drop the text. `lowers` is that exporter's answer (see `exporter`). Checked on
  * the merged tooltip, so a tag in any language counts, including one already at the head.
+ * `lowersPrismatic` is the same answer for Prismatic tags, which older `elementTags` builds miss.
  */
-export function refuseUnlowerableTags(tooltip: Tooltip, lowers: boolean, action: string): void {
+export function refuseUnlowerableTags(
+  tooltip: Tooltip,
+  lowers: boolean,
+  action: string,
+  lowersPrismatic = lowers,
+): void {
   refuseReservedMarkers(tooltip);
-  if (lowers) return;
-  const found = firstTag(tooltip);
+  if (lowers && lowersPrismatic) return;
+  const found = lowers ? firstTag(tooltip, 'prismatic') : firstTag(tooltip);
   if (!found) return;
+  const capability = lowers ? prismaticTagsCapability : elementTagsCapability;
   throw new HttpError(
     422,
-    `Tooltip ${tooltip.hash} (${found.lang}) contains element-tagged text "${found.text}", which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${elementTagsCapability}" capability). Write "<${found.tag.element}/>${found.tag.text}" for now.`,
+    `Tooltip ${tooltip.hash} (${found.lang}) contains element-tagged text "${found.text}", which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${capability}" capability). Write "<${found.tag.element}/>${found.tag.text}" for now.`,
   );
 }
 

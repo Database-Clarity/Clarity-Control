@@ -26,6 +26,10 @@ for (const marker of ['Claim batch ', 'recordBatch(', 'batchPublishPayloadSchema
 for (const marker of ['lowerConsumerMarkup(', 'text.includes("#{")'])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks markup braces (${marker}); refusing its PIN`);
+// And `prismaticTags` only for a runtime whose element-tag list holds Prismatic: a build declaring
+// `elementTags` from before Prismatic joined leaves `<prismatic Text />` unlowered (text lost).
+if (!/elementTagNames = \[[^\]]*"prismatic"/.test(runtime))
+  throw new Error('Publisher runtime lacks Prismatic element tags; refusing its PIN');
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -41,8 +45,16 @@ writeFileSync(
       // scheduledBatches = `batch` requests are claimed, published, and activated (scheduled
       // changes P4; the Worker refuses scheduling while the PIN lacks it, spec I6);
       // markupBraces = exportLegacy lowers `#{d}` and `<enhanced/>` to today's `#d` and `#e`
-      // (the Worker refuses saving them while the PIN lacks it).
-      capabilities: ['elementTags', 'sandboxPointers', 'scheduledBatches', 'markupBraces'],
+      // (the Worker refuses saving them while the PIN lacks it);
+      // prismaticTags = exportLegacy lowers `<prismatic Text />` too (elementTags builds from before
+      // Prismatic joined do not; the Worker refuses Prismatic tags while the PIN lacks it).
+      capabilities: [
+        'elementTags',
+        'sandboxPointers',
+        'scheduledBatches',
+        'markupBraces',
+        'prismaticTags',
+      ],
     },
     null,
     2,
