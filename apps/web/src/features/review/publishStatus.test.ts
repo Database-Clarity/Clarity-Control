@@ -81,6 +81,37 @@ it('aggregates partial success as pending, then incomplete when another chunk fa
   expect(groupPublishes([base, { ...pending, status: 'done' }])[0]!.op.status).toBe('done');
 });
 
+it("PUBLISH-502: a grouped failure keeps the first failed part's own reason", () => {
+  const base = {
+    opId: 'A',
+    groupId: 'A',
+    groupSize: 3,
+    userId: '1',
+    createdAt: 1,
+    updatedAt: 1,
+    hashes: [1, 2],
+    expected: {},
+    previous: {},
+    status: 'failed' as const,
+    error:
+      'Worker error (HTTP 502: GitHub batch read failed); the Worker holds no request for these tooltips. Publish again later, or report this error.',
+  };
+  const all = groupPublishes([base, { ...base, opId: 'B' }, { ...base, opId: 'C', hashes: [3] }]);
+  expect(all[0]!.op.error).toBe(
+    `Publish incomplete: 0 of 5 tooltips confirmed live. First failed part (2 tooltips): ${base.error} Check live status before publishing again.`,
+  );
+  // Mixed: one part went live; the reason names only the failed part, never the whole group.
+  const mixed = groupPublishes([
+    { ...base, status: 'done' as const, error: undefined },
+    { ...base, opId: 'B', hashes: [3] },
+    { ...base, opId: 'C', hashes: [4], status: 'unchanged' as const, error: undefined },
+  ])[0]!.op;
+  expect(mixed.status).toBe('failed');
+  expect(mixed.error).toMatch(
+    /^Publish incomplete: 3 of 4 tooltips confirmed live\. First failed part \(1 tooltips\): Worker error \(HTTP 502: GitHub batch read failed\)/,
+  );
+});
+
 it('never labels an incomplete local group as published', () => {
   const only = {
     opId: 'A',

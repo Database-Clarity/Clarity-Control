@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { generateKeyPairSync, randomBytes, createHmac } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { maxBuffer } from '../childProcess.mjs';
@@ -23,7 +24,35 @@ const secret = randomBytes(32).toString('hex');
 // Unique per prepared bundle; echoed by entry.mjs so a stale deployment is detectable.
 const buildStamp = randomBytes(8).toString('hex');
 const hashes = Array.from({ length: count }, (_, i) => 1000000000 + i);
-const expected = Object.fromEntries(hashes.map((h) => [h, 'a'.repeat(64)]));
+// Stored tooltips the Worker reads at the data head (base-enhanced scan) and the reviewed digests a
+// client would send for them, computed by the same core function the Worker checks with.
+const tooltips = Object.fromEntries(
+  hashes.map((hash) => [
+    hash,
+    {
+      hash,
+      text: {
+        en: { text: `CPU tooltip ${hash}`, updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'cpu' },
+      },
+      associated: [],
+    },
+  ]),
+);
+await build({
+  stdin: {
+    contents: "export { publishableHash } from '@clarity/core';",
+    resolveDir: process.cwd(),
+  },
+  outfile: `${out}/core.mjs`,
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  logLevel: 'warning',
+});
+const { publishableHash } = await import(pathToFileURL(resolve(out, 'core.mjs')).href);
+const expected = Object.fromEntries(
+  await Promise.all(hashes.map(async (h) => [h, await publishableHash(tooltips[h], {})])),
+);
 const envelope = {
   payload: JSON.stringify({
     hashes,
@@ -47,7 +76,7 @@ const log = {
     outcomes: hashes.map((hash) => ({ hash, status: 'published', digest: 'a'.repeat(64) })),
   },
 };
-writeFileSync(`${out}/fixture.json`, JSON.stringify({ mode, envelope, log }));
+writeFileSync(`${out}/fixture.json`, JSON.stringify({ mode, envelope, log, tooltips }));
 await build({
   entryPoints: ['scripts/publisher/cpu/entry.mjs'],
   outfile: `${out}/worker.mjs`,

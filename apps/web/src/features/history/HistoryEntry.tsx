@@ -27,6 +27,7 @@ import {
   isPhone,
   naturalHeight,
   placeAnchored,
+  viewportWidth,
   visibleArea,
 } from '../../ui/anchorPlacement';
 
@@ -409,8 +410,11 @@ function RevisionPopover({
         return;
       }
       const edge = 8;
-      const width = Math.min(geometry.width, window.innerWidth - edge * 2);
-      const beside = rect.right + 6 + width <= window.innerWidth - edge;
+      // The width left of the reserved scrollbar gutter (the shared popover rule): innerWidth
+      // counts the gutter, and a box over it is clipped there.
+      const viewW = viewportWidth();
+      const width = Math.min(geometry.width, viewW - edge * 2);
+      const beside = rect.right + 6 + width <= viewW - edge;
       const height = Math.min(measuredHeight, window.innerHeight - edge * 2);
       const wanted = beside ? Math.max(edge, rect.top) : rect.bottom + 4;
       // Slide up rather than squash when the entry sits near the bottom of the window.
@@ -418,7 +422,7 @@ function RevisionPopover({
       // Placement owns only these geometry properties. Updating them directly
       // avoids rendering the entire diff again after each size notification.
       Object.assign(element.style, {
-        left: `${beside ? rect.right + 6 : Math.max(edge, window.innerWidth - width - edge)}px`,
+        left: `${beside ? rect.right + 6 : Math.max(edge, viewW - width - edge)}px`,
         top: `${top}px`,
         // A phone placement held it by its bottom edge (a rotation can switch placements).
         bottom: 'auto',
