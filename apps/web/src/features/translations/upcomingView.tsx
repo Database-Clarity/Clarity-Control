@@ -446,11 +446,14 @@ export default function UpcomingTranslations({
                 Loading scheduled batches…
               </p>
             )
-          ) : (
+          ) : failed.length && !filtered && !loaded.length ? null : (
+            // Beside a load error, never claim there is nothing to do: speak only for what loaded.
             <p className={styles.empty} role="status">
               {filtered
                 ? 'No upcoming translations match these filters.'
-                : 'No open batch changes English that needs translating.'}
+                : failed.length
+                  ? 'Nothing to translate in the batches that loaded.'
+                  : 'No open batch changes English that needs translating.'}
               {filtered && (
                 <button
                   type="button"

@@ -280,6 +280,22 @@ describe('Translations Upcoming', () => {
     ]);
   });
 
+  it('never says there is nothing to translate beside a member load error', async () => {
+    vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+    await seed();
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      new Request(input, init).url.includes('raw.githubusercontent.com')
+        ? Promise.resolve(new Response('fail', { status: 500 }))
+        : fixture.fetch(input, init),
+    );
+    await mount('maintainer');
+    await act(async () => button('Upcoming')!.click());
+    await settle(() => host.textContent!.includes('did not load'));
+    expect(host.textContent).toContain('"December patch" did not load.');
+    expect(host.textContent).not.toContain('No open batch changes English');
+    expect(rows()).toEqual([]);
+  });
+
   it('shows a translator only assigned languages and no coverage', async () => {
     vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
     await seed();

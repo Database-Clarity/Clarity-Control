@@ -377,11 +377,11 @@
 
     button {
       min-height: var(--tap);
-      grid-template-columns: minmax(0, 1fr) 4.25rem 3.75rem 3.5rem;
+      grid-template-columns: minmax(4.5rem, 1fr) 4.25rem 3.75rem 3.5rem;
     }
 
     .coverageHead {
-      grid-template-columns: minmax(0, 1fr) 4.25rem 3.75rem 3.5rem;
+      grid-template-columns: minmax(4.5rem, 1fr) 4.25rem 3.75rem 3.5rem;
     }
 
     .coverageTop {
@@ -618,7 +618,7 @@
   @container (max-width: 53.99rem) {
     .coverageHead,
     button {
-      grid-template-columns: minmax(0, 1fr) 3rem 3.75rem 2.75rem 3.25rem;
+      grid-template-columns: minmax(4.5rem, 1fr) 3rem 3.75rem 2.75rem 3.25rem;
     }
   }
 }
@@ -630,4 +630,9 @@
   @container (max-width: 36rem) {
     grid-template-columns: minmax(0, 1fr) auto;
   }
+}
+
+// The header's Language cell never wraps per letter in a narrow popover.
+.coverage .coverageHead > :first-child {
+  white-space: nowrap;
 }
