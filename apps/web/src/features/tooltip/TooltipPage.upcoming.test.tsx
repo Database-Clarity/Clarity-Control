@@ -298,3 +298,29 @@ it('requests nothing for a trial (Q3) or with the build switch OFF', async () =>
     await off.dispose();
   }
 });
+
+it('renders an override the batch stages for a derived enhanced version', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const { batch } = await call('/batches', { name: 'Override patch' });
+  await call(`/batches/${batch.id}/save`, {
+    revision: batch.revision,
+    changes: [
+      { hash: 10, base: current[10], next: tooltip(10, 'Future base') },
+      { hash: 11, base: current[11], next: tooltip(11, 'Future override') },
+    ],
+  });
+  const page = await mount('maintainer');
+  try {
+    // Current: the enhanced version is derived and renders the base text.
+    expect(page.preview().dataset.enhanced).toBe('English 10 import 13 from tooltip');
+    await act(async () => page.button('Upcoming')!.click());
+    await page.settle(() => page.preview().dataset.text === 'Future base');
+    expect(page.preview().dataset.enhanced).toBe('Future override');
+    // Current is unchanged by the future classification.
+    await act(async () => page.button('Current')!.click());
+    await page.settle();
+    expect(page.preview().dataset.enhanced).toBe('English 10 import 13 from tooltip');
+  } finally {
+    await page.dispose();
+  }
+});

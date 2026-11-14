@@ -34,32 +34,33 @@ const focusRefreshMs = 30_000;
 
 /**
  * One member's future state. Clean: the activation result. Stale (current moved a field the batch
- * changes, or the existence rule): the batch's values win every conflicted field, which is what an
- * "Apply upcoming" resolution would publish, and the conflicted fields are reported.
+ * changes, or the existence rule): the batch's value wins each conflicted field only, which is what
+ * an "Apply upcoming" resolution would publish; clean fields keep core's merge (an association both
+ * sides added stays), and the conflicted fields are reported.
  */
 export function upcomingOf(
   member: BatchMember,
   current: Tooltip | null,
 ): { tooltip: Tooltip; stale: string[] } {
-  const result = activate({ base: member.base, current, proposed: member.proposed });
+  const input = { base: member.base, current, proposed: member.proposed };
+  const result = activate(input);
   if (result.ok) return { tooltip: result.tooltip, stale: [] };
   const choices: Record<string, ActivationChoice> = {};
-  if (member.base !== null && current === null) choices[existsField] = 'upcoming';
-  else for (const field of result.changed) choices[field] = 'upcoming';
+  // A deleted tooltip takes one existence choice; a tooltip created meanwhile merges against an
+  // empty base, whose conflicts core names on the first pass (no existence choice applies there).
+  for (const field of result.fields)
+    if (field !== existsField || (member.base !== null && current === null))
+      choices[field] = 'upcoming';
   try {
-    const resolved = resolveActivation({
-      base: member.base,
-      current,
-      proposed: member.proposed,
-      choices,
-    });
-    return {
-      tooltip: (resolved.ok && resolved.tooltip) || member.proposed,
-      stale: result.fields,
-    };
+    for (let pass = 0; pass < 2; pass++) {
+      const resolved = resolveActivation({ ...input, choices });
+      if (resolved.ok) return { tooltip: resolved.tooltip ?? member.proposed, stale: result.fields };
+      for (const field of resolved.missing) choices[field] = 'upcoming';
+    }
   } catch {
-    return { tooltip: member.proposed, stale: result.fields };
+    // An unexpected shape falls back to the proposal below.
   }
+  return { tooltip: member.proposed, stale: result.fields };
 }
 
 /** Every member's future state over `data`'s current saved tooltips. */

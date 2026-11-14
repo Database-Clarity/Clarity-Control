@@ -11,6 +11,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { languages, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import type { Drafts } from '../../services/draftStorage';
+import { zonedNotBefore } from '../../services/format/date';
 import { useAuthStore } from '../../stores/auth';
 import { upcomingStore, type OpenBatch, type PreviewSource } from './UpcomingSwitch.store';
 import styles from './UpcomingSwitch.module.scss';
@@ -42,44 +43,6 @@ const statusLabel: Record<OpenBatch['status'], string> = {
   scheduled: 'Scheduled',
   publishing: 'Publishing',
 };
-
-function parts(date: Date, zone: string | undefined, withDay: boolean, year: boolean) {
-  const values = Object.fromEntries(
-    new Intl.DateTimeFormat('en-GB', {
-      timeZone: zone,
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    })
-      .formatToParts(date)
-      .map((part) => [part.type, part.value]),
-  );
-  const time = `${values.hour}:${values.minute}`;
-  if (!withDay) return time;
-  return `${values.weekday} ${values.day} ${values.month}${year ? ` ${values.year}` : ''} ${time}`;
-}
-
-/**
- * "Tue 3 Dec 17:00 · 16:00 UTC": the device's zone, then UTC (with its own day when the day
- * differs). The year appears only outside the current one. A device on UTC shows one time.
- */
-export function zonedNotBefore(
-  iso: string,
-  now = new Date(),
-  zone = Intl.DateTimeFormat().resolvedOptions().timeZone,
-): string {
-  const date = new Date(iso);
-  const year = date.getUTCFullYear() !== now.getUTCFullYear();
-  const shown = parts(date, zone, true, year);
-  const utcDay = parts(date, 'UTC', true, year);
-  if (zone === 'UTC' || zone === 'Etc/UTC') return `${utcDay} UTC`;
-  const sameDay = utcDay.slice(0, -5) === shown.slice(0, -5);
-  return `${shown} · ${sameDay ? parts(date, 'UTC', false, false) : utcDay} UTC`;
-}
 
 /** "English", "German", "associations", ... for the fields current changed under the batch. */
 function fieldLabel(field: string) {

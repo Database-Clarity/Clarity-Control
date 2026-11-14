@@ -82,6 +82,7 @@ import {
   categoriesWithEnhanced,
   editableOverrides,
   enhancedRender,
+  enhancedVariants,
   previewedVariants,
 } from './variants';
 import { groupedPerks } from './grouping';
@@ -302,6 +303,13 @@ function TooltipWorkspace({
     () => (future ? typedFrom(importGlobals(data, future, lang)) : undefined),
     [data, future, lang],
   );
+  // ...and classifies the enhanced versions the batch changes (derived or override) on that future
+  // state, so a staged override renders. A version the batch leaves alone keeps its stored form, as
+  // a draft on the base never turns a derived version into an override.
+  const futureData = useMemo(() => (future && data ? withFuture(data, future) : undefined), [
+    data,
+    future,
+  ]);
   const referenceSources = useMemo(
     () => tooltipTextSources(data?.bundle.tooltips ?? {}, shown, data?.aliases ?? {}),
     [data, shown],
@@ -448,11 +456,18 @@ function TooltipWorkspace({
   const activeTooltip = drafts[activeHash]?.next ?? activeBase;
   const value = previewTextOf(hash);
 
-  const viewsOf = (source = shown, typed = typedGlobals): EnhancedView[] =>
-    previewed.map((variant) => {
+  const viewsOf = (
+    variants: number[],
+    source: Drafts,
+    typed: typeof typedGlobals,
+    modelOf: (variant: number) => EditorData,
+  ): EnhancedView[] =>
+    variants.map((variant) => {
       // Derived versions render the base text (drafts included) as their own type; overrides and
       // archived tooltips show the text they hold.
-      const rendered = readOnly ? undefined : enhancedRender(hash, variant, lang, data, source);
+      const rendered = readOnly
+        ? undefined
+        : enhancedRender(hash, variant, lang, modelOf(variant), source);
       return {
         hash: variant,
         name: nameOf(variant),
@@ -461,9 +476,18 @@ function TooltipWorkspace({
         derived: rendered?.form === 'derived',
       };
     });
-  const enhancedViews = viewsOf();
+  const enhancedViews = viewsOf(previewed, shown, typedGlobals, () => data);
   // Upcoming (read-only): the same views over the batch's future state instead of drafts.
-  const previewViews = future && futureGlobals ? viewsOf(future, futureGlobals) : enhancedViews;
+  const previewViews = (() => {
+    if (!future || !futureGlobals || !futureData) return enhancedViews;
+    const staged = new Set(previewedVariants(hash, futureData));
+    const variants = enhancedVariants(hash, data).filter((variant) =>
+      future[variant] ? staged.has(variant) : previewed.includes(variant),
+    );
+    return viewsOf(variants, future, futureGlobals, (variant) =>
+      future[variant] ? futureData : data,
+    );
+  })();
   const baseEntry = archivedItemFor(hash, data);
   const heading = baseEntry ? editorName(baseEntry) : nameOf(hash);
   const baseCategory = classifiedCategory(baseEntry, data);
@@ -808,6 +832,13 @@ function TooltipWorkspace({
       )}
     </>
   );
+}
+
+/** `data` with the batch's future state over current saved (a new object per future state). */
+function withFuture(data: EditorData, future: Drafts): EditorData {
+  const tooltips = { ...data.bundle.tooltips };
+  for (const [hash, entry] of Object.entries(future)) tooltips[Number(hash)] = entry.next;
+  return { ...data, bundle: { ...data.bundle, tooltips } };
 }
 
 function importGlobals(data: EditorData | null, source: Drafts, lang: Lang): MarkupGlobals {

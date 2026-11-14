@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import type { BatchMember } from '@clarity/core/schedule';
 import { upcomingOf } from './UpcomingSwitch.load';
-import { zonedNotBefore } from './UpcomingSwitch';
 
 const stamp = { updatedAt: '2026-11-01T00:00:00.000Z', updatedBy: 'a' };
 const tooltip = (en: string, extra: Partial<Record<'de' | 'fr', string>> = {}): Tooltip => ({
@@ -66,20 +65,18 @@ describe('upcomingOf (activation preview)', () => {
   });
 });
 
-describe('zonedNotBefore', () => {
-  const now = new Date('2026-11-14T00:00:00.000Z');
-  it('shows the device zone, then UTC', () => {
-    expect(zonedNotBefore('2026-12-03T16:00:00.000Z', now, 'Europe/Berlin')).toBe(
-      'Thu 3 Dec 17:00 · 16:00 UTC',
+describe('upcomingOf (clean merges beside a conflict)', () => {
+  it('keeps a clean association merge when English conflicts', () => {
+    const withAssociations = (en: string, associated: number[]): Tooltip => ({
+      ...tooltip(en),
+      associated,
+    });
+    const result = upcomingOf(
+      member(withAssociations('Old', [1]), withAssociations('New', [1, 2])),
+      withAssociations('Changed', [1, 3]),
     );
-    expect(zonedNotBefore('2026-12-03T16:00:00.000Z', now, 'UTC')).toBe('Thu 3 Dec 16:00 UTC');
-  });
-  it('names the UTC day when it differs, and the year outside this one', () => {
-    expect(zonedNotBefore('2026-12-03T23:30:00.000Z', now, 'Asia/Tokyo')).toBe(
-      'Fri 4 Dec 08:30 · Thu 3 Dec 23:30 UTC',
-    );
-    expect(zonedNotBefore('2027-01-05T09:00:00.000Z', now, 'Europe/Berlin')).toBe(
-      'Tue 5 Jan 2027 10:00 · 09:00 UTC',
-    );
+    expect(result.stale).toEqual(['text.en']);
+    expect(result.tooltip.text.en?.text).toBe('New');
+    expect([...result.tooltip.associated].sort()).toEqual([1, 2, 3]);
   });
 });
