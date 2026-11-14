@@ -14,10 +14,30 @@ import { useAdvanceSetting } from './advanceSetting';
 import { CompendiumQueue } from './CompendiumQueue';
 import { CompendiumTab } from './CompendiumTab';
 
-const captured = vi.hoisted(() => ({ proposals: new Map() }));
+const captured = vi.hoisted(() => ({ proposals: new Map(), detailRenders: 0, pickerRenders: 0 }));
 vi.mock('./useProposals', () => ({
   useProposals: () => ({ proposals: captured.proposals, loading: false, error: null }),
 }));
+vi.mock('./CompendiumDetail', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./CompendiumDetail')>();
+  return {
+    ...original,
+    CompendiumDetail: (props: Parameters<typeof original.CompendiumDetail>[0]) => {
+      captured.detailRenders++;
+      return original.CompendiumDetail(props);
+    },
+  };
+});
+vi.mock('./LinkPicker', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./LinkPicker')>();
+  return {
+    ...original,
+    LinkPicker: (props: Parameters<typeof original.LinkPicker>[0]) => {
+      captured.pickerRenders++;
+      return original.LinkPicker(props);
+    },
+  };
+});
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
   apiUrl: 'https://api.invalid',
@@ -374,6 +394,50 @@ describe('more actions menu', () => {
     });
     expect(menu().open).toBe(false);
     expect(useAdvanceSetting.getState().ms).toBe(1000);
+  });
+});
+
+describe('picker stage', () => {
+  it('opens and closes without rendering the entry or a reopened picker again', async () => {
+    const descriptors = ['showModal', 'close'].map(
+      (name) => [name, Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, name)] as const,
+    );
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: {
+        configurable: true,
+        value(this: HTMLDialogElement) {
+          this.setAttribute('open', '');
+        },
+      },
+      close: {
+        configurable: true,
+        value(this: HTMLDialogElement) {
+          this.removeAttribute('open');
+        },
+      },
+    });
+    try {
+      await mount();
+      const detail = captured.detailRenders;
+      await press('p');
+      expect(document.querySelector('dialog[open]')).not.toBeNull();
+      const picker = captured.pickerRenders;
+      expect(picker).toBeGreaterThan(0);
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('dialog header button')!.click(),
+      );
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      await press('p');
+      expect(document.querySelector('dialog[open]')).not.toBeNull();
+      await press('Escape');
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(captured.detailRenders).toBe(detail);
+      expect(captured.pickerRenders).toBe(picker);
+    } finally {
+      for (const [name, descriptor] of descriptors)
+        if (descriptor) Object.defineProperty(HTMLDialogElement.prototype, name, descriptor);
+        else delete (HTMLDialogElement.prototype as unknown as Record<string, unknown>)[name];
+    }
   });
 });
 
