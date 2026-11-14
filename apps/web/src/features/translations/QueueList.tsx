@@ -26,23 +26,57 @@ export function stateText(row: QueueRow): string {
   return row.state === 'missing' ? 'Missing' : `Outdated · ${behindLabel(row.ageMs ?? 0)}`;
 }
 
+/** What a list row needs: its identity and name (the Current queue and the Upcoming view). */
+export interface ListRow {
+  key: string;
+  hash: number;
+  name: string;
+}
+
+/** The state cell of a row: its text, a data-state for colour, and an optional explanation. */
+export interface RowState {
+  text: string;
+  state: string;
+  title?: string;
+  exported?: boolean;
+}
+
+/** The Current queue's columns: category, then Missing or Outdated with the gap. */
+const queueRowState = (row: QueueRow): RowState => ({
+  text: stateText(row),
+  state: row.state,
+  exported: row.exportedInEnglish,
+  title: row.exportedInEnglish
+    ? 'More than 90 days behind English, so the exported text is English'
+    : undefined,
+});
+
 /**
  * Fixed-height rows in a bounded window: a few dozen DOM rows however long the queue. One tab
  * stop; arrows, Home, End and Page keys move the selection, Enter opens it.
  */
-export function QueueList({
+export function QueueList<Row extends ListRow = QueueRow>({
   rows,
   linkTo,
   onOpen,
   restored,
   label,
   signature,
+  secondary = (row) => (row as unknown as QueueRow).category,
+  rowState = (row) => queueRowState(row as unknown as QueueRow),
+  title = (row) => `${row.name} · ${row.hash}`,
 }: {
-  rows: readonly QueueRow[];
+  rows: readonly Row[];
   /** Where a row opens the editor, and the queue mode state that goes with it. */
-  linkTo(row: QueueRow): { to: string; state: unknown };
+  linkTo(row: Row): { to: string; state: unknown };
   /** A plain click or Enter opens `row` in queue mode: the queue starts here (`top`: the scroll). */
-  onOpen?(row: QueueRow, top: number): void;
+  onOpen?(row: Row, top: number): void;
+  /** The second column (default: the category). */
+  secondary?(row: Row): string;
+  /** The state column (default: the Current queue's Missing / Outdated). */
+  rowState?(row: Row): RowState;
+  /** The row's tooltip text (default: name and hash). */
+  title?(row: Row): string;
   /** Leave from that queue: the position and row to come back to. */
   restored?: { top: number; selected: string | null };
   label: string;
@@ -211,6 +245,7 @@ export function QueueList({
         {indices.map((index) => {
           const row = rows[index]!;
           const isSelected = index === kept;
+          const shown = rowState(row);
           return (
             <li
               key={row.key}
@@ -225,7 +260,7 @@ export function QueueList({
                 tabIndex={isSelected ? 0 : -1}
                 data-selected={isSelected ? '' : undefined}
                 data-perf-navigation="true"
-                title={`${row.name} · ${row.hash}`}
+                title={title(row)}
                 onFocus={() => setSelected(index)}
                 // Safari does not focus a link on click; the opened row is still the one to return to.
                 onClick={(event) => {
@@ -242,18 +277,14 @@ export function QueueList({
                 }}
               >
                 <span className={styles.name}>{row.name}</span>
-                <span className={styles.category}>{row.category}</span>
+                <span className={styles.category}>{secondary(row)}</span>
                 <span
                   className={styles.state}
-                  data-state={row.state}
-                  data-exported={row.exportedInEnglish ? '' : undefined}
-                  title={
-                    row.exportedInEnglish
-                      ? 'More than 90 days behind English, so the exported text is English'
-                      : undefined
-                  }
+                  data-state={shown.state}
+                  data-exported={shown.exported ? '' : undefined}
+                  title={shown.title}
                 >
-                  {stateText(row)}
+                  {shown.text}
                 </span>
               </Link>
             </li>

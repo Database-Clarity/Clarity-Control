@@ -68,13 +68,15 @@ export function upcomingOf(
 export function upcomingState(members: readonly BatchMember[], data: EditorData): UpcomingState {
   const overlay: UpcomingState['overlay'] = {};
   const stale: Record<number, string[]> = {};
+  const byHash: Record<number, BatchMember> = {};
   for (const member of members) {
+    byHash[member.hash] = member;
     const current = data.bundle.tooltips[member.hash] ?? null;
     const { tooltip, stale: fields } = upcomingOf(member, current);
     overlay[member.hash] = { base: current ?? tooltip, next: tooltip };
     if (fields.length) stale[member.hash] = fields;
   }
-  return { overlay, stale };
+  return { overlay, stale, members: byHash };
 }
 
 let users = 0;
@@ -145,11 +147,12 @@ export function refreshBatches(): Promise<void> {
           read.delete(id);
         } else if (batch.revision !== load.revision) stale.push(id);
       }
-      store.setState({ head, ...(unchanged ? {} : { memberOf }), loads });
+      store.setState({ head, listFailed: false, ...(unchanged ? {} : { memberOf }), loads });
       for (const id of stale) ensureBatch(id);
     } catch (error) {
       // Offline, signed out meanwhile, or the switch is off on the server: keep what is shown.
       console.warn('Scheduled batches: listing failed', error);
+      if (!upcomingStore().getState().listFailed) upcomingStore().setState({ listFailed: true });
     } finally {
       listing = undefined;
     }
@@ -191,6 +194,11 @@ export function ensureBatch(id: string) {
       });
     },
   );
+}
+
+/** Read every open batch's members (the Translations tab's Upcoming view lists them all). */
+export function ensureOpenBatches() {
+  for (const id of open.keys()) ensureBatch(id);
 }
 
 function recompute(data: EditorData) {
@@ -243,5 +251,11 @@ export function resetUpcoming() {
   reading.clear();
   listedAt = 0;
   listing = undefined;
-  upcomingStore().setState({ head: null, memberOf: {}, loads: {}, source: 'current' });
+  upcomingStore().setState({
+    head: null,
+    listFailed: false,
+    memberOf: {},
+    loads: {},
+    source: 'current',
+  });
 }
