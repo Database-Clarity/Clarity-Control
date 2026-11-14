@@ -377,7 +377,8 @@ export async function saveBatch(
       state.head,
     );
     const pushed = scheduled ? pushedHashes(files.at(-1)) : undefined;
-    const blocked: { hash: number; fields?: string[]; reason?: string }[] = [];
+    const blocked: { hash: number; fields: string[] }[] = [];
+    const stale: { hash: number; reason: string }[] = [];
     const lowers = lowersTags(state);
     const now = new Date().toISOString();
     const conflicts: Conflict[] = [];
@@ -432,7 +433,7 @@ export async function saveBatch(
             pushed: pushed.has(change.hash),
           });
           if (composed.status === 'stale')
-            blocked.push({ hash: change.hash, reason: composed.reason });
+            stale.push({ hash: change.hash, reason: composed.reason });
           else if (composed.status === 'overlay' && composed.unpublished.length)
             blocked.push({ hash: change.hash, fields: composed.unpublished });
         }
@@ -469,6 +470,12 @@ export async function saveBatch(
       }
     }
     if (conflicts.length) return json({ conflicts }, 409);
+    // Same wording as schedule (lifecycle.ts): stale members need an unschedule and a rebase,
+    // unpublished fields need a publish first.
+    if (stale.length)
+      throw new HttpError(409, 'Current changed under this batch; rebase the listed tooltips', {
+        members: stale,
+      });
     if (blocked.length) throw new HttpError(409, unpublishedMessage, { members: blocked });
     if (!written.length) return json({ commit: null, batch, members: [] });
     // approvalInput depends only on membership, bases, and the proposals without translations,

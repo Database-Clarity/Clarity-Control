@@ -1002,6 +1002,27 @@ describe('round-1 independent review fixes', () => {
     expect(response.body.details).toEqual({ members: [{ hash: 123, fields: ['text.de'] }] });
     expect(stored(memberPath())).toEqual(old);
   });
+  it('a scheduled translation save over a stale member asks for a rebase, not a publish', async () => {
+    f.moveData({
+      'live/pushed.json': { 123: 'a'.repeat(64) },
+      'live/tooltips/123.json': tooltip(),
+    });
+    expect((await schedule()).status).toBe(202);
+    const old = stored(memberPath()) as BatchMember;
+    // Pushed but no published snapshot: composition reports C3 stale.
+    f.moveData({ 'live/tooltips/123.json': undefined });
+    const response = await call(
+      `/batches/${ID}/save`,
+      saveBody(withText(old.proposed, 'de', 'Kommend'), old.proposed),
+      TRANSLATOR,
+    );
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe(
+      'Current changed under this batch; rebase the listed tooltips',
+    );
+    expect(response.body.details.members[0].reason).toContain('No published snapshot');
+    expect(stored(memberPath())).toEqual(old);
+  });
   it('a translator edit merges over a moved English proposal (checkEdit against the client base)', async () => {
     const original = (stored(memberPath()) as BatchMember).proposed;
     await call(`/batches/${ID}/save`, saveBody(withText(original, 'en', 'v2'), original), EDITOR);
