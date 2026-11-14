@@ -208,6 +208,14 @@ $name-floor: $name-size * 0.75;
   font-size: clamp(#{$name-floor}, calc(98cqw / max(var(--name-em, 1), 0.01)), #{$name-size});
   line-height: 1.5rem;
 }
+.name > button,
+.pieceName > button {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .category {
   opacity: 0.7;
   margin-top: 0.25rem;

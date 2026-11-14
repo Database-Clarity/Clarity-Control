@@ -48,12 +48,21 @@ export function serverTime(response: Response): number | undefined {
   return Number.isFinite(time) && time > 0 ? time : undefined;
 }
 
-export async function save(changes: Change[], message: string): Promise<SaveResult> {
+/** `noTranslationImpact` is sent only when ticked, so every other save's request is unchanged. */
+export async function save(
+  changes: Change[],
+  message: string,
+  noTranslationImpact = false,
+): Promise<SaveResult> {
   const response = await fetch(endpoint('/save'), {
     method: 'POST',
     credentials: 'omit',
     headers: { ...authorization(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ changes, message }),
+    body: JSON.stringify({
+      changes,
+      message,
+      ...(noTranslationImpact ? { noTranslationImpact } : {}),
+    }),
   });
   if (response.status === 409) {
     const data = z

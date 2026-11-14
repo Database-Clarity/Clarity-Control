@@ -5,6 +5,7 @@ import {
   changesFromTrailer,
   englishScope,
   isRelevant,
+  noImpactFromTrailer,
   projectHistory,
   viewScope,
 } from './scope';
@@ -81,6 +82,25 @@ describe('history view scope', () => {
     expect(result.text.de).toEqual(current.text.de);
     expect(result.associated).toEqual(current.associated);
   });
+});
+
+it('reads the "No translation impact" audit line only from the Worker-written final block', () => {
+  const saved =
+    'Fix typo\n\nClarity-No-Translation-Impact: 123,77\nClarity-Changed: 123=en;77=en;8=en';
+  expect(noImpactFromTrailer(saved, 123)).toBe(true);
+  expect(noImpactFromTrailer(saved, 77)).toBe(true);
+  expect(noImpactFromTrailer(saved, 8)).toBe(false);
+  expect(noImpactFromTrailer(saved, 12)).toBe(false);
+  expect(noImpactFromTrailer(saved.replace(/\n/g, '\r\n'), 123)).toBe(true);
+  // A commit message's own text cannot forge it: the Worker's block follows it.
+  expect(
+    noImpactFromTrailer(
+      'Fix\n\nClarity-No-Translation-Impact: 123\n\nClarity-Changed: 123=en',
+      123,
+    ),
+  ).toBe(false);
+  expect(noImpactFromTrailer('Clarity-No-Translation-Impact: 123', 123)).toBe(false);
+  expect(noImpactFromTrailer('Fix\n\nClarity-Changed: 123=en', 123)).toBe(false);
 });
 
 it('reads only this tooltip from the last save trailer, and rejects unknown hints', () => {

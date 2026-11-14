@@ -12,6 +12,7 @@ import type { Change, Me } from '../api';
 import { requestSaveValidation } from './validationWorker';
 export { conflictMarkerIssues, noTooltipYet, validateChanges } from './validation';
 import { enrichTooltip } from './enrichers';
+import { liveFallback } from './fallback';
 
 export function permissionError(changes: Change[], user: Me | null): string | null {
   if (!user?.role) return 'Sign in with an editing role before saving.';
@@ -40,15 +41,32 @@ export function permissionError(changes: Change[], user: Me | null): string | nu
   return null;
 }
 
+/**
+ * Validates, then stamps, the save. One revision time serves both: validation checks the live
+ * English fallback (fallback.ts) predicted with exactly the stamps the enrichers then write.
+ * `noTranslationImpact` ("No translation impact", editors and maintainers) keeps the English
+ * revision of English wording changes; the Worker enforces the role and records it.
+ */
 export async function prepareChanges(
   changes: Change[],
   user: Me,
   data: EditorData,
   compendium?: CompendiumData,
+  options: { noTranslationImpact?: boolean } = {},
 ): Promise<Change[]> {
   const denied = permissionError(changes, user);
   if (denied) throw new Error(denied);
-  const issues = await requestSaveValidation(changes, data);
+  const noTranslationImpact = options.noTranslationImpact === true;
+  if (noTranslationImpact && user.role !== 'maintainer' && user.role !== 'editor')
+    throw new Error(
+      'Only editors and maintainers can mark a save as having no translation impact.',
+    );
+  const now = new Date().toISOString();
+  const issues = await requestSaveValidation(
+    changes,
+    data,
+    liveFallback(changes, now, noTranslationImpact),
+  );
   if (issues.some((issue) => issue.severity === 'error')) {
     const dependents = [
       ...new Set(
@@ -73,6 +91,8 @@ export async function prepareChanges(
         user,
         item: data.items[change.hash],
         ...(compendium ? { compendium } : {}),
+        now,
+        ...(noTranslationImpact ? { noTranslationImpact } : {}),
       }),
     })),
   );

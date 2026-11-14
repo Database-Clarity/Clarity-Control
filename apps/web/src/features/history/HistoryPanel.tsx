@@ -23,7 +23,13 @@ import { useRevisionCache } from './revisions';
 import { revertDraft } from './revert';
 import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
-import { isRelevant, projectHistory, viewScope, type HistoryScope } from './scope';
+import {
+  isRelevant,
+  noImpactFromTrailer,
+  projectHistory,
+  viewScope,
+  type HistoryScope,
+} from './scope';
 
 /**
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
@@ -333,6 +339,7 @@ function HistoryContent({
               current={current}
               item={item}
               translator={user?.role === 'translator'}
+              noTranslationImpact={noImpactFromTrailer(entry.message, hash)}
               canRestore={canRestore}
               onRestore={restore}
             />

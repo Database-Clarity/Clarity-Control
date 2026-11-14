@@ -1,6 +1,7 @@
 import type { TooltipValidationIssue } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Change } from '../api';
+import type { LiveFallback } from './fallback';
 
 let worker: Worker | undefined;
 let sequence = 0;
@@ -45,15 +46,21 @@ function getWorker(): Worker {
 
 /** Immutable EditorData identity covers all saved inputs, including conflict overlays.
  * Exact serialized changes include recovered bases and metadata, not just changed hashes.
+ * The predicted English fallback (fallback.ts) joins the key only when it lists something, so
+ * the review and prepareChanges share one promise unless the fallback differs between them.
  * The same promise is reused by review and prepareChanges, including pending requests.
  */
 export function requestSaveValidation(
   changes: Change[],
   data: EditorData,
+  fallback: LiveFallback = {},
 ): Promise<TooltipValidationIssue[]> {
   let cache = results.get(data);
   if (!cache) results.set(data, (cache = new Map()));
-  const key = JSON.stringify(changes);
+  const live = Object.keys(fallback).length ? fallback : undefined;
+  const key = live
+    ? `${JSON.stringify(changes)}\n${JSON.stringify(live)}`
+    : JSON.stringify(changes);
   const cached = cache.get(key);
   if (cached) return cached;
   const promise = new Promise<TooltipValidationIssue[]>((resolve, reject) => {
@@ -63,7 +70,13 @@ export function requestSaveValidation(
       const changed = postedData !== data;
       if (changed) revision++;
       jobs.set(id, { resolve, reject });
-      target.postMessage({ id, revision, changes, ...(changed ? { data } : {}) });
+      target.postMessage({
+        id,
+        revision,
+        changes,
+        ...(live ? { fallback: live } : {}),
+        ...(changed ? { data } : {}),
+      });
       postedData = data;
     } catch (error) {
       jobs.delete(id);

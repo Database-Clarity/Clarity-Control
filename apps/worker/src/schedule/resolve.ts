@@ -10,7 +10,7 @@ import {
 import { refuseUnlowerable } from '../elementTags.js';
 import { RefRace, type GitHub } from '../github.js';
 import { body, HttpError, json } from '../http.js';
-import { checkEdit } from '../permissions.js';
+import { alignEnglishRevision, checkEdit } from '../permissions.js';
 import type { Identity } from '../types.js';
 import {
   appendEvent,
@@ -130,12 +130,14 @@ export async function resolveBatch(
         },
         409,
       );
-    const tooltip = result.tooltip;
+    const at = new Date().toISOString();
+    // Choosing upcoming English over a newer current one (per-field choices) would commit an
+    // older English revision, so current's translations would show current against other text.
+    const tooltip = result.tooltip && alignEnglishRevision(current, result.tooltip, user.login, at);
     if (tooltip) {
       checkEdit(state.access, current, tooltip);
       refuseUnlowerable(tooltip, switches.publisher() ? { value: state.pin } : undefined, 'saved');
     }
-    const at = new Date().toISOString();
     const revisions = { revision: batch.revision + 1, contentRevision: batch.contentRevision };
     const appended = await appendEvent(
       batch,

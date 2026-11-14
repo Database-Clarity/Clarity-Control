@@ -27,7 +27,10 @@ const save = (base: Tooltip | null, next: Tooltip, user = 1) =>
   fixture.request('/save', 'POST', { changes: [{ hash: 123, base, next }], message: 'Edit' }, user);
 const withText = (lang: 'de' | 'fr', text: string, from = tooltip()): Tooltip => ({
   ...from,
-  text: { ...from.text, [lang]: { text, ...revision } },
+  text: {
+    ...from.text,
+    [lang]: { text, ...revision, sourceUpdatedAt: from.text.en!.updatedAt },
+  },
 });
 const pin = { sourceSha: 'a'.repeat(40), sha256: 'b'.repeat(64) };
 const capable = { ...pin, capabilities: ['elementTags'] };
@@ -84,7 +87,10 @@ describe('save guard for element-tagged text', () => {
     const plain = fixture.graphqlCalls - plainStart;
     fixture.moveData({ 'tooltips/123.json': tooltip('plain') });
     const taggedStart = fixture.graphqlCalls;
-    const response = await save(tooltip('plain'), tooltip('Gain <solar Scorch /> stacks.'));
+    const response = await save(
+      tooltip('plain'),
+      tooltip('Gain <solar Scorch /> stacks.', '2026-10-01T00:00:02Z'),
+    );
     expect(response.status).toBe(200);
     // The PIN rides in the batched tooltip read: a tagged save costs what an untagged one does.
     expect(fixture.graphqlCalls - taggedStart).toBe(plain);
@@ -109,7 +115,7 @@ describe('save guard for element-tagged text', () => {
     // prismaticTags alone is not enough: it extends elementTags.
     const alone = await save(
       tooltip('Gain <solar Scorch /> and <prismatic/>Light.'),
-      tooltip('Gain <prismatic Transcendence />.'),
+      tooltip('Gain <prismatic Transcendence />.', '2026-10-01T00:00:02Z'),
     );
     expect(alone.status).toBe(422);
     expect((await alone.json()).error).toContain('lacks the "elementTags" capability');
@@ -118,7 +124,7 @@ describe('save guard for element-tagged text', () => {
     });
     const response = await save(
       tooltip('Gain <solar Scorch /> and <prismatic/>Light.'),
-      tooltip('Gain <prismatic Transcendence />.'),
+      tooltip('Gain <prismatic Transcendence />.', '2026-10-01T00:00:02Z'),
     );
     expect(response.status).toBe(200);
     expect((await response.json()).tooltips[0].text.en.text).toBe(
