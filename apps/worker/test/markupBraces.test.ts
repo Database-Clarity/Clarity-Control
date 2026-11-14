@@ -99,4 +99,23 @@ describe('push-live lowers #{name} and <enhanced/>', () => {
     expect(exported(123)).toEqual({ main: lowered, secondary: lowered });
     expect(JSON.stringify(fixture.live)).not.toMatch(/#\{[a-zA-Z0-9]+\}|<enhanced\/>/);
   });
+
+  it('refuses stored holder-shaped names in a pushed document and in its imports (code review 2 MUST-1b)', async () => {
+    const before = JSON.stringify(fixture.live);
+    fixture.moveData({
+      'tooltips/123.json': tooltip('var d = 5\nvar Zb1wx = ORIGINAL\n#{d}x and #Zb1wx'),
+    });
+    const direct = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(direct.status).toBe(422);
+    expect(((await direct.json()) as { error: string }).error).toBe(
+      'Tooltip 123 (en): #Zb1wx is a reserved name (braces generate names starting Zb<number>w): rename it.',
+    );
+    fixture.moveData({
+      'tooltips/123.json': tooltip('import main from 456\nvar d = 5\n#{d}x'),
+      'tooltips/456.json': { ...tooltip('var Zb1wx = WRONG'), hash: 456 },
+    });
+    const imported = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(imported.status).toBe(422);
+    expect(JSON.stringify(fixture.live)).toBe(before);
+  });
 });
