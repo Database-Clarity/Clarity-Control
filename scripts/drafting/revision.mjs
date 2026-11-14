@@ -10,12 +10,13 @@ export const revisionDigest = drafts => createHash('sha256').update(JSON.stringi
 
 // Preserve the owner's published template and CSS; replace reading surfaces only.
 export function revisionFromTemplate(html, input, drafts, validation, critique) {
-  if (input.styleGuide !== 'v4.9' || input.items.length !== 5 || critique.verdict !== 'APPROVE' ||
+  const expectedCount = { 'v4.9': 5, 'v4.10': 2 }[input.styleGuide];
+  if (!expectedCount || input.items.length !== expectedCount || critique.verdict !== 'APPROVE' ||
       critique.digestsReproduced !== true || critique.draftDigest !== draftDigest(drafts) ||
       critique.revisionDigest !== revisionDigest(drafts) || critique.inputDigest !== sampleInputDigest(input) ||
       critique.guideKitSha256 !== input.guideKitSha256 || drafts._meta.guideKitSha256 !== input.guideKitSha256)
     throw Error('Exact v4.9 approval required');
-  if (Object.keys(validation.errors).length || Object.keys(validation.accepted).length !== 5)
+  if (Object.keys(validation.errors).length || Object.keys(validation.accepted).length !== expectedCount)
     throw Error('All five validations required');
   const document = new JSDOM(html).window.document;
   const wanted = new Map(input.items.map(i => [String(i.hash), i]));
@@ -34,13 +35,13 @@ export function revisionFromTemplate(html, input, drafts, validation, critique) 
     row.querySelector('textarea').textContent = '';
     row.querySelector('.st').textContent = '';
   }
-  if (document.querySelectorAll('article[data-hash]').length !== 5) throw Error('Template lacks a revised row');
-  document.title = 'Tooltip revisions · v4.9';
-  document.querySelector('h1').textContent = 'Tooltip revisions · v4.9';
-  document.querySelector('.top-in > p').textContent = '5 revised tooltips. Your note, new text, and what changed. Approved texts are retained; unused mods are excluded.';
-  const script = [...document.scripts].find(s => s.textContent.includes("db.collection('feedback48')"));
+  if (document.querySelectorAll('article[data-hash]').length !== expectedCount) throw Error('Template lacks a revised row');
+  document.title = `Tooltip revisions · ${input.styleGuide}`;
+  document.querySelector('h1').textContent = document.title;
+  document.querySelector('.top-in > p').textContent = `${expectedCount} revised tooltips. Your note, new text, and what changed. Approved texts are retained; unused mods are excluded.`;
+  const script = [...document.scripts].find(s => /db.collection\('feedback(?:48|49)'\)/.test(s.textContent));
   if (!script) throw Error('Unexpected feedback template');
-  script.textContent = script.textContent.replaceAll('feedback48', 'feedback49');
+  script.textContent = script.textContent.replace(/feedback(?:48|49)/g, `feedback${input.styleGuide.replace(/\D/g, '')}`);
   return document.documentElement.outerHTML;
 }
 

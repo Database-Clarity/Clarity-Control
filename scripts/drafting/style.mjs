@@ -77,6 +77,9 @@ export function sourceMathFlags(item) {
 
 export function itemStyleLint(item, english) {
   const errors = styleLint(english);
+  if (item.enhancedCategory && /\{\{|<enhanced\/>/.test(english) &&
+      !/^enhanced \(\r?\n[\s\S]*?<enhanced\/>\s+[A-Za-z][^\n]*\r?\n\)/m.test(english))
+    errors.push('Style: enhanced value needs a separate enhanced-only explanation');
   if (item.ownerFeedback?.verdict !== 'change') return errors;
   const rewrite = /^Rewritten version:\s*\n([\s\S]*)$/.exec(item.ownerFeedback.note ?? '');
   if (rewrite && english !== rewrite[1]) errors.push('Style: owner rewrite must be verbatim');

@@ -42,7 +42,9 @@ const item = {
 };
 it('allows enhanced pairs in catalog-confirmed mod categories and excludes unused owner hashes', () => {
   const mod = { ...item, category: 'weapon-mod', source: { text: 'Refills 50% ↑60% of Magazine.' }, enhancedCategory: true };
-  expect(validateDraft(mod, 'Refills {{50%}{60%}} of the magazine.', editor, app)).toEqual([]);
+  const explained = 'Refills {{50%}{60%}} of the magazine.\n\nenhanced (\n<enhanced/> Refills 60% instead.\n)';
+  expect(validateDraft(mod, explained, editor, app)).toEqual([]);
+  expect(validateDraft(mod, 'Refills {{50%}{60%}} of the magazine.', editor, app)).toContain('Style: enhanced value needs a separate enhanced-only explanation');
   expect(validateDraft({ ...mod, enhancedCategory: false }, 'Refills {{50%}{60%}} of the magazine.', editor, app)).toContain('Enhanced markup outside an enhanced-capable category');
   expect([...ownerExcludedHashes]).toEqual([2077016094, 2733010662, 2734970071, 3458160468]);
 });

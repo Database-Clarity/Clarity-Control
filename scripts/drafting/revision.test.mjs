@@ -18,6 +18,11 @@ it('preserves template styling while selecting only five v4.9 changes and feedba
   expect(result).toContain("db.collection('feedback49')");
   expect(result).not.toContain('feedback48');
   expect(() => revisionFromTemplate(html, input, drafts, validation, { ...critique, digestsReproduced: false })).toThrow('approval');
+  const nextInput = { ...input, styleGuide: 'v4.10', items: input.items.slice(0, 2) };
+  const nextValidation = { errors: {}, accepted: Object.fromEntries(nextInput.items.map(i => [i.hash, drafts[i.hash]])) };
+  const next = revisionFromTemplate(html, nextInput, drafts, nextValidation, { ...critique, inputDigest: sampleInputDigest(nextInput) });
+  expect(next).toContain("db.collection('feedback410')");
+  expect(new JSDOM(next).window.document.querySelectorAll('article')).toHaveLength(2);
 });
 
 it('gates every revised row and saves only deliberate new verdicts to feedback48', async () => {
