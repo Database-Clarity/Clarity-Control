@@ -117,7 +117,7 @@ function useStepKeys() {
 
 function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }) {
   const isDone = useQueueDone(queue);
-  const { pathname } = useLocation();
+  const { pathname, key: entry } = useLocation();
   const phone = useMedia(phoneQuery);
   const source = queueSources[queue.source];
   const place = queuePlace(queue, visit.key, isDone);
@@ -130,12 +130,14 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
   const passedRef = useRef({ queue, isDone });
   passedRef.current = { queue, isDone };
   useEffect(() => {
-    // Revisit applies once its item opens (a refused or new-tab Revisit changes nothing).
+    // Revisit applies once its item opens (a refused or new-tab Revisit changes nothing). Each
+    // history entry counts: Finish stays on its item, so a second Revisit of that item arrives
+    // with the same queue, item, and flag, only a new entry.
     if (visit.revisit) revisit(visit.id);
     const { queue: latest, isDone: done } = passedRef.current;
     const passed = latest.items.find((item) => item.key === latest.current);
     visitItem(visit.id, visit.key, Boolean(passed && !done(passed)));
-  }, [visit.id, visit.key, visit.revisit, visitItem, revisit]);
+  }, [entry, visit.id, visit.key, visit.revisit, visitItem, revisit]);
 
   const label = placeLabel(place);
   const name = `${source.label} queue`;

@@ -251,4 +251,18 @@ describe('work through Bungie drift', () => {
     expect(location.pathname).toBe('/drift');
     expect(useWorkQueues.getState().active).toBeNull();
   });
+
+  it('Revisit works again after a second Finish on the same item', async () => {
+    act(() => check('Alpha').click());
+    await act(async () => button('Work through 1 selected')!.click());
+    const id = useWorkQueues.getState().active!;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      act(() => button('›')!.click());
+      expect(position()).toBe('End · 1 skipped');
+      await act(async () => link('Revisit')!.click());
+      expect(location.pathname).toBe('/t/11');
+      expect(useWorkQueues.getState().queues[id]!.finished).toBe(false);
+      expect(position()).toBe('1 of 1');
+    }
+  });
 });
