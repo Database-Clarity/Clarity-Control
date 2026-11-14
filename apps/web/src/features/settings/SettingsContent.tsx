@@ -180,7 +180,7 @@ export function SettingsContent() {
   });
   const select = <K extends keyof SyncedSettings>(key: K, values: readonly SyncedSettings[K][]) => (
     <select
-      value={settings[key]}
+      value={String(settings[key])}
       onChange={(event) => {
         const patch = { [key]: event.target.value } as Partial<SyncedSettings>;
         update(patch);
@@ -189,7 +189,7 @@ export function SettingsContent() {
       }}
     >
       {values.map((value) => (
-        <option key={value} value={value}>
+        <option key={String(value)} value={String(value)}>
           {valueLabel(key, value)}
         </option>
       ))}
@@ -252,6 +252,73 @@ export function SettingsContent() {
         </label>
       </fieldset>
       <fieldset>
+        <legend>Editor preferences</legend>
+        <p className={styles.hint}>Synced to your account when signed in.</p>
+        <label>
+          Editor font
+          <select
+            value={settings.editorFont}
+            onChange={(event) =>
+              update({ editorFont: event.target.value as typeof settings.editorFont })
+            }
+          >
+            {editorFonts.map((font) => (
+              <option key={font} value={font}>
+                {
+                  {
+                    default: 'Default',
+                    'fira-code': 'Fira Code',
+                    'jetbrains-mono': 'JetBrains Mono',
+                    system: 'System monospace',
+                  }[font]
+                }
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className={styles.hint}>Ligatures are off so typed symbols stay distinct.</p>
+        <label>
+          Accept suggestion chips with
+          <select
+            value={settings.suggestAccept}
+            onChange={(event) => update({ suggestAccept: event.target.value as SuggestAccept })}
+          >
+            <option value="enter">Enter (Shift+Enter makes a new line)</option>
+            <option value="tab">Tab (Enter always makes a new line)</option>
+          </select>
+        </label>
+        <label>
+          Show symbol markup
+          <select
+            value={settings.symbolReveal}
+            onChange={(event) => update({ symbolReveal: event.target.value as SymbolReveal })}
+          >
+            <option value="popover">In a popover on hover (text never moves)</option>
+            <option value="caret">As raw text while the caret is on the symbol</option>
+          </select>
+        </label>
+        <label>
+          Finder wheel
+          <select
+            value={settings.finderWheel}
+            onChange={(event) => update({ finderWheel: event.target.value as FinderWheel })}
+          >
+            <option value="entries">Shift: entries, Alt+Shift: weapons</option>
+            <option value="groups">Shift: weapons, Alt+Shift: entries</option>
+          </select>
+        </label>
+        <label>
+          Step through the worklist
+          <select
+            value={settings.worklistStepping ? 'on' : 'off'}
+            onChange={(event) => update({ worklistStepping: event.target.value === 'on' })}
+          >
+            <option value="on">On (Shift+wheel and arrows stay in the queue)</option>
+            <option value="off">Off (they step the finder&apos;s list)</option>
+          </select>
+        </label>
+      </fieldset>
+      <fieldset>
         <legend>This device</legend>
         <p className={styles.hint}>Kept in this browser only; never synced.</p>
         <label>
@@ -280,29 +347,6 @@ export function SettingsContent() {
           </label>
         )}
         <label>
-          Editor font
-          <select
-            value={device.editorFont}
-            onChange={(event) =>
-              updateDevice({ editorFont: event.target.value as typeof device.editorFont })
-            }
-          >
-            {editorFonts.map((font) => (
-              <option key={font} value={font}>
-                {
-                  {
-                    default: 'Default',
-                    'fira-code': 'Fira Code',
-                    'jetbrains-mono': 'JetBrains Mono',
-                    system: 'System monospace',
-                  }[font]
-                }
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className={styles.hint}>Ligatures are off so typed symbols stay distinct.</p>
-        <label>
           Editor text size
           <select
             value={device.editorFontSize ?? ''}
@@ -325,48 +369,6 @@ export function SettingsContent() {
           scale; a size in px ignores it. Touch screens keep at least 16 px so the page does not
           zoom on focus.
         </p>
-        <label>
-          Accept suggestion chips with
-          <select
-            value={device.suggestAccept}
-            onChange={(event) =>
-              updateDevice({ suggestAccept: event.target.value as SuggestAccept })
-            }
-          >
-            <option value="enter">Enter (Shift+Enter makes a new line)</option>
-            <option value="tab">Tab (Enter always makes a new line)</option>
-          </select>
-        </label>
-        <label>
-          Show symbol markup
-          <select
-            value={device.symbolReveal}
-            onChange={(event) => updateDevice({ symbolReveal: event.target.value as SymbolReveal })}
-          >
-            <option value="popover">In a popover on hover (text never moves)</option>
-            <option value="caret">As raw text while the caret is on the symbol</option>
-          </select>
-        </label>
-        <label>
-          Finder wheel
-          <select
-            value={device.finderWheel}
-            onChange={(event) => updateDevice({ finderWheel: event.target.value as FinderWheel })}
-          >
-            <option value="entries">Shift: entries, Alt+Shift: weapons</option>
-            <option value="groups">Shift: weapons, Alt+Shift: entries</option>
-          </select>
-        </label>
-        <label>
-          Step through the worklist
-          <select
-            value={device.worklistStepping ? 'on' : 'off'}
-            onChange={(event) => updateDevice({ worklistStepping: event.target.value === 'on' })}
-          >
-            <option value="on">On (Shift+wheel and arrows stay in the queue)</option>
-            <option value="off">Off (they step the finder&apos;s list)</option>
-          </select>
-        </label>
         <label>
           Interface scale
           <ScaleControl value={device.uiScale} onCommit={(uiScale) => updateDevice({ uiScale })} />

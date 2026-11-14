@@ -11,6 +11,12 @@ export function isTimeZone(value: string): boolean {
 }
 
 export const dateFormats = ['auto', 'dmy', 'iso', 'mdy'] as const;
+export const editorFonts = ['default', 'fira-code', 'jetbrains-mono', 'system'] as const;
+export const suggestAcceptKeys = ['enter', 'tab'] as const;
+export const symbolRevealModes = ['popover', 'caret'] as const;
+export const finderWheelModes = ['entries', 'groups'] as const;
+export const defaultWorklistStepping = true;
+
 export const timeDisplays = ['date', 'datetime', 'relative'] as const;
 
 export const timeZoneSchema = z
@@ -25,6 +31,11 @@ export const timeZoneSchema = z
  */
 export const syncedSettingsSchema = z
   .object({
+    editorFont: z.enum(editorFonts).default('default'),
+    suggestAccept: z.enum(suggestAcceptKeys).default('enter'),
+    symbolReveal: z.enum(symbolRevealModes).default('popover'),
+    finderWheel: z.enum(finderWheelModes).default('entries'),
+    worklistStepping: z.boolean().default(defaultWorklistStepping),
     dateFormat: z.enum(dateFormats),
     timeDisplay: z.enum(timeDisplays),
     timeZone: timeZoneSchema,
@@ -35,6 +46,11 @@ export const syncedSettingsSchema = z
 export type SyncedSettings = z.infer<typeof syncedSettingsSchema>;
 
 export const defaultSyncedSettings: SyncedSettings = {
+  editorFont: 'default',
+  suggestAccept: 'enter',
+  symbolReveal: 'popover',
+  finderWheel: 'entries',
+  worklistStepping: defaultWorklistStepping,
   dateFormat: 'auto',
   timeDisplay: 'datetime',
   timeZone: 'auto',
@@ -42,5 +58,5 @@ export const defaultSyncedSettings: SyncedSettings = {
   englishSource: 'changes',
 };
 
-/** Largest accepted PUT /settings body; real payloads are ~150 bytes. */
+/** Largest accepted PUT /settings body; real payloads are under 1 KB. */
 export const settingsBodyLimit = 4096;

@@ -140,7 +140,7 @@ describe('in the editor', () => {
   let root: Root;
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    useSettingsStore.getState().updateDevice({ symbolReveal: 'popover' });
+    useSettingsStore.getState().update({ symbolReveal: 'popover' });
     // jsdom draws nothing: CodeMirror's caret measurements get empty boxes.
     const rects = () => Object.assign([] as DOMRect[], { item: () => null });
     Range.prototype.getClientRects = rects as unknown as Range['getClientRects'];

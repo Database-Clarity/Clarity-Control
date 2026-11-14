@@ -88,12 +88,74 @@ describe('synced settings crypto', () => {
     expect(id).not.toBe(await settingsFileId(secret, 2));
   });
 
+  it('decrypts pre-migration entries with defaults, and keeps the expanded ciphertext under the body limit', async () => {
+    const serverKey = await settingsKey(secret);
+    const id = await settingsFileId(secret, 1);
+    const old = Object.fromEntries(
+      Object.entries(mine).filter(
+        ([key]) =>
+          ![
+            'editorFont',
+            'suggestAccept',
+            'symbolReveal',
+            'finderWheel',
+            'worklistStepping',
+          ].includes(key),
+      ),
+    );
+    // Model an entry encrypted by the old Worker before these five keys existed.
+    const entry = await encryptEntry(serverKey, id, {
+      settings: old as SyncedSettings,
+      revision: revisionA,
+    });
+    expect((await decryptEntry(serverKey, id, entry))?.settings).toEqual(mine);
+    const expanded = await encryptEntry(serverKey, id, {
+      settings: {
+        ...mine,
+        editorFont: 'jetbrains-mono',
+        timeZone: 'America/Argentina/ComodRivadavia',
+      },
+      revision: revisionA,
+    });
+    expect(expanded.ct.length).toBe(704);
+    expect(JSON.stringify(expanded).length).toBeLessThan(4096);
+    expect(JSON.stringify({ settings: mine, revision: revisionA }).length).toBeLessThan(512);
+  });
+
   it('rounds commit dates down to the UTC hour', () => {
     expect(coarseDate(Date.parse('2026-11-02T17:42:13.512Z'))).toBe('2026-11-02T17:00:00Z');
   });
 });
 
 describe('/settings endpoint', () => {
+  it('accepts old payloads without the five preferences and new payloads with them', async () => {
+    const old = Object.fromEntries(
+      Object.entries(mine).filter(
+        ([key]) =>
+          ![
+            'editorFont',
+            'suggestAccept',
+            'symbolReveal',
+            'finderWheel',
+            'worklistStepping',
+          ].includes(key),
+      ),
+    );
+    const first = await synced(await put(old, null));
+    expect(first.settings).toEqual(mine);
+    const next = {
+      ...mine,
+      editorFont: 'fira-code',
+      suggestAccept: 'tab',
+      symbolReveal: 'caret',
+      finderWheel: 'groups',
+      worklistStepping: false,
+    };
+    expect((await synced(await put(next, first.revision))).settings).toEqual(next);
+    expect((await read()).settings).toEqual(next);
+    expect((await put({ ...next, unknown: true }, null)).status).toBe(400);
+  });
+
   it('requires a session and an editing role', async () => {
     expect((await fixture.request('/settings', 'GET')).status).toBe(200);
     // User 5 has a valid session but no entry in config/permissions.json.
