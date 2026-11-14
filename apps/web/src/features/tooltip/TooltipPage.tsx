@@ -306,10 +306,10 @@ function TooltipWorkspace({
   // ...and classifies the enhanced versions the batch changes (derived or override) on that future
   // state, so a staged override renders. A version the batch leaves alone keeps its stored form, as
   // a draft on the base never turns a derived version into an override.
-  const futureData = useMemo(() => (future && data ? withFuture(data, future) : undefined), [
-    data,
-    future,
-  ]);
+  const futureData = useMemo(
+    () => (future && data ? withFuture(data, future) : undefined),
+    [data, future],
+  );
   const referenceSources = useMemo(
     () => tooltipTextSources(data?.bundle.tooltips ?? {}, shown, data?.aliases ?? {}),
     [data, shown],

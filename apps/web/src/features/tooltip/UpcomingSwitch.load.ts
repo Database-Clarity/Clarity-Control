@@ -54,7 +54,8 @@ export function upcomingOf(
   try {
     for (let pass = 0; pass < 2; pass++) {
       const resolved = resolveActivation({ ...input, choices });
-      if (resolved.ok) return { tooltip: resolved.tooltip ?? member.proposed, stale: result.fields };
+      if (resolved.ok)
+        return { tooltip: resolved.tooltip ?? member.proposed, stale: result.fields };
       for (const field of resolved.missing) choices[field] = 'upcoming';
     }
   } catch {
