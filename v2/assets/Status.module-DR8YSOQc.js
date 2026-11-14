@@ -1,1 +1,0 @@
-const t="_page_17eyg_1",e="_filters_17eyg_45",_="_card_17eyg_56",c="_cardTitle_17eyg_72",s="_muted_17eyg_79",a="_text_17eyg_88",o="_actions_17eyg_93",g={page:t,filters:e,card:_,cardTitle:c,muted:s,text:a,actions:o};export{g as p};
