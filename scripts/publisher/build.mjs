@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { maxBuffer } from './childProcess.mjs';
 await build({
   entryPoints: ['scripts/publisher/cli.ts'],
   outfile: 'scripts/publisher/dist/publisher.mjs',
@@ -14,7 +15,7 @@ writeFileSync(
   'scripts/publisher/dist/PIN',
   JSON.stringify(
     {
-      sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', maxBuffer }).trim(),
       sha256: createHash('sha256')
         .update(readFileSync('scripts/publisher/dist/publisher.mjs'))
         .digest('hex'),

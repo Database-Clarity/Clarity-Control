@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { relative, resolve } from 'node:path';
 import { generateKeyPairSync, randomBytes, createHmac } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { maxBuffer } from '../childProcess.mjs';
 const [mode, countArg] = process.argv.slice(2);
 const count = Number(countArg);
 if (
@@ -67,7 +68,7 @@ await build({
             contents: execFileSync(
               'git',
               ['show', `30c0a5a:${relative(process.cwd(), args.path).replaceAll('\\', '/')}`],
-              { encoding: 'utf8' },
+              { encoding: 'utf8', maxBuffer },
             ),
             loader: 'ts',
           }));
