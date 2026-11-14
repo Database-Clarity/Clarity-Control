@@ -109,6 +109,16 @@ const wrap = (tag: string, about: string): Snippet => ({
 
 export const markupSnippets: readonly Snippet[] = [
   {
+    id: 'arrow-values',
+    label: 'Value becomes another',
+    group: 'Values',
+    template: '{{1:30%}}<arrow/>{{2:33%}}',
+    keywords: 'arrow leads to becomes change value',
+    usage: /<arrow\/>/,
+    about: 'Two values joined by an arrow in the surrounding text colour.',
+    help: { example: '30%<arrow/>33%' },
+  },
+  {
     id: 'base-enhanced-pair',
     label: 'Base and enhanced text',
     group: 'Enhanced',
@@ -345,6 +355,7 @@ export interface SymbolEntry {
 }
 
 const iconAbout: Record<string, string> = {
+  arrow: 'An arrow meaning leads to or becomes, drawn in the surrounding text colour.',
   kinetic: 'Kinetic damage icon.',
   arc: 'Arc damage icon.',
   solar: 'Solar damage icon.',

@@ -71,6 +71,12 @@ function TitleAnchor({ part, id }: { part: MarkupSpan; id: string }) {
 export function PreviewSpan({ part }: { part: MarkupSpan }) {
   const id = useId();
   const link = part.link ? linkUrl(part.link) : undefined;
+  if (part.classNames?.includes('arrow'))
+    return (
+      <>
+        ⁠<span className={classNames(part.classNames)} aria-label="leads to" />⁠
+      </>
+    );
   return (
     <span className={classNames(part.classNames)}>
       {part.title ? (

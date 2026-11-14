@@ -29,6 +29,7 @@ import styles from './TooltipPreview.module.scss';
 import { Lines, linkUrl } from './MarkupRenderer';
 import { useLocalisedManifest } from '../manifest/localisedManifest';
 import { EnglishReveal } from '../manifest/EnglishReveal';
+import { weaponOwnerLabel, weaponOwners } from './weaponOwners';
 export { classNames, Lines, PreviewSpan } from './MarkupRenderer';
 
 export interface TooltipPreviewProps {
@@ -156,9 +157,18 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
   const { hash, name, piece, pieceIcon, icon, categoryLabel, archiveIcon } =
     urgent || (props.live && identity) || props;
   const localised = useLocalisedManifest(props.lang);
-  const item = useDataStore((state) =>
-    props.lang === 'en' || hash === undefined ? undefined : state.data?.items[hash],
-  );
+  const item = useDataStore((state) => (hash === undefined ? undefined : state.data?.items[hash]));
+  const owners = useMemo(() => weaponOwners(item), [item]);
+  const weaponLabel = owners && weaponOwnerLabel(owners);
+  const translatedWeaponLabel =
+    owners &&
+    localised &&
+    weaponOwnerLabel(
+      owners.map((owner) => ({
+        ...owner,
+        name: localised.itemNames[owner.hash] || owner.name,
+      })),
+    );
   const officialName = hash === undefined ? undefined : localised?.names[hash];
   const setName = item?.setHash && (localised?.setNames[item.setHash] || item.setName);
   const translatedName =
@@ -184,13 +194,37 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
   const iconUrl = bungieUrl(icon);
   const pieceUrl = bungieUrl(pieceIcon);
   return (
-    <header className={styles.header}>
+    <header className={styles.header} data-weapon-owners={owners !== undefined || undefined}>
       {archiveIcon ? (
         <ArchiveIcon icon={icon} />
       ) : (
         iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
       )}
       <div className={styles.identity}>
+        {owners !== undefined && (
+          <div
+            className={styles.piece}
+            title={weaponLabel || undefined}
+            aria-hidden={!weaponLabel || undefined}
+          >
+            {owners.map((owner) => {
+              const url = bungieUrl(owner.icon);
+              return (
+                <span key={owner.hash} className={styles.pieceIcon} title={owner.name}>
+                  {url && linkUrl(url) && <img src={url} alt="" />}
+                </span>
+              );
+            })}
+            <span className={styles.pieceName}>
+              <EnglishReveal
+                english={weaponLabel || ''}
+                translated={translatedWeaponLabel}
+                lang={props.lang}
+                showTranslation
+              />
+            </span>
+          </div>
+        )}
         {piece !== undefined && (
           // An empty piece row still holds its line (exotic armour named after its piece).
           <div

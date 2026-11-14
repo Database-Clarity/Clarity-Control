@@ -61,3 +61,18 @@ jobs:
 - A failed or frozen file keeps its old bytes; a failed Bungie manifest fetch deploys nothing and
   writes no pin (the next publish retries); a run older than the last deploy deploys nothing.
 - The deploy commit keeps today's subject and adds `Export-Converter:` and `Export-Pin:` lines.
+
+## Arrow symbol rollout precondition
+
+Before installing an `arrowSymbol` publisher PIN in editor-data, install the
+`.exports/` converter engine built from source commit
+`83da713384bb0c399209e43851e32fca5e035ca1` or a descendant that includes its arrow
+lowering. Verify that its `buildLegacy` emits U+1F81A for `<arrow/>` in all seven
+old-URL files, and record the installed `.exports/PIN`.
+
+This engine installation is also required before enabling publisher writes to
+the production `converter` branch. The publisher preserves `<arrow/>` in the
+shared `liveDescriptions.json` intermediate; its `arrowSymbol` capability alone
+does not update or verify the downstream converter. An older engine or the held
+npm converter drops the arrow. Keep the Worker's PIN gate closed until both
+components are installed. Installs and cut-over remain owner-gated.

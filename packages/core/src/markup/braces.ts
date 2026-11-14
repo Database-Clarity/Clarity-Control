@@ -146,8 +146,10 @@ export function lowerDelimitedMarkup(text: string): string {
  * What every consumer reads: element tags (`<solar Scorch />`) and the delimited forms lowered to
  * the legacy format. Exact and idempotent.
  */
-export function lowerConsumerMarkup(text: string): string {
-  return lowerDelimitedMarkup(lowerElementTags(text));
+export function lowerConsumerMarkup(text: string, arrow?: 'legacy' | 'fallback'): string {
+  const lowered = lowerDelimitedMarkup(lowerElementTags(text));
+  // The shared intermediate keeps the symbol; only final legacy files lower it.
+  return arrow ? lowered.replaceAll('<arrow/>', arrow === 'legacy' ? '🠚' : '→') : lowered;
 }
 
 /**
