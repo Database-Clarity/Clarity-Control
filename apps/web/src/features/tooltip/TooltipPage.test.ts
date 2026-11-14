@@ -17,6 +17,11 @@ import { apiUrl } from '../../services/api';
 import { useSteppingActivity } from '../navigation/steppingActivity';
 import { LivePreviewIdentity } from '../preview/LivePreviewIdentity';
 
+vi.mock('../../services/api', async (original) => ({
+  ...(await original<typeof import('../../services/api')>()),
+  apiUrl: 'https://worker.example/',
+}));
+
 vi.mock('../navigation/steppingActivity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../navigation/steppingActivity')>();
   return {

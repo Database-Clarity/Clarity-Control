@@ -2,6 +2,7 @@ import {
   extractVariables,
   languages,
   resolveAlias,
+  usesEnglishFallback,
   validateTextWithReads,
   type Lang,
   type MarkupGlobals,
@@ -10,8 +11,10 @@ import {
   type ValidationReads,
 } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
+import { languageLabel } from '../../languageLabels';
 import type { Change } from '../api';
 import { tooltipImports } from '../tooltipImports';
+import type { LiveFallback } from './fallback';
 
 type Dependent = {
   hash: number;
@@ -22,6 +25,35 @@ type Baseline = { index: Map<number, Set<Dependent>>; entries: Dependent[] };
 // EditorData is immutable: load, refresh, conflict reload, and acceptSaved replace it.
 // This also invalidates aliases, category types, globals, and titles, even at the same commit.
 const baselines = new WeakMap<EditorData, Map<Lang, Baseline>>();
+
+/**
+ * The text live output exports for a stored tooltip (core exportLegacy): a translation more than
+ * 90 days of English revisions behind is the English text. Used for every tooltip whose stamps are
+ * real (saved tooltips and draft bases), so imports and dependents resolve as live output does.
+ */
+const liveText = (tooltip: Tooltip | undefined, lang: Lang) =>
+  (lang !== 'en' && tooltip && usesEnglishFallback(tooltip, lang)
+    ? tooltip.text.en?.text
+    : tooltip?.text[lang]?.text) ?? '';
+
+/** `tooltips` with `textOf`'s text in `lang` (the same record when every text is already it). */
+function liveTooltips(
+  tooltips: Record<string, Tooltip>,
+  lang: Lang,
+  textOf: (tooltip: Tooltip) => string,
+): Record<string, Tooltip> {
+  if (lang === 'en') return tooltips;
+  let live: Record<string, Tooltip> | undefined;
+  for (const [hash, tooltip] of Object.entries(tooltips)) {
+    const entry = tooltip.text[lang];
+    if (!entry) continue;
+    const text = textOf(tooltip);
+    if (entry.text === text) continue;
+    live ??= { ...tooltips };
+    live[hash] = { ...tooltip, text: { ...tooltip.text, [lang]: { ...entry, text } } };
+  }
+  return live ?? tooltips;
+}
 
 function changedNames(before: Record<string, string>, after: Record<string, string>) {
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
@@ -36,17 +68,37 @@ export function saveDependencies(
   before: Record<string, Tooltip>,
   after: Record<string, Tooltip>,
   data: EditorData,
+  fallback: LiveFallback = {},
 ) {
-  const catalogs = (tooltips: Record<string, Tooltip>) => {
+  // Catalogues and dependents read live text (EXPORT-FALLBACK-VALIDATION): an import of a
+  // tooltip whose translation falls back reads its English, as live output does.
+  const changedHashes = new Set(changes.map(({ hash }) => hash));
+  // A changed tooltip in `after` is already its live form (validation.liveForm, decided on the
+  // save's own stamps); its draft stamps are not the saved ones yet.
+  const afterText = (tooltip: Tooltip, lang: Lang) =>
+    changedHashes.has(tooltip.hash) ? (tooltip.text[lang]?.text ?? '') : liveText(tooltip, lang);
+  const catalogs = (
+    tooltips: Record<string, Tooltip>,
+    textOf: (tooltip: Tooltip, lang: Lang) => string,
+  ) => {
     const cache = new Map<Lang, Record<string, string>>();
     return (lang: Lang) => {
       let catalog = cache.get(lang);
-      if (!catalog) cache.set(lang, (catalog = tooltipImports(tooltips, {}, lang, data.aliases)));
+      if (!catalog)
+        cache.set(
+          lang,
+          (catalog = tooltipImports(
+            liveTooltips(tooltips, lang, (tooltip) => textOf(tooltip, lang)),
+            {},
+            lang,
+            data.aliases,
+          )),
+        );
       return catalog;
     };
   };
-  const beforeCatalog = catalogs(before);
-  const afterCatalog = catalogs(after);
+  const beforeCatalog = catalogs(before, liveText);
+  const afterCatalog = catalogs(after, afterText);
   const globalsFor = (hash: number, lang: Lang, saved = false): MarkupGlobals => {
     const catalog = (saved ? beforeCatalog : afterCatalog)(lang);
     const item = data.items[hash];
@@ -63,10 +115,13 @@ export function saveDependencies(
     const documents = new Map<number, string>();
     const globals: { name: string; label: string }[] = [];
     for (const { hash } of changes) {
-      const oldText = before[hash]?.text[lang]?.text ?? '';
-      const newText = after[hash]?.text[lang]?.text ?? '';
+      const oldText = liveText(before[hash], lang);
+      const newText = after[hash] ? afterText(after[hash], lang) : '';
       if (oldText === newText) continue;
-      documents.set(hash, `"${data.items[hash]?.name ?? `Tooltip ${hash}`}" (${hash})`);
+      documents.set(
+        hash,
+        `"${data.items[hash]?.name ?? `Tooltip ${hash}`}" (${hash})${fallback[hash]?.includes(lang) ? ` (live ${languageLabel(lang)} output falls back to its English text)` : ''}`,
+      );
       if (hash === 2) {
         globals.push(
           ...changedNames(extractVariables(oldText), extractVariables(newText)).map((name) => ({
@@ -94,7 +149,7 @@ export function saveDependencies(
   };
 
   const outsideIssues = (): TooltipValidationIssue[] => {
-    const batch = new Set(changes.map(({ hash }) => hash));
+    const batch = changedHashes;
     const dependents = new Set<Dependent>();
     // Build once, only for languages whose inputs change. The baseline reads also select texts
     // whose after-expansion reads a new target: its first changed input was read before the save.
@@ -113,7 +168,7 @@ export function saveDependencies(
           if (resolveAlias(hash, data.aliases) !== hash) continue;
           if (lang !== 'en' && !tooltip.text[lang]) continue;
           const validation = validateTextWithReads(
-            tooltip.text[lang]?.text ?? '',
+            liveText(tooltip, lang),
             lang,
             globalsFor(hash, lang, true),
             false,
@@ -149,7 +204,7 @@ export function saveDependencies(
     const issues: TooltipValidationIssue[] = [];
     for (const { hash, lang, validation: baseline } of dependents) {
       const next = validateTextWithReads(
-        after[hash].text[lang]?.text ?? '',
+        afterText(after[hash], lang),
         lang,
         globalsFor(hash, lang),
         false,

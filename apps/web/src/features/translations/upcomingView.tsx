@@ -6,7 +6,7 @@
  * revision moves). A row opens the read-only batch view in this tab (`?open=<batchId>:<hash>`,
  * pushed, so Back returns to the list at the same row); editing in a batch arrives later.
  */
-import { useCallback, useEffect, useMemo, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
@@ -36,6 +36,10 @@ import {
 } from './upcoming';
 import { UpcomingDetail } from './upcomingDetail';
 import styles from './TranslationsPage.module.scss';
+import { newQueueId, visitState } from '../queue/model';
+import { returnedState } from '../queue/WorkThroughBar';
+import type { TranslationsRestore } from '../queue/sources';
+import { startUpcomingQueue, upcomingItem } from '../queue/startUpcoming';
 
 const noRows: readonly UpcomingRow[] = [];
 
@@ -162,6 +166,7 @@ export default function UpcomingTranslations({
   onClickCapture,
   onKeyDown,
 }: UpcomingPageProps) {
+  const [pendingId] = useState(newQueueId);
   const data = useDataStore((state) => state.data);
   const navigate = useNavigate();
   const { pathname, search, state: routeState } = useLocation();
@@ -171,6 +176,9 @@ export default function UpcomingTranslations({
   const memberOf = useStore((state) => state.memberOf);
   const loads = useStore((state) => state.loads);
   const state = parseUpcomingFilter(stateParam);
+  const returned = returnedState<TranslationsRestore & { upcomingState?: string | null }>(
+    routeState,
+  );
 
   // List now and every minute while visible; read every open batch's members as listings arrive.
   useEffect(() => startUpcoming(), []);
@@ -218,8 +226,11 @@ export default function UpcomingTranslations({
     [pathname, search, text],
   );
   const linkTo = useCallback(
-    (row: UpcomingRow) => ({ to: openPath(row), state: { upcomingFromList: true } }),
-    [openPath],
+    (row: UpcomingRow) => ({
+      to: (upcomingItem(row, data!).detail as { path: string }).path,
+      state: visitState({ id: pendingId, key: row.key }),
+    }),
+    [data, pendingId],
   );
 
   const signature = `upcoming|${language}|${state}|${category}|${deferredText}`;
@@ -310,7 +321,14 @@ export default function UpcomingTranslations({
     // Back must return to this filter, so it is in the list's URL before the view opens.
     if (text !== query) update({ q: text || null });
     rememberOpenedFirst(`upcoming|${language}|${state}|${category}|${text}`, first.key);
-    void navigate(openPath(first), { state: { upcomingFromList: true } });
+    if (!data) return;
+    const filters = { state, category, query: text };
+    const matching = filterUpcoming(rows, filters);
+    const origin = new URLSearchParams(search);
+    if (text) origin.set('q', text);
+    else origin.delete('q');
+    const target = startUpcomingQueue(first, matching, data, `${pathname}?${origin}`, filters, 0);
+    void navigate(target.to, { state: target.state });
   };
   const setFilter = (value: Exclude<UpcomingFilter, null>) =>
     update({ state: state === value ? null : value });
@@ -457,7 +475,28 @@ export default function UpcomingTranslations({
               key={signature}
               signature={signature}
               rows={shown}
+              restored={
+                returned &&
+                returned.language === language &&
+                returned.upcomingState === state &&
+                returned.category === category &&
+                returned.query === query
+                  ? { top: returned.top, selected: returned.selectedRow }
+                  : undefined
+              }
               linkTo={linkTo}
+              onOpen={(row, top) => {
+                if (data)
+                  startUpcomingQueue(
+                    row,
+                    shown,
+                    data,
+                    `${pathname}${search}`,
+                    shownFilters,
+                    top,
+                    pendingId,
+                  );
+              }}
               secondary={(row) => (several ? `${row.batchName} · ${row.category}` : row.category)}
               rowState={rowState}
               title={(row) => `${row.name} · ${row.hash} · ${row.batchName}`}
