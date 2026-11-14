@@ -156,10 +156,15 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
   const { hash, name, piece, pieceIcon, icon, categoryLabel, archiveIcon } =
     urgent || (props.live && identity) || props;
   const localised = useLocalisedManifest(props.lang);
-  const translatedName = hash === undefined ? undefined : localised?.names[hash];
   const item = useDataStore((state) =>
     props.lang === 'en' || hash === undefined ? undefined : state.data?.items[hash],
   );
+  const officialName = hash === undefined ? undefined : localised?.names[hash];
+  const setName = item?.setHash && (localised?.setNames[item.setHash] || item.setName);
+  const translatedName =
+    officialName && setName && item?.pieceCount
+      ? `${setName} (${item.pieceCount} pc): ${officialName}`
+      : officialName;
   const translatedPiece =
     item && localised && piece
       ? previewPiece({
