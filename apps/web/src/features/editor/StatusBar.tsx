@@ -85,9 +85,19 @@ function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
       element.scrollWidth > element.clientWidth + 1 ||
       (previewHolds && cut(preview)) ||
       (step < shortLabels && (cut(reason) || cut(previewText)));
-    let step = 0;
-    element.dataset.fit = '0';
-    while (step < fitSteps && crowded(step)) element.dataset.fit = String(++step);
+    const steps = () => {
+      let step = 0;
+      element.dataset.fit = '0';
+      while (step < fitSteps && crowded(step)) element.dataset.fit = String(++step);
+    };
+    delete element.dataset.countDropped;
+    steps();
+    // A count still cut short once the labels have stepped down would read as a fragment ("1 pr…"):
+    // it drops whole (its title and Show preview stay), and the labels fit again without it.
+    if (cut(previewText)) {
+      element.dataset.countDropped = '';
+      steps();
+    }
   };
   // Asks the observer to fit again after the next layout; null without an observer.
   const refit = useRef<(() => void) | null>(null);
@@ -203,6 +213,8 @@ export function StatusBar({
       Boolean(onSuggest),
       showsPreview,
       reserved,
+      // The count's text form and digits (a longer count can be cut short where a shorter fitted).
+      unpreviewed > 0 ? String(unpreviewed).length : preview?.collapsed ? 'hidden' : '',
     ].join('|'),
   );
   return (

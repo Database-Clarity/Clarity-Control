@@ -93,6 +93,8 @@ afterEach(() => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  // scaledPx keeps the root size until a scale change is announced: forget a stubbed one.
+  window.dispatchEvent(new Event('clarity-ui-scale'));
 });
 
 describe('PaneDivider', () => {
@@ -208,7 +210,7 @@ describe('PaneDivider', () => {
 
     it('scales limits, the default and the saved size from design pixels, and follows a scale change', () => {
       containerWidth = 1920;
-      rootPx = 24; // 150 %
+      setRoot(24); // 150 %
       const divider = render({ sizes: 'end', min: 320, max: 640, defaultWidth: 384 });
       expect(shown()).toBe(576);
       expect(divider.getAttribute('aria-valuemin')).toBe('480');
@@ -224,7 +226,7 @@ describe('PaneDivider', () => {
 
     it('saves a keyboard resize in design pixels, so another scale shows the same share', () => {
       containerWidth = 1920;
-      rootPx = 24;
+      setRoot(24);
       const divider = render({ sizes: 'end', min: 320, max: 640, defaultWidth: 384 });
       press(divider, 'ArrowLeft'); // one 8px design step = 12px on screen
       expect(shown()).toBe(588);
@@ -234,7 +236,7 @@ describe('PaneDivider', () => {
     });
 
     it('keeps the editor its minimum share: the viewport clamp uses scaled reserve and divider', () => {
-      rootPx = 24;
+      setRoot(24);
       containerWidth = 1500;
       render({ sizes: 'end', min: 320, max: 640, defaultWidth: 640, reserve: 480 });
       // 1500 - 480*1.5 reserve - 16*1.5 divider = 756 available; the pane wants 960.
