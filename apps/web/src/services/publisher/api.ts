@@ -10,6 +10,8 @@ export class PublishHttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The message is the Worker's own JSON `error`, not an edge page or a client-side reason. */
+    readonly fromWorker = false,
   ) {
     super(message);
   }
@@ -44,6 +46,7 @@ async function send(path: string, init?: RequestInit): Promise<{ status: number;
     throw new PublishHttpError(
       response.status,
       error.success ? error.data.error : text.slice(0, 200),
+      error.success,
     );
   }
   return { status: response.status, value };

@@ -1,10 +1,12 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   compendiumNameVariants,
   compendiumPreferredTabs,
   normaliseCompendiumName,
   type CompendiumData,
   type CompendiumMatch,
+  type CompendiumRow,
+  type CompendiumSheet,
   type Tooltip,
 } from '@clarity/core';
 import { useDraftStore } from '../../stores/drafts';
@@ -124,6 +126,44 @@ export function openLinkPickerSoon(category: string, name: string, open: () => v
 }
 
 const firstRows = 12;
+
+/**
+ * One row of the list. Its source range is resolved once per row: the list renders again for
+ * every chunk of rows, anchor, query, and sheet change, and only rows whose props changed run.
+ */
+const PickerRow = memo(function PickerRow({
+  tab,
+  row,
+  data,
+  exact,
+  canEdit,
+  onChoose,
+  onAnchor,
+}: {
+  tab: CompendiumSheet;
+  row: CompendiumRow;
+  data: CompendiumData;
+  exact: boolean;
+  canEdit: boolean;
+  onChoose(match: CompendiumMatch): void;
+  onAnchor(row: CompendiumRow): void;
+}) {
+  const location = useMemo(() => matchLocation({ tab, row }, data), [tab, row, data]);
+  return (
+    <li>
+      <small className={styles.rowRange}>
+        <SourceRef location={location} show="range" />
+      </small>
+      <button type="button" disabled={!canEdit} onClick={() => onChoose({ tab, row })}>
+        {exact && 'Exact match: '}
+        {row.name} {row.section && ` / ${sectionLabel(row.section)}`}
+      </button>
+      <button type="button" onClick={() => onAnchor(row)}>
+        Pick description cells near this name
+      </button>
+    </li>
+  );
+});
 
 export function LinkPicker({
   base,
@@ -354,20 +394,20 @@ export function LinkPicker({
       {error && <p role="alert">{error}</p>}
       <ul className={styles.rows}>
         {tab &&
-          rows.slice(0, Math.min(shownTarget, shownCount)).map((row) => (
-            <li key={`${row.rowIndex}:${row.name}`}>
-              <small className={styles.rowRange}>
-                <SourceRef location={matchLocation({ tab, row }, data)} show="range" />
-              </small>
-              <button type="button" disabled={!canEdit} onClick={() => choose({ tab, row })}>
-                {exact.has(row) && 'Exact match: '}
-                {row.name} {row.section && ` / ${sectionLabel(row.section)}`}
-              </button>
-              <button type="button" onClick={() => setAnchorRow(row)}>
-                Pick description cells near this name
-              </button>
-            </li>
-          ))}
+          rows
+            .slice(0, Math.min(shownTarget, shownCount))
+            .map((row) => (
+              <PickerRow
+                key={`${row.rowIndex}:${row.name}`}
+                tab={tab}
+                row={row}
+                data={data}
+                exact={exact.has(row)}
+                canEdit={canEdit}
+                onChoose={chooseLatest}
+                onAnchor={setAnchorRow}
+              />
+            ))}
       </ul>
       {Object.entries(sheets).map(([key, saved]) => {
         const savedTab = data.tabs.find((entry) => entry.gid === saved.gid);
