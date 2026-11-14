@@ -214,9 +214,10 @@
 // per line ("Stardust ·" over "01.11.2026," over "13:00").
 .author {
   display: inline-flex;
+  vertical-align: baseline;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0 0.4rem;
+  align-items: baseline;
+  gap: 0 0.35em;
   min-width: 0;
 
   time {
@@ -224,8 +225,10 @@
   }
 
   img {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1em;
+    height: 1em;
+    align-self: center;
+    flex: none;
     border-radius: 50%;
   }
 }

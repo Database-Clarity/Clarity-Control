@@ -131,6 +131,7 @@ export function TooltipDiff({
               />
             ) : (
               <RenderedWordDiff
+                key={`${current.hash}:${lang}`}
                 before={before?.text[lang]?.text ?? ''}
                 after={current.text[lang]?.text ?? ''}
                 lang={lang}

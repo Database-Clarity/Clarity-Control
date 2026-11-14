@@ -19,6 +19,8 @@ never from a request or token. Permissions are read on every request and retry
 | `GET /auth/login`                         | Browser navigation                                                       | 302 to GitHub; signed, browser-bound OAuth state cookie (10 minutes)                |
 | `GET /auth/callback`                      | GitHub `code`, `state` query                                             | 302 to `SITE_URL#/auth/callback?session=<token>`; state cookie cleared              |
 | `GET /me`                                 | Bearer token                                                             | `{ id: number, login, role: string \| null, languages: string[] }`                  |
+| `GET /glossary/:lang`                    | Member token, non-English language | `{ revision, glossary }` |
+| `POST /glossary/:lang`                   | `{ ops: [{ key, base, next }] }`; maintainer or translator of this language | `{ commit, revision, glossary }`; 409 `{ conflicts: [{ key, head }] }` |
 | `POST /save`                              | `{ changes: [{ hash, base: Tooltip \| null, next: Tooltip }], message }` | `{ commit, tooltips: Tooltip[] }`                                                   |
 | `POST /push-live`                         | `{ hashes: number[] }`                                                   | `{ commit, liveCommit, pushed: { [hash]: publishableHash }, branch }`               |
 | `POST /compendium/refresh`                | Editor/maintainer token                                                  | 202 `{ requestedAt, runId }`                                                        |
@@ -30,6 +32,9 @@ never from a request or token. Permissions are read on every request and retry
 | `GET /history/:hash?live=1`               | Authorized member token                                                  | `{ pushedHash: string \| null, tooltip: Tooltip \| null }`                          |
 | `GET /settings`                           | Authorized member token                                                  | `{ settings: SyncedSettings \| null, revision, unreadable }`                        |
 | `PUT /settings`                           | `{ settings, revision: string \| null }`, at most 4096 bytes             | `{ settings, revision }`; 409 `{ error, settings, revision }`                       |
+
+Glossaries are limited to 1,000 terms and 256 KiB of UTF-8 JSON. A save that
+shrinks an existing file over the byte limit is still allowed.
 
 History entries additionally include `login` and `avatar` (nullable); `author`
 retains the git-name fallback. Push-live accepts an optional `expected` map of

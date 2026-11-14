@@ -25,6 +25,12 @@
   border-bottom: 1px dotted var(--text3);
   pointer-events: none;
 }
+.mark[data-missing] {
+  border-bottom-color: var(--warn);
+}
+.warning {
+  color: var(--warn);
+}
 
 // Dense, like the reference popover: 12px on the popover surface, token colours in both themes.
 .popover {
@@ -43,6 +49,27 @@
   line-height: 1.35;
   @include controls.overlay-surface;
   border-radius: 0.25rem;
+  p {
+    margin: 0;
+  }
+  @include theme.mobile-or-coarse {
+    width: calc(100vw - 1rem);
+    max-width: calc(100vw - 1rem);
+  }
+}
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--ctl-edge);
+}
+.edit {
+  @include controls.button;
+  margin-left: auto;
+  flex: none;
+  font-size: 0.75rem;
 }
 .head {
   display: flex;

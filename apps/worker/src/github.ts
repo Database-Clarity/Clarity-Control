@@ -63,6 +63,8 @@ function onlyMissingFiles(
 export interface RepoFile {
   sha: string;
   value: unknown;
+  /** UTF-8 file bytes, only when `file(..., true)` requests them. */
+  size?: number;
 }
 
 /** A names-only directory entry; `entries` is set when the entry is a directory listed deeper. */
@@ -598,7 +600,7 @@ export class GitHub {
     });
   }
 
-  async file(path: string, ref: string): Promise<RepoFile | null> {
+  async file(path: string, ref: string, includeSize = false): Promise<RepoFile | null> {
     const encoded = path.split('/').map(encodeURIComponent).join('/');
     const response = await this.request(`/contents/${encoded}?ref=${encodeURIComponent(ref)}`);
     if (response.status === 404) return null;
@@ -616,7 +618,11 @@ export class GitHub {
     } catch {
       throw new HttpError(502, `Invalid JSON in repository file ${path}`);
     }
-    return { sha: metadata.sha, value: parseJsonFile(text, path) };
+    return {
+      sha: metadata.sha,
+      value: parseJsonFile(text, path),
+      ...(includeSize ? { size: new TextEncoder().encode(text).byteLength } : {}),
+    };
   }
 
   async requiredFile(path: string, ref: string): Promise<RepoFile> {
@@ -654,7 +660,11 @@ export class GitHub {
     files: Record<string, unknown>,
     message: string,
     credits: object,
-    { baseTree, deletions = [] }: { baseTree?: string; deletions?: readonly string[] } = {},
+    {
+      baseTree,
+      deletions = [],
+      rawFiles = {},
+    }: { baseTree?: string; deletions?: readonly string[]; rawFiles?: Record<string, string> } = {},
   ): Promise<string> {
     const base =
       baseTree ??
@@ -663,11 +673,11 @@ export class GitHub {
       await this.result('/git/trees', 'POST', {
         ...(base ? { base_tree: base } : {}),
         tree: [
-          ...Object.entries(files).map(([path, value]) => ({
+          ...Object.entries({ ...files, ...rawFiles }).map(([path, value]) => ({
             path,
             mode: '100644',
             type: 'blob',
-            content: blobContent(value),
+            content: Object.hasOwn(rawFiles, path) ? rawFiles[path] : blobContent(value),
           })),
           // `sha: null` removes the path from the base tree.
           ...deletions.map((path) => ({ path, mode: '100644', type: 'blob', sha: null })),
@@ -703,7 +713,11 @@ export class GitHub {
     files: Record<string, unknown>,
     message: string,
     user: Identity,
-    options: { baseTree?: string; deletions?: readonly string[] } = {},
+    options: {
+      baseTree?: string;
+      deletions?: readonly string[];
+      rawFiles?: Record<string, string>;
+    } = {},
   ): Promise<string> {
     return this.write(this.env.DATA_BRANCH, head, files, message, this.credits(user), options);
   }

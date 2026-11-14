@@ -31,7 +31,7 @@ it('defaults to rendered, synchronizes switches, and remembers Raw across remoun
       ),
     );
     expect(host.querySelector('pre')).toBeNull();
-    expect(host.querySelector('del')?.textContent).toBe('Old');
+    expect(host.querySelector('[data-rendered-body] del')?.textContent).toBe('Old');
     const switches = host.querySelectorAll<HTMLButtonElement>('[role="switch"]');
     expect(switches[0].getAttribute('aria-checked')).toBe('false');
     await act(async () => switches[0].click());
@@ -42,7 +42,7 @@ it('defaults to rendered, synchronizes switches, and remembers Raw across remoun
     expect(host.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
     await act(async () => host.querySelector<HTMLInputElement>('[role="switch"]')!.click());
     expect(host.querySelector('pre')).toBeNull();
-    expect(host.querySelector('ins')?.textContent).toBe('New');
+    expect(host.querySelector('[data-rendered-body] ins')?.textContent).toBe('New');
     vi.stubGlobal('localStorage', {
       getItem: () => 'false',
       setItem: () => {

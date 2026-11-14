@@ -1,8 +1,27 @@
 import { expect, it } from 'vitest';
-import { parseMarkup, type MarkupLine } from '@clarity/core';
-import { changedSourceLines, presentDiff, renderedDiff, type DiffSpan } from './renderedDiff';
+import { enhancedMarkupType, parseMarkup, type MarkupLine } from '@clarity/core';
+import {
+  changedSourceLines,
+  presentDiff,
+  renderedDiff,
+  variantGlobals,
+  type DiffSpan,
+} from './renderedDiff';
 
 const globals = { variables: '', titles: '' };
+it('normalizes an enhanced item to the default base parser mode', () => {
+  const source = 'Shared {{base}{enhanced}}\nenhanced (\nExtra\n)';
+  const enhanced = { ...globals, type: enhancedMarkupType };
+  const base = variantGlobals(enhanced, false);
+  expect(base.type).toBeUndefined();
+  expect(parseMarkup(source, base).lines).toEqual(parseMarkup(source, globals).lines);
+  expect(parseMarkup(source, variantGlobals(base, true)).lines).toEqual(
+    parseMarkup(source, enhanced).lines,
+  );
+  expect(parseMarkup(source, base).lines).not.toEqual(parseMarkup(source, enhanced).lines);
+  const otherMode = { ...globals, type: 'Weapon Catalyst Exotic' };
+  expect(variantGlobals(otherMode, false)).toEqual(otherMode);
+});
 const parts = (lines: MarkupLine[]): DiffSpan[] =>
   lines.flatMap((line) => [
     ...(line.linesContent ?? []),
@@ -150,4 +169,41 @@ it('keeps unchanged lines and one-sided diffs as they were', () => {
   expect(parts(result.after)[0]).toEqual({ text: 'Same line' });
   const added = presentDiff(renderedDiff('', 'Only new', globals));
   expect(marked(added.after)).toEqual(['Only new']);
+});
+
+it('compares both production variants', async () => {
+  const { compareDiffOutput } = await import('./renderedDiff');
+  const { before, after } = await import('./fixtures/golden-tricorn.json');
+  const globals = { variables: '', titles: '' };
+  expect(compareDiffOutput(before, after, globals)).toMatchObject({
+    base: false,
+    enhanced: false,
+  });
+  expect(compareDiffOutput(after, after.replace('8 seconds', '9 seconds'), globals)).toMatchObject({
+    base: false,
+    enhanced: true,
+  });
+  expect(
+    compareDiffOutput(
+      after,
+      after.replace(
+        'var refresh = refresh the buff duration.',
+        'var refresh = renew the buff duration.',
+      ),
+      globals,
+    ),
+  ).toMatchObject({ base: true, enhanced: false });
+  expect(compareDiffOutput('Same\n// old', 'Same\n// new', globals)).toMatchObject({
+    base: false,
+    enhanced: false,
+  });
+});
+
+it('detects the recorded Chaos Reshaped history text change', async () => {
+  const { compareDiffOutput } = await import('./renderedDiff');
+  const { before, after } = await import('./fixtures/chaos-reshaped.json');
+  expect(compareDiffOutput(before, after, { variables: '', titles: '' })).toMatchObject({
+    base: true,
+    enhanced: true,
+  });
 });

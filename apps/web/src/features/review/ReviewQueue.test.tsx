@@ -556,3 +556,52 @@ it('retains a keyboard activation and wheel delta during the readonly opening', 
     vi.unstubAllGlobals();
   }
 });
+
+it('distinguishes the two real Tactical enhanced mods without changing unique names', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  useReviewQueue.setState({ scrollTop: 0 });
+  vi.stubGlobal('ResizeObserver', undefined);
+  const height = vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(500);
+  const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element,
+  ) {
+    return { height: this.hasAttribute('data-review-row-size') ? 32 : 24 } as DOMRect;
+  });
+  const entries: PendingTooltip[] = [974161790, 1772241052, 3].map((hash) => ({
+    tooltip: { hash, text: {}, associated: [] },
+    name: hash === 3 ? 'Unique mod' : 'Tactical',
+    category: 'Enhanced Weapon Mods',
+    categoryId: 'weapon-mod-enhanced',
+    categoryOrder: 0,
+    markerOnly: false,
+    isNew: false,
+  }));
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  document.body.append(host);
+  try {
+    await act(async () =>
+      root.render(
+        <MemoryRouter>
+          <ReviewQueue
+            view={queueView(entries, '', '', new Set(), false)}
+            selectedHash="974161790"
+          />
+        </MemoryRouter>,
+      ),
+    );
+    expect(host.querySelector('[data-review-hash="974161790"]')?.textContent).toContain(
+      'Tactical · 974161790',
+    );
+    expect(host.querySelector('[data-review-hash="1772241052"]')?.textContent).toContain(
+      'Tactical · 1772241052',
+    );
+    expect(host.querySelector('[data-review-hash="3"]')?.textContent).toBe('Unique mod');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    height.mockRestore();
+    bounds.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});

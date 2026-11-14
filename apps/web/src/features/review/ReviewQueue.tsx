@@ -38,8 +38,10 @@ const QueueRow = memo(function QueueRow({
   checked,
   locked,
   publishing,
+  distinguish,
 }: {
   entry: PendingTooltip;
+  distinguish: boolean;
   href: string;
   current: boolean;
   checked: boolean;
@@ -71,7 +73,10 @@ const QueueRow = memo(function QueueRow({
         aria-label={`${entry.name} ${hash}`}
         aria-current={current ? 'page' : undefined}
       >
-        <span>{entry.name}</span>
+        <span>
+          {entry.name}
+          {distinguish && <small className={styles.identity}> · {hash}</small>}
+        </span>
         {(marks.length > 0 || publishing) && (
           <span className={styles.marks}>
             {publishing && <small data-mark="Publishing">publishing…</small>}
@@ -160,6 +165,14 @@ export function ReviewQueue({
   inFlight?: ReadonlySet<number>;
 }) {
   const items = view.items;
+  const repeatedNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of view.ordered) {
+      const key = `${entry.categoryId}:${entry.name}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return new Set([...counts].filter(([, count]) => count > 1).map(([key]) => key));
+  }, [view.ordered]);
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
   const headerSizer = useRef<HTMLSpanElement>(null);
@@ -622,6 +635,7 @@ export function ReviewQueue({
     return (
       <QueueRow
         entry={item.entry}
+        distinguish={repeatedNames.has(`${item.entry.categoryId}:${item.entry.name}`)}
         href={href}
         current={currentHash === String(hash)}
         checked={selected.has(hash)}
