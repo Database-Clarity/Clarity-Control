@@ -166,11 +166,15 @@ export function TermLayer({
     const root = content.current;
     const layer = overlay.current;
     if (!frameHost || !root || !layer || (!list && !hasSpans) || stepping) return;
-    let current = true;
+    // Each build (and each rendering change, and the cleanup) starts a new generation; a match
+    // reply from an older one is dropped: React may have rewritten the same Text nodes in place,
+    // so its offsets could point past the text or at another word (code review 2026-11-14).
+    let generation = 0;
     let frame = 0;
     let redraw = 0;
     const draw = () => drawMarks(frameHost, layer, marks.current);
     const build = () => {
+      const mine = ++generation;
       frame = 0;
       clearMarks();
       if (openRef.current) setOpen(null);
@@ -179,7 +183,7 @@ export function TermLayer({
       const { nodes, starts, text } = readText(root);
       if (!list || !nodes.length) return;
       void requestTermMatches(list, text).then((matches) => {
-        if (!current || !nodes.every((node) => node.isConnected)) return;
+        if (mine !== generation || !nodes.every((node) => node.isConnected)) return;
         const found = matches.map((match) => {
           const start = locate(nodes, starts, match.from, false);
           const end = locate(nodes, starts, match.to, true);
@@ -207,12 +211,13 @@ export function TermLayer({
     resize?.observe(frameHost);
     const observer = new MutationObserver(() => {
       // Stale ranges go before the next paint; new ones follow once the rendering settles.
+      generation++;
       clearMarks();
       if (!frame) frame = requestAnimationFrame(build);
     });
     observer.observe(root, { childList: true, subtree: true, characterData: true });
     return () => {
-      current = false;
+      generation++;
       observer.disconnect();
       resize?.disconnect();
       cancelAnimationFrame(frame);
