@@ -49,6 +49,7 @@ export function EditorPaneHeader({
   draftLoader,
   destination,
   inactiveControl,
+  reserveDraft = false,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -78,6 +79,7 @@ export function EditorPaneHeader({
   destination?: React.ReactNode;
   /** Maintainer-only inactive move, with its own deliberate confirmation. */
   inactiveControl?: React.ReactNode;
+  reserveDraft?: boolean;
 }) {
   const phone = useMedia(phoneQuery);
   if (phone)
@@ -96,6 +98,7 @@ export function EditorPaneHeader({
           draftLoader,
           destination,
           inactiveControl,
+          reserveDraft,
         }}
       />
     );
@@ -135,13 +138,21 @@ export function EditorPaneHeader({
           </span>
         </span>
       )}
-      {!draft && (
+      {!draft && !reserveDraft && (
         // Holds the place of the draft dot and Discard on a phone, where this row wraps, so the
         // first edit does not push the text down. It takes no space elsewhere.
         <span className={styles.draftSpacer} aria-hidden="true">
           <span className={styles.dot} />
           <span className={styles.ghost}>Discard</span>
         </span>
+      )}
+      {!draft && reserveDraft && (
+        <>
+          <span className={styles.dot} style={{ visibility: 'hidden' }} aria-hidden="true" />
+          <span className={styles.ghost} style={{ visibility: 'hidden' }} aria-hidden="true">
+            Discard
+          </span>
+        </>
       )}
       {draft && (
         <>
@@ -259,6 +270,7 @@ function PhoneToolRow({
   draftLoader,
   destination,
   inactiveControl,
+  reserveDraft,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   return (
     <>
@@ -267,6 +279,9 @@ function PhoneToolRow({
       {draft && (
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
       )}
+      {!draft && reserveDraft && (
+        <span className={styles.dot} style={{ visibility: 'hidden' }} aria-hidden="true" />
+      )}
       {draftLoader}
       {inactiveControl}
       <PhoneTools
@@ -274,6 +289,7 @@ function PhoneToolRow({
         key={draftLoader ? 'after-draft' : 'tools'}
         markup={markup}
         draft={draft}
+        reserveDraft={reserveDraft}
         saving={saving}
         onDiscard={onDiscard}
         grouped={grouped}

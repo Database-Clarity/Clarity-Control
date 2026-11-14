@@ -58,6 +58,8 @@ export function TooltipDiff({
   eagerLanguages = false,
   working = false,
   responsive = false,
+  beforeLabel,
+  afterLabel,
 }: {
   before: Tooltip | null;
   current: Tooltip;
@@ -70,6 +72,8 @@ export function TooltipDiff({
   working?: boolean;
   /** Wide Working and Review containers compare side by side. History stays stacked. */
   responsive?: boolean;
+  beforeLabel?: string;
+  afterLabel?: string;
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
   const [sourceView] = useRawDiff();
@@ -111,11 +115,11 @@ export function TooltipDiff({
             {sourceView && raw && (
               <div className={styles.columns}>
                 <div>
-                  <strong>{working ? 'Saved' : 'Previous / live'}</strong>
+                  <strong>{beforeLabel ?? (working ? 'Saved' : 'Previous / live')}</strong>
                   <pre>{before?.text[lang]?.text ?? '(not present)'}</pre>
                 </div>
                 <div>
-                  <strong>{working ? 'Unsaved' : 'Current'}</strong>
+                  <strong>{afterLabel ?? (working ? 'Unsaved' : 'Current')}</strong>
                   <pre>{current.text[lang]?.text ?? '(not present)'}</pre>
                 </div>
               </div>
@@ -133,6 +137,8 @@ export function TooltipDiff({
                 hash={current.hash}
                 working={working}
                 responsive={responsive}
+                beforeLabel={beforeLabel}
+                afterLabel={afterLabel}
               />
             )}
           </SkeletonBoundary>

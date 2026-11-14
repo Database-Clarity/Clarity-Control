@@ -106,6 +106,7 @@ export async function saveReviewToBatch(
   sameAccount: () => boolean,
   /** The save review's enrichment and validation, for the batch's staged drafts. */
   prepare: (changes: Change[]) => Promise<Change[]>,
+  onConfirmed?: (members: BatchMember[]) => void,
 ): Promise<string> {
   const data = useDataStore.getState().data;
   const name = (hash: number) => `${nameFor(data, hash)} (${hash})`;
@@ -213,6 +214,12 @@ export async function saveReviewToBatch(
   let kept = 0;
   const notes: string[] = [];
   if (sameAccount()) {
+    try {
+      onConfirmed?.(confirmed.map((hash) => shown.get(hash)!));
+    } catch {
+      // The Worker receipt remains authoritative even if the local preview cannot refresh.
+      notes.push('Saved changes could not be shown in the preview. Reload to see them.');
+    }
     // Current drafts: drop the confirmed ones that nobody edited during the save.
     const store = useDraftStore.getState();
     for (const hash of confirmed) {

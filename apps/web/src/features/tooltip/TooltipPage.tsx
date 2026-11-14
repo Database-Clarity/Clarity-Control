@@ -75,6 +75,8 @@ import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { useUpcoming } from './UpcomingSwitch';
+import type { BatchDestination } from './batchDestination';
+import batchStyles from './BatchDestination.module.scss';
 import { WorkThroughControl, leaveTarget } from '../queue/QueueControl';
 import { queueSources } from '../queue/sources';
 import { useWorkThrough } from '../queue/useQueue';
@@ -268,6 +270,7 @@ function TooltipWorkspace({
   const markupRow = useMarkupRow();
   const user = useAuthStore((state) => state.user);
   const lang = defaultLanguage(user, search, remembered);
+  const batchAllowed = user && ['maintainer', 'editor', 'translator'].includes(user.role ?? '');
   // Queue mode (Translations, Bungie drift, Lost text): active when the history entry names a
   // queue, paused on an ordinary editor visit while the tab works through one. An embedded page
   // (the Archive's detail) shows its queue in its own top row instead.
@@ -275,7 +278,13 @@ function TooltipWorkspace({
   const work = hashOverride === undefined ? workThrough : null;
   function changeLanguage(next: Lang) {
     setRemembered(next);
-    setSearch(withLanguage(search, next));
+    if (
+      import.meta.env.VITE_SCHEDULED_ENABLED === '1' &&
+      work?.mode === 'active' &&
+      work.queue.destination?.kind === 'batch'
+    )
+      setSearch(withLanguage(search, next), { state: routeState });
+    else setSearch(withLanguage(search, next));
   }
   const selectedGlobal = useGlobalDefinition(
     hashOverride ?? Number(parameter),
@@ -286,18 +295,33 @@ function TooltipWorkspace({
   // constant; nothing renders or is requested).
   // The page edits a base and its versions, so a batch holding any of them counts (base first).
   const upcomingTarget = hashOverride ?? Number(parameter);
+  const batchDestination =
+    import.meta.env.VITE_SCHEDULED_ENABLED === '1' && work?.mode === 'active'
+      ? ((work.queue.destination as BatchDestination | null) ?? undefined)
+      : undefined;
   const upcoming = useUpcoming(
     data && !readOnly ? variantHashes(canonicalHash(upcomingTarget, data), data) : [upcomingTarget],
     !readOnly && !selectedGlobal && upcomingTarget > 3,
+    batchDestination,
   );
-  const future = upcoming.overlay;
-  const drafts = useDraftStore((state) => state.drafts);
+  const batchEditing = upcoming.editing;
+  const currentDrafts = useDraftStore((state) => state.drafts);
+  const drafts = batchEditing?.drafts ?? currentDrafts;
+  const future = useMemo(
+    () =>
+      upcoming.overlay && batchEditing
+        ? { ...upcoming.overlay, ...batchEditing.drafts }
+        : upcoming.overlay,
+    [upcoming.overlay, batchEditing],
+  );
   // Previews, shared globals and references see "mine" where conflict blocks remain in a draft.
   const shown = useMemo(() => previewDrafts(drafts), [drafts]);
   const sessions = useConflictStore((state) => state.sessions);
   const pausedForOtherTab = usePausedForOtherTab();
-  const edit = useDraftStore((state) => state.edit);
-  const discard = useDraftStore((state) => state.discard);
+  const currentEdit = useDraftStore((state) => state.edit);
+  const currentDiscard = useDraftStore((state) => state.discard);
+  const edit = batchEditing?.edit ?? currentEdit;
+  const discard = batchEditing?.discard ?? currentDiscard;
   const hydrated = useDraftStore((state) => state.hydrated);
   const saving = useSaveState((state) => state.locked);
   const sharedGlobals = useMemo<MarkupGlobals>(
@@ -310,16 +334,25 @@ function TooltipWorkspace({
     () => (future ? typedFrom(importGlobals(data, future, lang)) : undefined),
     [data, future, lang],
   );
+  const futureEnglishGlobals = useMemo(
+    () => (upcoming.overlay ? typedFrom(importGlobals(data, upcoming.overlay, 'en')) : undefined),
+    [data, upcoming.overlay],
+  );
   // ...and classifies the enhanced versions the batch changes (derived or override) on that future
   // state, so a staged override renders. A version the batch leaves alone keeps its stored form, as
   // a draft on the base never turns a derived version into an override.
   const futureData = useMemo(
-    () => (future && data ? withFuture(data, future) : undefined),
-    [data, future],
+    () => (upcoming.overlay && data ? withFuture(data, upcoming.overlay) : undefined),
+    [data, upcoming.overlay],
   );
   const referenceSources = useMemo(
-    () => tooltipTextSources(data?.bundle.tooltips ?? {}, shown, data?.aliases ?? {}),
-    [data, shown],
+    () =>
+      tooltipTextSources(
+        data?.bundle.tooltips ?? {},
+        batchEditing ? (future ?? {}) : shown,
+        data?.aliases ?? {},
+      ),
+    [data, shown, batchEditing, future],
   );
   // Saved text only, so the suggestion menu's usage counts do not change as you type.
   const usage = useMemo(() => corpusUsage(data?.bundle.tooltips ?? {}), [data?.bundle.tooltips]);
@@ -382,7 +415,7 @@ function TooltipWorkspace({
   const canonical = canonicalHash(requestedHash, data);
   const hash = readOnly ? requestedHash : canonical;
   const item = archivedItemFor(hash, data);
-  if (!item && !data.bundle.tooltips[hash])
+  if (!item && !data.bundle.tooltips[hash] && !future?.[hash])
     return work?.mode === 'active' ? (
       // A queued entry that no longer exists: say so, and keep the way on.
       <p className={styles.queueGone} role="status">
@@ -392,7 +425,8 @@ function TooltipWorkspace({
     ) : (
       <h1>Tooltip {hash} not found</h1>
     );
-  const primaryBase = tooltipFor(hash, data);
+  const primaryBase =
+    (batchEditing ? upcoming.overlay?.[hash]?.next : undefined) ?? tooltipFor(hash, data);
   readOnly ||= hash > 3 && !data.items[hash] && !primaryBase.custom;
   const access = editorAccess({
     apiConfigured: Boolean(apiUrl),
@@ -401,7 +435,11 @@ function TooltipWorkspace({
     user,
     lang,
   });
-  if (readOnly || (!item && hash > 3)) access.reason = 'Archived tooltip — read only';
+  if (batchEditing?.reason) access.reason = batchEditing.reason;
+  if (batchEditing && lang === 'en' && batchDestination)
+    access.reason = 'Read-only: open this batch in Review → Batches to change English.';
+  if (readOnly || (!item && hash > 3 && !batchEditing))
+    access.reason = 'Archived tooltip — read only';
   else if (pausedForOtherTab && !access.reason)
     access.reason = 'Paused: another tab changed your drafts. Answer the notice above.';
 
@@ -424,13 +462,20 @@ function TooltipWorkspace({
       ),
     );
   const textOf = (variant: number) =>
-    (drafts[variant]?.next ?? tooltipFor(variant, data)).text[lang]?.text ?? '';
+    (
+      drafts[variant]?.next ??
+      (batchEditing ? upcoming.overlay?.[variant]?.next : undefined) ??
+      tooltipFor(variant, data)
+    ).text[lang]?.text ?? '';
   // The base is the one the draft started from (as in save validation), not the live catalogue.
   const requiresEnglish = (variant: number) =>
     requireEnglish(
       hash,
       lang,
-      (drafts[variant]?.base ?? tooltipFor(variant, data)).text.en?.text ?? '',
+      (batchEditing
+        ? upcoming.overlay?.[variant]?.next
+        : (drafts[variant]?.base ?? tooltipFor(variant, data))
+      )?.text.en?.text ?? '',
       textOf(variant),
     );
   // What the preview renders: the same text with conflict blocks resolved to "mine".
@@ -452,7 +497,9 @@ function TooltipWorkspace({
   // Enhanced versions: previewed next to the base; the ones with text of their own can be opened.
   const others = variantHashes(hash, data).filter((variant) => variant !== hash);
   const previewed = readOnly ? others : previewedVariants(hash, data);
-  const overrides = readOnly ? [] : editableOverrides(hash, data);
+  const overrides = readOnly
+    ? []
+    : editableOverrides(hash, batchEditing ? (futureData ?? data) : data);
   const grouped = !readOnly && user?.role === 'maintainer' ? groupedPerks(hash, data) : undefined;
   // A canonical redirect drops line/variant highlights, just like tooltipPath.
   const requested = requestedHash === hash ? Number(search.get('variant')) : NaN;
@@ -462,8 +509,13 @@ function TooltipWorkspace({
   if (picked && !pick) setPicked(undefined);
   const activeVariant = pick ? pick.variant : overrides.includes(requested) ? requested : null;
   const activeHash = activeVariant ?? hash;
-  const activeBase = tooltipFor(activeHash, data);
+  const activeBase =
+    (batchEditing ? upcoming.overlay?.[activeHash]?.next : undefined) ??
+    tooltipFor(activeHash, data);
   const activeTooltip = drafts[activeHash]?.next ?? activeBase;
+  if (batchEditing && !upcoming.overlay?.[activeHash])
+    access.reason =
+      batchEditing.reason ?? 'Read-only: this tooltip is not in the destination batch.';
   const value = previewTextOf(hash);
 
   const viewsOf = (
@@ -588,7 +640,7 @@ function TooltipWorkspace({
   const shared = sharedPerkLabel(hash, data, compendiumSource);
   const rows = (
     <div className={styles.rows}>
-      {!readOnly && (
+      {!readOnly && !batchEditing && (
         <>
           <ConflictRows hash={hash} lang={lang} onLanguage={changeLanguage} />
           {activeHash !== hash && (
@@ -596,16 +648,18 @@ function TooltipWorkspace({
           )}
         </>
       )}
-      {!readOnly && item && <AttachmentCategoryControl base={primaryBase} item={item} />}
+      {!readOnly && !batchEditing && item && (
+        <AttachmentCategoryControl base={primaryBase} item={item} />
+      )}
       <InactivePreviewNotice hash={activeHash} phone={phone} />
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
       <ManifestTextRow hash={activeHash} />
-      {!readOnly && <AssociationsPanel hash={activeHash} suspended={suspended} />}
+      {!readOnly && !batchEditing && <AssociationsPanel hash={activeHash} suspended={suspended} />}
       <HistoryPanel
         language={lang}
         hash={activeHash}
-        readOnly={readOnly}
+        readOnly={readOnly || !!batchEditing}
         suspended={suspended}
         attribution={
           <LanguageSummary
@@ -638,6 +692,9 @@ function TooltipWorkspace({
   const translation = translationQueue([activeBase], [lang], data.aliases)[0];
   const compendiumPane = selectedGlobal ? (
     <GlobalUsages hash={selectedGlobal.hash} name={selectedGlobal.name} />
+  ) : batchEditing ? (
+    // Batch text must never reach Compendium actions that write to Current drafts.
+    <SavedCompendiumPane base={activeBase} name={item?.name} />
   ) : readOnly ? null : user?.role !== 'translator' ? (
     <SteppingCompendium
       base={activeBase}
@@ -679,12 +736,13 @@ function TooltipWorkspace({
   const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
+      key={batchDestination ? `batch:${batchDestination.batchId}` : 'current'}
       pending={loading}
       stepping={suspended && !selectedGlobal}
       focusHighlight={!selectedGlobal}
       value={textOf(variant)}
       lang={lang}
-      globals={globalsFor(variant)}
+      globals={globalsFor(variant, batchEditing ? futureGlobals : typedGlobals)}
       requireEnglish={requiresEnglish(variant)}
       readOnly={loading || access.reason !== null}
       readOnlyReason={access.reason}
@@ -695,9 +753,15 @@ function TooltipWorkspace({
       onOpenTooltip={openDefinition}
       markupRow={markupRow.open}
       paused={pausedForOther}
-      sourceText={lang === 'en' ? undefined : base.text.en?.text}
+      sourceText={
+        lang === 'en'
+          ? undefined
+          : batchEditing
+            ? upcoming.overlay?.[variant]?.next.text.en?.text
+            : base.text.en?.text
+      }
+      conflictSource={batchEditing ? undefined : conflictSourceOf(variant)}
       terms={!readOnly && canEditLanguage(user, lang)}
-      conflictSource={conflictSourceOf(variant)}
       workingDiff={
         readOnly
           ? undefined
@@ -708,7 +772,9 @@ function TooltipWorkspace({
             }
       }
       highlightLine={requestedHash === hash && variant === activeHash ? highlightLine : undefined}
-      onChange={(text) => edit(base, lang, text, user?.login ?? 'local draft')}
+      onChange={(text) => {
+        if (access.reason === null) edit(base, lang, text, user?.login ?? 'local draft');
+      }}
     />
   );
 
@@ -747,6 +813,7 @@ function TooltipWorkspace({
           lang={lang}
           onLanguage={changeLanguage}
           draft={!readOnly && Boolean(drafts[activeHash])}
+          reserveDraft={!!batchEditing && !!batchAllowed}
           saving={saving}
           onDiscard={() => discard(activeHash)}
           reason={pausedOnPhone ? null : access.reason}
@@ -766,9 +833,14 @@ function TooltipWorkspace({
           onEditOverride={(variant) => setPicked({ hash, at: pickedAt, variant })}
           onBack={() => setPicked({ hash, at: pickedAt, variant: null })}
           grouped={grouped}
-          destination={upcoming.badge}
+          destination={
+            <>
+              {upcoming.badge}
+              {phone && batchEditing?.saveControl}
+            </>
+          }
           inactiveControl={
-            !readOnly && (
+            !readOnly && !batchEditing && (
               <InactiveHeaderControl
                 hash={activeHash}
                 name={nameOf(activeHash)}
@@ -788,13 +860,22 @@ function TooltipWorkspace({
               />
             )
           }
-          queue={work && <WorkThroughControl work={work} />}
+          queue={
+            work &&
+            (!batchEditing || batchAllowed) && (
+              <WorkThroughControl
+                work={work}
+                actions={phone ? undefined : batchEditing?.saveControl}
+              />
+            )
+          }
           queueBack={
-            work?.mode === 'active'
+            work?.mode === 'active' && (!batchEditing || batchAllowed)
               ? {
                   ...leaveTarget(work.queue),
                   text: queueSources[work.queue.source].backText ?? 'Leave queue',
                   label:
+                    work.queue.destination?.batchName ??
                     (work.queue.origin.restore as { summary?: string }).summary ??
                     queueSources[work.queue.source].label,
                 }
@@ -819,7 +900,18 @@ function TooltipWorkspace({
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
         source={
-          lang === 'en' ? undefined : (
+          lang === 'en' || (batchEditing && !batchAllowed) ? undefined : batchEditing ? (
+            upcoming.overlay?.[activeHash] ? (
+              batchEditing.english(
+                activeHash,
+                data.bundle.tooltips[activeHash]?.text.en?.text,
+                upcoming.overlay?.[activeHash]?.next.text.en?.text ?? '',
+                globalsFor(activeHash, futureEnglishGlobals),
+              )
+            ) : (
+              batchEditing.sourceNotice
+            )
+          ) : (
             <TranslationSource
               hash={activeHash}
               key={`${activeHash}:${lang}`}
@@ -840,6 +932,11 @@ function TooltipWorkspace({
             aria-label={`${heading} editor (${languageLabel(lang)})`}
             className={styles.editorSection}
           >
+            {batchEditing?.notice && (
+              <p className={batchStyles.notice} role="status">
+                {batchEditing.notice}
+              </p>
+            )}
             {/* The base editor stays mounted while an override is open: caret and undo survive. */}
             <div className={styles.editorSlot} hidden={activeVariant !== null}>
               {editing(hash, primaryBase)}

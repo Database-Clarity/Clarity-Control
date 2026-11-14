@@ -144,7 +144,7 @@ export function EditorMore({
                   }}
                 >
                   <span>{queueBack.text ?? 'Back to queue'}</span>
-                  <small>{queueBack.label}</small>
+                  <small title={queueBack.label}>{queueBack.label}</small>
                 </Link>
               </li>
             )}
@@ -270,7 +270,7 @@ export function phoneFit(widths: readonly number[], layout: Omit<Layout, 'widths
  * draft appearing only changes which known widths count. Same handlers as More's rows; Discard
  * still asks first.
  */
-export function PhoneTools(props: MoreProps & { queue?: React.ReactNode }) {
+export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserveDraft?: boolean }) {
   const { markup, draft, saving, onDiscard, grouped, overrides, onEditOverride, renderGrouped } =
     props;
   const all: Tool[] = [
@@ -282,7 +282,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode }) {
       label: `Edit override${overrides.length > 1 ? `: ${target.name}` : ''}`,
     })),
   ];
-  const tools = all.filter((tool) => tool.id !== 'discard' || draft);
+  const tools = all.filter((tool) => tool.id !== 'discard' || draft || props.reserveDraft);
   const key = all.map((tool) => tool.label).join('|');
   const slot = useRef<HTMLSpanElement>(null);
   const measure = useRef<HTMLSpanElement>(null);
@@ -391,6 +391,12 @@ function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
       >
         {tool.label}
       </button>
+    );
+  if (tool.id === 'discard' && !props.draft)
+    return (
+      <span className={styles.tool} style={{ visibility: 'hidden' }} aria-hidden="true">
+        Discard
+      </span>
     );
   if (tool.id === 'discard')
     return (

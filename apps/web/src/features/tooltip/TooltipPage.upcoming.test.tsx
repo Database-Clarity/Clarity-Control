@@ -1,17 +1,36 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { Tooltip } from '@clarity/core';
+import type { Lang, Tooltip } from '@clarity/core';
 import type { PreviewColumnProps } from '../preview';
 import {
   createBatchFixture,
   type BatchFixture,
 } from '../../services/scheduled/fixtureWorker.testSupport';
 
+const editorProps: {
+  current?: {
+    tooltipHash: number;
+    value: string;
+    sourceText?: string;
+    readOnly: boolean;
+    onChange(text: string): void;
+  };
+} = {};
+vi.mock('../../services/save/validationWorker', () => ({
+  requestSaveValidation: async (
+    changes: import('../../services/api').Change[],
+    data: import('../../stores/data').EditorData,
+  ) => (await import('../../services/save/validation')).validateChanges(changes, data),
+}));
 vi.mock('../editor', () => ({
-  ClarityEditor: ({ tooltipHash }: { tooltipHash: number }) => <div data-editor={tooltipHash} />,
+  ClarityEditor: (props: NonNullable<typeof editorProps.current>) => {
+    editorProps.current = props;
+    return <div data-editor={props.tooltipHash} />;
+  },
 }));
 // The preview column is drawn by its own tests; here it reports what the page asked it to render.
 const shownProps: { current?: PreviewColumnProps } = {};
@@ -33,8 +52,16 @@ vi.mock('../preview', () => ({
     );
   },
 }));
-vi.mock('../history/HistoryPanel', () => ({ HistoryPanel: () => null }));
-vi.mock('../compendium/CompendiumPanel', () => ({ CompendiumPanel: () => null }));
+vi.mock('../history/HistoryPanel', () => ({
+  HistoryPanel: ({ readOnly }: { readOnly: boolean }) => (
+    <div data-history-readonly={String(readOnly)} />
+  ),
+}));
+vi.mock('../compendium/CompendiumPanel', () => ({
+  CompendiumPanel: ({ base }: { base: Tooltip }) => (
+    <div data-editable-compendium={base.text.en?.text} />
+  ),
+}));
 vi.mock('../associations/AssociationsPanel', () => ({ AssociationsPanel: () => null }));
 
 const stamp = { updatedAt: '2026-11-01T00:00:00.000Z', updatedBy: 'a' };
@@ -127,7 +154,12 @@ async function seedBatch() {
   return saved.batch;
 }
 
-async function mount(role: 'maintainer' | 'translator' | 'trial', path = '/t/10') {
+async function mount(
+  role: 'maintainer' | 'editor' | 'translator' | 'trial',
+  path = '/t/10',
+  state?: unknown,
+  assigned: Lang[] = ['de'],
+) {
   const { TooltipPage } = await import('./TooltipPage');
   const { useAuthStore } = await import('../../stores/auth');
   const { useDataStore } = await import('../../stores/data');
@@ -136,11 +168,17 @@ async function mount(role: 'maintainer' | 'translator' | 'trial', path = '/t/10'
   useDataStore.setState({ status: 'ready', data: data as never });
   useDraftStore.setState({ hydrated: true, drafts: {} });
   useAuthStore.setState({
-    user: { id: 1, login: 'm', role, languages: ['de'] },
+    user: { id: 1, login: 'm', role, languages: assigned },
     loading: false,
   });
   const router = createMemoryRouter([{ path: '/t/:hash', element: <TooltipPage /> }], {
-    initialEntries: [path],
+    initialEntries: [
+      {
+        pathname: path.split('?')[0],
+        search: path.includes('?') ? `?${path.split('?')[1]}` : '',
+        state,
+      },
+    ],
   });
   const host = document.createElement('div');
   document.body.append(host);
@@ -386,6 +424,519 @@ it('selects and shows a version the batch adds in Upcoming', async () => {
     await page.settle();
     expect(page.preview().dataset.enhanced).toBe('English 10 import 13 from tooltip');
     expect(page.preview().dataset.variant).toBe('11');
+  } finally {
+    await page.dispose();
+  }
+});
+
+it('routes an active batch queue into its own drafts and English, then leaves back to Current', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const batch = await seedBatch();
+  const { useWorkQueues } = await import('../queue/store');
+  const { useBatchDraftStore, batchDraftKey } =
+    await import('../../services/scheduled/batchDrafts');
+  const { useDraftStore } = await import('../../stores/drafts');
+  await useBatchDraftStore.getState().activate('1');
+  const key = `${batch.id}:10:de`;
+  useWorkQueues.getState().start({
+    version: 1,
+    id: 'batch-route',
+    source: 'translations',
+    scope: 'shown',
+    origin: { path: '/translations', restore: {} },
+    items: [
+      {
+        key,
+        hash: 10,
+        lang: 'de',
+        name: 'A base',
+        detail: { path: '/t/10?lang=de', batchId: batch.id },
+      },
+    ],
+    skipped: [],
+    current: key,
+    finished: false,
+    createdAt: Date.now(),
+    destination: { kind: 'batch', batchId: batch.id, batchName: 'December patch' } as never,
+  });
+  const page = await mount('translator', '/t/10?lang=de', {
+    workThrough: { id: 'batch-route', key },
+  });
+  try {
+    await page.settle(
+      () =>
+        editorProps.current?.sourceText?.startsWith('Upcoming 10') === true &&
+        !editorProps.current.readOnly,
+    );
+    expect(editorProps.current?.sourceText).toBe('Upcoming 10 import 13 from tooltip');
+    expect(editorProps.current?.readOnly).toBe(false);
+    expect(page.host.textContent).toContain('Upcoming English');
+    expect(page.host.textContent).not.toContain('Edits here save to Current');
+    await act(async () => editorProps.current!.onChange('Batch German'));
+    const draft = useBatchDraftStore.getState().drafts[batchDraftKey(batch.id, 10)]!;
+    expect(draft.next.text.de?.text).toBe('Batch German');
+    expect(draft.next.text.de?.sourceUpdatedAt).toBe(draft.base.text.en?.updatedAt);
+    await page.settle(() => page.host.textContent!.includes('Queue done'));
+    expect(page.host.textContent).toContain('Queue done');
+    await act(async () => useBatchDraftStore.getState().discardAt(batchDraftKey(batch.id, 10)));
+    await page.settle(() => page.host.textContent!.includes('1 of 1'));
+    expect(page.host.textContent).toContain('1 of 1');
+    await act(async () => editorProps.current!.onChange('Batch German'));
+    expect(useDraftStore.getState().drafts).toEqual({});
+    const state = page.router.state.location.state;
+    await act(async () => page.router.navigate('/t/10?lang=fr', { state }));
+    await page.settle(() => editorProps.current?.readOnly === true);
+    expect(editorProps.current?.readOnly).toBe(true);
+    await act(async () => editorProps.current!.onChange('Unassigned French'));
+    expect(
+      useBatchDraftStore.getState().drafts[batchDraftKey(batch.id, 10)]!.next.text.fr,
+    ).toBeUndefined();
+    await act(async () => page.router.navigate('/t/10?lang=de', { state }));
+    await page.settle(() => editorProps.current?.readOnly === false);
+    const previousChange = editorProps.current!.onChange;
+    const { upcomingStore } = await import('./UpcomingSwitch.store');
+    await act(async () => upcomingStore().setState({ memberOf: {}, loads: {} }));
+    await page.settle(() => editorProps.current?.readOnly === true);
+    expect(editorProps.current?.readOnly).toBe(true);
+    await act(async () => previousChange('A late edit after closure'));
+    expect(
+      useBatchDraftStore.getState().drafts[batchDraftKey(batch.id, 10)]!.next.text.de?.text,
+    ).toBe('Batch German');
+    expect(useDraftStore.getState().drafts).toEqual({});
+    await act(async () => page.router.navigate('/t/10?lang=de'));
+    await page.settle(() => editorProps.current?.sourceText?.startsWith('English 10') === true);
+    expect(editorProps.current?.value).toBe('');
+    expect(useBatchDraftStore.getState().drafts[batchDraftKey(batch.id, 10)]).toBeDefined();
+  } finally {
+    await page.dispose();
+  }
+});
+
+it('keeps a batch-derived enhanced preview derived while its base translation is drafted', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const batch = await seedBatch();
+  await call(`/batches/${batch.id}/save`, {
+    revision: batch.revision,
+    changes: [
+      { hash: 11, base: current[11], next: tooltip(11, 'Upcoming 10 import 13 from tooltip') },
+    ],
+  });
+  const { useWorkQueues } = await import('../queue/store');
+  const { useBatchDraftStore } = await import('../../services/scheduled/batchDrafts');
+  await useBatchDraftStore.getState().activate('1');
+  const key = `${batch.id}:10:de`;
+  useWorkQueues.getState().start({
+    version: 1,
+    id: 'batch-variants',
+    source: 'translations',
+    scope: 'shown',
+    origin: { path: '/translations', restore: {} },
+    items: [
+      {
+        key,
+        hash: 10,
+        lang: 'de',
+        name: 'A base',
+        detail: { path: '/t/10?lang=de', batchId: batch.id },
+      },
+    ],
+    skipped: [],
+    current: key,
+    finished: false,
+    createdAt: Date.now(),
+    destination: { kind: 'batch', batchId: batch.id, batchName: 'December patch' },
+  });
+  const page = await mount('translator', '/t/10?lang=de', {
+    workThrough: { id: 'batch-variants', key },
+  });
+  try {
+    await page.settle(() => !editorProps.current?.readOnly);
+    await act(async () => editorProps.current!.onChange('Batch German'));
+    await page.settle(() => page.preview().dataset.enhanced === 'Batch German');
+    expect(page.preview().dataset.enhanced).toBe('Batch German');
+    // Drafting changes no saved batch member or Current tooltip.
+    expect(fixture.members.get(batch.id)?.get(11)?.proposed.text.de).toBeUndefined();
+  } finally {
+    await page.dispose();
+  }
+});
+
+it('keeps the active batch destination on de to fr and saves the next edit only to that batch', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const batch = await seedBatch();
+  const { useWorkQueues } = await import('../queue/store');
+  const { useBatchDraftStore, batchDraftKey } =
+    await import('../../services/scheduled/batchDrafts');
+  const { useDraftStore } = await import('../../stores/drafts');
+  const { useDataStore } = await import('../../stores/data');
+  await useBatchDraftStore.getState().activate('1');
+  const key = `${batch.id}:10:de`;
+  useWorkQueues.getState().start({
+    version: 1,
+    id: 'batch-language',
+    source: 'translations',
+    scope: 'shown',
+    origin: { path: '/translations', restore: { language: 'de' } },
+    items: [
+      {
+        key,
+        hash: 10,
+        lang: 'de',
+        name: 'A base',
+        detail: { path: '/t/10?lang=de', batchId: batch.id },
+      },
+    ],
+    skipped: [],
+    current: key,
+    finished: false,
+    createdAt: Date.now(),
+    destination: { kind: 'batch', batchId: batch.id, batchName: 'December patch' },
+  });
+  fixture.setUser({ id: 1, login: 'm', role: 'translator', languages: ['de', 'fr'] });
+  const state = { workThrough: { id: 'batch-language', key } };
+  const page = await mount('translator', '/t/10?lang=de', state, ['de', 'fr']);
+  try {
+    await page.settle(() => editorProps.current?.readOnly === false);
+    const select = page.host.querySelector<HTMLSelectElement>('select[aria-label="Language"]')!;
+    await act(async () => {
+      select.value = 'fr';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.settle(
+      () =>
+        new URLSearchParams(page.router.state.location.search).get('lang') === 'fr' &&
+        editorProps.current?.readOnly === false,
+    );
+    expect(page.router.state.location.state).toEqual(state);
+    expect(page.host.querySelector('[title*="Edits here save to December patch"]')).not.toBeNull();
+    expect(useWorkQueues.getState().queues['batch-language']!.items[0]!.lang).toBe('de');
+    await act(async () => editorProps.current!.onChange('Français pour le lot'));
+    expect(
+      useBatchDraftStore.getState().drafts[batchDraftKey(batch.id, 10)]!.next.text.fr?.text,
+    ).toBe('Français pour le lot');
+    const before = fixture.log.length;
+    await act(async () => page.button('Save batch')!.click());
+    await page.settle(
+      () =>
+        fixture.members.get(batch.id)?.get(10)?.proposed.text.fr?.text === 'Français pour le lot',
+    );
+    expect(fixture.members.get(batch.id)?.get(10)?.proposed.text.fr?.text).toBe(
+      'Français pour le lot',
+    );
+    expect(
+      fixture.log
+        .slice(before)
+        .filter((entry) => entry.method === 'POST')
+        .map((entry) => entry.path),
+    ).toEqual([`/batches/${batch.id}/save`]);
+    expect(useDraftStore.getState().drafts).toEqual({});
+    expect(useDataStore.getState().data!.bundle.tooltips[10]!.text.fr).toBeUndefined();
+    await act(async () => {
+      select.value = 'es';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.settle(() => editorProps.current?.readOnly === true);
+    expect(editorProps.current?.readOnly).toBe(true);
+    expect(page.router.state.location.state).toEqual(state);
+  } finally {
+    await page.dispose();
+  }
+});
+
+it.each(['maintainer', 'editor', 'translator'] as const)(
+  'keeps History Restore and editable Compendium out of a %s batch visit',
+  async (role) => {
+    vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+    const batch = await seedBatch();
+    const { useWorkQueues } = await import('../queue/store');
+    const { useBatchDraftStore } = await import('../../services/scheduled/batchDrafts');
+    const { useDraftStore } = await import('../../stores/drafts');
+    await useBatchDraftStore.getState().activate('1');
+    const key = `${batch.id}:10:de`;
+    useWorkQueues.getState().start({
+      version: 1,
+      id: 'batch-panes',
+      source: 'translations',
+      scope: 'shown',
+      origin: { path: '/translations', restore: {} },
+      items: [{ key, hash: 10, lang: 'de', name: 'A base', detail: { batchId: batch.id } }],
+      skipped: [],
+      current: key,
+      finished: false,
+      createdAt: Date.now(),
+      destination: { kind: 'batch', batchId: batch.id, batchName: 'December patch' },
+    });
+    const page = await mount(role, '/t/10?lang=de', {
+      workThrough: { id: 'batch-panes', key },
+    });
+    try {
+      await page.settle(() => editorProps.current?.sourceText?.startsWith('Upcoming') === true);
+      expect(page.host.querySelector('[data-history-readonly="true"]')).not.toBeNull();
+      const compendium = () =>
+        [...page.host.querySelectorAll<HTMLButtonElement>('button')].find(
+          (button) => button.textContent === 'Compendium',
+        )!;
+      await act(async () => compendium().click());
+      await page.settle(() => !!page.host.querySelector('[data-saved-compendium]'));
+      expect(page.host.querySelector('[data-saved-compendium]')).not.toBeNull();
+      expect(page.host.querySelector('[data-editable-compendium]')).toBeNull();
+      expect(useDraftStore.getState().drafts).toEqual({});
+      // Leaving the queue restores the existing Current-pane permissions and Current base.
+      await act(async () => page.router.navigate('/t/10?lang=de'));
+      await page.settle(() => !!page.host.querySelector('[data-history-readonly="false"]'));
+      expect(page.host.querySelector('[data-history-readonly="false"]')).not.toBeNull();
+      await act(async () => compendium().click());
+      await page.settle();
+      if (role === 'translator') {
+        expect(page.host.querySelector('[data-saved-compendium]')).not.toBeNull();
+        expect(page.host.querySelector('[data-editable-compendium]')).toBeNull();
+      } else {
+        expect(
+          page.host
+            .querySelector('[data-editable-compendium]')
+            ?.getAttribute('data-editable-compendium'),
+        ).toBe('English 10 import 13 from tooltip');
+      }
+      expect(useDraftStore.getState().drafts).toEqual({});
+    } finally {
+      await page.dispose();
+    }
+  },
+);
+
+it('keeps ordinary Current queue language switching unchanged', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const { useWorkQueues } = await import('../queue/store');
+  useWorkQueues.getState().start({
+    version: 1,
+    id: 'current-language',
+    source: 'translations',
+    scope: 'shown',
+    origin: { path: '/translations', restore: {} },
+    items: [
+      { key: '10:de', hash: 10, lang: 'de', name: 'A base', detail: { path: '/t/10?lang=de' } },
+    ],
+    skipped: [],
+    current: '10:de',
+    finished: false,
+    createdAt: Date.now(),
+    destination: null,
+  });
+  const page = await mount('maintainer', '/t/10?lang=de', {
+    workThrough: { id: 'current-language', key: '10:de' },
+  });
+  try {
+    const select = page.host.querySelector<HTMLSelectElement>('select[aria-label="Language"]')!;
+    await act(async () => {
+      select.value = 'fr';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.settle();
+    expect(page.router.state.location.state).toBeNull();
+    expect(editorProps.current?.readOnly).toBe(false);
+  } finally {
+    await page.dispose();
+  }
+});
+
+async function batchQueueFor(batch: { id: string }, firstHash: number) {
+  const { upcomingRows } = await import('../translations/upcoming');
+  const { upcomingState } = await import('./UpcomingSwitch.load');
+  const { upcomingItem } = await import('../queue/startUpcoming');
+  const { useWorkQueues } = await import('../queue/store');
+  const { useBatchDraftStore } = await import('../../services/scheduled/batchDrafts');
+  await useBatchDraftStore.getState().activate('1');
+  const members = [...fixture.members.get(batch.id)!.values()];
+  const open = { ...fixture.batches.get(batch.id)!, hashes: members.map((m) => m.hash) };
+  const items = upcomingRows(
+    data as never,
+    [{ batch: open as never, upcoming: upcomingState(members, data as never) }],
+    'de',
+  ).map((row) => upcomingItem(row, data as never));
+  const first = items.find((item) => item.hash === firstHash)!;
+  const queue = {
+    version: 1 as const,
+    id: 'member-route',
+    source: 'translations' as const,
+    scope: 'shown' as const,
+    origin: { path: '/translations', restore: { language: 'de', query: '', category: null } },
+    items,
+    skipped: [],
+    current: first.key,
+    finished: false,
+    createdAt: Date.now(),
+    destination: { kind: 'batch' as const, batchId: batch.id, batchName: 'December patch' },
+  };
+  useWorkQueues.getState().start(queue);
+  return { queue, first, state: { workThrough: { id: queue.id, key: first.key } } };
+}
+
+it.each([false, true])(
+  'opens and saves the exact future override member (base present: %s)',
+  async (both) => {
+    vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+    const { batch } = await call('/batches', { name: 'December patch' });
+    await call(`/batches/${batch.id}/save`, {
+      revision: batch.revision,
+      changes: [
+        ...(both ? [{ hash: 10, base: current[10], next: tooltip(10, 'Future base') }] : []),
+        { hash: 11, base: current[11], next: tooltip(11, 'Future override') },
+      ],
+    });
+    const visit = await batchQueueFor(batch, both ? 10 : 11);
+    const page = await mount(
+      'translator',
+      (visit.first.detail as { path: string }).path,
+      visit.state,
+    );
+    try {
+      await page.settle(() => editorProps.current?.readOnly === false);
+      if (both) {
+        await act(async () =>
+          page.host.querySelector<HTMLAnchorElement>('a[aria-label^="Next in queue:"]')!.click(),
+        );
+      }
+      await page.settle(
+        () => editorProps.current?.tooltipHash === 11 && !editorProps.current.readOnly,
+      );
+      expect(page.router.state.location.search).toContain('variant=11');
+      expect(editorProps.current?.tooltipHash).toBe(11);
+      expect(editorProps.current?.sourceText).toBe('Future override');
+      const { rebuild } = await import('../queue/batchQueue');
+      const { useAuthStore } = await import('../../stores/auth');
+      const rebuilt = await rebuild(visit.queue, {
+        data: data as never,
+        user: useAuthStore.getState().user!,
+        decisions: {},
+      });
+      expect((rebuilt.find((item) => item.hash === 11)!.detail as { path: string }).path).toBe(
+        '/t/10?lang=de&variant=11',
+      );
+      await act(async () => editorProps.current!.onChange('German for enhanced 11'));
+      const { saveBatchDrafts } = await import('./batchDestination.live');
+      await act(async () => {
+        await saveBatchDrafts(batch.id);
+      });
+      expect(fixture.members.get(batch.id)?.get(11)?.proposed.text.de?.text).toBe(
+        'German for enhanced 11',
+      );
+      expect(fixture.members.get(batch.id)?.get(10)?.proposed.text.de).toBeUndefined();
+    } finally {
+      await page.dispose();
+    }
+  },
+);
+
+it('keeps moved Current German visible while a French batch draft is authored and saved', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const batch = await seedBatch();
+  const visit = await batchQueueFor(batch, 10);
+  fixture.setUser({ id: 1, login: 'm', role: 'translator', languages: ['de', 'fr'] });
+  const page = await mount(
+    'translator',
+    (visit.first.detail as { path: string }).path,
+    visit.state,
+    ['de', 'fr'],
+  );
+  try {
+    const { useDataStore } = await import('../../stores/data');
+    const moved = {
+      ...current[10],
+      text: { ...current[10].text, de: { text: 'Current German moved after base', ...stamp } },
+    };
+    fixture.setCurrent(10, moved);
+    await act(async () =>
+      useDataStore.setState({
+        data: { ...data, bundle: { ...data.bundle, tooltips: { ...current, 10: moved } } } as never,
+      }),
+    );
+    await page.settle(() => editorProps.current?.value === moved.text.de.text);
+    expect(editorProps.current?.value).toBe(moved.text.de.text);
+    const select = page.host.querySelector<HTMLSelectElement>('select[aria-label="Language"]')!;
+    const language = async (lang: string) => {
+      await act(async () => {
+        select.value = lang;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await page.settle();
+    };
+    await language('fr');
+    await act(async () => editorProps.current!.onChange('French batch rework'));
+    await language('de');
+    expect(editorProps.current?.value).toBe(moved.text.de.text);
+    const { saveBatchDrafts } = await import('./batchDestination.live');
+    await act(async () => {
+      await saveBatchDrafts(batch.id);
+    });
+    const saved = fixture.members.get(batch.id)!.get(10)!;
+    expect(saved.proposed.text.de).toBeUndefined();
+    expect(saved.proposed.text.fr?.text).toBe('French batch rework');
+  } finally {
+    await page.dispose();
+  }
+});
+it('keeps newer batch German visible while French is drafted and saved', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const batch = await seedBatch();
+  const visit = await batchQueueFor(batch, 10);
+  fixture.setUser({ id: 1, login: 'm', role: 'translator', languages: ['de', 'fr'] });
+  const page = await mount(
+    'translator',
+    (visit.first.detail as { path: string }).path,
+    visit.state,
+    ['de', 'fr'],
+  );
+  try {
+    await page.settle(() => editorProps.current?.readOnly === false);
+    const language = async (lang: string) => {
+      const select = page.host.querySelector<HTMLSelectElement>('select[aria-label="Language"]')!;
+      await act(async () => {
+        select.value = lang;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await page.settle();
+    };
+    await language('fr');
+    await act(async () => editorProps.current!.onChange('Local French rework'));
+    const old = fixture.members.get(batch.id)!.get(10)!;
+    fixture.setUser({ id: 1, login: 'm', role: 'maintainer' });
+    await call(`/batches/${batch.id}/save`, {
+      revision: fixture.batches.get(batch.id)!.revision,
+      changes: [
+        {
+          hash: 10,
+          base: old.proposed,
+          next: {
+            ...old.proposed,
+            text: { ...old.proposed.text, de: { ...stamp, text: 'New German saved by colleague' } },
+          },
+        },
+      ],
+    });
+    fixture.setUser({ id: 1, login: 'm', role: 'translator', languages: ['de', 'fr'] });
+    const { refreshBatches } = await import('./UpcomingSwitch.load');
+    const { upcomingStore } = await import('./UpcomingSwitch.store');
+    const revision = fixture.batches.get(batch.id)!.revision;
+    await act(async () => refreshBatches());
+    await page.settle(() => {
+      const load = upcomingStore().getState().loads[batch.id];
+      return load?.state === 'ready' && load.revision === revision;
+    });
+    await language('de');
+    const load = upcomingStore().getState().loads[batch.id]!;
+    if (load.state !== 'ready') throw Error('not ready');
+    const displayed = editorProps.current?.value;
+    const loaded = load.upcoming.overlay[10]!.next.text.de?.text;
+    const { saveBatchDrafts } = await import('./batchDestination.live');
+    let notice = '';
+    await act(async () => {
+      notice = await saveBatchDrafts(batch.id);
+    });
+    const saved = fixture.members.get(batch.id)!.get(10)!;
+    expect(notice).toContain('Saved 1 tooltip');
+    expect(saved.proposed.text.de?.text).toBe(loaded);
+    expect(saved.proposed.text.fr?.text).toBe('Local French rework');
+    expect(displayed).toBe(loaded);
   } finally {
     await page.dispose();
   }
