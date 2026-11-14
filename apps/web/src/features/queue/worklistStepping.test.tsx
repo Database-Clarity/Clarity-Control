@@ -95,25 +95,36 @@ const queue = () => Object.values(useWorkQueues.getState().queues)[0]!;
 const field = () => host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const position = () => host.querySelector('[data-queue] [role="status"]')?.textContent;
 
-async function mount(at = items[0]!) {
-  const { to, state } = startQueue({
-    source: 'review',
-    scope: 'shown',
-    items,
-    first: at,
-    origin: { path: '/review', restore: {} },
-  });
+function render(entry: { pathname: string; search?: string; state: unknown }) {
   router = createMemoryRouter(
     [
       { element: <Layout />, children: [{ path: '/t/:hash', element: <TooltipPage /> }] },
       { path: '/review', element: <p>Review</p> },
     ],
-    { initialEntries: [{ pathname: to, state }] },
+    { initialEntries: [entry] },
   );
   root = createRoot(host);
-  await act(async () => {
+  return act(async () => {
     root!.render(<RouterProvider router={router} />);
   });
+}
+async function mount(at = items[0]!, source: 'review' | 'translations' = 'review', list = items) {
+  const { to, state } = startQueue({
+    source,
+    scope: 'shown',
+    items: list,
+    first: at,
+    origin: { path: '/review', restore: {} },
+  });
+  const [pathname, search = ''] = to.split('?');
+  await render({ pathname: pathname!, search: search && `?${search}`, state });
+}
+/** A reload: the same history entry (URL and state) in a new app. */
+async function reload() {
+  const { pathname, search, state } = router.state.location;
+  await act(async () => root?.unmount());
+  router.dispose();
+  await render({ pathname, search, state });
 }
 const rest = (ms = 1200) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
 async function shiftWheel(deltaY = 100, altKey = false) {
@@ -273,6 +284,37 @@ describe('worklist stepping', () => {
     expect(route()).toBe('/t/101');
     await shiftWheel();
     expect(route()).toBe('/t/104');
+  });
+
+  it('keeps stepping the queue after a reload', async () => {
+    await mount();
+    await shiftWheel();
+    await rest();
+    await reload();
+    expect(route()).toBe('/t/104');
+    expect(position()).toBe('2 of 2');
+    await shiftWheel(-100);
+    expect(route()).toBe('/t/101');
+    expect(visitKey()).toBe('r101');
+  });
+
+  it('steps a translator queue in its language', async () => {
+    const translation = (hash: number): QueueItem => ({
+      key: `${hash}:de`,
+      hash,
+      lang: 'de',
+      name: `Sample ${hash}`,
+      detail: { path: `/t/${hash}?lang=de` },
+    });
+    await mount(translation(101), 'translations', [101, 102, 105].map(translation));
+    await shiftWheel();
+    expect(route()).toBe('/t/102');
+    expect(router.state.location.search).toBe('?lang=de');
+    expect(visitKey()).toBe('102:de');
+    await rest();
+    await press('ArrowDown');
+    expect(route()).toBe('/t/105');
+    expect(visitKey()).toBe('105:de');
   });
 
   it('leaves a paused queue alone: an ordinary visit steps the finder list', async () => {
