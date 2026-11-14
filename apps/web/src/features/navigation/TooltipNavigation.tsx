@@ -84,12 +84,12 @@ import {
   clearStepStates,
   finishQueue,
   flushPassed,
-  hasStepState,
   notePassed,
   pendingVisit,
   queueEdges,
   queueStepTarget,
-  rememberStepState,
+  rememberOrigin,
+  rememberStep,
   stepStateFor,
   useQueueStepper,
   type QueueStepper,
@@ -547,12 +547,12 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     state: location.state as unknown,
   };
   // Stepping lands and commits plain paths; a route a worklist gesture stepped to (and the
-  // gesture's origin) keeps its queue visit in the history entry's state.
-  const go = (target: string, options: { replace: boolean; flushSync?: boolean }) =>
-    navigateRef.current(
-      target,
-      hasStepState(target) ? { ...options, state: stepStateFor(target) } : options,
-    );
+  // gesture's origin) keeps its queue visit in the history entry's state. Landings flush; the
+  // commit first restores the origin (replace, no flush), then pushes the destination.
+  const go = (target: string, options: { replace: boolean; flushSync?: boolean }) => {
+    const saved = stepStateFor(target, options.replace && !options.flushSync);
+    navigateRef.current(target, saved ? { ...options, state: saved.state } : options);
+  };
   const goRef = useRef(go);
   goRef.current = go;
   const field = useRef<HTMLInputElement>(null);
@@ -669,11 +669,9 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       return false;
     }
     if (!stepping.target && useSteppingActivity.getState().target === undefined) clearStepStates();
-    if (state !== undefined) {
-      const here = `${current.current.pathname}${current.current.search}`;
-      if (target.from === here) rememberStepState(here, current.current.state, true);
-      rememberStepState(target.to.path, state);
-    }
+    const here = `${current.current.pathname}${current.current.search}`;
+    if (state !== undefined && target.from === here) rememberOrigin(here, current.current.state);
+    rememberStep(target.to.path, state);
     // Refused before anything moves: the selection, the pending history entry and the timer stay.
     if (!stepping.step(target.from, target.to.path)) return false;
     pulseStepping(landNewest, resumeNewest);
@@ -692,6 +690,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           search,
           (grouped && scopeValue(entry, all, grouped.firstGroup)) || null,
         );
+  /** The stepping key being handled is an auto-repeat (the key is held). */
+  const keyRepeat = useRef(false);
   const queueStepper = () =>
     worklistSteppingRef.current ? useQueueStepper.getState().current : null;
   /** The queue item a gesture is on: its newest pending step, else the route's own. */
@@ -703,10 +703,13 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     const key = queueKey(stepper);
     const found = queueStepTarget(stepper, key, direction);
     // Next past the last item ends the queue, but only as a fresh gesture on the route's own item:
-    // a spin or a held key that reaches the last item stops there.
+    // a spin or a held key (its repeats, even after the history commit) stops on the last item.
     if (
       found?.kind === 'finish' &&
-      (key !== stepper.visit.key || stepping.target || useSteppingActivity.getState().active)
+      (key !== stepper.visit.key ||
+        keyRepeat.current ||
+        stepping.target ||
+        useSteppingActivity.getState().active)
     )
       return undefined;
     return found;
@@ -1046,7 +1049,13 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         event.preventDefault();
         if (!event.shiftKey) {
           const direction = event.key === 'ArrowDown' || event.key === 'PageDown' ? 1 : -1;
-          const moved = (paging ? stepGroup : step).current(direction);
+          keyRepeat.current = event.repeat;
+          let moved: boolean;
+          try {
+            moved = (paging ? stepGroup : step).current(direction);
+          } finally {
+            keyRepeat.current = false;
+          }
           if (
             (moved || useSteppingActivity.getState().active) &&
             (!event.repeat || heldKey.current?.key !== event.key)

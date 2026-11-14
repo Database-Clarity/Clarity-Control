@@ -37,27 +37,40 @@ export function publishQueueStepper(stepper: QueueStepper): () => void {
 /**
  * History state of the routes a worklist gesture steps through: the finder's live stepping lands
  * and commits plain paths, and each needs its queue visit back so the route stays in the queue.
- * The gesture's origin keeps the state it had.
+ * The gesture's origin keeps the state it had; it is kept apart from the steps, because a gesture
+ * can come back to the origin's path as a list step (the setting turned off mid-gesture), which
+ * must not reopen the queue.
  */
-const routeStates = new Map<string, unknown>();
+const stepStates = new Map<string, unknown>();
+let origin: { path: string; state: unknown } | null = null;
 
 /** A new gesture starts with no remembered routes. */
 export function clearStepStates() {
-  routeStates.clear();
+  stepStates.clear();
+  origin = null;
 }
-export function rememberStepState(path: string, state: unknown, keepExisting = false) {
-  if (keepExisting && routeStates.has(path)) return;
-  routeStates.set(path, state);
+/** The gesture's origin, once its first worklist step leaves it (kept for the whole gesture). */
+export function rememberOrigin(path: string, state: unknown) {
+  origin ??= { path, state };
 }
-export function hasStepState(path: string) {
-  return routeStates.has(path);
+/**
+ * The state of the route a step went to: its queue visit, or none for a list step. List steps are
+ * recorded only in a gesture that already carries queue states, so ordinary stepping is untouched.
+ */
+export function rememberStep(path: string, state: unknown) {
+  if (state !== undefined || origin || stepStates.size) stepStates.set(path, state);
 }
-export function stepStateFor(path: string): unknown {
-  return routeStates.get(path);
+/**
+ * The state to navigate `path` with, or undefined to leave the navigation as it is. `restoring`
+ * is the history commit putting the gesture's origin back.
+ */
+export function stepStateFor(path: string, restoring: boolean): { state: unknown } | undefined {
+  if (restoring && origin?.path === path) return { state: origin.state };
+  return stepStates.has(path) ? { state: stepStates.get(path) } : undefined;
 }
 /** The queue visit a pending stepping target opens, when a worklist gesture stepped to it. */
 export function pendingVisit(target: string | undefined): QueueVisit | null {
-  return target === undefined ? null : visitOf(routeStates.get(target));
+  return target === undefined ? null : visitOf(stepStates.get(target));
 }
 
 export type QueueStepTarget =

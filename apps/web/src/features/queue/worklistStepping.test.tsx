@@ -140,6 +140,14 @@ async function shiftWheel(deltaY = 100, altKey = false) {
   await rest(50);
   return event;
 }
+async function keydown(key: string, repeat = false) {
+  await act(async () => {
+    field().dispatchEvent(
+      new KeyboardEvent('keydown', { key, repeat, bubbles: true, cancelable: true }),
+    );
+  });
+  await rest(50);
+}
 async function press(key: string) {
   await act(async () => {
     field().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
@@ -315,6 +323,44 @@ describe('worklist stepping', () => {
     await press('ArrowDown');
     expect(route()).toBe('/t/105');
     expect(visitKey()).toBe('105:de');
+  });
+
+  it('never ends the queue from a held key, even after the history commit', async () => {
+    await mount();
+    await keydown('PageDown');
+    expect(route()).toBe('/t/104');
+    // The key stays down past the 1 s commit; its repeats stop on the last item.
+    await rest();
+    await keydown('PageDown', true);
+    await keydown('PageDown', true);
+    expect(queue().finished).toBe(false);
+    expect(route()).toBe('/t/104');
+    await act(async () => {
+      field().dispatchEvent(
+        new KeyboardEvent('keyup', { key: 'PageDown', bubbles: true, cancelable: true }),
+      );
+    });
+    await rest();
+    // A new press there is Next's Finish.
+    await press('PageDown');
+    expect(queue().finished).toBe(true);
+  });
+
+  it('turning the setting off mid-gesture steps the list without reopening the queue', async () => {
+    await mount();
+    await shiftWheel();
+    expect(route()).toBe('/t/104');
+    await act(async () => useSettingsStore.getState().updateDevice({ worklistStepping: false }));
+    // The same gesture, now list steps back over the queue's origin.
+    await shiftWheel(-100);
+    await shiftWheel(-100);
+    await shiftWheel(-100);
+    expect(route()).toBe('/t/101');
+    expect(visitKey()).toBeUndefined();
+    await rest();
+    expect(route()).toBe('/t/101');
+    expect(visitKey()).toBeUndefined();
+    expect(host.querySelector('[data-queue][data-paused]')).not.toBeNull();
   });
 
   it('leaves a paused queue alone: an ordinary visit steps the finder list', async () => {
