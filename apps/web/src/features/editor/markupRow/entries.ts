@@ -300,7 +300,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       label: 'Base with enhanced bonus',
       markup: '<enhanced/>${base+#{d}}',
       keys: snippetById('enhanced-formula').keywords,
-      glyph: { kind: 'arrow', text: '${X+#d}' },
+      glyph: { kind: 'arrow', text: '${X+#{d}}' },
       usage: snippetById('enhanced-formula').usage,
       about: snippetById('enhanced-formula').about,
     }),
@@ -388,6 +388,8 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
   const variables = { ...documentVariables, ...extractVariables(globals.variables) };
   for (const [name, value] of Object.entries(variables)) {
     const own = name in documentVariables;
+    // The global `e` is the enhanced arrow, offered as `<enhanced/>` behind the gate above.
+    if (name === 'e' && !own) continue;
     entries.push({
       id: `var:${name}`,
       group: own ? 'Variables' : 'Global variables',

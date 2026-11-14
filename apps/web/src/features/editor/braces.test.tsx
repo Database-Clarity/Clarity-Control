@@ -62,6 +62,35 @@ describe('enhanced arrow scope', () => {
   });
 });
 
+describe('the global e is the arrow, never a variable (visual review MUST-1/2)', () => {
+  it.each([true, false])('typing #e offers <enhanced/> only behind the gate (%s)', (allowed) => {
+    const globals = { variables: 'var e = 🡅\nvar g = 1', titles: '', allowBaseEnhanced: allowed };
+    const state = EditorState.create({ doc: 'Up #e', selection: { anchor: 5 } });
+    for (const items of [
+      suggestItems(suggestContext(state, true)!, state, globals),
+      requestItems(suggestContext(state, false)!, state, globals),
+    ]) {
+      const ids = items.map((item) => item.id);
+      expect(ids).not.toContain('var:e');
+      expect(ids.includes('snippet:enhanced-arrow')).toBe(allowed);
+      expect(ids.includes('snippet:enhanced-formula')).toBe(allowed);
+      if (allowed)
+        expect(items.find((item) => item.id === 'snippet:enhanced-arrow')?.insert).toBe(
+          '<enhanced/>',
+        );
+    }
+    const entries = markupEntries(globals).map((entry) => entry.id);
+    expect(entries).not.toContain('var:e');
+    expect(entries).toContain('var:g');
+  });
+  it('a local var e stays an ordinary variable', () => {
+    const globals = { variables: 'var e = 🡅', titles: '', allowBaseEnhanced: false };
+    const state = EditorState.create({ doc: 'var e = 3\n#e', selection: { anchor: 12 } });
+    const ids = suggestItems(suggestContext(state, true)!, state, globals).map((item) => item.id);
+    expect(ids).toContain('var:e');
+  });
+});
+
 describe('delimited variables in the editor', () => {
   it('always writes braces (owner 2026-11-14)', () => {
     expect(writeVariable('d')).toBe('#{d}');

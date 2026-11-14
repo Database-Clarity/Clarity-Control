@@ -1063,3 +1063,64 @@ describe('round-1 independent review fixes', () => {
       expect((await call('/batches', { name })).status).toBe(400);
   });
 });
+
+describe('markupBraces gate on batch paths (VAR-BRACES output review MUST-1)', () => {
+  const braced = 'Deals #{d}x <enhanced/>.';
+  const refused = (response: { status: number; body: Record<string, Loose> }) => {
+    expect(response.status).toBe(422);
+    expect(response.body.error).toContain('lacks the "markupBraces" capability');
+  };
+  const withBraces = () =>
+    f.moveData({ '.publisher/PIN': { capabilities: [...pin.capabilities, 'markupBraces'] } });
+
+  it('save (edit and add) refuses #{d} and <enhanced/> unless the PIN declares markupBraces', async () => {
+    const proposal = (stored(memberPath()) as BatchMember).proposed;
+    const edit = () =>
+      call(`/batches/${ID}/save`, saveBody(withText(proposal, 'en', braced), proposal));
+    refused(await edit());
+    const fresh = { ...tooltip(), hash: 456 };
+    f.moveData({ 'tooltips/456.json': fresh });
+    const add = () => call(`/batches/${ID}/save`, saveBody(withText(fresh, 'en', braced), fresh));
+    refused(await add());
+    withBraces();
+    expect((await edit()).status).toBe(200);
+    expect((await add()).status).toBe(200);
+  });
+
+  it('rebase refuses them too', async () => {
+    const proposed = (stored(memberPath()) as BatchMember).proposed;
+    f.moveData({ 'tooltips/123.json': withText(tooltip(), 'fr', 'courant') });
+    const rebase = () =>
+      call(`/batches/${ID}/rebase`, {
+        revision: storedBatch().revision,
+        hash: 123,
+        base: withText(tooltip(), 'fr', 'courant'),
+        next: withText(withText(proposed, 'fr', 'courant'), 'en', braced),
+      });
+    refused(await rebase());
+    withBraces();
+    expect((await rebase()).status).toBe(200);
+  });
+
+  it('scheduling refuses a stored member that holds them', async () => {
+    f.moveData({ [memberPath()]: member(withText(tooltip(), 'en', braced)) });
+    refused(await schedule(MAINTAINER, { notBefore: 'now' }));
+    withBraces();
+    expect((await schedule(MAINTAINER, { notBefore: 'now' })).status).toBe(202);
+  });
+
+  it('/publish refuses them while the publisher is on', async () => {
+    const { publishableHash } = await import('@clarity/core');
+    const current = withText(tooltip(), 'en', braced);
+    f.moveData({ 'tooltips/123.json': current });
+    const publish = async () =>
+      call('/publish', {
+        opId: newUlid(),
+        hashes: [123],
+        expected: { 123: await publishableHash(current, f.aliases) },
+      });
+    refused(await publish());
+    withBraces();
+    expect((await publish()).status).toBe(202);
+  });
+});

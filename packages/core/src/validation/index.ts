@@ -11,10 +11,15 @@ import {
   markupDefinitions,
   parseMarkup,
 } from '../markup/index.js';
-import { prepareMarkup } from '../markup/prepare.js';
+import {
+  markupVariableReferences,
+  prepareMarkup,
+  removeMarkupComments,
+} from '../markup/prepare.js';
 import {
   enhancedArrowMarkup,
   isHolderName,
+  lowerDelimitedMarkup,
   mergedVariable,
   variableReferences,
 } from '../markup/braces.js';
@@ -30,10 +35,11 @@ export interface ValidationIssue {
   from: number;
   to: number;
   /**
-   * Set for issues the editor draws or fixes in its own way: retired markup, and a plain variable
-   * that merges with the text after it (`#dx` with only `var d`; the fix is `fix`).
+   * Set for issues the editor draws or fixes in its own way: retired markup, a plain variable
+   * that merges with the text after it (`#dx` with only `var d`; the fix is `fix`), and a
+   * variable whose value also replaces the start of a longer name used after it.
    */
-  code?: 'retired' | 'merged-variable';
+  code?: 'retired' | 'merged-variable' | 'variable-prefix';
   /** The one-click replacement for `from`..`to` (merged variables). */
   fix?: string;
 }
@@ -153,25 +159,9 @@ export function validateText(
           });
         continue;
       }
-      const merged = reference && !reference.braced && mergedVariable(unknown, defined);
-      if (reference && merged) {
-        const rest = unknown.slice(merged.length);
-        const fix = merged === 'e' ? `${enhancedArrowMarkup}${rest}` : `#{${merged}}${rest}`;
-        const message =
-          merged === 'e'
-            ? `The enhanced arrow #e merges with the text after it: write ${fix}.`
-            : `Variable #${merged} merges with the text after it: write ${fix}.`;
-        if (!issues.some((issue) => issue.message === message))
-          issues.push({
-            severity: 'warning',
-            message,
-            from: reference.from,
-            to: reference.to,
-            code: 'merged-variable',
-            fix,
-          });
-        continue;
-      }
+      // A plain reference with a defined prefix is the merge warning, added below for every such
+      // reference (the converter does not report it once the prefix is used elsewhere).
+      if (reference && !reference.braced && mergedVariable(unknown, defined)) continue;
       if (reference) {
         if (!issues.some((issue) => issue.message === diagnostic.message))
           issues.push({
@@ -185,6 +175,13 @@ export function validateText(
     }
     add(diagnostic.severity, diagnostic.message, unknown === undefined ? undefined : `#${unknown}`);
   }
+  issues.push(
+    ...variableNameIssues(
+      text,
+      defined,
+      [text, globals.variables, globals.titles].some((source) => source.includes('{{')),
+    ),
+  );
   if (selfHash !== globalVariablesHash && selfHash !== globalTitlesHash) {
     // The exporter lets a global silently win over a local definition of the same name.
     for (const clash of findGlobalNameClashes(text, globals)) {
@@ -219,6 +216,75 @@ export function validateText(
       code: 'retired' as const,
     })),
   ];
+}
+
+/**
+ * Variable names the converter reads differently from what the author wrote:
+ * - a plain `#dx` where only `d` is defined merges with the text after it (fix: `#{d}x`);
+ * - the converter replaces each referenced name everywhere, in first-use order (prepare.ts), so a
+ *   defined `#d` used before `#dx` also replaces the start of `#dx` ("1x"), and a defined name
+ *   starting a holder that braces generate (braces.ts) garbles that holder. Documents with
+ *   `{{base}{enhanced}}` pairs (`native`) resolve each reference on its own, without that.
+ */
+function variableNameIssues(
+  text: string,
+  defined: (name: string) => boolean,
+  native: boolean,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const push = (issue: ValidationIssue) => {
+    if (!issues.some((other) => other.message === issue.message)) issues.push(issue);
+  };
+  const { comments } = markupCommentContext(text);
+  const references = variableReferences(text).filter(
+    (ref) => !comments.some((range) => ref.from >= range.from && ref.from < range.to),
+  );
+  for (const ref of references) {
+    if (ref.braced || defined(ref.name) || isHolderName(ref.name)) continue;
+    const merged = mergedVariable(ref.name, defined);
+    if (merged === undefined) continue;
+    const rest = ref.name.slice(merged.length);
+    const fix = merged === 'e' ? `${enhancedArrowMarkup}${rest}` : `#{${merged}}${rest}`;
+    push({
+      severity: 'warning',
+      message:
+        merged === 'e'
+          ? `The enhanced arrow #e merges with the text after it: write ${fix}.`
+          : `Variable #${merged} merges with the text after it: write ${fix}.`,
+      from: ref.from,
+      to: ref.to,
+      code: 'merged-variable',
+      fix,
+    });
+  }
+  if (native) return issues;
+  const order = [
+    ...new Set(
+      markupVariableReferences(removeMarkupComments(lowerDelimitedMarkup(text))).map((name) =>
+        name.slice(1),
+      ),
+    ),
+  ];
+  const at = (name: string) => references.find((ref) => ref.name === name);
+  for (const [index, earlier] of order.entries()) {
+    if (!defined(earlier)) continue;
+    for (const later of order.slice(index + 1)) {
+      if (later.length <= earlier.length || !later.startsWith(earlier)) continue;
+      const holder = isHolderName(later);
+      if (!holder && !defined(later)) continue; // the merge warning above
+      const range = (holder ? at(earlier) : at(later)) ?? { from: 0, to: 0 };
+      push({
+        severity: 'warning',
+        message: holder
+          ? `Variable #${earlier} clashes with the names braces generate (Zb…): rename #${earlier}.`
+          : `#${earlier} is used before #${later}, so its value also replaces the start of #${later}: rename one of them.`,
+        from: range.from,
+        to: range.to,
+        code: 'variable-prefix',
+      });
+    }
+  }
+  return issues;
 }
 
 /**

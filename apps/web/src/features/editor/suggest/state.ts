@@ -10,7 +10,7 @@ import {
   type Extension,
 } from '@codemirror/state';
 import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
-import type { MarkupGlobals } from '@clarity/core';
+import { lowerDelimitedMarkup, type MarkupGlobals } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
 import { checkedWrap, tagSelection } from '../elementTags';
 import { askGroup, groupChange, pairAt } from '../iconPairs';
@@ -368,7 +368,8 @@ export const suggestConfiguration = (host: SuggestHost): Extension => suggestHos
 /**
  * Enter and Tab insert the highlighted option. When it would only re-type what is already there
  * (the author finished the word, e.g. `#e`), the menu steps aside and the key keeps its usual job.
- * A finished plain `#name` counts too: the variable's `#{name}` would only re-spell it.
+ * An option that only re-spells it counts too: `#{name}` after a finished `#name`, and
+ * `<enhanced/>` after `#e` (both lower to what is typed, braces.ts).
  */
 function accept(view: EditorView, snapshot: SuggestSnapshot): boolean {
   const item = snapshot.items[snapshot.index];
@@ -377,7 +378,7 @@ function accept(view: EditorView, snapshot: SuggestSnapshot): boolean {
     item &&
     !item.unavailable &&
     !item.stops.length &&
-    (item.insert === typed || (item.id.startsWith('var:') && typed === `#${item.id.slice(4)}`))
+    (item.insert === typed || lowerDelimitedMarkup(item.insert) === typed)
   ) {
     closeSuggest(view);
     return false;

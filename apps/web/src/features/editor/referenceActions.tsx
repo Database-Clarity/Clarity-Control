@@ -21,7 +21,7 @@ import {
 } from '@codemirror/view';
 import { enhancedArrowMarkup, mergedVariable, type Lang, type MarkupGlobals } from '@clarity/core';
 import { ReferencePopover } from './ReferencePopover';
-import { drawnSymbolAt } from './symbols';
+import { drawnSymbolAt, findSymbols } from './symbols';
 import {
   isInComment,
   localDefinitions,
@@ -50,6 +50,14 @@ export const openShortcut = isMac ? 'F12 · ⌘Click' : 'F12 · Ctrl+Click';
 
 function modifierHeld(event: { ctrlKey: boolean; metaKey: boolean }): boolean {
   return isMac ? event.metaKey : event.ctrlKey;
+}
+
+/** Whether `range` is exactly a symbol's markup (the legacy arrow `#e`). */
+function symbolRange(state: EditorState, range: { from: number; to: number }): boolean {
+  const line = state.doc.lineAt(range.from);
+  return findSymbols(line.text, line.from).some(
+    (symbol) => symbol.from === range.from && symbol.to === range.to,
+  );
 }
 
 /** The reference touching `pos`, ignoring comments. Offsets are document offsets. */
@@ -337,7 +345,9 @@ export function referenceExtensions(host: ReferenceHost): Extension {
         if (modifierHeld(event) || !window.matchMedia?.('(pointer: coarse)').matches) return false;
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
         const found = pos === null ? null : referenceAtPosition(view.state.doc, pos, 0);
-        if (found) view.dispatch({ effects: showReference.of(found.range) });
+        // The legacy arrow `#e` is a symbol: its own popover (Old spelling) answers the tap.
+        if (found && !symbolRange(view.state, found.range))
+          view.dispatch({ effects: showReference.of(found.range) });
         return false;
       },
     }),

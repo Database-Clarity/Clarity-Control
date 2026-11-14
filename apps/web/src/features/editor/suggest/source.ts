@@ -2,6 +2,7 @@ import { offeredHere } from '../markupScope';
 import type { EditorState } from '@codemirror/state';
 import {
   applicableTransforms,
+  enhancedArrowMarkup,
   expandSnippet,
   expandTemplate,
   extractBlocks,
@@ -310,9 +311,26 @@ function build(
   };
   const query = context.query;
 
-  /** A variable defined in this tooltip is a document variable; the rest come from the globals. */
-  const variableItem = (name: string, value: string) =>
-    !skip?.has(`var:${name}`) &&
+  /**
+   * A variable defined in this tooltip is a document variable; the rest come from the globals.
+   * The global `e` is the enhanced arrow: never offered as a variable, but as `<enhanced/>` where
+   * the arrow is offered (markupScope).
+   */
+  const variableItem = (name: string, value: string) => {
+    if (name === 'e' && !(name in documentVariables)) {
+      if (!offeredHere('enhanced-arrow', globals) || skip?.has('snippet:enhanced-arrow')) return;
+      push({
+        id: 'snippet:enhanced-arrow',
+        category: 'Snippets',
+        label: enhancedArrowMarkup,
+        about: `The enhanced arrow, written ${enhancedArrowMarkup}.`,
+        insert: enhancedArrowMarkup,
+        usage: /<enhanced\/>|#e(?![a-zA-Z0-9])/,
+        keys: 'enhanced arrow e gold up',
+      });
+      return;
+    }
+    if (skip?.has(`var:${name}`)) return;
     push({
       id: `var:${name}`,
       category: name in documentVariables ? 'Variables' : 'Globals',
@@ -327,6 +345,7 @@ function build(
       reference: true,
       keys: value,
     });
+  };
   const addSnippet = (snippet: Snippet, category: SuggestCategory) => {
     // A multi-line declaration needs a line of its own.
     const id = `${category === 'Tags' ? '' : 'snippet:'}${snippet.id}`;
@@ -385,10 +404,11 @@ function build(
     for (const [name, value] of Object.entries(variables)) {
       variableItem(name, value);
     }
-    addSnippet(
-      markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
-      'Snippets',
-    );
+    if (offeredHere('enhanced-formula', globals))
+      addSnippet(
+        markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
+        'Snippets',
+      );
   }
 
   if (context.kind === 'title-name' && !every) {

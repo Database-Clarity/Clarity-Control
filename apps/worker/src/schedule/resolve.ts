@@ -7,7 +7,7 @@ import {
   schedulePaths,
   type ResolutionResult,
 } from '@clarity/core/schedule';
-import { pinLowersElementTags, refuseUnlowerableTags } from '../elementTags.js';
+import { refuseUnlowerable } from '../elementTags.js';
 import { RefRace, type GitHub } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { checkEdit } from '../permissions.js';
@@ -133,11 +133,7 @@ export async function resolveBatch(
     const tooltip = result.tooltip;
     if (tooltip) {
       checkEdit(state.access, current, tooltip);
-      refuseUnlowerableTags(
-        tooltip,
-        !switches.publisher() || pinLowersElementTags(state.pin),
-        'saved',
-      );
+      refuseUnlowerable(tooltip, switches.publisher() ? { value: state.pin } : undefined, 'saved');
     }
     const at = new Date().toISOString();
     const revisions = { revision: batch.revision + 1, contentRevision: batch.contentRevision };

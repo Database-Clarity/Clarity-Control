@@ -456,7 +456,9 @@ describe('the All popover', () => {
         (chip) => chip.getAttribute('aria-label'),
       );
     expect(group('Variables')).toEqual(['#local']);
-    expect(group('Global variables')).toEqual(expect.arrayContaining(['#e', '#damage']));
+    expect(group('Global variables')).toEqual(expect.arrayContaining(['#damage']));
+    // The global e is the enhanced arrow, offered as <enhanced/> where the arrow is offered.
+    expect(group('Global variables')).not.toContain('#e');
     expect(group('Global variables')).not.toContain('#local');
   });
 
@@ -488,7 +490,9 @@ describe('inserting an enhanced section from the popover', () => {
     expect(text.startsWith('Reload speed up.' + NL + 'enhanced (' + NL)).toBe(true);
     // The <enhanced/> line is the enhanced arrow line, and it ships with text to replace.
     expect(text.endsWith(NL + ')')).toBe(true);
-    expect(text.split(NL).some((line) => line.startsWith('<enhanced/> ') && line.length > 12)).toBe(true);
+    expect(text.split(NL).some((line) => line.startsWith('<enhanced/> ') && line.length > 12)).toBe(
+      true,
+    );
   });
 });
 

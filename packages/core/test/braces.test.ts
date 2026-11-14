@@ -212,6 +212,38 @@ describe('validation', () => {
       }),
     );
   });
+  test('the merge warning stays when the prefix is also used elsewhere (visual review SHOULD-1)', () => {
+    const issues = validateText('var d = 5\nA #{d} b. Deals #dx', 'en', globals);
+    expect(issues).toEqual([
+      expect.objectContaining({
+        message: 'Variable #d merges with the text after it: write #{d}x.',
+        code: 'merged-variable',
+        from: 26,
+        to: 29,
+      }),
+    ]);
+  });
+  test('a defined name used before a longer one warns (output review SHOULD-1)', () => {
+    expect(validateText('var d = 1\nvar dx = 2\n#{d} and #{dx}', 'en', globals)).toEqual([
+      expect.objectContaining({
+        message:
+          '#d is used before #dx, so its value also replaces the start of #dx: rename one of them.',
+        code: 'variable-prefix',
+        from: 30,
+        to: 35,
+      }),
+    ]);
+    // The longer name first is safe: the converter replaces it before the shorter one.
+    expect(validateText('var d = 1\nvar dx = 2\n#dx and #d', 'en', globals)).toEqual([]);
+    expect(validateText('var Z = 9\n#Z then #{d}x\nvar d = 5', 'en', globals)).toEqual([
+      expect.objectContaining({
+        message: 'Variable #Z clashes with the names braces generate (Zb…): rename #Z.',
+        code: 'variable-prefix',
+        from: 10,
+        to: 12,
+      }),
+    ]);
+  });
   test('the delimited form is clean; unknown variables still warn at their source', () => {
     expect(validateText('var d = 5\nDeals #{d}x damage.', 'en', globals)).toEqual([]);
     expect(validateText('Deals #{q}x.', 'en', globals)).toEqual([
