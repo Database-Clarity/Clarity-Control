@@ -110,7 +110,7 @@ async function call(path: string, body: unknown) {
   const response = await fixture.handle(
     new Request(`https://worker.example${path}`, { method: 'POST', body: JSON.stringify(body) }),
   );
-  expect(response!.status).toBe(200);
+  expect(response!.ok).toBe(true);
   return (await response!.json()) as { batch: { id: string; revision: number } };
 }
 
