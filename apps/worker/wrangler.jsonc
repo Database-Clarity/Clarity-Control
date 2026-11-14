@@ -10,8 +10,7 @@
     {
       "binding": "SETTINGS_DB",
       "database_name": "clarity-settings",
-      // Root replaces this placeholder after creating the database, before deployment.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "ea8c3a7f-e446-46c9-840f-404a05eb1b91",
       "migrations_dir": "migrations/settings",
     },
     {
