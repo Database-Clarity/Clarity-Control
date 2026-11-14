@@ -55,6 +55,9 @@ import { rememberSearch, restoreSearch } from './searchMemory';
 import { rawMode, setSymbolReveal, symbolExtensions, toggleRaw, toggleRawView } from './symbols';
 import { hasImportDependencies, validationDiagnostics } from './diagnostics';
 import { useEditorDiagnostics } from './useEditorDiagnostics';
+import { useTooltipTerms } from '../terms/useTooltipTerms';
+import { insertAtCaret } from '../terms/insert';
+import { TermsPanel } from '../terms/TermsPanel';
 import { RetiredPanel, retiredIn } from './RetiredPanel';
 import { createCursorPosition } from './cursorPosition';
 import { createTagSelectionStore, tagSelection } from './elementTags';
@@ -66,6 +69,7 @@ import {
   ConflictPanel,
   GlyphPanel,
   IssuesPanel,
+  ParityPanel,
   CursorStatusBar,
   type PreviewStatus,
   type StatusPanel,
@@ -224,14 +228,24 @@ export interface ClarityEditorProps {
    * leads with the entries it uses. Undefined for English.
    */
   sourceText?: string;
+  /**
+   * Translate mode in a language the account may translate: the Terms list (in-game names for the
+   * English's terms, Ctrl+K then G). The English pane shows the same terms as marks.
+   */
+  terms?: boolean;
 }
+
+/** The reference host's live getters, plus the English a translation is checked against. */
+type EditorReferences = Omit<ReferenceHost, 'lang' | 'globals'> & {
+  sourceText(): string | undefined;
+};
 
 function configuration(
   lang: Lang,
   globals: MarkupGlobals,
   readOnly: boolean,
   requireEnglish: boolean,
-  references: Omit<ReferenceHost, 'lang' | 'globals'>,
+  references: EditorReferences,
   onSuggest: (snapshot: SuggestSnapshot | null) => void,
   chips: { acceptKey(): SuggestAccept; onChange(chip: Chip | null): void },
 ) {
@@ -248,7 +262,13 @@ function configuration(
     }),
     suggestConfiguration({ globals, onChange: onSuggest }),
     chipHost.of({ globals, ...chips }),
-    validationDiagnostics(lang, globals, requireEnglish, references.selfHash),
+    validationDiagnostics(
+      lang,
+      globals,
+      requireEnglish,
+      references.selfHash,
+      references.sourceText,
+    ),
     referenceExtensions({ ...references, lang, globals }),
     globalFindExtension({ ...references, lang, globals }),
   ];
@@ -279,6 +299,7 @@ export function ClarityEditor({
   suspended = false,
   stepping = false,
   sourceText,
+  terms: termsEnabled = false,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   // Held past `pending` until a painted skeleton has had its minimum (ui/Skeleton timing rule).
@@ -406,11 +427,34 @@ export function ClarityEditor({
   });
   const [cursor] = useState(createCursorPosition);
   const [tagMode] = useState(createTagSelectionStore);
-  const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip });
-  const references = useRef<Omit<ReferenceHost, 'lang' | 'globals'>>({
+  const parityText = lang === 'en' ? undefined : sourceText;
+  const termsOn = termsEnabled && lang !== 'en';
+  const tooltipTerms = useTooltipTerms(lang, termsOn && !suspended && !stepping, parityText);
+  // One object per change: the status bar is memoised, and a fresh object on every render would
+  // re-render it on every key.
+  const termsCount = tooltipTerms.terms.length;
+  const termsStatus = useMemo(
+    () => (termsOn ? { count: termsCount, loading: tooltipTerms.loading } : undefined),
+    [termsOn, termsCount, tooltipTerms.loading],
+  );
+  const termsLive = useRef(termsOn);
+  termsLive.current = termsOn;
+  /** Ctrl+K, G: the same as the bar's Terms item. */
+  const toggleTerms = useRef(() => {
+    if (!termsLive.current) return false;
+    setPanel((current) => (current === 'terms' ? null : 'terms'));
+    return true;
+  });
+  const insertTerm = useCallback((text: string) => {
+    setPanel(null);
+    if (view.current) insertAtCaret(view.current, text);
+  }, []);
+  const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip, parityText });
+  const references = useRef<EditorReferences>({
     sources: () => referenceLive.current.referenceSources,
     selfHash: () => referenceLive.current.tooltipHash,
     navigate: () => referenceLive.current.onOpenTooltip,
+    sourceText: () => referenceLive.current.parityText,
   });
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
   initial.current = { value, lang, globals, readOnly, requireEnglish };
@@ -428,6 +472,7 @@ export function ClarityEditor({
       globals,
       requireEnglish,
       selfHash: tooltipHash,
+      sourceText: parityText,
     },
     !suspended,
   );
@@ -596,8 +641,8 @@ export function ClarityEditor({
       setSymbolReveal(view.current, symbolReveal);
   }, [symbolReveal, suspended]);
   useLayoutEffect(() => {
-    referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip };
-  }, [tooltipHash, referenceSources, onOpenTooltip]);
+    referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip, parityText };
+  }, [tooltipHash, referenceSources, onOpenTooltip, parityText]);
   useEffect(() => {
     if (suspended || view.current || !host.current) return;
     const initialConfiguration = config.current.of(
@@ -653,6 +698,8 @@ export function ClarityEditor({
         // VS Code's "Compare with Saved". Ctrl may stay held for the D, as with Ctrl+K Ctrl+I.
         { key: 'Mod-k d', run: () => toggleDiff.current() },
         { key: 'Mod-k Mod-d', run: () => toggleDiff.current() },
+        { key: 'Mod-k g', run: () => toggleTerms.current() },
+        { key: 'Mod-k Mod-g', run: () => toggleTerms.current() },
         { key: 'F1', run: (editor) => toggleHelp.current(editor), preventDefault: true },
         { key: 'Mod-/', run: toggleComment },
         { key: 'Mod-h', run: openReplace, scope: 'editor search-panel', preventDefault: true },
@@ -892,6 +939,7 @@ export function ClarityEditor({
 
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   const retiredCount = diagnostics.retired.length;
+  const parityCount = diagnostics.parity.length;
   // A panel for something that has gone away closes itself.
   // The issues panel closes for good at zero issues (a later issue never reopens it over the text);
   // focus it held goes back to the text.
@@ -905,6 +953,8 @@ export function ClarityEditor({
     (panel === 'glyphs' && glyphCount === 0) ||
     (panel === 'conflicts' && conflictCount === 0) ||
     (panel === 'retired' && retiredCount === 0) ||
+    (panel === 'parity' && parityCount === 0) ||
+    (panel === 'terms' && (!termsOn || tooltipTerms.terms.length === 0)) ||
     (panel === 'issues' && issues.length === 0)
       ? null
       : panel;
@@ -999,6 +1049,17 @@ export function ClarityEditor({
           />
         )}
         {open === 'issues' && <IssuesPanel issues={issues} onClose={closeAndFocus} />}
+        {open === 'parity' && <ParityPanel gaps={diagnostics.parity} onClose={closeAndFocus} />}
+        {open === 'terms' && (
+          <TermsPanel
+            key={`${tooltipHash}:${lang}`}
+            terms={tooltipTerms.terms}
+            lang={lang}
+            canInsert={!readOnly}
+            onInsert={insertTerm}
+            onClose={closeAndFocus}
+          />
+        )}
         {(open === 'help' || helpParked) && (
           <Suspense fallback={null}>
             <MarkupHelp
@@ -1070,6 +1131,8 @@ export function ClarityEditor({
         issues={issues}
         glyphCount={glyphCount}
         retiredCount={retiredCount}
+        parityCount={parityCount}
+        terms={termsStatus}
         cursor={cursor}
         preview={preview}
         conflicts={

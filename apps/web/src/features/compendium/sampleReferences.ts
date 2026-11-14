@@ -1,4 +1,5 @@
 import {
+  normaliseCompendiumEnglish,
   resolveCompendiumLink,
   normaliseCompendiumName,
   normaliseRuns,
@@ -86,23 +87,25 @@ function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
   )
     return false;
   const sheet = reference.baseline.slice(reference.baseline.lastIndexOf('|') + 1);
-  const evidence = rawFingerprint([
-    sheet,
-    entry.name,
-    entry.category,
-    entry.base.text.en,
-    entry.base.compendium,
-  ]);
-  return (
-    reference.evidence ===
-    rawFingerprint([
-      entry.hash,
-      evidence,
-      ...(entry.next.custom?.categoryId === 'attachment-effect'
-        ? [entry.next.custom.categoryId]
-        : []),
-      entry.evidenceManifest,
-    ])
+  const english = entry.base.text.en;
+  const normalized = english && { ...english, text: normaliseCompendiumEnglish(english.text) };
+  // Replay both historical nested proofs and newer raw-English approvals against
+  // current editor/catalog data. Selected source evidence is still validated below.
+  return [rawFingerprint, sourceFingerprint].some((hash) =>
+    [english, normalized].some((text) => {
+      const evidence = hash([sheet, entry.name, entry.category, text, entry.base.compendium]);
+      return (
+        reference.evidence ===
+        hash([
+          entry.hash,
+          evidence,
+          ...(entry.next.custom?.categoryId === 'attachment-effect'
+            ? [entry.next.custom.categoryId]
+            : []),
+          entry.evidenceManifest,
+        ])
+      );
+    }),
   );
 }
 

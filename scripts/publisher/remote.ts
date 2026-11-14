@@ -11,12 +11,14 @@ export interface RemoteOptions {
 /** Objects are built in a disposable bare cache; every ref read/write goes to receive-pack. */
 export class RemoteRepository extends LocalRepository {
   protected override preserveModes = true;
+  protected override requireCredits = true;
   private readonly remote: string;
   constructor(
     cache: string,
     private readonly options: RemoteOptions,
   ) {
     super(cache);
+    this.requireCredits = !options.fileUrl;
     this.commandTimeout = options.timeout ?? 120_000;
     if (options.fileUrl) {
       const url = new URL(options.fileUrl);

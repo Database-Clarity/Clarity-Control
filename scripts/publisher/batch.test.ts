@@ -23,6 +23,7 @@ import {
   type ScheduleIndex,
 } from '@clarity/core/schedule';
 import {
+  exportLegacy,
   parsePublishRequestPayload,
   publishIntentDigest,
   publishRequestIntentDigest,
@@ -126,7 +127,19 @@ async function setup(transport: 'simulator' | 'remote' = 'simulator') {
     undefined,
     git.commit(
       undefined,
-      { 'liveDescriptions.json': git.writeBlob(encode({ perks: {}, databaseSettings: {} })) },
+      {
+        'liveDescriptions.json': git.writeBlob(
+          encode({
+            perks: Object.fromEntries(
+              [1, 2, 3].map((hash) => [
+                hash,
+                { hash, editor: { en: { main: '', secondary: '' } } },
+              ]),
+            ),
+            databaseSettings: {},
+          }),
+        ),
+      },
       'Seed live',
     ),
   );
@@ -420,6 +433,24 @@ describe('request union (publishRequest.ts)', () => {
 });
 
 describe.each(['simulator', 'remote'] as const)('%s: scheduled batch core path', (transport) => {
+  it('records an output refusal without claiming the batch and drains the next push', async () => {
+    const f = await setup(transport);
+    f.change(D, { 'tooltips/124.json': tip({}, 124) });
+    await f.schedule([
+      { hash: 123, base: tip(), proposed: tip({ text: { en: entry('import main from 124') } }) },
+    ]);
+    await f.push(PUSH1, [123]);
+    await f.pub.run();
+    expect(f.batchFile()).toMatchObject({
+      status: 'draft',
+      claim: null,
+      result: { status: 'rejected', error: expect.stringContaining('ConsumerOutputRejected') },
+    });
+    expect(f.git.git(['log', D, '--format=%s', '--grep=^Claim batch'])).toBe('');
+    expect(f.git.head(paths(OP).candidate)).toBeUndefined();
+    expect(f.receipts(PUSH1)).toHaveLength(1);
+  });
+
   it('publishes a due batch through the claim, activates it, and records cas landedAt', async () => {
     const f = await setup(transport);
     await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
@@ -1210,13 +1241,25 @@ describe('scheduled batches (simulator)', () => {
       };
       const base = tip({ text: { en: entry('reviewed', enAt), fr } });
       const proposed = tip({ text: { en: entry('batch en', enAt), fr }, associated: [124] });
-      const seed = async (f: Fixture) =>
+      const seed = async (f: Fixture) => {
         f.change(D, {
           'tooltips/123.json': base,
           'tooltips/124.json': tip({}, 124),
           'live/tooltips/123.json': base,
           'live/pushed.json': { 123: await publishableHash(base) },
         });
+        // Associations require an already published target, not just its saved draft.
+        const live = f.live();
+        f.change(L, {
+          'liveDescriptions.json': {
+            ...live,
+            perks: {
+              ...live.perks,
+              ...exportLegacy([tip({}, 124)], START, f.options.facts),
+            },
+          },
+        });
+      };
       const batched = await setup();
       await seed(batched);
       await batched.schedule([{ hash: 123, base, proposed }]);

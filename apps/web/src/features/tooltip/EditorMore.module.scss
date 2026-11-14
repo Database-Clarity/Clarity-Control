@@ -164,6 +164,17 @@
     }
   }
 
+  > li > a > span {
+    flex: none;
+    white-space: nowrap;
+  }
+  > li > a > small {
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   small {
     flex: none;
     color: var(--text2);

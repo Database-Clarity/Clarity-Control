@@ -245,3 +245,14 @@ it('rejects a nonempty unrelated cell at an unsupported description offset', () 
     }).next,
   ).toBeUndefined();
 });
+
+it('replays all reviewed rules across arrow spellings without mutating tooltips', () => {
+  const changed = structuredClone(tooltips);
+  for (const tooltip of Object.values(changed))
+    tooltip.text.en!.text = tooltip.text.en!.text.replace(/#e(?![a-zA-Z])/g, '<enhanced/>');
+  const before = JSON.stringify(changed);
+  for (const hash of Object.keys(rules)) {
+    expect(run(hash, data, changed).next?.compendium?.snapshot).toEqual(snapshots[hash]);
+  }
+  expect(JSON.stringify(changed)).toBe(before);
+});

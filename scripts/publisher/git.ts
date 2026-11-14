@@ -6,12 +6,38 @@ import { maxBuffer } from './childProcess.mjs';
 
 export class RefRace extends Error {}
 export type Tree = Record<string, string>;
+export interface CommitCredits {
+  author: { name: string; email: string };
+  committer: { name: string; email: string };
+}
+export const appCredits: CommitCredits = {
+  author: {
+    name: 'clarity-editor-backend[bot]',
+    email: 'clarity-editor-backend[bot]@users.noreply.github.com',
+  },
+  committer: {
+    name: 'clarity-editor-backend[bot]',
+    email: 'clarity-editor-backend[bot]@users.noreply.github.com',
+  },
+};
+export function requesterCredits(user: { id: number; login: string }): CommitCredits {
+  if (
+    !Number.isSafeInteger(user.id) ||
+    user.id <= 0 ||
+    !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(user.login)
+  )
+    throw new Error('Invalid publisher requester identity');
+  return {
+    author: { name: user.login, email: `${user.id}+${user.login}@users.noreply.github.com` },
+    committer: appCredits.committer,
+  };
+}
 export interface Repository {
   head(ref: string): string | undefined;
   tree(commit: string): Tree;
   blob(oid: string): string;
   writeBlob(bytes: string): string;
-  commit(parent: string | undefined, tree: Tree, message: string): string;
+  commit(parent: string | undefined, tree: Tree, message: string, credits?: CommitCredits): string;
   cas(ref: string, old: string | undefined, next: string | undefined): void;
   ancestor(a: string, b: string): boolean;
   history(ref: string): string[];
@@ -85,7 +111,14 @@ export class LocalRepository implements Repository {
     this.blobs.set(oid, bytes);
     return oid;
   }
-  commit(parent: string | undefined, tree: Tree, message: string) {
+  protected requireCredits = false;
+  commit(parent: string | undefined, tree: Tree, message: string, credits?: CommitCredits) {
+    if (!credits && this.requireCredits) throw new Error('Remote commits require explicit credits');
+    if (credits)
+      for (const identity of [credits.author, credits.committer]) {
+        if (!identity.name || !identity.email || /[<>\r\n\0]/.test(identity.name + identity.email))
+          throw new Error('Invalid commit credits');
+      }
     const temp = mkdtempSync(join(tmpdir(), 'publisher-index-'));
     try {
       const modes = new Map<string, string>();
@@ -113,6 +146,14 @@ export class LocalRepository implements Repository {
       const commit = this.git(
         ['commit-tree', root, ...(parent ? ['-p', parent] : [])],
         message,
+        credits
+          ? {
+              GIT_AUTHOR_NAME: credits.author.name,
+              GIT_AUTHOR_EMAIL: credits.author.email,
+              GIT_COMMITTER_NAME: credits.committer.name,
+              GIT_COMMITTER_EMAIL: credits.committer.email,
+            }
+          : {},
       ).trim();
       this.trees.set(commit, { ...tree });
       return commit;

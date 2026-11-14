@@ -12,6 +12,17 @@ text, set-selector items, and items classified Inactive & Placeholder. Rows are 
 English gap first, the same order as before), then missing in finder order (category order, then name), so
 a translator works through one category at a time. Categories use the finder's labels.
 
+Outdated rows also show the English words added plus removed since the translation's source
+revision (a replacement counts twice). Only visible rows load history, after a short scroll
+debounce, with two worker jobs at most; leaving view cancels them. History parsing and the exact
+word comparison run in workers. Successful counts are cached per device, keyed by hash, source
+revision, and current English text; unavailable history has a retry action. `?sort=small` puts
+known counts first, ascending, and unknown/missing rows last. The sort is preserved on return.
+The displayed order stays fixed as counts arrive: use Refresh order to apply newly learned
+sizes. Failed size cells offer their own retry without adding a toolbar row.
+Category choices include fully translated categories with a zero work count. Unknown category
+URLs stay scoped to zero rather than showing unrelated totals.
+
 State is in the URL: `?lang=` (default: the first available language, never written), `?cat=` (category id),
 `?q=` (name, hash, or category; typing is debounced into the URL) and `?state=outdated|missing`. Picking a
 language pushes history; filters replace. Translators see only their assigned languages and no coverage;
@@ -19,8 +30,10 @@ editors and maintainers see every language plus a coverage table (translated, ou
 picks the language: a side rail when the page has room, otherwise a "Coverage" popover. Its totals
 count only the selected category (labelled "<Category> only", otherwise "All categories"); counts are
 built once per language for every category, so switching the filter is a lookup. The Outdated and
-Missing buttons count the selected category too. Read-only: nothing
-is written, and roles are still enforced by the Worker.
+Missing counts agree with that scope. Maintainers can switch coverage to a dense category ×
+language matrix showing translated / outdated / missing, with horizontal scrolling inside the
+table on narrow screens. Editors keep the language view. This page does not change saved
+translations; only derived counts are cached, and roles are still enforced by the Worker.
 
 The list is virtualized (fixed rows, a bounded DOM window, one tab stop). Up and Down move the selection,
 Page Up, Page Down, Home, and End jump, Enter opens it, and Enter in the filter opens the first match. Back

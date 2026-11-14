@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
+import { changeKey, changeSizeMemory } from './changeSize';
 import type { Item } from '../../services/generator';
 import {
   behindLabel,
@@ -8,6 +9,7 @@ import {
   countRows,
   filterRows,
   parseStateFilter,
+  queueFor,
   translationIndex,
 } from './queue';
 
@@ -114,6 +116,23 @@ describe('translation queue', () => {
   const data = fixture();
   const index = translationIndex(data);
 
+  it('rebuilds the same small-changes order from cached English identities', () => {
+    const tooltip = data.bundle.tooltips[2]!;
+    const key = changeKey({
+      hash: 2,
+      sourceUpdatedAt: tooltip.text.de!.sourceUpdatedAt!,
+      current: tooltip.text.en!.text,
+    });
+    changeSizeMemory.set(key, { count: 1 });
+    try {
+      expect(
+        queueFor(index, 'de', { state: null, category: null, query: '', sort: 'small' })[0]?.hash,
+      ).toBe(2);
+    } finally {
+      changeSizeMemory.delete(key);
+    }
+  });
+
   it('lists only translatable tooltips: no aliases, selectors, placeholders, archived, or blank English', () => {
     expect(index.translatable.map((entry) => entry.hash).sort((a, b) => a - b)).toEqual([
       1, 2, 3, 9, 10, 11, 12,
@@ -205,6 +224,31 @@ describe('translation queue', () => {
     expect(translationIndex(data)).toBe(index);
     expect(translationIndex(fixture())).not.toBe(index);
     expect(index.queue('de')).toBe(index.queue('de'));
+  });
+
+  it('excludes paired enhanced mods from queues and coverage but keeps orphan enhanced mods', () => {
+    const data = fixture();
+    const before = translationIndex(data).coverage('de');
+    data.items[40] = item(40, 'Base mod', 'weapon-mod');
+    data.items[41] = item(41, 'Paired enhanced mod', 'weapon-mod-enhanced', { baseHash: 40 });
+    data.items[42] = item(42, 'Orphan enhanced mod', 'weapon-mod-enhanced');
+    data.bundle.tooltips[40] = tooltip(40, 'Base mod text');
+    data.bundle.tooltips[41] = tooltip(41, 'Paired enhanced text', {
+      de: { source: '2026-02-01T00:00:00.000Z' },
+    });
+    data.bundle.tooltips[42] = tooltip(42, 'Orphan enhanced text', {
+      de: { source: '2026-02-01T00:00:00.000Z' },
+    });
+    const index = translationIndex({ ...data });
+    expect(index.translatable.map((entry) => entry.hash)).not.toContain(41);
+    expect(index.translatable.map((entry) => entry.hash)).toContain(42);
+    expect(index.queue('de').map((row) => row.hash)).not.toContain(41);
+    expect(index.queue('de').find((row) => row.hash === 42)?.state).toBe('outdated');
+    expect(index.coverage('de')).toEqual({
+      ...before,
+      outdated: before.outdated + 1,
+      missing: before.missing + 1,
+    });
   });
 
   it('filters by state, category, and text', () => {

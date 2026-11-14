@@ -3,6 +3,7 @@ import { PublishHttpError, type RemoteStatus } from '../../services/publisher/ap
 import { createMemoryOpStore, type OpStore } from '../../services/publisher/opStore';
 import {
   PublishDriver,
+  publishChunks,
   publishTiming,
   usePublishState,
   type DriverDeps,
@@ -44,6 +45,7 @@ function harness(store = createMemoryOpStore()): Harness {
     make() {
       const tracked: OpStore = {
         ...store,
+        list: (userId) => store.list(userId),
         add: async (op) => {
           log.push('store.add');
           return store.add(op);
@@ -696,18 +698,131 @@ it('persists every chunk before sending and reuses each identity after a lost re
   const saved = [...h.store.records.values()];
   expect(saved.map((entry) => entry.hashes.length)).toEqual([50, 50, 1]);
   expect(new Set(saved.map((entry) => entry.groupId)).size).toBe(1);
-  expect(h.api.post).toHaveBeenCalledTimes(3);
+  expect(h.api.post).toHaveBeenCalledTimes(1);
   first.stop();
   const second = h.make();
   h.api.post.mockRejectedValue(new Error('Still offline'));
   await second.start('1');
   await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 100);
-  for (const entry of saved) {
+  expect(new Set(h.api.post.mock.calls.map(([body]) => body.opId))).toEqual(
+    new Set([saved[0]!.opId]),
+  );
+  h.api.post.mockResolvedValue({ status: 'pending' });
+  await vi.advanceTimersByTimeAsync(70_000);
+  for (const entry of saved)
     expect(h.api.post).toHaveBeenCalledWith({
       opId: entry.opId,
       hashes: entry.hashes,
       expected: entry.expected,
     });
-  }
   expect([...h.store.records.keys()]).toEqual(saved.map((entry) => entry.opId));
+});
+
+it('keeps the Nail, Meet Hammer pending import closure together across the old 50 boundary', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const many = Array.from({ length: 50 }, (_, i) => ({
+    hash: i + 100,
+    digest: digest(1),
+    previous: undefined,
+  }));
+  await driver.create([
+    ...many,
+    { hash: 1209885908, digest: digest(2), previous: undefined, dependencies: [2152442764] },
+    { hash: 2152442764, digest: digest(3), previous: undefined },
+  ]);
+  await settle();
+  expect(ops().map((op) => op.hashes)).toEqual([many.map((x) => x.hash), [1209885908, 2152442764]]);
+});
+it('keeps transitive imports and cycles in one oversize closure, and refuses missing pending selections', () => {
+  const many = Array.from({ length: 60 }, (_, i) => ({
+    hash: i,
+    digest: digest(1),
+    previous: undefined,
+    dependencies: [(i + 1) % 60],
+  }));
+  expect(publishChunks(many).map((chunk) => chunk.length)).toEqual([60]);
+  expect(() => publishChunks(many.slice(0, 59))).toThrow(/Select pending imported tooltip 59/);
+});
+
+it('does not send later group chunks after a definite earlier POST failure, even after dismissal and reload', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  h.api.post.mockRejectedValue(new PublishHttpError(413, 'Too large'));
+  await first.create(
+    Array.from({ length: 51 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await settle();
+  const saved = [...h.store.records.values()];
+  expect(h.api.post).toHaveBeenCalledTimes(1);
+  expect(saved.map((entry) => entry.status)).toEqual(['failed', 'failed']);
+  expect(saved[1]!.error).toContain('Further sends of this chunk were stopped');
+  await first.dismiss(saved[0]!.opId);
+  first.stop();
+  const second = h.make();
+  await second.start('1');
+  await settle();
+  expect(h.api.post).toHaveBeenCalledTimes(1);
+});
+
+it('uses persisted chunk order rather than random ULID order after reloading an unsent group', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  h.api.post.mockRejectedValue(new Error('offline'));
+  await first.create(
+    Array.from({ length: 51 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await settle();
+  first.stop();
+  const saved = [...h.store.records.values()];
+  h.store.records.clear();
+  for (const [index, entry] of saved.entries()) {
+    entry.opId = entry.opId.slice(0, 10) + (index === 0 ? 'Z' : '0').repeat(16);
+    entry.groupId = 'reload-order';
+    h.store.records.set(entry.opId, entry);
+  }
+  const second = h.make();
+  h.api.post.mockRejectedValue(new Error('offline'));
+  await second.start('1');
+  await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 100);
+  expect(new Set(h.api.post.mock.calls.map(([body]) => body.hashes[0]))).toEqual(new Set([0]));
+});
+
+it('backs off a group acceptance check when browser storage cannot be read', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  h.api.post.mockRejectedValue(new Error('offline'));
+  await driver.create(
+    Array.from({ length: 51 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await settle();
+  const list = vi.spyOn(h.store, 'list').mockRejectedValue(new Error('storage unavailable'));
+  const posts = h.api.post.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(h.api.post).toHaveBeenCalledTimes(posts);
+  expect(list.mock.calls.length).toBeLessThan(20);
+});
+
+it('never sends an old account’s operation after switching accounts during the attempt write', async () => {
+  const h = harness();
+  const update = h.store.update;
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  h.store.update = async (opId, change) => {
+    await blocked;
+    return update(opId, change);
+  };
+  const driver = h.make();
+  await driver.start('1');
+  await driver.create(inputs);
+  await driver.start('2');
+  release();
+  await settle();
+  expect(h.api.post).not.toHaveBeenCalled();
 });

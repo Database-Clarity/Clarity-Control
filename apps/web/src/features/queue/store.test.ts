@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QueueItem, WorkQueue } from './model';
 import { readStoredQueues, resetWorkQueues, useWorkQueues } from './store';
 
@@ -96,4 +96,65 @@ describe('work-through store', () => {
     sessionStorage.setItem('clarity-work-through:v1', '{not json');
     expect(readStoredQueues()).toEqual({ active: null, queues: {} });
   });
+
+  it.each(['{}', 'null', '[null]', '{bad json'])(
+    'keeps valid queues when another batch queue has corrupt items: %s',
+    (corrupt) => {
+      vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+      try {
+        useWorkQueues.getState().start(queue('valid'));
+        useWorkQueues.getState().start({
+          ...queue('broken'),
+          source: 'translations',
+          destination: {
+            kind: 'batch',
+            batchId: '01JF00000000000000000000AA',
+            batchName: 'December patch',
+          },
+        });
+        sessionStorage.setItem('clarity-work-through:v1:items:broken', corrupt);
+        const restored = readStoredQueues();
+        expect(Object.keys(restored.queues)).toEqual(['valid']);
+        expect(restored.queues.valid).toEqual(queue('valid'));
+        expect(restored.active).toBeNull();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+});
+
+it('restores only valid batch destinations while scheduled changes are enabled', () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  try {
+    const batchId = '01JF00000000000000000000AA';
+    const item = {
+      key: 'batch:1:de',
+      hash: 1,
+      name: 'One',
+      detail: { batchId, path: '/t/1?lang=de' },
+    };
+    const batchQueue = {
+      ...queue(),
+      source: 'translations' as const,
+      items: [item],
+      current: item.key,
+      destination: { kind: 'batch' as const, batchId, batchName: 'December patch' },
+    };
+    useWorkQueues.getState().start(batchQueue);
+    expect(readStoredQueues().queues.q1?.destination).toEqual(batchQueue.destination);
+    vi.stubEnv('VITE_SCHEDULED_ENABLED', '0');
+    expect(readStoredQueues().queues.q1).toBeUndefined();
+    vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+    useWorkQueues
+      .getState()
+      .start({ ...batchQueue, destination: { ...batchQueue.destination, batchId: 'bad' } });
+    expect(readStoredQueues().queues.q1).toBeUndefined();
+    useWorkQueues
+      .getState()
+      .start({ ...batchQueue, items: [{ ...item, detail: { batchId: 'wrong' } }] });
+    expect(readStoredQueues().queues.q1).toBeUndefined();
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
