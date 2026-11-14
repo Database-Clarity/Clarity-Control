@@ -1,9 +1,11 @@
 @use '../../ui/controls';
 @use '../../data/variables' as theme;
+@use '../../ui/stepper';
 
 // The pane header's queue group (TooltipPage.module.scss .queue) carries the layout; these are the
 // work-through additions: the position as a menu trigger, the finished and paused states.
-.queue[data-finished] .position {
+// The end of the queue reads as success only when every item is done; skipped ones stay neutral.
+.queue[data-finished='done'] .position {
   color: var(--accent-ink);
 }
 .position {
@@ -29,10 +31,22 @@
     @include controls.focus-ring;
   }
 }
-// Doubled: the stepper's segment rule (.queueStepper .queueBack) sets min-width 0.
-.queue.queue .menuSegment {
-  min-width: var(--tap, 2.25rem);
-  padding: 0 0.5rem;
+// Phones: the stepper's middle segment, the position and its menu chevron.
+.phonePosition {
+  gap: 0.375rem;
+}
+// Resume and End: header buttons on a desktop, one joined pair at the stepper's height on phones.
+.pausedActions {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+@include theme.mobile-or-coarse {
+  .queue .pausedActions {
+    @include stepper.group;
+    > * {
+      @include stepper.segment;
+    }
+  }
 }
 .chevron {
   width: 0.375rem;
@@ -48,8 +62,15 @@
 }
 
 // ---- the queue's menu: every item with its status, Rebuild queue, Leave ----
+// The popover's body passes its height down (it is bounded by the space above the phone's markup
+// dock), so the item list and the phone's list action shrink and the footer always shows.
+*:has(> .menu) {
+  display: flex;
+  flex-direction: column;
+}
 .menu {
   display: flex;
+  flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
   max-height: min(28rem, 70vh);
@@ -57,6 +78,7 @@
 }
 .menuHead,
 .menuFoot {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -87,7 +109,7 @@
 }
 .items {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 3rem;
   margin: 0;
   padding: 0.25rem 0;
   overflow: auto;
@@ -156,6 +178,8 @@
 
 // ---- the source's finishing action (Bungie change, Lost text) ----
 .menuPanel {
+  flex: 0 1 auto;
+  min-height: 4rem;
   padding: 0.5rem 0.625rem;
   border-bottom: 1px solid var(--hair);
   overflow: auto;
@@ -207,7 +231,7 @@
 .short {
   display: none;
 }
-@container pane-header (max-width: 38rem) {
+@container pane-header (max-width: 26rem) {
   .long {
     display: none;
   }

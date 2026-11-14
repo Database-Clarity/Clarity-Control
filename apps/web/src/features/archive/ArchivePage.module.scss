@@ -8,9 +8,8 @@
     display: block;
     margin: 0.5rem 0;
   }
-  button,
-  input,
-  select {
+  // Not inside a work-through queue control: it keeps the editor header's own sizes.
+  :is(button, input, select):where(:not([data-queue] *)) {
     min-height: var(--tap, max(44px, 2.75rem));
     min-width: var(--tap, max(44px, 2.75rem));
     max-width: 100%;
@@ -29,6 +28,22 @@
   border: 1px solid var(--box-edge);
   padding: 1rem;
   margin: 1rem 0;
+}
+// The selection box sits on the title's line.
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  // The title button's own top margin moves to the row, so the box centres on the button.
+  margin-top: 0.75rem;
+  > button {
+    margin: 0;
+  }
+  // After `.page label` (block, margins) in this file, at the same specificity: this one wins.
+  > label {
+    display: inline-flex;
+    margin: 0;
+  }
 }
 .actions {
   display: flex;
@@ -90,4 +105,23 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+  // A work-through queue's control, left where "Back to Archive" was.
+  > [data-queue] {
+    margin-left: 0;
+  }
+}
+// The imported list rules (Status.module.scss `.page button`: font, padding) must not reach the
+// queue control: it keeps the editor header's sizes, one height and one type size. Phones use the
+// stepper, whose segments already match those rules.
+@media (min-width: 701px) {
+  .detailBar [data-queue] {
+    font-size: 0.75rem;
+    button {
+      padding: 0 0.25rem;
+    }
+    button[aria-label='Finish the queue'] {
+      padding: 0;
+      font-size: 1rem;
+    }
+  }
 }

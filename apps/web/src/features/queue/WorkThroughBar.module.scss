@@ -1,25 +1,27 @@
 @use '../../ui/controls';
 @use '../../data/variables' as theme;
 
-// One row of compact buttons above a worklist: same height and style, wrapping as a unit.
+// One row above a worklist: "Work through", the two ways in, Clear. The buttons are the list
+// page's own (same height and type as its other controls); a dense list column (Review) uses the
+// app's compact controls. The row wraps as a unit.
 .bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   margin: 0.5rem 0;
-  // The lists' page rules size bare buttons (`.page button`); the doubled class outranks them.
-  &#{&} > button {
-    @include controls.button;
-    min-width: 0;
-    padding: 0 0.625rem;
+  > button {
     white-space: nowrap;
   }
 }
-// A narrow column: the lead once, the buttons sharing the rest of the row.
-.compact {
+.dense {
+  gap: 0.25rem;
+  // The doubled class outranks the column's own rules.
   &#{&} > button {
+    @include controls.button;
     flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 0.625rem;
   }
 }
 .lead {

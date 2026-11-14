@@ -227,30 +227,40 @@
   font-variant-numeric: tabular-nums;
 }
 // The control has to fit beside a draft's Discard in the narrowest editor (480px). As the header
-// narrows, queue mode first drops the shortcut hint, then shortens the language field, and lets an
-// override's button ellipsise; the control itself never shrinks or clips. "Markup tools" says
-// "Markup" before any button text has to ellipsise (the queue's label names its list).
+// narrows, queue mode first drops the shortcut hint; below 38rem (a work-through queue names its
+// list and carries the list's action) the control takes a row of its own, as on a phone and in
+// toggle mode, so the language field and "Markup tools" keep their full text. The row is there
+// for the whole visit: nothing moves when a draft appears.
 @container pane-header (max-width: 44rem) {
   .paneHeader:has(> .queue) .key {
     display: none;
   }
 }
-@container pane-header (max-width: 38rem) {
+@media (min-width: 701px) {
+  // The header is its own container, so its wrapping is set here; only the query's children
+  // change with its width (the queue takes the second row below 38rem).
   .paneHeader:has(> .queue) {
-    gap: 0.375rem;
-    .markupWord {
-      display: none;
-    }
-    .langSelect {
-      max-width: 6rem;
-      text-overflow: ellipsis;
-    }
-    .paneRight > button {
-      display: block;
-      flex: 0 1 auto;
-      min-width: 2.5rem;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  @container pane-header (max-width: 38rem) {
+    .paneHeader:has(> .queue) {
+      .queue {
+        order: 2;
+        flex: 1 1 100%;
+        min-width: 0;
+        margin-left: 0;
+        + .paneRight {
+          margin-left: auto;
+        }
+      }
+      .queuePosition {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
   }
 }

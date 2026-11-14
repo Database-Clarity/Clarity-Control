@@ -284,7 +284,7 @@ describe('Translations queue on a phone', () => {
     }));
   });
 
-  it('is one stepper: Previous, the position as the way back, Next; Alt+PageDown and Alt+PageUp step', async () => {
+  it('is one stepper: Previous, the position opening the menu, Next; Alt+PageDown and Alt+PageUp step', async () => {
     await mount('/translations');
     const total = rows().length;
     await click(rows()[0]!);
@@ -292,11 +292,11 @@ describe('Translations queue on a phone', () => {
     const segments = [...host.querySelectorAll('[data-queue] > *')];
     expect(segments.map((segment) => segment.getAttribute('aria-label'))).toEqual([
       'Previous in queue',
-      `Back to Translations, 1 of ${total}`,
+      `Translations queue: 1 of ${total}`,
       expect.stringMatching(/^Next in queue: /),
-      'Translations queue: every item, Rebuild queue',
     ]);
     expect(segments[1]!.textContent).toBe(`1 of ${total}`);
+    expect(segments[1]!.getAttribute('aria-haspopup')).not.toBeNull();
     // The status line stays for screen readers only.
     expect(host.querySelector('[data-queue] [role="status"]')).toBeNull();
     expect(host.querySelector('[role="status"].sr-only')!.textContent).toBe(`1 of ${total}`);
@@ -312,7 +312,12 @@ describe('Translations queue on a phone', () => {
     expect(status()).toBe(`2 of ${total}`);
     await press({ key: 'PageUp', altKey: true });
     expect(status()).toBe(`1 of ${total}`);
-    await click(link('Back to Translations')!);
+    // Leave is in the menu the position opens.
+    await click(host.querySelector<HTMLButtonElement>('[data-queue] button[aria-haspopup]')!);
+    const leave = [...document.querySelectorAll<HTMLAnchorElement>('a')].find(
+      (entry) => entry.textContent === 'Leave queue',
+    )!;
+    await click(leave);
     expect(location.pathname).toBe('/translations');
   });
 });

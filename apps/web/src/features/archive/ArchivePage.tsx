@@ -232,34 +232,36 @@ function ArchiveContents() {
             const identity = archiveIdentity(tooltip, data);
             return (
               <li key={tooltip.hash} className={styles.card}>
-                <label className={bar.select}>
-                  <input
-                    type="checkbox"
-                    checked={picked.has(tooltip.hash)}
-                    aria-label={`Select ${identity.name}`}
-                    onChange={(event) => {
-                      const on = event.target.checked;
-                      setPicked((old) => {
-                        const next = new Set(old);
-                        if (on) next.add(tooltip.hash);
-                        else next.delete(tooltip.hash);
-                        return next;
-                      });
+                <div className={styles.cardHead}>
+                  <label className={bar.select}>
+                    <input
+                      type="checkbox"
+                      checked={picked.has(tooltip.hash)}
+                      aria-label={`Select ${identity.name}`}
+                      onChange={(event) => {
+                        const on = event.target.checked;
+                        setPicked((old) => {
+                          const next = new Set(old);
+                          if (on) next.add(tooltip.hash);
+                          else next.delete(tooltip.hash);
+                          return next;
+                        });
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      scroll.current = window.scrollY;
+                      const next = new URLSearchParams(params);
+                      next.set('item', String(tooltip.hash));
+                      setParams(next);
                     }}
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    scroll.current = window.scrollY;
-                    const next = new URLSearchParams(params);
-                    next.set('item', String(tooltip.hash));
-                    setParams(next);
-                  }}
-                >
-                  {identity.name}
-                  {identity.name === `Tooltip ${tooltip.hash}` ? '' : ` (${tooltip.hash})`}
-                </button>
+                  >
+                    {identity.name}
+                    {identity.name === `Tooltip ${tooltip.hash}` ? '' : ` (${tooltip.hash})`}
+                  </button>
+                </div>
                 <p>{archiveCategoryLabel(identity.categoryId, data)}</p>
                 <p>
                   <strong>{tooltip.archive ? 'Confirmed' : 'Unconfirmed'}</strong> ·{' '}
@@ -296,10 +298,14 @@ function ArchiveContents() {
       {selectedHash && (
         <>
           <div className={styles.detailBar}>
-            <button type="button" onClick={back}>
-              Back to Archive
-            </button>
-            {work && <WorkThroughControl work={work} />}
+            {/* In a queue, its "Archive" link is the way back (it leaves the queue). */}
+            {work ? (
+              <WorkThroughControl work={work} />
+            ) : (
+              <button type="button" onClick={back}>
+                Back to Archive
+              </button>
+            )}
           </div>
           {!base || !current ? (
             <p>This tooltip is no longer in this Archive filter.</p>

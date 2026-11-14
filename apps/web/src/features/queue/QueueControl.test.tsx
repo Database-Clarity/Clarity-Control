@@ -93,8 +93,9 @@ afterEach(() => {
 });
 
 const button = (text: string) =>
-  [...host.querySelectorAll<HTMLButtonElement>('button')].find((entry) =>
-    entry.textContent?.includes(text),
+  [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+    (entry) =>
+      entry.textContent?.includes(text) || entry.getAttribute('aria-label')?.includes(text),
   );
 const link = (label: string) =>
   [...host.querySelectorAll<HTMLAnchorElement>('a')].find(
@@ -112,6 +113,8 @@ describe('work through Bungie drift', () => {
     await act(async () => button('Work through 2 selected')!.click());
     expect(location.pathname).toBe('/t/11');
     expect(position()).toBe('1 of 2');
+    // Focus lands on the queue (its position menu).
+    expect(document.activeElement).toBe(host.querySelector('[data-queue] button[aria-haspopup]'));
     // No Previous before the first item.
     expect(
       host.querySelector('[aria-label="Previous in queue"][aria-disabled="true"]'),
@@ -136,6 +139,8 @@ describe('work through Bungie drift', () => {
 
     await act(async () => link('Bungie drift')!.click());
     expect(location.pathname).toBe('/drift');
+    // Focus returns to the bar the queue started from.
+    expect(document.activeElement?.closest('[aria-label="Work through"]')).not.toBeNull();
     expect(check('Alpha').checked).toBe(true);
     expect(check('Beta')).toBeDefined();
     expect(check('Beta').checked).toBe(false);

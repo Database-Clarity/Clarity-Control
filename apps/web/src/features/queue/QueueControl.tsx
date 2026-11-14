@@ -27,6 +27,7 @@ import {
   type WorkQueue,
 } from './model';
 import { queueSources } from './sources';
+import { takeEntryFocus } from './start';
 import { useWorkQueues } from './store';
 import { useQueueDone, useSourceContext, type WorkThrough } from './useQueue';
 import header from '../tooltip/TooltipPage.module.scss';
@@ -45,8 +46,8 @@ const panels: Partial<
     title: 'The in-game description change, and Mark reviewed',
   },
   'lost-text': {
-    label: 'Lost text',
-    short: 'Lost',
+    label: 'Earlier text',
+    short: 'Earlier',
     title: 'The earlier text, Recover as draft, and Dismiss',
   },
 };
@@ -200,8 +201,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       Revisit
     </Link>
   );
-  // Phones: the position is the way back (one joined stepper `[‹][12 of 148][›][▾]`), as in the
-  // translator queue; the menu has a segment of its own.
+  // Leave: the source list's name on desktop; on phones it is in the menu (Leave queue).
   const back = (text: string, ariaLabel?: string) => (
     <Link
       to={leave.to}
@@ -214,6 +214,15 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       {text}
     </Link>
   );
+  // Starting a queue puts focus on its position menu (a keyboard user lands on the queue).
+  const group = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (takeEntryFocus(queue.id))
+      group.current
+        ?.querySelector<HTMLButtonElement>('button[aria-haspopup]')
+        ?.focus({ preventScroll: true });
+  }, [queue.id]);
+  const finished = place.finished ? (place.skipped ? 'skipped' : 'done') : undefined;
   const menu = (trigger: ReactNode, className: string) => (
     <Popover
       label={name}
@@ -221,7 +230,7 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
       flush
       width={360}
       trigger={trigger}
-      triggerLabel={phone ? `${name}: every item, Rebuild queue` : `${name}: ${label}`}
+      triggerLabel={`${name}: ${label}`}
       triggerTitle={`${source.label}: every item in this queue, and Rebuild queue`}
     >
       {(close) => (
@@ -259,6 +268,15 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
     </Popover>
   );
 
+  // Phones: one joined stepper `[‹][12 of 148 ▾][›]`; the position opens the same menu as on a
+  // desktop (every item, Rebuild queue, Leave queue).
+  const phoneMenu = menu(
+    <>
+      <span>{label}</span>
+      <span className={styles.chevron} aria-hidden="true" />
+    </>,
+    `${header.queueBack} ${styles.phonePosition}`,
+  );
   if (phone)
     return (
       <>
@@ -266,38 +284,36 @@ function ActiveControl({ queue, visit }: { queue: WorkQueue; visit: QueueVisit }
           {label}
         </span>
         <span
+          ref={group}
           className={`${header.queue} ${header.queueStepper} ${styles.queue}`}
           role="group"
           aria-label={name}
           data-queue
-          data-finished={place.finished || undefined}
+          data-finished={finished}
         >
           {place.finished ? (
             <>
-              {back(label, `Back to ${source.label}, ${label}`)}
+              {phoneMenu}
               {revisitLink}
             </>
           ) : (
             <>
               {previousStep}
-              {back(label, `Back to ${source.label}, ${label}`)}
+              {phoneMenu}
               {nextStep}
             </>
-          )}
-          {menu(
-            <span className={styles.chevron} aria-hidden="true" />,
-            `${header.queueBack} ${styles.menuSegment}`,
           )}
         </span>
       </>
     );
   return (
     <span
+      ref={group}
       className={`${header.queue} ${styles.queue}`}
       role="group"
       aria-label={name}
       data-queue
-      data-finished={place.finished || undefined}
+      data-finished={finished}
     >
       {back(source.label)}
       {menu(
@@ -450,22 +466,25 @@ function PausedControl({ queue }: { queue: WorkQueue }) {
       <span className={`${header.queuePosition} ${styles.paused}`} role="status">
         {source.label} · paused
       </span>
-      <Link
-        to={source.path(item)}
-        state={visitState({ id: queue.id, key: item.key })}
-        className={header.queueBack}
-        title={`Back to the queue: ${item.name}`}
-      >
-        Resume
-      </Link>
-      <button
-        type="button"
-        className={header.queueBack}
-        title="Stop working through this queue"
-        onClick={() => end(queue.id)}
-      >
-        End
-      </button>
+      {/* Phones: one joined pair at the stepper's height. */}
+      <span className={styles.pausedActions}>
+        <Link
+          to={source.path(item)}
+          state={visitState({ id: queue.id, key: item.key })}
+          className={header.queueBack}
+          title={`Back to the queue: ${item.name}`}
+        >
+          Resume
+        </Link>
+        <button
+          type="button"
+          className={header.queueBack}
+          title="Stop working through this queue"
+          onClick={() => end(queue.id)}
+        >
+          End
+        </button>
+      </span>
     </span>
   );
 }

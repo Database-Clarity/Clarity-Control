@@ -107,7 +107,7 @@ export function WorkThroughBar({
   restore,
   onClear,
   anchor,
-  compact = false,
+  dense = false,
 }: {
   source: QueueSourceId;
   /** The selected rows the list shows, in its order. */
@@ -116,18 +116,27 @@ export function WorkThroughBar({
   shown: QueueItem[];
   /** The list's own state to come back to (its scroll is read here). */
   restore: Record<string, unknown>;
-  /** Clear selection beside the start button; left out where the list has its own Clear. */
+  /** Clear selection after the start buttons; left out where the list has its own Clear. */
   onClear?(): void;
   /** An element inside the list, to find the list's scroller. */
   anchor: React.RefObject<Element | null>;
-  /** A narrow column: "Work through" once, then "2 selected" and "All 40 shown" (full names stay
-   * the buttons' accessible names). */
-  compact?: boolean;
+  /** The app's compact controls (Review's list column); otherwise the list page's own buttons. */
+  dense?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
   const context = useSourceContext();
   const disabled = !context;
+  const group = useRef<HTMLDivElement>(null);
+  // Back from a queue (Leave): focus returns to the bar the queue started from.
+  const returned = useRef(returnedState(location.state) !== undefined);
+  useEffect(() => {
+    if (!returned.current || disabled) return;
+    returned.current = false;
+    group.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({
+      preventScroll: true,
+    });
+  }, [disabled]);
   function begin(scope: WorkQueue['scope'], items: QueueItem[]) {
     if (!context || !items.length) return;
     const done = queueSources[source].done(context);
@@ -143,47 +152,52 @@ export function WorkThroughBar({
         path: `${location.pathname}${location.search}`,
         restore: { ...restore, scroll: scroller.scrollTop, top: topRowOf(scroller) },
       },
+      focus: true,
     });
     navigate(to, { state });
   }
+  // "Work through" once, then the two ways in, then Clear: the buttons say "2 selected" and
+  // "All 40 shown", their accessible names say it in full.
   return (
     <div
-      className={`${styles.bar}${compact ? ` ${styles.compact}` : ''}`}
+      ref={group}
+      className={`${styles.bar}${dense ? ` ${styles.dense}` : ''}`}
       role="group"
       aria-label="Work through"
     >
-      {compact && (
-        <span className={styles.lead} aria-hidden="true">
-          Work through
-        </span>
-      )}
+      <span className={styles.lead} aria-hidden="true">
+        Work through
+      </span>
       {selected.length > 0 && (
-        <>
-          <button
-            type="button"
-            disabled={disabled}
-            title="Open the selected rows one after another, with Previous and Next (Alt+Page Up, Alt+Page Down)"
-            aria-label={compact ? `Work through ${selected.length} selected` : undefined}
-            onClick={() => begin('selected', selected)}
-          >
-            {compact ? `${selected.length} selected` : `Work through ${selected.length} selected`}
-          </button>
-          {onClear && (
-            <button type="button" className={styles.quiet} onClick={onClear}>
-              Clear selection
-            </button>
-          )}
-        </>
+        <button
+          type="button"
+          disabled={disabled}
+          title="Open the selected rows one after another, with Previous and Next (Alt+Page Up, Alt+Page Down)"
+          aria-label={`Work through ${selected.length} selected`}
+          onClick={() => begin('selected', selected)}
+        >
+          {selected.length} selected
+        </button>
       )}
       <button
         type="button"
         disabled={disabled || !shown.length}
         title="Open every row shown, one after another, with Previous and Next (Alt+Page Up, Alt+Page Down)"
-        aria-label={compact ? `Work through all ${shown.length} shown` : undefined}
+        aria-label={`Work through all ${shown.length} shown`}
         onClick={() => begin('shown', shown)}
       >
-        {compact ? `All ${shown.length} shown` : `Work through all ${shown.length} shown`}
+        All {shown.length} shown
       </button>
+      {selected.length > 0 && onClear && (
+        <button
+          type="button"
+          className={styles.quiet}
+          aria-label="Clear selection"
+          onClick={onClear}
+        >
+          Clear
+        </button>
+      )}
     </div>
   );
 }

@@ -8,6 +8,15 @@ import {
 import { queueSources } from './sources';
 import { useWorkQueues } from './store';
 
+/** The queue whose control takes focus when it first shows (started from a list's entry bar). */
+let entryFocus: string | null = null;
+/** Whether the control of queue `id` should take focus now (once). */
+export function takeEntryFocus(id: string): boolean {
+  if (entryFocus !== id) return false;
+  entryFocus = null;
+  return true;
+}
+
 /**
  * Starts a queue of `items` (frozen from here on) at `first`, and returns where to go: the item's
  * own URL and the history state that names the queue. `id` lets a link carry the state before the
@@ -20,6 +29,7 @@ export function startQueue({
   items,
   first,
   origin,
+  focus = false,
 }: {
   id?: string;
   source: QueueSourceId;
@@ -27,7 +37,10 @@ export function startQueue({
   items: QueueItem[];
   first: QueueItem;
   origin: WorkQueue['origin'];
+  /** Focus the queue's control when the item opens (an entry button; not a row link). */
+  focus?: boolean;
 }): { to: string; state: ReturnType<typeof visitState> } {
+  entryFocus = focus ? id : null;
   useWorkQueues.getState().start({
     version: 1,
     id,
