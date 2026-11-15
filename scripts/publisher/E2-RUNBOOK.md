@@ -28,8 +28,8 @@ Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precon
 For a `numberTokens` PIN, also satisfy the [Number tokens rollout precondition](README.md#number-tokens-rollout-precondition).
 While `config/inactive.json` is non-empty, never roll back to a PIN without `inactiveMoves`.
 
-Template source PIN: `f3eb436b50a3d7ffa9fcdbaa170b89a230ac64b1`.
-Expected publisher.mjs SHA-256: `706bf23064c4a894f8ad278fbfb5939d3b95895b0b85f3b209c615a1b196d043`.
+Template source PIN: `995c2d4cedff405cf0ef2b6c40c8f7a1dc9e4cdf`.
+Expected publisher.mjs SHA-256: `12e7bcc6550c4ca7b8f2b676692d67983741ebca610dc2cde864de2778ed8497`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
