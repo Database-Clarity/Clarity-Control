@@ -6,10 +6,12 @@ import {
   type GlyphWarning,
   type Lang,
   type MarkupGlobals,
+  type NumberMap,
   type RetiredOccurrence,
   type ValidationIssue,
 } from '@clarity/core';
 import { translationParity, type ParityGap } from './parity';
+import { numberVariableIssues } from './numbers/diagnostics';
 import type { GlossaryEntry } from '../../../../../packages/core/src/glossary/schema';
 import { glossaryProse, glossaryTermUsed } from '../../../../../packages/core/src/glossary/prose';
 
@@ -24,6 +26,7 @@ export interface DiagnosticInput {
   selfHash?: number;
   /** The saved English while translating: parity is checked against it. Undefined for English. */
   sourceText?: string;
+  sourceNumbers?: NumberMap;
   termCheck?: { id: string; entries?: readonly GlossaryEntry[] };
 }
 export interface DiagnosticResult {
@@ -39,13 +42,16 @@ export function computeDiagnostics(input: DiagnosticInput): DiagnosticResult {
   const missingTerms = computeMissingTerms(input);
   return {
     ...(input.termCheck ? { missingTerms } : {}),
-    issues: validateText(
-      maskConflicts(input.text),
-      input.lang,
-      input.globals,
-      input.requireEnglish,
-      input.selfHash,
-    ),
+    issues: [
+      ...validateText(
+        maskConflicts(input.text),
+        input.lang,
+        input.globals,
+        input.requireEnglish,
+        input.selfHash,
+      ),
+      ...numberVariableIssues(input.text, input.sourceText, input.sourceNumbers, input.lang),
+    ],
     glyphs: glyphWarnings(input.text),
     retired: findRetiredMarkup(maskConflicts(input.text)),
     parity:

@@ -93,6 +93,7 @@ export function requestDiagnostics(input: DiagnosticInput): Promise<DiagnosticRe
     input.requireEnglish,
     input.selfHash,
     input.sourceText,
+    input.sourceNumbers,
     input.termCheck?.id,
   ]);
   const cached = cache.get(key);

@@ -1,0 +1,242 @@
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import type { Lang } from '@clarity/core';
+import { ReadingSlots } from '../preview/ReadingTooltip';
+import { TermLayer, type Mark, type SpanSource } from '../terms/TermLayer';
+import { translationView } from '../terms/insert';
+import { useNumberDocument } from '../editor/numbers/documents';
+import { insertSourceNumber } from '../editor/numbers/state';
+import type { NumberSource } from '../editor/numbers/model';
+import styles from './NumberEnglishSource.module.scss';
+
+/** Raw after-side pieces keep their exact source offsets, including split WordDiff runs. */
+export function numberAfter(source: NumberSource, text: string, offset: number): ReactNode {
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const slot of source.slots) {
+    const from = Math.max(0, slot.from - offset),
+      to = Math.min(text.length, slot.to - offset);
+    if (to <= from) continue;
+    if (from > at) parts.push(text.slice(at, from));
+    parts.push(
+      <span key={`${slot.id}:${from}`} data-slot={slot.id}>
+        {text.slice(from, to)}
+      </span>,
+    );
+    at = to;
+  }
+  if (at < text.length) parts.push(text.slice(at));
+  return parts;
+}
+
+export function NumberEnglishSource({
+  hash,
+  lang,
+  enabled,
+  canInsert,
+  stepping,
+  text,
+  raw = false,
+  changes = false,
+  children,
+}: {
+  hash: number;
+  lang: Lang;
+  enabled: boolean;
+  canInsert: boolean;
+  stepping: boolean;
+  text: string;
+  raw?: boolean;
+  changes?: boolean;
+  children(renderAfter?: (text: string, offset: number) => ReactNode): ReactNode;
+}) {
+  const store = useNumberDocument(hash, lang);
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const source = state.source?.text === text ? state.source : null;
+  const root = useRef<HTMLDivElement>(null);
+  const [hidden, setHidden] = useState<readonly number[]>([]);
+  const slotContext = useMemo(
+    () => (source ? { text, ids: source.slots.map((slot) => slot.id) } : undefined),
+    [source, text],
+  );
+  useLayoutEffect(() => {
+    let frame = 0;
+    const reveal = (event: Event) => {
+      const detail = (event as CustomEvent<{ hash: number; id: number }>).detail;
+      if (detail?.hash !== hash || !source?.byId.has(detail.id)) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          const span = root.current?.querySelector<HTMLElement>(`[data-slot="${detail.id}"]`);
+          if (!span) return;
+          span.scrollIntoView({ block: 'center', inline: 'nearest' });
+          span.tabIndex = -1;
+          span.focus({ preventScroll: true });
+        });
+      });
+    };
+    window.addEventListener('clarity-number-reveal', reveal);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('clarity-number-reveal', reveal);
+    };
+  }, [hash, source]);
+  const renderAfter = useCallback(
+    (text: string, offset: number) => (source ? numberAfter(source, text, offset) : text),
+    [source],
+  );
+  const spanSource: SpanSource = useCallback(
+    (element) => {
+      if (!source) return [];
+      return [...element.querySelectorAll<HTMLElement>('[data-slot]')]
+        .filter((span) => !span.closest('[role=tooltip]'))
+        .flatMap((span): Mark[] => {
+          const slot = source.byId.get(Number(span.dataset.slot));
+          if (!slot) return [];
+          const range = document.createRange();
+          range.selectNodeContents(span);
+          return [
+            {
+              range,
+              term: {
+                en: slot.display,
+                kind: 'number',
+                official: [slot.display],
+                insertOnClick: true,
+                number: {
+                  kind: { N: 'Number', S: 'Stacked', M: 'Formula' }[slot.kind],
+                  context: slot.context,
+                  scope: slot.breadcrumb,
+                  insert: () => {
+                    const view = translationView(hash);
+                    return !!view && insertSourceNumber(view, slot.id);
+                  },
+                },
+              },
+            },
+          ];
+        });
+    },
+    [source, hash],
+  );
+  useLayoutEffect(() => {
+    const element = root.current;
+    if (!element || !source || stepping || raw) {
+      setHidden([]);
+      return;
+    }
+    const find = () => {
+      if (changes && !element.querySelector('[data-number-source]')) {
+        setHidden([]);
+        return;
+      }
+      const visible = new Set(
+        [...element.querySelectorAll<HTMLElement>('[data-slot]:not([data-hidden-number])')]
+          .filter((span) => !span.closest('[role=tooltip]'))
+          .map((span) => Number(span.dataset.slot)),
+      );
+      const next = source.slots.filter((slot) => !visible.has(slot.id)).map((slot) => slot.id);
+      setHidden((previous) => (previous.join(',') === next.join(',') ? previous : next));
+    };
+    find();
+    const observer = new MutationObserver(find);
+    observer.observe(element, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [source, stepping, raw, changes]);
+
+  // Range identities stay installed while typing. A caret move changes only the affected sets.
+  const marked = useRef(new Map<Range, string>());
+  useLayoutEffect(() => {
+    if (
+      !root.current ||
+      stepping ||
+      !source ||
+      typeof CSS === 'undefined' ||
+      !('highlights' in CSS) ||
+      typeof Highlight === 'undefined'
+    )
+      return;
+    const registry = CSS.highlights;
+    let ranges: { range: Range; id: number }[] = [];
+    const clear = () => {
+      for (const { range } of ranges) {
+        const name = marked.current.get(range);
+        if (name) registry.get(name)?.delete(range);
+        marked.current.delete(range);
+      }
+    };
+    const apply = () => {
+      for (const { range, id } of ranges) {
+        const snapshot = store.getSnapshot();
+        const name = snapshot.used.has(id)
+          ? 'number-used'
+          : id === snapshot.next
+            ? 'number-next'
+            : 'number-todo';
+        const previous = marked.current.get(range);
+        if (name === previous) continue;
+        if (previous) registry.get(previous)?.delete(range);
+        let highlight = registry.get(name);
+        if (!highlight) registry.set(name, (highlight = new Highlight()));
+        highlight.add(range);
+        marked.current.set(range, name);
+      }
+    };
+    const rebuild = () => {
+      clear();
+      ranges = spanSource(root.current!).map((mark) => ({
+        range: mark.range,
+        id: Number((mark.range.startContainer as Element).getAttribute?.('data-slot')),
+      }));
+      apply();
+    };
+    rebuild();
+    const observer = new MutationObserver(rebuild);
+    observer.observe(root.current, { childList: true, subtree: true });
+    const unsubscribe = store.subscribe(apply);
+    return () => {
+      unsubscribe();
+      observer.disconnect();
+      clear();
+    };
+  }, [source, stepping, spanSource, store, hidden, raw]);
+  return (
+    <ReadingSlots.Provider value={slotContext}>
+      <div ref={root} className={styles.source}>
+        <TermLayer
+          hash={hash}
+          lang={lang}
+          enabled={enabled && !changes && !raw}
+          canInsert={canInsert}
+          stepping={stepping}
+          spanSource={source ? spanSource : undefined}
+        >
+          {children(source ? renderAfter : undefined)}
+          {!raw && hidden.length > 0 && (
+            <p>
+              Not shown in the text:{' '}
+              {hidden.map((id, index) => (
+                <span key={id}>
+                  {index > 0 && ', '}
+                  {source?.byId.get(id)?.variable && `${source.byId.get(id)!.variable} = `}
+                  <span data-slot={id} data-hidden-number>
+                    {source?.byId.get(id)?.kind === 'M'
+                      ? source.byId.get(id)?.display
+                      : source?.byId.get(id)?.value}
+                  </span>
+                </span>
+              ))}
+            </p>
+          )}
+        </TermLayer>
+      </div>
+    </ReadingSlots.Provider>
+  );
+}

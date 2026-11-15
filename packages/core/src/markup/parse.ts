@@ -1,4 +1,6 @@
-import { lowerDelimitedMarkup } from './braces.js';
+import { lowerDelimitedMarkup, variableReferences } from './braces.js';
+import { numberSlots, numberTargetRanges } from './numberSlots.js';
+import { numberVariables } from '../numbers/freeze.js';
 import { elementTextMarkers, lowerElementTags, markElementTags } from './elementTags.js';
 import { markupStrayTags, parseLines } from './lines.js';
 import { prepareMarkup, prepareNativeTitle, markupVariableReferences } from './prepare.js';
@@ -30,7 +32,9 @@ export const reservedMarkerMessage =
 export function parseMarkup(
   text: string,
   globals: MarkupGlobals = { variables: '', titles: '' },
+  options?: { slots: readonly number[] },
 ): ParsedMarkup {
+  if (options) return parseNumberSlots(text, globals, options.slots);
   let reserved = false;
   let tagged = false;
   const clean = (source: string) => {
@@ -55,6 +59,138 @@ export function parseMarkup(
   const diagnostics = parsed.diagnostics;
   if (reserved) diagnostics.push({ severity: 'error', message: reservedMarkerMessage });
   return { lines, diagnostics };
+}
+
+/**
+ * Carry source identities through the real preparation pipeline. Declaration values are
+ * deliberately unmarked: expanding a variable must never create a clickable source slot.
+ * Alphabetic ids cannot be reformatted as decimal numbers by preparation.
+ */
+function parseNumberSlots(
+  text: string,
+  globals: MarkupGlobals,
+  ids: readonly number[],
+): ParsedMarkup {
+  const open = '\uE100',
+    close = '\uE101';
+  if (text.includes(open) || text.includes(close)) return parseMarkup(text, globals);
+  const variables = numberVariables(text);
+  const slots = numberSlots(text);
+  const markers: { from: number; to: number; key: string }[] = [];
+  let source = '',
+    at = 0;
+  for (const [index, slot] of slots.entries()) {
+    const id = ids[index];
+    if (
+      id === undefined ||
+      variables.some(
+        (variable) =>
+          variable.from <= slot.from && !text.slice(variable.from, slot.from).includes('\n'),
+      )
+    )
+      continue;
+    const key = id
+      .toString(16)
+      .replace(/[0-9a-f]/g, (char) => String.fromCharCode(103 + parseInt(char, 16)));
+    markers.push({ from: slot.from, to: slot.to, key });
+  }
+  for (const ref of variableReferences(text)) {
+    if (
+      ref.name === 'e' ||
+      slots.some((slot) => ref.from >= slot.from && ref.to <= slot.to) ||
+      variables.some(
+        (variable) =>
+          variable.from <= ref.from && !text.slice(variable.from, ref.from).includes('\n'),
+      )
+    )
+      continue;
+    const lineStart = text.lastIndexOf('\n', ref.from - 1) + 1;
+    const lineEnd = text.indexOf('\n', ref.to);
+    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+    if (
+      numberTargetRanges(line).some(
+        (range) => ref.from - lineStart >= range.from && ref.from - lineStart < range.to,
+      )
+    )
+      continue;
+    markers.push({ from: ref.from, to: ref.to, key: 'w' + ref.name });
+  }
+  for (const marker of markers.sort((a, b) => a.from - b.from)) {
+    source +=
+      text.slice(at, marker.from) +
+      open +
+      marker.key +
+      close +
+      text.slice(marker.from, marker.to) +
+      open +
+      close;
+    at = marker.to;
+  }
+  source += text.slice(at);
+  const parsed = parseMarkup(source, globals);
+  const spans = (parts: MarkupSpan[]): MarkupSpan[] => {
+    let active: number | string | undefined;
+    return parts.flatMap((part) => {
+      const title = part.title ? lines(part.title) : undefined;
+      if (!part.text || (!part.text.includes(open) && active === undefined))
+        return [{ ...part, ...(title && { title }) }];
+      const slots: { id: number; from: number; to: number }[] = [];
+      const variables: { name: string; from: number; to: number }[] = [];
+      let output = '';
+      let at = 0,
+        slot = active;
+      for (const marker of part.text.matchAll(/\uE100(w[a-zA-Z0-9]+|[g-v]*)\uE101/g)) {
+        if (marker.index > at) {
+          const from = output.length;
+          output += part.text.slice(at, marker.index);
+          if (typeof slot === 'number') slots.push({ id: slot, from, to: output.length });
+          else if (slot) variables.push({ name: slot, from, to: output.length });
+        }
+        slot = marker[1].startsWith('w')
+          ? marker[1].slice(1)
+          : marker[1]
+            ? parseInt(
+                [...marker[1]].map((char) => (char.charCodeAt(0) - 103).toString(16)).join(''),
+                16,
+              )
+            : undefined;
+        at = marker.index + marker[0].length;
+      }
+      if (at < part.text.length) {
+        const from = output.length;
+        output += part.text.slice(at);
+        if (typeof slot === 'number') slots.push({ id: slot, from, to: output.length });
+        else if (slot) variables.push({ name: slot, from, to: output.length });
+      }
+      active = slot;
+      return [
+        {
+          ...part,
+          text: output,
+          ...(slots.length && { slots }),
+          ...(variables.length && { variables }),
+          ...(title && { title }),
+        },
+      ];
+    });
+  };
+  const lines = (input: MarkupLine[]): MarkupLine[] =>
+    input.map((line) => ({
+      ...line,
+      ...(line.linesContent && { linesContent: spans(line.linesContent) }),
+      ...(line.table && {
+        table: line.table.map((row) => ({
+          ...row,
+          ...(row.rowContent && {
+            rowContent: row.rowContent.map((cell) => ({
+              ...cell,
+              cellContent: spans(cell.cellContent),
+            })),
+          }),
+        })),
+      }),
+    }));
+  return { ...parsed, lines: lines(parsed.lines) };
 }
 
 /** The lines as drawn without the tint: tinted text joins its neighbouring plain text. */

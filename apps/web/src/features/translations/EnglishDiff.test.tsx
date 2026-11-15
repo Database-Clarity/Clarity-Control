@@ -46,6 +46,24 @@ async function show(before: string, current: string) {
   await act(async () => {});
 }
 
+it('preserves default diff DOM when the optional after renderer passes text through', async () => {
+  await show('Damage 5.', 'Damage 6.');
+  const original = host.innerHTML;
+  const renderAfter = vi.fn((text: string) => text);
+  await act(async () =>
+    root.render(
+      <EnglishDiffContent
+        hash={1}
+        sourceUpdatedAt="2026-01-01T00:00:00Z"
+        current="Damage 6."
+        renderAfter={renderAfter}
+      />,
+    ),
+  );
+  expect(host.innerHTML).toBe(original);
+  expect(renderAfter).toHaveBeenCalled();
+});
+
 it('says "Markup only" when only element tags changed', async () => {
   await show('Gain <solar/>Scorch.', 'Gain <solar Scorch />.');
   expect(host.querySelector('[data-markup-only]')?.textContent).toContain('Markup only:');
@@ -60,7 +78,9 @@ it('says "Markup only" when only element tags changed', async () => {
   ]);
   expect(host.querySelector('[data-tag-here]')?.textContent).toBe('Tag the same words here');
   expect(host.querySelector('[data-tag-here]')?.hasAttribute('title')).toBe(false);
-  expect(host.querySelector('[role="tooltip"]')?.textContent).toContain('Selects the next Solar icon');
+  expect(host.querySelector('[role="tooltip"]')?.textContent).toContain(
+    'Selects the next Solar icon',
+  );
 });
 
 it('outlines only the spans that are new, not ones tagged before', async () => {

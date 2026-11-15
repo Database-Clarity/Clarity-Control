@@ -1,0 +1,13 @@
+.source {
+  min-width: 0;
+}
+:global(::highlight(number-todo)) {
+  background: var(--mark);
+}
+:global(::highlight(number-next)) {
+  background: var(--mark);
+  text-decoration: underline 2px solid;
+}
+:global(::highlight(number-used)) {
+  text-decoration: underline 1px solid var(--text3);
+}

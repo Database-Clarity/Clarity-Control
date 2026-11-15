@@ -10,6 +10,10 @@ export interface MarkupGlobals {
 }
 
 export interface MarkupSpan {
+  /** Optional identity of a number in this document's English source. */
+  slots?: readonly { id: number; from: number; to: number }[];
+  /** Source references only; never inferred from the digits a variable produces. */
+  variables?: readonly { name: string; from: number; to: number }[];
   text?: string;
   classNames?: (string | undefined)[];
   link?: string;

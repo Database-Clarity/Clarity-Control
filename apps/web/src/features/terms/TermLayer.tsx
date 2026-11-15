@@ -41,18 +41,19 @@ function drawMarks(
   const origin = host.getBoundingClientRect();
   const boxes = document.createDocumentFragment();
   for (const mark of marks)
-    for (const rect of mark.range.getClientRects()) {
-      if (rect.width < 1 || rect.height < 1) continue;
-      const box = document.createElement('span');
-      box.className = styles.mark!;
-      box.dataset.termEn = mark.term.en;
-      if (missing.includes(mark.term.en)) box.dataset.missing = '';
-      box.style.left = `${rect.left - origin.left}px`;
-      box.style.top = `${rect.top - origin.top}px`;
-      box.style.width = `${rect.width}px`;
-      box.style.height = `${rect.height}px`;
-      boxes.append(box);
-    }
+    if (!mark.term.number)
+      for (const rect of mark.range.getClientRects()) {
+        if (rect.width < 1 || rect.height < 1) continue;
+        const box = document.createElement('span');
+        box.className = styles.mark!;
+        box.dataset.termEn = mark.term.en;
+        if (missing.includes(mark.term.en)) box.dataset.missing = '';
+        box.style.left = `${rect.left - origin.left}px`;
+        box.style.top = `${rect.top - origin.top}px`;
+        box.style.width = `${rect.width}px`;
+        box.style.height = `${rect.height}px`;
+        boxes.append(box);
+      }
   overlay.replaceChildren(boxes);
   host.dataset.termMarks = String(marks.length);
 }
@@ -314,23 +315,41 @@ export function TermLayer({
       scheduleClose();
     };
     // A click (or a tap) on a term pins it open.
+    let press: { x: number; y: number; touch: boolean } | undefined;
+    const down = (event: PointerEvent) => {
+      press = { x: event.clientX, y: event.clientY, touch: event.pointerType === 'touch' };
+    };
     const click = (event: MouseEvent) => {
       const mark = markAt(event.clientX, event.clientY);
       if (!mark) return;
+      if (
+        mark.term.number &&
+        (event.detail > 1 ||
+          !window.getSelection()?.isCollapsed ||
+          (press && Math.hypot(press.x - event.clientX, press.y - event.clientY) > 5))
+      )
+        return;
       clearTimeout(timers.current.open);
       cancelClose();
       // A source with one exact insert (number tokens, later) inserts on the click itself.
       const [only] = mark.term.official;
-      if (mark.term.insertOnClick && canInsertRef.current && mark.term.official.length === 1)
-        insertRef.current(only!);
+      if (
+        mark.term.insertOnClick &&
+        !(mark.term.number && press?.touch) &&
+        canInsertRef.current &&
+        mark.term.official.length === 1
+      )
+        insertRef.current(only!, mark.term);
       else setOpen({ mark, pinned: true });
     };
     root.addEventListener('pointermove', move, { passive: true });
+    root.addEventListener('pointerdown', down, { passive: true });
     root.addEventListener('pointerleave', leave);
     root.addEventListener('click', click);
     return () => {
       cancelAnimationFrame(frame);
       root.removeEventListener('pointermove', move);
+      root.removeEventListener('pointerdown', down);
       root.removeEventListener('pointerleave', leave);
       root.removeEventListener('click', click);
     };
@@ -344,12 +363,16 @@ export function TermLayer({
   );
 
   const showEditor = useShowEditor();
-  const insertRef = useRef((text: string) => {
+  const insertRef = useRef((text: string, term?: Term) => {
     setOpen(null);
+    if (term?.number) {
+      if (term.number.insert()) showEditor();
+      return;
+    }
     const view = translationView(hashRef.current);
     if (view && insertAtCaret(view, text)) showEditor();
   });
-  const insert = (text: string) => insertRef.current(text);
+  const insert = (text: string) => insertRef.current(text, open?.mark.term);
 
   return (
     <div
@@ -360,6 +383,8 @@ export function TermLayer({
         const selection = window.getSelection();
         if (!selection?.rangeCount || selection.isCollapsed) return;
         const range = selection.getRangeAt(0);
+        const number = range.startContainer.parentElement?.closest('[data-slot]');
+        if (number && number.contains(range.endContainer)) return;
         const en = selection.toString().trim();
         if (!content.current?.contains(range.commonAncestorContainer) || !en || en.length > 60)
           return;
@@ -418,14 +443,16 @@ export function TermPopover({
   const ready = useGlossaryStore(
     (state) => !!state.byLang[lang]?.remote && !state.byLang[lang]?.loading,
   );
-  const canEdit = ready && canEditGlossary(lang);
-  const kind = term.glossary
-    ? 'Agreed term'
-    : !term.official.length
-      ? 'New term'
-      : term.kind === 'keyword'
-        ? 'Keyword'
-        : 'In game';
+  const canEdit = ready && !term.number && canEditGlossary(lang);
+  const kind = term.number
+    ? term.number.kind
+    : term.glossary
+      ? 'Agreed term'
+      : !term.official.length
+        ? 'New term'
+        : term.kind === 'keyword'
+          ? 'Keyword'
+          : 'In game';
   const close = useRef(onClose);
   close.current = onClose;
   useLayoutEffect(() => {
@@ -517,6 +544,13 @@ export function TermPopover({
       <div className={`${styles.head} ${styles.caption}`}>
         {kind} · {languageLabel(lang)}
       </div>
+      {term.number && (
+        <p>
+          {term.number.context}
+          <br />
+          {term.number.scope}
+        </p>
+      )}
       {editing && canEdit ? (
         <TermForm lang={lang} entry={term.glossary} english={term.en} onClose={onClose} />
       ) : (

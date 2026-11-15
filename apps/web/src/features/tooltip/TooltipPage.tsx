@@ -69,7 +69,7 @@ import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
 import { canEditLanguage, canPushLive } from '../auth/permissions';
-import { DraftLoader, WithEditorDraft } from './DraftLoader';
+import { DraftLoader, StartEnglishLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
 import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
@@ -760,6 +760,9 @@ function TooltipWorkspace({
             ? upcoming.overlay?.[variant]?.next.text.en?.text
             : base.text.en?.text
       }
+      sourceNumbers={
+        batchEditing ? upcoming.overlay?.[variant]?.next.text.en?.numbers : base.text.en?.numbers
+      }
       conflictSource={batchEditing ? undefined : conflictSourceOf(variant)}
       terms={!readOnly && canEditLanguage(user, lang)}
       workingDiff={
@@ -855,14 +858,18 @@ function TooltipWorkspace({
           }
           inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
           draftLoader={
-            draft && (
-              <DraftLoader
-                draft={draft}
-                name={nameOf(activeHash)}
-                categoryLabel={baseCategory?.label}
-                globals={globalsFor(activeHash)}
-                onLoad={loadDraft}
-              />
+            lang !== 'en' && !loading && access.reason === null && !textOf(activeHash) ? (
+              <StartEnglishLoader hash={activeHash} />
+            ) : (
+              draft && (
+                <DraftLoader
+                  draft={draft}
+                  name={nameOf(activeHash)}
+                  categoryLabel={baseCategory?.label}
+                  globals={globalsFor(activeHash)}
+                  onLoad={loadDraft}
+                />
+              )
             )
           }
           queue={

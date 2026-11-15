@@ -10,6 +10,10 @@ import { Lines } from './TooltipPreview';
 import styles from './TooltipPreview.module.scss';
 
 export const ReadingGlobals = createContext<MarkupGlobals | undefined>(undefined);
+/** Only TranslationSource supplies identities; ordinary previews retain their exact tree. */
+export const ReadingSlots = createContext<{ text: string; ids: readonly number[] } | undefined>(
+  undefined,
+);
 
 const emptyGlobals: MarkupGlobals = { variables: '', titles: '' };
 const catalogs = new WeakMap<EditorData, WeakMap<Drafts, Map<Lang, MarkupGlobals>>>();
@@ -71,16 +75,17 @@ export function readingParse(
   globals: MarkupGlobals,
   text: string,
   hash: number | undefined,
+  slots?: readonly number[],
 ) {
   const category =
     hash === undefined || !data ? undefined : archivedItemFor(hash, data)?.categoryId;
   const type = data?.categories.find((entry) => entry.id === category)?.legacyType;
   let cache = renders.get(globals);
   if (!cache) renders.set(globals, (cache = new Map()));
-  const key = JSON.stringify([type, text]);
+  const key = JSON.stringify(slots ? [type, text, slots] : [type, text]);
   let parsed = cache.get(key);
   if (!parsed) {
-    parsed = parseMarkup(previewText(text), { ...globals, type });
+    parsed = parseMarkup(previewText(text), { ...globals, type }, slots ? { slots } : undefined);
     // Bound each revision's cache; old data and draft snapshots are weakly held.
     if (cache.size >= 128) cache.delete(cache.keys().next().value!);
     cache.set(key, parsed);
@@ -105,8 +110,15 @@ export const ReadingTooltip = memo(function ReadingTooltip({
   const data = useDataStore((state) => state.data);
   const drafts = useDraftStore((state) => languageRevision(data, state.drafts, lang));
   const supplied = useContext(ReadingGlobals);
+  const slots = useContext(ReadingSlots);
   const globals = supplied ?? globalsFor(data, drafts, lang);
-  const parsed = readingParse(data, globals, text, hash);
+  const parsed = readingParse(
+    data,
+    globals,
+    text,
+    hash,
+    slots?.text === text ? slots.ids : undefined,
+  );
   const nativePopovers = hasNativePopovers();
   return (
     <div
@@ -114,6 +126,7 @@ export const ReadingTooltip = memo(function ReadingTooltip({
         .filter(Boolean)
         .join(' ')}
       lang={markupLanguage(lang)}
+      data-number-source={slots?.text === text || undefined}
     >
       <Lines lines={parsed.lines} />
     </div>

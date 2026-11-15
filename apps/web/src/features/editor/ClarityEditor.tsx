@@ -43,10 +43,21 @@ import {
   markupLanguage,
   type Lang,
   type MarkupGlobals,
+  type NumberMap,
   type RetiredFix,
   type RetiredOccurrence,
 } from '@clarity/core';
 import { clarityHighlighting, clarityLanguage } from './language';
+import { numberSource } from './numbers/model';
+import {
+  createNumberStore,
+  dismissNumberOffer,
+  numberExtension,
+  numberHost,
+  tabNumber,
+} from './numbers/state';
+import { NumberReadout, NumbersPanel, startFromEnglish } from './numbers/NumberTools';
+import { registerNumbers } from './numbers/documents';
 import { editorScrollMargins, entryTopScroll, keepParagraphInView } from './scrollMargins';
 import { followKeyboard, visibleBand } from '../../ui/useKeyboardInset';
 import { findWidgetExtension, findWidgetPanel, openReplace } from './findWidget';
@@ -229,6 +240,7 @@ export interface ClarityEditorProps {
    * leads with the entries it uses. Undefined for English.
    */
   sourceText?: string;
+  sourceNumbers?: NumberMap;
   /**
    * Translate mode in a language the account may translate: the Terms list (in-game names for the
    * English's terms, Ctrl+K then G). The English pane shows the same terms as marks.
@@ -239,6 +251,7 @@ export interface ClarityEditorProps {
 /** The reference host's live getters, plus the English a translation is checked against. */
 type EditorReferences = Omit<ReferenceHost, 'lang' | 'globals'> & {
   sourceText(): string | undefined;
+  sourceNumbers(): NumberMap | undefined;
 };
 
 function configuration(
@@ -269,6 +282,7 @@ function configuration(
       requireEnglish,
       references.selfHash,
       references.sourceText,
+      references.sourceNumbers,
     ),
     referenceExtensions({ ...references, lang, globals }),
     globalFindExtension({ ...references, lang, globals }),
@@ -300,6 +314,7 @@ export function ClarityEditor({
   suspended = false,
   stepping = false,
   sourceText,
+  sourceNumbers,
   terms: termsEnabled = false,
 }: ClarityEditorProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -429,6 +444,36 @@ export function ClarityEditor({
   const [cursor] = useState(createCursorPosition);
   const [tagMode] = useState(createTagSelectionStore);
   const parityText = lang === 'en' ? undefined : sourceText;
+  const numberData = useMemo(
+    () =>
+      lang !== 'en' && sourceText !== undefined && !(tooltipHash !== undefined && tooltipHash <= 3)
+        ? numberSource(sourceText, sourceNumbers, lang, globals)
+        : null,
+    // Import snapshots change on each draft key; the current source and global definitions do not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lang, sourceText, sourceNumbers, tooltipHash, globals.variables, globals.titles, globals.type],
+  );
+  const numberConfig = useRef(new Compartment());
+  const [numberStore] = useState(createNumberStore);
+  const numberLive = useRef({
+    source: numberData,
+    lang,
+    changed: numberStore.changed,
+    openPanel: () => setPanel('numbers'),
+  });
+  numberLive.current = { ...numberLive.current, source: numberData, lang };
+  useLayoutEffect(
+    () =>
+      tooltipHash !== undefined && numberData
+        ? registerNumbers(tooltipHash, lang, numberStore)
+        : undefined,
+    [tooltipHash, lang, numberData, numberStore],
+  );
+  const toggleNumbers = useRef(() => {
+    if (!numberLive.current.source) return false;
+    setPanel((current) => (current === 'numbers' ? null : 'numbers'));
+    return true;
+  });
   const termsOn = termsEnabled && lang !== 'en';
   const tooltipTerms = useTooltipTerms(lang, termsOn && !suspended && !stepping, parityText);
   // One object per change: the status bar is memoised, and a fresh object on every render would
@@ -446,12 +491,19 @@ export function ClarityEditor({
     setPanel(null);
     if (view.current) insertAtCaret(view.current, text);
   }, []);
-  const referenceLive = useRef({ tooltipHash, referenceSources, onOpenTooltip, parityText });
+  const referenceLive = useRef({
+    tooltipHash,
+    referenceSources,
+    onOpenTooltip,
+    parityText,
+    sourceNumbers,
+  });
   const references = useRef<EditorReferences>({
     sources: () => referenceLive.current.referenceSources,
     selfHash: () => referenceLive.current.tooltipHash,
     navigate: () => referenceLive.current.onOpenTooltip,
     sourceText: () => referenceLive.current.parityText,
+    sourceNumbers: () => referenceLive.current.sourceNumbers,
   });
   const initial = useRef({ value, lang, globals, readOnly, requireEnglish });
   initial.current = { value, lang, globals, readOnly, requireEnglish };
@@ -470,6 +522,7 @@ export function ClarityEditor({
       requireEnglish,
       selfHash: tooltipHash,
       sourceText: parityText,
+      sourceNumbers,
       termCheck: tooltipTerms.check,
     },
     !suspended,
@@ -651,8 +704,14 @@ export function ClarityEditor({
       setSymbolReveal(view.current, symbolReveal);
   }, [symbolReveal, suspended]);
   useLayoutEffect(() => {
-    referenceLive.current = { tooltipHash, referenceSources, onOpenTooltip, parityText };
-  }, [tooltipHash, referenceSources, onOpenTooltip, parityText]);
+    referenceLive.current = {
+      tooltipHash,
+      referenceSources,
+      onOpenTooltip,
+      parityText,
+      sourceNumbers,
+    };
+  }, [tooltipHash, referenceSources, onOpenTooltip, parityText, sourceNumbers]);
   useEffect(() => {
     if (suspended || view.current || !host.current) return;
     const initialConfiguration = config.current.of(
@@ -692,10 +751,13 @@ export function ClarityEditor({
       clarityHighlighting,
       suggestExtension(),
       chipsExtension(),
+      numberExtension(),
+      numberConfig.current.of(numberHost.of(numberLive.current)),
       ...(symbolsOn.current
         ? symbolExtensions({ mode: () => revealRef.current, raw: () => rawRef.current })
         : []),
       keymap.of([
+        { key: 'Escape', run: dismissNumberOffer },
         {
           key: 'Escape',
           run: () => {
@@ -710,6 +772,10 @@ export function ClarityEditor({
         { key: 'Mod-k Mod-d', run: () => toggleDiff.current() },
         { key: 'Mod-k g', run: () => toggleTerms.current() },
         { key: 'Mod-k Mod-g', run: () => toggleTerms.current() },
+        { key: 'Mod-k n', run: () => toggleNumbers.current() },
+        { key: 'Mod-k Mod-n', run: () => toggleNumbers.current() },
+        { key: 'Mod-k s', run: startFromEnglish },
+        { key: 'Mod-k Mod-s', run: startFromEnglish },
         { key: 'F1', run: (editor) => toggleHelp.current(editor), preventDefault: true },
         { key: 'Mod-/', run: toggleComment },
         { key: 'Mod-h', run: openReplace, scope: 'editor search-panel', preventDefault: true },
@@ -719,7 +785,12 @@ export function ClarityEditor({
         // A bare Tab does nothing: focus stays in the text (snippet blanks and chips take Tab
         // first, at a higher precedence). Esc, then Tab still leaves: CodeMirror lets that Tab
         // through to the page without consulting the keymap.
-        { key: 'Tab', run: () => true, shift: () => true, preventDefault: true },
+        {
+          key: 'Tab',
+          run: (view) => tabNumber(view) || true,
+          shift: (view) => tabNumber(view, -1) || true,
+          preventDefault: true,
+        },
       ]),
       initialConfiguration,
       EditorView.updateListener.of((update) => {
@@ -888,6 +959,12 @@ export function ClarityEditor({
   }, [value, lang, globals, readOnly, requireEnglish, tooltipHash, suspended, stepping, cursor]);
 
   useLayoutEffect(() => {
+    view.current?.dispatch({
+      effects: numberConfig.current.reconfigure(numberHost.of(numberLive.current)),
+    });
+  }, [numberData, lang, suspended]);
+
+  useLayoutEffect(() => {
     const editor = view.current;
     const owner = host.current?.ownerDocument;
     if (suspended || stepping || !editor || !owner) return;
@@ -1031,6 +1108,8 @@ export function ClarityEditor({
           onSuggest={docked ? suggestHere : undefined}
           sourceText={lang === 'en' ? undefined : sourceText}
           tagSelection={tagMode}
+          numbers={numberData ? numberStore : undefined}
+          onNumbers={() => setPanel('numbers')}
         />
       )}
       <div ref={textArea} className={styles.textArea}>
@@ -1070,6 +1149,9 @@ export function ClarityEditor({
             onInsert={insertTerm}
             onClose={closeAndFocus}
           />
+        )}
+        {open === 'numbers' && (
+          <NumbersPanel store={numberStore} view={view} onClose={closeAndFocus} />
         )}
         {(open === 'help' || helpParked) && (
           <Suspense fallback={null}>
@@ -1136,6 +1218,7 @@ export function ClarityEditor({
       {chip && view.current && !suggestion && (
         <SuggestChip chip={chip} view={view.current} acceptKey={acceptKey} />
       )}
+      {!chip && !suggestion && numberData && <NumberReadout store={numberStore} view={view} />}
       <CursorStatusBar
         validating={diagnostics.pending}
         readOnlyReason={readOnlyReason}
@@ -1144,6 +1227,7 @@ export function ClarityEditor({
         retiredCount={retiredCount}
         parityCount={parityCount}
         terms={termsStatus}
+        numbers={numberData ? numberStore : undefined}
         cursor={cursor}
         preview={preview}
         conflicts={

@@ -21,9 +21,10 @@ import { checkedWrap, elementLabel, isElementName, tagSelection } from '../eleme
 import { groupChange, pairAt } from '../iconPairs';
 import { locateBlocks, locateVariables } from '../references';
 import { englishSymbols, subclassSymbol } from './typedSymbols';
+import { numberHost, numbersAllowed, orderedNumbers, usedNumbers } from '../numbers/state';
 
 export type SuggestCategory =
-  'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals';
+  'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals' | 'Numbers';
 
 export type ContextKind =
   'selection' | 'tag' | 'variable' | 'title-name' | 'import-source' | 'import-name' | 'word';
@@ -54,6 +55,8 @@ export interface SuggestContext {
 }
 
 export interface SuggestItem {
+  numberId?: number;
+  numberPanel?: boolean;
   id: string;
   category: SuggestCategory;
   label: string;
@@ -325,6 +328,43 @@ function build(
     });
   };
   const query = context.query;
+  const source = state.facet(numberHost).source;
+  if (source && numbersAllowed(state, context.from, context.to)) {
+    const { used } = usedNumbers(state);
+    const matches = orderedNumbers(state, true)
+      .map((id) => source.byId.get(id)!)
+      .filter(
+        (slot) =>
+          !query ||
+          `${slot.display} ${slot.context} ${slot.breadcrumb}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
+      );
+    for (const slot of matches.slice(0, 5))
+      if (!skip?.has(`number:${slot.id}`))
+        push({
+          id: `number:${slot.id}`,
+          category: 'Numbers',
+          label: slot.display,
+          numberId: slot.id,
+          insert: `#{=${slot.id}}`,
+          hint: `${used.has(slot.id) ? 'Used' : 'To do'} · ${slot.context}`,
+          about: slot.breadcrumb,
+          keys: `${slot.display} ${slot.context} ${slot.breadcrumb}`,
+          reference: true,
+          preview: null,
+        });
+    if (matches.length > 5 && !skip?.has('number:more'))
+      push({
+        id: 'number:more',
+        category: 'Numbers',
+        label: `${matches.length - 5} more`,
+        numberPanel: true,
+        insert: '',
+        about: 'Open Numbers',
+        reference: true,
+      });
+  }
 
   /**
    * A variable defined in this tooltip is a document variable; the rest come from the globals.
@@ -592,6 +632,7 @@ export function groupItem(state: EditorState, globals: MarkupGlobals): SuggestIt
 
 /** The fixed order of everything below the pinned options: the same every time, so it can be learned. */
 const everyOrder: readonly SuggestCategory[] = [
+  'Numbers',
   'Transforms',
   'Snippets',
   'Tags',
@@ -707,13 +748,13 @@ function matchScore(item: SuggestItem, query: string): number {
 }
 
 const defaultOrder: Record<ContextKind, SuggestCategory[]> = {
-  selection: ['Transforms', 'Snippets', 'Tags', 'Symbols'],
+  selection: ['Transforms', 'Numbers', 'Snippets', 'Tags', 'Symbols'],
   tag: ['Tags', 'Symbols', 'Snippets', 'Globals'],
-  variable: ['Variables', 'Globals', 'Snippets'],
+  variable: ['Numbers', 'Variables', 'Globals', 'Snippets'],
   'title-name': ['Globals'],
   'import-source': ['Globals'],
   'import-name': ['Globals'],
-  word: ['Snippets', 'Tags', 'Symbols', 'Variables', 'Globals'],
+  word: ['Numbers', 'Snippets', 'Tags', 'Symbols', 'Variables', 'Globals'],
 };
 
 const wrapOrder: SuggestCategory[] = ['Transforms', 'Snippets', 'Symbols', 'Tags'];

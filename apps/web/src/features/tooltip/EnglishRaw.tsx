@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { EditorState } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { useContext, useEffect, useRef } from 'react';
+import { Compartment, EditorState } from '@codemirror/state';
+import { Decoration, EditorView } from '@codemirror/view';
+import { numberSlots } from '@clarity/core';
+import { ReadingSlots } from '../preview/ReadingTooltip';
 import { clarityHighlighting, clarityLanguage } from '../editor/language';
 import styles from './EnglishRaw.module.scss';
 
@@ -12,6 +14,8 @@ import styles from './EnglishRaw.module.scss';
 export function EnglishRaw({ text }: { text: string }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const slots = useContext(ReadingSlots);
+  const marks = useRef(new Compartment());
   useEffect(() => {
     if (!host.current) return;
     const editor = new EditorView({
@@ -41,6 +45,7 @@ export function EnglishRaw({ text }: { text: string }) {
           }),
           clarityLanguage,
           clarityHighlighting,
+          marks.current.of(EditorView.decorations.of(Decoration.none)),
         ],
       }),
     });
@@ -54,8 +59,27 @@ export function EnglishRaw({ text }: { text: string }) {
   }, []);
   useEffect(() => {
     const editor = view.current;
-    if (!editor || editor.state.doc.toString() === text) return;
-    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: text } });
-  }, [text]);
+    if (!editor) return;
+    const decorations =
+      slots?.text === text
+        ? Decoration.set(
+            numberSlots(text).flatMap((slot, index) =>
+              slots.ids[index] === undefined
+                ? []
+                : [
+                    Decoration.mark({
+                      attributes: { 'data-slot': String(slots.ids[index]) },
+                    }).range(slot.from, slot.to),
+                  ],
+            ),
+          )
+        : Decoration.none;
+    editor.dispatch({
+      ...(editor.state.doc.toString() === text
+        ? {}
+        : { changes: { from: 0, to: editor.state.doc.length, insert: text } }),
+      effects: marks.current.reconfigure(EditorView.decorations.of(decorations)),
+    });
+  }, [text, slots]);
   return <div ref={host} className={styles.raw} data-english-raw="" />;
 }

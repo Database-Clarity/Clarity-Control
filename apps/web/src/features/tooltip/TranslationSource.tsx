@@ -1,9 +1,14 @@
 import type { Lang } from '@clarity/core';
+import type { ReactNode } from 'react';
 import { VersionSwitch } from '../preview/PreviewColumn';
 import { ReadingCompare } from '../preview/ReadingCompare';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
 import type { PreviewMode } from '../preview/previewMode';
-import { TermLayer } from '../terms/TermLayer';
+import { NumberEnglishSource } from './NumberEnglishSource';
+import { useNumberDocument } from '../editor/numbers/documents';
+import { translationView } from '../terms/insert';
+import { startFromEnglish } from '../editor/numbers/NumberTools';
+import { useShowEditor } from './VariantWorkspace';
 import { EnglishDiffContent } from '../translations/EnglishDiff';
 import { useSettingsStore } from '../../stores/settings';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
@@ -45,6 +50,7 @@ export function TranslationSource({
   const remember = useSettingsStore((state) => state.remember);
   const showChanges = Boolean(diff) && (remembered ?? fallback) === 'changes';
   const version: PreviewMode = enhanced ? (chosenVersion ?? 'compare') : 'base';
+  const showEditor = useShowEditor();
 
   const rendered = !text ? null : version === 'compare' && enhanced && hash !== undefined ? (
     <ReadingCompare
@@ -58,12 +64,28 @@ export function TranslationSource({
   ) : (
     <ReadingTooltip text={text} hash={hash} />
   );
+  const content = (renderAfter?: (text: string, offset: number) => ReactNode) =>
+    diff && showChanges ? (
+      <EnglishDiffContent {...diff} renderAfter={renderAfter} />
+    ) : raw && text ? (
+      <EnglishRaw text={version === 'enhanced' && enhanced ? enhanced.text : text} />
+    ) : (
+      (rendered ?? <p>This tooltip has no English text yet.</p>)
+    );
 
   return (
     <RightPane
       label="English source"
       header={
         <RightPaneHeader title="English">
+          {terms && hash !== undefined && (
+            <StartEnglish
+              hash={hash}
+              lang={terms.lang}
+              canInsert={terms.canInsert}
+              onInsert={showEditor}
+            />
+          )}
           {diff && (
             <label className={styles.showsLabel}>
               <span>Shows:</span>
@@ -122,25 +144,52 @@ export function TranslationSource({
           </TitleAnchor>
         </div>
       )}
-      {diff && showChanges ? (
-        <EnglishDiffContent {...diff} />
-      ) : raw && text ? (
-        <EnglishRaw text={version === 'enhanced' && enhanced ? enhanced.text : text} />
-      ) : rendered && terms && hash !== undefined ? (
-        <TermLayer
+      {text && terms && hash !== undefined ? (
+        <NumberEnglishSource
           lang={terms.lang}
           hash={hash}
+          text={text}
           enabled={terms.enabled}
           canInsert={terms.canInsert}
           stepping={terms.stepping}
+          raw={raw && !showChanges}
+          changes={showChanges}
         >
-          {rendered}
-        </TermLayer>
-      ) : rendered ? (
-        rendered
+          {content}
+        </NumberEnglishSource>
       ) : (
-        <p>This tooltip has no English text yet.</p>
+        content()
       )}
     </RightPane>
+  );
+}
+
+import { useSyncExternalStore } from 'react';
+function StartEnglish({
+  hash,
+  lang,
+  canInsert,
+  onInsert,
+}: {
+  hash: number;
+  lang: Lang;
+  canInsert: boolean;
+  onInsert(): void;
+}) {
+  const store = useNumberDocument(hash, lang);
+  useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const view = translationView(hash);
+  if (!canInsert || !view || view.state.doc.length) return null;
+  return (
+    <button
+      type="button"
+      title="Copy English with its numbers as tokens (Ctrl+K, then S)"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => {
+        if (startFromEnglish(view)) onInsert();
+      }}
+    >
+      Start from English
+    </button>
   );
 }

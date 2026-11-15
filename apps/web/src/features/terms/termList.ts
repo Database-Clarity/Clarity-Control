@@ -15,7 +15,7 @@ import {
  * tokens (spec in progress) join as further kinds on the same list, so the marks, the popover, the
  * Terms list, and Insert stay one path.
  */
-export type TermKind = 'keyword' | 'name' | 'glossary';
+export type TermKind = 'keyword' | 'name' | 'glossary' | 'number';
 export interface Term extends TermEntry {
   kind: TermKind;
   /** What Insert puts in the translation, most used first (an English name can map to several). */
@@ -24,6 +24,8 @@ export interface Term extends TermEntry {
   inGame?: string[];
   /** Clicking the mark inserts at once (a single exact insert, such as a number token). */
   insertOnClick?: boolean;
+  /** A source number uses the editor's atomic insertion command, including its declarations. */
+  number?: { kind: string; context: string; scope: string; insert(): boolean };
 }
 
 /** Overlay agreed terms on the existing source; names remain available as the secondary row. */
