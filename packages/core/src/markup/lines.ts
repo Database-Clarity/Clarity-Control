@@ -35,7 +35,14 @@ function lineClasses(line: string, allowed: string[], offsets?: number[]) {
 }
 
 export function markupInlineRanges(line: string): { from: number; to: number }[] {
+  if (!line.includes('<')) return [];
   return [markupLineClasses, markupEmpty, []].flatMap((allowed) => {
+    // Most lines need no class removal, so their match offsets already address the source.
+    if (!allowed.some((name) => line.includes(`<${name}/>`)))
+      return [...line.matchAll(new RegExp(inlineToken, 'g'))].map((match) => ({
+        from: match.index,
+        to: match.index + match[0].length,
+      }));
     const offsets = Array.from({ length: line.length }, (_, index) => index);
     const { cleanLine } = lineClasses(line, allowed, offsets);
     return [...cleanLine.matchAll(new RegExp(inlineToken, 'g'))].map((match) => ({
