@@ -61,6 +61,7 @@ export default defineConfig({
       'scripts/publisher/*.test.ts',
       'scripts/mult-write/*.test.ts',
       'scripts/enhanced-arrow/*.test.ts',
+      'scripts/cutover/**/*.test.ts',
       'scripts/variant-forms/*.test.mjs',
       'scripts/compendium/coverage/compare.test.ts',
     ],
