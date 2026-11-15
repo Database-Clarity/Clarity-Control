@@ -5,6 +5,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -290,10 +291,53 @@ async function census() {
       core.validateTooltip(tooltip, (lang) => globals.get(lang)!, tooltip),
     ]);
   }
+  const english: { english: { hash: number; text: string }[] } = JSON.parse(
+    gunzipSync(readFileSync('packages/core/src/numbers/fixtures/english.json.gz')).toString('utf8'),
+  );
+  const history: { revisions: { hash: number; before: string; after: string }[] } = JSON.parse(
+    readFileSync('packages/core/src/numbers/fixtures/sample30.json', 'utf8'),
+  );
+  const fixtures = [
+    ...english.english,
+    ...history.revisions.flatMap((r) => [
+      { hash: r.hash, text: r.before },
+      { hash: r.hash, text: r.after },
+    ]),
+  ];
+  for (const [i, { hash, text }] of fixtures.entries()) {
+    const slots = core.numberSlots(text);
+    let tokenized = '',
+      at = 0;
+    for (const [n, slot] of slots.entries()) {
+      tokenized += text.slice(at, slot.from) + `#{=${n + 1}}`;
+      at = slot.to;
+    }
+    tokenized += text.slice(at);
+    const entry = { text, updatedAt: '2026-11-01T00:00:00Z', updatedBy: 'fixture' };
+    const tooltip: Tooltip = {
+      hash,
+      associated: [],
+      text: {
+        en: entry,
+        de: { ...entry, text: tokenized, sourceUpdatedAt: entry.updatedAt },
+        fr: {
+          ...entry,
+          text: '<link 5 [#{=1}] /> #{=999999} #{=1}2',
+          sourceUpdatedAt: entry.updatedAt,
+        },
+      },
+    };
+    rows[`fixture-${i}`] = digest([
+      slots,
+      core.numberProse(text),
+      core.validateTooltip(tooltip, (lang) => globals.get(lang)!),
+    ]);
+  }
   const result = {
     source: 'editor-data 41245f1c2b6de42097b5bdd112ef784d7562fe66',
     tooltips: tooltips.length,
     texts,
+    numberFixtures: fixtures.length,
     rows,
   };
   writeFileSync(`${root}/census-${arm}.json`, JSON.stringify(result));
