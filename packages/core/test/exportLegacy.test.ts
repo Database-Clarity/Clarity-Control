@@ -39,7 +39,11 @@ test.each([
     sourceUpdatedAt: new Date(englishTime - age).toISOString(),
   };
   const exported = exportCanonical([value], englishTime);
-  expect(exported['42'].editor.de).toEqual({ main: expected, secondary: expected });
+  expect(exported['42'].editor.de).toEqual({
+    main: expected,
+    secondary: expected,
+    ...(age > translationMaxAge ? { englishFallback: true } : {}),
+  });
   if (expected === 'English') {
     expect(exported['42'].updateTracker?.descriptions.de?.updatedBy).toBe('alice');
   }
