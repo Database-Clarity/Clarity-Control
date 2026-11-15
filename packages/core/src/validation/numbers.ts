@@ -45,8 +45,8 @@ export function gluedNumberIssues(text: string): ValidationIssue[] {
       ({ from, to }) =>
         plainDigits.has(from) ||
         joinedNumbers.has(from) ||
-        /\p{Nd}[.,]?$/u.test(prose.slice(Math.max(0, from - 2), from)) ||
-        /^[.,]?\p{Nd}/u.test(prose.slice(to, to + 2)),
+        /\p{Nd}[.,]?$/u.test(prose.slice(Math.max(0, from - 3), from)) ||
+        /^[.,]?\p{Nd}/u.test(prose.slice(to, to + 3)),
     )
     .map<ValidationIssue>(({ from, to }) => ({
       severity: 'error',

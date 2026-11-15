@@ -71,6 +71,21 @@ describe('whole numbers (owner decision 15-11)', () => {
       { severity: 'error', code: 'glued-number', message: gluedNumberMessage, from: 8, to: 12 },
     ]);
   });
+  it('refuses astral digits across one separator and keeps non-digit text valid', () => {
+    for (const text of ['𝟙.#{g}', '#{g}.𝟝', '𝟙,#{g}', '#{g},𝟝']) {
+      const from = text.indexOf('#{g}');
+      expect(gluedNumberIssues(text)).toEqual([
+        {
+          severity: 'error',
+          code: 'glued-number',
+          message: gluedNumberMessage,
+          from,
+          to: from + '#{g}'.length,
+        },
+      ]);
+    }
+    expect(gluedNumberIssues('ab.#{g}')).toEqual([]);
+  });
   it.each(['Value 1/* x */#{g}.', 'Value 5/* x */\n#{g}.', 'Value 1\r#{g}.'])(
     'maps comment-stripped joins back to the authored reference: %s',
     (text) => {
