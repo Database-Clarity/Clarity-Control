@@ -7,6 +7,7 @@ import {
   hashSchema,
   merge3,
   reconcileNumberMap,
+  refreshNumberFallbacks,
   resolveAlias,
   sandboxPointersPath,
   tooltipSchema,
@@ -146,11 +147,15 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       if (english) {
         const numbers =
           head?.text.en?.text === english.text
-            ? head.text.en.numbers
+            ? structuredClone(head.text.en.numbers)
             : reconcileNumberMap(head?.text.en, english, merged);
         delete english.numbers;
         if (numbers) english.numbers = numbers;
       }
+      // Authorization above covers the submitted edits, before server-owned map changes.
+      for (const lang of languages)
+        if (lang !== 'en' && merged.text[lang]?.text !== head?.text[lang]?.text)
+          refreshNumberFallbacks(merged, lang);
       checkTranslationStamps(head, merged);
       refuseUnlowerable(merged, await exporterPin(merged), 'saved', head);
       if (head && head.text.en?.text !== merged.text.en?.text) {

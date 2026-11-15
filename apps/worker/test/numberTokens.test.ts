@@ -1,6 +1,13 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { numberValues, publishableHash, type Tooltip } from '@clarity/core';
+import {
+  exportLegacy,
+  usesEnglishFallback,
+  numberValues,
+  publishableHash,
+  type Tooltip,
+} from '@clarity/core';
+import { buildLegacy, type LegacyInput } from '../../../packages/export/src/index.js';
 import publisherConfig from '../../../config/publisher.json';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 
@@ -289,3 +296,79 @@ it.each([[[]], [['numberTokens']]])(
     }
   },
 );
+
+it('releases a retired formula fallback only after that language saves a matching correction', async () => {
+  const base = translated('Schaden #{=1}.\nvar d = 20');
+  base.text.en!.text = 'Damage ${5+#d}.\nvar d = 10';
+  base.text.fr = { ...base.text.de!, text: 'Dégâts #{=1}.\nvar d = 20' };
+  install(base);
+  expect((await save(base, englishEdit(base, 'Nothing.\nvar d = 10'))).status).toBe(200);
+  const retired = structuredClone(saved());
+  const render = (item: Tooltip) => {
+    const globals: Tooltip[] = [1, 2, 3].map((hash) => ({
+      hash,
+      associated: [],
+      text: { en: { text: '', updatedAt: oldAt, updatedBy: '' } },
+    }));
+    const facts = Object.fromEntries(
+      [1, 2, 3, 123].map((hash) => [hash, { name: 'Probe', type: 'Weapon Perk' }]),
+    );
+    const perks = exportLegacy([...globals, item], 0, facts);
+    const input = JSON.parse(JSON.stringify({ perks })) as LegacyInput;
+    return JSON.parse(new TextDecoder().decode(buildLegacy(input, 'clarityV2')))[123].descriptions
+      .de;
+  };
+  expect(usesEnglishFallback(retired, 'de')).toBe(true);
+  expect(JSON.stringify(render(retired))).toContain('Nothing.');
+  // Later English changes do not rewrite the frozen value or release any language.
+  expect(
+    (await save(retired, englishEdit(retired, 'Nothing!\nvar d = 99', '2026-10-03T00:00:00Z')))
+      .status,
+  ).toBe(200);
+  const head = structuredClone(saved());
+  expect(usesEnglishFallback(head, 'de')).toBe(true);
+  expect((await save(head, translationEdit(head, 'Schaden #{=1}.\nvar d = 10'), 4)).status).toBe(
+    200,
+  );
+  expect(usesEnglishFallback(saved(), 'de')).toBe(false);
+  expect(usesEnglishFallback(saved(), 'fr')).toBe(true);
+  expect(JSON.stringify(render(saved()))).toContain('Schaden 15');
+  expect(saved().text.en!.numbers!.retired[1]).toMatchObject({
+    value: '${5+10}',
+    fallback: ['fr'],
+  });
+});
+
+it.each([
+  '20',
+  '10 // comment',
+  '10\nvar d = 10',
+  '10\nvar d5 = 2',
+  '10\nimport stats from 456',
+  '#{=2}',
+])('keeps fallback when corrected local is still unproven: %s', async (value) => {
+  const base = translated('Schaden #{=1}.\nvar d = 20');
+  base.text.en!.text = 'Damage ${5+#d}.\nvar d = 10';
+  install(base);
+  expect((await save(base, englishEdit(base, 'Nothing.\nvar d = 99'))).status).toBe(200);
+  const head = structuredClone(saved());
+  expect(
+    (await save(head, translationEdit(head, `Neuer Schaden #{=1}.\nvar d = ${value}`), 4)).status,
+  ).toBe(200);
+  expect(usesEnglishFallback(saved(), 'de')).toBe(true);
+});
+
+it('retains legacy fallback entries without provenance after a correction', async () => {
+  const base = translated('Schaden #{=1}.\nvar d = 20');
+  base.text.en!.text = 'Nothing.';
+  base.text.en!.numbers = {
+    ids: [],
+    next: 2,
+    retired: { 1: { value: '${5+10}', fallback: ['de'] } },
+  };
+  install(base);
+  expect((await save(base, translationEdit(base, 'Schaden #{=1}.\nvar d = 10'), 4)).status).toBe(
+    200,
+  );
+  expect(usesEnglishFallback(saved(), 'de')).toBe(true);
+});

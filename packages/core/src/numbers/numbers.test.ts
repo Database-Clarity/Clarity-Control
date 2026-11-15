@@ -12,6 +12,7 @@ import {
   numberValues,
   readNumberMap,
   reconcileNumberMap,
+  refreshNumberFallbacks,
   resolveNumberTokens,
 } from './map.js';
 import { exportLegacy, usesEnglishFallback } from '../exportLegacy.js';
@@ -638,7 +639,11 @@ describe('retired formula freezing', () => {
       'Schaden #{=1}, extra #d5.\nvar d = #{=2}\nvar d5 = 2',
     );
     const next = update(old, 'Nothing.');
-    expect(next.text.en!.numbers?.retired[1]).toEqual({ value: '${5+1}', fallback: ['de'] });
+    expect(next.text.en!.numbers?.retired[1]).toEqual({
+      value: '${5+1}',
+      fallback: ['de'],
+      variables: { d: '1' },
+    });
     expect(usesEnglishFallback(next, 'de')).toBe(true);
   });
   it('falls back when imports may override a local declaration, through the real resolver', () => {
@@ -660,6 +665,7 @@ describe('retired formula freezing', () => {
     expect(update(translationOnly, 'Nothing.').text.en!.numbers?.retired[1]).toEqual({
       value: '${5+10}',
       fallback: ['de'],
+      variables: { d: '10' },
     });
   });
   it('matches the numeric slot after extra declaration whitespace', () => {
@@ -695,7 +701,11 @@ describe('retired formula freezing', () => {
     const old = tooltip('Damage ${5+#d}.\nvar d = 10', 'Schaden #{=1}.\nvar d = #{=2}');
     old.text.fr = translated('Dégâts #{=1}.\nvar d = 20');
     const next = update(old, 'No damage.\nvar d = 10');
-    expect(next.text.en!.numbers?.retired[1]).toEqual({ value: '${5+10}', fallback: ['fr'] });
+    expect(next.text.en!.numbers?.retired[1]).toEqual({
+      value: '${5+10}',
+      fallback: ['fr'],
+      variables: { d: '10' },
+    });
     expect(usesEnglishFallback(next, 'de')).toBe(false);
     expect(usesEnglishFallback(next, 'fr')).toBe(true);
     for (const item of [next, update(next, 'Nothing.\nvar d = 30')]) {
@@ -898,4 +908,17 @@ it('P3 and P9: every word-step carry has equal, uniquely anchored windows', () =
       }
     }
   }
+});
+
+it.each(['10', '#{=2}'])('refreshes proven literal or token corrections: %s', (value) => {
+  const old = tooltip('Damage ${5+#d}.\nvar d = 10', 'Schaden #{=1}.\nvar d = 20');
+  const next = update(old, 'Nothing.\nvar d = 10');
+  next.text.de!.text = `Schaden #{=1}.\nvar d = ${value}`;
+  expect(usesEnglishFallback(next, 'de')).toBe(true);
+  refreshNumberFallbacks(next, 'de');
+  expect(usesEnglishFallback(next, 'de')).toBe(false);
+  expect(numberValues(next.text.en!, 'de').get(1)).toBe('${5+10}');
+  next.text.de!.text = 'Schaden #{=1}.\nvar d = 99';
+  refreshNumberFallbacks(next, 'de');
+  expect(numberValues(next.text.en!, 'de').get(1)).toBe('${5+10}');
 });

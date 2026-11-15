@@ -146,5 +146,27 @@ export function freezeFormula(
       });
     if (!agrees) fallback.push(lang as Lang);
   }
-  return fallback.length ? { value: frozen, fallback: fallback.sort() } : frozen;
+  return fallback.length
+    ? { value: frozen, fallback: fallback.sort(), variables: Object.fromEntries(values) }
+    : frozen;
+}
+
+/** Recheck only proven, numeric locals; missing provenance stays fail-closed. */
+export function frozenVariablesAgree(
+  text: string,
+  expected: Record<string, string>,
+  resolve: (value: string) => string,
+): boolean {
+  if (markupImports(text).length) return false;
+  const definitions = numberVariables(text);
+  const names = [
+    ...definitions.map((entry) => entry.name),
+    ...variableReferences(text).map((ref) => ref.name),
+  ];
+  return Object.entries(expected).every(([name, value]) => {
+    if (names.some((other) => other !== name && (other.startsWith(name) || name.startsWith(other))))
+      return false;
+    const own = definitions.filter((entry) => entry.name === name);
+    return own.length === 1 && !own[0].ambiguous && resolve(own[0].value) === value;
+  });
 }

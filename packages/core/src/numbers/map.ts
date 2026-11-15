@@ -2,7 +2,7 @@ import type { Lang } from '../languages.js';
 import { numberSlots } from '../markup/numberSlots.js';
 import { numberMapSchema, type LangText, type NumberMap, type Tooltip } from '../schemas.js';
 import { alignSlots } from './identity.js';
-import { freezeFormula } from './freeze.js';
+import { freezeFormula, frozenVariablesAgree } from './freeze.js';
 
 export type NumberValues = ReadonlyMap<number, string | null>;
 export interface NumberToken {
@@ -113,4 +113,36 @@ export function reconcileNumberMap(
     !Object.keys(next.retired).length
     ? undefined
     : next;
+}
+
+/** Only a committed edit of this language may release its stored fallback. */
+export function refreshNumberFallbacks(tooltip: Tooltip, lang: Lang): void {
+  const english = tooltip.text.en;
+  const entry = tooltip.text[lang];
+  if (lang === 'en' || !english?.numbers || !entry) return;
+  let values: NumberValues | undefined;
+  for (const [id, retired] of Object.entries(english.numbers.retired)) {
+    if (
+      !retired ||
+      typeof retired === 'string' ||
+      !retired.variables ||
+      !retired.fallback.includes(lang)
+    )
+      continue;
+    values ??= numberValues(english, lang);
+    try {
+      // Resolve declarations only, never the still-fallback formula token itself.
+      if (
+        frozenVariablesAgree(entry.text, retired.variables, (value) =>
+          resolveNumberTokens(value, values!),
+        )
+      )
+        english.numbers.retired[id] = {
+          ...retired,
+          fallback: retired.fallback.filter((item) => item !== lang),
+        };
+    } catch {
+      // An unknown or unfreezable declaration cannot prove agreement.
+    }
+  }
 }

@@ -14,7 +14,13 @@ export const numberMapSchema = z
       z.union([
         z.string(),
         z.null(),
-        z.object({ value: z.string(), fallback: z.array(langSchema) }).strict(),
+        z
+          .object({
+            value: z.string(),
+            fallback: z.array(langSchema),
+            variables: z.record(z.string(), z.string()).optional(),
+          })
+          .strict(),
       ]),
     ),
   })
