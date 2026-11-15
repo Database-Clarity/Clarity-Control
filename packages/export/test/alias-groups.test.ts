@@ -181,6 +181,9 @@ test('v1 refuses cyclic and deleted imports through name aliases using the real 
     categories: ['weapon-trait'],
     languages: ['en'],
     sandboxPerks: [],
+    frameAliases: false,
+    keys: ['name'],
+    bungieIdentical: false,
   });
   const source = input();
   const catalog = { items: { ...items, 300: item(300) }, categories: [{ id: 'weapon-trait' }] };
