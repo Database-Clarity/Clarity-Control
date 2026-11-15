@@ -4,6 +4,7 @@ import {
   effectiveAliases,
   composeAliases,
   aliasCanonicalHash,
+  aliasPairedBase,
   aliasVariantHashes,
   enhancedWordingNeeded,
   readAliasProposals,
@@ -366,6 +367,36 @@ test('accepted duplicate bases preserve enhanced membership in older catalogs wi
   const pending = effectiveAliases({}, config({ 50: config().groups[50]! }), facts);
   expect(pending.aliases[51]).toBeUndefined();
   expect(pending.issues).toHaveLength(1);
+});
+
+test('exposes the same enhanced base proof when canonical or every member lacks its pointer', () => {
+  for (const missing of [[50], [50, 51]]) {
+    const facts = Object.fromEntries(
+      Object.entries(items).map(([hash, item]) => [
+        hash,
+        missing.includes(item.hash) ? { ...item, baseHash: undefined } : item,
+      ]),
+    );
+    const accepted = composeAliases({}, config(), facts);
+    expect(accepted).toEqual({
+      aliases: {
+        43: { to: 42, kind: 'name' },
+        51: { to: 50, kind: 'name' },
+      },
+      issues: [],
+    });
+    expect(aliasPairedBase(facts[50], facts, accepted.aliases)).toBe(42);
+    expect(aliasPairedBase(facts[50], facts, {})).toBeUndefined();
+    expect(
+      aliasPairedBase(
+        facts[50],
+        { ...facts, 43: { ...facts[43]!, plugCategoryHash: 21 } },
+        accepted.aliases,
+      ),
+    ).toBeUndefined();
+  }
+  expect(aliasPairedBase(undefined, items, {})).toBeUndefined();
+  expect(aliasPairedBase({ ...items[50]!, baseHash: 99 }, items, {})).toBeUndefined();
 });
 
 test('enhanced groups flag deleted explicit or resolved bases instead of accepting dangling pairs', () => {

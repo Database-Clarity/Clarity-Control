@@ -92,6 +92,24 @@ it('loads the snapshot groups, routes member searches once, and preserves enhanc
   expect(data.bundle.sourceCommit).toBe('a'.repeat(40));
 });
 
+it.each([[11], [11, 21]])(
+  'routes proven enhanced groups when these pointers are absent: %j',
+  (...missing) => {
+    const original = fixture();
+    for (const hash of missing)
+      original.items[hash] = { ...original.items[hash]!, baseHash: undefined };
+    const data = withSandboxPicks(original, undefined);
+    expect(data.aliasGroupIssues).toEqual([]);
+    expect(canonicalHash(21, data)).toBe(10);
+    expect(variantHashes(10, data)).toEqual([10, 11]);
+    expect(
+      navigationGroups(data, '21').flatMap((g) =>
+        g.sections.flatMap((s) => s.items.map((i) => i.hash)),
+      ),
+    ).toEqual([10]);
+  },
+);
+
 it('recomposes from generated aliases on pick refresh, removal, and repeated refresh', async () => {
   const original = fixture();
   const grouped = withSandboxPicks(original, undefined);

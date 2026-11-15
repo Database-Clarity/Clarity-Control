@@ -31,7 +31,14 @@ const item = (hash, name) => ({
   isEnhanced: false,
   exotic: false,
 });
-const items = { 10: item(10, 'Twin'), 20: item(20, 'Twin'), 30: item(30, 'Other') };
+const items = {
+  10: item(10, 'Twin'),
+  20: item(20, 'Twin'),
+  30: item(30, 'Other'),
+  // The enhanced canonical has no base pointer; core proves it through the accepted base group.
+  11: { ...item(11, 'Twin'), categoryId: 'weapon-trait-enhanced', isEnhanced: true },
+  21: { ...item(21, 'Twin'), categoryId: 'weapon-trait-enhanced', isEnhanced: true, baseHash: 20 },
+};
 const tooltip = (hash, text) => ({
   hash,
   text: { en: { text, updatedAt: at, updatedBy: '1' } },
@@ -50,6 +57,13 @@ const bundle = {
         members: [10, 20],
         kind: 'S',
         basis: { name: 'Twin', categoryId: 'weapon-trait' },
+        by: { id: '1', login: 'maintainer' },
+        at,
+      },
+      11: {
+        members: [11, 21],
+        kind: 'S',
+        basis: { name: 'Twin', categoryId: 'weapon-trait-enhanced' },
         by: { id: '1', login: 'maintainer' },
         at,
       },
@@ -130,7 +144,7 @@ try {
           if (await toggle.isVisible()) await toggle.click();
           await canonicalBody.filter({ visible: true }).first().waitFor();
         };
-        await page.goto(`${origin}/#/t/20`);
+        await page.goto(`${origin}/#/t/21`);
         await page.waitForURL('**/#/t/10');
         await showCanonical();
         await page.reload();
