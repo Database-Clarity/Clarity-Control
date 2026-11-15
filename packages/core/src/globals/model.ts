@@ -43,7 +43,8 @@ export const globalDefinitionSchema = z
     updatedBy: z.string(),
     sourceUpdatedAt: timestampSchema.optional(),
     sourceRevision: globalRevisionSchema.optional(),
-    provenance: sourceSchema,
+    /** Present if and only if migrated. */
+    provenance: sourceSchema.optional(),
   })
   .strict();
 
@@ -76,8 +77,9 @@ export const globalRecordSchema = z
       ctx.addIssue({ code: 'custom', message: 'Name cannot round-trip through the resolver' });
     for (const [lang, definition] of Object.entries(record.definitions)) {
       if (
-        definition.provenance.lang !== lang ||
-        definition.provenance.hash !== (record.kind === 'variables' ? 2 : 3)
+        definition.provenance &&
+        (definition.provenance.lang !== lang ||
+          definition.provenance.hash !== (record.kind === 'variables' ? 2 : 3))
       )
         ctx.addIssue({ code: 'custom', message: 'Definition provenance kind/language mismatch' });
       if (record.kind === 'variables' && /[\r\n]/.test(definition.body))

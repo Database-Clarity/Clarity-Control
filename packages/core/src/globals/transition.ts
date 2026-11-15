@@ -51,7 +51,8 @@ export function assertGlobalTransition(
       const replacement = next.definitions[lang as keyof typeof next.definitions];
       if (
         replacement &&
-        stableStringify(definition.provenance) !== stableStringify(replacement.provenance)
+        stableStringify(definition.provenance ?? null) !==
+          stableStringify(replacement.provenance ?? null)
       )
         throw new Error('Migration ancestry is immutable');
       if (
