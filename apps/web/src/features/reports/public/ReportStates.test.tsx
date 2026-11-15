@@ -420,6 +420,8 @@ describe('report form states', () => {
       remove: () => undefined,
     });
     await renderForm('/report/100?lang=en');
+    // The first mount runs once the human-check loader settles; wait for it rather than assume a tick.
+    await until(() => mount.mock.calls.length === 1, 'the first human check');
     expect(mount).toHaveBeenCalledTimes(1);
     await writeWholeNote('The value is wrong in the current patch.');
     const form = host.querySelector('form')!;
