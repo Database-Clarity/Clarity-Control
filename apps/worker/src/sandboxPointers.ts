@@ -23,7 +23,7 @@ import {
   type SandboxConflicts,
   type SandboxPointers,
 } from '@clarity/core';
-import { aliasCatalog, source } from './catalog.js';
+import { aliasCatalog, aliasInputs, scopedAliases, source } from './catalog.js';
 import { exporter, publisherPinPath } from './elementTags.js';
 import { blobContent, blobSha, RefRace, type GitHub, type RepoFile } from './github.js';
 import { body, HttpError, json, upstreamJson } from './http.js';
@@ -83,6 +83,25 @@ export function storedAliasGroups(file: RepoFile | null | undefined) {
   const parsed = aliasGroupsSchema.safeParse(file.value);
   if (!parsed.success) throw new HttpError(502, `Invalid ${aliasGroupsPath} in editor data`);
   return parsed.data;
+}
+
+/** A fresh scope per request/attempt; extending it replaces the immutable alias map. */
+export async function consumerAliasScope(
+  github: GitHub,
+  groupsFile: RepoFile | null | undefined,
+  pointersFile: RepoFile | null | undefined,
+  hashes: readonly number[],
+  includeCategories = false,
+) {
+  const groups = storedAliasGroups(groupsFile);
+  if (!groups) return undefined;
+  const scope = scopedAliases(
+    await aliasInputs(github, includeCategories),
+    groups,
+    storedSandboxPointers(pointersFile),
+  );
+  scope.extend(hashes);
+  return scope;
 }
 
 export function pinMergesAliasGroups(pin: unknown): boolean {

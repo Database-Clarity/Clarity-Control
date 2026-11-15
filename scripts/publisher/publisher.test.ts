@@ -1817,12 +1817,12 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // Retain the afa1e8e stamp oracle; re-pin push.ts for its reviewed native refusal
     // and budget checks, the link-only empty-description guard, and the set-bonus hold; the
     // element-tag export hold is lifted (exportLegacy lowers; untagged pushes write the same bytes).
-    // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
+    // Re-pin S3's head-coherent, scoped alias selection; output parity remains unchanged below.
     // Re-pinned for sandbox picks: push merges config/sandbox-pointers.json (core
     // mergeSandboxPointers) like the publisher, and merges live perks with core mergeLivePerks
     // (keys the picks file names are recomputed); with no picks file, as here, every byte is the same.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', 'a8ddaf850869b50f6d1e3d3f5b98e28e0ad92947'],
+      ['apps/worker/src/push.ts', '11f0ca1b594e374bfbbf8be84d855fbcbb875da0'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

@@ -4,6 +4,7 @@ import { publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { loadAliases } from './catalog.js';
 import {
   pinMergesSandboxPointers,
+  consumerAliasScope,
   refuseUnsupportedAliasGroups,
   withSandboxPointers,
 } from './sandboxPointers.js';
@@ -192,12 +193,10 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       const groups = snapshot.files[4 + paths.length];
       refuseUnsupportedAliasGroups(groups, pin);
       if (!groups) generatorAliases ??= await loadAliases(github.env, github);
-      aliases = await withSandboxPointers(
-        github,
-        generatorAliases ?? {},
-        pinMergesSandboxPointers(pin) ? snapshot.files[2 + paths.length] : null,
-        groups,
-      );
+      const pointerFile = pinMergesSandboxPointers(pin) ? snapshot.files[2 + paths.length] : null;
+      const scope = await consumerAliasScope(github, groups, pointerFile, value.hashes);
+      aliases =
+        scope?.aliases ?? (await withSandboxPointers(github, generatorAliases ?? {}, pointerFile));
       const moves = storedInactiveMoves(snapshot.files[3 + paths.length]);
       if (
         Object.keys(
@@ -217,8 +216,9 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
         (hash) => !isMovedInactive(resolveAlias(hash, aliases), moves),
       );
       const checked = active.length
-        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases)
+        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases, [], scope)
         : new Map<number, Tooltip>();
+      aliases = scope?.aliases ?? aliases;
       // A tagged span, `#{name}`, or `<enhanced/>` in a published tooltip or a document it reads
       // (imports, globals 2 and 3) needs a publisher build that lowers it; an older build would
       // export it unlowered.

@@ -17,7 +17,7 @@ import {
 import { loadAliases } from './catalog.js';
 import { exporter, needsLowering, publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { RefRace, type GitHub } from './github.js';
-import { withSandboxPointers } from './sandboxPointers.js';
+import { consumerAliasScope, withSandboxPointers } from './sandboxPointers.js';
 import { body, HttpError, json } from './http.js';
 import {
   checkEdit,
@@ -96,12 +96,14 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       ? {}
       : (aliases ??= await loadAliases(github.env, github));
     // A picked shared sandbox perk is an alias of its target, exactly as push and publish see it.
-    const saveAliases = await withSandboxPointers(
+    const scope = await consumerAliasScope(
       github,
-      generatorAliases,
-      current.at(-2),
       current.at(-1),
+      current.at(-2),
+      input.changes.map(({ hash }) => hash),
     );
+    const saveAliases =
+      scope?.aliases ?? (await withSandboxPointers(github, generatorAliases, current.at(-2)));
     let pin: { value: unknown } | undefined = readsPin
       ? { value: current[input.changes.length]?.value }
       : undefined;

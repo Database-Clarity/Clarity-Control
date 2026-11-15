@@ -21,9 +21,10 @@ import {
 import { batchSchema, schedulePaths } from '@clarity/core/schedule';
 import publisherConfig from '../../../config/publisher.json';
 import scheduledConfig from '../../../config/scheduled.json';
-import { aliasCatalog } from '../src/catalog.js';
+import { aliasCatalog, scopedAliases } from '../src/catalog.js';
+import { refuseBaseEnhanced } from '../src/baseEnhanced.js';
 import { GitHub } from '../src/github.js';
-import { withSandboxPointers } from '../src/sandboxPointers.js';
+import { consumerAliasScope, withSandboxPointers } from '../src/sandboxPointers.js';
 import { Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 
 const OP = '01K95H00000000000000000001';
@@ -202,7 +203,9 @@ it('requires complete authoritative descriptions for grouping', async () => {
   try {
     expect((await save(124)).status).toBe(502);
     expect(f.commits).toHaveLength(0);
-  } finally { logged.mockRestore(); }
+  } finally {
+    logged.mockRestore();
+  }
 });
 
 it('keeps cross-category groups disabled and excludes enhanced/base drift', async () => {
@@ -218,12 +221,16 @@ it('keeps cross-category groups disabled and excludes enhanced/base drift', asyn
 it('validates new sandbox picks against grouped canonical targets and pinned candidates', async () => {
   f.sandboxConflicts = { 700: [124, 126] };
   const response = await f.request('/sandbox-pointers', 'PUT', {
-    revision: null, picks: { 700: { to: 123 } },
+    revision: null,
+    picks: { 700: { to: 123 } },
   });
   expect(response.status, await response.clone().text()).toBe(200);
   expect(f.current()[sandboxPointersPath]).toMatchObject({ pointers: { 700: { to: 123 } } });
-  expect(generatorReads.filter(path => path.endsWith('sandboxConflicts.json'))
-    .every(path => path.includes(`/${revision}/`))).toBe(true);
+  expect(
+    generatorReads
+      .filter((path) => path.endsWith('sandboxConflicts.json'))
+      .every((path) => path.includes(`/${revision}/`)),
+  ).toBe(true);
 });
 
 it('rejects alias saves with canonical guidance, without recreating an archived tooltip', async () => {
@@ -321,6 +328,51 @@ it('checks canonical nested imports, global documents, and associated targets', 
   });
   expected = await publishableHash(f.current()['tooltips/123.json'] as Tooltip, aliases());
   expect((await publish(124, expected)).status).toBe(422);
+});
+
+it('extends the existing dependency walker into another group with full-composition parity', async () => {
+  items[129] = { ...items[123]!, hash: 129, name: 'Other twin' };
+  items[130] = { ...items[129], hash: 130 };
+  const input = groups();
+  input.groups[129] = {
+    ...input.groups[123]!,
+    members: [129, 130],
+    basis: { name: 'Other twin', categoryId: 'weapon-trait' },
+  };
+  f.moveData({
+    [aliasGroupsPath]: input,
+    'tooltips/123.json': document(123, 'import main from 130'),
+    'tooltips/129.json': document(129, 'import main from 126'),
+    'tooltips/126.json': document(126, 'Nested canonical'),
+  });
+  const github = new GitHub(f.env);
+  const file = { sha: sha(90), value: input };
+  const scope = (await consumerAliasScope(github, file, null, [123]))!;
+  expect(scope.aliases[130]).toBeUndefined();
+  const checked = await refuseBaseEnhanced(github, f.dataHead, [123], scope.aliases, [], scope);
+  const full = composeAliases({}, input, items).aliases;
+  const expected = await refuseBaseEnhanced(github, f.dataHead, [123], full);
+  expect([...checked]).toEqual([...expected]);
+  expect(resolveAlias(130, scope.aliases)).toBe(resolveAlias(130, full));
+  expect(checked.get(126)?.text.en?.text).toBe('Nested canonical');
+});
+
+it('matches full S1 composition for each scoped synthetic identity and its incoming stubs', () => {
+  f.aliases = { 900: { to: 124, kind: 'frame' }, 901: { to: 900, kind: 'sandbox' } };
+  const full = composeAliases(f.aliases, groups(), items).aliases;
+  for (const hash of [...Object.keys(items), ...Object.keys(f.aliases)].map(Number)) {
+    const scope = scopedAliases(
+      { items, aliases: f.aliases, conflicts: {}, categories: [] },
+      groups(),
+      null,
+    );
+    const selected = scope.extend([hash]);
+    expect(resolveAlias(hash, selected)).toBe(resolveAlias(hash, full));
+    const target = resolveAlias(hash, full);
+    expect(
+      Object.entries(selected).filter(([key]) => resolveAlias(Number(key), selected) === target),
+    ).toEqual(Object.entries(full).filter(([key]) => resolveAlias(Number(key), full) === target));
+  }
 });
 
 it('uses real resolver output for nested imports, deleted cells, cycles, and globals', () => {

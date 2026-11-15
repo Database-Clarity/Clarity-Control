@@ -8,7 +8,9 @@ import {
   aliasGroupsPath,
   composeAliases,
   emptyAliasGroups,
+  incomingAliases,
   publishableHash,
+  resolveAlias,
   type AliasGroups,
   type AliasItems,
   type Aliases,
@@ -17,7 +19,8 @@ import {
 import publisherConfig from '../../../config/publisher.json';
 import { signToken } from '../src/crypto.js';
 import worker from '../src/index.js';
-import { Fixture, makePrivateKey, tooltip } from './fixture.js';
+import { Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
+import { scopedAliases } from '../src/catalog.js';
 
 it('measures cold and warm grouped save, publish, and rollback push on real generator inputs', async () => {
   const dir = process.env.ALIAS_DATA!;
@@ -68,7 +71,10 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
   };
   const effective = composeAliases(generated, group, items, conflicts);
   expect(effective.issues).toEqual([]);
+  const largest = Object.values(items).filter(item => item.categoryId !== 'armor-set-bonus' &&
+    items[resolveAlias(item.hash, generated)] && items[resolveAlias(item.hash, generated)]!.categoryId !== 'armor-set-bonus').map(item => item.hash);
   const f = new Fixture(await makePrivateKey());
+  const liveBase = structuredClone(f.live);
   f.env.PUBLISH_SIGNING_KEY = generateKeyPairSync('ed25519')
     .privateKey.export({ type: 'pkcs8', format: 'pem' })
     .toString();
@@ -121,7 +127,7 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
   };
   try {
     for (const mode of ['absent', 'accepted'] as const)
-      for (const route of ['save', 'publish', 'push-live'] as const) {
+      for (const route of ['save', 'publish', 'push-live', 'push-largest'] as const) {
         const expected = await publishableHash(
           base,
           mode === 'accepted' ? effective.aliases : generated,
@@ -129,8 +135,17 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
         const samples: number[] = [];
         const counts: number[] = [];
         for (let i = 0; i < 11; i++) {
-          publisherConfig.enabled = route !== 'push-live';
+          publisherConfig.enabled = route === 'save' || route === 'publish';
+          f.live = structuredClone(liveBase);
+          f.liveHead = sha(f.sequence++);
+          f.liveFileSha = sha(f.sequence++);
+          f.largeFile = route === 'push-largest';
+          const path = route === 'push-largest' ? 'push-live' : route;
+          const largeFiles = route === 'push-largest' ? Object.fromEntries(largest.map(hash =>
+            [`tooltips/${resolveAlias(hash, generated)}.json`, { ...base, hash: resolveAlias(hash, generated) }])) : {};
           f.moveData({
+            ...largeFiles,
+            'live/pushed.json': {},
             [aliasGroupsPath]: mode === 'accepted' ? group : undefined,
             [`tooltips/${hash}.json`]: base,
             '.publisher/PIN': { capabilities: ['aliasGroups', 'sandboxPointers'] },
@@ -141,8 +156,9 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
               ? { message: 'Benchmark', changes: [{ hash, base, next: base }] }
               : route === 'publish'
                 ? { opId, hashes: [hash], expected: { [hash]: expected } }
+                : route === 'push-largest' ? { hashes: largest }
                 : { hashes: [hash], expected: { [hash]: expected } };
-          const request = new Request(`https://api.example/${route}`, {
+          const request = new Request(`https://api.example/${path}`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, Origin: f.env.SITE_ORIGIN },
             body: JSON.stringify(value),
@@ -163,6 +179,7 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
           warmMedianMs: warm[5],
           warmMaxMs: warm.at(-1),
           subrequests: counts,
+          requestedRows: route === 'push-largest' ? largest.length : 1,
         };
       }
     console.log(`ALIAS_CPU ${JSON.stringify(results)}`);
@@ -174,3 +191,59 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
     vi.unstubAllGlobals();
   }
 });
+
+it(
+  'matches full S1 composition for EVERY real generator identity and incoming stub',
+  { timeout: 120_000 },
+  () => {
+    const read = (file: string) =>
+      JSON.parse(readFileSync(join(process.env.ALIAS_DATA!, file), 'utf8'));
+    const items = read('items.json') as AliasItems;
+    const aliases = read('aliases.json') as Aliases;
+    const conflicts = read('sandboxConflicts.json') as SandboxConflicts;
+    const members = [1168162263, 1528281896, 3124871000];
+    const item = items[members[0]!]!;
+    const groups: AliasGroups = {
+      ...emptyAliasGroups(),
+      groups: {
+        [item.hash]: {
+          members,
+          kind: 'S',
+          basis: { name: item.name, categoryId: item.categoryId },
+          by: { id: '1', login: 'alice' },
+          at: '2025-01-01T00:00:00Z',
+        },
+      },
+    };
+    const full = composeAliases(aliases, groups, items, conflicts).aliases;
+    const hashes = new Set(
+      [
+        ...Object.keys(items),
+        ...Object.keys(aliases),
+        ...Object.values(aliases).map((alias) => String(alias.to)),
+      ].map(Number),
+    );
+    let maxAliases = 0;
+    for (const hash of hashes) {
+      const scope = scopedAliases({ items, aliases, conflicts, categories: [] }, groups, null);
+      const selected = scope.extend([hash]);
+      const canonical = resolveAlias(hash, full);
+      expect(resolveAlias(hash, selected), `canonical ${hash}`).toBe(canonical);
+      expect(incomingAliases(canonical, selected), `incoming ${hash}`).toEqual(
+        incomingAliases(canonical, full),
+      );
+      maxAliases = Math.max(maxAliases, Object.keys(selected).length);
+    }
+    if (process.env.ALIAS_CORPUS_OUT)
+      writeFileSync(
+        process.env.ALIAS_CORPUS_OUT,
+        JSON.stringify({
+          identities: hashes.size,
+          items: Object.keys(items).length,
+          aliases: Object.keys(aliases).length,
+          groupMembers: members,
+          maxScopedAliases: maxAliases,
+        }),
+      );
+  },
+);

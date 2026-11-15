@@ -34,6 +34,7 @@ import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
 import {
   pinMergesSandboxPointers,
+  consumerAliasScope,
   refuseUnsupportedAliasGroups,
   withSandboxPointers,
 } from '../sandboxPointers.js';
@@ -184,12 +185,9 @@ export async function scheduleBatch(
     const operation = await scheduledOperation(github, state, batch);
     if (!state.extra[3]) generatorAliases ??= await loadAliases(github.env, github);
     refuseUnsupportedAliasGroups(state.extra[3], state.pin);
-    const saveAliases = await withSandboxPointers(
-      github,
-      generatorAliases ?? {},
-      state.extra[1],
-      state.extra[3],
-    );
+    const scope = await consumerAliasScope(github, state.extra[3], state.extra[1], hashes);
+    const saveAliases =
+      scope?.aliases ?? (await withSandboxPointers(github, generatorAliases ?? {}, state.extra[1]));
     refuseAliases(hashes, saveAliases);
     // ONE read for every member, its current copy, its published snapshot, and any conflict file.
     const files = await github.files(
@@ -257,7 +255,7 @@ export async function scheduleBatch(
     // A member the generator has since aliased would export its target, not the member: refuse
     // it as /save does, before any check reads documents by canonical hash.
     refuseAliases(hashes, saveAliases);
-    const aliases =
+    let aliases =
       state.extra[3] || pinMergesSandboxPointers(state.pin) ? saveAliases : generatorAliases!;
     const moves = storedInactiveMoves(state.extra[2]);
     if (
@@ -287,8 +285,10 @@ export async function scheduleBatch(
           active.map((t) => t.hash),
           aliases,
           active,
+          scope,
         )
       : new Map();
+    aliases = scope?.aliases ?? aliases;
     for (const document of checked.values())
       refuseUnlowerable(document, { value: state.pin }, 'published');
     refuseHeldSetBonuses(active);
