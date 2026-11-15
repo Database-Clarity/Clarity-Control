@@ -163,4 +163,24 @@ describe('FinderPicker', () => {
     expect(active()?.textContent).toBe('Gauntlets');
     expect(listbox()!.scrollTop).toBe(228);
   });
+
+  it.each(['Home', 'ArrowUp', 'h'])(
+    'reveals a hovered row even when %s targets the same index',
+    async (name) => {
+      vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return this.dataset.value === 'helm' ? 210 : 300;
+      });
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(28);
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100);
+      await key('Enter');
+      const hover = listbox()!.querySelector<HTMLElement>('[data-value="helm"]')!;
+      await act(async () => hover.dispatchEvent(new MouseEvent('mousemove', { bubbles: true })));
+      expect(listbox()!.scrollTop).toBe(228);
+      await key(name);
+      expect(active()).toBe(hover);
+      expect(listbox()!.scrollTop).toBe(210);
+    },
+  );
 });

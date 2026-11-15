@@ -78,15 +78,14 @@ export const FinderPicker = memo(function FinderPicker({
   const options = sections.flatMap((section) => section.options);
   const selectedIndex = options.findIndex((option) => option.id === value);
   const selected = options[selectedIndex];
-  const [active, setActive] = useState(0);
-  const scrollToActive = useRef(true);
+  const [highlight, setHighlight] = useState({ index: 0, scroll: true });
+  const active = highlight.index;
   const typed = useRef({ text: '', at: 0 });
   const optionId = (index: number) => `${base}-o${index}`;
 
   const show = (index = selectedIndex) => {
     if (disabled || !options.length) return;
-    scrollToActive.current = true;
-    setActive(Math.max(0, Math.min(options.length - 1, index)));
+    setHighlight({ index: Math.max(0, Math.min(options.length - 1, index)), scroll: true });
     setOpen(true);
   };
   const close = useCallback(() => setOpen(false), []);
@@ -131,7 +130,7 @@ export const FinderPicker = memo(function FinderPicker({
   // Opening and keyboard navigation reveal the highlight before paint. Hover only
   // highlights: revealing a clipped row under the pointer would make the list jump.
   useLayoutEffect(() => {
-    if (!open || !scrollToActive.current) return;
+    if (!open || !highlight.scroll) return;
     const element = list.current;
     const row = element?.querySelector<HTMLElement>(`[id="${optionId(active)}"]`);
     if (!element || !row) return;
@@ -141,7 +140,7 @@ export const FinderPicker = memo(function FinderPicker({
     else if (bottom > element.scrollTop + element.clientHeight)
       element.scrollTop = bottom - element.clientHeight;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, active]);
+  }, [open, highlight]);
 
   // An outside press closes the list (the trigger toggles it itself).
   useEffect(() => {
@@ -209,8 +208,7 @@ export const FinderPicker = memo(function FinderPicker({
     const page = 10;
     const move = (index: number) => {
       event.preventDefault();
-      scrollToActive.current = true;
-      setActive(Math.max(0, Math.min(options.length - 1, index)));
+      setHighlight({ index: Math.max(0, Math.min(options.length - 1, index)), scroll: true });
     };
     if (key === 'ArrowDown') move(active + 1);
     else if (key === 'ArrowUp') move(active - 1);
@@ -258,8 +256,7 @@ export const FinderPicker = memo(function FinderPicker({
         onMouseDown={(event) => event.preventDefault()}
         onMouseMove={() => {
           if (at === active) return;
-          scrollToActive.current = false;
-          setActive(at);
+          setHighlight({ index: at, scroll: false });
         }}
         onClick={() => choose(at)}
       >
