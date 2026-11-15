@@ -54,6 +54,11 @@ describe('S1 native consumer output in importer context', () => {
     ['native imported through a global title', '<title Label [Help] />', {
       3: perk(3, 'title Help (\nimport main from 5\n)'), 5: perk(5, 'Title {{x}{y}}'),
     }],
+    ['pair assembled by global title imports', '<title Label [Help] />', {
+      1: perk(1, ''), 2: perk(2, ''),
+      3: perk(3, 'title Help (\nx {import main from 5\nimport main from 5\n)'),
+      5: perk(5, '{a}{b}}'),
+    }],
     ['late title import after variable substitution', 'title T (\n#Import\n)\n{{b}{e}} <title See [T] />', {
       1: perk(1, ''), 2: perk(2, 'var Import = import main from 200'), 3: perk(3, ''),
       200: perk(200, 'Imported {{x}{y}}'),
@@ -101,6 +106,48 @@ describe('S1 native consumer output in importer context', () => {
         );
       }
     }
+  });
+
+  test.each([
+    'enhanced (\nOnly {{a}{b}}\n)',
+    '// todo {{a}{b}}',
+    '/* todo {{a}{b}} */',
+  ])('empty native output omits descriptions across all eight presets: %s', (source) => {
+    const libraries = { 1: perk(1, ''), 2: perk(2, ''), 3: perk(3, '') };
+    const native = inputOf(source, libraries);
+    delete native.perks[102];
+    if (!source.startsWith('enhanced')) delete native.perks[101];
+    for (const preset of legacyPresets) {
+      const output = json(buildLegacy(native, preset));
+      expect(output[100]?.descriptions, preset).toBeUndefined();
+      if (source.startsWith('enhanced'))
+        expect(JSON.stringify(output[101].descriptions.en), preset).toContain('Only b');
+    }
+  });
+
+  test.each([
+    '/*\nimport main from 999\n*/',
+    'export hidden Old (\nimport main from 999\n)',
+  ])('invisible deleted title-library imports keep all eight files buildable: %s', (unused) => {
+    const titles = `title Help (\nHelp text\n)\n${unused}`;
+    for (const source of ['Plain text, no title, no pair', '{{base}{enhanced}} <title See [Help] />']) {
+      const input = inputOf(source, { 1: perk(1, ''), 2: perk(2, ''), 3: perk(3, titles) });
+      const preview = parseMarkup(source, { variables: '', titles });
+      expect(preview.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+      for (const preset of legacyPresets) {
+        const output = json(buildLegacy(input, preset));
+        expect(output[100].descriptions.en, preset).toEqual(
+          descriptionFilter(structuredClone(preview.lines), preset),
+        );
+      }
+    }
+  });
+
+  test('visible deleted global title imports still fail closed for native documents', () => {
+    const input = inputOf('{{base}{enhanced}} <title See [Help] />', {
+      3: perk(3, 'title Help (\nimport main from 999\n)'),
+    });
+    for (const preset of legacyPresets) expect(() => buildLegacy(input, preset)).toThrow(/Unresolved import/);
   });
 
   test.each([
@@ -206,6 +253,19 @@ test.each(['live', 'editorData'] as const)('%s real-data control: seven files st
   const { input, identical } = name === 'live' ? liveInput() : editorDataInput();
   for (const preset of legacyPresets)
     expect(sha256(buildLegacy(input, preset, { identical }))).toBe(expected[name].files[preset]);
+}, 120_000);
+
+test('unused global pair keeps string preset bytes pinned, including empty real-data descriptions', () => {
+  const { input, identical } = editorDataInput();
+  const variables = input.perks[2] as ReturnType<typeof perk>;
+  variables.editor.en.main += '\nvar ZzUnusedPair = {{1}{2}}';
+  for (const preset of ['crayon', 'braytech', 'vaultZero'] as const) {
+    const bytes = buildLegacy(input, preset, { identical });
+    expect(sha256(bytes), preset).toBe(expected.editorData.files[preset]);
+    const output = json(bytes);
+    for (const hash of [2234507197, 3471414563])
+      expect(output[hash].descriptions, `${preset}/${hash}`).toBeUndefined();
+  }
 }, 120_000);
 
 test('synthetic fixture census classifies Prismatic as the sole new legacy delta', () => {

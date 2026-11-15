@@ -16,11 +16,8 @@ const nativeDescription = (descriptionData: DescriptionData, description: string
     return [text?.main, text?.secondary].filter(Boolean).join('\n')
   }
   const variables = library(2)
-  const rawTitles = library(3)
-  // Use the real import resolver for global title bodies too, including pairs assembled by
-  // mid-line splices. No copied dependency walk, or early selection of an imported perk's arm.
-  const titles = rawTitles.includes('import ')
-    ? loadExports({ ...descriptionData, descriptionString: rawTitles }) : rawTitles
+  // parseMarkup resolves visible title imports, including pairs assembled by mid-line splices.
+  const titles = library(3)
   let native = [description, variables, titles].some((source) => source.includes('{{'))
   // Variable substitution can introduce a later title import. Keep the real resolver's
   // context for those passes, and observe its reads instead of guessing the dependency graph.
@@ -73,7 +70,7 @@ export const convertDescription = (descriptionData: DescriptionData) => {
   // their arms into new variable or math syntax. Ordinary documents retain their exact old path.
   const imported = loadExports(descriptionData)
   const native = nativeDescription(descriptionData, imported)
-  if (native !== undefined) return { lines: native, native: true }
+  if (native !== undefined) return { lines: native.length ? native : undefined, native: true }
   const { preparedDescription, titles } = prepareDescription(descriptionData, imported)
 
   const convertedTitles = Object.entries(titles || {}).reduce<{ [key: string]: DescriptionLine[] }>(
