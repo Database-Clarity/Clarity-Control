@@ -1,4 +1,11 @@
-import { isMarkupOnly, languages, type Tooltip } from '@clarity/core';
+import {
+  isMarkupOnly,
+  languages,
+  numberValues,
+  reconcileNumberMap,
+  type Lang,
+  type Tooltip,
+} from '@clarity/core';
 import type { SaveEnricher } from './index';
 
 /** Whether a tooltip has any saved or drafted translation the English revision is compared with. */
@@ -49,6 +56,24 @@ export function stampRevisions(
   noTranslationImpact = false,
 ): Tooltip {
   const text: Tooltip['text'] = { ...next.text };
+  const markupOnly = (lang: Lang, previous: string | undefined, after: string) => {
+    if (lang === 'en' || (!previous?.includes('#{=') && !after.includes('#{=')))
+      return isMarkupOnly(previous, after);
+    if (!before?.text.en || !next.text.en) return false;
+    const english =
+      before.text.en.text === next.text.en.text
+        ? next.text.en
+        : {
+            ...next.text.en,
+            numbers: reconcileNumberMap(before.text.en, next.text.en, next),
+          };
+    return isMarkupOnly(
+      previous,
+      after,
+      numberValues(before.text.en, lang),
+      numberValues(english, lang),
+    );
+  };
   const keepEnglish = noTranslationImpact && noImpactApplies(before, next);
   for (const lang of languages) {
     const entry = text[lang];
@@ -58,7 +83,10 @@ export function stampRevisions(
       text[lang] = previous;
       continue;
     }
-    if (previous && (isMarkupOnly(previous.text, entry.text) || (lang === 'en' && keepEnglish))) {
+    if (
+      previous &&
+      (markupOnly(lang, previous.text, entry.text) || (lang === 'en' && keepEnglish))
+    ) {
       text[lang] = { ...previous, text: entry.text };
       continue;
     }
@@ -72,7 +100,12 @@ export function stampRevisions(
   for (const lang of languages) {
     const entry = text[lang];
     const previous = before?.text[lang]?.text;
-    if (lang === 'en' || !entry || entry.text === previous || isMarkupOnly(previous, entry.text))
+    if (
+      lang === 'en' ||
+      !entry ||
+      entry.text === previous ||
+      markupOnly(lang, previous, entry.text)
+    )
       continue;
     if (text.en) text[lang] = { ...entry, sourceUpdatedAt: text.en.updatedAt };
     else throw new Error(`Cannot stamp ${lang} without an English source revision.`);

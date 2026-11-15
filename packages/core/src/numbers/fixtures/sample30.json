@@ -1,0 +1,275 @@
+{
+  "source": "legacy-history ca7d872d64512bc9ecba094dac6e368f65e1fea5; spec sample30.txt, seed 1114",
+  "revisions": [
+    {
+      "index": 1,
+      "hash": 2805134531,
+      "date": "2023-06-08",
+      "before": "On Melee Hits, for 5 seconds:\n• Grants 50 Airborne Effectiveness\n• Grants ? Mobility\n• Grants ?% Increased Jump Height\n+ <title Refills [G_refill] /> the magazine of your held weapon from reserves\n\nPowered Melee Hits refill the magazines of all your equipped weapons.\n\n7 second cooldown between activations.",
+      "after": "On Melee Hits, for 5.5 seconds:\n• Grants 50 Airborne Effectiveness\n• Grants ? Mobility\n• Grants ?% Increased Jump Height\n+ <title Refills [G_refill] /> the magazine of your held weapon from reserves\n\nPowered Melee Hits refill the magazines of all your equipped weapons.\n\n7 second cooldown between activations.",
+      "kind": "value",
+      "kept": 3
+    },
+    {
+      "index": 2,
+      "hash": 3449001998,
+      "date": "2024-06-05",
+      "before": "Finishers and Powered Melee Kills trigger a Kinetic Explosion centered on the enemy. 1 second cooldown between activations.\n\nExplosion Damage based on <link enemy rank [#CombatantClassifications] />:\n• Minors: 250 Damage, 10? meter Radius\n• Elites: 665 Damage, ?m Radius\n• Minibosses and higher: 797 Damage, 15?m Radius\n\nUnknown for Players currently. Listed damage numbers are at the center of the explosion as the damage falls off toward the edge of the radius.\n\nFinishers upgrade the explosion to the one triggered by a Powered Melee on a one rank higher target.\n\nExplosions triggered by Powered Melee Kills (bugged with Finishers) can chain on Kills and will trigger weaker explosions that deal up to 268 damage in a 8? meter radius.",
+      "after": "Finishers and Powered Melee Kills trigger a Kinetic Explosion centered on the enemy. 1 second cooldown between activations.\n\nExplosion Damage and radius based on <link enemy rank [#CombatantClassifications] />:\n• Minors: 250 Damage, 10? meter Radius\n• Elites: 665 Damage, ?m Radius\n• Minibosses and higher: 797 Damage, 15?m Radius\n\nUnknown for Players currently. Listed damage numbers are at the center of the explosion as the damage falls off toward the edge of the radius.\n\nFinishers upgrade the explosion to the one triggered by a Powered Melee on a one rank higher target.\n\nExplosions triggered by Powered Melee Kills (bugged with Finishers) can chain on Kills and will trigger weaker explosions that deal up to <pve 268 /> <pvp [?] /> damage in a 8? meter radius. (Chain Explosions are not subject to the cooldown)",
+      "kind": "text",
+      "kept": 1
+    },
+    {
+      "index": 3,
+      "hash": 1667892710,
+      "date": "2023-07-30",
+      "before": "On Barricade Placement:\nGenerates a Healing Pulse, instantly healing the user and allies within 12 metres. (Requires Line-of-Sight)\n\nHealing Pulse heals for either 58HP or TO 130HP, whichever value restores the most HP.\n\nSuper Abilities generate an extra Orb of Power.",
+      "after": "Casting your Barricade emits a Healing Pulse:\nHeals the wearer and allies within 12 meters if they have line of sight to the wearer.\n\nHealing Pulse heals either FOR 58 HP or TO 130 HP, whichever option restores the more health.\n\nSuper Abilities generate an extra Orb of Power that grants 7.14% Super Energy (regular Super Orb).\n\nSpecific Interactions:\n• Roaming Supers start generating Orbs after just 1 Kill instead of needing at least 2\n• Ward of Dawn generates 4 Orbs with each granting 3.57% Super Energy (up from 3 Orbs granting 2.3% each for a ~2x increase)",
+      "kind": "text",
+      "kept": 0
+    },
+    {
+      "index": 4,
+      "hash": 4160037471,
+      "date": "2023-07-13",
+      "before": "Using your Class Ability grants Melee Energy.\n\nMelee Energy gains with 1|2+ Mods equipped:\n• <hunter/>Hunters: <pve 10% /> <pvp [5%] /> | <pve 12.5% /> <pvp [7.25%] />\n• <titan/>Titans: <pve 12% /> <pvp [6%] /> | <pve 15% /> <pvp [9%] />\n• <warlock/>Warlocks: <pve 20% /> <pvp [10%] /> | <pve 25% /> <pvp [15%] />",
+      "after": "Class Ability usage grants Melee Energy.\n\nMelee Energy Gains with 1|2+ Mods Equipped:\n<pve 10% /> <pvp [5%] /> | <pve 12.5% /> <pvp [7.5%] />\n\nEnergy Multipliers based on Class:\n<hunter/>Hunters: x1 | <titan/>Titans: x1.2 | <warlock/>Warlocks: x2",
+      "kind": "text",
+      "kept": 1
+    },
+    {
+      "index": 5,
+      "hash": 243981275,
+      "date": "2025-07-30",
+      "before": "Scoring multiple Hits against enemies within 5 seconds of each spawns an Orb of Power that grants #e${0.8+#d}% Super Energy.\n\nDoes not require Direct Hits. Hit counter persists through stow.\n\nHit requirements for activation:\n• Bows: 5 Hits\n• Swords: 10 Hits\n• Grenade Launchers: 11 Hits\n• Others: 67% of Magazine Size rounded down + 2\n\nSupport Frame Auto Rifle healing round Hits on damaged allies count as 2 Hits.\n\nenhanced (\nvar d = 0.3\n#e Spawned Orbs grant 37.5?% more Super Energy (0.8%⁠🠚⁠1.1?⁠%).\n)",
+      "after": "Scoring multiple Hits against enemies within 5 seconds of each spawns an Orb of Power that grants #e${0.8+#d}% Super Energy.\n\nDoes not require Direct Hits. Hit counter persists through stow.\n\nHit requirements for activation:\n• Bows: 5 Hits\n• Swords: 10 Hits\n• Area-Denial Grenade Launchers: 48? Hits\n• Other Grenade Launchers: 11 Hits\n• Others: 67% of Magazine Size rounded down + 2\n\nSupport Frame Auto Rifle healing round Hits on damaged allies count as 2 Hits.\n\nenhanced (\nvar d = 0.3\n#e Spawned Orbs grant 37.5?% more Super Energy (0.8%⁠🠚⁠1.1?⁠%).\n)",
+      "kind": "text",
+      "kept": 11
+    },
+    {
+      "index": 6,
+      "hash": 1969105489,
+      "date": "2023-03-13",
+      "before": "Thunderclap Kills grant [?]% Melee Energy.\n\nThunderclap causes enemies within [?] metres to get struck by lightning, dealing [?] damage.\nRange is increased to [?] metres if Amplified.\n\nVery insightful, I know.",
+      "after": "Thunderclap Kills refund Melee Energy based on <link enemy rank [https://d2clarity.page.link/combatant] />:\n• 9%: Tier 1 Minors\n• 13%: Tier 2 Minors, Tier 1 Elites\n• 15%: Enemy Players\n• 20%: Tier 3 Minors, Tier 2 Elites\n• 30%: Tier 4 Minors, Tier 3 Elites\n• 40%: Tier 4 Elites, Minibosses\n• 50%: Bosses\n\nThunderclap strikes enemies within [?] meters with lightning, dealing 50 damage.\nRange is increased to [?] meters when Amplified.",
+      "kind": "text",
+      "kept": 0
+    },
+    {
+      "index": 7,
+      "hash": 1600092898,
+      "date": "2024-04-01",
+      "before": "Upon readying the weapon, for ${2+#d} seconds: // add #e once the enhanced duration is known\n• 30% Decreased Charge Time\n• 20% Decreased Damage\n• 100 Handling\n\nWeapon must be stowed for 3.5 seconds before readying for the perk to activate.\n\nenhanced (\nvar d = 0\n#e Buff duration is increased.\n)",
+      "after": "Grants the following for #e${2+#d} seconds upon readying:\n• 30% Decreased Charge Time\n• 20% Decreased Damage\n• 100 Handling\n\nWeapon must be stowed for 3 seconds before readying for the perk to activate.\n\nenhanced (\nvar d = 0.5\n#e Buff duration is increased by 0.5 seconds.\n)",
+      "kind": "text",
+      "kept": 1
+    },
+    {
+      "index": 8,
+      "hash": 1550063955,
+      "date": "2026-01-17",
+      "before": "Upgrades this weapon to a Masterwork. Once upgraded, the weapon will obtain enhanced capabilities, such as increased stats and/or additional perks.\n\nDefeat targets using this weapon to unlock this upgrade.",
+      "after": "Triggering a Lightning Strike <title refills [G_refill] /> 13 ammo from reserves.",
+      "kind": "text",
+      "kept": 0
+    },
+    {
+      "index": 9,
+      "hash": 3978468247,
+      "date": "2025-02-08",
+      "before": "Grants the following for #e${7+#d} seconds upon readying the weapon within 7? seconds of scoring a Kill with a different weapon:\n• 0.75?x ADS Animation Duration Multiplier\n• 25% decreased Accuracy Cone Size\n• 30 Airborne Effectiveness\n\nWeapon Kills while Discord is active fully refill the Magazine of <primary/>Primary Weapons, and refund 1 Ammo for <special/>Special and <heavy/>Power Weapons. (Scoring multiple kills with a single shot/burst still only refunds 1 ammo.)\n\nenhanced (\nvar d = 1\n#e Buff Duration is increased by 1? second.\n)",
+      "after": "Grants the following for #e${7+#d} seconds upon readying the weapon within 7? seconds of scoring a Kill with a different weapon:\n• 0.75x ADS Animation Duration Multiplier\n• 25% decreased Accuracy Cone Size\n• 30 Airborne Effectiveness\n\nWeapon Kills while Discord is active fully refill the Magazine of <primary/>Primary Weapons, and refund 1 Ammo for <special/>Special and <heavy/>Power Weapons. (Scoring multiple kills with a single shot/burst still only refunds 1 ammo.)\n\nenhanced (\nvar d = 1\n#e Buff Duration is increased by 1? second.\n)",
+      "kind": "value",
+      "kept": 9
+    },
+    {
+      "index": 10,
+      "hash": 3277705907,
+      "date": "2023-10-21",
+      "before": "",
+      "after": "Upon being struck by a Melee Attack, for 5 seconds:\nGrants <pve 75% /> <pvp [50%] /> Increased Melee Damage for one Melee Attack.\n\nBuff duration is not refreshable.\t\t\t",
+      "kind": "text",
+      "kept": 0
+    },
+    {
+      "index": 11,
+      "hash": 3441203855,
+      "date": "2026-01-18",
+      "before": "Dealing damage charges 'Void Leech Mode'.\n\nScoring 27 Weapon Hits:\n• Charges one currently uncharged <void/>Void Debuff\n• Uncharged debuffs are granted in the following order: <void/>Volatile 🠚 <void/>Weaken 🠚 <void/>Suppression\n\nScoring 6 Weapon Hits on a <void/>Void debuffed target, or having a <void/>Void debuff applied to you by an enemy instantly leeches that debuff into your gun.\n\nBoth hit counters can progress simultaneously (E.g.: Leeching <void/>Weaken off a target also counts as 6 shots toward charging <void/>Volatile).\n\nLeeching any <void/>Void Debuff off a target, or having all three <void/>Void Debuffs charged, enables you to Hold [Reload] and activate 'Void Leech' for <pve 15 /> <pvp [10] /> seconds. \n\nVoid Leech mode grants 20% increased damage and appplies all stored <void/>Void Debuffs on hit.",
+      "after": "Dealing damage charges 'Void Leech Mode'.\n\nScoring 27 Weapon Hits:\n• Charges one currently uncharged <void/>Void Debuff\n• Uncharged debuffs are granted in the following order: <void/>Volatile 🠚 <void/>Weaken 🠚 <void/>Suppression\n\nScoring 6 Weapon Hits on a <void/>Void debuffed target, or having a <void/>Void debuff applied to you by an enemy, instantly leeches that debuff into your gun.\n\nBoth hit counters can progress simultaneously (E.g.: Leeching <void/>Weaken off a target also counts as 6 hits toward charging <void/>Volatile).\n\nLeeching any <void/>Void Debuff off a target, or having all three <void/>Void Debuffs charged, enables you to hold [Reload] and activate 'Void Leech' for <pve 15 /> <pvp [10] /> seconds. \n\nVoid Leech mode grants 20% increased damage and appplies all stored <void/>Void Debuffs on hit.",
+      "kind": "text",
+      "kept": 5
+    },
+    {
+      "index": 12,
+      "hash": 554409585,
+      "date": "2023-08-31",
+      "before": "Spawns a <heavy/>Heavy Ammo Brick upon scoring a Weapon Kill after reaching 100% Counter Progress. Counter is only progressed by Weapon Kills.\n\nCounter Progress on Weapon Kills:\n1.1% to 1.33%. Average of 83.5 Kills.\n\nProgress Multiplier on Kills by Weapon Type:\n• <primary/>Primary Weapons: 4.25x\n• <yellow Exotic /> <primary/><yellow Primary Weapons: /> 5.05x \n• <special/><green Special Weapons: /> 1.05x\n\nAmmo Finder Bricks grant 33%|66%|100% of a Regular Ammo Brick's Pickup Amount with 1|2|3 Mods equipped. Pickup Amount is determined on Brick Spawn.",
+      "after": "Spawns a <heavy/>Heavy Ammo Brick upon scoring a Weapon Kill after reaching 100% Counter Progress. Counter is only progressed by Weapon Kills.\n\nCounter Progress on Weapon Kills:\n1.1% to 1.33%. Average of 83.5 Kills.\n\nProgress Multiplier on Kills by Weapon Type:\n• <primary/>Primary Weapons: 4.25x\n• <yellow Exotic /> <primary/><yellow Primary Weapons: /> 5.05x \n• <special/><green Special Weapons: /> 1.05x\n\nAmmo Finder Bricks grant 27.5%|60%|100% of a Regular Ammo Brick's Pickup Amount with 1|2|3 Mods equipped. Pickup Amount is determined on Brick Spawn.\n\nAmmo Finder Bricks have less variablity compared to Regular Bricks. (i.e. they can't go as far above or under the average ammo amount granted)",
+      "kind": "text",
+      "kept": 9
+    },
+    {
+      "index": 13,
+      "hash": 2316126473,
+      "date": "2024-05-01",
+      "before": "<title Refills [G_refill] /> 4% of the Magazine of Trace Rifles from reserves every 0.7 seconds. Works while stowed.\n\nRapidly scoring 5 Trace Rifle hits on a <link Miniboss, Champion, Boss, or Vehicle [#CombatantClassifications] /> marks them for 10 seconds. Additional hits refresh the mark duration.\n\nOnly one target can be marked at a time and the mark cannot be transferred to a different target unless the duration runs out or the enemy is defeated.\n\nAlly kills on Marked Enemies generate <heavy/>Heavy Ammo for allies and <special/>Special Ammo for the wearer.\n\nMultiple people can mark the same target resulting in each of them receiving the appropriate drops. \n\nSpawned Ammo Bricks grant 10.33% of your total reserves (rounded up to the nearest whole number).",
+      "after": "<title Refills [G_refill] /> 4% of the Magazine of Trace Rifles from reserves every 0.7 seconds. Works while stowed.\n\nRapidly scoring 5 Trace Rifle hits on a <link Miniboss, Champion, Boss, or Vehicle [#CombatantClassifications] /> marks them for 10 seconds. Additional hits refresh the mark duration. Does not require Direct Hits.\n\nOnly one target can be marked at a time and the mark cannot be transferred to a different target unless the duration runs out or the enemy is defeated.\n\nAlly kills on Marked Enemies generate <heavy/>Heavy Ammo for allies and <special/>Special Ammo for the wearer.\n\nMultiple people can mark the same target resulting in each of them receiving the appropriate drops. \n\nSpawned Ammo Bricks grant 10.33% of your total reserves (rounded up to the nearest whole number).",
+      "kind": "text",
+      "kept": 5
+    },
+    {
+      "index": 14,
+      "hash": 1155472384,
+      "date": "2023-03-13",
+      "before": "While Surrounded by 3+ enemies: Activates Biotic Enhancements\n\nBiotic Enhancements increases Melee and Super damage for 8 seconds.\n\n50% Super Damage Increase.\n<pve 200% Increased Melee Damage. />\n<pvp 100% Increased Melee Damage. />\n\nIncreases Melee Lunge Range to 7 meters.\n",
+      "after": "While Surrounded by 3+ enemies:\nGrants Biotic Enhancements for 8 seconds\n\nBiotic Enhancements:\n• 50% Increased Super Damage\n• <pve 200% /> <pvp 100% /> Increased (Glaive) Melee Damage\n\nIncreases Melee Lunge Range to 7 meters.\n",
+      "kind": "text",
+      "kept": 1
+    },
+    {
+      "index": 15,
+      "hash": 3161816588,
+      "date": "2026-07-07",
+      "before": "Sliding <title refills [G_refill] /> 15% of the Magazine (rounded up) and grants #e${20+#d} Range and Stability for your next shot (of the burst) within 2.5 seconds.\n\n0.3 second cooldown after activation but can activate multiple times during a slide.  Buff is removed on stow.\n\nenhanced (\nvar d = 2\n#e Stat bonuses are increased by 2?.\n)",
+      "after": "Sliding <title refills [G_refill] /> 15% of the Magazine (rounded up) and grants #e${20+#d} Range and Stability for your next shot (of the burst) within 2.5 seconds.\n\n0.3 second cooldown after activation but can activate multiple times during a slide. Buff is removed on stow.\n\nenhanced (\nvar d = 2\n#e Stat bonuses are increased by 2?.\n)",
+      "kind": "text",
+      "kept": 6
+    },
+    {
+      "index": 16,
+      "hash": 1095471953,
+      "date": "2023-05-13",
+      "before": "Daybreak Kills spawn a Healing and Empowering Rift on Enemy Death Location.\n\nKills while your Class Ability Energy is full also spawn a Healing and Empowering Rift on Enemy Death Location. Consumes Class Ability Charge.\n\nSolar Weapon Kills while standing in a Rift grant Class Ability Energy based on <link enemy rank [https://d2clarity.page.link/combatant] />:\n• 9%: Tier 1 Minors\n• 13%: Tier 2 Minors, Tier 1 Elites(?)\n• 15%: Enemy Players\n• 20%: Tier 3 Minors, Tier 2 Elites(?)\n• 30%: Tier 4 Minors, Tier 3-4 Elites(?)\n• 40%: Minibosses \n• 50%: Bosses",
+      "after": "Daybreak Kills spawn a Healing and Empowering Rift on Enemy Death Location.\n\nKills inside a Rift while your Class Ability Energy is full also spawn a Healing and Empowering Rift on Enemy Death Location. Consumes Class Ability Charge.\n\nSolar Weapon Kills while standing in a Rift grant Class Ability Energy based on <link enemy rank [https://d2clarity.page.link/combatant] />:\n• 9%: Tier 1 Minors\n• 13%: Tier 2 Minors, Tier 1 Elites(?)\n• 15%: Enemy Players\n• 20%: Tier 3 Minors, Tier 2 Elites(?)\n• 30%: Tier 4 Minors, Tier 3-4 Elites(?)\n• 40%: Minibosses \n• 50%: Bosses",
+      "kind": "text",
+      "kept": 9
+    },
+    {
+      "index": 17,
+      "hash": 2731901709,
+      "date": "2024-05-15",
+      "before": "Grants a Stack of Warlord's Sigil on (Glaive) Melee Kills for 5 seconds, increasing (Glaive) Melee Damage.\n\n(Glaive) Melee Damage Increase at 1|2|3|4|5 Stacks:\n55% | 110% | 165% | 220% | 275%\n\nPVE Combatants hit by <stasis/>Penumbral Blast automatically shatter.",
+      "after": "Grants a Stack of Warlord's Sigil on (Glaive) Melee Kills for 5 seconds, increasing (Glaive) Melee damage.\n\n(Glaive) Melee damage increase at 1|2|3|4|5 Stacks:\n55% | 110% | 165% | 220% | 275%\n\nPVE Combatants hit by <stasis/>Penumbral Blast automatically shatter.",
+      "kind": "text",
+      "kept": 3
+    },
+    {
+      "index": 18,
+      "hash": 4293542123,
+      "date": "2023-12-20",
+      "before": "Applies 30 <solar/>Scorch Stacks (#d with <solar/>Ember of Ashes) and deals up to ? damage to enemies within 4? meters of the target on Weapon Kills.\n\nKilling Powerful Combatants and Players increases the radius to 8 meters.\n\n<solar/>Scorch damage can be increased through <link Weapon Damage Buffs [#DamageBuffs] />.\n\nvar d = 40\nenhanced (\nvar d = #e<pve 45 /> <pvp [40] />\n#e Applies to 5 more <solar/>Scorch Stacks to PVE Combatants when Ember of Ashes is equipped.\n)",
+      "after": "Applies 30 <solar/>Scorch Stacks (#d with <solar/>Ember of Ashes) and deals up to 30 damage to enemies within 4? meters of the target on Weapon Kills.\n\nKilling Powerful Combatants and Players increases the radius to 8 meters.\n\n<solar/>Scorch damage can be increased through <link Weapon Damage Buffs [#DamageBuffs] />.\n\nvar d = 40\nenhanced (\nvar d = #e<pve 45 /> <pvp [40] />\n#e Applies to 5 more <solar/>Scorch Stacks to PVE Combatants when Ember of Ashes is equipped.\n)",
+      "kind": "text",
+      "kept": 7
+    },
+    {
+      "index": 19,
+      "hash": 489583097,
+      "date": "2025-02-08",
+      "before": "Only usable while on the ground.\n\nGrants 20% Damage Resistance during the cast animation and keeps you crouched after. \n\nCreates a short, curved, see-through Barricade that blocks all projectiles fired at it.\n\nLasts 20 seconds, has 500 HP, has 90% Damage Resistance against non-Boss PVE Combatants, and ?% Damage Resistance against Bosses.\n\nEnemies that pass through the Barricade continuously receive ? non-lethal damage every ? seconds. PVE Combatants that pass through the Barricade are temporarily disoriented.\n\nBarricade taunts PVE Combatants that are in front of it and within ? meters.\n\nGrants the following benefits to you and allies while standing behind it:\n• 10% increased Damage Falloff Distance\n• 50% Flinch Resistance\n• 30 Stability\n• 100 Reload Speed with a 0.9x Reload Duration Multiplier\n• 60% Splash Damage Resistance against PVE Combatants",
+      "after": "Only usable while on the ground.\n\nGrants 20% Damage Resistance during the cast animation and keeps you crouched after. \n\nCreates a short, curved, see-through Barricade that blocks all projectiles fired at it.\n\nLasts 20 seconds, has 500 HP, has 90% Damage Resistance against non-Boss PVE Combatants, and ?% Damage Resistance against Bosses.\n\nEnemies that pass through the Barricade continuously receive ? non-lethal damage every ? seconds. PVE Combatants that pass through the Barricade are temporarily disoriented.\n\nBarricade taunts PVE Combatants that are in front of it and within ? meters.\n\nGrants the following benefits to you and allies while standing behind it:\n• 10% increased Damage Falloff Distance\n• 50% Flinch Resistance\n• 30 Stability\n• 100 Reload Speed with a 0.9x Reload Duration Multiplier\n• 80% Splash Damage Resistance against PVE Combatants",
+      "kind": "value",
+      "kept": 10
+    },
+    {
+      "index": 20,
+      "hash": 3809192347,
+      "date": "2023-03-14",
+      "before": "/*\nGain <pve 35% /> <pvp [15%] /> Increased Weapon Damage for <pve 6 /> <pvp [3] /> seconds after Void Invisibility ends.\n\nFinishers while Invisible apply Volatile to enemies within [?] metres, and grant both you and allies within 24 metres a Reserve Overshield and 375% Additional Base Class Ability Regeneration Rate until either dying or using Class Ability.\n\nReserve Overshield is activated when you cast your Class Ability, granting you a 40 HP <void/>Void Overshield for 10 seconds.\n*/",
+      "after": "Upon Void Invisibility ending:\nGrants Volatile Rounds for <pve 10 /> <pvp [3] /> seconds.\n\nOn Finishers while affected by Void Invisibility:\n• Grants 35% Increased Damage for 6 seconds\n• Grants you and allies within 24 meters the Reserve Overshield buff\n\nReserve Overshield:\n• Grants 375% Additional Base Class Ability Regeneration Rate\n• Grants the user a 40 HP Void Overshield for 10 seconds on Class Abiliy usage\n• Buff is removed on Class Ability usage",
+      "kind": "text",
+      "kept": 0
+    },
+    {
+      "index": 21,
+      "hash": 2799418574,
+      "date": "2023-09-17",
+      "before": "<solar/>Daybreak Projectiles apply 30 <solar/>Scorch on hit (40 with Ember of Ashes) and deal 90% Increased Damage. \n\n(Daybreak Projectiles can hit twice - doubling the damage and the amount of Scorch applied)\n\n<solar/>Scorch deals <pve 200% /> <pvp [50%] /> Increased Damage.\n\n<solar/>Scorch Damage Ticks grant 6.25% Melee Ability Energy.",
+      "after": "<solar/>Daybreak Projectiles apply 30 <solar/>Scorch on hit (40 with Ember of Ashes) and deal 90% Increased Damage. \n\n(Daybreak Projectiles can hit twice - doubling the damage and the amount of Scorch applied)\n\n<solar/>Scorch deals <pve 200% /> <pvp [50%] /> Increased Damage.\n\n<solar/>Scorch Damage Ticks grant 5% Melee Ability Energy.",
+      "kind": "value",
+      "kept": 6
+    },
+    {
+      "index": 22,
+      "hash": 3673922083,
+      "date": "2023-02-07",
+      "before": "On Weapon Kill for 7 seconds:\n< weapon type ( Shotgun, Bow ) >\n+20% Damage\n< ( other ) >\n+30% Damage\n<$$>\n-20% Rate of Fire/Charge Rate\n< weapon type ( Bow, Heavy GL, GL ) >\n// just to remove rage stat from weapons without range\n< ( other ) >\n+10 Range\n<$$>\n\n<title Hover for additional information. [damage] />\ntitle damage (\nBows and Shotguns only receive +20% Damage.\nEverithing else receives +30% Damage.\n\nBows and Grenade Launchers do not receive the +10 Range increase due to not having a Range stat. \n)\n\nenhanced (\n#e Buff duration is increased to 8 seconds.\n)\n\n<formula Effective Range: [range_0] />",
+      "after": "On Weapon Kill for 7 seconds:\n< weapon type ( Shotgun, Bow ) >\n• 20% Increased Damage\n< ( other ) >\n• 30% Increased Damage\n<$$>\n// divider line\n< weapon type ( Bow, Fusion, LFR ) >\n• 20% Longer Charge/Draw Time\n< ( other ) >\n• 20% Longer Firing Delay\n<$$>\n// divider line\n< weapon type ( Bow, Heavy GL, GL ) >\n// removes the range stat bonus from weapons without it\n< ( other ) >\n• 10 Range\n<$$>\n\n<title Hover for additional information. [damage] />\n\nenhanced (\n#e Buff duration is increased to 8 seconds.\n)\n\n<formula Effective Range: [range_0] />\n\ntitle damage (\nBows and Shotguns only receive +20% Damage.\nEverithing else receives +30% Damage.\n\nBows and Grenade Launchers do not receive the +10 Range increase due to not having a Range stat. \n)",
+      "kind": "text",
+      "kept": 5
+    },
+    {
+      "index": 23,
+      "hash": 3708227201,
+      "date": "2023-07-12",
+      "before": "While within 8 meters of 3 Enemies:\n#e${140*#d-100}% Increased Damage that lingers for 1.5 seconds after the condition is no longer met.\n\nSwords only receive a #e${135*#d-100}% Damage Increase.\n\nGrenade and Rocket Launchers receive a #e${135*#d-100}% Explosive Damage Increase and a #e${140*#d-100}% Impact Damage Increase. Wolfpack Rounds receive a #e${135*#d-100}% Explosive Damage Increase.\n\nvar d = 1\nenhanced (\nvar d = 1.05\n#e Damage is increased by a further 5%. (e.g. 40% 🠚 47%)\n)",
+      "after": "While within 8 meters of 3 Enemies:\n#e${140*#d-100}% Increased Damage that lingers for 1.5 seconds after the condition is no longer met.\n\nSwords only receive a #e${135*#d-100}% Damage Increase.\n\nGrenade and Rocket Launchers receive a #e${135*#d-100}% Explosive Damage Increase and a #e${140*#d-100}% Impact Damage Increase. Wolfpack Rounds receive a #e${135*#d-100}% Explosive Damage Increase.\n\nvar d = 1\nenhanced (\nvar d = 1.05\n#e Damage is increased by a further 5%. (40%🠚47%, 35%🠚41.75%)\n)",
+      "kind": "text",
+      "kept": 9
+    },
+    {
+      "index": 24,
+      "hash": 1331592343,
+      "date": "2025-05-26",
+      "before": "Guarding with Sentinel Shield disorients enemies within <pve 7 /> <pvp [3.5] /> meters for 5 seconds.\n\nYou and allies inside your Ward of Dawn receive Starless Night and Weapons of Light. Enemies that enter your Ward of Dawn are disoriented for 5 seconds.\n\nStarless Night grants a 45 HP <void/>Void Overshield for ? seconds upon leaving the <void/>Ward of Dawn.\n\nWeapons of Light grants 25% increased weapon damage (<link Empowering Buff [#DamageBuffs] />) for ? seconds.",
+      "after": "Guarding with Sentinel Shield disorients enemies within <pve 7 /> <pvp [3.5] /> meters for 5 seconds.\n\nYou and allies inside your Ward of Dawn receive 'Armor of Light' and 'Weapons of Light'. Enemies that enter your Ward of Dawn are disoriented for 5 seconds.\n\n'Armor of Light' grants a 45 HP <void/>Void Overshield for ? seconds upon leaving the <void/>Ward of Dawn.\n\n'Weapons of Light' grants 25% increased weapon damage (<link Empowering Buff [#DamageBuffs] />) for ? seconds.",
+      "kind": "text",
+      "kept": 5
+    },
+    {
+      "index": 25,
+      "hash": 1640501529,
+      "date": "2023-03-13",
+      "before": "",
+      "after": "Diamond Lance creates a <stasis/>Stasis Crystal on impact. Hitting Boss or Vehicles creates an additional [?] <stasis/>Stasis Crystals.\n\nWhile on a Stasis Subclass and behind a Rally Barricade:\nScoring a Kill or 3 Precision Hits within [?] seconds of each spawns a Diamond Lance next to you.\n\n<pve 5 /> <pvp [12] /> second cooldown between activations.",
+      "kind": "text",
+      "kept": 0
+    },
+    {
+      "index": 26,
+      "hash": 2848615171,
+      "date": "2023-07-12",
+      "before": "On Precision Kill:\nTarget explodes, dealing <pve 123.89 /> <pvp [95.3] /> damage that matches the Element of the weapon over a 3 meter radius.\n\nExplosions inherit the weapon's <link Combatant Damage Scaling [#CombatantScaling] />.\n\nenhanced (\n#e Passively grants 5 Reload Speed.\n)",
+      "after": "On Precision Kill:\nTarget explodes, dealing <pve 123.89 /> <pvp [95.3] /> damage that matches the element of the weapon over a 4.5 meter radius.\n\nExplosions inherit the weapon's <link Combatant Damage Scaling [#CombatantScaling] />.\n\nenhanced (\n#e Passively grants 5 Reload Speed.\n)",
+      "kind": "text",
+      "kept": 4
+    },
+    {
+      "index": 27,
+      "hash": 8507332,
+      "date": "2024-08-12",
+      "before": "Grants 20% Damage Resistance while overcharging a <void/>Void Grenade with <void/>Chaos Accelerant.\n\nGrenade Hits grant <pve 2000% /> <pvp [1000%] /> Additional Base Grenade Regeneration Rate for 1.75 seconds.\n\n4 second cooldown between activations.\n\nCharged <void/>Vortex Grenade can proc twice if enemies get hit by the initial explosion and the last few ticks.",
+      "after": "Grants 20% Damage Resistance while overcharging a <void/>Void Grenade with <void/>Chaos Accelerant.\n\nOvercharged Grenade Hits grant <pve 2000% /> <pvp [1000%] /> Additional Base Grenade Regeneration Rate for 1.75 seconds.\n\n4 second cooldown between activations.\n\n<void/>Vortex Grenades can proc it twice if enemies get hit by the initial explosion and the last few ticks.",
+      "kind": "text",
+      "kept": 5
+    },
+    {
+      "index": 28,
+      "hash": 4104185692,
+      "date": "2026-07-13",
+      "before": "After being in Combat for 12 seconds:\nGrants 15% increased damage, 100 Handling, and 100 Reload Speed for 7.2 seconds. \n\nWorks and can activate while stowed. Dealing and receiving damage refreshes the buff duration.\n\nFor Frenzy, being in Combat is defined as having either dealt or received damage within the last #e${5+#d} seconds.\n\nSelf-damage and environmental damage do not count.\n\nenhanced (\nvar d = 0.0\n#e Allowed time between damage exchanges extended by 0.5 seconds.\n)",
+      "after": "After being in Combat for 12 seconds:\nGrants 15% increased damage, 100 Handling, and 100 Reload Speed for 7.2 seconds. \n\nWorks and can activate while stowed. Dealing and receiving damage refreshes the buff duration.\n\nFor Frenzy, being in Combat is defined as having either dealt or received damage within the last #e${5+#d} seconds.\n\nSelf-damage and environmental damage do not count.\n\nenhanced (\nvar d = 0.5\n#e Allowed time between damage exchanges extended by 0.5 seconds.\n)",
+      "kind": "value",
+      "kept": 8
+    },
+    {
+      "index": 29,
+      "hash": 960810156,
+      "date": "2024-04-12",
+      "before": "Increases Blast Radius by ?% and reduces Self-Damage while within 15 meters of 3 enemies. Effect lingers for 3.5 seconds.\n\nGrenade Launchers: 40% Reduced Self-Damage\n\nRocket Launchers: 99.99% Reduced Self-Damage and allows for rocket jumping\n\nenhanced (\n#e Passively grants 5 Blast Radius.\n)",
+      "after": "Increases Blast Radius by ?% and reduces Self-Damage while within 15 meters of 3 enemies. Effect lingers for 3.5 seconds.\n\nGrenade Launchers: 40% reduced Self-Damage\n\nRocket Launchers: 99.99% reduced Self-Damage and allows for rocket jumping\n\nenhanced (\n#e Passively grants 5 Blast Radius.\n)",
+      "kind": "text",
+      "kept": 6
+    },
+    {
+      "index": 30,
+      "hash": 454085387,
+      "date": "2024-04-01",
+      "before": "Upon dealing Melee Damage while an Enemy is within 15 meters:\n<pve 500% /> <pvp [100%] /> Increased Damage and 100 Handling for #e${10+#d} seconds or until firing a full burst.\n\n4 second cooldown after buff expires. Can be activated while stowed.\n\nAny Powered Melee which requires sprinting, sliding, or performs a slam will not activate the perk.\n\nenhanced (\nvar d = 1\n#e Buff duration is increased by 1 second.\n)",
+      "after": "Upon dealing Melee Damage while an Enemy is within 15 meters:\nGrants <pve 500% /> <pvp [100%] /> Increased Damage and 100 Handling for the next full burst within #e${10+#d} seconds.\n\n4 second cooldown after buff expires. Can be activated while stowed.\n\nAny Powered Melee which requires sprinting, sliding, or performs a slam will not activate the perk.\n\nenhanced (\nvar d = 1\n#e Buff duration is increased by 1 second.\n)",
+      "kind": "text",
+      "kept": 7
+    }
+  ]
+}

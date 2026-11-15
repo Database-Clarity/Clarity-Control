@@ -1,6 +1,7 @@
 import { stableStringify } from './contentHash.js';
 import { languages } from './languages.js';
-import { tooltipSchema, type Tooltip } from './schemas.js';
+import { tooltipSchema, type LangText, type Tooltip } from './schemas.js';
+import { canCarryNumbers } from './numbers/carry.js';
 
 export interface MergeConflict {
   field: string;
@@ -60,11 +61,40 @@ export function merge3(base: Tooltip, head: Tooltip, next: Tooltip): MergeResult
   }
   const text: Tooltip['text'] = {};
   for (const language of languages) {
+    const original = base.text[language],
+      theirs = head.text[language],
+      mine = next.text[language];
+    const oldEnglish = base.text.en;
+    // A real number carry changes only revision metadata, never translated words or authors.
+    const carried = (entry: LangText, english: LangText | undefined) =>
+      Boolean(
+        original &&
+        oldEnglish &&
+        english &&
+        original.sourceUpdatedAt === oldEnglish.updatedAt &&
+        original.text === entry.text &&
+        original.updatedBy === entry.updatedBy &&
+        entry.updatedAt === entry.sourceUpdatedAt &&
+        Date.parse(entry.sourceUpdatedAt ?? '') > Date.parse(oldEnglish.updatedAt) &&
+        Date.parse(entry.updatedAt) <= Date.parse(english.updatedAt),
+      );
+    let edited: LangText | undefined;
+    if (language !== 'en' && original && theirs && mine) {
+      if (carried(theirs, head.text.en) && mine.text !== original.text) edited = mine;
+      else if (carried(mine, next.text.en) && theirs.text !== original.text) edited = theirs;
+    }
+    if (edited && oldEnglish && text.en) {
+      text[language] = canCarryNumbers(oldEnglish, text.en, edited)
+        ? { ...edited, sourceUpdatedAt: text.en.updatedAt }
+        : edited;
+      continue;
+    }
     const value = stamped(
       `text.${language}`,
       base.text[language],
       head.text[language],
       next.text[language],
+      // Retries keep the complete saved entry, including its authoritative number map.
       (entry) => entry.text,
     );
     if (value !== undefined) text[language] = value;

@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./markup/arithmetic": "./src/markup/arithmetic.ts",
+    "./markup/numberFormat": "./src/markup/numberFormat.ts",
+    "./numbers": "./src/numbers/map.ts",
     "./markup/elementTags": "./src/markup/elementTags.ts",
     "./markup/braces": "./src/markup/braces.ts",
     "./markup/showcase": "./src/markup/showcase.ts",
