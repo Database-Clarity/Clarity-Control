@@ -3,6 +3,8 @@ name: Publish editor data bundle
 on:
   push:
     branches: [editor-data]
+    # Entry marks are loaded directly by the editor and never enter the bundle.
+    paths-ignore: ['config/marks.json']
   workflow_dispatch:
 
 permissions:
