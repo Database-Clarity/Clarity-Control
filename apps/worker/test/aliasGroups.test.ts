@@ -538,3 +538,48 @@ it('refuses a branch move during the reader census without retrying the approval
   await expect(run([await intent()])).rejects.toMatchObject({ status: 409 });
   expect(writes).not.toHaveBeenCalled();
 });
+
+it.each([45, 90])(
+  'checks reader %s when base acceptance recovers an enhanced alias outside the batch',
+  async (source) => {
+    if (source === 90) generated = { 90: { to: 45, kind: 'sandbox' } };
+    for (const hash of [44, 45])
+      items[hash] = {
+        ...item(hash),
+        categoryId: 'weapon-trait-enhanced',
+        isEnhanced: true,
+        baseHash: 42,
+      };
+    const exported = 'export x (\nExported\n)';
+    await put('tooltips/44.json', document(44));
+    await put('tooltips/45.json', document(45, exported));
+    await run([
+      { ...(await intent('accept', [44, 45])), acknowledgeConflicts: true } as AliasGroupOperation,
+    ]);
+    expect(read('tooltips/45.json')).toBeNull();
+
+    items[45] = { ...items[45]!, baseHash: 43 };
+    await put('tooltips/45.json', document(45, exported));
+    await put('tooltips/60.json', document(60, `import x from ${source}`));
+    expect((await run()).issues).toContainEqual(
+      expect.objectContaining({
+        member: 45,
+        reason: 'Enhanced member no longer shares the canonical base group',
+      }),
+    );
+    expect(
+      parseMarkup(`import x from ${source}`, {
+        variables: '',
+        titles: '',
+        imports: { [source]: exported },
+      }).diagnostics,
+    ).toEqual([]);
+    await expect(run([await intent()])).rejects.toMatchObject({
+      status: 422,
+      message: 'Tooltip 60 (en) has invalid markup after grouping',
+    });
+    expect(writes).toHaveBeenCalledTimes(1);
+    expect(groups().groups[42]).toBeUndefined();
+    expect(read('tooltips/45.json')!.value).toEqual(document(45, exported));
+  },
+);

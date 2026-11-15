@@ -223,7 +223,11 @@ async function checkImports(
       const prior = old?.text[lang] ? validate(old, beforeAliases, oldCatalog) : undefined;
       if (
         !roots.has(hash) &&
-        ![...(prior?.reads.imports.values() ?? [])].some((source) => changed.has(source))
+        ![...(prior?.reads.imports ?? [])].some(
+          ([key, source]) =>
+            changed.has(source) ||
+            resolveAlias(key === 'global' ? 1 : Number(key), afterAliases) !== source,
+        )
       )
         continue;
       const priorErrors = new Set(
