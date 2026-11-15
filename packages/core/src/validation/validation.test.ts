@@ -1,12 +1,89 @@
 import { describe, expect, it } from 'vitest';
 import { validateText, validateTextWithReads, validateTooltip } from './index.js';
 import { reservedMarkerMessage } from '../markup/parse.js';
+import { gluedNumberIssues, gluedNumberMessage } from './numbers.js';
+import { tooltipSchema } from '../schemas.js';
 
 const globals = {
   variables: 'var damage = 10',
   titles: 'title Known (\nA title\n)',
   imports: { '123': 'Imported text', '456': 'Imported text' },
 };
+
+describe('whole numbers (owner decision 15-11)', () => {
+  it.each([
+    '1.#{g}',
+    '#{g}.5',
+    '#{g},000',
+    '#{g}0',
+    '1#g',
+    '${#g}0',
+    '1.${#{g}}',
+    '${1.#{g}}',
+    '#{=1}.5',
+    '1#{=1}',
+    '#{g}0\nimport g from 100',
+  ])('refuses a glued reference in English and translations: %s', (text) => {
+    const revision = { updatedAt: '2026-11-15T00:00:00.000Z', updatedBy: 'author' };
+    for (const lang of ['en', 'de'] as const) {
+      expect(validateText(text, lang, globals)).toContainEqual(
+        expect.objectContaining({
+          severity: 'error',
+          code: 'glued-number',
+          message: gluedNumberMessage,
+        }),
+      );
+      // Stored history remains readable; write validation refuses this content.
+      const item = { hash: 42, associated: [], text: { [lang]: { ...revision, text } } };
+      const result = tooltipSchema.safeParse(item);
+      expect(result.success).toBe(true);
+      expect(validateTooltip(item, () => globals, item)).toContainEqual(
+        expect.objectContaining({ lang, severity: 'error', code: 'glued-number' }),
+      );
+    }
+  });
+  it.each([
+    '1.5 1,000 #{g} #{=1} ${#g * 2}',
+    'var g = 1.5\n#{g}',
+    '#{g}. Next sentence.',
+    '1, #{g}',
+    '#{g}% x#{g}',
+    'https://docs.google.com/sheets/278#gid=278',
+    '<link sheet [https://docs.google.com/sheets/278#gid=278] />',
+  ])('keeps whole values, punctuation, and URLs valid: %s', (text) => {
+    expect(gluedNumberIssues(text)).toEqual([]);
+  });
+  it('reports the authored reference range', () => {
+    expect(gluedNumberIssues('Value 1.#{g}.')).toEqual([
+      { severity: 'error', code: 'glued-number', message: gluedNumberMessage, from: 8, to: 12 },
+    ]);
+  });
+  it.each([
+    '#{=1} Schaden. #x #x0\nvar x = 1',
+    '#{=1} Schaden. #g #g0',
+    '#{=1} Schaden. #{x} #x0\nvar x = 1',
+  ])('refuses plain digit suffixes identically without global context: %s', (text) => {
+    expect(validateText(text, 'de', { variables: 'var g = 1', titles: '' })).toContainEqual(
+      expect.objectContaining({ severity: 'error', code: 'glued-number' }),
+    );
+    expect(gluedNumberIssues(text)).toContainEqual(
+      expect.objectContaining({ severity: 'error', code: 'glued-number' }),
+    );
+    expect(
+      tooltipSchema.safeParse({
+        hash: 42,
+        associated: [],
+        text: {
+          de: { text, updatedAt: '2026-11-15T00:00:00.000Z', updatedBy: 'author' },
+        },
+      }).success,
+    ).toBe(true);
+  });
+  it.each(['#x0\nvar x0 = 1', '#{g0}', '#{g} 0'])(
+    'accepts exact local names and separated braced globals: %s',
+    (text) => expect(gluedNumberIssues(text)).toEqual([]),
+  );
+});
 
 describe('save validation', () => {
   it('blocks empty English, but not an empty translation or declaration library', () => {

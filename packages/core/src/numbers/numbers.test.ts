@@ -19,7 +19,7 @@ import { tooltipSchema, type LangText, type Tooltip } from '../schemas.js';
 import { merge3 } from '../merge3.js';
 import { publishableHash } from '../publishableHash.js';
 import { languages } from '../languages.js';
-import { validateNumberTooltip } from '../validation/numbers.js';
+import { gluedNumberIssues, validateNumberTooltip } from '../validation/numbers.js';
 
 const oldDate = '2026-11-01T00:00:00.000Z',
   newDate = '2026-11-02T00:00:00.000Z';
@@ -298,6 +298,34 @@ describe('maps, validation, and export', () => {
 });
 
 describe('proven carry and carry-aware merge', () => {
+  it.each([
+    '#{=1} Schaden. #x #x0\nvar x = 1',
+    '#{=1} Schaden. #g #g0',
+    '#{=1} Schaden. ${#g * 5}',
+    '#{=1} Schaden. #{x} #x0\nvar x = 1',
+  ])('refuses the four owner 15-11 counterexamples without globals: %s', (text) => {
+    const old = tooltip('Damage 10.', text);
+    expect(carryNumberTranslations(old, update(old, 'Damage 20.')).carried).toEqual([]);
+  });
+  it('keeps isolated braced globals and compares locally evaluated maths literals', () => {
+    const separated = tooltip('Damage 10.', '#{=1} Schaden. #{g} 0');
+    expect(carryNumberTranslations(separated, update(separated, 'Damage 20.')).carried).toEqual([
+      'de',
+    ]);
+    const sameOld = tooltip('Damage 10.', '#{=1} Schaden. ${#x * 5}\nvar x = 2');
+    expect(carryNumberTranslations(sameOld, update(sameOld, 'Damage 20.')).carried).toEqual([]);
+    const hiddenOverride = tooltip(
+      'Damage 10.',
+      '#{=1} Schaden. ${#x * 5}\nvar x = 3\n/*\nvar x = 2\n*/',
+    );
+    expect(
+      carryNumberTranslations(hiddenOverride, update(hiddenOverride, 'Damage 20.')).carried,
+    ).toEqual([]);
+    const different = tooltip('Damage 10.', '#{=1} Schaden. ${#x * 5}\nvar x = 3');
+    expect(carryNumberTranslations(different, update(different, 'Damage 20.')).carried).toEqual([
+      'de',
+    ]);
+  });
   it('refuses a changed formula whose local can be overridden by an import', () => {
     const old = tooltip(
       'Damage ${#d * #k}.\nvar d = 5\nvar k = 2\nimport stats from 100',
@@ -327,11 +355,16 @@ describe('proven carry and carry-aware merge', () => {
     (literal, variables, imports) => {
       const old = tooltip('Damage 10.', `#{=1} Schaden. ${literal}`);
       const next = update(old, 'Damage 20.');
-      const exported = exportLegacy([old], 0)[42];
-      if ('aliasOf' in exported) throw Error('alias');
       expect(
-        prepareMarkup(exported.editor.de!.main!, { variables, titles: '', imports }, []).text,
+        prepareMarkup(
+          resolveNumberTokens(old.text.de!.text, numberValues(old.text.en!)),
+          { variables, titles: '', imports },
+          [],
+        ).text,
       ).toBe('10 Schaden. 10');
+      expect(gluedNumberIssues(old.text.de!.text)).toContainEqual(
+        expect.objectContaining({ severity: 'error', code: 'glued-number' }),
+      );
       expect(carryNumberTranslations(old, next).carried).toEqual([]);
     },
   );
@@ -375,16 +408,23 @@ describe('proven carry and carry-aware merge', () => {
       expect(carryNumberTranslations(old, next).carried).toEqual([]);
     },
   );
-  it.each(['1<enhanced/>0\nenhanced (\nUnused.\n)', '#{v}0\nvar v = 1', '1#{v}0\nvar v = empty'])(
+  it.each([
+    ['1<enhanced/>0\nenhanced (\nUnused.\n)', false],
+    ['#{v}0\nvar v = 1', true],
+    ['1#{v}0\nvar v = empty', true],
+  ] as const)(
     'refuses a stale literal joined by consumer substitutions: %s',
-    (literal) => {
+    (literal, forbidden) => {
       const old = tooltip('Damage 10.', `#{=1} Schaden. ${literal}`);
       const next = update(old, 'Damage 20.');
-      const exported = exportLegacy([old], 0)[42];
-      if ('aliasOf' in exported) throw Error('alias');
-      expect(prepareMarkup(exported.editor.de!.main!, { variables: '', titles: '' }, []).text).toBe(
-        '10 Schaden. 10',
-      );
+      expect(
+        prepareMarkup(
+          resolveNumberTokens(old.text.de!.text, numberValues(old.text.en!)),
+          { variables: '', titles: '' },
+          [],
+        ).text,
+      ).toBe('10 Schaden. 10');
+      expect(gluedNumberIssues(old.text.de!.text).length > 0).toBe(forbidden);
       expect(carryNumberTranslations(old, next).carried).toEqual([]);
     },
   );

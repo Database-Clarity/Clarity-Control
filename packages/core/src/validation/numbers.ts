@@ -1,8 +1,54 @@
 import type { Lang } from '../languages.js';
-import { numberBlockOpen, numberMathRanges, numberTargetRanges } from '../markup/numberSlots.js';
+import { variableReferences } from '../markup/braces.js';
+import { extractVariables } from '../markup/syntax.js';
+import {
+  numberBlockOpen,
+  numberMathRanges,
+  numberProse,
+  numberTargetRanges,
+} from '../markup/numberSlots.js';
 import { numberTokens, numberValues, readNumberMap, type NumberValues } from '../numbers/map.js';
 import type { Tooltip } from '../schemas.js';
 import type { ValidationIssue } from './index.js';
+
+export const gluedNumberMessage =
+  'Make the whole number one variable or number token; do not glue digits to a reference.';
+export const unbracedNumberMessage =
+  'Use braces for this variable name. If the digits are part of a number, make the whole number one variable or number token.';
+
+/** One structural rule for editor diagnostics, Worker writes, and carry defence. */
+export function gluedNumberIssues(text: string): ValidationIssue[] {
+  if (!text.includes('#') && !text.includes('${')) return [];
+  const prose = numberProse(text);
+  const locals = extractVariables(prose);
+  const variables = variableReferences(prose);
+  const plainDigits = new Set(
+    variables
+      .filter((ref) => !ref.braced && /\d/.test(ref.name) && !Object.hasOwn(locals, ref.name))
+      .map((ref) => ref.from),
+  );
+  // URL fragments and paths are identifiers, not authored numbers.
+  const urls = [...prose.matchAll(/[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/gi)].map((match) => ({
+    from: match.index,
+    to: match.index + match[0].length,
+  }));
+  const references = [...variables, ...numberMathRanges(prose), ...numberTokens(prose)];
+  return references
+    .filter(({ from, to }) => !urls.some((url) => from >= url.from && to <= url.to))
+    .filter(
+      ({ from, to }) =>
+        plainDigits.has(from) ||
+        /\p{Nd}[.,]?$/u.test(prose.slice(Math.max(0, from - 2), from)) ||
+        /^[.,]?\p{Nd}/u.test(prose.slice(to, to + 2)),
+    )
+    .map<ValidationIssue>(({ from, to }) => ({
+      severity: 'error',
+      code: 'glued-number',
+      message: plainDigits.has(from) ? unbracedNumberMessage : gluedNumberMessage,
+      from,
+      to,
+    }));
+}
 
 /** No comment exception: consumers lower and validate every token before stripping comments. */
 export function numberTokenIssues(

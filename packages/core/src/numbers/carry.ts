@@ -10,6 +10,8 @@ import { formulaLocals, numberVariables } from './freeze.js';
 import { alignSlots } from './identity.js';
 import { numberTokens, readNumberMap } from './map.js';
 import type { Lang } from '../languages.js';
+import { gluedNumberIssues } from '../validation/numbers.js';
+import { numberMathRanges, numberProse } from '../markup/numberSlots.js';
 
 /** Old slot indices, including formula results affected through local variables. */
 export function changedNumberSlots(before: string, after: string): Set<number> {
@@ -61,6 +63,8 @@ function renderVariants(source: string): string[] {
 /** Coverage is positive proof; merely lacking an old literal is insufficient. */
 export function canCarryNumbers(before: LangText, after: LangText, translation: LangText): boolean {
   if (translation.sourceUpdatedAt !== before.updatedAt) return false;
+  if ([before.text, after.text, translation.text].some((text) => gluedNumberIssues(text).length))
+    return false;
   const alignment = alignSlots(before.text, after.text);
   if (alignment.kind === 'text') return false;
   const oldMap = readNumberMap(before),
@@ -68,6 +72,24 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
   if (oldMap.ids.length !== newMap.ids.length || oldMap.ids.some((id, i) => id !== newMap.ids[i]))
     return false;
   const changed = changedNumberSlots(before.text, after.text);
+  const prose = numberProse(translation.text);
+  const maths = numberMathRanges(prose);
+  if (changed.size && maths.length) {
+    const definitions = numberVariables(translation.text);
+    const names = new Set(definitions.map((local) => local.name));
+    if (
+      maths.some(({ from, to }) => {
+        const source = prose.slice(from, to);
+        const locals = formulaLocals(source, translation.text);
+        if (locals.size && markupImports(translation.text).length) return true;
+        return [
+          source,
+          ...definitions.filter((local) => locals.has(local.name)).map((local) => local.value),
+        ].some((value) => variableReferences(value).some((ref) => !names.has(ref.name)));
+      })
+    )
+      return false;
+  }
   const tokens = new Set(numberTokens(translation.text).map((token) => token.id));
   if ([...changed].some((index) => !tokens.has(oldMap.ids[index]))) return false;
   const oldValues = new Set<string>();
@@ -102,7 +124,12 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
   literalText = literalText.replace(variableReferencePattern, (reference, braced, legacy) =>
     localNames.has(braced ?? legacy) ? reference : '\uE000',
   );
-  const scans = [literalText, ...renderVariants(literalText)].map((text) => text.normalize('NFKC'));
+  const scans = [
+    literalText,
+    ...renderVariants(literalText),
+    // Local-only maths uses the real declaration/comment order too.
+    ...(maths.length ? renderVariants(translation.text.replace(/#\{=[^}\n]*(?:}|$)/gm, ' ')) : []),
+  ].map((text) => text.normalize('NFKC'));
   // Unknown external values may contribute digits; a visible join cannot prove carry.
   if (scans.some((text) => /\uE000[\d\uE000]|\d\uE000/.test(text))) return false;
   if (scans.flatMap(numericLiterals).some((value) => oldValues.has(value))) return false;
