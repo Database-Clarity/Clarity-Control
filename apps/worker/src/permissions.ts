@@ -3,6 +3,7 @@ import {
   gluedNumberIssues,
   isMarkupOnly,
   languages,
+  numberValues,
   isTextlessDescription,
   permissionsSchema,
   stableStringify,
@@ -210,7 +211,14 @@ export function checkTranslationStamps(
     const before = head?.text[lang];
     const after = next.text[lang];
     if (!after) continue;
-    if (before && (after.text === before.text || isMarkupOnly(before.text, after.text))) {
+    const tokenEdit = before?.text.includes('#{=') || after.text.includes('#{=');
+    const markupOnly = isMarkupOnly(
+      before?.text,
+      after.text,
+      tokenEdit && head?.text.en ? numberValues(head.text.en, lang) : undefined,
+      tokenEdit && english ? numberValues(english, lang) : undefined,
+    );
+    if (before && (after.text === before.text || markupOnly)) {
       if (
         after.updatedAt !== before.updatedAt ||
         after.updatedBy !== before.updatedBy ||

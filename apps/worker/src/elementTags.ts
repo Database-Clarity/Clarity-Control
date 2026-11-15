@@ -4,6 +4,7 @@ import {
   hasDelimitedMarkup,
   reservedNameMessage,
   reservedNames,
+  validateNumberTooltip,
   type Lang,
   type Tooltip,
 } from '@clarity/core';
@@ -28,6 +29,11 @@ export const markupBracesCapability = 'markupBraces';
  */
 export const prismaticTagsCapability = 'prismaticTags';
 export const arrowSymbolCapability = 'arrowSymbol';
+export const numberTokensCapability = 'numberTokens';
+
+function hasNumberTokens(tooltip: Tooltip): boolean {
+  return Object.values(tooltip.text).some((entry) => entry?.text.includes('#{='));
+}
 
 function hasArrowSymbol(tooltip: Tooltip): boolean {
   return Object.values(tooltip.text).some((entry) => entry?.text.includes('<arrow/>'));
@@ -81,7 +87,12 @@ export function hasDelimitedText(tooltip: Tooltip): boolean {
 
 /** Whether the tooltip holds an authoring form an exporter has to lower (tags, `#{d}`, `<enhanced/>`). */
 export function needsLowering(tooltip: Tooltip): boolean {
-  return hasTaggedText(tooltip) || hasDelimitedText(tooltip) || hasArrowSymbol(tooltip);
+  return (
+    hasTaggedText(tooltip) ||
+    hasDelimitedText(tooltip) ||
+    hasArrowSymbol(tooltip) ||
+    hasNumberTokens(tooltip)
+  );
 }
 
 /**
@@ -127,6 +138,20 @@ export function refuseUnlowerable(
   pin: { value: unknown } | undefined,
   action: string,
 ): void {
+  const issue = validateNumberTooltip(tooltip)[0];
+  if (issue) throw new HttpError(422, `Tooltip ${tooltip.hash} (${issue.lang}): ${issue.message}`);
+  if (hasNumberTokens(tooltip)) {
+    const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;
+    if (
+      !exporter.publisherEnabled() ||
+      !Array.isArray(capabilities) ||
+      !capabilities.includes(numberTokensCapability)
+    )
+      throw new HttpError(
+        422,
+        `Tooltip ${tooltip.hash} contains number tokens, which can't be ${action}: an enabled publisher and ${publisherPinPath} with the "${numberTokensCapability}" capability are required.`,
+      );
+  }
   if (hasArrowSymbol(tooltip)) {
     const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;
     if (

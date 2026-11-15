@@ -3,20 +3,19 @@ import {
   type Aliases,
   languages,
   contentHash,
+  carryNumberTranslations,
   hashSchema,
   merge3,
+  numberTokens,
+  readNumberMap,
+  reconcileNumberMap,
   resolveAlias,
   sandboxPointersPath,
   tooltipSchema,
   type Tooltip,
 } from '@clarity/core';
 import { loadAliases } from './catalog.js';
-import {
-  exporter,
-  needsLowering,
-  publisherPinPath,
-  refuseUnlowerable,
-} from './elementTags.js';
+import { exporter, needsLowering, publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { RefRace, type GitHub } from './github.js';
 import { withSandboxPointers } from './sandboxPointers.js';
 import { body, HttpError, json } from './http.js';
@@ -76,6 +75,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
     }[] = [];
     const tooltips: Tooltip[] = [];
     const changed: string[] = [];
+    const carried: string[] = [];
     const kept: number[] = [];
     const generatorAliases = (aliases ??= await loadAliases(github.env, github));
     // One batched read for all current copies: flat subrequests however many tooltips change.
@@ -118,12 +118,19 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       const head = file ? tooltipSchema.parse(file.value) : null;
       if (head && head.hash !== change.hash)
         throw new HttpError(502, 'Stored tooltip hash mismatch');
-      let merged = change.next;
+      // Maps are server-owned. Preserve the submitted base's map for the merge, so a stale
+      // client map cannot turn an otherwise untouched English entry into a competing edit.
+      const next = structuredClone(change.next);
+      if (next.text.en) {
+        delete next.text.en.numbers;
+        if (change.base?.text.en?.numbers) next.text.en.numbers = change.base.text.en.numbers;
+      }
+      let merged = next;
       if (head && change.base) {
         const result =
           (await contentHash(head)) === (await contentHash(change.base))
-            ? { ok: true as const, merged: change.next }
-            : merge3(change.base, head, change.next);
+            ? { ok: true as const, merged: next }
+            : merge3(change.base, head, next);
         if (!result.ok) {
           conflicts.push({ ...change, head, fields: result.conflicts.map(({ field }) => field) });
           continue;
@@ -137,8 +144,30 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       // Against the real head, after the merge: what this commit does to the English revision.
       if (checkEnglishRevision(access, head, merged, input.noTranslationImpact === true) === 'kept')
         kept.push(merged.hash);
+      const english = merged.text.en;
+      if (english) {
+        const numbers =
+          head?.text.en?.text === english.text
+            ? head.text.en.numbers
+            : reconcileNumberMap(head?.text.en, english, merged);
+        delete english.numbers;
+        if (numbers) english.numbers = numbers;
+        const retired = readNumberMap(english).retired;
+        for (const lang of languages) {
+          if (lang === 'en') continue;
+          const previous = new Set(numberTokens(head?.text[lang]?.text ?? '').map(({ id }) => id));
+          for (const { id } of numberTokens(merged.text[lang]?.text ?? ''))
+            if (id !== undefined && Object.hasOwn(retired, id) && !previous.has(id))
+              throw new HttpError(422, `Number #{=${id}} was removed from English; reload`);
+        }
+      }
       checkTranslationStamps(head, merged);
       refuseUnlowerable(merged, await exporterPin(merged), 'saved');
+      if (head && head.text.en?.text !== merged.text.en?.text) {
+        const result = carryNumberTranslations(head, merged);
+        merged = result.tooltip;
+        if (result.carried.length) carried.push(`${merged.hash}=${result.carried.join(',')}`);
+      }
       tooltips.push(merged);
       // Per-tooltip hints avoid attributing another item in a batch to this file.
       // Display only: permissions and the committed payload are unchanged.
@@ -162,9 +191,8 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       const commit = await github.commit(
         headCommit,
         Object.fromEntries(tooltips.map((tooltip) => [`tooltips/${tooltip.hash}.json`, tooltip])),
-        // Clarity-Changed stays the final line (History reads it there). The audit line lists the
-        // tooltips whose English change kept its revision: translations were not marked outdated.
-        `${input.message}\n\n${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(',')}\n` : ''}Clarity-Changed: ${changed.join(';')}`,
+        // Carried languages are attributed per tooltip, immediately after Clarity-Changed.
+        `${input.message}\n\n${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(',')}\n` : ''}Clarity-Changed: ${changed.join(';')}${carried.length ? `\nClarity-Carried: ${carried.join(';')}` : ''}`,
         user,
       );
       // Explicit body time is readable cross-origin without exposing response headers.
