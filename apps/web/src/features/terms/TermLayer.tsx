@@ -4,6 +4,8 @@ import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { applyPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
 import { When } from '../../ui/When';
+import { exactDate } from '../../services/format/date';
+import { useSyncedSettings } from '../../stores/settings';
 import { TitleAnchor } from '../preview/MarkupRenderer';
 import { requestTermMatches } from '../editor/diagnosticWorker';
 import { useShowEditor } from '../tooltip/VariantWorkspace';
@@ -411,6 +413,7 @@ export function TermPopover({
 }) {
   const surface = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
+  const settings = useSyncedSettings();
   useAuthStore((state) => state.user);
   const ready = useGlossaryStore(
     (state) => !!state.byLang[lang]?.remote && !state.byLang[lang]?.loading,
@@ -562,7 +565,20 @@ export function TermPopover({
                 <small className={styles.caption}>
                   {term.glossary.updatedBy} ·{' '}
                   <TitleAnchor
-                    part={{ title: [{ linesContent: [{ text: term.glossary.updatedAt }] }] }}
+                    part={{
+                      title: [
+                        {
+                          linesContent: [
+                            {
+                              text: exactDate(term.glossary.updatedAt, {
+                                ...settings,
+                                timeDisplay: 'datetime',
+                              }),
+                            },
+                          ],
+                        },
+                      ],
+                    }}
                   >
                     <When value={term.glossary.updatedAt} nativeTitle={false} />
                   </TitleAnchor>

@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { TermLayer, TermPopover, type SpanSource } from './TermLayer';
+import { useSettingsStore } from '../../stores/settings';
 
 // jsdom has no CSS Custom Highlights, caret hit-testing, or range geometry: minimal stand-ins.
 class FakeHighlight extends Set<Range> {}
@@ -144,4 +145,43 @@ it('keeps the in-game prefix separate from the name and attributes an agreed ter
   expect(dialog.querySelector('p')?.textContent).toBe('Use the agreed spelling.');
   expect(dialog.lastElementChild?.querySelector('small')?.textContent).toContain('alice ·');
   expect(dialog.querySelector('button')).toBeNull();
+});
+
+it('shows an absolute attribution date and time using the app format and zone', () => {
+  const previous = useSettingsStore.getState().settings;
+  useSettingsStore.setState({
+    settings: { ...previous, dateFormat: 'dmy', timeDisplay: 'relative', timeZone: 'UTC' },
+  });
+  const anchor = document.createRange();
+  anchor.selectNodeContents(host);
+  try {
+    act(() =>
+      root.render(
+        <TermPopover
+          term={{
+            en: 'Chaos Reshaped',
+            kind: 'glossary',
+            official: ['Chaos refaçonné'],
+            glossary: {
+              en: 'Chaos Reshaped',
+              term: 'Chaos refaçonné',
+              updatedBy: 'alice',
+              updatedAt: '2026-11-14T00:00:00Z',
+            },
+          }}
+          anchor={anchor}
+          lang="fr"
+          canInsert={false}
+          onInsert={() => {}}
+          onClose={() => {}}
+        />,
+      ),
+    );
+    const dialog = document.querySelector('[data-term-popover]')!;
+    expect(dialog.querySelector('[role="tooltip"]')?.textContent).toBe('14 Nov 2026, 00:00 UTC');
+    expect(dialog.querySelector('time')?.getAttribute('datetime')).toBe('2026-11-14T00:00:00Z');
+    expect(dialog.querySelector('[title]')).toBeNull();
+  } finally {
+    act(() => useSettingsStore.setState({ settings: previous }));
+  }
 });
