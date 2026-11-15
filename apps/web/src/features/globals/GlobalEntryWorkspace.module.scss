@@ -153,6 +153,16 @@
 .review input[type='checkbox'] {
   margin-right: 0.375rem;
 }
+.comparison {
+  display: grid;
+  gap: 0.5rem;
+}
+.removed {
+  background: var(--del-bg);
+}
+.added {
+  background: var(--ins-bg);
+}
 @media (max-width: 1000px) {
   .columns {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

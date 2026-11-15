@@ -11,6 +11,7 @@ import { useRawDiff } from '../history/diffPreference';
 import { WordDiff } from '../../ui/diff/WordDiff';
 import {
   canEditGlobal,
+  globalReviewState,
   canReviewGlobal,
   type GlobalActor,
   type GlobalConsumer,
@@ -20,6 +21,7 @@ import {
   type GlobalsService,
 } from '../../services/globals';
 import styles from './GlobalEntryWorkspace.module.scss';
+import { GlobalImpactComparison, validGlobalImpact } from './GlobalImpactComparison';
 
 const globals = { variables: '', titles: '' };
 type Action = 'create' | 'rename' | 'remove' | 'remove-language';
@@ -110,9 +112,9 @@ function Workspace({
     };
   }, [location.key]);
   const selectedId = params.get('entry');
+  const entries = snapshot.entries.filter((item) => !item.tombstone);
   const entry =
-    snapshot.entries.find((item) => item.id === selectedId) ??
-    (!selectedId ? snapshot.entries[0] : undefined);
+    entries.find((item) => item.id === selectedId) ?? (!selectedId ? entries[0] : undefined);
   const lang = languages.includes(params.get('lang') as Lang)
     ? (params.get('lang') as Lang)
     : actor?.role === 'translator'
@@ -164,12 +166,12 @@ function Workspace({
   const consumers = dirty ? (projection ?? []) : savedImpacts;
   const shown = consumers.filter(
     (row) =>
-      `${row.name} ${row.hash} ${row.lang} ${row.category}`
+      `${row.name} ${row.consumer.hash} ${row.consumer.lang} ${row.category}`
         .toLowerCase()
         .includes(query.toLowerCase()) &&
       (!params.get('category') || params.get('category') === row.category) &&
-      (!params.get('usageLang') || params.get('usageLang') === row.lang) &&
-      (!params.get('review') || params.get('review') === row.review),
+      (!params.get('usageLang') || params.get('usageLang') === row.consumer.lang) &&
+      (!params.get('review') || params.get('review') === globalReviewState(row)),
   );
   const consumer = shown.find((row) => row.id === params.get('consumer')) ?? shown[0];
   const reviewKey =
@@ -177,8 +179,9 @@ function Workspace({
     JSON.stringify([
       snapshot.head,
       consumer.id,
-      consumer.contentRevision,
-      consumer.dependencyDigest,
+      consumer.review.contentDigest,
+      consumer.review.dependencyDigest,
+      consumer.impactDigest,
     ]);
   const disabled = pending || !!action || !!navigation || reviewOpen;
   const editable = canEditGlobal(actor, lang);
@@ -342,7 +345,7 @@ function Workspace({
             onChange={(e) => navigate({ entry: e.target.value, consumer: '' })}
           >
             {!entry && <option value="">Choose an entry</option>}
-            {snapshot.entries.map((item) => (
+            {entries.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name} · {item.kind}
               </option>
@@ -416,7 +419,7 @@ function Workspace({
       </nav>
       {!entry ? (
         <p>
-          {snapshot.entries.length
+          {entries.length
             ? 'Global not found. Choose another entry.'
             : 'No globals yet. Create a definition to begin.'}
         </p>
@@ -430,20 +433,20 @@ function Workspace({
                 setPhone('usages');
               }}
             >
-              Usages: {new Set(savedImpacts.map((row) => row.hash)).size} tooltips ·{' '}
-              {new Set(savedImpacts.map((row) => row.lang)).size} languages
+              Usages: {new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips ·{' '}
+              {new Set(savedImpacts.map((row) => row.consumer.lang)).size} languages
             </button>
             <Popover label="Definition preview" trigger="Preview definition">
               <RenderedWordDiff
                 before=""
                 after={body}
                 lang={lang}
-                hash={entry.kind === 'variable' ? 2 : 3}
+                hash={entry.kind === 'variables' ? 2 : 3}
               />
             </Popover>
             {consumer && (
               <p>
-                Selected consumer: {consumer.name} · {languageLabel(consumer.lang)}
+                Selected consumer: {consumer.name} · {languageLabel(consumer.consumer.lang)}
               </p>
             )}
             <p>Saved revision: {entry.revision}</p>
@@ -502,7 +505,7 @@ function Workspace({
                   : 'Sign in to save. Local drafts are available.'}
               </p>
             )}
-            {entry.kind === 'variable' && body === '' && <p>Explicit empty variable value.</p>}
+            {entry.kind === 'variables' && body === '' && <p>Explicit empty variable value.</p>}
             {dirty && (
               <button disabled={disabled} onClick={() => void project()}>
                 Calculate projected impact
@@ -528,20 +531,20 @@ function Workspace({
                   <h2>English source</h2>
                   <pre>{entry.definitions.en?.body ?? 'No English definition.'}</pre>
                   {lang !== 'en' &&
-                    (entry.definitions[lang]?.sourceBody !== undefined ? (
+                    (snapshot.sourceBodies?.[entry.id]?.[lang] !== undefined ? (
                       <Popover label="English source changes" trigger="English source changes">
                         <RawDiffToggle />
                         {raw ? (
                           <WordDiff
-                            before={entry.definitions[lang]!.sourceBody!}
+                            before={snapshot.sourceBodies![entry.id][lang]!}
                             after={entry.definitions.en?.body ?? ''}
                           />
                         ) : (
                           <RenderedWordDiff
-                            before={entry.definitions[lang]!.sourceBody!}
+                            before={snapshot.sourceBodies![entry.id][lang]!}
                             after={entry.definitions.en?.body ?? ''}
                             lang="en"
-                            hash={entry.kind === 'variable' ? 2 : 3}
+                            hash={entry.kind === 'variables' ? 2 : 3}
                           />
                         )}
                       </Popover>
@@ -596,7 +599,7 @@ function Workspace({
                       {
                         key: 'usageLang',
                         label: 'Consumer language',
-                        values: [...new Set(consumers.map((row) => row.lang))],
+                        values: [...new Set(consumers.map((row) => row.consumer.lang))],
                       },
                       {
                         key: 'review',
@@ -636,13 +639,14 @@ function Workspace({
                           aria-pressed={consumer?.id === row.id}
                           onClick={() => update({ consumer: row.id })}
                         >
-                          {row.name} · {languageLabel(row.lang)}
+                          {row.name} · {languageLabel(row.consumer.lang)}
                         </button>
                         <span>
-                          {row.direct ? 'Direct' : 'Indirect'} · {row.review} · {row.destination}
+                          {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'} ·{' '}
+                          {globalReviewState(row)} · {row.consumer.destination}
                           {row.archived ? ' · Archived' : ''}
                         </span>
-                        <span>{row.path.join(' → ')}</span>
+                        <span>{row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}</span>
                         <span>
                           {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
                         </span>
@@ -651,9 +655,9 @@ function Workspace({
                           onClick={(e) => {
                             if (disabled || dirty) e.preventDefault();
                           }}
-                          to={`/t/${row.hash}?lang=${row.lang}&variant=${row.variant}&line=${row.line}`}
+                          to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
                         >
-                          Open consumer · line {row.line}
+                          Open consumer{row.line === null ? '' : ` · line ${row.line}`}
                         </Link>
                       </li>
                     ))}
@@ -672,26 +676,14 @@ function Workspace({
                     >
                       <div className={styles.review}>
                         <strong>
-                          {consumer.name} · {consumer.destination}
+                          {consumer.name} · {consumer.consumer.destination}
                         </strong>
                         <RawDiffToggle />
-                        {raw ? (
-                          <WordDiff before={consumer.before.source} after={consumer.after.source} />
-                        ) : (
-                          <RenderedWordDiff
-                            key={reviewKey}
-                            before={consumer.before.resolved}
-                            after={consumer.after.resolved}
-                            lang={consumer.lang}
-                            hash={consumer.hash}
-                            beforeLabel="Before"
-                            afterLabel="After"
-                          />
-                        )}
+                        <GlobalImpactComparison row={consumer} raw={raw} />
                         <label>
                           <input
                             type="checkbox"
-                            disabled={dirty || pending || raw}
+                            disabled={dirty || pending || raw || !validGlobalImpact(consumer)}
                             checked={reviewed === reviewKey}
                             onChange={(e) => setReviewed(e.target.checked ? reviewKey : undefined)}
                           />
@@ -706,17 +698,19 @@ function Workspace({
                             conflict ||
                             raw ||
                             reviewed !== reviewKey ||
-                            !canReviewGlobal(actor, consumer.lang) ||
-                            consumer.review === 'acknowledged'
+                            !canReviewGlobal(actor, consumer.consumer.lang) ||
+                            !validGlobalImpact(consumer) ||
+                            globalReviewState(consumer) === 'acknowledged'
                           }
                           onClick={() =>
                             void run({
                               operation: 'acknowledge',
                               id: entry.id,
                               consumerId: consumer.id,
-                              contentRevision: consumer.contentRevision,
-                              dependencyDigest: consumer.dependencyDigest,
-                              decision: 'no-text-change-needed',
+                              contentDigest: consumer.review.contentDigest,
+                              impactDigest: consumer.impactDigest,
+                              dependencyDigest: consumer.review.dependencyDigest,
+                              decision: 'no-text-change',
                             })
                           }
                         >
@@ -756,7 +750,7 @@ function ActionPopover({
   onSubmit(mutation: GlobalMutation): Promise<void>;
 }) {
   const [name, setName] = useState('');
-  const [kind, setKind] = useState<'variable' | 'title'>('variable');
+  const [kind, setKind] = useState<'variables' | 'titles'>('variables');
   const [body, setBody] = useState('');
   const removing = action === 'remove' || action === 'remove-language';
   const label =
@@ -818,10 +812,10 @@ function ActionPopover({
               <select
                 disabled={pending}
                 value={kind}
-                onChange={(e) => setKind(e.target.value as 'variable' | 'title')}
+                onChange={(e) => setKind(e.target.value as 'variables' | 'titles')}
               >
-                <option value="variable">Variable</option>
-                <option value="title">Title</option>
+                <option value="variables">Variable</option>
+                <option value="titles">Title</option>
               </select>
             </label>
             <label>

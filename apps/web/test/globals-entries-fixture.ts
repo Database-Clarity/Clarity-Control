@@ -1,4 +1,10 @@
 import {
+  parseMarkup,
+  validGlobalName,
+  type GlobalDefinition,
+  type GlobalReview,
+} from '@clarity/core';
+import {
   canEditGlobal,
   canReviewGlobal,
   type GlobalActor,
@@ -8,75 +14,108 @@ import {
   type GlobalsService,
 } from '../src/services/globals';
 
+const stamp = '2026-01-01T00:00:00Z';
+export const fixtureDigest = (value: number) => value.toString(16).padStart(64, '0');
+function definition(
+  body: string,
+  lang: 'en' | 'fr',
+  hash: 2 | 3,
+  revision = 'r1',
+): GlobalDefinition {
+  return {
+    body,
+    revision,
+    updatedAt: stamp,
+    updatedBy: 'fixture',
+    provenance: {
+      repository: 'fixture',
+      revision: 'source1',
+      path: `tooltips/${hash}.json`,
+      selector: ['text', lang, 'text'],
+      spanConvention: 'decoded-utf16',
+      hash,
+      lang,
+      from: 0,
+      to: 1,
+    },
+  };
+}
+function render(text: string) {
+  return {
+    rendered: JSON.stringify(parseMarkup(text, { variables: '', titles: '' }).lines),
+    reads: { imports: [], variables: ['Damage'], conservativeTitles: true as const },
+  };
+}
+function consumer(hash: number, lang: 'en' | 'fr', destination: string): GlobalConsumer {
+  const identity = { hash, lang, destination };
+  const causes = [{ globalId: 'g_damage0001', beforeRevision: 'r0', afterRevision: 'r1' }];
+  const review: GlobalReview = {
+    version: 1,
+    consumer: identity,
+    causes,
+    contentDigest: fixtureDigest(hash),
+    dependencyDigest: fixtureDigest(100 + hash),
+  };
+  if (lang === 'fr')
+    review.acknowledgement = {
+      by: 'fixture',
+      at: stamp,
+      contentDigest: review.contentDigest,
+      dependencyDigest: fixtureDigest(0),
+      impactDigest: fixtureDigest(1),
+      decision: 'no-text-change',
+    };
+  return {
+    id: `${hash}:${lang}:${destination}`,
+    consumer: identity,
+    causes,
+    reason: 'variable-read',
+    variant: hash === 20 ? 21 : hash,
+    name: hash === 10 ? 'Focused Fury' : 'Reservoir Burst',
+    category: 'Perks',
+    line: hash === 10 ? 3 : 1,
+    path: hash === 10 ? ['Damage', 'Focused Fury'] : ['Damage', 'export Bonus', 'Reservoir Burst'],
+    direct: hash === 10,
+    archived: hash === 20,
+    review,
+    impactDigest: fixtureDigest(200 + hash),
+    beforeSource: lang === 'en' ? 'Gain #Damage damage.' : 'import Bonus from global',
+    afterSource: lang === 'en' ? 'Gain #Damage damage.' : 'import Bonus from global',
+    before: render(lang === 'en' ? 'Gain 10% damage.' : 'Bonus de 10 %.'),
+    after: render(lang === 'en' ? 'Gain 15% damage.' : 'Bonus de 15 %.'),
+  };
+}
+const french = consumer(20, 'fr', 'saved');
+french.causes.push({ globalId: 'g_other00001', beforeRevision: 'r2', afterRevision: 'r3' });
 export const globalFixtureSnapshot: GlobalSnapshot = {
   head: 'fixture-head-1',
   entries: [
     {
-      id: 'global-damage',
-      kind: 'variable',
+      version: 1,
+      id: 'g_damage0001',
+      kind: 'variables',
       name: 'Damage',
       revision: 'r1',
+      nameHistory: [],
       definitions: {
-        en: { body: '15%', revision: 'en1' },
-        fr: { body: '15 %', revision: 'fr1', sourceRevision: 'en0', sourceBody: '10%' },
+        en: definition('15%', 'en', 2, 'en1'),
+        fr: { ...definition('15 %', 'fr', 2, 'fr1'), sourceRevision: 'en0' },
       },
     },
     {
-      id: 'global-title',
-      kind: 'title',
+      version: 1,
+      id: 'g_title00001',
+      kind: 'titles',
       name: 'Reload',
       revision: 'r1',
+      nameHistory: [],
       definitions: {
-        en: { body: 'Reloads the weapon.', revision: 'en1' },
+        en: definition('Reloads the weapon.', 'en', 3, 'en1'),
       },
     },
   ],
-  impacts: {
-    'global-damage': [
-      {
-        id: '10:en:live',
-        hash: 10,
-        variant: 10,
-        name: 'Focused Fury',
-        category: 'Perks',
-        lang: 'en',
-        destination: 'live',
-        line: 3,
-        path: ['Damage', 'Focused Fury'],
-        direct: true,
-        archived: false,
-        contentRevision: 'tooltip1',
-        dependencyDigest: 'digest1',
-        review: 'required',
-        causes: [{ globalId: 'global-damage', beforeRevision: 'r0', afterRevision: 'r1' }],
-        before: { source: 'Gain #Damage damage.', resolved: 'Gain 10% damage.' },
-        after: { source: 'Gain #Damage damage.', resolved: 'Gain 15% damage.' },
-      },
-      {
-        id: '20:fr:saved',
-        hash: 20,
-        variant: 21,
-        name: 'Reservoir Burst',
-        category: 'Perks',
-        lang: 'fr',
-        destination: 'saved',
-        line: 1,
-        path: ['Damage', 'export Bonus', 'Reservoir Burst'],
-        direct: false,
-        archived: true,
-        contentRevision: 'tooltip2',
-        dependencyDigest: 'digest2',
-        review: 'stale',
-        causes: [
-          { globalId: 'global-damage', beforeRevision: 'r0', afterRevision: 'r1' },
-          { globalId: 'other-global', beforeRevision: 'r2', afterRevision: 'r3' },
-        ],
-        before: { source: 'import Bonus from global', resolved: 'Bonus de 10 %.' },
-        after: { source: 'import Bonus from global', resolved: 'Bonus de 15 %.' },
-      },
-    ],
-    'global-title': [],
-  },
+  sourceBodies: { g_damage0001: { fr: '10%' } },
+  impacts: { g_damage0001: [consumer(10, 'en', 'live'), french], g_title00001: [] },
 };
 
 /** In-memory only; deliberately no HTTP or repository writes. */
@@ -112,7 +151,7 @@ export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSna
           head: snapshot.head,
           consumers: structuredClone(snapshot.impacts[request.id] ?? []).map((row) => ({
             ...row,
-            after: { ...row.after, resolved: `Projected value: ${request.body}` },
+            after: render(`Projected value: ${request.body}`),
           })),
         },
       };
@@ -140,7 +179,7 @@ export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSna
           return forbidden();
         const kind = mutation.operation === 'create' ? mutation.kind : entry!.kind;
         if (
-          !(kind === 'variable' ? /^[a-zA-Z0-9]+$/ : /^[a-zA-Z0-9 ]+$/).test(mutation.name) ||
+          !validGlobalName(kind, mutation.name) ||
           snapshot.entries.some(
             (item) => item.id !== entry?.id && item.kind === kind && item.name === mutation.name,
           )
@@ -148,26 +187,58 @@ export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSna
           return { kind: 'invalid', message: 'Choose a valid, unique reference name.' };
       }
       if (mutation.operation === 'create') {
-        if (mutation.kind === 'title' && !mutation.body.trim())
+        if (mutation.kind === 'titles' && !mutation.body.trim())
           return { kind: 'invalid', message: 'Title body is required.' };
         snapshot.entries.push({
-          id: `fixture-${++revision}`,
+          version: 1,
+          nameHistory: [],
+          id: `g_fixture${String(++revision).padStart(8, '0')}`,
           kind: mutation.kind,
           name: mutation.name,
           revision: `r${revision}`,
-          definitions: { [mutation.lang]: { body: mutation.body, revision: `body${revision}` } },
+          definitions: {
+            [mutation.lang]: definition(
+              mutation.body,
+              mutation.lang as 'en' | 'fr',
+              mutation.kind === 'variables' ? 2 : 3,
+              `body${revision}`,
+            ),
+          },
         });
       } else if (mutation.operation === 'edit') {
         if (!canEditGlobal(actor, mutation.lang)) return forbidden();
-        if (entry!.kind === 'title' && !mutation.body.trim())
+        if (entry!.kind === 'titles' && !mutation.body.trim())
           return { kind: 'invalid', message: 'Title body is required.' };
-        entry!.definitions[mutation.lang] = { body: mutation.body, revision: `body${++revision}` };
+        entry!.definitions[mutation.lang] = {
+          ...definition(
+            mutation.body,
+            mutation.lang as 'en' | 'fr',
+            entry!.kind === 'variables' ? 2 : 3,
+            `body${++revision}`,
+          ),
+          provenance:
+            entry!.definitions[mutation.lang]?.provenance ??
+            definition(
+              mutation.body,
+              mutation.lang as 'en' | 'fr',
+              entry!.kind === 'variables' ? 2 : 3,
+            ).provenance,
+        };
         entry!.revision = `r${revision}`;
         for (const row of snapshot.impacts[entry!.id] ?? []) {
-          row.review = 'required';
-          row.dependencyDigest = `digest${revision}`;
+          delete row.review.acknowledgement;
+          row.review.dependencyDigest = fixtureDigest(1000 + revision);
+          row.impactDigest = fixtureDigest(2000 + revision);
+          row.before = row.after;
+          row.after = render(`Updated value: ${mutation.body}`);
         }
       } else if (mutation.operation === 'rename') {
+        entry!.nameHistory.push({
+          name: entry!.name,
+          revision: entry!.revision,
+          at: stamp,
+          by: 'fixture',
+        });
         entry!.name = mutation.name;
         entry!.revision = `r${++revision}`;
       } else if (mutation.operation === 'remove') {
@@ -175,17 +246,26 @@ export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSna
         if (snapshot.impacts[entry!.id]?.length)
           return { kind: 'invalid', message: 'References still exist.' };
         if (mutation.lang) delete entry!.definitions[mutation.lang];
-        else snapshot.entries = snapshot.entries.filter((item) => item.id !== entry!.id);
+        else entry!.tombstone = { at: stamp, by: 'fixture' };
+        entry!.revision = `r${++revision}`;
       } else {
         const row = snapshot.impacts[entry!.id]?.find((item) => item.id === mutation.consumerId);
         if (
           !row ||
-          row.contentRevision !== mutation.contentRevision ||
-          row.dependencyDigest !== mutation.dependencyDigest
+          row.review.contentDigest !== mutation.contentDigest ||
+          row.review.dependencyDigest !== mutation.dependencyDigest ||
+          row.impactDigest !== mutation.impactDigest
         )
           return { kind: 'conflict', message: 'Review is stale.' };
-        if (!canReviewGlobal(actor, row.lang)) return forbidden();
-        row.review = 'acknowledged';
+        if (!canReviewGlobal(actor, row.consumer.lang)) return forbidden();
+        row.review.acknowledgement = {
+          by: 'fixture',
+          at: stamp,
+          contentDigest: mutation.contentDigest,
+          dependencyDigest: mutation.dependencyDigest,
+          impactDigest: mutation.impactDigest,
+          decision: mutation.decision,
+        };
       }
       snapshot.head = `fixture-head-${++revision}`;
       return { kind: 'ok', value: structuredClone(snapshot) };

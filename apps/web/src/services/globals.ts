@@ -1,45 +1,32 @@
-import type { Lang } from '@clarity/core';
+import type { GlobalImpactRow, GlobalKind, GlobalRecord, GlobalReview, Lang } from '@clarity/core';
 
 // S3's HTTP boundary. No transport is activated until S2/S5 and the owner gates pass.
-// Reconcile these local entry types with S1's frozen model before integration.
-export type EntryKind = 'variable' | 'title';
+export type EntryKind = GlobalKind;
 export type GlobalActor = {
   role: 'trial' | 'translator' | 'editor' | 'maintainer';
   languages: Lang[];
 } | null;
-export interface GlobalEntry {
+export type GlobalEntry = GlobalRecord;
+/** S1 impact and review records, plus non-authoritative navigation/display metadata. */
+export interface GlobalConsumer extends GlobalImpactRow {
   id: string;
-  kind: EntryKind;
-  name: string;
-  revision: string;
-  definitions: Partial<
-    Record<Lang, { body: string; revision: string; sourceRevision?: string; sourceBody?: string }>
-  >;
-}
-export interface GlobalConsumer {
-  id: string;
-  hash: number;
   variant: number;
   name: string;
   category: string;
-  lang: Lang;
-  destination: string;
-  line: number;
-  path: string[];
-  direct: boolean;
+  line: number | null;
+  path: string[] | null;
+  direct: boolean | null;
   archived: boolean;
-  contentRevision: string;
-  dependencyDigest: string;
-  causes: { globalId: string; beforeRevision: string; afterRevision: string }[];
-  review: 'required' | 'acknowledged' | 'stale';
-  // Server-resolved markup for this exact impact revision, not today's globals.
-  before: { source: string; resolved: string };
-  after: { source: string; resolved: string };
+  review: GlobalReview;
+  impactDigest: string;
+  beforeSource: string;
+  afterSource: string;
 }
 export interface GlobalSnapshot {
   head: string;
   entries: GlobalEntry[];
   impacts: Record<string, GlobalConsumer[]>;
+  sourceBodies?: Record<string, Partial<Record<Lang, string>>>;
 }
 export type GlobalMutation =
   | { operation: 'create'; kind: EntryKind; name: string; lang: Lang; body: string }
@@ -50,9 +37,10 @@ export type GlobalMutation =
       operation: 'acknowledge';
       id: string;
       consumerId: string;
-      contentRevision: string;
+      contentDigest: string;
       dependencyDigest: string;
-      decision: 'no-text-change-needed';
+      impactDigest: string;
+      decision: 'no-text-change';
     };
 export type GlobalResult<T> =
   | { kind: 'ok'; value: T }
@@ -72,6 +60,15 @@ export interface GlobalsService {
     lang: Lang;
     body: string;
   }): Promise<GlobalResult<{ head: string; consumers: GlobalConsumer[] }>>;
+}
+export function globalReviewState(row: GlobalConsumer): 'required' | 'acknowledged' | 'stale' {
+  const ack = row.review.acknowledgement;
+  if (!ack) return 'required';
+  return ack.contentDigest === row.review.contentDigest &&
+    ack.dependencyDigest === row.review.dependencyDigest &&
+    ack.impactDigest === row.impactDigest
+    ? 'acknowledged'
+    : 'stale';
 }
 export function canEditGlobal(actor: GlobalActor, lang: Lang) {
   return !!actor && (actor.role !== 'translator' || actor.languages.includes(lang));

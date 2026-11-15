@@ -37,17 +37,17 @@ try {
   await edit('25%');
   await page.getByRole('button', { name: 'Calculate projected impact', exact: true }).click();
   await page.getByText('Projected impact — unsaved', { exact: true }).waitFor();
-  await page.getByRole('combobox', { name: 'Global entry' }).selectOption('global-title');
+  await page.getByRole('combobox', { name: 'Global entry' }).selectOption('g_title00001');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.match(await page.locator('.cm-content').innerText(), /25%/);
-  await page.getByRole('combobox', { name: 'Global entry' }).selectOption('global-title');
+  await page.getByRole('combobox', { name: 'Global entry' }).selectOption('g_title00001');
   await page.getByRole('button', { name: 'Discard and continue' }).click();
   await page.getByRole('heading', { name: 'Reload', exact: true }).waitFor();
   await page.goBack();
   await page.getByRole('heading', { name: 'Damage', exact: true }).waitFor();
   await page.goForward();
   await page.getByRole('heading', { name: 'Reload', exact: true }).waitFor();
-  await page.getByRole('combobox', { name: 'Global entry' }).selectOption('global-damage');
+  await page.getByRole('combobox', { name: 'Global entry' }).selectOption('g_damage0001');
   await edit('30%');
   await page.evaluate(() => {
     window.globalsFixture.next = 'retry';
@@ -92,7 +92,7 @@ try {
   await page.getByRole('textbox', { name: 'Name', exact: true }).press('Enter');
   await page
     .getByRole('combobox', { name: 'Global entry' })
-    .selectOption({ label: 'Empty · variable' });
+    .selectOption({ label: 'Empty · variables' });
   await page.getByText('Explicit empty variable value.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
   await page
@@ -153,8 +153,24 @@ try {
     .getByRole('button', { name: 'Remove language', exact: true })
     .click();
   await page.getByText('No definition in this language.', { exact: false }).waitFor();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Remove', exact: true })
+    .getByRole('button', { name: 'Remove', exact: true })
+    .click();
+  await page.getByText('No globals yet.', { exact: false }).waitFor();
   results.push(
     'initial read failure/retry, empty collection/create, explicit language removal, assigned translation save, and English source rendered/Raw comparison passed',
+  );
+
+  await page.goto('http://127.0.0.1:5296/test/globals-entries.html?unproven=1');
+  await page.getByText('Exact dependency path unavailable.', { exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole('link', { name: 'Open consumer', exact: true }).getAttribute('href'),
+    '#/t/20?lang=fr&variant=21',
+  );
+  results.push(
+    'unknown S1 import path/line/directness stays unavailable and never fabricates a highlighted line',
   );
 
   for (const width of [390, 768, 1280])
