@@ -10,6 +10,8 @@ import type { EditorData } from '../../stores/data';
 import { useSavedWorklists } from './worklists';
 import { setEditorDraftFetch } from '../../services/editorDrafts';
 import { resetWorkQueues, useWorkQueues } from './store';
+import { startQueue } from './start';
+import { usePreviewReviewStore } from '../../stores/previewReview';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const data: EditorData = {
   items: Object.fromEntries(
@@ -70,6 +72,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   setEditorDraftFetch(undefined);
   resetWorkQueues();
+  usePreviewReviewStore.setState({ host: null, entries: {}, prompt: null });
 });
 const field = () => host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const button = (text: string) =>
@@ -124,6 +127,32 @@ it('opens built-in Drafts from the finder using the shared queue', async () => {
   const store = useWorkQueues.getState();
   expect(store.queues[store.active!]!.source).toBe('drafts');
   expect(store.queues[store.active!]!.items.map((item) => item.hash)).toEqual([12]);
+});
+
+it('keeps the original run and finder when preview review refuses Drafts opening repeatedly', async () => {
+  const first = { key: '11', hash: 11, name: 'Entry 11' };
+  startQueue({
+    source: 'custom',
+    scope: 'shown',
+    items: [first],
+    first,
+    origin: { path: '/', restore: {} },
+  });
+  const before = JSON.stringify(useWorkQueues.getState());
+  const session = sessionStorage.getItem('clarity-work-through:v1');
+  usePreviewReviewStore.setState({
+    host: { show: vi.fn() },
+    entries: { 11: { canonical: 11, dirty: 2, reviewed: 1 } },
+    prompt: null,
+  });
+  await act(async () => field().click());
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await act(async () => button('Drafts worklist').click());
+  }
+  expect(usePreviewReviewStore.getState().prompt).toBe(11);
+  expect(JSON.stringify(useWorkQueues.getState())).toBe(before);
+  expect(sessionStorage.getItem('clarity-work-through:v1')).toBe(session);
+  expect(field().getAttribute('aria-expanded')).toBe('true');
 });
 
 it('keeps the multi-selection when cancelling a target, and freezes it while choosing', async () => {

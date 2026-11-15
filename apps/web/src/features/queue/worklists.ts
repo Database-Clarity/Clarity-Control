@@ -39,6 +39,7 @@ interface State extends Copy {
 let epoch = 0;
 let flight = false;
 let ready = false;
+let refreshAfterFlight = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 function accountReady(): boolean {
@@ -193,8 +194,13 @@ export async function loadWorklist(id: string): Promise<SavedWorklist> {
 }
 
 /** Metadata-only index, and at most one changed-list write in flight. */
-export async function syncWorklists() {
-  if (flight || !accountReady()) return;
+export async function syncWorklists(refresh = false) {
+  if (refresh) ready = false;
+  if (flight) {
+    if (refresh) refreshAfterFlight = true;
+    return;
+  }
+  if (!accountReady()) return;
   flight = true;
   const started = epoch;
   try {
@@ -316,7 +322,11 @@ export async function syncWorklists() {
       );
   } finally {
     flight = false;
-    if (started !== epoch) schedule();
+    if (refreshAfterFlight) {
+      refreshAfterFlight = false;
+      ready = false;
+      schedule();
+    } else if (started !== epoch) schedule();
   }
 }
 export function connectWorklists(): () => void {
@@ -379,19 +389,37 @@ export function connectWorklists(): () => void {
     if (!current.pending) changed(copy.data);
     else {
       const lists = [...current.lists];
+      const index = { ...current.index };
+      const loaded = new Set(current.loaded);
       for (const list of copy.data.lists) {
         const at = lists.findIndex((old) => old.id === list.id);
-        if (at < 0) lists.push(list);
-        else if (current.dirty.includes(list.id))
+        if (
+          at >= 0 &&
+          (current.dirty.includes(list.id) ||
+            (loaded.has(list.id) && copy.data.dirty.includes(list.id)))
+        ) {
+          // Keep this revision's contents when accepting another tab's pending edits.
           lists[at] = mergeWorklists([lists[at]!], [list])[0]!;
-        else lists[at] = list;
+        } else {
+          if (at < 0) lists.push(list);
+          else lists[at] = list;
+          // Entries, loaded state, and their CAS base must travel together.
+          if (copy.data.index[list.id]) index[list.id] = copy.data.index[list.id]!;
+          else delete index[list.id];
+          if (copy.data.loaded.includes(list.id)) loaded.add(list.id);
+          else loaded.delete(list.id);
+        }
       }
+      const removed = { ...copy.data.removed, ...current.removed };
+      const dirty = [...new Set([...current.dirty, ...copy.data.dirty])];
+      // A concurrent deletion must not discard either tab's unsaved additions.
+      for (const id of dirty) delete removed[id];
       changed({
-        lists,
-        dirty: [...new Set([...current.dirty, ...copy.data.dirty])],
-        loaded: [...new Set([...current.loaded, ...copy.data.loaded])],
-        removed: { ...copy.data.removed, ...current.removed },
-        index: { ...copy.data.index, ...current.index },
+        lists: lists.filter((list) => !removed[list.id]),
+        dirty,
+        loaded: [...loaded],
+        removed,
+        index,
       });
       syncNotice(
         'Merged another tab’s changes. Concurrent removals may reappear; all entries were kept.',

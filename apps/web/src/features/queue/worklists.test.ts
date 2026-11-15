@@ -232,3 +232,153 @@ it('preserves the browser-storage warning when account sync also fails', async (
   expect(useSavedWorklists.getState().notice).toContain('Keep this tab open');
   expect(useSavedWorklists.getState().notice).not.toContain('local copy is kept');
 });
+
+it('keeps newer saved entries when a stale tab edits a clean list beside another pending list', async () => {
+  await login();
+  const newer = {
+    ...list,
+    items: [
+      { hash: 1, name: 'One' },
+      { hash: 3, name: 'Three' },
+    ],
+  };
+  useSavedWorklists.setState({
+    lists: [newer],
+    loaded: [list.id],
+    index: {
+      [list.id]: { id: list.id, name: list.name, count: 2, updatedAt: 2, revision: 'b'.repeat(32) },
+    },
+  });
+  useSavedWorklists.getState().add(null, 'Other pending list', []);
+  window.dispatchEvent(
+    new StorageEvent('storage', {
+      key: 'clarity-worklists:v2:1',
+      newValue: JSON.stringify({
+        lists: [
+          {
+            ...list,
+            items: [
+              { hash: 1, name: 'One' },
+              { hash: 2, name: 'Two' },
+            ],
+          },
+        ],
+        dirty: [list.id],
+        removed: {},
+        loaded: [list.id],
+        index: {
+          [list.id]: {
+            id: list.id,
+            name: list.name,
+            count: 1,
+            updatedAt: 1,
+            revision: 'a'.repeat(32),
+          },
+        },
+      }),
+    }),
+  );
+  request.mockResolvedValueOnce(indexResponse([newer], 'b'.repeat(32)));
+  request.mockImplementation(async (path: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    return Response.json({
+      worklist: { id: path.split('/').at(-1), name: body.name, hashes: body.hashes },
+      revision: 'c'.repeat(32),
+    });
+  });
+  await syncWorklists();
+  await syncWorklists();
+  const write = request.mock.calls.find(
+    ([path, init]) => path.endsWith(list.id) && init?.method === 'PUT',
+  )!;
+  const body = JSON.parse(write[1].body);
+  expect(body.revision).toBe('b'.repeat(32));
+  expect(body.hashes).toEqual([1, 3, 2]);
+});
+
+it('takes an incoming clean cache together with its revision and loaded state', async () => {
+  await login();
+  useSavedWorklists.setState({
+    lists: [list],
+    loaded: [list.id],
+    index: {
+      [list.id]: { id: list.id, name: list.name, count: 1, updatedAt: 2, revision: 'b'.repeat(32) },
+    },
+  });
+  useSavedWorklists.getState().add(null, 'Other pending list', []);
+  const meta = { id: list.id, name: list.name, count: 2, updatedAt: 1, revision: 'a'.repeat(32) };
+  window.dispatchEvent(
+    new StorageEvent('storage', {
+      key: 'clarity-worklists:v2:1',
+      newValue: JSON.stringify({
+        lists: [{ ...list, items: [] }],
+        dirty: [],
+        removed: {},
+        loaded: [],
+        index: { [list.id]: meta },
+      }),
+    }),
+  );
+  expect(useSavedWorklists.getState().index[list.id]).toEqual(meta);
+  expect(useSavedWorklists.getState().loaded).not.toContain(list.id);
+});
+
+it('refreshes a clean index for an explicit Sync without loading entries', async () => {
+  await login();
+  request.mockResolvedValueOnce(indexResponse([list]));
+  await syncWorklists(true);
+  expect(useSavedWorklists.getState().lists.map((entry) => entry.id)).toEqual([list.id]);
+  expect(useSavedWorklists.getState().loaded).toEqual([]);
+  request.mockResolvedValueOnce(indexResponse([]));
+  await syncWorklists(true);
+  expect(useSavedWorklists.getState().lists).toEqual([]);
+  expect(request.mock.calls.map(([path]) => path)).toEqual([
+    '/worklists',
+    '/worklists',
+    '/worklists',
+  ]);
+});
+
+it('retains an explicit Sync requested during an index read', async () => {
+  await login();
+  let resolve!: (value: Response) => void;
+  request.mockImplementationOnce(
+    () =>
+      new Promise<Response>((done) => {
+        resolve = done;
+      }),
+  );
+  const reading = syncWorklists(true);
+  await syncWorklists(true);
+  resolve(indexResponse([]));
+  await reading;
+  request.mockResolvedValueOnce(indexResponse([list]));
+  await vi.advanceTimersByTimeAsync(600);
+  expect(useSavedWorklists.getState().lists.map((entry) => entry.id)).toEqual([list.id]);
+});
+
+it.each([false, true])(
+  'keeps pending additions when the %s tab has a concurrent deletion',
+  async (incomingDeletion) => {
+    await login();
+    const meta = { id: list.id, name: list.name, count: 1, updatedAt: 1, revision: 'a'.repeat(32) };
+    useSavedWorklists.setState({ lists: [list], loaded: [list.id], index: { [list.id]: meta } });
+    const edited = { ...list, items: [...list.items, { hash: 2, name: 'Two' }] };
+    useSavedWorklists.getState().change(incomingDeletion ? [edited] : []);
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'clarity-worklists:v2:1',
+        newValue: JSON.stringify({
+          lists: incomingDeletion ? [] : [edited],
+          dirty: incomingDeletion ? [] : [list.id],
+          removed: incomingDeletion ? { [list.id]: meta.revision } : {},
+          loaded: incomingDeletion ? [] : [list.id],
+          index: { [list.id]: meta },
+        }),
+      }),
+    );
+    expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1, 2]);
+    expect(useSavedWorklists.getState().dirty).toContain(list.id);
+    expect(useSavedWorklists.getState().removed).toEqual({});
+  },
+);

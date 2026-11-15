@@ -4,9 +4,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Popover } from '../../ui/Popover';
 import { useDataStore } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
+import { usePreviewReviewStore } from '../../stores/previewReview';
 import { loadWorklist, syncWorklists, useSavedWorklists } from './worklists';
 import { draftItems, savedItems, worklistAvailable } from './savedSources';
 import { startQueue } from './start';
+import { queueSources } from './sources';
 import type { QueueItem } from './model';
 import type { WorklistEntry } from '../../../../../packages/core/src/worklists';
 import styles from './WorklistsMenu.module.scss';
@@ -156,8 +158,15 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       setError('Every entry is unavailable. Remove unavailable entries or choose another list.');
       return;
     }
+    const source = id ? 'custom' : 'drafts';
+    if (
+      !usePreviewReviewStore
+        .getState()
+        .requestLeave(location.pathname, queueSources[source].path(first).split('?')[0]!)
+    )
+      return;
     const target = startQueue({
-      source: id ? 'custom' : 'drafts',
+      source,
       scope: 'shown',
       items,
       first,
@@ -298,7 +307,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
           <span role="status">
             {notice || (pending ? 'Saving changes…' : 'Saved worklists sync to your account.')}
           </span>
-          <button type="button" onClick={() => void syncWorklists()}>
+          <button type="button" onClick={() => void syncWorklists(true)}>
             Sync
           </button>
         </div>

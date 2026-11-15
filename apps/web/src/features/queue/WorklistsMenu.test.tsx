@@ -6,7 +6,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RemoveFromWorklist, WorklistPicker, WorklistsManager } from './WorklistsMenu';
 import { useSavedWorklists } from './worklists';
 import { useAuthStore } from '../../stores/auth';
-import { useDataStore } from '../../stores/data';
+import { useDataStore, type EditorData } from '../../stores/data';
+import { usePreviewReviewStore } from '../../stores/previewReview';
+import { resetWorkQueues, useWorkQueues } from './store';
+import { startQueue } from './start';
 import { setEditorDraftFetch } from '../../services/editorDrafts';
 import type { User } from '../../services/api';
 const api = vi.hoisted(() => vi.fn());
@@ -53,6 +56,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   setEditorDraftFetch(undefined);
+  resetWorkQueues();
+  usePreviewReviewStore.setState({ host: null, entries: {}, prompt: null });
 });
 const button = (text: string) =>
   [...host.querySelectorAll('button')].find((button) => button.textContent === text)!;
@@ -148,3 +153,65 @@ it('removes an unavailable entry after an index-only cache refresh without dropp
   expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([2]);
   expect(useSavedWorklists.getState().dirty).toEqual([id]);
 });
+
+it.each(['custom', 'drafts'])(
+  'keeps the active queue unchanged when preview review refuses %s opening',
+  async (source) => {
+    const data: EditorData = {
+      items: Object.fromEntries(
+        [1, 2].map((hash) => [
+          hash,
+          { hash, name: `Entry ${hash}`, icon: '', categoryId: 'perks', inGameDescription: '' },
+        ]),
+      ),
+      aliases: {},
+      categories: [],
+      bundle: {
+        tooltips: {},
+        sourceCommit: 'fixture',
+        generatedAt: '',
+        permissions: { users: {} },
+        pushed: {},
+      },
+    };
+    const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+    act(() => {
+      useDataStore.setState({ data });
+      useSavedWorklists.setState({
+        lists: [{ id, name: 'Other list', items: [{ hash: 2, name: 'Two' }] }],
+        loaded: [id],
+      });
+    });
+    setEditorDraftFetch(async () => Response.json({ schemaVersion: 1, hashes: [2] }));
+    const first = { key: '1', hash: 1, name: 'One' };
+    startQueue({
+      source: 'custom',
+      scope: 'shown',
+      items: [first],
+      first,
+      origin: { path: '/', restore: {} },
+    });
+    const before = JSON.stringify(useWorkQueues.getState());
+    const session = sessionStorage.getItem('clarity-work-through:v1');
+    const close = vi.fn();
+    await act(async () =>
+      root.render(
+        <MemoryRouter key="guarded" initialEntries={['/t/1']}>
+          <WorklistsManager close={close} />
+        </MemoryRouter>,
+      ),
+    );
+    usePreviewReviewStore.setState({
+      host: { show: vi.fn() },
+      entries: { 1: { canonical: 1, dirty: 2, reviewed: 1 } },
+      prompt: null,
+    });
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await act(async () => button(source === 'custom' ? 'Open' : 'Drafts1').click());
+    }
+    expect(usePreviewReviewStore.getState().prompt).toBe(1);
+    expect(JSON.stringify(useWorkQueues.getState())).toBe(before);
+    expect(sessionStorage.getItem('clarity-work-through:v1')).toBe(session);
+    expect(close).not.toHaveBeenCalled();
+  },
+);

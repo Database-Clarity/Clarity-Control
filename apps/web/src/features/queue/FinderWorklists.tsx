@@ -12,12 +12,14 @@ import {
 import { createStore, useStore, type StoreApi } from 'zustand';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
+import { usePreviewReviewStore } from '../../stores/previewReview';
 import type { EditorData } from '../../stores/data';
 import type { WorklistEntry } from '../../../../../packages/core/src/worklists';
 import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { WorklistPicker } from './WorklistsMenu';
 import { draftItems } from './savedSources';
 import { startQueue } from './start';
+import { queueSources } from './sources';
 import styles from './FinderWorklists.module.scss';
 
 interface Selection {
@@ -240,6 +242,12 @@ function FinderDraftsButton({ data }: { data: EditorData }) {
         setStatus('No bulk drafts need English text.');
         return;
       }
+      if (
+        !usePreviewReviewStore
+          .getState()
+          .requestLeave(location.pathname, queueSources.drafts.path(items[0]!).split('?')[0]!)
+      )
+        return;
       const target = startQueue({
         source: 'drafts',
         scope: 'shown',
