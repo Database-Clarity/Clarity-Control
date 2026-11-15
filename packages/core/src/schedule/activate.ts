@@ -55,7 +55,7 @@ export function reconcileScheduledNumbers(
     ([lang, entry]) => lang !== 'en' && entry.text.includes('#{='),
   );
   if (
-    changedEnglish &&
+    (changedEnglish || !source?.text.en) &&
     !keepsProposal &&
     proposed.text.en &&
     stagedTokens &&

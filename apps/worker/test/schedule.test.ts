@@ -174,6 +174,36 @@ const schedule = (id = MAINTAINER, extra: Record<string, unknown> = {}) =>
   );
 
 describe('scheduled number-map authority', () => {
+  it.each([false, true])(
+    'refuses translation-only rebase without source English (record exists=%s)',
+    async (exists) => {
+      const base = withText(tooltip(), 'en', 'Duration 5.\nDamage 10.');
+      base.text.en!.numbers = { ids: [2, 1], next: 3, retired: {} };
+      base.text.de = {
+        text: 'Schaden #{=1}.',
+        updatedAt: base.text.en!.updatedAt,
+        sourceUpdatedAt: base.text.en!.updatedAt,
+        updatedBy: 'dan',
+      };
+      const proposed = withText(base, 'de', 'Verursacht #{=1} Schaden.');
+      const current: Tooltip | null = exists ? { hash: 123, text: {}, associated: [] } : null;
+      f.moveData({
+        '.publisher/PIN': { capabilities: [...pin.capabilities, 'numberTokens'] },
+        'tooltips/123.json': current ?? undefined,
+        [memberPath()]: member(proposed, base),
+      });
+      expect(numberValues(proposed.text.en!).get(1)).toBe('10');
+      const response = await call(`/batches/${ID}/rebase`, {
+        revision: storedBatch().revision,
+        hash: 123,
+        base: current,
+        next: proposed,
+      });
+      expect(response.status).toBe(422);
+      expect(response.body.error).toContain('Tooltip 123: English number identities changed');
+      expect((stored(memberPath()) as BatchMember).proposed).toEqual(proposed);
+    },
+  );
   it.each(['Damage 10.\nDuration 5.\nBonus 7.', 'Damage 10.'])(
     'keeps translation-only batches usable after current English changes to %s',
     async (english) => {

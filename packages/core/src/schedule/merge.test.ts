@@ -89,6 +89,29 @@ describe('changed-field set (R17)', () => {
 });
 
 describe('number-safe activation and composition', () => {
+  it('refuses translation-only recreation that would change id1 from 10 to 5', () => {
+    const base: Tooltip = {
+      hash: 7,
+      associated: [],
+      text: {
+        en: entry('Duration 5.\nDamage 10.', T0, {
+          numbers: { ids: [2, 1], next: 3, retired: {} },
+        }),
+        de: entry('Schaden #{=1}.', T0, { sourceUpdatedAt: T0 }),
+      },
+    };
+    const proposed = {
+      ...base,
+      text: { ...base.text, de: entry('Verursacht #{=1} Schaden.', T1, { sourceUpdatedAt: T0 }) },
+    };
+    expect(numberValues(proposed.text.en!).get(1)).toBe('10');
+    expect(
+      resolveActivation({ base, current: null, proposed, choices: { $exists: 'upcoming' } }),
+    ).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('Tooltip 7: English number identities changed'),
+    });
+  });
   const before: Tooltip = {
     hash: 7,
     associated: [],
