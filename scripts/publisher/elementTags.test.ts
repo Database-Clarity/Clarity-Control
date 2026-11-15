@@ -36,7 +36,7 @@ async function templateExportLegacy(): Promise<typeof exportLegacy> {
 
 const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand|prismatic) [^<>]*\/>/;
 
-it('declares the elementTags, markupBraces, and prismaticTags capabilities in its PIN', () => {
+it('preserves the current capabilities and declares numberTokens in its PIN', () => {
   const pin = JSON.parse(readFileSync(`${root}/PIN`, 'utf8'));
   expect(pin.capabilities).toEqual([
     'elementTags',
@@ -46,6 +46,7 @@ it('declares the elementTags, markupBraces, and prismaticTags capabilities in it
     'prismaticTags',
     'inactiveMoves',
     'arrowSymbol',
+    'numberTokens',
   ]);
 });
 
@@ -113,4 +114,35 @@ it('arrowSymbol: template retains the new arrow in the shared intermediate', asy
   expect(JSON.stringify(exported)).toBe(JSON.stringify(exportLegacy([source], 0)));
   expect(JSON.stringify(exported)).toContain('<arrow/>');
   expect(unloweredEntry(exported)).toBeUndefined();
+});
+
+it('numberTokens: the template resolves live and frozen values before consumer markup', async () => {
+  const templated = await templateExportLegacy();
+  const base = tooltip();
+  const source: Tooltip = {
+    ...base,
+    text: {
+      en: {
+        ...base.text.en!,
+        text: 'Damage 6.5 and ${5+1.5}.',
+        numbers: { ids: [2, 3], next: 4, retired: { 1: '4.5' } },
+      },
+      de: {
+        ...base.text.en!,
+        text: '<solar Schaden #{=2} /> / #{=1} / #{=3}.\n// #{=2}\n/* #{=1} */',
+      },
+    },
+  };
+  const exported = templated([source], 0);
+  expect(exported).toEqual(exportLegacy([source], 0));
+  expect(JSON.stringify(exported)).toContain('<solar/>Schaden 6.5 / 4.5 / ${5+1.5}.');
+  expect(JSON.stringify(exported)).not.toContain('#{=');
+  expect(unloweredEntry(exported)).toBeUndefined();
+  for (const text of ['#{=9}', '// #{=9}', '/* #{=bad} */']) {
+    const invalid = structuredClone(source);
+    invalid.text.de!.text = text;
+    expect(() => templated([invalid], 0)).toThrow();
+  }
+  source.text.en!.numbers!.ids = [2];
+  expect(() => templated([source], 0)).toThrow(/Number map/);
 });

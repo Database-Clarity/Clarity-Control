@@ -15,12 +15,17 @@ const prepareDescription = (descriptionData: DescriptionData) => {
   description = removePerkSpecificText(description, database[hash].type)
 
   description = loadVariables({ ...descriptionData, descriptionString: description })
-  description = doMath(description)
+  // Title bodies are prepared separately below; retain dot spelling for their single format pass.
+  const titles = extractTitles(removeUnusedText(description, false))
+  // Core exports English fallback as an exact copy, which keeps English decimals too.
+  const editor = database[hash].editor
+  const numberLanguage = editor[language]?.main === editor.en?.main ? 'en' : language
+  description = doMath(description, numberLanguage)
 
   return {
     preparedDescription: removeUnusedText(description.trim()),
     titles: {
-      ...extractTitles(removeUnusedText(description, false)),
+      ...titles,
       ...extractTitles(database[3].editor[language]?.main),
       ...extractTitles(database[3].editor[language]?.secondary)
     }

@@ -1,4 +1,6 @@
 import { evaluateMarkupMath } from '@clarity/core/markup/arithmetic'
+import { formatNumbers } from '@clarity/core/markup/numberFormat'
+import type { Languages } from '../livePerkTypes.js'
 
 /**
  * Replaces each `${…}` with the value of the numeric expression at its start, rounded to 2 decimals.
@@ -10,4 +12,5 @@ import { evaluateMarkupMath } from '@clarity/core/markup/arithmetic'
  * the whole file failed; here 8) and numbers with a leading zero such as `${010}` (JavaScript's old
  * octal: 8; here 10).
  */
-export const doMath = (description: string) => evaluateMarkupMath(description)
+export const doMath = (description: string, language: Languages = 'en') =>
+  formatNumbers(evaluateMarkupMath(description), language)

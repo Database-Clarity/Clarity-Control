@@ -7,6 +7,7 @@ import type { LegacyInput } from './legacy.js';
  * every configured file is byte for byte what the lowered form, written by hand, builds. Delimited
  * variables (`#{d}`) and the arrow symbol (`<enhanced/>`) lower the same way (core braces.ts). The
  * editor's exporters already lower (core exportLegacy); this keeps the engine exact on any input.
+ * Unresolved number tokens fail closed: only core exportLegacy has their English slot map.
  * Input without those forms comes back as the same object, so nothing is copied.
  */
 export function lowerInput<T extends LegacyInput>(input: T, arrow?: 'legacy' | 'fallback'): T {
@@ -17,6 +18,9 @@ export function lowerInput<T extends LegacyInput>(input: T, arrow?: 'legacy' | '
     let editor: typeof perk.editor | undefined;
     for (const [language, text] of Object.entries(perk.editor)) {
       if (!text) continue;
+      // Only core exportLegacy has the English slot map needed to resolve these.
+      if (text.main.includes('#{=') || text.secondary.includes('#{='))
+        throw new Error(`Unresolved number token in ${hash}/${language}`);
       const main = lower(text.main);
       const secondary = lower(text.secondary);
       if (main === text.main && secondary === text.secondary) continue;

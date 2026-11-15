@@ -35,6 +35,10 @@ for (const marker of ['applyInactiveLive(', 'inactiveRemovalHash(', 'config/inac
     throw new Error(`Publisher runtime lacks inactive moves (${marker})`);
 if (!runtime.includes('replaceAll("<arrow/>"'))
   throw new Error('Publisher runtime lacks arrow symbol support; refusing its PIN');
+// Number tokens must resolve from each tooltip's English map before consumer markup lowers.
+for (const marker of ['resolveNumberTokens(', 'validateNumberTooltip(', 'numberValues('])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks number tokens (${marker}); refusing its PIN`);
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -54,6 +58,7 @@ writeFileSync(
       // prismaticTags = exportLegacy lowers `<prismatic Text />` too (elementTags builds from before
       // Prismatic joined do not; the Worker refuses Prismatic tags while the PIN lacks it).
       // arrowSymbol = retain <arrow/> in the intermediate; the separately installed converter engine lowers legacy files.
+      // numberTokens = validate English maps and resolve translation tokens before export.
       capabilities: [
         'elementTags',
         'sandboxPointers',
@@ -62,6 +67,7 @@ writeFileSync(
         'prismaticTags',
         'inactiveMoves',
         'arrowSymbol',
+        'numberTokens',
       ],
     },
     null,
