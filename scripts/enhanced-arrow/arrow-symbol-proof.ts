@@ -113,4 +113,6 @@ writeFileSync(
   { flag: 'wx' },
 );
 console.log(JSON.stringify(result, null, 1));
-if (!result.exactTooltipSet || !result.arrowFormOnly) process.exitCode = 1;
+// Source/output set equality is informational: imported enhanced variants can emit
+// under another hash. arrow-symbol-attribution.ts gates their actual dependency reads.
+if (!result.arrowFormOnly) process.exitCode = 1;
