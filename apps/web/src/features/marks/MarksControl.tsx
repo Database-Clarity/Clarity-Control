@@ -3,6 +3,7 @@ import { apiUrl } from '../../services/api';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { Popover } from '../../ui/Popover';
+import { When } from '../../ui/When';
 import { noEntryMarks, useMarksStore } from './store';
 import styles from './marks.module.scss';
 
@@ -106,7 +107,7 @@ export function MarksControl({
             {entry.note && <p>{entry.note}</p>}
             <small>
               {accounts?.[entry.by]?.login ?? `GitHub user ${entry.by}`} ·{' '}
-              <time dateTime={entry.at}>{new Date(entry.at).toLocaleString()}</time>
+              <When value={entry.at} />
             </small>
             {allowed && (
               <button type="button" disabled={busy || !writable} onClick={() => select(entry.type)}>
