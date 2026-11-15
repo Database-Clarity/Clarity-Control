@@ -9,7 +9,7 @@ export async function pickerLabels(trigger: HTMLButtonElement): Promise<string[]
   await act(async () => trigger.click());
   const listbox = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
   const labels = [...(listbox?.querySelectorAll('[role="option"]') ?? [])].map(
-    (option) => option.textContent ?? '',
+    (option) => option.querySelector('[class*=label]')?.textContent ?? '',
   );
   await act(async () => trigger.click());
   return labels;
@@ -21,4 +21,11 @@ export async function pickOption(trigger: HTMLButtonElement, value: string) {
   const option = listbox?.querySelector<HTMLElement>(`[role="option"][data-value="${value}"]`);
   if (!option) throw new Error(`No option ${value}`);
   await act(async () => option.click());
+}
+
+/** Row copy without the custom popover's hidden explanation body. */
+export function finderRowText(row: Element): string {
+  const copy = row.cloneNode(true) as Element;
+  copy.querySelectorAll('[role="tooltip"]').forEach((tooltip) => tooltip.remove());
+  return copy.textContent ?? '';
 }
