@@ -29,7 +29,12 @@ interface Selection {
 }
 export type FinderWorklistController = StoreApi<Selection>;
 const initial = (): Selection => ({ selecting: false, selected: [], choosing: null });
-const Context = createContext<FinderWorklistController | null>(null);
+interface WorklistsContext {
+  controller: FinderWorklistController;
+  selection: Selection;
+  user: boolean;
+}
+const Context = createContext<WorklistsContext | null>(null);
 export function useFinderWorklists(open: boolean): FinderWorklistController {
   const controller = useMemo(() => createStore<Selection>(initial), []);
   useEffect(() => {
@@ -87,8 +92,13 @@ export function FinderWorklistScope({
   data: EditorData;
   children: ReactNode;
 }) {
+  // Rows need no subscriptions. One boundary owns selection updates, and row actions
+  // consult selection only after the user enters worklist selection mode.
+  const selection = useStore(controller);
+  const user = useAuthStore((state) => Boolean(state.user));
+  const value = useMemo(() => ({ controller, selection, user }), [controller, selection, user]);
   return (
-    <Context.Provider value={controller}>
+    <Context.Provider value={value}>
       <div {...props}>
         <FinderWorklistBar data={data} />
         {children}
@@ -107,13 +117,9 @@ export function FinderWorklistRow({
   global?: boolean;
   children: ReactNode;
 }) {
-  const controller = useContext(Context)!;
-  const choosing = useStore(controller, (state) => state.choosing !== null);
-  const user = useAuthStore((state) => Boolean(state.user));
-  const selecting = useStore(controller, (state) => state.selecting);
-  const selected = useStore(controller, (state) =>
-    state.selected.some((item) => item.hash === hash),
-  );
+  const { controller, selection, user } = useContext(Context)!;
+  const { selecting, choosing } = selection;
+  const selected = selecting && selection.selected.some((item) => item.hash === hash);
   if (global || !user) return children;
   return (
     <span
@@ -125,7 +131,7 @@ export function FinderWorklistRow({
       <button
         type="button"
         className={styles.action}
-        disabled={choosing}
+        disabled={choosing !== null}
         role={selecting ? 'checkbox' : undefined}
         aria-checked={selecting ? selected : undefined}
         aria-label={selecting ? `Select ${name} for worklist` : `Add ${name} to worklist`}
@@ -142,11 +148,9 @@ export function FinderWorklistRow({
   );
 }
 function FinderWorklistBar({ data }: { data: EditorData }) {
-  const controller = useContext(Context)!;
-  const user = useAuthStore((state) => Boolean(state.user));
-  const selecting = useStore(controller, (state) => state.selecting);
-  const count = useStore(controller, (state) => state.selected.length);
-  const choosing = useStore(controller, (state) => state.choosing);
+  const { controller, selection, user } = useContext(Context)!;
+  const { selecting, choosing } = selection;
+  const count = selection.selected.length;
   const host = useRef<HTMLDivElement>(null);
   const focus = () =>
     host.current?.parentElement?.parentElement
