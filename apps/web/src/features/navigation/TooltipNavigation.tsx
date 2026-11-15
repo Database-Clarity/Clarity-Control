@@ -85,7 +85,11 @@ import {
   markedRowScope,
   markedScopeValue as scopeValue,
 } from '../marks/finder';
-import { FinderEntryMarks, markPopupOwnsFocus } from '../marks/FinderEntryMarks';
+import {
+  FinderEntryMarks,
+  FinderMarksProvider,
+  markPopupOwnsFocus,
+} from '../marks/FinderEntryMarks';
 import { MarkedWorkThrough } from '../marks/queue';
 import { FinderMarkGroup } from '../marks/FinderMarkGroup';
 import { prepareFinderMarkers, rollupFinderMarkers, type MarkerIndex } from './finderMarkerState';
@@ -1424,7 +1428,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         />
         <FinderDraftIndicator hash={hash} data={data} />
       </div>
-      {listbox}
+      {listbox && <FinderMarksProvider>{listbox}</FinderMarksProvider>}
       <span role="status" className="sr-only">
         {open ? `${rows.length} tooltip${rows.length === 1 ? '' : 's'}` : ''}
       </span>

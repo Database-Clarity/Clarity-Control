@@ -253,3 +253,49 @@ it('anchors a controlled portal without moving input focus, and closes on Escape
     expect(document.activeElement).toBe(input);
   }
 });
+
+it.each([false, true])(
+  'keeps external input-anchor defaults unless menu sizing is opted in (%s)',
+  async (menu) => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    vi.stubGlobal('innerWidth', 1280);
+    const mount = document.createElement('div');
+    const anchor = document.createElement('button');
+    anchor.setAttribute('aria-expanded', 'false');
+    document.body.append(anchor, mount);
+    vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(new DOMRect(400, 100, 24, 24));
+    const root = createRoot(mount);
+    cleanup = async () => {
+      await act(async () => root.unmount());
+      mount.remove();
+      anchor.remove();
+    };
+    const render = (open: boolean) =>
+      act(async () =>
+        root.render(
+          <Popover
+            label="Actions"
+            anchorElement={anchor}
+            externalAnchorMenu={menu || undefined}
+            width={360}
+            open={open}
+          >
+            <button>Action</button>
+          </Popover>,
+        ),
+      );
+    anchor.focus();
+    await render(true);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(mount.childElementCount).toBe(0);
+    expect(dialog.style.width).toBe(menu ? '360px' : '24px');
+    expect(dialog.style.left).toBe(menu ? '64px' : '400px');
+    expect(anchor.getAttribute('aria-controls')).toBe(menu ? dialog.id : null);
+    expect(anchor.getAttribute('aria-expanded')).toBe(menu ? 'true' : 'false');
+    expect(document.activeElement).toBe(anchor);
+    await render(false);
+    expect(anchor.hasAttribute('aria-controls')).toBe(false);
+    expect(anchor.getAttribute('aria-expanded')).toBe('false');
+  },
+);

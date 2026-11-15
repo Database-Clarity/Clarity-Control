@@ -13,12 +13,16 @@ export function MarksControl({
   compact = false,
   iconOnly = false,
   initiallyOpen = false,
+  anchorElement,
+  onClose,
 }: {
   hash: number;
   className?: string;
   compact?: boolean;
   iconOnly?: boolean;
   initiallyOpen?: boolean;
+  anchorElement?: HTMLElement;
+  onClose?: () => void;
 }) {
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
@@ -102,7 +106,12 @@ export function MarksControl({
         </span>
       }
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(value) => {
+        setOpen(value);
+        if (!value) onClose?.();
+      }}
+      anchorElement={anchorElement}
+      externalAnchorMenu={!!anchorElement}
       contain
       width={360}
     >

@@ -65,6 +65,7 @@ export function Popover({
   open: controlledOpen,
   onOpenChange,
   anchorElement,
+  externalAnchorMenu = false,
   width = 560,
 }: {
   /** Names both the trigger's popup and the surface. */
@@ -100,6 +101,8 @@ export function Popover({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   anchorElement?: HTMLElement;
+  /** An external action button owns a menu: use menu sizing and link it to the surface. */
+  externalAnchorMenu?: boolean;
   /** Desktop surface width (a short menu of actions is narrower than a sheet). */
   width?: number;
 }) {
@@ -147,6 +150,22 @@ export function Popover({
   const clearTopRef = useRef(clearTop);
   clearTopRef.current = clearTop;
   useLayoutEffect(() => {
+    if (!open || !anchorElement || !externalAnchorMenu) return;
+    const controls = anchorElement.getAttribute('aria-controls');
+    const expanded = anchorElement.getAttribute('aria-expanded');
+    anchorElement.setAttribute('aria-controls', id);
+    anchorElement.setAttribute('aria-expanded', 'true');
+    return () => {
+      for (const [name, value] of [
+        ['aria-controls', controls],
+        ['aria-expanded', expanded],
+      ] as const) {
+        if (value === null) anchorElement.removeAttribute(name);
+        else anchorElement.setAttribute(name, value);
+      }
+    };
+  }, [open, anchorElement, externalAnchorMenu, id]);
+  useLayoutEffect(() => {
     if (!open) return;
     const place = () => {
       const element = surface.current;
@@ -155,7 +174,7 @@ export function Popover({
       const phone = isPhone();
       const area = visibleArea(window, phone ? clearTopRef.current?.() : undefined);
       const rect = anchor.getBoundingClientRect();
-      if (anchorElement && phone) {
+      if (anchorElement && !externalAnchorMenu && phone) {
         // Input-owned search results stay below the widget, clear of the keyboard.
         // They may cover the unused markup dock while searching, rather than the header.
         area.top = Math.max(area.top, rect.top);
@@ -167,7 +186,7 @@ export function Popover({
       const input = {
         trigger: rect,
         area,
-        width: anchorElement ? rect.width : phone ? Infinity : width,
+        width: anchorElement && !externalAnchorMenu ? rect.width : phone ? Infinity : width,
         gap,
       };
       // Below first, at the final width, so the content's height is measured as it will wrap.
@@ -178,7 +197,7 @@ export function Popover({
     };
     place();
     return followPlacement(() => surface.current, place);
-  }, [open, gap, anchorElement, width]);
+  }, [open, gap, anchorElement, externalAnchorMenu, width]);
   useEffect(() => {
     if (!open || contain || anchorElement) return;
     // Preserve the trigger's place in sequential keyboard navigation across the portal.
