@@ -1,0 +1,190 @@
+@use '../../ui/controls';
+
+.workspace,
+.action,
+.review {
+  button {
+    @include controls.button;
+  }
+  input:not([type='checkbox']),
+  select,
+  textarea {
+    @include controls.field;
+  }
+}
+.workspace {
+  min-width: 0;
+  padding: 0.5rem;
+  color: var(--text);
+  font-size: 0.8125rem;
+  h1,
+  h2 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  button,
+  select,
+  input {
+    max-width: 100%;
+  }
+  button {
+    white-space: nowrap;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+  select,
+  input {
+    min-width: 0;
+  }
+  pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 0.6fr) minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 0.5rem;
+}
+.preview,
+.editor,
+.pane {
+  min-width: 0;
+}
+.preview {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 0.5rem;
+}
+.editor {
+  overflow: hidden;
+}
+.paneBody {
+  padding: 0.5rem;
+  overflow-wrap: anywhere;
+  > label {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.consumers {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  max-height: 22rem;
+  overflow-y: auto;
+  li {
+    display: flex;
+    flex-direction: column;
+    align-items: start;
+    gap: 0.25rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--ctl-edge);
+  }
+  button {
+    white-space: normal;
+    text-align: left;
+  }
+  span {
+    font-size: 0.8125rem;
+    color: var(--meta);
+  }
+}
+.action,
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  input,
+  select,
+  textarea {
+    min-width: 0;
+    max-width: 100%;
+    font: inherit;
+  }
+  label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+  }
+  textarea {
+    min-height: 6rem;
+    width: 100%;
+  }
+  button {
+    min-height: 2.25rem;
+  }
+}
+.phoneNav {
+  display: none;
+}
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.25rem;
+  margin: 0.5rem 0;
+  label {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow-wrap: normal;
+  }
+  select {
+    width: 100%;
+  }
+}
+.review label {
+  display: block;
+  font-size: 0.8125rem;
+}
+.review input[type='checkbox'] {
+  margin-right: 0.375rem;
+}
+@media (max-width: 1000px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .preview {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}
+@media (max-width: 700px) {
+  .columns {
+    display: block;
+  }
+  .columns > [data-phone-visible='false'] {
+    display: none;
+  }
+  .phoneNav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+  }
+  .workspace {
+    button,
+    select,
+    input {
+      min-height: 2.25rem;
+    }
+  }
+  .toolbar label {
+    flex: 1 1 100%;
+  }
+}
