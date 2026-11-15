@@ -1540,6 +1540,21 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       );
     },
   );
+  it('bundle.json never copies entry marks', async () => {
+    const f = await setup();
+    for (const marks of [{ types: [], entries: { 123: [{ note: 'Retest' }] } }, 'malformed']) {
+      f.change(D, { 'config/marks.json': marks });
+      f.pub.bundle();
+      const bundle = f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+      expect(bundle).not.toHaveProperty('marks');
+      expect(JSON.stringify(bundle)).not.toContain('Retest');
+      expect(JSON.stringify(bundle)).not.toContain('malformed');
+    }
+  });
+
   it('bundle.json carries maintainer sandbox picks only while the file holds some', async () => {
     const f = await setup();
     const bundle = () =>
@@ -1821,8 +1836,9 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // Re-pinned for sandbox picks: push merges config/sandbox-pointers.json (core
     // mergeSandboxPointers) like the publisher, and merges live perks with core mergeLivePerks
     // (keys the picks file names are recomputed); with no picks file, as here, every byte is the same.
+    // Re-pinned for error-log redaction only; push behavior and output are unchanged.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', 'a8ddaf850869b50f6d1e3d3f5b98e28e0ad92947'],
+      ['apps/worker/src/push.ts', 'fe80df333b316b2ae4ad0462e820c2e7a8112233'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
