@@ -60,6 +60,8 @@ const routes: (Route & { public?: true })[] = [
   { method: 'GET', path: '/compendium/agent-guidance' },
   { method: 'POST', path: '/compendium/agent-guidance', body: { document: 'x', revision: null } },
   { method: 'GET', path: '/me' },
+  { method: 'GET', path: '/alias-groups' },
+  { method: 'POST', path: '/alias-groups', body: { expectedHead: 'a'.repeat(40), ops: [] } },
   {
     method: 'POST',
     path: '/save',
