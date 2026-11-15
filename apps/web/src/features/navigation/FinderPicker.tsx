@@ -79,11 +79,13 @@ export const FinderPicker = memo(function FinderPicker({
   const selectedIndex = options.findIndex((option) => option.id === value);
   const selected = options[selectedIndex];
   const [active, setActive] = useState(0);
+  const scrollToActive = useRef(true);
   const typed = useRef({ text: '', at: 0 });
   const optionId = (index: number) => `${base}-o${index}`;
 
   const show = (index = selectedIndex) => {
     if (disabled || !options.length) return;
+    scrollToActive.current = true;
     setActive(Math.max(0, Math.min(options.length - 1, index)));
     setOpen(true);
   };
@@ -126,9 +128,10 @@ export const FinderPicker = memo(function FinderPicker({
     return followPlacement(() => popup.current, place);
   }, [open, place]);
 
-  // The chosen option starts in view; a moved highlight stays in view (no smooth scroll).
+  // Opening and keyboard navigation reveal the highlight before paint. Hover only
+  // highlights: revealing a clipped row under the pointer would make the list jump.
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || !scrollToActive.current) return;
     const element = list.current;
     const row = element?.querySelector<HTMLElement>(`[id="${optionId(active)}"]`);
     if (!element || !row) return;
@@ -206,6 +209,7 @@ export const FinderPicker = memo(function FinderPicker({
     const page = 10;
     const move = (index: number) => {
       event.preventDefault();
+      scrollToActive.current = true;
       setActive(Math.max(0, Math.min(options.length - 1, index)));
     };
     if (key === 'ArrowDown') move(active + 1);
@@ -252,7 +256,11 @@ export const FinderPicker = memo(function FinderPicker({
         data-current={option.id === value || undefined}
         className={styles.option}
         onMouseDown={(event) => event.preventDefault()}
-        onMouseMove={() => at !== active && setActive(at)}
+        onMouseMove={() => {
+          if (at === active) return;
+          scrollToActive.current = false;
+          setActive(at);
+        }}
         onClick={() => choose(at)}
       >
         {icons && <FinderIcon icon={option.icon} />}
