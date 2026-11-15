@@ -1,6 +1,6 @@
 import { worklistAvailable } from '../queue/savedSources';
 import { useSavedWorklists } from '../queue/worklists';
-import { AddToWorklist } from '../queue/WorklistsMenu';
+import { AddToWorklist, RemoveFromWorklist } from '../queue/WorklistsMenu';
 import { SkeletonBoundary, useSkeletonVisible } from '../../ui/Skeleton';
 import { loadingWorkspace } from './TooltipLoadingWorkspace';
 import type { ScopedMarkupGlobals } from '../editor/markupScope';
@@ -155,24 +155,14 @@ export function TooltipPage(props: Parameters<typeof TooltipPageContent>[0]) {
           This entry is unavailable: it was removed, archived, or aliased. You can skip it or remove
           it from the saved list.
         </p>
-        {list?.items.some((item) => item.hash === entry) && (
-          <button
-            type="button"
+        {list && (
+          <RemoveFromWorklist
+            key={`${list.id}:${entry}`}
+            id={list.id}
+            hash={entry}
             className={styles.ghost}
-            onClick={() =>
-              useSavedWorklists
-                .getState()
-                .change(
-                  lists.map((old) =>
-                    old.id === id
-                      ? { ...old, items: old.items.filter((item) => item.hash !== entry) }
-                      : old,
-                  ),
-                )
-            }
-          >
-            Remove from worklist
-          </button>
+            label="Remove from worklist"
+          />
         )}
       </article>
     );

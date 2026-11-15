@@ -372,3 +372,59 @@ function Delete({ onDelete }: { onDelete(): void }) {
     </button>
   );
 }
+
+/** A running queue can outlive the cached entries after a cross-device index refresh. */
+export function RemoveFromWorklist({
+  id,
+  hash,
+  className,
+  label = 'Remove',
+  onRemoved,
+}: {
+  id: string;
+  hash: number;
+  className?: string;
+  label?: string;
+  onRemoved?(): void;
+}) {
+  const list = useSavedWorklists((state) => state.lists.find((list) => list.id === id));
+  const loaded = useSavedWorklists((state) => state.loaded.includes(id));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!list || (loaded && !list.items.some((item) => item.hash === hash))) return null;
+  async function remove() {
+    setBusy(true);
+    setError('');
+    try {
+      const scope = useSavedWorklists.getState().scope;
+      await loadWorklist(id);
+      const state = useSavedWorklists.getState();
+      if (state.scope !== scope) throw new Error('The account changed.');
+      state.change(
+        state.lists.map((list) =>
+          list.id === id
+            ? { ...list, items: list.items.filter((item) => item.hash !== hash) }
+            : list,
+        ),
+      );
+      onRemoved?.();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not remove this entry.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className={className ?? styles.trigger}
+        disabled={busy}
+        onClick={() => void remove()}
+      >
+        {busy ? 'Removing…' : label}
+      </button>
+      {error && <span role="alert">{error}</span>}
+    </>
+  );
+}

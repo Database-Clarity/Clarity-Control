@@ -1,3 +1,4 @@
+import { RemoveFromWorklist } from './WorklistsMenu';
 import { useSavedWorklists } from './worklists';
 import { worklistAvailable } from './savedSources';
 import {
@@ -468,25 +469,14 @@ function QueueMenu({
                   {status === 'done' ? 'Done' : status === 'skipped' ? 'Skipped' : ''}
                 </span>
               </Link>
-              {unavailable && savedList?.items.some((entry) => entry.hash === item.hash) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    useSavedWorklists.getState().change(
-                      saved.map((list) =>
-                        list.id === savedId
-                          ? {
-                              ...list,
-                              items: list.items.filter((entry) => entry.hash !== item.hash),
-                            }
-                          : list,
-                      ),
-                    );
-                    setRemoval('Removed from the saved list. Rebuild to remove it from this run.');
-                  }}
-                >
-                  Remove
-                </button>
+              {unavailable && savedList && (
+                <RemoveFromWorklist
+                  id={savedList.id}
+                  hash={item.hash}
+                  onRemoved={() =>
+                    setRemoval('Removed from the saved list. Rebuild to remove it from this run.')
+                  }
+                />
               )}
             </li>
           );

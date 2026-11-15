@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { WorklistPicker, WorklistsManager } from './WorklistsMenu';
+import { RemoveFromWorklist, WorklistPicker, WorklistsManager } from './WorklistsMenu';
 import { useSavedWorklists } from './worklists';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -129,4 +129,22 @@ it('does not add entries when the picker is cancelled during a lazy list read', 
   expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1]);
   expect(useSavedWorklists.getState().dirty).toEqual([]);
   expect(close).not.toHaveBeenCalled();
+});
+
+it('removes an unavailable entry after an index-only cache refresh without dropping other entries', async () => {
+  const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+  act(() =>
+    useSavedWorklists.setState({
+      lists: [{ id, name: 'Existing', items: [] }],
+      loaded: [],
+      index: { [id]: { id, name: 'Existing', count: 2, updatedAt: 1, revision: 'a'.repeat(32) } },
+    }),
+  );
+  api.mockResolvedValueOnce(
+    Response.json({ worklist: { id, name: 'Existing', hashes: [1, 2] }, revision: 'a'.repeat(32) }),
+  );
+  await act(async () => root.render(<RemoveFromWorklist id={id} hash={1} />));
+  await act(async () => button('Remove').click());
+  expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([2]);
+  expect(useSavedWorklists.getState().dirty).toEqual([id]);
 });
