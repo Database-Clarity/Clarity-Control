@@ -36,7 +36,7 @@ export function TranslationSource({
   hash?: number;
   diff?: { hash: number; sourceUpdatedAt: string; current: string };
   /** The English of the item's enhanced version (owner 2026-11-14: translators must see it). */
-  enhanced?: { hash: number; text: string };
+  enhanced?: { hash: number; text: string; sourceHash?: number };
   /**
    * Official game names over the current English (TR2): `enabled` for a language the account may
    * translate (its names file loads lazily), `canInsert` while the translation can be edited.
@@ -58,9 +58,10 @@ export function TranslationSource({
       baseHash={hash}
       enhancedText={enhanced.text}
       enhancedHash={enhanced.hash}
+      enhancedSourceHash={enhanced.sourceHash}
     />
   ) : version === 'enhanced' && enhanced ? (
-    <ReadingTooltip text={enhanced.text} hash={enhanced.hash} />
+    <ReadingTooltip text={enhanced.text} hash={enhanced.hash} sourceHash={enhanced.sourceHash} />
   ) : (
     <ReadingTooltip text={text} hash={hash} />
   );
@@ -68,7 +69,12 @@ export function TranslationSource({
     diff && showChanges ? (
       <EnglishDiffContent {...diff} renderAfter={renderAfter} />
     ) : raw && text ? (
-      <EnglishRaw text={version === 'enhanced' && enhanced ? enhanced.text : text} />
+      <EnglishRaw
+        text={version === 'enhanced' && enhanced ? enhanced.text : text}
+        sourceHash={
+          version === 'enhanced' && enhanced ? (enhanced.sourceHash ?? enhanced.hash) : hash
+        }
+      />
     ) : (
       (rendered ?? <p>This tooltip has no English text yet.</p>)
     );

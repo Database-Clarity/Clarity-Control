@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef } from 'react';
 import { Compartment, EditorState } from '@codemirror/state';
 import { Decoration, EditorView } from '@codemirror/view';
 import { numberSlots } from '@clarity/core';
-import { ReadingSlots } from '../preview/ReadingTooltip';
+import { ReadingSlots, readingSlotsFor } from '../preview/ReadingTooltip';
 import { clarityHighlighting, clarityLanguage } from '../editor/language';
 import styles from './EnglishRaw.module.scss';
 
@@ -11,10 +11,10 @@ import styles from './EnglishRaw.module.scss';
  * (the same language and highlight style), selectable and copyable. No term marks here: the
  * rendered views and the Terms list (Ctrl+K, then G) carry them.
  */
-export function EnglishRaw({ text }: { text: string }) {
+export function EnglishRaw({ text, sourceHash }: { text: string; sourceHash?: number }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
-  const slots = useContext(ReadingSlots);
+  const slots = readingSlotsFor(useContext(ReadingSlots), text, sourceHash);
   const marks = useRef(new Compartment());
   useEffect(() => {
     if (!host.current) return;
@@ -60,20 +60,19 @@ export function EnglishRaw({ text }: { text: string }) {
   useEffect(() => {
     const editor = view.current;
     if (!editor) return;
-    const decorations =
-      slots?.text === text
-        ? Decoration.set(
-            numberSlots(text).flatMap((slot, index) =>
-              slots.ids[index] === undefined
-                ? []
-                : [
-                    Decoration.mark({
-                      attributes: { 'data-slot': String(slots.ids[index]) },
-                    }).range(slot.from, slot.to),
-                  ],
-            ),
-          )
-        : Decoration.none;
+    const decorations = slots
+      ? Decoration.set(
+          numberSlots(text).flatMap((slot, index) =>
+            slots[index] === undefined
+              ? []
+              : [
+                  Decoration.mark({
+                    attributes: { 'data-slot': String(slots[index]) },
+                  }).range(slot.from, slot.to),
+                ],
+          ),
+        )
+      : Decoration.none;
     editor.dispatch({
       ...(editor.state.doc.toString() === text
         ? {}

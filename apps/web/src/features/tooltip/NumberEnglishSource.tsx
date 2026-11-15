@@ -56,8 +56,8 @@ export function NumberEnglishSource({
   const root = useRef<HTMLDivElement>(null);
   const [hidden, setHidden] = useState<readonly number[]>([]);
   const slotContext = useMemo(
-    () => (source ? { text, ids: source.slots.map((slot) => slot.id) } : undefined),
-    [source, text],
+    () => (source ? { text, ids: source.slots.map((slot) => slot.id), hash } : undefined),
+    [source, text, hash],
   );
   useLayoutEffect(() => {
     let frame = 0;

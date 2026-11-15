@@ -555,14 +555,18 @@ function TooltipWorkspace({
   // The translate-mode English pane shows the item's first enhanced version too (owner
   // 2026-11-14). Its renders take the text and hash as primitives, so a new object costs nothing.
   const englishVariant = lang !== 'en' && activeHash === hash ? previewed[0] : undefined;
-  const englishEnhancedText =
+  const englishEnhancedRender =
     englishVariant === undefined
       ? undefined
-      : enhancedRender(hash, englishVariant, 'en', data, shown).text;
+      : enhancedRender(hash, englishVariant, 'en', data, shown);
   const englishEnhanced =
-    englishVariant === undefined || !englishEnhancedText
+    englishVariant === undefined || !englishEnhancedRender?.text
       ? undefined
-      : { hash: englishVariant, text: englishEnhancedText };
+      : {
+          hash: englishVariant,
+          text: englishEnhancedRender.text,
+          sourceHash: englishEnhancedRender.form === 'derived' ? activeHash : englishVariant,
+        };
   // Upcoming (read-only): the same views over the batch's future state instead of drafts.
   const previewViews = (() => {
     if (!future || !futureGlobals || !futureData) return enhancedViews;

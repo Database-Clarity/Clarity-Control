@@ -11,9 +11,17 @@ import styles from './TooltipPreview.module.scss';
 
 export const ReadingGlobals = createContext<MarkupGlobals | undefined>(undefined);
 /** Only TranslationSource supplies identities; ordinary previews retain their exact tree. */
-export const ReadingSlots = createContext<{ text: string; ids: readonly number[] } | undefined>(
-  undefined,
-);
+export interface ReadingSlotIndex {
+  text: string;
+  ids: readonly number[];
+  hash?: number;
+}
+export const ReadingSlots = createContext<ReadingSlotIndex | undefined>(undefined);
+export function readingSlotsFor(source: ReadingSlotIndex | undefined, text: string, hash?: number) {
+  return source?.text === text && (source.hash === undefined || source.hash === hash)
+    ? source.ids
+    : undefined;
+}
 
 const emptyGlobals: MarkupGlobals = { variables: '', titles: '' };
 const catalogs = new WeakMap<EditorData, WeakMap<Drafts, Map<Lang, MarkupGlobals>>>();
@@ -102,23 +110,20 @@ export const ReadingTooltip = memo(function ReadingTooltip({
   text,
   lang = 'en',
   hash,
+  sourceHash = hash,
 }: {
   text: string;
   lang?: Lang;
   hash?: number;
+  sourceHash?: number;
 }) {
   const data = useDataStore((state) => state.data);
   const drafts = useDraftStore((state) => languageRevision(data, state.drafts, lang));
   const supplied = useContext(ReadingGlobals);
   const slots = useContext(ReadingSlots);
   const globals = supplied ?? globalsFor(data, drafts, lang);
-  const parsed = readingParse(
-    data,
-    globals,
-    text,
-    hash,
-    slots?.text === text ? slots.ids : undefined,
-  );
+  const ids = readingSlotsFor(slots, text, sourceHash);
+  const parsed = readingParse(data, globals, text, hash, ids);
   const nativePopovers = hasNativePopovers();
   return (
     <div
@@ -126,7 +131,7 @@ export const ReadingTooltip = memo(function ReadingTooltip({
         .filter(Boolean)
         .join(' ')}
       lang={markupLanguage(lang)}
-      data-number-source={slots?.text === text || undefined}
+      data-number-source={ids ? true : undefined}
     >
       <Lines lines={parsed.lines} />
     </div>

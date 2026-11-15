@@ -10,6 +10,7 @@ import {
   languageRevision,
   readingParse,
   ReadingSlots,
+  readingSlotsFor,
 } from './ReadingTooltip';
 import styles from './TooltipPreview.module.scss';
 
@@ -23,20 +24,22 @@ export const ReadingCompare = memo(function ReadingCompare({
   baseHash,
   enhancedText,
   enhancedHash,
+  enhancedSourceHash = enhancedHash,
   lang = 'en',
 }: {
   baseText: string;
   baseHash: number;
   enhancedText: string;
   enhancedHash: number;
+  enhancedSourceHash?: number;
   lang?: Lang;
 }) {
   const data = useDataStore((state) => state.data);
   const drafts = useDraftStore((state) => languageRevision(data, state.drafts, lang));
   const globals = globalsFor(data, drafts, lang);
   const slots = useContext(ReadingSlots);
-  const baseSlots = slots?.text === baseText ? slots.ids : undefined;
-  const enhancedSlots = slots?.text === enhancedText ? slots.ids : undefined;
+  const baseSlots = readingSlotsFor(slots, baseText, baseHash);
+  const enhancedSlots = readingSlotsFor(slots, enhancedText, enhancedSourceHash);
   const before = readingParse(data, globals, baseText, baseHash, baseSlots);
   const after = readingParse(data, globals, enhancedText, enhancedHash, enhancedSlots);
   const comparison = useMemo(() => compareRenders(before.lines, after.lines), [before, after]);

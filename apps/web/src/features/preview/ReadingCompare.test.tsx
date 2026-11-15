@@ -105,11 +105,17 @@ it('preserves owned source ranges through word slicing and leaves explicit overr
 
 it('uses the same source identity for derived base, Compare, and enhanced-only readings', async () => {
   const text = 'Damage ${5+#d}.\nvar d = 0\nenhanced (\nvar d = 5\n)';
-  const slots = { text, ids: [21, 22, 23] };
+  const slots = { text, ids: [21, 22, 23], hash: 7 };
   await act(async () =>
     root.render(
       <ReadingSlots.Provider value={slots}>
-        <ReadingCompare baseText={text} baseHash={7} enhancedText={text} enhancedHash={8} />
+        <ReadingCompare
+          baseText={text}
+          baseHash={7}
+          enhancedText={text}
+          enhancedHash={8}
+          enhancedSourceHash={7}
+        />
       </ReadingSlots.Provider>,
     ),
   );
@@ -120,11 +126,19 @@ it('uses the same source identity for derived base, Compare, and enhanced-only r
   await act(async () =>
     root.render(
       <ReadingSlots.Provider value={slots}>
-        <ReadingTooltip text={text} hash={8} />
+        <ReadingTooltip text={text} hash={8} sourceHash={7} />
       </ReadingSlots.Provider>,
     ),
   );
   expect(host.querySelector('[data-slot="21"]')?.textContent).toBe('10');
+  await act(async () =>
+    root.render(
+      <ReadingSlots.Provider value={slots}>
+        <ReadingTooltip text={text} hash={8} />
+      </ReadingSlots.Provider>,
+    ),
+  );
+  expect(host.querySelector('[data-slot]')).toBeNull();
 });
 
 it('keeps compare.ts default DOM exact with optional ranges off, and ignores ranges in content equality', () => {
