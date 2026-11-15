@@ -121,11 +121,17 @@ const worker: {
       } else {
         console.error(
           'Worker request failed',
-          error instanceof ZodError
-            ? error.issues
-            : error instanceof Error
-              ? error.message
-              : 'Unknown error',
+          error instanceof Error || error instanceof ZodError
+            ? error.constructor.name
+            : 'UnknownError',
+          ...(error instanceof ZodError
+            ? [
+                {
+                  issueCount: error.issues.length,
+                  issueCodes: error.issues.map((issue) => issue.code),
+                },
+              ]
+            : []),
         );
         response = json(
           { error: error instanceof ZodError ? 'Invalid upstream data' : 'Internal server error' },
