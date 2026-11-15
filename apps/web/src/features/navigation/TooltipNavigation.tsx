@@ -82,6 +82,7 @@ import { FinderIcon } from './FinderIcon';
 import { FinderMarkers } from './FinderMarkers';
 import { prepareFinderMarkers, rollupFinderMarkers, type MarkerIndex } from './finderMarkerState';
 import { defaultLanguage } from '../tooltip/language';
+import { WorkspaceLanguageContext } from '../tooltip/WorkspaceLanguage';
 import { useAuthStore } from '../../stores/auth';
 import { exoticArmourRowIcon, groupIcon } from './groupIcons';
 import {
@@ -482,7 +483,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   navigateRef.current = navigate;
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const language = defaultLanguage(user, new URLSearchParams(location.search), undefined);
+  const rememberedLanguage = useContext(WorkspaceLanguageContext)?.[0];
+  const language = defaultLanguage(user, new URLSearchParams(location.search), rememberedLanguage);
   const [preparedMarkers, setPreparedMarkers] = useState<{
     data: EditorData;
     source: typeof compendiumSource;
