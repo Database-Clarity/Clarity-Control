@@ -485,6 +485,31 @@ it('pushes canonical output and repairs obsolete name stubs after recanonicaliza
   });
 });
 
+it.each([false, true])(
+  'preserves an unrelated saved sandbox pick during a later push (empty groups=%s)',
+  async (empty) => {
+    publisherConfig.enabled = false;
+    items[126] = { ...items[126]!, name: 'Independent tooltip' };
+    f.sandboxConflicts = { 700: [126, 127] };
+    f.moveData({
+      [aliasGroupsPath]: empty ? emptyAliasGroups() : groups(),
+      'tooltips/126.json': document(126, 'Independent text'),
+      [sandboxPointersPath]: {
+        version: 1,
+        pointers: {
+          700: { to: 126, candidates: [126, 127], by: 1, at },
+        },
+      },
+    });
+    expect((await f.request('/push-live', 'POST', { hashes: [126] })).status).toBe(200);
+    const stub = { hash: 700, aliasOf: 126, aliasKind: 'sandbox' };
+    expect((f.live.perks as Record<string, unknown>)[700]).toEqual(stub);
+    expect((await f.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
+    expect(f.live.perks).toMatchObject({ 126: { hash: 126 } });
+    expect((f.live.perks as Record<string, unknown>)[700]).toEqual(stub);
+  },
+);
+
 it('rejects a push retry when the reviewed group changes at a data-head race', async () => {
   publisherConfig.enabled = false;
   const expected = await publishableHash(document(123), aliases());

@@ -234,7 +234,9 @@ export async function pushLive(
           entry.aliasKind === 'name',
       )
       .map(([hash]) => hash);
-    loaded.aliases = loaded.scope?.extend(oldNames.map(Number)) ?? loaded.aliases;
+    // Every recomputed live key needs its effective alias, even outside the selected roots.
+    loaded.aliases =
+      loaded.scope?.extend([...loaded.pickKeys, ...oldNames].map(Number)) ?? loaded.aliases;
     const now = Date.now();
     let entries: ReturnType<typeof exportWithInactiveMoves>;
     try {
