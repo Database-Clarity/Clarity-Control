@@ -21,7 +21,7 @@ it('dedupes in-flight requests, and fetches fresh live data after completion', a
   const first = takeReviewLiveRequest(123);
   expect(getPushedVersion).toHaveBeenCalledTimes(1);
   expect(first.controller.signal.aborted).toBe(false);
-  expect(takeReviewLiveRequest(123)).toBe(first);
+  expect(takeReviewLiveRequest(123).pending).toBe(first.pending);
   expect(getPushedVersion).toHaveBeenCalledTimes(1);
   await first.pending;
   startReviewLiveRequest(123, new AbortController().signal);
@@ -69,4 +69,18 @@ it('dedupes duplicate loader starts and retries a rejected request', async () =>
   await expect(first).rejects.toBe(failure);
   expect(takeReviewLiveRequest(123).pending).not.toBe(first);
   expect(getPushedVersion).toHaveBeenCalledTimes(2);
+});
+
+it('transfers an unprepared detail fetch through the loader before old cleanup', () => {
+  const previous = takeReviewLiveRequest(123);
+  startReviewLiveRequest(123, new AbortController().signal);
+  previous.controller.abort();
+  const next = takeReviewLiveRequest(123);
+  expect(next.pending).toBe(previous.pending);
+  expect(next.controller.signal.aborted).toBe(false);
+  expect(getPushedVersion).toHaveBeenCalledTimes(1);
+  const transport = vi.mocked(getPushedVersion).mock.calls[0][1]!;
+  expect(transport.aborted).toBe(false);
+  next.controller.abort();
+  expect(transport.aborted).toBe(true);
 });

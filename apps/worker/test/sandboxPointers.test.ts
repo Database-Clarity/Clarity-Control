@@ -234,8 +234,8 @@ describe('picks in the live export', () => {
     });
     // One extra request: the generator conflicts (the picks file rides in the tooltip batch).
     expect(fixture.sandboxConflictReads).toBe(1);
-    // token 1 + catalog 3 + 7 + one tooltip batch + record 8 (small live file) = 20, + conflicts.
-    expect(fixture.subrequests).toBe(20 + 1);
+    // token 1 + catalog 3 + 7 + one tooltip batch + record 7 (cached marker) = 19, + conflicts.
+    expect(fixture.subrequests).toBe(19 + 1);
   });
 
   it('keeps a pick working after its candidate set changed (the row is only flagged)', async () => {
@@ -367,7 +367,8 @@ describe('picks in the live export', () => {
     fixture.subrequests = 0;
     expect((await pushTooltip([123])).status).toBe(200);
     expect(fixture.sandboxConflictReads).toBe(0);
-    expect(fixture.subrequests).toBe(20);
+    // Recording reuses the immutable marker read at the same head.
+    expect(fixture.subrequests).toBe(19);
     expect(fixture.current()['live/pushed.json']).toEqual({
       123: await publishableHash(fixture.current()['tooltips/123.json'] as Tooltip, {}),
     });

@@ -243,6 +243,43 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
+it('keeps one pending live fetch through an unprepared canonical URL handoff', async () => {
+  await useDataStore.getState().load();
+  // Do not prepare pendingTooltips: the first detail mounts before URL canonicalization.
+  const requests: AbortSignal[] = [];
+  const fallback = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((url, init) => {
+    if (!String(url).includes('live=1')) return fallback(url, init);
+    requests.push(init!.signal as AbortSignal);
+    return new Promise<Response>(() => {});
+  });
+  const router = createMemoryRouter(
+    [
+      { path: '/other', element: <p>Other workspace</p> },
+      { path: '/review', element: <ReviewPage />, loader: reviewRoute },
+    ],
+    { initialEntries: ['/other'] },
+  );
+  try {
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => router.navigate('/review'));
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?hash=10');
+      expect(router.state.navigation.state).toBe('idle');
+      expect(host.querySelector('article h2')?.textContent).toBe('Tooltip 10');
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0].aborted).toBe(false);
+    await act(async () => router.navigate('/other'));
+    expect(requests[0].aborted).toBe(true);
+    await act(async () => router.navigate(-1));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1].aborted).toBe(false);
+  } finally {
+    router.dispose();
+  }
+});
+
 it('canonicalizes a plain data-router open with one live request and preserves Back and fresh revisits', async () => {
   await useDataStore.getState().load();
   await pendingTooltips(useDataStore.getState().data!);
