@@ -10,7 +10,9 @@ export interface GlobalImpactSnapshot {
   revision: string;
   tooltips: Readonly<Record<string, Tooltip>>;
   aliases: Aliases;
-  /** Exact converter type by canonical hash, not a display name/category guess. */
+  /** Exact effective converter type for canonical AND alias hashes, not a category guess.
+   * Differing alias types currently fail closed until alias renders can be reviewed separately.
+   */
   types: Readonly<Record<string, string>>;
   mode: 'authored' | 'live';
 }

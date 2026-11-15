@@ -13,7 +13,7 @@ export const globalKindSchema = z.enum(['variables', 'titles']);
 export function validGlobalName(kind: 'variables' | 'titles', name: string): boolean {
   if (kind === 'variables') return /^[a-zA-Z0-9]+$/.test(name);
   return (
-    /^[A-z0-9]+(?: [A-z0-9]+)*$/.test(name) &&
+    /^[A-Za-z0-9_]+(?: [A-Za-z0-9_]+)*$/.test(name) &&
     Object.hasOwn(extractBlocks(`title ${name} (\nbody\n)`, 'title'), name)
   );
 }
@@ -23,6 +23,9 @@ const sourceSchema = z
     repository: z.string().min(1),
     revision: globalRevisionSchema,
     path: z.string().min(1),
+    /** JSON keys selecting the original decoded string; spans index its UTF-16 code units. */
+    selector: z.array(z.string()).min(1),
+    spanConvention: z.literal('decoded-utf16'),
     hash: z.union([z.literal(2), z.literal(3)]),
     lang: langSchema,
     from: z.number().int().nonnegative(),

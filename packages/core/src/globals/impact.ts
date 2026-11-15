@@ -1,10 +1,7 @@
 import { resolveAlias } from '../aliases.js';
-import { usesEnglishFallback } from '../exportLegacy.js';
 import { type Lang } from '../languages.js';
 import { parseMarkup } from '../markup/parse.js';
-import { lowerConsumerMarkup } from '../markup/braces.js';
-import { numberValues, resolveNumberTokens } from '../numbers/map.js';
-import { isTextlessDescription, tooltipSchema, type Tooltip } from '../schemas.js';
+import { isTextlessDescription, tooltipSchema } from '../schemas.js';
 import { validateTextWithReads } from '../validation/index.js';
 import {
   globalImpactHeaderSchema,
@@ -15,22 +12,9 @@ import {
   type GlobalImpactSnapshot,
 } from './impactModel.js';
 import { globalCauseSchema, validGlobalName } from './model.js';
+import { globalSourceLanguage, globalSourceText } from './source.js';
 
 const keyOf = (hash: number, lang: Lang) => `${hash}:${lang}`;
-function sourceLanguage(snapshot: GlobalImpactSnapshot, tooltip: Tooltip, lang: Lang): Lang {
-  return snapshot.mode === 'live' && usesEnglishFallback(tooltip, lang) ? 'en' : lang;
-}
-function textOf(snapshot: GlobalImpactSnapshot, tooltip: Tooltip, lang: Lang): string | undefined {
-  // Missing languages are omitted by exportLegacy, never synthesized from English.
-  if (!tooltip.text[lang]) return undefined;
-  const source = tooltip.text[sourceLanguage(snapshot, tooltip, lang)]!;
-  if (snapshot.mode === 'authored') return source.text;
-  const resolved =
-    source.text.includes('#{=') && tooltip.text.en
-      ? resolveNumberTokens(source.text, numberValues(tooltip.text.en, lang))
-      : source.text;
-  return lowerConsumerMarkup(resolved);
-}
 
 interface Resolved {
   hash: number;
@@ -58,8 +42,17 @@ function resolveSnapshot(
       if (resolveAlias(tooltip.hash, snapshot.aliases) !== tooltip.hash)
         throw new Error(`Alias ${key} has its own tooltip`);
     }
-    for (const alias of Object.keys(snapshot.aliases))
-      resolveAlias(Number(alias), snapshot.aliases);
+    for (const alias of Object.keys(snapshot.aliases)) {
+      const canonical = resolveAlias(Number(alias), snapshot.aliases);
+      const target = snapshot.tooltips[canonical];
+      if (!target || (snapshot.mode === 'live' && isTextlessDescription(target))) continue;
+      if (!Object.hasOwn(snapshot.types, alias))
+        blockers.add(`Missing alias converter type provenance: ${snapshot.revision}/${alias}`);
+      else if (snapshot.types[alias] !== snapshot.types[canonical])
+        blockers.add(
+          `Alias-specific render context requires separate review: ${snapshot.revision}/${alias} -> ${canonical}`,
+        );
+    }
     for (const tooltip of Object.values(snapshot.tooltips)) {
       if (
         (tooltip.hash >= 1 && tooltip.hash <= 3) ||
@@ -79,19 +72,25 @@ function resolveSnapshot(
               if (!Number.isInteger(hash)) return undefined;
               const imported = snapshot.tooltips[resolveAlias(hash, snapshot.aliases)];
               return imported && !(snapshot.mode === 'live' && isTextlessDescription(imported))
-                ? textOf(snapshot, imported, lang)
+                ? globalSourceText(imported, lang, snapshot.mode)
                 : undefined;
             },
           },
         );
+        const text = globalSourceText(tooltip, lang, snapshot.mode)!;
+        // The live converter retains English decimals whenever its exported inputs are equal,
+        // including fallback and translations that happen to contain the same authored text.
+        const numberLanguage =
+          snapshot.mode === 'live' && text === globalSourceText(tooltip, 'en', snapshot.mode)
+            ? 'en'
+            : lang;
         const globals = {
           variables: catalog[2] ?? '',
           titles: catalog[3] ?? '',
           imports: catalog,
           type: snapshot.types[tooltip.hash],
-          lang,
+          lang: numberLanguage,
         };
-        const text = textOf(snapshot, tooltip, lang)!;
         const validation = validateTextWithReads(
           text,
           lang,
@@ -138,7 +137,7 @@ function languageAffected(
   // English revisions also change the source meaning that translated consumers must review.
   if (change.languages.includes('en')) return true;
   const aggregate = snapshot.tooltips[change.kind === 'variables' ? 2 : 3];
-  const source = aggregate ? sourceLanguage(snapshot, aggregate, lang) : lang;
+  const source = aggregate ? globalSourceLanguage(aggregate, lang, snapshot.mode) : lang;
   return change.languages.includes(source);
 }
 

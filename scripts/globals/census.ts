@@ -8,23 +8,33 @@ import { legacyDatabaseSchema } from '../../packages/core/src/legacy.js';
 import { migrateLegacy } from '../../packages/core/src/migrateLegacy.js';
 import type { GlobalInventorySource } from '../../packages/core/src/globals/projection.js';
 
-export function legacyGlobalsCensus(input: unknown, source: GlobalInventorySource) {
+export function legacyGlobalsCensus(
+  input: unknown,
+  source: { repository: string; revision: string; path: string },
+) {
   const database = legacyDatabaseSchema.parse(input);
-  return globalsCensus({
-    ...source,
-    tooltips: Object.fromEntries(migrateLegacy(database).map((v) => [v.hash, v])),
-    aliases: {},
-    types: Object.fromEntries(Object.values(database.perks).map((v) => [v.hash, v.type])),
-    mode: 'live',
-  });
+  const { path, ...identity } = source;
+  return globalsCensus(
+    {
+      ...identity,
+      tooltips: Object.fromEntries(migrateLegacy(database).map((v) => [v.hash, v])),
+      aliases: {},
+      types: Object.fromEntries(Object.values(database.perks).map((v) => [v.hash, v.type])),
+      mode: 'live',
+    },
+    (hash, lang) => ({ path, selector: ['perks', String(hash), 'editor', lang, 'main'] }),
+  );
 }
 
 /** Read-only inventory/parity proposal. No write, migration, or activation option exists. */
-export function globalsCensus(snapshot: GlobalImpactSnapshot) {
+export function globalsCensus(
+  snapshot: GlobalImpactSnapshot,
+  locate: GlobalInventorySource['locate'],
+) {
   let counter = 0;
   const store = inventoryGlobals(
     Object.values(snapshot.tooltips).filter((v) => v.hash === 2 || v.hash === 3),
-    snapshot,
+    { repository: snapshot.repository, revision: snapshot.revision, locate },
     () => `g_proposal${String(++counter).padStart(8, '0')}`,
   );
   const projected = { ...snapshot.tooltips, ...projectGlobals(store) };

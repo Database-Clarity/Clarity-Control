@@ -15,20 +15,39 @@ export function globalReferenceSpans(
   kind: GlobalRecord['kind'],
 ): GlobalReferenceSpan[] {
   const { comments } = markupCommentContext(text);
-  const titleTags = [...text.matchAll(/<title ([^>\n]*?) \[([^\]\n]+)\] \/>/g)];
-  const labels = titleTags.map((tag) => ({
-    from: tag.index + 7,
-    to: tag.index + tag[0].lastIndexOf('['),
+  const tags = [...text.matchAll(/<(title|link) ([^>\n]*?) \[([^\]\n]+)\] \/>/dg)];
+  const labels = tags.map((tag) => ({ from: tag.indices![2][0], to: tag.indices![2][1] }));
+  const bracketedLabel = (label: string) => label.includes('[') || label.includes(']');
+  // A whole variable target is explicit (`[#url]` or `[#{url}]`). Literal URLs and their
+  // fragments are not proven references, and display labels are never rewritten.
+  const literalLinks = tags
+    .filter(
+      (tag) =>
+        tag[1] === 'link' &&
+        (bracketedLabel(tag[2]) || !/^#(?:[a-zA-Z0-9]+|\{[a-zA-Z0-9]+\})$/.test(tag[3])),
+    )
+    .map((tag) => ({ from: tag.indices![3][0], to: tag.indices![3][1] }));
+  const urls = [...text.matchAll(/https?:\/\/[^\s<>]+/g)].map((url) => ({
+    from: url.index,
+    to: url.index + url[0].length,
   }));
   const refs =
     kind === 'variables'
       ? variableReferences(text)
-      : titleTags.map((tag) => {
-          const from = tag.index + tag[0].lastIndexOf('[') + 1;
-          return { name: tag[2], from, to: from + tag[2].length };
-        });
+      : tags
+          .filter(
+            (tag) =>
+              tag[1] === 'title' && !bracketedLabel(tag[2]) && validGlobalName('titles', tag[3]),
+          )
+          .map((tag) => {
+            const [from, to] = tag.indices![3];
+            return { name: tag[3], from, to };
+          });
   return refs.filter(
-    (ref) => ![...comments, ...labels].some((span) => ref.from < span.to && ref.to > span.from),
+    (ref) =>
+      ![...comments, ...labels, ...literalLinks, ...urls].some(
+        (span) => ref.from < span.to && ref.to > span.from,
+      ),
   );
 }
 

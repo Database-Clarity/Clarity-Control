@@ -1,9 +1,12 @@
 import { stableStringify } from '../contentHash.js';
 import { markupDefinitions } from '../markup/clashes.js';
 import { reservedNamePattern } from '../markup/braces.js';
+import { extractBlocks, extractVariables } from '../markup/syntax.js';
+import { languages } from '../languages.js';
 import type { Tooltip } from '../schemas.js';
 import { globalStoreSchema, type GlobalStore } from './model.js';
 import { projectGlobals } from './projection.js';
+import { globalSourceText } from './source.js';
 
 /** Structural/data guards only; permissions, impact review, and atomic commits belong to S2. */
 export function assertGlobalTransition(
@@ -13,7 +16,8 @@ export function assertGlobalTransition(
 ): void {
   const before = globalStoreSchema.parse(beforeInput),
     after = globalStoreSchema.parse(afterInput);
-  projectGlobals(after);
+  const beforeAggregates = projectGlobals(before),
+    afterAggregates = projectGlobals(after);
   for (const old of before.entries) {
     const next = after.entries.find((entry) => entry.id === old.id);
     if (!next || next.kind !== old.kind)
@@ -22,6 +26,12 @@ export function assertGlobalTransition(
       throw new Error('Tombstones are immutable');
     if (old.kind === 'variables' && old.name === 'e' && (next.name !== old.name || next.tombstone))
       throw new Error('The legacy enhanced arrow identity is protected');
+    if (
+      old.kind === 'variables' &&
+      old.name === 'e' &&
+      Object.keys(old.definitions).some((lang) => !Object.hasOwn(next.definitions, lang))
+    )
+      throw new Error('The legacy enhanced arrow definitions are protected');
     if (stableStringify(old) !== stableStringify(next) && old.revision === next.revision)
       throw new Error('Changed global requires a new revision');
     if (
@@ -56,24 +66,38 @@ export function assertGlobalTransition(
     if (entry.tombstone) continue;
     if (entry.kind === 'variables' && reservedNamePattern.test(entry.name))
       throw new Error('Generated variable names are reserved');
-    const old = before.entries.find((v) => v.id === entry.id);
-    for (const [lang] of Object.entries(entry.definitions)) {
-      if (old?.name === entry.name && Object.hasOwn(old.definitions, lang)) continue;
-      for (const tooltip of Object.values(tooltips)) {
-        if (tooltip.hash === 2 || tooltip.hash === 3) continue;
-        const local = markupDefinitions(
-          tooltip.text[lang as keyof typeof tooltip.text]?.text ?? '',
+    if (
+      entry.kind === 'variables' &&
+      entry.name === 'e' &&
+      Object.values(entry.definitions).some((definition) => definition.body !== '🡅')
+    )
+      throw new Error('The legacy enhanced arrow value is protected');
+  }
+  // Check additions in both stored and exported inputs. Aggregate or consumer fallback can
+  // introduce a clash in a language with no per-entry definition of its own.
+  for (const mode of ['authored', 'live'] as const) {
+    for (const hash of [2, 3] as const) {
+      for (const lang of languages) {
+        const old = beforeAggregates[hash],
+          next = afterAggregates[hash];
+        const beforeText = old ? (globalSourceText(old, lang, mode) ?? '') : '';
+        const afterText = next ? (globalSourceText(next, lang, mode) ?? '') : '';
+        const names = (text: string) =>
+          hash === 2 ? extractVariables(text) : extractBlocks(text, 'title');
+        const oldNames = names(beforeText);
+        const added = new Set(
+          Object.keys(names(afterText)).filter((name) => !Object.hasOwn(oldNames, name)),
         );
-        if (
-          local.some(
-            (d) =>
-              d.name === entry.name &&
-              d.kind === (entry.kind === 'variables' ? 'variable' : 'title'),
-          )
-        )
-          throw new Error(
-            `Local/global name clash: ${entry.name}, tooltip ${tooltip.hash}, ${lang}`,
-          );
+        if (!added.size) continue;
+        for (const tooltip of Object.values(tooltips)) {
+          if (tooltip.hash === 2 || tooltip.hash === 3) continue;
+          for (const local of markupDefinitions(globalSourceText(tooltip, lang, mode) ?? '')) {
+            if (local.kind === (hash === 2 ? 'variable' : 'title') && added.has(local.name))
+              throw new Error(
+                `Local/global name clash: ${local.name}, tooltip ${tooltip.hash}, ${lang}`,
+              );
+          }
+        }
       }
     }
   }

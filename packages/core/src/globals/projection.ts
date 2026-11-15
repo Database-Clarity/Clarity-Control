@@ -83,6 +83,8 @@ function declarations(raw: string, kind: GlobalRecord['kind']): Declaration[] {
 export interface GlobalInventorySource {
   repository: string;
   revision: string;
+  /** Actual repository file and decoded JSON field, supplied by the reader, never inferred. */
+  locate(hash: 2 | 3, lang: Lang): { path: string; selector: string[] };
 }
 
 /** Pure dry run. The caller supplies fresh opaque IDs; this function never reads or writes files. */
@@ -126,7 +128,8 @@ export function inventoryGlobals(
           provenance: {
             repository: source.repository,
             revision: source.revision,
-            path: `tooltips/${document.hash}.json`,
+            ...source.locate(document.hash, lang),
+            spanConvention: 'decoded-utf16',
             hash: document.hash,
             lang,
             from: declaration.from,

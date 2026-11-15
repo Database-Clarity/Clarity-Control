@@ -3,9 +3,8 @@ import { inventoryGlobals, projectGlobals } from './projection.js';
 import { assertGlobalTransition } from './transition.js';
 import { globalReferenceSpans, rewriteGlobalReferences } from './references.js';
 import type { Tooltip } from '../schemas.js';
-import { globalsCensus } from '../../../../scripts/globals/census.js';
+import { legacyGlobalsCensus } from '../../../../scripts/globals/census.js';
 import { database, fixture } from '../../test/helpers.js';
-import { migrateLegacy } from '../migrateLegacy.js';
 
 const cell = (text: string) => ({ text, updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'alice' });
 const tooltip = (hash: number, en: string, de?: string): Tooltip => ({
@@ -17,7 +16,11 @@ const inventory = (docs: Tooltip[]) => {
   let id = 0;
   return inventoryGlobals(
     docs,
-    { repository: 'editor-data', revision: 'source1' },
+    {
+      repository: 'editor-data',
+      revision: 'source1',
+      locate: (hash, lang) => ({ path: `tooltips/${hash}.json`, selector: ['text', lang, 'text'] }),
+    },
     () => `g_fixture${++id}0000`,
   );
 };
@@ -98,21 +101,90 @@ it('rewrites only exact legacy/braced references and title target spans, never c
   ).toBe('// <title Info [Info] />\n<title Info [Other] />');
 });
 
+it('rejects incompatible title targets, and preserves exact target boundaries and link literals', () => {
+  for (const name of ['A[B', 'A]B']) {
+    expect(() => inventory([tooltip(3, `title ${name} (\nBody\n)`)])).toThrow();
+    expect(() =>
+      rewriteGlobalReferences(`<title Label [${name}] />`, 'titles', name, 'Other'),
+    ).toThrow();
+  }
+  const source = '<title Info (details) [Info] />';
+  const rewritten = rewriteGlobalReferences(source, 'titles', 'Info', 'Other');
+  expect(rewritten.text).toBe('<title Info (details) [Other] />');
+  expect(rewritten.edits.map((span) => source.slice(span.from, span.to))).toEqual(['Info']);
+  expect(
+    rewriteGlobalReferences('<title Label [part] [Info] />', 'titles', 'Info', 'Other').edits,
+  ).toEqual([]);
+  expect(
+    rewriteGlobalReferences(
+      '<link #damage [https://example.test/#damage] />\n<link #damage [#damage] />\n<link Label [#{damage}] />\nhttps://example.test/#damage #damage',
+      'variables',
+      'damage',
+      'hit',
+    ).text,
+  ).toBe(
+    '<link #damage [https://example.test/#damage] />\n<link #damage [#hit] />\n<link Label [#{hit}] />\nhttps://example.test/#damage #hit',
+  );
+});
+
+it('refuses variable/title additions through aggregate fallback, including effective consumer text', () => {
+  for (const [hash, global, local] of [
+    [2, 'var damage = 10', 'var damage = 20\n#damage'],
+    [3, 'title Info (\nGlobal\n)', 'title Info (\nLocal\n)\n<title Label [Info] />'],
+  ] as const) {
+    const before = tooltip(hash, '', ''),
+      after = tooltip(hash, global, '');
+    for (const doc of [before, after]) {
+      doc.text.en!.updatedAt = '2026-10-01T00:00:00Z';
+      doc.text.de!.sourceUpdatedAt = '2026-01-01T00:00:00Z';
+    }
+    expect(() =>
+      assertGlobalTransition(inventory([before]), inventory([after]), {
+        40: tooltip(40, 'Plain', local),
+      }),
+    ).toThrow(/clash/);
+  }
+});
+
+it('protects arrow definitions against language removal, clearing, and replacement', () => {
+  const before = inventory([tooltip(2, 'var e = 🡅')]);
+  const removed = structuredClone(before);
+  removed.entries[0].revision = 'r2';
+  removed.entries[0].definitions = {};
+  removed.aggregates[0].languages.en!.segments = [];
+  expect(() => assertGlobalTransition(before, removed, {})).toThrow(/protected/);
+  for (const body of ['', 'Other']) {
+    const after = structuredClone(before);
+    after.entries[0].revision = 'r2';
+    after.entries[0].definitions.en!.revision = 'r2';
+    after.entries[0].definitions.en!.body = body;
+    expect(() => assertGlobalTransition(before, after, {})).toThrow(/protected/);
+  }
+});
+
 describe.each(['live', 'intermediate'])('%s complete immutable fixture census', (name) => {
   it('proves aggregate, legacy consumer-input, and real resolver output parity', () => {
     const raw = database(name);
     const source = (
-      fixture('provenance') as { sources: Record<string, { repository: string; commit: string }> }
+      fixture('provenance') as {
+        sources: Record<string, { repository: string; commit: string; path: string }>;
+      }
     ).sources[name];
-    const tooltips = Object.fromEntries(migrateLegacy(raw).map((v) => [v.hash, v]));
-    const census = globalsCensus({
+    const census = legacyGlobalsCensus(raw, {
       repository: source.repository,
       revision: source.commit,
-      tooltips,
-      aliases: {},
-      types: Object.fromEntries(Object.values(raw.perks).map((v) => [v.hash, v.type])),
-      mode: 'live',
+      path: source.path,
     });
+    for (const entry of census.store.entries) {
+      for (const [lang, definition] of Object.entries(entry.definitions)) {
+        const origin = definition.provenance;
+        expect(origin.path).toBe(source.path);
+        expect(origin.selector).toEqual(['perks', String(origin.hash), 'editor', lang, 'main']);
+        expect(origin.spanConvention).toBe('decoded-utf16');
+        const decoded = raw.perks[origin.hash].editor[origin.lang]!.main;
+        expect(decoded.slice(origin.from, origin.to)).toContain(entry.name);
+      }
+    }
     console.log('GLOBALS CENSUS', JSON.stringify({ ...census, store: undefined }));
     expect(census.definitions).toBe(13);
     expect(census.aggregateParity).toBe(true);

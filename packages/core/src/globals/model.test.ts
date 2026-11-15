@@ -21,5 +21,7 @@ it('rejects duplicate identities/names and unrepresentable title names', () => {
   expect(globalStoreSchema.safeParse(duplicate).success).toBe(false);
   expect(validGlobalName('titles', 'Solar Info')).toBe(true);
   expect(validGlobalName('titles', 'Subtitle')).toBe(false);
+  expect(validGlobalName('titles', 'A[B')).toBe(false);
+  expect(validGlobalName('titles', 'A]B')).toBe(false);
   expect(validGlobalName('variables', 'damage_2')).toBe(false);
 });

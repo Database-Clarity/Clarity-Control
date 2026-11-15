@@ -2,6 +2,11 @@ import { expect, it } from 'vitest';
 import { calculateGlobalImpact } from './impact.js';
 import type { GlobalImpactChange, GlobalImpactSnapshot } from './impactModel.js';
 import type { Tooltip } from '../schemas.js';
+import type { Lang } from '../languages.js';
+import { exportLegacy } from '../exportLegacy.js';
+import { descriptionConverter } from '../../../export/src/converter/descriptionConverter.js';
+import { expandAliases } from '../../../export/src/converter/converterFunctions/expandAliases.js';
+import type { IntermediatePerks } from '../../../export/src/converter/types.js';
 
 const cell = (text: string) => ({ text, updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'alice' });
 const tooltip = (hash: number, en: string, de?: string): Tooltip => ({
@@ -29,6 +34,31 @@ const impacted = (a: GlobalImpactSnapshot, b = a, changes = [change]) =>
   calculateGlobalImpact(a, b, changes, 'live');
 const hashes = (result: ReturnType<typeof impacted>) => result.rows.map((row) => row.consumer.hash);
 
+function liveRender(source: GlobalImpactSnapshot, hash: number, lang: Lang) {
+  const catalog = Object.fromEntries(
+    Object.entries(source.types).map(([hash, type]) => [hash, { name: hash, type }]),
+  );
+  const database = expandAliases(
+    exportLegacy(
+      Object.values(source.tooltips),
+      0,
+      catalog,
+      source.aliases,
+    ) as unknown as IntermediatePerks,
+  );
+  return JSON.parse(
+    JSON.stringify(
+      descriptionConverter({
+        descriptionString: database[hash].editor[lang]!.main,
+        editorType: 'main',
+        language: lang,
+        hash,
+        database,
+      }),
+    ),
+  );
+}
+
 it('records actual nested, global-export, aliased, multipart, archived, and cross-category consumers', () => {
   const archive = tooltip(43, 'import Outer from 51');
   archive.archive = {
@@ -48,7 +78,7 @@ it('records actual nested, global-export, aliased, multipart, archived, and cros
   ]);
   before.aliases = { 51: { to: 50, kind: 'name' }, 60: { to: 42, kind: 'frame' } };
   before.tooltips[42].associated = [43];
-  before.types = { ...before.types, 43: 'Armor Mod' };
+  before.types = { ...before.types, 43: 'Armor Mod', 51: 'Weapon Perk', 60: 'Weapon Perk' };
   const after = structuredClone(before);
   after.revision = 'source2';
   after.tooltips[2].text.en!.text = 'var damage = 20';
@@ -158,4 +188,51 @@ it('fails closed for cycles, missing import targets, aliases, and missing proven
   expect(impacted(type).blockers.join(' ')).toContain('type provenance');
   type.aliases = { 50: { to: 51, kind: 'name' }, 51: { to: 50, kind: 'name' } };
   expect(impacted(type).blockers.join(' ')).toContain('Cyclic');
+});
+
+it('blocks unreviewable alias-specific conditional renders and missing alias type provenance', () => {
+  const before = snapshot([
+    tooltip(2, 'var damage = 10'),
+    tooltip(3, ''),
+    tooltip(100, 'enhanced (\n#damage\n)\nBase'),
+  ]);
+  before.aliases = { 101: { to: 100, kind: 'frame' } };
+  before.types = { ...before.types, 100: 'Weapon Trait', 101: 'Weapon Trait Enhanced' };
+  const after = structuredClone(before);
+  after.revision = 'source2';
+  after.tooltips[2].text.en!.text = 'var damage = 20';
+  expect(JSON.stringify(liveRender(before, 101, 'en'))).toContain('10');
+  expect(JSON.stringify(liveRender(after, 101, 'en'))).toContain('20');
+  const result = impacted(before, after);
+  expect(result.complete).toBe(false);
+  expect(result.blockers.join(' ')).toContain('Alias-specific render context');
+  expect(result.rows.find((row) => row.consumer.hash === 100)!.reason).toBe('unproven');
+  before.types = { ...before.types };
+  Reflect.deleteProperty(before.types, '101');
+  expect(impacted(before).blockers.join(' ')).toContain('Missing alias converter type provenance');
+});
+
+it('matches actual converter decimals for fallback, identical translations, and different translated inputs', () => {
+  for (const translated of ['Alt', '#damage', '#damage DE']) {
+    const consumer = tooltip(100, '#damage', translated);
+    if (translated === 'Alt') {
+      consumer.text.en!.updatedAt = '2026-10-01T00:00:00Z';
+      consumer.text.de!.sourceUpdatedAt = '2026-01-01T00:00:00Z';
+    }
+    const before = snapshot([
+      tooltip(2, 'var damage = 10.5', 'var damage = 10.5'),
+      tooltip(3, '', ''),
+      consumer,
+    ]);
+    const after = structuredClone(before);
+    after.revision = 'source2';
+    after.tooltips[2].text.en!.text = 'var damage = 20.5';
+    after.tooltips[2].text.de!.text = 'var damage = 20.5';
+    const result = impacted(before, after);
+    expect(result.complete).toBe(true);
+    const german = result.rows.find((row) => row.consumer.lang === 'de')!;
+    expect(JSON.parse(german.before!.rendered)).toEqual(liveRender(before, 100, 'de'));
+    expect(JSON.parse(german.after!.rendered)).toEqual(liveRender(after, 100, 'de'));
+    expect(german.before!.rendered).toContain(translated === '#damage DE' ? '10,5' : '10.5');
+  }
 });
