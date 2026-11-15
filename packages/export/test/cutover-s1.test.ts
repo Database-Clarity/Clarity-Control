@@ -54,6 +54,18 @@ describe('S1 native consumer output in importer context', () => {
     ['native imported through a global title', '<title Label [Help] />', {
       3: perk(3, 'title Help (\nimport main from 5\n)'), 5: perk(5, 'Title {{x}{y}}'),
     }],
+    ['late title import after variable substitution', 'title T (\n#Import\n)\n{{b}{e}} <title See [T] />', {
+      1: perk(1, ''), 2: perk(2, 'var Import = import main from 200'), 3: perk(3, ''),
+      200: perk(200, 'Imported {{x}{y}}'),
+    }],
+    ['native only in a late title import', 'title T (\n#Import\n)\n<title See [T] />', {
+      1: perk(1, ''), 2: perk(2, 'var Import = import main from 200'), 3: perk(3, ''),
+      200: perk(200, 'Imported {{x}{y}}'),
+    }],
+    ['pair assembled by a late title import', 'title T (\nx {#Import\n#Import\n)\n<title See [T] />', {
+      1: perk(1, ''), 2: perk(2, 'var Import = import main from 5'), 3: perk(3, ''),
+      5: perk(5, '{a}{b}}'),
+    }],
     ['condition and arrows', 'enhanced (\nOnly {{base}{enhanced}} <enhanced/>\n)\n{{x}{y}} <arrow/>'],
   ];
   test.each(cases)('%s matches the real preview for all eight presets and both variants', (_name, source, extra) => {
@@ -78,6 +90,8 @@ describe('S1 native consumer output in importer context', () => {
     }
     for (const style of styles) {
       const file = custom(style);
+      if (_name.includes('late title import'))
+        file.format.titles = { mode: 'inline', pattern: ['', '', ' (', ')'] };
       const plan = compile(input, file, { catalog });
       expect(JSON.stringify(plan.expanded)).not.toContain('{{');
       for (const [hash, type] of [[100, 'Weapon Trait'], [101, 'Weapon Trait Enhanced']] as const) {

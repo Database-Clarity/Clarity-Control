@@ -21,12 +21,23 @@ const nativeDescription = (descriptionData: DescriptionData, description: string
   // mid-line splices. No copied dependency walk, or early selection of an imported perk's arm.
   const titles = rawTitles.includes('import ')
     ? loadExports({ ...descriptionData, descriptionString: rawTitles }) : rawTitles
-  if (![description, variables, titles].some((source) => source.includes('{{'))) return undefined
+  let native = [description, variables, titles].some((source) => source.includes('{{'))
+  // Variable substitution can introduce a later title import. Keep the real resolver's
+  // context for those passes, and observe its reads instead of guessing the dependency graph.
+  const imports = new Proxy(Object.create(null) as Record<string, string>, {
+    get(_target, key) {
+      const source = typeof key === 'string' ? database[key]?.editor[language]?.main : undefined
+      // A late imported fragment can also complete a pair without containing a literal {{.
+      if (source?.includes('{')) native = true
+      return source
+    }
+  })
   const editor = database[hash].editor
   const parsed = parseMarkup(description, {
-    variables, titles, type: database[hash].type,
+    variables, titles, imports, type: database[hash].type,
     lang: editor[language]?.main === editor.en?.main ? 'en' : language
   })
+  if (!native) return undefined
   const error = parsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error')
   if (error) throw new Error(`Tooltip ${hash} (${language}): ${error.message}`)
   return parsed.lines
