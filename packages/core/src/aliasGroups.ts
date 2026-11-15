@@ -2,12 +2,47 @@ import { z } from 'zod';
 import { hashSchema } from './legacy.js';
 import { aliasesSchema, resolveAlias, type Aliases } from './aliases.js';
 import { timestampSchema, type Tooltip } from './schemas.js';
+import { stableStringify } from './contentHash.js';
+import {
+  mergeSandboxPointers,
+  sandboxConflictsSchema,
+  sandboxPointersSchema,
+  type SandboxConflicts,
+  type SandboxPointers,
+} from './sandboxPointers.js';
+
+export * from './aliasGroupOperations.js';
+
+export const aliasGroupsPath = 'config/alias-groups.json';
+export const aliasGroupsCapability = 'aliasGroups';
 
 const hashKey = z
   .string()
   .regex(/^(0|[1-9]\d*)$/)
   .refine((v) => Number(v) <= 0xffffffff);
 const actor = z.object({ id: z.string().min(1), login: z.string().min(1) }).strict();
+/** Immutable archive manifest. Null records an absent tooltip; a blob preserves exact bytes.
+ * Keep all references through split, recanonicalization, and ungroup. Never overwrite a manifest.
+ * Each files key identifies tooltips/<hash>.json; blobs must also be retained in the archive tree.
+ */
+export const aliasGroupArchiveSchema = z
+  .object({
+    path: z
+      .string()
+      .regex(/^migration-archives\/alias-groups\/[0-9a-f]{40}\/(0|[1-9]\d*)\.json$/)
+      .refine((path) => Number(path.split('/').at(-1)?.replace('.json', '')) <= 0xffffffff),
+    files: z
+      .record(
+        hashKey,
+        z
+          .string()
+          .regex(/^[0-9a-f]{40}$/)
+          .nullable(),
+      )
+      .refine((files) => Object.keys(files).length > 0),
+  })
+  .strict();
+export type AliasGroupArchive = z.infer<typeof aliasGroupArchiveSchema>;
 export const aliasGroupsSchema = z
   .object({
     version: z.literal(1),
@@ -43,10 +78,14 @@ export const aliasGroupsSchema = z
         })
         .strict(),
     ),
+    archives: z.array(aliasGroupArchiveSchema).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
     const seen = new Set<number>();
+    const paths = value.archives?.map((archive) => archive.path) ?? [];
+    if (new Set(paths).size !== paths.length)
+      ctx.addIssue({ code: 'custom', message: 'Duplicate alias archive path' });
     for (const [key, group] of Object.entries(value.groups)) {
       if (!group.members.includes(Number(key)))
         ctx.addIssue({ code: 'custom', message: 'Canonical must be a member' });
@@ -57,7 +96,31 @@ export const aliasGroupsSchema = z
     }
   });
 export type AliasGroups = z.infer<typeof aliasGroupsSchema>;
+export const emptyAliasGroups = (): AliasGroups => ({ version: 1, groups: {}, rejected: {} });
 
+export const aliasGroupIssueSchema = z
+  .object({ canonical: hashSchema, member: hashSchema.optional(), reason: z.string().min(1) })
+  .strict();
+export type AliasGroupIssue = z.infer<typeof aliasGroupIssueSchema>;
+
+/** GET and successful POST share a snapshot. GET has no affected canonicals.
+ * POST lists both old and new editor identities, including changes to incoming sandbox stubs.
+ * Archive blob references are metadata, never consumer export input.
+ */
+export const aliasGroupsResponseSchema = z
+  .object({
+    head: z.string().regex(/^[0-9a-f]{40}$/),
+    config: aliasGroupsSchema,
+    issues: z.array(aliasGroupIssueSchema),
+    affectedCanonicals: z.array(hashSchema).refine((v) => new Set(v).size === v.length),
+  })
+  .strict();
+export type AliasGroupsResponse = z.infer<typeof aliasGroupsResponseSchema>;
+
+/** Supply complete generator facts from one pinned revision, keyed by the item's own hash.
+ * Explicit enhanced/exotic flags take precedence over legacy category fallbacks. Never derive
+ * missing plug categories, exotic owners, or enhanced base pointers from display names.
+ */
 export interface AliasItem {
   hash: number;
   name: string;
@@ -72,6 +135,39 @@ export interface AliasItem {
   owners?: number[];
 }
 export type AliasItems = Readonly<Record<string, AliasItem>>;
+
+/** Rejections expire when membership or authoritative grouping facts change. This digest is
+ * recomputed by the server from pinned generator facts, never from a submitted proposal.
+ */
+export async function aliasGroupFactsDigest(members: number[], items: AliasItems): Promise<string> {
+  const selected = z
+    .array(hashSchema)
+    .min(2)
+    .refine((values) => new Set(values).size === values.length)
+    .parse(members);
+  const facts = [...selected]
+    .sort((a, b) => a - b)
+    .map((hash) => {
+      const item = items[hash];
+      if (!item || item.hash !== hash) throw new Error(`Missing alias facts for ${hash}`);
+      return {
+        hash,
+        name: item.name,
+        categoryId: item.categoryId,
+        inGameDescription: item.inGameDescription,
+        isEnhanced: item.isEnhanced,
+        exotic: item.exotic,
+        plugCategoryHash: item.plugCategoryHash,
+        baseHash: item.baseHash,
+        dimBaseHash: item.dimBaseHash,
+        itemHash: item.itemHash,
+        owners: item.owners ? [...item.owners].sort((a, b) => a - b) : undefined,
+      };
+    });
+  const bytes = new TextEncoder().encode(stableStringify(facts));
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 /** Generator-resolved enhanced mod; an absent/ambiguous base is never inferred by name. */
 export function isPairedEnhancedMod(item: Pick<AliasItem, 'categoryId' | 'baseHash'>): boolean {
   return item.categoryId === 'weapon-mod-enhanced' && item.baseHash !== undefined;
@@ -81,7 +177,8 @@ const enhanced = (item: AliasItem) =>
 const exotic = (item: AliasItem) => item.exotic ?? item.categoryId.endsWith('-exotic');
 const name = (item: AliasItem) => item.name.trim().toLowerCase();
 const inScope = (item: AliasItem) =>
-  /^(weapon-(perk|trait|mod)|armor-mod|subclass)-?/.test(item.categoryId);
+  /^(weapon-(perk|trait|mod)|armor-mod|subclass)(-|$)/.test(item.categoryId);
+const subclass = (item: AliasItem) => /^subclass(-|$)/.test(item.categoryId);
 const owns = (item: AliasItem, owner: number) =>
   item.itemHash === owner || Boolean(item.owners?.includes(owner));
 const numbered = (item: AliasItem) => / (II|III|IV)$/.test(item.name);
@@ -93,15 +190,22 @@ export function effectiveAliases(
   items: AliasItems,
 ): {
   aliases: Aliases;
-  issues: { canonical: number; member?: number; reason: string }[];
+  issues: AliasGroupIssue[];
 } {
   const groups = aliasGroupsSchema.parse(input);
   const aliases: Aliases = { ...aliasesSchema.parse(generated) };
-  const issues: { canonical: number; member?: number; reason: string }[] = [];
+  const issues: AliasGroupIssue[] = [];
+  for (const [key, item] of Object.entries(items)) {
+    if (String(item.hash) !== key) throw new Error(`Alias fact key does not match hash: ${key}`);
+  }
   for (const [key, group] of Object.entries(groups.groups)) {
     const canonical = Number(key),
       base = items[key];
     const frameOwner = group.basis.exoticFrameOwner;
+    if (group.kind === 'X') {
+      issues.push({ canonical, reason: 'Cross-category alias groups are disabled' });
+      continue;
+    }
     const exoticFrame = Boolean(
       base &&
       group.kind === 'S' &&
@@ -114,6 +218,23 @@ export function effectiveAliases(
       issues.push({ canonical, reason: 'Canonical missing, excluded, or generated alias' });
       continue;
     }
+    if (
+      name(base) !== group.basis.name.trim().toLowerCase() ||
+      base.categoryId !== group.basis.categoryId
+    ) {
+      issues.push({ canonical, reason: 'Canonical no longer satisfies alias group basis' });
+      continue;
+    }
+    // Shared exotic traits may have several owners, but an alias group must retain at least
+    // one actual owner common to every member; unknown ownership never proves identity.
+    const commonExoticOwners =
+      exotic(base) && !exoticFrame
+        ? [base.itemHash, ...(base.owners ?? [])].filter(
+            (owner): owner is number =>
+              owner !== undefined &&
+              group.members.every((hash) => !!items[hash] && owns(items[hash]!, owner)),
+          )
+        : [];
     for (const hash of group.members) {
       if (hash === canonical) continue;
       if (generated[hash]) {
@@ -135,22 +256,15 @@ export function effectiveAliases(
               .toLowerCase() !== name(base)
           : name(item) !== name(base)) ||
         exotic(item) !== exotic(base) ||
+        (exotic(base) && !exoticFrame && commonExoticOwners.length === 0) ||
         enhanced(item) !== enhanced(base) ||
         (group.kind === 'S' &&
           (item.categoryId !== base.categoryId ||
-            (!base.categoryId.startsWith('subclass-') &&
+            (!subclass(base) &&
               (item.plugCategoryHash === undefined ||
                 base.plugCategoryHash === undefined ||
                 item.plugCategoryHash !== base.plugCategoryHash)))) ||
-        (group.kind === 'X' &&
-          (enhanced(item) ||
-            enhanced(base) ||
-            exotic(item) ||
-            exotic(base) ||
-            item.inGameDescription !== base.inGameDescription ||
-            !(item.dimBaseHash === canonical || base.dimBaseHash === hash))) ||
-        (base.categoryId.startsWith('subclass-') &&
-          item.inGameDescription !== base.inGameDescription)
+        (subclass(base) && item.inGameDescription !== base.inGameDescription)
       ) {
         issues.push({
           canonical,
@@ -211,6 +325,63 @@ export function effectiveAliases(
     }
   } while (changed);
   return { aliases, issues };
+}
+
+/** The only composition order: generated aliases, accepted name groups, then sandbox picks.
+ * Validate picks against GENERATED aliases first, preserving existing inactive/undone behavior.
+ * A previously valid pick follows its target through an accepted name group to canonical text.
+ * A group may not turn a sandbox identity into a name alias: fail closed instead of dropping a
+ * reviewed pick. All configs and facts must be read at the consumer's immutable source commit.
+ */
+export function composeAliases(
+  generated: Aliases,
+  groups: AliasGroups | null | undefined,
+  items: AliasItems,
+  conflicts: SandboxConflicts = {},
+  pointers?: SandboxPointers | null,
+): { aliases: Aliases; issues: AliasGroupIssue[] } {
+  aliasesSchema.parse(generated);
+  sandboxConflictsSchema.parse(conflicts);
+  if (pointers != null) sandboxPointersSchema.parse(pointers);
+  for (const key of Object.keys(generated)) resolveAlias(Number(key), generated);
+  const picked = mergeSandboxPointers(generated, conflicts, pointers);
+  if (groups == null) return { aliases: picked, issues: [] };
+  const result = effectiveAliases(generated, groups, items);
+  const aliases: Aliases = { ...result.aliases };
+  for (const [hash, alias] of Object.entries(result.aliases)) {
+    if (alias.kind === 'name' && Object.hasOwn(conflicts, hash))
+      throw new Error(`Alias group member ${hash} is a shared sandbox identity`);
+  }
+  for (const [hash, alias] of Object.entries(picked)) {
+    if (Object.hasOwn(generated, hash)) continue;
+    aliases[hash] = { ...alias, to: resolveAlias(alias.to, result.aliases) };
+  }
+  for (const key of Object.keys(aliases)) resolveAlias(Number(key), aliases);
+  return { aliases, issues: result.issues };
+}
+
+/** Identities whose tooltip or incoming stubs can change, including old and new canonicals.
+ * Consumers reload/review these identities even when grouping leaves no outgoing edge behind.
+ */
+export function affectedAliasCanonicals(
+  before: Aliases,
+  after: Aliases,
+  items: AliasItems,
+): number[] {
+  const affected = new Set<number>();
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const old = before[key],
+      next = after[key];
+    if (
+      old?.to === next?.to &&
+      old?.kind === next?.kind &&
+      resolveAlias(Number(key), before) === resolveAlias(Number(key), after)
+    )
+      continue;
+    affected.add(aliasCanonicalHash(Number(key), items, before));
+    affected.add(aliasCanonicalHash(Number(key), items, after));
+  }
+  return [...affected].sort((a, b) => a - b);
 }
 
 /** Alias -> enhanced canonical -> base -> base canonical, preserving frame editor ownership. */

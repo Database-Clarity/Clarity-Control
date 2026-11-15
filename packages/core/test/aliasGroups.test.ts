@@ -9,6 +9,7 @@ import {
   readPossibleEnhanced,
   exportLegacy,
   publishableHash,
+  type AliasGroups,
   type AliasItems,
 } from '../src/index.js';
 import { tooltip } from './helpers.js';
@@ -54,9 +55,9 @@ const group = (members: number[]) => ({
   at: '2026-11-03T00:00:00Z',
 });
 const config = (
-  groups: Record<string, ReturnType<typeof group>> = {
+  groups: AliasGroups['groups'] = {
     '42': group([42, 43]),
-    '50': group([50, 51]),
+    '50': { ...group([50, 51]), basis: { name: 'Perk', categoryId: 'weapon-trait-enhanced' } },
   },
 ) => aliasGroupsSchema.parse({ version: 1, groups, rejected: {} });
 test('groups resolve enhanced members across base groups; unaccepted enhanced groups retain pending variants', () => {
@@ -105,7 +106,7 @@ test('generated precedence is flagged, groups drop and flag mixed enhanced/exoti
     expect(drifted.aliases).toEqual({});
     expect(drifted.issues).toEqual([expect.objectContaining({ canonical: 42, member: 43 })]);
   }
-  const splitBases = effectiveAliases({}, config({ '50': group([50, 51]) }), items);
+  const splitBases = effectiveAliases({}, config({ '50': config().groups[50]! }), items);
   expect(splitBases.aliases).toEqual({});
   expect(splitBases.issues).toEqual([expect.objectContaining({ canonical: 50, member: 51 })]);
   expect(() =>
@@ -302,16 +303,20 @@ test('exotic numbered frames alias to their unnumbered canonical only within its
     ),
   ).toEqual([]);
 });
-test('persisted Kind X requires identical wording and DIM provenance', () => {
+test('persisted Kind X stays disabled even with identical wording and DIM provenance', () => {
   const decision = aliasGroupsSchema.parse({
     version: 1,
     rejected: {},
     groups: { 42: { ...group([42, 43]), kind: 'X' } },
   });
-  expect(
-    effectiveAliases({}, decision, { ...items, 43: { ...items[43]!, dimBaseHash: 42 } }).aliases[43]
-      ?.to,
-  ).toBe(42);
+  const result = effectiveAliases({}, decision, {
+    ...items,
+    43: { ...items[43]!, dimBaseHash: 42 },
+  });
+  expect(result.aliases).toEqual({});
+  expect(result.issues).toEqual([
+    { canonical: 42, reason: 'Cross-category alias groups are disabled' },
+  ]);
   expect(
     effectiveAliases({}, decision, {
       ...items,
@@ -356,7 +361,7 @@ test('accepted duplicate bases preserve enhanced membership in older catalogs wi
   const accepted = effectiveAliases({}, config(), facts);
   expect(accepted.issues).toEqual([]);
   expect(accepted.aliases[51]).toEqual({ to: 50, kind: 'name' });
-  const pending = effectiveAliases({}, config({ 50: group([50, 51]) }), facts);
+  const pending = effectiveAliases({}, config({ 50: config().groups[50]! }), facts);
   expect(pending.aliases[51]).toBeUndefined();
   expect(pending.issues).toHaveLength(1);
 });
