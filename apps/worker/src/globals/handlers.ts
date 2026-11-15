@@ -3,14 +3,16 @@ import { validGlobalName, type GlobalRecord } from '../../../../packages/core/sr
 import { reservedNamePattern } from '../../../../packages/core/src/markup/braces.js';
 import { extractBlocks, extractVariables } from '../../../../packages/core/src/markup/syntax.js';
 import type { Lang } from '../../../../packages/core/src/languages.js';
-import { blobContent, blobSha, RefRace, type GitHub } from '../github.js';
+import { blobContent, blobSha, RefRace } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import type { Access } from '../permissions.js';
 import type { Identity } from '../types.js';
 import {
   catalogSchema,
   clashSchema,
+  destinationsSchema,
   entrySchema,
+  globalFileBytes,
   limits,
   mutationSchema,
   oid,
@@ -19,6 +21,7 @@ import {
   paths,
   removalSchema,
   reviewPageSchema,
+  retrySchema,
   rowSchema,
   sameSources,
   sourcesSchema,
@@ -27,6 +30,7 @@ import {
   type Sources,
   type SyncState,
 } from './model.js';
+import { readGlobalFiles, type GlobalsStorage } from './storage.js';
 
 /** S5 supplies this from ONE pinned authenticated read, not from client fields.
  * sources must be cheaply observed current tree/blob/ref identities (including all
@@ -34,12 +38,14 @@ import {
  * No resolver, corpus reads, fallback scans, or retry/rebase occurs here.
  */
 export interface GlobalsContext {
-  github: Pick<GitHub, 'files' | 'commit'>;
+  storage: GlobalsStorage;
   head: string;
   sources: Sources;
   access: Access;
   user: Identity;
   repository: string;
+  /** Complete configured publication destinations, freshly observed by S5. */
+  destinations: string[];
 }
 
 export async function namePaths(kind: string, name: string) {
@@ -54,19 +60,68 @@ export async function namePaths(kind: string, name: string) {
 }
 
 function bounded(value: unknown, maximum = limits.fileBytes): void {
-  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > maximum)
+  if (globalFileBytes(value) > maximum)
     throw new HttpError(503, 'Global metadata exceeds its byte limit');
 }
 
+function boundedResponse(value: unknown): void {
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.fileBytes)
+    throw new HttpError(503, 'Global response exceeds its byte limit');
+}
+
+function syncView(sync: SyncState, causeIds = sync.causeIds) {
+  return {
+    status: causeIds.length ? sync.status : 'current',
+    causeIds,
+    // Never reflect producer error details, tooltip text, or upstream credentials.
+    ...(causeIds.length && sync.lastFailure !== null
+      ? { lastFailure: 'Sync failed. Retry sync.' }
+      : {}),
+  };
+}
+
+function snapshot(
+  ctx: GlobalsContext,
+  head: string,
+  sync: SyncState,
+  entries: GlobalRecord[],
+  extraIds: string[] = [],
+) {
+  const ids = new Set([...entries.map((entry) => entry.id), ...extraIds]);
+  const state = syncView(sync);
+  return {
+    head,
+    entries,
+    impacts: {},
+    sync: Object.fromEntries(
+      [...ids].map((id) => [
+        id,
+        syncView(
+          sync,
+          sync.causeIds.filter((cause) => sync.causeEntries[cause] === id),
+        ),
+      ]),
+    ),
+    destinationSync: Object.fromEntries(
+      ctx.destinations.map((destination) => [destination, state]),
+    ),
+    // Also retained on the paged/delta envelope for simple transport clients.
+    ...state,
+    lastFailure: state.lastFailure ?? null,
+  };
+}
+
 async function readFile<T>(ctx: GlobalsContext, path: string, schema: z.ZodType<T>) {
-  const [file] = await ctx.github.files([path], ctx.head);
+  const maximum =
+    path === paths.sync ||
+    path.startsWith('globals/entries/') ||
+    path.startsWith('globals/reviews/')
+      ? limits.entryBytes
+      : limits.metadataBytes;
+  const [file] = await readGlobalFiles(ctx.storage, [path], ctx.head, maximum);
   if (!file) throw new HttpError(503, 'Sync pending: required metadata is unavailable');
-  bounded(file.value);
   const result = schema.safeParse(file.value);
   if (!result.success) throw new HttpError(503, 'Sync pending: invalid metadata');
-  if (path.startsWith('globals/entries/') || path.startsWith('globals/reviews/'))
-    bounded(result.data, limits.entryBytes);
-  if (!oid.safeParse(file.sha).success) throw new HttpError(503, 'Invalid global source identity');
   return { value: result.data, sha: file.sha };
 }
 
@@ -124,7 +179,12 @@ async function admitName(
   currentProof(proof, ctx);
   if (proof.kind !== kind || proof.name !== name || proof.occupiedBy !== id)
     throw new HttpError(409, 'Global name is occupied or its proof does not match');
-  const [claim] = await ctx.github.files([locations.claim], ctx.head);
+  const [claim] = await readGlobalFiles(
+    ctx.storage,
+    [locations.claim],
+    ctx.head,
+    limits.metadataBytes,
+  );
   // Proof certifies absence, while the CAS claim protects uniqueness across pending saves.
   if (claim) {
     const parsed = z
@@ -180,13 +240,88 @@ async function acknowledge(
       },
     },
   };
-  const head = await ctx.github.commit(
+  rowSchema.parse(next);
+  bounded(next, limits.entryBytes);
+  const entry = await read(ctx, paths.entry(mutation.id), entrySchema);
+  if (entry.id !== mutation.id) throw new HttpError(503, 'Invalid global identity');
+  const result = {
+    ...snapshot(ctx, ctx.head, sync, [entry]),
+    consumerId: row.id,
+    review: next.review,
+  };
+  boundedResponse(result);
+  const head = await ctx.storage.commit(
     ctx.head,
     { [paths.row(row.id)]: next },
     'Acknowledge global dependency review',
     ctx.user,
   );
-  return { head, ...sync, consumerId: row.id, review: next.review };
+  return { ...result, head };
+}
+
+async function retry(ctx: GlobalsContext, input: z.infer<typeof retrySchema>, sync: SyncState) {
+  if (input.expectedHead !== ctx.head) throw new HttpError(409, 'Source head changed');
+  if (
+    sync.status === 'current' ||
+    input.causeIds.some((id) => !sync.causeIds.includes(id) || sync.causeEntries[id] !== input.id)
+  )
+    throw new HttpError(409, 'Sync causes changed; refresh before retrying');
+  const entry = await read(ctx, paths.entry(input.id), entrySchema);
+  if (entry.id !== input.id) throw new HttpError(503, 'Invalid global identity');
+  const files = await readGlobalFiles(
+    ctx.storage,
+    input.causeIds.map((id) => `globals/causes/${id}.json`),
+    ctx.head,
+    4096,
+  );
+  for (let i = 0; i < files.length; i++) {
+    const cause = pendingCauseSchema.safeParse(files[i]?.value);
+    if (!cause.success) throw new HttpError(503, 'Sync pending: durable cause is unavailable');
+    if (cause.data.id !== input.causeIds[i] || cause.data.globalId !== input.id)
+      throw new HttpError(409, 'Sync cause identity changed');
+    if (ctx.access.role === 'translator' && cause.data.lang === null)
+      throw new HttpError(403, 'Permission denied');
+    permit(
+      ctx,
+      cause.data.operation === 'remove'
+        ? ['maintainer']
+        : cause.data.operation === 'rename'
+          ? ['editor', 'maintainer']
+          : cause.data.operation === 'create'
+            ? ['trial', 'editor', 'maintainer']
+            : ['trial', 'editor', 'maintainer', 'translator'],
+      cause.data.lang ?? undefined,
+    );
+  }
+  const requestId = crypto.randomUUID();
+  const pending: SyncState = { ...sync, status: 'sync-pending' };
+  const request = {
+    version: 1,
+    id: requestId,
+    globalId: input.id,
+    causeIds: input.causeIds,
+    expectedHead: ctx.head,
+    sources: ctx.sources,
+    by: ctx.user.login,
+    at: new Date().toISOString(),
+  };
+  bounded(request);
+  const result = {
+    ...snapshot(ctx, ctx.head, pending, [entry]),
+    retryId: requestId,
+    message: 'Sync pending',
+  };
+  boundedResponse(result);
+  const head = await ctx.storage.commit(
+    ctx.head,
+    {
+      [`globals/retries/${requestId}.json`]: request,
+      [paths.sync]: pending,
+    },
+    'Requeue durable global sync causes',
+    ctx.user,
+  );
+  return { ...result, head };
 }
 
 async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) {
@@ -346,27 +481,30 @@ async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) 
     },
     intentId: intentId ?? null,
   });
+  bounded(files[`globals/causes/${causeId}.json`], 4096);
   const pending: SyncState = {
     version: 1,
     status: 'sync-pending',
     causeIds: [...sync.causeIds, causeId],
+    causeEntries: { ...sync.causeEntries, [causeId]: id },
     lastFailure: sync.lastFailure,
   };
   files[paths.sync] = pending;
   for (const file of Object.values(files)) bounded(file);
-  const head = await ctx.github.commit(
+  const result = {
+    ...snapshot(ctx, ctx.head, pending, [next]),
+    message: 'Sync pending',
+    entry: next,
+    ...(intentId ? { intentId, renameCompleted: false } : {}),
+  };
+  boundedResponse(result);
+  const head = await ctx.storage.commit(
     ctx.head,
     files,
     'Save global entry with Sync pending cause',
     ctx.user,
   );
-  return {
-    head,
-    ...pending,
-    message: 'Sync pending',
-    entry: next,
-    ...(intentId ? { intentId, renameCompleted: false } : {}),
-  };
+  return { ...result, head };
 }
 
 /** Exported for S5 routing. load() must authenticate, refresh permissions, and observe
@@ -379,17 +517,22 @@ export async function globalsHandler(
   try {
     const url = new URL(request.url);
     const route =
-      /^\/globals(?:\/(g_[a-zA-Z0-9_-]{8,80})(?:\/(body|rename|remove|acknowledge|impact|reviews))?)?$/.exec(
+      /^\/globals(?:\/(g_[a-zA-Z0-9_-]{8,80})(?:\/(body|rename|remove|acknowledge|reviews|retry))?)?$/.exec(
         url.pathname,
       );
     if (!route) throw new HttpError(404, 'Global route not found');
     const ctx = await load();
     oid.parse(ctx.head);
     sourcesSchema.parse(ctx.sources);
+    destinationsSchema.parse(ctx.destinations);
+    z.string().min(1).max(128).parse(ctx.user.login);
     permit(ctx, ['trial', 'translator', 'editor', 'maintainer']);
-    if (route[2] === 'impact')
-      throw new HttpError(422, 'Projected impact is calculated in the browser');
     const sync = await read(ctx, paths.sync, syncSchema);
+    if (request.method === 'POST' && route[2] === 'retry') {
+      const input = await body(request, retrySchema, limits.requestBytes);
+      if (input.id !== route[1]) throw new HttpError(400, 'Route and retry identity do not match');
+      return json({ kind: 'ok', value: await retry(ctx, input, sync) });
+    }
     if (request.method === 'GET' && route[2] === 'reviews') {
       const cursor = url.searchParams.get('cursor') ?? 'p0';
       if (!/^p\d{1,5}$/.test(cursor)) throw new HttpError(400, 'Invalid review page');
@@ -407,20 +550,31 @@ export async function globalsHandler(
           throw new HttpError(503, 'Invalid global review page');
         consumers.push({ ...row.view, id, review: row.review, impactDigest: row.impactDigest });
       }
-      const value = { head: ctx.head, ...sync, consumers, nextCursor: page.nextCursor };
-      bounded(value);
+      const value = {
+        ...snapshot(ctx, ctx.head, sync, [], [route[1]]),
+        impacts: { [route[1]]: consumers },
+        nextCursor: page.nextCursor,
+      };
+      boundedResponse(value);
       return json({ kind: 'ok', value });
     }
     if (request.method === 'GET' && !route[2]) {
       if (route[1]) {
         const entry = await read(ctx, paths.entry(route[1]), entrySchema);
         if (entry.id !== route[1]) throw new HttpError(503, 'Invalid global identity');
-        return json({ kind: 'ok', value: { head: ctx.head, ...sync, entry } });
+        const value = { ...snapshot(ctx, ctx.head, sync, [entry]), entry };
+        boundedResponse(value);
+        return json({ kind: 'ok', value });
       }
       const cursor = url.searchParams.get('cursor') ?? 'p0';
       if (!/^p\d{1,5}$/.test(cursor)) throw new HttpError(400, 'Invalid global page');
       const page = await read(ctx, paths.page(cursor), pageSchema);
-      const files = await ctx.github.files(page.ids.map(paths.entry), ctx.head);
+      const files = await readGlobalFiles(
+        ctx.storage,
+        page.ids.map(paths.entry),
+        ctx.head,
+        limits.entryBytes,
+      );
       const entries = files.map((file, i) => {
         if (!file) throw new HttpError(503, 'Global page entry is missing');
         bounded(file.value, limits.entryBytes);
@@ -428,8 +582,8 @@ export async function globalsHandler(
         if (entry.id !== page.ids[i]) throw new HttpError(503, 'Invalid global identity');
         return entry;
       });
-      const value = { head: ctx.head, ...sync, entries, nextCursor: page.nextCursor };
-      bounded(value);
+      const value = { ...snapshot(ctx, ctx.head, sync, entries), nextCursor: page.nextCursor };
+      boundedResponse(value);
       return json({ kind: 'ok', value });
     }
     if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');

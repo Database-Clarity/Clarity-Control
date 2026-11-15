@@ -4,6 +4,8 @@ import { globalsHandler, namePaths, type GlobalsContext } from '../src/globals/h
 import { assertGlobalsPublication, assertNoRawGlobalMutation } from '../src/globals/guards.js';
 import { limits, paths, type Mutation, type Sources } from '../src/globals/model.js';
 import type { GlobalRecord } from '../../../packages/core/src/globals/model.js';
+import { readGlobalFiles, type GlobalsStorage } from '../src/globals/storage.js';
+import { globalFileBytes } from '../src/globals/model.js';
 
 const head = 'a'.repeat(40),
   digest = 'b'.repeat(64),
@@ -58,7 +60,13 @@ const ack: Mutation = {
   impactDigest: digest,
   decision: 'no-text-change',
 };
-const current = { version: 1, status: 'current', causeIds: [], lastFailure: null };
+const current = {
+  version: 1,
+  status: 'current',
+  causeIds: [],
+  causeEntries: {},
+  lastFailure: null,
+};
 const proof = { version: 1, complete: true, sources };
 
 async function fixture() {
@@ -74,14 +82,15 @@ async function fixture() {
     access: { login: 'editor', role: 'editor' },
     user: { id: 1, login: 'editor' },
     repository: 'owner/data',
-    github: {
-      files: vi.fn(async (paths: readonly string[]) =>
+    destinations: ['live', 'upcoming'],
+    storage: {
+      readFiles: vi.fn<GlobalsStorage['readFiles']>(async (paths: readonly string[]) =>
         Promise.all(
           paths.map(async (path) =>
             files.has(path)
               ? {
                   sha: await blobSha(blobContent(files.get(path))),
-                  value: structuredClone(files.get(path)),
+                  bytes: new TextEncoder().encode(blobContent(files.get(path))),
                 }
               : null,
           ),
@@ -162,10 +171,10 @@ async function fixture() {
 describe('bounded global admission and durable Sync pending', () => {
   it('pins the observed blob ID instead of guessing the original file serialization', async () => {
     const f = await fixture(),
-      actualRead = vi.mocked(f.ctx.github.files).getMockImplementation()!;
-    vi.mocked(f.ctx.github.files).mockImplementation(async (selected, ref) =>
-      (await actualRead(selected, ref)).map((file, i) =>
-        file && selected[i] === paths.entry(id) ? { ...file, sha: 'f'.repeat(40) } : file,
+      actualRead = vi.mocked(f.ctx.storage.readFiles).getMockImplementation()!;
+    vi.mocked(f.ctx.storage.readFiles).mockImplementation(async (...args) =>
+      (await actualRead(...args)).map((file, i) =>
+        file && args[0][i] === paths.entry(id) ? { ...file, sha: 'f'.repeat(40) } : file,
       ),
     );
     const result = await f.call();
@@ -197,7 +206,7 @@ describe('bounded global admission and durable Sync pending', () => {
       nextCursor: null,
     });
     expect(f.files.get('globals/catalog.json')).toEqual({ version: 1, lastPage: 1 });
-    expect(f.ctx.github.commit).toHaveBeenCalledTimes(1);
+    expect(f.ctx.storage.commit).toHaveBeenCalledTimes(1);
   });
 
   it('bounds UTF-8 entry bytes independently of request characters and refuses whole-entry removal without its own verdict', async () => {
@@ -215,7 +224,7 @@ describe('bounded global admission and durable Sync pending', () => {
       },
     });
     expect((await f.call({ ...edit, body: '字'.repeat(3000) })).status).toBe(503);
-    expect(f.ctx.github.commit).not.toHaveBeenCalled();
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
     f.files.set(paths.entry(id), entry);
     f.ctx.access.role = 'maintainer';
     expect((await f.call({ operation: 'remove', id, revision: 'r1' })).status).toBe(503);
@@ -250,7 +259,7 @@ describe('bounded global admission and durable Sync pending', () => {
       lastFailure: null,
     });
     expect(JSON.stringify(result.data)).not.toMatch(/affected|impact.pending/i);
-    expect(f.ctx.github.commit).toHaveBeenCalledTimes(1);
+    expect(f.ctx.storage.commit).toHaveBeenCalledTimes(1);
     const causeId = result.data.value.causeIds[0];
     const cause = f.files.get(`globals/causes/${causeId}.json`);
     expect(cause).toMatchObject({
@@ -274,6 +283,7 @@ describe('bounded global admission and durable Sync pending', () => {
       version: 1,
       status: 'sync-failed',
       causeIds: ['previous'],
+      causeEntries: { previous: id },
       lastFailure: 'Offline validation failed',
     });
     f.files.set('globals/causes/previous.json', { unchanged: true });
@@ -289,7 +299,7 @@ describe('bounded global admission and durable Sync pending', () => {
       ...first.data.value.causeIds.slice(1),
       expect.any(String),
     ]);
-    expect(second.data.value.lastFailure).toBe('Offline validation failed');
+    expect(second.data.value.lastFailure).toBe('Sync failed. Retry sync.');
     expect(f.files.get('globals/causes/previous.json')).toEqual({ unchanged: true });
   });
 
@@ -359,8 +369,8 @@ describe('bounded global admission and durable Sync pending', () => {
     const f = await fixture();
     f.ctx.sources[key] = 'd'.repeat(key === 'fallback' || key === 'resolver' ? 64 : 40);
     expect((await f.call()).status).toBe(503);
-    expect(f.ctx.github.commit).not.toHaveBeenCalled();
-    expect(vi.mocked(f.ctx.github.files).mock.calls.flatMap((c) => c[0])).not.toContain(
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+    expect(vi.mocked(f.ctx.storage.readFiles).mock.calls.flatMap((c) => c[0])).not.toContain(
       'tooltips/2.json',
     );
   });
@@ -377,16 +387,16 @@ describe('bounded global admission and durable Sync pending', () => {
     if (value === null) f.files.delete(locations.proof);
     else f.files.set(locations.proof, value);
     expect((await f.call()).status).toBe(503);
-    expect(f.ctx.github.commit).not.toHaveBeenCalled();
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 
   it('returns conflict for expected-head/revision races, including CAS, without retrying', async () => {
     const f = await fixture();
     expect((await f.call(edit, { expectedHead: 'd'.repeat(40) })).status).toBe(409);
     expect((await f.call({ ...edit, revision: 'old' })).status).toBe(409);
-    vi.mocked(f.ctx.github.commit).mockRejectedValueOnce(new RefRace());
+    vi.mocked(f.ctx.storage.commit).mockRejectedValueOnce(new RefRace());
     expect((await f.call()).data.kind).toBe('conflict');
-    expect(f.ctx.github.commit).toHaveBeenCalledTimes(1);
+    expect(f.ctx.storage.commit).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -507,6 +517,9 @@ describe('bounded global admission and durable Sync pending', () => {
       status: 'sync-pending',
       lastFailure: null,
       causeIds: Array.from({ length: limits.causes }, (_, i) => `cause${i}`),
+      causeEntries: Object.fromEntries(
+        Array.from({ length: limits.causes }, (_, i) => [`cause${i}`, id]),
+      ),
     });
     expect((await f.call()).status).toBe(503);
     f.files.set(paths.sync, current);
@@ -518,7 +531,7 @@ describe('bounded global admission and durable Sync pending', () => {
     f.files.set(paths.page('p0'), { version: 1, ids: Array(4).fill(id), nextCursor: null });
     const response = await globalsHandler(new Request('https://local/globals'), async () => f.ctx);
     expect(response.status).toBe(503);
-    expect(f.ctx.github.commit).not.toHaveBeenCalled();
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 });
 
@@ -534,7 +547,7 @@ describe('authoritative saved review acknowledgement and read', () => {
       impactDigest: digest,
       decision: 'no-text-change',
     });
-    expect(vi.mocked(f.ctx.github.commit).mock.calls[0][1]).toEqual({
+    expect(vi.mocked(f.ctx.storage.commit).mock.calls[0][1]).toEqual({
       [paths.row('review1')]: expect.any(Object),
     });
   });
@@ -544,13 +557,19 @@ describe('authoritative saved review acknowledgement and read', () => {
     async (field) => {
       const f = await fixture();
       expect((await f.call({ ...ack, [field]: 'c'.repeat(64) })).status).toBe(409);
-      expect(f.ctx.github.commit).not.toHaveBeenCalled();
+      expect(f.ctx.storage.commit).not.toHaveBeenCalled();
     },
   );
 
   it.each(['sync-pending', 'sync-failed'])('refuses %s rows', async (status) => {
     const f = await fixture();
-    f.files.set(paths.sync, { version: 1, status, causeIds: ['cause1'], lastFailure: 'Failed' });
+    f.files.set(paths.sync, {
+      version: 1,
+      status,
+      causeIds: ['cause1'],
+      causeEntries: { cause1: id },
+      lastFailure: 'Failed',
+    });
     expect((await f.call(ack)).status).toBe(409);
   });
 
@@ -572,7 +591,7 @@ describe('authoritative saved review acknowledgement and read', () => {
       f.files.set(paths.row('review1'), row);
       expect((await f.call(ack)).status).toBe(503);
     }
-    expect(f.ctx.github.commit).not.toHaveBeenCalled();
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 
   it('returns bounded entry/review pages, conservative path metadata, and browser-only projection rejection', async () => {
@@ -583,15 +602,15 @@ describe('authoritative saved review acknowledgement and read', () => {
       const result = await response.json();
       expect(result.value.status).toBe('current');
       if (path.endsWith('reviews'))
-        expect(result.value.consumers[0]).toMatchObject({
+        expect(result.value.impacts[id][0]).toMatchObject({
           line: null,
           path: null,
           direct: null,
           archived: true,
         });
     }
-    expect((await f.call(edit, {}, `/globals/${id}/impact`)).status).toBe(422);
-    expect(f.ctx.github.commit).not.toHaveBeenCalled();
+    expect((await f.call(edit, {}, `/globals/${id}/impact`)).status).toBe(404);
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 });
 
@@ -620,6 +639,7 @@ describe('S5 fail-closed integration guards', () => {
       version: 1,
       status: 'sync-pending',
       causeIds: ['cause1', 'cause2'],
+      causeEntries: { cause1: id, cause2: id },
       lastFailure: null,
     };
     const certificate = {
@@ -646,5 +666,215 @@ describe('S5 fail-closed integration guards', () => {
     expect(() => assertNoRawGlobalMutation([42])).not.toThrow();
     for (const hashes of [[2], [3], [42, 2, 3]])
       expect(() => assertNoRawGlobalMutation(hashes)).toThrow();
+  });
+});
+
+describe('raw file bounds and acknowledgement capacity regressions', () => {
+  it('rejects whitespace-padded oversized sync, claim, and page-entry files before decoding or JSON parsing', async () => {
+    for (const target of [
+      paths.sync,
+      (await namePaths('variables', 'Damage')).claim,
+      paths.entry(id),
+    ]) {
+      const f = await fixture(),
+        original = vi.mocked(f.ctx.storage.readFiles).getMockImplementation()!;
+      const bytes = new TextEncoder().encode(' '.repeat(2_000_000) + JSON.stringify(current));
+      vi.mocked(f.ctx.storage.readFiles).mockImplementation(async (...args) =>
+        (await original(...args)).map((file, i) =>
+          args[0][i] === target ? { sha: head, bytes } : file,
+        ),
+      );
+      const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+      try {
+        const response = target.includes('/names/')
+          ? await f.call()
+          : {
+              status: (
+                await globalsHandler(new Request('https://local/globals'), async () => f.ctx)
+              ).status,
+            };
+        expect(response.status).toBe(503);
+        expect(decode.mock.calls.some(([input]) => input === bytes)).toBe(false);
+        expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+        expect(f.ctx.storage.readFiles).toHaveBeenCalledWith(
+          expect.any(Array),
+          head,
+          target.includes('/entries/') || target === paths.sync
+            ? limits.entryBytes
+            : limits.metadataBytes,
+          limits.fileBytes,
+        );
+      } finally {
+        decode.mockRestore();
+      }
+    }
+  });
+
+  it('checks a whole batch byte cap before decoding its first file and rejects invalid UTF-8/JSON', async () => {
+    const f = await fixture();
+    vi.mocked(f.ctx.storage.readFiles).mockResolvedValue(
+      Array.from({ length: 3 }, () => ({ sha: head, bytes: new Uint8Array(30_000) })),
+    );
+    const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+    try {
+      await expect(readGlobalFiles(f.ctx.storage, ['one', 'two', 'three'], head)).rejects.toThrow(
+        /byte limit/,
+      );
+      expect(decode).not.toHaveBeenCalled();
+    } finally {
+      decode.mockRestore();
+    }
+    for (const bytes of [new Uint8Array([255]), new TextEncoder().encode('{')]) {
+      vi.mocked(f.ctx.storage.readFiles).mockResolvedValue([{ sha: head, bytes }]);
+      await expect(readGlobalFiles(f.ctx.storage, ['one'], head)).rejects.toThrow(
+        /encoding or JSON/,
+      );
+    }
+  });
+
+  it('refuses rows without audit capacity, and keeps a near-limit acknowledged row readable', async () => {
+    const f = await fixture();
+    const large = (target: number) => {
+      const row = f.row();
+      row.view.beforeSource = 'x'.repeat(8192);
+      row.view.afterSource = 'y'.repeat(target - globalFileBytes(row));
+      expect(globalFileBytes(row)).toBe(target);
+      return row;
+    };
+    f.files.set(paths.row('review1'), large(16_300));
+    expect((await f.call(ack)).status).toBe(503);
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+    f.files.set(paths.row('review1'), large(14_000));
+    expect((await f.call(ack)).status).toBe(200);
+    expect(globalFileBytes(f.files.get(paths.row('review1')))).toBeLessThanOrEqual(
+      limits.entryBytes,
+    );
+    const response = await globalsHandler(
+      new Request(`https://local/globals/${id}/reviews`),
+      async () => f.ctx,
+    );
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.value.impacts[id][0].review.acknowledgement.decision).toBe('no-text-change');
+  });
+});
+
+describe('S3 snapshot and explicit durable-cause retry contract', () => {
+  async function pendingFixture() {
+    const f = await fixture();
+    const saved = await f.call();
+    f.ctx.head = saved.data.value.head;
+    const causeIds: string[] = saved.data.value.causeIds;
+    const retry = async (overrides: Record<string, unknown> = {}) => {
+      const response = await globalsHandler(
+        new Request(`https://local/globals/${id}/retry`, {
+          method: 'POST',
+          body: JSON.stringify({ expectedHead: f.ctx.head, id, causeIds, ...overrides }),
+        }),
+        async () => f.ctx,
+      );
+      return { status: response.status, data: await response.json() };
+    };
+    vi.mocked(f.ctx.storage.commit).mockClear();
+    return { ...f, causeIds, retry };
+  }
+
+  it('returns per-entry and destination sync maps and sanitized failures on explicit refresh', async () => {
+    const f = await pendingFixture();
+    const state = f.files.get(paths.sync) as Record<string, unknown>;
+    const secret = 'private tooltip text and token=not-for-the-client';
+    f.files.set(paths.sync, { ...state, status: 'sync-failed', lastFailure: secret });
+    const response = await globalsHandler(new Request('https://local/globals'), async () => f.ctx);
+    const result = await response.json();
+    expect(result.kind).toBe('ok');
+    expect(result.value.sync[id]).toEqual({
+      status: 'sync-failed',
+      causeIds: f.causeIds,
+      lastFailure: 'Sync failed. Retry sync.',
+    });
+    expect(result.value.destinationSync.live).toEqual(result.value.sync[id]);
+    expect(result.value.destinationSync.upcoming).toEqual(result.value.sync[id]);
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+  });
+
+  it('requeues exact durable causes in one expected-head commit without changing causes, definitions, or approvals', async () => {
+    const f = await pendingFixture();
+    const before = structuredClone(f.files.get(`globals/causes/${f.causeIds[0]}.json`));
+    const result = await f.retry();
+    expect(result.status).toBe(200);
+    expect(result.data.value.sync[id]).toMatchObject({
+      status: 'sync-pending',
+      causeIds: f.causeIds,
+    });
+    expect(result.data.value.entries[0].id).toBe(id);
+    expect(result.data.value.destinationSync.live.status).toBe('sync-pending');
+    const changes = vi.mocked(f.ctx.storage.commit).mock.calls[0][1];
+    expect(Object.keys(changes).sort()).toEqual(
+      [`globals/retries/${result.data.value.retryId}.json`, paths.sync].sort(),
+    );
+    expect(changes[`globals/retries/${result.data.value.retryId}.json`]).toMatchObject({
+      globalId: id,
+      expectedHead: f.ctx.head,
+      sources,
+      causeIds: f.causeIds,
+      by: 'editor',
+    });
+    expect(f.files.get(`globals/causes/${f.causeIds[0]}.json`)).toEqual(before);
+    expect(f.ctx.storage.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses stale heads, unknown/duplicate/mismatched causes, and missing durable cause records', async () => {
+    const f = await pendingFixture();
+    expect((await f.retry({ expectedHead: head })).status).toBe(409);
+    expect((await f.retry({ causeIds: ['unknown'] })).status).toBe(409);
+    expect((await f.retry({ causeIds: [f.causeIds[0], f.causeIds[0]] })).status).toBe(400);
+    expect((await f.retry({ id: 'g_other123' })).status).toBe(400);
+    const path = `globals/causes/${f.causeIds[0]}.json`,
+      original = f.files.get(path);
+    f.files.delete(path);
+    expect((await f.retry()).status).toBe(503);
+    f.files.set(path, { ...(original as object), globalId: 'g_other123' });
+    expect((await f.retry()).status).toBe(409);
+    f.files.set(path, { ...(original as object), id: 'wrong' });
+    expect((await f.retry()).status).toBe(409);
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+  });
+
+  it('rechecks retry permissions/languages, preserves pending on CAS conflict, and refuses cleared causes', async () => {
+    const f = await pendingFixture();
+    f.ctx.access = { login: 'translator', role: 'translator', languages: ['de'] };
+    expect((await f.retry()).status).toBe(403);
+    f.ctx.access = { login: 'trial', role: 'trial' };
+    const path = `globals/causes/${f.causeIds[0]}.json`,
+      original = f.files.get(path) as object;
+    f.files.set(path, { ...original, operation: 'remove' });
+    expect((await f.retry()).status).toBe(403);
+    f.ctx.access.role = 'maintainer';
+    vi.mocked(f.ctx.storage.commit).mockRejectedValueOnce(new RefRace());
+    const syncBefore = structuredClone(f.files.get(paths.sync));
+    expect((await f.retry()).status).toBe(409);
+    expect(f.files.get(paths.sync)).toEqual(syncBefore);
+    f.files.set(paths.sync, current);
+    expect((await f.retry()).status).toBe(409);
+  });
+
+  it('distinguishes current entry state from destination-wide pending protection', async () => {
+    const f = await fixture();
+    f.files.set(paths.sync, {
+      version: 1,
+      status: 'sync-pending',
+      causeIds: ['other'],
+      causeEntries: { other: 'g_other123' },
+      lastFailure: null,
+    });
+    const response = await globalsHandler(new Request('https://local/globals'), async () => f.ctx);
+    const result = await response.json();
+    expect(result.value.sync[id]).toEqual({ status: 'current', causeIds: [] });
+    expect(result.value.destinationSync.live).toEqual({
+      status: 'sync-pending',
+      causeIds: ['other'],
+    });
+    expect((await f.call(ack)).status).toBe(409);
   });
 });

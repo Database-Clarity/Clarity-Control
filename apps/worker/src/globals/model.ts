@@ -15,12 +15,23 @@ export const limits = {
   requestBytes: 16_384,
   fileBytes: 65_536,
   entryBytes: 16_384,
+  metadataBytes: 4096,
   body: 8_192,
   causes: 32,
   page: 3,
+  destinations: 4,
 };
 export const oid = z.string().regex(/^[a-f0-9]{40}$/);
+/** Exact canonical bytes used by GitHub.commit, including indentation and final newline. */
+export function globalFileBytes(value: unknown): number {
+  return new TextEncoder().encode(`${JSON.stringify(value, null, 2)}\n`).byteLength;
+}
 const token = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
+export const destinationsSchema = z
+  .array(token)
+  .min(1)
+  .max(limits.destinations)
+  .refine((v) => new Set(v).size === v.length, 'Duplicate destination');
 /** Observed by the authenticated integrator, never supplied by the HTTP client.
  * Every generic writer must change a checked identity or invalidate the certificate.
  * authored is the tooltips tree; definitions and projections are their separate trees,
@@ -69,12 +80,20 @@ export const syncSchema = z
     version: z.literal(1),
     status: z.enum(['sync-pending', 'sync-failed', 'current']),
     causeIds: z.array(token).max(limits.causes),
-    lastFailure: z.string().max(512).nullable(),
+    causeEntries: z.record(token, globalIdSchema),
+    // Producer diagnostics are private. Normalize them before returning or persisting state.
+    lastFailure: z
+      .string()
+      .max(512)
+      .nullable()
+      .transform((v) => (v === null ? null : 'Sync failed. Retry sync.')),
   })
   .strict()
   .refine(
     (v) =>
       new Set(v.causeIds).size === v.causeIds.length &&
+      Object.keys(v.causeEntries).length === v.causeIds.length &&
+      v.causeIds.every((id) => Object.hasOwn(v.causeEntries, id)) &&
       (v.status === 'current'
         ? v.causeIds.length === 0 && v.lastFailure === null
         : v.causeIds.length > 0) &&
@@ -149,7 +168,24 @@ export const rowSchema = z
       JSON.stringify(v.review.consumer) === JSON.stringify(v.view.consumer) &&
       JSON.stringify(v.review.causes) === JSON.stringify(v.view.causes),
     'Review manifest mismatch',
-  );
+  )
+  .refine((v) => {
+    if ((v.review.acknowledgement?.by.length ?? 0) > 128) return false;
+    // Reserve the largest accepted audit before a materialized row becomes readable.
+    // Control characters are the worst JSON byte expansion for a 128-character login.
+    const maximumAudit = {
+      by: '\u0000'.repeat(128),
+      at: '9999-12-31T23:59:59.999Z',
+      contentDigest: v.review.contentDigest,
+      dependencyDigest: v.review.dependencyDigest,
+      impactDigest: v.impactDigest,
+      decision: 'no-text-change',
+    };
+    return (
+      globalFileBytes({ ...v, review: { ...v.review, acknowledgement: maximumAudit } }) <=
+      limits.entryBytes
+    );
+  }, 'Review must reserve acknowledgement capacity');
 export const publicationSchema = z
   .object({
     ...proof,
@@ -211,6 +247,17 @@ export const mutationSchema = z
   })
   .strict();
 export type Mutation = z.infer<typeof mutationSchema>['mutation'];
+export const retrySchema = z
+  .object({
+    expectedHead: oid,
+    id: globalIdSchema,
+    causeIds: z
+      .array(token)
+      .min(1)
+      .max(limits.causes)
+      .refine((v) => new Set(v).size === v.length, 'Duplicate cause'),
+  })
+  .strict();
 
 export const paths = {
   sync: 'globals/sync.json',
