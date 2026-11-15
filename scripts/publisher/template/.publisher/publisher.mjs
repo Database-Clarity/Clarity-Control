@@ -15911,9 +15911,9 @@ function undeclaredConstraint(member) {
     return null;
   return Object.keys(extra).length ? extra : null;
 }
-function foldObjects(members2) {
+function foldObjects(members3) {
   const objects = [];
-  for (const member of members2) {
+  for (const member of members3) {
     if (typeof member !== "object" || member.type !== "object")
       return null;
     for (const key in member) {
@@ -22797,15 +22797,15 @@ function merge3(base, head, next) {
   const original = new Set(base.associated);
   const theirs = new Set(head.associated);
   const mine = new Set(next.associated);
-  const members2 = new Set(
+  const members3 = new Set(
     [...original, ...theirs, ...mine].filter(
       (hash2) => original.has(hash2) ? theirs.has(hash2) && mine.has(hash2) : theirs.has(hash2) || mine.has(hash2)
     )
   );
   const sameOrder = (a, b) => a.length === b.length && a.every((hash2, index) => hash2 === b[index]);
-  const associated = sameOrder(head.associated, base.associated) ? next.associated.filter((hash2) => members2.has(hash2)) : sameOrder(next.associated, base.associated) ? head.associated.filter((hash2) => members2.has(hash2)) : [
-    ...next.associated.filter((hash2) => members2.has(hash2)),
-    ...head.associated.filter((hash2) => members2.has(hash2) && !mine.has(hash2))
+  const associated = sameOrder(head.associated, base.associated) ? next.associated.filter((hash2) => members3.has(hash2)) : sameOrder(next.associated, base.associated) ? head.associated.filter((hash2) => members3.has(hash2)) : [
+    ...next.associated.filter((hash2) => members3.has(hash2)),
+    ...head.associated.filter((hash2) => members3.has(hash2) && !mine.has(hash2))
   ];
   if (conflicts.length) return { ok: false, conflicts };
   return { ok: true, merged: tooltipSchema.parse({ ...merged, text, associated }) };
@@ -23223,8 +23223,8 @@ var init_schemas4 = __esm({
 // packages/core/src/schedule/digest.ts
 async function sha256(text) {
   const bytes = new TextEncoder().encode(text);
-  const digest2 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest2), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest3 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest3), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 function approvedProposal({ base, proposed }) {
   if (base === null) return withoutTranslations(proposed);
@@ -23233,8 +23233,8 @@ function approvedProposal({ base, proposed }) {
     value2 = withField(value2, proposed, field);
   return value2;
 }
-function approvalInput(members2) {
-  const sorted = [...members2].sort((a, b) => a.hash - b.hash);
+function approvalInput(members3) {
+  const sorted = [...members3].sort((a, b) => a.hash - b.hash);
   for (const [index, member] of sorted.entries()) {
     if (index > 0 && sorted[index - 1].hash === member.hash)
       throw new Error(`Duplicate member ${member.hash}`);
@@ -23250,8 +23250,8 @@ function approvalInput(members2) {
     }))
   });
 }
-function approvedDigest(members2) {
-  return sha256(approvalInput(members2));
+function approvedDigest(members3) {
+  return sha256(approvalInput(members3));
 }
 function batchIntentDigest(value2) {
   return sha256(
@@ -23668,11 +23668,11 @@ var LocalRepository = class {
       return void 0;
     }
   }
-  tree(commit) {
-    const cached2 = this.trees.get(commit);
+  tree(commit2) {
+    const cached2 = this.trees.get(commit2);
     if (cached2) return { ...cached2 };
     const tree = Object.fromEntries(
-      this.git(["ls-tree", "-rz", "--full-tree", commit]).split("\0").filter(Boolean).map((line) => {
+      this.git(["ls-tree", "-rz", "--full-tree", commit2]).split("\0").filter(Boolean).map((line) => {
         const [meta3, path] = line.split("	");
         const [mode, type, oid] = meta3.split(" ");
         if (!this.preserveModes && (mode !== "100644" || type !== "blob"))
@@ -23680,7 +23680,7 @@ var LocalRepository = class {
         return [path, oid];
       })
     );
-    this.trees.set(commit, tree);
+    this.trees.set(commit2, tree);
     return { ...tree };
   }
   blob(oid) {
@@ -23719,7 +23719,7 @@ var LocalRepository = class {
         env
       );
       const root = this.git(["write-tree"], void 0, env).trim();
-      const commit = this.git(
+      const commit2 = this.git(
         ["commit-tree", root, ...parent ? ["-p", parent] : []],
         message,
         credits ? {
@@ -23729,8 +23729,8 @@ var LocalRepository = class {
           GIT_COMMITTER_EMAIL: credits.committer.email
         } : {}
       ).trim();
-      this.trees.set(commit, { ...tree });
-      return commit;
+      this.trees.set(commit2, { ...tree });
+      return commit2;
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
@@ -23769,11 +23769,11 @@ var LocalRepository = class {
       "--",
       path
     ]).split("\n");
-    let commit = "";
+    let commit2 = "";
     const entries = [];
     for (const line of lines) {
-      if (/^[0-9a-f]{40}$/.test(line)) commit = line;
-      else if (line) entries.push({ commit, path: line });
+      if (/^[0-9a-f]{40}$/.test(line)) commit2 = line;
+      else if (line) entries.push({ commit: commit2, path: line });
     }
     return entries;
   }
@@ -26355,8 +26355,8 @@ async function publishableHash(tooltip, aliases = {}) {
       ...incoming.length ? { aliases: incoming } : {}
     })
   );
-  const digest2 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest2), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest3 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest3), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 // packages/core/src/index.ts
@@ -26467,8 +26467,8 @@ async function inactivePublishableHash(tooltip, aliases, moves = {}) {
 }
 async function inactiveRemovalHash(hash2) {
   const bytes = new TextEncoder().encode(stableStringify({ inactive: hash2 }));
-  const digest2 = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest2), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest3 = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest3), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 var unreviewedInactiveMessage = "Publish inactive move decisions in Review changes before scheduling or publishing this batch";
 async function hasUnpublishedInactiveMove(hash2, snapshot, pushed, aliases, moves) {
@@ -27905,8 +27905,60 @@ var syncedSettingsSchema = external_exports.object({
 init_zod();
 init_legacy();
 init_schemas3();
+init_contentHash();
+
+// packages/core/src/aliasGroupOperations.ts
+init_zod();
+init_legacy();
+var commit = external_exports.string().regex(/^[0-9a-f]{40}$/);
+var digest2 = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var members2 = external_exports.array(hashSchema).min(2).refine((v) => new Set(v).size === v.length);
+var selection = {
+  canonical: hashSchema,
+  members: members2,
+  /** Compare with server-recomputed membership/facts digest, never trust client eligibility. */
+  factsDigest: digest2,
+  /** Single-group only. Server still refuses loss of a locale absent from canonical text. */
+  acknowledgeConflicts: external_exports.literal(true).optional(),
+  note: external_exports.string().optional()
+};
+var aliasGroupOperationSchema = external_exports.discriminatedUnion("op", [
+  external_exports.object({ op: external_exports.literal("accept"), ...selection }).strict(),
+  external_exports.object({ op: external_exports.literal("split"), ...selection }).strict(),
+  external_exports.object({
+    op: external_exports.literal("reject"),
+    members: members2,
+    factsDigest: digest2,
+    reason: external_exports.string().optional()
+  }).strict(),
+  external_exports.object({ op: external_exports.literal("ungroup"), canonical: hashSchema }).strict(),
+  external_exports.object({
+    op: external_exports.literal("setCanonical"),
+    canonical: hashSchema,
+    to: hashSchema,
+    acknowledgeConflicts: external_exports.literal(true).optional()
+  }).strict()
+]).superRefine((op, ctx) => {
+  if ((op.op === "accept" || op.op === "split") && !op.members.includes(op.canonical))
+    ctx.addIssue({ code: "custom", message: "Canonical must be a selected member" });
+  if (op.op === "setCanonical" && op.canonical === op.to)
+    ctx.addIssue({ code: "custom", message: "Canonical must change" });
+});
+var aliasGroupsRequestSchema = external_exports.object({
+  expectedHead: commit,
+  ops: external_exports.array(aliasGroupOperationSchema).min(1).max(100)
+}).strict();
+
+// packages/core/src/aliasGroups.ts
 var hashKey3 = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((v) => Number(v) <= 4294967295);
 var actor = external_exports.object({ id: external_exports.string().min(1), login: external_exports.string().min(1) }).strict();
+var aliasGroupArchiveSchema = external_exports.object({
+  path: external_exports.string().regex(/^migration-archives\/alias-groups\/[0-9a-f]{40}\/(0|[1-9]\d*)\.json$/).refine((path) => Number(path.split("/").at(-1)?.replace(".json", "")) <= 4294967295),
+  files: external_exports.record(
+    hashKey3,
+    external_exports.string().regex(/^[0-9a-f]{40}$/).nullable()
+  ).refine((files) => Object.keys(files).length > 0)
+}).strict();
 var aliasGroupsSchema = external_exports.object({
   version: external_exports.literal(1),
   groups: external_exports.record(
@@ -27931,9 +27983,13 @@ var aliasGroupsSchema = external_exports.object({
       at: timestampSchema,
       reason: external_exports.string().optional()
     }).strict()
-  )
+  ),
+  archives: external_exports.array(aliasGroupArchiveSchema).optional()
 }).strict().superRefine((value2, ctx) => {
   const seen = /* @__PURE__ */ new Set();
+  const paths2 = value2.archives?.map((archive) => archive.path) ?? [];
+  if (new Set(paths2).size !== paths2.length)
+    ctx.addIssue({ code: "custom", message: "Duplicate alias archive path" });
   for (const [key, group] of Object.entries(value2.groups)) {
     if (!group.members.includes(Number(key)))
       ctx.addIssue({ code: "custom", message: "Canonical must be a member" });
@@ -27943,6 +27999,13 @@ var aliasGroupsSchema = external_exports.object({
     }
   }
 });
+var aliasGroupIssueSchema = external_exports.object({ canonical: hashSchema, member: hashSchema.optional(), reason: external_exports.string().min(1) }).strict();
+var aliasGroupsResponseSchema = external_exports.object({
+  head: external_exports.string().regex(/^[0-9a-f]{40}$/),
+  config: aliasGroupsSchema,
+  issues: external_exports.array(aliasGroupIssueSchema),
+  affectedCanonicals: external_exports.array(hashSchema).refine((v) => new Set(v).size === v.length)
+}).strict();
 var aliasProposalSchema = external_exports.object({
   kind: external_exports.enum(["S", "X"]),
   canonical: hashSchema,
@@ -28118,7 +28181,7 @@ var unpublishedMessage = "This field has saved changes that are not published ye
 var eventsArchive = (batchId, seq) => `schedule/batches/${batchId}/events/${String(seq).padStart(8, "0")}.json`;
 function batchMembers(io, tree, batchId) {
   const prefix = `schedule/batches/${batchId}/tooltips/`;
-  const members2 = [];
+  const members3 = [];
   for (const path of Object.keys(tree)) {
     if (!path.startsWith(prefix)) continue;
     const name = path.slice(prefix.length);
@@ -28126,9 +28189,9 @@ function batchMembers(io, tree, batchId) {
     const member = batchMemberSchema.parse(io.read(tree, path));
     if (String(member.hash) !== name.slice(0, -5))
       throw new Error(`Batch member ${path} carries another hash`);
-    members2.push(member);
+    members3.push(member);
   }
-  return members2.sort((a, b) => a.hash - b.hash);
+  return members3.sort((a, b) => a.hash - b.hash);
 }
 function withEvent(io, tree, batch, update, event) {
   const revision = batch.revision + 1;
@@ -28399,8 +28462,8 @@ var Publisher = class {
       throw new Error("Credit request target mismatch");
     return requesterCredits(payload.requester);
   }
-  receipt(commit, opId) {
-    return this.read(this.git.tree(commit), paths(opId).receipt);
+  receipt(commit2, opId) {
+    return this.read(this.git.tree(commit2), paths(opId).receipt);
   }
   candidate(opId, blob) {
     const c = this.git.head(paths(opId).candidate);
@@ -28689,15 +28752,15 @@ var Publisher = class {
             outcomes.push({ hash: canonical, status: "missing" });
             continue;
           }
-          const digest2 = await inactivePublishableHash(tooltip.data, aliases, moves);
+          const digest3 = await inactivePublishableHash(tooltip.data, aliases, moves);
           outcomes.push({
             hash: canonical,
-            status: digest2 === payload.expected[hash2] ? "accepted" : "stale"
+            status: digest3 === payload.expected[hash2] ? "accepted" : "stale"
           });
           if (!seen.has(canonical)) {
             entries.push({
               hash: canonical,
-              digest: digest2,
+              digest: digest3,
               tooltipBlob: oid ?? this.git.writeBlob(json3(tooltip.data))
             });
             tooltips.push(tooltip.data);
@@ -28848,21 +28911,21 @@ var Publisher = class {
    * guard on effective publication, inside the publisher (I1). Read-only; a failure is terminal.
    */
   async batchPlan(tree, payload, aliases) {
-    let members2;
+    let members3;
     try {
-      members2 = batchMembers(this, tree, payload.batchId);
+      members3 = batchMembers(this, tree, payload.batchId);
     } catch (e) {
       return { failure: { status: "rejected", error: `Invalid batch member: ${String(e)}` } };
     }
-    if (members2.map((m) => m.hash).join() !== payload.hashes.join())
+    if (members3.map((m) => m.hash).join() !== payload.hashes.join())
       return {
         failure: { status: "rejected", error: "Batch members differ from the signed request" }
       };
-    if (await approvedDigest(members2) !== payload.approvedDigest)
+    if (await approvedDigest(members3) !== payload.approvedDigest)
       return {
         failure: { status: "rejected", error: "Batch content differs from what was approved" }
       };
-    const blocked = members2.filter((m) => tree[schedulePaths.conflict(m.hash)]).map((m) => m.hash);
+    const blocked = members3.filter((m) => tree[schedulePaths.conflict(m.hash)]).map((m) => m.hash);
     if (blocked.length)
       return {
         failure: {
@@ -28879,7 +28942,7 @@ var Publisher = class {
     const outcomes = [];
     const tooltips = [];
     const moves = this.movesAt(tree);
-    for (const m of members2) {
+    for (const m of members3) {
       const stored = (path) => {
         const value2 = this.read(tree, path);
         if (value2 === void 0) return null;
@@ -29113,13 +29176,13 @@ var Publisher = class {
     }
     if (receipt.batchId !== payload.batchId) throw new Error("Receipt batch mismatch");
     const frozen = this.git.tree(receipt.sourceCommit);
-    const members2 = batchMembers(this, frozen, payload.batchId);
+    const members3 = batchMembers(this, frozen, payload.batchId);
     const snapshotAt = (hash2) => {
       const value2 = this.read(frozen, `live/tooltips/${hash2}.json`);
       return value2 === void 0 ? null : tooltipSchema.parse(value2);
     };
     const pushedAt = pushedSchema.parse(this.read(frozen, "live/pushed.json"));
-    const byHash = new Map(members2.map((m) => [m.hash, m]));
+    const byHash = new Map(members3.map((m) => [m.hash, m]));
     for (const e of receipt.entries) {
       const m = byHash.get(e.hash);
       if (!m) throw new Error(`Receipt member ${e.hash} missing at S'; operator required`);
@@ -29137,7 +29200,7 @@ var Publisher = class {
     if (batch.status !== "publishing" || batch.opId !== opId || batch.claim?.opId !== opId)
       throw new Error(`Batch ${batch.id} is not claimed by ${opId}; operator required`);
     const outcomes = [];
-    for (const m of members2) {
+    for (const m of members3) {
       const currentPath = `tooltips/${m.hash}.json`;
       const raw = this.read(tree, currentPath);
       const current = raw === void 0 ? null : tooltipSchema.parse(raw);
