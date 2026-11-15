@@ -276,6 +276,21 @@ it('recognizes omitted articles but requires complete equipment-name words', () 
     ),
   ).toContain('Unsupported item name: The Stag');
 });
+it('recognizes a pluralized complete equipment name without permitting substrings', () => {
+  const catalog = { ...editor, items: { 1: { name: 'Orpheus Rig' } } };
+  const source = { ...item, source: { text: 'Lasts longer with Orpheus Rigs.' } };
+  expect(validateDraft(source, 'Lasts longer with <yellow Orpheus Rig />.', catalog, app)).toEqual(
+    [],
+  );
+  expect(
+    validateDraft(
+      { ...source, source: { text: 'Uses Orpheus Rigging.' } },
+      'Lasts longer with <yellow Orpheus Rig />.',
+      catalog,
+      app,
+    ),
+  ).toContain('Unsupported item name: Orpheus Rig');
+});
 it('treats import IDs as references and preserves verbatim owner rewrites', () => {
   expect(validateDraft(item, 'import main from 2724068510', editor, app)).not.toContain(
     'Unsupported number: 2724068510',

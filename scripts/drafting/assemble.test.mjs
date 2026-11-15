@@ -57,6 +57,23 @@ it('uses loader schemas and preserves each duplicate cell provenance', () => {
   expect(result.drafts.map((d) => d.source.range)).toEqual(['C2', 'C3']);
   expect(result.drafts.map((d) => d.english)).toEqual(['Deals 12 damage.', 'Deals 12 damage.']);
 });
+it('inherits verified supplemental evidence for identical cells while retaining its own link', () => {
+  const x = fixture(),
+    proof = [{ fragment: 'Verified fragment', total: 4.5 }];
+  x.census[0].fragmentImprovements = proof;
+  x.census[0].ownerCorrections = ['Use the corrected value.'];
+  x.batches[0].critique.inputDigest = sampleInputDigest(x.batches[0].input);
+  const checked = [];
+  x.validate = (item) => {
+    checked.push(item);
+    return item.fragmentImprovements === proof ? [] : ['Missing proof'];
+  };
+  const result = assembleDrafts(x),
+    duplicate = checked.find((item) => item.hash === 101);
+  expect(duplicate.fragmentImprovements).toBe(proof);
+  expect(duplicate.ownerCorrections).toContain('Use the corrected value.');
+  expect(result.drafts[1].source.range).toBe('C3');
+});
 it('rejects stale bytes, inputs, approvals, and per-row validation', () => {
   for (const mutate of [
     (x) => {

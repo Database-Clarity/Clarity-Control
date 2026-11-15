@@ -180,7 +180,15 @@ export function assembleDrafts({
       continue;
     }
     const english = accepted.get(from);
-    if (typeof english !== 'string' || validate(item, english).length)
+    // The identical mechanic also inherits the parent's verified fragment and
+    // owner-correction evidence. Its own cell/location remains unchanged.
+    const effectiveItem = {
+      ...item,
+      fragmentImprovements: parent.fragmentImprovements ?? [],
+      ownerCorrections: [...(item.ownerCorrections ?? []), ...(parent.ownerCorrections ?? [])],
+      ownerFeedback: parent.ownerFeedback ?? item.ownerFeedback,
+    };
+    if (typeof english !== 'string' || validate(effectiveItem, english).length)
       throw Error(`Ungated reuse: ${hash}`);
     accepted.set(hash, english);
     warnings[hash] = warnings[from];

@@ -355,7 +355,11 @@ export function validateDraft(item, english, editor, app) {
     const sourceNames = [name, ...(name.startsWith('the ') ? [name.slice(4)] : [])];
     if (
       !names.has(name) ||
-      !sourceNames.some((candidate) => ` ${evidence} `.includes(` ${candidate} `))
+      !sourceNames.some((candidate) =>
+        [candidate, ...(!candidate.endsWith('s') ? [candidate + 's'] : [])].some((form) =>
+          ` ${evidence} `.includes(` ${form} `),
+        ),
+      )
     )
       errors.push(`Unsupported item name: ${match[1]}`);
   }

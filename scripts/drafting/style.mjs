@@ -70,7 +70,9 @@ export function styleLint(english) {
       errors.push('Style: mid-sentence Stacks or Mods');
   }
   const untagged = english.replace(/<[^<>]*\/>/g, '').replace(/^\s*\/\/.*$/gm, '');
-  if (/\bUnravel(?:ing)?\b/.test(untagged)) errors.push('Style: untagged Strand Unravel keyword');
+  if (/\bUnravel(?:ing|ed)?\b/.test(untagged))
+    errors.push('Style: untagged Strand Unravel keyword');
+  if (/\b(?:Volatile|Weakened)\b/.test(untagged)) errors.push('Style: untagged Void keyword');
   if (/\b(?:Unraveling|Unravelling) Projectiles\b/i.test(prose))
     errors.push('Style: use Unravel seekers');
   if (

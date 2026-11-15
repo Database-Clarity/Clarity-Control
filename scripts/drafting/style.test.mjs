@@ -23,6 +23,11 @@ it('rejects the final owner feedback patterns without rejecting a useful tick co
     'Style: aggregate cloud damage sum',
   );
   expect(styleLint('The cloud deals 32 damage per tick.')).toEqual([]);
+  expect(styleLint('Unraveled enemies release threads.')).toContain(
+    'Style: untagged Strand Unravel keyword',
+  );
+  expect(styleLint('Volatile enemies explode.')).toContain('Style: untagged Void keyword');
+  expect(styleLint('<void Volatile /> enemies explode.')).toEqual([]);
 });
 
 it('blocks repeated owner v4.8 misses before review', () => {
