@@ -59,6 +59,8 @@ it('says "Markup only" when only element tags changed', async () => {
     'Scorch',
   ]);
   expect(host.querySelector('[data-tag-here]')?.textContent).toBe('Tag the same words here');
+  expect(host.querySelector('[data-tag-here]')?.hasAttribute('title')).toBe(false);
+  expect(host.querySelector('[role="tooltip"]')?.textContent).toContain('Selects the next Solar icon');
 });
 
 it('outlines only the spans that are new, not ones tagged before', async () => {

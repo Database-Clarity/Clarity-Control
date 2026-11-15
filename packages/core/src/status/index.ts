@@ -1,6 +1,7 @@
 import { resolveAlias, type Aliases } from '../aliases.js';
 import { usesEnglishFallback } from '../exportLegacy.js';
 import { languages, type Lang } from '../languages.js';
+import { numberTokens } from '../numbers/map.js';
 import type { Tooltip } from '../schemas.js';
 
 export interface DriftEntry {
@@ -73,11 +74,13 @@ export interface TranslationQueueEntry {
   tooltip: Tooltip;
   language: Lang;
   state: TranslationState;
-  /** Only for `outdated`: English revision gap in ms (> 0). */
+  /** Removed English numbers still referenced by this translation. */
+  reason?: 'numbers';
+  /** Only for `outdated`: English revision gap in ms (0 when only numbers are flagged). */
   ageMs?: number;
-  /** Only for `outdated`: the English revision the translation was based on. */
+  /** Only for `outdated`: the English revision the translation was based on, when known. */
   sourceUpdatedAt?: string;
-  /** Only for `outdated`: the gap exceeds the export limit, so English is exported instead. */
+  /** Only for `outdated`: English is exported instead (stale source or an unfreezable number). */
   exportedInEnglish?: boolean;
 }
 
@@ -85,9 +88,10 @@ const stateRank: Record<TranslationState, number> = { outdated: 0, missing: 1, c
 
 /**
  * Every tooltip × selected non-English language with its translation state.
- * `missing` = English exists but there is no saved translation; `outdated` matches
- * `outdatedTranslations`; everything else (including translations without a known source
- * revision) is `current`. Aliases, archived tooltips and tooltips without English text are never listed.
+ * `missing` = English exists but there is no saved translation; `outdated` has an older source
+ * revision or references a removed English number. Everything else (including translations without
+ * a known source revision) is `current`. Aliases, archived tooltips, and tooltips without English
+ * text are never listed.
  * Order: outdated (largest gap first), then missing, then current; ties by hash, language.
  */
 export function translationQueue(
@@ -135,10 +139,15 @@ export function translationStateOf(
   if (!translation) return { state: 'missing' };
   const sourceUpdatedAt = translation.sourceUpdatedAt;
   const ageMs = sourceUpdatedAt ? Date.parse(english.updatedAt) - Date.parse(sourceUpdatedAt) : 0;
-  if (sourceUpdatedAt && ageMs > 0)
+  const retired = english.numbers?.retired;
+  const removedNumbers =
+    retired &&
+    numberTokens(translation.text).some(({ id }) => id !== undefined && Object.hasOwn(retired, id));
+  if (removedNumbers || (sourceUpdatedAt && ageMs > 0))
     return {
       state: 'outdated',
-      ageMs,
+      ...(removedNumbers ? { reason: 'numbers' as const } : {}),
+      ageMs: Math.max(0, ageMs),
       sourceUpdatedAt,
       exportedInEnglish: usesEnglishFallback(tooltip, language),
     };

@@ -13,6 +13,7 @@ import { compareRenders, type CompareLine, type Comparison } from './compare';
 import { classNames, Lines, PreviewSpan, TooltipPreview } from './TooltipPreview';
 import styles from './PreviewColumn.module.scss';
 import previewStyles from './TooltipPreview.module.scss';
+import { TitleAnchor } from './MarkupRenderer';
 
 import type { PreviewMode } from './previewMode';
 
@@ -272,17 +273,26 @@ export function VersionSwitch({
     <div className={styles.segmented} role="group" aria-label={label}>
       {(['base', 'enhanced', 'compare'] as const).map((mode) => {
         const missing = !hasEnhanced && mode !== 'base';
-        return (
+        const button = (
           <button
             key={mode}
             type="button"
             aria-pressed={value === mode}
             disabled={missing}
-            title={missing ? 'This item has no enhanced version' : undefined}
             onClick={() => onChange(mode)}
           >
             {labels[mode]}
           </button>
+        );
+        return missing ? (
+          <TitleAnchor
+            key={mode}
+            part={{ title: [{ linesContent: [{ text: 'This item has no enhanced version' }] }] }}
+          >
+            {button}
+          </TitleAnchor>
+        ) : (
+          button
         );
       })}
     </div>

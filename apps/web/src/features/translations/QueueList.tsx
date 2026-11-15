@@ -30,6 +30,7 @@ export function rememberOpenedFirst(signature: string, key: string) {
 }
 
 export function stateText(row: QueueRow): string {
+  if (row.reason === 'numbers') return 'Numbers';
   return row.state === 'missing' ? 'Missing' : `Outdated · ${behindLabel(row.ageMs ?? 0)}`;
 }
 
@@ -53,9 +54,14 @@ const queueRowState = (row: QueueRow): RowState => ({
   text: stateText(row),
   state: row.state,
   exported: row.exportedInEnglish,
-  title: row.exportedInEnglish
-    ? 'More than 90 days behind English, so the exported text is English'
-    : undefined,
+  title:
+    row.reason === 'numbers'
+      ? row.exportedInEnglish
+        ? 'Numbers removed from English; this translation exports in English.'
+        : 'Numbers removed from English; tokens keep their frozen old values until removed.'
+      : row.exportedInEnglish
+        ? 'More than 90 days behind English, so the exported text is English'
+        : undefined,
 });
 
 /**

@@ -8,6 +8,7 @@ import { EnglishDiffContent } from '../translations/EnglishDiff';
 import { useSettingsStore } from '../../stores/settings';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import { EnglishRaw } from './EnglishRaw';
+import { TitleAnchor } from '../preview/MarkupRenderer';
 import styles from './TooltipPage.module.scss';
 
 /**
@@ -93,21 +94,32 @@ export function TranslationSource({
             hasEnhanced={Boolean(enhanced)}
             onChange={(next) => remember({ englishVersion: next })}
           />
-          <button
-            type="button"
-            role="switch"
-            aria-label="English markup"
-            aria-checked={raw}
-            className={styles.markupToggle}
-            title={
-              raw
-                ? 'Show the English rendered (term marks show there; Ctrl+K, then G lists them)'
-                : 'Show the English markup, read-only and copyable'
-            }
-            onClick={() => remember({ englishRaw: !raw })}
+          <TitleAnchor
+            part={{
+              title: [
+                {
+                  linesContent: [
+                    {
+                      text: raw
+                        ? 'Show the English rendered (term marks show there; Ctrl+K, then G lists them)'
+                        : 'Show the English markup, read-only and copyable',
+                    },
+                  ],
+                },
+              ],
+            }}
           >
-            Markup
-          </button>
+            <button
+              type="button"
+              role="switch"
+              aria-label="English markup"
+              aria-checked={raw}
+              className={styles.markupToggle}
+              onClick={() => remember({ englishRaw: !raw })}
+            >
+              Markup
+            </button>
+          </TitleAnchor>
         </div>
       )}
       {diff && showChanges ? (

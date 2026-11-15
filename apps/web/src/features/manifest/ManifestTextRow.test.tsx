@@ -184,7 +184,12 @@ describe('ManifestTextRow', () => {
     expect(host.querySelector('p button')?.textContent).toBe(
       'Besiegte Gegner erhöhen den Schaden.',
     );
-    expect(host.querySelector('p button')?.getAttribute('title')).toContain('Kills grant');
+    expect(host.querySelector('p button')?.hasAttribute('title')).toBe(false);
+    await act(async () => host.querySelector<HTMLButtonElement>('p button')!.focus());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Kills grant');
+    await act(async () =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
     await act(async () => root.render(<ManifestTextRow hash={3} lang="de" />));
     expect(host.textContent).toContain('Kinetischer Siphon');
     expect(host.textContent).toContain('Schnelle Abschüsse');

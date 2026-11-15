@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
+import { stateText } from './QueueList';
 import { changeKey, changeSizeMemory } from './changeSize';
 import type { Item } from '../../services/generator';
 import {
@@ -291,4 +292,22 @@ describe('translation queue', () => {
       '2 y',
     ]);
   });
+});
+
+it('propagates removed-number reasons to Numbers rows and removes carried saves from the work queue', () => {
+  const data = fixture();
+  const value = data.bundle.tooltips[3]!;
+  value.text.en!.numbers = { ids: [], next: 2, retired: { 1: '5' } };
+  value.text.de!.text = '#{=1}';
+  const rows = translationIndex(data).queue('de');
+  const row = rows.find((row) => row.hash === 3)!;
+  expect(row).toMatchObject({ state: 'outdated', reason: 'numbers', exportedInEnglish: false });
+  expect(stateText(row)).toBe('Numbers');
+  const carried = structuredClone(data);
+  carried.bundle.tooltips[3]!.text.de!.text = 'Aktuell';
+  expect(
+    translationIndex(carried)
+      .queue('de')
+      .some((row) => row.hash === 3),
+  ).toBe(false);
 });

@@ -39,6 +39,7 @@ export interface QueueRow {
   categoryId: string;
   category: string;
   state: Exclude<TranslationState, 'current'>;
+  reason?: 'numbers';
   /** Outdated only: how far the translation's English source trails the current English. */
   ageMs?: number;
   /** Outdated only: the gap exceeds the export limit, so English is exported instead. */
@@ -216,6 +217,7 @@ function buildQueue(translatable: readonly Translatable[], language: Lang): Queu
       categoryId: entry.categoryId,
       category: entry.category,
       state: result.state,
+      reason: result.reason,
       ageMs: result.ageMs,
       exportedInEnglish: result.exportedInEnglish,
       haystack: entry.haystack,
