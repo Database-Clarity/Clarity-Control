@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { exportLegacy, languages, numberSlots, type Lang, type Tooltip } from '@clarity/core';
 import { tooltip } from '../../core/test/helpers.js';
-import { buildAllLegacy, buildLegacy, legacyPresets, type LegacyInput } from '../src/index.js';
+import { buildAllLegacy, buildLegacy, compile, legacyPresets, newStyleFile, styles, type LegacyInput } from '../src/index.js';
 import { lowerInput } from '../src/elementTags.js';
 import { doMath } from '../src/converter/converterFunctions/math.js';
 
@@ -39,7 +39,8 @@ function input(language: Lang, text = tokenized(english).replace('Damage', 'Tran
   const facts = Object.fromEntries(
     [1, 2, 3, 100].map((hash) => [hash, { name: 'Test', type: 'Weapon Perk' }]),
   );
-  return { perks: exportLegacy([...globals, item], 0, facts) };
+  // Match the serialized liveDescriptions boundary consumed by the engine.
+  return JSON.parse(JSON.stringify({ perks: exportLegacy([...globals, item], 0, facts) })) as LegacyInput;
 }
 
 describe('P11: language goldens through core export and all eight engine presets', () => {
@@ -59,6 +60,16 @@ describe('P11: language goldens through core export and all eight engine presets
         expect(descriptions[language]).toBeDefined();
         expect(JSON.stringify(descriptions[language])).toContain(golden);
       }
+    }
+    for (const style of styles) {
+      const file = newStyleFile('numbers', style, {
+        categories: ['perks'], sandboxPerks: [], frameAliases: false,
+        languages: [language], keys: [], bungieIdentical: false,
+      });
+      const result = compile(source, file, {
+        catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },
+      });
+      expect(JSON.stringify(result.expanded?.[100]?.descriptions[language])).toContain(golden);
     }
   });
 
