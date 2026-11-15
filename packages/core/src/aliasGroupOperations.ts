@@ -6,6 +6,7 @@ const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const members = z
   .array(hashSchema)
   .min(2)
+  .max(256)
   .refine((v) => new Set(v).size === v.length);
 const selection = {
   canonical: hashSchema,
@@ -14,7 +15,7 @@ const selection = {
   factsDigest: digest,
   /** Single-group only. Server still refuses loss of a locale absent from canonical text. */
   acknowledgeConflicts: z.literal(true).optional(),
-  note: z.string().optional(),
+  note: z.string().max(500).optional(),
 };
 
 /** Client intent only: actor, time, archives, basis, and eligibility are server-derived.
@@ -31,7 +32,7 @@ export const aliasGroupOperationSchema = z
         op: z.literal('reject'),
         members,
         factsDigest: digest,
-        reason: z.string().optional(),
+        reason: z.string().max(500).optional(),
       })
       .strict(),
     z.object({ op: z.literal('ungroup'), canonical: hashSchema }).strict(),
