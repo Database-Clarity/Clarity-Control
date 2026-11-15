@@ -132,7 +132,7 @@ export function TermsPanel({
                 type="button"
                 className={styles.insert}
                 tabIndex={-1}
-                title="Insert at the caret in the translation"
+                aria-label="Insert at the caret in the translation"
               >
                 Insert
               </button>

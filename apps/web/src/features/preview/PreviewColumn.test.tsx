@@ -67,7 +67,7 @@ async function render(props: Partial<PreviewColumnProps> = {}) {
   );
   return { onMode, onVariant };
 }
-const buttons = () => [...host.querySelectorAll<HTMLButtonElement>('button')];
+const buttons = () => [...host.querySelectorAll<HTMLButtonElement>('[role="group"] button')];
 const pressed = () =>
   buttons()
     .filter((button) => button.getAttribute('aria-pressed') === 'true')

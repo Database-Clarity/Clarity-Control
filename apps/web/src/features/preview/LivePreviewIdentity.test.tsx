@@ -38,9 +38,9 @@ it('shows the live identity in the preview language, with English available to r
     await act(async () => root.render(markup('de')));
     act(() => useNamesStore.setState({ byLang: { de: { status: 'ready', file } } }));
     expect(host.innerHTML).toContain('Neuer Gegenstand');
-    expect(host.querySelector('header button')?.getAttribute('title')).toBe(
-      'Neuer Gegenstand\nNewest item',
-    );
+    expect(host.querySelector('header button')?.hasAttribute('title')).toBe(false);
+    act(() => host.querySelector<HTMLButtonElement>('header button')!.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Newest item');
     expect(host.innerHTML).not.toContain('Previous item</');
     act(() =>
       useDataStore.setState({

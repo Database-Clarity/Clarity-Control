@@ -56,6 +56,7 @@ export function Popover({
   className,
   triggerTitle,
   triggerLabel,
+  openOnHover = false,
   flush = false,
   bodyClassName,
   contain = false,
@@ -76,6 +77,8 @@ export function Popover({
   triggerTitle?: string;
   /** The trigger's accessible name, for an icon-only trigger. */
   triggerLabel?: string;
+  /** Also reveal informational content on hover or keyboard focus. */
+  openOnHover?: boolean;
   /** The content runs edge to edge (a menu of rows with its own header): no body padding. */
   flush?: boolean;
   /** A class for the scrolling body around the content (a menu that lays out its own rows). */
@@ -107,13 +110,38 @@ export function Popover({
   const button = useRef<HTMLButtonElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const id = useId();
+  const hoverClose = useRef<ReturnType<typeof setTimeout>>();
+  const restoringFocus = useRef(false);
+  const returnFocus = useRef(false);
+  const reveal = (fromFocus = false) => {
+    clearTimeout(hoverClose.current);
+    if (fromFocus) returnFocus.current = true;
+    if (openOnHover) {
+      if (controlledOpen === undefined) setOpen(true);
+      onOpenChange?.(true);
+    }
+  };
+  const leave = () => {
+    clearTimeout(hoverClose.current);
+    if (openOnHover)
+      hoverClose.current = setTimeout(() => {
+        const active = document.activeElement;
+        if (button.current?.contains(active) || surface.current?.contains(active)) return;
+        close(false);
+      }, 150);
+  };
+  useEffect(() => () => clearTimeout(hoverClose.current), []);
   useWorkspaceShortcutOwner(surface, open && contain);
   const close = useCallback((restoreFocus: boolean) => {
+    clearTimeout(hoverClose.current);
+    returnFocus.current = false;
     if (external.current.controlledOpen === undefined) setOpen(false);
     external.current.onOpenChange?.(false);
     if (restoreFocus) {
       const anchor = external.current.anchorElement;
+      restoringFocus.current = true;
       (anchor?.querySelector<HTMLElement>('input') ?? anchor ?? button.current)?.focus();
+      restoringFocus.current = false;
     }
   }, []);
   const clearTopRef = useRef(clearTop);
@@ -221,7 +249,7 @@ export function Popover({
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || innerPopupOwnsEscape(event.target, surface.current)) return;
       event.stopPropagation();
-      close(true);
+      close(!openOnHover || returnFocus.current);
     };
     const back = () => close(true);
     window.addEventListener('popstate', back);
@@ -232,7 +260,7 @@ export function Popover({
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', escape, true);
     };
-  }, [open, close]);
+  }, [open, close, openOnHover]);
   useEffect(() => {
     if (!open || !contain) return;
     const focusable = () => [
@@ -276,9 +304,27 @@ export function Popover({
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? id : undefined}
+          onPointerEnter={
+            openOnHover
+              ? (event) => {
+                  if (event.pointerType !== 'touch') reveal();
+                }
+              : undefined
+          }
+          onPointerLeave={openOnHover ? leave : undefined}
+          onFocus={
+            openOnHover
+              ? () => {
+                  if (!restoringFocus.current) reveal(true);
+                }
+              : undefined
+          }
+          onBlur={openOnHover ? leave : undefined}
           onClick={() => {
-            if (controlledOpen === undefined) setOpen((value) => !value);
-            onOpenChange?.(!open);
+            clearTimeout(hoverClose.current);
+            returnFocus.current = true;
+            if (controlledOpen === undefined) setOpen((value) => openOnHover || !value);
+            onOpenChange?.(openOnHover || !open);
           }}
         >
           {trigger}
@@ -286,7 +332,23 @@ export function Popover({
       )}
       {open &&
         createPortal(
-          <div ref={surface} id={id} role="dialog" aria-label={label} className={styles.surface}>
+          <div
+            ref={surface}
+            id={id}
+            role="dialog"
+            aria-label={label}
+            className={styles.surface}
+            onPointerEnter={
+              openOnHover
+                ? (event) => {
+                    if (event.pointerType !== 'touch') reveal();
+                  }
+                : undefined
+            }
+            onPointerLeave={openOnHover ? leave : undefined}
+            onFocusCapture={openOnHover ? () => reveal(true) : undefined}
+            onBlurCapture={openOnHover ? leave : undefined}
+          >
             <div
               className={[styles.body, flush && styles.flush, bodyClassName]
                 .filter(Boolean)
