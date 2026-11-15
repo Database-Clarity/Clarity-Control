@@ -63,7 +63,14 @@ export const FinderMarkers = memo(function FinderMarkers({
     Object.keys(state.drafts).some((hash) => members.has(Number(hash))),
   );
   return (
-    <span className={styles.slot} onClick={(event) => event.stopPropagation()}>
+    <span
+      className={styles.slot}
+      onClick={(event) => {
+        // The glyph opens its explanation; unused slot space still selects the row.
+        if (event.target instanceof Element && event.target.closest('[aria-describedby]'))
+          event.stopPropagation();
+      }}
+    >
       {markers
         .slice(0, 2)
         .map((marker) =>

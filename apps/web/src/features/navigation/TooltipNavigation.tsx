@@ -269,11 +269,9 @@ const FinderOption = memo(function FinderOption({
           </span>
         </small>
       )}
-      {!row.global && (
-        <span className={styles.markers}>
-          <FinderMarkers hashes={markerHashes} flags={markerIndex.get(row.hash)} />
-        </span>
-      )}
+      <span className={styles.markers}>
+        <FinderMarkers hashes={markerHashes} flags={row.global ? 0 : markerIndex.get(row.hash)} />
+      </span>
     </li>
   );
 });
@@ -1259,14 +1257,15 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       groups.map((group) => ({
         label: group.name,
         options: group.sections.map((category) => {
-          const markerHashes = category.items
+          const markerHashes = category.items.flatMap((item) => variantHashes(item.hash, data));
+          const savedHashes = category.items
             .filter((item) => !item.global)
-            .flatMap((item) => variantHashes(item.hash, data));
+            .map((item) => item.hash);
           return {
             id: category.id,
             label: category.label,
             markerHashes,
-            markerFlags: rollupFinderMarkers(markerHashes, markerIndex),
+            markerFlags: rollupFinderMarkers(savedHashes, markerIndex),
           };
         }),
       })),
