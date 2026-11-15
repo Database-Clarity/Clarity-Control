@@ -5,6 +5,7 @@ import { inactiveHashKey } from './inactiveMoves.js';
 export const marksPath = 'config/marks.json';
 export const maxMarksBytes = 256_000;
 export const maxMarkedEntries = 1000;
+export const maxEntryMarks = 1000;
 export const markColours = ['neutral', 'blue', 'green', 'amber', 'red', 'purple'] as const;
 export const markIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
 const stamp = { by: z.number().int().positive(), at: z.string().datetime({ offset: true }) };
@@ -43,12 +44,16 @@ export const marksSchema = z
     const labels = new Set(value.types.map((type) => type.label.toLowerCase()));
     if (labels.size !== value.types.length)
       ctx.addIssue({ code: 'custom', message: 'Duplicate mark type labels' });
+    let count = 0;
     for (const marks of Object.values(value.entries)) {
+      count += marks.length;
       if (new Set(marks.map((mark) => mark.type)).size !== marks.length)
         ctx.addIssue({ code: 'custom', message: 'Duplicate entry marks' });
       if (marks.some((mark) => !ids.has(mark.type)))
         ctx.addIssue({ code: 'custom', message: 'Unknown mark type' });
     }
+    if (count > maxEntryMarks)
+      ctx.addIssue({ code: 'custom', message: `Too many entry marks (maximum ${maxEntryMarks})` });
   });
 export type Marks = z.infer<typeof marksSchema>;
 export type MarkType = z.infer<typeof markTypeSchema>;

@@ -8,7 +8,7 @@ import { config } from './fixture.js';
 afterEach(() => vi.restoreAllMocks());
 it('records a local CPU proxy for empty, typical, and byte-cap mark documents', async () => {
   const rows = [];
-  for (const size of [0, 100, 390, 1000]) {
+  for (const size of [0, 100, 390, 1000, 32]) {
     const marks: Marks = {
       types: [
         {
@@ -33,6 +33,19 @@ it('records a local CPU proxy for empty, typical, and byte-cap mark documents', 
         ]),
       ),
     };
+    if (size === 32) {
+      marks.types = Array.from({ length: 31 }, (_, index) => ({
+        ...marks.types[0],
+        id: `type-${index}`,
+        label: `Type ${index}`,
+      }));
+      marks.entries = Object.fromEntries(
+        Array.from({ length: 32 }, (_, hash) => [
+          hash,
+          marks.types.map((type) => ({ type: type.id, by: 1, at: '2026-11-15T00:00:00Z' })),
+        ]),
+      );
+    }
     const stored = blobContent(marks);
     expect(Buffer.byteLength(stored)).toBeLessThan(maxMarksBytes);
     const github = new GitHub({ DATA_BRANCH: 'editor-data' } as never);
@@ -51,7 +64,12 @@ it('records a local CPU proxy for empty, typical, and byte-cap mark documents', 
               ? {
                   body: JSON.stringify({
                     revision: 'c'.repeat(40),
-                    change: { action: 'mark', hash: 0, type: 'retest', note: 'Updated' },
+                    change: {
+                      action: 'mark',
+                      hash: 0,
+                      type: size === 32 ? 'type-0' : 'retest',
+                      note: 'Updated',
+                    },
                   }),
                 }
               : {}),

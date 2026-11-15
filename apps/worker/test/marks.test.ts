@@ -171,6 +171,23 @@ it('fails closed on malformed storage and unknown or duplicate mark types', asyn
   }
   expect(fixture.commits).toHaveLength(0);
 });
+it('bounds the total number of marks even when entries carry several types', async () => {
+  const types = Array.from({ length: 31 }, (_, index) => ({
+    ...base.types[0],
+    id: `type-${index}`,
+    label: `Type ${index}`,
+  }));
+  const entries = Object.fromEntries(
+    Array.from({ length: 32 }, (_, hash) => [
+      hash,
+      types.map((type) => ({ type: type.id, by: 1, at })),
+    ]),
+  );
+  entries[32] = types.slice(0, 8).map((type) => ({ type: type.id, by: 1, at }));
+  const revision = seed({ types, entries });
+  expect((await put({ ...mark, hash: 99999, type: 'type-0' }, revision)).status).toBe(400);
+  expect(fixture.commits).toHaveLength(0);
+});
 it('bounds input, rejects forged attribution, and prevents stale type writes', async () => {
   const revision = seed();
   for (const change of [
