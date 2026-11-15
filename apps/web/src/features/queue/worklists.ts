@@ -5,6 +5,7 @@ import {
   worklistOperationSchema,
   worklistIndexEntrySchema,
   worklistsSchema,
+  worklistSchema,
   applyWorklistOperation,
   type SavedWorklist,
   type WorklistEntry,
@@ -26,6 +27,8 @@ interface State {
   base: SavedWorklist[];
   lists: SavedWorklist[];
   ops: Pending;
+  recovery: SavedWorklist[];
+  blocked: string | null;
   loaded: string[];
   index: Record<string, Meta>;
   pending: boolean;
@@ -61,6 +64,8 @@ const empty = () => ({
   base: [],
   lists: [],
   ops: [],
+  recovery: [],
+  blocked: null,
   loaded: [],
   index: {},
   pending: false,
@@ -114,7 +119,10 @@ function render() {
 function keepOps() {
   const state = useSavedWorklists.getState();
   try {
-    localStorage.setItem(opsKey(state.scope), JSON.stringify(state.ops));
+    localStorage.setItem(
+      opsKey(state.scope),
+      JSON.stringify({ ops: state.ops, recovery: state.recovery }),
+    );
     useSavedWorklists.setState({ storageFailed: false });
   } catch {
     useSavedWorklists.setState({
@@ -131,9 +139,9 @@ function keepCache() {
     /* Pending operations have separate protection. */
   }
 }
-function schedule() {
+function schedule(refresh = false) {
   clearTimeout(timer);
-  timer = setTimeout(() => void syncWorklists(), 600);
+  timer = setTimeout(() => void syncWorklists(refresh), 600);
 }
 function enqueue(id: string, op: WorklistOperation) {
   const state = useSavedWorklists.getState();
@@ -143,7 +151,11 @@ function enqueue(id: string, op: WorklistOperation) {
     throw new Error(
       'Worklists allow up to 50 lists and 16 KB of hashes per list, and names of 1–80 characters.',
     );
-  useSavedWorklists.setState({ ops, notice: 'Saving changes…' });
+  const visible = project(state.base, ops).find((row) => row.id === id);
+  const recovery = visible
+    ? [...state.recovery.filter((row) => row.id !== id), visible]
+    : state.recovery;
+  useSavedWorklists.setState({ ops, recovery, notice: 'Saving changes…' });
   render();
   keepOps();
   schedule();
@@ -281,7 +293,8 @@ export async function syncWorklists(refresh = false) {
     return;
   }
   clearTimeout(timer);
-  if (!accountReady()) return;
+  if (!accountReady() || (useSavedWorklists.getState().blocked && !refresh)) return;
+  useSavedWorklists.setState({ blocked: null });
   flight = true;
   const started = epoch;
   try {
@@ -298,6 +311,16 @@ export async function syncWorklists(refresh = false) {
       let success = false;
       for (let attempt = 0; attempt < 2; attempt++) {
         const state = useSavedWorklists.getState();
+        if (
+          !state.index[pending.id] &&
+          pending.op.type !== 'create' &&
+          pending.op.type !== 'delete'
+        ) {
+          useSavedWorklists.setState({ blocked: pending.id });
+          throw new Error(
+            'This worklist was deleted on another device. Pending work is kept; copy it to a new list or discard it.',
+          );
+        }
         const response = await apiRequest(entryPath(pending.id), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -313,11 +336,34 @@ export async function syncWorklists(refresh = false) {
           await readRow(pending.id, started);
           continue;
         }
-        if (!response.ok) throw new Error('Could not sync this worklist. Retry when connected.');
+        if (!response.ok) {
+          if (response.status === 400 || response.status === 413)
+            useSavedWorklists.setState({ blocked: pending.id });
+          const error = z
+            .object({ error: z.string() })
+            .safeParse(await response.json().catch(() => null));
+          throw new Error(
+            error.success
+              ? error.data.error
+              : 'Could not sync this worklist. Retry when connected.',
+          );
+        }
         const reply = replySchema.parse(await response.json());
         if (started !== epoch || !accountReady()) return;
+        if (!reply.worklist && pending.op.type !== 'delete') {
+          useSavedWorklists.setState({ blocked: pending.id });
+          throw new Error(
+            'This worklist was deleted. Pending work is kept; copy it to a new list or discard it.',
+          );
+        }
         accept(pending.id, reply);
-        useSavedWorklists.setState({ ops: useSavedWorklists.getState().ops.slice(1) });
+        const ops = useSavedWorklists.getState().ops.slice(1);
+        useSavedWorklists.setState({
+          ops,
+          recovery: useSavedWorklists
+            .getState()
+            .recovery.filter((row) => ops.some((op) => op.id === row.id)),
+        });
         render();
         keepOps();
         keepCache();
@@ -347,17 +393,20 @@ export async function syncWorklists(refresh = false) {
     } catch {
       /* A later focus/Sync retries incoming reads. */
     }
-    flight = false;
-    if (sendAfterFlight && useSavedWorklists.getState().pending) {
-      sendAfterFlight = false;
-      schedule();
-    }
-    if (refreshAfterFlight || started !== epoch) {
-      refreshAfterFlight = false;
-      ready = false;
-      schedule();
-    }
+    finishFlight(started);
   }
+}
+function finishFlight(started: number) {
+  flight = false;
+  const refresh = refreshAfterFlight || started !== epoch;
+  const send = sendAfterFlight;
+  refreshAfterFlight = false;
+  sendAfterFlight = false;
+  if (refresh) {
+    ready = false;
+    schedule(true);
+  } else if (send && useSavedWorklists.getState().pending && !useSavedWorklists.getState().blocked)
+    schedule();
 }
 async function readSignals(started: number) {
   const received = signals.size > 0;
@@ -389,6 +438,7 @@ export function connectWorklists(): () => void {
     let loaded: string[] = [];
     let index: Record<string, Meta> = {};
     let ops: Pending = [];
+    let recovery: SavedWorklist[] = [];
     try {
       const cache = z
         .object({
@@ -402,11 +452,11 @@ export function connectWorklists(): () => void {
       /* Preserve unreadable cache on disk. */
     }
     try {
-      ops = pendingSchema.parse(JSON.parse(localStorage.getItem(opsKey(scope)) ?? '[]'));
+      ({ ops, recovery } = readPending(localStorage.getItem(opsKey(scope)), base));
     } catch {
       /* Preserve unreadable pending copy. */
     }
-    useSavedWorklists.setState({ scope, ...empty(), base, loaded, index, ops });
+    useSavedWorklists.setState({ scope, ...empty(), base, loaded, index, ops, recovery });
     render();
     void syncWorklists();
   };
@@ -425,11 +475,7 @@ export function connectWorklists(): () => void {
       try {
         await readSignals(started);
       } finally {
-        flight = false;
-        if (sendAfterFlight && useSavedWorklists.getState().pending) {
-          sendAfterFlight = false;
-          schedule();
-        }
+        finishFlight(started);
       }
       // Receiving state changes neither persisted pending ops nor publication keys.
     } catch (error) {
@@ -448,4 +494,79 @@ export function connectWorklists(): () => void {
     window.removeEventListener('focus', retry);
     window.removeEventListener('storage', storage);
   };
+}
+
+function readPending(raw: string | null, base: SavedWorklist[] = []) {
+  const value: unknown = JSON.parse(raw ?? '[]');
+  if (Array.isArray(value)) {
+    const ops = pendingSchema.parse(value);
+    return {
+      ops,
+      recovery: project(base, ops).filter((row) => ops.some((op) => op.id === row.id)),
+    };
+  }
+  return z.object({ ops: pendingSchema, recovery: z.array(worklistSchema) }).parse(value);
+}
+/** Read-only discovery; copying creates a new id and never takes another live tab's queue. */
+export function pendingSessionRecovery(): SavedWorklist[] {
+  const state = useSavedWorklists.getState();
+  const result: SavedWorklist[] = [];
+  try {
+    for (let n = 0; n < localStorage.length; n++) {
+      const key = localStorage.key(n)!;
+      if (!key.startsWith(cacheKey(state.scope) + ':pending:') || key === opsKey(state.scope))
+        continue;
+      const pending = readPending(localStorage.getItem(key), state.base);
+      if (pending.ops.length) result.push(...pending.recovery);
+    }
+  } catch {
+    /* Leave unreadable files untouched. */
+  }
+  return result;
+}
+export function discardPendingWorklist(
+  id: string,
+  expectedScope = useSavedWorklists.getState().scope,
+) {
+  if (expectedScope !== useSavedWorklists.getState().scope) throw new Error('The account changed.');
+  if (flight) throw new Error('Wait for the current sync to finish.');
+  const state = useSavedWorklists.getState();
+  useSavedWorklists.setState({
+    ops: state.ops.filter((op) => op.id !== id),
+    recovery: state.recovery.filter((row) => row.id !== id),
+    blocked: null,
+    notice: 'Discarded pending changes for this list.',
+  });
+  render();
+  keepOps();
+  schedule();
+}
+export function copyPendingWorklist(
+  row: SavedWorklist,
+  replaceOwn = false,
+  expectedScope = useSavedWorklists.getState().scope,
+) {
+  if (expectedScope !== useSavedWorklists.getState().scope) throw new Error('The account changed.');
+  if (flight) throw new Error('Wait for the current sync to finish.');
+  const state = useSavedWorklists.getState();
+  const ops = replaceOwn ? state.ops.filter((op) => op.id !== row.id) : state.ops;
+  const id = crypto.randomUUID();
+  const next: Pending = [
+    ...ops,
+    { id, op: { type: 'create', name: row.name, hashes: row.items.map((item) => item.hash) } },
+  ];
+  if (!worklistsSchema.safeParse(project(state.base, next)).success)
+    throw new Error('Make room for the recovered list before copying it.');
+  useSavedWorklists.setState({
+    ops: next,
+    recovery: [
+      ...state.recovery.filter((item) => !replaceOwn || item.id !== row.id),
+      { ...row, id },
+    ],
+    blocked: null,
+    notice: 'Saving recovered work as a new list…',
+  });
+  render();
+  keepOps();
+  schedule();
 }

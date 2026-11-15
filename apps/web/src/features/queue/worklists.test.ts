@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
-import { connectWorklists, loadWorklist, syncWorklists, useSavedWorklists } from './worklists';
+import {
+  connectWorklists,
+  loadWorklist,
+  syncWorklists,
+  useSavedWorklists,
+  copyPendingWorklist,
+  discardPendingWorklist,
+  pendingSessionRecovery,
+} from './worklists';
 import {
   applyWorklistOperation,
   type StoredWorklist,
@@ -24,6 +32,10 @@ beforeEach(async () => {
   const values = new Map<string, string>();
   writes = [];
   vi.stubGlobal('localStorage', {
+    get length() {
+      return values.size;
+    },
+    key: (index: number) => [...values.keys()][index] ?? null,
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => {
       values.set(key, value);
@@ -36,6 +48,8 @@ beforeEach(async () => {
     base: [],
     lists: [],
     ops: [],
+    recovery: [],
+    blocked: null,
     loaded: [],
     index: {},
     pending: false,
@@ -221,3 +235,84 @@ it.each(['add', 'rename'])(
     }
   },
 );
+
+it('retains pending additions and content when the server list was deleted, with explicit copy recovery (F6)', async () => {
+  await loadWorklist(id);
+  useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  row = null;
+  revision++;
+  await syncWorklists();
+  expect(useSavedWorklists.getState().ops).toHaveLength(1);
+  expect(useSavedWorklists.getState().blocked).toBe(id);
+  expect(useSavedWorklists.getState().notice).toContain('deleted');
+  const recovered = useSavedWorklists.getState().recovery.find((row) => row.id === id)!;
+  expect(recovered.items.map((item) => item.hash)).toEqual([1, 2]);
+  copyPendingWorklist(recovered, true);
+  expect(useSavedWorklists.getState().ops[0]!.id).not.toBe(id);
+  await syncWorklists();
+  expect(row!.hashes).toEqual([1, 2]);
+});
+it('discovers other sessions for explicit independent copying without replaying or editing live queues (F7)', async () => {
+  const other = 'clarity-worklists:v3:1:pending:other-session';
+  const list = { id, name: 'Offline list', items: [{ hash: 7, name: 'Seven' }] };
+  const backup = JSON.stringify({
+    ops: [{ id, op: { type: 'create', name: list.name, hashes: [7] } }],
+    recovery: [list],
+  });
+  localStorage.setItem(other, backup);
+  localStorage.setItem('clarity-worklists:v3:2:pending:other-account', backup);
+  const puts = api.mock.calls.filter(([, init]) => init?.method === 'PUT').length;
+  expect(pendingSessionRecovery()).toEqual([list]);
+  expect(api.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(puts);
+  copyPendingWorklist(pendingSessionRecovery()[0]!);
+  expect(useSavedWorklists.getState().ops[0]!.id).not.toBe(id);
+  expect(localStorage.getItem(other)).toBe(backup);
+  expect(useSavedWorklists.getState().lists.some((row) => row.name === 'Offline list')).toBe(true);
+});
+it('surfaces a limit rejection and permits cancelling only that list so later edits sync (F8)', async () => {
+  await loadWorklist(id);
+  useSavedWorklists.getState().add(null, 'Rejected create', []);
+  const rejected = useSavedWorklists.getState().ops[0]!.id;
+  useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  const server = api.getMockImplementation()!;
+  api.mockImplementation(async (path: string, init?: RequestInit) =>
+    path.endsWith(rejected)
+      ? Response.json({ error: 'An account can save up to 50 worklists' }, { status: 400 })
+      : server(path, init),
+  );
+  await syncWorklists();
+  expect(useSavedWorklists.getState().blocked).toBe(rejected);
+  expect(useSavedWorklists.getState().notice).toContain('50 worklists');
+  discardPendingWorklist(rejected);
+  await syncWorklists();
+  expect(row!.hashes).toEqual([1, 2]);
+  expect(useSavedWorklists.getState().pending).toBe(false);
+});
+it('drains explicit Sync after a receiving index flight (F9)', async () => {
+  await loadWorklist(id);
+  let resolve!: (response: Response) => void;
+  api.mockResolvedValueOnce(reply());
+  api.mockImplementationOnce(
+    () =>
+      new Promise<Response>((done) => {
+        resolve = done;
+      }),
+  );
+  const old = Response.json({
+    lists: [{ id, name: 'Old', count: 1, revision: rev(), updatedAt: 1 }],
+  });
+  window.dispatchEvent(
+    new StorageEvent('storage', {
+      key: 'clarity-worklists:v3:1:invalidate',
+      newValue: JSON.stringify({ id }),
+    }),
+  );
+  await settle();
+  await syncWorklists(true);
+  row = { name: 'New remote', hashes: [1] };
+  revision++;
+  resolve(old);
+  await settle();
+  await vi.advanceTimersByTimeAsync(600);
+  expect(useSavedWorklists.getState().lists[0]!.name).toBe('New remote');
+});

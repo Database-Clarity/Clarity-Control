@@ -32,6 +32,8 @@ beforeEach(async () => {
     pending: false,
     base: [],
     ops: [],
+    recovery: [],
+    blocked: null,
     loaded: [],
     index: {},
     notice: '',

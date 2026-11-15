@@ -48,6 +48,8 @@ beforeEach(async () => {
     lists: [],
     base: [],
     ops: [],
+    recovery: [],
+    blocked: null,
     index: {},
     loaded: [],
     pending: false,
