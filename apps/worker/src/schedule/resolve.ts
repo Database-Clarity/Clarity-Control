@@ -122,6 +122,7 @@ export async function resolveBatch(
       }
       throw new HttpError(400, error instanceof Error ? error.message : 'Invalid choices');
     }
+    if (!result.ok && result.reason) throw new HttpError(422, result.reason);
     if (!result.ok)
       return json(
         {

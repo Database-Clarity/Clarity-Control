@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Tooltip } from '../schemas.js';
+import { numberValues } from '../numbers/map.js';
 import { usesEnglishFallback } from '../exportLegacy.js';
 import {
   activate,
@@ -48,6 +49,14 @@ const proposed: Tooltip = {
 };
 
 describe('changed-field set (R17)', () => {
+  it('treats English number-map identity as publish-relevant content', () => {
+    const before: Tooltip = { ...live, text: { en: entry('Damage 10.') } };
+    const after = {
+      ...before,
+      text: { en: { ...before.text.en!, numbers: { ids: [2], next: 3, retired: {} } } },
+    };
+    expect(changedFields(before, after)).toEqual(['text.en']);
+  });
   it('is every merge3 key that differs, stamps ignored', () => {
     expect(changedFields(current, proposed)).toEqual(['text.en', 'text.de', 'associated']);
     expect(changedFields(current, current)).toEqual([]);
@@ -76,6 +85,85 @@ describe('changed-field set (R17)', () => {
       'text.en',
     ]);
     expect(nonTranslationChanges(current, proposed)).toEqual(['text.en', 'associated']);
+  });
+});
+
+describe('number-safe activation and composition', () => {
+  const before: Tooltip = {
+    hash: 7,
+    associated: [],
+    text: {
+      en: entry('Deals 10 damage over 5 seconds.'),
+      de: entry('#{=1} Schaden, #{=2} Sekunden.', T0, { sourceUpdatedAt: T0 }),
+    },
+  };
+  const insertion: Tooltip = {
+    ...before,
+    text: {
+      ...before.text,
+      en: entry('Hits 3 times: 10 damage over 5 seconds.', T1, {
+        numbers: { ids: [1, 2, 3], next: 4, retired: {} },
+      }),
+    },
+  };
+  it('activation reconciles from current, never silently changing German 10 to 3', () => {
+    const result = activate({ base: before, current: before, proposed: insertion });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unexpected conflict');
+    expect(numberValues(result.tooltip.text.en!).get(1)).toBe('10');
+    expect(result.tooltip.text.en!.numbers!.ids[0]).not.toBe(1);
+  });
+  it.each([before, null])('composition reconciles its published/base source (%j)', (snapshot) => {
+    const result = compose({
+      hash: 7,
+      base: before,
+      proposed: insertion,
+      snapshot,
+      pushed: snapshot !== null,
+    });
+    expect(result.status).not.toBe('stale');
+    if (result.status === 'stale') throw new Error(result.reason);
+    expect(numberValues(result.tooltip.text.en!).get(1)).toBe('10');
+  });
+  it('conflict resolution reconciles against the resolving head, not the staged map', () => {
+    const head = {
+      ...before,
+      text: { ...before.text, en: entry('Deals 20 damage over 5 seconds.', T2) },
+    };
+    const result = resolveActivation({
+      base: before,
+      current: head,
+      proposed: insertion,
+      choices: { 'text.en': 'upcoming' },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.tooltip) throw new Error('unexpected conflict');
+    expect(numberValues(result.tooltip.text.en!).get(1)).toBe('20');
+  });
+  it('activation and resolution refuse a new retired reference even when English is unchanged', () => {
+    const head: Tooltip = {
+      ...before,
+      text: {
+        en: entry('Damage 5.', T1, { numbers: { ids: [2], next: 3, retired: { 1: '10' } } }),
+        de: entry('Schaden #{=2}.', T1, { sourceUpdatedAt: T1 }),
+      },
+    };
+    const next = {
+      ...head,
+      text: { ...head.text, de: entry('Schaden #{=1}.', T2, { sourceUpdatedAt: T1 }) },
+    };
+    expect(activate({ base: head, current: head, proposed: next })).toMatchObject({
+      ok: false,
+      fields: ['text.de'],
+    });
+    expect(
+      resolveActivation({
+        base: head,
+        current: head,
+        proposed: next,
+        choices: { 'text.de': 'upcoming' },
+      }),
+    ).toMatchObject({ ok: false, missing: ['text.de'] });
   });
 });
 

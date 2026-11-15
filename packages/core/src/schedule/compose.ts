@@ -1,4 +1,6 @@
 import { merge3 } from '../merge3.js';
+import { reconcileNumberMap } from '../numbers/map.js';
+import { validateNumberTooltip } from '../validation/numbers.js';
 import { tooltipSchema, type Tooltip } from '../schemas.js';
 import { boundTranslationSources } from './stamps.js';
 import { changedFields, fieldValue, sameFieldValue, withField } from './fields.js';
@@ -55,14 +57,16 @@ export function compose(input: ComposeInput, boundSources = true): ComposeResult
     if (tooltip && tooltipSchema.parse(tooltip).hash !== hash)
       throw new Error(`Tooltip does not belong to member ${hash}`);
   const changed = changedFields(base, proposed);
+  let tooltip = proposed;
+  let unpublished: string[] = [];
   if (snapshot) {
-    let tooltip = snapshot;
+    tooltip = snapshot;
     for (const field of changed)
       tooltip =
         field === 'associated' && base
           ? { ...tooltip, associated: mergeAssociations(base, snapshot, proposed) }
           : withField(tooltip, proposed, field);
-    const unpublished = changed.filter(
+    unpublished = changed.filter(
       (field) =>
         !(field === 'associated' && base) &&
         !sameFieldValue(
@@ -71,19 +75,30 @@ export function compose(input: ComposeInput, boundSources = true): ComposeResult
           fieldValue(snapshot, field),
         ),
     );
-    return {
-      status: 'overlay',
-      tooltip: boundSources
-        ? boundTranslationSources(tooltipSchema.parse(tooltip))
-        : tooltipSchema.parse(tooltip),
-      changed,
-      unpublished,
-    };
+  } else if (pushed) return { status: 'stale', reason: missingSnapshotReason };
+  // Composition uses the published source; activation separately reconciles against current.
+  // Never let a proposal's cached map renumber the snapshot's translations.
+  const head = snapshot ?? base;
+  if (tooltip.text.en) {
+    const english = { ...tooltip.text.en };
+    const numbers =
+      head?.text.en?.text === english.text
+        ? head.text.en.numbers
+        : reconcileNumberMap(head?.text.en, english, tooltip);
+    delete english.numbers;
+    if (numbers) english.numbers = numbers;
+    tooltip = { ...tooltip, text: { ...tooltip.text, en: english } };
   }
-  if (pushed) return { status: 'stale', reason: missingSnapshotReason };
+  const issue = validateNumberTooltip(tooltip, head)[0];
+  if (issue)
+    return { status: 'stale', reason: `Tooltip ${hash} (${issue.lang}): ${issue.message}` };
+  tooltip = boundSources
+    ? boundTranslationSources(tooltipSchema.parse(tooltip))
+    : tooltipSchema.parse(tooltip);
+  if (snapshot) return { status: 'overlay', tooltip, changed, unpublished };
   return {
     status: 'whole',
-    tooltip: boundSources ? boundTranslationSources(proposed) : proposed,
+    tooltip,
     changed,
   };
 }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   hashSchema,
   merge3,
+  reconcileNumberMap,
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
@@ -434,6 +435,16 @@ export async function saveBatch(
         if (batch.status !== 'draft' && changed.some((field) => !isTranslationField(field)))
           throw new HttpError(409, 'Unschedule to edit', { hash: change.hash, fields: changed });
         const proposed = overlay(stored.proposed, merged, changed);
+        if (proposed.text.en) {
+          const english = { ...proposed.text.en };
+          const numbers =
+            stored.proposed.text.en?.text === english.text
+              ? stored.proposed.text.en.numbers
+              : reconcileNumberMap(stored.proposed.text.en, english, proposed);
+          delete english.numbers;
+          if (numbers) english.numbers = numbers;
+          proposed.text.en = english;
+        }
         // A batch save has no "No translation impact" tick (direct saves only, with their audit
         // trailer): an English change needs a new, newer revision.
         checkEnglishRevision(access, stored.proposed, proposed, false);
@@ -461,7 +472,7 @@ export async function saveBatch(
           }
         }
         checkTranslationStamps(stored.proposed, proposed, english ?? proposed.text.en);
-        refuseUnlowerable(proposed, pin, 'saved');
+        refuseUnlowerable(proposed, pin, 'saved', stored.proposed);
         const member = batchMemberSchema.parse({
           ...stored,
           proposed,
@@ -502,9 +513,19 @@ export async function saveBatch(
         const changed = changedFields(current, change.next);
         if (!changed.length) continue; // nothing to stage
         const proposed = overlay(current, change.next, changed);
+        if (proposed.text.en) {
+          const english = { ...proposed.text.en };
+          const numbers =
+            current?.text.en?.text === english.text
+              ? current.text.en.numbers
+              : reconcileNumberMap(current?.text.en, english, proposed);
+          delete english.numbers;
+          if (numbers) english.numbers = numbers;
+          proposed.text.en = english;
+        }
         checkEnglishRevision(access, current, proposed, false);
         checkTranslationStamps(current, proposed);
-        refuseUnlowerable(proposed, pin, 'saved');
+        refuseUnlowerable(proposed, pin, 'saved', current);
         const member = batchMemberSchema.parse({
           hash: change.hash,
           base: current,
@@ -606,10 +627,20 @@ export async function rebaseBatch(
     if (!changed.length)
       throw new HttpError(422, 'Nothing left to publish; remove the tooltip from the batch');
     const proposed = overlay(current, input.next, changed);
+    if (proposed.text.en) {
+      const english = { ...proposed.text.en };
+      const numbers =
+        current?.text.en?.text === english.text
+          ? current.text.en.numbers
+          : reconcileNumberMap(current?.text.en, english, proposed);
+      delete english.numbers;
+      if (numbers) english.numbers = numbers;
+      proposed.text.en = english;
+    }
     // Activation commits the proposal's English stamps: same revision rule as a batch save.
     checkEnglishRevision(state.access, current, proposed, false);
     checkTranslationStamps(current, proposed);
-    refuseUnlowerable(proposed, exporterPin(state), 'saved');
+    refuseUnlowerable(proposed, exporterPin(state), 'saved', current);
     const member = batchMemberSchema.parse({
       hash: input.hash,
       base: current,

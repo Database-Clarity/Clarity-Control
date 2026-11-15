@@ -137,8 +137,9 @@ export function refuseUnlowerable(
   tooltip: Tooltip,
   pin: { value: unknown } | undefined,
   action: string,
+  head?: Tooltip | null,
 ): void {
-  const issue = validateNumberTooltip(tooltip)[0];
+  const issue = validateNumberTooltip(tooltip, head)[0];
   if (issue) throw new HttpError(422, `Tooltip ${tooltip.hash} (${issue.lang}): ${issue.message}`);
   if (hasNumberTokens(tooltip)) {
     const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;

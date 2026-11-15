@@ -179,7 +179,9 @@ it.each(['// #{=1}', '/* #{=1} */'])(
     next.text.fr = { ...next.text.de!, text: comment };
     const response = await save(saved(), next);
     expect(response.status).toBe(422);
-    expect((await response.json()).error).toBe('Number #{=1} was removed from English; reload');
+    expect((await response.json()).error).toContain(
+      'Number #{=1} was removed from English; reload',
+    );
   },
 );
 

@@ -226,7 +226,12 @@ export async function scheduleBatch(
       // Non-translation merge3 must be clean against current (R14 existence rule included);
       // translations follow Q4 and never block.
       const activation = activate({ base: member.base, current, proposed: member.proposed });
-      if (!activation.ok) stale.push({ hash, fields: activation.fields });
+      if (!activation.ok)
+        stale.push({
+          hash,
+          fields: activation.fields,
+          ...(activation.reason ? { reason: activation.reason } : {}),
+        });
       composed.push(result.tooltip);
     }
     if (blocked.length) refuseMembers('Resolve the batch activation first', blocked);

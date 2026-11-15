@@ -4,7 +4,7 @@ import { extractVariables } from '../markup/syntax.js';
 import { markupCommentContext } from '../markup/prepare.js';
 import { numberBlockOpen, numberMathRanges, numberTargetRanges } from '../markup/numberSlots.js';
 import { numberTokens, numberValues, readNumberMap, type NumberValues } from '../numbers/map.js';
-import type { Tooltip } from '../schemas.js';
+import type { NumberMap, Tooltip } from '../schemas.js';
 import type { ValidationIssue } from './index.js';
 
 export const gluedNumberMessage =
@@ -95,8 +95,11 @@ export function numberTokenIssues(
   return issues;
 }
 
-/** Shared fail-closed boundary for Worker saves and export; retired reference policy belongs to N2. */
-export function validateNumberTooltip(tooltip: Tooltip): (ValidationIssue & { lang: Lang })[] {
+/** Read/export validation; writes also pass their head to refuse new retired references. */
+export function validateNumberTooltip(
+  tooltip: Tooltip,
+  head?: Tooltip | null,
+): (ValidationIssue & { lang: Lang })[] {
   if (
     Object.values(tooltip.text).every(
       (entry) => entry?.numbers === undefined && !entry?.text.includes('#{='),
@@ -106,9 +109,10 @@ export function validateNumberTooltip(tooltip: Tooltip): (ValidationIssue & { la
   const issues: (ValidationIssue & { lang: Lang })[] = [];
   const english = tooltip.text.en;
   let values: NumberValues | undefined;
+  let retired: NumberMap['retired'] = {};
   try {
     if (english) {
-      readNumberMap(english);
+      retired = readNumberMap(english).retired;
       values = numberValues(english);
     } else values = new Map();
   } catch (error) {
@@ -120,12 +124,27 @@ export function validateNumberTooltip(tooltip: Tooltip): (ValidationIssue & { la
       message: String(error),
     });
   }
-  for (const [lang, entry] of Object.entries(tooltip.text))
+  for (const [lang, entry] of Object.entries(tooltip.text)) {
     issues.push(
       ...numberTokenIssues(entry.text, lang as Lang, tooltip.hash, values).map((issue) => ({
         ...issue,
         lang: lang as Lang,
       })),
     );
+    if (head !== undefined && lang !== 'en' && english && entry.text.includes('#{=')) {
+      const previous = new Set(
+        numberTokens(head?.text[lang as Lang]?.text ?? '').map(({ id }) => id),
+      );
+      for (const token of numberTokens(entry.text))
+        if (token.id !== undefined && Object.hasOwn(retired, token.id) && !previous.has(token.id))
+          issues.push({
+            lang: lang as Lang,
+            severity: 'error',
+            from: token.from,
+            to: token.to,
+            message: `Number #{=${token.id}} was removed from English; reload`,
+          });
+    }
+  }
   return issues;
 }

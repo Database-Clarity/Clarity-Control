@@ -1,4 +1,6 @@
 import { merge3 } from '../merge3.js';
+import { reconcileNumberMap } from '../numbers/map.js';
+import { validateNumberTooltip } from '../validation/numbers.js';
 import { boundTranslationSources } from './stamps.js';
 import { type Tooltip } from '../schemas.js';
 import {
@@ -25,7 +27,7 @@ export type ActivationResult =
   /** Write `tooltip` to tooltips/<hash>.json (`created`: it was absent). */
   | { ok: true; tooltip: Tooltip; created: boolean; changed: string[] }
   /** Keep current entirely; `fields` are the conflicted fields, `changed` all batch-changed ones. */
-  | { ok: false; fields: string[]; changed: string[] };
+  | { ok: false; fields: string[]; changed: string[]; reason?: string };
 
 export type ActivationChoice = 'upcoming' | 'current';
 
@@ -58,7 +60,30 @@ function mergeChanged(
       from = withField(from, base, field);
     to = withField(to, proposed, field);
   }
-  return merge3(from, current, to);
+  const result = merge3(from, current, to);
+  if (!result.ok) return result;
+  const english = result.merged.text.en;
+  if (english) {
+    const numbers =
+      current.text.en?.text === english.text
+        ? current.text.en.numbers
+        : reconcileNumberMap(current.text.en, english, result.merged);
+    delete english.numbers;
+    if (numbers) english.numbers = numbers;
+  }
+  const issues = validateNumberTooltip(result.merged, current);
+  if (issues.length)
+    return {
+      ok: false as const,
+      reason: `Tooltip ${proposed.hash} (${issues[0].lang}): ${issues[0].message}`,
+      conflicts: issues.map((issue) => ({
+        field: changed.includes(`text.${issue.lang}`) ? `text.${issue.lang}` : 'text.en',
+        base: undefined,
+        head: undefined,
+        next: issue.message,
+      })),
+    };
+  return result;
 }
 
 /**
@@ -68,12 +93,22 @@ function mergeChanged(
  */
 export function activate({ base, current, proposed }: ActivationInput): ActivationResult {
   const changed = changedFields(base, proposed);
-  if (base === null && current === null)
-    return { ok: true, tooltip: boundTranslationSources(proposed), created: true, changed };
-  if (base === null || current === null) return { ok: false, fields: [existsField], changed };
-  const result = mergeChanged(base, current, proposed, changed);
-  if (!result.ok) return { ok: false, fields: result.conflicts.map(({ field }) => field), changed };
-  return { ok: true, tooltip: boundTranslationSources(result.merged), created: false, changed };
+  if ((base === null) !== (current === null)) return { ok: false, fields: [existsField], changed };
+  const empty = { hash: proposed.hash, text: {}, associated: [] };
+  const result = mergeChanged(base ?? empty, current ?? empty, proposed, changed);
+  if (!result.ok)
+    return {
+      ok: false,
+      fields: [...new Set(result.conflicts.map(({ field }) => field))],
+      changed,
+      ...('reason' in result ? { reason: String(result.reason) } : {}),
+    };
+  return {
+    ok: true,
+    tooltip: boundTranslationSources(result.merged),
+    created: current === null,
+    changed,
+  };
 }
 
 export interface ResolutionInput extends ActivationInput {
@@ -85,7 +120,7 @@ export type ResolutionResult =
   /** Write `tooltip` (null: leave the tooltip absent) and delete the conflict file. */
   | { ok: true; tooltip: Tooltip | null }
   /** 409: these fields conflict now and have no choice. */
-  | { ok: false; missing: string[] };
+  | { ok: false; missing: string[]; reason?: string };
 
 /**
  * Resolution of an activation conflict (R4, R12) against current at the resolving head: merge
@@ -112,12 +147,25 @@ export function resolveActivation({
   if (base !== null && current === null) {
     const choice = choices[existsField];
     if (!choice) return { ok: false, missing: [existsField] };
-    return { ok: true, tooltip: choice === 'upcoming' ? proposed : null };
+    if (choice === 'current') return { ok: true, tooltip: null };
+    const empty = { hash: proposed.hash, text: {}, associated: [] };
+    const result = mergeChanged(empty, empty, proposed, changedFields(null, proposed));
+    return result.ok
+      ? { ok: true, tooltip: result.merged }
+      : {
+          ok: false,
+          missing: [...new Set(result.conflicts.map(({ field }) => field))],
+          ...('reason' in result ? { reason: String(result.reason) } : {}),
+        };
   }
   if (choices[existsField]) throw new Error('No existence choice applies here');
-  if (current === null) return { ok: true, tooltip: proposed };
   const from = base ?? { hash: proposed.hash, text: {}, associated: [] };
-  const result = mergeChanged(from, current, proposed, changed, choices);
-  if (!result.ok) return { ok: false, missing: result.conflicts.map(({ field }) => field) };
+  const result = mergeChanged(from, current ?? from, proposed, changed, choices);
+  if (!result.ok)
+    return {
+      ok: false,
+      missing: [...new Set(result.conflicts.map(({ field }) => field))],
+      ...('reason' in result ? { reason: String(result.reason) } : {}),
+    };
   return { ok: true, tooltip: result.merged };
 }

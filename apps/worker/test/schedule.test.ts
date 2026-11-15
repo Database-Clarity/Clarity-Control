@@ -6,6 +6,7 @@ import {
   translationStateOf,
   inactiveRemovalHash,
   usesEnglishFallback,
+  numberValues,
   type Tooltip,
 } from '@clarity/core';
 import {
@@ -169,6 +170,65 @@ const schedule = (id = MAINTAINER, extra: Record<string, unknown> = {}) =>
     { revision: storedBatch().revision, notBefore: later(), zone: 'Europe/Berlin', ...extra },
     id,
   );
+
+describe('scheduled number-map authority', () => {
+  const numbered = () => {
+    const value = withText(tooltip(), 'en', 'Deals 10 damage over 5 seconds.');
+    value.text.de = {
+      text: '#{=1} Schaden, #{=2} Sekunden.',
+      updatedAt: value.text.en!.updatedAt,
+      sourceUpdatedAt: value.text.en!.updatedAt,
+      updatedBy: 'dan',
+    };
+    return value;
+  };
+  it.each(['add', 'edit', 'rebase'] as const)(
+    'derives maps on proposal %s instead of changing German 10 to 3',
+    async (operation) => {
+      const base = numbered();
+      f.moveData({
+        '.publisher/PIN': { capabilities: [...pin.capabilities, 'numberTokens'] },
+        'tooltips/123.json': base,
+        [memberPath()]: operation === 'add' ? undefined : member(base, base),
+      });
+      const next = withText(base, 'en', 'Hits 3 times: 10 damage over 5 seconds.');
+      next.text.en!.numbers = { ids: [1, 2, 3], next: 4, retired: {} };
+      const response =
+        operation === 'rebase'
+          ? await call(`/batches/${ID}/rebase`, {
+              revision: storedBatch().revision,
+              hash: 123,
+              base,
+              next,
+            })
+          : await call(`/batches/${ID}/save`, saveBody(next, base));
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      const proposed = (stored(memberPath()) as BatchMember).proposed;
+      expect(numberValues(proposed.text.en!).get(1)).toBe('10');
+      expect(proposed.text.en!.numbers!.ids[0]).not.toBe(1);
+      expect(f.subrequests).toBeLessThanOrEqual(50);
+    },
+  );
+
+  it('refuses a new retired reference in a proposal, with the same rule as /save', async () => {
+    const base = numbered();
+    base.text.en = {
+      ...base.text.en!,
+      text: 'Damage 5.',
+      numbers: { ids: [2], next: 3, retired: { 1: '10' } },
+    };
+    base.text.de!.text = 'Schaden #{=2}.';
+    f.moveData({
+      '.publisher/PIN': { capabilities: [...pin.capabilities, 'numberTokens'] },
+      'tooltips/123.json': base,
+      [memberPath()]: member(base, base),
+    });
+    const next = withText(base, 'de', 'Schaden #{=1}.');
+    const response = await call(`/batches/${ID}/save`, saveBody(next, base), TRANSLATOR);
+    expect(response.status).toBe(422);
+    expect(response.body.error).toContain('Tooltip 123 (de): Number #{=1} was removed');
+  });
+});
 
 it('schedules a never-published item moved back out of Inactive', async () => {
   f.moveData({

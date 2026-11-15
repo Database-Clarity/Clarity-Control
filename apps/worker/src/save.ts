@@ -6,8 +6,6 @@ import {
   carryNumberTranslations,
   hashSchema,
   merge3,
-  numberTokens,
-  readNumberMap,
   reconcileNumberMap,
   resolveAlias,
   sandboxPointersPath,
@@ -152,17 +150,9 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
             : reconcileNumberMap(head?.text.en, english, merged);
         delete english.numbers;
         if (numbers) english.numbers = numbers;
-        const retired = readNumberMap(english).retired;
-        for (const lang of languages) {
-          if (lang === 'en') continue;
-          const previous = new Set(numberTokens(head?.text[lang]?.text ?? '').map(({ id }) => id));
-          for (const { id } of numberTokens(merged.text[lang]?.text ?? ''))
-            if (id !== undefined && Object.hasOwn(retired, id) && !previous.has(id))
-              throw new HttpError(422, `Number #{=${id}} was removed from English; reload`);
-        }
       }
       checkTranslationStamps(head, merged);
-      refuseUnlowerable(merged, await exporterPin(merged), 'saved');
+      refuseUnlowerable(merged, await exporterPin(merged), 'saved', head);
       if (head && head.text.en?.text !== merged.text.en?.text) {
         const result = carryNumberTranslations(head, merged);
         merged = result.tooltip;

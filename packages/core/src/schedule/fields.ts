@@ -32,6 +32,11 @@ const equal = (a: unknown, b: unknown) =>
  */
 export function sameFieldValue(field: string, a: unknown, b: unknown): boolean {
   if (a === undefined || b === undefined) return a === b;
+  if (field === 'text.en') {
+    const before = a as { text: string; numbers?: unknown };
+    const after = b as { text: string; numbers?: unknown };
+    return before.text === after.text && equal(before.numbers, after.numbers);
+  }
   if (field.startsWith(textPrefix))
     return (a as { text: string }).text === (b as { text: string }).text;
   if (field === 'bungieSnapshot')
