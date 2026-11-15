@@ -52,6 +52,15 @@ const items = {
     itemName: 'Sweet Business',
     inGameDescription: 'Holding down the trigger boosts rate of fire and range.',
   }),
+  8: item(8, {
+    baseHash: 1,
+    inGameDescription: 'Kills grant greatly increased damage.\nStacks 3x.',
+  }),
+  9: item(9, {
+    baseHash: 7,
+    inGameDescription: 'Holding down the trigger boosts rate of fire and range.',
+  }),
+  10: item(10, { baseHash: 2, sandboxPerkHashes: [12] }),
 };
 
 describe('manifestText', () => {
@@ -152,6 +161,29 @@ describe('ManifestTextRow', () => {
     resetNamesForTests();
   });
   const show = (hash: number) => act(async () => root.render(<ManifestTextRow hash={hash} />));
+
+  it('shows both sides of a pair, diffs words, and captions identical text', async () => {
+    await show(1);
+    expect(host.textContent).toContain('Kills grant increased damage.');
+    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    await show(8);
+    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    await show(9);
+    expect(host.textContent).toContain('Enhanced: same text');
+    expect(host.querySelector('ins')).toBeNull();
+    await show(4);
+    expect(host.textContent).not.toContain('Enhanced');
+    expect(host.textContent).not.toContain('Kills grant');
+  });
+
+  it('diffs the sandbox fallback for both members of a pair', async () => {
+    await show(2);
+    expect(host.textContent).toContain(perks[11][1]);
+    expect(host.querySelector('del')?.textContent).toContain('Rapid');
+    expect(host.querySelector('ins')?.textContent).toContain('While');
+    await show(4);
+    expect(host.querySelector('del')).toBeNull();
+  });
 
   it('localises arriving text, preserves missing rows, and clears it when switching to English', async () => {
     vi.stubGlobal(

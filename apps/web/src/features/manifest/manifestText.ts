@@ -75,6 +75,15 @@ export function manifestSummary(text: ManifestText): string {
   }
 }
 
+/** Plain manifest descriptions, in perk order, for the base/enhanced word comparison. */
+export function manifestDescription(text: ManifestText): string {
+  return text.kind === 'own'
+    ? text.description
+    : text.kind === 'sandbox'
+      ? text.perks.map((perk) => perk.description).join('\n')
+      : '';
+}
+
 // ---- the bundled sandbox perk text: one lazy chunk, fetched once, never per entry ----
 let loaded: SandboxPerkText | undefined;
 let pending: Promise<void> | undefined;
