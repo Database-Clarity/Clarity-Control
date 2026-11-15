@@ -26213,7 +26213,7 @@ function mergeLivePerks(live, entries, picks, groups) {
     const keys = /* @__PURE__ */ new Set([
       ...Object.keys(live).filter((key) => {
         const entry = live[key];
-        return isRecord(entry) && entry.aliasKind === "name" && "aliasOf" in entry;
+        return isRecord(entry) && "aliasOf" in entry && (entry.aliasKind === "name" || groups.aliases[key] && resolveAlias(Number(key), groups.aliases) !== entry.aliasOf);
       }),
       ...Object.keys(groups.aliases).filter((key) => groups.aliases[key]?.kind === "name")
     ]);
@@ -28884,7 +28884,10 @@ var Publisher = class _Publisher {
           opId,
           void 0,
           void 0,
-          { status: "rejected", error: `Invalid alias configuration: ${String(e)}` },
+          {
+            status: "rejected",
+            error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`
+          },
           blob
         );
         return;
@@ -29241,7 +29244,10 @@ var Publisher = class _Publisher {
       try {
         frozenAliases = this.aliasesAt(at);
       } catch (e) {
-        return fail({ status: "rejected", error: `Invalid alias configuration: ${String(e)}` });
+        return fail({
+          status: "rejected",
+          error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`
+        });
       }
     const plan = await this.batchPlan(at, payload, frozenAliases);
     if ("failure" in plan) return fail(plan.failure);
