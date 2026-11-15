@@ -10,6 +10,8 @@ import { missingNumberVariables } from './diagnostics';
 import { openSuggest, suggestState } from '../suggest/state';
 import { setStops } from '../suggest/stops';
 import { Transaction } from '@codemirror/state';
+import { chipState, markChipShown } from '../markupRow/chips';
+import { useSettingsStore } from '../../../stores/settings';
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -33,6 +35,7 @@ afterEach(() => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  useSettingsStore.setState(state=>({settings:{...state.settings,suggestAccept:'enter'}}));
 });
 function mount(sourceText = 'Gain 5 stacks lasting 5 seconds.', value = '') {
   const changes: string[] = [];
@@ -120,7 +123,7 @@ it('leads the chip row with the next unused number and returns panel Escape to t
   expect(view.hasFocus).toBe(true);
 });
 
-it('keeps suggestion acceptance and snippet stops ahead of number Tab', () => {
+it('keeps suggestions, snippets, and Tab-configured markup chips ahead of number Tab', () => {
   const { view } = mount('Value 5.');
   act(() =>
     view.dispatch({
@@ -147,4 +150,18 @@ it('keeps suggestion acceptance and snippet stops ahead of number Tab', () => {
   expect(view.state.doc.toString()).toBe('AB');
   expect(view.state.selection.main.from).toBe(1);
   expect(view.state.selection.main.to).toBe(2);
+  key(view, 'Escape');
+  act(() => useSettingsStore.setState(state=>({settings:{...state.settings,suggestAccept:'tab'}})));
+  act(() =>
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: 'pve' },
+      selection: { anchor: 3 },
+      annotations: Transaction.userEvent.of('input.type'),
+    }),
+  );
+  expect(chipState(view.state)).not.toBeNull();
+  // jsdom has no viewport geometry; this is the renderer's visible-chip signal.
+  markChipShown(view, true);
+  key(view, 'Tab');
+  expect(view.state.doc.toString()).toBe('<pve value />');
 });

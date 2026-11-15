@@ -131,7 +131,7 @@ export const NumberStrip = memo(function NumberStrip({
           key={slot.id}
           className={rowStyles.button}
           data-number-chip={slot.id}
-          title={`${slot.context} · ${slot.breadcrumb}`}
+          title={`${slot.context} · ${slot.breadcrumb} · #${slot.id}`}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
             if (view.current) insertSourceNumber(view.current, slot.id);
@@ -191,6 +191,11 @@ export function NumbersPanel({
     if (view.current && insertNumber(view.current, id)) onClose();
   };
   const pointed = slots[active]?.id;
+  useLayoutEffect(() => {
+    document
+      .querySelector('#editor-panel-numbers li[data-active]')
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [active, query]);
   useEffect(() => {
     const editor = view.current;
     if (!editor) return;
@@ -424,7 +429,7 @@ export function NumberReadout({
     };
   }, [shown, slot, state.offer, view]);
   if (!shown || !slot) return null;
-  const label = `${slot.display} · ${slot.context} · ${slot.breadcrumb} · ${state.source!.slots.indexOf(slot) + 1} of ${state.source!.slots.length}`;
+  const label = `${slot.display} · ${slot.context} · ${slot.breadcrumb} · ${state.source!.slots.indexOf(slot) + 1} of ${state.source!.slots.length} · #${slot.id}`;
   return createPortal(
     <div
       ref={surface}

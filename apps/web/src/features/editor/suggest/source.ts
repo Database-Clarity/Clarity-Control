@@ -350,7 +350,7 @@ function build(
           numberId: slot.id,
           insert: `#{=${slot.id}}`,
           hint: `${used.has(slot.id) ? 'Used' : 'To do'} · ${slot.context}`,
-          about: slot.breadcrumb,
+          about: `${slot.breadcrumb} · #${slot.id}`,
           keys: `${slot.display} ${slot.context} ${slot.breadcrumb}`,
           reference: true,
           preview: null,

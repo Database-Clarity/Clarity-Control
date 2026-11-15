@@ -106,7 +106,7 @@ export function NumberEnglishSource({
                 number: {
                   kind: { N: 'Number', S: 'Stacked', M: 'Formula' }[slot.kind],
                   context: slot.context,
-                  scope: slot.breadcrumb,
+                  scope: `${slot.breadcrumb} · #${slot.id}`,
                   insert: () => {
                     const view = translationView(hash);
                     return !!view && insertSourceNumber(view, slot.id);
