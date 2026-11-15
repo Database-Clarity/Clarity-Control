@@ -225,16 +225,7 @@ export function effectiveAliases(
       issues.push({ canonical, reason: 'Canonical no longer satisfies alias group basis' });
       continue;
     }
-    // Shared exotic traits may have several owners, but an alias group must retain at least
-    // one actual owner common to every member; unknown ownership never proves identity.
-    const commonExoticOwners =
-      exotic(base) && !exoticFrame
-        ? [base.itemHash, ...(base.owners ?? [])].filter(
-            (owner): owner is number =>
-              owner !== undefined &&
-              group.members.every((hash) => !!items[hash] && owns(items[hash]!, owner)),
-          )
-        : [];
+    const eligibleMembers: number[] = [];
     for (const hash of group.members) {
       if (hash === canonical) continue;
       if (generated[hash]) {
@@ -256,7 +247,6 @@ export function effectiveAliases(
               .toLowerCase() !== name(base)
           : name(item) !== name(base)) ||
         exotic(item) !== exotic(base) ||
-        (exotic(base) && !exoticFrame && commonExoticOwners.length === 0) ||
         enhanced(item) !== enhanced(base) ||
         (group.kind === 'S' &&
           (item.categoryId !== base.categoryId ||
@@ -273,7 +263,23 @@ export function effectiveAliases(
         });
         continue;
       }
-      aliases[hash] = { to: canonical, kind: 'name' };
+      eligibleMembers.push(hash);
+    }
+    // Excluded members cannot invalidate surviving edges. Shared exotic traits still need
+    // one proven owner common to the canonical and every otherwise eligible member.
+    const sharedExoticOwner = [base.itemHash, ...(base.owners ?? [])].some(
+      (owner) => owner !== undefined && eligibleMembers.every((hash) => owns(items[hash]!, owner)),
+    );
+    for (const hash of eligibleMembers) {
+      if (exotic(base) && !exoticFrame && !sharedExoticOwner) {
+        issues.push({
+          canonical,
+          member: hash,
+          reason: 'Member no longer satisfies alias group facts',
+        });
+      } else {
+        aliases[hash] = { to: canonical, kind: 'name' };
+      }
     }
   }
   for (const key of Object.keys(aliases)) resolveAlias(Number(key), aliases);
@@ -281,7 +287,10 @@ export function effectiveAliases(
   // Recover it only when every candidate belongs to one accepted base group.
   const pairedBase = (item: AliasItem | undefined) => {
     if (!item || !enhanced(item)) return item?.baseHash;
-    if (item.baseHash !== undefined) return item.baseHash;
+    if (item.baseHash !== undefined)
+      return items[item.baseHash] && items[resolveAlias(item.baseHash, aliases)]
+        ? item.baseHash
+        : undefined;
     const candidates = Object.values(items).filter(
       (base) =>
         !enhanced(base) &&
@@ -293,7 +302,10 @@ export function effectiveAliases(
         base.categoryId === item.categoryId.replace(/-enhanced$/, ''),
     );
     const targets = new Set(candidates.map((base) => resolveAlias(base.hash, aliases)));
-    return candidates.length > 1 && targets.size === 1 ? [...targets][0] : undefined;
+    const target = [...targets][0];
+    return candidates.length > 1 && targets.size === 1 && target !== undefined && items[target]
+      ? target
+      : undefined;
   };
   // Base-group drift can invalidate enhanced members even when their own facts still match.
   // Compare only active members, and repeat because removing an alias can expose another mismatch.
@@ -349,7 +361,10 @@ export function composeAliases(
   const result = effectiveAliases(generated, groups, items);
   const aliases: Aliases = { ...result.aliases };
   for (const [hash, alias] of Object.entries(result.aliases)) {
-    if (alias.kind === 'name' && Object.hasOwn(conflicts, hash))
+    if (
+      alias.kind === 'name' &&
+      (Object.hasOwn(conflicts, hash) || Object.hasOwn(conflicts, String(alias.to)))
+    )
       throw new Error(`Alias group member ${hash} is a shared sandbox identity`);
   }
   for (const [hash, alias] of Object.entries(picked)) {

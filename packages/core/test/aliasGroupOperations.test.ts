@@ -213,6 +213,16 @@ test('invalid picks stay invalid; groups cannot claim sandbox identities; cycles
   expect(() =>
     composeAliases({}, group(), items, { ...conflicts, 43: [42, 99] }, pointers),
   ).toThrow('shared sandbox identity');
+  const canonicalPick: SandboxPointers = {
+    version: 1,
+    pointers: {
+      42: { to: 99, candidates: [99, 100], by: 1, at },
+    },
+  };
+  // A canonical endpoint is just as unsafe as an outgoing name-alias endpoint.
+  expect(() => composeAliases({}, group(), items, { 42: [99, 100] }, canonicalPick)).toThrow(
+    'shared sandbox identity',
+  );
   expect(() =>
     composeAliases(
       { 42: { to: 43, kind: 'frame' }, 43: { to: 42, kind: 'sandbox' } },
@@ -299,6 +309,42 @@ test('exotic trait groups require proven shared ownership, including multi-owner
     Object.entries(facts).map(([key, item]) => [key, { ...item, owners: undefined }]),
   );
   expect(effectiveAliases({}, config, unknown).aliases).toEqual({});
+});
+
+test('excluded exotic members do not poison surviving shared ownership', () => {
+  const config = group();
+  config.groups[42]!.basis.categoryId = 'weapon-trait-exotic';
+  const facts: AliasItems = Object.fromEntries(
+    Object.entries(items).map(([key, item]) => [
+      key,
+      {
+        ...item,
+        categoryId: 'weapon-trait-exotic',
+        exotic: true,
+        owners: [100],
+      },
+    ]),
+  );
+  const { 44: removed, ...remaining } = facts;
+  void removed;
+  const deleted = effectiveAliases({}, config, remaining);
+  expect(deleted.aliases).toEqual({ 43: { to: 42, kind: 'name' } });
+  expect(deleted.issues).toEqual([expect.objectContaining({ member: 44 })]);
+  const changedOwner = { ...facts, 44: { ...facts[44]!, owners: [200] } };
+  const generated = effectiveAliases({ 44: { to: 99, kind: 'frame' } }, config, changedOwner);
+  expect(generated.aliases).toEqual({
+    43: { to: 42, kind: 'name' },
+    44: { to: 99, kind: 'frame' },
+  });
+  expect(generated.issues).toEqual([
+    expect.objectContaining({ member: 44, reason: 'Generated alias takes precedence' }),
+  ]);
+  const invalid = effectiveAliases({}, config, {
+    ...changedOwner,
+    44: { ...changedOwner[44], plugCategoryHash: 21 },
+  });
+  expect(invalid.aliases).toEqual({ 43: { to: 42, kind: 'name' } });
+  expect(invalid.issues).toEqual([expect.objectContaining({ member: 44 })]);
 });
 
 test('recanonicalization and ungroup return both identities, including chained generated dependents', () => {

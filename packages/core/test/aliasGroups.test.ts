@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import {
   aliasGroupsSchema,
   effectiveAliases,
+  composeAliases,
   aliasCanonicalHash,
   aliasVariantHashes,
   enhancedWordingNeeded,
@@ -10,6 +11,7 @@ import {
   exportLegacy,
   publishableHash,
   type AliasGroups,
+  type Aliases,
   type AliasItems,
 } from '../src/index.js';
 import { tooltip } from './helpers.js';
@@ -364,6 +366,27 @@ test('accepted duplicate bases preserve enhanced membership in older catalogs wi
   const pending = effectiveAliases({}, config({ 50: config().groups[50]! }), facts);
   expect(pending.aliases[51]).toBeUndefined();
   expect(pending.issues).toHaveLength(1);
+});
+
+test('enhanced groups flag deleted explicit or resolved bases instead of accepting dangling pairs', () => {
+  const sharedBase: AliasItems = { ...items, 51: { ...items[51]!, baseHash: 42 } };
+  const enhancedGroup = config({ 50: config().groups[50]! });
+  expect(composeAliases({}, enhancedGroup, sharedBase).issues).toEqual([]);
+  const { 42: removed, ...remaining } = sharedBase;
+  void removed;
+  const generatedCases: Aliases[] = [{}, { 43: { to: 42, kind: 'frame' } }];
+  for (const generated of generatedCases) {
+    const facts = Object.keys(generated).length
+      ? {
+          ...remaining,
+          50: { ...remaining[50]!, baseHash: 43 },
+          51: { ...remaining[51]!, baseHash: 43 },
+        }
+      : remaining;
+    const result = composeAliases(generated, enhancedGroup, facts);
+    expect(result.aliases[51]).toBeUndefined();
+    expect(result.issues).toEqual([expect.objectContaining({ canonical: 50, member: 51 })]);
+  }
 });
 
 test('enhanced legendary frames retain the generated canonical across weapon types', () => {
