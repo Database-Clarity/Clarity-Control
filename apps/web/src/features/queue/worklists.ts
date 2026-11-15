@@ -141,7 +141,7 @@ function enqueue(id: string, op: WorklistOperation) {
   const ops = [...state.ops, { id, op }];
   if (!worklistsSchema.safeParse(project(state.base, ops)).success)
     throw new Error(
-      'Worklists allow up to 50 lists, 500 entries and 16 KB of hashes per list, and names of 1–80 characters.',
+      'Worklists allow up to 50 lists and 16 KB of hashes per list, and names of 1–80 characters.',
     );
   useSavedWorklists.setState({ ops, notice: 'Saving changes…' });
   render();

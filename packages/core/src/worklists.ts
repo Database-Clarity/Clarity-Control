@@ -4,7 +4,7 @@ export const worklistIdSchema = z.string().uuid();
 export const worklistNameSchema = z.string().trim().min(1).max(80);
 export const worklistHashesSchema = z
   .array(z.number().int().nonnegative().max(0xffffffff))
-  .max(500)
+  .max(4096)
   .refine((hashes) => new Set(hashes).size === hashes.length, 'Entries must be unique')
   .refine((hashes) => JSON.stringify(hashes).length <= 16_384, 'Worklist entries exceed 16 KB');
 export const storedWorklistSchema = z
@@ -13,7 +13,7 @@ export const storedWorklistSchema = z
 export const worklistIndexEntrySchema = z.object({
   id: worklistIdSchema,
   name: worklistNameSchema,
-  count: z.number().int().nonnegative().max(500),
+  count: z.number().int().nonnegative().max(4096),
   updatedAt: z.number().int().nonnegative(),
   revision: z.string(),
 });
@@ -33,7 +33,7 @@ export const worklistSchema = z
       .array(worklistItemSchema)
       .refine(
         (items) => worklistHashesSchema.safeParse(items.map((item) => item.hash)).success,
-        'Worklist entries exceed 16 KB or 500 entries',
+        'Worklist entries exceed 16 KB',
       ),
   })
   .strict()
@@ -62,7 +62,7 @@ export const worklistOperationSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('move'),
       hash: z.number().int().nonnegative().max(0xffffffff),
-      index: z.number().int().nonnegative().max(499),
+      index: z.number().int().nonnegative().max(4095),
     })
     .strict(),
 ]);

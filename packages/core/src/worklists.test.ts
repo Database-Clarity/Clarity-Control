@@ -14,7 +14,7 @@ it('applies idempotent operations without dropping unrelated server entries', ()
   ]);
   expect(applyWorklistOperation(null, { type: 'add', hashes: [2] })).toBeNull();
   expect(
-    storedWorklistSchema.safeParse({ name: 'A', hashes: Array.from({ length: 501 }, (_, i) => i) })
+    storedWorklistSchema.safeParse({ name: 'A', hashes: Array.from({ length: 3499 }, (_, i) => i) })
       .success,
   ).toBe(false);
 });

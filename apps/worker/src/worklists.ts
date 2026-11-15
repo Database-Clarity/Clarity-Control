@@ -85,7 +85,7 @@ interface Row {
 const revisionSchema = z.string().regex(/^[0-9a-f]{32}$/);
 const metaSchema = z.object({
   name: worklistNameSchema,
-  count: z.number().int().nonnegative().max(500),
+  count: z.number().int().nonnegative().max(4096),
   updatedAt: z.number().int().nonnegative(),
   revision: revisionSchema,
 });
@@ -174,7 +174,7 @@ export async function userWorklists(
   if (parsed && !parsed.success)
     throw new HttpError(
       400,
-      'Worklists allow 500 entries and 16 KB of unique entry hashes and names of 1–80 characters.',
+      'Worklists allow 16 KB of unique entry hashes and names of 1–80 characters.',
       parsed.error.issues,
     );
   const operation = parsed?.success ? parsed.data : null;
@@ -214,7 +214,7 @@ export async function userWorklists(
       continue;
     }
     const valid = storedWorklistSchema.safeParse(applied);
-    if (!valid.success) throw new HttpError(400, 'Worklists allow 500 entries and 16 KB per list.');
+    if (!valid.success) throw new HttpError(400, 'Worklists allow 16 KB per list.');
     const input = valid.data;
     if (
       plain &&

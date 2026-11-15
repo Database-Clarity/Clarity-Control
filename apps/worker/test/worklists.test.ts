@@ -153,14 +153,14 @@ it('rejects invalid and oversized membership, accepts a maximum-size list', asyn
     { name: '', hashes: [] },
     { name: 'X', hashes: [-1] },
     { name: 'X', hashes: [1, 1] },
-    { name: 'X', hashes: Array.from({ length: 501 }, (_, i) => i) },
+    { name: 'X', hashes: Array.from({ length: 3499 }, (_, i) => i) },
     { ...mine, userId: 2 },
   ])
     expect((await put(value, null)).status).toBe(400);
   const first = await synced(
-    await put({ name: 'Maximum', hashes: Array.from({ length: 500 }, (_, i) => i) }, null),
+    await put({ name: 'Maximum', hashes: Array.from({ length: 3498 }, (_, i) => i) }, null),
   );
-  expect(first.worklist!.hashes).toHaveLength(500);
+  expect(first.worklist!.hashes).toHaveLength(3498);
 });
 it('enforces the 50-list cap atomically and permits editing existing lists at the cap', async () => {
   for (let index = 0; index < 50; index++)
