@@ -175,7 +175,8 @@ export function exportLegacy(
     for (const language of languages) {
       const translation = tooltip.text[language];
       if (!translation) continue;
-      const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
+      const englishFallback = usesEnglishFallback(tooltip, language);
+      const exported = englishFallback && english ? english : translation;
       // Element-tagged text (`<solar Scorch />`), delimited variables (`#{d}`), and the arrow
       // symbol (`<enhanced/>`) leave the editor in today's format (`<solar/>Scorch`, `#d`, `#e`):
       // every consumer reads exactly what authors wrote before those forms existed.
@@ -184,7 +185,11 @@ export function exportLegacy(
           ? resolveNumberTokens(exported.text, numberValues(english, language))
           : exported.text;
       const text = lowerConsumerMarkup(resolved);
-      editor[language] = { main: text, secondary: text };
+      editor[language] = {
+        main: text,
+        secondary: text,
+        ...(englishFallback ? { englishFallback: true } : {}),
+      };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
         lastUpdate: Date.parse(exported.updatedAt),
