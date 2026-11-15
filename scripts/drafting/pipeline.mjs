@@ -49,15 +49,28 @@ export function baseExoticFor(item, editor, canonicalHash) {
   );
   // Equipment names are stronger identities than thematic perk names (for
   // example Dragon's Shadow versus Wish-Dragon Teeth/Talons).
-  const equipmentMatches = candidates.filter((base) => ` ${normal(base.itemName ?? '')} `.includes(` ${stem} `));
-  const bases = new Map((equipmentMatches.length ? equipmentMatches : candidates).map((base) => [canonicalHash(base.hash, editor), base]));
+  const equipmentMatches = candidates.filter((base) =>
+    ` ${normal(base.itemName ?? '')} `.includes(` ${stem} `),
+  );
+  const bases = new Map(
+    (equipmentMatches.length ? equipmentMatches : candidates).map((base) => [
+      canonicalHash(base.hash, editor),
+      base,
+    ]),
+  );
   if (bases.size !== 1) return undefined;
   const [hash, base] = [...bases][0];
   const english = editor.bundle.tooltips[hash]?.text.en?.text;
   return english?.trim() ? { hash, name: base.itemName ?? base.name, english } : undefined;
 }
 
-export function buildInputs(editor, source, sourceCommit, app, { includeExoticWeapons = false } = {}) {
+export function buildInputs(
+  editor,
+  source,
+  sourceCommit,
+  app,
+  { includeExoticWeapons = false } = {},
+) {
   const evidence = app.reviewEvidence(editor, source, {}, '');
   const proposals = new Map(
     evidence.map((entry) => [entry.hash, app.proposalFor(entry.base, editor, source)]),
@@ -98,7 +111,10 @@ export function buildInputs(editor, source, sourceCommit, app, { includeExoticWe
       counts[group][reason]++;
       skipped.push({ hash: entry.hash, name: entry.name, group, reason });
     };
-    if ((!includeExoticWeapons && group === 'Exotic Weapons') || ownerExcludedHashes.has(entry.hash)) {
+    if (
+      (!includeExoticWeapons && group === 'Exotic Weapons') ||
+      ownerExcludedHashes.has(entry.hash)
+    ) {
       skip('excludedByGuide');
       continue;
     }
@@ -151,6 +167,7 @@ export const numbers = (text) =>
   new Set(
     (
       text
+        .replace(/\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/g, (value) => value.replaceAll(',', ''))
         .replace(/(<(?:title|link)\s+[^<>\n]*?)\s*\[[^\]]*\](\s*\/>)/g, '$1$2')
         .replace(/#[A-Za-z][A-Za-z0-9]*/g, '')
         .match(/\d+(?:\.\d+)?/g) ?? []
@@ -161,8 +178,13 @@ export const numbers = (text) =>
 // Keep their evidence attached to the metric and uncertainty, rather than
 // adding a computed number to a general whitelist (which could justify damage).
 export function convertedNumbers(source) {
+  // Both endpoints inherit the explicitly written metric in a source range.
+  const expanded = source.replace(
+    /\b(0\.\d+)(\?)?x?\s*[–-]\s*(0\.\d+)(\?)?x\s+((?:[A-Za-z/-]+\s+){0,5}Duration(?:\s+Multiplier)?|Accuracy\s+Cone\s+Size(?:\s+Multiplier)?|Draw\s+Time(?:\s+Multiplier)?)/gi,
+    (_, a, aq, b, bq, metric) => `${a}${aq ?? ''}x ${metric}; ${b}${bq ?? ''}x ${metric}`,
+  );
   return [
-    ...source.matchAll(
+    ...expanded.matchAll(
       /\b(0\.\d+)(\?)?x\s+((?:[A-Za-z/-]+\s+){0,5}Duration(?:\s+Multiplier)?|Accuracy\s+Cone\s+Size(?:\s+Multiplier)?|Draw\s+Time(?:\s+Multiplier)?)/gi,
     ),
   ].map((match) => {
@@ -187,8 +209,13 @@ export function validateDraft(item, english, editor, app) {
     errors.push('Unsupported manual-reload claim: source does not say reload');
   if (/&(?:#x[\da-f]+|#\d+|[a-z][a-z\d]+);/i.test(english))
     errors.push('HTML entities in draft text; use raw characters');
-  const exactOwnerRewrite = /^Rewritten version:\s*\n([\s\S]*)$/.exec(item.ownerFeedback?.note ?? '')?.[1] === english;
-  if (english.length > 20000 || (!exactOwnerRewrite && proseOf(english).length > Math.max(240, item.source.text.length * 1.5)))
+  const exactOwnerRewrite = [item.ownerFeedback?.note ?? '', ...(item.ownerCorrections ?? [])].some(
+    (note) => /^Rewritten version:\s*\n([\s\S]*)$/.exec(note)?.[1] === english,
+  );
+  if (
+    english.length > 20000 ||
+    (!exactOwnerRewrite && proseOf(english).length > Math.max(240, item.source.text.length * 1.5))
+  )
     errors.push('Length sanity');
   const imports = app.tooltipImports(editor.bundle.tooltips, {}, 'en', editor.aliases);
   const globals = {
@@ -205,40 +232,95 @@ export function validateDraft(item, english, editor, app) {
   );
   if (app.retiredWarnings(english).length) errors.push('Retired markup');
   // Class-item wording may come from the base, but its values must come from the cell (guide A1).
-  const ownerNote = item.ownerFeedback?.verdict === 'change' ? item.ownerFeedback.note ?? '' : '';
-  const allowed = new Set([...numbers(item.source.text), ...numbers(ownerNote)]);
+  const ownerNote = item.ownerFeedback?.verdict === 'change' ? (item.ownerFeedback.note ?? '') : '';
+  const allowed = new Set([
+    ...numbers(item.source.text),
+    ...numbers(ownerNote),
+    ...numbers((item.ownerCorrections ?? []).join('\n')),
+  ]);
   const conversions = convertedNumbers(item.source.text);
   // A conversion is allowed only in its correct phrase. Remove those phrases
   // before checking the remaining literal numbers, so the same number elsewhere
   // cannot borrow the conversion's evidence.
   const literalEnglish = english.replace(
-    /(\d+(?:\.\d+)?)(\?)?%\s+decreased\s+([A-Za-z/ -]*?(?:Animation Duration|Accuracy Cone Size|Draw Time))/gi,
-    (phrase, value, question, label) =>
-      conversions.some(
-        (conversion) =>
-          conversion.value === String(Number(value)) &&
-          conversion.uncertain === !!question &&
-          normal(conversion.label) === normal(label),
-      )
-        ? phrase.replace(/\d+(?:\.\d+)?/, '')
+    /((?:\d+(?:\.\d+)?\??%?\s*[–|-]\s*)*\d+(?:\.\d+)?\??)%\s+decreased\s+([A-Za-z/ -]*?(?:Animation Duration|Accuracy Cone Size|Draw Time))/gi,
+    (phrase, values, label) =>
+      values.split(/\s*[–|-]\s*/).every((token) => {
+        const [, value, question] = /^(\d+(?:\.\d+)?)(\?)?%?$/.exec(token) ?? [];
+        return (
+          value &&
+          conversions.some(
+            (conversion) =>
+              conversion.value === String(Number(value)) &&
+              conversion.uncertain === !!question &&
+              normal(conversion.label) === normal(label),
+          )
+        );
+      })
+        ? phrase.replace(values, '')
         : phrase,
   );
   // Resulting fragment values require an explicit base+bonus from THIS cell and
   // a named supplemental fragment cell. Remove only that parenthetical result.
-  const withFragments = literalEnglish.replace(/\(([\d.]+)(\?)?\s+with\s+<\w+\s+([^<>]+?)\s*\/>\)/g,
-    (phrase, total, question, name) => (item.fragmentImprovements ?? []).some((proof) =>
-      proof.fragment === name && proof.sourceText && !question &&
-      String(proof.total) === String(Number(total)) &&
-      item.source.text.includes(`${proof.base}+${proof.bonus}`) &&
-      Number(proof.base) + Number(proof.bonus) === Number(total)
-    ) ? phrase.replace(/[\d.]+/, '') : phrase);
+  const withRatios = literalEnglish.replace(
+    /((?:\d+(?:\.\d+)?\??%\|)*\d+(?:\.\d+)?\??)% of (?:(?:its|the) )?(?:normal|base) (?:damage|(?:[A-Za-z ]+ )?rate)\b/gi,
+    (phrase, values) =>
+      values.split('|').every((value) => {
+        const parsed = /^(\d+(?:\.\d+)?)(\?)?%?$/.exec(value);
+        return (
+          parsed &&
+          [...item.source.text.matchAll(/\b(\d+(?:\.\d+)?)(\?)?x\b/g)].some(
+            (match) =>
+              Number((Number(match[1]) * 100).toFixed(8)) === Number(parsed[1]) &&
+              !!match[2] === !!parsed[2],
+          )
+        );
+      })
+        ? phrase.replace(values, '')
+        : phrase,
+  );
+  const withFragments = withRatios.replace(
+    /\(([\d.]+)(\?)?\s+with\s+<\w+\s+([^<>]+?)\s*\/>\)/g,
+    (phrase, total, question, name) =>
+      (item.fragmentImprovements ?? []).some(
+        (proof) =>
+          proof.fragment === name &&
+          proof.sourceText &&
+          !question &&
+          String(proof.total) === String(Number(total)) &&
+          item.source.text.includes(`${proof.base}+${proof.bonus}`) &&
+          Number(proof.base) + Number(proof.bonus) === Number(total),
+      )
+        ? phrase.replace(/[\d.]+/, '')
+        : phrase,
+  );
   // The owner-established Siphon family uses one count per source tier. This
   // licenses selector digits only, never those digits elsewhere in the prose.
-  const withSelectors = item.category.startsWith('armor-mod') && /Siphon$/.test(item.name ?? '')
-    ? withFragments.replace(/with 1\|2\|3 mods equipped/g, 'with mods equipped') : withFragments;
+  const withSelectors =
+    item.category.startsWith('armor-mod') && /Siphon$/.test(item.name ?? '')
+      ? withFragments.replace(/with 1\|2\|3 mods equipped/g, 'with mods equipped')
+      : withFragments;
+  const stackCap = /(?:maximum of|up to(?: a maximum of)?)\s+(\d+)\s+stacks?/i.exec(
+    item.source.text,
+  )?.[1];
+  const withStackLabels =
+    stackCap && Number(stackCap) <= 20
+      ? withSelectors.replace(
+          new RegExp(
+            `at ${Array.from({ length: Number(stackCap) }, (_, n) => n + 1).join('\\|')} stacks`,
+            'g',
+          ),
+          'at stacks',
+        )
+      : withSelectors;
   // An import identifier is a reference checked by the core parser, not a
   // numerical mechanic. Strip only the complete supported import declaration.
-  const mechanics = withSelectors.replace(/^\s*import\s+\w+\s+from\s+\d+\s*$/gm, '');
+  // A source's explicit duration 'after a second' denotes one second. This
+  // narrow normalization does not license indefinite stack/count numerals.
+  const withDuration = /\bafter a second\b/i.test(item.source.text)
+    ? withStackLabels.replace(/\bafter 1 second\b/gi, 'after a second')
+    : withStackLabels;
+  const mechanics = withDuration.replace(/^\s*import\s+\w+\s+from\s+\d+\s*$/gm, '');
   for (const number of numbers(mechanics))
     if (!allowed.has(number)) errors.push(`Unsupported number: ${number}`);
   // Exotic cross-references must both exist and be present in the supplied evidence.
@@ -255,7 +337,11 @@ export function validateDraft(item, english, editor, app) {
     if (!names.has(name) || !evidence.includes(name))
       errors.push(`Unsupported item name: ${match[1]}`);
   }
-  if (item.category !== 'weapon-trait' && !item.enhancedCategory && /\{\{|<enhanced\/>|^enhanced \(/m.test(english))
+  if (
+    item.category !== 'weapon-trait' &&
+    !item.enhancedCategory &&
+    /\{\{|<enhanced\/>|^enhanced \(/m.test(english)
+  )
     errors.push('Enhanced markup outside an enhanced-capable category');
   return [...new Set(errors)];
 }
