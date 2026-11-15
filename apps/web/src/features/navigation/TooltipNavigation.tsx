@@ -87,6 +87,7 @@ import {
 } from '../marks/finder';
 import { FinderEntryMarks, markPopupOwnsFocus } from '../marks/FinderEntryMarks';
 import { MarkedWorkThrough } from '../marks/queue';
+import { FinderMarkGroup } from '../marks/FinderMarkGroup';
 import { prepareFinderMarkers, rollupFinderMarkers, type MarkerIndex } from './finderMarkerState';
 import { defaultLanguage } from '../tooltip/language';
 import { WorkspaceLanguageContext } from '../tooltip/WorkspaceLanguage';
@@ -1151,6 +1152,15 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const listbox = open && (
     <div className={styles.popup} data-variant={variant} data-wide={wideRows || undefined}>
       {variant === 'bar' && (
+        <FinderMarkGroup
+          grouped={grouped}
+          hash={hash}
+          group={place.group}
+          all={place.all}
+          choose={chooseRef.current}
+        />
+      )}
+      {variant === 'bar' && (
         <MarkedWorkThrough data={data} group={place.group} all={place.all} onStart={restore} />
       )}
       <ul
@@ -1488,7 +1498,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       ) : (
         <>
           {categoryNode}
-          {groupNode}
+          {selectedCategory?.id !== 'marked' && groupNode}
           {comboNode}
           {positionNode}
         </>

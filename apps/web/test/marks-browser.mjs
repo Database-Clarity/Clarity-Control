@@ -144,6 +144,8 @@ try {
         await nav.getByRole('combobox', { name: 'Tooltip', exact: true }).fill('');
         await nav.getByRole('combobox', { name: 'Category', exact: true }).click();
         await page.locator('[role="option"][data-value="marked"]').click();
+        const markField = nav.getByRole('combobox', { name: 'Tooltip', exact: true });
+        if ((await markField.getAttribute('aria-expanded')) !== 'true') await markField.click();
         await nav.getByRole('combobox', { name: 'Mark type', exact: true }).click();
         await page.locator('[role="option"][data-value="mark.retest"]').click();
         const field = nav.getByRole('combobox', { name: 'Tooltip', exact: true });

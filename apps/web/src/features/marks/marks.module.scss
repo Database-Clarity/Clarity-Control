@@ -1,4 +1,10 @@
 @use '../../ui/controls';
+.popupPicker {
+  @include controls.field;
+  flex: none;
+  width: 100%;
+  min-width: 0;
+}
 .finderAction {
   display: inline-flex;
   line-height: 1;

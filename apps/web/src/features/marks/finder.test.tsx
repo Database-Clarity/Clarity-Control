@@ -177,6 +177,7 @@ it('finds mark labels and notes, and changes category and mark-type scopes', asy
   await type('');
   await pickOption(picker(host, 'Category')!, 'marked');
   expect(host.querySelector('output')!.textContent).toContain('g=all:mark.retest');
+  await act(async () => host.querySelector<HTMLInputElement>('input[role=combobox]')!.click());
   await pickOption(picker(host, 'Mark type')!, 'mark.retest');
   expect(host.querySelector('output')!.textContent).toContain('g=mark.retest');
   await act(async () => host.querySelector<HTMLInputElement>('input[role=combobox]')!.click());
