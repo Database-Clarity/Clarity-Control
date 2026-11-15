@@ -21,6 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual, parseArgs } from 'node:util';
 import { sha256 } from '../mult-write/rewrite.js';
 import { planBytes, planWrite, summary, type Plan } from './plan.js';
+import { planTypedArrows } from './arrow-symbol-plan.js';
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -33,6 +34,7 @@ const { positionals, values } = parseArgs({
     backup: { type: 'string' },
     remote: { type: 'string', default: 'origin' },
     branch: { type: 'string', default: 'editor-data' },
+    'typed-arrow': { type: 'boolean', default: false },
   },
 });
 const command = positionals[0];
@@ -71,6 +73,22 @@ const tooltipPaths = () =>
 const remoteHead = () =>
   git('ls-remote', values.remote!, `refs/heads/${values.branch}`).split(/\s+/)[0] ?? '';
 
+// Opt in explicitly for U+1F81A; keep the earlier enhanced-arrow migration unchanged.
+const makePlan = () => {
+  if (!values['typed-arrow']) return planWrite(tooltipPaths(), readData);
+  const files = Object.fromEntries(
+    tooltipPaths().map((path) => {
+      const bytes = readData(path);
+      if (bytes === undefined) throw new Error(`Missing ${path}`);
+      return [path, bytes];
+    }),
+  );
+  const result = planTypedArrows(files);
+  if (result.refused.length)
+    throw new Error('Typed arrow plan has refused quick fixes; inspect census');
+  return result.plan;
+};
+
 function frozen(head: string, clean = true): void {
   if (!/^[0-9a-f]{40}$/.test(head)) throw new Error('--head must be a full sha');
   if (git('config', '--get', 'core.autocrlf') !== 'false')
@@ -106,7 +124,7 @@ function restore(plan: Plan, backup: string): void {
 if (command === 'plan') {
   const head = need('head');
   frozen(head);
-  const plan = planWrite(tooltipPaths(), readData);
+  const plan = makePlan();
   const out = resolve(need('out'));
   const bytes = planBytes(plan);
   exclusive(join(out, 'plan.json'), bytes);
@@ -151,8 +169,7 @@ if (command === 'plan') {
       throw new Error(`Backup differs: ${change.path}`);
   }
   frozen(head);
-  if (planBytes(planWrite(tooltipPaths(), readData)) !== bytes)
-    throw new Error('Re-plan differs from the approved plan');
+  if (planBytes(makePlan()) !== bytes) throw new Error('Re-plan differs from the approved plan');
   try {
     for (const change of plan.changes) writeFileSync(join(data, change.path), change.after);
     const wanted = plan.changes.map((change) => change.path).sort();
