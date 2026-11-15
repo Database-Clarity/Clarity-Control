@@ -71,12 +71,13 @@ export function ManifestTextRow({ hash, lang = 'en' }: { hash: number; lang?: La
         summary={
           // Open, the preview card right above already names the entry: no second identity.
           open ? undefined : (
-            <span
-              className={styles.summary}
-              title={summary}
-              data-empty={text.kind === 'none' || undefined}
-            >
-              <EnglishReveal english={manifestSummary(text)} translated={summary} lang={lang} />
+            <span className={styles.summary} data-empty={text.kind === 'none' || undefined}>
+              <EnglishReveal
+                english={manifestSummary(text)}
+                translated={summary}
+                lang={lang}
+                showTranslation
+              />
             </span>
           )
         }

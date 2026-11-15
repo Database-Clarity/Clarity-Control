@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { EditorView } from '@codemirror/view';
 import { elementTagNames, findElementTags, type ElementTag } from '@clarity/core';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
+import { TitleAnchor } from '../preview/MarkupRenderer';
 import { elementLabel } from '../editor/elementTags';
 import { linePairs, type IconPair } from '../editor/iconPairs';
 import { guideSuggest, openSuggest, suggestState } from '../editor/suggest/state';
@@ -181,22 +182,30 @@ export function MarkupOnlyEnglish({
         <ReadingTooltip text={current} hash={hash} />
       </div>
       {added.length > 0 && (
-        <p className={styles.tagHere}>
-          <button
-            type="button"
-            className={styles.link}
-            data-tag-here
-            title={`Selects the next ${[...elements].map(elementLabel).join(' or ')} icon and its word in the translation, and offers to tag them`}
-            onClick={step}
+        <div className={styles.tagHere}>
+          <TitleAnchor
+            part={{
+              title: [
+                {
+                  linesContent: [
+                    {
+                      text: `Selects the next ${[...elements].map(elementLabel).join(' or ')} icon and its word in the translation, and offers to tag them`,
+                    },
+                  ],
+                },
+              ],
+            }}
           >
-            Tag the same words here
-          </button>
+            <button type="button" className={styles.link} data-tag-here onClick={step}>
+              Tag the same words here
+            </button>
+          </TitleAnchor>
           {note && (
             <span className={styles.note} role="status">
               {note}
             </span>
           )}
-        </p>
+        </div>
       )}
     </>
   );

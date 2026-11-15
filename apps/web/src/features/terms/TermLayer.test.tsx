@@ -4,7 +4,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { TermLayer, type SpanSource } from './TermLayer';
+import { TermLayer, TermPopover, type SpanSource } from './TermLayer';
+import { useSettingsStore } from '../../stores/settings';
 
 // jsdom has no CSS Custom Highlights, caret hit-testing, or range geometry: minimal stand-ins.
 class FakeHighlight extends Set<Range> {}
@@ -83,4 +84,104 @@ it('marks spans from a span source and inserts on click for a single exact inser
   expect(editor.state.doc.toString()).toBe('Hält {0} s.');
   // No popover for a single exact insert.
   expect(document.querySelector('[data-term-popover]')).toBeNull();
+});
+
+it('keeps the English in the accessible label and puts each Insert beside its name', () => {
+  const anchor = document.createRange();
+  anchor.selectNodeContents(host);
+  act(() =>
+    root.render(
+      <TermPopover
+        term={{ en: 'Chaos Reshaped', kind: 'name', official: ['Chaos remanié'] }}
+        anchor={anchor}
+        lang="fr"
+        canInsert
+        onInsert={() => {}}
+        onClose={() => {}}
+      />,
+    ),
+  );
+  const dialog = document.querySelector('[data-term-popover]')!;
+  expect(dialog.getAttribute('aria-label')).toBe('Chaos Reshaped: in game');
+  expect(dialog.firstElementChild?.textContent).toBe('In game · French');
+  expect(dialog.textContent).not.toContain('Chaos Reshaped');
+  expect(dialog.querySelector('strong')?.parentElement?.querySelector('button')?.textContent).toBe(
+    'Insert',
+  );
+  // Signed out: no empty footer or footer action.
+  expect(dialog.lastElementChild?.querySelector('strong')).not.toBeNull();
+});
+
+it('keeps the in-game prefix separate from the name and attributes an agreed term in one footer', () => {
+  const anchor = document.createRange();
+  anchor.selectNodeContents(host);
+  act(() =>
+    root.render(
+      <TermPopover
+        term={{
+          en: 'Chaos Reshaped',
+          kind: 'glossary',
+          official: ['Chaos remanié'],
+          inGame: ['Chaos remodelé'],
+          glossary: {
+            en: 'Chaos Reshaped',
+            term: 'Chaos remanié',
+            note: 'Use the agreed spelling.',
+            updatedBy: 'alice',
+            updatedAt: '2026-11-14T00:00:00Z',
+          },
+        }}
+        anchor={anchor}
+        lang="fr"
+        canInsert={false}
+        onInsert={() => {}}
+        onClose={() => {}}
+      />,
+    ),
+  );
+  const dialog = document.querySelector('[data-term-popover]')!;
+  expect(dialog.firstElementChild?.textContent).toBe('Agreed term · French');
+  expect(dialog.querySelectorAll('strong')[1]?.querySelector('span')?.textContent).toBe('In game:');
+  expect(dialog.querySelector('p')?.textContent).toBe('Use the agreed spelling.');
+  expect(dialog.lastElementChild?.querySelector('small')?.textContent).toContain('alice ·');
+  expect(dialog.querySelector('button')).toBeNull();
+});
+
+it('shows an absolute attribution date and time using the app format and zone', () => {
+  const previous = useSettingsStore.getState().settings;
+  useSettingsStore.setState({
+    settings: { ...previous, dateFormat: 'dmy', timeDisplay: 'relative', timeZone: 'UTC' },
+  });
+  const anchor = document.createRange();
+  anchor.selectNodeContents(host);
+  try {
+    act(() =>
+      root.render(
+        <TermPopover
+          term={{
+            en: 'Chaos Reshaped',
+            kind: 'glossary',
+            official: ['Chaos refaçonné'],
+            glossary: {
+              en: 'Chaos Reshaped',
+              term: 'Chaos refaçonné',
+              updatedBy: 'alice',
+              updatedAt: '2026-11-14T00:00:00Z',
+            },
+          }}
+          anchor={anchor}
+          lang="fr"
+          canInsert={false}
+          onInsert={() => {}}
+          onClose={() => {}}
+        />,
+      ),
+    );
+    const dialog = document.querySelector('[data-term-popover]')!;
+    expect(dialog.querySelector('[role="tooltip"]')?.textContent).toBe('14 Nov 2026, 00:00 UTC');
+    expect(dialog.querySelector('time')?.getAttribute('datetime')).toBe('2026-11-14T00:00:00Z');
+    expect(dialog.querySelector('[title]')).toBeNull();
+  } finally {
+    act(() => useSettingsStore.setState({ settings: previous }));
+  }
 });

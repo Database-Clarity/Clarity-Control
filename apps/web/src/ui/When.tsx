@@ -6,10 +6,12 @@ export function When({
   value,
   fallback = 'unknown time',
   nowrap = false,
+  nativeTitle = true,
 }: {
   value: string | number | Date | null | undefined;
   fallback?: string;
   nowrap?: boolean;
+  nativeTitle?: boolean;
 }) {
   const settings = useSyncedSettings();
   const date = parseDate(value);
@@ -22,7 +24,11 @@ export function When({
       ? `${exactDate(date, { ...settings, timeDisplay: 'datetime' })} (${iso})`
       : iso;
   return (
-    <time dateTime={iso} title={title} style={nowrap ? { whiteSpace: 'nowrap' } : undefined}>
+    <time
+      dateTime={iso}
+      title={nativeTitle ? title : undefined}
+      style={nowrap ? { whiteSpace: 'nowrap' } : undefined}
+    >
       {text}
     </time>
   );
