@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { build } from 'esbuild';
 import { gunzipSync } from 'node:zlib';
 import {
   applyApproved,
@@ -294,4 +299,62 @@ it('rejects the stripped export catalog fixture instead of guessing resolver nam
       files: {},
     }),
   ).toThrow();
+});
+
+it('keeps bundled S2 imports inert and runs the dry-run CLI only when explicitly invoked', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'confident-links-test-'));
+  const library = fileURLToPath(new URL('./confident-links.ts', import.meta.url));
+  try {
+    const host = join(dir, 'host.mjs');
+    await build({
+      stdin: {
+        contents: `import { plan } from ${JSON.stringify(library)};
+      console.log('S2_IMPORT_ONLY', typeof plan);`,
+        resolveDir: process.cwd(),
+      },
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node24',
+      outfile: host,
+    });
+    for (const args of [[], ['--pipeline-dry-run']]) {
+      const result = spawnSync(process.execPath, [host, ...args], { encoding: 'utf8' });
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim()).toBe('S2_IMPORT_ONLY function');
+      expect(result.stderr).toBe('');
+    }
+    const cli = join(dir, 'cli.mjs');
+    await build({
+      entryPoints: [library],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node24',
+      outfile: cli,
+    });
+    const source = input();
+    const inputFile = join(dir, 'input.json');
+    const out = join(dir, 'candidate');
+    writeFileSync(inputFile, JSON.stringify(source));
+    // Exactly the explicit launcher documented in the runbook.
+    const args = [
+      '--input-type=module',
+      '-e',
+      'import(process.argv[1]).then(m => m.runCli(process.argv.slice(2)))',
+      pathToFileURL(cli).href,
+      '--input',
+      inputFile,
+      '--out',
+      out,
+    ];
+    const result = spawnSync(process.execPath, args, { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(readFileSync(join(out, 'manifest.json'), 'utf8')).toBe(bytes(plan(source)));
+    expect(readFileSync(join(out, 'backup.json'), 'utf8')).toBe(bytes(backup(plan(source))));
+    expect(spawnSync(process.execPath, args, { encoding: 'utf8' }).status).toBe(1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

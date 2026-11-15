@@ -13,7 +13,7 @@ the repository's esbuild dependency, outside the repository:
 
 ```powershell
 python -I D:/GitHub/Description-editor/.agents/t3/suite-lock/heavy.py npx esbuild scripts/cutover/confident-links.ts --bundle --platform=node --format=esm --outfile=C:/Temp/confident-links.mjs
-node C:/Temp/confident-links.mjs --input C:/Temp/pinned-inputs.json --out C:/Temp/NEW-candidate
+node --input-type=module -e "import(process.argv[1]).then(m => m.runCli(process.argv.slice(2)))" file:///C:/Temp/confident-links.mjs --input C:/Temp/pinned-inputs.json --out C:/Temp/NEW-candidate
 ```
 
 `Inputs` contains full 40-character `editorHead`, `engineCommit`, `catalogCommit`,
@@ -34,6 +34,9 @@ timestamps, associations, and other fields retain their values. Changed JSON is
 formatted with two-space indentation and a final newline. Newly linked catalog
 entries without authored tooltips get metadata-only records, never invented text.
 
+CLI invocation is explicit through exported `runCli(args)`: importing or bundling
+the library never parses host arguments, writes files, or changes the exit status.
+Running the bundled module alone does nothing; use the launcher command above.
 The CLI has no write command. Repeated preparation with identical inputs produces
 identical bytes. A fresh snapshot or editor head requires a new plan and approval.
 

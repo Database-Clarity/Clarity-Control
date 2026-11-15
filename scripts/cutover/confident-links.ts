@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { aliasesSchema, resolveAlias } from '../../packages/core/src/aliases.js';
@@ -294,8 +293,12 @@ export function verifyBundle(
   if (bytes(bundle.tooltips) !== bytes(expected)) throw new Error('Bundle tooltips mismatch');
 }
 
-function main() {
-  const { values } = parseArgs({ options: { input: { type: 'string' }, out: { type: 'string' } } });
+/** Explicit CLI entry: imports must stay inert when S2 bundles this library. */
+export function runCli(args: string[]): void {
+  const { values } = parseArgs({
+    args,
+    options: { input: { type: 'string' }, out: { type: 'string' } },
+  });
   if (!values.input || !values.out)
     throw new Error('Usage: --input pinned-inputs.json --out NEW-directory');
   const input = JSON.parse(readFileSync(values.input, 'utf8')) as Inputs;
@@ -317,12 +320,4 @@ function main() {
       }, {}),
     }),
   );
-}
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    main();
-  } catch (error) {
-    console.error(error);
-    process.exitCode = 1;
-  }
 }
