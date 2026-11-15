@@ -256,7 +256,6 @@ export async function scheduleBatch(
     // associations (base/enhanced), element tags, `#{d}`, and `<enhanced/>` the PIN lowers, and held set bonuses.
     // A member the generator has since aliased would export its target, not the member: refuse
     // it as /save does, before any check reads documents by canonical hash.
-    refuseAliases(hashes, saveAliases);
     let aliases =
       state.extra[3] || pinMergesSandboxPointers(state.pin) ? saveAliases : generatorAliases!;
     const moves = storedInactiveMoves(state.extra[2]);

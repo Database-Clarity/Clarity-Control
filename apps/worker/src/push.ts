@@ -24,7 +24,6 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import { catalog, type AliasScope } from './catalog.js';
-import { publisherPinPath } from './elementTags.js';
 import { blobsPerQuery, RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
@@ -99,10 +98,9 @@ async function loadAtHead(
   expected: Record<string, string> | undefined,
 ): Promise<Loaded> {
   const [pointers, movesFile, groups] = await github.files(
-    [sandboxPointersPath, inactiveMovesPath, aliasGroupsPath, publisherPinPath],
+    [sandboxPointersPath, inactiveMovesPath, aliasGroupsPath],
     head,
   );
-  // All configuration, including PIN, belongs to the same source head as the tooltips.
   const scope = groups
     ? await consumerAliasScope(github, groups, pointers, hashes, true)
     : undefined;

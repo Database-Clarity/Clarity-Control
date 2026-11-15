@@ -361,6 +361,7 @@ export function composeAliases(
   const result = effectiveAliases(generated, groups, items);
   const aliases: Aliases = { ...result.aliases };
   for (const [hash, alias] of Object.entries(result.aliases)) {
+    if (Object.hasOwn(generated, hash)) continue;
     if (
       alias.kind === 'name' &&
       (Object.hasOwn(conflicts, hash) || Object.hasOwn(conflicts, String(alias.to)))

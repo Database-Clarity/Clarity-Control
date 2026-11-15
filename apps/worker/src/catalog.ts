@@ -103,30 +103,14 @@ export async function catalog(
 /** Pin ALL grouping inputs once, so a generator branch move cannot mix facts and aliases. */
 export async function aliasCatalog(github: GitHub) {
   const env = github.env;
-  github.spend();
-  const { sha } = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) }).parse(
-    await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(env.GENERATOR_OWNER)}/${encodeURIComponent(env.GENERATOR_REPO)}/commits/${encodeURIComponent(env.GENERATOR_BRANCH)}`,
-      {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Clarity-Editor' },
-      },
-    ).then(upstreamJson),
-  );
+  const sha = await github.generatorRevision();
   return { ...(await catalog(env, github, sha)), revision: sha };
 }
 
 /** Raw pinned files are narrowed BEFORE schema validation; S1 still decides every alias edge. */
 export async function aliasInputs(github: GitHub, includeCategories = false) {
-  github.spend();
   const env = github.env;
-  const { sha } = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) }).parse(
-    await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(env.GENERATOR_OWNER)}/${encodeURIComponent(env.GENERATOR_REPO)}/commits/${encodeURIComponent(env.GENERATOR_BRANCH)}`,
-      {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Clarity-Editor' },
-      },
-    ).then(upstreamJson),
-  );
+  const sha = await github.generatorRevision();
   const read = async (file: string) => {
     github.spend();
     return fetch(`${source(env, sha)}/${file}`).then(upstreamJson);
@@ -143,6 +127,29 @@ export async function aliasInputs(github: GitHub, includeCategories = false) {
     includeCategories ? read('categories.json').then((value) => categoriesSchema.parse(value)) : [],
   ]);
   return { items, aliases, conflicts, categories, revision: sha };
+}
+
+/** Consumer output must never silently lose a persisted group's drifted members. */
+export function consumerAliases(...args: Parameters<typeof composeAliases>): Aliases {
+  try {
+    const result = composeAliases(...args);
+    const issues = result.issues.filter(
+      (issue) => issue.reason !== 'Generated alias takes precedence',
+    );
+    if (issues.length)
+      throw new HttpError(
+        409,
+        'Alias groups no longer match generator facts',
+        issues.map(
+          ({ canonical, member, reason }) =>
+            `${canonical}${member === undefined ? '' : ` / ${member}`}: ${reason}`,
+        ),
+      );
+    return result.aliases;
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(502, `Invalid alias composition: ${String(error)}`);
+  }
 }
 
 export interface AliasScope {
@@ -258,13 +265,13 @@ export function scopedAliases(
             ),
           }
         : null;
-      scope.aliases = composeAliases(
+      scope.aliases = consumerAliases(
         selectedAliases,
         selectedGroups,
         selectedItems,
         input.conflicts as SandboxConflicts,
         selectedPointers,
-      ).aliases;
+      );
       return scope.aliases;
     },
   };

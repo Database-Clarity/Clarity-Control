@@ -54,6 +54,7 @@ let f: Fixture;
 let items: Record<string, AliasItems[string]>;
 let generatorReads: string[];
 let readHeads: string[];
+let generatorStatus: number;
 beforeAll(async () => {
   key = await makePrivateKey();
 });
@@ -80,14 +81,18 @@ beforeEach(() => {
       },
     ]),
   );
+  generatorStatus = 200;
   generatorReads = [];
   readHeads = [];
   const original = globalThis.fetch;
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.pathname.includes('/generator/commits/')) {
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer installation-token');
       f.subrequests++;
-      return Response.json({ sha: revision });
+      return generatorStatus === 200
+        ? Response.json({ sha: revision })
+        : new Response(null, { status: generatorStatus });
     }
     if (url.hostname === 'raw.githubusercontent.com') {
       generatorReads.push(url.pathname);
@@ -602,3 +607,56 @@ it.each([false, true])(
     expect(f.current()['tooltips/124.json']).toBeUndefined();
   },
 );
+
+it.each([403, 429])('returns 503 for a generator lookup refused with %s', async (status) => {
+  generatorStatus = status;
+  expect((await save(124)).status).toBe(503);
+  expect(f.commits).toHaveLength(0);
+});
+
+it.each(['member', 'canonical', 'missing'])(
+  'refuses unrelated push and publish without deleting live output after %s drift',
+  async (drift) => {
+    publisherConfig.enabled = false;
+    expect((await f.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
+    f.moveData({ 'tooltips/126.json': document(126, 'Unrelated text') });
+    const before = structuredClone(f.live);
+    const writes = f.writes.length;
+    const commits = f.commits.length;
+    const reviewed = await publishableHash(document(123), aliases());
+    if (drift === 'member') items[124]!.plugCategoryHash = 99;
+    else if (drift === 'canonical') items[123]!.name = 'Renamed';
+    else items = { 126: items[126]! };
+    const pushed = await f.request('/push-live', 'POST', { hashes: [126] });
+    expect(pushed.status, await pushed.clone().text()).toBe(409);
+    expect(f.live).toEqual(before);
+    expect(f.writes).toHaveLength(writes);
+    publisherConfig.enabled = true;
+    expect((await publish(123, reviewed)).status).toBe(409);
+    expect(f.commits).toHaveLength(commits);
+  },
+);
+
+it.each([undefined, emptyAliasGroups()])(
+  'preserves generated name aliases with absent or empty groups (%j)',
+  async (config) => {
+    publisherConfig.enabled = false;
+    f.aliases = { 900: { to: 123, kind: 'name' } };
+    f.sandboxConflicts = { 900: [123, 126] };
+    f.moveData({ [aliasGroupsPath]: config });
+    const response = await f.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(f.live.perks).toMatchObject({ 900: { aliasOf: 123, aliasKind: 'name' } });
+  },
+);
+
+it('fails closed when accepted groups have no generator facts in either composition path', async () => {
+  items = {};
+  expect((await save(123)).status).toBe(409);
+  expect((await publish(123, 'a'.repeat(64))).status).toBe(409);
+  const github = new GitHub(f.env);
+  await expect(
+    withSandboxPointers(github, {}, null, { sha: sha(90), value: groups() }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect(f.commits).toHaveLength(0);
+});

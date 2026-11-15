@@ -4,7 +4,6 @@ import {
   aliasGroupsCapability,
   aliasGroupsPath,
   aliasGroupsSchema,
-  composeAliases,
   emptySandboxPointers,
   hasSandboxTargets,
   hashSchema,
@@ -23,7 +22,7 @@ import {
   type SandboxConflicts,
   type SandboxPointers,
 } from '@clarity/core';
-import { aliasCatalog, aliasInputs, scopedAliases, source } from './catalog.js';
+import { aliasCatalog, aliasInputs, consumerAliases, scopedAliases, source } from './catalog.js';
 import { exporter, publisherPinPath } from './elementTags.js';
 import { blobContent, blobSha, RefRace, type GitHub, type RepoFile } from './github.js';
 import { body, HttpError, json, upstreamJson } from './http.js';
@@ -67,12 +66,7 @@ export async function withSandboxPointers(
     const groups = storedAliasGroups(groupsFile)!;
     generated ??= await aliasCatalog(github);
     const conflicts = await loadSandboxConflicts(github.env, github, generated.revision);
-    try {
-      return composeAliases(generated.aliases, groups, generated.items, conflicts, pointers)
-        .aliases;
-    } catch (error) {
-      throw new HttpError(502, `Invalid alias composition: ${String(error)}`);
-    }
+    return consumerAliases(generated.aliases, groups, generated.items, conflicts, pointers);
   }
   if (!hasSandboxTargets(pointers)) return aliases;
   return mergeSandboxPointers(aliases, await loadSandboxConflicts(github.env, github), pointers);
@@ -267,12 +261,12 @@ export async function sandboxPointersRoute(
         conflicts: await generatorRecord(github, sandboxConflictsFile),
       };
     const aliases = grouped
-      ? composeAliases(
+      ? consumerAliases(
           grouped.aliases,
           storedAliasGroups(groups),
           grouped.items,
           generator.conflicts as SandboxConflicts,
-        ).aliases
+        )
       : generator.aliases;
     const current = stored ?? emptySandboxPointers();
     const problems: string[] = [];
