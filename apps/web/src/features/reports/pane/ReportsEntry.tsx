@@ -143,13 +143,12 @@ export function ReportsEntry({
         onClick={() => setOpen((value) => !value)}
       >
         Reports
-        <span
-          className={badgeClassName}
-          aria-hidden="true"
-          style={!failed && loaded && !rows.length ? { visibility: 'hidden' } : undefined}
-        >
-          {!loaded && !failed ? '…' : failed ? '!' : rows.length}
-        </span>
+        {/* A badge only when there is something to say: no reserved space while loading or at 0. */}
+        {(failed || rows.length > 0) && (
+          <span className={badgeClassName} aria-hidden="true">
+            {failed ? '!' : rows.length}
+          </span>
+        )}
       </button>
       <ShellOverlay
         open={open}

@@ -12,30 +12,26 @@ import { buildLegacy, legacyPresets, type LegacyInput } from '../src/index.js';
 // The fixtures supply catalog facts; the converter retains its historical stricter input type.
 const consumerInput = (perks: ReturnType<typeof exportLegacy>) => ({ perks }) as LegacyInput;
 
-it.each(legacyPresets)(
-  'keeps real-data %s bytes identical with an empty inactive file',
-  (preset) => {
-    const source = legacyDatabaseSchema.parse(
-      JSON.parse(
-        readFileSync(
-          new URL('../../core/test/fixtures/intermediate.json', import.meta.url),
-          'utf8',
-        ),
-      ),
-    );
-    const tooltips = migrateLegacy(source);
-    const facts = Object.fromEntries(
-      Object.entries(source.perks).map(([hash, perk]) => [
-        hash,
-        { name: perk.name, type: perk.type },
-      ]),
-    );
-    const before = consumerInput(exportLegacy(tooltips, 0, facts));
-    const after = consumerInput(exportWithInactiveMoves(tooltips, 0, facts, {}, {}));
-    expect(buildLegacy(after, preset), preset).toEqual(buildLegacy(before, preset));
-  },
-  60_000,
-);
+// An empty inactive file must leave the consumer input byte-identical; every legacy build is a pure
+// function of that input, so identical serialised input means identical bytes in every preset.
+// (Building all 8 presets twice from the real fixture ran past 60 s on loaded CI shards.)
+it('keeps the real-data consumer input byte-identical with an empty inactive file', () => {
+  const source = legacyDatabaseSchema.parse(
+    JSON.parse(
+      readFileSync(new URL('../../core/test/fixtures/intermediate.json', import.meta.url), 'utf8'),
+    ),
+  );
+  const tooltips = migrateLegacy(source);
+  const facts = Object.fromEntries(
+    Object.entries(source.perks).map(([hash, perk]) => [hash, { name: perk.name, type: perk.type }]),
+  );
+  const before = consumerInput(exportLegacy(tooltips, 0, facts));
+  const after = consumerInput(exportWithInactiveMoves(tooltips, 0, facts, {}, {}));
+  expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+  // One cheap end-to-end build keeps the converter path itself covered.
+  const preset = legacyPresets.find((name) => name === 'vaultZero') ?? legacyPresets[0]!;
+  expect(buildLegacy(after, preset)).toEqual(buildLegacy(before, preset));
+}, 60_000);
 
 it('removes only a moved fixture item and its stub from every consumer file', () => {
   const tooltip = (hash: number, text: string): Tooltip => ({
