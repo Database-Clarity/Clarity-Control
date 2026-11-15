@@ -385,13 +385,16 @@ export function insertNumber(
 
 /** Pane and toolbar insertion retain an existing selection; the untouched caret starts at end. */
 export function insertSourceNumber(view: EditorView, id: number): boolean {
-  return insertNumber(
+  const inserted = insertNumber(
     view,
     id,
     view.state.field(numberField).placed
       ? undefined
       : { from: view.state.doc.length, to: view.state.doc.length },
   );
+  // Like glossary Insert: a phone's hidden editor lays out after its tab is shown.
+  if (inserted) requestAnimationFrame(() => requestAnimationFrame(() => view.focus()));
+  return inserted;
 }
 
 function cycleCandidate(state: EditorState, direction: number) {

@@ -184,6 +184,45 @@ it('routes a number through its insertion command and opens its popover on touch
   expect(dialog.textContent).toContain('PvP');
   await act(async () => (dialog.querySelector('button') as HTMLButtonElement).click());
   expect(insert).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    down(false);
+    span.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX: 15, clientY: 5, detail: 1 }),
+    );
+  });
+  expect(insert).toHaveBeenCalledTimes(2);
+  const selection = window.getSelection()!;
+  const selected = document.createRange();
+  selected.selectNodeContents(span);
+  selection.removeAllRanges();
+  selection.addRange(selected);
+  await act(async () => {
+    down(false);
+    span.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }),
+    );
+  });
+  expect(insert).toHaveBeenCalledTimes(2);
+  selection.removeAllRanges();
+  await act(async () =>
+    root.render(
+      <TermLayer lang="de" hash={7} enabled={false} canInsert={false} spanSource={spans}>
+        <span data-slot="1">5</span>
+      </TermLayer>,
+    ),
+  );
+  await act(async () => {
+    down(false);
+    span.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }),
+    );
+  });
+  expect(insert).toHaveBeenCalledTimes(2);
+  expect(
+    document.querySelector(
+      '[data-term-popover] button[aria-label="Insert at the caret in the translation"]',
+    ),
+  ).toBeNull();
 });
 
 it('keeps the in-game prefix separate from the name and attributes an agreed term in one footer', () => {

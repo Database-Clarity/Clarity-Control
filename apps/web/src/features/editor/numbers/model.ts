@@ -131,12 +131,24 @@ export function numberSource(
           .map((part) => part.replace(/\s*\($/, '').replace(/:$/, ''))
           .join(' · ')
       : '';
+    const arm = slot.scope.slice(scope?.length ?? 0);
+    const inlineScope = [
+      ...(arm.includes('pve') ? ['PvE'] : []),
+      ...(arm.includes('pvp') ? ['PvP'] : []),
+      ...(arm.includes('/base') ? ['Base'] : []),
+      ...(arm.includes('/enhanced') ? ['Enhanced'] : []),
+    ];
+    if (arm.includes('/cell')) {
+      const previousLines = text.slice(0, lineStart).split('\n');
+      const tableLine = previousLines.findLastIndex((line) => /^< table\b/.test(line.trim()));
+      inlineScope.push(`table row ${slot.line - tableLine}`, `cell ${/\/cell(\d+)/.exec(arm)![1]}`);
+    }
     return {
       ...slot,
       id: map.ids[index],
       display: display || slot.value,
       context: `${before} _ ${after}`.trim(),
-      breadcrumb: breadcrumb || 'Main text',
+      breadcrumb: [breadcrumb, ...inlineScope].filter(Boolean).join(' · ') || 'Main text',
       variable: variables.find(
         (variable) =>
           variable.from <= slot.from && !text.slice(variable.from, slot.from).includes('\n'),

@@ -9,6 +9,20 @@ it('adds line numbers to otherwise identical contexts', () => {
   ]);
 });
 
+it('names inline arms and table positions in the scope breadcrumb', () => {
+  const source = numberSource(
+    '<pve 5 /> <pvp 5 />\n< table wide >\n| 10 | 20\n<$>',
+    undefined,
+    'de',
+  );
+  expect(source.slots.map((slot) => slot.breadcrumb)).toEqual([
+    'PvE',
+    'PvP',
+    '< table wide > · table row 1 · cell 1',
+    '< table wide > · table row 1 · cell 2',
+  ]);
+});
+
 it('keeps equal values distinct under different headings and formats live values', () => {
   const source = numberSource(
     'PvE:\nLasts 4.5 seconds.\nPvP:\nLasts 4.5 seconds.',

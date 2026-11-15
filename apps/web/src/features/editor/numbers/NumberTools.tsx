@@ -192,9 +192,11 @@ export function NumbersPanel({
   };
   const pointed = slots[active]?.id;
   useEffect(() => {
-    if (view.current) pointNumber(view.current, pointed);
+    const editor = view.current;
+    if (!editor) return;
+    pointNumber(editor, pointed);
     return () => {
-      if (view.current) pointNumber(view.current);
+      pointNumber(editor);
     };
   }, [pointed, view]);
   const missing =
@@ -372,6 +374,7 @@ export function startFromEnglish(view: EditorView): boolean {
     annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.paste')],
   });
   view.focus();
+  requestAnimationFrame(() => requestAnimationFrame(() => view.focus()));
   return true;
 }
 import { numberHost } from './state';
