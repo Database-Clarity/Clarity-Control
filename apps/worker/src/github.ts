@@ -741,8 +741,26 @@ export class GitHub {
       baseTree,
       deletions = [],
       rawFiles = {},
-    }: { baseTree?: string; deletions?: readonly string[]; rawFiles?: Record<string, string> } = {},
+      blobRefs = {},
+    }: {
+      baseTree?: string;
+      deletions?: readonly string[];
+      rawFiles?: Record<string, string>;
+      /** Existing repository blobs: retain their exact bytes, without reserialization. */
+      blobRefs?: Record<string, string>;
+    } = {},
   ): Promise<string> {
+    for (const [path, sha] of Object.entries(blobRefs)) {
+      if (
+        !pathPattern.test(path) ||
+        path.includes('..') ||
+        path.includes('//') ||
+        !refPattern.test(sha)
+      )
+        throw new HttpError(400, 'Invalid repository blob reference');
+      if (Object.hasOwn(files, path) || Object.hasOwn(rawFiles, path) || deletions.includes(path))
+        throw new HttpError(400, 'Conflicting repository writes');
+    }
     const base =
       baseTree ??
       (head ? commitSchema.parse(await this.result(`/git/commits/${head}`)).tree.sha : undefined);
@@ -758,6 +776,12 @@ export class GitHub {
           })),
           // `sha: null` removes the path from the base tree.
           ...deletions.map((path) => ({ path, mode: '100644', type: 'blob', sha: null })),
+          ...Object.entries(blobRefs).map(([path, sha]) => ({
+            path,
+            mode: '100644',
+            type: 'blob',
+            sha,
+          })),
         ],
       }),
     );
@@ -794,6 +818,7 @@ export class GitHub {
       baseTree?: string;
       deletions?: readonly string[];
       rawFiles?: Record<string, string>;
+      blobRefs?: Record<string, string>;
     } = {},
   ): Promise<string> {
     return this.write(this.env.DATA_BRANCH, head, files, message, this.credits(user), options);
