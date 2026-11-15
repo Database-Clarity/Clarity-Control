@@ -2,6 +2,8 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createHashRouter, RouterProvider } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
+import type { Marks } from '@clarity/core/marks';
+import { useMarksStore } from '../src/features/marks/store';
 import { routes } from '../src/App';
 import { useCompendiumStore } from '../src/features/compendium/store';
 import { useAuthStore } from '../src/stores/auth';
@@ -129,6 +131,9 @@ type Role = 'maintainer' | 'editor' | 'trial' | 'translator' | 'none' | 'out' | 
 const noop = async () => {};
 Object.assign(window, {
   shellFixture: {
+    marks(marks: Marks) {
+      useMarksStore.getState().accept(marks);
+    },
     first,
     role(role: Role) {
       const base = { loading: false, error: null, load: noop };
