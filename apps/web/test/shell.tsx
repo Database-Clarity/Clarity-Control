@@ -4,6 +4,8 @@ import { createHashRouter, RouterProvider } from 'react-router-dom';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import type { Marks } from '@clarity/core/marks';
 import { useMarksStore } from '../src/features/marks/store';
+import { useWorkQueues } from '../src/features/queue/store';
+import { usePreviewReviewStore } from '../src/stores/previewReview';
 import { routes } from '../src/App';
 import { useCompendiumStore } from '../src/features/compendium/store';
 import { useAuthStore } from '../src/stores/auth';
@@ -131,6 +133,16 @@ type Role = 'maintainer' | 'editor' | 'trial' | 'translator' | 'none' | 'out' | 
 const noop = async () => {};
 Object.assign(window, {
   shellFixture: {
+    markDiagnostics() {
+      return {
+        marks: useMarksStore.getState().marks,
+        activeQueue: useWorkQueues.getState().active,
+        preview: {
+          prompt: usePreviewReviewStore.getState().prompt,
+          entries: usePreviewReviewStore.getState().entries,
+        },
+      };
+    },
     marks(marks: Marks) {
       useMarksStore.getState().accept(marks);
     },

@@ -55,7 +55,6 @@ import {
   positionLabel,
   createWheelStepper,
   resolvePlace,
-  scopeValue,
   stepTarget,
   target as stepRoute,
   tooltipPath,
@@ -80,6 +79,14 @@ import styles from './TooltipFinder.module.scss';
 import { FinderPicker, type PickerSection } from './FinderPicker';
 import { FinderIcon } from './FinderIcon';
 import { FinderMarkers } from './FinderMarkers';
+import {
+  useMarkedFinder,
+  markedRouteCategory,
+  markedRowScope,
+  markedScopeValue as scopeValue,
+} from '../marks/finder';
+import { FinderEntryMarks, markPopupOwnsFocus } from '../marks/FinderEntryMarks';
+import { MarkedWorkThrough } from '../marks/queue';
 import { prepareFinderMarkers, rollupFinderMarkers, type MarkerIndex } from './finderMarkerState';
 import { defaultLanguage } from '../tooltip/language';
 import { WorkspaceLanguageContext } from '../tooltip/WorkspaceLanguage';
@@ -272,6 +279,7 @@ const FinderOption = memo(function FinderOption({
       )}
       <span className={styles.markers}>
         <FinderMarkers hashes={markerHashes} flags={row.global ? 0 : markerIndex.get(row.hash)} />
+        {!row.global && <FinderEntryMarks hash={row.hash} />}
       </span>
     </li>
   );
@@ -470,14 +478,15 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     data,
     open || new URLSearchParams(finderLocation.search).has('global'),
   );
-  const groups = useMemo(
+  const baseGroups = useMemo(
     () => navigationGroups(data, '', globalDefinitions),
     [data, globalDefinitions],
   );
-  const found = useMemo(
-    () => (query.trim() ? navigationGroups(data, query, globalDefinitions) : groups),
-    [data, groups, query, globalDefinitions],
+  const baseFound = useMemo(
+    () => (query.trim() ? navigationGroups(data, query, globalDefinitions) : baseGroups),
+    [data, baseGroups, query, globalDefinitions],
   );
+  const { groups, found } = useMarkedFinder(baseGroups, baseFound, query);
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -518,9 +527,10 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     sections.find(
       (category) =>
         category.id ===
-        (selectedGlobal
-          ? `globals-${selectedGlobal.kind}`
-          : finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? '')),
+        (markedRouteCategory(hash, routeSearch, sections) ??
+          (selectedGlobal
+            ? `globals-${selectedGlobal.kind}`
+            : finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? ''))),
     ) ?? sections[0];
   const items = selectedCategory?.items ?? noItems;
   const grouped = useMemo(
@@ -1026,10 +1036,11 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     // the prompt that explains why is not the only thing on screen).
     // A row of an All list keeps the All scope; a weapon's own rows keep the weapon's.
     const scopeParam =
-      grouped && row.group
+      markedRowScope(row) ??
+      (grouped && row.group
         ? (scopeValue({ hash: row.hash, group: row.group }, Boolean(row.all), grouped.firstGroup) ??
           null)
-        : null;
+        : null);
     if (choose(row.hash, scopeParam, row.global) && variant === 'sheet') closeSheet?.();
   }
   const commitRef = useRef(commit);
@@ -1364,6 +1375,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       ref={root}
       className={styles.combo}
       onBlur={(event) => {
+        if (markPopupOwnsFocus(event.relatedTarget)) return;
         if (!event.currentTarget.contains(event.relatedTarget)) releaseKey();
         // The sheet keeps its list open while the sheet is; only the header form closes on blur.
         if (!sheet && !event.currentTarget.contains(event.relatedTarget)) restore();
@@ -1462,12 +1474,14 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
               </div>
             )}
           </div>
+          <MarkedWorkThrough data={data} group={place.group} all={place.all} onStart={closeSheet ?? restore} />
           {comboNode}
         </>
       ) : (
         <>
           {categoryNode}
           {groupNode}
+          <MarkedWorkThrough data={data} group={place.group} all={place.all} onStart={closeSheet ?? restore} />
           {comboNode}
           {positionNode}
         </>

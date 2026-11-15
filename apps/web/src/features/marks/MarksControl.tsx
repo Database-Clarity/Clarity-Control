@@ -11,10 +11,12 @@ export function MarksControl({
   hash,
   className,
   compact = false,
+  iconOnly = false,
 }: {
   hash: number;
   className?: string;
   compact?: boolean;
+  iconOnly?: boolean;
 }) {
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
@@ -72,16 +74,24 @@ export function MarksControl({
       className={`${className ?? ''} ${styles.control}`}
       trigger={
         <span className={styles.trigger}>
-          {error
-            ? 'Marks unavailable'
-            : compact || !entries.length
-              ? 'Marks'
-              : entries.slice(0, 2).map((entry) => (
-                  <span key={entry.type} className={styles.chip} data-colour={entry.colour}>
-                    {entry.label}
-                  </span>
-                ))}
-          {entries.length && (compact || entries.length > 2) ? ` (${entries.length})` : null}
+          {iconOnly ? (
+            <span aria-hidden="true" data-marked={!!entries.length}>
+              ⚑
+            </span>
+          ) : error ? (
+            'Marks unavailable'
+          ) : compact || !entries.length ? (
+            'Marks'
+          ) : (
+            entries.slice(0, 2).map((entry) => (
+              <span key={entry.type} className={styles.chip} data-colour={entry.colour}>
+                {entry.label}
+              </span>
+            ))
+          )}
+          {!iconOnly && entries.length && (compact || entries.length > 2)
+            ? ` (${entries.length})`
+            : null}
         </span>
       }
       open={open}
@@ -89,7 +99,7 @@ export function MarksControl({
       contain
       width={360}
     >
-      <div className={styles.panel}>
+      <div className={styles.panel} data-entry-marks-popup>
         <strong>Entry marks</strong>
         {error && <p role="alert">{error}</p>}
         {!entries.length && <p>No marks on this entry.</p>}

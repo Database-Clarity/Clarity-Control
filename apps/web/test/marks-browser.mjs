@@ -14,7 +14,7 @@ const browser = await chromium.launch({
 });
 const results = [];
 try {
-  for (const width of [390, 768, 1280])
+  for (const width of (process.env.MARKS_QA_WIDTHS ?? '390,768,1280').split(',').map(Number))
     for (const theme of ['light', 'dark'])
       for (const scale of width === 390 ? [100, 120, 150] : [100, 150]) {
         const label = `${width}-${theme}-${scale}`;
@@ -23,6 +23,7 @@ try {
           colorScheme: theme,
         });
         const page = await context.newPage();
+        page.on('pageerror', (error) => console.error('MARKS_QA_PAGE_ERROR', error.message));
         await page.goto('http://127.0.0.1:5397/test/shell.html');
         await page.locator('.cm-content').first().waitFor();
         await page.evaluate(
@@ -34,7 +35,10 @@ try {
             const at = '2026-11-15T00:00:00Z';
             const data = {
               types: [{ id: 'retest', label: 'Needs retesting', colour: 'amber', by: 1, at }],
-              entries: { 1000: [{ type: 'retest', note: 'Test Arc damage', by: 1, at }] },
+              entries: {
+                1000: [{ type: 'retest', note: 'Test Arc damage', by: 1, at }],
+                1010: [{ type: 'retest', by: 1, at }],
+              },
             };
             window.shellFixture.marks(data);
             let revision = 'a'.repeat(40);
@@ -45,8 +49,10 @@ try {
                   if (expected !== revision)
                     return Response.json({ error: 'Marks changed; reload' }, { status: 409 });
                   if (change.action === 'mark')
-                    data.entries[1000] = [{ type: change.type, note: change.note, by: 1, at }];
-                  if (change.action === 'unmark') data.entries = {};
+                    data.entries[change.hash] = [
+                      { type: change.type, note: change.note, by: 1, at },
+                    ];
+                  if (change.action === 'unmark') delete data.entries[change.hash];
                   if (change.action === 'remove-type') {
                     data.types = [];
                     data.entries = {};
@@ -125,6 +131,59 @@ try {
           await page.keyboard.press('Escape');
         }
         await page.evaluate(() => window.shellFixture.role('maintainer'));
+        const phoneFinder = page.locator('header button[data-tooltip-finder]');
+        if (await phoneFinder.isVisible()) await phoneFinder.click();
+        const nav = page.locator('section[aria-label="Tooltip navigation"]:visible').last();
+        await nav.getByRole('combobox', { name: 'Tooltip', exact: true }).fill('reload timing');
+        await nav
+          .getByRole('listbox', { name: 'Tooltips', exact: true })
+          .getByRole('option')
+          .filter({ hasText: 'Hammerhead' })
+          .first()
+          .waitFor();
+        await nav.getByRole('combobox', { name: 'Tooltip', exact: true }).fill('');
+        await nav.getByRole('combobox', { name: 'Category', exact: true }).click();
+        await page.locator('[role="option"][data-value="marked"]').click();
+        await nav.getByRole('combobox', { name: 'Mark type', exact: true }).click();
+        await page.locator('[role="option"][data-value="mark.retest"]').click();
+        const field = nav.getByRole('combobox', { name: 'Tooltip', exact: true });
+        if ((await field.getAttribute('aria-expanded')) !== 'true') await field.click();
+        const action = nav
+          .getByRole('listbox', { name: 'Tooltips', exact: true })
+          .getByRole('option')
+          .filter({ hasText: 'Hammerhead' })
+          .first()
+          .getByRole('button', { name: 'Entry marks', exact: true });
+        await action.focus();
+        await page.keyboard.press('Enter');
+        await dialog.getByText('Retest reload timing', { exact: true }).waitFor();
+        await page.screenshot({ path: resolve(output, `finder-${label}.png`), fullPage: true });
+        await check();
+        await page.keyboard.press('Escape');
+        assert.equal(
+          await nav.getByRole('listbox', { name: 'Tooltips', exact: true }).isVisible(),
+          true,
+          `${label}: row popover keeps finder open`,
+        );
+        await nav.getByRole('button', { name: 'Work through marked entries', exact: true }).click();
+        await page
+          .waitForFunction(() => window.history.state?.usr?.workThrough, null, { timeout: 5000 })
+          .catch(async (error) => {
+            console.error(
+              'MARKS_QUEUE_DIAGNOSTIC',
+              await page.evaluate(() => ({
+                state: window.history.state,
+                hash: window.location.hash,
+                fixture: window.shellFixture.markDiagnostics?.(),
+                text: document.body.innerText.slice(0, 5000),
+              })),
+            );
+            throw error;
+          });
+        assert.ok(
+          await page.evaluate(() => window.history.state?.usr?.workThrough),
+          `${label}: work-through visit`,
+        );
         await trigger.click();
         await dialog.getByRole('button', { name: 'Edit mark', exact: true }).click();
         await dialog.getByRole('button', { name: 'Remove mark', exact: true }).click();

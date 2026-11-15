@@ -1,4 +1,22 @@
 @use '../../ui/controls';
+.finderAction {
+  display: inline-flex;
+  line-height: 1;
+}
+.finderAction button {
+  @include controls.button;
+  min-height: 1rem;
+  padding: 0 2px;
+  background: transparent;
+  border: 0;
+}
+.finderAction [data-marked='true'] {
+  color: var(--warn);
+}
+.queueButton {
+  @include controls.button;
+  white-space: nowrap;
+}
 
 .control {
   min-width: 0;
