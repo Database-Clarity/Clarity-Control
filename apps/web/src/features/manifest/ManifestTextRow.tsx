@@ -36,9 +36,11 @@ function stored(): boolean {
 export function ManifestTextRow({
   hash: requestedHash,
   lang = 'en',
+  enhancedHash: selectedEnhancedHash,
 }: {
   hash: number;
   lang?: Lang;
+  enhancedHash?: number;
 }) {
   const data = useDataStore((state) => state.data);
   const hash = data ? canonicalHash(requestedHash, data) : requestedHash;
@@ -46,7 +48,8 @@ export function ManifestTextRow({
   const enhancedHash = data
     ? requestedHash !== hash && variants.includes(requestedHash)
       ? requestedHash
-      : variants.find((value) => value !== hash)
+      : (variants.find((value) => value === selectedEnhancedHash && value !== hash) ??
+        variants.find((value) => value !== hash))
     : undefined;
   const perks = useSandboxPerkText();
   const [open, setOpen] = useState(stored);

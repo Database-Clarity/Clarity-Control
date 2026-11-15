@@ -61,6 +61,7 @@ const items = {
     inGameDescription: 'Holding down the trigger boosts rate of fire and range.',
   }),
   10: item(10, { baseHash: 2, sandboxPerkHashes: [12] }),
+  11: item(11, { baseHash: 1, inGameDescription: 'Another enhanced variant.' }),
 };
 
 describe('manifestText', () => {
@@ -183,6 +184,16 @@ describe('ManifestTextRow', () => {
     expect(host.querySelector('ins')?.textContent).toContain('While');
     await show(4);
     expect(host.querySelector('del')).toBeNull();
+  });
+
+  it('follows the preview variant picker, and resets the pair when stepping away', async () => {
+    await act(async () => root.render(<ManifestTextRow hash={1} enhancedHash={11} />));
+    expect(host.querySelector('ins')?.textContent).toContain('Another');
+    await act(async () => root.render(<ManifestTextRow hash={1} enhancedHash={8} />));
+    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    expect(host.textContent).not.toContain('Another');
+    await show(4);
+    expect(host.querySelector('ins')).toBeNull();
   });
 
   it('localises arriving text, preserves missing rows, and clears it when switching to English', async () => {
@@ -311,3 +322,4 @@ describe('ManifestTextRow', () => {
     expect(host.textContent).toContain('Kills grant increased damage.');
   });
 });
+
