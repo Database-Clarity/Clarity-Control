@@ -191,12 +191,17 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       // reviewed digests match what that build records (an older build: a mismatch refuses).
       const pin = snapshot.files[1 + paths.length]?.value;
       const groups = snapshot.files[4 + paths.length];
-      refuseUnsupportedAliasGroups(groups, pin);
+      if (groups) refuseUnsupportedAliasGroups(groups, pin);
       if (!groups) generatorAliases ??= await loadAliases(github.env, github);
       const pointerFile = pinMergesSandboxPointers(pin) ? snapshot.files[2 + paths.length] : null;
-      const scope = await consumerAliasScope(github, groups, pointerFile, value.hashes);
+      const scope = groups
+        ? await consumerAliasScope(github, groups, pointerFile, value.hashes)
+        : undefined;
       aliases =
-        scope?.aliases ?? (await withSandboxPointers(github, generatorAliases ?? {}, pointerFile));
+        scope?.aliases ??
+        (pinMergesSandboxPointers(pin)
+          ? await withSandboxPointers(github, generatorAliases ?? {}, pointerFile)
+          : (generatorAliases ?? {}));
       const moves = storedInactiveMoves(snapshot.files[3 + paths.length]);
       if (
         Object.keys(

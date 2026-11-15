@@ -366,12 +366,14 @@ export async function saveBatch(
     // Every change must name a canonical tooltip, as /save checks (a member the generator has
     // since aliased is refused too: publishing it would export its target instead).
     if (!state.extra[1]) aliases ??= await loadAliases(github.env, github);
-    const scope = await consumerAliasScope(
-      github,
-      state.extra[1],
-      state.extra[0],
-      input.changes.map(({ hash }) => hash),
-    );
+    const scope = state.extra[1]
+      ? await consumerAliasScope(
+          github,
+          state.extra[1],
+          state.extra[0],
+          input.changes.map(({ hash }) => hash),
+        )
+      : undefined;
     refuseAliases(
       input.changes.map(({ hash }) => hash),
       scope?.aliases ?? (await withSandboxPointers(github, aliases ?? {}, state.extra[0])),
@@ -620,7 +622,9 @@ export async function rebaseBatch(
     if (!own.includes(input.hash))
       throw new HttpError(404, `Tooltip ${input.hash} is not in this batch`);
     if (state.extra[0] || state.extra[1]) {
-      const scope = await consumerAliasScope(github, state.extra[1], state.extra[0], [input.hash]);
+      const scope = state.extra[1]
+        ? await consumerAliasScope(github, state.extra[1], state.extra[0], [input.hash])
+        : undefined;
       refuseAliases(
         [input.hash],
         scope?.aliases ??

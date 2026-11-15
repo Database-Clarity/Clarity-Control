@@ -96,12 +96,14 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       ? {}
       : (aliases ??= await loadAliases(github.env, github));
     // A picked shared sandbox perk is an alias of its target, exactly as push and publish see it.
-    const scope = await consumerAliasScope(
-      github,
-      current.at(-1),
-      current.at(-2),
-      input.changes.map(({ hash }) => hash),
-    );
+    const scope = current.at(-1)
+      ? await consumerAliasScope(
+          github,
+          current.at(-1),
+          current.at(-2),
+          input.changes.map(({ hash }) => hash),
+        )
+      : undefined;
     const saveAliases =
       scope?.aliases ?? (await withSandboxPointers(github, generatorAliases, current.at(-2)));
     let pin: { value: unknown } | undefined = readsPin

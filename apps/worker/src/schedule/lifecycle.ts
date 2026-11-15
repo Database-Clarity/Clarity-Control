@@ -184,8 +184,10 @@ export async function scheduleBatch(
     }
     const operation = await scheduledOperation(github, state, batch);
     if (!state.extra[3]) generatorAliases ??= await loadAliases(github.env, github);
-    refuseUnsupportedAliasGroups(state.extra[3], state.pin);
-    const scope = await consumerAliasScope(github, state.extra[3], state.extra[1], hashes);
+    if (state.extra[3]) refuseUnsupportedAliasGroups(state.extra[3], state.pin);
+    const scope = state.extra[3]
+      ? await consumerAliasScope(github, state.extra[3], state.extra[1], hashes)
+      : undefined;
     const saveAliases =
       scope?.aliases ?? (await withSandboxPointers(github, generatorAliases ?? {}, state.extra[1]));
     refuseAliases(hashes, saveAliases);

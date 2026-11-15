@@ -83,6 +83,7 @@ interface Loaded {
   /** Every key the picks file names; the live merge recomputes their entries (mergeLivePerks). */
   pickKeys: string[];
   config: Permissions;
+  canonicalHashes: number[];
   tooltips: Tooltip[];
   snapshots: Record<string, Tooltip>;
   exportedHashes: Record<string, string>;
@@ -102,7 +103,9 @@ async function loadAtHead(
     head,
   );
   // All configuration, including PIN, belongs to the same source head as the tooltips.
-  const scope = await consumerAliasScope(github, groups, pointers, hashes, true);
+  const scope = groups
+    ? await consumerAliasScope(github, groups, pointers, hashes, true)
+    : undefined;
   const legacy = scope ? undefined : await generated();
   const picks = scope
     ? { aliases: scope.aliases, keys: Object.keys(storedSandboxPointers(pointers)?.pointers ?? {}) }
@@ -164,6 +167,7 @@ async function loadAtHead(
     moves,
     pickKeys,
     config,
+    canonicalHashes,
     tooltips,
     snapshots,
     exportedHashes,
@@ -206,7 +210,7 @@ export async function pushLive(
         expected,
       );
     }
-    canonicalHashes = loaded.tooltips.map(({ hash }) => hash);
+    canonicalHashes = loaded.canonicalHashes;
     const { tooltips, exportedHashes, pushed } = loaded;
     const changed = new Set(
       canonicalHashes.filter((hash) => pushed[hash] !== exportedHashes[hash]),

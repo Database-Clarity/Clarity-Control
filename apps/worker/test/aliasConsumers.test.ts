@@ -208,6 +208,25 @@ it('requires complete authoritative descriptions for grouping', async () => {
   }
 });
 
+it('ignores unused grouping metadata without config, but validates it for accepted groups', async () => {
+  items[123] = {
+    ...items[123]!,
+    isEnhanced: 'invalid unused metadata',
+  } as unknown as AliasItems[string];
+  f.moveData({ [aliasGroupsPath]: undefined });
+  publisherConfig.enabled = false;
+  const legacy = await f.request('/push-live', 'POST', { hashes: [123] });
+  expect(legacy.status, await legacy.clone().text()).toBe(200);
+  expect(f.live.perks).toMatchObject({ 123: { editor: { en: { main: 'Canonical text' } } } });
+  f.moveData({ [aliasGroupsPath]: groups() });
+  const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    expect((await f.request('/push-live', 'POST', { hashes: [123] })).status).toBe(502);
+  } finally {
+    logged.mockRestore();
+  }
+});
+
 it('keeps cross-category groups disabled and excludes enhanced/base drift', async () => {
   const input = groups();
   input.groups[123]!.kind = 'X';

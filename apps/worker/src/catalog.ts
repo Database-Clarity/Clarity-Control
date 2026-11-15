@@ -18,19 +18,21 @@ const itemSchema = z.object({
   hash: hashSchema,
   name: z.string(),
   categoryId: z.string(),
-  inGameDescription: z.string().optional(),
-  isEnhanced: z.boolean().optional(),
-  exotic: z.boolean().optional(),
-  plugCategoryHash: hashSchema.optional(),
-  baseHash: hashSchema.optional(),
-  dimBaseHash: hashSchema.optional(),
   itemHash: hashSchema.optional(),
   itemName: z.string().optional(),
   // Editor-only; accepted so the generator may emit it, never exported.
   owners: z.array(hashSchema).optional(),
 });
 const itemsSchema = z.record(z.string(), itemSchema);
-const aliasItemSchema = itemSchema.extend({ inGameDescription: z.string() });
+const aliasItemSchema = itemSchema.extend({
+  inGameDescription: z.string(),
+  isEnhanced: z.boolean().optional(),
+  exotic: z.boolean().optional(),
+  plugCategoryHash: hashSchema.optional(),
+  baseHash: hashSchema.optional(),
+  dimBaseHash: hashSchema.optional(),
+});
+const aliasItemsSchema = z.record(z.string(), aliasItemSchema);
 const categoriesSchema = z.array(
   z.object({
     id: z.string(),
@@ -70,11 +72,7 @@ export async function catalog(
   const [items, categories, aliases] = await Promise.all([
     fetch(`${root}/items.json`)
       .then(upstreamJson)
-      .then((value) =>
-        revision
-          ? z.record(z.string(), itemSchema.extend({ inGameDescription: z.string() })).parse(value)
-          : itemsSchema.parse(value),
-      ),
+      .then((value) => (revision ? aliasItemsSchema.parse(value) : itemsSchema.parse(value))),
     fetch(`${root}/categories.json`)
       .then(upstreamJson)
       .then((value) => categoriesSchema.parse(value)),
@@ -96,15 +94,9 @@ export async function catalog(
   return {
     facts,
     aliases,
-    items: Object.fromEntries(
-      Object.entries(items).map(([key, item]) => [
-        key,
-        {
-          ...item,
-          inGameDescription: item.inGameDescription ?? '',
-        },
-      ]),
-    ),
+    // The legacy path needs only export facts. Do not validate or reconstruct group facts
+    // unless a pinned grouping consumer explicitly requested them above.
+    items: revision ? (items as AliasItems) : {},
   };
 }
 

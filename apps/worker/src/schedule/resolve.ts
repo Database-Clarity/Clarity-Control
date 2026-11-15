@@ -157,7 +157,9 @@ export async function resolveBatch(
     if (tooltip) {
       const [, , groups, picks] = state.extra;
       if (groups || picks) {
-        const scope = await consumerAliasScope(github, groups, picks, [input.hash]);
+        const scope = groups
+          ? await consumerAliasScope(github, groups, picks, [input.hash])
+          : undefined;
         refuseAliases(
           [input.hash],
           scope?.aliases ??

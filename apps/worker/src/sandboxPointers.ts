@@ -128,12 +128,12 @@ export async function pushSandboxPicks(
   github: GitHub,
   aliases: Aliases,
   file: RepoFile | null | undefined,
-  groupsFile?: RepoFile | null,
-  generated?: Awaited<ReturnType<typeof aliasCatalog>>,
 ): Promise<{ aliases: Aliases; keys: string[] }> {
   const pointers = storedSandboxPointers(file);
   return {
-    aliases: await withSandboxPointers(github, aliases, file, groupsFile, generated),
+    aliases: hasSandboxTargets(pointers)
+      ? mergeSandboxPointers(aliases, await loadSandboxConflicts(github.env, github), pointers)
+      : aliases,
     keys: pointers ? Object.keys(pointers.pointers) : [],
   };
 }
