@@ -17,16 +17,17 @@ function tokenized(text: string): string {
   return result;
 }
 
-function input(language: Lang, text = tokenized(english).replace('Damage', 'Translated')) {
+function input(language: Lang, text?: string, sourceEnglish = english) {
+  text ??= tokenized(sourceEnglish).replace('Damage', 'Translated');
   const base = tooltip();
   const item: Tooltip = {
     ...base,
     hash: 100,
     text: {
-      en: { ...base.text.en!, text: english },
+      en: { ...base.text.en!, text: sourceEnglish },
       [language]: {
         ...base.text.en!,
-        text: language === 'en' ? english.replace('Damage', 'Translated') : text,
+        text: language === 'en' ? sourceEnglish.replace('Damage', 'Translated') : text,
         sourceUpdatedAt: base.text.en!.updatedAt,
       },
     },
@@ -44,6 +45,35 @@ function input(language: Lang, text = tokenized(english).replace('Damage', 'Tran
 }
 
 describe('P11: language goldens through core export and all eight engine presets', () => {
+  test('local titles format three-decimal numbers and stacks exactly once', () => {
+    const source = input('de', undefined,
+      'Damage 0.267 <title Tipp [tip] />.\ntitle tip (\nTitel 0.267 und 0.125|0.250 und ${0.5*3}\n)',
+    );
+    const titleGolden = 'Titel 0,267 und 0,125|0,250 und 1,5';
+    for (const preset of legacyPresets) {
+      const file = JSON.parse(new TextDecoder().decode(buildLegacy(source, preset)));
+      const language = preset === 'vaultZero' ? 'en' : 'de';
+      const description = JSON.stringify(file[100].descriptions[language]);
+      expect(description).toContain(language === 'en' ? '0.267' : '0,267');
+      if (preset === 'clarity' || preset === 'clarityV2')
+        expect(description).toContain(titleGolden);
+      else expect(description).not.toContain('Titel');
+    }
+    for (const style of styles) {
+      const file = newStyleFile('numbers', style, {
+        categories: ['perks'], sandboxPerks: [], frameAliases: false,
+        languages: ['de'], keys: [], bungieIdentical: false,
+      });
+      // Text styles can explicitly inline title bodies instead of dropping them.
+      if (style !== 'structured')
+        file.format.titles = { mode: 'inline', pattern: ['', '', ' (', ')'] };
+      const result = compile(source, file, {
+        catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },
+      });
+      expect(JSON.stringify(result.expanded?.[100]?.descriptions.de)).toContain(titleGolden);
+    }
+  });
+
   test.each(languages)('%s: literals, stacks, ranges, grouping, and resolved maths', (language) => {
     const source = input(language);
     const stored = JSON.stringify(source);
