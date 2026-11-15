@@ -331,7 +331,7 @@ export function NumbersPanel({
             <li
               key={slot.id}
               data-active={active === index || undefined}
-              onPointerEnter={() => setActive(index)}
+              onMouseMove={() => setActive(index)}
             >
               <span>
                 <strong>{slot.display}</strong> · {slot.context}

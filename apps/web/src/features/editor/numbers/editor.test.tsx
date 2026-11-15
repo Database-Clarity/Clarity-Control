@@ -198,6 +198,23 @@ it('leads the chip row with the next unused number and returns panel Escape to t
   expect(view.hasFocus).toBe(true);
 });
 
+it('keeps keyboard selection when scrolling brings a row under a stationary pointer', async () => {
+  mount('Values 10, 20, and 30.');
+  await act(async () => (host.querySelector('[data-status-numbers]') as HTMLButtonElement).click());
+  const panel = document.getElementById('editor-panel-numbers')!;
+  const rows = panel.querySelectorAll('li');
+  act(() =>
+    panel
+      .querySelector('input')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })),
+  );
+  expect(rows[1].hasAttribute('data-active')).toBe(true);
+  act(() => rows[0].dispatchEvent(new MouseEvent('pointerover', { bubbles: true })));
+  expect(rows[1].hasAttribute('data-active')).toBe(true);
+  act(() => rows[0].dispatchEvent(new MouseEvent('mousemove', { bubbles: true })));
+  expect(rows[0].hasAttribute('data-active')).toBe(true);
+});
+
 it('keeps suggestions, snippets, and Tab-configured markup chips ahead of number Tab', () => {
   const { view } = mount('Value 5.');
   act(() =>
