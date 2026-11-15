@@ -6,7 +6,7 @@ import {
 } from '../src/index.js';
 import { descriptionFilter } from '../src/converter/descriptionFilter.js';
 import { expandAliases } from '../src/converter/index.js';
-import { prismaticAssets, assertPrismaticReady } from '../src/converter/prismatic.js';
+import { prismaticAssets } from '../src/converter/prismatic.js';
 import { emptyNotes, transform } from '../src/v1/transform.js';
 import { fixtureInput, liveInput, editorDataInput, expected, sha256 } from './helpers.js';
 
@@ -141,12 +141,19 @@ describe('S1 native consumer output in importer context', () => {
 });
 
 describe('CUTOVER-PRISMATIC', () => {
-  test('the named readiness gate fails while the two owner-supplied assets are TODO', () => {
+  test('unverified assets remain optional text-only slots', () => {
     expect(prismaticAssets.dim).toBe('\u{F0156}');
     expect(prismaticAssets.vaultZero).toBe('[Prismatic]');
     expect(prismaticAssets.braytech).toBeNull();
     expect(prismaticAssets.crayon).toBeNull();
-    expect(() => assertPrismaticReady()).toThrow('CUTOVER-PRISMATIC: missing verified assets: braytech, crayon');
+  });
+
+  test.each(['braytech', 'crayon'] as const)('%s keeps text without an unverified icon', (preset) => {
+    for (const source of ['Before <prismatic/>Facet after', 'Before <prismatic Facet /> after']) {
+      const output = json(buildLegacy(inputOf(source), preset));
+      expect(output[100].descriptions.en).toBe('Before Facet after');
+      expect(output[101].descriptions.en).toBe('Before Facet after');
+    }
   });
 
   test('known mappings and structured allowlists preserve the icon and adjacent text', () => {
@@ -207,6 +214,6 @@ test('synthetic fixture census classifies Prismatic as the sole new legacy delta
   expect((text.match(/<prismatic/g) ?? []).length).toBe(4);
   const control: LegacyInput = JSON.parse(text.replaceAll('<prismatic', '<unverifiedElement'));
   for (const preset of ['crayon', 'braytech'] as LegacyPreset[])
-    // Their unresolved mapping is a release gate, not a change to current bare-icon output.
+    // The owner accepts text without an icon until verified assets are supplied.
     expect(json(buildLegacy(control, preset))[1001]).toEqual(json(buildLegacy(input, preset))[1001]);
 });
