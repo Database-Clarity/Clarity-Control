@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { aliasesSchema, type Aliases } from '../aliases.js';
-import { langSchema, type Lang } from '../languages.js';
+import { type Lang } from '../languages.js';
 import type { Tooltip } from '../schemas.js';
 import { globalCauseSchema, globalConsumerSchema, globalRevisionSchema } from './model.js';
 
@@ -15,27 +15,34 @@ export interface GlobalImpactSnapshot {
   mode: 'authored' | 'live';
 }
 
-export const globalReadSchema = z.object({
-  imports: z.array(z.object({ key: z.string(), hash: z.number().int().nonnegative() }).strict()),
-  variables: z.array(z.string()),
-  /** All global titles are prepared, even when their display tag is absent. */
-  conservativeTitles: z.literal(true),
-}).strict();
-export const globalImpactRowSchema = z.object({
-  consumer: globalConsumerSchema,
-  causes: z.array(globalCauseSchema).min(1),
-  reason: z.enum(['variable-read', 'title-preparation', 'aggregate-import', 'unproven']),
-  before: z.object({ rendered: z.string(), reads: globalReadSchema }).strict().nullable(),
-  after: z.object({ rendered: z.string(), reads: globalReadSchema }).strict().nullable(),
-}).strict();
-export const globalImpactSchema = z.object({
-  version: z.literal(1),
-  beforeRevision: globalRevisionSchema,
-  afterRevision: globalRevisionSchema,
-  complete: z.boolean(),
-  blockers: z.array(z.string()),
-  rows: z.array(globalImpactRowSchema),
-}).strict().refine((v) => v.complete === (v.blockers.length === 0), 'Completeness requires no blockers');
+export const globalReadSchema = z
+  .object({
+    imports: z.array(z.object({ key: z.string(), hash: z.number().int().nonnegative() }).strict()),
+    variables: z.array(z.string()),
+    /** All global titles are prepared, even when their display tag is absent. */
+    conservativeTitles: z.literal(true),
+  })
+  .strict();
+export const globalImpactRowSchema = z
+  .object({
+    consumer: globalConsumerSchema,
+    causes: z.array(globalCauseSchema).min(1),
+    reason: z.enum(['variable-read', 'title-preparation', 'aggregate-import', 'unproven']),
+    before: z.object({ rendered: z.string(), reads: globalReadSchema }).strict().nullable(),
+    after: z.object({ rendered: z.string(), reads: globalReadSchema }).strict().nullable(),
+  })
+  .strict();
+export const globalImpactSchema = z
+  .object({
+    version: z.literal(1),
+    beforeRevision: globalRevisionSchema,
+    afterRevision: globalRevisionSchema,
+    complete: z.boolean(),
+    blockers: z.array(z.string()),
+    rows: z.array(globalImpactRowSchema),
+  })
+  .strict()
+  .refine((v) => v.complete === (v.blockers.length === 0), 'Completeness requires no blockers');
 
 export type GlobalRead = z.infer<typeof globalReadSchema>;
 export type GlobalImpactRow = z.infer<typeof globalImpactRowSchema>;
@@ -50,10 +57,12 @@ export interface GlobalImpactChange {
 }
 
 /** Validation of the portable snapshot header; text remains Tooltip-schema validated. */
-export const globalImpactHeaderSchema = z.object({
-  repository: z.string().min(1),
-  revision: globalRevisionSchema,
-  aliases: aliasesSchema,
-  types: z.record(z.string(), z.string()),
-  mode: z.enum(['authored', 'live']),
-}).strict();
+export const globalImpactHeaderSchema = z
+  .object({
+    repository: z.string().min(1),
+    revision: globalRevisionSchema,
+    aliases: aliasesSchema,
+    types: z.record(z.string(), z.string()),
+    mode: z.enum(['authored', 'live']),
+  })
+  .strict();
