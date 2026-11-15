@@ -422,9 +422,9 @@ export function RemoveFromWorklist({
     setError('');
     try {
       const scope = useSavedWorklists.getState().scope;
-      const state = useSavedWorklists.getState();
-      if (state.scope !== scope) throw new Error('The account changed.');
-      const saved = await state.change(id, { type: 'remove', hashes: [hash] });
+      const saved = await useSavedWorklists
+        .getState()
+        .change(id, { type: 'remove', hashes: [hash] });
       if (saved && useSavedWorklists.getState().scope === scope) onRemoved?.();
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not remove this entry.');

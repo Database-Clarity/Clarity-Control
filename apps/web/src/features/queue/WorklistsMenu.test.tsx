@@ -20,6 +20,7 @@ let root: Root;
 let host: HTMLDivElement;
 let rows: Map<string, { name: string; hashes: number[] }>;
 let revision: string;
+const sessionToken = `${btoa(JSON.stringify({ exp: 4102444800 }))}.test`;
 beforeEach(async () => {
   vi.useFakeTimers();
   api.mockReset();
@@ -53,10 +54,11 @@ beforeEach(async () => {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
   });
+  sessionStorage.setItem('clarity-editor-session', sessionToken);
   useAuthStore.setState({
     user: { id: 1, role: 'editor', login: 'one' } as User,
     loading: false,
-    token: null,
+    token: sessionToken,
   });
   useSavedWorklists.setState({
     scope: '1',

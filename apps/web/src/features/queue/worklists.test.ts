@@ -42,6 +42,7 @@ const hashes = () =>
     ?.items.map((item) => item.hash);
 const add = (hash: number) =>
   useSavedWorklists.getState().add(id, '', [{ hash, name: String(hash) }]);
+const sessionToken = `${btoa(JSON.stringify({ exp: 4102444800 }))}.test`;
 beforeEach(async () => {
   const storage = new Map<string, string>();
   vi.stubGlobal('localStorage', {
@@ -53,6 +54,7 @@ beforeEach(async () => {
     },
   });
   sessionStorage.clear();
+  sessionStorage.setItem('clarity-editor-session', sessionToken);
   useAuthStore.setState({ user: null, token: null, loading: false });
   rows = new Map([[id, { name: 'A', hashes: [1] }]]);
   revision = 1;
@@ -81,7 +83,10 @@ beforeEach(async () => {
   };
   api.mockImplementation(server);
   disconnect = connectWorklists();
-  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as never });
+  useAuthStore.setState({
+    user: { id: 1, login: 'one', role: 'editor' } as never,
+    token: sessionToken,
+  });
   await settle();
 });
 afterEach(async () => {
@@ -237,7 +242,10 @@ it.each(['response', 'json'])(
     const cancelled = add(3);
     await settle();
     const signal = api.mock.calls.at(-1)![1].signal as AbortSignal;
-    useAuthStore.setState({ user: { id: 2, login: 'two', role: 'editor' } as never });
+    useAuthStore.setState({
+      user: { id: 2, login: 'two', role: 'editor' } as never,
+      token: sessionToken,
+    });
     expect(signal.aborted).toBe(true);
     await settle();
     const newSave = useSavedWorklists.getState().add(null, 'B', []);
@@ -262,7 +270,10 @@ it('clears failed operations on sign-out, never persists or recovers them (F5/F7
   useAuthStore.setState({ user: null });
   expect(useSavedWorklists.getState().lists).toEqual([]);
   expect(useSavedWorklists.getState().failed).toEqual([]);
-  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as never });
+  useAuthStore.setState({
+    user: { id: 1, login: 'one', role: 'editor' } as never,
+    token: sessionToken,
+  });
   await settle();
   expect(rows.get(id)!.hashes).toEqual([1]);
 });
@@ -309,8 +320,51 @@ it('rejects actions during incomplete authentication and drops old reads after l
   expect(() => useSavedWorklists.getState().add(null, 'No', [])).toThrow('Sign in');
   gate.resolve(reply());
   await expect(reading).rejects.toThrow('account changed');
-  expect(useSavedWorklists.getState().lists).toEqual([]);
+  expect(useSavedWorklists.getState().loaded).toEqual([]);
 });
+it('loads the account once its auth check finishes, without a reset on later re-checks', async () => {
+  disconnect();
+  useAuthStore.setState({ loading: true });
+  disconnect = connectWorklists();
+  api.mockClear();
+  await settle();
+  expect(api).not.toHaveBeenCalled();
+  useAuthStore.setState({ loading: false });
+  await settle();
+  expect(api.mock.calls.map(([path]) => path)).toEqual(['/worklists']);
+  useAuthStore.setState({ loading: true });
+  useAuthStore.setState({ loading: false });
+  await settle();
+  expect(api).toHaveBeenCalledTimes(1);
+  expect(useSavedWorklists.getState().lists.map((row) => row.name)).toEqual(['A']);
+});
+it.each(['unsent', 'committed'] as const)(
+  'keeps a %s save retryable when a same-account auth re-check interrupts it (sec F1)',
+  async (variant) => {
+    await loadWorklist(id);
+    const gate = deferred<Response>();
+    api.mockImplementationOnce(async (path: string, init?: RequestInit) => {
+      if (variant === 'committed') await server(path, init);
+      return gate.promise;
+    });
+    const saving = add(2);
+    await settle();
+    useAuthStore.setState({ loading: true });
+    gate.resolve(new Response('{}', { status: 503 }));
+    expect(await saving).toBe(false);
+    await settle();
+    const state = useSavedWorklists.getState();
+    expect(state.saving).toEqual([]);
+    expect(state.failed).toHaveLength(1);
+    expect(state.failed[0]!.op).toEqual({ type: 'add', hashes: [2] });
+    useAuthStore.setState({ loading: false });
+    await settle();
+    expect(await retryWorklist(useSavedWorklists.getState().failed[0]!)).toBe(true);
+    await settle();
+    expect(rows.get(id)!.hashes).toEqual([1, 2]);
+    expect(useSavedWorklists.getState().failed).toEqual([]);
+  },
+);
 // Removed F4 automatic storage-event convergence: tabs now refresh on focus/visibility.
 // Removed F5 offline-account reconnect replay: failed ops are never replayed after reconnect.
 // Removed F6 copy/discard recovery: failed ops leave the saved state intact, with explicit Retry.

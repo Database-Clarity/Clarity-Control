@@ -46,7 +46,7 @@ function accountReady() {
   if (auth.loading || !auth.user || String(auth.user.id) !== useSavedWorklists.getState().scope)
     return false;
   try {
-    return auth.token === null || auth.token === sessionToken();
+    return auth.token !== null && auth.token === sessionToken();
   } catch {
     return false;
   }
@@ -176,12 +176,14 @@ function save(item: Save): Promise<boolean> {
     return false;
   })
     .catch(() => {
-      if (started === generation && accountReady())
+      // Only a real account or session change (a new generation) discards the save. A same-account
+      // auth re-check that interrupts it still leaves an explicit Retry.
+      if (started === generation)
         useSavedWorklists.setState((state) => ({ failed: [...state.failed, item] }));
       return false;
     })
     .then((success) => {
-      if (started !== generation || !accountReady()) return false;
+      if (started !== generation) return false;
       useSavedWorklists.setState((state) => ({
         saving: state.saving.filter((save) => save !== item),
       }));
@@ -217,6 +219,7 @@ export const useSavedWorklists = create<State>(() => ({
 }));
 export function connectWorklists(): () => void {
   let identity = '';
+  let synced = false;
   const reset = () => {
     generation++;
     controller.abort();
@@ -226,12 +229,17 @@ export function connectWorklists(): () => void {
   const account = () => {
     const auth = useAuthStore.getState();
     const scope = String(auth.user?.id ?? 'anonymous');
-    const next = JSON.stringify([scope, auth.token, auth.loading]);
-    if (next === identity) return;
-    identity = next;
-    reset();
-    useSavedWorklists.setState({ scope, ...empty() });
-    if (!accountReady()) return;
+    // Only a user or session change resets; a same-account auth re-check (loading) keeps the
+    // chain, and the first ready state loads the account once.
+    const next = JSON.stringify([scope, auth.token]);
+    if (next !== identity) {
+      identity = next;
+      synced = false;
+      reset();
+      useSavedWorklists.setState({ scope, ...empty() });
+    }
+    if (synced || !accountReady()) return;
+    synced = true;
     try {
       const cache = z
         .object({

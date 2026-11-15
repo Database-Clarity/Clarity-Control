@@ -121,7 +121,7 @@ export async function decryptWorklist(
     );
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(plain));
   } catch {
-    throw new HttpError(503, 'A worklist could not be read. Your local copy is kept.');
+    throw new HttpError(503, 'A worklist could not be read. Try again later.');
   }
 }
 

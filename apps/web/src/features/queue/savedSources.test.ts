@@ -29,6 +29,7 @@ afterEach(() => {
   setEditorDraftFetch(undefined);
   resetWorkQueues();
 });
+const sessionToken = `${btoa(JSON.stringify({ exp: 4102444800 }))}.test`;
 it('takes Drafts membership from the loader index and only saved English completes it', async () => {
   const current = data();
   setEditorDraftFetch(async () => Response.json({ schemaVersion: 1, hashes: [11, 12, 999] }));
@@ -47,10 +48,11 @@ it('takes Drafts membership from the loader index and only saved English complet
 });
 it('reuses the queue, freezes membership, preserves the save baseline, and rebuilds explicitly', async () => {
   const current = data();
+  sessionStorage.setItem('clarity-editor-session', sessionToken);
   useAuthStore.setState({
     user: { id: 1, login: 'one', role: 'editor' } as never,
     loading: false,
-    token: null,
+    token: sessionToken,
   });
   useSavedWorklists.setState({ scope: '1', index: {}, saving: [], failed: [] });
   const entry = { hash: 11, name: 'Alpha' };
