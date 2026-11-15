@@ -10,6 +10,33 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+it('reveals hover content on focus and stays closed when Escape restores trigger focus', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const mount = document.createElement('div');
+  document.body.append(mount);
+  const root = createRoot(mount);
+  cleanup = async () => {
+    await act(async () => root.unmount());
+    mount.remove();
+  };
+  await act(async () =>
+    root.render(
+      <Popover label="English original" trigger="Chaos remanié" openOnHover>
+        Chaos Reshaped
+      </Popover>,
+    ),
+  );
+  const trigger = mount.querySelector('button')!;
+  await act(async () => trigger.focus());
+  expect(document.querySelector('[role="dialog"]')?.textContent).toBe('Chaos Reshaped');
+  await act(async () => trigger.blur());
+  await act(async () =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
+  expect(document.activeElement).toBe(trigger);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(trigger.hasAttribute('title')).toBe(false);
+});
 it.each([420, 640])(
   'aligns below the anchor with a %i px layout and a 420 px visual viewport',
   async (layoutHeight) => {

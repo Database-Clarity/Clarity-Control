@@ -4,6 +4,7 @@ import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { applyPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
 import { When } from '../../ui/When';
+import { TitleAnchor } from '../preview/MarkupRenderer';
 import { requestTermMatches } from '../editor/diagnosticWorker';
 import { useShowEditor } from '../tooltip/VariantWorkspace';
 import type { Term } from './termList';
@@ -510,12 +511,8 @@ export function TermPopover({
       onPointerEnter={onPointerEnter}
       onPointerLeave={editing ? undefined : onPointerLeave}
     >
-      <div className={styles.head}>
-        <span className={styles.kind}>{kind}</span>
-        <span className={styles.english} lang="en">
-          {term.en}
-        </span>
-        <span className={styles.language}>{languageLabel(lang)}</span>
+      <div className={`${styles.head} ${styles.caption}`}>
+        {kind} · {languageLabel(lang)}
       </div>
       {editing && canEdit ? (
         <TermForm lang={lang} entry={term.glossary} english={term.en} onClose={onClose} />
@@ -528,7 +525,7 @@ export function TermPopover({
                 <button
                   type="button"
                   className={styles.insert}
-                  title="Insert at the caret in the translation"
+                  aria-label="Insert at the caret in the translation"
                   // The editor's selection is what Insert replaces: pressing must not move focus first.
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onInsert(name)}
@@ -542,7 +539,9 @@ export function TermPopover({
             ?.filter((name) => name !== term.glossary?.term)
             .map((name) => (
               <div className={styles.row} key={name}>
-                <span className={styles.name}>In game: {name}</span>
+                <strong className={styles.name}>
+                  <span className={styles.caption}>In game:</span> {name}
+                </strong>
                 {canInsert && (
                   <button
                     type="button"
@@ -560,9 +559,13 @@ export function TermPopover({
           {(term.glossary || canEdit) && (
             <div className={styles.footer}>
               {term.glossary && (
-                <small>
+                <small className={styles.caption}>
                   {term.glossary.updatedBy} ·{' '}
-                  <When value={term.glossary.updatedAt} />
+                  <TitleAnchor
+                    part={{ title: [{ linesContent: [{ text: term.glossary.updatedAt }] }] }}
+                  >
+                    <When value={term.glossary.updatedAt} nativeTitle={false} />
+                  </TitleAnchor>
                 </small>
               )}
               {canEdit && (
