@@ -34,6 +34,8 @@ export type Editor = {
   [key in Languages]?: {
     main: string
     secondary: string
+    /** Core selected English text because this translation is stale or unfreezable. */
+    englishFallback?: true
   }
 }
 

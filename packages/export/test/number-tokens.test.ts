@@ -17,7 +17,7 @@ function tokenized(text: string): string {
   return result;
 }
 
-function input(language: Lang, text?: string, sourceEnglish = english) {
+function input(language: Lang, text?: string, sourceEnglish = english, edit?: (item: Tooltip) => void) {
   text ??= tokenized(sourceEnglish).replace('Damage', 'Translated');
   const base = tooltip();
   const item: Tooltip = {
@@ -32,6 +32,7 @@ function input(language: Lang, text?: string, sourceEnglish = english) {
       },
     },
   };
+  edit?.(item);
   const globals = [1, 2, 3].map((hash) => ({
     ...base,
     hash,
@@ -112,6 +113,7 @@ describe('P11: language goldens through core export and all eight engine presets
         const perk = source.perks[100];
         if (!('editor' in perk)) throw new Error('Expected canonical fixture');
         expect(perk.editor[language]?.main).toBe(perk.editor.en?.main);
+        expect(perk.editor[language]?.englishFallback).toBeUndefined();
         for (const preset of legacyPresets) {
           const bytes = buildLegacy(source, preset);
           const descriptions = JSON.parse(new TextDecoder().decode(bytes))[100].descriptions;
@@ -133,6 +135,45 @@ describe('P11: language goldens through core export and all eight engine presets
             'Duration 4,5 seconds.',
           );
         }
+      }
+    },
+  );
+
+  test.each(['stale', 'unfreezable', 'language-specific frozen'] as const)(
+    '%s German fallback retains English dots and grouping',
+    (reason) => {
+      const sourceEnglish = 'Damage 4.5% for 2,985 frames x1.5 ${2.5+2}.';
+      const source = input('de', 'Schaden #{=99}.', sourceEnglish, (item) => {
+        if (reason === 'stale') {
+          item.text.de!.text = 'Schaden 1,5.';
+          item.text.de!.sourceUpdatedAt = '2025-01-01T00:00:00.000Z';
+        } else {
+          item.text.en!.numbers = {
+            ids: numberSlots(sourceEnglish).map((_, index) => index + 1),
+            next: 100,
+            retired: { 99: reason === 'unfreezable' ? null : { value: '1.5', fallback: ['de'] } },
+          };
+        }
+      });
+      const perk = source.perks[100];
+      if (!('editor' in perk)) throw new Error('Expected canonical fixture');
+      expect(perk.editor.de?.main).toBe(perk.editor.en?.main);
+      expect(perk.editor.de?.englishFallback).toBe(true);
+      const golden = 'Damage 4.5% for 2,985 frames x1.5 4.5.';
+      for (const preset of legacyPresets) {
+        const descriptions = JSON.parse(new TextDecoder().decode(buildLegacy(source, preset)))[100].descriptions;
+        expect(JSON.stringify(descriptions.en)).toContain(golden);
+        if (preset !== 'vaultZero') expect(descriptions.de).toEqual(descriptions.en);
+      }
+      for (const style of styles) {
+        const file = newStyleFile('numbers', style, {
+          categories: ['perks'], sandboxPerks: [], frameAliases: false,
+          languages: ['de'], keys: [], bungieIdentical: false,
+        });
+        const result = compile(source, file, {
+          catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },
+        });
+        expect(JSON.stringify(result.expanded?.[100]?.descriptions.de)).toContain(golden);
       }
     },
   );

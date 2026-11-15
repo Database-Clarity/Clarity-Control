@@ -17,8 +17,9 @@ const prepareDescription = (descriptionData: DescriptionData) => {
   description = loadVariables({ ...descriptionData, descriptionString: description })
   // Title bodies are prepared separately below; retain dot spelling for their single format pass.
   const titles = extractTitles(removeUnusedText(description, false))
-  // Resolved English-identical translations still use their own language's number format.
-  description = doMath(description, language)
+  // Stale or unfreezable fallback text keeps English numbers; real translations use their
+  // language even when resolving number tokens makes their text identical to English.
+  description = doMath(description, database[hash].editor[language]?.englishFallback ? 'en' : language)
 
   return {
     preparedDescription: removeUnusedText(description.trim()),
