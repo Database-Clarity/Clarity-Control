@@ -41,8 +41,9 @@ export function reconcileScheduledNumbers(
 ): { ok: true; tooltip: Tooltip } | { ok: false; reason: string } {
   const english = tooltip.text.en;
   if (!english) return { ok: true, tooltip };
+  const changedEnglish = !sameFieldValue('text.en', base?.text.en, proposed.text.en);
   const keepsProposal =
-    !sameFieldValue('text.en', base?.text.en, proposed.text.en) &&
+    changedEnglish &&
     english.text === proposed.text.en?.text &&
     sameFieldValue('text.en', source?.text.en, base?.text.en);
   const numbers = keepsProposal
@@ -54,6 +55,7 @@ export function reconcileScheduledNumbers(
     ([lang, entry]) => lang !== 'en' && entry.text.includes('#{='),
   );
   if (
+    changedEnglish &&
     !keepsProposal &&
     proposed.text.en &&
     stagedTokens &&
