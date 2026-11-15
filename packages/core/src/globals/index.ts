@@ -2,6 +2,9 @@ import { languages, type Lang } from '../languages.js';
 import { extractBlocks, extractVariables } from '../markup/syntax.js';
 import type { Tooltip } from '../schemas.js';
 
+export * from './model.js';
+export * from './impactModel.js';
+
 export type GlobalKind = 'variables' | 'titles';
 export interface GlobalUsage {
   hash: number;
