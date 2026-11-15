@@ -253,7 +253,13 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
             showTranslation
           />
         </div>
-        {categoryLabel && <div className={styles.category}>{categoryLabel}</div>}
+        {categoryLabel && (
+          <div className={styles.category}>
+            <TitleAnchor
+              part={{ text: categoryLabel, title: [{ linesContent: [{ text: categoryLabel }] }] }}
+            />
+          </div>
+        )}
       </div>
     </header>
   );
