@@ -35,7 +35,9 @@ afterEach(() => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  useSettingsStore.setState(state=>({settings:{...state.settings,suggestAccept:'enter'}}));
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, suggestAccept: 'enter' },
+  }));
 });
 function mount(sourceText = 'Gain 5 stacks lasting 5 seconds.', value = '') {
   const changes: string[] = [];
@@ -151,7 +153,11 @@ it('keeps suggestions, snippets, and Tab-configured markup chips ahead of number
   expect(view.state.selection.main.from).toBe(1);
   expect(view.state.selection.main.to).toBe(2);
   key(view, 'Escape');
-  act(() => useSettingsStore.setState(state=>({settings:{...state.settings,suggestAccept:'tab'}})));
+  act(() =>
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, suggestAccept: 'tab' },
+    })),
+  );
   act(() =>
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: 'pve' },
@@ -164,4 +170,15 @@ it('keeps suggestions, snippets, and Tab-configured markup chips ahead of number
   markChipShown(view, true);
   key(view, 'Tab');
   expect(view.state.doc.toString()).toBe('<pve value />');
+});
+
+it('falls through to number insertion when a completed-reference suggestion declines Tab', () => {
+  const text = 'var d = 1\n#d';
+  const { view } = mount('Value 5.', text);
+  act(() => view.dispatch({ selection: { anchor: text.length } }));
+  act(() => openSuggest(view));
+  expect(suggestState(view.state)).not.toBeNull();
+  key(view, 'Tab');
+  expect(suggestState(view.state)).toBeNull();
+  expect(view.state.doc.toString()).toBe(text + '#{=1}');
 });
