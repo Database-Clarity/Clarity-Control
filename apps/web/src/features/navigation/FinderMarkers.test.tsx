@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, Profiler } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { CompendiumData, Tooltip } from '@clarity/core';
@@ -95,6 +95,7 @@ it('uses Compendium changes for English and the existing translation rule for ot
   const data = fixture();
   data.bundle.tooltips[10] = tooltip;
   expect(savedFinderMarkers(10, data, source, 'en')).toBe(Outdated);
+  expect(savedFinderMarkers(10, data, { ...source, tabs: [] }, 'en')).toBe(Outdated);
   expect(savedFinderMarkers(10, data, null, 'de')).toBe(Outdated);
   expect(savedFinderMarkers(10, data, source, 'fr')).toBe(0);
   data.bundle.tooltips[10] = {
@@ -128,12 +129,17 @@ it('updates drafts, save/discard, and scheduled membership while mounted, with n
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const commits = vi.fn();
   const has = (label: string) => !!host.querySelector(`[role="img"][aria-label="${label}"]`);
   try {
     vi.stubEnv('VITE_SCHEDULED_ENABLED', '0');
     useDraftStore.setState({ drafts: {}, hydrated: true });
     await act(async () =>
-      root.render(<FinderMarkers hashes={[10, 11]} flags={Missing | Outdated} />),
+      root.render(
+        <Profiler id="markers" onRender={commits}>
+          <FinderMarkers hashes={[10, 11]} flags={Missing | Outdated} />
+        </Profiler>,
+      ),
     );
     expect(has('Missing tooltip')).toBe(true);
     expect(has('Outdated')).toBe(true);
@@ -141,7 +147,9 @@ it('updates drafts, save/discard, and scheduled membership while mounted, with n
     expect(host.querySelector('[title]')).toBeNull();
     await act(async () => useDraftStore.getState().edit(tooltip, 'en', 'Draft', 'test'));
     expect(has('Unsaved changes')).toBe(true);
+    commits.mockClear();
     await act(async () => useDraftStore.getState().edit(tooltip, 'en', 'Second edit', 'test'));
+    expect(commits).not.toHaveBeenCalled();
     expect(host.querySelectorAll('[aria-label="Unsaved changes"]')).toHaveLength(1);
     await act(async () => useDraftStore.getState().discard(10));
     expect(has('Unsaved changes')).toBe(false);
