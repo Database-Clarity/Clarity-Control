@@ -507,3 +507,54 @@ it('refuses batch save, rebase, and scheduling for a newly grouped member', asyn
   ).toBe(422);
   expect(f.current()['tooltips/124.json']).toBeUndefined();
 });
+
+it.each([false, true])(
+  'refuses activation-conflict resolution that would recreate an archived alias tooltip (race=%s)',
+  async (race) => {
+    batch();
+    const path = schedulePaths.batch(BATCH);
+    const existing = f.current()[path] as object;
+    const stamp = '2026-11-01T00:00:00Z';
+    f.moveData({
+      [path]: {
+        ...existing,
+        status: 'published',
+        opId: OP,
+        notBefore: '2026-11-01T00:00:00.000Z',
+        zone: 'UTC',
+        scheduledContentRevision: 1,
+        claim: { opId: OP, claimedAt: stamp },
+        result: {
+          opId: OP,
+          status: 'published',
+          landedAt: stamp,
+          landedAtSource: 'cas',
+          recordedAt: stamp,
+          exportNow: stamp,
+          liveCommit: sha(2),
+        },
+      },
+      [schedulePaths.conflict(124)]: {
+        hash: 124,
+        batchId: BATCH,
+        opId: OP,
+        fields: ['$exists'],
+        changed: ['text.en'],
+        base: document(124),
+        proposed: document(124, 'Upcoming text'),
+        currentAtRecord: null,
+      },
+    });
+    if (race) {
+      f.moveData({ [aliasGroupsPath]: undefined });
+      f.beforePatch = () => f.moveData({ [aliasGroupsPath]: groups() });
+    }
+    const response = await f.request(`/batches/${BATCH}/resolve`, 'POST', {
+      hash: 124,
+      expectedCurrent: null,
+      choices: { $exists: 'upcoming' },
+    });
+    expect(response.status, await response.clone().text()).toBe(422);
+    expect(f.current()['tooltips/124.json']).toBeUndefined();
+  },
+);

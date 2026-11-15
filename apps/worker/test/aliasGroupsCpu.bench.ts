@@ -71,8 +71,14 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
   };
   const effective = composeAliases(generated, group, items, conflicts);
   expect(effective.issues).toEqual([]);
-  const largest = Object.values(items).filter(item => item.categoryId !== 'armor-set-bonus' &&
-    items[resolveAlias(item.hash, generated)] && items[resolveAlias(item.hash, generated)]!.categoryId !== 'armor-set-bonus').map(item => item.hash);
+  const largest = Object.values(items)
+    .filter(
+      (item) =>
+        item.categoryId !== 'armor-set-bonus' &&
+        items[resolveAlias(item.hash, generated)] &&
+        items[resolveAlias(item.hash, generated)]!.categoryId !== 'armor-set-bonus',
+    )
+    .map((item) => item.hash);
   const f = new Fixture(await makePrivateKey());
   const liveBase = structuredClone(f.live);
   f.env.PUBLISH_SIGNING_KEY = generateKeyPairSync('ed25519')
@@ -141,8 +147,15 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
           f.liveFileSha = sha(f.sequence++);
           f.largeFile = route === 'push-largest';
           const path = route === 'push-largest' ? 'push-live' : route;
-          const largeFiles = route === 'push-largest' ? Object.fromEntries(largest.map(hash =>
-            [`tooltips/${resolveAlias(hash, generated)}.json`, { ...base, hash: resolveAlias(hash, generated) }])) : {};
+          const largeFiles =
+            route === 'push-largest'
+              ? Object.fromEntries(
+                  largest.map((hash) => [
+                    `tooltips/${resolveAlias(hash, generated)}.json`,
+                    { ...base, hash: resolveAlias(hash, generated) },
+                  ]),
+                )
+              : {};
           f.moveData({
             ...largeFiles,
             'live/pushed.json': {},
@@ -156,8 +169,9 @@ it('measures cold and warm grouped save, publish, and rollback push on real gene
               ? { message: 'Benchmark', changes: [{ hash, base, next: base }] }
               : route === 'publish'
                 ? { opId, hashes: [hash], expected: { [hash]: expected } }
-                : route === 'push-largest' ? { hashes: largest }
-                : { hashes: [hash], expected: { [hash]: expected } };
+                : route === 'push-largest'
+                  ? { hashes: largest }
+                  : { hashes: [hash], expected: { [hash]: expected } };
           const request = new Request(`https://api.example/${path}`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, Origin: f.env.SITE_ORIGIN },

@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import { contentHash, hashSchema, languages, tooltipSchema, type Tooltip } from '@clarity/core';
+import {
+  aliasGroupsPath,
+  sandboxPointersPath,
+  contentHash,
+  hashSchema,
+  languages,
+  tooltipSchema,
+  type Tooltip,
+} from '@clarity/core';
 import {
   activationConflictSchema,
   boundTranslationSources,
@@ -12,6 +20,8 @@ import { refuseUnlowerable } from '../elementTags.js';
 import { RefRace, type GitHub } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { alignEnglishRevision, checkEdit } from '../permissions.js';
+import { loadAliases } from '../catalog.js';
+import { consumerAliasScope, withSandboxPointers } from '../sandboxPointers.js';
 import type { Identity } from '../types.js';
 import {
   appendEvent,
@@ -21,6 +31,7 @@ import {
   indexEntry,
   readState,
   requireBatch,
+  refuseAliases,
   scheduleRoles,
   switches,
   withIndexEntry,
@@ -70,7 +81,12 @@ export async function resolveBatch(
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, scheduleRoles, {
       batchId,
-      extra: [schedulePaths.conflict(input.hash), `tooltips/${input.hash}.json`],
+      extra: [
+        schedulePaths.conflict(input.hash),
+        `tooltips/${input.hash}.json`,
+        aliasGroupsPath,
+        sandboxPointersPath,
+      ],
       trees: [
         { path: `schedule/batches/${batchId}/events`, depth: 1 },
         { path: `schedule/batches/${batchId}/tooltips`, depth: 1 },
@@ -139,6 +155,15 @@ export async function resolveBatch(
       result.tooltip &&
       boundTranslationSources(alignEnglishRevision(current, result.tooltip, user.login, at));
     if (tooltip) {
+      const [, , groups, picks] = state.extra;
+      if (groups || picks) {
+        const scope = await consumerAliasScope(github, groups, picks, [input.hash]);
+        refuseAliases(
+          [input.hash],
+          scope?.aliases ??
+            (await withSandboxPointers(github, await loadAliases(github.env, github), picks)),
+        );
+      }
       checkEdit(state.access, current, tooltip);
       refuseUnlowerable(tooltip, switches.publisher() ? { value: state.pin } : undefined, 'saved');
     }
