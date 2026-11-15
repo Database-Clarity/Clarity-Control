@@ -62,7 +62,7 @@ it('restricts editing and acknowledgements by role and assigned language', () =>
 it('keeps an explicit empty variable and invalidates prior impact reviews on save', async () => {
   const { service, controls } = createGlobalsFixture({ role: 'maintainer', languages: [] });
   const result = await service.mutate({
-    expectedHead: 'fixture-head-1',
+    expectedHead: '0000000000000000000000000000000000000001',
     mutation: {
       operation: 'edit',
       id: 'g_damage0001',
@@ -75,7 +75,9 @@ it('keeps an explicit empty variable and invalidates prior impact reviews on sav
   if (result.kind !== 'ok') return;
   expect(result.value.entries[0].definitions.en?.body).toBe('');
   expect(
-    result.value.impacts['g_damage0001'].every((row) => globalReviewState(row) === 'required'),
+    result.value.impacts['g_damage0001'].every(
+      (row) => !canAcknowledgeGlobal(result.value, 'g_damage0001', row),
+    ),
   ).toBe(true);
   expect(result.value.sync.g_damage0001.status).toBe('sync-pending');
   expect(
@@ -90,7 +92,7 @@ it('keeps an explicit empty variable and invalidates prior impact reviews on sav
     mutation: {
       operation: 'acknowledge',
       id: 'g_damage0001',
-      consumerId: '10:en:live',
+      consumerId: 'review_10_en_live',
       contentDigest: fixtureDigest(10),
       dependencyDigest: fixtureDigest(110),
       impactDigest: fixtureDigest(210),
@@ -122,7 +124,7 @@ it('refuses stale, pending, failed, and unknown review state', () => {
 it('retains consecutive pending causes through failure and retry', async () => {
   const { service, controls } = createGlobalsFixture({ role: 'editor', languages: [] });
   const first = await service.mutate({
-    expectedHead: 'fixture-head-1',
+    expectedHead: '0000000000000000000000000000000000000001',
     mutation: {
       operation: 'edit',
       id: 'g_damage0001',
@@ -170,7 +172,7 @@ it('retains consecutive pending causes through failure and retry', async () => {
 it('does not report a queued rename intent as completed', async () => {
   const { service, controls } = createGlobalsFixture({ role: 'editor', languages: [] });
   const queued = await service.mutate({
-    expectedHead: 'fixture-head-1',
+    expectedHead: '0000000000000000000000000000000000000001',
     mutation: {
       operation: 'rename',
       id: 'g_damage0001',

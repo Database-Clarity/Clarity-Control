@@ -120,10 +120,12 @@ export interface GlobalSnapshot {
   sourceBodies?: Record<string, Partial<Record<Lang, string>>>;
   sync: Record<string, GlobalSyncState>;
   destinationSync: Record<string, GlobalSyncState>;
+  renameIntents?: Record<string, { intentId: string; renameCompleted: false }>;
+  sources?: GlobalSourcePins;
 }
 export interface GlobalSyncState {
   status: 'sync-pending' | 'sync-failed' | 'current';
-  lastFailure?: string;
+  lastFailure?: string | null;
   causeIds: string[];
 }
 const unknownSync: GlobalSyncState = { status: 'sync-pending', causeIds: [] };
@@ -171,6 +173,296 @@ export interface GlobalsService {
     id: string;
     causeIds: string[];
   }): Promise<GlobalResult<GlobalSnapshot>>;
+}
+
+/** Structurally matches S2B model.ts Sources; no browser import of server runtime/context. */
+export interface GlobalSourcePins {
+  authored: string;
+  definitions: string;
+  projections: string;
+  config: string;
+  live: string;
+  upcoming: string;
+  aliases: string;
+  generator: string;
+  fallback: string;
+  resolver: string;
+}
+export interface GlobalHttpState extends GlobalSyncState {
+  head: string;
+  version: 1;
+  sources?: GlobalSourcePins;
+}
+export interface GlobalEntryPage extends GlobalHttpState {
+  entries: GlobalEntry[];
+  nextCursor: string | null;
+}
+export interface GlobalReviewPage extends GlobalHttpState {
+  consumers: GlobalConsumer[];
+  nextCursor: string | null;
+}
+export interface GlobalEntryDelta extends GlobalHttpState {
+  entry: GlobalEntry;
+  renameCompleted?: false;
+  intentId?: string;
+}
+export interface GlobalAuditDelta extends GlobalHttpState {
+  consumerId: string;
+  review: GlobalReview;
+}
+/** Bounded HTTP responses, not whole UI snapshots. S5 supplies authenticated transport. */
+export interface GlobalsTransport {
+  list(cursor: string): Promise<GlobalResult<GlobalEntryPage>>;
+  entry(id: string): Promise<GlobalResult<GlobalEntryDelta>>;
+  reviews(id: string, cursor: string): Promise<GlobalResult<GlobalReviewPage>>;
+  mutate(
+    request: Parameters<GlobalsService['mutate']>[0],
+  ): Promise<GlobalResult<GlobalEntryDelta | GlobalAuditDelta>>;
+  retrySync(
+    request: Parameters<GlobalsService['retrySync']>[0],
+  ): Promise<GlobalResult<GlobalEntryDelta>>;
+}
+
+/** Compose only complete reads, or merge a bounded CAS receipt into the known client snapshot. */
+export function createGlobalsService(
+  transport: GlobalsTransport,
+  options: {
+    destinations: readonly string[];
+    initialSnapshot?: GlobalSnapshot;
+  },
+): GlobalsService & { readEntry(id: string): Promise<GlobalResult<GlobalSnapshot>> } {
+  let cached = options.initialSnapshot && structuredClone(options.initialSnapshot);
+  let generation = 0;
+  const conflict = (): GlobalResult<GlobalSnapshot> => ({
+    kind: 'conflict',
+    message: 'Globals changed. Refresh to load the current snapshot.',
+  });
+  const invalid = (message: string): GlobalResult<GlobalSnapshot> => ({ kind: 'invalid', message });
+  const state = (header: GlobalHttpState): GlobalSyncState => ({
+    status: header.status,
+    lastFailure: header.lastFailure,
+    causeIds: [...header.causeIds],
+  });
+  const sourceKey = (sources?: GlobalSourcePins) =>
+    sources &&
+    JSON.stringify([
+      sources.authored,
+      sources.definitions,
+      sources.projections,
+      sources.config,
+      sources.live,
+      sources.upcoming,
+      sources.aliases,
+      sources.generator,
+      sources.fallback,
+      sources.resolver,
+    ]);
+  const sameHeader = (a: GlobalHttpState, b: GlobalHttpState) =>
+    a.head === b.head &&
+    a.status === b.status &&
+    a.lastFailure === b.lastFailure &&
+    JSON.stringify(a.causeIds) === JSON.stringify(b.causeIds) &&
+    sourceKey(a.sources) === sourceKey(b.sources);
+  function applyState(next: GlobalSnapshot, header: GlobalHttpState) {
+    next.head = header.head;
+    next.sources = header.sources;
+    next.sync = Object.fromEntries(next.entries.map((entry) => [entry.id, state(header)]));
+    next.destinationSync = Object.fromEntries(
+      options.destinations.map((destination) => [destination, state(header)]),
+    );
+    if (header.status === 'current') next.renameIntents = {};
+  }
+  function mergeEntry(next: GlobalSnapshot, entry: GlobalEntry) {
+    const old = next.entries.findIndex((item) => item.id === entry.id);
+    if (old < 0) next.entries.push(entry);
+    else {
+      if (next.entries[old].revision !== entry.revision && next.sourceBodies)
+        delete next.sourceBodies[entry.id];
+      next.entries[old] = entry;
+    }
+  }
+  function publish(next: GlobalSnapshot, token: number): GlobalResult<GlobalSnapshot> {
+    if (token !== generation) return conflict();
+    cached = next;
+    return { kind: 'ok', value: structuredClone(next) };
+  }
+  async function readReviews(
+    id: string,
+    header: GlobalHttpState,
+    token: number,
+  ): Promise<GlobalResult<GlobalConsumer[]>> {
+    const consumers: GlobalConsumer[] = [],
+      cursors = new Set<string>(),
+      ids = new Set<string>();
+    let cursor: string | null = 'p0';
+    while (cursor !== null) {
+      if (!/^p\d{1,5}$/.test(cursor) || cursors.has(cursor))
+        return { kind: 'invalid', message: 'Invalid global review cursor.' };
+      cursors.add(cursor);
+      const page = await transport.reviews(id, cursor);
+      if (token !== generation)
+        return { kind: 'conflict', message: 'A newer globals request replaced this read.' };
+      if (page.kind !== 'ok') return page;
+      if (!sameHeader(header, page.value))
+        return { kind: 'conflict', message: 'Global review pages changed. Refresh again.' };
+      if (page.value.consumers.length > 3 || page.value.consumers.some((row) => ids.has(row.id)))
+        return { kind: 'invalid', message: 'Invalid global review page.' };
+      for (const row of page.value.consumers) {
+        if (ids.has(row.id)) return { kind: 'invalid', message: 'Duplicate global review.' };
+        ids.add(row.id);
+        consumers.push(row);
+      }
+      cursor = page.value.nextCursor;
+    }
+    return { kind: 'ok', value: consumers };
+  }
+  async function delta(
+    request: Parameters<GlobalsService['mutate']>[0] | Parameters<GlobalsService['retrySync']>[0],
+    retry: boolean,
+  ): Promise<GlobalResult<GlobalSnapshot>> {
+    const token = ++generation;
+    if (!cached || request.expectedHead !== cached.head) return conflict();
+    const base = structuredClone(cached);
+    const response = retry
+      ? await transport.retrySync(request as Parameters<GlobalsService['retrySync']>[0])
+      : await transport.mutate(request as Parameters<GlobalsService['mutate']>[0]);
+    if (response.kind !== 'ok') return response;
+    if (token !== generation) return conflict();
+    const value = response.value;
+    const mutation = 'mutation' in request ? request.mutation : undefined;
+    if ('entry' in value) {
+      const expectedId =
+        mutation?.operation === 'create'
+          ? value.entry.id
+          : mutation && 'id' in mutation
+            ? mutation.id
+            : 'id' in request
+              ? request.id
+              : undefined;
+      if (value.entry.id !== expectedId || mutation?.operation === 'acknowledge')
+        return invalid('Unexpected global entry receipt.');
+      if (
+        mutation?.operation === 'create' &&
+        base.entries.some((entry) => entry.id === value.entry.id)
+      )
+        return invalid('Global create reused an existing identity.');
+      if (mutation && value.status !== 'sync-pending')
+        return invalid('Global admission did not report Sync pending.');
+      if (mutation?.operation === 'rename' && (value.renameCompleted !== false || !value.intentId))
+        return invalid('Rename intent receipt is incomplete.');
+      if (
+        mutation?.operation === 'rename' &&
+        base.entries.find((entry) => entry.id === mutation.id)?.name !== value.entry.name
+      )
+        return invalid('Queued rename changed the name before completion.');
+      mergeEntry(base, value.entry);
+      applyState(base, value);
+      if (value.renameCompleted === false && value.intentId)
+        base.renameIntents = {
+          ...base.renameIntents,
+          [value.entry.id]: { intentId: value.intentId, renameCompleted: false },
+        };
+    } else {
+      if (mutation?.operation !== 'acknowledge' || value.consumerId !== mutation.consumerId)
+        return invalid('Unexpected global review receipt.');
+      if (value.status !== 'current') return invalid('Global acknowledgement is not current.');
+      const ack = value.review.acknowledgement;
+      if (
+        !ack ||
+        ack.contentDigest !== mutation.contentDigest ||
+        ack.dependencyDigest !== mutation.dependencyDigest ||
+        ack.impactDigest !== mutation.impactDigest ||
+        ack.decision !== mutation.decision
+      )
+        return invalid('Global acknowledgement receipt is stale.');
+      let found = false;
+      for (const rows of Object.values(base.impacts))
+        for (const row of rows)
+          if (row.id === value.consumerId) {
+            if (
+              JSON.stringify(row.consumer) !== JSON.stringify(value.review.consumer) ||
+              JSON.stringify(row.causes) !== JSON.stringify(value.review.causes)
+            )
+              return invalid('Global review identity changed.');
+            row.review = value.review;
+            found = true;
+          }
+      if (!found) return conflict();
+      applyState(base, value);
+    }
+    return publish(base, token);
+  }
+  return {
+    async read() {
+      const token = ++generation;
+      const next: GlobalSnapshot = {
+        head: '',
+        entries: [],
+        impacts: {},
+        sync: {},
+        destinationSync: {},
+        sourceBodies: structuredClone(cached?.sourceBodies ?? {}),
+        renameIntents: structuredClone(cached?.renameIntents ?? {}),
+      };
+      const cursors = new Set<string>(),
+        ids = new Set<string>();
+      let header: GlobalHttpState | undefined,
+        cursor: string | null = 'p0';
+      while (cursor !== null) {
+        if (!/^p\d{1,5}$/.test(cursor) || cursors.has(cursor))
+          return invalid('Invalid global catalog cursor.');
+        cursors.add(cursor);
+        const page = await transport.list(cursor);
+        if (page.kind !== 'ok') return page;
+        if (token !== generation) return conflict();
+        if (header && !sameHeader(header, page.value)) return conflict();
+        header ??= page.value;
+        if (page.value.entries.length > 3)
+          return invalid('Global catalog page exceeds three records.');
+        for (const entry of page.value.entries) {
+          if (ids.has(entry.id)) return invalid('Duplicate global identity in catalog.');
+          ids.add(entry.id);
+          next.entries.push(entry);
+          if (
+            cached?.entries.find((old) => old.id === entry.id)?.revision !== entry.revision &&
+            next.sourceBodies
+          )
+            delete next.sourceBodies[entry.id];
+          if (header.status === 'current' && !entry.tombstone) {
+            const reviews = await readReviews(entry.id, header, token);
+            if (reviews.kind !== 'ok') return reviews;
+            next.impacts[entry.id] = reviews.value;
+          } else next.impacts[entry.id] = structuredClone(cached?.impacts[entry.id] ?? []);
+        }
+        cursor = page.value.nextCursor;
+      }
+      applyState(next, header!);
+      return publish(next, token);
+    },
+    async readEntry(id) {
+      const token = ++generation;
+      if (!cached) return conflict();
+      const entry = await transport.entry(id);
+      if (entry.kind !== 'ok') return entry;
+      if (
+        entry.value.head !== cached.head ||
+        entry.value.entry.id !== id ||
+        sourceKey(entry.value.sources) !== sourceKey(cached.sources)
+      )
+        return conflict();
+      const next = structuredClone(cached);
+      mergeEntry(next, entry.value.entry);
+      applyState(next, entry.value);
+      if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
+        const rows = await readReviews(id, entry.value, token);
+        if (rows.kind !== 'ok') return rows;
+        next.impacts[id] = rows.value;
+      }
+      return publish(next, token);
+    },
+    mutate: (request) => delta(request, false),
+    retrySync: (request) => delta(request, true),
+  };
 }
 export function globalReviewState(row: GlobalConsumer): 'required' | 'acknowledged' | 'stale' {
   const ack = row.review.acknowledgement;

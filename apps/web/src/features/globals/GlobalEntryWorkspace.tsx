@@ -215,7 +215,11 @@ function Workspace({
   const savedConsumer =
     !dirty && consumer ? savedImpacts.find((row) => row.id === consumer.id) : undefined;
   const canAcknowledge =
-    !!entry && !!savedConsumer && canAcknowledgeGlobal(snapshot, entry.id, savedConsumer);
+    !error &&
+    !conflict &&
+    !!entry &&
+    !!savedConsumer &&
+    canAcknowledgeGlobal(snapshot, entry.id, savedConsumer);
   const reviewKey =
     savedConsumer &&
     JSON.stringify([
@@ -441,6 +445,9 @@ function Workspace({
           <p role="alert">{sync.lastFailure ?? 'Failure details unavailable.'}</p>
         )}
       </div>
+      {entry && snapshot.renameIntents?.[entry.id]?.renameCompleted === false && (
+        <p role="status">Rename queued; not complete.</p>
+      )}
       {Object.entries(snapshot.destinationSync)
         .filter(([, state]) => state.status !== 'current')
         .map(([destination, state]) => (

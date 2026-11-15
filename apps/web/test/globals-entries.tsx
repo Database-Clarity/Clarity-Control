@@ -37,7 +37,13 @@ if (syncStatus === 'sync-pending' || syncStatus === 'sync-failed') {
 const fixture = createGlobalsFixture(
   actor,
   new URLSearchParams(location.search).has('empty')
-    ? { head: 'empty-head', entries: [], impacts: {}, sync: {}, destinationSync: {} }
+    ? {
+        head: '0000000000000000000000000000000000000000',
+        entries: [],
+        impacts: {},
+        sync: {},
+        destinationSync: {},
+      }
     : seed,
   new URLSearchParams(location.search).has('largeProjection'),
 );

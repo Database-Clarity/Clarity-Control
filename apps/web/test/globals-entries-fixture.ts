@@ -8,6 +8,10 @@ import {
 } from '@clarity/core';
 import {
   canEditGlobal,
+  createGlobalsService,
+  type GlobalsTransport,
+  type GlobalHttpState,
+  type GlobalSourcePins,
   canAcknowledgeGlobal,
   type GlobalProjectionSource,
   canReviewGlobal,
@@ -15,9 +19,21 @@ import {
   type GlobalConsumer,
   type GlobalResult,
   type GlobalSnapshot,
-  type GlobalsService,
 } from '../src/services/globals';
 
+export const fixtureHead = (value: number) => value.toString(16).padStart(40, '0');
+export const fixtureSources: GlobalSourcePins = {
+  authored: 'a'.repeat(40),
+  definitions: 'b'.repeat(40),
+  projections: 'c'.repeat(40),
+  config: 'd'.repeat(40),
+  live: 'e'.repeat(40),
+  upcoming: 'f'.repeat(40),
+  aliases: '1'.repeat(40),
+  generator: '2'.repeat(40),
+  fallback: 'a'.repeat(64),
+  resolver: 'b'.repeat(64),
+};
 const stamp = '2026-01-01T00:00:00Z';
 export const fixtureDigest = (value: number) => value.toString(16).padStart(64, '0');
 function definition(
@@ -70,7 +86,7 @@ function consumer(hash: number, lang: 'en' | 'fr', destination: string): GlobalC
       decision: 'no-text-change',
     };
   return {
-    id: `${hash}:${lang}:${destination}`,
+    id: `review_${hash}_${lang}_${destination}`,
     consumer: identity,
     causes,
     reason: 'variable-read',
@@ -92,7 +108,8 @@ function consumer(hash: number, lang: 'en' | 'fr', destination: string): GlobalC
 const french = consumer(20, 'fr', 'saved');
 french.causes.push({ globalId: 'g_other00001', beforeRevision: 'r2', afterRevision: 'r3' });
 export const globalFixtureSnapshot: GlobalSnapshot = {
-  head: 'fixture-head-1',
+  head: fixtureHead(1),
+  sources: fixtureSources,
   entries: [
     {
       version: 1,
@@ -157,9 +174,31 @@ export function createGlobalsFixture(
             : 'Fixture request failed. Retry the action.',
       };
   }
-  const service: GlobalsService = {
-    async read() {
-      const failed = await failure<GlobalSnapshot>();
+  function header(): GlobalHttpState {
+    const states = [...Object.values(snapshot.sync), ...Object.values(snapshot.destinationSync)];
+    const failed = states.find((state) => state.status === 'sync-failed');
+    const pending = states.find((state) => state.status === 'sync-pending');
+    return {
+      version: 1,
+      head: snapshot.head,
+      status: failed ? 'sync-failed' : pending ? 'sync-pending' : 'current',
+      lastFailure: failed?.lastFailure ?? pending?.lastFailure ?? null,
+      causeIds: [...new Set(states.flatMap((state) => state.causeIds))],
+    };
+  }
+  function setSync(
+    status: 'sync-pending' | 'sync-failed' | 'current',
+    causeIds: string[],
+    lastFailure: string | null = null,
+  ) {
+    for (const entry of snapshot.entries)
+      snapshot.sync[entry.id] = { status, causeIds: [...causeIds], lastFailure };
+    for (const destination of Object.keys(snapshot.destinationSync))
+      snapshot.destinationSync[destination] = { status, causeIds: [...causeIds], lastFailure };
+  }
+  const transport: GlobalsTransport = {
+    async list(cursor) {
+      const failed = await failure<import('../src/services/globals').GlobalEntryPage>();
       if (failed) return failed;
       if (controls.syncOutcome) {
         const status = controls.syncOutcome;
@@ -171,7 +210,10 @@ export function createGlobalsFixture(
           state.status = status;
           if (status === 'sync-failed')
             state.lastFailure = 'Fixture sync failed: source changed during calculation.';
-          else delete state.lastFailure;
+          else {
+            state.lastFailure = null;
+            state.causeIds = [];
+          }
         }
         if (status === 'current') {
           for (const [id, name] of queuedRenames) {
@@ -197,26 +239,63 @@ export function createGlobalsFixture(
               row.impactDigest = fixtureDigest(2000 + revision);
             }
         }
-        snapshot.head = `fixture-head-${++revision}`;
+        snapshot.head = fixtureHead(++revision);
       }
-      return { kind: 'ok', value: structuredClone(snapshot) };
+      const offset = Number(cursor.slice(1)) * 3;
+      return {
+        kind: 'ok',
+        value: {
+          ...header(),
+          entries: structuredClone(snapshot.entries.slice(offset, offset + 3)),
+          nextCursor:
+            offset + 3 < snapshot.entries.length ? `p${Number(cursor.slice(1)) + 1}` : null,
+        },
+      };
+    },
+    async entry(id) {
+      const entry = snapshot.entries.find((item) => item.id === id);
+      return entry
+        ? { kind: 'ok', value: { ...header(), entry: structuredClone(entry) } }
+        : { kind: 'invalid', message: 'Entry not found.' };
+    },
+    async reviews(id, cursor) {
+      if (header().status !== 'current')
+        return { kind: 'retry', message: 'Sync pending: saved reviews unavailable.' };
+      const offset = Number(cursor.slice(1)) * 3;
+      const rows = snapshot.impacts[id] ?? [];
+      return {
+        kind: 'ok',
+        value: {
+          ...header(),
+          consumers: structuredClone(rows.slice(offset, offset + 3)),
+          nextCursor: offset + 3 < rows.length ? `p${Number(cursor.slice(1)) + 1}` : null,
+        },
+      };
     },
     async retrySync(request) {
-      const failed = await failure<GlobalSnapshot>();
+      const failed = await failure<import('../src/services/globals').GlobalEntryDelta>();
       if (failed) return failed;
       if (request.expectedHead !== snapshot.head)
         return { kind: 'conflict', message: 'Stale head.' };
       if (!actor) return { kind: 'forbidden', message: 'Sign in to retry sync.' };
-      const state = snapshot.sync[request.id];
+      const state = header();
       if (!state || JSON.stringify(state.causeIds) !== JSON.stringify(request.causeIds))
         return { kind: 'conflict', message: 'Sync causes changed. Refresh before retrying.' };
-      state.status = 'sync-pending';
-      for (const target of Object.values(snapshot.destinationSync)) target.status = 'sync-pending';
-      snapshot.head = `fixture-head-${++revision}`;
-      return { kind: 'ok', value: structuredClone(snapshot) };
+      setSync('sync-pending', state.causeIds, state.lastFailure ?? null);
+      snapshot.head = fixtureHead(++revision);
+      return {
+        kind: 'ok',
+        value: {
+          ...header(),
+          entry: structuredClone(snapshot.entries.find((item) => item.id === request.id)!),
+        },
+      };
     },
     async mutate({ expectedHead, mutation }) {
-      const failed = await failure<GlobalSnapshot>();
+      const failed = await failure<
+        | import('../src/services/globals').GlobalEntryDelta
+        | import('../src/services/globals').GlobalAuditDelta
+      >();
       if (failed) return failed;
       if (expectedHead !== snapshot.head) return { kind: 'conflict', message: 'Stale head.' };
       const entry =
@@ -319,17 +398,29 @@ export function createGlobalsFixture(
         };
       }
       if (mutation.operation !== 'acknowledge') {
-        const id = mutation.operation === 'create' ? snapshot.entries.at(-1)!.id : entry!.id;
         const causeId = `cause-${++revision}`;
-        const causeIds = [...(snapshot.sync[id]?.causeIds ?? []), causeId];
-        snapshot.sync[id] = { status: 'sync-pending', causeIds };
-        for (const target of Object.values(snapshot.destinationSync)) {
-          target.status = 'sync-pending';
-          target.causeIds.push(causeId);
-        }
+        const causeIds = [...header().causeIds, causeId];
+        setSync('sync-pending', causeIds, header().lastFailure ?? null);
       }
-      snapshot.head = `fixture-head-${++revision}`;
-      return { kind: 'ok', value: structuredClone(snapshot) };
+      snapshot.head = fixtureHead(++revision);
+      if (mutation.operation === 'acknowledge') {
+        const row = snapshot.impacts[mutation.id].find((item) => item.id === mutation.consumerId)!;
+        return {
+          kind: 'ok',
+          value: { ...header(), consumerId: row.id, review: structuredClone(row.review) },
+        };
+      }
+      const changed = mutation.operation === 'create' ? snapshot.entries.at(-1)! : entry!;
+      return {
+        kind: 'ok',
+        value: {
+          ...header(),
+          entry: structuredClone(changed),
+          ...(mutation.operation === 'rename'
+            ? { renameCompleted: false as const, intentId: `intent-${revision}` }
+            : {}),
+        },
+      };
     },
   };
   const extraTooltips: Record<string, Tooltip> = {};
@@ -448,5 +539,9 @@ export function createGlobalsFixture(
       };
     },
   };
-  return { service, controls, projection };
+  const service = createGlobalsService(transport, {
+    destinations: ['live', 'saved'],
+    initialSnapshot: seed,
+  });
+  return { service, transport, controls, projection };
 }

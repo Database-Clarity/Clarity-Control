@@ -24,7 +24,7 @@ class FakeWorker {
 }
 const input = (): GlobalProjectionInput =>
   createGlobalsFixture(null).projection.prepare({
-    expectedHead: 'fixture-head-1',
+    expectedHead: '0000000000000000000000000000000000000001',
     id: 'g_damage0001',
     revision: 'r1',
     lang: 'en',

@@ -44,6 +44,15 @@ try {
       .waitFor();
   };
   await open();
+  await page.evaluate(() => {
+    window.globalsFixture.next = 'retry';
+  });
+  await page.getByRole('button', { name: 'Refresh sync' }).click();
+  await page.getByRole('alert').filter({ hasText: 'Retry' }).waitFor();
+  await page.getByRole('button', { name: 'Review Focused Fury', exact: true }).click();
+  assert.equal(await page.getByRole('checkbox').isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Refresh sync' }).click();
   await edit('25%');
   await page.getByRole('button', { name: 'Calculate projected impact', exact: true }).click();
   await page.getByText('Projected impact — unsaved', { exact: true }).waitFor();
@@ -111,8 +120,8 @@ try {
   await page.keyboard.press('Escape');
   await edit('35%');
   await page.getByRole('button', { name: 'Save definition', exact: true }).click();
-  await page.getByText('Direct · required · live', { exact: true }).waitFor();
   await completeSync();
+  await page.getByText('Direct · required · live', { exact: true }).waitFor();
   await edit('40%');
   await page.evaluate(() => {
     window.globalsFixture.next = 'conflict';
@@ -129,6 +138,8 @@ try {
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('DamageNew');
   await page.getByRole('textbox', { name: 'Name', exact: true }).press('Enter');
   await page.getByRole('heading', { name: 'Damage', exact: true }).waitFor();
+  await page.getByText('Rename queued; not complete.', { exact: true }).waitFor();
+  await page.screenshot({ path: resolve(output, 'rename-queued-1280.png'), fullPage: true });
   await completeSync();
   await page.getByRole('heading', { name: 'DamageNew', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Create global', exact: true }).click();
