@@ -10,6 +10,7 @@ import {
   loadSandboxPerkText,
   manifestSummary,
   manifestText,
+  manifestWordDiff,
   resetSandboxPerkText,
   type SandboxPerkText,
 } from './manifestText';
@@ -62,9 +63,30 @@ const items = {
   }),
   10: item(10, { baseHash: 2, sandboxPerkHashes: [12] }),
   11: item(11, { baseHash: 1, inGameDescription: 'Another enhanced variant.' }),
+  20: item(20, { enhancedHash: 21, inGameDescription: 'Frame text.' }),
+  21: item(21, { baseHash: 20, inGameDescription: 'Enhanced frame text.' }),
 };
 
 describe('manifestText', () => {
+  it('groups changed phrases and separates deletion from insertion', () => {
+    const parts = manifestWordDiff(
+      'Reduces recoil deviation for the weapon.',
+      'Greatly improves recoil direction.',
+    );
+    expect(parts.map((part) => part.text).join('')).not.toContain('ReducesGreatly');
+    expect(
+      parts
+        .filter((part) => part.kind === 'delete')
+        .map((part) => part.text)
+        .join(''),
+    ).toContain('deviation for the weapon.');
+    expect(
+      parts
+        .filter((part) => part.kind === 'insert')
+        .map((part) => part.text)
+        .join(''),
+    ).toContain('direction.');
+  });
   it('prefers the entry’s own description, even when it has sandbox perks', () => {
     expect(manifestText(items[1], perks)).toEqual({
       kind: 'own',
@@ -196,6 +218,16 @@ describe('ManifestTextRow', () => {
     expect(host.querySelector('ins')).toBeNull();
   });
 
+  it('uses the generator primary enhanced frame even when editing aliases hide it', async () => {
+    useDataStore.setState((state) => ({
+      data: { ...state.data!, aliases: { 21: { to: 20, kind: 'frame' } } },
+    }));
+    await show(20);
+    expect(host.querySelector('ins')?.textContent).toContain('Enhanced');
+    await show(21);
+    expect(host.querySelector('ins')?.textContent).toContain('Enhanced');
+  });
+
   it('localises arriving text, preserves missing rows, and clears it when switching to English', async () => {
     vi.stubGlobal(
       'fetch',
@@ -322,4 +354,3 @@ describe('ManifestTextRow', () => {
     expect(host.textContent).toContain('Kills grant increased damage.');
   });
 });
-

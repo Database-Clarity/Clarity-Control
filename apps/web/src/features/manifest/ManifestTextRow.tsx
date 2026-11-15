@@ -5,7 +5,6 @@ import { useLocalisedManifest } from './localisedManifest';
 import { EnglishReveal } from './EnglishReveal';
 import { useDataStore } from '../../stores/data';
 import { canonicalHash, itemFor, variantHashes } from '../navigation/catalog';
-import { diffWords } from '../../ui/diff/diffWords';
 import { ManifestStatsRow } from './ManifestStatsRow';
 import { PanelRow } from '../../ui/PanelRow';
 import {
@@ -13,6 +12,7 @@ import {
   manifestSummary,
   manifestText,
   manifestDescription,
+  manifestWordDiff,
   sandboxPerkTextFailed,
   useSandboxPerkText,
 } from './manifestText';
@@ -44,12 +44,15 @@ export function ManifestTextRow({
 }) {
   const data = useDataStore((state) => state.data);
   const hash = data ? canonicalHash(requestedHash, data) : requestedHash;
+  const item = data ? itemFor(hash, data) : undefined;
   const variants = data ? variantHashes(hash, data) : [];
   const enhancedHash = data
-    ? requestedHash !== hash && variants.includes(requestedHash)
+    ? requestedHash !== hash && data.items[requestedHash]?.baseHash === hash
       ? requestedHash
       : (variants.find((value) => value === selectedEnhancedHash && value !== hash) ??
-        variants.find((value) => value !== hash))
+        variants.find((value) => value !== hash) ??
+        item?.enhancedHash ??
+        item?.enhancedHashes?.[0])
     : undefined;
   const perks = useSandboxPerkText();
   const [open, setOpen] = useState(stored);
@@ -57,7 +60,6 @@ export function ManifestTextRow({
   useEffect(() => {
     void loadSandboxPerkText();
   }, []);
-  const item = data ? itemFor(hash, data) : undefined;
   const text = useMemo(() => manifestText(item, perks), [item, perks]);
   const localised = useLocalisedManifest(lang);
   const enhancedText = useMemo(
@@ -79,7 +81,7 @@ export function ManifestTextRow({
   };
   const before = description(text, hash),
     after = description(enhancedText, enhancedHash ?? hash);
-  const differences = useMemo(() => diffWords(before, after), [before, after]);
+  const differences = useMemo(() => manifestWordDiff(before, after), [before, after]);
   const translated = useMemo(() => {
     if (text.kind === 'own') {
       return { ...text, description: localised?.descriptions?.[hash]?.trim() || text.description };
