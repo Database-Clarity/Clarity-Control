@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RemoveFromWorklist, WorklistPicker, WorklistsManager } from './WorklistsMenu';
-import { useSavedWorklists } from './worklists';
+import { syncWorklists, useSavedWorklists } from './worklists';
 import { applyWorklistOperation } from '../../../../../packages/core/src/worklists';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
@@ -18,10 +18,13 @@ vi.mock('../../services/apiAuth', () => ({ apiRequest: api }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let root: Root;
 let host: HTMLDivElement;
+let rows: Map<string, { name: string; hashes: number[] }>;
+let revision: string;
 beforeEach(async () => {
   vi.useFakeTimers();
   api.mockReset();
-  const rows = new Map<string, { name: string; hashes: number[] }>();
+  rows = new Map();
+  revision = 'a'.repeat(32);
   api.mockImplementation(async (path: string, init?: RequestInit) => {
     if (path === '/worklists')
       return Response.json({
@@ -29,7 +32,7 @@ beforeEach(async () => {
           id,
           name: row.name,
           count: row.hashes.length,
-          revision: 'a'.repeat(32),
+          revision,
           updatedAt: 1,
         })),
       });
@@ -42,7 +45,7 @@ beforeEach(async () => {
     }
     return Response.json({
       worklist: rows.has(id) ? { id, ...rows.get(id)! } : null,
-      revision: rows.has(id) ? 'a'.repeat(32) : null,
+      revision: rows.has(id) ? revision : null,
     });
   });
   const values = new Map<string, string>();
@@ -131,68 +134,135 @@ it('cancels a new name and exposes empty-list opening as disabled', async () => 
   expect(button('Open').disabled).toBe(true);
 });
 
-it('does not add entries when the picker is cancelled during a lazy list read', async () => {
+it('keeps a save submitted before picker cancellation, without closing the cancelled picker', async () => {
   const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+  rows.set(id, { name: 'Existing', hashes: [1] });
   act(() =>
     useSavedWorklists.setState({
       lists: [{ id, name: 'Existing', items: [] }],
       loaded: [],
-      index: { [id]: { id, name: 'Existing', count: 1, updatedAt: 1, revision: 'a'.repeat(32) } },
+      index: { [id]: { id, name: 'Existing', count: 1, updatedAt: 1, revision } },
     }),
   );
-  let resolve!: (response: Response) => void;
-  api.mockImplementationOnce(
-    () =>
-      new Promise<Response>((done) => {
-        resolve = done;
-      }),
-  );
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const server = api.getMockImplementation()!;
+  api.mockImplementationOnce(async (path, init) => {
+    const response = await server(path, init);
+    await gate;
+    return response;
+  });
   const close = vi.fn();
   await act(async () =>
     root.render(<WorklistPicker items={[{ hash: 2, name: 'New entry' }]} close={close} />),
   );
-  await act(async () =>
-    [...host.querySelectorAll('button')]
-      .find((button) => button.textContent?.startsWith('Existing'))!
-      .click(),
-  );
+  await act(async () => button('Existing1').click());
+  expect(api.mock.calls[0]![1].method).toBe('PUT');
   await act(async () => root.render(null));
-  await act(async () =>
-    resolve(
-      Response.json({ worklist: { id, name: 'Existing', hashes: [1] }, revision: 'a'.repeat(32) }),
-    ),
-  );
-  expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1]);
-  expect(useSavedWorklists.getState().saving).toEqual([]);
+  await act(async () => release());
+  expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1, 2]);
   expect(close).not.toHaveBeenCalled();
 });
-
-it('removes an unavailable entry after an index-only cache refresh without dropping other entries', async () => {
+it('removes an unavailable run entry directly after an index-only cache refresh', async () => {
   const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+  rows.set(id, { name: 'Existing', hashes: [1, 2] });
   act(() =>
     useSavedWorklists.setState({
       lists: [{ id, name: 'Existing', items: [] }],
       loaded: [],
-      index: { [id]: { id, name: 'Existing', count: 2, updatedAt: 1, revision: 'a'.repeat(32) } },
+      index: { [id]: { id, name: 'Existing', count: 2, updatedAt: 1, revision } },
     }),
-  );
-  api.mockResolvedValueOnce(
-    Response.json({ worklist: { id, name: 'Existing', hashes: [1, 2] }, revision: 'a'.repeat(32) }),
-  );
-  api.mockImplementation(async (path: string, init?: RequestInit) =>
-    path === '/worklists'
-      ? Response.json({
-          lists: [{ id, name: 'Existing', count: 1, updatedAt: 1, revision: 'a'.repeat(32) }],
-        })
-      : Response.json({
-          worklist: { id, name: 'Existing', hashes: init?.method === 'PUT' ? [2] : [1, 2] },
-          revision: 'a'.repeat(32),
-        }),
   );
   await act(async () => root.render(<RemoveFromWorklist id={id} hash={1} />));
   await act(async () => button('Remove').click());
   expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([2]);
-  expect(useSavedWorklists.getState().saving).toEqual([]);
+  expect(api.mock.calls[0]![1].method).toBe('PUT');
+});
+it.each(['add', 'remove'])(
+  'offers explicit Retry when an index-only %s fails offline (F2)',
+  async (op) => {
+    const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+    rows.set(id, { name: 'Existing', hashes: [1, 2] });
+    act(() =>
+      useSavedWorklists.setState({
+        lists: [{ id, name: 'Existing', items: [] }],
+        loaded: [],
+        index: { [id]: { id, name: 'Existing', count: 2, updatedAt: 1, revision } },
+      }),
+    );
+    await act(async () =>
+      root.render(
+        op === 'add' ? (
+          <WorklistPicker items={[{ hash: 3, name: 'Three' }]} close={() => {}} />
+        ) : (
+          <RemoveFromWorklist id={id} hash={1} />
+        ),
+      ),
+    );
+    api.mockRejectedValueOnce(new Error('offline'));
+    await act(async () => button(op === 'add' ? 'Existing2' : 'Remove').click());
+    expect(useSavedWorklists.getState().failed[0]!.op.type).toBe(op);
+    expect(host.textContent).toContain('Retry');
+    expect(api.mock.calls[0]![1].method).toBe('PUT');
+  },
+);
+it('queues a remove click before a later Retry add, even when the row is not loaded (F1)', async () => {
+  const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+  rows.set(id, { name: 'Existing', hashes: [1, 2] });
+  act(() =>
+    useSavedWorklists.setState({
+      lists: [{ id, name: 'Existing', items: [] }],
+      loaded: [],
+      index: { [id]: { id, name: 'Existing', count: 2, updatedAt: 1, revision } },
+    }),
+  );
+  api.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => {
+    await useSavedWorklists.getState().add(id, '', [{ hash: 1, name: 'One' }]);
+  });
+  await act(async () => root.render(<RemoveFromWorklist id={id} hash={1} />));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const server = api.getMockImplementation()!;
+  api.mockImplementationOnce(async (path, init) => {
+    const response = await server(path, init);
+    await gate;
+    return response;
+  });
+  await act(async () => button('Remove').click());
+  await act(async () => button('Retry').click());
+  await act(async () => release());
+  expect(
+    api.mock.calls
+      .filter(([, init]) => init?.method === 'PUT')
+      .slice(-2)
+      .map(([, init]) => JSON.parse(String(init.body)).op.type),
+  ).toEqual(['remove', 'add']);
+  expect(rows.get(id)!.hashes).toEqual([2, 1]);
+});
+it('reloads an expanded list after a focus/index refresh invalidates its entries (F3)', async () => {
+  await act(async () => {
+    await useSavedWorklists.getState().add(null, 'Visible', [{ hash: 1, name: 'One' }]);
+  });
+  const id = useSavedWorklists.getState().lists[0]!.id;
+  const details = host.querySelector('details')!;
+  await act(async () => {
+    details.open = true;
+    details.dispatchEvent(new Event('toggle'));
+  });
+  expect(host.querySelectorAll('ol li')).toHaveLength(1);
+  rows.set(id, { name: 'Visible', hashes: [1, 2, 3] });
+  revision = 'b'.repeat(32);
+  await act(async () => {
+    await syncWorklists();
+  });
+  expect(host.querySelectorAll('ol li')).toHaveLength(3);
+  expect(host.textContent).not.toContain('Loading entries…');
+  expect(button('Rename').disabled).toBe(false);
 });
 
 it.each(['custom', 'drafts'])(

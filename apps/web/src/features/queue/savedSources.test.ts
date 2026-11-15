@@ -119,3 +119,36 @@ it('marks missing, archived, aliased, and cyclic entries unavailable through the
     }),
   ).toBe(false);
 });
+
+it('keeps cyclic orphan rows and live rows usable without false completion when stamps cannot resolve (F4)', () => {
+  const current = data();
+  delete current.items[11];
+  current.aliases = { 11: { to: 13, kind: 'name' }, 13: { to: 11, kind: 'name' } };
+  current.bundle.tooltips[11] = {
+    hash: 11,
+    text: { en: { text: 'Saved orphan', updatedAt: '2026-11-15T00:00:00Z', updatedBy: 'fixture' } },
+    associated: [],
+  } as Tooltip;
+  current.bundle.tooltips[12] = {
+    hash: 12,
+    text: { en: { text: 'Live text', updatedAt: '2026-11-15T00:00:00Z', updatedBy: 'fixture' } },
+    associated: [],
+  } as Tooltip;
+  const items = savedItems(
+    [
+      { hash: 11, name: 'Unavailable' },
+      { hash: 12, name: 'Live' },
+    ],
+    current,
+  );
+  expect(items.map((item) => item.hash)).toEqual([11, 12]);
+  expect(worklistAvailable(11, current)).toBe(false);
+  expect(worklistAvailable(12, current)).toBe(true);
+  const done = queueSources.custom.done({ data: current, user: null, decisions: {} });
+  expect(done(items[0]!, {})).toBe(false);
+  expect(done(items[1]!, {})).toBe(false);
+  const resolved = { ...current, aliases: {} };
+  expect(
+    queueSources.custom.done({ data: resolved, user: null, decisions: {} })(items[1]!, {}),
+  ).toBe(false);
+});

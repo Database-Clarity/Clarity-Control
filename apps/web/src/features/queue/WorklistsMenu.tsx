@@ -10,7 +10,11 @@ import { draftItems, savedItems, worklistAvailable } from './savedSources';
 import { startQueue } from './start';
 import { queueSources } from './sources';
 import type { QueueItem } from './model';
-import type { WorklistEntry, WorklistOperation } from '../../../../../packages/core/src/worklists';
+import type {
+  WorklistEntry,
+  WorklistOperation,
+  WorklistIndexEntry,
+} from '../../../../../packages/core/src/worklists';
 import styles from './WorklistsMenu.module.scss';
 
 export function WorklistsMenu() {
@@ -64,8 +68,6 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
     setBusy(true);
     const attempt = ++request.current;
     try {
-      if (id) await loadWorklist(id);
-      if (attempt !== request.current) return;
       if (await add(id, name, items)) {
         if (attempt === request.current) close();
       }
@@ -216,8 +218,6 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
           onToggle={(event) => {
             const open = event.currentTarget.open;
             setExpanded((old) => ({ ...old, [list.id]: open }));
-            if (open && !loaded.includes(list.id))
-              void loadWorklist(list.id).catch((error) => setError(String(error)));
           }}
         >
           <summary>
@@ -242,8 +242,8 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
             />
             <Delete onDelete={() => update(list.id, { type: 'delete' })} />
           </div>
-          {expanded[list.id] && !loaded.includes(list.id) && !error && (
-            <p role="status">Loading entries…</p>
+          {expanded[list.id] && !loaded.includes(list.id) && (
+            <WorklistLoader id={list.id} meta={index[list.id]} />
           )}
           <ol className={styles.items}>
             {expanded[list.id] &&
@@ -316,6 +316,21 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       {error && <p role="alert">{error}</p>}
     </div>
   );
+}
+/** Each open list reloads when a refresh invalidates its saved row. */
+function WorklistLoader({ id, meta }: { id: string; meta?: WorklistIndexEntry }) {
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    setError('');
+    void loadWorklist(id).catch((error) => {
+      if (live) setError(String(error));
+    });
+    return () => {
+      live = false;
+    };
+  }, [id, meta]);
+  return <p role={error ? 'alert' : 'status'}>{error || 'Loading entries…'}</p>;
 }
 function Rename({
   name,
@@ -407,7 +422,6 @@ export function RemoveFromWorklist({
     setError('');
     try {
       const scope = useSavedWorklists.getState().scope;
-      await loadWorklist(id);
       const state = useSavedWorklists.getState();
       if (state.scope !== scope) throw new Error('The account changed.');
       const saved = await state.change(id, { type: 'remove', hashes: [hash] });

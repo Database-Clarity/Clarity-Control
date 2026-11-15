@@ -1,5 +1,5 @@
 export { reviewStamp } from './model';
-import { draftItems, savedItems, worklistAvailable } from './savedSources';
+import { draftItems, savedItems, worklistAvailable, worklistStamp } from './savedSources';
 import { loadWorklist } from './worklists';
 import { bungieDrift, translationStateOf, type Lang, type Tooltip } from '@clarity/core';
 import type { User } from '../../services/api';
@@ -250,12 +250,15 @@ export const customSource: QueueSource = {
     // Saved data changes only on save/load: typing must not digest every saved entry again.
     const answers = new Map<QueueItem, boolean>();
     return (item) => {
-      if (!answers.has(item))
+      if (!answers.has(item)) {
+        const stamp = worklistAvailable(item.hash, data)
+          ? worklistStamp(item.hash, data)
+          : undefined;
         answers.set(
           item,
-          worklistAvailable(item.hash, data) &&
-            reviewStamp(data.bundle.tooltips[item.hash], data.aliases) !== item.detail,
+          stamp !== undefined && typeof item.detail === 'string' && stamp !== item.detail,
         );
+      }
       return answers.get(item)!;
     };
   },

@@ -27,8 +27,16 @@ export function savedItems(items: WorklistEntry[], data: EditorData): QueueItem[
       (itemFor(item.hash, data) ? editorName(itemFor(item.hash, data)!) : String(item.hash)),
     key: String(item.hash),
     path: editorPathSafe(item.hash, data),
-    detail: reviewStamp(data.bundle.tooltips[item.hash], data.aliases),
+    detail: worklistStamp(item.hash, data),
   }));
+}
+/** Unresolvable aliases leave a frozen entry open, without inventing a save baseline. */
+export function worklistStamp(hash: number, data: EditorData): string | undefined {
+  try {
+    return reviewStamp(data.bundle.tooltips[hash], data.aliases);
+  } catch {
+    return undefined;
+  }
 }
 function editorPathSafe(hash: number, data: EditorData) {
   try {
