@@ -250,6 +250,7 @@ const FinderOption = memo(function FinderOption({
       className={styles.option}
       data-two-line={(!row.global && (stacked || narrow)) || undefined}
       data-grouped={row.group || undefined}
+      data-entry-marks-row={!row.global || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
       onClick={() => onCommit.current(row)}

@@ -450,7 +450,7 @@
   grid-row: 1;
   justify-self: end;
 }
-.option:has([data-entry-marks] button) {
+.option[data-entry-marks-row] {
   --finder-marker-width: 58px;
 }
 .option[data-two-line] > .markers {

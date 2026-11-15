@@ -12,11 +12,13 @@ export function MarksControl({
   className,
   compact = false,
   iconOnly = false,
+  initiallyOpen = false,
 }: {
   hash: number;
   className?: string;
   compact?: boolean;
   iconOnly?: boolean;
+  initiallyOpen?: boolean;
 }) {
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
@@ -25,14 +27,19 @@ export function MarksControl({
   const types = useMarksStore((state) => state.marks.types);
   const writable = useMarksStore((state) => state.writable);
   const error = useMarksStore((state) => state.error);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
+  const identity = useRef({ hash, user, token });
   const [type, setType] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
   const allowed = !!apiUrl && (user?.role === 'editor' || user?.role === 'maintainer');
   useEffect(() => {
-    setOpen(false);
+    const previous = identity.current;
+    identity.current = { hash, user, token };
+    if (previous.hash !== hash || previous.user !== user || previous.token !== token) {
+      setOpen(false);
+    }
     setType('');
     setNote('');
   }, [hash, user, token]);

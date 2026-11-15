@@ -6,6 +6,7 @@ import { type Marks } from '@clarity/core/marks';
 import { apiRequest } from '../../services/api';
 import { useAuthStore } from '../../stores/auth';
 import { MarksControl } from './MarksControl';
+import { FinderEntryMarks } from './FinderEntryMarks';
 import { MarkTypes } from './MarkTypes';
 import { indexMarks, useMarksStore } from './store';
 
@@ -221,4 +222,16 @@ it('closes the mark editor when navigation changes the current entry', async () 
   await click('Needs retesting');
   await act(async () => root.render(<MarksControl hash={43} />));
   expect(document.querySelector('[role=dialog]')).toBeNull();
+});
+it('opens a row editor lazily, restores keyboard focus, and reopens with current marks', async () => {
+  await act(async () => root.render(<FinderEntryMarks hash={42} />));
+  expect(apiRequest).not.toHaveBeenCalled();
+  await click('Entry marks');
+  expect(document.querySelector('[role=dialog]')!.textContent).toContain('Arc damage');
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect(document.querySelector('[role=dialog]')).toBeNull();
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('Entry marks');
+  await click('Entry marks');
+  expect(document.querySelector('[role=dialog]')).not.toBeNull();
+  expect(apiRequest).toHaveBeenCalledTimes(2);
 });
