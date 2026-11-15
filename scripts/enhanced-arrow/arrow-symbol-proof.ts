@@ -80,8 +80,9 @@ function normalize(value: unknown): unknown {
   );
   if (Array.isArray(node.classNames) && node.classNames.includes('arrow')) {
     if (Object.hasOwn(node, 'text')) throw new Error('Arrow node unexpectedly has text');
-    node.classNames = node.classNames.filter((name) => name !== 'arrow');
-    if (!node.classNames.length) delete node.classNames;
+    const classNames = node.classNames.filter((name) => name !== 'arrow');
+    if (classNames.length) node.classNames = classNames;
+    else delete node.classNames;
     node.text = '🠚';
   }
   return node;
