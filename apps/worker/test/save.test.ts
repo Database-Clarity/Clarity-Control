@@ -31,6 +31,10 @@ describe('whole-number write validation', () => {
     ['de', '${#g}0'],
     ['de', '#x #x0\nvar x = 1'],
     ['de', '#g #g0'],
+    ['en', '1/* x */#{g}'],
+    ['de', '5/* x */\n#{g}'],
+    ['de', '#{=1}#{=2}'],
+    ['en', '${#g * 2}.${#g * 2}'],
   ] as const)('refuses %s %s without writing or loading globals', async (lang, text) => {
     const next = tooltip('mine');
     next.text[lang] = {

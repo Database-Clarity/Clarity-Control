@@ -1,12 +1,8 @@
 import type { Lang } from '../languages.js';
 import { variableReferences } from '../markup/braces.js';
 import { extractVariables } from '../markup/syntax.js';
-import {
-  numberBlockOpen,
-  numberMathRanges,
-  numberProse,
-  numberTargetRanges,
-} from '../markup/numberSlots.js';
+import { markupCommentContext } from '../markup/prepare.js';
+import { numberBlockOpen, numberMathRanges, numberTargetRanges } from '../markup/numberSlots.js';
 import { numberTokens, numberValues, readNumberMap, type NumberValues } from '../numbers/map.js';
 import type { Tooltip } from '../schemas.js';
 import type { ValidationIssue } from './index.js';
@@ -19,7 +15,7 @@ export const unbracedNumberMessage =
 /** One structural rule for editor diagnostics, Worker writes, and carry defence. */
 export function gluedNumberIssues(text: string): ValidationIssue[] {
   if (!text.includes('#') && !text.includes('${')) return [];
-  const prose = numberProse(text);
+  const { text: prose, offsets } = markupCommentContext(text);
   const locals = extractVariables(prose);
   const variables = variableReferences(prose);
   const plainDigits = new Set(
@@ -32,12 +28,23 @@ export function gluedNumberIssues(text: string): ValidationIssue[] {
     from: match.index,
     to: match.index + match[0].length,
   }));
-  const references = [...variables, ...numberMathRanges(prose), ...numberTokens(prose)];
+  const numeric = [...numberMathRanges(prose), ...numberTokens(prose)];
+  const touches = (left: number, right: number) =>
+    left === right || (left + 1 === right && /[.,]/.test(prose[left]));
+  const joinedNumbers = new Set(
+    numeric
+      .filter(({ from, to }) =>
+        numeric.some((other) => touches(other.to, from) || touches(to, other.from)),
+      )
+      .map(({ from }) => from),
+  );
+  const references = [...variables, ...numeric];
   return references
     .filter(({ from, to }) => !urls.some((url) => from >= url.from && to <= url.to))
     .filter(
       ({ from, to }) =>
         plainDigits.has(from) ||
+        joinedNumbers.has(from) ||
         /\p{Nd}[.,]?$/u.test(prose.slice(Math.max(0, from - 2), from)) ||
         /^[.,]?\p{Nd}/u.test(prose.slice(to, to + 2)),
     )
@@ -45,8 +52,8 @@ export function gluedNumberIssues(text: string): ValidationIssue[] {
       severity: 'error',
       code: 'glued-number',
       message: plainDigits.has(from) ? unbracedNumberMessage : gluedNumberMessage,
-      from,
-      to,
+      from: offsets[from],
+      to: offsets[to - 1] + 1,
     }));
 }
 

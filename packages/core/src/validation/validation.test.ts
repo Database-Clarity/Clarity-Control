@@ -23,6 +23,13 @@ describe('whole numbers (owner decision 15-11)', () => {
     '#{=1}.5',
     '1#{=1}',
     '#{g}0\nimport g from 100',
+    '1/* x */#{g}',
+    '5/* x */\n#{g}',
+    '1\r#{g}',
+    '#{=1}#{=2}',
+    '#{=1}.${#g * 2}',
+    '${#g * 2},#{=1}',
+    '${#g * 2}${#g * 2}',
   ])('refuses a glued reference in English and translations: %s', (text) => {
     const revision = { updatedAt: '2026-11-15T00:00:00.000Z', updatedBy: 'author' };
     for (const lang of ['en', 'de'] as const) {
@@ -50,14 +57,35 @@ describe('whole numbers (owner decision 15-11)', () => {
     '#{g}% x#{g}',
     'https://docs.google.com/sheets/278#gid=278',
     '<link sheet [https://docs.google.com/sheets/278#gid=278] />',
+    '#{=1} ${#g * 2}',
+    '#e#{=1}',
+    '#{=1}#{g}',
   ])('keeps whole values, punctuation, and URLs valid: %s', (text) => {
     expect(gluedNumberIssues(text)).toEqual([]);
+  });
+  it('still accepts the arrow beside maths in live tooltip 2048641572', () => {
+    expect(gluedNumberIssues('Volatile Rounds for #e${4.5+#d} seconds')).toEqual([]);
   });
   it('reports the authored reference range', () => {
     expect(gluedNumberIssues('Value 1.#{g}.')).toEqual([
       { severity: 'error', code: 'glued-number', message: gluedNumberMessage, from: 8, to: 12 },
     ]);
   });
+  it.each(['Value 1/* x */#{g}.', 'Value 5/* x */\n#{g}.', 'Value 1\r#{g}.'])(
+    'maps comment-stripped joins back to the authored reference: %s',
+    (text) => {
+      const from = text.indexOf('#{g}');
+      expect(gluedNumberIssues(text)).toEqual([
+        {
+          severity: 'error',
+          code: 'glued-number',
+          message: gluedNumberMessage,
+          from,
+          to: from + '#{g}'.length,
+        },
+      ]);
+    },
+  );
   it.each([
     '#{=1} Schaden. #x #x0\nvar x = 1',
     '#{=1} Schaden. #g #g0',

@@ -372,6 +372,16 @@ describe('proven carry and carry-aware merge', () => {
     const old = tooltip('Damage 10.', '#{=1} Schaden. #{CombatantClassifications}');
     expect(carryNumberTranslations(old, update(old, 'Damage 20.')).carried).toEqual(['de']);
   });
+  it.each(['#{=1}#{=1}', '#{=1}.${5 * 2}', '${5 * 2},#{=1}'])(
+    'refuses carry for joined numeric sources: %s',
+    (translation) => {
+      const old = tooltip('Damage 10.', translation);
+      expect(gluedNumberIssues(translation)).toContainEqual(
+        expect.objectContaining({ severity: 'error', code: 'glued-number' }),
+      );
+      expect(carryNumberTranslations(old, update(old, 'Damage 20.')).carried).toEqual([]);
+    },
+  );
   it('requires formula coverage through every duplicate local declaration', () => {
     const old = tooltip(
       'Damage ${#d * 2}.\nvar d = 5\nenhanced (\nvar d = #x\n)\nvar x = 10',
