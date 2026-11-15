@@ -5,6 +5,8 @@ import type { LegacyCatalog, LegacyFacts, LegacyMetadata, LegacyPerk } from './l
 import { isTextlessDescription, tooltipSchema, type Tooltip } from './schemas.js';
 import { resolveAlias, type Aliases } from './aliases.js';
 import { validateTextWithReads } from './validation/index.js';
+import { numberTokens, numberValues, resolveNumberTokens } from './numbers/map.js';
+import { validateNumberTooltip } from './validation/numbers.js';
 
 function exportFacts(facts: LegacyFacts | undefined): Partial<LegacyFacts> {
   if (!facts) return {};
@@ -26,8 +28,16 @@ export function usesEnglishFallback(tooltip: Tooltip, language: keyof Tooltip['t
     english &&
     english.text.trim() !== '' &&
     translation &&
-    translation.sourceUpdatedAt !== undefined &&
-    Date.parse(english.updatedAt) - Date.parse(translation.sourceUpdatedAt) > translationMaxAge,
+    ((translation.sourceUpdatedAt !== undefined &&
+      Date.parse(english.updatedAt) - Date.parse(translation.sourceUpdatedAt) >
+        translationMaxAge) ||
+      (translation.text.includes('#{=') &&
+        numberTokens(translation.text).some((token) => {
+          const retired = token.id === undefined ? undefined : english.numbers?.retired[token.id];
+          return (
+            retired === null || (typeof retired === 'object' && retired.fallback.includes(language))
+          );
+        }))),
   );
 }
 export type LegacyEntry = LegacyMetadata &
@@ -112,6 +122,9 @@ export function exportLegacy(
   const omitted = new Set<number>();
   for (const input of tooltips) {
     const tooltip = tooltipSchema.parse(input);
+    const numberIssue = validateNumberTooltip(tooltip)[0];
+    if (numberIssue)
+      throw new Error(`Tooltip ${tooltip.hash} (${numberIssue.lang}): ${numberIssue.message}`);
     // Reserved global libraries are required converter inputs, even when a library is empty.
     if (isTextlessDescription(tooltip)) {
       omitted.add(tooltip.hash);
@@ -137,7 +150,11 @@ export function exportLegacy(
       // Element-tagged text (`<solar Scorch />`), delimited variables (`#{d}`), and the arrow
       // symbol (`<enhanced/>`) leave the editor in today's format (`<solar/>Scorch`, `#d`, `#e`):
       // every consumer reads exactly what authors wrote before those forms existed.
-      const text = lowerConsumerMarkup(exported.text);
+      const resolved =
+        exported.text.includes('#{=') && english
+          ? resolveNumberTokens(exported.text, numberValues(english, language))
+          : exported.text;
+      const text = lowerConsumerMarkup(resolved);
       editor[language] = { main: text, secondary: text };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {

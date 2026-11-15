@@ -4,12 +4,40 @@ import { langSchema } from './languages.js';
 import { compendiumLinkSchema } from './compendium/types.js';
 
 export const timestampSchema = z.string().datetime({ offset: true });
+const numberId = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+export const numberMapSchema = z
+  .object({
+    ids: z.array(numberId),
+    next: numberId,
+    retired: z.record(
+      z.string().regex(/^[1-9]\d*$/),
+      z.union([
+        z.string(),
+        z.null(),
+        z.object({ value: z.string(), fallback: z.array(langSchema) }).strict(),
+      ]),
+    ),
+  })
+  .strict()
+  .superRefine((map, ctx) => {
+    const all = [...map.ids, ...Object.keys(map.retired).map(Number)];
+    if (
+      new Set(all).size !== all.length ||
+      all.some((id) => !Number.isSafeInteger(id) || id >= map.next)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Number ids must be unique, disjoint, and below next.',
+      });
+  });
+export type NumberMap = z.infer<typeof numberMapSchema>;
 export const langTextSchema = z
   .object({
     text: z.string(),
     updatedAt: timestampSchema,
     updatedBy: z.string(),
     sourceUpdatedAt: timestampSchema.optional(),
+    numbers: numberMapSchema.optional(),
   })
   .strict();
 export const tooltipSchema = z
@@ -46,7 +74,19 @@ export const tooltipSchema = z
       .optional(),
     legacy: legacyMetadataSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((tooltip, ctx) => {
+    for (const [lang, entry] of Object.entries(tooltip.text))
+      if (
+        entry.numbers !== undefined &&
+        (lang !== 'en' || (tooltip.hash >= 1 && tooltip.hash <= 3))
+      )
+        ctx.addIssue({
+          code: 'custom',
+          path: ['text', lang, 'numbers'],
+          message: 'Number maps belong only to tooltip English.',
+        });
+  });
 export const permissionsSchema = z
   .object({
     users: z.record(

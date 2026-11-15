@@ -3,6 +3,8 @@ export interface MarkupGlobals {
   titles: string;
   imports?: Readonly<Record<string, string>>;
   type?: string;
+  /** Decimal formatting after maths; omitted/en preserves the established bytes. */
+  lang?: import('../languages.js').Lang;
   /** Optional save-validation observer; never changes variable resolution. */
   onVariable?: (name: string) => void;
 }

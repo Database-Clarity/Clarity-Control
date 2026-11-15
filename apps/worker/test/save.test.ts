@@ -22,6 +22,39 @@ const change = (base = tooltip(), next = tooltip('mine')) => ({
   message: 'Edit tooltip',
 });
 
+describe('whole-number write validation', () => {
+  it.each([
+    ['en', '1.#{g}'],
+    ['de', '#{g}.5'],
+    ['de', '#{g},000'],
+    ['de', '#{g}0'],
+    ['de', '${#g}0'],
+    ['de', '#x #x0\nvar x = 1'],
+    ['de', '#g #g0'],
+    ['en', '1/* x */#{g}'],
+    ['de', '5/* x */\n#{g}'],
+    ['de', '#{=1}#{=2}'],
+    ['en', '${#g * 2}.${#g * 2}'],
+  ] as const)('refuses %s %s without writing or loading globals', async (lang, text) => {
+    const next = tooltip('mine');
+    next.text[lang] = {
+      text,
+      updatedAt: '2026-10-02T00:00:00Z',
+      updatedBy: 'dan',
+      ...(lang === 'de' ? { sourceUpdatedAt: next.text.en!.updatedAt } : {}),
+    };
+    const response = await fixture.request('/save', 'POST', change(tooltip(), next));
+    expect(response.status).toBe(422);
+    expect((await response.json()).error).toMatch(/whole number|Use braces/);
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('accepts a separated braced global', async () => {
+    const next = tooltip('mine');
+    next.text.en!.text = '#{g} 0';
+    expect((await fixture.request('/save', 'POST', change(tooltip(), next))).status).toBe(200);
+  });
+});
+
 describe('save permission matrix', () => {
   it('returns server time after the commit on a non-cacheable cross-origin response', async () => {
     const before = Date.now();

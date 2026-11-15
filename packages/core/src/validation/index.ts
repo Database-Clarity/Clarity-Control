@@ -30,6 +30,7 @@ import type { MarkupGlobals } from '../markup/types.js';
 import type { Tooltip } from '../schemas.js';
 import { glyphWarnings } from './glyphs.js';
 import { retiredWarnings } from './retired.js';
+import { gluedNumberIssues, numberTokenIssues, validateNumberTooltip } from './numbers.js';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning';
@@ -39,9 +40,10 @@ export interface ValidationIssue {
   /**
    * Set for issues the editor draws or fixes in its own way: retired markup, a plain variable
    * that merges with the text after it (`#dx` with only `var d`; the fix is `fix`), and a
-   * variable whose value also replaces the start of a longer name used after it.
+   * variable whose value also replaces the start of a longer name used after it. Structural
+   * glued-number errors block saves even in unchanged languages.
    */
-  code?: 'retired' | 'merged-variable' | 'variable-prefix';
+  code?: 'retired' | 'merged-variable' | 'variable-prefix' | 'glued-number';
   /** The one-click replacement for `from`..`to` (merged variables). */
   fix?: string;
 }
@@ -101,6 +103,8 @@ export function validateText(
   selfHash?: number,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  issues.push(...gluedNumberIssues(text));
+  issues.push(...numberTokenIssues(text, lang, selfHash));
   function add(severity: ValidationIssue['severity'], message: string, token?: string) {
     const from = token ? Math.max(0, text.indexOf(token)) : 0;
     const to = Math.min(text.length, from + (token?.length ?? text.length));
@@ -301,7 +305,7 @@ function variableNameIssues(
  * metadata-only change leaves it alone). The optional save context records the real validator's
  * reads and says which inputs this save changes: such an error stays an error, with the
  * reason added to its message, because the save may have caused it. Without `base`, every
- * language counts as edited.
+ * language counts as edited. Structural glued-number errors always remain errors.
  */
 export function validateTooltip(
   tooltip: Tooltip,
@@ -312,6 +316,7 @@ export function validateTooltip(
   const languages = new Set<Lang>(['en', ...(Object.keys(tooltip.text) as Lang[])]);
   // Reserved global documents are declaration libraries, not English descriptions.
   const requireEnglish = tooltip.hash > 3;
+  const numberIssues = validateNumberTooltip(tooltip);
   return [...languages].flatMap((lang) => {
     const text = tooltip.text[lang]?.text ?? '';
     const edited = !base || (base.text[lang]?.text ?? '') !== text;
@@ -326,14 +331,29 @@ export function validateTooltip(
           context.aliases,
         )
       : undefined;
-    const issues =
+    const textIssues =
       recorded?.issues ?? validateText(text, lang, globals, requireEnglish && edited, tooltip.hash);
+    const issues = [
+      ...textIssues,
+      ...numberIssues
+        .filter((issue) => issue.lang === lang)
+        .filter(
+          (issue) =>
+            !textIssues.some(
+              (other) => other.message === issue.message && other.from === issue.from,
+            ),
+        ),
+    ];
     const uses =
       !edited && issues.some((issue) => issue.severity === 'error')
         ? recorded && context?.affectedBy(recorded.reads)
         : undefined;
     return issues.map((issue) => {
-      const blocked = edited || issue.severity === 'warning' || uses !== undefined;
+      const blocked =
+        edited ||
+        issue.code === 'glued-number' ||
+        issue.severity === 'warning' ||
+        uses !== undefined;
       return {
         ...issue,
         ...(uses !== undefined && issue.severity === 'error'

@@ -1,5 +1,6 @@
 import { baseEnhancedMessage, enhancedMarkupType, scanBaseEnhanced } from './baseEnhanced.js';
 import { evaluateMarkupMath } from './arithmetic.js';
+import { formatNumbers } from './numberFormat.js';
 import { lowerDelimitedMarkup } from './braces.js';
 import { extractBlocks, extractVariables } from './syntax.js';
 import type { MarkupDiagnostic, MarkupGlobals } from './types.js';
@@ -293,7 +294,10 @@ function prepareNativePieces(pieces: NativePiece[], globals: MarkupGlobals): Nat
 export function prepareNativeTitle(pieces: NativePiece[], globals: MarkupGlobals): string {
   // Preserve legacy re-preparation for ordinary title text, while resolved nodes
   // stay opaque: a literal # or dollar boundary can never turn into a new lookup.
-  return renderNative(cleanNative(prepareNativePieces(pieces, globals)));
+  return formatNumbers(
+    renderNative(cleanNative(prepareNativePieces(pieces, globals))),
+    globals.lang,
+  );
 }
 function prepareNativeDocument(text: string, globals: MarkupGlobals) {
   const pieces = prepareNativePieces(nativePieces(text), globals);
@@ -377,8 +381,9 @@ export function prepareMarkup(
     diagnostics.push({ severity: 'warning', message: `Unknown variable ${variable}.` });
   }
   return {
-    text: cleanText,
+    text: formatNumbers(cleanText, globals.lang),
     nativeTitles: native?.nativeTitles,
+    // Title bodies are prepared independently; shared titles still contain unevaluated maths.
     titles: native?.titles ?? {
       ...extractBlocks(removeUnusedText(text, false), 'title'),
       ...extractBlocks(globals.titles, 'title'),

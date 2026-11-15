@@ -1,5 +1,6 @@
 import {
   hasTooltipText,
+  gluedNumberIssues,
   isMarkupOnly,
   languages,
   isTextlessDescription,
@@ -81,18 +82,26 @@ export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): 
     !['editor', 'maintainer'].includes(access.role)
   )
     throw new HttpError(403, 'Attachment category changes require editor role or higher');
-  if (access.role !== 'translator') return;
-  const withoutAllowed = (value: Tooltip) => ({
-    ...value,
-    text: Object.fromEntries(
-      Object.entries(value.text).filter(
-        ([lang]) => !access.languages?.includes(lang as keyof Tooltip['text']),
+  if (access.role === 'translator') {
+    const withoutAllowed = (value: Tooltip) => ({
+      ...value,
+      text: Object.fromEntries(
+        Object.entries(value.text).filter(
+          ([lang]) => !access.languages?.includes(lang as keyof Tooltip['text']),
+        ),
       ),
-    ),
-  });
-  const original = base!;
-  if (stableStringify(withoutAllowed(original)) !== stableStringify(withoutAllowed(next))) {
-    throw new HttpError(403, 'Translators may change only text in their assigned languages');
+    });
+    const original = base!;
+    if (stableStringify(withoutAllowed(original)) !== stableStringify(withoutAllowed(next))) {
+      throw new HttpError(403, 'Translators may change only text in their assigned languages');
+    }
+  }
+  // This shared write check runs before and after ordinary/scheduled merges.
+  // Historical snapshots remain readable; forbidden structures cannot be saved again.
+  for (const [language, entry] of Object.entries(next.text)) {
+    const issue = gluedNumberIssues(entry.text)[0];
+    if (issue)
+      throw new HttpError(422, 'Tooltip ' + next.hash + ' (' + language + '): ' + issue.message);
   }
 }
 
