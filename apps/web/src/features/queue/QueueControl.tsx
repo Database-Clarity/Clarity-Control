@@ -1,3 +1,5 @@
+import { useSavedWorklists } from './worklists';
+import { worklistAvailable } from './savedSources';
 import {
   lazy,
   memo,
@@ -394,6 +396,11 @@ function QueueMenu({
 }) {
   const source = queueSources[queue.source];
   const context = useSourceContext();
+  const saved = useSavedWorklists((state) => state.lists);
+  const savedId = (queue.origin.restore as { worklistId?: string }).worklistId;
+  const savedList =
+    queue.source === 'custom' ? saved.find((list) => list.id === savedId) : undefined;
+  const [removal, setRemoval] = useState('');
   const rebuild = useWorkQueues((state) => state.rebuild);
   const [rebuilding, setRebuilding] = useState<'idle' | 'busy' | string>('idle');
   const leave = leaveTarget(queue);
@@ -412,8 +419,10 @@ function QueueMenu({
       const gone = before.size - (items.length - added);
       rebuild(queue.id, withEditorPaths(queue.source, items, context.data));
       setRebuilding(`Rebuilt: ${items.length} items, ${added} new, ${gone} gone.`);
-    } catch {
-      setRebuilding('The list could not be read again. Try again.');
+    } catch (error) {
+      setRebuilding(
+        error instanceof Error ? error.message : 'The list could not be read again. Try again.',
+      );
     }
   }
   return (
@@ -431,10 +440,18 @@ function QueueMenu({
           {place.skipped ? ` · ${place.skipped} skipped` : ''}
         </span>
       </header>
+      {queue.source === 'custom' && !savedList && (
+        <p role="status">The saved worklist was deleted. This run keeps its items.</p>
+      )}
+      {removal && <p role="status">{removal}</p>}
       <ol className={styles.items}>
         {queue.items.map((item) => {
           const status = statusOf(queue, item, isDone);
           const here = item.key === visit.key;
+          const unavailable =
+            (queue.source === 'custom' || queue.source === 'drafts') &&
+            context &&
+            !worklistAvailable(item.hash, context.data);
           return (
             <li key={item.key} ref={here ? current : undefined} data-status={status}>
               <Link
@@ -445,11 +462,32 @@ function QueueMenu({
               >
                 <span className={styles.mark} aria-hidden="true" />
                 <span className={styles.name}>{item.name}</span>
+                {unavailable && <span className={styles.meta}>Unavailable</span>}
                 {item.lang && <span className={styles.meta}>{item.lang}</span>}
                 <span className={styles.meta}>
                   {status === 'done' ? 'Done' : status === 'skipped' ? 'Skipped' : ''}
                 </span>
               </Link>
+              {unavailable && savedList?.items.some((entry) => entry.hash === item.hash) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    useSavedWorklists.getState().change(
+                      saved.map((list) =>
+                        list.id === savedId
+                          ? {
+                              ...list,
+                              items: list.items.filter((entry) => entry.hash !== item.hash),
+                            }
+                          : list,
+                      ),
+                    );
+                    setRemoval('Removed from the saved list. Rebuild to remove it from this run.');
+                  }}
+                >
+                  Remove
+                </button>
+              )}
             </li>
           );
         })}

@@ -1,0 +1,77 @@
+@use '../../ui/controls';
+.trigger {
+  @include controls.button;
+  white-space: nowrap;
+}
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  button {
+    @include controls.button;
+    white-space: nowrap;
+  }
+  input {
+    @include controls.field;
+    flex: 1;
+    min-width: 5rem;
+    width: 8rem;
+  }
+  p {
+    margin: 0;
+    color: var(--text3);
+    font-size: 0.75rem;
+  }
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.content .choice {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  > span:first-child {
+    overflow-wrap: anywhere;
+    white-space: normal;
+    text-align: left;
+  }
+}
+.list {
+  border-top: 1px solid var(--hair);
+  padding-top: 0.5rem;
+  summary {
+    cursor: pointer;
+    overflow-wrap: anywhere;
+    margin-bottom: 0.5rem;
+  }
+}
+.items {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  max-height: 15rem;
+  overflow-y: auto;
+  li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    > span {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+}
+@media (max-width: 700px) {
+  .trigger,
+  .content button,
+  .content input {
+    min-height: 2.25rem;
+  }
+}

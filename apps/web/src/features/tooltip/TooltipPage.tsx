@@ -1,3 +1,6 @@
+import { worklistAvailable } from '../queue/savedSources';
+import { useSavedWorklists } from '../queue/worklists';
+import { AddToWorklist } from '../queue/WorklistsMenu';
 import { SkeletonBoundary, useSkeletonVisible } from '../../ui/Skeleton';
 import { loadingWorkspace } from './TooltipLoadingWorkspace';
 import type { ScopedMarkupGlobals } from '../editor/markupScope';
@@ -39,6 +42,7 @@ import { theirsLabel } from '../conflicts/rebase';
 import type { CompareData } from '../conflicts/CompareView';
 import { useAuthStore } from '../../stores/auth';
 import {
+  itemFor,
   canonicalHash,
   classifiedCategory,
   editorName,
@@ -127,7 +131,56 @@ const StableWorkspace = memo(TooltipWorkspace);
  * their own open in the same editor slot through "Edit override" (the base editor stays mounted
  * underneath, so its caret and undo history survive the round trip).
  */
-export function TooltipPage({
+export function TooltipPage(props: Parameters<typeof TooltipPageContent>[0]) {
+  const { hash } = useParams();
+  const [search] = useSearchParams();
+  const { state } = useLocation();
+  const work = useWorkThrough(state);
+  const data = useDataStore((state) => state.data);
+  const lists = useSavedWorklists((state) => state.lists);
+  const entry = Number(search.get('variant') ?? hash);
+  if (
+    props.hashOverride === undefined &&
+    data &&
+    work?.mode === 'active' &&
+    (work.queue.source === 'custom' || work.queue.source === 'drafts') &&
+    !worklistAvailable(entry, data)
+  ) {
+    const id = (work.queue.origin.restore as { worklistId?: string }).worklistId;
+    const list = lists.find((list) => list.id === id);
+    return (
+      <article className={styles.page}>
+        <WorkThroughControl work={work} />
+        <p role="status">
+          This entry is unavailable: it was removed, archived, or aliased. You can skip it or remove
+          it from the saved list.
+        </p>
+        {list?.items.some((item) => item.hash === entry) && (
+          <button
+            type="button"
+            className={styles.ghost}
+            onClick={() =>
+              useSavedWorklists
+                .getState()
+                .change(
+                  lists.map((old) =>
+                    old.id === id
+                      ? { ...old, items: old.items.filter((item) => item.hash !== entry) }
+                      : old,
+                  ),
+                )
+            }
+          >
+            Remove from worklist
+          </button>
+        )}
+      </article>
+    );
+  }
+  return <TooltipPageContent {...props} />;
+}
+
+function TooltipPageContent({
   hashOverride,
   readOnly = false,
 }: {
@@ -839,6 +892,14 @@ function TooltipWorkspace({
               {upcoming.badge}
               {phone && batchEditing?.saveControl}
             </>
+          }
+          worklistControl={
+            <AddToWorklist
+              items={[
+                { hash: activeHash, name: itemFor(activeHash, data)?.name ?? String(activeHash) },
+              ]}
+              className={styles.ghost}
+            />
           }
           inactiveControl={
             !!apiUrl &&

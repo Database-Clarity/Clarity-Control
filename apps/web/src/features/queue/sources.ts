@@ -1,18 +1,13 @@
-import {
-  bungieDrift,
-  incomingAliases,
-  stableStringify,
-  translationStateOf,
-  type Aliases,
-  type Lang,
-  type Tooltip,
-} from '@clarity/core';
+export { reviewStamp } from './model';
+import { draftItems, savedItems, worklistAvailable } from './savedSources';
+import { loadWorklist } from './worklists';
+import { bungieDrift, translationStateOf, type Lang, type Tooltip } from '@clarity/core';
 import type { User } from '../../services/api';
 import type { Drafts } from '../../services/draftStorage';
 import type { EditorData } from '../../stores/data';
 import { isDismissed } from '../lost-text/decisions';
 import type { LostText } from '../lost-text/model';
-import { merged, type QueueItem, type QueueSourceId, type WorkQueue } from './model';
+import { reviewStamp, merged, type QueueItem, type QueueSourceId, type WorkQueue } from './model';
 import type { TopRow } from './WorkThroughBar';
 
 export interface SourceContext {
@@ -61,31 +56,6 @@ export interface ReviewRestore {
   /** The selected rows' saved versions (reviewStamp) when the queue began. */
   stamps: Record<string, string>;
   scroll: number;
-}
-
-/**
- * The saved version of what a push publishes: a digest of exactly the inputs core's
- * publishableHash reads (each language's saved text with its times, the associations, the custom
- * definition, and the aliases pointing here). Any save of those changes it, markup-only ones too.
- */
-export function reviewStamp(tooltip: Tooltip | undefined, aliases: Aliases): string {
-  if (!tooltip) return 'gone';
-  const { hash, text, associated, custom } = tooltip;
-  return digest(
-    stableStringify({ text, associated, custom, aliases: incomingAliases(hash, aliases) }),
-  );
-}
-
-/** Two independent 32-bit string hashes (FNV-1a and a djb2 variant): 64 bits, synchronous. */
-function digest(value: string): string {
-  let fnv = 0x811c9dc5;
-  let djb = 5381;
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index);
-    fnv = Math.imul(fnv ^ code, 0x01000193);
-    djb = (Math.imul(djb, 33) + code) | 0;
-  }
-  return `${(fnv >>> 0).toString(36)}.${(djb >>> 0).toString(36)}.${value.length}`;
 }
 
 const review: QueueSource = {
@@ -273,7 +243,43 @@ const translations: QueueSource = {
   },
 };
 
+export const customSource: QueueSource = {
+  label: 'Worklists',
+  path: (item) => item.path ?? `/t/${item.hash}`,
+  done({ data }) {
+    // Saved data changes only on save/load: typing must not digest every saved entry again.
+    const answers = new Map<QueueItem, boolean>();
+    return (item) => {
+      if (!answers.has(item))
+        answers.set(
+          item,
+          worklistAvailable(item.hash, data) &&
+            reviewStamp(data.bundle.tooltips[item.hash], data.aliases) !== item.detail,
+        );
+      return answers.get(item)!;
+    };
+  },
+  async rebuild(queue, { data }) {
+    const id = (queue.origin.restore as { worklistId?: string }).worklistId;
+    const list = id ? await loadWorklist(id) : undefined;
+    if (!list) throw new Error('The saved worklist was deleted; this run still keeps its items.');
+    const previous = new Map(queue.items.map((item) => [item.key, item]));
+    return savedItems(list.items, data).map((item) => previous.get(item.key) ?? item);
+  },
+};
+export const draftsSource: QueueSource = {
+  label: 'Drafts',
+  path: customSource.path,
+  done:
+    ({ data }) =>
+    (item) =>
+      !!data.bundle.tooltips[item.hash]?.text.en?.text.trim(),
+  rebuild: (_queue, { data }) => draftItems(data),
+};
+
 export const queueSources: Record<QueueSourceId, QueueSource> = {
+  custom: customSource,
+  drafts: draftsSource,
   review,
   drift,
   'lost-text': lost,
