@@ -28143,7 +28143,7 @@ init_zod();
 init_legacy();
 var commit = external_exports.string().regex(/^[0-9a-f]{40}$/);
 var digest2 = external_exports.string().regex(/^[0-9a-f]{64}$/);
-var members2 = external_exports.array(hashSchema).min(2).refine((v) => new Set(v).size === v.length);
+var members2 = external_exports.array(hashSchema).min(2).max(256).refine((v) => new Set(v).size === v.length);
 var selection = {
   canonical: hashSchema,
   members: members2,
@@ -28151,7 +28151,7 @@ var selection = {
   factsDigest: digest2,
   /** Single-group only. Server still refuses loss of a locale absent from canonical text. */
   acknowledgeConflicts: external_exports.literal(true).optional(),
-  note: external_exports.string().optional()
+  note: external_exports.string().max(500).optional()
 };
 var aliasGroupOperationSchema = external_exports.discriminatedUnion("op", [
   external_exports.object({ op: external_exports.literal("accept"), ...selection }).strict(),
@@ -28160,7 +28160,7 @@ var aliasGroupOperationSchema = external_exports.discriminatedUnion("op", [
     op: external_exports.literal("reject"),
     members: members2,
     factsDigest: digest2,
-    reason: external_exports.string().optional()
+    reason: external_exports.string().max(500).optional()
   }).strict(),
   external_exports.object({ op: external_exports.literal("ungroup"), canonical: hashSchema }).strict(),
   external_exports.object({
