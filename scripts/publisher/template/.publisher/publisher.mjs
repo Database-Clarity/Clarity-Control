@@ -20796,7 +20796,11 @@ var init_schemas3 = __esm({
         external_exports.union([
           external_exports.string(),
           external_exports.null(),
-          external_exports.object({ value: external_exports.string(), fallback: external_exports.array(langSchema) }).strict()
+          external_exports.object({
+            value: external_exports.string(),
+            fallback: external_exports.array(langSchema),
+            variables: external_exports.record(external_exports.string(), external_exports.string()).optional()
+          }).strict()
         ])
       )
     }).strict().superRefine((map2, ctx) => {
@@ -21719,6 +21723,76 @@ function formulaLocals(formula, text) {
   visit2(formula);
   return result;
 }
+function freezeFormula(formula, english, numbers, translations) {
+  const variables = numberVariables(english);
+  const locals = formulaLocals(formula, english);
+  const prefixAmbiguity = (source) => {
+    const names = [
+      ...numberVariables(source).map((variable) => variable.name),
+      ...variableReferences(source).map((ref) => ref.name)
+    ];
+    return [...locals].some(
+      (name) => names.some((other) => other !== name && (other.startsWith(name) || name.startsWith(other)))
+    );
+  };
+  const retiredSources = Object.values(numbers.retired).flatMap((value2) => value2 === null ? [] : [typeof value2 === "string" ? value2 : value2.value]).join("\n");
+  if (locals.size && (markupImports(english).length || prefixAmbiguity(english + "\n" + retiredSources)))
+    return null;
+  const values = /* @__PURE__ */ new Map();
+  const visiting = /* @__PURE__ */ new Set();
+  let valid = true;
+  const expand = (source) => {
+    let result = "", at = 0;
+    for (const ref of variableReferences(source)) {
+      result += source.slice(at, ref.from);
+      if (!locals.has(ref.name)) result += source.slice(ref.from, ref.to);
+      else {
+        if (visiting.has(ref.name)) {
+          valid = false;
+          return "";
+        }
+        let value2 = values.get(ref.name);
+        if (value2 === void 0) {
+          const definitions = variables.filter((entry) => entry.name === ref.name);
+          if (definitions.length !== 1 || definitions[0].ambiguous) {
+            valid = false;
+            return "";
+          }
+          visiting.add(ref.name);
+          value2 = expand(definitions[0].value);
+          visiting.delete(ref.name);
+          if (!/^[+-]?\d+(?:\.\d+)?$/.test(value2)) {
+            valid = false;
+            return "";
+          }
+          values.set(ref.name, value2);
+        }
+        result += value2;
+      }
+      at = ref.to;
+    }
+    return result + source.slice(at);
+  };
+  const frozen = expand(formula);
+  if (!valid) return null;
+  const slots = numberSlots(english);
+  const fallback = [];
+  for (const [lang, entry] of Object.entries(translations)) {
+    if (lang === "en") continue;
+    const definitions = numberVariables(entry.text);
+    const agrees = !(locals.size && (markupImports(entry.text).length || prefixAmbiguity(entry.text))) && [...locals].every((name) => {
+      const own2 = definitions.filter((variable) => variable.name === name);
+      if (own2.length !== 1 || own2[0].ambiguous) return false;
+      const original = variables.find((variable) => variable.name === name);
+      const slot = slots.findIndex(
+        (slot2) => slot2.from === original.from && slot2.value === original.value
+      );
+      return own2[0].value === values.get(name) || slot >= 0 && own2[0].value === `#{=${numbers.ids[slot]}}`;
+    });
+    if (!agrees) fallback.push(lang);
+  }
+  return fallback.length ? { value: frozen, fallback: fallback.sort(), variables: Object.fromEntries(values) } : frozen;
+}
 var init_freeze = __esm({
   "packages/core/src/numbers/freeze.ts"() {
     "use strict";
@@ -21775,6 +21849,34 @@ function resolveNumberTokens(text, values) {
     at = token.to;
   }
   return result + text.slice(at);
+}
+function reconcileNumberMap(before, after, tooltip) {
+  const old = before ?? { text: "" };
+  const map2 = readNumberMap(old);
+  const alignment = alignSlots(old.text, after.text);
+  const next = { ids: [], next: map2.next, retired: { ...map2.retired } };
+  const carried = new Map([...alignment.map].map(([a, b]) => [b, map2.ids[a]]));
+  next.ids = alignment.after.map((_, index) => carried.get(index) ?? next.next++);
+  const referenced = new Set(
+    Object.entries(tooltip.text).flatMap(
+      ([lang, entry]) => lang === "en" ? [] : numberTokens(entry.text).flatMap((token) => token.id === void 0 ? [] : [token.id])
+    )
+  );
+  for (const [index, slot] of alignment.before.entries()) {
+    const id = map2.ids[index];
+    if (!alignment.map.has(index) && referenced.has(id)) {
+      const referencing = Object.fromEntries(
+        Object.entries(tooltip.text).filter(
+          ([lang, entry]) => lang !== "en" && numberTokens(entry.text).some((token) => token.id === id)
+        )
+      );
+      next.retired[id] = slot.kind === "M" ? freezeFormula(slot.value, old.text, map2, referencing) : slot.value;
+    }
+  }
+  for (const id of Object.keys(next.retired))
+    if (!referenced.has(Number(id))) delete next.retired[id];
+  const implicit = implicitNumberMap(next.ids.length);
+  return next.next === implicit.next && next.ids.every((id, i) => id === implicit.ids[i]) && !Object.keys(next.retired).length ? void 0 : next;
 }
 var init_map = __esm({
   "packages/core/src/numbers/map.ts"() {
@@ -22369,7 +22471,7 @@ function numberTokenIssues(text, lang, hash2, values) {
   }
   return issues;
 }
-function validateNumberTooltip(tooltip) {
+function validateNumberTooltip(tooltip, head) {
   if (Object.values(tooltip.text).every(
     (entry) => entry?.numbers === void 0 && !entry?.text.includes("#{=")
   ))
@@ -22377,9 +22479,10 @@ function validateNumberTooltip(tooltip) {
   const issues = [];
   const english = tooltip.text.en;
   let values;
+  let retired2 = {};
   try {
     if (english) {
-      readNumberMap(english);
+      retired2 = readNumberMap(english).retired;
       values = numberValues(english);
     } else values = /* @__PURE__ */ new Map();
   } catch (error62) {
@@ -22391,13 +22494,28 @@ function validateNumberTooltip(tooltip) {
       message: String(error62)
     });
   }
-  for (const [lang, entry] of Object.entries(tooltip.text))
+  for (const [lang, entry] of Object.entries(tooltip.text)) {
     issues.push(
       ...numberTokenIssues(entry.text, lang, tooltip.hash, values).map((issue2) => ({
         ...issue2,
         lang
       }))
     );
+    if (head !== void 0 && lang !== "en" && english && entry.text.includes("#{=")) {
+      const previous = new Set(
+        numberTokens(head?.text[lang]?.text ?? "").map(({ id }) => id)
+      );
+      for (const token of numberTokens(entry.text))
+        if (token.id !== void 0 && Object.hasOwn(retired2, token.id) && !previous.has(token.id))
+          issues.push({
+            lang,
+            severity: "error",
+            from: token.from,
+            to: token.to,
+            message: `Number #{=${token.id}} was removed from English; reload`
+          });
+    }
+  }
   return issues;
 }
 var gluedNumberMessage, unbracedNumberMessage;
@@ -22420,6 +22538,11 @@ function isTranslationField(field) {
 }
 function sameFieldValue(field, a, b) {
   if (a === void 0 || b === void 0) return a === b;
+  if (field === "text.en") {
+    const before = a;
+    const after = b;
+    return before.text === after.text && equal(before.numbers, after.numbers);
+  }
   if (field.startsWith(textPrefix))
     return a.text === b.text;
   if (field === "bungieSnapshot")
@@ -22704,7 +22827,26 @@ var init_stamps = __esm({
 });
 
 // packages/core/src/schedule/activate.ts
-function mergeChanged(base, current, proposed, changed, choices = {}) {
+function reconcileScheduledNumbers(base, source, proposed, tooltip) {
+  const english = tooltip.text.en;
+  if (!english) return { ok: true, tooltip };
+  const changedEnglish = !sameFieldValue("text.en", base?.text.en, proposed.text.en);
+  const keepsProposal = changedEnglish && english.text === proposed.text.en?.text && sameFieldValue("text.en", source?.text.en, base?.text.en);
+  const numbers = keepsProposal ? proposed.text.en?.numbers : source?.text.en?.text === english.text ? source.text.en.numbers : reconcileNumberMap(source?.text.en, english, tooltip);
+  const stagedTokens = Object.entries(tooltip.text).some(
+    ([lang, entry]) => lang !== "en" && entry.text.includes("#{=")
+  );
+  if ((changedEnglish || !source?.text.en) && !keepsProposal && proposed.text.en && stagedTokens && stableStringify(readNumberMap({ text: english.text, numbers })) !== stableStringify(readNumberMap(proposed.text.en)))
+    return {
+      ok: false,
+      reason: `Tooltip ${tooltip.hash}: English number identities changed; reload and re-pick the staged numbers`
+    };
+  const en = { ...english };
+  delete en.numbers;
+  if (numbers) en.numbers = numbers;
+  return { ok: true, tooltip: { ...tooltip, text: { ...tooltip.text, en } } };
+}
+function mergeChanged(base, current, proposed, changed, choices = {}, identityBase = base) {
   let from = current;
   let to = current;
   for (const field of changed) {
@@ -22714,16 +22856,48 @@ function mergeChanged(base, current, proposed, changed, choices = {}) {
       from = withField(from, base, field);
     to = withField(to, proposed, field);
   }
-  return merge3(from, current, to);
+  const result = merge3(from, current, to);
+  if (!result.ok) return result;
+  const transfer = reconcileScheduledNumbers(identityBase, current, proposed, result.merged);
+  if (!transfer.ok)
+    return {
+      ok: false,
+      reason: transfer.reason,
+      conflicts: [{ field: "text.en", base: void 0, head: void 0, next: transfer.reason }]
+    };
+  result.merged = transfer.tooltip;
+  const issues = validateNumberTooltip(result.merged, current);
+  if (issues.length)
+    return {
+      ok: false,
+      reason: `Tooltip ${proposed.hash} (${issues[0].lang}): ${issues[0].message}`,
+      conflicts: issues.map((issue2) => ({
+        field: changed.includes(`text.${issue2.lang}`) ? `text.${issue2.lang}` : "text.en",
+        base: void 0,
+        head: void 0,
+        next: issue2.message
+      }))
+    };
+  return result;
 }
 function activate({ base, current, proposed }) {
   const changed = changedFields(base, proposed);
-  if (base === null && current === null)
-    return { ok: true, tooltip: boundTranslationSources(proposed), created: true, changed };
-  if (base === null || current === null) return { ok: false, fields: [existsField], changed };
-  const result = mergeChanged(base, current, proposed, changed);
-  if (!result.ok) return { ok: false, fields: result.conflicts.map(({ field }) => field), changed };
-  return { ok: true, tooltip: boundTranslationSources(result.merged), created: false, changed };
+  if (base === null !== (current === null)) return { ok: false, fields: [existsField], changed };
+  const empty2 = { hash: proposed.hash, text: {}, associated: [] };
+  const result = mergeChanged(base ?? empty2, current ?? empty2, proposed, changed);
+  if (!result.ok)
+    return {
+      ok: false,
+      fields: [...new Set(result.conflicts.map(({ field }) => field))],
+      changed,
+      ..."reason" in result ? { reason: String(result.reason) } : {}
+    };
+  return {
+    ok: true,
+    tooltip: boundTranslationSources(result.merged),
+    created: current === null,
+    changed
+  };
 }
 function resolveActivation({
   base,
@@ -22742,13 +22916,24 @@ function resolveActivation({
   if (base !== null && current === null) {
     const choice = choices[existsField];
     if (!choice) return { ok: false, missing: [existsField] };
-    return { ok: true, tooltip: choice === "upcoming" ? proposed : null };
+    if (choice === "current") return { ok: true, tooltip: null };
+    const empty2 = { hash: proposed.hash, text: {}, associated: [] };
+    const result2 = mergeChanged(empty2, empty2, proposed, changedFields(null, proposed), {}, base);
+    return result2.ok ? { ok: true, tooltip: result2.merged } : {
+      ok: false,
+      missing: [...new Set(result2.conflicts.map(({ field }) => field))],
+      ..."reason" in result2 ? { reason: String(result2.reason) } : {}
+    };
   }
   if (choices[existsField]) throw new Error("No existence choice applies here");
-  if (current === null) return { ok: true, tooltip: proposed };
   const from = base ?? { hash: proposed.hash, text: {}, associated: [] };
-  const result = mergeChanged(from, current, proposed, changed, choices);
-  if (!result.ok) return { ok: false, missing: result.conflicts.map(({ field }) => field) };
+  const result = mergeChanged(from, current ?? from, proposed, changed, choices);
+  if (!result.ok)
+    return {
+      ok: false,
+      missing: [...new Set(result.conflicts.map(({ field }) => field))],
+      ..."reason" in result ? { reason: String(result.reason) } : {}
+    };
   return { ok: true, tooltip: result.merged };
 }
 var existsField;
@@ -22756,6 +22941,9 @@ var init_activate = __esm({
   "packages/core/src/schedule/activate.ts"() {
     "use strict";
     init_merge3();
+    init_map();
+    init_contentHash();
+    init_numbers();
     init_stamps();
     init_fields();
     existsField = "$exists";
@@ -23132,32 +23320,36 @@ function mergeAssociations(base, onto, proposed) {
 }
 function compose(input2, boundSources = true) {
   const { hash: hash2, base, proposed, snapshot, pushed } = input2;
-  for (const tooltip of [base, proposed, snapshot])
-    if (tooltip && tooltipSchema.parse(tooltip).hash !== hash2)
+  for (const tooltip2 of [base, proposed, snapshot])
+    if (tooltip2 && tooltipSchema.parse(tooltip2).hash !== hash2)
       throw new Error(`Tooltip does not belong to member ${hash2}`);
   const changed = changedFields(base, proposed);
+  let tooltip = proposed;
+  let unpublished = [];
   if (snapshot) {
-    let tooltip = snapshot;
+    tooltip = snapshot;
     for (const field of changed)
       tooltip = field === "associated" && base ? { ...tooltip, associated: mergeAssociations(base, snapshot, proposed) } : withField(tooltip, proposed, field);
-    const unpublished = changed.filter(
+    unpublished = changed.filter(
       (field) => !(field === "associated" && base) && !sameFieldValue(
         field,
         base ? fieldValue(base, field) : void 0,
         fieldValue(snapshot, field)
       )
     );
-    return {
-      status: "overlay",
-      tooltip: boundSources ? boundTranslationSources(tooltipSchema.parse(tooltip)) : tooltipSchema.parse(tooltip),
-      changed,
-      unpublished
-    };
-  }
-  if (pushed) return { status: "stale", reason: missingSnapshotReason };
+  } else if (pushed) return { status: "stale", reason: missingSnapshotReason };
+  const head = snapshot ?? base;
+  const transfer = reconcileScheduledNumbers(base, head, proposed, tooltip);
+  if (!transfer.ok) return { status: "stale", reason: transfer.reason };
+  tooltip = transfer.tooltip;
+  const issue2 = validateNumberTooltip(tooltip, head)[0];
+  if (issue2)
+    return { status: "stale", reason: `Tooltip ${hash2} (${issue2.lang}): ${issue2.message}` };
+  tooltip = boundSources ? boundTranslationSources(tooltipSchema.parse(tooltip)) : tooltipSchema.parse(tooltip);
+  if (snapshot) return { status: "overlay", tooltip, changed, unpublished };
   return {
     status: "whole",
-    tooltip: boundSources ? boundTranslationSources(proposed) : proposed,
+    tooltip,
     changed
   };
 }
@@ -23166,6 +23358,8 @@ var init_compose = __esm({
   "packages/core/src/schedule/compose.ts"() {
     "use strict";
     init_merge3();
+    init_activate();
+    init_numbers();
     init_schemas3();
     init_stamps();
     init_fields();
@@ -23289,6 +23483,7 @@ __export(schedule_exports, {
   notBeforeSchema: () => notBeforeSchema,
   nowMinute: () => nowMinute,
   openStatuses: () => openStatuses,
+  reconcileScheduledNumbers: () => reconcileScheduledNumbers,
   resolveActivation: () => resolveActivation,
   scheduleIndexSchema: () => scheduleIndexSchema,
   scheduleLimits: () => scheduleLimits,
@@ -24524,13 +24719,14 @@ var prepareDescription = (descriptionData) => {
   let description = loadExports(descriptionData);
   description = removePerkSpecificText(description, database[hash2].type);
   description = loadVariables({ ...descriptionData, descriptionString: description });
+  const titles = extractTitles(removeUnusedText2(description, false));
   const editor = database[hash2].editor;
   const numberLanguage = editor[language]?.main === editor.en?.main ? "en" : language;
   description = doMath(description, numberLanguage);
   return {
     preparedDescription: removeUnusedText2(description.trim()),
     titles: {
-      ...extractTitles(removeUnusedText2(description, false)),
+      ...titles,
       ...extractTitles(database[3].editor[language]?.main),
       ...extractTitles(database[3].editor[language]?.secondary)
     }
@@ -26415,6 +26611,7 @@ init_syntax();
 
 // packages/core/src/status/index.ts
 init_languages();
+init_map();
 
 // packages/core/src/compendium/index.ts
 init_types();
