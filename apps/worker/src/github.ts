@@ -196,8 +196,27 @@ export interface ExportsSnapshot {
   projects: { id: string; file: RepoFile | null }[] | null;
 }
 
+// Env objects are reused by Workers while bindings are unchanged. Keep only four binding
+// contexts, and at most 4 MiB of serialized immutable data in each (256 entries).
+const contexts = new Map<
+  Env,
+  {
+    files: Map<string, string>;
+    bytes: number;
+    tokens: Map<string, { token: string; expires: number }>;
+  }
+>();
+function context(env: Env) {
+  let cache = contexts.get(env);
+  if (!cache) cache = { files: new Map(), bytes: 0, tokens: new Map() };
+  contexts.delete(env);
+  contexts.set(env, cache);
+  if (contexts.size > 4) contexts.delete(contexts.keys().next().value!);
+  return cache;
+}
+
 export class GitHub {
-  private token?: string;
+  private token?: { value: string; expires: number };
   private spent = 0;
   readonly root: string;
 
@@ -228,7 +247,12 @@ export class GitHub {
   }
 
   private async installationToken(): Promise<string> {
-    if (this.token) return this.token;
+    if (this.token && this.token.expires > Date.now() + 60_000) return this.token.value;
+    const cache = context(this.env);
+    const key = JSON.stringify(this.tokenPermissions);
+    const cached = cache.tokens.get(key);
+    if (cached && cached.expires > Date.now() + 60_000) return cached.token;
+    cache.tokens.delete(key);
     this.spend();
     const jwt = await appJwt(this.env.GITHUB_APP_ID, this.env.GITHUB_PRIVATE_KEY);
     const response = await fetch(
@@ -244,8 +268,19 @@ export class GitHub {
     );
     if (!response.ok)
       throw new HttpError(502, `GitHub App authentication failed (${response.status})`);
-    this.token = z.object({ token: z.string() }).parse(await response.json()).token;
-    return this.token;
+    const result = z
+      .object({ token: z.string(), expires_at: z.string().optional() })
+      .parse(await response.json());
+    const expires = Date.parse(result.expires_at ?? '');
+    if (expires > Date.now() + 60_000) {
+      if (cache.tokens.size >= 8) cache.tokens.delete(cache.tokens.keys().next().value!);
+      cache.tokens.set(key, { token: result.token, expires });
+    }
+    this.token = {
+      value: result.token,
+      expires: Number.isFinite(expires) ? expires : Date.now() + 120_000,
+    };
+    return result.token;
   }
 
   private headers(token: string): Record<string, string> {
@@ -273,6 +308,35 @@ export class GitHub {
       );
     }
     return response;
+  }
+
+  /** Only call after authorization, with a key anchored to a full commit SHA. */
+  async immutable<T>(key: string, read: () => Promise<T>): Promise<T> {
+    const cache = context(this.env);
+    const scoped = JSON.stringify([this.root, key]);
+    const hit = cache.files.get(scoped);
+    if (hit !== undefined) {
+      cache.files.delete(scoped);
+      cache.files.set(scoped, hit);
+      return JSON.parse(hit) as T;
+    }
+    const value = await read();
+    const text = JSON.stringify(value);
+    // UTF-16 storage: count keys as well as values, and skip oversized entries.
+    const bytes = (scoped.length + text.length) * 2;
+    if (bytes <= 4 * 1024 * 1024) {
+      const previous = cache.files.get(scoped);
+      if (previous !== undefined) cache.bytes -= (scoped.length + previous.length) * 2;
+      cache.files.delete(scoped);
+      cache.files.set(scoped, text);
+      cache.bytes += bytes;
+      while (cache.files.size > 256 || cache.bytes > 4 * 1024 * 1024) {
+        const oldest = cache.files.keys().next().value!;
+        cache.bytes -= (oldest.length + cache.files.get(oldest)!.length) * 2;
+        cache.files.delete(oldest);
+      }
+    }
+    return value;
   }
 
   async result(path: string, method = 'GET', value?: unknown): Promise<unknown> {
@@ -601,6 +665,19 @@ export class GitHub {
   }
 
   async file(path: string, ref: string, includeSize = false): Promise<RepoFile | null> {
+    if (refPattern.test(ref) && /^(?:live\/|tooltips\/)/.test(path)) {
+      return this.immutable(JSON.stringify(['file', ref, path, includeSize]), () =>
+        this.readFile(path, ref, includeSize),
+      );
+    }
+    return this.readFile(path, ref, includeSize);
+  }
+
+  private async readFile(
+    path: string,
+    ref: string,
+    includeSize: boolean,
+  ): Promise<RepoFile | null> {
     const encoded = path.split('/').map(encodeURIComponent).join('/');
     const response = await this.request(`/contents/${encoded}?ref=${encodeURIComponent(ref)}`);
     if (response.status === 404) return null;
