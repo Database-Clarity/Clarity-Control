@@ -13,6 +13,7 @@ import {
   orderedNumbers,
   tabNumber,
   typedNumberOffer,
+  convertTypedNumbers,
 } from './state';
 
 const views: EditorView[] = [];
@@ -32,6 +33,23 @@ function editor(english: string, doc = '') {
   return view;
 }
 const text = (view: EditorView) => view.state.doc.toString();
+
+it('converts unique typed values with formula variables in one undo and leaves equal choices literal', () => {
+  const view = editor(
+    'Damage ${5+#d} for 10 seconds. Gain 5 stacks, lose 5 stacks.\nenhanced (\nvar d = 2\n)',
+    'Schaden 5 für 10 Sekunden.',
+  );
+  // 5 is shared by three slots; 10 has exactly one source identity.
+  expect(convertTypedNumbers(view)).toBe(true);
+  expect(text(view)).toBe('Schaden 5 für #{=2} Sekunden.');
+  expect(undo(view)).toBe(true);
+  expect(text(view)).toBe('Schaden 5 für 10 Sekunden.');
+  const formula = editor('Damage ${5+#d}.\nenhanced (\nvar d = 2\n)', 'Schaden 5.');
+  expect(convertTypedNumbers(formula)).toBe(true);
+  expect(text(formula)).toContain('var d = #{=2}');
+  expect(undo(formula)).toBe(true);
+  expect(text(formula)).toBe('Schaden 5.');
+});
 
 it('inserts a median five-number translation in five keys, with no lookup', () => {
   const view = editor(
@@ -77,7 +95,7 @@ it('brings formula declarations inside the enhanced block, and removes both when
   tabNumber(view);
   expect(text(view)).toBe('#{=1}\nenhanced (\nvar d = #{=2}\n)');
   tabNumber(view);
-  expect(text(view)).toBe('#{=2}');
+  expect(text(view)).toBe('#{=3}');
   undo(view);
   expect(text(view)).toBe('');
 });
@@ -130,4 +148,71 @@ it('deletes a token atomically with Backspace', () => {
   expect(text(view)).toBe('Wort ');
   undo(view);
   expect(text(view)).toBe('Wort #{=1}');
+});
+
+it('renders frozen retired values and unknown ids, while read-only commands cannot insert', () => {
+  const source = numberSource('Damage 5.', { ids: [7], next: 8, retired: { 2: '4.5' } }, 'de');
+  const view = new EditorView({
+    state: EditorState.create({
+      doc: '#{=7} #{=2} #{=99}',
+      extensions: [
+        numberHost.of({ source, lang: 'de' }),
+        numberExtension(),
+        EditorState.readOnly.of(true),
+      ],
+    }),
+  });
+  views.push(view);
+  expect(view.dom.querySelector('[data-number-id="7"]')?.textContent).toBe('5');
+  expect(view.dom.querySelector('[data-number-id="2"]')?.textContent).toBe('4,5');
+  expect(view.dom.querySelector('[data-number-id="2"]')?.getAttribute('data-severity')).toBe(
+    'warning',
+  );
+  expect(view.dom.querySelector('[data-number-id="99"]')?.textContent).toBe('?');
+  expect(view.dom.querySelector('[data-number-id="99"]')?.getAttribute('data-severity')).toBe(
+    'error',
+  );
+  expect(insertNumber(view, 7)).toBe(false);
+  expect(text(view)).toBe('#{=7} #{=2} #{=99}');
+});
+
+it('offers both the English and local decimal spelling without automatic conversion', () => {
+  for (const literal of ['4.5', '4,5']) {
+    const view = editor('Lasts 4.5 seconds.', literal);
+    view.dispatch({ selection: { anchor: literal.length } });
+    expect(text(view)).toBe(literal);
+    expect(typedNumberOffer(view.state)?.ids).toEqual([1]);
+    tabNumber(view);
+    expect(text(view)).toBe('#{=1}');
+  }
+});
+
+it('refuses unfinished maths, reference targets, variable names, and import lines', () => {
+  for (const [doc, head] of [
+    ['${2*', 4],
+    ['<link Label [target', 19],
+    ['#{d}', 2],
+    ['import main from 12', 10],
+  ] as const) {
+    const view = editor('Value 5.', doc);
+    view.dispatch({ selection: { anchor: Math.min(head, view.state.doc.length) } });
+    tabNumber(view);
+    expect(text(view)).toBe(doc);
+    expect(view.state.field(numberField).message).toBe("Numbers can't go here");
+  }
+});
+
+it('keeps command reads bounded on an unbroken long line', () => {
+  const view = editor('Value 5.', 'word '.repeat(2000));
+  view.dispatch({ selection: { anchor: view.state.doc.length } });
+  const original = view.state.doc.sliceString.bind(view.state.doc);
+  let largest = 0;
+  const spy = vi.spyOn(view.state.doc, 'sliceString').mockImplementation((from, to, separator) => {
+    largest = Math.max(largest, (to ?? view.state.doc.length) - (from ?? 0));
+    return original(from, to, separator);
+  });
+  tabNumber(view);
+  spy.mockRestore();
+  expect(largest).toBeLessThanOrEqual(4);
+  expect(text(view).endsWith('#{=1}')).toBe(true);
 });

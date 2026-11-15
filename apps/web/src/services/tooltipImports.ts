@@ -1,5 +1,76 @@
-import { resolveAlias, type Aliases, type Lang, type Tooltip } from '@clarity/core';
+import {
+  numberValues,
+  resolveNumberTokens,
+  usesEnglishFallback,
+  resolveAlias,
+  type Aliases,
+  type Lang,
+  type MarkupGlobals,
+  type Tooltip,
+} from '@clarity/core';
 import type { Drafts } from './draftStorage';
+
+type NumberInput = NonNullable<MarkupGlobals['numberInput']>;
+const numberInputs = new Map<string, NumberInput>();
+const numberedImports = new WeakMap<object, (hash: string) => boolean>();
+const numberGlobals = new WeakMap<MarkupGlobals, WeakMap<NumberInput, MarkupGlobals>>();
+
+/** One cached English map per source revision and language, never detected on a typing key. */
+export function previewNumberGlobals(
+  tooltip: Tooltip | undefined,
+  lang: Lang,
+  globals: MarkupGlobals,
+): MarkupGlobals {
+  if (lang === 'en' || !tooltip?.text.en) return globals;
+  const english = tooltip.text.en;
+  const fallback = usesEnglishFallback(tooltip, lang);
+  const key = JSON.stringify([english.text, english.numbers, lang, fallback]);
+  let input = numberInputs.get(key);
+  if (!input) {
+    if (numberInputs.size >= 64) numberInputs.delete(numberInputs.keys().next().value!);
+    let values: ReturnType<typeof numberValues>, issue: string | undefined;
+    try {
+      values = numberValues(english, lang);
+    } catch {
+      values = new Map();
+      issue = 'Save English before translating its changed numbers.';
+    }
+    input = { values, english: english.text, lang, fallback, ...(issue && { issue }) };
+    numberInputs.set(key, input);
+  }
+  let byInput = numberGlobals.get(globals);
+  if (!byInput) numberGlobals.set(globals, (byInput = new WeakMap()));
+  let result = byInput.get(input);
+  if (!result) {
+    result = {
+      ...globals,
+      numberInput: {
+        ...input,
+        hasImportedNumbers: (hash) =>
+          !!globals.imports && !!numberedImports.get(globals.imports)?.(hash),
+      },
+    };
+    byInput.set(input, result);
+  }
+  return result;
+}
+
+function resolvedImport(tooltip: Tooltip, lang: Lang, text: string): string {
+  if (lang === 'en' || !text.includes('#{=')) return text;
+  if (usesEnglishFallback(tooltip, lang)) return tooltip.text.en?.text ?? '?';
+  try {
+    return resolveNumberTokens(
+      text,
+      tooltip.text.en ? numberValuesCached(tooltip, lang) : new Map(),
+    );
+  } catch {
+    return '?';
+  }
+}
+function numberValuesCached(tooltip: Tooltip, lang: Lang) {
+  return previewNumberGlobals(tooltip, lang, emptyNumberGlobals).numberInput!.values;
+}
+const emptyNumberGlobals: MarkupGlobals = { variables: '', titles: '' };
 
 // Saved text and alias membership are immutable for a loaded catalogue. Index them once,
 // rather than resolving every saved hash again whenever one draft gains a character.
@@ -32,14 +103,17 @@ export function tooltipImports(
   // Render-only consumers resolve individual documents, never a suggestion
   // catalogue. Keep their first lookup independent of catalogue size.
   if (options?.lookupOnly) {
-    const read = (key: string) => {
+    const tooltipAt = (key: string) => {
       const hash = Number(key);
       if (!Number.isInteger(hash) || String(hash) !== key) return undefined;
       const canonical = resolveAlias(hash, aliases);
-      const tooltip = drafts[canonical]?.next ?? tooltips[canonical];
-      return tooltip ? (tooltip.text[lang]?.text ?? '') : undefined;
+      return drafts[canonical]?.next ?? tooltips[canonical];
     };
-    return new Proxy<Record<string, string>>(
+    const read = (key: string) => {
+      const tooltip = tooltipAt(key);
+      return tooltip ? resolvedImport(tooltip, lang, tooltip.text[lang]?.text ?? '') : undefined;
+    };
+    const proxy = new Proxy<Record<string, string>>(
       {},
       {
         get: (_target, key) => (typeof key === 'string' ? read(key) : undefined),
@@ -50,6 +124,11 @@ export function tooltipImports(
         },
       },
     );
+    numberedImports.set(
+      proxy,
+      (key) => lang !== 'en' && !!tooltipAt(key)?.text[lang]?.text.includes('#{='),
+    );
+    return proxy;
   }
   let byAliases = savedImports.get(tooltips);
   if (!byAliases) savedImports.set(tooltips, (byAliases = new WeakMap()));
@@ -74,13 +153,23 @@ export function tooltipImports(
   // does not copy thousands of strings just to look up the two global documents.
   // Enumeration (the explicit suggestion menu) still exposes the complete same record.
   const text = saved.text;
+  const tooltipAt = (key: string) => {
+    const hash = Number(key);
+    if (!Number.isInteger(hash) || String(hash) !== key) return undefined;
+    const canonical = saved.aliases.get(key) ?? hash;
+    return drafts[canonical]?.next ?? tooltips[canonical];
+  };
   const read = (key: string) => {
     const hash = Number(key);
     if (!Number.isInteger(hash) || String(hash) !== key) return undefined;
     const canonical = saved.aliases.get(key) ?? hash;
-    return drafts[canonical]?.next.text[lang]?.text ?? (drafts[canonical] ? '' : text[canonical]);
+    const raw =
+      drafts[canonical]?.next.text[lang]?.text ?? (drafts[canonical] ? '' : text[canonical]);
+    return raw === undefined || lang === 'en' || !raw.includes('#{=')
+      ? raw
+      : resolvedImport(tooltipAt(key)!, lang, raw);
   };
-  return new Proxy<Record<string, string>>(
+  const proxy = new Proxy<Record<string, string>>(
     {},
     {
       get(_target, key) {
@@ -105,4 +194,9 @@ export function tooltipImports(
       },
     },
   );
+  numberedImports.set(
+    proxy,
+    (key) => lang !== 'en' && !!tooltipAt(key)?.text[lang]?.text.includes('#{='),
+  );
+  return proxy;
 }

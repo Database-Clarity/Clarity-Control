@@ -1109,7 +1109,7 @@ export function ClarityEditor({
           sourceText={lang === 'en' ? undefined : sourceText}
           tagSelection={tagMode}
           numbers={numberData ? numberStore : undefined}
-          onNumbers={() => setPanel('numbers')}
+          onNumbers={numberLive.current.openPanel}
         />
       )}
       <div ref={textArea} className={styles.textArea}>
@@ -1151,7 +1151,7 @@ export function ClarityEditor({
           />
         )}
         {open === 'numbers' && (
-          <NumbersPanel store={numberStore} view={view} onClose={closeAndFocus} />
+          <NumbersPanel store={numberStore} view={view} onClose={closeAndFocus} docked={docked} />
         )}
         {(open === 'help' || helpParked) && (
           <Suspense fallback={null}>

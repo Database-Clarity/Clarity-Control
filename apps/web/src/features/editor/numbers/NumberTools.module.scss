@@ -1,3 +1,5 @@
+@use '../../../data/variables' as theme;
+
 .panel {
   min-width: 0;
   input {
@@ -28,6 +30,10 @@
   }
   button {
     white-space: nowrap;
+    @include theme.mobile-or-coarse {
+      min-height: var(--tap-sm);
+      min-width: var(--tap-sm);
+    }
   }
 }
 .message {

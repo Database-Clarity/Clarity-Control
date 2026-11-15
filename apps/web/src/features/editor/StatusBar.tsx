@@ -2,6 +2,7 @@ import { usePreviewWarnings, type PreviewWarningContext } from '../preview/usePr
 import {
   memo,
   useEffect,
+  useCallback,
   useLayoutEffect,
   useRef,
   useSyncExternalStore,
@@ -205,6 +206,10 @@ export function StatusBar({
   const unpreviewed = preview?.review ? liveWarnings : (preview?.unpreviewed ?? 0);
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
+  const toggleNumbers = useCallback(
+    () => onPanel(panel === 'numbers' ? null : 'numbers'),
+    [onPanel, panel],
+  );
   const root = useRef<HTMLDivElement>(null);
   const showsPreview = preview ? unpreviewed > 0 || preview.collapsed : undefined;
   // The idle preview item gives its room to the labels until it first shows for this text; from
@@ -316,7 +321,7 @@ export function StatusBar({
           )}
           className={styles.item}
           open={panel === 'numbers'}
-          onOpen={() => toggle('numbers')}
+          onOpen={toggleNumbers}
         />
       )}
       {terms && (
@@ -554,6 +559,7 @@ export function Overlay({
   heading,
   onClose,
   children,
+  keyboardAnchor = false,
 }: {
   id: string;
   label: string;
@@ -564,6 +570,7 @@ export function Overlay({
   heading?: ReactNode;
   onClose(): void;
   children: ReactNode;
+  keyboardAnchor?: boolean;
 }) {
   const root = useRef<HTMLElement>(null);
   // Where focus was when the panel opened (the text, or the bar item that opened it): closing
@@ -624,6 +631,7 @@ export function Overlay({
       className={styles.overlay}
       data-editor-overlay
       data-headed={headed || undefined}
+      data-keyboard-anchor={keyboardAnchor || undefined}
     >
       {headed ? (
         <>

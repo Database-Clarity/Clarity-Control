@@ -335,10 +335,11 @@ function build(
       .map((id) => source.byId.get(id)!)
       .filter(
         (slot) =>
-          !query ||
-          `${slot.display} ${slot.context} ${slot.breadcrumb}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
+          (!query && !used.has(slot.id)) ||
+          (!!query &&
+            `${slot.display} ${slot.context} ${slot.breadcrumb}`
+              .toLowerCase()
+              .includes(query.toLowerCase())),
       );
     for (const slot of matches.slice(0, 5))
       if (!skip?.has(`number:${slot.id}`))

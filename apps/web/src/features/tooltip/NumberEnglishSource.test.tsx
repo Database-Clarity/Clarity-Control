@@ -12,6 +12,7 @@ import {
   insertNumber,
   numberExtension,
   numberHost,
+  pointNumber,
 } from '../editor/numbers/state';
 import { registerNumbers } from '../editor/numbers/documents';
 
@@ -31,6 +32,7 @@ beforeEach(() => {
     },
   );
   Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  HTMLElement.prototype.scrollIntoView = () => {};
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -85,6 +87,12 @@ it('marks only source-owned numbers, lists hidden values, and updates sets witho
   });
   expect(CSS.highlights.get('number-used')?.size).toBe(1);
   expect(CSS.highlights.get('number-used')?.has(range)).toBe(true);
+  act(() => pointNumber(editor, 2));
+  expect(CSS.highlights.get('number-next')?.has(range)).toBe(true);
+  act(() => pointNumber(editor));
+  expect(CSS.highlights.get('number-used')?.has(range)).toBe(true);
+  await act(async () => root.render(null));
+  expect(CSS.highlights.size).toBe(0);
 });
 
 it('decorates exact raw after-side slices, including numbers split across diff runs', async () => {

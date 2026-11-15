@@ -18,6 +18,7 @@ import { WithArrows } from '../../../ui/EnhancedArrow';
 import { dockedBarHeight, dockedTopChrome } from '../markupRow/dock';
 import type { UsageCorpus } from './usage';
 import styles from './SuggestMenu.module.scss';
+import { pointNumber } from '../numbers/state';
 
 /** Keeps the preview from ever breaking the menu: markup the parser rejects shows no preview. */
 function parses(text: string, globals: MarkupGlobals): boolean {
@@ -191,6 +192,11 @@ export function SuggestMenu({
   );
   const { rows, rowOf } = useMemo(() => listRows(snapshot.items), [snapshot.items]);
   const selected = snapshot.items[snapshot.index];
+  useEffect(() => {
+    if (selected?.numberId === undefined) return;
+    pointNumber(view, selected.numberId);
+    return () => pointNumber(view);
+  }, [selected?.numberId, view]);
   const { context } = snapshot;
   const itemCount = snapshot.items.length;
 

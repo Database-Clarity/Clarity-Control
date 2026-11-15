@@ -28,7 +28,7 @@ import { EditorView } from '@codemirror/view';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
-import { tooltipImports } from '../../services/tooltipImports';
+import { previewNumberGlobals, tooltipImports } from '../../services/tooltipImports';
 import { useDataStore, type EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { useDraftStore } from '../../stores/drafts';
@@ -454,13 +454,25 @@ function TooltipWorkspace({
   const legacyOf = (variant: number) =>
     data.categories.find((category) => category.id === archivedItemFor(variant, data)?.categoryId)
       ?.legacyType;
-  const globalsFor = (variant: number, typed = typedGlobals): ScopedMarkupGlobals =>
-    typed(
+  const globalsFor = (
+    variant: number,
+    typed = typedGlobals,
+    numberHash = variant,
+  ): ScopedMarkupGlobals => {
+    const globals = typed(
       legacyOf(variant),
       categoriesWithEnhanced(data).has(
         data.items[variant]?.categoryId ?? archivedItemFor(variant, data)?.categoryId ?? '',
       ),
     );
+    const source = typed === futureGlobals ? future : shown;
+    const model = typed === futureGlobals && futureData ? futureData : data;
+    return previewNumberGlobals(
+      source?.[numberHash]?.next ?? tooltipFor(numberHash, model),
+      lang,
+      globals,
+    );
+  };
   const textOf = (variant: number) =>
     (
       drafts[variant]?.next ??
@@ -534,7 +546,7 @@ function TooltipWorkspace({
         hash: variant,
         name: nameOf(variant),
         text: rendered ? rendered.text : previewTextOf(variant, source),
-        globals: globalsFor(variant, typed),
+        globals: globalsFor(variant, typed, rendered?.form === 'derived' ? hash : variant),
         derived: rendered?.form === 'derived',
       };
     });

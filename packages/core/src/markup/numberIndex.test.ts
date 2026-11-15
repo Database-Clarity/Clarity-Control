@@ -14,6 +14,19 @@ const indexedValues = (spans: MarkupSpan[]) =>
     (span) => span.slots?.map((slot) => [slot.id, span.text?.slice(slot.from, slot.to)]) ?? [],
   );
 
+it('keeps empty variables, inline markup variables, and trailing whitespace invisible', () => {
+  for (const source of [
+    'var c = empty\nDamage 5 #c\n\n#c\n\nNext line.',
+    'var c = <link Tier 1-2 [https://example.com] /> only.\n#c\n\nDamage 5.',
+  ]) {
+    const indexed = parseMarkup(source, undefined, { slots: [1, 2, 3] });
+    const stripped = JSON.parse(JSON.stringify(indexed), (key, value) =>
+      key === 'slots' || key === 'variables' ? undefined : value,
+    );
+    expect(stripped).toEqual(parseMarkup(source));
+  }
+});
+
 it('carries exact source identities through prose, maths, and table preparation', () => {
   const source = 'Gain 5 stacks for ${2*3} seconds.\n< table wide >\n| 12 damage\n<$>';
   const indexed = parts(parseMarkup(source, undefined, { slots: [7, 9, 11] }).lines);

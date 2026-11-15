@@ -1,12 +1,63 @@
 import { expect, test } from 'vitest';
 import { parseMarkup, type Tooltip } from '@clarity/core';
-import { tooltipImports } from './tooltipImports';
+import { previewNumberGlobals, tooltipImports } from './tooltipImports';
 import type { Drafts } from './draftStorage';
 
 const tooltip = (hash: number, text: string): Tooltip => ({
   hash,
   text: { en: { text, updatedAt: '2026-10-27T00:00:00Z', updatedBy: 'owner' } },
   associated: [],
+});
+
+test('resolves each imported document with its own English map, in both import modes', () => {
+  const translated = (hash: number, english: string, german: string): Tooltip => {
+    const base = tooltip(hash, english);
+    return {
+      ...base,
+      text: {
+        ...base.text,
+        de: { ...base.text.en!, text: german, sourceUpdatedAt: base.text.en!.updatedAt },
+      },
+    };
+  };
+  const owner = translated(10, 'Value 1.5.', 'Wert #{=1}.\nimport main from 11');
+  const imported = translated(11, 'Value ${2.5*2}.', 'Schaden #{=1}.');
+  for (const lookupOnly of [false, true]) {
+    const imports = tooltipImports({ 10: owner, 11: imported }, {}, 'de', {}, { lookupOnly });
+    expect(imports[10]).toBe('Wert 1.5.\nimport main from 11');
+    expect(imports[11]).toBe('Schaden ${2.5*2}.');
+    const globals = previewNumberGlobals(owner, 'de', { variables: '', titles: '', imports });
+    const parsed = parseMarkup(owner.text.de!.text, globals);
+    expect(
+      parsed.lines.flatMap((line) => line.linesContent?.map((part) => part.text) ?? []).join(' '),
+    ).toBe('Wert 1,5. Schaden 5.');
+  }
+});
+
+test('formats an actual token-bearing import and keeps a wholly token-free preview unchanged', () => {
+  const owner = tooltip(10, 'Original 9.');
+  const imported: Tooltip = {
+    ...tooltip(11, 'Value ${0.5*0.5}.'),
+    text: {
+      en: tooltip(11, 'Value ${0.5*0.5}.').text.en!,
+      de: {
+        text: 'Schaden #{=1}.',
+        updatedAt: '2026-10-27T00:00:00Z',
+        sourceUpdatedAt: '2026-10-27T00:00:00Z',
+        updatedBy: 'translator',
+      },
+    },
+  };
+  const globals = {
+    variables: '',
+    titles: '',
+    imports: tooltipImports({ 10: owner, 11: imported }, {}, 'de', {}),
+  };
+  const rendered = parseMarkup('import main from 11', previewNumberGlobals(owner, 'de', globals));
+  expect(rendered.lines[0].linesContent?.[0].text).toBe('Schaden 0,25.');
+  expect(parseMarkup('Literal 4.5.', previewNumberGlobals(owner, 'de', globals))).toEqual(
+    parseMarkup('Literal 4.5.', globals),
+  );
 });
 
 test('cached saved imports stay isolated from draft edits, removal, languages and new aliases', () => {

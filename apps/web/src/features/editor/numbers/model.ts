@@ -28,9 +28,12 @@ export interface NumberSource {
   slots: readonly EditorNumber[];
   byId: ReadonlyMap<number, EditorNumber>;
   values: ReadonlyMap<number, string | null>;
+  displayValues: ReadonlyMap<number, string>;
   retired: ReadonlySet<number>;
   byDisplay: ReadonlyMap<string, readonly number[]>;
+  byLiteral: ReadonlyMap<string, readonly number[]>;
   longest: number;
+  issue?: string;
 }
 
 const cache = new Map<string, NumberSource>();
@@ -55,7 +58,27 @@ export function numberSource(
   ]);
   const previous = cache.get(key);
   if (previous) return previous;
-  const map = readNumberMap({ text, numbers });
+  let map: ReturnType<typeof readNumberMap>;
+  try {
+    map = readNumberMap({ text, numbers });
+  } catch {
+    const source: NumberSource = {
+      text,
+      numbers,
+      slots: [],
+      byId: new Map(),
+      values: new Map(),
+      displayValues: new Map(),
+      retired: new Set(),
+      byDisplay: new Map(),
+      byLiteral: new Map(),
+      longest: 0,
+      issue: 'Save English before inserting its changed numbers.',
+    };
+    if (cache.size >= 32) cache.delete(cache.keys().next().value!);
+    cache.set(key, source);
+    return source;
+  }
   const values = numberValues({ text, numbers }, lang);
   const variables = numberVariables(text);
   const detected = numberSlots(text);
@@ -122,16 +145,44 @@ export function numberSource(
     };
   });
   const byDisplay = new Map<string, number[]>();
+  const duplicateContexts = slots.filter((slot) =>
+    slots.some(
+      (other) =>
+        other !== slot && other.context === slot.context && other.breadcrumb === slot.breadcrumb,
+    ),
+  );
+  for (const slot of duplicateContexts)
+    slot.breadcrumb += ` · line ${text.slice(0, slot.from).split('\n').length}`;
+  const byLiteral = new Map<string, number[]>();
   for (const slot of slots)
     byDisplay.set(slot.display, [...(byDisplay.get(slot.display) ?? []), slot.id]);
+  for (const slot of slots)
+    for (const value of new Set([slot.display, slot.kind === 'M' ? slot.display : slot.value]))
+      byLiteral.set(value, [...(byLiteral.get(value) ?? []), slot.id]);
+  const byId = new Map(slots.map((slot) => [slot.id, slot]));
+  const displayValues = new Map(
+    [...values].map(([id, value]) => [
+      id,
+      byId.get(id)?.display ??
+        (value === null
+          ? '?'
+          : value.startsWith('${')
+            ? parseMarkup(value, { variables: '', titles: '', ...globals, lang })
+                .lines.flatMap((line) => line.linesContent?.map((part) => part.text ?? '') ?? [])
+                .join('')
+            : formatNumbers(value, lang)),
+    ]),
+  );
   const source = {
     text,
     numbers,
     slots,
-    byId: new Map(slots.map((slot) => [slot.id, slot])),
+    byId,
     values,
+    displayValues,
     byDisplay,
-    longest: Math.max(0, ...slots.map((slot) => slot.display.length)),
+    byLiteral,
+    longest: Math.max(0, ...[...byLiteral.keys()].map((literal) => literal.length)),
     retired: new Set(Object.keys(map.retired).map(Number)),
   };
   if (cache.size >= 32) cache.delete(cache.keys().next().value!);

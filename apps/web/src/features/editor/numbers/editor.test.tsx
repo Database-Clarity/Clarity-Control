@@ -4,13 +4,14 @@ import { createRoot } from 'react-dom/client';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ClarityEditor } from '../ClarityEditor';
-import { numberField } from './state';
+import { numberField, insertNumber } from './state';
 import { startFromEnglish } from './NumberTools';
 import { missingNumberVariables } from './diagnostics';
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.spyOn(EditorView.prototype, 'coordsAtPos').mockReturnValue({
     left: 10,
@@ -92,4 +93,24 @@ it('starts empty translations from English, guards existing work, and inserts fo
   act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length } }));
   act(() => expect(startFromEnglish(view)).toBe(true));
   expect(view.state.doc.toString()).toBe('Damage #{=1}.\nenhanced (\nvar d = #{=2}\n)');
+});
+
+it('leads the chip row with the next unused number and returns panel Escape to the caret', async () => {
+  const { view } = mount('Values 10, 20, and 30.');
+  act(() => insertNumber(view, 2));
+  expect(
+    [...host.querySelectorAll('[data-number-chip]')].map((el) =>
+      el.getAttribute('data-number-chip'),
+    ),
+  ).toEqual(['3', '1']);
+  await act(async () => (host.querySelector('[data-status-numbers]') as HTMLButtonElement).click());
+  const panel = document.getElementById('editor-panel-numbers')!;
+  expect(panel.querySelector('li')?.textContent).toContain('To do');
+  await act(async () =>
+    panel
+      .querySelector('input')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
+  expect(document.getElementById('editor-panel-numbers')).toBeNull();
+  expect(view.hasFocus).toBe(true);
 });

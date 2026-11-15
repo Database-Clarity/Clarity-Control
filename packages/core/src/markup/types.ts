@@ -7,6 +7,15 @@ export interface MarkupGlobals {
   lang?: import('../languages.js').Lang;
   /** Optional save-validation observer; never changes variable resolution. */
   onVariable?: (name: string) => void;
+  /** Opt-in translation preview input; imports have already resolved their own maps. */
+  numberInput?: {
+    values: ReadonlyMap<number, string | null>;
+    english: string;
+    lang: import('../languages.js').Lang;
+    fallback: boolean;
+    issue?: string;
+    hasImportedNumbers?(hash: string): boolean;
+  };
 }
 
 export interface MarkupSpan {

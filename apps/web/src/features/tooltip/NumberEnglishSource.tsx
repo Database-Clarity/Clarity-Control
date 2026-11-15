@@ -1,12 +1,4 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Lang } from '@clarity/core';
 import { ReadingSlots } from '../preview/ReadingTooltip';
 import { TermLayer, type Mark, type SpanSource } from '../terms/TermLayer';
@@ -15,6 +7,7 @@ import { useNumberDocument } from '../editor/numbers/documents';
 import { insertSourceNumber } from '../editor/numbers/state';
 import type { NumberSource } from '../editor/numbers/model';
 import styles from './NumberEnglishSource.module.scss';
+import { useStore } from 'zustand';
 
 /** Raw after-side pieces keep their exact source offsets, including split WordDiff runs. */
 export function numberAfter(source: NumberSource, text: string, offset: number): ReactNode {
@@ -58,8 +51,8 @@ export function NumberEnglishSource({
   children(renderAfter?: (text: string, offset: number) => ReactNode): ReactNode;
 }) {
   const store = useNumberDocument(hash, lang);
-  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const source = state.source?.text === text ? state.source : null;
+  const currentSource = useStore(store, (state) => state.source);
+  const source = currentSource?.text === text ? currentSource : null;
   const root = useRef<HTMLDivElement>(null);
   const [hidden, setHidden] = useState<readonly number[]>([]);
   const slotContext = useMemo(
@@ -164,22 +157,28 @@ export function NumberEnglishSource({
     )
       return;
     const registry = CSS.highlights;
+    let pointed: number | undefined;
     let ranges: { range: Range; id: number }[] = [];
     const clear = () => {
       for (const { range } of ranges) {
         const name = marked.current.get(range);
-        if (name) registry.get(name)?.delete(range);
+        if (name) {
+          const highlight = registry.get(name);
+          highlight?.delete(range);
+          if (highlight?.size === 0) registry.delete(name);
+        }
         marked.current.delete(range);
       }
     };
     const apply = () => {
       for (const { range, id } of ranges) {
         const snapshot = store.getSnapshot();
-        const name = snapshot.used.has(id)
-          ? 'number-used'
-          : id === snapshot.next
+        const name =
+          id === (pointed ?? snapshot.next)
             ? 'number-next'
-            : 'number-todo';
+            : snapshot.used.has(id)
+              ? 'number-used'
+              : 'number-todo';
         const previous = marked.current.get(range);
         if (name === previous) continue;
         if (previous) registry.get(previous)?.delete(range);
@@ -198,15 +197,27 @@ export function NumberEnglishSource({
       apply();
     };
     rebuild();
+    const point = (event: Event) => {
+      const detail = (event as CustomEvent<{ hash: number; id?: number }>).detail;
+      if (detail?.hash !== hash) return;
+      pointed = detail.id;
+      apply();
+      if (pointed !== undefined)
+        root.current
+          ?.querySelector<HTMLElement>(`[data-slot="${pointed}"]`)
+          ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    };
+    window.addEventListener('clarity-number-point', point);
     const observer = new MutationObserver(rebuild);
     observer.observe(root.current, { childList: true, subtree: true });
     const unsubscribe = store.subscribe(apply);
     return () => {
       unsubscribe();
+      window.removeEventListener('clarity-number-point', point);
       observer.disconnect();
       clear();
     };
-  }, [source, stepping, spanSource, store, hidden, raw]);
+  }, [source, stepping, spanSource, store, hidden, raw, hash]);
   return (
     <ReadingSlots.Provider value={slotContext}>
       <div ref={root} className={styles.source}>

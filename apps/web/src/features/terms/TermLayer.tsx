@@ -316,16 +316,21 @@ export function TermLayer({
     };
     // A click (or a tap) on a term pins it open.
     let press: { x: number; y: number; touch: boolean } | undefined;
+    let lastInserted: Mark | null = null;
     const down = (event: PointerEvent) => {
       press = { x: event.clientX, y: event.clientY, touch: event.pointerType === 'touch' };
     };
     const click = (event: MouseEvent) => {
       const mark = markAt(event.clientX, event.clientY);
       if (!mark) return;
+      if (mark.term.number && event.detail > 1) {
+        if (canInsertRef.current && mark === lastInserted)
+          translationView(hashRef.current)?.focus();
+        return;
+      }
       if (
         mark.term.number &&
-        (event.detail > 1 ||
-          !window.getSelection()?.isCollapsed ||
+        (!window.getSelection()?.isCollapsed ||
           (press && Math.hypot(press.x - event.clientX, press.y - event.clientY) > 5))
       )
         return;
@@ -338,9 +343,9 @@ export function TermLayer({
         !(mark.term.number && press?.touch) &&
         canInsertRef.current &&
         mark.term.official.length === 1
-      )
-        insertRef.current(only!, mark.term);
-      else setOpen({ mark, pinned: true });
+      ) {
+        if (insertRef.current(only!, mark.term)) lastInserted = mark;
+      } else setOpen({ mark, pinned: true });
     };
     root.addEventListener('pointermove', move, { passive: true });
     root.addEventListener('pointerdown', down, { passive: true });
@@ -366,11 +371,14 @@ export function TermLayer({
   const insertRef = useRef((text: string, term?: Term) => {
     setOpen(null);
     if (term?.number) {
-      if (term.number.insert()) showEditor();
-      return;
+      const inserted = term.number.insert();
+      if (inserted) showEditor();
+      return inserted;
     }
     const view = translationView(hashRef.current);
-    if (view && insertAtCaret(view, text)) showEditor();
+    const inserted = !!view && insertAtCaret(view, text);
+    if (inserted) showEditor();
+    return inserted;
   });
   const insert = (text: string) => insertRef.current(text, open?.mark.term);
 
