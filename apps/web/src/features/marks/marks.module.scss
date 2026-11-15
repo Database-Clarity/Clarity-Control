@@ -5,18 +5,14 @@
   width: 100%;
   min-width: 0;
 }
-.finderAction {
+.finderMarker {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  margin-inline-start: 3px;
+  font-size: 0.75rem;
   line-height: 1;
-}
-.finderAction button {
-  @include controls.button;
-  min-height: 1rem;
-  padding: 0 2px;
-  background: transparent;
-  border: 0;
-}
-.finderAction [data-marked='true'] {
   color: var(--warn);
 }
 .queueButton {

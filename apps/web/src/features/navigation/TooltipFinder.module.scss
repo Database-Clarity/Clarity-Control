@@ -444,14 +444,17 @@
 }
 
 .option > .markers {
-  display: inline-flex;
-  align-items: center;
   grid-column: -2;
   grid-row: 1;
   justify-self: end;
 }
-.option[data-entry-marks-row] {
-  --finder-marker-width: 58px;
+.option[data-entry-marked] {
+  --finder-marker-width: 52px;
+
+  > .markers {
+    display: inline-flex;
+    align-items: center;
+  }
 }
 .option[data-two-line] > .markers {
   grid-row: 1 / span 2;

@@ -36,7 +36,7 @@ export function markedRouteCategory(
     : undefined;
 }
 
-/** Built only when catalogue or marks change; row rendering and stepping use map lookups. */
+/** Built on demand for a Marked scope or a search, never for ordinary finder opening. */
 export function buildMarkedSection(
   base: CategoryGroup[],
   marks: ReturnType<typeof useMarksStore.getState>['marks'],
@@ -113,16 +113,44 @@ export function buildMarkedSection(
   return section;
 }
 
-export function useMarkedFinder(base: CategoryGroup[], found: CategoryGroup[], query: string) {
+export function useMarkedFinder(
+  base: CategoryGroup[],
+  found: CategoryGroup[],
+  query: string,
+  routeSearch: string,
+) {
   const marks = useMarksStore((state) => state.marks);
   const index = useMarksStore((state) => state.index);
-  const section = useMemo(() => buildMarkedSection(base, marks), [base, marks]);
+  const search = query.trim().toLocaleLowerCase();
+  const markedRoute = !!markTypeFromGroup(
+    parseScope(new URLSearchParams(routeSearch).get('g'))?.group ?? '',
+  );
+  const needed = !!search || markedRoute;
+  const section = useMemo(
+    () => (needed ? buildMarkedSection(base, marks) : undefined),
+    [base, marks, needed],
+  );
+  // Keep the category available without enumerating or grouping its entries.
+  const category = useMemo<CategorySection | undefined>(
+    () =>
+      section ??
+      (marks.types.length && index.size
+        ? {
+            id: markedCategoryId,
+            label: 'Marked',
+            group: 'Worklists',
+            order: 0,
+            grouping: 'mark',
+            items: [],
+          }
+        : undefined),
+    [section, marks, index],
+  );
   const groups = useMemo(
-    () => (section ? [...base, { name: 'Worklists', sections: [section] }] : base),
-    [base, section],
+    () => (category ? [...base, { name: 'Worklists', sections: [category] }] : base),
+    [base, category],
   );
   const results = useMemo(() => {
-    const search = query.trim().toLocaleLowerCase();
     if (!search) return groups;
     if (!section) return found;
     const matches = new Set(
@@ -172,6 +200,11 @@ export function useMarkedFinder(base: CategoryGroup[], found: CategoryGroup[], q
         ),
       });
     return filtered ? [...result, { name: 'Worklists', sections: [filtered] }] : result;
-  }, [base, found, groups, section, query, marks, index]);
-  return { groups, found: results };
+  }, [base, found, groups, section, search, marks, index]);
+  return {
+    groups,
+    found: results,
+    marksIndex: index,
+    loadMarkedSection: () => section ?? buildMarkedSection(base, marks),
+  };
 }

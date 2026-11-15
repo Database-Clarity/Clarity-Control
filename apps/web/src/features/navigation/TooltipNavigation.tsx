@@ -85,11 +85,8 @@ import {
   markedRowScope,
   markedScopeValue as scopeValue,
 } from '../marks/finder';
-import {
-  FinderEntryMarks,
-  FinderMarksProvider,
-  markPopupOwnsFocus,
-} from '../marks/FinderEntryMarks';
+import { FinderEntryMarks } from '../marks/FinderEntryMarks';
+import type { MarkDisplay } from '../marks/store';
 import { MarkedWorkThrough } from '../marks/queue';
 import { FinderMarkGroup } from '../marks/FinderMarkGroup';
 import { prepareFinderMarkers, rollupFinderMarkers, type MarkerIndex } from './finderMarkerState';
@@ -194,6 +191,7 @@ const FinderOption = memo(function FinderOption({
   active,
   data,
   markerIndex,
+  marksIndex,
   source,
   allCategories,
   onActive,
@@ -211,6 +209,7 @@ const FinderOption = memo(function FinderOption({
   active: boolean;
   data: EditorData;
   markerIndex: MarkerIndex;
+  marksIndex: ReadonlyMap<number, readonly MarkDisplay[]>;
   source: ReturnType<typeof useCompendiumStore.getState>['data'];
   allCategories: boolean;
   onActive(index: number): void;
@@ -226,6 +225,7 @@ const FinderOption = memo(function FinderOption({
   const globalContents = useGlobalHover(row.global, data);
   const item = itemFor(row.hash, data);
   const markerHashes = useMemo(() => variantHashes(row.hash, data), [row.hash, data]);
+  const entryMarks = row.global ? undefined : marksIndex.get(row.hash);
   const shared = sharedPerkLabel(row.hash, data, source);
   const frames = frameGroupSize(row.hash, data);
   const enhanced = enhancedPairs(row.hash, data).length > 0;
@@ -254,7 +254,7 @@ const FinderOption = memo(function FinderOption({
       className={styles.option}
       data-two-line={(!row.global && (stacked || narrow)) || undefined}
       data-grouped={row.group || undefined}
-      data-entry-marks-row={!row.global || undefined}
+      data-entry-marked={!!entryMarks?.length || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
       onClick={() => onCommit.current(row)}
@@ -285,7 +285,7 @@ const FinderOption = memo(function FinderOption({
       )}
       <span className={styles.markers}>
         <FinderMarkers hashes={markerHashes} flags={row.global ? 0 : markerIndex.get(row.hash)} />
-        {!row.global && <FinderEntryMarks hash={row.hash} />}
+        {!!entryMarks?.length && <FinderEntryMarks entries={entryMarks} />}
       </span>
     </li>
   );
@@ -492,7 +492,12 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     () => (query.trim() ? navigationGroups(data, query, globalDefinitions) : baseGroups),
     [data, baseGroups, query, globalDefinitions],
   );
-  const { groups, found } = useMarkedFinder(baseGroups, baseFound, query);
+  const { groups, found, marksIndex, loadMarkedSection } = useMarkedFinder(
+    baseGroups,
+    baseFound,
+    query,
+    finderLocation.search,
+  );
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -1211,6 +1216,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           revealedActive={revealedActive}
           data={data}
           markerIndex={markerIndex}
+          marksIndex={marksIndex}
           source={compendiumSource}
           allCategories={allCategories}
           onActive={hoverActive}
@@ -1311,7 +1317,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       empty="No matching categories"
       onChange={(id) => {
         // A new category opens its first entry, in the scope of every group.
-        const next = sections.find((category) => category.id === id);
+        const next =
+          id === 'marked' ? loadMarkedSection() : sections.find((category) => category.id === id);
         const grouping = next && groupedSection(next, data);
         const first = grouping ? grouping.all[0] : next?.items[0];
         if (!first) return;
@@ -1393,7 +1400,6 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       ref={root}
       className={styles.combo}
       onBlur={(event) => {
-        if (markPopupOwnsFocus(event.relatedTarget)) return;
         if (!event.currentTarget.contains(event.relatedTarget)) releaseKey();
         // The sheet keeps its list open while the sheet is; only the header form closes on blur.
         if (!sheet && !event.currentTarget.contains(event.relatedTarget)) restore();
@@ -1428,7 +1434,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         />
         <FinderDraftIndicator hash={hash} data={data} />
       </div>
-      {listbox && <FinderMarksProvider>{listbox}</FinderMarksProvider>}
+      {listbox}
       <span role="status" className="sr-only">
         {open ? `${rows.length} tooltip${rows.length === 1 ? '' : 's'}` : ''}
       </span>

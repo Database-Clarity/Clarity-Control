@@ -6,7 +6,7 @@ import { type Marks } from '@clarity/core/marks';
 import { apiRequest } from '../../services/api';
 import { useAuthStore } from '../../stores/auth';
 import { MarksControl } from './MarksControl';
-import { FinderEntryMarks, FinderMarksProvider } from './FinderEntryMarks';
+import { FinderEntryMarks } from './FinderEntryMarks';
 import { MarkTypes } from './MarkTypes';
 import { indexMarks, useMarksStore } from './store';
 
@@ -223,37 +223,18 @@ it('closes the mark editor when navigation changes the current entry', async () 
   await act(async () => root.render(<MarksControl hash={43} />));
   expect(document.querySelector('[role=dialog]')).toBeNull();
 });
-it('shares one row editor, restores keyboard focus, and reopens with current marks', async () => {
+it('shows static row marks without an action, menu, or request', async () => {
   await act(async () =>
     root.render(
-      <FinderMarksProvider>
-        <FinderEntryMarks hash={42} />
-        <FinderEntryMarks hash={43} />
-      </FinderMarksProvider>,
+      <>
+        <FinderEntryMarks entries={useMarksStore.getState().index.get(42)} />
+        <FinderEntryMarks entries={undefined} />
+      </>,
     ),
   );
-  const triggers = [...host.querySelectorAll('button')];
+  expect(host.querySelector('[role=img]')?.getAttribute('aria-label')).toBe('Needs retesting');
+  expect(host.querySelector('button')).toBeNull();
+  expect(host.querySelector('[tabindex]')).toBeNull();
+  expect(document.querySelector('[role=dialog]')).toBeNull();
   expect(apiRequest).not.toHaveBeenCalled();
-  await click('Entry marks');
-  expect(document.querySelector('[role=dialog]')!.textContent).toContain('Arc damage');
-  expect(triggers[0].getAttribute('aria-controls')).toBe(
-    document.querySelector('[role=dialog]')!.id,
-  );
-  expect(triggers[0].getAttribute('aria-expanded')).toBe('true');
-  await act(async () =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
-  );
-  expect(document.querySelector('[role=dialog]')).toBeNull();
-  expect(document.activeElement?.getAttribute('aria-label')).toBe('Entry marks');
-  expect(triggers[0].hasAttribute('aria-controls')).toBe(false);
-  await click('Entry marks');
-  expect(document.querySelector('[role=dialog]')).not.toBeNull();
-  expect(apiRequest).toHaveBeenCalledTimes(2);
-  await act(async () => triggers[1].click());
-  expect(document.querySelectorAll('[role=dialog]')).toHaveLength(1);
-  expect(document.querySelector('[role=dialog]')!.textContent).toContain('No marks on this entry');
-  expect(triggers[0].getAttribute('aria-expanded')).toBe('false');
-  expect(triggers[1].getAttribute('aria-expanded')).toBe('true');
-  await act(async () => useAuthStore.setState({ user: null, token: null }));
-  expect(document.querySelector('[role=dialog]')).toBeNull();
 });

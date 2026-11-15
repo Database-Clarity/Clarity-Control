@@ -183,3 +183,30 @@ it('finds mark labels and notes, and changes category and mark-type scopes', asy
   await act(async () => host.querySelector<HTMLInputElement>('input[role=combobox]')!.click());
   expect(host.querySelector('[aria-label="Work through marked entries"]')).not.toBeNull();
 });
+
+it('leaves mark grouping lazy on ordinary opening, and builds it on category selection', async () => {
+  const stored = useMarksStore.getState().marks;
+  const entries = stored.entries;
+  const read = vi.fn(() => entries);
+  Object.defineProperty(stored, 'entries', { get: read, configurable: true });
+  await mount();
+  await act(async () => host.querySelector<HTMLInputElement>('input[role=combobox]')!.click());
+  expect(read).not.toHaveBeenCalled();
+  expect(
+    host.querySelector('[role=listbox] [role=img][aria-label="Needs retesting"]'),
+  ).not.toBeNull();
+  expect(host.querySelector('[role=listbox] button[aria-label="Entry marks"]')).toBeNull();
+  await pickOption(picker(host, 'Category')!, 'marked');
+  expect(read).toHaveBeenCalled();
+  expect(host.querySelector('output')!.textContent).toContain('g=all:mark.retest');
+});
+it('restores a marked scope directly, and restores ordinary results after clearing search', async () => {
+  await mount('/t/30?g=mark.verify');
+  expect(picker(host, 'Category')!.getAttribute('data-value')).toBe('marked');
+  await act(async () => host.querySelector<HTMLInputElement>('input[role=combobox]')!.click());
+  expect(host.querySelector('[role=listbox]')!.textContent).toContain('Entry 30');
+  await type('no matching mark or entry');
+  expect(host.querySelector('[role=listbox]')!.textContent).not.toContain('Entry 30');
+  await type('');
+  expect(host.querySelector('[role=listbox]')!.textContent).toContain('Entry 30');
+});

@@ -6,23 +6,15 @@ import { Popover } from '../../ui/Popover';
 import { noEntryMarks, useMarksStore } from './store';
 import styles from './marks.module.scss';
 
-/** Shared by the editor header and (after the marker-slot merge) entry-row actions. */
+/** Mark details and editing for the current entry in the editor header. */
 export function MarksControl({
   hash,
   className,
   compact = false,
-  iconOnly = false,
-  initiallyOpen = false,
-  anchorElement,
-  onClose,
 }: {
   hash: number;
   className?: string;
   compact?: boolean;
-  iconOnly?: boolean;
-  initiallyOpen?: boolean;
-  anchorElement?: HTMLElement;
-  onClose?: () => void;
 }) {
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
@@ -31,7 +23,7 @@ export function MarksControl({
   const types = useMarksStore((state) => state.marks.types);
   const writable = useMarksStore((state) => state.writable);
   const error = useMarksStore((state) => state.error);
-  const [open, setOpen] = useState(initiallyOpen);
+  const [open, setOpen] = useState(false);
   const identity = useRef({ hash, user, token });
   const [type, setType] = useState('');
   const [note, setNote] = useState('');
@@ -85,33 +77,20 @@ export function MarksControl({
       className={`${className ?? ''} ${styles.control}`}
       trigger={
         <span className={styles.trigger}>
-          {iconOnly ? (
-            <span aria-hidden="true" data-marked={!!entries.length}>
-              ⚑
-            </span>
-          ) : error ? (
-            'Marks unavailable'
-          ) : compact || !entries.length ? (
-            'Marks'
-          ) : (
-            entries.slice(0, 2).map((entry) => (
-              <span key={entry.type} className={styles.chip} data-colour={entry.colour}>
-                {entry.label}
-              </span>
-            ))
-          )}
-          {!iconOnly && entries.length && (compact || entries.length > 2)
-            ? ` (${entries.length})`
-            : null}
+          {error
+            ? 'Marks unavailable'
+            : compact || !entries.length
+              ? 'Marks'
+              : entries.slice(0, 2).map((entry) => (
+                  <span key={entry.type} className={styles.chip} data-colour={entry.colour}>
+                    {entry.label}
+                  </span>
+                ))}
+          {entries.length && (compact || entries.length > 2) ? ` (${entries.length})` : null}
         </span>
       }
       open={open}
-      onOpenChange={(value) => {
-        setOpen(value);
-        if (!value) onClose?.();
-      }}
-      anchorElement={anchorElement}
-      externalAnchorMenu={!!anchorElement}
+      onOpenChange={setOpen}
       contain
       width={360}
     >
