@@ -71,6 +71,7 @@ import { editorAccess } from './access';
 import { canEditLanguage, canPushLive } from '../auth/permissions';
 import { DraftLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
+import { useRememberedWorkspaceLanguage } from './WorkspaceLanguage';
 import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
@@ -252,7 +253,7 @@ function TooltipWorkspace({
   const compendiumSource = useCompendiumStore((state) => state.data);
   const { parameter, search, state: routeState, setSearch, navigate } = route;
   const data = useDataStore((state) => state.data);
-  const [remembered, setRemembered] = useState<Lang>();
+  const [remembered, setRemembered] = useRememberedWorkspaceLanguage(hashOverride === undefined);
   // The enhanced version whose own text is open in the editor (null: the base). Keyed by item and
   // by the link's own `variant`, so moving to another tooltip starts on its base, and a link to
   // an override (the queue's Next, Back, Forward) opens what it names.

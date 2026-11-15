@@ -26,6 +26,7 @@ import { PreviewLeaveGuard } from './PreviewLeaveGuard';
 import { ShellColumnContext, type ShellColumn } from './ShellColumnContext';
 import { ShellSlotHost, ShellSlotsProvider } from './ShellSlots';
 import { TooltipNavigation } from './TooltipNavigation';
+import { WorkspaceLanguageProvider } from '../tooltip/WorkspaceLanguage';
 import { canonicalHash, editorName, exoticPiece, itemFor } from './catalog';
 import { documentTitle } from './documentTitle';
 import { links, workspacePath } from './links';
@@ -40,9 +41,11 @@ import styles from './Layout.module.scss';
 
 export function Layout() {
   return (
-    <ShellSlotsProvider>
-      <LayoutContent />
-    </ShellSlotsProvider>
+    <WorkspaceLanguageProvider>
+      <ShellSlotsProvider>
+        <LayoutContent />
+      </ShellSlotsProvider>
+    </WorkspaceLanguageProvider>
   );
 }
 
