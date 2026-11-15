@@ -325,7 +325,12 @@ export async function pushLive(
     }
     console.error(
       'Push marker failed after live write',
-      error instanceof Error ? error.message : 'Unknown error',
+      error instanceof Error || error instanceof z.ZodError
+        ? error.constructor.name
+        : 'UnknownError',
+      ...(error instanceof z.ZodError
+        ? [{ issueCount: error.issues.length, issueCodes: error.issues.map((issue) => issue.code) }]
+        : []),
     );
     throw new HttpError(502, 'Live was written, but recording the push failed; retry push-live', {
       liveCommit,

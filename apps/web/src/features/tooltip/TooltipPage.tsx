@@ -855,6 +855,7 @@ function TooltipWorkspace({
             )
           }
           inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
+          markHash={hash}
           draftLoader={
             draft && (
               <DraftLoader

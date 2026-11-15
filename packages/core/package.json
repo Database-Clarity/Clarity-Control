@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./marks": "./src/marks.ts",
     "./markup/arithmetic": "./src/markup/arithmetic.ts",
     "./markup/numberFormat": "./src/markup/numberFormat.ts",
     "./numbers": "./src/numbers/map.ts",

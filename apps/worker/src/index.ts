@@ -13,6 +13,7 @@ import { publish, publishKey, publishStatus, publishKick } from './publish.js';
 import { pushLive } from './push.js';
 import { sandboxPointersRoute } from './sandboxPointers.js';
 import { inactiveMovesRoute } from './inactiveMoves.js';
+import { marksRoute } from './marks.js';
 import { save } from './save.js';
 import { reports, purgeReports } from './reports.js';
 import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
@@ -79,6 +80,9 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (['GET', 'PUT'].includes(request.method) && path === '/inactive-moves') {
     return inactiveMovesRoute(request, github, user);
   }
+  if (['GET', 'PUT'].includes(request.method) && path === '/marks') {
+    return marksRoute(request, github, user);
+  }
   const item = /^\/history\/([^/]+)$/.exec(path);
   if (request.method === 'GET' && item) return history(request, github, user, item[1]);
   throw new HttpError(404, 'Endpoint not found');
@@ -117,11 +121,17 @@ const worker: {
       } else {
         console.error(
           'Worker request failed',
-          error instanceof ZodError
-            ? error.issues
-            : error instanceof Error
-              ? error.message
-              : 'Unknown error',
+          error instanceof Error || error instanceof ZodError
+            ? error.constructor.name
+            : 'UnknownError',
+          ...(error instanceof ZodError
+            ? [
+                {
+                  issueCount: error.issues.length,
+                  issueCodes: error.issues.map((issue) => issue.code),
+                },
+              ]
+            : []),
         );
         response = json(
           { error: error instanceof ZodError ? 'Invalid upstream data' : 'Internal server error' },
