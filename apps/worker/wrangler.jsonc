@@ -4,11 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-11-01",
   "workers_dev": true,
-  "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1,
-    "logs": { "invocation_logs": false },
-  },
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
   "account_id": "c5ec2772673dc72f5e58587ef4c80ff8",
   // D1 databases created by root 2026-11-11 (clarity-reports, clarity-reports-files).
   "d1_databases": [
