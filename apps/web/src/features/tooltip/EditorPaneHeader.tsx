@@ -309,10 +309,12 @@ function PhoneToolRow({
         queue={queue}
         renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
         extra={
-          <>
-            {worklistControl}
-            {inactiveControl}
-          </>
+          worklistControl || inactiveControl ? (
+            <>
+              {worklistControl}
+              {inactiveControl}
+            </>
+          ) : undefined
         }
       />
       {reason && (

@@ -884,12 +884,14 @@ function TooltipWorkspace({
             </>
           }
           worklistControl={
-            <AddToWorklist
-              items={[
-                { hash: activeHash, name: itemFor(activeHash, data)?.name ?? String(activeHash) },
-              ]}
-              className={styles.ghost}
-            />
+            user ? (
+              <AddToWorklist
+                items={[
+                  { hash: activeHash, name: itemFor(activeHash, data)?.name ?? String(activeHash) },
+                ]}
+                className={styles.ghost}
+              />
+            ) : undefined
           }
           inactiveControl={
             !!apiUrl &&

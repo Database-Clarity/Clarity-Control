@@ -349,11 +349,11 @@ describe('brand', () => {
 describe('brand on landing', () => {
   // A window 1280px wide: width media queries in px or em (16px) answer against it.
   const viewport = 1280;
-  const media = (query: string) => {
+  const media = (query: string, width = viewport) => {
     const match = /\((min|max)-width:\s*([\d.]+)(px|em)\)/.exec(query);
     const px = match ? Number(match[2]) * (match[3] === 'em' ? 16 : 1) : 0;
     return {
-      matches: match ? (match[1] === 'min' ? viewport >= px : viewport <= px) : false,
+      matches: match ? (match[1] === 'min' ? width >= px : width <= px) : false,
       media: query,
       addEventListener() {},
       removeEventListener() {},
@@ -426,9 +426,16 @@ describe('brand on landing', () => {
   });
 
   it('estimates a band the account never settled in from its remembered role', async () => {
+    // Include the Worklists control in the reserve: the compact ratio fits at 85rem,
+    // while the enlarged ratio still needs the mark instead of the full lockup.
+    const fittingWidth = 1360;
+    vi.stubGlobal('innerWidth', fittingWidth);
+    vi.stubGlobal('matchMedia', (query: string) => media(query, fittingWidth));
+    bar.mockRestore();
+    bar = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(fittingWidth);
     localStorage.setItem('clarity-editor-session', token);
     // A translator who settled only in the widest band: Editor, Translations, and Reports here
-    // (~23rem) leave the lockup room at 80rem.
+    // (~28rem, including Worklists) leave the lockup room at 85rem.
     remember({
       account: { role: 'translator', projects: false },
       ratio: 1,
