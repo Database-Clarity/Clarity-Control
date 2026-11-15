@@ -7,8 +7,126 @@ import { Popover } from './Popover';
 let cleanup: () => Promise<void>;
 afterEach(async () => {
   await cleanup?.();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+async function hoverHarness() {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const mount = document.createElement('div');
+  document.body.append(mount);
+  const root = createRoot(mount);
+  cleanup = async () => {
+    await act(async () => root.unmount());
+    mount.remove();
+  };
+  await act(async () =>
+    root.render(
+      <>
+        <input aria-label="Translation editor" />
+        <Popover label="English original" trigger="Chaos remanié" openOnHover>
+          <input aria-label="Popover field" />
+        </Popover>
+      </>,
+    ),
+  );
+  return { trigger: mount.querySelector('button')!, editor: mount.querySelector('input')! };
+}
+
+function pointer(target: HTMLElement, type: 'pointerover' | 'pointerout', pointerType = 'mouse') {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperties(event, {
+    pointerType: { value: pointerType },
+    relatedTarget: { value: document.body },
+  });
+  target.dispatchEvent(event);
+}
+
+it('ignores touch hover while allowing a deliberate tap to open the popover', async () => {
+  const { trigger } = await hoverHarness();
+  await act(async () => pointer(trigger, 'pointerover', 'touch'));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await act(async () => trigger.click());
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+});
+
+it('dismisses a hover-only popover without moving focus from the editor', async () => {
+  const { trigger, editor } = await hoverHarness();
+  await act(async () => editor.focus());
+  await act(async () => pointer(trigger, 'pointerover'));
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  expect(document.activeElement).toBe(editor);
+  await act(async () =>
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(editor);
+});
+
+it.each(['click', 'keyboard'])(
+  'returns focus after Escape for a popover opened by %s',
+  async (method) => {
+    const { trigger } = await hoverHarness();
+    await act(async () => (method === 'click' ? trigger.click() : trigger.focus()));
+    const field = document.querySelector<HTMLInputElement>('[aria-label="Popover field"]')!;
+    await act(async () => field.focus());
+    await act(async () =>
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  },
+);
+
+it('returns focus for an explicit click even when the editor retained focus', async () => {
+  const { trigger, editor } = await hoverHarness();
+  await act(async () => editor.focus());
+  await act(async () => trigger.click());
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  expect(document.activeElement).toBe(editor);
+  await act(async () =>
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+});
+
+it.each(['trigger', 'content'])(
+  'keeps a focused %s open on pointer leave until focus leaves',
+  async (owner) => {
+    const { trigger, editor } = await hoverHarness();
+    vi.useFakeTimers();
+    await act(async () => pointer(trigger, 'pointerover'));
+    const field = document.querySelector<HTMLInputElement>('[aria-label="Popover field"]')!;
+    const focused = owner === 'trigger' ? trigger : field;
+    await act(async () => focused.focus());
+    await act(async () =>
+      pointer(
+        owner === 'trigger' ? trigger : field.closest<HTMLElement>('[role="dialog"]')!,
+        'pointerout',
+      ),
+    );
+    await act(async () => vi.advanceTimersByTime(151));
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.activeElement).toBe(focused);
+    await act(async () => editor.focus());
+    await act(async () => vi.advanceTimersByTime(151));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(editor);
+  },
+);
+
+it('closes a mouse-hover popover after pointer leave when neither surface owns focus', async () => {
+  const { trigger, editor } = await hoverHarness();
+  vi.useFakeTimers();
+  await act(async () => editor.focus());
+  await act(async () => pointer(trigger, 'pointerover'));
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  await act(async () => pointer(trigger, 'pointerout'));
+  await act(async () => vi.advanceTimersByTime(151));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(editor);
 });
 it('reveals hover content on focus and stays closed when Escape restores trigger focus', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
