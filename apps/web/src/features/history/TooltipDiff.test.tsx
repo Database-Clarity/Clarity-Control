@@ -98,3 +98,23 @@ it('shows styled Compendium snapshot edits, additions and removals in history/re
     expect(html).toContain('text-align:center');
   }
 });
+
+it('explains frozen removed numbers and English fallback even when translated text did not change', () => {
+  const stamp = { updatedAt: '2026-11-15T00:00:00Z', updatedBy: 'author' };
+  const current: Tooltip = {
+    hash: 10,
+    associated: [],
+    text: {
+      en: { text: 'Grants stacks.', ...stamp, numbers: { ids: [], next: 2, retired: { 1: '5' } } },
+      de: { text: '#{=1} Stapel', ...stamp },
+    },
+  };
+  const render = () =>
+    renderToStaticMarkup(createElement(TooltipDiff, { before: current, current, raw: false }));
+  expect(render()).toContain('Numbers removed from English;');
+  expect(render()).toContain('tokens keep their frozen old values until removed.');
+  current.text.en!.numbers!.retired[1] = null;
+  expect(render()).toContain('this translation exports in English.');
+  current.text.de!.text = 'Stapel';
+  expect(render()).not.toContain('Numbers removed');
+});

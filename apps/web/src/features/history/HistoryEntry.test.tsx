@@ -603,3 +603,27 @@ it('Esc on an open term inside the revision closes the term first, then the revi
   await escape();
   expect(dialog()).toBeNull();
 });
+
+it('shows carried languages for this tooltip from a trailer after Clarity-Changed', async () => {
+  const release = await holdRevisionLoads(17);
+  getHistory.mockResolvedValue({
+    page: 1,
+    commits: [
+      {
+        ...commit(4),
+        message: 'Balance\n\nClarity-Changed: 18=en;19=de\nClarity-Carried: 18=de,fr;19=it',
+      },
+    ],
+  });
+  useDataStore.setState((state) => ({
+    data: {
+      ...state.data!,
+      bundle: { ...state.data!.bundle, tooltips: { 18: { ...base, hash: 18 } } },
+    },
+  }));
+  await act(async () => root.render(<HistoryPanel hash={18} />));
+  await wait(410);
+  expect(host.textContent).toContain('Numbers carried to de, fr');
+  expect(host.textContent).not.toContain('Numbers carried to it');
+  release();
+});

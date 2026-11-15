@@ -25,6 +25,7 @@ import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
 import {
   isRelevant,
+  carriedFromTrailer,
   noImpactFromTrailer,
   projectHistory,
   viewScope,
@@ -339,6 +340,7 @@ function HistoryContent({
               current={current}
               item={item}
               translator={user?.role === 'translator'}
+              carriedLanguages={carriedFromTrailer(entry.message, hash)}
               noTranslationImpact={noImpactFromTrailer(entry.message, hash)}
               canRestore={canRestore}
               onRestore={restore}
