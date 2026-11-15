@@ -15,7 +15,10 @@ const prepareDescription = (descriptionData: DescriptionData) => {
   description = removePerkSpecificText(description, database[hash].type)
 
   description = loadVariables({ ...descriptionData, descriptionString: description })
-  description = doMath(description)
+  // Core exports English fallback as an exact copy, which keeps English decimals too.
+  const editor = database[hash].editor
+  const numberLanguage = editor[language]?.main === editor.en?.main ? 'en' : language
+  description = doMath(description, numberLanguage)
 
   return {
     preparedDescription: removeUnusedText(description.trim()),
