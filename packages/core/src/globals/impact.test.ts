@@ -212,6 +212,23 @@ it('blocks unreviewable alias-specific conditional renders and missing alias typ
   expect(impacted(before).blockers.join(' ')).toContain('Missing alias converter type provenance');
 });
 
+it('fails closed for hidden import contexts while retaining the visible missing-import control', () => {
+  const hidden = snapshot([
+    tooltip(2, 'var damage = 10'),
+    tooltip(3, ''),
+    tooltip(100, 'export hidden Unused (\nimport Shared from 999\n)\nPlain'),
+  ]);
+  const result = impacted(hidden);
+  expect(result.complete).toBe(false);
+  expect(result.blockers.join(' ')).toContain('Hidden import context');
+  const visible = snapshot([
+    tooltip(2, 'var damage = 10'),
+    tooltip(3, ''),
+    tooltip(100, 'import Shared from 999\nPlain'),
+  ]);
+  expect(impacted(visible).blockers.join(' ')).toContain('Unresolved import');
+});
+
 it('matches actual converter decimals for fallback, identical translations, and different translated inputs', () => {
   for (const translated of ['Alt', '#damage', '#damage DE']) {
     const consumer = tooltip(100, '#damage', translated);

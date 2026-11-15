@@ -162,6 +162,17 @@ it('protects arrow definitions against language removal, clearing, and replaceme
   }
 });
 
+it('renames title targets with > in their labels, and preserves title/link variable labels', () => {
+  expect(
+    rewriteGlobalReferences('<title Damage > limit [Info] />', 'titles', 'Info', 'Other').text,
+  ).toBe('<title Damage > limit [Other] />');
+  const labels =
+    '<title #damage > limit [Info] />\n<link #damage > limit [https://example.test/] />\n#damage';
+  expect(rewriteGlobalReferences(labels, 'variables', 'damage', 'hit').text).toBe(
+    '<title #damage > limit [Info] />\n<link #damage > limit [https://example.test/] />\n#hit',
+  );
+});
+
 describe.each(['live', 'intermediate'])('%s complete immutable fixture census', (name) => {
   it('proves aggregate, legacy consumer-input, and real resolver output parity', () => {
     const raw = database(name);

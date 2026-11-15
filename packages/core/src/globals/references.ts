@@ -15,7 +15,7 @@ export function globalReferenceSpans(
   kind: GlobalRecord['kind'],
 ): GlobalReferenceSpan[] {
   const { comments } = markupCommentContext(text);
-  const tags = [...text.matchAll(/<(title|link) ([^>\n]*?) \[([^\]\n]+)\] \/>/dg)];
+  const tags = [...text.matchAll(/<(title|link) ([^\n]*?) \[([^\]\n]+)\] \/>/dg)];
   const labels = tags.map((tag) => ({ from: tag.indices![2][0], to: tag.indices![2][1] }));
   const bracketedLabel = (label: string) => label.includes('[') || label.includes(']');
   // A whole variable target is explicit (`[#url]` or `[#{url}]`). Literal URLs and their

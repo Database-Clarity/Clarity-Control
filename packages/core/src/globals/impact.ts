@@ -1,6 +1,7 @@
 import { resolveAlias } from '../aliases.js';
 import { type Lang } from '../languages.js';
 import { parseMarkup } from '../markup/parse.js';
+import { markupImports, removeUnusedText } from '../markup/prepare.js';
 import { isTextlessDescription, tooltipSchema } from '../schemas.js';
 import { validateTextWithReads } from '../validation/index.js';
 import {
@@ -63,6 +64,16 @@ function resolveSnapshot(
         blockers.add(`Missing converter type provenance: ${snapshot.revision}/${tooltip.hash}`);
       for (const language of Object.keys(tooltip.text)) {
         const lang = language as Lang;
+        // The converter executes imports even inside hidden exports, where the core parser
+        // suppresses unresolved-import diagnostics. Conservatively block that unproven context;
+        // do not reconstruct import expansion or symbol resolution here (triage 2).
+        const blockHiddenImports = (source: string) => {
+          const visible = removeUnusedText(source, false);
+          if (markupImports(source).some((line) => !visible.includes(line.trim())))
+            blockers.add(
+              `Hidden import context requires review: ${snapshot.revision}/${tooltip.hash}/${lang}`,
+            );
+        };
         const catalog = new Proxy<Record<string, string>>(
           {},
           {
@@ -71,13 +82,17 @@ function resolveSnapshot(
               const hash = key === 'global' ? 1 : Number(key);
               if (!Number.isInteger(hash)) return undefined;
               const imported = snapshot.tooltips[resolveAlias(hash, snapshot.aliases)];
-              return imported && !(snapshot.mode === 'live' && isTextlessDescription(imported))
-                ? globalSourceText(imported, lang, snapshot.mode)
-                : undefined;
+              const source =
+                imported && !(snapshot.mode === 'live' && isTextlessDescription(imported))
+                  ? globalSourceText(imported, lang, snapshot.mode)
+                  : undefined;
+              if (source !== undefined) blockHiddenImports(source);
+              return source;
             },
           },
         );
         const text = globalSourceText(tooltip, lang, snapshot.mode)!;
+        blockHiddenImports(text);
         // The live converter retains English decimals whenever its exported inputs are equal,
         // including fallback and translations that happen to contain the same authored text.
         const numberLanguage =
