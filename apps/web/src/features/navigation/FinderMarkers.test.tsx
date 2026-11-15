@@ -197,3 +197,26 @@ it('keeps the marker tokens at 3:1 on base, hover, and selected rows in both the
         ).toBeGreaterThanOrEqual(3);
   }
 });
+
+it('defers saved-state indexing during editor focus and resumes after leaving the editor', async () => {
+  vi.useFakeTimers();
+  const editor = document.createElement('div');
+  editor.className = 'cm-content';
+  editor.tabIndex = 0;
+  document.body.append(editor);
+  editor.focus();
+  const completed = vi.fn();
+  try {
+    const pending = prepareFinderMarkers(fixture(), null, 'en').then(completed);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(completed).not.toHaveBeenCalled();
+    editor.blur();
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(completed).toHaveBeenCalledOnce();
+    expect(completed.mock.calls[0][0].get(10)).toBe(Missing);
+  } finally {
+    editor.remove();
+    vi.useRealTimers();
+  }
+});

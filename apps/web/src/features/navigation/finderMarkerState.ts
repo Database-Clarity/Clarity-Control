@@ -66,8 +66,18 @@ export function prepareFinderMarkers(
     const own = new Map<number, number>();
     const index = new Map<number, number>();
     const idle = (run: () => void) => {
-      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 1000 });
-      else setTimeout(run, 0);
+      const proceed = () => {
+        // Editing owns the main thread. Saved markers can finish when the finder takes focus;
+        // Unsaved is independent and still updates on the first edit and on clearing a draft.
+        if (typeof document !== 'undefined' && document.activeElement?.closest('.cm-content')) {
+          setTimeout(() => idle(run), 250);
+          return;
+        }
+        run();
+      };
+      if (typeof requestIdleCallback === 'function')
+        requestIdleCallback(proceed, { timeout: 1000 });
+      else setTimeout(proceed, 0);
     };
     const fill = () => {
       for (let n = 0; n < 32; n++) {

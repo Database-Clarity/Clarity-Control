@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { useDraftStore } from '../../stores/drafts';
 import { upcomingStore } from '../tooltip/UpcomingSwitch.store';
 import { TitleAnchor } from '../preview/MarkupRenderer';
@@ -59,9 +59,12 @@ export const FinderMarkers = memo(function FinderMarkers({
   flags?: number;
 }) {
   const members = useMemo(() => new Set(hashes), [hashes]);
-  const unsaved = useDraftStore((state) =>
-    Object.keys(state.drafts).some((hash) => members.has(Number(hash))),
+  const selectUnsaved = useCallback(
+    (state: ReturnType<typeof useDraftStore.getState>) =>
+      hashes.some((hash) => !!state.drafts[hash]),
+    [hashes],
   );
+  const unsaved = useDraftStore(selectUnsaved);
   return (
     <span
       className={styles.slot}
