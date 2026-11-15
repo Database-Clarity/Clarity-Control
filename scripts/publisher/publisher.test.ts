@@ -1688,7 +1688,9 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         f.change(D, {
           'config/sandbox-pointers.json': {
             version: 1,
-            pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+            pointers: {
+              700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' },
+            },
           },
         });
       }

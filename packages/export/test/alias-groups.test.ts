@@ -178,10 +178,12 @@ test('v1 uses a name alias own category and facts, with frame and sandbox toggle
 
 test('v1 refuses cyclic and deleted imports through name aliases using the real resolver', () => {
   const file = newStyleFile('aliases', 'plain', {
-    categories: ['weapon-trait'], languages: ['en'], sandboxPerks: [],
+    categories: ['weapon-trait'],
+    languages: ['en'],
+    sandboxPerks: [],
   });
   const source = input();
-  const catalog = { items: { ...items, 300: item(300) }, categories: [{id:'weapon-trait'}] };
+  const catalog = { items: { ...items, 300: item(300) }, categories: [{ id: 'weapon-trait' }] };
   const canonical = source.perks[100]!;
   if ('aliasOf' in canonical) throw new Error('Expected canonical');
   canonical.editor.en!.main = 'import main from 300';

@@ -224,7 +224,10 @@ export class Publisher {
   }
   /** The read-only parity command shares the same pinned-fact checks and composition. */
   static aliasesAt(
-    options: Pick<Options, 'aliases' | 'facts' | 'generatorSha' | 'aliasFacts' | 'sandboxConflicts'>,
+    options: Pick<
+      Options,
+      'aliases' | 'facts' | 'generatorSha' | 'aliasFacts' | 'sandboxConflicts'
+    >,
     raw: unknown,
     pointers: unknown,
   ): Aliases {
@@ -248,7 +251,9 @@ export class Publisher {
         const item = facts.items?.[hash];
         if (
           !item ||
-          !Number.isInteger(item.hash) || item.hash < 0 || item.hash > 0xffffffff ||
+          !Number.isInteger(item.hash) ||
+          item.hash < 0 ||
+          item.hash > 0xffffffff ||
           String(item.hash) !== hash ||
           typeof item.name !== 'string' ||
           typeof item.categoryId !== 'string' ||

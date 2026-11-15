@@ -34,7 +34,8 @@ const receipt = read(commit, receiptPath);
 if (!/^[a-f0-9]{40}$/.test(commit) || !receiptPath.startsWith('.publish/receipts/'))
   throw new Error('Exact test live commit and receipt required');
 const config = JSON.parse(readFileSync(configPath, 'utf8')) as Pick<
-  Options, 'facts' | 'aliases' | 'sandboxConflicts' | 'generatorSha' | 'aliasFacts'
+  Options,
+  'facts' | 'aliases' | 'sandboxConflicts' | 'generatorSha' | 'aliasFacts'
 >;
 if (config.generatorSha !== receipt.generatorSha)
   throw new Error('Generator pin differs from receipt');
