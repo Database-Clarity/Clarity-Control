@@ -333,7 +333,8 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     return { op, group, members, archive };
   });
   const read = await github.files([...touched].map(tooltipPath), head);
-  const files = new Map([...touched].map((hash, i) => [hash, read[i] ?? null]));
+  const liveFiles = new Map([...touched].map((hash, i) => [hash, read[i] ?? null]));
+  const files = new Map(liveFiles);
   const retainedPaths = plans.flatMap(({ archive }) =>
     archive
       ? Object.entries(archive.files)
@@ -360,6 +361,7 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     }
     let originals: Record<string, string | null>;
     if (op.op === 'accept' || op.op === 'split') {
+      // A manual accept overrides a rejection; keep the rejection entry as history.
       if (
         members.some((hash) =>
           Object.values(config.groups).some((existing) => existing.members.includes(hash)),
@@ -392,7 +394,7 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
           );
         for (const [hash, sha] of Object.entries(originals)) {
           if (sha) blobRefs[tooltipPath(hash)] = sha;
-          else deletions.add(tooltipPath(hash));
+          else if (liveFiles.get(Number(hash))) deletions.add(tooltipPath(hash));
           changed.set(
             Number(hash),
             sha ? (retainedFiles.get(retainedPath(archive, hash)) ?? null) : null,
@@ -462,14 +464,14 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
       if (sha) blobRefs[retainedPath(archive, hash)] = sha;
     for (const hash of members) {
       if (hash !== canonical) {
-        deletions.add(tooltipPath(hash));
+        if (liveFiles.get(hash)) deletions.add(tooltipPath(hash));
         changed.set(hash, null);
       }
     }
     const selected = files.get(canonical);
     changed.set(canonical, selected ?? null);
     if (selected) blobRefs[tooltipPath(canonical)] = selected.sha;
-    else deletions.add(tooltipPath(canonical));
+    else if (liveFiles.get(canonical)) deletions.add(tooltipPath(canonical));
   }
   const after = compose(next);
   const issues = after.issues.filter((issue) => changedGroups.has(issue.canonical));

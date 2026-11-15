@@ -99,7 +99,10 @@ beforeEach(async () => {
     .mockImplementation(async (expected, changes, _message, _user, options = {}) => {
       expect(expected).toBe(head);
       for (const [path, value] of Object.entries(changes)) await put(path, value);
-      for (const path of options.deletions ?? []) files.delete(path);
+      for (const path of options.deletions ?? []) {
+        if (!files.has(path)) throw new Error(`Cannot delete absent path: ${path}`);
+        files.delete(path);
+      }
       for (const [path, oid] of Object.entries(options.blobRefs ?? {})) {
         expect(blobs.has(oid)).toBe(true);
         files.set(path, oid);
@@ -166,6 +169,7 @@ it('atomically archives exact CRLF/non-ASCII blobs, absence, and removes only no
   ]);
   expect(result.affectedCanonicals).toEqual([42, 43, 44]);
   expect(read('tooltips/43.json')).toBeNull();
+  expect(writes.mock.calls[0]![4]?.deletions).not.toContain('tooltips/44.json');
   const archive = result.config.archives![0]!;
   expect(archive.files).toEqual({
     42: before.get('tooltips/42.json'),
@@ -180,6 +184,7 @@ it('atomically archives exact CRLF/non-ASCII blobs, absence, and removes only no
   expect(files.get('tooltips/42.json')).toBe(before.get('tooltips/42.json'));
   expect(blobs.get(files.get('tooltips/43.json')!)).toBe(raw);
   expect(read('tooltips/44.json')).toBeNull();
+  expect(writes.mock.calls[1]![4]?.deletions).not.toContain('tooltips/44.json');
   expect(writes).toHaveBeenCalledTimes(2);
 });
 
@@ -222,6 +227,33 @@ it('accepts split subsets, stamps rejections, and invalidates stale membership/f
   const accepted = await run([await intent('split', [42, 44])]);
   expect(accepted.config.groups[42]!.members).toEqual([42, 44]);
   expect(read('tooltips/43.json')).not.toBeNull();
+});
+
+it('allows manual acceptance of a rejected digest and preserves its rejection history', async () => {
+  const reject = { ...(await intent('reject')), reason: 'Previously declined' };
+  const rejected = (await run([reject])).config.rejected;
+  const accepted = await run([await intent()]);
+  expect(accepted.config.groups[42]!.members).toEqual([42, 43]);
+  expect(accepted.config.rejected).toEqual(rejected);
+});
+
+it('bounds member counts, notes, and rejection reasons before reading facts or writing', async () => {
+  const accept = (await intent()) as Extract<AliasGroupOperation, { op: 'accept' }>;
+  const reject = (await intent('reject')) as Extract<AliasGroupOperation, { op: 'reject' }>;
+  for (const op of [
+    { ...accept, members: Array.from({ length: 257 }, (_, i) => 42 + i) },
+    { ...reject, members: Array.from({ length: 257 }, (_, i) => 42 + i) },
+    { ...accept, note: 'x'.repeat(501) },
+    { ...reject, reason: 'x'.repeat(501) },
+  ]) {
+    await expect(run([op])).rejects.toMatchObject({ status: 400 });
+  }
+  expect(generatorUrls).toEqual([]);
+  expect(writes).not.toHaveBeenCalled();
+  await run([{ ...reject, reason: 'x'.repeat(500) }]);
+  expect((await run([{ ...accept, note: 'x'.repeat(500) }])).config.groups[42]!.note).toHaveLength(
+    500,
+  );
 });
 
 it('rejects stale heads and ref races without a rebase or retry', async () => {
