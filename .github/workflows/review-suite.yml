@@ -63,14 +63,32 @@ jobs:
           node-version: 24
           cache: npm
       - id: install
+        timeout-minutes: 5
         continue-on-error: true
         run: npm ci --no-audit --no-fund
       - id: test
+        timeout-minutes: 10
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
-          npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }} 2>&1 | tee test.log
+          timeout --signal=TERM --kill-after=30s 8m npm test -- \
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
+            --testTimeout=20000 --hookTimeout=20000 \
+            --reporter=default --reporter=./.github/scripts/review_suite_reporter.mjs \
+            --reporter=hanging-process --reporter=json --outputFile.json=test-results.json \
+            2>&1 | tee test.log
+      - name: Preserve shard diagnostics
+        if: always()
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-suite-shard-${{ matrix.shard }}
+          path: |
+            test.log
+            test-results.json
+          retention-days: 7
       - name: Report actual check results
         if: always()
         env:

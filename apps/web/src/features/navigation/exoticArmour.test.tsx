@@ -110,19 +110,37 @@ describe('exotic armour in the list', () => {
 
 describe('exotic armour row icons', () => {
   const contraverse = `${armourIcons.source.prefix}${(armourIcons.icons as Record<string, string>)['1906093346']}`;
-  it('shows the piece icon for one piece, the perk icon for several or none', () => {
+  it('shows the piece icon for one piece and the perk icon for several', () => {
     expect(contraverse).toMatch(/^\/common\/destiny2_content\/icons\/\w+\.jpg$/);
     expect(exoticArmourRowIcon(data.items[101])).toBe(contraverse);
     expect(exoticArmourRowIcon(data.items[103])).toBe(
       '/common/destiny2_content/icons/perk-103.png',
     );
-    // Owner-less in the data (itemHash only): the perk keeps its own icon.
+    // Owner-less in the data (itemHash only): an unknown piece keeps an empty box.
     expect(exoticArmourRowIcon(data.items[102])).toBe('');
     expect(
       exoticArmourRowIcon(perk(7, 'Lone', { icon: '/p.png', itemHash: 1906093346 }) as never),
-    ).toBe('/p.png');
+    ).toBe(contraverse);
     // Other categories keep the row's own icon.
     expect(exoticArmourRowIcon(data.items[20])).toBeUndefined();
+  });
+
+  it('uses itemHash for Eunoia when generator owners are absent, including the preview', () => {
+    const eunoia = perk(2826938963, "Consul's Pitch", {
+      icon: '/common/destiny2_content/icons/ae8c3388b411cf880f9dd76de7e79072.png',
+      itemHash: 3481695565,
+      itemName: 'Eunoia',
+    });
+    const icon = `${armourIcons.source.prefix}${armourIcons.icons['3481695565']}`;
+    expect(icon).toBe('/common/destiny2_content/icons/2964b23eaa7ace60ac320c51dc500198.jpg');
+    for (const owners of [undefined, []]) {
+      const item = { ...eunoia, owners };
+      expect(exoticArmourRowIcon(item as never)).toBe(icon);
+      expect(exoticPiece(item as never)).toBe('Eunoia');
+      expect(editorName(item as never)).toBe("Eunoia · Consul's Pitch");
+      expect(previewPieceIcon(item as never)).toBe(icon);
+    }
+    expect(exoticArmourRowIcon(perk(9, 'Unknown', { icon: '/perk.png' }) as never)).toBe('');
   });
 
   it('leaves the box empty for a piece missing from the icon file, never another icon', () => {
@@ -256,9 +274,9 @@ describe('exotic armour in the editor headings', () => {
   it('gives the header the piece icon only for a named single piece', () => {
     const contraverse = `${armourIcons.source.prefix}${(armourIcons.icons as Record<string, string>)['1906093346']}`;
     expect(previewPieceIcon(data.items[101])).toBe(contraverse);
-    // Aeon (several pieces), owner-less perks, and other categories: no piece icon.
+    // Aeon (several pieces) and other categories: no piece icon; unknown pieces: empty box.
     expect(previewPieceIcon(data.items[103])).toBeUndefined();
-    expect(previewPieceIcon(data.items[102])).toBeUndefined();
+    expect(previewPieceIcon(data.items[102])).toBe('');
     expect(previewPieceIcon(data.items[20])).toBeUndefined();
     const striders = perk(6, 'Blastwave Striders', {
       itemHash: 1188437342,

@@ -55,7 +55,6 @@ import {
   positionLabel,
   createWheelStepper,
   resolvePlace,
-  scopeValue,
   stepTarget,
   target as stepRoute,
   tooltipPath,
@@ -80,6 +79,17 @@ import styles from './TooltipFinder.module.scss';
 import { FinderPicker, type PickerSection } from './FinderPicker';
 import { FinderIcon } from './FinderIcon';
 import { FinderMarkers } from './FinderMarkers';
+import {
+  markedRouteCategory,
+  markedRowScope,
+  markedScopeValue as scopeValue,
+} from '../marks/finder';
+import { FinderEntryMarks } from '../marks/FinderEntryMarks';
+import type { MarkDisplay } from '../marks/finder';
+import { useMarkedFinder } from '../marks/useMarkedFinder';
+import { MarkedWorkThrough } from '../marks/queue';
+import { useLeftQueue } from '../queue/useQueue';
+import { FinderMarkGroup } from '../marks/FinderMarkGroup';
 import { prepareFinderMarkers, rollupFinderMarkers, type MarkerIndex } from './finderMarkerState';
 import { defaultLanguage } from '../tooltip/language';
 import { WorkspaceLanguageContext } from '../tooltip/WorkspaceLanguage';
@@ -182,6 +192,7 @@ const FinderOption = memo(function FinderOption({
   active,
   data,
   markerIndex,
+  marksIndex,
   source,
   allCategories,
   onActive,
@@ -199,6 +210,7 @@ const FinderOption = memo(function FinderOption({
   active: boolean;
   data: EditorData;
   markerIndex: MarkerIndex;
+  marksIndex: ReadonlyMap<number, readonly MarkDisplay[]>;
   source: ReturnType<typeof useCompendiumStore.getState>['data'];
   allCategories: boolean;
   onActive(index: number): void;
@@ -214,6 +226,7 @@ const FinderOption = memo(function FinderOption({
   const globalContents = useGlobalHover(row.global, data);
   const item = itemFor(row.hash, data);
   const markerHashes = useMemo(() => variantHashes(row.hash, data), [row.hash, data]);
+  const entryMarks = row.global ? undefined : marksIndex.get(row.hash);
   const shared = sharedPerkLabel(row.hash, data, source);
   const frames = frameGroupSize(row.hash, data);
   const enhanced = enhancedPairs(row.hash, data).length > 0;
@@ -242,6 +255,7 @@ const FinderOption = memo(function FinderOption({
       className={styles.option}
       data-two-line={(!row.global && (stacked || narrow)) || undefined}
       data-grouped={row.group || undefined}
+      data-entry-marked={!!entryMarks?.length || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
       onClick={() => onCommit.current(row)}
@@ -272,6 +286,7 @@ const FinderOption = memo(function FinderOption({
       )}
       <span className={styles.markers}>
         <FinderMarkers hashes={markerHashes} flags={row.global ? 0 : markerIndex.get(row.hash)} />
+        {!!entryMarks?.length && <FinderEntryMarks entries={entryMarks} />}
       </span>
     </li>
   );
@@ -437,6 +452,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   data: EditorData;
   variant?: 'bar' | 'sheet';
 }) {
+  useLeftQueue();
   const compendiumSource = useCompendiumStore((state) => state.data);
   const sheetOpen = useContext(FinderSheetContext);
   const closeSheet = useContext(FinderSheetCloseContext);
@@ -470,13 +486,19 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     data,
     open || new URLSearchParams(finderLocation.search).has('global'),
   );
-  const groups = useMemo(
+  const baseGroups = useMemo(
     () => navigationGroups(data, '', globalDefinitions),
     [data, globalDefinitions],
   );
-  const found = useMemo(
-    () => (query.trim() ? navigationGroups(data, query, globalDefinitions) : groups),
-    [data, groups, query, globalDefinitions],
+  const baseFound = useMemo(
+    () => (query.trim() ? navigationGroups(data, query, globalDefinitions) : baseGroups),
+    [data, baseGroups, query, globalDefinitions],
+  );
+  const { groups, found, marksIndex, loadMarkedSection } = useMarkedFinder(
+    baseGroups,
+    baseFound,
+    query,
+    finderLocation.search,
   );
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
@@ -518,9 +540,10 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     sections.find(
       (category) =>
         category.id ===
-        (selectedGlobal
-          ? `globals-${selectedGlobal.kind}`
-          : finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? '')),
+        (markedRouteCategory(hash, routeSearch, sections) ??
+          (selectedGlobal
+            ? `globals-${selectedGlobal.kind}`
+            : finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? ''))),
     ) ?? sections[0];
   const items = selectedCategory?.items ?? noItems;
   const grouped = useMemo(
@@ -924,6 +947,14 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       setAllGroups(false);
     }
   }, [variant, sheetOpen]);
+  useEffect(() => {
+    const returned = (
+      location.state as { workThroughReturn?: { type?: unknown; query?: unknown } } | null
+    )?.workThroughReturn;
+    if (typeof returned?.type !== 'string' || typeof returned.query !== 'string') return;
+    setQuery(returned.query);
+    setOpen(true);
+  }, [location.key, location.state]);
   const sheetPlace = variant === 'sheet' ? `${hash}:${place.group}` : '';
   useLayoutEffect(() => {
     if (!open) return;
@@ -1026,10 +1057,11 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     // the prompt that explains why is not the only thing on screen).
     // A row of an All list keeps the All scope; a weapon's own rows keep the weapon's.
     const scopeParam =
-      grouped && row.group
+      markedRowScope(row) ??
+      (grouped && row.group
         ? (scopeValue({ hash: row.hash, group: row.group }, Boolean(row.all), grouped.firstGroup) ??
           null)
-        : null;
+        : null);
     if (choose(row.hash, scopeParam, row.global) && variant === 'sheet') closeSheet?.();
   }
   const commitRef = useRef(commit);
@@ -1139,6 +1171,24 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     place.all || allGroups || allCategories || (narrowed && Boolean(grouped?.owners.size));
   const listbox = open && (
     <div className={styles.popup} data-variant={variant} data-wide={wideRows || undefined}>
+      {variant === 'bar' && (
+        <FinderMarkGroup
+          grouped={grouped}
+          hash={hash}
+          group={place.group}
+          all={place.all}
+          choose={chooseRef.current}
+        />
+      )}
+      {variant === 'bar' && (
+        <MarkedWorkThrough
+          data={data}
+          group={place.group}
+          all={place.all}
+          query={query}
+          onStart={restore}
+        />
+      )}
       <ul
         ref={list}
         id={listId}
@@ -1182,6 +1232,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           revealedActive={revealedActive}
           data={data}
           markerIndex={markerIndex}
+          marksIndex={marksIndex}
           source={compendiumSource}
           allCategories={allCategories}
           onActive={hoverActive}
@@ -1282,7 +1333,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       empty="No matching categories"
       onChange={(id) => {
         // A new category opens its first entry, in the scope of every group.
-        const next = sections.find((category) => category.id === id);
+        const next =
+          id === 'marked' ? loadMarkedSection() : sections.find((category) => category.id === id);
         const grouping = next && groupedSection(next, data);
         const first = grouping ? grouping.all[0] : next?.items[0];
         if (!first) return;
@@ -1462,12 +1514,19 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
               </div>
             )}
           </div>
+          <MarkedWorkThrough
+            data={data}
+            group={place.group}
+            all={place.all}
+            query={query}
+            onStart={closeSheet ?? restore}
+          />
           {comboNode}
         </>
       ) : (
         <>
           {categoryNode}
-          {groupNode}
+          {selectedCategory?.id !== 'marked' && groupNode}
           {comboNode}
           {positionNode}
         </>
