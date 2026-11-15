@@ -4,6 +4,7 @@ import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { deleteCharBackward, history, undo } from '@codemirror/commands';
 import { numberSource, tokenizedEnglish } from './model';
+import { missingNumberVariables } from './diagnostics';
 import {
   dismissNumberOffer,
   insertNumber,
@@ -34,6 +35,17 @@ function editor(english: string, doc = '') {
   return view;
 }
 const text = (view: EditorView) => view.state.doc.toString();
+
+it('inserts transitive local variables with the formula in one undo and without W7', () => {
+  const english = 'var a = 2\nvar d = #a\nDamage ${5+#d}.';
+  const view = editor(english);
+  insertNumber(view, 2);
+  expect(text(view)).toContain('var a = #{=1}');
+  expect(text(view)).toContain('var d = #a');
+  expect(missingNumberVariables(text(view), english, undefined, 'de')).toEqual([]);
+  undo(view);
+  expect(text(view)).toBe('');
+});
 
 it('inserts source clicks at the end before caret placement and then retains selections', () => {
   const view = editor('Value 5.', 'Word');

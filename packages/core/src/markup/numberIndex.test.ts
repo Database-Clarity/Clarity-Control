@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { parseMarkup } from './parse.js';
-import type { MarkupLine, MarkupSpan } from './types.js';
+import type { MarkupGlobals, MarkupLine, MarkupSpan } from './types.js';
 
 function parts(lines: MarkupLine[]): MarkupSpan[] {
   return lines.flatMap((line) => [
@@ -13,6 +13,38 @@ const indexedValues = (spans: MarkupSpan[]) =>
   spans.flatMap(
     (span) => span.slots?.map((slot) => [slot.id, span.text?.slice(slot.from, slot.to)]) ?? [],
   );
+
+it('previews frozen values, unknown ids, and unfreezable English fallback without leaking tokens', () => {
+  const globals: MarkupGlobals = {
+    variables: '',
+    titles: '',
+    numberInput: {
+      values: new Map([
+        [1, '4.5'],
+        [2, '${5+10}'],
+        [3, null],
+      ]),
+      english: 'English 9.',
+      lang: 'de',
+      fallback: false,
+    },
+  };
+  const rendered = parseMarkup('Wert #{=1}, alt #{=2}, unbekannt #{=99}.', globals);
+  expect(
+    parts(rendered.lines)
+      .map((part) => part.text ?? '')
+      .join(''),
+  ).toBe('Wert 4,5, alt 15, unbekannt ?.');
+  expect(
+    rendered.diagnostics.some(
+      (issue) => issue.severity === 'error' && issue.message.includes('99'),
+    ),
+  ).toBe(true);
+  expect(parseMarkup('Unklar #{=3}.', globals)).toEqual(
+    parseMarkup('English 9.', { variables: '', titles: '', lang: 'en' }),
+  );
+  expect(parseMarkup('Literal 4.5.', globals)).toEqual(parseMarkup('Literal 4.5.'));
+});
 
 it('keeps empty variables, inline markup variables, and trailing whitespace invisible', () => {
   for (const source of [
