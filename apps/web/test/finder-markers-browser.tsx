@@ -7,6 +7,17 @@ import { useDraftStore } from '../src/stores/drafts';
 import { upcomingStore } from '../src/features/tooltip/UpcomingSwitch.store';
 import type { EditorData } from '../src/stores/data';
 import '../src/ui/global.scss';
+import { appliedUiScale } from '../src/ui/uiScale';
+Object.assign(window, {
+  applyFinderScale(theme: string, requested: number) {
+    const applied = appliedUiScale(requested, innerWidth);
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.uiScale = String(applied);
+    document.documentElement.style.fontSize = `${(16 * applied) / 100}px`;
+    window.dispatchEvent(new Event('clarity-ui-scale'));
+    return applied;
+  },
+});
 const base = {
   hash: 10,
   text: { en: { text: '', updatedAt: '2026-11-15T00:00:00Z', updatedBy: 'test' } },
@@ -77,7 +88,7 @@ upcomingStore().setState({
     },
   },
 });
-const phone = matchMedia('(max-width: 767px)').matches;
+const phone = matchMedia('(max-width: 700px)').matches;
 createRoot(document.getElementById('root')!).render(
   <MemoryRouter initialEntries={['/t/10']}>
     <div style={{ margin: '100px 16px', maxWidth: phone ? 358 : 900 }}>

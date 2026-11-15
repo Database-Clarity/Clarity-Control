@@ -36,7 +36,8 @@ export function savedFinderMarkers(
       flags |= Outdated;
   } else if (source && tooltip?.compendium) {
     const resolved = resolveCompendiumLink(tooltip.compendium, source);
-    if (resolved.status !== 'ok' && !(resolved.status === 'moved' && !resolved.changed)) flags |= Outdated;
+    if (resolved.status !== 'ok' && !(resolved.status === 'moved' && !resolved.changed))
+      flags |= Outdated;
   }
   return flags;
 }
@@ -65,7 +66,7 @@ export function prepareFinderMarkers(
     const own = new Map<number, number>();
     const index = new Map<number, number>();
     const idle = (run: () => void) => {
-      if (typeof requestIdleCallback === 'function') requestIdleCallback(run);
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 1000 });
       else setTimeout(run, 0);
     };
     const fill = () => {
