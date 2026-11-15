@@ -80,13 +80,13 @@ import { FinderPicker, type PickerSection } from './FinderPicker';
 import { FinderIcon } from './FinderIcon';
 import { FinderMarkers } from './FinderMarkers';
 import {
-  useMarkedFinder,
   markedRouteCategory,
   markedRowScope,
   markedScopeValue as scopeValue,
 } from '../marks/finder';
 import { FinderEntryMarks } from '../marks/FinderEntryMarks';
-import type { MarkDisplay } from '../marks/store';
+import type { MarkDisplay } from '../marks/finder';
+import { useMarkedFinder } from '../marks/useMarkedFinder';
 import { MarkedWorkThrough } from '../marks/queue';
 import { useLeftQueue } from '../queue/useQueue';
 import { FinderMarkGroup } from '../marks/FinderMarkGroup';

@@ -6,20 +6,16 @@ import {
   marksRevisionSchema,
   type Marks,
   type MarkAction,
-  type EntryMark,
-  type MarkType,
 } from '@clarity/core/marks';
 import { apiRequest } from '../../services/api';
 import { fetchOptionalJson, errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
+import type { MarkDisplay } from './finder';
+export type { MarkDisplay } from './finder';
 
 export const marksUrl =
   'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/editor-data/config/marks.json';
 const loadedSchema = z.object({ marks: marksSchema, revision: marksRevisionSchema });
-export interface MarkDisplay extends EntryMark {
-  label: string;
-  colour: MarkType['colour'];
-}
 export const noEntryMarks: readonly MarkDisplay[] = [];
 export function indexMarks(marks: Marks): ReadonlyMap<number, readonly MarkDisplay[]> {
   const types = new Map(marks.types.map((type) => [type.id, type]));

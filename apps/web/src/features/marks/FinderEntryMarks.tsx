@@ -1,4 +1,4 @@
-import type { MarkDisplay } from './store';
+import type { MarkDisplay } from './finder';
 import styles from './marks.module.scss';
 
 /** Static entry-only indicator; editing lives in the editor header. */
