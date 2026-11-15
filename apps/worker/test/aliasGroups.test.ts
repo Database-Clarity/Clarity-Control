@@ -84,6 +84,16 @@ beforeEach(async () => {
   vi.spyOn(repo, 'head').mockImplementation(async () => head);
   vi.spyOn(repo, 'file').mockImplementation(async (path) => read(path));
   vi.spyOn(repo, 'files').mockImplementation(async (paths) => paths.map(read));
+  vi.spyOn(repo, 'publishSnapshot').mockImplementation(async () => ({
+    head,
+    tree: head,
+    files: [],
+    trees: [
+      [...files.keys()]
+        .filter((path) => /^tooltips\/[0-9]+\.json$/.test(path))
+        .map((path) => ({ name: path.slice('tooltips/'.length) })),
+    ],
+  }));
   writes = vi
     .spyOn(repo, 'commit')
     .mockImplementation(async (expected, changes, _message, _user, options = {}) => {
@@ -109,6 +119,8 @@ beforeEach(async () => {
       if (url.endsWith('/items.json')) return Response.json(items);
       if (url.endsWith('/aliases.json')) return Response.json(generated);
       if (url.endsWith('/sandboxConflicts.json')) return Response.json(conflicts);
+      if (url.endsWith('/categories.json'))
+        return Response.json([{ id: 'weapon-trait', legacyType: 'Weapon Trait' }]);
       throw new Error(url);
     }),
   );
@@ -129,7 +141,7 @@ it('returns an empty snapshot and reads all generator facts at one immutable rev
     issues: [],
     affectedCanonicals: [],
   });
-  expect(generatorUrls).toHaveLength(4);
+  expect(generatorUrls).toHaveLength(5);
   expect(writes).not.toHaveBeenCalled();
 });
 
@@ -431,4 +443,98 @@ it('requires real enhanced base identity and refuses undo that would break enhan
   await run([await intent(), await intent('accept', [44, 45])]);
   await expect(run([{ op: 'ungroup', canonical: 42 }])).rejects.toMatchObject({ status: 422 });
   expect(writes).toHaveBeenCalledTimes(1);
+});
+
+it.each(['direct', 'nested', 'title'])(
+  'refuses to break an existing %s reader of a removed named export',
+  async (kind) => {
+    await put('tooltips/43.json', document(43, 'export x (\nExported\n)'));
+    await put(
+      'tooltips/60.json',
+      document(
+        60,
+        kind === 'direct'
+          ? 'import x from 43'
+          : kind === 'nested'
+            ? 'import main from 61'
+            : '<title See [T] />',
+      ),
+    );
+    await put('tooltips/61.json', document(61, 'import x from 43'));
+    if (kind === 'title')
+      await put('tooltips/3.json', document(3, 'title T (\nimport x from 43\n)'));
+    await expect(
+      run([{ ...(await intent()), acknowledgeConflicts: true } as AliasGroupOperation]),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(writes).not.toHaveBeenCalled();
+  },
+);
+
+it('allows unchanged pre-existing reader diagnostics and keeps named exports when canonical provides them', async () => {
+  await put('tooltips/60.json', document(60, 'import missing from 99\nimport main from 43'));
+  await run([await intent()]);
+  await run([{ op: 'ungroup', canonical: 42 }]);
+  const source = 'export x (\nExported\n)';
+  await put('tooltips/42.json', document(42, source));
+  await put('tooltips/43.json', document(43, source));
+  await put('tooltips/60.json', document(60, 'import x from 43'));
+  expect((await run([await intent()])).issues).toEqual([]);
+});
+
+it('refuses a restoration that creates a cycle with another group', async () => {
+  await put('tooltips/43.json', document(43, 'import main from 44'));
+  await run([{ ...(await intent()), acknowledgeConflicts: true } as AliasGroupOperation]);
+  await put('tooltips/44.json', document(44, 'import main from 43'));
+  await run([await intent('accept', [44, 45])]);
+  await expect(run([{ op: 'ungroup', canonical: 42 }])).rejects.toMatchObject({ status: 422 });
+  expect(read('tooltips/43.json')).toBeNull();
+  expect(writes).toHaveBeenCalledTimes(2);
+});
+
+it.each([false, true])(
+  'validates the final restored snapshot in a disjoint batch, accept first: %s',
+  async (acceptFirst) => {
+    await put('tooltips/43.json', document(43, 'export x (\nExported\n)'));
+    await run([{ ...(await intent()), acknowledgeConflicts: true } as AliasGroupOperation]);
+    await put('tooltips/44.json', document(44, 'import x from 43'));
+    const undo: AliasGroupOperation = { op: 'ungroup', canonical: 42 };
+    const accept = await intent('accept', [44, 45]);
+    const result = await run(acceptFirst ? [accept, undo] : [undo, accept]);
+    expect(result.config.groups[42]).toBeUndefined();
+    expect(result.config.groups[44]).toBeDefined();
+    expect(read('tooltips/43.json')).not.toBeNull();
+  },
+);
+
+it('reads synthesized title imports through the existing resolver instrumentation', async () => {
+  await put(
+    'tooltips/42.json',
+    document(42, 'title T (\n#foimport x from 5\nimport x from 5\n)\n<title See [T] />'),
+  );
+  await put('tooltips/2.json', document(2, 'var foo = import y from 9'));
+  await put('tooltips/5.json', document(5, 'export hidden x (\no\n)'));
+  await put('tooltips/9.json', document(9, 'export hidden y (\nNine\n)'));
+  expect(
+    (await run([{ ...(await intent()), acknowledgeConflicts: true } as AliasGroupOperation]))
+      .issues,
+  ).toEqual([]);
+  const source = read('tooltips/42.json')!.value as ReturnType<typeof document>;
+  expect(
+    parseMarkup(source.text.en!.text, {
+      variables: 'var foo = import y from 9',
+      titles: '',
+      imports: { 5: 'export hidden x (\no\n)', 9: 'export hidden y (\nNine\n)' },
+    }).diagnostics.filter((issue) => issue.severity === 'error'),
+  ).toEqual([]);
+});
+
+it('refuses a branch move during the reader census without retrying the approval', async () => {
+  vi.mocked(repo.publishSnapshot).mockImplementation(async () => ({
+    head: sha(99),
+    tree: sha(99),
+    files: [],
+    trees: [[]],
+  }));
+  await expect(run([await intent()])).rejects.toMatchObject({ status: 409 });
+  expect(writes).not.toHaveBeenCalled();
 });

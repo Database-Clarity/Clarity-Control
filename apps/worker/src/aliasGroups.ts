@@ -11,13 +11,14 @@ import {
   composeAliases,
   emptyAliasGroups,
   hashSchema,
-  markupImports,
-  parseMarkup,
+  languages,
   resolveAlias,
   sandboxConflictsSchema,
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
+  usesEnglishFallback,
+  validateTextWithReads,
   type AliasGroupArchive,
   type AliasGroups,
   type AliasItems,
@@ -61,8 +62,8 @@ async function generatorFacts(github: GitHub) {
     ref = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) }).parse(commit).sha;
   }
   const root = `https://raw.githubusercontent.com/${repo}/${ref}/templates/v2`;
-  github.spend(3);
-  const [items, generated, conflicts] = await Promise.all([
+  github.spend(4);
+  const [items, generated, conflicts, categories] = await Promise.all([
     fetch(`${root}/items.json`)
       .then(upstreamJson)
       .then((v) => z.record(z.string(), itemSchema).parse(v)),
@@ -72,10 +73,20 @@ async function generatorFacts(github: GitHub) {
     fetch(`${root}/sandboxConflicts.json`)
       .then(upstreamJson)
       .then((v) => sandboxConflictsSchema.parse(v)),
+    fetch(`${root}/categories.json`)
+      .then(upstreamJson)
+      .then((v) =>
+        z.array(z.object({ id: z.string(), legacyType: z.string().optional() })).parse(v),
+      ),
   ]);
   for (const [hash, item] of Object.entries(items))
     if (String(item.hash) !== hash) throw new HttpError(502, 'Generator item hash mismatch');
-  return { items, generated, conflicts };
+  return {
+    items,
+    generated,
+    conflicts,
+    types: new Map(categories.map((category) => [category.id, category.legacyType ?? category.id])),
+  };
 }
 
 export function storedAliasGroups(file: RepoFile | null | undefined): AliasGroups {
@@ -146,56 +157,86 @@ function checkSelection(
     );
 }
 
-/** Use the real parser on the proposed alias graph, including nested and global imports. */
+/** Read the bounded tooltip census at the approval head. Actual resolver reads identify
+ * incoming consumers, including title preparation and synthesized/nested imports.
+ * Validate the proposed complete snapshot, not intermediate batch states.
+ */
 async function checkImports(
   github: GitHub,
   head: string,
-  roots: number[],
-  aliases: Aliases,
-  files: ReadonlyMap<number, RepoFile | null>,
+  roots: ReadonlySet<number>,
+  changed: ReadonlyMap<number, RepoFile | null>,
+  beforeAliases: Aliases,
+  afterAliases: Aliases,
+  items: AliasItems,
+  types: ReadonlyMap<string, string>,
 ) {
-  if (!roots.length) return;
-  const known = new Map<number, Tooltip | null>(
-    [...files].map(([hash, file]) => [hash, tooltip(file, hash)]),
-  );
-  const visited = new Set<number>();
-  let pending = [...roots, 1, 2, 3];
-  while (pending.length) {
-    const hashes = [...new Set(pending.map((hash) => resolveAlias(hash, aliases)))].filter(
-      (hash) => !visited.has(hash),
-    );
-    hashes.forEach((hash) => visited.add(hash));
-    const missing = hashes.filter((hash) => !known.has(hash));
-    const read = await github.files(missing.map(tooltipPath), head);
-    missing.forEach((hash, i) => known.set(hash, tooltip(read[i], hash)));
-    pending = hashes.flatMap((hash) =>
-      Object.values(known.get(hash)?.text ?? {}).flatMap((entry) =>
-        markupImports(entry.text).flatMap((line) => {
-          const from = line.match(/ from (\d+|global) *$/)?.[1];
-          return from ? [from === 'global' ? 1 : Number(from)] : [];
-        }),
-      ),
-    );
-  }
-  for (const hash of roots) {
-    for (const [lang, entry] of Object.entries(known.get(hash)?.text ?? {})) {
-      const text = (h: number) =>
-        known.get(resolveAlias(h, aliases))?.text[lang as keyof Tooltip['text']]?.text ?? '';
-      const imports = Object.fromEntries(
-        [...new Set([...known.keys(), ...Object.keys(aliases).map(Number)])].map((h) => [
-          h === 1 ? 'global' : String(h),
-          text(h),
-        ]),
+  if (!changed.size) return;
+  const snapshot = await github.publishSnapshot([], [], [{ path: 'tooltips', depth: 1 }]);
+  if (snapshot.head !== head)
+    throw new HttpError(409, 'Data branch moved; review alias groups again');
+  const hashes = (snapshot.trees[0] ?? [])
+    .filter(({ name }) => /^(0|[1-9]\d*)\.json$/.test(name))
+    .map(({ name }) => hashSchema.parse(Number(name.slice(0, -5))));
+  const read = await github.files(hashes.map(tooltipPath), head);
+  const before = new Map(hashes.map((hash, i) => [hash, tooltip(read[i], hash)]));
+  const after = new Map(before);
+  for (const [hash, file] of changed) after.set(hash, tooltip(file, hash));
+  for (const lang of languages) {
+    const catalog = (view: ReadonlyMap<number, Tooltip | null>, aliases: Aliases) =>
+      new Proxy<Record<string, string>>(
+        {},
+        {
+          get: (_target, key) => {
+            if (typeof key !== 'string') return undefined;
+            const hash = key === 'global' ? 1 : Number(key);
+            if (!Number.isInteger(hash)) return undefined;
+            const value = view.get(resolveAlias(hash, aliases));
+            return value
+              ? ((usesEnglishFallback(value, lang)
+                  ? value.text.en?.text
+                  : value.text[lang]?.text) ?? '')
+              : undefined;
+          },
+        },
       );
-      const errors = parseMarkup(entry.text, {
-        variables: text(2),
-        titles: text(3),
-        imports,
-      }).diagnostics.filter((issue) => issue.severity === 'error');
+    const oldCatalog = catalog(before, beforeAliases),
+      newCatalog = catalog(after, afterAliases);
+    const validate = (value: Tooltip, aliases: Aliases, imports: Record<string, string>) =>
+      validateTextWithReads(
+        (usesEnglishFallback(value, lang) ? value.text.en?.text : value.text[lang]?.text) ?? '',
+        lang,
+        {
+          imports,
+          variables: imports[2] ?? '',
+          titles: imports[3] ?? '',
+          type: types.get(items[value.hash]?.categoryId ?? value.custom?.categoryId ?? ''),
+          lang,
+        },
+        false,
+        value.hash,
+        aliases,
+      );
+    for (const [hash, value] of after) {
+      if (!value?.text[lang] || resolveAlias(hash, afterAliases) !== hash) continue;
+      const old = before.get(hash);
+      const prior = old?.text[lang] ? validate(old, beforeAliases, oldCatalog) : undefined;
+      if (
+        !roots.has(hash) &&
+        ![...(prior?.reads.imports.values() ?? [])].some((source) => changed.has(source))
+      )
+        continue;
+      const priorErrors = new Set(
+        prior?.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.message),
+      );
+      const errors = validate(value, afterAliases, newCatalog).issues.filter(
+        (issue) =>
+          issue.severity === 'error' && (roots.has(hash) || !priorErrors.has(issue.message)),
+      );
       if (errors.length)
         throw new HttpError(
           422,
-          `Canonical ${hash} (${lang}) has invalid markup after grouping`,
+          `Tooltip ${hash} (${lang}) has invalid markup after grouping`,
           errors,
         );
     }
@@ -214,7 +255,7 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     head,
   );
   const config = storedAliasGroups(stored);
-  const { items, generated, conflicts } = await generatorFacts(github);
+  const { items, generated, conflicts, types } = await generatorFacts(github);
   const picks = storedSandboxPointers(picksFile);
   const compose = (groups: AliasGroups) => {
     try {
@@ -254,7 +295,8 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     at = new Date().toISOString();
   const touched = new Set<number>(),
     changedGroups = new Set<number>();
-  const roots: number[] = [];
+  const roots = new Set<number>();
+  const changed = new Map<number, RepoFile | null>();
   const writes: Record<string, unknown> = {},
     blobRefs: Record<string, string> = {};
   const deletions = new Set<string>();
@@ -347,6 +389,11 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
         for (const [hash, sha] of Object.entries(originals)) {
           if (sha) blobRefs[tooltipPath(hash)] = sha;
           else deletions.add(tooltipPath(hash));
+          changed.set(
+            Number(hash),
+            sha ? (retainedFiles.get(retainedPath(archive, hash)) ?? null) : null,
+          );
+          roots.add(Number(hash));
         }
         delete next.groups[op.canonical];
         continue;
@@ -398,7 +445,7 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
           : { note: group.note }),
     };
     changedGroups.add(canonical);
-    roots.push(canonical);
+    roots.add(canonical);
     const archive: AliasGroupArchive = {
       path: `migration-archives/alias-groups/${head}/${canonical}.json`,
       files: originals,
@@ -410,9 +457,13 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     for (const [hash, sha] of Object.entries(originals))
       if (sha) blobRefs[retainedPath(archive, hash)] = sha;
     for (const hash of members) {
-      if (hash !== canonical) deletions.add(tooltipPath(hash));
+      if (hash !== canonical) {
+        deletions.add(tooltipPath(hash));
+        changed.set(hash, null);
+      }
     }
     const selected = files.get(canonical);
+    changed.set(canonical, selected ?? null);
     if (selected) blobRefs[tooltipPath(canonical)] = selected.sha;
     else deletions.add(tooltipPath(canonical));
   }
@@ -430,7 +481,7 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
   ];
   if ((await github.files(archivePaths, head)).some(Boolean))
     throw new HttpError(409, 'Archive already exists; refusing to overwrite it');
-  await checkImports(github, head, roots, after.aliases, files);
+  await checkImports(github, head, roots, changed, before.aliases, after.aliases, items, types);
   writes[aliasGroupsPath] = aliasGroupsSchema.parse(next);
   let commit: string;
   try {
