@@ -20,6 +20,7 @@ import { scaledPx } from '../../ui/scale';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useWorkspaceShortcutOwner } from '../../ui/interaction';
 import { FinderIcon } from './FinderIcon';
+import { FinderMarkers } from './FinderMarkers';
 import styles from './FinderPicker.module.scss';
 
 export interface PickerOption {
@@ -27,6 +28,8 @@ export interface PickerOption {
   label: string;
   /** Icon path or URL; rows of a picker with icons keep the box even without one. */
   icon?: string;
+  markerHashes?: readonly number[];
+  markerFlags?: number;
 }
 export interface PickerSection {
   /** A heading over the options (like an optgroup); none for a flat list. */
@@ -262,6 +265,9 @@ export const FinderPicker = memo(function FinderPicker({
       >
         {icons && <FinderIcon icon={option.icon} />}
         <span className={styles.label}>{option.label}</span>
+        {option.markerHashes && (
+          <FinderMarkers hashes={option.markerHashes} flags={option.markerFlags} />
+        )}
       </li>
     );
   };
