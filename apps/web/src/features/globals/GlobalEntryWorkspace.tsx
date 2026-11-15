@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { languages, type Lang, type MarkupGlobals } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
@@ -11,6 +11,12 @@ import { useRawDiff } from '../history/diffPreference';
 import { WordDiff } from '../../ui/diff/WordDiff';
 import {
   canEditGlobal,
+  canAcknowledgeGlobal,
+  createGlobalImpactProjector,
+  globalSyncState,
+  type GlobalImpactProjector,
+  type GlobalConsumerView,
+  type GlobalProjectionSource,
   globalReviewState,
   canReviewGlobal,
   type GlobalActor,
@@ -31,10 +37,12 @@ export function GlobalEntryWorkspace({
   service,
   actor,
   globalsByLanguage,
+  projectionSource,
 }: {
   service: GlobalsService;
   actor: GlobalActor;
   globalsByLanguage?: Partial<Record<Lang, MarkupGlobals>>;
+  projectionSource?: GlobalProjectionSource;
 }) {
   const [snapshot, setSnapshot] = useState<GlobalSnapshot>();
   const [error, setError] = useState('');
@@ -81,6 +89,7 @@ export function GlobalEntryWorkspace({
       service={service}
       actor={actor}
       globalsByLanguage={globalsByLanguage}
+      projectionSource={projectionSource}
       onSnapshot={setSnapshot}
     />
   );
@@ -91,12 +100,14 @@ function Workspace({
   service,
   actor,
   globalsByLanguage,
+  projectionSource,
   onSnapshot,
 }: {
   snapshot: GlobalSnapshot;
   service: GlobalsService;
   actor: GlobalActor;
   globalsByLanguage?: Partial<Record<Lang, MarkupGlobals>>;
+  projectionSource?: GlobalProjectionSource;
   onSnapshot(value: GlobalSnapshot): void;
 }) {
   const [params, setParams] = useSearchParams();
@@ -151,19 +162,46 @@ function Workspace({
   const [projected, setProjected] = useState<{
     key: string;
     body: string;
-    consumers: GlobalConsumer[];
+    head: string;
+    source: GlobalProjectionSource;
+    consumers: GlobalConsumerView[];
   }>();
+  const [projecting, setProjecting] = useState(false);
+  const [projectionError, setProjectionError] = useState('');
+  const projector = useRef<GlobalImpactProjector>();
+  const projectionAbort = useRef<AbortController>();
+  const projectionGeneration = useRef(0);
+  const cancelProjection = useCallback(() => {
+    ++projectionGeneration.current;
+    projectionAbort.current?.abort();
+    setProjecting(false);
+    setProjectionError('');
+  }, []);
+  useEffect(() => {
+    return cancelProjection;
+  }, [key, body, snapshot.head, projectionSource, cancelProjection]);
+  useEffect(() => () => projector.current?.dispose(), []);
   const [reviewed, setReviewed] = useState<string>();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [raw] = useRawDiff();
   const [phone, setPhone] = useState('editor');
   const query = params.get('q') ?? '';
   const tab = params.get('tab') ?? (actor?.role === 'translator' ? 'translations' : 'usages');
+  const sync = globalSyncState(snapshot, entry?.id ?? '');
   const savedImpacts = entry ? (snapshot.impacts[entry.id] ?? []) : [];
   const projection =
-    dirty && projected?.key === key && projected.body === body ? projected.consumers : undefined;
+    dirty &&
+    projected?.key === key &&
+    projected.body === body &&
+    projected.head === snapshot.head &&
+    projected.source === projectionSource
+      ? projected.consumers
+      : undefined;
   const scope = dirty ? 'projected' : 'saved';
   const consumers = dirty ? (projection ?? []) : savedImpacts;
+  function reviewState(row: GlobalConsumerView) {
+    return dirty ? 'projected' : globalReviewState(row as GlobalConsumer);
+  }
   const shown = consumers.filter(
     (row) =>
       `${row.name} ${row.consumer.hash} ${row.consumer.lang} ${row.category}`
@@ -171,17 +209,21 @@ function Workspace({
         .includes(query.toLowerCase()) &&
       (!params.get('category') || params.get('category') === row.category) &&
       (!params.get('usageLang') || params.get('usageLang') === row.consumer.lang) &&
-      (!params.get('review') || params.get('review') === globalReviewState(row)),
+      (!params.get('review') || params.get('review') === reviewState(row)),
   );
   const consumer = shown.find((row) => row.id === params.get('consumer')) ?? shown[0];
+  const savedConsumer =
+    !dirty && consumer ? savedImpacts.find((row) => row.id === consumer.id) : undefined;
+  const canAcknowledge =
+    !!entry && !!savedConsumer && canAcknowledgeGlobal(snapshot, entry.id, savedConsumer);
   const reviewKey =
-    consumer &&
+    savedConsumer &&
     JSON.stringify([
       snapshot.head,
-      consumer.id,
-      consumer.review.contentDigest,
-      consumer.review.dependencyDigest,
-      consumer.impactDigest,
+      savedConsumer.id,
+      savedConsumer.review.contentDigest,
+      savedConsumer.review.dependencyDigest,
+      savedConsumer.impactDigest,
     ]);
   const disabled = pending || !!action || !!navigation || reviewOpen;
   const editable = canEditGlobal(actor, lang);
@@ -240,35 +282,83 @@ function Workspace({
       setPending(false);
     }
   }
-  async function project() {
-    if (!entry || busy.current) return;
+  async function refreshSync(retry = false) {
+    if ((retry && !entry) || busy.current) return;
     busy.current = true;
     setPending(true);
     setError('');
     try {
-      const result = await service.impact({
+      const result =
+        retry && entry
+          ? await service.retrySync({
+              expectedHead: snapshot.head,
+              id: entry.id,
+              causeIds: sync.causeIds,
+            })
+          : await service.read();
+      if (!mounted.current) return;
+      if (result.kind === 'ok') {
+        onSnapshot(result.value);
+        setReviewed(undefined);
+        setConflict(false);
+      } else {
+        setError(result.message);
+        setConflict(result.kind === 'conflict');
+      }
+    } catch (reason) {
+      if (mounted.current)
+        setError(
+          reason instanceof Error ? reason.message : 'Sync request failed. Retry the action.',
+        );
+    } finally {
+      busy.current = false;
+      if (mounted.current) setPending(false);
+    }
+  }
+  async function project() {
+    if (!entry || !projectionSource) {
+      setProjectionError('Projected calculation is unavailable until source snapshots load.');
+      return;
+    }
+    cancelProjection();
+    const generation = ++projectionGeneration.current;
+    const controller = new AbortController();
+    projectionAbort.current = controller;
+    setProjecting(true);
+    setProjectionError('');
+    try {
+      const input = projectionSource.prepare({
         expectedHead: snapshot.head,
         id: entry.id,
         revision: entry.revision,
         lang,
         body,
       });
-      if (!mounted.current) return;
-      if (result.kind === 'ok' && result.value.head === snapshot.head)
-        setProjected({ key, body, consumers: result.value.consumers });
-      else {
-        setError(
-          result.kind === 'ok'
-            ? 'Impact revision changed. Reload before continuing.'
-            : result.message,
+      projector.current ??= createGlobalImpactProjector();
+      const result = await projector.current.calculate(input, controller.signal);
+      if (!mounted.current || generation !== projectionGeneration.current) return;
+      setProjected({
+        key,
+        body,
+        head: snapshot.head,
+        source: projectionSource,
+        consumers: result.rows.map((row) => projectionSource.describe(row, input)),
+      });
+      if (!result.complete)
+        setProjectionError(`Projected calculation is incomplete: ${result.blockers.join('; ')}`);
+    } catch (reason) {
+      if (
+        mounted.current &&
+        generation === projectionGeneration.current &&
+        !controller.signal.aborted
+      )
+        setProjectionError(
+          reason instanceof Error
+            ? reason.message
+            : 'Projected calculation failed. Retry the calculation.',
         );
-        setConflict(result.kind === 'ok' || result.kind === 'conflict');
-      }
-    } catch {
-      setError('Could not calculate impact. Retry projected impact.');
     } finally {
-      busy.current = false;
-      setPending(false);
+      if (mounted.current && generation === projectionGeneration.current) setProjecting(false);
     }
   }
   return (
@@ -325,9 +415,45 @@ function Workspace({
         )}
         <span>{entry?.kind}</span>
       </header>
-      {(error || staleDraft) && (
+      <div className={styles.syncNotice}>
+        {entry && (
+          <strong role="status">
+            {sync.status === 'sync-pending'
+              ? 'Sync pending'
+              : sync.status === 'sync-failed'
+                ? 'Sync failed'
+                : 'Current'}
+          </strong>
+        )}
+        <button disabled={disabled} aria-label="Refresh sync" onClick={() => void refreshSync()}>
+          Refresh
+        </button>
+        {entry && sync.status === 'sync-failed' && (
+          <button
+            disabled={disabled || !actor}
+            aria-label="Retry sync"
+            onClick={() => void refreshSync(true)}
+          >
+            Retry
+          </button>
+        )}
+        {entry && sync.status === 'sync-failed' && (
+          <p role="alert">{sync.lastFailure ?? 'Failure details unavailable.'}</p>
+        )}
+      </div>
+      {Object.entries(snapshot.destinationSync)
+        .filter(([, state]) => state.status !== 'current')
+        .map(([destination, state]) => (
+          <p key={destination} role="status" className={styles.syncDestination}>
+            {destination}:{' '}
+            {state.status === 'sync-pending'
+              ? 'Sync pending. Publishing here is blocked until sync finishes.'
+              : 'Sync failed. Publishing here is blocked until sync succeeds.'}
+          </p>
+        ))}
+      {(error || projectionError || staleDraft) && (
         <div role="alert">
-          {error || 'The saved revision changed while this draft was open.'}
+          {error || projectionError || 'The saved revision changed while this draft was open.'}
           {(conflict || staleDraft) && (
             <button disabled={pending} onClick={() => void run()}>
               Reload and discard draft
@@ -433,8 +559,16 @@ function Workspace({
                 setPhone('usages');
               }}
             >
-              Usages: {new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips ·{' '}
-              {new Set(savedImpacts.map((row) => row.consumer.lang)).size} languages
+              {sync.status === 'current' ? (
+                <>
+                  Usages: {new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips ·{' '}
+                  {new Set(savedImpacts.map((row) => row.consumer.lang)).size} languages
+                </>
+              ) : sync.status === 'sync-pending' ? (
+                'Usages: Sync pending'
+              ) : (
+                'Usages: Sync failed'
+              )}
             </button>
             <Popover label="Definition preview" trigger="Preview definition">
               <RenderedWordDiff
@@ -505,10 +639,14 @@ function Workspace({
                   : 'Sign in to save. Local drafts are available.'}
               </p>
             )}
+            {projecting && <p role="status">Calculating projected impact… You can keep editing.</p>}
             {entry.kind === 'variables' && body === '' && <p>Explicit empty variable value.</p>}
             {dirty && (
-              <button disabled={disabled} onClick={() => void project()}>
-                Calculate projected impact
+              <button
+                disabled={disabled}
+                onClick={() => (projecting ? cancelProjection() : void project())}
+              >
+                {projecting ? 'Cancel calculation' : 'Calculate projected impact'}
               </button>
             )}
           </section>
@@ -579,7 +717,13 @@ function Workspace({
                       separate.
                     </p>
                   )}
-                  {dirty && <p>Saved impact: {savedImpacts.length} consumers.</p>}
+                  {dirty && (
+                    <p>
+                      {sync.status === 'current'
+                        ? `Saved impact: ${savedImpacts.length} consumers.`
+                        : 'Saved usages will update when sync finishes.'}
+                    </p>
+                  )}
                   <label>
                     Filter consumers{' '}
                     <input
@@ -628,7 +772,11 @@ function Workspace({
                     <p>
                       {query
                         ? 'No matching consumers. Clear the filter to restore them.'
-                        : 'No affected consumers.'}
+                        : dirty && !projection
+                          ? 'Projected usages have not been calculated.'
+                          : !dirty && sync.status !== 'current'
+                            ? 'Saved usages will update when sync finishes.'
+                            : 'No affected consumers.'}
                     </p>
                   )}
                   <ul ref={usageList} className={styles.consumers}>
@@ -643,7 +791,7 @@ function Workspace({
                         </button>
                         <span>
                           {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'} ·{' '}
-                          {globalReviewState(row)} · {row.consumer.destination}
+                          {reviewState(row)} · {row.consumer.destination}
                           {row.archived ? ' · Archived' : ''}
                         </span>
                         <span>{row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}</span>
@@ -683,8 +831,10 @@ function Workspace({
                         <label>
                           <input
                             type="checkbox"
-                            disabled={dirty || pending || raw || !validGlobalImpact(consumer)}
-                            checked={reviewed === reviewKey}
+                            disabled={
+                              !canAcknowledge || pending || raw || !validGlobalImpact(consumer)
+                            }
+                            checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
                             onChange={(e) => setReviewed(e.target.checked ? reviewKey : undefined)}
                           />
                           I reviewed both renders; no tooltip change needed.
@@ -700,23 +850,34 @@ function Workspace({
                             reviewed !== reviewKey ||
                             !canReviewGlobal(actor, consumer.consumer.lang) ||
                             !validGlobalImpact(consumer) ||
-                            globalReviewState(consumer) === 'acknowledged'
+                            !canAcknowledge
                           }
                           onClick={() =>
+                            savedConsumer &&
+                            canAcknowledge &&
                             void run({
                               operation: 'acknowledge',
                               id: entry.id,
                               consumerId: consumer.id,
-                              contentDigest: consumer.review.contentDigest,
-                              impactDigest: consumer.impactDigest,
-                              dependencyDigest: consumer.review.dependencyDigest,
+                              contentDigest: savedConsumer.review.contentDigest,
+                              impactDigest: savedConsumer.impactDigest,
+                              dependencyDigest: savedConsumer.review.dependencyDigest,
                               decision: 'no-text-change',
                             })
                           }
                         >
                           Acknowledge review
                         </button>
-                        {dirty && <p>Save this definition before acknowledging impact.</p>}
+                        {dirty ? (
+                          <p>Save this definition before acknowledging impact.</p>
+                        ) : (
+                          !canAcknowledge && (
+                            <p>
+                              Only current, fully synced reviews can be acknowledged. Refresh after
+                              sync finishes.
+                            </p>
+                          )
+                        )}
                       </div>
                     </Popover>
                   )}

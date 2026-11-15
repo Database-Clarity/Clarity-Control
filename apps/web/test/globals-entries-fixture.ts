@@ -3,9 +3,13 @@ import {
   validGlobalName,
   type GlobalDefinition,
   type GlobalReview,
+  type GlobalImpactSnapshot,
+  type Tooltip,
 } from '@clarity/core';
 import {
   canEditGlobal,
+  canAcknowledgeGlobal,
+  type GlobalProjectionSource,
   canReviewGlobal,
   type GlobalActor,
   type GlobalConsumer,
@@ -115,14 +119,31 @@ export const globalFixtureSnapshot: GlobalSnapshot = {
     },
   ],
   sourceBodies: { g_damage0001: { fr: '10%' } },
+  sync: {
+    g_damage0001: { status: 'current', causeIds: [] },
+    g_title00001: { status: 'current', causeIds: [] },
+  },
+  destinationSync: {
+    live: { status: 'current', causeIds: [] },
+    saved: { status: 'current', causeIds: [] },
+  },
   impacts: { g_damage0001: [consumer(10, 'en', 'live'), french], g_title00001: [] },
 };
 
 /** In-memory only; deliberately no HTTP or repository writes. */
-export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSnapshot) {
+export function createGlobalsFixture(
+  actor: GlobalActor,
+  seed = globalFixtureSnapshot,
+  largeProjection = false,
+) {
   const snapshot = structuredClone(seed);
   let revision = 1;
-  const controls: { next?: 'retry' | 'conflict'; delay: number } = { delay: 0 };
+  const controls: {
+    next?: 'retry' | 'conflict';
+    delay: number;
+    syncOutcome?: 'current' | 'sync-failed';
+  } = { delay: 0 };
+  const queuedRenames = new Map<string, string>();
   async function failure<T>(): Promise<GlobalResult<T> | undefined> {
     if (controls.delay) await new Promise((resolve) => setTimeout(resolve, controls.delay));
     const next = controls.next;
@@ -138,23 +159,61 @@ export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSna
   }
   const service: GlobalsService = {
     async read() {
-      return (await failure<GlobalSnapshot>()) ?? { kind: 'ok', value: structuredClone(snapshot) };
+      const failed = await failure<GlobalSnapshot>();
+      if (failed) return failed;
+      if (controls.syncOutcome) {
+        const status = controls.syncOutcome;
+        controls.syncOutcome = undefined;
+        for (const state of [
+          ...Object.values(snapshot.sync),
+          ...Object.values(snapshot.destinationSync),
+        ]) {
+          state.status = status;
+          if (status === 'sync-failed')
+            state.lastFailure = 'Fixture sync failed: source changed during calculation.';
+          else delete state.lastFailure;
+        }
+        if (status === 'current') {
+          for (const [id, name] of queuedRenames) {
+            const entry = snapshot.entries.find((item) => item.id === id)!;
+            entry.nameHistory.push({
+              name: entry.name,
+              revision: entry.revision,
+              at: stamp,
+              by: 'fixture',
+            });
+            entry.name = name;
+            entry.revision = `r${++revision}`;
+          }
+          queuedRenames.clear();
+          for (const entry of snapshot.entries)
+            for (const row of snapshot.impacts[entry.id] ?? []) {
+              if (row.review.acknowledgement) continue;
+              row.before = row.after;
+              row.after = render(
+                `Updated value: ${entry.definitions[row.consumer.lang]?.body ?? ''}`,
+              );
+              row.review.dependencyDigest = fixtureDigest(1000 + revision);
+              row.impactDigest = fixtureDigest(2000 + revision);
+            }
+        }
+        snapshot.head = `fixture-head-${++revision}`;
+      }
+      return { kind: 'ok', value: structuredClone(snapshot) };
     },
-    async impact(request) {
-      const failed = await failure<{ head: string; consumers: GlobalConsumer[] }>();
+    async retrySync(request) {
+      const failed = await failure<GlobalSnapshot>();
       if (failed) return failed;
       if (request.expectedHead !== snapshot.head)
         return { kind: 'conflict', message: 'Stale head.' };
-      return {
-        kind: 'ok',
-        value: {
-          head: snapshot.head,
-          consumers: structuredClone(snapshot.impacts[request.id] ?? []).map((row) => ({
-            ...row,
-            after: render(`Projected value: ${request.body}`),
-          })),
-        },
-      };
+      if (!actor) return { kind: 'forbidden', message: 'Sign in to retry sync.' };
+      const state = snapshot.sync[request.id];
+      if (!state || JSON.stringify(state.causeIds) !== JSON.stringify(request.causeIds))
+        return { kind: 'conflict', message: 'Sync causes changed. Refresh before retrying.' };
+      state.status = 'sync-pending';
+      for (const target of Object.values(snapshot.destinationSync)) target.status = 'sync-pending';
+      snapshot.head = `fixture-head-${++revision}`;
+      return { kind: 'ok', value: structuredClone(snapshot) };
     },
     async mutate({ expectedHead, mutation }) {
       const failed = await failure<GlobalSnapshot>();
@@ -225,22 +284,9 @@ export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSna
             ).provenance,
         };
         entry!.revision = `r${revision}`;
-        for (const row of snapshot.impacts[entry!.id] ?? []) {
-          delete row.review.acknowledgement;
-          row.review.dependencyDigest = fixtureDigest(1000 + revision);
-          row.impactDigest = fixtureDigest(2000 + revision);
-          row.before = row.after;
-          row.after = render(`Updated value: ${mutation.body}`);
-        }
+        for (const row of snapshot.impacts[entry!.id] ?? []) delete row.review.acknowledgement;
       } else if (mutation.operation === 'rename') {
-        entry!.nameHistory.push({
-          name: entry!.name,
-          revision: entry!.revision,
-          at: stamp,
-          by: 'fixture',
-        });
-        entry!.name = mutation.name;
-        entry!.revision = `r${++revision}`;
+        queuedRenames.set(entry!.id, mutation.name);
       } else if (mutation.operation === 'remove') {
         if (actor.role !== 'maintainer') return forbidden();
         if (snapshot.impacts[entry!.id]?.length)
@@ -257,6 +303,11 @@ export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSna
           row.impactDigest !== mutation.impactDigest
         )
           return { kind: 'conflict', message: 'Review is stale.' };
+        if (!canAcknowledgeGlobal(snapshot, entry!.id, row))
+          return {
+            kind: 'invalid',
+            message: 'Sync must finish and the saved review must be current.',
+          };
         if (!canReviewGlobal(actor, row.consumer.lang)) return forbidden();
         row.review.acknowledgement = {
           by: 'fixture',
@@ -267,9 +318,135 @@ export function createGlobalsFixture(actor: GlobalActor, seed = globalFixtureSna
           decision: mutation.decision,
         };
       }
+      if (mutation.operation !== 'acknowledge') {
+        const id = mutation.operation === 'create' ? snapshot.entries.at(-1)!.id : entry!.id;
+        const causeId = `cause-${++revision}`;
+        const causeIds = [...(snapshot.sync[id]?.causeIds ?? []), causeId];
+        snapshot.sync[id] = { status: 'sync-pending', causeIds };
+        for (const target of Object.values(snapshot.destinationSync)) {
+          target.status = 'sync-pending';
+          target.causeIds.push(causeId);
+        }
+      }
       snapshot.head = `fixture-head-${++revision}`;
       return { kind: 'ok', value: structuredClone(snapshot) };
     },
   };
-  return { service, controls };
+  const extraTooltips: Record<string, Tooltip> = {};
+  if (largeProjection)
+    for (let hash = 100; hash < 3100; hash++)
+      extraTooltips[hash] = {
+        hash,
+        associated: [],
+        text: { en: { text: 'Gain #Damage damage.', updatedAt: stamp, updatedBy: 'fixture' } },
+      };
+  const projection: GlobalProjectionSource = {
+    prepare(request) {
+      const entry = snapshot.entries.find((item) => item.id === request.id)!;
+      const aggregate = (hash: 2 | 3, changed: boolean): Tooltip => {
+        const text: Tooltip['text'] = {};
+        for (const lang of ['en', 'fr'] as const) {
+          const source = snapshot.entries
+            .filter(
+              (item) => !item.tombstone && item.kind === (hash === 2 ? 'variables' : 'titles'),
+            )
+            .flatMap((item) => {
+              const body =
+                changed && item.id === request.id && lang === request.lang
+                  ? request.body
+                  : item.definitions[lang]?.body;
+              if (body === undefined) return [];
+              return hash === 2
+                ? [`var ${item.name} = ${body || 'empty'}`]
+                : [`title ${item.name} (\n${body}\n)`];
+            })
+            .join('\n');
+          if (source) text[lang] = { text: source, updatedAt: stamp, updatedBy: 'fixture' };
+        }
+        return { hash, associated: [], text };
+      };
+      const tooltips: Record<string, Tooltip> = {
+        ...extraTooltips,
+        1: {
+          hash: 1,
+          associated: [],
+          text: {
+            fr: {
+              text: 'export Bonus (\nBonus de #Damage.\n)',
+              updatedAt: stamp,
+              updatedBy: 'fixture',
+            },
+          },
+        },
+        2: aggregate(2, false),
+        3: aggregate(3, false),
+        10: {
+          hash: 10,
+          associated: [],
+          text: { en: { text: 'Gain #Damage damage.', updatedAt: stamp, updatedBy: 'fixture' } },
+        },
+        20: {
+          hash: 20,
+          associated: [],
+          text: {
+            fr: { text: 'import Bonus from global', updatedAt: stamp, updatedBy: 'fixture' },
+          },
+        },
+      };
+      const before: GlobalImpactSnapshot = {
+        repository: 'fixture',
+        revision: request.expectedHead,
+        tooltips,
+        aliases: {},
+        types: Object.fromEntries(Object.keys(tooltips).map((hash) => [hash, 'perk'])),
+        mode: 'authored',
+      };
+      return {
+        before,
+        after: {
+          ...before,
+          revision: 'draft',
+          tooltips: {
+            ...tooltips,
+            [entry.kind === 'variables' ? 2 : 3]: aggregate(
+              entry.kind === 'variables' ? 2 : 3,
+              true,
+            ),
+          },
+        },
+        destination: 'saved',
+        changes: [
+          {
+            cause: { globalId: entry.id, beforeRevision: entry.revision, afterRevision: 'draft' },
+            kind: entry.kind,
+            beforeName: entry.name,
+            afterName: entry.name,
+            languages: [request.lang],
+          },
+        ],
+      };
+    },
+    describe(row, input) {
+      const saved = Object.values(snapshot.impacts)
+        .flat()
+        .find(
+          (item) =>
+            item.consumer.hash === row.consumer.hash && item.consumer.lang === row.consumer.lang,
+        );
+      return {
+        ...row,
+        id: `projected:${row.consumer.hash}:${row.consumer.lang}:${row.consumer.destination}`,
+        name: saved?.name ?? `Tooltip ${row.consumer.hash}`,
+        category: saved?.category ?? 'Fixture',
+        variant: saved?.variant ?? row.consumer.hash,
+        line: saved?.line ?? null,
+        path: saved?.path ?? null,
+        direct: saved?.direct ?? null,
+        archived: saved?.archived ?? false,
+        beforeSource: input.before.tooltips[row.consumer.hash]?.text[row.consumer.lang]?.text ?? '',
+        afterSource: input.after.tooltips[row.consumer.hash]?.text[row.consumer.lang]?.text ?? '',
+      };
+    },
+  };
+  return { service, controls, projection };
 }

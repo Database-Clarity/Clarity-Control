@@ -33,10 +33,26 @@ try {
     await input.press('ControlOrMeta+A');
     await input.pressSequentially(value);
   };
+  const completeSync = async () => {
+    await page.evaluate(() => {
+      window.globalsFixture.syncOutcome = 'current';
+    });
+    await page.getByRole('button', { name: 'Refresh sync', exact: true }).click();
+    await page
+      .getByRole('status')
+      .filter({ hasText: /^Current$/ })
+      .waitFor();
+  };
   await open();
   await edit('25%');
   await page.getByRole('button', { name: 'Calculate projected impact', exact: true }).click();
   await page.getByText('Projected impact — unsaved', { exact: true }).waitFor();
+  await page.getByText('Direct · projected · saved', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Review Focused Fury', exact: true }).click();
+  assert.equal(await page.getByRole('checkbox').isDisabled(), true);
+  assert.equal(await page.getByRole('checkbox').isChecked(), false);
+  await page.getByText('Gain 25% damage.', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
   await page.getByRole('combobox', { name: 'Global entry' }).selectOption('g_title00001');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.match(await page.locator('.cm-content').innerText(), /25%/);
@@ -63,6 +79,31 @@ try {
     true,
   );
   await page.getByText('Saved', { exact: true }).waitFor();
+  await page
+    .getByRole('status')
+    .filter({ hasText: /^Sync pending$/ })
+    .waitFor();
+  await page
+    .getByText('Publishing here is blocked until sync finishes.', { exact: false })
+    .first()
+    .waitFor();
+  await page.getByRole('button', { name: 'Review Focused Fury', exact: true }).click();
+  assert.equal(await page.getByRole('checkbox').isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Acknowledge review' }).isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    window.globalsFixture.syncOutcome = 'sync-failed';
+  });
+  await page.getByRole('button', { name: 'Refresh sync' }).click();
+  await page
+    .getByText('Fixture sync failed: source changed during calculation.', { exact: true })
+    .waitFor();
+  await page.getByRole('button', { name: 'Retry sync' }).click();
+  await page
+    .getByRole('status')
+    .filter({ hasText: /^Sync pending$/ })
+    .waitFor();
+  await completeSync();
   await page.getByRole('button', { name: 'Review Focused Fury', exact: true }).click();
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Acknowledge review', exact: true }).click();
@@ -71,6 +112,7 @@ try {
   await edit('35%');
   await page.getByRole('button', { name: 'Save definition', exact: true }).click();
   await page.getByText('Direct · required · live', { exact: true }).waitFor();
+  await completeSync();
   await edit('40%');
   await page.evaluate(() => {
     window.globalsFixture.next = 'conflict';
@@ -86,6 +128,8 @@ try {
   await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('DamageNew');
   await page.getByRole('textbox', { name: 'Name', exact: true }).press('Enter');
+  await page.getByRole('heading', { name: 'Damage', exact: true }).waitFor();
+  await completeSync();
   await page.getByRole('heading', { name: 'DamageNew', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Create global', exact: true }).click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Empty');
@@ -173,6 +217,35 @@ try {
     'unknown S1 import path/line/directness stays unavailable and never fabricates a highlighted line',
   );
 
+  await page.goto('http://127.0.0.1:5296/test/globals-entries.html?sync=sync-failed');
+  await page.locator('.cm-content').waitFor();
+  await edit('28%');
+  await page.getByRole('button', { name: 'Retry sync' }).click();
+  assert.match(await page.locator('.cm-content').innerText(), /28%/);
+  await completeSync();
+  assert.match(await page.locator('.cm-content').innerText(), /28%/);
+  await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  await page.getByRole('button', { name: 'Reservoir Burst · French', exact: true }).click();
+  await page.getByRole('button', { name: 'Review Reservoir Burst', exact: true }).click();
+  assert.equal(await page.getByRole('checkbox').isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Acknowledge review' }).isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await page.goto('http://127.0.0.1:5296/test/globals-entries.html?largeProjection=1');
+  await page.locator('.cm-content').waitFor();
+  await edit('50%');
+  await page.getByRole('button', { name: 'Calculate projected impact', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel calculation', exact: true }).waitFor();
+  assert.equal(await page.locator('.cm-content').getAttribute('contenteditable'), 'true');
+  await page.getByRole('button', { name: 'Cancel calculation', exact: true }).click();
+  await page.getByRole('button', { name: 'Calculate projected impact', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Calculate projected impact', exact: true }).click();
+  await edit('51%');
+  await page.getByRole('button', { name: 'Calculate projected impact', exact: true }).waitFor();
+  assert.equal(await page.getByText('Direct · projected · saved', { exact: true }).count(), 0);
+  results.push(
+    'Sync pending -> failed/last failure -> Retry -> pending -> current, publication block, retained drafts, stale/pending acknowledgement refusal, real browser Worker projection, explicit cancellation, and cancellation on typing passed',
+  );
+
   for (const width of [390, 768, 1280])
     for (const theme of ['dark', 'light'])
       for (const scale of width === 390 ? [100, 120, 150] : [100, 150]) {
@@ -219,10 +292,39 @@ try {
           fullPage: true,
         });
         await page.keyboard.press('Escape');
+        for (const status of ['sync-pending', 'sync-failed']) {
+          await page.goto(`http://127.0.0.1:5296/test/globals-entries.html?sync=${status}`);
+          await page.locator('.cm-content').waitFor();
+          await page.evaluate(
+            ({ theme, scale }) => {
+              document.documentElement.dataset.theme = theme;
+              const style = document.createElement('style');
+              style.textContent = `html { font-size: ${scale}% !important; }`;
+              document.head.append(style);
+              window.dispatchEvent(new Event('clarity-ui-scale'));
+            },
+            { theme, scale },
+          );
+          assert.equal(
+            await page.evaluate(() => getComputedStyle(document.documentElement).fontSize),
+            `${(16 * scale) / 100}px`,
+          );
+          if (width === 390)
+            await page.getByRole('button', { name: 'Usages / Translations', exact: true }).click();
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+            true,
+            `overflow ${width}/${theme}/${scale}/${status}`,
+          );
+          await page.screenshot({
+            path: resolve(output, `${width}-${theme}-${scale}-${status}.png`),
+            fullPage: true,
+          });
+        }
       }
   assert.deepEqual(errors, []);
   results.push(
-    '390/768/1280, dark/light, 100/150%, phone 120%, phone views, and review popover captures passed with zero document overflow and no page errors',
+    '390/768/1280, dark/light, 100/150%, phone 120%, phone views, pending/failed sync states, and review popover captures passed with zero document overflow and no page errors',
   );
   await writeFile(resolve(output, 'results.json'), JSON.stringify(results, null, 2));
   console.log(results.join('\n'));
