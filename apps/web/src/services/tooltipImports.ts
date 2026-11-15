@@ -11,9 +11,9 @@ import {
 import type { Drafts } from './draftStorage';
 
 type NumberInput = NonNullable<MarkupGlobals['numberInput']>;
-const numberInputs = new Map<string, NumberInput>();
+const numberInputs = new Map<string, Omit<NumberInput, 'fallback'>>();
 const numberedImports = new WeakMap<object, (hash: string) => boolean>();
-const numberGlobals = new WeakMap<MarkupGlobals, WeakMap<NumberInput, MarkupGlobals>>();
+const numberGlobals = new WeakMap<MarkupGlobals, WeakMap<Tooltip, Map<Lang, MarkupGlobals>>>();
 
 /** One cached English map per source revision and language, never detected on a typing key. */
 export function previewNumberGlobals(
@@ -23,8 +23,7 @@ export function previewNumberGlobals(
 ): MarkupGlobals {
   if (lang === 'en' || !tooltip?.text.en) return globals;
   const english = tooltip.text.en;
-  const fallback = usesEnglishFallback(tooltip, lang);
-  const key = JSON.stringify([english.text, english.numbers, lang, fallback]);
+  const key = JSON.stringify([english.text, english.numbers, lang]);
   let input = numberInputs.get(key);
   if (!input) {
     if (numberInputs.size >= 64) numberInputs.delete(numberInputs.keys().next().value!);
@@ -35,22 +34,28 @@ export function previewNumberGlobals(
       values = new Map();
       issue = 'Save English before translating its changed numbers.';
     }
-    input = { values, english: english.text, lang, fallback, ...(issue && { issue }) };
+    input = { values, english: english.text, lang, ...(issue && { issue }) };
     numberInputs.set(key, input);
   }
-  let byInput = numberGlobals.get(globals);
-  if (!byInput) numberGlobals.set(globals, (byInput = new WeakMap()));
-  let result = byInput.get(input);
+  let byTooltip = numberGlobals.get(globals);
+  if (!byTooltip) numberGlobals.set(globals, (byTooltip = new WeakMap()));
+  let byLanguage = byTooltip.get(tooltip);
+  if (!byLanguage) byTooltip.set(tooltip, (byLanguage = new Map()));
+  let result = byLanguage.get(lang);
   if (!result) {
     result = {
       ...globals,
       numberInput: {
         ...input,
+        // Only the deferred parser reads this; constructing editor globals never scans a draft.
+        get fallback() {
+          return usesEnglishFallback(tooltip, lang);
+        },
         hasImportedNumbers: (hash) =>
           !!globals.imports && !!numberedImports.get(globals.imports)?.(hash),
       },
     };
-    byInput.set(input, result);
+    byLanguage.set(lang, result);
   }
   return result;
 }

@@ -9,7 +9,8 @@ import { startFromEnglish } from './NumberTools';
 import { missingNumberVariables } from './diagnostics';
 import { openSuggest, suggestState } from '../suggest/state';
 import { setStops } from '../suggest/stops';
-import { Transaction } from '@codemirror/state';
+import { StateEffect, EditorState, Prec, Transaction } from '@codemirror/state';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { chipState, markChipShown } from '../markupRow/chips';
 import { useSettingsStore } from '../../../stores/settings';
 
@@ -39,7 +40,7 @@ afterEach(() => {
     settings: { ...state.settings, suggestAccept: 'enter' },
   }));
 });
-function mount(sourceText = 'Gain 5 stacks lasting 5 seconds.', value = '') {
+function mount(sourceText = 'Gain 5 stacks lasting 5 seconds.', value = '', readOnly = false) {
   const changes: string[] = [];
   act(() =>
     root.render(
@@ -51,6 +52,7 @@ function mount(sourceText = 'Gain 5 stacks lasting 5 seconds.', value = '') {
         onChange={(value) => changes.push(value)}
         tooltipHash={7}
         markupRow
+        readOnly={readOnly}
       />,
     ),
   );
@@ -67,6 +69,77 @@ const key = (view: EditorView, name: string) =>
       'editor',
     ),
   );
+
+it('adds no number row controls without English numbers and renders safely on the server', () => {
+  mount('No amounts here.');
+  expect(host.querySelector('[title="List all numbers"]')).toBeNull();
+  expect(host.querySelector('[data-number-chip]')).toBeNull();
+  expect(() =>
+    renderToStaticMarkup(
+      <ClarityEditor
+        lang="de"
+        value=""
+        sourceText="Value 5."
+        globals={{ variables: '', titles: '' }}
+        onChange={() => {}}
+      />,
+    ),
+  ).not.toThrow();
+});
+
+it('gives shared-value chips an adjacent word even when a formula ends a sentence', () => {
+  mount('Lasts 5 seconds. Damage ${2+3}.');
+  expect([...host.querySelectorAll('[data-number-chip]')].map((chip) => chip.textContent)).toEqual([
+    '5 seconds',
+    '5 ƒ Damage',
+  ]);
+});
+
+it.each([false, true])(
+  'never removes a token from a readonly panel (initial readonly: %s)',
+  async (initial) => {
+    const { view } = mount('Value 5.', '#{=99}', initial);
+    await act(async () =>
+      (host.querySelector('[data-status-numbers]') as HTMLButtonElement).click(),
+    );
+    const remove = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Remove token',
+    )!;
+    if (initial) expect(remove.disabled).toBe(true);
+    else
+      act(() =>
+        view.dispatch({
+          effects: StateEffect.appendConfig.of(Prec.highest(EditorState.readOnly.of(true))),
+        }),
+      );
+    expect(view.state.readOnly).toBe(true);
+    await act(async () => remove.click());
+    expect(view.state.doc.toString()).toBe('#{=99}');
+  },
+);
+
+it('disables Remove token when an already-open panel becomes readonly through editor props', async () => {
+  mount('Value 5.', '#{=99}');
+  await act(async () => (host.querySelector('[data-status-numbers]') as HTMLButtonElement).click());
+  await act(async () =>
+    root.render(
+      <ClarityEditor
+        lang="de"
+        value="#{=99}"
+        sourceText="Value 5."
+        globals={{ variables: '', titles: '' }}
+        onChange={() => {}}
+        tooltipHash={7}
+        markupRow
+        readOnly
+      />,
+    ),
+  );
+  const remove = [...host.querySelectorAll('button')].find(
+    (button) => button.textContent === 'Remove token',
+  )!;
+  expect(remove.disabled).toBe(true);
+});
 
 it('shows atomic values, the count, and equal-value context through the real Tab keymap', () => {
   const { view, changes } = mount();

@@ -22,6 +22,7 @@ import {
   numberBlockOpen,
   numberMathRanges,
   numberSlots,
+  formatNumbers,
   numberTargetRanges,
   variableReferences,
   type Lang,
@@ -169,6 +170,7 @@ export const numberField = StateField.define<NumberState>({
   update(value, tr) {
     if (tr.reconfigured || tr.effects.some((effect) => effect.is(numbersReload)))
       return initial(tr.state);
+    if (!tr.state.facet(numberHost).source) return value;
     let decorations = value.decorations.map(tr.changes);
     let structure = value.structure;
     let protectedRanges = value.protected;
@@ -541,10 +543,17 @@ export function dismissNumberOffer(view: EditorView): boolean {
 export function typedNumberMatches(state: EditorState) {
   const source = state.facet(numberHost).source;
   if (!source || state.readOnly) return [];
-  return numberSlots(state.doc.toString()).flatMap((slot) => {
-    const ids = source.byLiteral.get(slot.value);
+  const text = state.doc.toString();
+  // Keep source offsets while letting the shared English scanner read local decimals.
+  const scan =
+    formatNumbers('1.5', state.facet(numberHost).lang) === '1,5'
+      ? text.replace(/(?<=\d),(?=\d)/g, '.')
+      : text;
+  return numberSlots(scan).flatMap((slot) => {
+    const value = text.slice(slot.from, slot.to);
+    const ids = source.byLiteral.get(value);
     return ids && numbersAllowed(state, slot.from, slot.to)
-      ? [{ from: slot.from, to: slot.to, value: slot.value, ids }]
+      ? [{ from: slot.from, to: slot.to, value, ids }]
       : [];
   });
 }
@@ -597,6 +606,7 @@ export function createNumberStore() {
     changed(state: EditorState) {
       const source = state.facet(numberHost).source,
         field = state.field(numberField);
+      if (!source && !value.source) return;
       const { used } = usedNumbers(state);
       const next = field.cycle ? cycleCandidate(state, 1)?.id : orderedNumbers(state)[0],
         offer = typedNumberOffer(state),

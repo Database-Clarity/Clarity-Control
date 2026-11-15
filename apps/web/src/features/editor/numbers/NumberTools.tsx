@@ -23,6 +23,18 @@ import { numberTokens } from '@clarity/core';
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 
+function adjacentWord(context: string): string {
+  const [before, after = ''] = context.split(' _ ');
+  return (
+    after.match(/\p{L}+/u)?.[0] ??
+    before
+      .replace(/#[\p{L}\p{N}]+/gu, '')
+      .match(/\p{L}+/gu)
+      ?.at(-1) ??
+    ''
+  );
+}
+
 export const NumberStatus = memo(function NumberStatus({
   store,
   className,
@@ -95,7 +107,7 @@ export const NumberStrip = memo(function NumberStrip({
       next: state.next,
     })),
   );
-  if (!state.source) return null;
+  if (!state.source?.slots.length) return null;
   const slots = state.source.slots.filter((slot) => !state.used.has(slot.id));
   const next = slots.findIndex((slot) => slot.id === state.next);
   if (next > 0) slots.push(...slots.splice(0, next));
@@ -143,7 +155,7 @@ export const NumberStrip = memo(function NumberStrip({
               ? `${slot.display} ƒ`
               : slot.display}
           {(state.source!.byDisplay.get(slot.display)?.length ?? 0) > 1 &&
-            ` ${slot.context.split(' _ ')[1]?.split(' ')[0] ?? ''}`}
+            ` ${adjacentWord(slot.context)}`}
         </button>
       ))}
       <span className={rowStyles.separator} aria-hidden="true" />
@@ -156,13 +168,16 @@ export function NumbersPanel({
   view,
   onClose,
   docked = false,
+  readOnly = false,
 }: {
   store: NumberStore;
   view: RefObject<EditorView | null>;
   onClose(): void;
   docked?: boolean;
+  readOnly?: boolean;
 }) {
-  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const locked = readOnly || Boolean(view.current?.state.readOnly);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -240,9 +255,12 @@ export function NumbersPanel({
               : 'Unknown number'}{' '}
             <button
               type="button"
+              disabled={locked}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
-                view.current?.dispatch({
+                const editor = view.current;
+                if (!editor || editor.state.readOnly) return;
+                editor.dispatch({
                   changes: { from: token.from, to: token.to },
                   annotations: [isolateHistory.of('full'), Transaction.userEvent.of('delete')],
                 });
@@ -257,6 +275,7 @@ export function NumbersPanel({
             Typed number {state.offer.value}.{' '}
             <button
               type="button"
+              disabled={locked}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 if (view.current && insertNumber(view.current, state.offer!.ids[0], state.offer!))
@@ -272,6 +291,7 @@ export function NumbersPanel({
             Formula needs {issue.name}.{' '}
             <button
               type="button"
+              disabled={locked}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 if (view.current && insertNumber(view.current, issue.id, issue)) onClose();
@@ -337,7 +357,7 @@ export function NumbersPanel({
               </button>
               <button
                 type="button"
-                disabled={view.current?.state.readOnly}
+                disabled={locked}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => insert(slot.id)}
               >
@@ -348,7 +368,7 @@ export function NumbersPanel({
         </ul>
         <button
           type="button"
-          disabled={!typed.some((match) => match.ids.length === 1)}
+          disabled={locked || !typed.some((match) => match.ids.length === 1)}
           onClick={() => {
             if (view.current && convertTypedNumbers(view.current)) onClose();
           }}
@@ -394,7 +414,7 @@ export function NumberReadout({
   store: NumberStore;
   view: RefObject<EditorView | null>;
 }) {
-  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const slot = state.source?.byId.get(state.cycle ?? state.offer?.ids[0] ?? -1);
   const duplicate = slot && (state.source!.byDisplay.get(slot.display)?.length ?? 0) > 1;
   const shown = Boolean(slot && (state.offer || duplicate));

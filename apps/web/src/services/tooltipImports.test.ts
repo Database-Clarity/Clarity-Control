@@ -9,6 +9,45 @@ const tooltip = (hash: number, text: string): Tooltip => ({
   associated: [],
 });
 
+test('constructing editor globals never reads translation text; fallback inspection waits for parsing', () => {
+  const owner = tooltip(10, 'Value 4.5.');
+  let reads = 0;
+  owner.text.de = {
+    ...owner.text.en!,
+    get text() {
+      reads++;
+      return 'Wert #{=1}.';
+    },
+    sourceUpdatedAt: owner.text.en!.updatedAt,
+  };
+  const globals = previewNumberGlobals(owner, 'de', { variables: '', titles: '' });
+  expect(reads).toBe(0);
+  expect(JSON.stringify(parseMarkup('Wert #{=1}.', globals))).toContain('Wert 4,5.');
+  expect(reads).toBeGreaterThan(0);
+});
+
+test('fallback remains isolated between translations with the same English number map', () => {
+  const owner = tooltip(10, 'Value 4.5.');
+  const fresh: Tooltip = {
+    ...owner,
+    text: {
+      ...owner.text,
+      de: { ...owner.text.en!, text: 'Wert #{=1}.', sourceUpdatedAt: owner.text.en!.updatedAt },
+    },
+  };
+  const old: Tooltip = {
+    ...fresh,
+    text: { ...fresh.text, de: { ...fresh.text.de!, sourceUpdatedAt: '2025-01-01T00:00:00Z' } },
+  };
+  const globals = { variables: '', titles: '' };
+  expect(
+    JSON.stringify(parseMarkup(fresh.text.de!.text, previewNumberGlobals(fresh, 'de', globals))),
+  ).toContain('Wert 4,5.');
+  expect(
+    JSON.stringify(parseMarkup(old.text.de!.text, previewNumberGlobals(old, 'de', globals))),
+  ).toContain('Value 4.5.');
+});
+
 test('resolves nested alias imports inside titles and preserves the real cycle diagnostic', () => {
   const translated = (hash: number, english: string, german: string): Tooltip => {
     const base = tooltip(hash, english);

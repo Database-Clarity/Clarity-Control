@@ -17,6 +17,7 @@ import {
 } from '../editor/numbers/state';
 import { registerNumbers } from '../editor/numbers/documents';
 import { EnglishDiffContent } from '../translations/EnglishDiff';
+import { ReadingCompare } from '../preview/ReadingCompare';
 
 const history = vi.hoisted(() => ({ before: '', available: true }));
 vi.mock('../../services/history', () => ({
@@ -149,6 +150,58 @@ it('decorates exact raw after-side slices, including numbers split across diff r
     [...host.querySelectorAll('[data-slot="1"]')].map((span) => span.textContent).join(''),
   ).toBe('12.5');
   expect(host.querySelector('[data-slot="2"]')?.textContent).toBe('5');
+});
+
+it('keeps visible owned Compare values inline and never marks another document’s override value', async () => {
+  const text = 'Damage 5.',
+    source = numberSource(text, undefined, 'de'),
+    store = createNumberStore();
+  editor = new EditorView({
+    parent: document.body,
+    state: EditorState.create({
+      extensions: [
+        numberHost.of({ source, lang: 'de', changed: store.changed }),
+        numberExtension(),
+      ],
+    }),
+  });
+  editor.dom.dataset.tooltipHash = '7';
+  unregister = registerNumbers(7, 'de', store);
+  await act(async () =>
+    root.render(
+      <NumberEnglishSource
+        hash={7}
+        lang="de"
+        text={text}
+        enabled={false}
+        canInsert
+        stepping={false}
+      >
+        {() => (
+          <ReadingCompare baseText={text} baseHash={7} enhancedText="Damage 10." enhancedHash={8} />
+        )}
+      </NumberEnglishSource>,
+    ),
+  );
+  await act(async () => {
+    await new Promise(requestAnimationFrame);
+  });
+  const span = host.querySelector('[data-english-compare] [data-slot="1"]')!;
+  expect(span?.textContent).toBe('5');
+  expect(host.textContent).not.toContain('Not shown in the text');
+  expect([...host.querySelectorAll('[data-slot]')].some((span) => span.textContent === '10')).toBe(
+    false,
+  );
+  Range.prototype.getClientRects = () =>
+    [{ left: 0, right: 20, top: 0, bottom: 20, width: 20, height: 20 }] as unknown as DOMRectList;
+  (document as unknown as { caretPositionFromPoint: unknown }).caretPositionFromPoint = () => ({
+    offsetNode: span.firstChild,
+    offset: 0,
+  });
+  await act(async () =>
+    span.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5 })),
+  );
+  expect(editor.state.doc.toString()).toBe('#{=1}');
 });
 
 it.each([

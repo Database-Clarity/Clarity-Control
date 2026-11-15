@@ -14,6 +14,7 @@ import {
   orderedNumbers,
   tabNumber,
   typedNumberOffer,
+  typedNumberMatches,
   convertTypedNumbers,
   insertSourceNumber,
 } from './state';
@@ -35,6 +36,33 @@ function editor(english: string, doc = '') {
   return view;
 }
 const text = (view: EditorView) => view.state.doc.toString();
+
+it('keeps the number field unchanged for ordinary typing when there is no translation source', () => {
+  const state = EditorState.create({
+    doc: 'English text '.repeat(1000),
+    extensions: [numberHost.of({ source: null, lang: 'en' }), numberExtension()],
+  });
+  const field = state.field(numberField);
+  const next = state.update({ changes: { from: state.doc.length, insert: 'x' } }).state;
+  expect(next.field(numberField)).toBe(field);
+});
+
+it('bulk conversion keeps local decimals and stacks whole and never splits an unmatched decimal', () => {
+  const view = editor('Lasts 4.5 seconds. Gain 4 stacks and 5 damage.', 'Dauer 4,5 Sekunden.');
+  expect(typedNumberMatches(view.state).map((match) => match.ids)).toEqual([[1]]);
+  convertTypedNumbers(view);
+  expect(text(view)).toBe('Dauer #{=1} Sekunden.');
+  const unmatched = editor('Gain 4 stacks and 5 damage.', 'Dauer 4,5 Sekunden.');
+  expect(convertTypedNumbers(unmatched)).toBe(false);
+  const stack = editor('Values 1.5|2.5.', 'Werte 1,5|2,5.');
+  convertTypedNumbers(stack);
+  expect(text(stack)).toBe('Werte #{=1}.');
+  const grouped = editor('Value 2,985.', 'Wert 2,985.');
+  convertTypedNumbers(grouped);
+  expect(text(grouped)).toBe('Wert #{=1}.');
+  const ambiguous = editor('Value 2.985 and 2,985.', 'Wert 2,985.');
+  expect(convertTypedNumbers(ambiguous)).toBe(false);
+});
 
 it('inserts transitive local variables with the formula in one undo and without W7', () => {
   const english = 'var a = 2\nvar d = #a\nDamage ${5+#d}.';

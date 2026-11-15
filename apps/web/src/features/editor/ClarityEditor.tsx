@@ -1151,7 +1151,13 @@ export function ClarityEditor({
           />
         )}
         {open === 'numbers' && (
-          <NumbersPanel store={numberStore} view={view} onClose={closeAndFocus} docked={docked} />
+          <NumbersPanel
+            store={numberStore}
+            view={view}
+            onClose={closeAndFocus}
+            docked={docked}
+            readOnly={readOnly}
+          />
         )}
         {(open === 'help' || helpParked) && (
           <Suspense fallback={null}>

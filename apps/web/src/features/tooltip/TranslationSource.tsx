@@ -177,9 +177,10 @@ function StartEnglish({
   onInsert(): void;
 }) {
   const store = useNumberDocument(hash, lang);
-  useSyncExternalStore(store.subscribe, store.getSnapshot);
+  useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  if (!canInsert || typeof document === 'undefined') return null;
   const view = translationView(hash);
-  if (!canInsert || !view || view.state.doc.length) return null;
+  if (!view || view.state.doc.length) return null;
   return (
     <button
       type="button"
