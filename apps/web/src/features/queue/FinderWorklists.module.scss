@@ -47,7 +47,7 @@
   padding: 0;
 }
 :global([role='option']):has(.row) {
-  --finder-marker-slot: calc(41px + 1.75rem + 0.25rem);
+  --finder-marker-width: calc(41px + 1.75rem + 0.25rem);
 }
 @include theme.mobile-or-coarse {
   .action {
@@ -55,6 +55,6 @@
     min-width: var(--tap);
   }
   :global([role='option']):has(.row) {
-    --finder-marker-slot: calc(41px + var(--tap) + 0.25rem);
+    --finder-marker-width: calc(41px + var(--tap) + 0.25rem);
   }
 }

@@ -1540,6 +1540,21 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       );
     },
   );
+  it('bundle.json never copies entry marks', async () => {
+    const f = await setup();
+    for (const marks of [{ types: [], entries: { 123: [{ note: 'Retest' }] } }, 'malformed']) {
+      f.change(D, { 'config/marks.json': marks });
+      f.pub.bundle();
+      const bundle = f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+      expect(bundle).not.toHaveProperty('marks');
+      expect(JSON.stringify(bundle)).not.toContain('Retest');
+      expect(JSON.stringify(bundle)).not.toContain('malformed');
+    }
+  });
+
   it('bundle.json carries maintainer sandbox picks only while the file holds some', async () => {
     const f = await setup();
     const bundle = () =>

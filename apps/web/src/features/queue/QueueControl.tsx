@@ -246,6 +246,7 @@ function ActiveControl({
   const back = (text: string, ariaLabel?: string) => (
     <Link
       to={leave.to}
+      replace={false}
       state={leave.state}
       className={header.queueBack}
       aria-label={ariaLabel}
@@ -491,7 +492,7 @@ function QueueMenu({
         >
           {rebuilding === 'busy' ? 'Rebuilding…' : 'Rebuild queue'}
         </button>
-        <Link to={leave.to} state={leave.state} onClick={() => close(false)}>
+        <Link to={leave.to} replace={false} state={leave.state} onClick={() => close(false)}>
           Leave queue
         </Link>
         {rebuilding !== 'idle' && rebuilding !== 'busy' && (

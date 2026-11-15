@@ -7,6 +7,7 @@ import { useLostDecisions } from '../lost-text/decisions';
 import { visitOf, type QueueItem, type QueueVisit, type WorkQueue } from './model';
 import { queueSources, type SourceContext } from './sources';
 import { useWorkQueues } from './store';
+import { useMarkedQueueBits } from '../marks/queue';
 
 /** The source's context for completion tests and rebuilds, or null before data loads. */
 export function useSourceContext(): SourceContext | null {
@@ -22,6 +23,7 @@ export function useSourceContext(): SourceContext | null {
  * answer changes, so typing in the editor costs no render here.
  */
 export function useQueueDone(queue: WorkQueue | undefined): (item: QueueItem) => boolean {
+  const markBits = useMarkedQueueBits(queue);
   const context = useSourceContext();
   // Keyed on the frozen items, not the queue record: a step (new position) keeps the test and its
   // cached answers.
@@ -39,7 +41,8 @@ export function useQueueDone(queue: WorkQueue | undefined): (item: QueueItem) =>
   const source = queue?.source;
   const items = queue?.items;
   const test = useMemo(
-    () => (source && context ? queueSources[source].done(context) : undefined),
+    () =>
+      source && source !== 'marks' && context ? queueSources[source].done(context) : undefined,
     [source, context],
   );
   const bits = useDraftStore((state) =>
@@ -48,10 +51,10 @@ export function useQueueDone(queue: WorkQueue | undefined): (item: QueueItem) =>
   const index = useMemo(() => new Map(items?.map((item, at) => [item.key, at]) ?? []), [items]);
   return useCallback(
     (item: QueueItem) => {
-      const answers = batchId ? batchBits : bits;
+      const answers = queue?.source === 'marks' ? markBits : batchId ? batchBits : bits;
       return answers ? answers[index.get(item.key) ?? -1] === '1' : false;
     },
-    [bits, batchBits, batchId, index],
+    [bits, batchBits, batchId, index, queue?.source, markBits],
   );
 }
 
