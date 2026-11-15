@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkup, type Tooltip } from '@clarity/core';
+import { refuseUnlowerable } from '../src/elementTags.js';
 import publisherConfig from '../../../config/publisher.json';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 
@@ -12,6 +13,8 @@ beforeAll(async () => {
   key = await makePrivateKey();
 });
 beforeEach(() => {
+  // Each test picks the exporter; the checked-in switch is ON (PUB-ENABLE).
+  publisherConfig.enabled = false;
   fixture = new Fixture(key);
 });
 afterEach(() => {
@@ -24,7 +27,10 @@ const save = (base: Tooltip | null, next: Tooltip, user = 1) =>
   fixture.request('/save', 'POST', { changes: [{ hash: 123, base, next }], message: 'Edit' }, user);
 const withText = (lang: 'de' | 'fr', text: string, from = tooltip()): Tooltip => ({
   ...from,
-  text: { ...from.text, [lang]: { text, ...revision } },
+  text: {
+    ...from.text,
+    [lang]: { text, ...revision, sourceUpdatedAt: from.text.en!.updatedAt },
+  },
 });
 const pin = { sourceSha: 'a'.repeat(40), sha256: 'b'.repeat(64) };
 const capable = { ...pin, capabilities: ['elementTags'] };
@@ -81,10 +87,49 @@ describe('save guard for element-tagged text', () => {
     const plain = fixture.graphqlCalls - plainStart;
     fixture.moveData({ 'tooltips/123.json': tooltip('plain') });
     const taggedStart = fixture.graphqlCalls;
-    const response = await save(tooltip('plain'), tooltip('Gain <solar Scorch /> stacks.'));
+    const response = await save(
+      tooltip('plain'),
+      tooltip('Gain <solar Scorch /> stacks.', '2026-10-01T00:00:02Z'),
+    );
     expect(response.status).toBe(200);
     // The PIN rides in the batched tooltip read: a tagged save costs what an untagged one does.
     expect(fixture.graphqlCalls - taggedStart).toBe(plain);
+  });
+
+  it('publisher on: Prismatic tags need prismaticTags as well; other tags do not', async () => {
+    publisherConfig.enabled = true;
+    // A build that declares only elementTags predates Prismatic: it would export "Gain .".
+    fixture.moveData({ '.publisher/PIN': capable });
+    const refused = await save(tooltip(), withText('de', 'Erhalte <prismatic Transzendenz />.'));
+    expect(refused.status).toBe(422);
+    expect((await refused.json()).error).toBe(
+      `Tooltip 123 (de) contains element-tagged text "<prismatic Transzendenz />", which can't be saved: the publisher installed in the data branch does not lower it yet (.publisher/PIN lacks the "prismaticTags" capability). Write "<prismatic/>Transzendenz" for now.`,
+    );
+    expect(
+      (await save(tooltip(), tooltip('Gain <solar Scorch /> and <prismatic/>Light.'))).status,
+    ).toBe(200);
+    fixture.moveData({
+      'tooltips/123.json': tooltip('Gain <solar Scorch /> and <prismatic/>Light.'),
+      '.publisher/PIN': { ...pin, capabilities: ['prismaticTags'] },
+    });
+    // prismaticTags alone is not enough: it extends elementTags.
+    const alone = await save(
+      tooltip('Gain <solar Scorch /> and <prismatic/>Light.'),
+      tooltip('Gain <prismatic Transcendence />.', '2026-10-01T00:00:02Z'),
+    );
+    expect(alone.status).toBe(422);
+    expect((await alone.json()).error).toContain('lacks the "elementTags" capability');
+    fixture.moveData({
+      '.publisher/PIN': { ...pin, capabilities: ['elementTags', 'prismaticTags'] },
+    });
+    const response = await save(
+      tooltip('Gain <solar Scorch /> and <prismatic/>Light.'),
+      tooltip('Gain <prismatic Transcendence />.', '2026-10-01T00:00:02Z'),
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).tooltips[0].text.en.text).toBe(
+      'Gain <prismatic Transcendence />.',
+    );
   });
 
   it('publisher on: a tag already at the head in an unchanged language needs the capability', async () => {
@@ -138,7 +183,7 @@ describe('push-live lowers element-tagged text (hold lifted)', () => {
     perks: Record<string, { editor: Record<string, { main: string; secondary: string }> }>;
   };
   const exported = (hash: number, lang = 'en') => (fixture.live as Live).perks[hash]!.editor[lang]!;
-  const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand) [^<>]*\/>|[\uE000\uE001]/;
+  const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand|prismatic) [^<>]*\/>|[\uE000\uE001]/;
 
   it.each([
     ['Gain <solar Scorch />.', 'Gain <solar/>Scorch.'],
@@ -191,5 +236,45 @@ describe('push-live lowers element-tagged text (hold lifted)', () => {
     const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
     expect(response.status).toBe(200);
     expect(fixture.commits).toHaveLength(1);
+  });
+});
+
+describe('arrow symbol capability', () => {
+  it('refuses legacy push-live without writing, even with a capable PIN', async () => {
+    fixture.moveData({
+      'tooltips/123.json': tooltip('30%<arrow/>33%'),
+      '.publisher/PIN': { ...pin, capabilities: ['arrowSymbol'] },
+    });
+    const before = structuredClone(fixture.live);
+    const response = await fixture.request('/push-live', 'POST', { hashes: [123] });
+    expect(response.status).toBe(422);
+    expect(fixture.live).toEqual(before);
+    expect(fixture.writes).toHaveLength(0);
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('refuses the publish guard with a capable PIN when the publisher is disabled', () => {
+    expect(() =>
+      refuseUnlowerable(
+        tooltip('<arrow/>'),
+        { value: { capabilities: ['arrowSymbol'] } },
+        'published',
+      ),
+    ).toThrow('arrowSymbol');
+  });
+  it('refuses arrow saves while the publisher is disabled', async () => {
+    const refused = await save(tooltip(), tooltip('30%<arrow/>33%'));
+    expect(refused.status).toBe(422);
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('refuses an old PIN, and saves once the PIN declares arrowSymbol', async () => {
+    publisherConfig.enabled = true;
+    fixture.moveData({ '.publisher/PIN': pin });
+    const next = tooltip('30%<arrow/>33%');
+    const refused = await save(tooltip(), next);
+    expect(refused.status).toBe(422);
+    expect((await refused.json()).error).toContain('arrowSymbol');
+    expect(fixture.commits).toHaveLength(0);
+    fixture.moveData({ '.publisher/PIN': { ...pin, capabilities: ['arrowSymbol'] } });
+    expect((await save(tooltip(), next)).status).toBe(200);
   });
 });

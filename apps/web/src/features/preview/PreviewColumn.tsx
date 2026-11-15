@@ -1,4 +1,4 @@
-import { SkeletonBoundary } from '../../ui/Skeleton';
+import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import {
   memo,
   startTransition,
@@ -32,6 +32,8 @@ export interface PreviewColumnProps {
   name: string;
   /** Exotic armour: the piece carrying this perk, shown above the perk's name. */
   piece?: string;
+  /** The piece's icon beside the piece row. */
+  pieceIcon?: string;
   icon?: string;
   categoryLabel?: string;
   archiveIcon?: boolean;
@@ -52,6 +54,11 @@ export interface PreviewColumnProps {
   onDocumentPaint?(hash: number): void;
   pendingDocument?: boolean;
   loadingContent?: boolean;
+  /**
+   * Scheduled changes: the Current / Upcoming switch, drawn above the preview at once (never
+   * deferred with the document). The page switches what the text props render; this only shows it.
+   */
+  source?: ReactNode;
 }
 
 const labels: Record<PreviewMode, string> = {
@@ -108,8 +115,10 @@ export function PreviewColumn(props: PreviewColumnProps) {
   }, [pendingDocument, content.hash, content.lang, onDocumentPaint]);
   return (
     <>
+      {props.source}
       <PreviewColumnBody
         {...content}
+        source={undefined}
         mode={content.hash === props.hash ? props.mode : content.mode}
         variant={content.hash === props.hash ? props.variant : content.variant}
         onMode={props.onMode}
@@ -126,6 +135,7 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   lang,
   name,
   piece,
+  pieceIcon,
   icon,
   categoryLabel,
   archiveIcon,
@@ -139,6 +149,8 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   pendingDocument,
   loadingContent,
 }: PreviewColumnProps) {
+  // Held past `loadingContent` until a painted skeleton has had its minimum (ui/Skeleton rule).
+  const skeletonShown = useSkeletonVisible(Boolean(loadingContent), hash, true);
   const selected = enhanced.find((entry) => entry.hash === variant) ?? enhanced[0];
   const effective: PreviewMode = selected ? mode : 'base';
   const selectedText = selected?.text;
@@ -168,23 +180,12 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   // that has one.
   const bar = (
     <div className={styles.bar}>
-      <div className={styles.segmented} role="group" aria-label="Preview version">
-        {(['base', 'enhanced', 'compare'] as const).map((value) => {
-          const missing = !selected && value !== 'base';
-          return (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={effective === value}
-              disabled={missing}
-              title={missing ? 'This item has no enhanced version' : undefined}
-              onClick={() => onMode(value)}
-            >
-              {labels[value]}
-            </button>
-          );
-        })}
-      </div>
+      <VersionSwitch
+        label="Preview version"
+        value={effective}
+        hasEnhanced={Boolean(selected)}
+        onChange={onMode}
+      />
       {selected && enhanced.length > 1 && (
         <select
           className={styles.versions}
@@ -222,6 +223,7 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
         lang={lang}
         name={name}
         piece={piece}
+        pieceIcon={pieceIcon}
         icon={icon}
         categoryLabel={[categoryLabel, hash].filter(Boolean).join(' · ')}
         globals={shown ? shown.globals : baseGlobals}
@@ -230,12 +232,12 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
         bar={bar}
         fill
       >
-        {loadingContent ? (
-          <SkeletonBoundary
-            pending
+        {loadingContent || skeletonShown ? (
+          <LoadingSkeleton
             label="Loading preview text…"
             count={12}
             text={baseText || undefined}
+            visible={skeletonShown}
           />
         ) : (
           comparison && (
@@ -250,6 +252,53 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
     </section>
   );
 });
+
+/**
+ * Base | Enhanced | Compare: the preview's version strip, also the translate-mode English pane's
+ * (one control, one look). Without an enhanced version the last two stay, dimmed.
+ */
+export function VersionSwitch({
+  label,
+  value,
+  hasEnhanced,
+  onChange,
+}: {
+  label: string;
+  value: PreviewMode;
+  hasEnhanced: boolean;
+  onChange(mode: PreviewMode): void;
+}) {
+  return (
+    <div className={styles.segmented} role="group" aria-label={label}>
+      {(['base', 'enhanced', 'compare'] as const).map((mode) => {
+        const missing = !hasEnhanced && mode !== 'base';
+        return (
+          <button
+            key={mode}
+            type="button"
+            aria-pressed={value === mode}
+            disabled={missing}
+            title={missing ? 'This item has no enhanced version' : undefined}
+            onClick={() => onChange(mode)}
+          >
+            {labels[mode]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The Compare rows of a comparison (compare.ts), as the preview column draws them. */
+export function CompareLines({ comparison }: { comparison: Comparison }) {
+  return (
+    <div className={styles.compare} data-compare="">
+      {comparison.lines.map((entry, index) => (
+        <CompareRow key={index} entry={entry} />
+      ))}
+    </div>
+  );
+}
 
 /**
  * One changed value: struck base value, arrow, enhanced value. The arrow stays with the words on
@@ -274,11 +323,9 @@ function ChangeRun({ was, now }: { was: MarkupSpan[]; now: MarkupSpan[] }) {
           role="img"
           aria-label={was.length ? 'becomes' : 'enhanced'}
         />
-        {span(first)}
+        {span(first, previewStyles.now)}
       </span>
-      {now.slice(1).map((part, index) => (
-        <PreviewSpan key={index} part={part} />
-      ))}
+      {span(now.slice(1), previewStyles.now)}
     </>
   );
 }

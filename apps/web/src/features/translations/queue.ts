@@ -1,5 +1,7 @@
 import {
+  isMovedInactive,
   isTranslatable,
+  isPairedEnhancedMod,
   translationStateOf,
   type Lang,
   type Tooltip,
@@ -15,6 +17,7 @@ import {
 } from '../compendium/itemClassification';
 import { exoticArmourCategory, exoticArmourLabel, itemFor, listName } from '../navigation/catalog';
 import type { EditorData } from '../../stores/data';
+import { changeKey, changeSizeMemory } from './changeSize';
 
 /** A tooltip that can be translated: shown in the finder, with English text, not a placeholder. */
 export interface Translatable {
@@ -73,39 +76,78 @@ export function translationIndex(data: EditorData): TranslationIndex {
   return index;
 }
 
+const categoryMaps = new WeakMap<EditorData, Map<string, EditorData['categories'][number]>>();
+
+function categoryMap(data: EditorData) {
+  let map = categoryMaps.get(data);
+  if (!map)
+    categoryMaps.set(
+      data,
+      (map = new Map(
+        [
+          ...data.categories,
+          ...derivedCategories.filter(
+            (c) => !data.categories.some((existing) => existing.id === c.id),
+          ),
+        ].map((category) => [category.id, category] as const),
+      )),
+    );
+  return map;
+}
+
+/**
+ * `tooltip` as a Translations row source (name, category, search text), or null when it is never
+ * translatable: aliases, archived tooltips, tooltips without English text, set selectors, Inactive
+ * & Placeholder Items, and enhanced weapon parts. `order` is the category's finder order.
+ */
+export function translatableEntry(
+  tooltip: Tooltip,
+  data: EditorData,
+): (Translatable & { order: number }) | null {
+  if (
+    !isTranslatable(tooltip, data.aliases) ||
+    isMovedInactive(tooltip.hash, data.bundle.inactiveMoves)
+  )
+    return null;
+  const item = itemFor(tooltip.hash, data);
+  let categoryId = 'unknown';
+  let name = String(tooltip.hash);
+  if (item) {
+    if (isSetSelector(item)) return null;
+    if (isPairedEnhancedMod(item)) return null;
+    const classified = listingCategoryId(
+      item,
+      classifyItem(item, tooltip, data.bundle.inactiveMoves),
+    );
+    if (classified === inactiveCategory || classified === enhancedPartCategory) return null;
+    categoryId = classified;
+    name = listName(item, data) || name;
+  }
+  const category = categoryMap(data).get(categoryId);
+  const label =
+    categoryId === exoticArmourCategory ? exoticArmourLabel : (category?.label ?? 'Other');
+  return {
+    tooltip,
+    hash: tooltip.hash,
+    name,
+    categoryId,
+    category: label,
+    haystack: `${name}
+${tooltip.hash}
+${label}`.toLowerCase(),
+    order: category?.order ?? 9999,
+  };
+}
+
 function buildIndex(data: EditorData): TranslationIndex {
-  const categories = new Map(
-    [
-      ...data.categories,
-      ...derivedCategories.filter((c) => !data.categories.some((existing) => existing.id === c.id)),
-    ].map((category) => [category.id, category] as const),
-  );
   const translatable: Translatable[] = [];
   const order = new Map<string, number>();
   for (const tooltip of Object.values(data.bundle.tooltips)) {
-    if (!isTranslatable(tooltip, data.aliases)) continue;
-    const item = itemFor(tooltip.hash, data);
-    let categoryId = 'unknown';
-    let name = String(tooltip.hash);
-    if (item) {
-      if (isSetSelector(item)) continue;
-      const classified = listingCategoryId(item, classifyItem(item, tooltip));
-      if (classified === inactiveCategory || classified === enhancedPartCategory) continue;
-      categoryId = classified;
-      name = listName(item, data) || name;
-    }
-    const category = categories.get(categoryId);
-    if (!order.has(categoryId)) order.set(categoryId, category?.order ?? 9999);
-    const label =
-      categoryId === exoticArmourCategory ? exoticArmourLabel : (category?.label ?? 'Other');
-    translatable.push({
-      tooltip,
-      hash: tooltip.hash,
-      name,
-      categoryId,
-      category: label,
-      haystack: `${name}\n${tooltip.hash}\n${label}`.toLowerCase(),
-    });
+    const entry = translatableEntry(tooltip, data);
+    if (!entry) continue;
+    const { order: categoryOrder, ...row } = entry;
+    if (!order.has(row.categoryId)) order.set(row.categoryId, categoryOrder);
+    translatable.push(row);
   }
   translatable.sort(
     (a, b) =>
@@ -191,6 +233,7 @@ export function parseStateFilter(value: string | null): StateFilter {
 }
 
 export interface QueueFilters {
+  sort?: 'small';
   state: StateFilter;
   category: string | null;
   query: string;
@@ -216,7 +259,20 @@ export function queueFor(
   language: Lang,
   filters: QueueFilters,
 ): readonly QueueRow[] {
-  return filterRows(index.queue(language), filters);
+  const rows = filterRows(index.queue(language), filters);
+  if (filters.sort !== 'small') return rows;
+  const counts = new Map<number, number>();
+  for (const { tooltip } of index.translatable) {
+    const sourceUpdatedAt = tooltip.text[language]?.sourceUpdatedAt;
+    if (!sourceUpdatedAt) continue;
+    const value = changeSizeMemory.get(
+      changeKey({ hash: tooltip.hash, sourceUpdatedAt, current: tooltip.text.en?.text ?? '' }),
+    );
+    if (value && 'count' in value) counts.set(tooltip.hash, value.count);
+  }
+  return [...rows].sort(
+    (a, b) => (counts.get(a.hash) ?? Infinity) - (counts.get(b.hash) ?? Infinity),
+  );
 }
 
 /** Categories that have rows, in finder order, with row counts. */
@@ -226,9 +282,9 @@ export function categoryOptions(
 ): { id: string; label: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const row of rows) counts.set(row.categoryId, (counts.get(row.categoryId) ?? 0) + 1);
-  return categories.flatMap((category) => {
+  return categories.map((category) => {
     const count = counts.get(category.id);
-    return count ? [{ ...category, count }] : [];
+    return { ...category, count: count ?? 0 };
   });
 }
 

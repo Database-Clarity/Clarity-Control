@@ -245,7 +245,7 @@ describe('enhanced pairs, override candidates and blank copies', () => {
 describe('enhanced weapon parts', () => {
   // 30 is a part; 31 its enhanced version. 40 and 41 are same-name twin parts in one alias
   // group (canonical 40); 42 is the enhanced version of the non-canonical twin. 50 is an enhanced
-  // part with no base; 61 is an enhanced weapon mod hanging off a part (not a part pair).
+  // part with no base; 61 is an enhanced weapon mod hanging off a part (a mod pair).
   const parts = (): EditorData => {
     const data = build(
       [tip(2, { en: '' }), tip(3, { en: '' }), tip(30, { en: 'Part' }), tip(40, { en: 'Twin' })],
@@ -296,11 +296,12 @@ describe('enhanced weapon parts', () => {
     expect(enhancedPairs(42, data)).toEqual([42]);
   });
 
-  it('leaves an enhanced part without a base on its own and mods off parts unpaired', () => {
+  it('leaves an enhanced part without a base on its own and pairs mods off parts', () => {
     const data = parts();
     expect(enhancedPairs(50, data)).toEqual([]);
     expect(enhancedVariants(50, data)).toEqual([]);
-    expect(isEnhancedPair(60, 61, data)).toBe(false);
+    expect(isEnhancedPair(60, 61, data)).toBe(true);
+    expect(enhancedPairs(60, data)).toEqual([61]);
   });
 });
 
@@ -343,12 +344,14 @@ describe('enhanced origin traits', () => {
     return value;
   };
 
-  it('pairs an enhanced origin trait with its base, and keeps enhanced weapon mods separate', () => {
+  it('pairs enhanced origin traits and weapon mods with their bases', () => {
     const value = data();
     expect(enhancedPairs(70, value)).toEqual([71]);
     expect(enhancedPairs(71, value)).toEqual([71]);
     expect(previewedVariants(70, value)).toEqual([71]);
-    expect(enhancedPairs(80, value)).toEqual([]);
+    expect(enhancedPairs(80, value)).toEqual([81]);
+    expect(enhancedPairs(81, value)).toEqual([81]);
+    expect(previewedVariants(80, value)).toEqual([81]);
   });
 });
 
@@ -374,4 +377,18 @@ it('derives category scope from actual enhanced pairs, not isolated enhanced typ
       ),
     ).size,
   ).toBe(0);
+});
+
+it('leaves unlinked enhanced mods separate, even with a same-name base', () => {
+  const data = build(
+    [],
+    {},
+    {
+      80: item(80, 'weapon-mod', { name: 'Radar Tuner', plugCategoryHash: 1 }),
+      81: item(81, 'weapon-mod-enhanced', { name: 'Radar Tuner', plugCategoryHash: 2 }),
+    },
+  );
+  expect(enhancedPairs(80, data)).toEqual([]);
+  expect(enhancedPairs(81, data)).toEqual([]);
+  expect(enhancedVariants(81, data)).toEqual([]);
 });

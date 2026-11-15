@@ -1,5 +1,5 @@
 import { baseEnhancedPublishMessage } from './markup/baseEnhanced.js';
-import { lowerElementTags } from './markup/elementTags.js';
+import { lowerConsumerMarkup } from './markup/braces.js';
 import { languages } from './languages.js';
 import type { LegacyCatalog, LegacyFacts, LegacyMetadata, LegacyPerk } from './legacy.js';
 import { isTextlessDescription, tooltipSchema, type Tooltip } from './schemas.js';
@@ -47,6 +47,57 @@ export function isLegacyAliasStub(entry: LegacyExportEntry): entry is LegacyAlia
   return 'aliasOf' in entry;
 }
 
+/** The stub exportLegacy writes for alias `alias` (facts from the catalog; frames require them). */
+function aliasStub(
+  alias: string,
+  aliases: Aliases,
+  catalog: LegacyCatalog | undefined,
+): LegacyAliasStub | undefined {
+  const entry = aliases[alias];
+  if (!entry) return undefined;
+  const facts = catalog?.[alias];
+  if (catalog && entry.kind === 'frame' && !facts) {
+    throw new Error(`Missing manifest facts for frame alias ${alias}`);
+  }
+  return {
+    hash: Number(alias),
+    aliasOf: resolveAlias(Number(alias), aliases),
+    aliasKind: entry.kind,
+    ...exportFacts(facts),
+  };
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+/**
+ * The live perks after an export (root 2026-11-13): exported entries replace their keys, and every
+ * key the sandbox picks file names (`picks`: picks, "no tooltip", and undone tombstones) is
+ * RECOMPUTED from `aliases` (the generator's plus the picks, core mergeSandboxPointers): the pick's
+ * stub if picked, else the generator's own stub for that key if it has one, else absent. A stub is
+ * written only while its target is a live canonical record (as exportLegacy writes stubs only for
+ * exported tooltips); a key that holds its own tooltip record is never touched. Keys the file does
+ * not name are untouched, so without a picks file this is `{ ...live, ...entries }`, v2's bytes.
+ */
+export function mergeLivePerks(
+  live: Readonly<Record<string, unknown>>,
+  entries: Readonly<Record<string, LegacyExportEntry>>,
+  picks?: { keys: Iterable<string>; aliases: Aliases; catalog?: LegacyCatalog },
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...live, ...entries };
+  if (!picks) return merged;
+  for (const key of picks.keys) {
+    if (Object.hasOwn(entries, key)) continue;
+    const current = merged[key];
+    if (isRecord(current) && !('aliasOf' in current)) continue;
+    const stub = aliasStub(key, picks.aliases, picks.catalog);
+    const target = stub && merged[String(stub.aliasOf)];
+    if (stub && isRecord(target) && !('aliasOf' in target)) merged[key] = stub;
+    else delete merged[key];
+  }
+  return merged;
+}
+
 export function exportLegacy(
   tooltips: readonly Tooltip[],
   now: number,
@@ -83,9 +134,10 @@ export function exportLegacy(
       const translation = tooltip.text[language];
       if (!translation) continue;
       const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
-      // Element-tagged text (`<solar Scorch />`) leaves the editor in today's format
-      // (`<solar/>Scorch`): every consumer reads exactly what authors wrote before tags existed.
-      const text = lowerElementTags(exported.text);
+      // Element-tagged text (`<solar Scorch />`), delimited variables (`#{d}`), and the arrow
+      // symbol (`<enhanced/>`) leave the editor in today's format (`<solar/>Scorch`, `#d`, `#e`):
+      // every consumer reads exactly what authors wrote before those forms existed.
+      const text = lowerConsumerMarkup(exported.text);
       editor[language] = { main: text, secondary: text };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
@@ -153,19 +205,10 @@ export function exportLegacy(
       }
     }
   }
-  for (const [alias, { kind }] of Object.entries(aliases)) {
+  for (const alias of Object.keys(aliases)) {
     const target = resolveAlias(Number(alias), aliases);
     if (!canonical[target]) continue;
-    const facts = catalog?.[alias];
-    if (catalog && kind === 'frame' && !facts) {
-      throw new Error(`Missing manifest facts for frame alias ${alias}`);
-    }
-    entries[alias] = {
-      hash: Number(alias),
-      aliasOf: target,
-      aliasKind: kind,
-      ...exportFacts(facts),
-    };
+    entries[alias] = aliasStub(alias, aliases, catalog)!;
   }
   return entries;
 }

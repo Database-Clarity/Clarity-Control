@@ -8,7 +8,7 @@ import type { Tooltip } from '../src/schemas.js';
  * original text exactly. An exporter that lowers must then write byte for byte what it writes for
  * the original text, which is the hand-written lowered form.
  */
-const pair = /<(kinetic|arc|solar|void|stasis|strand)\/>(\p{L}[\p{L}'’-]*)/gu;
+const pair = /<(kinetic|arc|solar|void|stasis|strand|prismatic)\/>(\p{L}[\p{L}'’-]*)/gu;
 
 export function raiseElementPairs(text: string): { text: string; raised: number } {
   if (!text.includes('/>')) return { text, raised: 0 };
@@ -20,6 +20,7 @@ export function raiseElementPairs(text: string): { text: string; raised: number 
 /** Hand-written fixtures: tagged text and its lowered (today's) form, written out by hand. */
 export const loweredFixtures: [name: string, tagged: string, lowered: string][] = [
   ['plain wrap', 'Gain <solar Scorch /> stacks.', 'Gain <solar/>Scorch stacks.'],
+  ['prismatic', 'Gain <prismatic Transcendence />.', 'Gain <prismatic/>Transcendence.'],
   [
     'multi-word text',
     'Creates a <void Void Breach /> on kill.',
@@ -27,8 +28,8 @@ export const loweredFixtures: [name: string, tagged: string, lowered: string][] 
   ],
   [
     'every element',
-    '<kinetic Kinetic />, <arc Jolt />, <solar Scorch />, <void Volatile />, <stasis Slow />, <strand Sever />',
-    '<kinetic/>Kinetic, <arc/>Jolt, <solar/>Scorch, <void/>Volatile, <stasis/>Slow, <strand/>Sever',
+    '<kinetic Kinetic />, <arc Jolt />, <solar Scorch />, <void Volatile />, <stasis Slow />, <strand Sever />, <prismatic Transcendence />',
+    '<kinetic/>Kinetic, <arc/>Jolt, <solar/>Scorch, <void/>Volatile, <stasis/>Slow, <strand/>Sever, <prismatic/>Transcendence',
   ],
   ['pve line', '<pve/>Applies <arc Jolt /> to targets.', '<pve/>Applies <arc/>Jolt to targets.'],
   ['pvp line', '<pvp/><stasis Slow /> for 2s', '<pvp/><stasis/>Slow for 2s'],

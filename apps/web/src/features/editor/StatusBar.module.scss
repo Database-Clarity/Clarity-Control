@@ -1,9 +1,21 @@
 @use '../../ui/controls';
 @use '../../data/variables' as theme;
 
+// The character warnings quote symbols the interface fonts lack (supplemental arrows, block
+// elements). Chromium on Windows draws them from Segoe UI Symbol after a system fallback search
+// that cost a ~100 ms Layout when the panel opened. Name that installed face for these ranges so
+// it resolves directly. It comes after the interface fonts, so anything they cover keeps its font;
+// where the face is not installed this rule is skipped and the browser falls back as before.
+@font-face {
+  font-family: EditorPanelSymbols;
+  src: local('Segoe UI Symbol'), local('SegoeUISymbol');
+  unicode-range: U+2580-259F, U+1F800-1F8FF;
+}
+
 // The editor's status line: fixed height, one line. Only .reason and .hints are flexible text and
 // may ellipsise; every other item keeps its size. Panels open upward over the text (never resize it).
 .bar {
+  @include controls.contain-focus-rings;
   flex: none;
   display: flex;
   align-items: center;
@@ -19,8 +31,9 @@
   border-top: 1px solid var(--editor-edge);
   container-type: inline-size;
 
-  // Narrow editors give up, in this order: key hint on the preview button, the position, then
-  // long labels for short ones. Nothing wraps or ellipsises except the flexible texts.
+  // Narrow editors drop, by width alone: the key hints, then the position, then the preview's
+  // count text. Labels never change here: useFit (StatusBar.tsx) steps them down only as far as
+  // the items need (see [data-fit] below), so one label form shows at a time.
   @container (max-width: 40rem) {
     .hints {
       display: none;
@@ -32,33 +45,80 @@
     }
   }
   @container (max-width: 24rem) {
+    .previewText {
+      display: none;
+    }
+  }
+  // useFit drops a count that would still be cut short at the step it settles on.
+  &[data-count-dropped] .previewText {
+    display: none;
+  }
+
+  // Items keep their size, including the warnings inside the live region (display: contents):
+  // a shrunk item would draw its text over the next one instead of overflowing the bar.
+  > *,
+  > .live > * {
+    flex: none;
+  }
+
+  // Too many items for the width: useFit takes the first step that fits, and each step is
+  // narrower than the one before. 1 tight items; 2 short labels (Help, glyphs, retired); 3 the
+  // retired count as its warning sign alone; 4 Changes as its glyph; 5 counts with a mark instead
+  // of a word (⊗ issues, ▯ characters, ⇄ conflicts, ? help). Each item keeps its full name in
+  // aria-label and its tooltip.
+  &[data-fit='1'],
+  &[data-fit='2'],
+  &[data-fit='3'],
+  &[data-fit='4'] {
+    .item {
+      padding: 0 0.25rem;
+    }
+  }
+  &[data-fit='2'],
+  &[data-fit='3'],
+  &[data-fit='4'],
+  &[data-fit='5'] {
     .long {
       display: none;
     }
     .short {
       display: inline;
     }
-    .previewText {
+  }
+  &[data-fit='3'],
+  &[data-fit='4'],
+  &[data-fit='5'] {
+    .short.roomy {
       display: none;
     }
   }
-  // Narrowest (a phone above about 105% interface scale): Changes becomes its glyph, the retired
-  // count keeps only its warning sign, and the items tighten, so the Changes item never pushes
-  // another one out of the bar. Each keeps its full name for assistive technology.
-  @container (max-width: 21rem) {
+  &[data-fit='4'],
+  &[data-fit='5'] {
     .roomy {
       display: none;
     }
     .tiny {
       display: inline;
     }
+  }
+  &[data-fit='5'] {
     .item {
       padding: 0 0.125rem;
     }
-  }
-
-  > * {
-    flex: none;
+    .item[data-mark] {
+      .word,
+      .long,
+      .short {
+        display: none;
+      }
+      // The mark, then the count after a space, as the retired item's "⚠ 3".
+      &::before {
+        content: attr(data-mark) '\00a0';
+      }
+    }
+    [data-status-help]::before {
+      content: attr(data-mark);
+    }
   }
 
   // Touch: a 28px item row (44px with Large) with no side padding, so the first item's text
@@ -69,25 +129,8 @@
     padding: 0;
     font-size: var(--ctl-text);
 
-    // The rem-based steps above fire early at a large interface scale (a 360px phone at 150% is
-    // under 21rem with room to spare): touch keeps the Changes label and even item padding, and
-    // goes to the glyph only on a really narrow bar.
-    .roomy {
-      display: inline;
-    }
-    .tiny {
-      display: none;
-    }
     .item {
       padding: 0 var(--page-x);
-    }
-    @container (max-width: 260px) {
-      .roomy {
-        display: none;
-      }
-      .tiny {
-        display: inline;
-      }
     }
   }
 }
@@ -222,6 +265,11 @@
   &[data-inactive] {
     visibility: hidden;
   }
+  // Until it first shows, the idle item is fully shrinkable: a crowded bar keeps its long labels
+  // in that room instead of shortening them beside an empty gap. Reserved, it keeps its width.
+  &[data-inactive]:not([data-reserved]) {
+    overflow: hidden;
+  }
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
@@ -264,6 +312,7 @@
   max-height: min(70%, 20rem);
   overflow: auto;
   padding: 0.5rem 2.25rem 0.5rem 0.75rem;
+  font-family: Arial, Helvetica, DestinySymbols, EditorPanelSymbols, sans-serif;
   font-size: 0.75rem;
   color: var(--text);
   background: var(--raised);

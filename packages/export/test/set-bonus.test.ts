@@ -12,16 +12,10 @@ import {
   type LegacyInput,
   type LegacyPreset,
 } from '../src/index.js';
-import { customJsonStringify } from '../src/converter/helpers.js';
 import { databaseConverter } from '../src/converter/publisher.js';
 import { lowerInput } from '../src/elementTags.js';
-import { editorDataInput, expected, fixtureInput, sha256 } from './helpers.js';
-
-const decoder = new TextDecoder();
-const parse = (bytes: Uint8Array) =>
-  JSON.parse(decoder.decode(bytes)) as Record<string, Record<string, unknown>>;
-const stringify = (value: unknown) =>
-  customJsonStringify(value, ['stat', 'multiplier', 'weaponTypes', 'classNames']);
+import { expected, fixtureInput, sha256 } from './helpers.js';
+import { decoder, parse, stringify, withType } from './set-bonus-real.js';
 
 /** The held converter's own output: the copied converter without the set-bonus changes. */
 const held = (input: LegacyInput, preset: LegacyPreset, identical: string[]) =>
@@ -31,14 +25,6 @@ const { input, inventoryItem } = fixtureInput();
 const identical = bungieIdentical(input, inventoryItem as never);
 
 // Fixture set bonuses: 17188252 (own text), 17188254 (Bungie's text), 17188253 (sandbox alias of 17188252).
-const withType: LegacyPreset[] = [
-  'clarity',
-  'crayon',
-  'foundry',
-  'braytech',
-  'vaultZero',
-  'clarityV2',
-];
 const keepsIdentical: LegacyPreset[] = ['crayon', 'vaultZero'];
 /** The expected diff: the set-bonus entries whose `type` is renamed, per preset. */
 const expectedDiff = Object.fromEntries(
@@ -110,40 +96,4 @@ test('a set bonus with a legacy type name already is written as it is', () => {
   expect((input.perks['17188252'] as { type: string }).type).toBe('armor-set-bonus');
 });
 
-test('real data: one set bonus adds exactly its entry to each of the 7 files', () => {
-  // Editor-data 52007db has no set bonus yet; add one as core exportLegacy writes it, with the
-  // generator's facts for sandbox perk 17188252 (Atheon's Memory 2 pc).
-  const real = editorDataInput();
-  const english = 'Fixture set-bonus text, not Bungie text.';
-  const added: LegacyInput = {
-    ...real.input,
-    perks: {
-      ...real.input.perks,
-      17188252: {
-        hash: 17188252,
-        name: "Atheon's Memory (2 pc): Radiolaria Breach",
-        type: 'armor-set-bonus',
-        editor: { en: { main: english, secondary: english } },
-        uploadedBy: 'fixture',
-        lastUpload: 1700000000000,
-        inLiveDatabase: false,
-        uploadToLive: false,
-        updateTracker: {
-          descriptions: { en: { lastUpdate: 1700000000000, updatedBy: 'fixture' } },
-        },
-      } as never,
-    },
-  };
-  for (const preset of deployedLegacyPresets) {
-    const before = buildLegacy(real.input, preset, { identical: real.identical });
-    expect(sha256(before)).toBe(expected.editorData.files[preset]);
-    const after = parse(buildLegacy(added, preset, { identical: real.identical }));
-    const { 17188252: entry, ...rest } = after;
-    expect(entry.hash).toBe(17188252);
-    expect(entry.name).toBe("Atheon's Memory (2 pc): Radiolaria Breach");
-    if (withType.includes(preset)) expect(entry.type).toBe('Armor Set Bonus');
-    else expect(entry).not.toHaveProperty('type');
-    // Every other entry, in order, is byte for byte the file without the set bonus.
-    expect(stringify(rest)).toBe(decoder.decode(before));
-  }
-}, 300_000);
+// The real-data check runs in set-bonus-real-<n>.test.ts (set-bonus-real.ts).

@@ -109,6 +109,16 @@ const wrap = (tag: string, about: string): Snippet => ({
 
 export const markupSnippets: readonly Snippet[] = [
   {
+    id: 'arrow-values',
+    label: 'Value becomes another',
+    group: 'Values',
+    template: '{{1:30%}}<arrow/>{{2:33%}}',
+    keywords: 'arrow leads to becomes change value',
+    usage: /<arrow\/>/,
+    about: 'Two values joined by an arrow in the surrounding text colour.',
+    help: { example: '30%<arrow/>33%' },
+  },
+  {
     id: 'base-enhanced-pair',
     label: 'Base and enhanced text',
     group: 'Enhanced',
@@ -167,21 +177,22 @@ export const markupSnippets: readonly Snippet[] = [
     id: 'enhanced-block',
     label: 'Enhanced section',
     group: 'Enhanced',
-    template: 'enhanced (\nvar d = {{1:amount}}\n#e {{2:What the enhanced version changes.}}\n)',
+    template:
+      'enhanced (\nvar d = {{1:amount}}\n<enhanced/> {{2:What the enhanced version changes.}}\n)',
     keywords: 'enhanced block arrow section var',
     usage: /^enhanced \(/m,
     block: true,
-    about: 'The enhanced-only section. The #e line already carries the enhanced arrow.',
+    about: 'The enhanced-only section. Its first line already carries the enhanced arrow.',
     help: { block: 'enhanced' },
   },
   {
     id: 'enhanced-formula',
-    label: '#e${base+#d}',
+    label: '<enhanced/>${base+#{d}}',
     group: 'Enhanced',
-    template: '#e${{{1:base}}+#d}',
-    keywords: 'enhanced formula e d base add bonus',
-    usage: /#e\$\{/,
-    about: 'The base value with the enhanced bonus #d added in the enhanced version.',
+    template: '<enhanced/>${{{1:base}}+#{d}}',
+    keywords: 'enhanced formula e d base add bonus arrow',
+    usage: /(?:#e|<enhanced\/>)\$\{/,
+    about: 'The base value with the enhanced bonus #{d} added in the enhanced version.',
     help: { block: 'enhanced' },
   },
   {
@@ -344,6 +355,7 @@ export interface SymbolEntry {
 }
 
 const iconAbout: Record<string, string> = {
+  arrow: 'An arrow meaning leads to or becomes, drawn in the surrounding text colour.',
   kinetic: 'Kinetic damage icon.',
   arc: 'Arc damage icon.',
   solar: 'Solar damage icon.',

@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import inspector from 'node:inspector';
+import { maxBuffer } from '../childProcess.mjs';
 
 const out = `scripts/publisher/cpu/dist/local-${process.env.CPU_BASELINE === '1' ? 'before' : 'after'}`;
 process.env.CPU_OUT = out;
@@ -11,8 +12,12 @@ if (process.argv[2] !== 'case') {
   const rows = [];
   for (const mode of ['publish', 'pending', 'terminal', 'kick']) {
     for (const count of [1, 50, 100, 2511]) {
-      execFileSync(process.execPath, ['scripts/publisher/cpu/prepare.mjs', mode, String(count)]);
-      rows.push(JSON.parse(execFileSync(process.execPath, [import.meta.filename, 'case'])));
+      execFileSync(process.execPath, ['scripts/publisher/cpu/prepare.mjs', mode, String(count)], {
+        maxBuffer,
+      });
+      rows.push(
+        JSON.parse(execFileSync(process.execPath, [import.meta.filename, 'case'], { maxBuffer })),
+      );
     }
   }
   writeFileSync(`${out}/local-summary.json`, JSON.stringify(rows, null, 2));

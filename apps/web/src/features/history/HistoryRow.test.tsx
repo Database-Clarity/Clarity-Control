@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { createRevisionCache } from './revisions';
+import { skeletonMinimumMs } from '../../ui/Skeleton';
 
 const getHistory = vi.fn();
 const getVersion = vi.fn();
@@ -39,10 +40,11 @@ const tooltip: Tooltip = {
 };
 let host: HTMLDivElement;
 let root: Root;
+// The skeleton minimum counts from its first painted frame, so allow a few frames on top.
 const paintRows = () =>
   act(async () => {
-    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(410);
-    else await new Promise((resolve) => setTimeout(resolve, 410));
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(skeletonMinimumMs + 60);
+    else await new Promise((resolve) => setTimeout(resolve, skeletonMinimumMs + 60));
   });
 const originals = {
   data: useDataStore.getState(),
@@ -274,6 +276,8 @@ it('renders only a bounded visible group and advances on request', async () => {
   try {
     await act(async () => root.render(<HistoryPanel hash={10} />));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    // The skeletons' first paint.
+    await act(async () => frames.splice(0).forEach((callback) => callback(0)));
     await paintRows();
     expect(host.querySelectorAll('ol li > button')).toHaveLength(8);
     expect(host.textContent).not.toContain('A long commit body');
@@ -465,7 +469,7 @@ it('requires scrolling to advance an intersecting sentinel, rather than draining
   }
 });
 
-it('keeps fallback skeletons visible for the shared minimum after classification finishes', async () => {
+it('skips fallback skeletons whose classification finishes before their first frame', async () => {
   vi.useFakeTimers();
   try {
     getHistory.mockResolvedValue({ commits: [commit(1)] });
@@ -473,9 +477,29 @@ it('keeps fallback skeletons visible for the shared minimum after classification
     await act(async () => {
       host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
     });
+    expect(host.querySelector('[data-history-pending]')).toBeNull();
+    expect(host.querySelector('ol li > button')).not.toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('keeps painted fallback skeletons for the minimum after classification finishes', async () => {
+  vi.useFakeTimers();
+  try {
+    getHistory.mockResolvedValue({ commits: [commit(1)] });
+    getVersion.mockImplementation(
+      () => new Promise((done) => setTimeout(() => done({ tooltip }), 50)),
+    );
+    await act(async () => root.render(<HistoryPanel hash={10} />));
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
+    });
     expect(host.querySelector('[data-history-pending]')).not.toBeNull();
-    expect(host.querySelector('ol li > button')).toBeNull();
-    await act(async () => vi.advanceTimersByTimeAsync(399));
+    // The minimum starts once the skeleton's first frame has painted.
+    await act(async () => vi.advanceTimersToNextFrame());
+    await act(async () => vi.advanceTimersByTimeAsync(1)); // The post-paint stamp task.
+    await act(async () => vi.advanceTimersByTimeAsync(skeletonMinimumMs - 1));
     expect(host.querySelector('ol li > button')).toBeNull();
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(host.querySelector('ol li > button')).not.toBeNull();

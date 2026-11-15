@@ -1,4 +1,5 @@
 @use '../../ui/controls';
+@use '../../data/variables' as theme;
 
 .page {
   box-sizing: border-box;
@@ -68,6 +69,29 @@
 .check input {
   width: 1.5rem;
   height: 1.5rem;
+}
+.rowLine {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  // Hundreds of rows, each with a checkbox: rows out of view skip layout and paint (an opened
+  // list costs what it shows). Leave restores the scroll by the first row in view, so the estimate
+  // only has to be close; `auto` keeps a row's real height once it has been shown.
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.75rem;
+  > .row {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+// A row whose checkbox has not joined yet keeps its place (the checkbox column's width and gap).
+.checkPending {
+  padding-left: calc(1.75rem + 0.25rem);
+}
+@include theme.mobile-or-coarse {
+  .checkPending {
+    padding-left: calc(var(--tap) + 0.25rem);
+  }
 }
 .row {
   text-align: left;

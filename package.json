@@ -14,7 +14,7 @@
     "dev": "npm run dev --workspace @clarity/web --",
     "build": "npm run build --workspaces --if-present && npm run build:publisher",
     "build:publisher": "node scripts/publisher/build.mjs",
-    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p scripts/publisher/tsconfig.json && tsc --noEmit -p scripts/mult-write/tsconfig.json",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p scripts/publisher/tsconfig.json && tsc --noEmit -p scripts/mult-write/tsconfig.json && tsc --noEmit -p scripts/enhanced-arrow/tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
     "test:reports-browser": "node apps/web/test/report-public-browser.mjs",

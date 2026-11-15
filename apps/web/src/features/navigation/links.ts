@@ -13,6 +13,7 @@ export const links: readonly NavLink[] = [
   { to: '/translations', label: 'Translations' },
   { to: '/drift', label: 'Bungie drift' },
   { to: '/lost-text', label: 'Lost text' },
+  { to: '/sandbox-perks', label: 'Sandbox perks' },
   { to: '/archive', label: 'Archive' },
   { to: '/globals', label: 'Globals' },
   { to: '/management', label: 'Management' },
@@ -45,7 +46,7 @@ export function workspaceMenu(user: MenuUser | null | undefined): WorkspaceMenu 
     case 'maintainer':
       return {
         primary: pick('/', '/review', '/compendium', '/translations'),
-        more: pick('/drift', '/lost-text', '/archive', '/management', '/exports'),
+        more: pick('/drift', '/lost-text', '/sandbox-perks', '/archive', '/management', '/exports'),
       };
     case 'editor':
       return {

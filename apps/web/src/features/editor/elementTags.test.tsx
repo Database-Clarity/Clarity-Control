@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Element-tagged text authoring (ELEMENT-TAGS-2): the wrap rules, absorption, the markup row's
-// "Tag selection:" mode, Ctrl+Space wrap entries, the popover's Unwrap / Remove / Change element,
+// "Tag selection" mode, Ctrl+Space wrap entries, the popover's Unwrap / Remove / Change element,
 // symbol view, raw-view highlighting, and undo/redo.
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -152,7 +152,7 @@ describe('in the editor', () => {
   let root: Root;
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    useSettingsStore.getState().updateDevice({ symbolReveal: 'popover' });
+    useSettingsStore.getState().update({ symbolReveal: 'popover' });
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
@@ -184,11 +184,11 @@ describe('in the editor', () => {
       'editor',
     );
 
-  it('the row says "Tag selection:" for a wrappable selection, and the element button wraps it', () => {
+  it('the row says "← Tag selection" for a wrappable selection, and the element button wraps it', () => {
     const { view } = mount('Gain Scorch stacks.');
     expect(label()).toBeNull();
     act(() => view.dispatch({ selection: { anchor: 5, head: 11 } }));
-    expect(label()?.textContent).toBe('Tag selection:');
+    expect(label()?.textContent).toBe('← Tag selection');
     expect(button('icon:solar').getAttribute('aria-label')).toBe('Tag selection as Solar');
     expect(button('icon:solar').dataset.wrap).toBe('true');
     expect(button('icon:primary').dataset.wrap).toBeUndefined();

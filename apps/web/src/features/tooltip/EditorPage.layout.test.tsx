@@ -12,6 +12,15 @@ import { useDraftStore } from '../../stores/drafts';
 import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { useSteppingActivity } from '../navigation/steppingActivity';
+import { useCompendiumStore } from '../compendium/store';
+import { getInactiveMoves, putInactiveMove } from '../../services/inactiveMoves';
+
+vi.mock('../../services/inactiveMoves', () => ({
+  getInactiveMoves: vi.fn(),
+  putInactiveMove: vi.fn(),
+}));
+
+const originalCompendium = useCompendiumStore.getState();
 
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
@@ -138,7 +147,53 @@ const originals = {
   save: useSaveState.getState(),
 };
 
+it('moves in and out from the mounted editor without changing its text or edit access', async () => {
+  const moves = { 10: { by: 1, at: '2026-11-14T00:00:00Z' } };
+  vi.mocked(getInactiveMoves)
+    .mockResolvedValueOnce({ moves: {}, revision: null })
+    .mockResolvedValueOnce({ moves, revision: 'a'.repeat(40) });
+  vi.mocked(putInactiveMove)
+    .mockResolvedValueOnce({ moves, revision: 'a'.repeat(40) })
+    .mockResolvedValueOnce({ moves: {}, revision: 'b'.repeat(40) });
+  await render();
+  const editor = editors()[0];
+  const confirm = async (trigger: string) => {
+    await act(async () => button(trigger)!.click());
+    const dialog = document.querySelector('[role=dialog]')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement?.tagName).toBe('DIV');
+    expect(dialog.querySelector('input')).toBeNull();
+    await act(async () =>
+      [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+        .find((entry) => entry.textContent === 'Move')!
+        .click(),
+    );
+  };
+  await confirm('Move to Inactive');
+  expect(useDataStore.getState().data!.bundle.inactiveMoves).toEqual(moves);
+  expect(host.textContent).toContain('Inactive — excluded from outputs');
+  expect(editors()[0]).toBe(editor);
+  expect(editor.hasAttribute('data-readonly')).toBe(false);
+  expect(editor.textContent).toBe(BASE);
+  await confirm('Move out of Inactive');
+  expect(useDataStore.getState().data!.bundle.inactiveMoves).toEqual({});
+  expect(host.textContent).not.toContain('Inactive — excluded from outputs');
+  expect(editors()[0]).toBe(editor);
+  expect(editor.hasAttribute('data-readonly')).toBe(false);
+  expect(editor.textContent).toBe(BASE);
+});
+
 let navigateRoute: ReturnType<typeof useNavigate>;
+it('offers only one move action for the open item when its grouped list is open', async () => {
+  await render();
+  await act(async () => button('Grouped manifest perks')!.click());
+  const moves = document.querySelectorAll('button[aria-label="Move to Inactive"]');
+  // One header action, then only the other three grouped hashes.
+  expect(moves).toHaveLength(4);
+  expect(document.querySelector('[data-grouped="10"] button')).toBeNull();
+  expect(document.querySelector('[data-grouped="11"] button')).not.toBeNull();
+});
+
 let currentLocation: ReturnType<typeof useLocation>;
 function PageHarness() {
   navigateRoute = useNavigate();
@@ -162,7 +217,9 @@ async function render(path = '/t/10') {
 }
 const editors = () => [...host.querySelectorAll<HTMLElement>('[data-editor]')];
 const button = (name: string) =>
-  [...host.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === name);
+  [...host.querySelectorAll('button')].find(
+    (entry) => entry.textContent?.trim() === name || entry.getAttribute('aria-label') === name,
+  );
 const signIn = (role: 'maintainer' | 'editor' | 'translator' | null) =>
   useAuthStore.setState({
     user: role ? { id: 1, login: 'alice', role, languages: ['de'] } : null,
@@ -345,6 +402,12 @@ describe('editor page composition', () => {
     expect(base.closest('[hidden]')).not.toBeNull();
     expect(editors()[1].closest('[hidden]')).toBeNull();
     expect(host.textContent).toContain('Enhanced override');
+    // A narrow header shows "Override" instead; screen readers hear the full name only once.
+    const tag = host.querySelector('[title="Enhanced override"]')!;
+    expect(tag).not.toBeNull();
+    expect(
+      [...tag.querySelectorAll('[aria-hidden="true"]')].map((node) => node.textContent?.trim()),
+    ).toContain('Override');
     expect(button('Edit override')).toBeUndefined();
     await act(async () => button('Back to base')!.click());
     expect(editors().map((node) => node.dataset.editor)).toEqual(['10']);
@@ -458,16 +521,118 @@ describe('editor page composition', () => {
     expect(button('Grouped 4')).toBeUndefined();
   });
 
-  it('gives a translator the same editor and rows, with English but no Compendium', async () => {
+  it('gives a translator the same editor and rows, with English and the saved Compendium only', async () => {
     signIn('translator');
     await render('/t/10?lang=de');
     expect(editors().map((node) => node.dataset.editor)).toEqual(['10']);
+    // Never the live, matching Compendium panel.
     expect(host.querySelector('[data-compendium]')).toBeNull();
     expect(button('English')).toBeDefined();
-    expect(button('Compendium')).toBeUndefined();
+    expect(button('Compendium')).toBeDefined();
     expect(host.querySelector('[data-associations]')).not.toBeNull();
     expect(host.querySelector('[data-history]')).not.toBeNull();
     expect(button('Grouped 4')).toBeUndefined();
+  });
+
+  describe('translator Compendium tab (read-only, saved snapshot only)', () => {
+    const snapshot = {
+      gid: '42',
+      rowKey: 'Base perk',
+      section: 'Raid Specific',
+      sourceAnchor: { row: 12, col: 1 },
+      cells: [{ dRow: 0, dCol: 2 }],
+      snapshot: {
+        plain: 'Saved sheet words',
+        runs: [{ text: 'Saved sheet words', bold: true as const }],
+      },
+      snapshotAt: '2026-11-01T10:00:00Z',
+    };
+    const withSnapshot = (link?: typeof snapshot) => {
+      const tooltips = {
+        ...data.bundle.tooltips,
+        10: { ...data.bundle.tooltips[10], compendium: link },
+      };
+      useDataStore.setState({
+        data: { ...data, bundle: { ...data.bundle, tooltips } } as EditorData,
+      });
+    };
+    const openCompendium = async () => {
+      await act(async () => button('Compendium')!.click());
+      return host.querySelector<HTMLElement>('[data-saved-compendium]')!;
+    };
+    // Every write the editors' pane offers; none may render for a translator.
+    const writeActions =
+      /^(Link|Relink|Close|Confirm|Not needed|Unlink|Choose another|Review & save draft|Use this|Accept)/;
+    let fetchSpy: { mock: { calls: unknown[][] }; mockRestore(): void };
+    let load: ReturnType<typeof vi.fn<(force?: boolean) => Promise<void>>>;
+    beforeEach(() => {
+      signIn('translator');
+      fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no network in tests'));
+      load = vi.fn<(force?: boolean) => Promise<void>>(async () => {});
+      useCompendiumStore.setState({ load });
+    });
+    afterEach(() => {
+      fetchSpy.mockRestore();
+      useCompendiumStore.setState(originalCompendium);
+    });
+    const expectNoLiveSheet = () => {
+      expect(load).not.toHaveBeenCalled();
+      expect(
+        fetchSpy.mock.calls.map(([url]) => String(url)).filter((url) => /compendium/i.test(url)),
+      ).toEqual([]);
+    };
+
+    it('shows only the snapshot saved with the English, its source, and no write action', async () => {
+      withSnapshot(snapshot);
+      await render('/t/10?lang=de');
+      const pane = await openCompendium();
+      expect(pane.dataset.savedCompendium).toBe('saved');
+      expect(pane.textContent).toContain('Saved sheet words');
+      expect(pane.textContent).toContain('Saved with the English');
+      expect(pane.textContent).toContain('Raid Specific');
+      const source = pane.querySelector<HTMLAnchorElement>('[data-source-ref]')!;
+      // One link for section and range; no placeholder tab name shown or announced.
+      expect(source.textContent).toContain('Raid Specific');
+      expect(source.textContent).toContain('D12');
+      expect(source.textContent).not.toContain('Sheet tab');
+      expect(source.title).toBe('Open in the sheet: Raid Specific · D12');
+      expect(source.href).toContain('gid=42');
+      expect(host.querySelector('[data-compendium]')).toBeNull();
+      const aside = pane.closest('aside')!;
+      const labels = [...aside.querySelectorAll('button')].map(
+        (entry) => entry.textContent?.trim() ?? '',
+      );
+      expect(labels.filter((label) => writeActions.test(label))).toEqual([]);
+      expectNoLiveSheet();
+    });
+
+    it('says so when no snapshot was saved, with no live fallback', async () => {
+      withSnapshot(undefined);
+      await render('/t/10?lang=de');
+      const pane = await openCompendium();
+      expect(pane.dataset.savedCompendium).toBe('none');
+      expect(pane.textContent).toBe('No Compendium text was saved with the English yet');
+      expect(pane.closest('aside')!.querySelectorAll('button')).toHaveLength(0);
+      expectNoLiveSheet();
+    });
+
+    it('keeps the Compendium out of English mode for a translator', async () => {
+      withSnapshot(snapshot);
+      await render('/t/10?lang=en');
+      expect(button('Compendium')).toBeUndefined();
+      expect(host.querySelector('[data-saved-compendium]')).toBeNull();
+    });
+
+    it('leaves editors and maintainers on the live panel', async () => {
+      withSnapshot(snapshot);
+      for (const role of ['editor', 'maintainer'] as const) {
+        signIn(role);
+        await render('/t/10?lang=de');
+        await act(async () => button('Compendium')!.click());
+        expect(host.querySelector('[data-compendium]')).not.toBeNull();
+        expect(host.querySelector('[data-saved-compendium]')).toBeNull();
+      }
+    });
   });
 
   it('shows the read-only reason as a header badge when signed out, with no Discard or override action', async () => {

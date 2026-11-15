@@ -7,7 +7,9 @@ import type { MarkupGlobals } from '@clarity/core';
 import { ClarityEditor } from '../ClarityEditor';
 import { suggestState } from './state';
 
-const globals: MarkupGlobals = {
+// A category with base/enhanced markup, so every option is offered (markupScope.ts).
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
   variables: 'var e = 🡅\nvar damage = 25',
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };
@@ -155,6 +157,36 @@ describe('the suggestion menu', () => {
     );
   });
 
+  it('#e + Enter keeps its usual job where the arrow is offered (VAR-BRACES visual round 2)', () => {
+    const NL = String.fromCharCode(10);
+    const view = mount('Gains ');
+    type(view, '#');
+    type(view, 'e');
+    expect(options().map((option) => option.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('<enhanced/>')]),
+    );
+    expect(options().some((option) => /#\{?e\}?(?![a-z$])/.test(option.textContent ?? ''))).toBe(
+      false,
+    );
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe('Gains #e' + NL);
+  });
+
+  it('offers <enhanced/> where the arrow is offered, even without a global e', () => {
+    const view = mount('Gains ', { globals: { ...globals, variables: 'var damage = 25' } });
+    type(view, '#');
+    type(view, 'e');
+    expect(options().some((option) => option.textContent?.startsWith('<enhanced/>'))).toBe(true);
+    for (
+      let i = 0;
+      i < options().length && !selected()!.textContent?.startsWith('<enhanced/>');
+      i++
+    )
+      press(view, 'ArrowDown');
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe('Gains <enhanced/>');
+  });
+
   it('Tab walks the stops of a pair snippet', () => {
     const view = mount('');
     act(() => {
@@ -238,7 +270,7 @@ describe('the suggestion menu', () => {
     expect(index).toBeGreaterThan(-1);
     act(() => options()[index]!.click());
     expect(view.state.doc.toString()).toBe(
-      'Base text.\n\nenhanced (\nvar d = amount\n#e What the enhanced version changes.\n)',
+      'Base text.\n\nenhanced (\nvar d = amount\n<enhanced/> What the enhanced version changes.\n)',
     );
   });
 
@@ -286,5 +318,93 @@ describe('the suggestion menu', () => {
     expect(menu()).not.toBeNull();
     type(view, ' ');
     expect(menu()).toBeNull();
+  });
+
+  it('never covers a multi-line selection: above, it sits on the first line, not the last', () => {
+    const view = mount('First line here\nSecond line here\nThird line here');
+    const from = 6;
+    const to = view.state.doc.line(3).from + 5;
+    // The selection runs from y 300 to y 716 of an 800px editor: no room below its last line.
+    vi.mocked(EditorView.prototype.coordsAtPos).mockImplementation((pos: number) =>
+      pos === from
+        ? { left: 40, right: 41, top: 300, bottom: 316 }
+        : { left: 40, right: 41, top: 700, bottom: 716 },
+    );
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      left: 0,
+      right: 800,
+      top: 0,
+      bottom: 800,
+      width: 800,
+      height: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    vi.stubGlobal('innerHeight', 768);
+    act(() => view.dispatch({ selection: { anchor: from, head: to } }));
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    expect(menu()).not.toBeNull();
+    // Hangs above the first selected line (300 - 4), not from the last one (700 - 4).
+    expect(menu()!.style.getPropertyValue('--menu-top')).toBe('296px');
+    expect(menu()!.style.getPropertyValue('--menu-max')).toBe('288px');
+  });
+
+  it('above a selection that starts near the top, sits only as low as its least height needs', () => {
+    const view = mount('First line here\nSecond line here\nThird line here');
+    const from = 6;
+    const to = view.state.doc.line(3).from + 5;
+    // The first selected line is 60px from the top: 48px above it, 40px below the last line.
+    vi.mocked(EditorView.prototype.coordsAtPos).mockImplementation((pos: number) =>
+      pos === from
+        ? { left: 40, right: 41, top: 60, bottom: 76 }
+        : { left: 40, right: 41, top: 700, bottom: 716 },
+    );
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      left: 0,
+      right: 800,
+      top: 0,
+      bottom: 800,
+      width: 800,
+      height: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    vi.stubGlobal('innerHeight', 768);
+    act(() => view.dispatch({ selection: { anchor: from, head: to } }));
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    // 120px tall, hanging from 128 (8 edge + 4 gap + 120 + 4 gap down): never over the top edge.
+    expect(menu()!.style.getPropertyValue('--menu-top')).toBe('128px');
+    expect(menu()!.style.getPropertyValue('--menu-max')).toBe('120px');
+  });
+
+  it('below a selection only with room for its least height: else lowered above, off the bar', () => {
+    const view = mount('First line here\nSecond line here\nThird line here');
+    const from = 6;
+    const to = view.state.doc.line(3).from + 5;
+    // 48px above the first line, 106px below the last: neither fits 120px.
+    vi.mocked(EditorView.prototype.coordsAtPos).mockImplementation((pos: number) =>
+      pos === from
+        ? { left: 40, right: 41, top: 60, bottom: 76 }
+        : { left: 40, right: 41, top: 634, bottom: 650 },
+    );
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      left: 0,
+      right: 800,
+      top: 0,
+      bottom: 800,
+      width: 800,
+      height: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    vi.stubGlobal('innerHeight', 768);
+    act(() => view.dispatch({ selection: { anchor: from, head: to } }));
+    press(view, ' ', { ctrlKey: true, keyCode: 32 });
+    // Not below (it would run 14px past the bottom edge): above, lowered to 120px of room.
+    expect(menu()!.style.getPropertyValue('--menu-top')).toBe('128px');
+    expect(menu()!.style.getPropertyValue('--menu-max')).toBe('120px');
   });
 });

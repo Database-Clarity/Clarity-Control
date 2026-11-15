@@ -16,6 +16,7 @@ let lastInputAt = -Infinity;
 let fastInput = false;
 let burst = false;
 let firstFrame = false;
+let holdFirstDocument = false;
 let activityFrame: number | undefined;
 let catchUpFrame: number | undefined;
 let landLatest: (() => void) | undefined;
@@ -106,6 +107,12 @@ function catchUp() {
   // The address catches up on the first frame without new input. Only document
   // admission waits for a quiet gap; new packets cancel this handoff.
   resumeLatest?.();
+  if (holdFirstDocument) {
+    holdFirstDocument = false;
+    extendQuiet(40);
+    scheduleCatchUp();
+    return;
+  }
   if (performance.now() - lastInputAt < admissionGap()) {
     scheduleCatchUp();
     return;
@@ -126,6 +133,16 @@ function scheduleCatchUp() {
   catchUpFrame = frame;
 }
 let quiet: ReturnType<typeof setTimeout> | undefined;
+let quietDue = 0;
+function armQuiet(due: number) {
+  clearTimeout(quiet);
+  quietDue = due;
+  quiet = setTimeout(settleStepping, Math.max(0, due - performance.now()));
+}
+/** Our own long frame is not physical quiet: input sent meanwhile is still on its way. */
+function extendQuiet(room: number) {
+  if (quiet !== undefined) armQuiet(Math.max(quietDue, performance.now() + room));
+}
 const holds = new Map<symbol, () => void>();
 export function pulseStepping(land?: () => void, resume?: () => void) {
   const continuing = burst;
@@ -140,6 +157,7 @@ export function pulseStepping(land?: () => void, resume?: () => void) {
   if (land) landLatest = land;
   if (resume) resumeLatest = resume;
   burst = true;
+  holdFirstDocument = false;
   const now = performance.now();
   fastInput = continuing && now - lastInputAt < 12;
   lastInputAt = now;
@@ -158,14 +176,17 @@ export function pulseStepping(land?: () => void, resume?: () => void) {
     activityFrame = frame;
   }
   clearTimeout(quiet);
-  if (!holds.size) quiet = setTimeout(settleStepping, 40);
+  quiet = undefined;
+  if (!holds.size) armQuiet(now + 40);
 }
 
 export function settleStepping() {
   burst = false;
+  holdFirstDocument = false;
   for (const type of interactionEvents)
     window.removeEventListener(type, catchEditorInteraction, true);
   clearTimeout(quiet);
+  quiet = undefined;
   cancelActivityFrame();
   cancelCatchUp();
   const land = landLatest;
@@ -189,9 +210,18 @@ export function beginSteppingFrame() {
     active: true,
     deferWorkspace,
   });
+  const first = firstFrame;
   return () => {
     firstFrame = false;
     previousFrameWork = performance.now() - started;
+    // A gesture's next packet reaches the page only after the frame that follows this one.
+    // When this first frame already overran a frame, keep that next frame free of document
+    // work, and the gesture open, so a fast gesture's second packet is not queued behind a
+    // document it would skip. A single notch gets its document one frame later.
+    if (first && previousFrameWork > 16 && useSteppingActivity.getState().deferWorkspace) {
+      holdFirstDocument = true;
+      extendQuiet(24);
+    }
     if (useSteppingActivity.getState().deferWorkspace) scheduleCatchUp();
   };
 }
@@ -235,6 +265,7 @@ export function holdSteppingKey(key: string) {
 export function disposeSteppingActivity() {
   for (const detach of holds.values()) detach();
   burst = false;
+  holdFirstDocument = false;
   for (const type of interactionEvents)
     window.removeEventListener(type, catchEditorInteraction, true);
   clearTimeout(quiet);

@@ -7,6 +7,7 @@
  */
 export type LivePerkTypes =
   | 'Armor Trait Exotic'
+  | 'Exotic Class Item Perk'
   | 'Armor Mod General'
   | 'Armor Mod Combat'
   | 'Armor Mod Activity'

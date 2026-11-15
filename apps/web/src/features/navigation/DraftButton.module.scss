@@ -40,10 +40,21 @@
     linear-gradient(currentColor, currentColor) 2px 7px / 6px 2px no-repeat;
 }
 
+// While a Discard confirm is open, the Drafts popover that opened it steps out of sight (it keeps
+// its place and state): only the confirm and its question show, not a second Discard and Review
+// behind them. Keep draft brings the list straight back.
+:global([role='dialog']):has(> * > .drafts > dialog[open]) {
+  visibility: hidden;
+}
+
 .drafts {
   display: flex;
   flex-direction: column;
   min-width: 0;
+
+  > dialog {
+    visibility: visible;
+  }
 
   button {
     @include controls.button;
@@ -129,6 +140,20 @@
   &:disabled {
     color: var(--text2);
     opacity: 1;
+  }
+
+  // A narrow popover cuts the hash first, then the name, each with an ellipsis.
+  .name,
+  small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .name {
+    flex: 0 0.01 auto;
+  }
+  small {
+    flex: 0 100 auto;
   }
 }
 

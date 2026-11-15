@@ -4,6 +4,10 @@ import { GitHub, subrequestLimit } from '../src/github.js';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 import { pushTime } from './push-fixture.js';
 
+// The legacy /push-live exporter (switch OFF) under test; the checked-in switch is ON since
+// PUB-ENABLE, and these paths stay for the publisher rollback.
+vi.mock('../../../config/publisher.json', () => ({ default: { enabled: false } }));
+
 // Workers FREE plan: 50 external subrequests per request. Every fetch the Worker makes is
 // counted by the fixture; these tests pin the total for pushes of any size.
 let key: string;
@@ -45,11 +49,12 @@ describe('push-live subrequests', () => {
       fixture.subrequests = 0;
       const response = await fixture.request('/push-live', 'POST', { hashes });
       expect(response.status).toBe(200);
-      const batches = Math.ceil(count / 500);
+      // The tooltip batch also carries config/sandbox-pointers.json (absent here: no extra cost).
+      const batches = Math.ceil((count + 1) / 500);
       expect(fixture.graphqlCalls).toBe(batches + 1);
       // token 1 + catalog 3 + (head, permissions, batches, globals, marker, live head, live file 2, PUT)
-      // + (head, permissions, live head, marker, commit 4)
-      expect(fixture.subrequests).toBe(20 + batches);
+      // + (head, permissions, live head, cached marker, commit 4)
+      expect(fixture.subrequests).toBe(19 + batches);
       expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
       expect(fixture.writes).toHaveLength(1);
       expect(fixture.commits).toHaveLength(1);
@@ -64,7 +69,7 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.subrequests).toBe(20 + 6);
+    expect(fixture.subrequests).toBe(19 + 6);
     expect(Object.keys(fixture.current()['live/pushed.json'] as object)).toHaveLength(2600);
   });
 
@@ -76,7 +81,8 @@ describe('push-live subrequests', () => {
     expect(response.status).toBe(200);
     expect(fixture.graphqlCalls).toBe(3);
     // first attempt 8 + 2 batches; each retry: head, live head, live file 2, PUT = 5
-    expect(fixture.subrequests).toBe(4 + (8 + 2) + 5 * 2 + 8);
+    // Recording reuses the immutable marker read (7 upstream requests).
+    expect(fixture.subrequests).toBe(4 + (8 + 2) + 5 * 2 + 7);
     expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
   });
 
@@ -143,7 +149,7 @@ describe('push-live subrequests', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/push-live', 'POST', { hashes });
     expect(response.status).toBe(200);
-    expect(fixture.subrequests).toBe(20 + 1 + 3);
+    expect(fixture.subrequests).toBe(19 + 1 + 3);
   });
 });
 

@@ -137,6 +137,10 @@ async function setScale(value: number) {
 async function choose(label: string, value: string) {
   const select = field(label);
   await act(async () => {
+    // As a person does: the time zone select lists its zones once focused.
+    select.focus();
+  });
+  await act(async () => {
     select.value = value;
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -231,12 +235,33 @@ describe('Settings popover', () => {
     expect(layoutInert()).toBe(false);
   });
 
+  it('lists the time zones once the select is focused or pressed, keeping the chosen one shown', async () => {
+    await render();
+    await openSettings();
+    const zones = () => [...field('Time zone').options].map((option) => option.value);
+    expect(zones()).toEqual(['auto', 'UTC']);
+    await choose('Time zone', 'Asia/Tokyo');
+    expect(field('Time zone').value).toBe('Asia/Tokyo');
+    expect(zones().length).toBeGreaterThan(3);
+    await act(async () => closeButton().click());
+    await openSettings();
+    // Closed again: just the chosen zone besides Browser and UTC, still selected.
+    expect(zones()).toEqual(['auto', 'UTC', 'Asia/Tokyo']);
+    expect(field('Time zone').value).toBe('Asia/Tokyo');
+    await act(async () => {
+      field('Time zone').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    expect(zones()).toContain('Europe/Berlin');
+  });
+
   it('moves focus in, traps Tab and Shift+Tab, and keeps the page behind inert', async () => {
     await render();
     await openSettings();
     const dialog = popover()!;
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(dialog.contains(document.activeElement)).toBe(true);
+    // The page behind goes inert once the popover has painted (a frame later).
+    await act(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0))));
     expect(layoutInert()).toBe(true);
     const items = [...dialog.querySelectorAll<HTMLElement>('button, select')];
     items.at(-1)!.focus();
@@ -307,7 +332,7 @@ describe('Settings popover', () => {
     expect(scaleInput().value).toBe('100');
   });
 
-  it('applies the editor font immediately and keeps it local on close', async () => {
+  it('applies the editor font immediately and syncs it on close', async () => {
     await act(async () => useSettingsStore.getState().activate(editor));
     await render();
     await openSettings();
@@ -315,7 +340,7 @@ describe('Settings popover', () => {
     await choose('Editor font', 'fira-code');
     expect(document.documentElement.dataset.editorFont).toBe('fira-code');
     await act(async () => closeButton().click());
-    expect(holder.server.calls.put).toHaveLength(0);
+    expect(holder.server.calls.put).toHaveLength(1);
     await openSettings();
     expect(field('Editor font').value).toBe('fira-code');
     await choose('Editor font', 'default');
@@ -357,6 +382,29 @@ describe('Settings popover', () => {
     expect(closeButton().getAttribute('aria-label')).toBe('Close settings');
     await act(async () => closeButton().click());
     expect(popover()).toBeNull();
+  });
+
+  it('keeps its desktop margin left of the reserved scrollbar gutter', async () => {
+    // global.scss reserves `scrollbar-gutter: stable`: a classic 15px scrollbar leaves the root
+    // 15px narrower than innerWidth, and a popover over the gutter is clipped there.
+    const root = document.documentElement;
+    const rootWidth = window.innerWidth - 15;
+    Object.defineProperty(root, 'offsetWidth', { configurable: true, value: rootWidth });
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(
+        DOMRect.fromRect({ x: window.innerWidth - 40, y: 10, width: 32, height: 32 }),
+      );
+    try {
+      await render();
+      await openSettings();
+      const dialog = popover()!;
+      expect(dialog.style.width).toBe('480px');
+      expect(dialog.style.left).toBe(`${rootWidth - 480 - 8}px`);
+    } finally {
+      rect.mockRestore();
+      delete (root as unknown as { offsetWidth?: number }).offsetWidth;
+    }
   });
 
   it('prompts after a reload with unsynced changes and can discard them', async () => {

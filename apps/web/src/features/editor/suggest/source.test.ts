@@ -6,7 +6,9 @@ import { fuzzyScore, suggestContext, suggestItems, type SuggestItem } from './so
 import { recentSuggestions, rememberSuggestion, resetRecentCache } from './recent';
 import { corpusUsage } from './usage';
 
-const globals: MarkupGlobals = {
+// A category with base/enhanced markup, so every option is offered (markupScope.ts).
+const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
+  allowBaseEnhanced: true,
   variables: 'var damage = 25',
   titles: 'title G_refill (\nRefills the magazine.\n)',
 };
@@ -72,7 +74,7 @@ describe('options', () => {
   test('the enhanced section is offered on a free line and carries the enhanced arrow', () => {
     const free = menu('enh', true)!;
     const block = free.items.find((item) => item.id === 'snippet:enhanced-block')!;
-    expect(block.insert).toContain('\n#e ');
+    expect(block.insert).toContain('\n<enhanced/> ');
     expect(block.preview).toContain('enhanced (');
     // Not in the middle of a sentence, where a multi-line declaration cannot go.
     expect(

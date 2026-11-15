@@ -3,12 +3,12 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { RenderedWordDiff } from './RenderedWordDiff';
-import { renderedDiff } from './renderedDiff';
+import { compareDiffOutput, presentDiff, variantGlobals, renderedDiff } from './renderedDiff';
 import { editorData, english } from '../../services/save/fixtures.testSupport';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { analyzeSourceOnly } from './sourceOnlyChanges';
-import type { MarkupGlobals } from '@clarity/core';
+import type { RenderedDiffRequest } from './renderedDiff.worker';
 const settleWorker = () =>
   act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 210));
@@ -31,24 +31,25 @@ it.each([
         instances.push(this);
       }
       terminate() {}
-      postMessage(request: { id: number; before: string; after: string; globals: MarkupGlobals }) {
+      postMessage(request: RenderedDiffRequest) {
+        if ('cancel' in request) return;
         const { id, before, after, globals } = request;
-        queueMicrotask(() =>
+        // Same order as the worker: the diff, then the complete source check.
+        const diff = renderedDiff(before, after, globals);
+        const sourceAnalysis = analyzeSourceOnly(before, after, globals, diff);
+        queueMicrotask(() => {
           this.onmessage?.({
             data: {
               id,
-              result: (() => {
-                const diff = renderedDiff(before, after, globals);
-                return {
-                  ...diff,
-                  sourceAnalysis: analyzeSourceOnly(before, after, globals, diff, {
-                    budgetMs: 10000,
-                  }),
-                };
-              })(),
+              result: {
+                ...presentDiff(diff),
+                output: compareDiffOutput(before, after, globals),
+                enhanced: presentDiff(renderedDiff(before, after, variantGlobals(globals, true))),
+              },
             },
-          }),
-        );
+          });
+          this.onmessage?.({ data: { id, sourceAnalysis } });
+        });
       }
     }
     vi.stubGlobal('Worker', AutoWorker);
@@ -63,7 +64,9 @@ it.each([
       );
       expect(marker?.textContent).toContain('Source changed');
       expect(marker?.textContent).toContain(kind === 'enhanced' ? 'lines 2–5' : 'line 2');
-      expect(host.querySelector('ins, del')).toBeNull();
+      expect(
+        host.querySelector('[data-source-change] ins, [data-source-change] del'),
+      ).not.toBeNull();
       await act(async () =>
         root.render(<RenderedWordDiff before="Old" after="New" lang="en" hash={10} />),
       );
@@ -90,6 +93,7 @@ it.each([
 it('hides provisional long content, ignores obsolete worker replies, and retains content on failure', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const requests: { id: number; before: string; after: string }[] = [];
+  const cancels: number[] = [];
   const instances: FakeWorker[] = [];
   class FakeWorker {
     onmessage?: (event: { data: unknown }) => void;
@@ -97,8 +101,9 @@ it('hides provisional long content, ignores obsolete worker replies, and retains
     constructor() {
       instances.push(this);
     }
-    postMessage(request: (typeof requests)[number]) {
-      requests.push(request);
+    postMessage(request: RenderedDiffRequest) {
+      if ('cancel' in request) cancels.push(request.cancel);
+      else requests.push(request);
     }
     terminate() {}
   }
@@ -118,6 +123,8 @@ it('hides provisional long content, ignores obsolete worker replies, and retains
     expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
     const openingRequests = requests.length;
     await act(async () => root.render(show('Small old', 'Small new1')));
+    // A newer diff cancels the open check in the worker.
+    expect(cancels).toEqual([requests[0].id]);
     await act(async () => root.render(show('Small old', 'Small new2')));
     await act(async () => root.render(show('Small old', 'Small new')));
     expect(requests).toHaveLength(openingRequests);
@@ -185,5 +192,135 @@ it('uses the preview draft globals without subscribing the comparison to typing'
     await act(async () => root.unmount());
     useDataStore.setState(originalData);
     useDraftStore.setState(originalDrafts);
+  }
+});
+
+it('cancels on close, never caches a partial check, and keeps the diff when the check fails', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const requests: { id: number; before: string; after: string }[] = [];
+  const cancels: number[] = [];
+  const instances: ReplyWorker[] = [];
+  class ReplyWorker {
+    onmessage?: (event: { data: unknown }) => void;
+    onerror?: () => void;
+    constructor() {
+      instances.push(this);
+    }
+    postMessage(request: RenderedDiffRequest) {
+      if ('cancel' in request) cancels.push(request.cancel);
+      else requests.push(request);
+    }
+    terminate() {}
+  }
+  vi.stubGlobal('Worker', ReplyWorker);
+  const before = 'Same\n// old note',
+    after = 'Same\n// new note';
+  const host = document.createElement('div');
+  let root = createRoot(host);
+  const show = () => <RenderedWordDiff before={before} after={after} lang="en" hash={10} />;
+  const reply = (data: object) =>
+    act(async () => instances.at(-1)!.onmessage?.({ data: { id: requests.at(-1)!.id, ...data } }));
+  try {
+    // Closing the view while its check runs cancels it in the worker.
+    await act(async () => root.render(show()));
+    await reply({ result: renderedDiff(before, after, { variables: '', titles: '' }) });
+    expect(host.querySelector('[data-source-change], [data-source-unchecked]')).toBeNull();
+    await act(async () => root.unmount());
+    expect(cancels).toEqual([requests[0].id]);
+    // Reopening after a cancelled check asks again (nothing partial was cached).
+    root = createRoot(host);
+    await act(async () => root.render(show()));
+    expect(requests).toHaveLength(2);
+    // A check that fails after its diff keeps the diff and says it was not checked.
+    await reply({ result: renderedDiff(before, after, { variables: '', titles: '' }) });
+    await reply({ sourceFailed: true });
+    expect(host.querySelector('[data-source-unchecked]')?.textContent).toContain(
+      'Rendered comparison check unavailable',
+    );
+    expect(host.querySelector('[data-source-unchecked] del')?.textContent).toBe('old');
+    expect(host.textContent).toContain('Same');
+    expect(host.querySelector('[data-source-change]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    instances.at(-1)?.onerror?.();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('reveals markup, selects an enhanced-only edit, and opens unchanged context together', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  class WorkerFixture {
+    onmessage?: (event: { data: unknown }) => void;
+    terminate() {}
+    postMessage(request: RenderedDiffRequest) {
+      if ('cancel' in request) return;
+      const { id, before, after, globals } = request;
+      const diff = renderedDiff(before, after, globals);
+      const sourceAnalysis = analyzeSourceOnly(before, after, globals, diff);
+      queueMicrotask(() => {
+        this.onmessage?.({
+          data: {
+            id,
+            result: {
+              ...presentDiff(diff),
+              output: compareDiffOutput(before, after, globals),
+              enhanced: presentDiff(renderedDiff(before, after, variantGlobals(globals, true))),
+            },
+          },
+        });
+        this.onmessage?.({ data: { id, sourceAnalysis } });
+      });
+    }
+  }
+  vi.stubGlobal('Worker', WorkerFixture);
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  try {
+    const { before, after } = await import('./fixtures/golden-tricorn.json');
+    await act(async () =>
+      root.render(
+        <RenderedWordDiff before={before} after={after} lang="en" hash={2610012052} responsive />,
+      ),
+    );
+    expect(host.textContent).toContain('Markup only: rendered text unchanged (Base and Enhanced)');
+    expect(host.querySelector('[data-source-change] del')?.textContent).toContain('#e');
+    expect(host.querySelector('[data-source-change] ins')?.textContent).toContain('<enhanced/>');
+    expect(host.querySelector('[data-rendered-body] [data-source-change]')).toBeNull();
+    const changed = after.replace('8 seconds', '9 seconds');
+    await act(async () =>
+      root.render(<RenderedWordDiff before={after} after={changed} lang="en" hash={2610012052} />),
+    );
+    await settleWorker();
+    expect(host.textContent).toContain('Text changed · Enhanced');
+    expect(host.querySelector('button[aria-pressed="true"]')?.textContent).toBe('Enhanced');
+    expect(host.querySelector('[data-rendered-body] ins')?.textContent).toContain('9');
+    await act(async () =>
+      [...host.querySelectorAll('button')].find((x) => x.textContent === 'Base')!.click(),
+    );
+    expect(host.querySelector('[data-rendered-body] ins')).toBeNull();
+    const context = Array.from({ length: 14 }, (_, i) => `Unchanged paragraph ${i}.`).join('\n');
+    await act(async () =>
+      root.render(
+        <RenderedWordDiff
+          key="fold"
+          before={context + '\nOld'}
+          after={context + '\nNew'}
+          lang="en"
+          hash={10}
+        />,
+      ),
+    );
+    const fold = host.querySelector('details')!;
+    expect(fold.querySelector('summary')?.textContent).toBe('14 unchanged lines');
+    expect(fold.open).toBe(false);
+    await act(async () => {
+      fold.open = true;
+      fold.dispatchEvent(new Event('toggle'));
+    });
+    expect(fold.querySelectorAll('[data-rendered-body]')).toHaveLength(2);
+    expect(host.querySelector('[data-rendered-body] ins')?.textContent).toBe('New');
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
   }
 });

@@ -1,5 +1,9 @@
 import { create } from 'zustand';
-import { baseEnhancedPublishMessage, publishableHash, setBonusHoldMessage } from '@clarity/core';
+import {
+  baseEnhancedPublishMessage,
+  inactivePublishableHash,
+  setBonusHoldMessage,
+} from '@clarity/core';
 import { pushSelected } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
@@ -65,7 +69,10 @@ export async function publishReviewed(
       await Promise.all(
         entries.map(
           async ({ tooltip }) =>
-            [tooltip.hash, await publishableHash(tooltip, data.aliases)] as const,
+            [
+              tooltip.hash,
+              await inactivePublishableHash(tooltip, data.aliases, data.bundle.inactiveMoves),
+            ] as const,
         ),
       ),
     );

@@ -76,8 +76,8 @@ function Shell({ user }: { user: User | null }) {
     </>
   );
 }
-async function mount(user: User | null, path = '/') {
-  useAuthStore.setState({ user, loading: false, load: async () => {} });
+async function mount(user: User | null, path = '/', loading = false) {
+  useAuthStore.setState({ user, loading, load: async () => {} });
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={[path]}>
@@ -179,6 +179,7 @@ describe('workspace tabs and More', () => {
     expect(items.map((item) => item.textContent)).toEqual([
       'Bungie drift',
       'Lost text',
+      'Sandbox perks',
       'Archive',
       'Management',
       'Exports',
@@ -189,12 +190,12 @@ describe('workspace tabs and More', () => {
     expect(document.activeElement).toBe(items[1]);
     await key(items[1], 'ArrowUp');
     await key(items[0], 'ArrowUp');
-    expect(document.activeElement).toBe(items[4]);
-    await key(items[4], 'Home');
+    expect(document.activeElement).toBe(items[5]);
+    await key(items[5], 'Home');
     expect(document.activeElement).toBe(items[0]);
     await key(items[0], 'End');
-    expect(document.activeElement).toBe(items[4]);
-    await key(items[4], 'Escape');
+    expect(document.activeElement).toBe(items[5]);
+    await key(items[5], 'Escape');
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(more);
   });
@@ -229,7 +230,15 @@ describe('workspace tabs and More', () => {
     await click(q('nav[aria-label="Workspaces"] button'));
     expect(
       [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
-    ).toEqual(['Translations', 'Bungie drift', 'Lost text', 'Archive', 'Management', 'Exports']);
+    ).toEqual([
+      'Translations',
+      'Bungie drift',
+      'Lost text',
+      'Sandbox perks',
+      'Archive',
+      'Management',
+      'Exports',
+    ]);
   });
 
   it('promotes Bungie drift, then Management, to tabs only on wide screens', async () => {
@@ -267,7 +276,7 @@ describe('workspace tabs and More', () => {
     await click(q('nav[aria-label="Workspaces"] button'));
     expect(
       [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
-    ).toEqual(['Lost text', 'Archive', 'Exports']);
+    ).toEqual(['Lost text', 'Sandbox perks', 'Archive', 'Exports']);
     // Editors have no Management: Drift alone moves up.
     await act(async () => root.unmount());
     root = createRoot(host);
@@ -291,6 +300,166 @@ describe('workspace tabs and More', () => {
     }));
     await mount(person('translator'));
     expect(tabNames()).toEqual(['Editor', 'Translations']);
+  });
+});
+
+describe('brand', () => {
+  it('measures the bar after layout and swaps the lockup for the mark when the finder lacks room', async () => {
+    let report: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          report = () => callback([], this as unknown as ResizeObserver);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    let width = 1600;
+    const bar = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(() => width);
+    const rect = vi
+      .spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(0, 0, 200, 28));
+    try {
+      await mount(person('maintainer'));
+      // Nothing is read while the header renders: the observer reports once laid out.
+      expect(rect).not.toHaveBeenCalled();
+      expect(q('header img[alt="Clarity Control"]')).not.toBeNull();
+      act(() => report!());
+      expect(rect).toHaveBeenCalled();
+      expect(q('header img[alt="Clarity Control"]')).not.toBeNull();
+      width = 900;
+      act(() => report!());
+      expect(document.querySelector('header img[alt="Clarity Control"]')).toBeNull();
+      expect(q('header [role="img"][aria-label="Clarity Control"]')).not.toBeNull();
+      width = 1600;
+      act(() => report!());
+      expect(q('header img[alt="Clarity Control"]')).not.toBeNull();
+    } finally {
+      bar.mockRestore();
+      rect.mockRestore();
+    }
+  });
+});
+
+describe('brand on landing', () => {
+  // A window 1280px wide: width media queries in px or em (16px) answer against it.
+  const viewport = 1280;
+  const media = (query: string) => {
+    const match = /\((min|max)-width:\s*([\d.]+)(px|em)\)/.exec(query);
+    const px = match ? Number(match[2]) * (match[3] === 'em' ? 16 : 1) : 0;
+    return {
+      matches: match ? (match[1] === 'min' ? viewport >= px : viewport <= px) : false,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    } as unknown as MediaQueryList;
+  };
+  const token = `${btoa(JSON.stringify({ exp: 4102444800 })).replace(/=+$/, '')}.sig`;
+  const lockupShown = () => document.querySelector('header img[alt="Clarity Control"]') !== null;
+  let report: (() => void) | undefined;
+  let bar: { mockRestore(): void };
+  let rect: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', media);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          report = () => callback([], this as unknown as ResizeObserver);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    bar = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(viewport);
+    rect = vi
+      .spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(0, 0, 200, 28));
+  });
+  afterEach(() => {
+    bar.mockRestore();
+    rect.mockRestore();
+  });
+
+  const memoryKey = 'clarity-header-settled:v2';
+  const remember = (memory: object) => localStorage.setItem(memoryKey, JSON.stringify(memory));
+
+  it('starts a stored session from the remembered header, without reading layout, until the check settles', async () => {
+    localStorage.setItem('clarity-editor-session', token);
+    // The laptop band at 1280px, on the editor: tabs and account 50rem, lockup fits from 100rem.
+    remember({ exact: { '100|/': { reserve: 50, fits: 100 } } });
+    await mount(null, '/', true);
+    expect(rect).not.toHaveBeenCalled();
+    expect(lockupShown()).toBe(false);
+    // Laid out with the signed-out tabs (400px): the remembered 800px still stands while it waits.
+    act(() => report!());
+    expect(lockupShown()).toBe(false);
+    // The session turns out signed out: measured from the live bar again, the lockup fits.
+    act(() => useAuthStore.setState({ loading: false }));
+    act(() => report!());
+    expect(lockupShown()).toBe(true);
+  });
+
+  it('plans for an editor’s tabs when nothing is remembered (first sign-in, cleared storage)', async () => {
+    localStorage.setItem('clarity-editor-session', token);
+    // Editor, Review changes, Compendium, Reports, and More with the account end (~34rem), plus the
+    // lockup and the finder's 41rem: about 88rem, wider than 80rem.
+    await mount(null, '/', true);
+    expect(rect).not.toHaveBeenCalled();
+    expect(lockupShown()).toBe(false);
+    // Laid out (this bar has no finder: 25rem), the expected 35rem stands in for the 200px of
+    // signed-out tabs: room at 1280px, none at 1000px, where the live tabs alone would leave room.
+    rect.mockReturnValue(new DOMRect(0, 0, 100, 28));
+    act(() => report!());
+    expect(lockupShown()).toBe(true);
+    vi.stubGlobal('innerWidth', 1000);
+    bar.mockRestore();
+    bar = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+    act(() => report!());
+    expect(lockupShown()).toBe(false);
+  });
+
+  it('estimates a band the account never settled in from its remembered role', async () => {
+    localStorage.setItem('clarity-editor-session', token);
+    // A translator who settled only in the widest band: Editor, Translations, and Reports here
+    // (~23rem) leave the lockup room at 80rem.
+    remember({
+      account: { role: 'translator', projects: false },
+      ratio: 1,
+      exact: { '011|/': { reserve: 22, fits: 76 } },
+    });
+    await mount(null, '/', true);
+    expect(lockupShown()).toBe(true);
+    // The same account with tabs half again as wide as the estimate (the remembered ratio): no room.
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    remember({ account: { role: 'translator', projects: false }, ratio: 1.5 });
+    await mount(null, '/', true);
+    expect(lockupShown()).toBe(false);
+  });
+
+  it('keeps the lockup on landing without a stored session, and remembers a settled account', async () => {
+    remember({ exact: { '100|/': { reserve: 40, fits: 100 } } });
+    await mount(null, '/', true);
+    expect(lockupShown()).toBe(true);
+    act(() => report!());
+    expect(lockupShown()).toBe(true);
+    vi.stubGlobal('innerWidth', viewport);
+    act(() => useAuthStore.setState({ user: person('maintainer'), loading: false }));
+    act(() => report!());
+    const memory = JSON.parse(localStorage.getItem(memoryKey)!);
+    // Tabs plus account end, 400px at 16px; fits adds the lockup, the finder minimum, and what lies outside the bar.
+    expect(memory.exact['100|/']).toEqual({ reserve: 25, fits: 60.25 });
+    expect(memory.account).toEqual({ role: 'maintainer', projects: false });
+    expect(memory.finder).toEqual({ '/': false });
+    expect(memory.outside).toBe(0);
+    expect(memory.ratio).toBeGreaterThan(0);
   });
 });
 

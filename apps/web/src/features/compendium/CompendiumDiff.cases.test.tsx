@@ -219,10 +219,12 @@ it('marker hover, focus, click, Enter activation, Esc, blur, and entry changes a
   expect(expanded()).toBe('false');
   await act(async () => button.focus());
   expect(expanded()).toBe('true');
-  await act(async () =>
-    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
-  );
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  await act(async () => button.dispatchEvent(escape));
   expect(expanded()).toBe('false');
+  // A host native dialog (Save's Compendium check) cancels on Escape's default action: the
+  // marker consumes this first Escape.
+  expect(escape.defaultPrevented).toBe(true);
   // Native Enter-to-click activation is represented by click in jsdom.
   await act(async () => button.click());
   expect(expanded()).toBe('true');

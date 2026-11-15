@@ -36,6 +36,8 @@ interface Name {
 }
 interface Index {
   endings: Map<string, Name[]>;
+  /** The same names by their first word, for a name that starts right after an icon. */
+  starts: Map<string, Name[]>;
   longest: number;
 }
 /** Regular word forms only; full phrases remain intact, and no keyword names are hard-coded. */
@@ -65,8 +67,9 @@ function wordForms(name: string): string[] {
 }
 function indexNames(data: EditorData | null): Index {
   const endings = new Map<string, Name[]>();
+  const starts = new Map<string, Name[]>();
   let longest = 0;
-  if (!data) return { endings, longest };
+  if (!data) return { endings, starts, longest };
   const facts = loadManifestFacts().items;
   const named = new Map<string, { icons: Set<string>; keyword: boolean; hasElement: boolean }>();
   for (const item of Object.values(data.items)) {
@@ -112,10 +115,17 @@ function indexNames(data: EditorData | null): Index {
         key,
         entries.sort((a, b) => b.name.length - a.name.length),
       );
+      const first = name.split(' ')[0]!;
+      const leading = starts.get(first) ?? [];
+      if (!leading.some((entry) => entry.name === name)) leading.push({ name, icon });
+      starts.set(
+        first,
+        leading.sort((a, b) => b.name.length - a.name.length),
+      );
       longest = Math.max(longest, name.length);
     }
   }
-  return { endings, longest };
+  return { endings, starts, longest };
 }
 let catalogue = useDataStore.getState().data;
 let index = indexNames(catalogue);
@@ -141,6 +151,22 @@ export function subclassSymbol(before: string, lastWord: string) {
     if (start < 0 || before.slice(start).toLowerCase() !== entry.name) continue;
     if (start > 0 && /[\p{L}\p{N}_<#$/{|]/u.test(before[start - 1]!)) continue;
     return { icon: entry.icon, word: before.slice(start) };
+  }
+  return null;
+}
+
+/**
+ * The longest whole subclass name (Firesprite, Ionic Trace, Void Breaches) at the start of
+ * `after`, with its element (null when the catalogue knows none). Null when no name starts there.
+ */
+export function subclassNameAt(after: string): { word: string; icon: string | null } | null {
+  const first = /^[\p{L}\p{N}'’-]+/u.exec(after)?.[0];
+  if (!first) return null;
+  for (const entry of index.starts.get(first.toLowerCase()) ?? []) {
+    const word = after.slice(0, entry.name.length);
+    if (word.toLowerCase() !== entry.name) continue;
+    if (/[\p{L}\p{N}_]/u.test(after.charAt(entry.name.length))) continue;
+    return { word, icon: entry.icon };
   }
   return null;
 }

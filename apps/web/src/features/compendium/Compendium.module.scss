@@ -247,6 +247,8 @@
   }
   output {
     min-width: 3ch;
+    // The value never touches the − / + buttons (it sat ~1px from + at 100%).
+    padding-inline: 0.1875rem;
     text-align: center;
     font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
@@ -431,7 +433,7 @@
   cursor: help;
   &:focus-visible {
     outline: 2px solid var(--style-edge);
-    outline-offset: 1px;
+    outline-offset: var(--focus-offset, 1px);
   }
   // A 44px touch area around the small marker, without moving the line.
   @include theme.mobile-or-coarse {
@@ -491,6 +493,19 @@
   border: 1px solid var(--swatch-edge);
   vertical-align: middle;
   margin-right: 0.25rem;
+}
+/* A retained anchor sheet keeps its layout while hidden (no display: none), so returning to
+   it shows the cached layout instead of laying out the whole grid in one frame. Out of flow
+   at the picker's full width: it neither takes space nor blocks margin collapsing. */
+.linkPicker {
+  position: relative;
+}
+.retainedSheet[hidden] {
+  display: block;
+  content-visibility: hidden;
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
 }
 .rows {
   contain: content;
@@ -665,4 +680,15 @@
 .cellScale {
   width: 100%;
   min-width: 0;
+}
+
+// The translator's saved snapshot pane (SavedCompendiumPane).
+.savedMeta {
+  align-items: baseline;
+}
+.savedEmpty {
+  // A phone hides an empty pane header: keep the line off the panel tabs.
+  @include theme.mobile {
+    padding-top: 0.5rem;
+  }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { resolveCompendiumLink, type CompendiumData } from '@clarity/core';
 import { apiUrl, save } from '../api';
 import { loadCompendium } from '../compendium';
@@ -19,15 +19,29 @@ import { SourceRef } from '../../features/compendium/SourceRef';
 import { linkLocation, matchLocation } from '../../features/compendium/sourceLocation';
 import { useCompendiumStore } from '../../features/compendium/store';
 import { Dialog } from '../../ui/Dialog';
+import styles from './SavePanel.module.scss';
 import { acceptSaved } from './drafts';
 import { useSaveNotice } from './notice';
 import { permissionError, prepareChanges } from './pipeline';
 import { requestSaveValidation } from './validationWorker';
+import { liveFallback, noImpactAvailable } from './fallback';
 import type { TooltipValidationIssue } from '@clarity/core';
 import { useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
 import { SaveSummary } from './SaveSummary';
+import type { Destination } from '../../features/review/batches/saveDestination';
+
+// Scheduled changes (P3a): the Destination row and the batch save path. The build-switch test is
+// inline on the import, so a switch-OFF build has neither (I6).
+const destinationChunk = () =>
+  import.meta.env.VITE_SCHEDULED_ENABLED === '1'
+    ? import('../../features/review/batches/Destination')
+    : Promise.reject(new Error('Scheduled changes are off'));
+const DestinationRow =
+  import.meta.env.VITE_SCHEDULED_ENABLED === '1'
+    ? lazy(() => destinationChunk().then((module) => ({ default: module.DestinationRow })))
+    : null;
 
 /**
  * The save session controller: always mounted by the Layout, independent of any popover, so
@@ -149,13 +163,37 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const [pending, setPending] = useState(false);
   const [remoteCommit, setRemoteCommit] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Where this save goes: Current, or a batch (maintainers and editors, switch ON only).
+  const [destination, setDestination] = useState<Destination>({ kind: 'current' });
+  // A refusal the Destination row foresees (scheduled batch content, member cap).
+  const [destinationBlocked, setDestinationBlocked] = useState<string | null>(null);
+  // Maintainers and editors only (root 2026-11-14: translators get no Destination row until the
+  // later destination task; trials get no batch access, Q3). The Worker stays the guard.
+  const batchSaver = user?.role === 'maintainer' || user?.role === 'editor';
+  const batchTarget =
+    DestinationRow && batchSaver && destination.kind !== 'current' ? destination : null;
+  // "No translation impact" (TR3): editors and maintainers, direct saves only, and only when an
+  // English wording change on a translated tooltip would otherwise stamp a new English revision.
+  // The Worker enforces the role and records the tick in History.
+  const [noImpact, setNoImpact] = useState(false);
+  const impactChoice = useMemo(() => noImpactAvailable(changes), [changes]);
+  const showImpact = batchSaver && !batchTarget && impactChoice;
+  const noTranslationImpact = showImpact && noImpact;
+  // The languages whose live output this save turns into the English fallback (validated).
+  const fallback = useMemo(
+    () => liveFallback(changes, new Date().toISOString(), noTranslationImpact),
+    [changes, noTranslationImpact],
+  );
   // Linked Compendium cells that changed since they were shown, and the ones the reviewer ticked.
   const [changedSource, setChangedSource] = useState<ChangedSource[]>([]);
   const [freshSource, setFreshSource] = useState<CompendiumData | null>(null);
   const [acknowledged, setAcknowledged] = useState<string | null>(null);
   const needsAcknowledgement =
     changedSource.length > 0 && acknowledged !== sourceKey(changedSource);
-  const validationKey = useMemo(() => JSON.stringify(changes), [changes]);
+  const validationKey = useMemo(
+    () => `${JSON.stringify(changes)}\n${JSON.stringify(fallback)}`,
+    [changes, fallback],
+  );
   const [validated, setValidated] = useState<{
     data: typeof data;
     key: string;
@@ -167,7 +205,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   useEffect(() => {
     let current = true;
     if (data) {
-      void requestSaveValidation(changes, data).then(
+      void requestSaveValidation(changes, data, fallback).then(
         (issues) => {
           if (current) setValidated({ data, key: validationKey, issues, error: null });
         },
@@ -180,7 +218,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     return () => {
       current = false;
     };
-  }, [changes, data, validationKey]);
+  }, [changes, data, fallback, validationKey]);
   const denied = permissionError(changes, user);
   // Marker blocks are also caught by validation; this covers a conflict's non-text rows.
   const unresolved = openConflicts.some((conflict) =>
@@ -194,7 +232,9 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     !validation ||
     validation?.error ||
     validation?.issues.some((issue) => issue.severity === 'error') ||
-    changes.length > 100,
+    changes.length > 100 ||
+    (batchTarget?.kind === 'new' && !batchTarget.name.trim()) ||
+    (batchTarget && destinationBlocked),
   );
   async function submit() {
     if (!data || !user || pending || blocked || remoteCommit) return;
@@ -229,7 +269,9 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       // A catalogue refresh during storage/source awaits invalidates the reviewed verdict.
       if (useDataStore.getState().data !== data || useSaveState.getState().review !== review)
         throw new Error('The save snapshot changed. Review the current validation before saving.');
-      const prepared = await prepareChanges(changes, user, data, source);
+      const prepared = await prepareChanges(changes, user, data, source, {
+        noTranslationImpact,
+      });
       if (useDataStore.getState().data !== data || useSaveState.getState().review !== review)
         throw new Error('The save snapshot changed. Review the current validation before saving.');
       if (accountChanged(generation)) return;
@@ -238,7 +280,41 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       const auth = useAuthStore.getState();
       if (auth.loading || !sameUser(auth.user, user) || auth.token !== sessionToken())
         throw new Error('Your login changed. Close this review and check your role.');
-      const result = await save(prepared, message.trim() || `Update ${changes.length} tooltip(s)`);
+      if (batchTarget) {
+        // A batch save is several requests: each one goes out only while the session is still
+        // the one checked above (settled auth, same user, same token; the draft generation lags
+        // a token change while /me loads). Asked before create, after awaits, and per chunk.
+        const token = sessionToken();
+        const sameSession = () => {
+          if (accountChanged(generation)) return false;
+          const now = useAuthStore.getState();
+          return (
+            !now.loading &&
+            sameUser(now.user, user) &&
+            now.token === token &&
+            sessionToken() === token
+          );
+        };
+        const { saveReviewToBatch } = await destinationChunk();
+        const notice = await saveReviewToBatch(
+          batchTarget,
+          prepared,
+          message.trim() || `Update ${changes.length} tooltip(s)`,
+          review.submitted,
+          sameSession,
+          (staged) => prepareChanges(staged, user, data, source),
+        );
+        if (accountChanged(generation)) return;
+        if (source) useCompendiumStore.setState({ data: source });
+        onSaved(notice);
+        close();
+        return;
+      }
+      const result = await save(
+        prepared,
+        message.trim() || `Update ${changes.length} tooltip(s)`,
+        noTranslationImpact,
+      );
       if (accountChanged(generation) && result.kind === 'saved') {
         // Switching accounts already closed this review; report through the save notice.
         onSaved(
@@ -253,6 +329,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         const outcome = useConflictStore.getState().begin(
           result.conflicts,
           prepared.filter((change) => !conflicted.has(change.hash)),
+          result.serverAt,
         );
         onSaved(conflictNotice(outcome));
         close();
@@ -299,7 +376,13 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
             disabled={pending || blocked || !data || Boolean(remoteCommit) || needsAcknowledgement}
             onClick={() => void submit()}
           >
-            {pending ? 'Saving...' : !validation && data ? 'Validating...' : 'Save changes'}
+            {pending
+              ? 'Saving...'
+              : !validation && data
+                ? 'Validating...'
+                : batchTarget
+                  ? 'Save to batch'
+                  : 'Save changes'}
           </button>
           <button type="button" disabled={pending} onClick={close}>
             Cancel; keep local drafts
@@ -307,6 +390,17 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         </>
       }
     >
+      {DestinationRow && batchSaver && (
+        <Suspense fallback={null}>
+          <DestinationRow
+            value={destination}
+            changes={changes}
+            disabled={pending}
+            onChange={setDestination}
+            onBlocked={setDestinationBlocked}
+          />
+        </Suspense>
+      )}
       {!validation && data && <p role="status">Validating save...</p>}
       {data && <SaveSummary changes={changes} issues={validation?.issues ?? []} data={data} />}
       {changedSource.length > 0 && data && (
@@ -366,6 +460,23 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       )}
       {validation?.issues.some((issue) => issue.severity === 'warning') && (
         <p>Warnings do not block saving.</p>
+      )}
+      {showImpact && (
+        <div className={styles.impact}>
+          <input
+            id="save-no-impact"
+            type="checkbox"
+            checked={noImpact}
+            disabled={pending}
+            aria-describedby="save-no-impact-hint"
+            onChange={(event) => setNoImpact(event.target.checked)}
+          />
+          <label htmlFor="save-no-impact">No translation impact</label>
+          <p id="save-no-impact-hint">
+            For wording fixes that keep the meaning: translations stay current, and this change does
+            not count toward their 90-day English fallback. History marks this save.
+          </p>
+        </div>
       )}
       <details>
         <summary>Add commit message</summary>

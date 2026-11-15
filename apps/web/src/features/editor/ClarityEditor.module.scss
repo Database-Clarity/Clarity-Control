@@ -73,6 +73,12 @@
       display: none;
     }
   }
+  // In the fixed desktop frame the shell sizes this slot. On a short screen (a phone on its side,
+  // a large interface scale) the slot can be shorter than the minimum above, and the text box then
+  // painted over the status bar; there it fills the slot and scrolls instead.
+  :global(#shell-root[data-fixed]) & :global(.cm-editor) {
+    min-height: 0;
+  }
   :global(.cm-scroller) {
     // The scroller already clips its contents. Isolate its layout and paint from
     // live preview updates; CodeMirror tooltips live outside this scroller.
@@ -142,6 +148,13 @@
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M6 .75 9.5 5.25H7v6H5v-6H2.5Z'/%3E%3C/svg%3E")
       center / contain no-repeat;
   }
+  // Match the editor's 1rem symbol cell; the preview keeps its text-relative em sizing.
+  :global(.cm-symbol[data-symbol='arrow']::before) {
+    width: 0.75rem;
+    height: 0.75rem;
+    margin: 0 0.125rem;
+    vertical-align: -1px;
+  }
   // The tint wins over the syntax colours inside it (numbers, [values], #variables); an inner tag wins
   // over an outer one because every non-tint piece inherits from its nearest tint.
   :global(.cm-tint :not(.cm-tint):not(.cm-base-arm, .cm-enhanced-arm)) {
@@ -201,12 +214,12 @@
     text-decoration-color: color-mix(in srgb, currentcolor 60%, transparent);
     text-underline-offset: 0.2em;
   }
-  @each $element in (kinetic, arc, solar, void, stasis, strand) {
+  @each $element in (kinetic, arc, solar, void, stasis, strand, prismatic) {
     :global(.cm-el-#{$element}) {
       color: var(--el-#{$element});
     }
   }
-  // The six elements in the popover of element-tagged text (Change element): icon buttons, the
+  // The seven elements in the popover of element-tagged text (Change element): icon buttons, the
   // current one pressed.
   :global(.cm-symbol-elements) {
     display: inline-flex;
@@ -241,7 +254,7 @@
     // Never wider than the editor (a phone): the actions wrap onto a second row instead, since a
     // tooltip that does not fit is not shown at all.
     flex-wrap: wrap;
-    max-width: calc(100vw - 1rem);
+    max-width: calc(100vw - 2 * var(--page-x, 0.5rem));
     box-sizing: border-box;
     code {
       font-family: var(--editor-font, Consolas, monospace);
@@ -251,9 +264,26 @@
   }
   :global(.cm-symbol-hint) {
     color: var(--text2);
+    // Keys and Alt+click: nothing to press on a touch screen, where the buttons say it.
+    @include theme.mobile-or-coarse {
+      display: none;
+    }
+  }
+  // "Group with icon" on a spaced pair: the question sits right beside its two answers.
+  :global(.cm-symbol-ask) {
+    color: var(--text);
+    white-space: normal;
+  }
+  :global(.cm-symbol-answers) {
+    display: inline-flex;
+    gap: 0.25rem;
   }
   :global(.cm-symbol-retired) {
     color: var(--diag-warn);
+  }
+  // The legacy arrow `#e`: still renders, an info-level note beside its fix.
+  :global(.cm-symbol-legacy) {
+    color: var(--text2);
   }
   :global(.cm-symbol-fix) {
     @include controls.button;

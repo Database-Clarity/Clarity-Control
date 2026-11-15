@@ -123,8 +123,9 @@
   }
 
   &:focus-visible {
+    // Inside: the tab sits 1px from the window's edge, which would cut an outer ring.
     outline: 2px solid var(--accent-ink);
-    outline-offset: 1px;
+    outline-offset: -2px;
   }
 
   @include theme.mobile-or-coarse {

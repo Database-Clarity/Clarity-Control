@@ -43,7 +43,7 @@ function raised(input: LegacyInput): { input: LegacyInput; count: number } {
   return { input: { ...input, perks } as LegacyInput, count };
 }
 
-const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand) [^<>]*\/>/;
+const unlowered = /<(?:kinetic|arc|solar|void|stasis|strand|prismatic) [^<>]*\/>/;
 const decoder = new TextDecoder();
 
 describe('legacy files from tagged input', () => {

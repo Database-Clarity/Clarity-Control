@@ -74,6 +74,8 @@ const linksRule = z.discriminatedUnion('mode', [
 ]);
 
 export const dataSchema = z.strictObject({
+  /** Add the built-in feature showcase under reserved id -1. Absent means off. */
+  includeShowcase: z.boolean().optional(),
   /** Item categories whose tooltips are included (generator category ids). */
   categories: uniqueList(categoryId, configLimits.categories),
   /** Item categories whose sandbox perks are included. */
@@ -115,10 +117,20 @@ const styleFile = z.strictObject({
   format: formatSchema,
 });
 /** A legacy preset is frozen: it takes no data or format fields (mode-specific fields only). */
-const legacyFile = z.strictObject({
-  ...fileBase,
-  preset: z.enum(legacyPresets),
-});
+const legacyFile = z
+  .strictObject({
+    ...fileBase,
+    preset: z.enum(legacyPresets),
+    arrowFallback: z.boolean().optional(),
+  })
+  .superRefine((file, ctx) => {
+    if (file.arrowFallback !== undefined && file.preset !== 'clarityV2')
+      ctx.addIssue({
+        code: 'custom',
+        path: ['arrowFallback'],
+        message: 'Only clarityV2 can change arrow formatting',
+      });
+  });
 export const fileSchema = z.union([styleFile, legacyFile]).superRefine((file, ctx) => {
   if (!('shape' in file) || file.shape === 'lines') return;
   const keepAt = (path: (string | number)[]) =>

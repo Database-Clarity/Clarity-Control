@@ -16,9 +16,11 @@ import {
   showTooltip,
   tooltips,
   type DecorationSet,
+  type Rect,
   type Tooltip,
 } from '@codemirror/view';
 import {
+  enhancedArrowMarkup,
   elementTagNames,
   elementTagToken,
   elementTextTinted,
@@ -28,6 +30,16 @@ import {
   type RetiredOccurrence,
 } from '@clarity/core';
 import { elementLabel } from './elementTags';
+import {
+  askGroup,
+  groupAsked,
+  groupChange,
+  groupTitle,
+  groupTransaction,
+  pairAt,
+  type IconPair,
+} from './iconPairs';
+import { chipHost } from './markupRow/chips';
 import { dockedBarHeight } from './markupRow/dock';
 import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
 import previewStyles from '../preview/TooltipPreview.module.scss';
@@ -75,7 +87,8 @@ export interface TagRange {
  * editor tints exactly this (UI-FIXES-2B 7). Icons are separate: they stay symbols wherever they
  * sit (PRODUCT.md "icons stay symbols"), so they are found on their own, not through these tokens.
  */
-const converterToken = /<.+?\/>/g;
+const converterToken =
+  /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/g;
 
 function* lineTokens(text: string, offset: number) {
   let lineFrom = offset;
@@ -86,18 +99,20 @@ function* lineTokens(text: string, offset: number) {
   }
 }
 
-/** The symbol name of the enhanced arrow, written `#e` (the global variable e). */
+/** The symbol name of the enhanced arrow, written `<enhanced/>` (or the legacy `#e`). */
 export const enhancedArrowSymbol = 'enhanced-arrow';
 
 /**
  * Finds every icon tag in a text, including one written inside another tag, and every enhanced
- * arrow (`#e`, also the one in front of `#e${base+#d}`), which is drawn as a symbol like the icons.
+ * arrow (`<enhanced/>`, also the one in front of `<enhanced/>${base+#{d}}`), which is drawn as a
+ * symbol like the icons. The legacy spelling `#e` is drawn the same way.
  */
 export function findSymbols(text: string, offset = 0): SymbolRange[] {
   const found: SymbolRange[] = [];
   for (const match of text.matchAll(/<(\w+)\/>|#e(?![A-Za-z0-9])/g)) {
-    const name = match[1] ?? enhancedArrowSymbol;
-    if (match[1] !== undefined && !icons.has(name)) continue;
+    const arrow = match[1] === undefined || match[1] === 'enhanced';
+    const name = arrow ? enhancedArrowSymbol : match[1]!;
+    if (!arrow && !icons.has(name)) continue;
     const from = offset + (match.index ?? 0);
     found.push({ from, to: from + match[0].length, kind: 'icon', name });
   }
@@ -410,6 +425,13 @@ export function drawnSymbolAt(state: EditorState, pos: number): boolean {
 }
 
 function popoverFor(state: EditorState): Popover | null {
+  // A spaced pair's "Group with icon" asks in the icon's popover, whatever the reveal mode.
+  const asked = state.field(groupAsked);
+  if (asked !== null) {
+    const symbol = selectedSymbol(state);
+    if (symbol?.from === asked)
+      return { from: symbol.from, to: symbol.to, source: 'selected', editing: false };
+  }
   if (state.field(rawMode) || state.field(reveal) !== 'popover') return null;
   const symbol = selectedSymbol(state);
   if (symbol) {
@@ -502,6 +524,32 @@ function popoverDom(view: EditorView, popover: Popover) {
       note.textContent = 'Retired';
       dom.append(note);
     }
+    // The legacy arrow `#e` still renders but is no longer offered (owner 2026-11-14).
+    const legacyArrow = !tag && markup === '#e';
+    if (legacyArrow) {
+      const note = document.createElement('span');
+      note.className = 'cm-symbol-legacy';
+      note.textContent = 'Old spelling';
+      note.title = `The enhanced arrow is now written ${enhancedArrowMarkup}.`;
+      dom.append(note);
+    }
+    if (popover.source === 'selected' && !view.state.readOnly && legacyArrow) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cm-symbol-fix';
+      button.textContent = `Use ${enhancedArrowMarkup}`;
+      button.addEventListener('mousedown', (event) => event.preventDefault());
+      button.addEventListener('click', () => {
+        if (view.state.sliceDoc(popover.from, popover.to) === '#e')
+          view.dispatch({
+            changes: { from: popover.from, to: popover.to, insert: enhancedArrowMarkup },
+            selection: { anchor: popover.from, head: popover.from + enhancedArrowMarkup.length },
+            userEvent: 'input.fix',
+          });
+        view.focus();
+      });
+      dom.append(button);
+    }
     if (popover.source === 'selected' && !view.state.readOnly) {
       if (tag && retired) {
         const actions = document.createComment('verified retired fixes');
@@ -560,6 +608,10 @@ function popoverDom(view: EditorView, popover: Popover) {
           );
       }
       if (tag?.element) dom.append(...elementActions(view, tag));
+      const pair = tag ? null : selectedPair(view.state);
+      const asking = pair !== null && view.state.field(groupAsked) === pair.iconFrom;
+      if (pair) dom.append(...groupActions(view, pair, asking));
+      if (asking) return dom;
       const hint = document.createElement('span');
       hint.className = 'cm-symbol-hint';
       // The two fixes are buttons, so a retired tag's hint stays short (the popover must fit).
@@ -590,26 +642,51 @@ const symbolPopover = StateField.define<{ key: string; tooltip: Tooltip } | null
     // The opening markup is part of the key: changing a tag's element (same length, same range)
     // must rebuild the popover, or its pressed element and actions would act on the old one.
     const head = transaction.state.sliceDoc(popover.from, Math.min(popover.to, popover.from + 12));
-    const key = `${popover.source}:${popover.from}:${popover.to}:${popover.editing}:${head}`;
+    const asked = transaction.state.field(groupAsked);
+    const key = `${popover.source}:${popover.from}:${popover.to}:${popover.editing}:${asked}:${head}`;
     if (value?.key === key) return value;
     const anchor = popover.at ?? popover.from;
+    // A pinned popover opens below the whole logical line (above it when the space below is
+    // short), so it never covers the wrapped line it acts on; a hover stays at the pointer's line.
+    const pinned = popover.source === 'selected';
     return {
       key,
       tooltip: {
         pos: anchor,
         end: popover.at === undefined ? popover.to : anchor,
-        above: true,
+        above: !pinned,
         // A phone (docked markup bar): the bar's scroll margins are measured from the viewport,
         // while tooltips apply them from the editor's top, so near the top of the text every popover
         // counted as covered and was hidden. The page scrolls there, so the popover is never left
         // floating outside the editor.
         clip: dockedBarHeight() === 0,
-        create: (view: EditorView) => ({ dom: popoverDom(view, popover) }),
+        create: (view: EditorView) => ({
+          dom: popoverDom(view, popover),
+          ...(pinned && { getCoords: (pos: number) => logicalLineBox(view, pos) }),
+        }),
       },
     };
   },
   provide: (field) => showTooltip.from(field, (value) => value?.tooltip ?? null),
 });
+
+/**
+ * The box a pinned popover is placed against: the anchor's x, from the top of the logical line's
+ * first wrapped row to the bottom of its last. A line end off screen falls back to the anchor's row.
+ */
+function logicalLineBox(view: EditorView, pos: number): Rect {
+  const line = view.state.doc.lineAt(pos);
+  const anchor = view.coordsAtPos(pos, 1) ?? view.coordsAtPos(pos, -1);
+  if (!anchor) return { left: -1e5, right: -1e5, top: -1e5, bottom: -1e5 };
+  const first = view.coordsAtPos(line.from, 1);
+  const last = view.coordsAtPos(line.to, -1);
+  return {
+    left: anchor.left,
+    right: anchor.left,
+    top: Math.min(anchor.top, first?.top ?? anchor.top),
+    bottom: Math.max(anchor.bottom, last?.bottom ?? anchor.bottom),
+  };
+}
 
 const closestIn = (event: Event, selector: string) =>
   event.target instanceof Element ? event.target.closest(selector) : null;
@@ -696,7 +773,7 @@ const symbolEvents = EditorView.domEventHandlers({
 
 /**
  * Element-tagged text's actions: Unwrap (today's `<solar/>Scorch`: the icon stays, the tint goes),
- * Remove (the text alone), and the six elements (Change element; the current one is pressed).
+ * Remove (the text alone), and the seven elements (Change element; the current one is pressed).
  * Buttons never take focus from the text, so the pinned selection stays put.
  */
 function elementActions(view: EditorView, tag: TagRange): HTMLElement[] {
@@ -743,6 +820,103 @@ function elementActions(view: EditorView, tag: TagRange): HTMLElement[] {
     group.append(choice);
   }
   return [unwrap, remove, group];
+}
+
+/** The pair whose icon is exactly the selection, when "Group with icon" can group it. */
+function selectedPair(state: EditorState): IconPair | null {
+  if (state.readOnly) return null;
+  const pair = pairAt(state);
+  const { from, to } = state.selection.main;
+  if (!pair || from !== pair.iconFrom || to !== pair.iconTo) return null;
+  return groupChange(state, pair, state.facet(chipHost).globals) ? pair : null;
+}
+
+/** Groups the pair now (a joined pair) or after the author agrees (a spaced pair drops its space). */
+function groupPair(view: EditorView, pair: IconPair, confirmed: boolean): boolean {
+  const change = groupChange(view.state, pair, view.state.facet(chipHost).globals);
+  if (!change) return false;
+  if (change.dropsSpace && !confirmed) {
+    // Asked beside the button, in the icon's popover: the icon is selected so it shows.
+    view.dispatch({
+      selection: { anchor: pair.iconFrom, head: pair.iconTo },
+      effects: askGroup.of(pair.iconFrom),
+      scrollIntoView: true,
+    });
+    return true;
+  }
+  view.dispatch(groupTransaction(view.state, change));
+  return true;
+}
+
+/**
+ * The icon popover's "Group with icon": one button, or, for a spaced pair once pressed, what it
+ * drops and the two answers right beside it (Enter groups, Escape cancels).
+ */
+function groupActions(view: EditorView, pair: IconPair, asking: boolean): HTMLElement[] {
+  const button = (label: string, title: string, run: () => void) => {
+    const element = document.createElement('button');
+    element.type = 'button';
+    element.className = 'cm-symbol-fix';
+    element.textContent = label;
+    element.title = title;
+    element.addEventListener('mousedown', (event) => event.preventDefault());
+    element.addEventListener('click', () => {
+      run();
+      view.focus();
+    });
+    return element;
+  };
+  if (!asking) {
+    const group = button('Group with icon', `${groupTitle(pair)} (Alt+Enter)`, () =>
+      groupPair(view, pair, false),
+    );
+    group.dataset.group = '';
+    group.setAttribute('aria-keyshortcuts', 'Alt+Enter');
+    return [group];
+  }
+  const question = document.createElement('span');
+  question.className = 'cm-symbol-ask';
+  question.setAttribute('role', 'status');
+  question.textContent = `Drop the space before “${pair.text}”?`;
+  const yes = button('Group', `${groupTitle(pair)} (Enter)`, () => groupPair(view, pair, true));
+  yes.dataset.groupConfirm = '';
+  yes.setAttribute('aria-keyshortcuts', 'Enter');
+  const no = button('Cancel', 'Keep the space (Escape)', () =>
+    view.dispatch({ effects: askGroup.of(null) }),
+  );
+  no.setAttribute('aria-keyshortcuts', 'Escape');
+  // The two answers stay side by side when a narrow popover wraps.
+  const answers = document.createElement('span');
+  answers.className = 'cm-symbol-answers';
+  answers.append(yes, no);
+  return [question, answers];
+}
+
+/**
+ * Alt+Enter on a pair (the caret on its icon or in its words, or either selected): the quick fix
+ * "Group with icon". A spaced pair asks first in the icon's popover.
+ */
+export function groupPairAtCaret(view: EditorView): boolean {
+  const { state } = view;
+  if (state.readOnly) return false;
+  const pair = pairAt(state);
+  return pair !== null && groupPair(view, pair, false);
+}
+
+/** Enter while a spaced pair is asked about: group it. */
+function confirmGroup(view: EditorView): boolean {
+  const asked = view.state.field(groupAsked);
+  if (asked === null) return false;
+  const pair = selectedPair(view.state);
+  if (!pair || pair.iconFrom !== asked) return false;
+  return groupPair(view, pair, true);
+}
+
+/** Escape while asking: keep the space. */
+function cancelGroup(view: EditorView): boolean {
+  if (view.state.field(groupAsked) === null) return false;
+  view.dispatch({ effects: askGroup.of(null) });
+  return true;
 }
 
 /** `<solar Scorch />` becomes `<solar/>Scorch` (its lowered form); the text stays selected. */
@@ -833,6 +1007,8 @@ export function pinTagAtCaret(view: EditorView): boolean {
 }
 
 const symbolKeys = keymap.of([
+  { key: 'Enter', run: confirmGroup },
+  { key: 'Escape', run: cancelGroup },
   {
     key: 'Enter',
     run(view) {
@@ -845,7 +1021,7 @@ const symbolKeys = keymap.of([
   { key: 'Backspace', run: removeSelectedTag },
   { key: 'Alt-Backspace', run: unwrapSelectedTag },
   { key: 'Delete', run: removeSelectedTag },
-  { key: 'Alt-Enter', run: pinTagAtCaret },
+  { key: 'Alt-Enter', run: (view) => pinTagAtCaret(view) || groupPairAtCaret(view) },
   { key: 'Mod-Shift-.', run: toggleRawView },
   { key: 'Mod-Shift->', run: toggleRawView },
 ]);
@@ -861,13 +1037,29 @@ export function symbolExtensions(initial: { mode(): SymbolReveal; raw(): boolean
     hovered,
     editing,
     tagPinned,
+    groupAsked,
     symbolDecorations,
     glueDecorations,
     symbolPopover,
     symbolEvents,
     symbolKeys,
     // Bound to the scroller so a line-1 popover flips below the line instead of covering the header.
-    tooltips({ tooltipSpace: (view) => view.scrollDOM.getBoundingClientRect() }),
+    // On a phone the page's edge inset stays clear on both sides (PRODUCT "Popover placement").
+    tooltips({
+      tooltipSpace: (view) => {
+        const rect = view.scrollDOM.getBoundingClientRect();
+        const inset = parseFloat(getComputedStyle(view.dom).getPropertyValue('--page-x')) || 0;
+        if (!inset) return rect;
+        const edge =
+          inset * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+        return {
+          left: Math.max(rect.left, edge),
+          right: Math.min(rect.right, window.innerWidth - edge),
+          top: rect.top,
+          bottom: rect.bottom,
+        };
+      },
+    }),
   ];
 }
 

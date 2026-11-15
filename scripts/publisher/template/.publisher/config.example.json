@@ -8,6 +8,7 @@
   "publisherSha": "REPLACE-WITH-PIN-SOURCE-SHA",
   "generatorSha": "REPLACE-WITH-VERIFIED-GENERATOR-COMMIT",
   "aliases": {},
+  "sandboxConflicts": {},
   "facts": {},
   "runUrl": "REPLACE-AT-INSTALLATION"
 }

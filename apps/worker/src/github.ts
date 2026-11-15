@@ -32,10 +32,71 @@ const graphqlSchema = z.object({
   data: z.object({ repository: z.record(z.string(), z.unknown()).nullable() }).nullable(),
   errors: z.array(z.unknown()).optional(),
 });
+const notFoundError = z.object({
+  type: z.literal('NOT_FOUND'),
+  path: z.tuple([z.literal('repository'), z.literal('ref'), z.literal('target'), z.string()]),
+});
+/**
+ * GitHub reports a `Commit.file(path:)` that resolves to nothing as `null` data plus a top-level
+ * NOT_FOUND error (`object(expression:)` is a silent `null`). Only that exact shape counts as a
+ * missing file: the error must name one `Commit.file` alias the query itself selected, directly
+ * under the commit target, and that field must be `null`. Any other error (or an alias the query
+ * never asked for) still fails the whole read (fail closed).
+ */
+function onlyMissingFiles(
+  errors: readonly unknown[],
+  repository: Record<string, unknown>,
+  aliases: ReadonlySet<string>,
+) {
+  const ref = z.object({ target: z.record(z.string(), z.unknown()) }).safeParse(repository.ref);
+  if (!ref.success) return false;
+  return errors.every((error) => {
+    const parsed = notFoundError.safeParse(error);
+    if (!parsed.success) return false;
+    const alias = parsed.data.path[3];
+    return (
+      aliases.has(alias) && Object.hasOwn(ref.data.target, alias) && ref.data.target[alias] === null
+    );
+  });
+}
 
 export interface RepoFile {
   sha: string;
   value: unknown;
+  /** UTF-8 file bytes, only when `file(..., true)` requests them. */
+  size?: number;
+}
+
+/** A names-only directory entry; `entries` is set when the entry is a directory listed deeper. */
+export interface TreeNode {
+  name: string;
+  entries?: TreeNode[];
+}
+
+/**
+ * Parses a names-only `file(path){object{... on Tree{entries{...}}}}` selection (see
+ * publishSnapshot `trees`). null: the path is missing or is not a directory. Hand-written rather
+ * than a recursive zod schema: listings can hold thousands of names, and this runs in request CPU.
+ */
+function treeNodes(raw: unknown, depth: number): TreeNode[] | null {
+  const bad = () => new HttpError(502, 'Invalid GitHub tree listing');
+  const list = (object: unknown, level: number): TreeNode[] | null => {
+    if (object === null || typeof object !== 'object') throw bad();
+    const entries = (object as { entries?: unknown }).entries;
+    if (entries === undefined) return null; // a blob, not a directory
+    if (!Array.isArray(entries)) throw bad();
+    return entries.map((entry: unknown) => {
+      const { name, object: child } = (entry ?? {}) as { name?: unknown; object?: unknown };
+      if (typeof name !== 'string' || !name) throw bad();
+      if (level <= 1 || child === undefined || child === null) return { name };
+      const nested = list(child, level - 1);
+      return nested ? { name, entries: nested } : { name };
+    });
+  };
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'object') throw bad();
+  const object = (raw as { object?: unknown }).object;
+  return object === null || object === undefined ? null : list(object, depth);
 }
 export interface BlobRef {
   ref: string;
@@ -135,8 +196,27 @@ export interface ExportsSnapshot {
   projects: { id: string; file: RepoFile | null }[] | null;
 }
 
+// Env objects are reused by Workers while bindings are unchanged. Keep only four binding
+// contexts, and at most 4 MiB of serialized immutable data in each (256 entries).
+const contexts = new Map<
+  Env,
+  {
+    files: Map<string, string>;
+    bytes: number;
+    tokens: Map<string, { token: string; expires: number }>;
+  }
+>();
+function context(env: Env) {
+  let cache = contexts.get(env);
+  if (!cache) cache = { files: new Map(), bytes: 0, tokens: new Map() };
+  contexts.delete(env);
+  contexts.set(env, cache);
+  if (contexts.size > 4) contexts.delete(contexts.keys().next().value!);
+  return cache;
+}
+
 export class GitHub {
-  private token?: string;
+  private token?: { value: string; expires: number };
   private spent = 0;
   readonly root: string;
 
@@ -167,7 +247,12 @@ export class GitHub {
   }
 
   private async installationToken(): Promise<string> {
-    if (this.token) return this.token;
+    if (this.token && this.token.expires > Date.now() + 60_000) return this.token.value;
+    const cache = context(this.env);
+    const key = JSON.stringify(this.tokenPermissions);
+    const cached = cache.tokens.get(key);
+    if (cached && cached.expires > Date.now() + 60_000) return cached.token;
+    cache.tokens.delete(key);
     this.spend();
     const jwt = await appJwt(this.env.GITHUB_APP_ID, this.env.GITHUB_PRIVATE_KEY);
     const response = await fetch(
@@ -183,8 +268,19 @@ export class GitHub {
     );
     if (!response.ok)
       throw new HttpError(502, `GitHub App authentication failed (${response.status})`);
-    this.token = z.object({ token: z.string() }).parse(await response.json()).token;
-    return this.token;
+    const result = z
+      .object({ token: z.string(), expires_at: z.string().optional() })
+      .parse(await response.json());
+    const expires = Date.parse(result.expires_at ?? '');
+    if (expires > Date.now() + 60_000) {
+      if (cache.tokens.size >= 8) cache.tokens.delete(cache.tokens.keys().next().value!);
+      cache.tokens.set(key, { token: result.token, expires });
+    }
+    this.token = {
+      value: result.token,
+      expires: Number.isFinite(expires) ? expires : Date.now() + 120_000,
+    };
+    return result.token;
   }
 
   private headers(token: string): Record<string, string> {
@@ -214,6 +310,35 @@ export class GitHub {
     return response;
   }
 
+  /** Only call after authorization, with a key anchored to a full commit SHA. */
+  async immutable<T>(key: string, read: () => Promise<T>): Promise<T> {
+    const cache = context(this.env);
+    const scoped = JSON.stringify([this.root, key]);
+    const hit = cache.files.get(scoped);
+    if (hit !== undefined) {
+      cache.files.delete(scoped);
+      cache.files.set(scoped, hit);
+      return JSON.parse(hit) as T;
+    }
+    const value = await read();
+    const text = JSON.stringify(value);
+    // UTF-16 storage: count keys as well as values, and skip oversized entries.
+    const bytes = (scoped.length + text.length) * 2;
+    if (bytes <= 4 * 1024 * 1024) {
+      const previous = cache.files.get(scoped);
+      if (previous !== undefined) cache.bytes -= (scoped.length + previous.length) * 2;
+      cache.files.delete(scoped);
+      cache.files.set(scoped, text);
+      cache.bytes += bytes;
+      while (cache.files.size > 256 || cache.bytes > 4 * 1024 * 1024) {
+        const oldest = cache.files.keys().next().value!;
+        cache.bytes -= (oldest.length + cache.files.get(oldest)!.length) * 2;
+        cache.files.delete(oldest);
+      }
+    }
+    return value;
+  }
+
   async result(path: string, method = 'GET', value?: unknown): Promise<unknown> {
     const response = await this.request(path, method, value);
     if (!response.ok) throw new HttpError(502, `GitHub request failed (${response.status})`);
@@ -225,7 +350,12 @@ export class GitHub {
       .sha;
   }
 
-  private async graphql(query: string, variables: Record<string, string>): Promise<unknown> {
+  /** `fileAliases`: the `Commit.file(path:)` aliases this query selects, which may be absent. */
+  private async graphql(
+    query: string,
+    variables: Record<string, string>,
+    fileAliases: ReadonlySet<string> = new Set(),
+  ): Promise<unknown> {
     const headers = this.headers(await this.installationToken());
     this.spend();
     const response = await fetch('https://api.github.com/graphql', {
@@ -241,10 +371,14 @@ export class GitHub {
     }
     if (!response.ok) throw new HttpError(502, `GitHub batch read failed (${response.status})`);
     const result = graphqlSchema.parse(await response.json());
-    if (result.errors?.length || !result.data?.repository) {
+    const repository = result.data?.repository;
+    if (
+      !repository ||
+      (result.errors?.length && !onlyMissingFiles(result.errors, repository, fileAliases))
+    ) {
       throw new HttpError(502, 'GitHub batch read failed');
     }
-    return result.data.repository;
+    return repository;
   }
 
   /**
@@ -304,22 +438,47 @@ export class GitHub {
     return this.blobs(paths.map((path) => ({ ref, path })));
   }
 
-  /** One head and its files, all selected through that Commit. No fallback reads: bounded. */
-  async publishSnapshot(paths: readonly string[], oidOnly: readonly string[] = []) {
-    if (paths.length > 41 || paths.some((p) => !pathPattern.test(p) || p.includes('..')))
+  /**
+   * One head and its files, all selected through that Commit. No fallback reads: bounded.
+   * `trees` adds names-only listings of directories at the same Commit (no blob text, no oids),
+   * `depth` levels deep, in the SAME GraphQL subrequest; a missing directory lists as null.
+   */
+  async publishSnapshot(
+    paths: readonly string[],
+    oidOnly: readonly string[] = [],
+    trees: readonly { path: string; depth: number }[] = [],
+  ) {
+    const invalid = (p: string) => !pathPattern.test(p) || p.includes('..') || p.includes('//');
+    if (
+      paths.length + trees.length > 41 ||
+      paths.some(invalid) ||
+      trees.some(
+        ({ path, depth }) => invalid(path) || !Number.isInteger(depth) || depth < 1 || depth > 3,
+      )
+    )
       throw new HttpError(400, 'Invalid publish paths');
-    const selections = paths
-      .map(
+    const entries = (depth: number): string =>
+      `entries{name${depth > 1 ? ` object{... on Tree{${entries(depth - 1)}}}` : ''}}`;
+    const selections = [
+      ...paths.map(
         (path, i) =>
           `o${i}:file(path:$p${i}){object{... on Blob{${oidOnly.includes(path) ? 'oid' : 'oid isTruncated text'}}}}`,
-      )
-      .join(' ');
+      ),
+      ...trees.map(
+        ({ depth }, i) => `t${i}:file(path:$t${i}){object{... on Tree{${entries(depth)}}}}`,
+      ),
+    ].join(' ');
     const variables: Record<string, string> = {
       owner: this.env.GITHUB_OWNER,
       name: this.env.GITHUB_REPO,
       branch: `refs/heads/${this.env.DATA_BRANCH}`,
     };
     paths.forEach((p, i) => (variables[`p${i}`] = p));
+    trees.forEach(({ path }, i) => (variables[`t${i}`] = path));
+    const declarations = [
+      ...paths.map((_, i) => `$p${i}:String!`),
+      ...trees.map((_, i) => `$t${i}:String!`),
+    ].join(',');
     const repository = z
       .object({
         ref: z.object({
@@ -333,8 +492,9 @@ export class GitHub {
       })
       .parse(
         await this.graphql(
-          `query($owner:String!,$name:String!,$branch:String!,${paths.map((_, i) => `$p${i}:String!`).join(',')}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
+          `query($owner:String!,$name:String!,$branch:String!,${declarations}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
           variables,
+          new Set([...paths.map((_, i) => `o${i}`), ...trees.map((_, i) => `t${i}`)]),
         ),
       );
     const target = repository.ref.target;
@@ -352,7 +512,8 @@ export class GitHub {
         throw new HttpError(502, 'Publish metadata is too large or unreadable');
       return { sha: entry.object.oid, value: parseJsonFile(entry.object.text, path) };
     });
-    return { head: target.oid, tree: target.tree.oid, files };
+    const listed = trees.map(({ depth }, i) => treeNodes(target[`t${i}`], depth));
+    return { head: target.oid, tree: target.tree.oid, files, trees: listed };
   }
 
   /**
@@ -394,6 +555,7 @@ export class GitHub {
       await this.graphql(
         `query(${declarations.join(',')}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
         variables,
+        new Set(['perm', ...(projectPath === null ? [] : ['config']), ...(list ? ['dir'] : [])]),
       ),
     );
     if (!repository.ref) throw new HttpError(502, 'Data branch is missing');
@@ -502,7 +664,20 @@ export class GitHub {
     });
   }
 
-  async file(path: string, ref: string): Promise<RepoFile | null> {
+  async file(path: string, ref: string, includeSize = false): Promise<RepoFile | null> {
+    if (refPattern.test(ref) && /^(?:live\/|tooltips\/)/.test(path)) {
+      return this.immutable(JSON.stringify(['file', ref, path, includeSize]), () =>
+        this.readFile(path, ref, includeSize),
+      );
+    }
+    return this.readFile(path, ref, includeSize);
+  }
+
+  private async readFile(
+    path: string,
+    ref: string,
+    includeSize: boolean,
+  ): Promise<RepoFile | null> {
     const encoded = path.split('/').map(encodeURIComponent).join('/');
     const response = await this.request(`/contents/${encoded}?ref=${encodeURIComponent(ref)}`);
     if (response.status === 404) return null;
@@ -520,7 +695,11 @@ export class GitHub {
     } catch {
       throw new HttpError(502, `Invalid JSON in repository file ${path}`);
     }
-    return { sha: metadata.sha, value: parseJsonFile(text, path) };
+    return {
+      sha: metadata.sha,
+      value: parseJsonFile(text, path),
+      ...(includeSize ? { size: new TextEncoder().encode(text).byteLength } : {}),
+    };
   }
 
   async requiredFile(path: string, ref: string): Promise<RepoFile> {
@@ -558,7 +737,11 @@ export class GitHub {
     files: Record<string, unknown>,
     message: string,
     credits: object,
-    { baseTree, deletions = [] }: { baseTree?: string; deletions?: readonly string[] } = {},
+    {
+      baseTree,
+      deletions = [],
+      rawFiles = {},
+    }: { baseTree?: string; deletions?: readonly string[]; rawFiles?: Record<string, string> } = {},
   ): Promise<string> {
     const base =
       baseTree ??
@@ -567,11 +750,11 @@ export class GitHub {
       await this.result('/git/trees', 'POST', {
         ...(base ? { base_tree: base } : {}),
         tree: [
-          ...Object.entries(files).map(([path, value]) => ({
+          ...Object.entries({ ...files, ...rawFiles }).map(([path, value]) => ({
             path,
             mode: '100644',
             type: 'blob',
-            content: blobContent(value),
+            content: Object.hasOwn(rawFiles, path) ? rawFiles[path] : blobContent(value),
           })),
           // `sha: null` removes the path from the base tree.
           ...deletions.map((path) => ({ path, mode: '100644', type: 'blob', sha: null })),
@@ -607,7 +790,11 @@ export class GitHub {
     files: Record<string, unknown>,
     message: string,
     user: Identity,
-    options: { baseTree?: string; deletions?: readonly string[] } = {},
+    options: {
+      baseTree?: string;
+      deletions?: readonly string[];
+      rawFiles?: Record<string, string>;
+    } = {},
   ): Promise<string> {
     return this.write(this.env.DATA_BRANCH, head, files, message, this.credits(user), options);
   }

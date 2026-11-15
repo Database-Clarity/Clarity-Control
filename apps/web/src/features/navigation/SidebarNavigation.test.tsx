@@ -24,6 +24,7 @@ vi.mock('../auth/AuthStatus', () => ({
 }));
 vi.mock('../compendium/CompendiumBadge', () => ({
   CompendiumBadge: () => null,
+  CompendiumWarmup: () => null,
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
 vi.mock('./TooltipNavigation', () => ({
@@ -35,7 +36,11 @@ vi.mock('./TooltipNavigation', () => ({
     ),
 }));
 
-const editorData = { bundle: { sourceCommit: 'fixture' } } as unknown as EditorData;
+// The fields the Review column reads for its entries (Work through stamps them): tooltips and aliases.
+const editorData = {
+  bundle: { sourceCommit: 'fixture', tooltips: {} },
+  aliases: {},
+} as unknown as EditorData;
 let host: HTMLDivElement;
 let root: Root;
 
@@ -241,6 +246,11 @@ describe('context-aware navigation', () => {
       sheet!.querySelector('[aria-label="Compendium review queue"] [aria-selected="true"]'),
     ).not.toBeNull();
     expect(document.body.style.overflow).toBe('hidden');
+    // The shell turns inert after the opening frame (ShellOverlay, R15).
+    await act(
+      async () =>
+        void (await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))),
+    );
     expect(host.querySelector('#shell-root')?.hasAttribute('inert')).toBe(true);
 
     await act(async () => {

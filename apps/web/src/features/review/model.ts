@@ -1,4 +1,11 @@
-import { isTextlessDescription, resolveAlias, type Tooltip } from '@clarity/core';
+import {
+  activeAliases,
+  inactiveRemovalHash,
+  isMovedInactive,
+  isTextlessDescription,
+  resolveAlias,
+  type Tooltip,
+} from '@clarity/core';
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
 import { heldSetBonus } from './setBonusHold';
 import { useReviewQueue } from './queueStore';
@@ -26,6 +33,8 @@ export interface PendingTooltip {
   markerOnly: boolean;
   /** Never pushed: no recorded marker. */
   isNew: boolean;
+  inactiveChange?: 'remove' | 'restore';
+  inactiveAliases?: number[];
 }
 
 const snapshots = new WeakMap<
@@ -38,6 +47,7 @@ const snapshots = new WeakMap<
     tooltips: EditorData['bundle']['tooltips'];
     items: EditorData['items'];
     categories: EditorData['categories'];
+    inactiveMoves: EditorData['bundle']['inactiveMoves'];
   }
 >();
 const queues = new WeakMap<PendingTooltip[], SidebarPendingChange[]>();
@@ -80,7 +90,8 @@ function sameInputs(snapshot: NonNullable<ReturnType<typeof snapshots.get>>, dat
     snapshot.aliases === data.aliases &&
     snapshot.tooltips === data.bundle.tooltips &&
     snapshot.items === data.items &&
-    snapshot.categories === data.categories
+    snapshot.categories === data.categories &&
+    snapshot.inactiveMoves === data.bundle.inactiveMoves
   );
 }
 
@@ -99,6 +110,7 @@ export function pendingTooltips(
     tooltips: data.bundle.tooltips,
     items: data.items,
     categories: data.categories,
+    inactiveMoves: data.bundle.inactiveMoves,
   };
   snapshots.set(data, snapshot);
   void snapshot.pending.then(
@@ -116,11 +128,29 @@ async function computePending(
   data: EditorData,
   pushed = data.bundle.pushed,
 ): Promise<PendingTooltip[]> {
-  const tooltips = Object.values(data.bundle.tooltips).filter(
+  const moves = data.bundle.inactiveMoves ?? {};
+  const sources = { ...data.bundle.tooltips };
+  for (const key of Object.keys(moves)) {
+    const hash = resolveAlias(Number(key), data.aliases);
+    if (!sources[hash] && (isMovedInactive(hash, moves) || pushed[hash]))
+      sources[hash] = { hash, text: {}, associated: [] };
+  }
+  const tooltips = Object.values(sources).filter(
     (tooltip) =>
-      !isTextlessDescription(tooltip) && resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
+      (!isTextlessDescription(tooltip) || isMovedInactive(tooltip.hash, moves)) &&
+      resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
   );
-  const digests = await fingerprintDigests(tooltips, data.aliases);
+  const digests = await fingerprintDigests(tooltips, activeAliases(data.aliases, moves));
+  const removals = new Map(
+    await Promise.all(
+      Object.keys(moves).map(
+        async (key) => [Number(key), await inactiveRemovalHash(Number(key))] as const,
+      ),
+    ),
+  );
+  for (const [index, tooltip] of tooltips.entries())
+    if (isMovedInactive(tooltip.hash, moves))
+      digests[index] = { hash: removals.get(tooltip.hash)!, bare: removals.get(tooltip.hash)! };
   const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
   const entries = tooltips.map((tooltip, index) => {
     const pushedMarker = pushed[tooltip.hash];
@@ -128,18 +158,35 @@ async function computePending(
     const item = data.items[tooltip.hash];
     const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
     const category = categories.get(categoryId);
+    const removing = isMovedInactive(tooltip.hash, moves);
+    const restoring =
+      !removing && removals.get(tooltip.hash) === pushedMarker && pushedMarker !== undefined;
+    const inactiveAliases = Object.keys(moves)
+      .map(Number)
+      .filter((hash) => hash !== tooltip.hash && resolveAlias(hash, data.aliases) === tooltip.hash);
     return {
       tooltip,
       name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
       category: (category ?? categoryDisplay(categoryId)).label,
       categoryId,
       categoryOrder: (category ?? categoryDisplay(categoryId)).order,
-      markerOnly: pushedMarker !== undefined && digests[index].bare === pushedMarker,
+      markerOnly:
+        !removing &&
+        !restoring &&
+        !inactiveAliases.length &&
+        pushedMarker !== undefined &&
+        digests[index].bare === pushedMarker,
       isNew: pushedMarker === undefined,
-      ...(!item && !tooltip.custom
+      ...(removing
+        ? { inactiveChange: 'remove' as const }
+        : restoring
+          ? { inactiveChange: 'restore' as const }
+          : {}),
+      ...(inactiveAliases.length ? { inactiveAliases } : {}),
+      ...(!removing && !item && !tooltip.custom
         ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
         : {}),
-      ...heldSetBonus(categoryId),
+      ...(!removing ? heldSetBonus(categoryId) : {}),
     };
   });
   return entries
@@ -165,8 +212,10 @@ export function selectedPending(
 ): number[] {
   return pending
     .filter(
-      ({ tooltip, unpublishable }) =>
-        !isTextlessDescription(tooltip) && !unpublishable && selected.has(tooltip.hash),
+      ({ tooltip, unpublishable, inactiveChange }) =>
+        (!isTextlessDescription(tooltip) || inactiveChange === 'remove') &&
+        !unpublishable &&
+        selected.has(tooltip.hash),
     )
     .map(({ tooltip }) => tooltip.hash);
 }
@@ -175,8 +224,10 @@ export function selectedPending(
 export function publishableHashes(page: PendingTooltip[]): number[] {
   return page
     .filter(
-      ({ tooltip, unpublishable, markerOnly }) =>
-        !isTextlessDescription(tooltip) && !unpublishable && !markerOnly,
+      ({ tooltip, unpublishable, markerOnly, inactiveChange }) =>
+        (!isTextlessDescription(tooltip) || inactiveChange === 'remove') &&
+        !unpublishable &&
+        !markerOnly,
     )
     .map(({ tooltip }) => tooltip.hash);
 }

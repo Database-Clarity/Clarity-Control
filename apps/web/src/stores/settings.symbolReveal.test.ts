@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { createSettingsStore, deviceKey, type SettingsStorage } from './settings';
+import { createSettingsStore, deviceKey, settingsKey, type SettingsStorage } from './settings';
 import { fakeServer, memoryStorage } from './settings.testSupport';
 
 const make = (storage: SettingsStorage) =>
@@ -12,11 +12,11 @@ const make = (storage: SettingsStorage) =>
   });
 const revealOf = (raw: unknown) =>
   make(memoryStorage({ [deviceKey]: JSON.stringify({ symbolReveal: raw }) }).storage).getState()
-    .device.symbolReveal;
+    .settings.symbolReveal;
 
-describe('device symbol reveal', () => {
+describe('account symbol reveal', () => {
   it('defaults to the popover', () => {
-    expect(make(memoryStorage().storage).getState().device.symbolReveal).toBe('popover');
+    expect(make(memoryStorage().storage).getState().settings.symbolReveal).toBe('popover');
   });
 
   it('keeps a stored caret and recovers from anything else field by field', () => {
@@ -29,15 +29,14 @@ describe('device symbol reveal', () => {
     expect(make(storage).getState().device).toMatchObject({
       theme: 'light',
       compendiumScale: 80,
-      symbolReveal: 'popover',
     });
   });
 
-  it('is saved on this device only', () => {
+  it('is saved locally in the synced copy', () => {
     const { storage, values } = memoryStorage();
     const store = make(storage);
-    store.getState().updateDevice({ symbolReveal: 'caret' });
-    expect(JSON.parse(values.get(deviceKey)!).symbolReveal).toBe('caret');
-    expect('symbolReveal' in store.getState().settings).toBe(false);
+    store.getState().update({ symbolReveal: 'caret' });
+    expect(JSON.parse(values.get(settingsKey('anonymous'))!).settings.symbolReveal).toBe('caret');
+    expect('symbolReveal' in store.getState().device).toBe(false);
   });
 });

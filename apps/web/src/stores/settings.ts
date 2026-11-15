@@ -2,6 +2,9 @@ import { appliedUiScale } from '../ui/uiScale';
 import { create } from 'zustand';
 import {
   defaultSyncedSettings,
+  suggestAcceptKeys,
+  symbolRevealModes,
+  finderWheelModes,
   syncedSettingsSchema,
   type SyncedSettings,
 } from '../../../../packages/core/src/settings';
@@ -24,6 +27,22 @@ import { applyTheme, themePreferences } from '../ui/theme';
  *   persisted `pending` list survives crashes; the next load asks before overwriting anything.
  * - device (text size, layout): this browser only, never synced, never prompted.
  */
+export {
+  editorFonts,
+  suggestAcceptKeys,
+  symbolRevealModes,
+  finderWheelModes,
+  defaultWorklistStepping,
+} from '../../../../packages/core/src/settings';
+
+const migratedKeys = [
+  'editorFont',
+  'suggestAccept',
+  'symbolReveal',
+  'finderWheel',
+  'worklistStepping',
+] as const;
+
 export type SyncedKey = keyof SyncedSettings;
 export const syncedKeys = Object.keys(defaultSyncedSettings) as SyncedKey[];
 /** Editor view toggles whose last click is remembered on this device (never synced). */
@@ -35,6 +54,10 @@ export const rememberedSchema = z.object({
   englishSource: syncedSettingsSchema.shape.englishSource.optional(),
   /** Translate mode's right pane: the English text (default) or the Compendium. */
   translatePane: z.enum(['english', 'compendium']).optional(),
+  /** Translate mode's English, for an item with an enhanced version: which version it shows. */
+  englishVersion: z.enum(['base', 'enhanced', 'compare']).optional(),
+  /** Translate mode's English as its raw markup instead of rendered. */
+  englishRaw: z.boolean().optional(),
 });
 export type Remembered = z.infer<typeof rememberedSchema>;
 export const uiScaleMin = 85;
@@ -42,7 +65,6 @@ export const uiScaleMax = 150;
 export const uiScaleStep = 5;
 /** Editor text size in CSS pixels; null is automatic (0.875rem, so it follows the interface scale). */
 export const editorFontSizes = [11, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const;
-export const editorFonts = ['default', 'fira-code', 'jetbrains-mono', 'system'] as const;
 /**
  * One resizable pane pair on this device, in CSS pixels. `width` is the size the user chose (a
  * viewport that is too small clamps it for display without overwriting it); `lastExpanded` is what
@@ -67,16 +89,13 @@ export function normalizeCompendiumScale(value: unknown): number {
   );
 }
 /** The key that takes a suggestion chip (`Enter` by default; the other key then keeps its usual job). */
-export const suggestAcceptKeys = ['enter', 'tab'] as const;
 export type SuggestAccept = (typeof suggestAcceptKeys)[number];
 /** How a symbol widget shows its markup: in a popover on hover, or as raw text while the caret is on it. */
-export const symbolRevealModes = ['popover', 'caret'] as const;
 export type SymbolReveal = (typeof symbolRevealModes)[number];
 /**
  * What plain Shift+wheel steps in the finder: entries (Alt+Shift steps weapons and activities) or
- * the groups (Alt+Shift steps entries). Per device.
+ * the groups (Alt+Shift steps entries).
  */
-export const finderWheelModes = ['entries', 'groups'] as const;
 export type FinderWheel = (typeof finderWheelModes)[number];
 /**
  * Touch control size on this device: compact (about 36px, the default) or large (44px). Applies
@@ -93,7 +112,6 @@ export function normalizeEditorFontSize(value: unknown): number | null {
   ) as number;
 }
 export const deviceSettingsSchema = z.object({
-  editorFont: z.enum(editorFonts),
   /**
    * Editor text size in CSS pixels, independent of the interface scale; null (the default) keeps
    * today's size, which follows the scale. Touch screens never go below 16px (no focus zoom).
@@ -104,23 +122,16 @@ export const deviceSettingsSchema = z.object({
   theme: z.enum(themePreferences),
   panes: z.record(z.string(), paneStateSchema),
   compendiumScale: z.number().transform(normalizeCompendiumScale),
-  suggestAccept: z.enum(suggestAcceptKeys),
-  symbolReveal: z.enum(symbolRevealModes),
-  finderWheel: z.enum(finderWheelModes),
   touchSize: z.enum(touchSizes),
   remembered: rememberedSchema,
 });
 export type DeviceSettings = z.infer<typeof deviceSettingsSchema>;
 export const defaultDeviceSettings: DeviceSettings = {
   uiScale: 100,
-  editorFont: 'default',
   editorFontSize: null,
   theme: 'system',
   panes: {},
   compendiumScale: defaultCompendiumScale,
-  suggestAccept: 'enter',
-  symbolReveal: 'popover',
-  finderWheel: 'entries',
   touchSize: 'compact',
   remembered: {},
 };
@@ -233,7 +244,6 @@ function browserStorage(): SettingsStorage {
 export function applyDeviceSettings(device: DeviceSettings): void {
   if (typeof document === 'undefined') return;
   applyTheme(device.theme);
-  document.documentElement.dataset.editorFont = device.editorFont;
   document.documentElement.dataset.touch = device.touchSize;
   // Pixels, not rem: the editor's text size must not follow the interface scale once it is chosen.
   if (device.editorFontSize === null)
@@ -342,17 +352,52 @@ export function createSettingsStore({
     }
   };
 
+  // Retain the old fields only as migration seeds for account scopes not opened yet.
+  // Active values and all new edits live exclusively in the synced copy.
+  const legacyEditor: Partial<SyncedSettings> = {};
+  try {
+    const record = JSON.parse(read(deviceKey) ?? '{}');
+    for (const key of migratedKeys) {
+      if (!Object.hasOwn(record, key)) continue;
+      const result = syncedSettingsSchema.shape[key].safeParse(record[key]);
+      if (result.success) Object.assign(legacyEditor, { [key]: result.data });
+    }
+  } catch {
+    // Invalid device storage uses the existing defaults.
+  }
+
+  function seedEditor(copy: ScopeCopy, raw: unknown): ScopeCopy {
+    const record = raw && typeof raw === 'object' ? raw : {};
+    const missing = migratedKeys.filter(
+      (key) => !Object.hasOwn(record, key) && Object.hasOwn(legacyEditor, key),
+    );
+    const settings = { ...copy.settings };
+    for (const key of missing) Object.assign(settings, { [key]: legacyEditor[key] });
+    const pending = syncedKeys.filter(
+      (key) => copy.pending.includes(key) || missing.includes(key as (typeof missing)[number]),
+    );
+    return {
+      ...copy,
+      settings,
+      pending,
+      pendingSince: pending.length ? (copy.pendingSince ?? now()) : null,
+    };
+  }
+
   function parse(raw: string | null): ScopeCopy | null {
     if (raw === null) return null;
     try {
       const stored = storedSchema.parse(JSON.parse(raw));
       const pending = syncedKeys.filter((key) => stored.pending.includes(key));
-      return {
-        settings: readSynced(stored.settings),
-        revision: stored.revision,
-        pending,
-        pendingSince: pending.length ? stored.pendingSince : null,
-      };
+      return seedEditor(
+        {
+          settings: readSynced(stored.settings),
+          revision: stored.revision,
+          pending,
+          pendingSince: pending.length ? stored.pendingSince : null,
+        },
+        stored.settings,
+      );
     } catch {
       notice = 'Saved settings could not be read; defaults are in use.';
       return {
@@ -371,7 +416,7 @@ export function createSettingsStore({
     const settings = { ...defaultSyncedSettings };
     if (toolbar === 'open' || toolbar === 'closed') settings.markupToolbar = toolbar;
     if (source === 'current' || source === 'changes') settings.englishSource = source;
-    return { settings, revision: null, pending: [], pendingSince: null };
+    return seedEditor({ settings, revision: null, pending: [], pendingSince: null }, {});
   }
 
   /** Reads one scope; a new user scope adopts the signed-out copy once. */
@@ -382,12 +427,17 @@ export function createSettingsStore({
       const adopted =
         scope === 'anonymous' ? migrateLegacy() : parse(read(settingsKey('anonymous')));
       copy = adopted
-        ? { settings: adopted.settings, revision: null, pending: [], pendingSince: null }
-        : {
-            settings: { ...defaultSyncedSettings },
+        ? {
+            settings: adopted.settings,
             revision: null,
-            pending: [],
-            pendingSince: null,
+            pending: adopted.pending,
+            pendingSince: adopted.pendingSince,
+          }
+        : {
+            settings: { ...defaultSyncedSettings, ...legacyEditor },
+            revision: null,
+            pending: migratedKeys.filter((key) => Object.hasOwn(legacyEditor, key)),
+            pendingSince: Object.keys(legacyEditor).length ? now() : null,
           };
       if (adopted) {
         const failed = write(settingsKey(scope), copy);
@@ -402,6 +452,9 @@ export function createSettingsStore({
         notice ||= failed;
       }
     }
+    // Persist migration pending markers before contacting the API.
+    if (!read(settingsKey(scope)) && !Object.keys(legacyEditor).length) return copy;
+    notice ||= write(settingsKey(scope), copy);
     return copy;
   }
 
@@ -415,7 +468,6 @@ export function createSettingsStore({
     } catch {
       /* Defaults below. */
     }
-    const editorFont = deviceSettingsSchema.shape.editorFont.safeParse(record.editorFont);
     // "Text size: Large" (the old two-step setting) was 112.5 %; the nearest step carries over.
     const storedScale = record.uiScale ?? (record.textSize === 'large' ? 115 : 100);
     const uiScale =
@@ -433,6 +485,8 @@ export function createSettingsStore({
       'compendiumDiff',
       'compendiumSurface',
       'translatePane',
+      'englishVersion',
+      'englishRaw',
     ] as const) {
       const result = rememberedSchema.shape[key].safeParse(stored[key]);
       if (result.success && result.data) Object.assign(remembered, { [key]: result.data });
@@ -440,17 +494,10 @@ export function createSettingsStore({
     const theme = deviceSettingsSchema.shape.theme.safeParse(record.theme);
     return {
       uiScale,
-      editorFont: editorFont.success ? editorFont.data : 'default',
       editorFontSize: normalizeEditorFontSize(record.editorFontSize),
       theme: theme.success ? theme.data : 'system',
       panes: readPanes(record.panes),
       compendiumScale: normalizeCompendiumScale(record.compendiumScale),
-      suggestAccept:
-        record.suggestAccept === 'tab' || record.suggestAccept === 'enter'
-          ? record.suggestAccept
-          : 'enter',
-      symbolReveal: record.symbolReveal === 'caret' ? 'caret' : 'popover',
-      finderWheel: record.finderWheel === 'groups' ? 'groups' : 'entries',
       touchSize: record.touchSize === 'large' ? 'large' : 'compact',
       remembered,
     };
@@ -480,13 +527,13 @@ export function createSettingsStore({
     ...(read(legacySourceKey) !== null && legacy ? { englishSource: legacy.englishSource } : {}),
   };
   const device = loadDevice(legacyRemembered);
-  if (Object.keys(legacyRemembered).length) write(deviceKey, device);
+  if (Object.keys(legacyRemembered).length) write(deviceKey, { ...legacyEditor, ...device });
   const initial = load('anonymous');
   let observed = read(settingsKey('anonymous'));
   const initialNotice = notice;
   applyDeviceSettings(device);
 
-  return create<SettingsState>((set, get) => {
+  const store = create<SettingsState>((set, get) => {
     // Keep the shared revision and local fields the user was actually offered. The visible
     // local preview can change, but choosing the account copy must retain later edits.
     let choiceBasis: ScopeCopy | null = null;
@@ -774,7 +821,7 @@ export function createSettingsStore({
 
       updateDevice(patch) {
         const device = { ...get().device, ...patch };
-        set({ device, notice: write(deviceKey, device) });
+        set({ device, notice: write(deviceKey, { ...legacyEditor, ...device }) });
         applyDeviceSettings(device);
       },
 
@@ -870,12 +917,21 @@ export function createSettingsStore({
           set({ notice: `Cannot reset pane widths and Compendium zoom: ${errorMessage(error)}` });
           return false;
         }
-        const failed = write(deviceKey, device);
+        const failed = write(deviceKey, { ...legacyEditor, ...device });
         set({ notice: failed });
         return !failed;
       },
     };
   });
+  const applyFont = () => {
+    if (typeof document !== 'undefined')
+      document.documentElement.dataset.editorFont = store.getState().settings.editorFont;
+  };
+  applyFont();
+  store.subscribe((state, previous) => {
+    if (state.settings.editorFont !== previous.settings.editorFont) applyFont();
+  });
+  return store;
 }
 
 export const useSettingsStore = createSettingsStore();

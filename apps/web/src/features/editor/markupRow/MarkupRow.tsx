@@ -59,6 +59,7 @@ export const MarkupRow = memo(function MarkupRow({
   rawView,
   onRawView,
   docked = false,
+  disabled = false,
   onSuggest,
   sourceText,
   tagSelection,
@@ -71,11 +72,13 @@ export const MarkupRow = memo(function MarkupRow({
   onRawView?(): void;
   /** Fixed to the bottom of the visible page, on the keyboard (a phone). */
   docked?: boolean;
+  /** The text is paused read-only: the row keeps its place but nothing in it can be used. */
+  disabled?: boolean;
   /** Opens the suggestion menu; shown on the docked bar only. */
   onSuggest?(): void;
   /** The English text of this tooltip while translating: the docked bar leads with its entries. */
   sourceText?: string;
-  /** Whether the selection can be tagged with an element (the row's "Tag selection:" mode). */
+  /** Whether the selection can be tagged with an element (the row's "Tag selection" mode). */
   tagSelection?: TagSelectionStore;
 }) {
   const tagMode = useSyncExternalStore(
@@ -130,11 +133,45 @@ export const MarkupRow = memo(function MarkupRow({
   useEffect(() => {
     const element = scroller.current;
     if (!element) return;
-    const measure = () =>
+    const wrap = element.parentElement!;
+    const cuts = { start: '', end: '' };
+    const measure = () => {
+      const { scrollLeft, clientWidth, scrollWidth } = element;
       setEdges({
-        start: element.scrollLeft > 1,
-        end: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+        start: scrollLeft > 1,
+        end: scrollLeft + clientWidth < scrollWidth - 1,
       });
+      // How much shows of a button cut at either edge, when less than half of it does (else 0).
+      // Tag mode's slim fades (scrollWrap ::before/::after) widen over such a sliver: its accent
+      // outline would otherwise stand at full contrast just past the fade. Read on scroll and
+      // resize only (never per key); the writes happen after the reads and only on a change.
+      const right = scrollLeft + clientWidth;
+      let start = 0;
+      let end = 0;
+      for (const child of element.children) {
+        if (!(child instanceof HTMLElement) || !child.hasAttribute('data-row-button')) continue;
+        const left = child.offsetLeft - element.offsetLeft;
+        const width = child.offsetWidth;
+        if (left < scrollLeft && left + width > scrollLeft) {
+          const shows = left + width - scrollLeft;
+          if (shows * 2 <= width) start = shows;
+        } else if (left < right && left + width > right) {
+          const shows = right - left;
+          if (shows * 2 <= width) end = shows;
+          break;
+        }
+      }
+      for (const [edge, shows] of [
+        ['start', start],
+        ['end', end],
+      ] as const) {
+        const value = shows ? `${shows}px` : '';
+        if (cuts[edge] === value) continue;
+        cuts[edge] = value;
+        if (value) wrap.style.setProperty(`--cut-${edge}`, value);
+        else wrap.style.removeProperty(`--cut-${edge}`);
+      }
+    };
     element.addEventListener('scroll', measure, { passive: true });
     const observer =
       typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
@@ -174,10 +211,14 @@ export const MarkupRow = memo(function MarkupRow({
     const fade = parseFloat(getComputedStyle(element.parentElement!, '::after').width) || 0;
     const { scrollLeft, clientWidth } = element;
     if (first - fade >= scrollLeft && end + fade <= scrollLeft + clientWidth) return;
+    const width = end - first;
     element.scrollLeft =
-      end - first + 2 * fade <= clientWidth
+      width + 2 * fade <= clientWidth
         ? Math.max(0, end + fade - clientWidth)
-        : Math.max(0, first - fade);
+        : width <= clientWidth
+          ? // Only the fades are in the way: centred, every symbol shows whole.
+            Math.max(0, first - (clientWidth - width) / 2)
+          : Math.max(0, first - fade);
   }, [wrapping]);
 
   function focusButton(index: number) {
@@ -204,7 +245,16 @@ export const MarkupRow = memo(function MarkupRow({
 
   let index = -1;
   return (
-    <div ref={bar} className={styles.row} data-markup-row data-docked={docked || undefined}>
+    <div
+      ref={bar}
+      className={styles.row}
+      data-markup-row
+      data-docked={docked || undefined}
+      data-tag-wrap={(docked && wrapping) || undefined}
+      data-disabled={disabled || undefined}
+      aria-disabled={disabled || undefined}
+      {...(disabled ? { inert: '' } : {})}
+    >
       <div
         className={styles.scrollWrap}
         data-more-start={edges.start || undefined}
@@ -258,9 +308,15 @@ export const MarkupRow = memo(function MarkupRow({
           })}
         </div>
       </div>
-      {tagMode.kind === 'wrap' ? (
-        <span className={styles.tagLabel} data-tag-mode="wrap">
-          {docked ? 'Tag:' : 'Tag selection:'}
+      {/* The element symbols' outlined edge marks the mode; the label points back at them. On a
+        phone the bar's width goes to the seven symbols instead. */}
+      {tagMode.kind === 'wrap' && !docked ? (
+        <span
+          className={styles.tagLabel}
+          data-tag-mode="wrap"
+          title="The outlined element symbols tag the selection"
+        >
+          <span aria-hidden="true">← </span>Tag selection
         </span>
       ) : tagMode.kind === 'refused' && !docked ? (
         <span

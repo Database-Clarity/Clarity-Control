@@ -1,4 +1,4 @@
-import { offersBaseEnhanced } from '../markupScope';
+import { offeredHere } from '../markupScope';
 import {
   memo,
   useEffect,
@@ -156,7 +156,7 @@ export const MarkupHelp = memo(function MarkupHelp({
   const current = matching.find((row) => row.id === active) ?? matching[0];
   const entry =
     readOnly ||
-    (current?.entry?.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals.current))
+    (current?.entry !== undefined && !offeredHere(current.entry.id, globals.current))
       ? undefined
       : current?.entry;
   const filtering = query.trim() !== '';

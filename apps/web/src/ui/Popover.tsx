@@ -20,6 +20,28 @@ import { useWorkspaceShortcutOwner } from './interaction';
 import styles from './Popover.module.scss';
 
 /**
+ * Whether Escape at `target` belongs to a popup nested inside `host` rather than to the host
+ * itself: the focused control has its own open tooltip (a term definition, or a disclosure such as
+ * a diff's style marker that it expands and describes). The host lets that Escape through, the
+ * control closes its popup and consumes the key, and the next Escape closes the host.
+ */
+export function innerPopupOwnsEscape(target: EventTarget | null, host: Node | null | undefined) {
+  if (!(target instanceof Element) || !host?.contains(target)) return false;
+  const described = target.getAttribute('aria-describedby');
+  if (!described) return false;
+  if (target.getAttribute('aria-expanded') === 'true') return true;
+  return described.split(/\s+/).some((id) => {
+    const popup = document.getElementById(id);
+    try {
+      return !!popup?.matches(':popover-open, [data-open]');
+    } catch {
+      // No :popover-open support: the fallback marks an open box with data-open.
+      return !!popup?.hasAttribute('data-open');
+    }
+  });
+}
+
+/**
  * A small non-modal surface anchored to its trigger on every screen size: it floats under the
  * button (right-aligned), or above it when the content fits better there, inside the visible area
  * (on a phone: the page width less the edge inset, clear of the keyboard and the docked bar; see
@@ -35,6 +57,7 @@ export function Popover({
   triggerTitle,
   triggerLabel,
   flush = false,
+  bodyClassName,
   contain = false,
   gap = 4,
   clearTop,
@@ -55,6 +78,8 @@ export function Popover({
   triggerLabel?: string;
   /** The content runs edge to edge (a menu of rows with its own header): no body padding. */
   flush?: boolean;
+  /** A class for the scrolling body around the content (a menu that lays out its own rows). */
+  bodyClassName?: string;
   /**
    * A sheet of actions (More): opening moves focus to its first row (after a Close button), Tab
    * cycles inside it, and it owns the workspace shortcuts while open (Alt+PageDown does not step the
@@ -176,7 +201,16 @@ export function Popover({
     if (!open) return;
     const outside = (event: PointerEvent) => {
       const target = event.target as Node;
+      // A child popup is portaled beside its parent. Its owning trigger still lives inside us;
+      // treating a click in that child as outside would unmount it before its action can run.
+      const child = target instanceof Element ? target.closest('[role="dialog"][id]') : null;
+      const ownsChild =
+        child &&
+        [...(surface.current?.querySelectorAll('[aria-controls]') ?? [])].some(
+          (trigger) => trigger.getAttribute('aria-controls') === child.id,
+        );
       if (
+        ownsChild ||
         surface.current?.contains(target) ||
         button.current?.contains(target) ||
         external.current.anchorElement?.contains(target)
@@ -185,7 +219,7 @@ export function Popover({
       close(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || innerPopupOwnsEscape(event.target, surface.current)) return;
       event.stopPropagation();
       close(true);
     };
@@ -253,7 +287,11 @@ export function Popover({
       {open &&
         createPortal(
           <div ref={surface} id={id} role="dialog" aria-label={label} className={styles.surface}>
-            <div className={flush ? `${styles.body} ${styles.flush}` : styles.body}>
+            <div
+              className={[styles.body, flush && styles.flush, bodyClassName]
+                .filter(Boolean)
+                .join(' ')}
+            >
               {typeof children === 'function'
                 ? children((restore = true) => close(restore))
                 : children}

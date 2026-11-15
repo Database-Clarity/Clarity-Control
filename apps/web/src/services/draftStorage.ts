@@ -65,8 +65,24 @@ function openChannel(): BroadcastChannel | undefined {
 const tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 export function createIndexedDbStorage(key = unownedKey, origin = tabId): DraftStorage {
-  let expected: string | undefined;
   const users = new Map<string, DraftStorage>();
+  return createIndexedDbBucket(key, draftsSchema, origin, key === unownedKey ? users : undefined);
+}
+
+/**
+ * One IndexedDB bucket (one key of the `drafts` object store) validated by `schema`, with its own
+ * compare-and-set baseline and its own channel messages (they carry `key`, so a listener of another
+ * bucket ignores them). `users` given: this bucket is the unowned one and `forUser` opens the
+ * per-account Current buckets. Batch drafts (services/scheduled) open their buckets through here
+ * with their own key and schema; the Current buckets keep the keys and bytes they always had.
+ */
+export function createIndexedDbBucket(
+  key: string,
+  schema: z.ZodType<Drafts>,
+  origin = tabId,
+  users?: Map<string, DraftStorage>,
+): DraftStorage {
+  let expected: string | undefined;
   let announcer: BroadcastChannel | undefined;
   /** Tells the other tabs this bucket changed. Best effort: the write itself already succeeded. */
   const announce = () => {
@@ -78,7 +94,7 @@ export function createIndexedDbStorage(key = unownedKey, origin = tabId): DraftS
     }
   };
   return {
-    ...(key === unownedKey
+    ...(users
       ? {
           forUser(userId: string) {
             let storage = users.get(userId);
@@ -106,7 +122,7 @@ export function createIndexedDbStorage(key = unownedKey, origin = tabId): DraftS
           const transaction = db.transaction('drafts', 'readonly');
           const request = transaction.objectStore('drafts').get(key);
           transaction.oncomplete = () => {
-            const parsed = draftsSchema.safeParse(request.result ?? {});
+            const parsed = schema.safeParse(request.result ?? {});
             if (parsed.success) {
               expected = JSON.stringify(request.result ?? {});
               resolve(parsed.data);

@@ -1,4 +1,13 @@
-import { createContext, useContext, type KeyboardEvent, type ReactNode, type Ref } from 'react';
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+  type RefObject,
+} from 'react';
 import styles from './RightPane.module.scss';
 
 /**
@@ -62,6 +71,49 @@ export function RightPaneHeader({ title, children }: { title: ReactNode; childre
       {children && <span className={styles.controls}>{children}</span>}
     </div>
   );
+}
+
+const tabsWidths = new Map<string, number>();
+let lastTabsWidth: number | undefined;
+
+/**
+ * Width in CSS pixels of the pane tabs shown in this pane's header in place of its title, 0 when
+ * there are none. A pane whose header holds optional controls uses it to know how much room the
+ * tabs take. `bodyRef` is the pane body; the header is the element just before it. Widths are
+ * remembered per label set, and a new label set (another report count) starts from the last
+ * measured width until its observer reports, so stepping never forces a layout; only the first
+ * pane of a session measures before paint.
+ */
+export function usePaneTabsWidth(bodyRef: RefObject<HTMLElement | null>): number {
+  const tabs = useContext(RightPaneTabsContext);
+  const key = tabs ? tabs.tabs.map((tab) => tab.label).join('|') : '';
+  const [width, setWidth] = useState(() => (key ? (tabsWidths.get(key) ?? lastTabsWidth ?? 0) : 0));
+  useLayoutEffect(() => {
+    const list = key
+      ? bodyRef.current?.previousElementSibling?.querySelector<HTMLElement>('[role="tablist"]')
+      : null;
+    if (!list) {
+      setWidth(0);
+      return;
+    }
+    const remember = (next: number) => {
+      tabsWidths.set(key, next);
+      lastTabsWidth = next;
+      setWidth(next);
+    };
+    const known = tabsWidths.get(key) ?? lastTabsWidth;
+    if (known === undefined || typeof ResizeObserver === 'undefined')
+      remember(list.getBoundingClientRect().width);
+    else setWidth(known);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      const next = entry?.borderBoxSize?.[0]?.inlineSize;
+      if (next) remember(next);
+    });
+    observer.observe(list, { box: 'border-box' });
+    return () => observer.disconnect();
+  }, [bodyRef, key]);
+  return width;
 }
 
 /** One tab stop; Left, Right, Home, and End pick a tab. The new pane's header takes the focus. */

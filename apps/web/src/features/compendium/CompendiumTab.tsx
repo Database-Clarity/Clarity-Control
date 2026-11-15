@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CompendiumPage } from './CompendiumPage';
 import { compendiumChanges } from './tracking';
-import type { CompendiumData } from '@clarity/core';
+import type { CompendiumData, Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
@@ -45,6 +45,7 @@ import {
   reviewedEntries,
 } from './reviewViewCache';
 import { researchSuggestions } from './researchSuggestions';
+import type { CompendiumSuggestion } from './suggestions';
 import { confirmCompendiumSelection } from './selection';
 import { useCompendiumStore } from './store';
 import { useDisplayMatches } from './useDisplayMatches';
@@ -54,6 +55,23 @@ import { groupManifestItems } from './manifestItems';
 import styles from './CompendiumTab.module.scss';
 
 const number = new Intl.NumberFormat('en');
+const noHints: CompendiumSuggestion[] = [];
+type StageLink = NonNullable<Tooltip['compendium']>;
+
+// Opening or closing the picker stage changes none of the detail's props, so the entry behind
+// the stage is not rendered again (nor its blocks rebuilt) for either.
+const Detail = memo(CompendiumDetail);
+
+/**
+ * The stage's picker. Rendered only while the stage is open (PickerStage keeps a closed stage's
+ * contents as they were), so the research hints are computed when the picker is first used.
+ */
+function StagePicker({
+  hints,
+  ...props
+}: Omit<Parameters<typeof LinkPicker>[0], 'suggestions'> & { hints(): CompendiumSuggestion[] }) {
+  return <LinkPicker {...props} suggestions={hints()} />;
+}
 
 type Undo = {
   progress: ReviewProgress;
@@ -81,25 +99,22 @@ export function CompendiumTab() {
   const ready =
     !!editor && !!data && !authLoading && (!!prepared || typeof Worker === 'undefined');
   const showSkeleton = useSkeletonVisible(!ready && !error, 'tab', false);
-  if (params.get('tab') === 'linked')
-    return (
-      <article className={styles.tab} aria-label="Linked sources changed">
+  // The linked-sources view keeps the review workspace mounted (it renders nothing there): the
+  // queue beside it stays listed instead of loading forever, and Back to the queue rebuilds nothing.
+  const linked = params.get('tab') === 'linked';
+  return (
+    <article
+      className={styles.tab}
+      aria-label={linked ? 'Linked sources changed' : 'Compendium review'}
+    >
+      {linked && (
         <header className={styles.summary}>
           <h1 className={styles.heading}>Linked sources changed</h1>
           <Link to={{ search: withoutTab(params) }} className={styles.counts}>
             ← Back to the review queue
           </Link>
         </header>
-        {error && (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        )}
-        {editor && data && <CompendiumPage />}
-      </article>
-    );
-  return (
-    <article className={styles.tab} aria-label="Compendium review">
+      )}
       {error && (
         <p role="alert" className={styles.alert}>
           {error}{' '}
@@ -113,6 +128,7 @@ export function CompendiumTab() {
           {display.error}
         </p>
       )}
+      {linked && editor && data && <CompendiumPage />}
       {ready && !showSkeleton ? (
         <Workspace
           key={storageKey}
@@ -120,9 +136,11 @@ export function CompendiumTab() {
           editor={editor}
           source={data}
           prepared={prepared}
+          linked={linked}
         />
       ) : (
-        !error && (
+        !error &&
+        !linked && (
           <SkeletonStatus>
             <div className={styles.loading}>
               <SkeletonRows count={1} columns={[40, 30, 10]} rowHeight="1.75rem" />
@@ -164,14 +182,21 @@ function Workspace({
   source,
   storageKey,
   prepared,
+  linked,
 }: {
   editor: EditorData;
   source: CompendiumData;
   storageKey: string;
   prepared?: ReturnType<typeof useDisplayMatches>['reviewPrepared'];
+  /** The linked-sources view is open: publish the queue, render nothing, take no keys. */
+  linked: boolean;
 }) {
   const { progress, update, error: progressError } = useReviewProgress(storageKey);
   const [params, setParams] = useSearchParams();
+  // A timer or listener set up in an earlier render must not write back that render's URL: a
+  // search typed or a row tapped since then would be undone.
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
   const { drafts, hydrated } = useDraftStore();
   const user = useAuthStore((state) => state.user);
   const locked = useSaveState((state) => state.locked);
@@ -246,10 +271,19 @@ function Workspace({
   const canEdit = mayDraftLink(user?.role, !!apiUrl, hydrated, locked);
 
   // ---- selection ----
-  const [pending, setPending] = useState<{ from: number; next?: QueueRow; token: number }>();
+  // `searches` are the URL at the decision and the URL holding the decided entry (the router may
+  // apply the hold a render later); any other URL (a search, a filter, a row tapped in the queue,
+  // Back) is the user going elsewhere, which cancels the move.
+  const [pending, setPending] = useState<{
+    from: number;
+    next?: QueueRow;
+    token: number;
+    searches: string[];
+  }>();
   const pendingTimer = useRef<ReturnType<typeof setTimeout>>();
   const [highlight, setHighlight] = useState(-1);
   const [picker, setPicker] = useState(false);
+  const closePicker = useCallback(() => setPicker(false), []);
   const [message, setMessage] = useState('');
   const [undo, setUndo] = useState<Undo>();
   const clearPending = useCallback(() => {
@@ -262,14 +296,18 @@ function Workspace({
     (hash: number | undefined, mode: 'replace' | 'push' = 'replace') => {
       clearPending();
       setPicker(false);
-      const next = new URLSearchParams(params);
+      const next = new URLSearchParams(paramsRef.current);
       next.delete('tab');
       if (hash === undefined) next.delete('hash');
       else next.set('hash', String(hash));
       setParams(next, { replace: mode === 'replace' });
     },
-    [params, setParams, clearPending],
+    [setParams, clearPending],
   );
+  const search = params.toString();
+  useEffect(() => {
+    if (pending && !pending.searches.includes(search)) clearPending();
+  }, [pending, search, clearPending]);
 
   // Publish the model the left column renders; selection and filters travel in the URL.
   const restoreScope = useCallback(
@@ -320,17 +358,24 @@ function Workspace({
     () => (selected ? (groupManifestItems(editor.items, editor.aliases).get(selected.hash) ?? []) : []),
     [selected, editor.items, editor.aliases],
   );
-  const wantsHints = !!selected && (picker || selected.kind === 'candidates' || selected.kind === 'none');
-  const hints = useMemo(
-    () =>
-      wantsHints && selected && selectedEntry
-        ? researchSuggestions(selected.hash, source, selectedEntry.category, selectedEntry.name)
-        : [],
-    [wantsHints, selected, selectedEntry, source],
-  );
+  // The entry's research hints, computed once per entry on first use: as blocks for entries
+  // without a proposal, and as the picker's suggested places for every entry.
+  const hintHash = selected?.hash;
+  const hintCategory = selectedEntry?.category;
+  const hintName = selectedEntry?.name;
+  const hintsFor = useMemo(() => {
+    let hints: CompendiumSuggestion[] | undefined;
+    return () =>
+      (hints ??=
+        hintHash !== undefined && hintCategory !== undefined && hintName !== undefined
+          ? researchSuggestions(hintHash, source, hintCategory, hintName)
+          : noHints);
+  }, [hintHash, hintCategory, hintName, source]);
+  const blockHints =
+    selected && (selected.kind === 'candidates' || selected.kind === 'none') ? hintsFor() : noHints;
   const blocks = useMemo(
-    () => (selected ? candidateBlocks({ decision, proposal, source, hints }) : []),
-    [selected, decision, proposal, source, hints],
+    () => (selected ? candidateBlocks({ decision, proposal, source, hints: blockHints }) : []),
+    [selected, decision, proposal, source, blockHints],
   );
   const approved = useMemo(() => {
     if (selected?.kind !== 'changed' || !selectedEntry || !blocks[0]) return undefined;
@@ -351,8 +396,9 @@ function Workspace({
   const advanceFrom = (row: QueueRow) => {
     const next = nextOpenRow(model.steps, row.hash);
     // The decided entry stays open (and listed) until the move, so the pause shows what happened.
+    const before = paramsRef.current.toString();
+    const held = new URLSearchParams(paramsRef.current);
     if (routeHash !== row.hash) {
-      const held = new URLSearchParams(params);
       held.set('hash', String(row.hash));
       setParams(held, { replace: true });
     }
@@ -361,7 +407,7 @@ function Workspace({
       return;
     }
     if (pendingTimer.current) clearTimeout(pendingTimer.current);
-    setPending({ from: row.hash, next, token: Date.now() });
+    setPending({ from: row.hash, next, token: Date.now(), searches: [before, held.toString()] });
     pendingTimer.current = setTimeout(() => {
       pendingTimer.current = undefined;
       setPending(undefined);
@@ -425,13 +471,14 @@ function Workspace({
   // ---- keyboard ----
   const handlers = useRef({ confirm, decide, undoLast, select });
   handlers.current = { confirm, decide, undoLast, select };
-  const keyState = useRef({ model, selected, stepIndex, blocks, pending, picker, canEdit });
-  keyState.current = { model, selected, stepIndex, blocks, pending, picker, canEdit };
+  const keyState = useRef({ model, selected, stepIndex, blocks, pending, picker, canEdit, linked });
+  keyState.current = { model, selected, stepIndex, blocks, pending, picker, canEdit, linked };
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (event.defaultPrevented || event.repeat || workspaceShortcutsBlocked(event)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const state = keyState.current;
+      if (state.linked) return;
       const target = event.target instanceof Element ? event.target : undefined;
       const typing = !!target?.closest('input, textarea, select, [contenteditable="true"]');
       const control = !!target?.closest('button, a[href], summary');
@@ -516,9 +563,73 @@ function Workspace({
         handlers.current.undoLast();
       }
     }
+    // Typing in the queue search during the pause keeps the decided entry: the search commits to
+    // the URL only after a short delay, which could land after the move.
+    function input(event: Event) {
+      const target = event.target instanceof Element ? event.target : undefined;
+      if (keyState.current.pending && target?.closest('[data-compendium-search]')) clearPending();
+    }
     window.addEventListener('keydown', keydown);
-    return () => window.removeEventListener('keydown', keydown);
+    window.addEventListener('input', input, true);
+    return () => {
+      window.removeEventListener('keydown', keydown);
+      window.removeEventListener('input', input, true);
+    };
   }, [clearPending]);
+
+  // ---- stable props for the detail and the stage, so toggling the picker re-renders neither ----
+  const beforeLinked = (link: StageLink) => {
+    if (selected && selectedEntry)
+      snapshot(selected.hash, [
+        { base: selectedEntry.base, before: selectedEntry.next.compendium, after: link },
+      ]);
+  };
+  const linkedNow = () => {
+    if (!selected || !selectedEntry) return;
+    update((state) => recordDecision(state, selected.hash, selectedEntry.evidence, 'open'));
+    setPicker(false);
+    setMessage(`${selected.name}: link drafted, not saved.`);
+    advanceFrom(selected);
+  };
+  const stage = useRef({ beforeLinked, linked: linkedNow });
+  stage.current = { beforeLinked, linked: linkedNow };
+  const onBeforeLinked = useCallback((link: StageLink) => stage.current.beforeLinked(link), []);
+  const onLinked = useCallback(() => stage.current.linked(), []);
+  const stageBase: Tooltip | undefined = selectedEntry?.base;
+  const stagePicker = useMemo(
+    () =>
+      hintHash !== undefined &&
+      stageBase &&
+      hintName !== undefined &&
+      hintCategory !== undefined ? (
+        <StagePicker
+          key={hintHash}
+          base={stageBase}
+          name={hintName}
+          category={hintCategory}
+          hints={hintsFor}
+          readOnly={!canEdit}
+          onBeforeLinked={onBeforeLinked}
+          onLinked={onLinked}
+        />
+      ) : null,
+    [hintHash, stageBase, hintName, hintCategory, hintsFor, canEdit, onBeforeLinked, onLinked],
+  );
+  const steps = model.steps;
+  const onStep = useCallback(
+    (direction: -1 | 1) => {
+      const to = steps[Math.max(0, stepIndex) + direction];
+      if (to) select(to.hash);
+    },
+    [steps, stepIndex, select],
+  );
+  const onReinclude = useCallback(() => {
+    if (selected) reinclude(selected);
+  }, [selected, reinclude]);
+  const position = useMemo(
+    () => (stepIndex >= 0 ? { index: stepIndex + 1, total: steps.length } : undefined),
+    [stepIndex, steps.length],
+  );
 
   // ---- render ----
   const draftCount = Object.keys(drafts).length;
@@ -526,6 +637,7 @@ function Workspace({
     () => compendiumChanges(editor.bundle.tooltips, source).length,
     [editor.bundle.tooltips, source],
   );
+  if (linked) return null;
   const linkTo = (show: string) => {
     const next = new URLSearchParams(params);
     next.set('show', show);
@@ -588,10 +700,10 @@ function Workspace({
           </div>
         </SkeletonStatus>
       ) : selected ? (
-        <CompendiumDetail
+        <Detail
           row={selected}
           categoryLabel={categoryOf(selected.category)}
-          position={stepIndex >= 0 ? { index: stepIndex + 1, total: model.steps.length } : undefined}
+          position={position}
           manifest={manifestItems}
           currentText={selectedEntry?.next.text.en?.text}
           blocks={blocks}
@@ -601,13 +713,8 @@ function Workspace({
           approved={approved}
           stale={selectedEntry?.stale}
           outsideFilter={fromEditor}
-          onReinclude={
-            selected.kind === 'not-needed' && canEdit !== undefined ? () => reinclude(selected) : undefined
-          }
-          onStep={(direction) => {
-            const to = model.steps[Math.max(0, stepIndex) + direction];
-            if (to) select(to.hash);
-          }}
+          onReinclude={selected.kind === 'not-needed' ? onReinclude : undefined}
+          onStep={onStep}
         />
       ) : (
         <section className={styles.emptyState} aria-label="Nothing to show">
@@ -643,26 +750,8 @@ function Workspace({
         />
       )}
       {selected && selectedEntry && (
-        <PickerStage open={picker} onBack={() => setPicker(false)}>
-          <LinkPicker
-            key={selected.hash}
-            base={selectedEntry.base}
-            name={selectedEntry.name}
-            category={selectedEntry.category}
-            suggestions={hints}
-            readOnly={!canEdit}
-            onBeforeLinked={(link) =>
-              snapshot(selected.hash, [
-                { base: selectedEntry.base, before: selectedEntry.next.compendium, after: link },
-              ])
-            }
-            onLinked={() => {
-              update((state) => recordDecision(state, selected.hash, selectedEntry.evidence, 'open'));
-              setPicker(false);
-              setMessage(`${selected.name}: link drafted, not saved.`);
-              advanceFrom(selected);
-            }}
-          />
+        <PickerStage open={picker} onBack={closePicker}>
+          {stagePicker}
         </PickerStage>
       )}
     </>

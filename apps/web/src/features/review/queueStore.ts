@@ -4,7 +4,7 @@ import { markerGroup } from './queueModel';
 
 /**
  * Review state shared by the left-column queue and the page: the pending entries, what is
- * selected for the publish, and which groups are collapsed (component state, not the URL).
+ * selected for the publish, and which groups are collapsed (not the URL; remembered per device).
  */
 interface ReviewQueueState {
   /** Every pending saved change, marker-only included; null until the first comparison. */
@@ -21,15 +21,40 @@ interface ReviewQueueState {
   toggleAll(hashes: readonly number[]): void;
   clearSelection(): void;
   toggleGroup(id: string): void;
+  /** Collapse all or Expand all: the given category groups, never the marker-only group. */
+  setGroupsCollapsed(ids: readonly string[], collapsed: boolean): void;
   openMarkers(): void;
 }
 
 const empty: ReadonlySet<never> = new Set();
 
+/** The collapsed category groups, remembered per device like the other view state. */
+const collapsedKey = 'clarity-review-collapsed:v1';
+function readCollapsed(): ReadonlySet<string> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(collapsedKey) ?? '[]');
+    if (Array.isArray(value))
+      return new Set(
+        value.filter((id): id is string => typeof id === 'string' && id !== markerGroup),
+      );
+  } catch {
+    // Unreadable or unavailable storage: every group starts open.
+  }
+  return empty;
+}
+function writeCollapsed(collapsed: ReadonlySet<string>) {
+  try {
+    if (collapsed.size) localStorage.setItem(collapsedKey, JSON.stringify([...collapsed]));
+    else localStorage.removeItem(collapsedKey);
+  } catch {
+    // Storage full or blocked: the choice still holds for this session.
+  }
+}
+
 export const useReviewQueue = create<ReviewQueueState>((set) => ({
   entries: null,
   selected: empty,
-  collapsed: empty,
+  collapsed: readCollapsed(),
   markerOpen: false,
   scrollTop: 0,
   setEntries: (entries) => set((state) => (state.entries === entries ? state : { entries })),
@@ -52,6 +77,20 @@ export const useReviewQueue = create<ReviewQueueState>((set) => ({
       if (id === markerGroup) return { markerOpen: !state.markerOpen };
       const next = new Set(state.collapsed);
       if (!next.delete(id)) next.add(id);
+      writeCollapsed(next);
+      return { collapsed: next };
+    }),
+  setGroupsCollapsed: (ids, collapsed) =>
+    set((state) => {
+      const next = new Set(state.collapsed);
+      for (const id of ids)
+        if (id !== markerGroup) {
+          if (collapsed) next.add(id);
+          else next.delete(id);
+        }
+      if (next.size === state.collapsed.size && [...next].every((id) => state.collapsed.has(id)))
+        return state;
+      writeCollapsed(next);
       return { collapsed: next };
     }),
   openMarkers: () => set((state) => (state.markerOpen ? state : { markerOpen: true })),

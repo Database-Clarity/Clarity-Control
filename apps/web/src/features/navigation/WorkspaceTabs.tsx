@@ -2,13 +2,29 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom';
 import type { MenuUser } from './links';
 import { driftTabQuery, laptopQuery, managementTabQuery, useMedia } from '../../ui/useMedia';
-import { CompendiumBadge, useCompendiumCount } from '../compendium/CompendiumBadge';
+import {
+  CompendiumBadge,
+  CompendiumWarmup,
+  useCompendiumCount,
+} from '../compendium/CompendiumBadge';
 import { workspaceMenu, workspacePath, type NavLink } from './links';
 import { ShellOverlay } from './ShellOverlay';
 import { AccountPicture, useIdentity } from './IdentityMenu';
 import { GearIcon } from './SettingsButton';
 import { ReportsEntry, ReportsMenuRow } from '../reports/pane/ReportsEntry';
+import { useAuthStore } from '../../stores/auth';
 import styles from './WorkspaceTabs.module.scss';
+
+/**
+ * Whether the header may load the live Compendium sheet: never for translators (their Compendium
+ * tab shows only the snapshot saved with the English, owner 2026-11-10), and not before sign-in
+ * settles, when a returning translator still looks signed out.
+ */
+function useLoadsLiveCompendium(user: MenuUser | null | undefined) {
+  // Read from the store too: a parent's `user` prop can trail the settled sign-in by a render.
+  const settled = useAuthStore((state) => !state.loading && state.user?.role !== 'translator');
+  return settled && user?.role !== 'translator';
+}
 
 /**
  * Workspace tab list for a role: Translations folds into More at laptop widths; on wide screens
@@ -55,7 +71,7 @@ export function WorkspaceTabs({
   routeFor(to: string): string;
 }) {
   const { primary, more } = useWorkspaceItems(user);
-  const count = useCompendiumCount();
+  const count = useCompendiumCount(useLoadsLiveCompendium(user));
   const current = workspacePath(pathname);
   const [open, setOpen] = useState(false);
   const moreButton = useRef<HTMLButtonElement>(null);
@@ -95,6 +111,7 @@ export function WorkspaceTabs({
     : primary.at(-1)?.to;
   return (
     <nav aria-label="Workspaces" className={styles.tabs}>
+      <CompendiumWarmup />
       <ul>
         {primary.map((link) =>
           link.to === reportsAfter
@@ -178,11 +195,12 @@ export function WorkspaceList({
   onAccount?(): void;
 }) {
   const { primary, more } = workspaceMenu(user);
-  const count = useCompendiumCount();
+  const count = useCompendiumCount(useLoadsLiveCompendium(user));
   const current = workspacePath(pathname);
   return (
     <>
       <nav aria-label="Workspaces" className={styles.list}>
+        <CompendiumWarmup />
         {[...primary, ...more].map(({ to, label }) => (
           <Link
             key={to}

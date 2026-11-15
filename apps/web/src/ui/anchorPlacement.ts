@@ -116,6 +116,21 @@ export function isPhone(win: Window = window): boolean {
 }
 
 /**
+ * The width a fixed popover may use, from x = 0: the layout viewport less the scrollbar gutter
+ * global.scss reserves on the root (`scrollbar-gutter: stable`). `innerWidth` counts that gutter
+ * (a classic 15px scrollbar), and so can the root's `clientWidth` while nothing overflows; a box
+ * over the gutter is clipped there. The root's own box width leaves it out, so the smallest of the
+ * three is used (a zero, as in a detached or unlaid-out document, is ignored).
+ */
+export function viewportWidth(win: Window = window): number {
+  const root = win.document?.documentElement as HTMLElement | undefined;
+  const widths = [win.innerWidth, root?.clientWidth, root?.offsetWidth].filter(
+    (value): value is number => typeof value === 'number' && value > 0,
+  );
+  return widths.length ? Math.min(...widths) : win.innerWidth;
+}
+
+/**
  * The visible area now: the visual viewport (the keyboard shrinks it), less the docked markup
  * bar (`--dock-h`, set while it is on screen) and the edge gap. On a phone the edge is the page's
  * side inset (`--page-x`, 0.5rem); elsewhere 8px. `clearTop` raises the top limit (a popover
@@ -137,7 +152,7 @@ export function visibleArea(win: Window = window, clearTop?: number): PlacementA
     top: clearTop === undefined ? visibleTop + edge : Math.max(visibleTop, clearTop),
     bottom: visibleBottom - (Number.isFinite(dock) ? dock : 0) - edge,
     reach: visibleBottom,
-    width: win.innerWidth,
+    width: viewportWidth(win),
     layoutHeight,
     edge,
   };

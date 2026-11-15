@@ -67,6 +67,7 @@ export const iconSymbols = [
 /** Symbols v1 (spec section 6): 16 icons, the enhanced arrow, and the text styles. */
 export const symbolIds = [
   ...iconSymbols,
+  'arrow',
   'enhancedArrow',
   'bold',
   'yellow',

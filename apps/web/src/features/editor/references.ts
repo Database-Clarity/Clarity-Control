@@ -8,7 +8,8 @@ import {
 } from '@clarity/core';
 
 /**
- * Pure resolution of the references an author can hover or jump from: `#variables`, `[titles]`
+ * Pure resolution of the references an author can hover or jump from: `#variables` (also
+ * written `#{variables}`), `[titles]`
  * and `import … from …`. Nothing here touches CodeMirror, so it is cheap to test and is only
  * ever called lazily (on hover, F12 or Ctrl+Click), never while typing.
  */
@@ -21,6 +22,8 @@ export interface LineReference {
   name: string;
   /** `import … from <source>`: the tooltip hash or `global`. */
   source?: string;
+  /** A variable written `#{name}`: delimited, so it never merges with the text after it. */
+  braced?: boolean;
   from: number;
   to: number;
 }
@@ -42,10 +45,13 @@ export function referenceInLine(line: string, column: number): LineReference | n
       ? { kind: 'import', name: imported[1].trim(), source: imported[2], from, to }
       : null;
   }
-  for (const match of line.matchAll(/#([a-zA-Z0-9]+)/g)) {
+  for (const match of line.matchAll(/#\{([a-zA-Z0-9]+)\}|#([a-zA-Z0-9]+)/g)) {
     const from = match.index;
     const to = from + match[0].length;
-    if (column >= from && column <= to) return { kind: 'variable', name: match[1], from, to };
+    if (column >= from && column <= to)
+      return match[1] === undefined
+        ? { kind: 'variable', name: match[2]!, from, to }
+        : { kind: 'variable', name: match[1], braced: true, from, to };
   }
   for (const match of line.matchAll(titleReference)) {
     const to = match.index + match[0].length - '] />'.length;

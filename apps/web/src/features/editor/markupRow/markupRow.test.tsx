@@ -111,6 +111,36 @@ it('keeps caret and undo in authoring form and callbacks preserve native markup'
   expect(changed.mock.calls.at(-1)![0]).toBe(incomplete + '2');
 });
 
+it('keeps the row, disabled, while the text is paused read-only (the text never moves)', () => {
+  const render = (props: { readOnly?: boolean; paused?: boolean }) =>
+    act(() =>
+      root.render(
+        <ClarityEditor
+          value="x"
+          lang="en"
+          globals={globals}
+          markupRow
+          onChange={() => {}}
+          {...props}
+        />,
+      ),
+    );
+  render({});
+  expect(row()?.hasAttribute('inert')).toBe(false);
+  expect(row()?.hasAttribute('data-disabled')).toBe(false);
+  // Another tab's write pauses editing: the row stays where it was, inert and dimmed.
+  render({ readOnly: true, paused: true });
+  expect(row()).not.toBeNull();
+  expect(row()?.hasAttribute('inert')).toBe(true);
+  expect(row()?.getAttribute('aria-disabled')).toBe('true');
+  // Answering the notice gives the row back.
+  render({});
+  expect(row()?.hasAttribute('inert')).toBe(false);
+  // A text that is read-only for good (archive, no access) has no markup row.
+  render({ readOnly: true });
+  expect(row()).toBeNull();
+});
+
 describe('the retired markup options', () => {
   const retired = [
     'inline:center',
@@ -171,6 +201,7 @@ describe('the markup row catalogue', () => {
         'warlock',
         'hunter',
         'titan',
+        'arrow',
       ].map((name) => `icon:${name}`),
       'link',
       'title',
@@ -183,8 +214,8 @@ describe('the markup row catalogue', () => {
       kind: 'arrow',
       text: '',
     });
-    expect(markupIcons).toHaveLength(16);
-    expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(16);
+    expect(markupIcons).toHaveLength(17);
+    expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(17);
   });
 
   it('offers separate PvE and PvP tags next to the pair preset, and no tables anywhere', () => {
@@ -266,11 +297,11 @@ describe('the markup row', () => {
     expect(second.state.doc.toString()).toBe('y <pvp [value] />');
   });
 
-  it('the enhanced arrow is plain #e at the caret and never replaces the selection', () => {
+  it('the enhanced arrow symbol goes in at the caret and never replaces the selection', () => {
     const view = mount('Amount 5');
     act(() => view.dispatch({ selection: { anchor: 7, head: 8 } }));
     click(entryButton('enhanced-arrow'));
-    expect(view.state.doc.toString()).toBe('Amount 5#e');
+    expect(view.state.doc.toString()).toBe('Amount 5<enhanced/>');
   });
 
   it('says why when the document refuses an insertion, and changes nothing', () => {
@@ -297,7 +328,7 @@ describe('the markup row', () => {
     expect(document.activeElement).toBe(buttons[0]);
     // 1 = enhanced arrow
     key(buttons[0]!, '1');
-    expect(view.state.doc.toString()).toBe('Deals #e');
+    expect(view.state.doc.toString()).toBe('Deals <enhanced/>');
     key(buttons[0]!, 'End');
     expect(document.activeElement).toBe(buttons.at(-1));
   });
@@ -317,6 +348,43 @@ describe('the markup row', () => {
       entryButton('enhanced-arrow').dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('names a button cut to less than half at either edge, for the tag-mode fades', () => {
+    mount('x');
+    const scroller = row()!.querySelector<HTMLElement>('[role=toolbar]')!;
+    const wrap = scroller.parentElement!;
+    // Buttons 40px wide every 44px from 6px, in a 200px strip.
+    const buttons = rowButtons();
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const at = buttons.indexOf(this as HTMLButtonElement);
+      return at < 0 ? 0 : 6 + at * 44;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(40);
+    let scrollLeft = 0;
+    Object.defineProperties(scroller, {
+      clientWidth: { configurable: true, get: () => 200 },
+      scrollWidth: { configurable: true, get: () => 6 + buttons.length * 44 + 6 },
+      scrollLeft: {
+        configurable: true,
+        get: () => scrollLeft,
+        set: (v: number) => (scrollLeft = v),
+      },
+    });
+    const at = (left: number) => {
+      scrollLeft = left;
+      act(() => scroller.dispatchEvent(new Event('scroll')));
+      return [wrap.style.getPropertyValue('--cut-start'), wrap.style.getPropertyValue('--cut-end')];
+    };
+    // The fifth button (182-222) shows 18px of 40 at the end: cut.
+    expect(at(0)).toEqual(['', '18px']);
+    // 28px of it shows: a cut button that reads as one, no widening.
+    expect(at(10)).toEqual(['', '']);
+    // The first shows 16px at the start, the sixth (226-266) 4px at the end.
+    expect(at(30)).toEqual(['16px', '4px']);
+    expect(wrap.hasAttribute('data-more-start')).toBe(true);
   });
 });
 
@@ -389,7 +457,9 @@ describe('the All popover', () => {
         (chip) => chip.getAttribute('aria-label'),
       );
     expect(group('Variables')).toEqual(['#local']);
-    expect(group('Global variables')).toEqual(expect.arrayContaining(['#e', '#damage']));
+    expect(group('Global variables')).toEqual(expect.arrayContaining(['#damage']));
+    // The global e is the enhanced arrow, offered as <enhanced/> where the arrow is offered.
+    expect(group('Global variables')).not.toContain('#e');
     expect(group('Global variables')).not.toContain('#local');
   });
 
@@ -401,13 +471,13 @@ describe('the All popover', () => {
     )!;
     expect(damage).toBeTruthy();
     click(damage);
-    expect(view.state.doc.toString()).toBe('Hit for #damage');
+    expect(view.state.doc.toString()).toBe('Hit for #{damage}');
     expect(document.body.querySelector('[data-all-popover]')).toBeNull();
   });
 });
 
 describe('inserting an enhanced section from the popover', () => {
-  it('writes the section with its #e arrow line already filled in, on a line of its own', () => {
+  it('writes the section with its arrow line already filled in, on a line of its own', () => {
     const view = mount('Reload speed up.');
     const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (node) => node.textContent?.trim() === 'All',
@@ -419,9 +489,11 @@ describe('inserting an enhanced section from the popover', () => {
     click(section);
     const text = view.state.doc.toString();
     expect(text.startsWith('Reload speed up.' + NL + 'enhanced (' + NL)).toBe(true);
-    // The #e line is the enhanced arrow line, and it ships with text to replace.
+    // The <enhanced/> line is the enhanced arrow line, and it ships with text to replace.
     expect(text.endsWith(NL + ')')).toBe(true);
-    expect(text.split(NL).some((line) => line.startsWith('#e ') && line.length > 3)).toBe(true);
+    expect(text.split(NL).some((line) => line.startsWith('<enhanced/> ') && line.length > 12)).toBe(
+      true,
+    );
   });
 });
 

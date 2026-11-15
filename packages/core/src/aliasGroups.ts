@@ -72,6 +72,10 @@ export interface AliasItem {
   owners?: number[];
 }
 export type AliasItems = Readonly<Record<string, AliasItem>>;
+/** Generator-resolved enhanced mod; an absent/ambiguous base is never inferred by name. */
+export function isPairedEnhancedMod(item: Pick<AliasItem, 'categoryId' | 'baseHash'>): boolean {
+  return item.categoryId === 'weapon-mod-enhanced' && item.baseHash !== undefined;
+}
 const enhanced = (item: AliasItem) =>
   !exotic(item) && (item.isEnhanced ?? item.categoryId.includes('-enhanced'));
 const exotic = (item: AliasItem) => item.exotic ?? item.categoryId.endsWith('-exotic');
@@ -320,7 +324,7 @@ export function readAliasProposals(input: unknown, tooltips: Readonly<Record<str
         ? own[0]!
         : proposal.canonical;
     const enhancedMarkup = Object.values(tooltips[canonical]?.text ?? {}).some((t) =>
-      /enhanced\s*\(|#e\b/.test(t?.text ?? ''),
+      /enhanced\s*\(|#e\b|<enhanced\/>/.test(t?.text ?? ''),
     );
     return {
       ...proposal,
@@ -340,17 +344,18 @@ export function enhancedWordingNeeded(
 ) {
   const result = new Map<number, { baseHash: number; enhancedHashes: number[] }>();
   for (const item of Object.values(items)) {
-    // Enhanced weapon parts never need wording of their own (owner 2026-11-09).
+    // Enhanced parts and paired mods are edited with their base.
     if (
       !enhanced(item) ||
       item.baseHash === undefined ||
-      item.categoryId === 'weapon-perk-enhanced'
+      item.categoryId === 'weapon-perk-enhanced' ||
+      isPairedEnhancedMod(item)
     )
       continue;
     const base = items[item.baseHash];
     if (!base || item.inGameDescription === base.inGameDescription) continue;
     const baseHash = aliasCanonicalHash(item.hash, items, aliases);
-    if (/enhanced\s*\(|#e\b/.test(tooltips[baseHash]?.text.en?.text ?? '')) continue;
+    if (/enhanced\s*\(|#e\b|<enhanced\/>/.test(tooltips[baseHash]?.text.en?.text ?? '')) continue;
     const row = result.get(baseHash) ?? { baseHash, enhancedHashes: [] };
     const target = resolveAlias(item.hash, aliases);
     if (!row.enhancedHashes.includes(target)) row.enhancedHashes.push(target);

@@ -1,0 +1,5 @@
+{
+  "extends": "../../packages/export/tsconfig.json",
+  "compilerOptions": { "lib": ["ES2022", "DOM", "DOM.Iterable"] },
+  "include": ["*.ts"]
+}

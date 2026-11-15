@@ -94,7 +94,7 @@ After setup, use the [owner acceptance checklist](OWNER-ACCEPTANCE.md).
 2. Set `SITE_ORIGIN` to the website **origin only**, for example
    `https://database-clarity.github.io` (no path or trailing slash).
 3. Set `SITE_URL` to the actual v2 website URL including its path and trailing
-   slash, for example `https://database-clarity.github.io/Description-editor/`.
+   slash, for example `https://database-clarity.github.io/Clarity-Control/`.
    It must have the same origin as `SITE_ORIGIN`. Do not point v2 at the legacy
    production editor unless that is the intended website.
 4. Keep repository `Database-Clarity/Live-Clarity-Database`, data branch

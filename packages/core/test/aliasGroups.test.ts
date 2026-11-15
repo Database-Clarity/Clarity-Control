@@ -379,3 +379,18 @@ test('enhanced legendary frames retain the generated canonical across weapon typ
   expect(aliasCanonicalHash(43, facts, result.aliases)).toBe(42);
   expect(aliasCanonicalHash(51, facts, result.aliases)).toBe(51);
 });
+
+test('paired enhanced mods need no separate wording', () => {
+  const base = { ...items[42]!, categoryId: 'weapon-mod' };
+  const mod = {
+    ...base,
+    hash: 43,
+    categoryId: 'weapon-mod-enhanced',
+    baseHash: 42,
+    inGameDescription: 'Different enhanced wording',
+  };
+  expect(enhancedWordingNeeded({ 42: base, 43: mod }, {}, {})).toEqual([]);
+  expect(
+    enhancedWordingNeeded({ 42: { ...base, categoryId: 'weapon-perk' }, 43: mod }, {}, {}),
+  ).toEqual([]);
+});

@@ -94,7 +94,7 @@ describe('the catalogue', () => {
 
   test('the enhanced section carries the enhanced arrow and validates in an enhanced tooltip', () => {
     const block = expandSnippet(markupSnippets.find((snippet) => snippet.id === 'enhanced-block')!);
-    expect(block.text).toContain('\n#e ');
+    expect(block.text).toContain('\n<enhanced/> ');
     const text = `Base text.\n\n${block.text.replace('amount', '1')}`;
     const enhanced = parseMarkup(text, { ...globals, type: 'Weapon Trait Enhanced' });
     expect(

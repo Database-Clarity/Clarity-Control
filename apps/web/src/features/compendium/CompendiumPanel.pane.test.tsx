@@ -19,6 +19,7 @@ import * as diffCache from './compendiumDiffCache';
 import { useDisplayMatches } from './useDisplayMatches';
 import { backgroundDecodePaused } from './paneDecodeActivity';
 import { useSteppingActivity } from '../navigation/steppingActivity';
+import { SkeletonBoundary, skeletonMinimumMs } from '../../ui/Skeleton';
 
 const paneMatch = vi.hoisted(() => vi.fn());
 const skeletonTiming = vi.hoisted(() => ({ enabled: false }));
@@ -27,7 +28,7 @@ vi.mock('../../ui/Skeleton', async (importOriginal) => {
   return {
     ...actual,
     useSkeletonVisible: (...args: Parameters<typeof actual.useSkeletonVisible>) =>
-      actual.useSkeletonVisible(skeletonTiming.enabled && args[0], args[1], args[2]),
+      actual.useSkeletonVisible(skeletonTiming.enabled && args[0], args[1], args[2], args[3]),
   };
 });
 const matchState = vi.hoisted(() => ({
@@ -44,6 +45,11 @@ vi.mock('./useDisplayMatches', () => ({
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
 vi.mock('./LinkPicker', () => ({
+  // The real open runs in later tasks; here it opens at once.
+  openLinkPickerSoon: (_category: string, _name: string, open: () => void) => {
+    open();
+    return () => {};
+  },
   LinkPicker: ({ readOnly }: { readOnly?: boolean }) =>
     createElement(
       'div',
@@ -266,6 +272,7 @@ describe('Compendium pane', () => {
   );
   it('reveals data-sized skeletons after two frames and reuses their shimmer regions', async () => {
     skeletonTiming.enabled = true;
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
     const frames = new Map<number, FrameRequestCallback>();
     let serial = 0;
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -276,15 +283,23 @@ describe('Compendium pane', () => {
     const host = await mount();
     const root = roots.at(-1)!;
     const content = host.querySelector('[data-scale]');
-    await act(async () =>
-      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true })),
-    );
-    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     const tick = async () => {
       const batch = [...frames.values()];
       frames.clear();
       await act(async () => batch.forEach((callback) => callback(0)));
     };
+    // A single step's hold is not load time: no skeleton however long it lasts.
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 6 }, stepping: true })),
+    );
+    await tick();
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    // Once the burst moves on, its two-frame grace applies.
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: { ...linked, hash: 8 }, stepping: true })),
+    );
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     await tick();
     expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     await tick();
@@ -296,7 +311,9 @@ describe('Compendium pane', () => {
     expect(skeleton?.textContent).not.toContain('Name');
     expect(skeleton?.textContent).not.toMatch(/tab -?\d/);
     expect(skeleton?.textContent).toContain('Snapshot');
-    expect(skeleton?.querySelector('button')?.disabled).toBe(true);
+    expect(skeleton?.querySelector<HTMLButtonElement>('[class*="actions"] button')?.disabled).toBe(
+      true,
+    );
     const region = skeleton?.querySelector('[aria-hidden="true"]');
     const cellRegion = skeleton?.querySelector('[class*="skeletonCell"]');
     const newest = {
@@ -318,16 +335,274 @@ describe('Compendium pane', () => {
     expect(skeleton?.querySelector('time')?.getAttribute('datetime')).toBe(
       newest.compendium.snapshotAt,
     );
-    // One callback ends the old clock; the other starts the newer entry's two-frame grace.
-    expect(frames.size).toBe(2);
+    // The burst is one wait: a newer entry neither restarts the clock nor gets a second grace.
+    expect(frames.size).toBe(0);
     await act(async () =>
       root.render(createElement(CompendiumPanel, { base: newest, stepping: false })),
     );
-    // The pane commits within the newer entry's two frames, so it shows with no minimum wait.
     for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    // Ready, but shown just now: the skeleton stays its minimum and never only flashes.
+    expect(host.querySelector('[data-pane-skeleton]')).toBe(skeleton);
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs - 1));
+    expect(host.querySelector('[data-pane-skeleton]')).toBe(skeleton);
+    await act(async () => vi.advanceTimersByTime(1));
     expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
     expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('7');
     expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('restarts the grace when a canceled handoff entry returns as the same object', async () => {
+    skeletonTiming.enabled = true;
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const plain = (hash: number) => ({ hash, text: {}, associated: [] }) as unknown as Tooltip;
+    const returning = plain(9);
+    // B's handoff is scheduled but never runs; C supersedes it while its match loads.
+    await act(async () => root.render(createElement(CompendiumPanel, { base: returning })));
+    matchState.loading = true;
+    await act(async () => root.render(createElement(CompendiumPanel, { base: plain(10) })));
+    await act(async () => root.render(createElement(CompendiumPanel, { base: returning })));
+    await tick();
+    matchState.loading = false;
+    await act(async () => root.render(createElement(CompendiumPanel, { base: returning })));
+    await tick();
+    // Its new handoff frame comes before the skeleton's: ready content shows, no 200 ms hold.
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('9');
+  });
+
+  it('keeps the header view switch as last shown while a flick passes and lands', async () => {
+    skeletonTiming.enabled = true;
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    useCompendiumStore.setState({
+      data: { fetchedAt: '2026-11-01T00:00:00Z', tabs: [tab] },
+    } as never);
+    width = 520;
+    const host = await mount();
+    const root = roots.at(-1)!;
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    // The loaded linked entry compares: its roomy header carries the view switch.
+    expect(diffViews(header(host))).toHaveLength(1);
+    const plain = (hash: number) => ({ hash, text: {}, associated: [] }) as unknown as Tooltip;
+    for (const hash of [6, 8, 9]) {
+      await act(async () =>
+        root.render(createElement(CompendiumPanel, { base: plain(hash), stepping: true })),
+      );
+      await tick();
+      await tick();
+      // U-OWN1: passing entries (no link, nothing to compare) never remove it mid-flick.
+      expect(diffViews(header(host))).toHaveLength(1);
+    }
+    expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
+    // The flick stops; its entry is ready under the skeleton while the minimum still runs. The
+    // header keeps what is on screen until that entry's content replaces the skeleton.
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: plain(9), stepping: false })),
+    );
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
+    expect(diffViews(header(host))).toHaveLength(1);
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs));
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('9');
+    expect(diffViews(header(host))).toHaveLength(0);
+  });
+
+  it.each([
+    ['its route', 'route'],
+    ['the finder target while its route is deferred', 'finder'],
+  ])('shows the entry a flick stops on once ready, when %s moved the burst', async (_, mover) => {
+    skeletonTiming.enabled = true;
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    roots.push(root);
+    const entry = (hash: number) => ({ ...linked, hash });
+    // As on the tooltip page: the pane sits in a boundary whose clock follows the route entry.
+    const render = (base: Tooltip, stepping: boolean, target?: number) =>
+      act(async () =>
+        root.render(
+          createElement(SkeletonBoundary, {
+            pending: false,
+            identity: base.hash,
+            label: 'Loading tooltip content…',
+            shape: 'none',
+            children: createElement(CompendiumPanel, { base, stepping, target }),
+          }),
+        ),
+      );
+    await render(linked, false);
+    await act(async () => useSteppingActivity.setState({ active: true, target: '/t/6' }));
+    await render(entry(6), true);
+    if (mover === 'route') await render(entry(8), true);
+    // A deferred document holds the route on the first destination; the finder moves on.
+    else await act(async () => useSteppingActivity.setState({ target: '/t/8?lang=en' }));
+    await tick();
+    await tick();
+    const skeleton = host.querySelector('[data-pane-skeleton]');
+    expect(skeleton).not.toBeNull();
+    // The flick passes more entries for longer than the minimum, each on screen briefly.
+    for (const hash of [11, 12, 13]) {
+      await act(async () => useSteppingActivity.setState({ target: `/t/${hash}` }));
+      await render(entry(hash), true);
+      await tick();
+      await act(async () => vi.advanceTimersByTime(80));
+    }
+    expect(host.querySelector('[data-pane-skeleton]')).toBe(skeleton);
+    // It stops on 14: the pane swaps in as soon as it commits, with no new minimum. The
+    // stepping quiet and the preview handoff hold the pane for longer than two frames first.
+    await render(entry(14), true);
+    for (let index = 0; index < 3; index++) await tick();
+    await act(async () => vi.advanceTimersByTime(40));
+    await act(async () => useSteppingActivity.setState({ active: false, target: undefined }));
+    await render(entry(14), false);
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('14');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+    // The next wait is a new one: its own grace and a fresh minimum.
+    await act(async () => useSteppingActivity.setState({ active: true, target: '/t/15' }));
+    await render(entry(15), true);
+    await render(entry(16), true);
+    await tick();
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
+    await act(async () => useSteppingActivity.setState({ active: false, target: undefined }));
+    await render(entry(16), false);
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(skeletonMinimumMs));
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('16');
+  });
+
+  it.each([
+    ['ready within its grace', false],
+    ['still loading', true],
+  ])('counts a single step skeleton grace from the settle, for an entry %s', async (_, slow) => {
+    skeletonTiming.enabled = true;
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const next = { hash: 9, text: {}, associated: [] } as unknown as Tooltip;
+    // A wheel notch marks stepping before its route lands on the next entry.
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: linked, stepping: true, target: 5 })),
+    );
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: linked, stepping: true, target: 9 })),
+    );
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: true, target: 9 })),
+    );
+    // The stepping quiet and preview handoff outlast two frames.
+    for (let index = 0; index < 4; index++) await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('5');
+    matchState.loading = slow;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: false })),
+    );
+    if (!slow) {
+      for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+      expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+      expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('9');
+      expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+      return;
+    }
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).not.toBeNull();
+  });
+
+  it('shows a single step entry whose handoff frame is the skeleton grace frame (no skeleton)', async () => {
+    skeletonTiming.enabled = true;
+    const frames = new Map<number, FrameRequestCallback>();
+    let serial = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++serial, callback);
+      return serial;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const tick = async () => {
+      const batch = [...frames.values()];
+      frames.clear();
+      await act(async () => batch.forEach((callback) => callback(0)));
+    };
+    const host = await mount();
+    const root = roots.at(-1)!;
+    const next = { hash: 9, text: {}, associated: [] } as unknown as Tooltip;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: true, target: 9 })),
+    );
+    for (let index = 0; index < 4; index++) await tick();
+    // The step settles while its match reply is a frame away.
+    matchState.loading = true;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: false })),
+    );
+    await tick();
+    matchState.loading = false;
+    await act(async () =>
+      root.render(createElement(CompendiumPanel, { base: next, stepping: false })),
+    );
+    // Its frame is the one where a grace counted from the settle showed the skeleton first
+    // (which then held its 200 ms minimum, although the entry committed before the paint).
+    await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
+    expect(host.querySelector('[data-match-hash]')?.getAttribute('data-match-hash')).toBe('9');
+    expect(host.querySelector('aside')?.hasAttribute('aria-busy')).toBe(false);
+    for (let guard = 0; frames.size && guard < 4; guard++) await tick();
+    expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
   });
 
   it('retains the mounted pane while the skeleton is deferred and commits the latest entry', async () => {
@@ -349,21 +624,25 @@ describe('Compendium pane', () => {
     );
     expect(host.innerHTML).toBe(original);
     const content = host.querySelector('[data-scale]')!;
+    const tools = header(host).innerHTML;
+    const controls = [...header(host).querySelectorAll('button')];
     const prepare = vi.spyOn(diffCache, 'prepareCompendiumDiff').mockReturnValue(undefined);
     for (const hash of [6, 7]) {
       await act(async () =>
         root.render(createElement(CompendiumPanel, { base: { ...linked, hash }, stepping: true })),
       );
       expect(host.querySelector('[data-scale]')).toBe(content);
-      expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe(
-        `Compendium for ${hash}`,
-      );
+      // Its name stays with the held entry it still shows (U26), not the next one.
+      expect(host.querySelector('aside')?.getAttribute('aria-label')).toBe('Compendium for 5');
       expect(content.getAttribute('data-match-hash')).toBe('5');
       expect(host.querySelector('aside')?.getAttribute('aria-busy')).toBe('true');
       expect(content.hasAttribute('inert')).toBe(true);
-      expect(
-        [...header(host).querySelectorAll('button')].every((control) => control.disabled),
-      ).toBe(true);
+      // U-OWN1: the header controls stay painted and unchanged; only Link ignores clicks.
+      expect([...header(host).querySelectorAll('button')]).toEqual(controls);
+      expect(controls.some((control) => control.disabled)).toBe(false);
+      expect(button(host, 'Relink')?.className).toContain('headerButton');
+      expect(button(host, 'Relink')?.getAttribute('aria-disabled')).toBe('true');
+      expect(header(host).innerHTML.replace(/ aria-disabled="true"/, '')).toBe(tools);
       expect(host.querySelector('[role="status"]')?.textContent).toBe('Loading Compendium…');
       expect(host.querySelector('[data-pane-skeleton]')).toBeNull();
       expect(vi.mocked(useDisplayMatches).mock.calls.at(-1)?.[4]).toBe(5);

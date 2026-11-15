@@ -87,3 +87,48 @@ it('renders the English source with preview tints and symbols', async () => {
   expect(host.querySelector('.cm-tint, .cm-symbol')).toBeNull();
   await act(async () => root.unmount());
 });
+
+it('shows an enhanced pair as Compare by default; Base, Enhanced, and Markup are remembered on this device', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  let root = createRoot(host);
+  const props = {
+    text: 'Handling <green 10 />',
+    hash: 10,
+    enhanced: { hash: 11, text: 'Handling <green 15 />' },
+  };
+  const versions = () => [
+    ...host.querySelectorAll<HTMLButtonElement>('[aria-label="English version"] button'),
+  ];
+  const pressed = () => versions().find((button) => button.ariaPressed === 'true')?.textContent;
+  const raw = () => host.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  await act(async () => root.render(createElement(TranslationSource, props)));
+  expect(pressed()).toBe('Compare');
+  expect(host.querySelector('[data-english-compare]')).not.toBeNull();
+  expect(host.textContent).toContain('10');
+  expect(host.textContent).toContain('15');
+  await act(async () => versions()[1]!.click());
+  expect(pressed()).toBe('Enhanced');
+  expect(host.querySelector('[data-english-compare]')).toBeNull();
+  expect(host.textContent).toContain('15');
+  expect(host.textContent).not.toContain('10');
+  await act(async () => raw().click());
+  expect(raw().getAttribute('aria-checked')).toBe('true');
+  expect(host.querySelector('[data-english-raw]')?.textContent).toContain('<green 15 />');
+  // The version row stays put (nothing moves); Enhanced picks the enhanced markup.
+  expect(pressed()).toBe('Enhanced');
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TranslationSource, props)));
+  expect(useSettingsStore.getState().device.remembered.englishVersion).toBe('enhanced');
+  expect(host.querySelector('[data-english-raw]')).not.toBeNull();
+  await act(async () => raw().click());
+  expect(pressed()).toBe('Enhanced');
+  // Without an enhanced version the switch stays, dimmed, on Base.
+  await act(async () => root.render(createElement(TranslationSource, { text: 'Plain', hash: 12 })));
+  expect(pressed()).toBe('Base');
+  expect(versions()[1]!.disabled).toBe(true);
+  expect(useSettingsStore.getState().pending).toEqual([]);
+  await act(async () => root.unmount());
+  host.remove();
+});

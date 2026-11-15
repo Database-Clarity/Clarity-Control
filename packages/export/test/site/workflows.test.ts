@@ -90,7 +90,7 @@ describe('prepared workflows', () => {
 
   it('the publish pipeline ignores config-only pushes', () => {
     expect(pipeline).toMatch(
-      /branches: \[editor-data\]\n {4}# .*\n {4}paths-ignore: \['exports\/\*\*'\]/,
+      /branches: \[editor-data\]\n {4}# .*\n {4}paths-ignore: \['exports\/\*\*', 'glossary\/\*\*'\]/,
     );
   });
 });

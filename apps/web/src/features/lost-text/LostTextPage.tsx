@@ -1,6 +1,6 @@
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import artifact from './lost-text.json';
 import {
@@ -18,10 +18,23 @@ import { useSaveState } from '../../services/save/state';
 import { replaceDraft } from '../../services/save/drafts';
 import { errorMessage } from '../../services/http';
 import { When } from '../../ui/When';
+import type { LostRestore } from '../queue/sources';
+import { lostItem } from '../queue/lostRows';
+import { returnedState, useRestoredScroll, WorkThroughBar } from '../queue/WorkThroughBar';
+import bar from '../queue/WorkThroughBar.module.scss';
 import styles from './LostText.module.scss';
+import { useLeftQueue } from '../queue/useQueue';
 
 const parsed = artifactSchema.safeParse(artifact);
+/**
+ * Row checkboxes shown at once on an ordinary open (more rows than a tall screen shows); the rest
+ * join a batch per frame after the first paint. Hundreds of native checkboxes made the list open a
+ * frame later than without selection.
+ */
+const FIRST_CHECKS = 40;
+const CHECKS_PER_FRAME = 80;
 export function LostTextPage() {
+  useLeftQueue();
   const data = useDataStore((s) => s.data);
   const user = useAuthStore((s) => s.user);
   const { drafts, hydrated } = useDraftStore();
@@ -54,15 +67,40 @@ export function LostTextPage() {
     }
     lastSelected.current = item;
   }, [location.key, item, data]);
-  const [showDismissed, setShowDismissed] = useState(false);
-  const [classFilter, setClassFilter] = useState('');
-  const [query, setQuery] = useState('');
+  // Leave from a work-through queue brings the filters, selection, and scroll back.
+  const returned = returnedState<LostRestore>(location.state);
+  const [showDismissed, setShowDismissed] = useState(returned?.showDismissed ?? false);
+  const [classFilter, setClassFilter] = useState(returned?.classFilter ?? '');
+  const [query, setQuery] = useState(returned?.query ?? '');
+  const [picked, setPicked] = useState<ReadonlySet<string>>(
+    () => new Set(returned?.selected ?? []),
+  );
+  const barAnchor = useRef<HTMLDivElement>(null);
+  useRestoredScroll(barAnchor, returned?.scroll, Boolean(data), returned?.top, (top) => {
+    // The list's own memory (the layout effect above) must not put it back to the top.
+    scrollPositions.current.set(location.key, top);
+    lastScroll.current = top;
+  });
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   useLayoutEffect(() => {
     // Phone notices sit above the workspace and must be visible after an action.
     if ((notice || error) && pageRef.current) pageRef.current.scrollTop = 0;
   }, [notice, error]);
+  // Leave's return shows its selection at once: every checkbox from the start.
+  const [checks, setChecks] = useState(returned !== undefined ? Infinity : FIRST_CHECKS);
+  const records = parsed.success ? parsed.data.records.length : 0;
+  useEffect(() => {
+    if (!data || checks >= records) return;
+    let timer = 0;
+    const frame = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => setChecks((count) => count + CHECKS_PER_FRAME));
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [checks, records, data]);
   const storageKey = `clarity-lost-text:v1:${user?.id ?? 'anonymous'}`;
   const [stored, setStored] = useState<{ key: string; decisions: Record<string, string> }>({
     key: '',
@@ -107,7 +145,9 @@ export function LostTextPage() {
     classFilter === 'all' ? '' : classFilter,
     showDismissed,
   ).filter((r) => `${r.name} ${r.hash}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const queueItems = rows.map((record) => lostItem(record, data));
   const selected = result.records.find((r) => recordKey(r) === params.get('item'));
+  const selectedKey = selected ? recordKey(selected) : undefined;
   const base = selected && data.bundle.tooltips[selected.hash];
   const current = base && (drafts[base.hash]?.next ?? base);
   const editable = canRecover(user);
@@ -195,31 +235,77 @@ export function LostTextPage() {
           <p role="status">
             {rows.length} of {result.records.length} records shown
           </p>
+          <div ref={barAnchor}>
+            <WorkThroughBar
+              source="lost-text"
+              selected={queueItems.filter((item) => picked.has(item.key))}
+              shown={queueItems}
+              restore={
+                {
+                  query,
+                  classFilter,
+                  showDismissed,
+                  selected: [...picked],
+                  item,
+                } satisfies Omit<LostRestore, 'scroll' | 'top'>
+              }
+              onClear={() => setPicked(new Set())}
+              anchor={barAnchor}
+            />
+          </div>
           {!rows.length && (
             <p>
               No blank tooltips with earlier authored text found.
               {(query || classFilter) && ' Try another filter.'}
             </p>
           )}
-          {rows.map((r) => (
-            <button
-              type="button"
-              className={styles.row}
-              key={recordKey(r)}
-              data-record={recordKey(r)}
-              aria-pressed={selected && recordKey(selected) === recordKey(r)}
-              onClick={() => {
-                setParams({ item: recordKey(r) });
-                setNotice('');
-                setError('');
-              }}
-            >
-              <strong>{data.items[r.hash]?.name ?? r.name}</strong>
-              <span>
-                {r.lang} · {r.classification} · {r.hash}
-              </span>
-            </button>
-          ))}
+          {rows.map((r, index) => {
+            const key = recordKey(r);
+            const check = index < checks;
+            const name = data.items[r.hash]?.name ?? r.name;
+            return (
+              <div
+                className={check ? styles.rowLine : `${styles.rowLine} ${styles.checkPending}`}
+                key={key}
+                data-row-key={key}
+              >
+                {check && (
+                  <label className={bar.select}>
+                    <input
+                      type="checkbox"
+                      checked={picked.has(key)}
+                      aria-label={`Select ${name}, ${r.lang}`}
+                      onChange={(event) => {
+                        const on = event.target.checked;
+                        setPicked((old) => {
+                          const next = new Set(old);
+                          if (on) next.add(key);
+                          else next.delete(key);
+                          return next;
+                        });
+                      }}
+                    />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  className={styles.row}
+                  data-record={key}
+                  aria-pressed={selectedKey === undefined ? undefined : selectedKey === key}
+                  onClick={() => {
+                    setParams({ item: key });
+                    setNotice('');
+                    setError('');
+                  }}
+                >
+                  <strong>{name}</strong>
+                  <span>
+                    {r.lang} · {r.classification} · {r.hash}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
         </section>
         {selected && (
           <section

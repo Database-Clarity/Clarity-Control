@@ -14,7 +14,8 @@
   left: var(--menu-left);
   top: var(--menu-top);
   display: flex;
-  width: min(34rem, calc(100vw - 16px));
+  // Fixed: 100% is the viewport without its scrollbar (100vw would run under it).
+  width: min(34rem, calc(100% - 16px));
   max-height: var(--menu-max);
   box-sizing: border-box;
   overflow: hidden;
@@ -222,6 +223,11 @@
   color: var(--warn);
 }
 
+// Progress in a longer task ("2 of 4 in the translation"): muted, above the detail.
+.aside {
+  color: var(--text2);
+}
+
 .keys {
   margin-top: auto;
   padding-top: 0.125rem;
@@ -261,7 +267,13 @@
     flex: 0 0 auto;
     // Half the menu at most, so a short menu (the keyboard is open) still lists options; the
     // detail scrolls instead, and its parts keep their height.
-    max-height: min(7.5rem, calc(var(--menu-max) / 2));
+    max-height: min(9rem, calc(var(--menu-max) / 2));
+    // A shadow at the bottom while more text is below (the cover scrolls with the text and hides
+    // it at the end), so a line cut by the edge reads as "scroll", not as clipped.
+    background:
+      linear-gradient(transparent, var(--raised) 60%) 0 100% / 100% 1.25rem no-repeat local,
+      linear-gradient(to top, color-mix(in srgb, var(--text) 22%, transparent), transparent) 0
+        100% / 100% 0.625rem no-repeat scroll;
     > * {
       flex-shrink: 0;
     }

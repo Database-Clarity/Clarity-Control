@@ -16,6 +16,12 @@ export const overlayClockSkewMs = 5 * 60 * 1000;
 export const overlayServerSkewMs = overlayClockSkewMs;
 type Entry = { at: number; serverAt?: number; tooltip: Tooltip | null }; // null = deleted
 const entries = new Map<number, Entry>();
+let version = 0;
+
+/** Changes whenever a save is remembered or the overlay is cleared (see load() in data.ts). */
+export function savedOverlayVersion(): number {
+  return version;
+}
 
 export function rememberSaved(
   tooltips: Tooltip[],
@@ -34,10 +40,12 @@ export function rememberSaved(
       : undefined;
   for (const tooltip of tooltips) entries.set(tooltip.hash, { at: now, serverAt, tooltip });
   for (const hash of deleted) entries.set(hash, { at: now, serverAt, tooltip: null });
+  version++;
 }
 
 export function clearSavedOverlay(): void {
   entries.clear();
+  version++;
 }
 
 export function applySavedOverlay(bundle: Bundle, now = Date.now()): Bundle {

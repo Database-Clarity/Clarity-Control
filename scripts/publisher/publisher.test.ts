@@ -14,15 +14,24 @@ import {
   setBonusHoldMessage,
   publishIntentDigest,
   publishableHash,
+  inactivePublishableHash,
+  inactiveRemovalHash,
+  exportLegacy,
   classifyPublishIntent,
   validatePublishBody,
   type PublishPayload,
   type Tooltip,
 } from '../../packages/core/src/index.js';
-import { LocalRepository, RefRace, type Tree } from './git.js';
+import { LocalRepository, RefRace, requesterCredits, type Tree } from './git.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { runPipeline } from './pipeline.js';
+import publisherConfig from '../../config/publisher.json';
+import { buildLegacy, legacyPresets, type LegacyInput } from '../../packages/export/src/legacy.js';
+
+// These fixtures run the publisher and the Worker's legacy push-live (the golden oracle) with the
+// build switch OFF, as before PUB-ENABLE turned the checked-in switch ON; a test flips it itself.
+vi.mock('../../config/publisher.json', () => ({ default: { enabled: false } }));
 // Configure before registering the Git subprocess tests (Windows runs exceed 20 seconds).
 vi.setConfig({ testTimeout: 300_000 });
 
@@ -232,7 +241,18 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         hash: 125,
         editor: { en: { main: 'Published', secondary: 'Published' } },
       };
-      f.change(L, { 'liveDescriptions.json': { perks: { 125: published }, databaseSettings: {} } });
+      f.change(L, {
+        'liveDescriptions.json': {
+          perks: {
+            ...f.pub.read<{ perks: Record<string, unknown> }>(
+              f.git.tree(f.git.head(L)!),
+              'liveDescriptions.json',
+            )!.perks,
+            125: published,
+          },
+          databaseSettings: {},
+        },
+      });
       const root = { ...f.tooltip, associated: [125] };
       f.change(D, {
         'tooltips/123.json': root,
@@ -273,6 +293,427 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     vi.unstubAllGlobals();
     for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
   });
+  it('refuses a new computed text-less Nail, Meet Hammer row before committing any candidate', async () => {
+    const f = await setup();
+    const source = {
+      ...f.tooltip,
+      hash: 1209885908,
+      custom: { name: 'Nail, Meet Hammer', categoryId: 'perk' },
+      text: { en: { ...f.tooltip.text.en!, text: 'import main from 2152442764' } },
+    };
+    const target = { hash: 2152442764, editor: { en: { main: '', secondary: '' } } };
+    const old = f.pub.read<{ perks: Record<string, unknown>; databaseSettings: unknown }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!;
+    f.change(L, {
+      'liveDescriptions.json': { ...old, perks: { ...old.perks, 2152442764: target } },
+    });
+    f.change(D, { 'tooltips/1209885908.json': source });
+    await f.request(A, [source.hash], { [source.hash]: await publishableHash(source) });
+    f.change(D, {
+      'config/permissions.json': {
+        users: { '1': { login: 'alice', role: 'editor' }, '2': { login: 'bob', role: 'editor' } },
+      },
+    });
+    await f.request(B, [123], undefined, { requester: { id: 2, login: 'bob' } });
+    const live = f.git.head(L);
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(live);
+    const rejected = f.git.head(D)!;
+    expect(f.pub.read(f.git.tree(rejected), paths(A).log)).toMatchObject({
+      result: {
+        status: 'rejected',
+        error: expect.stringMatching(/TextlessConsumerOutput.*1209885908/),
+      },
+    });
+    expect(f.git.git(['show', '-s', '--format=%an <%ae>|%cn <%ce>', rejected]).trim()).toBe(
+      'alice <1+alice@users.noreply.github.com>|clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>',
+    );
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+    await f.pub.run();
+    f.assertDone(B);
+    expect(
+      f.pub.read<Record<string, string>>(f.git.tree(f.git.head(D)!), 'live/pushed.json'),
+    ).not.toHaveProperty('1209885908');
+  });
+
+  it('credits Publish, recovered Record, and bundle commits from the signed requester and app', async () => {
+    const f = await setup();
+    await f.request();
+    const record = f.pub.record.bind(f.pub);
+    f.pub.record = async () => {
+      throw new Error('crash before record');
+    };
+    await expect(f.pub.operation(A)).rejects.toThrow('crash before record');
+    const live = f.git.head(L)!;
+    const identity = (commit: string) =>
+      f.git.git(['show', '-s', '--format=%an <%ae>|%cn <%ce>', commit]).trim();
+    const expected =
+      'alice <1+alice@users.noreply.github.com>|clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>';
+    expect(identity(live)).toBe(expected);
+    f.pub.record = record;
+    const fingerprint = f.options.keyFingerprint,
+      data = f.git.head(D);
+    f.options.keyFingerprint = 'unverified';
+    await expect(f.pub.operation(A)).rejects.toThrow('Invalid credit envelope');
+    expect(f.git.head(D)).toBe(data);
+    f.options.keyFingerprint = fingerprint;
+    await f.pub.operation(A);
+    expect(identity(f.git.head(D)!)).toBe(expected);
+    // Closing a retried request is still attributable to its signed requester.
+    await f.request();
+    await f.pub.operation(A);
+    expect(identity(f.git.head(D)!)).toBe(expected);
+    expect(f.git.head(L)).toBe(live);
+    f.pub.bundle();
+    expect(identity(f.git.head('refs/heads/editor-data-bundle')!)).toBe(
+      'clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>|clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>',
+    );
+  });
+
+  it('does not credit a forged requester, and rejects identity injection', async () => {
+    const f = await setup();
+    const { envelope } = await f.request();
+    const forged = JSON.parse(envelope.payload);
+    forged.requester.login = 'forged';
+    f.change(D, { [paths(A).request]: { ...envelope, payload: stableStringify(forged) } });
+    const live = f.git.head(L);
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(live);
+    expect(f.git.git(['show', '-s', '--format=%an', f.git.head(D)!]).trim()).toBe(
+      'clarity-editor-backend[bot]',
+    );
+    for (const login of ['bad\nInjected', 'bad <email>', 'name@example.com', ''])
+      expect(() => requesterCredits({ id: 1, login })).toThrow('Invalid publisher requester');
+  });
+
+  it('does not allow simulator defaults on a GitHub transport', async () => {
+    const f = await setup();
+    const remote = new RemoteRepository(f.git.path, {
+      repo: 'Database-Clarity/Live-Clarity-Database',
+      token: 'local-test-only',
+    });
+    expect(() => remote.commit(undefined, {}, 'Unattributed')).toThrow(
+      'Remote commits require explicit credits',
+    );
+  });
+
+  it('allows historical computed text-less rows while publishing unrelated text', async () => {
+    const f = await setup();
+    const old = f.pub.read<{ perks: Record<string, unknown>; databaseSettings: unknown }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!;
+    f.change(L, {
+      'liveDescriptions.json': {
+        ...old,
+        perks: {
+          ...old.perks,
+          999: {
+            hash: 999,
+            editor: { en: { main: 'import main from 1000', secondary: 'import main from 1000' } },
+          },
+          1000: { hash: 1000, editor: { en: { main: '', secondary: '' } } },
+        },
+      },
+    });
+    await f.request();
+    await f.pub.operation(A);
+    f.assertDone();
+  });
+
+  it('rejects an unsafe stored candidate before live CAS and continues the queue', async () => {
+    const f = await setup();
+    await f.request();
+    const cas = f.git.cas.bind(f.git);
+    f.git.cas = (ref, old, next) => {
+      if (ref === L) throw new Error('hold live');
+      cas(ref, old, next);
+    };
+    f.options.backoff = async () => {
+      throw new Error('stop before live');
+    };
+    await expect(f.pub.operation(A)).rejects.toThrow('stop before live');
+    f.git.cas = cas;
+    f.options.backoff = async () => {};
+    const live = f.git.head(L),
+      candidate = f.git.head(paths(A).candidate)!;
+    const tree = f.git.tree(candidate);
+    tree['liveDescriptions.json'] = f.git.writeBlob(encode({ perks: {}, databaseSettings: {} }));
+    const unsafe = f.git.commit(live, tree, 'Simulate an older unsafe candidate');
+    f.git.cas(paths(A).candidate, candidate, unsafe);
+    await f.request(B);
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(live);
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: expect.stringContaining('stored candidate differs') },
+    });
+    await f.pub.run();
+    f.assertDone(B);
+  });
+
+  it.each([true, false])(
+    'inactive: an unrelated publish cannot restore an absent pick stub (inactive=%s)',
+    async (inactive) => {
+      const f = await setup();
+      f.options.sandboxConflicts = { 700: [123, 124] };
+      f.options.facts[124] = { name: 'Other', type: 'perk' };
+      const other = {
+        ...f.tooltip,
+        hash: 124,
+        text: { en: { ...f.tooltip.text.en!, text: 'Other' } },
+      };
+      f.change(D, {
+        'tooltips/124.json': other,
+        'config/sandbox-pointers.json': {
+          version: 1,
+          pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-14T00:00:00Z' } },
+        },
+        'config/inactive.json': {
+          700: { by: 1, at: '2026-11-14T00:00:00Z', ...(!inactive ? { inactive: false } : {}) },
+        },
+      });
+      const before = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+      f.change(L, {
+        'liveDescriptions.json': {
+          ...before,
+          perks: { ...before.perks, ...exportLegacy([f.tooltip], pushTime, f.options.facts) },
+        },
+      });
+      await f.request(A, [124], { 124: await publishableHash(other) });
+      await f.pub.run();
+      f.assertDone(A);
+      const after = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+      expect(after.perks[123]).toBeDefined();
+      expect(after.perks[124]).toBeDefined();
+      expect(after.perks[700]).toBeUndefined();
+    },
+  );
+
+  it.each(['{', 'null'])(
+    'inactive: malformed JSON %s is rejected terminally without wedging bundle or later requests',
+    async (raw) => {
+      const f = await setup();
+      await f.request(A);
+      await f.request(B);
+      const h = f.git.head(D)!,
+        tree = f.git.tree(h);
+      tree['config/inactive.json'] = f.git.writeBlob(raw);
+      f.git.cas(D, h, f.git.commit(h, tree, 'Invalid inactive fixture'));
+      const before = f.git.head(L);
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      for (const id of [A, B])
+        expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(id).log)).toMatchObject({
+          result: { status: 'rejected', error: expect.stringContaining('config/inactive.json') },
+        });
+      const bundle = f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+      expect(bundle.inactiveMoves).toBeUndefined();
+      f.change(D, { 'config/inactive.json': {} });
+      const C = A.slice(0, -1) + '3';
+      await f.request(C);
+      await f.pub.run();
+      f.assertDone(C);
+    },
+  );
+
+  it('inactive: publishes only selected removals and re-adds, with exact eight-format output and unchanged saved text', async () => {
+    const f = await setup();
+    f.options.aliases[789] = { to: 123, kind: 'frame' };
+    f.options.facts[789] = { name: 'Frame copy', type: 'perk' };
+    f.options.facts[124] = { name: 'Retained', type: 'perk' };
+    const other = {
+      ...f.tooltip,
+      hash: 124,
+      text: { en: { ...f.tooltip.text.en!, text: 'Retained' } },
+    };
+    f.change(D, { 'tooltips/124.json': other });
+    await f.request(A, [123, 124], {
+      123: await publishableHash(f.tooltip, f.options.aliases),
+      124: await publishableHash(other, f.options.aliases),
+    });
+    await f.pub.run();
+    f.assertDone(A);
+    const readLive = () =>
+      f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    const before = readLive();
+    const stamp = { by: 1, at: '2026-11-14T00:00:00Z' };
+    const moves = { 123: stamp, 124: stamp };
+    f.change(D, { 'config/inactive.json': moves });
+    expect(readLive()).toEqual(before);
+    await f.request(B, [123], { 123: await inactiveRemovalHash(123) });
+    await f.pub.run();
+    f.assertDone(B);
+    const after = readLive();
+    expect(after.perks[123]).toBeUndefined();
+    expect(after.perks[789]).toBeUndefined();
+    expect(after.perks[124]).toEqual(before.perks[124]);
+    for (const preset of legacyPresets) {
+      const original = JSON.parse(new TextDecoder().decode(buildLegacy(before, preset)));
+      const actual = JSON.parse(new TextDecoder().decode(buildLegacy(after, preset)));
+      delete original[123];
+      delete original[789];
+      expect(actual, preset).toEqual(original);
+    }
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'tooltips/123.json')).toEqual(f.tooltip);
+    const restored = { ...moves, 123: { ...stamp, inactive: false as const } };
+    f.change(D, { 'config/inactive.json': restored });
+    const C = A.slice(0, -1) + '3';
+    await f.request(C, [123], {
+      123: await inactivePublishableHash(f.tooltip, f.options.aliases, restored),
+    });
+    await f.pub.run();
+    f.assertDone(C);
+    expect(readLive().perks[123]).toBeDefined();
+    expect(readLive().perks[789]).toBeDefined();
+    expect(readLive().perks[124]).toEqual(before.perks[124]);
+  });
+
+  it('inactive: refuses retained live importers before any candidate, then accepts an atomic importer edit and removal', async () => {
+    const f = await setup();
+    f.options.facts[125] = { name: 'Importer', type: 'perk' };
+    const importer = {
+      ...f.tooltip,
+      hash: 125,
+      text: { en: { ...f.tooltip.text.en!, text: 'import main from 123' } },
+    };
+    const edited = { ...importer, text: { en: { ...importer.text.en!, text: 'No import now' } } };
+    const originalLive = f.pub.read<LegacyInput>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!;
+    f.change(L, {
+      'liveDescriptions.json': {
+        ...originalLive,
+        perks: {
+          ...originalLive.perks,
+          ...exportLegacy([f.tooltip, importer], pushTime, f.options.facts),
+        },
+      },
+    });
+    f.change(D, {
+      'tooltips/125.json': edited,
+      'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } },
+    });
+    const before = f.git.head(L);
+    await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(before);
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: expect.stringContaining('imports inactive') },
+    });
+    await f.request(B, [123, 125], {
+      123: await inactiveRemovalHash(123),
+      125: await publishableHash(edited),
+    });
+    await f.pub.run();
+    f.assertDone(B);
+    const live = f.pub.read<{ perks: Record<string, unknown> }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!;
+    expect(live.perks[123]).toBeUndefined();
+    expect(live.perks[125]).toBeDefined();
+  });
+
+  it('inactive: refuses malformed storage terminally, and permits a textless item removal without a tooltip file', async () => {
+    const f = await setup();
+    f.change(D, { 'config/inactive.json': { 123: { by: 'bad' } } });
+    await f.request(A);
+    const before = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(before);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: expect.stringContaining('config/inactive.json') },
+    });
+    f.change(D, { 'config/inactive.json': { 555: { by: 1, at: '2026-11-14T00:00:00Z' } } });
+    await f.request(B, [555], { 555: await inactiveRemovalHash(555) });
+    await f.pub.run();
+    f.assertDone(B);
+    expect(f.git.tree(f.git.head(D)!)['tooltips/555.json']).toBeUndefined();
+  });
+
+  it('inactive: rebase rejects a live importer added after candidate creation', async () => {
+    const f = await setup();
+    const seed = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    f.change(L, {
+      'liveDescriptions.json': {
+        ...seed,
+        perks: { ...seed.perks, ...exportLegacy([f.tooltip], pushTime, f.options.facts) },
+      },
+    });
+    f.change(D, { 'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } } });
+    await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+    const cas = f.git.cas.bind(f.git);
+    let race = true;
+    const spy = vi.spyOn(f.git, 'cas').mockImplementation((ref, old, next) => {
+      if (ref === L && race) {
+        race = false;
+        const live = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+        f.options.facts[125] = { name: 'Concurrent importer', type: 'perk' };
+        const importer = {
+          ...f.tooltip,
+          hash: 125,
+          text: { en: { ...f.tooltip.text.en!, text: 'import main from 123' } },
+        };
+        f.change(L, {
+          'liveDescriptions.json': {
+            ...live,
+            perks: { ...live.perks, ...exportLegacy([importer], pushTime, f.options.facts) },
+          },
+        });
+      }
+      cas(ref, old, next);
+    });
+    try {
+      await f.pub.run();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(race).toBe(false);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'rejected', error: expect.stringContaining('imports inactive') },
+    });
+    const live = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    expect(live.perks[123]).toBeDefined();
+    expect(live.perks[125]).toBeDefined();
+  });
+
+  it('inactive: a frozen candidate retains its move when the data file changes before landing', async () => {
+    const f = await setup();
+    const stamp = { by: 1, at: '2026-11-14T00:00:00Z' };
+    f.change(D, { 'config/inactive.json': { 123: stamp } });
+    await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+    const cas = f.git.cas.bind(f.git);
+    let changed = false;
+    const spy = vi.spyOn(f.git, 'cas').mockImplementation((ref, old, next) => {
+      cas(ref, old, next);
+      if (ref === paths(A).candidate && !changed) {
+        changed = true;
+        f.change(D, { 'config/inactive.json': { 123: { ...stamp, inactive: false } } });
+      }
+    });
+    try {
+      await f.pub.run();
+    } finally {
+      spy.mockRestore();
+    }
+    f.assertDone(A);
+    expect(changed).toBe(true);
+    expect(
+      f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!.perks[123],
+    ).toBeUndefined();
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'config/inactive.json')).toEqual({
+      123: { ...stamp, inactive: false },
+    });
+  });
+
   async function setup() {
     const root = mkdtempSync(join(tmpdir(), 'publisher-fixture-'));
     roots.push(root);
@@ -323,7 +764,19 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       undefined,
       git.commit(
         undefined,
-        { 'liveDescriptions.json': git.writeBlob(encode({ perks: {}, databaseSettings: {} })) },
+        {
+          'liveDescriptions.json': git.writeBlob(
+            encode({
+              perks: Object.fromEntries(
+                [1, 2, 3].map((hash) => [
+                  hash,
+                  { hash, editor: { en: { main: '', secondary: '' } } },
+                ]),
+              ),
+              databaseSettings: {},
+            }),
+          ),
+        },
         'Seed live',
       ),
     );
@@ -970,6 +1423,164 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       ],
     });
   });
+  it('merges maintainer sandbox picks: stub for a pick, none for "no tooltip", picked digest', async () => {
+    const f = await setup();
+    f.options.sandboxConflicts = { 700: [123, 124], 701: [123, 125], 702: [123, 126] };
+    const pointers = {
+      version: 1,
+      pointers: {
+        700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' },
+        701: { none: true, candidates: [123, 125], by: 1, at: '2026-11-12T20:00:00Z' },
+        // The generator's set changed since the pick: it keeps working (owner 2026-11-12).
+        702: { to: 123, candidates: [123], by: 1, at: '2026-11-12T20:00:00Z' },
+      },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': pointers });
+    const merged = {
+      700: { to: 123, kind: 'sandbox' as const },
+      702: { to: 123, kind: 'sandbox' as const },
+    };
+    // A review made without the picks is stale against the picked aliases.
+    await f.request(A, [123], { 123: await publishableHash(f.tooltip, {}) });
+    await f.pub.run();
+    expect(
+      f.pub.read<{ result: { status: string } }>(f.git.tree(f.git.head(D)!), paths(A).log)!.result
+        .status,
+    ).toBe('stale');
+    await f.request(B, [123], { 123: await publishableHash(f.tooltip, merged) });
+    await f.pub.run();
+    f.assertDone(B);
+    const perks = f.pub.read<{ perks: Record<string, unknown> }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!.perks;
+    expect(perks['700']).toEqual({ hash: 700, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks['702']).toEqual({ hash: 702, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks).not.toHaveProperty('701');
+  });
+  it('recomputes an undone pick to absent on the next publish, keeping other records', async () => {
+    const f = await setup();
+    f.options.sandboxConflicts = { 700: [123, 124], 701: [123, 125] };
+    const pick = (to: number) => ({
+      to,
+      candidates: [123, 124],
+      by: 1,
+      at: '2026-11-12T20:00:00Z',
+    });
+    f.change(D, {
+      'config/sandbox-pointers.json': { version: 1, pointers: { 700: pick(123), 701: pick(123) } },
+    });
+    const both = {
+      700: { to: 123, kind: 'sandbox' as const },
+      701: { to: 123, kind: 'sandbox' as const },
+    };
+    await f.request(A, [123], { 123: await publishableHash(f.tooltip, both) });
+    await f.pub.run();
+    f.assertDone(A);
+    // 700 is undone (a tombstone): publishing 123 again recomputes it to absent; 701 stays.
+    f.change(D, {
+      'config/sandbox-pointers.json': {
+        version: 1,
+        pointers: {
+          700: { state: 'undone', by: 1, at: '2026-11-12T21:00:00Z' },
+          701: pick(123),
+        },
+      },
+    });
+    await f.request(B, [123], { 123: await publishableHash(f.tooltip, { 701: both[701] }) });
+    await f.pub.run();
+    f.assertDone(B);
+    const perks = f.pub.read<{ perks: Record<string, unknown> }>(
+      f.git.tree(f.git.head(L)!),
+      'liveDescriptions.json',
+    )!.perks;
+    expect(perks).not.toHaveProperty('700');
+    expect(perks['701']).toEqual({ hash: 701, aliasOf: 123, aliasKind: 'sandbox' });
+    expect(perks).toHaveProperty('123');
+  });
+  it.skipIf(transport !== 'simulator')(
+    'parity verifies a picked receipt with the merged aliases and matches the live bytes',
+    async () => {
+      const f = await setup();
+      f.options.sandboxConflicts = { 700: [123, 124] };
+      f.change(D, {
+        'config/sandbox-pointers.json': {
+          version: 1,
+          pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+        },
+      });
+      await f.request(A, [123], {
+        123: await publishableHash(f.tooltip, { 700: { to: 123, kind: 'sandbox' } }),
+      });
+      await f.pub.run();
+      f.assertDone(A);
+      const dir = mkdtempSync(join(tmpdir(), 'parity-picks-'));
+      roots.push(dir);
+      const config = join(dir, 'config.json');
+      writeFileSync(config, JSON.stringify(f.options));
+      const previous = process.argv;
+      process.argv = [
+        'node',
+        'parity',
+        f.upstream,
+        f.git.head(L)!,
+        paths(A).receipt,
+        config,
+        join(dir, 'missing-adapters.mjs'),
+        join(dir, 'out'),
+      ];
+      try {
+        // It stops at the (absent) converter adapters, after the digest check and the live bytes.
+        await expect(import('./parity.js')).rejects.toThrow(/missing-adapters|Cannot find|ERR_/);
+      } finally {
+        process.argv = previous;
+      }
+      expect(readFileSync(join(dir, 'out', 'expected-liveDescriptions.json'), 'utf8')).toBe(
+        readFileSync(join(dir, 'out', 'actual-liveDescriptions.json'), 'utf8'),
+      );
+    },
+  );
+  it('bundle.json carries maintainer sandbox picks only while the file holds some', async () => {
+    const f = await setup();
+    const bundle = () =>
+      f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+    f.pub.bundle();
+    expect(bundle()).not.toHaveProperty('sandboxPointers');
+    f.change(D, { 'config/sandbox-pointers.json': { version: 1, pointers: {} } });
+    f.pub.bundle();
+    expect(bundle()).not.toHaveProperty('sandboxPointers');
+    const picks = {
+      version: 1,
+      pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': picks });
+    f.pub.bundle();
+    expect(bundle().sandboxPointers).toEqual(picks);
+  });
+  it('rejects a request terminally when the picks file is malformed', async () => {
+    const f = await setup();
+    f.change(D, { 'config/sandbox-pointers.json': { version: 1, pointers: { 700: { to: 1 } } } });
+    await f.request();
+    const before = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(before);
+    expect(
+      f.pub.read<{ result: { status: string; error: string } }>(
+        f.git.tree(f.git.head(D)!),
+        paths(A).log,
+      )!.result,
+    ).toMatchObject({ status: 'rejected', error: expect.stringContaining('sandbox-pointers') });
+    // The bundle still updates; it leaves the malformed picks out.
+    const bundle = f.pub.read<Record<string, unknown>>(
+      f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+      'bundle.json',
+    )!;
+    expect(bundle.sourceCommit).toBe(f.git.head(D));
+    expect(bundle).not.toHaveProperty('sandboxPointers');
+  });
   it.each([false, true])(
     'guard closes a stray request (conflict=%s) without changing original log',
     async (conflict) => {
@@ -1056,6 +1667,101 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(() => f.pub.bundle()).toThrow('backwards');
     expect(f.git.head('refs/heads/editor-data-bundle')).toBe(newer);
   });
+  it('a bundle push carries both report catalogs forward and adds the sandbox picks', async () => {
+    const f = await setup();
+    const ref = 'refs/heads/editor-data-bundle',
+      source = f.git.head(D)!;
+    const catalogs = {
+      'report-items.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{"name":"Thing"}}}
+`,
+      'report-items.worker.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{}}}
+`,
+    };
+    const seeded: Tree = { 'bundle.json': f.git.writeBlob(encode({ sourceCommit: source })) };
+    for (const [p, bytes] of Object.entries(catalogs)) seeded[p] = f.git.writeBlob(bytes);
+    f.git.cas(ref, undefined, f.git.commit(undefined, seeded, 'Bundle editor data'));
+    const picks = {
+      version: 1,
+      pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
+    };
+    f.change(D, { 'config/sandbox-pointers.json': picks });
+    f.pub.bundle();
+    const tree = f.git.tree(f.git.head(ref)!);
+    expect(Object.keys(tree).sort()).toEqual(
+      ['bundle.json', 'report-items.json', 'report-items.worker.json'].sort(),
+    );
+    for (const [p, bytes] of Object.entries(catalogs)) expect(f.git.blob(tree[p]!)).toBe(bytes);
+    expect(f.pub.read<{ sandboxPointers: unknown }>(tree, 'bundle.json')!.sandboxPointers).toEqual(
+      picks,
+    );
+  });
+  it('bundle pushes, dry-run included, carry the report catalogs forward byte-identical', async () => {
+    const f = await setup();
+    const ref = 'refs/heads/editor-data-bundle',
+      source = f.git.head(D)!;
+    // The bundle.yml shape: an orphan commit holding bundle.json and both report catalogs.
+    const catalogs = {
+      'report-items.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{"name":"Thing"}}}\n`,
+      'report-items.worker.json': `{"v":1,"sourceCommit":"${source}","items":{"123":{}}}\n`,
+    };
+    const seeded: Tree = { 'bundle.json': f.git.writeBlob(encode({ sourceCommit: source })) };
+    for (const [p, bytes] of Object.entries(catalogs)) seeded[p] = f.git.writeBlob(bytes);
+    const prior = f.git.commit(undefined, seeded, 'Bundle editor data');
+    f.git.cas(ref, undefined, prior);
+    const latest = f.change(D, { 'save.json': 1 });
+    const checkoutRoot = mkdtempSync(join(tmpdir(), 'carry-pipeline-'));
+    roots.push(checkoutRoot);
+    const checkout = join(checkoutRoot, 'checkout');
+    execFileSync('git', ['clone', '--branch', 'editor-data', '--', f.upstream, checkout], {
+      stdio: 'pipe',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              algorithm: 'Ed25519',
+              publicKey: f.options.publicKey,
+              fingerprint: f.options.keyFingerprint,
+            }),
+          ),
+      ),
+    );
+    await runPipeline(
+      checkout,
+      {
+        ...f.options,
+        repo: 'Database-Clarity/Live-Clarity-Database',
+        keyEndpoint: 'https://worker.invalid/publish/key',
+      },
+      join(checkoutRoot, 'artifacts'),
+    );
+    const carried = (next: string, parent: string, sourceCommit: string) => {
+      const before = f.git.tree(parent),
+        after = f.git.tree(next);
+      expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+      for (const p of Object.keys(catalogs)) {
+        expect(after[p]).toBe(before[p]);
+        expect(f.git.blob(after[p])).toBe(catalogs[p as keyof typeof catalogs]);
+      }
+      expect(after['bundle.json']).not.toBe(before['bundle.json']);
+      expect(f.pub.read<{ sourceCommit: string }>(after, 'bundle.json')!.sourceCommit).toBe(
+        sourceCommit,
+      );
+      expect(
+        execFileSync('git', ['--git-dir', f.upstream, 'rev-parse', `${next}^`], {
+          encoding: 'utf8',
+        }).trim(),
+      ).toBe(parent);
+    };
+    const dryRun = f.git.head(ref)!;
+    carried(dryRun, prior, latest);
+    // The direct bundle path (the remote transport's CAS included) carries them forward, too.
+    const newer = f.change(D, { 'save.json': 2 });
+    f.pub.bundle();
+    carried(f.git.head(ref)!, dryRun, newer);
+  });
   it.each([false, true])(
     'create transport timeout rereads authoritative head (landed=%s)',
     async (landed) => {
@@ -1112,8 +1818,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // and budget checks, the link-only empty-description guard, and the set-bonus hold; the
     // element-tag export hold is lifted (exportLegacy lowers; untagged pushes write the same bytes).
     // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
+    // Re-pinned for sandbox picks: push merges config/sandbox-pointers.json (core
+    // mergeSandboxPointers) like the publisher, and merges live perks with core mergeLivePerks
+    // (keys the picks file names are recomputed); with no picks file, as here, every byte is the same.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', '197d9c0acc99bd78901b574d5e8299160fd42665'],
+      ['apps/worker/src/push.ts', 'a8ddaf850869b50f6d1e3d3f5b98e28e0ad92947'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
@@ -1136,6 +1845,21 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       456: { name: 'Member 456', type: 'Weapon Perk', itemHash: 2456 },
     };
     f.change(D, worker.current());
+    worker.live.perks = {
+      ...f.pub.read<{ perks: Record<string, unknown> }>(
+        f.git.tree(f.git.head(L)!),
+        'liveDescriptions.json',
+      )!.perks,
+      ...(worker.live.perks as Record<string, unknown>),
+    };
+    // This oracle now crosses the real consumer boundary, which reads both editor forms.
+    for (const perk of Object.values(
+      worker.live.perks as Record<
+        string,
+        { editor?: Record<string, { main: string; secondary?: string }> }
+      >,
+    ))
+      for (const text of Object.values(perk.editor ?? {})) text.secondary ??= text.main;
     f.change(L, { 'liveDescriptions.json': worker.live });
     const expected = {
       123: await publishableHash(values.changed, worker.aliases),
@@ -1272,6 +1996,44 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       expect(existsSync(join(f.upstream, 'out'))).toBe(false);
     } finally {
       process.env = originalEnv;
+      remoteGit.mockRestore();
+    }
+  });
+  it('fails closed the same way when the build is ON but the installed config is not', async () => {
+    publisherConfig.enabled = true;
+    const f = await setup();
+    const tokenRead = vi.fn(),
+      networkFetch = vi.fn();
+    vi.stubGlobal('fetch', networkFetch);
+    const remoteGit = vi.spyOn(RemoteRepository.prototype, 'remoteGit');
+    const originalEnv = process.env;
+    process.env = new Proxy(originalEnv, {
+      get(target, key) {
+        if (key === 'GITHUB_TOKEN') tokenRead();
+        return Reflect.get(target, key);
+      },
+    });
+    try {
+      await expect(
+        runPipeline(
+          '.',
+          {
+            ...f.options,
+            repo: 'Database-Clarity/Live-Clarity-Database',
+            keyEndpoint: 'https://worker.invalid',
+            publishWritesEnabled: false,
+          },
+          join(f.upstream, 'out'),
+          true,
+        ),
+      ).rejects.toThrow('disabled by config');
+      expect(tokenRead).not.toHaveBeenCalled();
+      expect(networkFetch).not.toHaveBeenCalled();
+      expect(remoteGit).not.toHaveBeenCalled();
+      expect(existsSync(join(f.upstream, 'out'))).toBe(false);
+    } finally {
+      process.env = originalEnv;
+      publisherConfig.enabled = false;
       remoteGit.mockRestore();
     }
   });

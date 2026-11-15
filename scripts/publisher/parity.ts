@@ -4,13 +4,23 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  exportLegacy,
-  publishableHash,
+  exportWithInactiveMoves,
+  applyInactiveLive,
+  inactiveMovesPath,
+  inactiveMovesSchema,
+  inactivePublishableHash,
+  selectedInactiveMoves,
+  mergeLivePerks,
+  mergeSandboxPointers,
+  sandboxPointersPath,
+  sandboxPointersSchema,
+  type SandboxConflicts,
   type Tooltip,
   type LegacyFacts,
   type Aliases,
 } from '../../packages/core/src/index.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
+import { maxBuffer } from './childProcess.mjs';
 const [repo, commit, receiptPath, configPath, adapterPath, outArg] = process.argv.slice(2);
 if (!outArg)
   throw new Error(
@@ -19,7 +29,7 @@ if (!outArg)
 const git = (...args: string[]) =>
   execFileSync('git', ['-C', resolve(repo), ...args], {
     encoding: 'utf8',
-    maxBuffer: 100 * 1024 * 1024,
+    maxBuffer,
   });
 const read = (ref: string, path: string) => JSON.parse(git('show', `${ref}:${path}`));
 const receipt = read(commit, receiptPath);
@@ -28,6 +38,7 @@ if (!/^[a-f0-9]{40}$/.test(commit) || !receiptPath.startsWith('.publish/receipts
 const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
   facts: Record<string, LegacyFacts>;
   aliases: Aliases;
+  sandboxConflicts?: SandboxConflicts;
   generatorSha: string;
 };
 if (config.generatorSha !== receipt.generatorSha)
@@ -37,14 +48,64 @@ const actual = git('show', `${commit}:liveDescriptions.json`);
 const tooltips: Tooltip[] = receipt.entries.map((e: { tooltipBlob: string }) =>
   JSON.parse(git('cat-file', 'blob', e.tooltipBlob)),
 );
+// The sandbox picks at the receipt's source commit join the aliases exactly as the publisher did.
+let picks: unknown;
+try {
+  picks = read(receipt.sourceCommit, sandboxPointersPath);
+} catch {
+  picks = undefined; // no picks file at that commit
+}
+const aliases =
+  picks === undefined
+    ? config.aliases
+    : mergeSandboxPointers(
+        config.aliases,
+        config.sandboxConflicts ?? {},
+        sandboxPointersSchema.parse(picks),
+      );
+const moves = git('ls-tree', '--name-only', receipt.sourceCommit, '--', inactiveMovesPath).trim()
+  ? inactiveMovesSchema.parse(read(receipt.sourceCommit, inactiveMovesPath))
+  : {};
+// Digests include incoming aliases: verify with the same merged aliases the publisher used.
 for (let i = 0; i < tooltips.length; i++)
-  if ((await publishableHash(tooltips[i])) !== receipt.entries[i].digest)
+  if ((await inactivePublishableHash(tooltips[i], aliases, moves)) !== receipt.entries[i].digest)
     throw new Error('Receipt digest mismatch');
-const exported = exportLegacy(tooltips, receipt.now, config.facts, config.aliases);
+const hashes = tooltips.map((tooltip) => tooltip.hash);
+const exported = exportWithInactiveMoves(
+  tooltips,
+  receipt.now,
+  config.facts,
+  aliases,
+  selectedInactiveMoves(moves, hashes, aliases),
+);
 const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
 const requester = JSON.parse(request.payload).requester;
 stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);
-const expected = JSON.stringify({ ...base, perks: { ...base.perks, ...exported } }, null, 2) + '\n';
+const expected =
+  JSON.stringify(
+    {
+      ...base,
+      perks: applyInactiveLive(
+        mergeLivePerks(
+          base.perks,
+          exported,
+          picks === undefined
+            ? undefined
+            : {
+                keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
+                aliases,
+                catalog: config.facts,
+              },
+        ),
+        moves,
+        hashes,
+        aliases,
+        base.perks,
+      ),
+    },
+    null,
+    2,
+  ) + '\n';
 const out = resolve(outArg);
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'expected-liveDescriptions.json'), expected);

@@ -22,6 +22,11 @@ const sessions = new WeakMap<
   WeakMap<CompendiumData, ReturnType<typeof createSession>>
 >();
 let inputToken = 0;
+/** The rejection of work a newer session or a disposed bridge replaced (workerBridge, streamInputs). */
+export const supersededMessage = 'Compendium inputs changed.';
+export function rethrowUnlessSuperseded(error: unknown) {
+  if (!(error instanceof Error && error.message === supersededMessage)) throw error;
+}
 type Bridge = ReturnType<typeof createWorkerBridge>;
 const warming = new WeakMap<EditorData, WeakMap<Bridge, ReturnType<typeof createSession>>>();
 function createSession(
@@ -40,7 +45,7 @@ function createSession(
   const token = ++inputToken;
   let disposed = false;
   function request<T>(payload: object, progress?: (value: unknown) => void): Promise<T> {
-    if (disposed) return Promise.reject(new Error('Compendium inputs changed.'));
+    if (disposed) return Promise.reject(new Error(supersededMessage));
     return bridge.request<T>(payload, owner, progress);
   }
   let currentProposals: Map<number, ReviewProposal> | undefined;
@@ -58,6 +63,10 @@ function createSession(
       currentProposals = value;
       return value;
     });
+  // A session can be replaced before anything awaits its proposals (the pane's display matching
+  // opens one without asking for them): its supersession is an expected cancellation, never an
+  // uncaught error. Every other failure is rethrown, so it still surfaces.
+  void proposals.catch(rethrowUnlessSuperseded);
   type Matches = Display['matches'];
   let display:
     | {

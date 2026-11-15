@@ -1,7 +1,8 @@
-import { offersBaseEnhanced } from '../markupScope';
+import { offeredHere } from '../markupScope';
 import type { EditorState } from '@codemirror/state';
 import {
   applicableTransforms,
+  enhancedArrowMarkup,
   expandSnippet,
   expandTemplate,
   extractBlocks,
@@ -10,12 +11,14 @@ import {
   markupSymbols,
   markupTags,
   markupTransforms,
+  writeVariable,
   type ExpandedTemplate,
   type MarkupGlobals,
   type Snippet,
 } from '@clarity/core';
 import { insertionChecker, type Rejection } from '../markupInsertion';
 import { checkedWrap, elementLabel, isElementName, tagSelection } from '../elementTags';
+import { groupChange, pairAt } from '../iconPairs';
 import { locateBlocks, locateVariables } from '../references';
 import { englishSymbols, subclassSymbol } from './typedSymbols';
 
@@ -71,6 +74,11 @@ export interface SuggestItem {
   reference?: boolean;
   /** An element-tag wrap of the selection, already judged by the wrap rules (elementTags.ts). */
   wrap?: boolean;
+  /**
+   * "Group with icon" on the pair at the caret (iconPairs.ts), judged by its own rules. A spaced
+   * pair asks before it drops the space.
+   */
+  group?: 'joined' | 'spaced';
   /** Link-like text must not land in a legacy table cell. */
   link?: boolean;
   /** A whole-line style marker: the line may only carry as many as it can show. */
@@ -217,6 +225,21 @@ const snippetOf = (entry: {
   ...entry,
 });
 
+/**
+ * The bare enhanced arrow symbol, written at the caret, never over the selection. Offered (here,
+ * the markup bar, and All) only where the arrow is (markupScope); the global `e` behind it is
+ * never offered as a variable.
+ */
+export const enhancedArrowSnippet: Snippet = {
+  id: 'enhanced-arrow',
+  label: enhancedArrowMarkup,
+  group: 'Enhanced',
+  template: enhancedArrowMarkup,
+  keywords: 'enhanced arrow e gold up',
+  usage: /<enhanced\/>|#e(?![a-zA-Z0-9])/,
+  about: `The enhanced arrow, written ${enhancedArrowMarkup}.`,
+};
+
 /** The truncated single line a variable's value shows in the list. */
 const shorten = (value: string, length = 28) =>
   value.length > length ? `${value.slice(0, length - 1)}…` : value;
@@ -303,9 +326,14 @@ function build(
   };
   const query = context.query;
 
-  /** A variable defined in this tooltip is a document variable; the rest come from the globals. */
-  const variableItem = (name: string, value: string) =>
-    !skip?.has(`var:${name}`) &&
+  /**
+   * A variable defined in this tooltip is a document variable; the rest come from the globals.
+   * The global `e` is the enhanced arrow: never offered as a variable (`<enhanced/>` is offered
+   * where the arrow is, `arrowItem`).
+   */
+  const variableItem = (name: string, value: string) => {
+    if (name === 'e' && !(name in documentVariables)) return;
+    if (skip?.has(`var:${name}`)) return;
     push({
       id: `var:${name}`,
       category: name in documentVariables ? 'Variables' : 'Globals',
@@ -315,11 +343,12 @@ function build(
         name in documentVariables
           ? 'A variable defined in this tooltip.'
           : 'A global variable, shared by every tooltip.',
-      insert: `#${name}`,
-      usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
+      insert: writeVariable(name),
+      usage: new RegExp(`#${name}(?![a-zA-Z0-9])|#\\{${name}\\}`),
       reference: true,
       keys: value,
     });
+  };
   const addSnippet = (snippet: Snippet, category: SuggestCategory) => {
     // A multi-line declaration needs a line of its own.
     const id = `${category === 'Tags' ? '' : 'snippet:'}${snippet.id}`;
@@ -378,10 +407,12 @@ function build(
     for (const [name, value] of Object.entries(variables)) {
       variableItem(name, value);
     }
-    addSnippet(
-      markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
-      'Snippets',
-    );
+    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Snippets');
+    if (offeredHere('enhanced-formula', globals))
+      addSnippet(
+        markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
+        'Snippets',
+      );
   }
 
   if (context.kind === 'title-name' && !every) {
@@ -485,8 +516,10 @@ function build(
       });
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');
+    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Snippets');
     for (const snippet of markupSnippets) {
-      if (snippet.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals)) continue;
+      // The pair and everything that writes the enhanced arrow share one category gate.
+      if (!offeredHere(snippet.id, globals)) continue;
       if (snippet.id === 'enhanced-formula' && !every) continue;
       // The Tags category carries the single tags (colours, PvE, PvP).
       if (snippet.group === 'Format' || snippet.id === 'pve' || snippet.id === 'pvp') continue;
@@ -521,6 +554,42 @@ function build(
   return items;
 }
 
+/**
+ * "Group with icon" for the pair at the caret (its icon, or in its words) or selected: the icon and
+ * its words become one tagged span. None when the selection is exactly the words of a joined pair:
+ * the element wraps there do the same.
+ */
+export function groupItem(state: EditorState, globals: MarkupGlobals): SuggestItem | null {
+  const pair = pairAt(state);
+  if (!pair) return null;
+  const { from, to } = state.selection.main;
+  if (!pair.spaced && from === pair.from && to === pair.to) return null;
+  const change = groupChange(state, pair, globals);
+  if (!change) return null;
+  const element = elementLabel(pair.element);
+  const line = state.doc.lineAt(change.from);
+  return {
+    id: 'transform:group-with-icon',
+    category: 'Transforms',
+    label: 'Group with icon',
+    hint: change.dropsSpace ? 'drops the space' : element,
+    about: change.dropsSpace
+      ? `Tags “${pair.text}” as ${element} with its icon. The space after the icon goes, which changes the text; you are asked first.`
+      : `Tags “${pair.text}” as ${element}: the icon and its words become one tagged span. What readers see stays the same.`,
+    from: change.from,
+    to: change.to,
+    insert: change.insert,
+    stops: [],
+    preview:
+      line.text.slice(0, change.from - line.from) +
+      change.insert +
+      line.text.slice(change.to - line.from),
+    group: change.dropsSpace ? 'spaced' : 'joined',
+    pinned: true,
+    keys: `group icon tag ${pair.element} ${pair.text}`,
+  };
+}
+
 /** The fixed order of everything below the pinned options: the same every time, so it can be learned. */
 const everyOrder: readonly SuggestCategory[] = [
   'Transforms',
@@ -543,7 +612,8 @@ export function requestItems(
   globals: MarkupGlobals,
   recent: readonly string[] = [],
 ): SuggestItem[] {
-  const pinned = suggestItems(context, state, globals, recent);
+  const group = groupItem(state, globals);
+  const pinned = [...(group ? [group] : []), ...suggestItems(context, state, globals, recent)];
   const taken = new Set(pinned.map((item) => item.id));
   const others = build(context, state, globals, true, taken).filter(
     (item) => !context.query || matchScore(item, context.query) > 0,
@@ -572,7 +642,7 @@ export function judgeItems(
   let changed = false;
   const judged = items.map((item) => {
     // A reference to something already defined is not held to the markup-safety rules.
-    if (item.unavailable || item.reference || item.wrap) return item;
+    if (item.unavailable || item.reference || item.wrap || item.group) return item;
     const rejection = check(
       { from: item.from, to: item.to },
       { typed: !selection || item.from === item.to, link: item.link, lineStyle: item.lineStyle },

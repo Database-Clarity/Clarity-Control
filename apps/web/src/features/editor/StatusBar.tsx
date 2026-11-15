@@ -2,17 +2,21 @@ import { usePreviewWarnings, type PreviewWarningContext } from '../preview/usePr
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useSyncExternalStore,
   type ComponentProps,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clarity/core';
 import styles from './StatusBar.module.scss';
 import type { CursorPositionStore } from './cursorPosition';
 import { keyOf } from './help/reference';
+import { describeGap, type ParityGap } from './parity';
 
-export type StatusPanel = 'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff';
+export type StatusPanel =
+  'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff' | 'parity' | 'terms';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -47,6 +51,97 @@ export interface GlyphGroup {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+/** How far the bar has given up its labels to fit (see `.bar[data-fit]`): 0 as wide as room allows. */
+const fitSteps = 5;
+/** The step with short labels: a cut read-only reason steps no further (it may always ellipsise). */
+const shortLabels = 2;
+
+/**
+ * Fits the bar's items on its one line: it takes the first step (tight items, short labels,
+ * the retired sign alone, Changes as its glyph, then counts with a mark) at which nothing runs past the edge, so labels shorten only
+ * as far as the items need. A read-only reason cut short also steps down, as far as the short
+ * labels, to give it room. It measures only when the set of items or the bar's size changes,
+ * never on a caret move or a keystroke that changes neither, and it measures after the browser
+ * has laid the page out (a resize observer's callback, before that frame paints), so a newly
+ * mounted editor is never laid out early, inside the render that mounts it, just for the bar.
+ */
+function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
+  const fit = useRef<() => void>(() => undefined);
+  fit.current = () => {
+    const element = bar.current;
+    if (!element) return;
+    const reason = element.querySelector<HTMLElement>('[data-status-reason]');
+    const cut = (item: HTMLElement | null | undefined) =>
+      !!item && item.scrollWidth > item.clientWidth + 1;
+    // The preview item may shrink only while it is idle and unreserved (nothing to show). Shown
+    // or reserved, a squeezed item counts as crowded, and its count text cut short steps down
+    // as far as the short labels, as a cut read-only reason does.
+    const preview = element.querySelector<HTMLElement>('[data-status-preview]');
+    const previewHolds =
+      !!preview &&
+      (!preview.hasAttribute('data-inactive') || preview.hasAttribute('data-reserved'));
+    const previewText = previewHolds
+      ? preview.querySelector<HTMLElement>('[data-status-preview-text]')
+      : null;
+    const crowded = (step: number) =>
+      element.scrollWidth > element.clientWidth + 1 ||
+      (previewHolds && cut(preview)) ||
+      (step < shortLabels && (cut(reason) || cut(previewText)));
+    const steps = () => {
+      let step = 0;
+      element.dataset.fit = '0';
+      while (step < fitSteps && crowded(step)) element.dataset.fit = String(++step);
+    };
+    delete element.dataset.countDropped;
+    steps();
+    // A count still cut short once the labels have stepped down would read as a fragment ("1 pr…"):
+    // it drops whole (Show preview keeps the count in its title), and the labels fit again without it.
+    if (cut(previewText)) {
+      element.dataset.countDropped = '';
+      steps();
+    }
+  };
+  // Asks the observer to fit again after the next layout; null without an observer.
+  const refit = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    const element = bar.current;
+    if (!element) return;
+    if (typeof ResizeObserver === 'undefined') {
+      fit.current();
+      return;
+    }
+    let pending = true;
+    let width = -1;
+    let height = -1;
+    const resize = new ResizeObserver(() => {
+      // Its own steps never resize the bar; new items, a new width or interface scale do.
+      if (!pending && element.clientWidth === width && element.clientHeight === height) return;
+      pending = false;
+      fit.current();
+      width = element.clientWidth;
+      height = element.clientHeight;
+    });
+    resize.observe(element);
+    refit.current = () => {
+      // Observing the bar afresh reports it after the next layout, even at the same size.
+      pending = true;
+      resize.disconnect();
+      resize.observe(element);
+    };
+    return () => {
+      resize.disconnect();
+      refit.current = null;
+    };
+  }, [bar]);
+  const measured = useRef(content);
+  useLayoutEffect(() => {
+    if (measured.current === content) return;
+    measured.current = content;
+    if (refit.current) refit.current();
+    else fit.current();
+  }, [content]);
+}
+
 /**
  * The line under the editor text: 24px (32px on a phone, where items are 28px targets; 48px Large),
  * one line, and only the flexible texts (read-only reason, key hints) ever ellipsise. It never
@@ -59,6 +154,8 @@ export function StatusBar({
   validating = false,
   glyphCount,
   retiredCount = 0,
+  parityCount = 0,
+  terms,
   line,
   column,
   preview,
@@ -76,6 +173,13 @@ export function StatusBar({
   glyphCount: number;
   /** Retired markup forms in the text (core/validation/retired.ts); each is also a warning. */
   retiredCount?: number;
+  /** What the English has that the translation lacks (TR1, parity.ts); 0 for English. */
+  parityCount?: number;
+  /**
+   * Translate mode in a language the account may translate: the tooltip's terms (in-game names),
+   * listed by the Terms item (Ctrl+K, then G). Undefined elsewhere: no item.
+   */
+  terms?: { count: number; loading: boolean; missing?: number };
   line: number;
   column: number;
   preview?: PreviewStatus;
@@ -97,8 +201,40 @@ export function StatusBar({
   const unpreviewed = preview?.review ? liveWarnings : (preview?.unpreviewed ?? 0);
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
+  const root = useRef<HTMLDivElement>(null);
+  const showsPreview = preview ? unpreviewed > 0 || preview.collapsed : undefined;
+  // The idle preview item gives its room to the labels until it first shows for this text; from
+  // then on it keeps that room while idle, so a slow render while typing changes the labels at
+  // most once instead of on every render (see .preview[data-reserved]).
+  const reserveKey = String(preview?.review?.canonical ?? '');
+  const reserve = useRef({ key: reserveKey, on: false });
+  if (reserve.current.key !== reserveKey) reserve.current = { key: reserveKey, on: false };
+  if (showsPreview) reserve.current.on = true;
+  const reserved = reserve.current.on;
+  useFit(
+    root,
+    [
+      changes !== undefined,
+      readOnlyReason ?? '',
+      issues.length,
+      retiredCount,
+      glyphCount,
+      // The parity label's width changes only with its digit count and "differs"/"differ": typing a
+      // number can change the count on every key, and each refit lays the bar out again.
+      parityCount <= 1 ? parityCount : `n${String(parityCount).length}`,
+      terms === undefined ? '' : `${terms.count}:${terms.missing ?? 0}`,
+      conflicts?.count ?? 0,
+      rawView !== undefined && Boolean(onRawView),
+      Boolean(onSuggest),
+      showsPreview,
+      reserved,
+      // The count's text form and digits (a longer count can be cut short where a shorter fitted).
+      unpreviewed > 0 ? String(unpreviewed).length : preview?.collapsed ? 'hidden' : '',
+    ].join('|'),
+  );
   return (
     <div
+      ref={root}
       className={styles.bar}
       data-editor-status
       aria-label="Editor status"
@@ -159,6 +295,7 @@ export function StatusBar({
         aria-controls="editor-panel-help"
         aria-keyshortcuts="F1"
         aria-label="Markup help"
+        data-mark="?"
         title="Markup help: what you write and what it draws, and the keys (F1)"
         // With the caret in the text, the caret stays there (F1 there opens on its markup).
         onMouseDown={(event) => event.preventDefault()}
@@ -167,6 +304,61 @@ export function StatusBar({
         <span className={styles.long}>Markup help</span>
         <span className={styles.short}>Help</span>
       </button>
+      {terms && (
+        // Always drawn while translating (disabled while there is nothing to list), so a
+        // tooltip with terms after one without moves nothing in the bar.
+        <button
+          type="button"
+          className={styles.item}
+          data-status-terms
+          disabled={terms.loading && terms.count === 0 && panel !== 'terms'}
+          data-severity={terms.missing ? 'warning' : undefined}
+          aria-expanded={panel === 'terms'}
+          aria-controls="editor-panel-terms"
+          aria-keyshortcuts="Control+K G"
+          aria-label={
+            terms.loading
+              ? 'Terms: loading'
+              : terms.missing
+                ? `${terms.missing} ${terms.missing === 1 ? 'term missing' : 'terms missing'} from this translation`
+                : `${terms.count} ${terms.count === 1 ? 'term' : 'terms'} in this English`
+          }
+          data-mark="≡"
+          title={
+            terms.loading
+              ? 'Loading terms for this language'
+              : terms.count
+                ? 'Agreed terms and in-game names to insert (Ctrl+K, then G)'
+                : 'No terms in this English yet; open Terms to add one'
+          }
+          onMouseDown={(event) => {
+            // With the caret in the text the caret stays there; the list takes the keys.
+            const text = event.currentTarget
+              .closest('[data-editor-root]')
+              ?.querySelector('.cm-content');
+            if (text?.contains(event.currentTarget.ownerDocument.activeElement))
+              event.preventDefault();
+          }}
+          onClick={() => toggle('terms')}
+        >
+          {terms.missing ? (
+            <span>
+              ⚠ {terms.missing}
+              <span className={styles.word}>
+                {' '}
+                {terms.missing === 1 ? 'term missing' : 'terms missing'}
+              </span>
+            </span>
+          ) : terms.count > 0 ? (
+            <span>
+              {terms.count}
+              <span className={styles.word}> {terms.count === 1 ? 'term' : 'terms'}</span>
+            </span>
+          ) : (
+            'Terms'
+          )}
+        </button>
+      )}
       {issues.length > 0 && (
         <button
           type="button"
@@ -177,9 +369,13 @@ export function StatusBar({
           aria-controls="editor-panel-issues"
           title="Markup issues in this text"
           aria-label={validating ? 'Checking markup' : plural(issues.length, 'markup issue')}
+          data-mark="⊗"
           onClick={() => toggle('issues')}
         >
-          {issues.length} {issues.length === 1 ? 'issue' : 'issues'}
+          <span>
+            {issues.length}
+            <span className={styles.word}> {issues.length === 1 ? 'issue' : 'issues'}</span>
+          </span>
         </button>
       )}
       {rawView !== undefined && onRawView && (
@@ -215,6 +411,27 @@ export function StatusBar({
             </span>
           </button>
         )}
+        {parityCount > 0 && (
+          <button
+            type="button"
+            className={styles.item}
+            data-severity="warning"
+            data-status-parity
+            aria-expanded={panel === 'parity'}
+            aria-controls="editor-panel-parity"
+            title="Icons, variables, numbers, or lines the English has and this translation lacks; saving is allowed"
+            aria-label={`${parityCount} ${parityCount === 1 ? 'difference' : 'differences'} from English`}
+            onClick={() => toggle('parity')}
+          >
+            <span>
+              <span aria-hidden="true">⚠</span> {parityCount}{' '}
+              <span className={styles.long}>
+                {parityCount === 1 ? 'differs' : 'differ'} from English
+              </span>
+              <span className={`${styles.short} ${styles.roomy}`}>vs English</span>
+            </span>
+          </button>
+        )}
         {glyphCount > 0 && (
           <button
             type="button"
@@ -224,10 +441,12 @@ export function StatusBar({
             aria-controls="editor-panel-glyphs"
             title="Characters that may not display in the game; saving is allowed"
             aria-label={plural(glyphCount, 'character warning')}
+            data-mark="▯"
             onClick={() => toggle('glyphs')}
           >
             <span>
-              {glyphCount}{' '}
+              {glyphCount}
+              <span className={styles.word}> </span>
               <span className={styles.long}>character warning{glyphCount === 1 ? '' : 's'}</span>
               <span className={styles.short}>glyph{glyphCount === 1 ? '' : 's'}</span>
             </span>
@@ -242,9 +461,13 @@ export function StatusBar({
           data-status-conflicts
           title="Unresolved conflicts. F8 jumps to the next, Shift+F8 to the previous."
           aria-label={`${plural(conflicts.count, 'unresolved conflict')}. Jump to the next`}
+          data-mark="⇄"
           onClick={conflicts.onNext}
         >
-          {plural(conflicts.count, 'conflict')}
+          <span>
+            {conflicts.count}
+            <span className={styles.word}> conflict{conflicts.count === 1 ? '' : 's'}</span>
+          </span>
         </button>
       )}
       {onSuggest && (
@@ -270,16 +493,21 @@ export function StatusBar({
         <span>{keyOf('key-leave')} leaves the editor</span>
         {conflicts && conflicts.count > 0 && <span>{keyOf('key-conflict')} next conflict</span>}
       </span>
-      {preview && (
+      {/* An idle preview item stays in place (hidden) but yields its width to the labels until it
+        first shows; once reserved it keeps its room, so it never pushes items while typing. With
+        the text read-only nothing is typed, so the read-only reason gets that room instead. */}
+      {preview && (showsPreview || !readOnlyReason) && (
         <span
           className={styles.preview}
           data-status-preview
           data-inactive={!(unpreviewed > 0 || preview.collapsed) || undefined}
+          data-reserved={reserved || undefined}
           aria-hidden={!(unpreviewed > 0 || preview.collapsed) || undefined}
           data-attention={unpreviewed > 0 || undefined}
         >
           <span
             className={styles.previewText}
+            data-status-preview-text
             title={unpreviewed > 0 ? `${plural(unpreviewed, 'change')} not previewed` : undefined}
           >
             {unpreviewed > 0 ? `${unpreviewed} not previewed` : 'Preview hidden'}
@@ -289,6 +517,8 @@ export function StatusBar({
             className={styles.item}
             onClick={preview.onShow}
             disabled={!(unpreviewed > 0 || preview.collapsed)}
+            // The count's words stay on the button too, for when useFit drops the count text.
+            title={unpreviewed > 0 ? `${plural(unpreviewed, 'change')} not previewed` : undefined}
           >
             Show preview
             <kbd>Alt+P</kbd>
@@ -457,6 +687,22 @@ export function IssuesPanel({
           </li>
         ))}
         {issues.length > 50 && <li>{issues.length - 50} more issues highlighted in the editor.</li>}
+      </ul>
+    </Overlay>
+  );
+}
+
+/** The parity warnings (TR1): one line per thing the translation has fewer of than the English. */
+export function ParityPanel({ gaps, onClose }: { gaps: readonly ParityGap[]; onClose(): void }) {
+  return (
+    <Overlay id="editor-panel-parity" label="Differences from English" onClose={onClose}>
+      <p className={styles.lead}>The English has these and this translation does not yet.</p>
+      <ul aria-label="Differences from English">
+        {gaps.map((gap) => (
+          <li key={`${gap.kind}:${gap.key}`} data-severity="warning" data-parity={gap.kind}>
+            {describeGap(gap)}
+          </li>
+        ))}
       </ul>
     </Overlay>
   );

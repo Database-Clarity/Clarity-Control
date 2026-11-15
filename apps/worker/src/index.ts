@@ -6,12 +6,17 @@ import { managePermissions, history } from './admin.js';
 import { compendiumRefresh } from './compendium.js';
 import { exportsRoute } from './exports.js';
 import { GitHub } from './github.js';
+import { glossaryRoute } from './glossary.js';
 import { HttpError, json } from './http.js';
 import { partnerProjects, permissions, roleOf } from './permissions.js';
 import { publish, publishKey, publishStatus, publishKick } from './publish.js';
 import { pushLive } from './push.js';
+import { sandboxPointersRoute } from './sandboxPointers.js';
+import { inactiveMovesRoute } from './inactiveMoves.js';
 import { save } from './save.js';
 import { reports, purgeReports } from './reports.js';
+import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
+import { minuteCron, scheduleTick } from './schedule/lifecycle.js';
 import { userSettings } from './settings.js';
 import type { Context, Env } from './types.js';
 
@@ -25,8 +30,13 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (!publisherConfig.enabled && ['/publish', '/publish/kick'].includes(path))
     throw new HttpError(503, 'Publisher is not enabled');
   if (request.method === 'GET' && path === '/publish/key') return publishKey(env);
+  if (isBatchPath(path)) refuseWhenOff();
   const user = await identity(request, env);
   const github = new GitHub(env);
+  const glossary = /^\/glossary\/([^/]+)$/.exec(path);
+  if (glossary && ['GET', 'POST'].includes(request.method))
+    return glossaryRoute(request, github, user, glossary[1]);
+  if (isBatchPath(path)) return batchesRoute(request, path, github, user);
   if (request.method === 'POST' && path === '/publish') return publish(request, github, user);
   if (request.method === 'GET' && path === '/publish/status')
     return publishStatus(request, github, user);
@@ -63,6 +73,12 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (['GET', 'PUT'].includes(request.method) && path === '/permissions') {
     return managePermissions(request, github, user);
   }
+  if (['GET', 'PUT'].includes(request.method) && path === '/sandbox-pointers') {
+    return sandboxPointersRoute(request, github, user);
+  }
+  if (['GET', 'PUT'].includes(request.method) && path === '/inactive-moves') {
+    return inactiveMovesRoute(request, github, user);
+  }
   const item = /^\/history\/([^/]+)$/.exec(path);
   if (request.method === 'GET' && item) return history(request, github, user, item[1]);
   throw new HttpError(404, 'Endpoint not found');
@@ -70,10 +86,13 @@ async function route(request: Request, env: Env): Promise<Response> {
 
 const worker: {
   fetch(request: Request, env: Env, context: Context): Promise<Response>;
-  scheduled(event: unknown, env: Env, context: Context): void;
+  scheduled(event: { cron?: string }, env: Env, context: Context): void;
 } = {
-  scheduled(_event, env, context) {
-    context.waitUntil(purgeReports(env));
+  // Dispatch by trigger: the per-minute trigger (gate G1, phase P5) only drives scheduled
+  // batches; every other trigger keeps today's hourly report purge, so it stays hourly.
+  scheduled(event, env, context) {
+    if (event?.cron === minuteCron) context.waitUntil(scheduleTick(env));
+    else context.waitUntil(purgeReports(env));
   },
   async fetch(request, env) {
     const origin = request.headers.get('Origin');
@@ -123,6 +142,13 @@ const worker: {
           : 'Authorization, Content-Type',
       );
       headers.set('Access-Control-Max-Age', '600');
+      // The editor dates conflict answers by server time (Date), not by the browser clock.
+      // Routes may expose their own headers (ETag); keep them.
+      const exposed = (headers.get('Access-Control-Expose-Headers') ?? '')
+        .split(',')
+        .map((name) => name.trim())
+        .filter((name) => name && name.toLowerCase() !== 'date');
+      headers.set('Access-Control-Expose-Headers', [...exposed, 'Date'].join(', '));
     }
     headers.set('X-Content-Type-Options', 'nosniff');
     return new Response(response.body, { status: response.status, headers });

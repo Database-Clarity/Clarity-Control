@@ -6,6 +6,18 @@ import type { GroupedPerk } from './grouping';
 import type { OverrideTarget } from './EditorPaneHeader';
 import styles from './EditorMore.module.scss';
 
+/** The way back from queue mode to its list (the phone's More sheet). */
+export interface QueueBack {
+  to: string;
+  /** What the list shows ("German, all categories"; "Bungie drift"). */
+  label: string;
+  /** The row's words; "Back to queue" by default. */
+  text?: string;
+  /** History state for the list (its filters, selection, and scroll). */
+  state?: unknown;
+  onClick?(): void;
+}
+
 /**
  * Phones: the editor's rarely used tools in one bottom sheet, in place of the inline buttons the
  * desktop tool row keeps. Every row calls the same handler as the button it replaces. Rendered
@@ -22,6 +34,7 @@ export function EditorMore({
   queueBack,
   renderGrouped,
   rows,
+  extra,
 }: {
   /** The markup row toggle; undefined where the text is read-only. */
   markup?: { open: boolean; toggle(): void };
@@ -32,11 +45,13 @@ export function EditorMore({
   /** The enhanced overrides to open (empty while one is open: its way back stays in the row). */
   overrides: OverrideTarget[];
   onEditOverride(hash: number): void;
-  /** Queue mode: the way back to the Translations queue and what it shows. */
-  queueBack?: { to: string; label: string };
+  /** Queue mode: the way back to the queue's list and what it shows. */
+  queueBack?: QueueBack;
   renderGrouped(perks: GroupedPerk[]): React.ReactNode;
   /** The tools that overflowed the row (the rest are inline); undefined: every tool. */
   rows?: ReadonlySet<ToolId>;
+  /** Rare actions that always stay in More, without taking an inline tool's place. */
+  extra?: React.ReactNode;
 }) {
   const [groupedOpen, setGroupedOpen] = useState(false);
   if (rows) {
@@ -45,7 +60,7 @@ export function EditorMore({
     grouped = rows.has('grouped') ? grouped : undefined;
     overrides = overrides.filter((target) => rows.has(`override:${target.hash}`));
   }
-  if (!markup && !draft && !grouped && !overrides.length && !queueBack) return null;
+  if (!markup && !draft && !grouped && !overrides.length && !queueBack && !extra) return null;
   return (
     <Popover
       label="Editor tools"
@@ -70,6 +85,7 @@ export function EditorMore({
             </button>
           </header>
           <ul className={styles.rows}>
+            {extra && <li>{extra}</li>}
             {markup && (
               <li>
                 <button
@@ -123,9 +139,16 @@ export function EditorMore({
             ))}
             {queueBack && (
               <li>
-                <Link to={queueBack.to} onClick={() => close(false)}>
-                  <span>Back to queue</span>
-                  <small>{queueBack.label}</small>
+                <Link
+                  to={queueBack.to}
+                  state={queueBack.state}
+                  onClick={() => {
+                    queueBack.onClick?.();
+                    close(false);
+                  }}
+                >
+                  <span>{queueBack.text ?? 'Back to queue'}</span>
+                  <small title={queueBack.label}>{queueBack.label}</small>
                 </Link>
               </li>
             )}
@@ -236,8 +259,24 @@ type Layout = {
  * next measurement. Without a queue, More sits on the tools' line. With one, either everything
  * fits on one line, or the queue (and More) wrap below and the tools get the whole line.
  */
-export function phoneFit(widths: readonly number[], layout: Omit<Layout, 'widths'>) {
+export function phoneFit(
+  widths: readonly number[],
+  layout: Omit<Layout, 'widths'>,
+  alwaysMore = false,
+) {
   const { gap, headerGap, room, more, queue } = layout;
+  if (alwaysMore) {
+    const total =
+      widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, widths.length - 1);
+    if (queue && total + headerGap + queue + headerGap + more <= room) return widths.length;
+    const available = queue ? room : room - more - headerGap;
+    let count = 0;
+    let used = 0;
+    while (count < widths.length && used + (count ? gap : 0) + widths[count] <= available) {
+      used += (count ? gap : 0) + widths[count++];
+    }
+    return count;
+  }
   if (!queue) return fitTools(widths, gap, room, more + headerGap);
   const all = widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, widths.length - 1);
   if (all + headerGap + queue <= room) return widths.length;
@@ -251,7 +290,7 @@ export function phoneFit(widths: readonly number[], layout: Omit<Layout, 'widths
  * draft appearing only changes which known widths count. Same handlers as More's rows; Discard
  * still asks first.
  */
-export function PhoneTools(props: MoreProps & { queue?: React.ReactNode }) {
+export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserveDraft?: boolean }) {
   const { markup, draft, saving, onDiscard, grouped, overrides, onEditOverride, renderGrouped } =
     props;
   const all: Tool[] = [
@@ -263,7 +302,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode }) {
       label: `Edit override${overrides.length > 1 ? `: ${target.name}` : ''}`,
     })),
   ];
-  const tools = all.filter((tool) => tool.id !== 'discard' || draft);
+  const tools = all.filter((tool) => tool.id !== 'discard' || draft || props.reserveDraft);
   const key = all.map((tool) => tool.label).join('|');
   const slot = useRef<HTMLSpanElement>(null);
   const measure = useRef<HTMLSpanElement>(null);
@@ -318,6 +357,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode }) {
     ? phoneFit(
         tools.map((tool) => layout.widths[tool.label] ?? 0),
         layout,
+        Boolean(props.extra),
       )
     : tools.length <= 1
       ? tools.length
@@ -344,12 +384,13 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode }) {
             {props.queue}
           </span>
         )}
-        {overflow.size > 0 && (
+        {(overflow.size > 0 || props.extra) && (
           <EditorMore
             {...{ markup, draft, saving, onDiscard, grouped, overrides, onEditOverride }}
             renderGrouped={renderGrouped}
             queueBack={props.queueBack}
             rows={overflow}
+            extra={props.extra}
           />
         )}
       </span>
@@ -372,6 +413,12 @@ function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
       >
         {tool.label}
       </button>
+    );
+  if (tool.id === 'discard' && !props.draft)
+    return (
+      <span className={styles.tool} style={{ visibility: 'hidden' }} aria-hidden="true">
+        Discard
+      </span>
     );
   if (tool.id === 'discard')
     return (

@@ -39,7 +39,7 @@ beforeEach(() => {
       toJSON: () => ({}),
     };
   });
-  useSettingsStore.getState().updateDevice({ suggestAccept: 'enter' });
+  useSettingsStore.getState().update({ suggestAccept: 'enter' });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -158,7 +158,7 @@ describe('suggestion chips for a typed tag word', () => {
   });
 
   it('device setting Tab: Tab accepts and Enter is always a line break', () => {
-    act(() => useSettingsStore.getState().updateDevice({ suggestAccept: 'tab' }));
+    act(() => useSettingsStore.getState().update({ suggestAccept: 'tab' }));
     const view = mount('Deals ');
     type(view, 'Void');
     expect(chipNode()!.textContent).toContain('Tab');
@@ -167,7 +167,7 @@ describe('suggestion chips for a typed tag word', () => {
   });
 
   it('with the Tab setting, Enter never takes the chip', () => {
-    act(() => useSettingsStore.getState().updateDevice({ suggestAccept: 'tab' }));
+    act(() => useSettingsStore.getState().update({ suggestAccept: 'tab' }));
     const view = mount('Deals ');
     type(view, 'Void');
     press(view, 'Enter');

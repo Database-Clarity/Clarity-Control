@@ -19,6 +19,7 @@ import { CommitAuthor } from './CommitAuthor';
 import { projectHistory, type HistoryScope } from './scope';
 import { TooltipDiff } from './TooltipDiff';
 import type { RevisionCache, RevisionDiffSource } from './revisions';
+import { innerPopupOwnsEscape } from '../../ui/Popover';
 import popover from '../../ui/Popover.module.scss';
 import styles from './History.module.scss';
 import {
@@ -26,6 +27,7 @@ import {
   isPhone,
   naturalHeight,
   placeAnchored,
+  viewportWidth,
   visibleArea,
 } from '../../ui/anchorPlacement';
 
@@ -33,6 +35,8 @@ const HOVER_DELAY = 120;
 const LEAVE_DELAY = 160;
 const LONG_PRESS = 500;
 const OPENED = 'clarity-history-entry-open';
+/** Sent to a trigger that Shift+Tab focuses: enter its revision's last control once it loads. */
+const ENTER_LAST = 'clarity-history-enter-last';
 const TAB_TARGETS =
   'a[href], button:not(:disabled), select:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
@@ -57,6 +61,8 @@ export interface HistoryEntryProps {
   item?: Item;
   /** Translators restore only their languages; shown as a note. */
   translator: boolean;
+  /** The save marked this tooltip's English change "No translation impact" (TR3 audit line). */
+  noTranslationImpact?: boolean;
   /** Restore is offered only when the page may edit and drafts have loaded. */
   canRestore: boolean;
   /** Published artifacts compare the selected state to its next published state. */
@@ -75,6 +81,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
   const [hover, setHover] = useState(false);
   const [focus, setFocus] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [enterLast, setEnterLast] = useState(false);
   const container = useRef<HTMLLIElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const geometry = useRef<AnchorGeometry | undefined>(undefined);
@@ -102,6 +109,18 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
     window.clearTimeout(timers.current.pointerFocus);
   };
   useEffect(() => clearTimers, []);
+  useEffect(() => {
+    const button = trigger.current;
+    if (!button) return;
+    const request = () => setEnterLast(true);
+    button.addEventListener(ENTER_LAST, request);
+    return () => button.removeEventListener(ENTER_LAST, request);
+  }, []);
+  // A request that never landed (focus moved on before the revision loaded) must not fire on a
+  // later, unrelated open.
+  useEffect(() => {
+    if (!open) setEnterLast(false);
+  }, [open]);
   const close = useCallback((restoreFocus: boolean) => {
     window.clearTimeout(timers.current.intent);
     window.clearTimeout(timers.current.enter);
@@ -138,7 +157,7 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         close(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || innerPopupOwnsEscape(event.target, surface.current)) return;
       event.stopPropagation();
       close(
         Boolean(
@@ -217,14 +236,10 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
             const previous = rows[rows.indexOf(event.currentTarget) - 1];
             if (!previous) return;
             event.preventDefault();
+            // Focus opens the previous revision; it enters its own last control once the
+            // revision has loaded (its controls do not exist before that).
+            previous.dispatchEvent(new Event(ENTER_LAST));
             previous.focus();
-            // Focus opens the previous revision; enter its last control after it renders.
-            window.requestAnimationFrame(() => {
-              if (!previous.isConnected || document.activeElement !== previous) return;
-              const dialog = document.getElementById(previous.getAttribute('aria-controls') ?? '');
-              const controls = dialog?.querySelectorAll<HTMLElement>(TAB_TARGETS);
-              controls?.item(controls.length - 1)?.focus();
-            });
             return;
           }
           if (!open || !surface.current) return;
@@ -270,6 +285,14 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         <span className={styles.message}>
           {entry.message.split(/\r?\n/, 1)[0]} <code>{entry.commit.slice(0, 8)}</code>
         </span>
+        {props.noTranslationImpact && (
+          <span
+            className={styles.noImpact}
+            title="Marked at save as having no translation impact: translations stayed current."
+          >
+            English change marked: no translation impact
+          </span>
+        )}
       </button>
       {open &&
         createPortal(
@@ -283,6 +306,8 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
             pinned={pinned}
             onClose={close}
             onPin={() => setPinned(true)}
+            enterLast={enterLast}
+            onEnteredLast={() => setEnterLast(false)}
             onTabEdge={(backward) => {
               if (backward) {
                 trigger.current?.focus();
@@ -319,6 +344,8 @@ function RevisionPopover({
   onClose,
   onPin,
   onTabEdge,
+  enterLast,
+  onEnteredLast,
   entry,
   index,
   commits,
@@ -341,6 +368,8 @@ function RevisionPopover({
   onClose(restoreFocus: boolean): void;
   onPin(): void;
   onTabEdge(backward: boolean): void;
+  enterLast: boolean;
+  onEnteredLast(): void;
 }) {
   const [source, setSource] = useState<RevisionDiffSource>();
   const [error, setError] = useState<string>();
@@ -391,8 +420,11 @@ function RevisionPopover({
         return;
       }
       const edge = 8;
-      const width = Math.min(geometry.width, window.innerWidth - edge * 2);
-      const beside = rect.right + 6 + width <= window.innerWidth - edge;
+      // The width left of the reserved scrollbar gutter (the shared popover rule): innerWidth
+      // counts the gutter, and a box over it is clipped there.
+      const viewW = viewportWidth();
+      const width = Math.min(geometry.width, viewW - edge * 2);
+      const beside = rect.right + 6 + width <= viewW - edge;
       const height = Math.min(measuredHeight, window.innerHeight - edge * 2);
       const wanted = beside ? Math.max(edge, rect.top) : rect.bottom + 4;
       // Slide up rather than squash when the entry sits near the bottom of the window.
@@ -400,7 +432,7 @@ function RevisionPopover({
       // Placement owns only these geometry properties. Updating them directly
       // avoids rendering the entire diff again after each size notification.
       Object.assign(element.style, {
-        left: `${beside ? rect.right + 6 : Math.max(edge, window.innerWidth - width - edge)}px`,
+        left: `${beside ? rect.right + 6 : Math.max(edge, viewW - width - edge)}px`,
         top: `${top}px`,
         // A phone placement held it by its bottom edge (a rotation can switch placements).
         bottom: 'auto',
@@ -459,6 +491,19 @@ function RevisionPopover({
     };
     // The entry's own commit identifies the request; the list only grows.
   }, [cache, entry.commit, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!enterLast || (!source && !error)) return;
+    // Let the loaded controls render and placement settle before moving focus into them.
+    const frame = window.requestAnimationFrame(() => {
+      onEnteredLast();
+      // Only while focus is still on this revision's trigger: never pull it back from elsewhere.
+      if (!anchor.current?.contains(document.activeElement)) return;
+      const controls = surface.current?.querySelectorAll<HTMLElement>(TAB_TARGETS);
+      controls?.item(controls.length - 1)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [enterLast, source, error]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const shown =
     scope && source

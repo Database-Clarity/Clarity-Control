@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
+import { maxBuffer } from '../childProcess.mjs';
 // No server and no remote resources. Any missed fetch injection fails closed here.
 globalThis.fetch = () => {
   throw new Error('External I/O escaped CPU harness');
@@ -10,6 +11,7 @@ for (const mode of ['publish', 'pending', 'terminal', 'kick'])
   for (const count of [1, 50, 100, 2511]) {
     execFileSync(process.execPath, ['scripts/publisher/cpu/prepare.mjs', mode, String(count)], {
       stdio: 'pipe',
+      maxBuffer,
     });
     const root = 'scripts/publisher/cpu/dist';
     const { default: worker } = await import(

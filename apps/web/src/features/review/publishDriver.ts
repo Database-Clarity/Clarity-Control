@@ -12,6 +12,12 @@ export const publishTiming = {
   waitingMs: 180_000,
   autoKickMs: 180_000,
   manualKickGapMs: 30_000,
+  /**
+   * A Worker-reported 500/502 (its own JSON error, not an edge page) is resent this many times in
+   * total; then, once the Worker confirms it holds no request for the opId, the operation fails
+   * with the Worker's message instead of retrying forever.
+   */
+  workerErrorAttempts: 3,
   /** Resend backoff for an operation the Worker has not yet acknowledged. */
   sendBackoffMs: (attempt: number) => Math.min(60_000, 2_000 * 2 ** attempt),
   /** Another tab's attempt this recent is left alone. */
@@ -77,6 +83,38 @@ export interface PublishInput {
   hash: number;
   digest: string;
   previous: string | undefined;
+  /** Pending imports, resolved against the reviewed saved snapshot. */
+  dependencies?: readonly number[];
+}
+
+/** Keep each not-yet-emitted transitive closure together, including cycles. */
+export function publishChunks(inputs: readonly PublishInput[]): PublishInput[][] {
+  const byHash = new Map(inputs.map((input) => [input.hash, input]));
+  if (byHash.size !== inputs.length) throw new Error('Duplicate publish hash. Nothing was sent.');
+  const emitted = new Set<number>();
+  const chunks: PublishInput[][] = [];
+  let chunk: PublishInput[] = [];
+  for (const root of [...inputs].sort((a, b) => a.hash - b.hash)) {
+    const closure = new Map<number, PublishInput>();
+    const visit = (hash: number) => {
+      if (emitted.has(hash) || closure.has(hash)) return;
+      const input = byHash.get(hash);
+      if (!input)
+        throw new Error(`Select pending imported tooltip ${hash} as well. Nothing was sent.`);
+      closure.set(hash, input);
+      for (const dependency of input.dependencies ?? []) visit(dependency);
+    };
+    visit(root.hash);
+    if (!closure.size) continue;
+    if (chunk.length && chunk.length + closure.size > publishTiming.chunkHashes) {
+      chunks.push(chunk);
+      chunk = [];
+    }
+    chunk.push(...closure.values());
+    for (const hash of closure.keys()) emitted.add(hash);
+  }
+  if (chunk.length) chunks.push(chunk);
+  return chunks;
 }
 
 /** Hashes covered by an operation that is still queued or being sent. */
@@ -86,6 +124,8 @@ export function activeHashes(ops: readonly PublishOp[]): Set<number> {
 
 export class PublishDriver {
   private userId: string | null = null;
+  /** Includes dismissed group predecessors; their acceptance still orders unsent chunks. */
+  private storedOps: PublishOp[] = [];
   private timer: unknown;
   private running = false;
   private again = false;
@@ -102,6 +142,7 @@ export class PublishDriver {
     this.stopTimer();
     const generation = ++this.generation;
     this.userId = userId;
+    this.storedOps = [];
     this.paused.clear();
     this.attempts.clear();
     this.inFlight.clear();
@@ -123,6 +164,7 @@ export class PublishDriver {
   stop() {
     this.generation++;
     this.userId = null;
+    this.storedOps = [];
     this.running = false;
     this.stopTimer();
     usePublishState.setState({ userId: null, hydrated: false, ops: [], notes: {} });
@@ -148,15 +190,14 @@ export class PublishDriver {
         `Too many tooltips for one publish (${inputs.length}; the limit is ${publishTiming.maxHashes}). Select fewer and publish in several steps. Nothing was sent.`,
       );
     const now = this.deps.now();
-    const sorted = [...inputs].sort((a, b) => a.hash - b.hash);
+    const planned = publishChunks(inputs);
     const groupId = newOpId(now);
     const chunks: PublishOp[] = [];
-    for (let offset = 0; offset < sorted.length; offset += publishTiming.chunkHashes) {
-      const chunk = sorted.slice(offset, offset + publishTiming.chunkHashes);
+    for (const chunk of planned) {
       const op: PublishOp = {
-        opId: offset === 0 ? groupId : newOpId(now),
-        ...(sorted.length > publishTiming.chunkHashes
-          ? { groupId, groupSize: Math.ceil(sorted.length / publishTiming.chunkHashes) }
+        opId: chunks.length === 0 ? groupId : newOpId(now),
+        ...(planned.length > 1
+          ? { groupId, groupSize: planned.length, groupIndex: chunks.length }
           : {}),
         userId,
         createdAt: now,
@@ -183,6 +224,7 @@ export class PublishDriver {
       );
     }
     if (generation !== this.generation) return chunks[0]!;
+    this.storedOps.push(...chunks);
     usePublishState.setState((state) => ({ ops: [...state.ops, ...chunks] }));
     this.deps.broadcast();
     // Send in sequence to avoid a burst of CAS collisions between our own chunks.
@@ -259,6 +301,7 @@ export class PublishDriver {
       if (generation !== this.generation) return;
     }
     const kept = stored.filter((op) => !expired.includes(op)).sort(byAge);
+    this.storedOps = kept;
     for (const op of kept) {
       // Acknowledgments are tab memory, so rebuild them from finished operations after a reload.
       // Each finished operation is acknowledged exactly once per tab, so a bundle that has caught
@@ -325,6 +368,7 @@ export class PublishDriver {
       if (this.paused.has(op.opId)) continue;
       const now = this.deps.now();
       if (op.status === 'created') {
+        if (!(await this.groupReady(op))) continue;
         const retry = this.attempts.get(op.opId);
         const due = retry ? retry.at : (op.polledAt ?? 0) + publishTiming.foreignAttemptMs;
         if (due <= now) await this.send(op.opId);
@@ -369,6 +413,7 @@ export class PublishDriver {
       )
         continue;
       if (op.status === 'created') {
+        if (this.unacceptedPredecessors(op).length) continue;
         const retry = this.attempts.get(op.opId);
         next = Math.min(
           next,
@@ -405,11 +450,21 @@ export class PublishDriver {
   }
 
   /** Persist a status change, mirror it into state, and acknowledge a successful finish. */
-  private async settle(opId: string, patch: Partial<PublishOp>) {
+  /**
+   * `whileCreated`: a failure inferred from the Worker's "unknown" applies only while the stored
+   * record is still `created`. Another tab (or an earlier send) may have stored `pending` meanwhile;
+   * then the record is kept as stored and this tab follows it instead.
+   */
+  private async settle(opId: string, patch: Partial<PublishOp>, whileCreated = false) {
     const stored = await this.deps.store
-      .update(opId, (op) => ({ ...op, ...patch, updatedAt: this.deps.now() }))
+      .update(opId, (op) =>
+        whileCreated && op.status !== 'created'
+          ? undefined
+          : { ...op, ...patch, updatedAt: this.deps.now() },
+      )
       .catch(() => undefined);
     if (!stored) return;
+    this.storedOps = this.storedOps.map((op) => (op.opId === opId ? stored : op));
     this.note(opId, undefined);
     usePublishState.setState((state) => ({
       ops: state.ops.map((op) => (op.opId === opId ? stored : op)),
@@ -436,6 +491,34 @@ export class PublishDriver {
     return usePublishState.getState().ops.find((op) => op.opId === opId);
   }
 
+  private unacceptedPredecessors(op: PublishOp): PublishOp[] {
+    if (!op.groupId) return [];
+    return this.storedOps.filter(
+      (earlier) =>
+        earlier.groupId === op.groupId &&
+        byAge(earlier, op) < 0 &&
+        earlier.acceptedAt === undefined &&
+        (earlier.status === 'created' || earlier.status === 'failed'),
+    );
+  }
+
+  private async groupReady(op: PublishOp): Promise<boolean> {
+    const earlier = this.unacceptedPredecessors(op);
+    if (!earlier.length) return true;
+    if (earlier.some((entry) => isTerminal(entry.status))) {
+      await this.settle(
+        op.opId,
+        {
+          status: 'failed',
+          error:
+            'An earlier chunk was not accepted. Further sends of this chunk were stopped; it may already be queued. Check live status before publishing again.',
+        },
+        true,
+      );
+    } else this.note(op.opId, 'Waiting for an earlier chunk to be received.');
+    return false;
+  }
+
   /** POST the stored body. Re-sending is always safe: the Worker is idempotent per opId. */
   private async send(opId: string) {
     const op = this.current(opId);
@@ -443,6 +526,26 @@ export class PublishDriver {
     const generation = this.generation;
     this.inFlight.add(opId);
     try {
+      if (op.status === 'created' && op.groupId) {
+        // Consult persisted predecessors even after another tab dismisses a failed chunk.
+        let stored: PublishOp[];
+        try {
+          stored = await this.deps.store.list(op.userId);
+        } catch {
+          if (generation === this.generation) {
+            const count = (this.attempts.get(opId)?.count ?? 0) + 1;
+            this.attempts.set(opId, {
+              count,
+              at: this.deps.now() + publishTiming.sendBackoffMs(count - 1),
+            });
+            this.note(opId, 'Could not check earlier chunks; retrying.');
+          }
+          return;
+        }
+        if (generation !== this.generation) return;
+        this.storedOps = stored;
+        if (!(await this.groupReady(op))) return;
+      }
       const now = this.deps.now();
       if (op.status === 'created' && now - op.createdAt > publishTiming.sendExpiryMs) {
         // The window for (re)creating the request has closed, but the Worker may already hold it (a
@@ -460,17 +563,22 @@ export class PublishDriver {
         }
         if (generation !== this.generation) return;
         if (remote === 'unknown')
-          await this.settle(opId, {
-            status: 'failed',
-            error:
-              'The Worker has no record of this publish and it is too old to send. Publish again.',
-          });
+          await this.settle(
+            opId,
+            {
+              status: 'failed',
+              error:
+                'The Worker has no record of this publish and it is too old to send. Publish again.',
+            },
+            true,
+          );
         else await this.adopt(opId, remote);
         return;
       }
       await this.deps.store
         .update(opId, (current) => ({ ...current, polledAt: now }))
         .catch(() => undefined);
+      if (generation !== this.generation) return;
       let result: Awaited<ReturnType<PublishApi['post']>>;
       try {
         result = await this.deps.api.post({ opId, hashes: op.hashes, expected: op.expected });
@@ -489,6 +597,9 @@ export class PublishDriver {
   }
 
   private async sendFailed(op: PublishOp, reason: unknown) {
+    // Called right after send() checked the generation; every await below re-checks it, so a
+    // reply that lands after a restart or account switch never settles, adopts, or notes.
+    const generation = this.generation;
     const status = reason instanceof PublishHttpError ? reason.status : 0;
     const message = reason instanceof Error ? reason.message : 'Unknown error';
     if (status === 401) {
@@ -515,16 +626,22 @@ export class PublishDriver {
       // Never a new opId: ask the Worker whether it knows this one.
       try {
         const remote = await this.deps.api.status(op.opId);
+        if (generation !== this.generation) return;
         if (remote !== 'unknown') return void (await this.adopt(op.opId, remote));
       } catch {
         // The Worker really did reject the body; report that below.
       }
-      await this.settle(op.opId, {
-        status: 'failed',
-        error: /creation window/i.test(message)
-          ? 'The Worker rejected this publish because its time is outside the allowed window. Check your device clock, then publish again.'
-          : `The Worker rejected this publish (${message.slice(0, 120)}). Publish again.`,
-      });
+      if (generation !== this.generation) return;
+      await this.settle(
+        op.opId,
+        {
+          status: 'failed',
+          error: /creation window/i.test(message)
+            ? 'The Worker rejected this publish because its time is outside the allowed window. Check your device clock, then publish again.'
+            : `The Worker rejected this publish (${message.slice(0, 120)}). Publish again.`,
+        },
+        true,
+      );
       return;
     }
     if (status === 413) {
@@ -547,9 +664,40 @@ export class PublishDriver {
       count,
       at: this.deps.now() + publishTiming.sendBackoffMs(count - 1),
     });
+    // The Worker's own 500/502 names a failure a resend will not fix by itself (a broken read, bad
+    // stored data). 503 is its "retry the same opId" answer; edge pages carry no Worker message.
+    const workerError =
+      (status === 500 || status === 502) && reason instanceof PublishHttpError && reason.fromWorker;
+    if (workerError && count >= publishTiming.workerErrorAttempts) {
+      // A create may have landed during an earlier attempt: only the Worker's "unknown" settles it.
+      let remote: RemoteStatus | 'unknown' | undefined;
+      try {
+        remote = await this.deps.api.status(op.opId);
+      } catch {
+        remote = undefined;
+      }
+      if (generation !== this.generation) return;
+      if (remote !== undefined && remote !== 'unknown')
+        return void (await this.adopt(op.opId, remote));
+      if (remote === 'unknown') {
+        await this.settle(
+          op.opId,
+          {
+            status: 'failed',
+            error: `Worker error (HTTP ${status}: ${message.slice(0, 160)}); the Worker holds no request for these tooltips. Publish again later, or report this error.`,
+          },
+          true,
+        );
+        return;
+      }
+    }
     this.note(
       op.opId,
-      status === 0 ? 'Offline; retrying.' : `Worker busy (HTTP ${status}); retrying.`,
+      status === 0
+        ? 'Offline; retrying.'
+        : workerError
+          ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
+          : `Worker busy (HTTP ${status}); retrying.`,
     );
   }
 
@@ -605,5 +753,10 @@ export class PublishDriver {
 }
 
 function byAge(a: PublishOp, b: PublishOp) {
+  if (a.groupId && a.groupId === b.groupId) {
+    // Old stored groups were sorted by hash; new groups persist their dependency order.
+    const order = (a.groupIndex ?? Math.min(...a.hashes)) - (b.groupIndex ?? Math.min(...b.hashes));
+    if (order) return order;
+  }
   return a.createdAt - b.createdAt || a.opId.localeCompare(b.opId);
 }

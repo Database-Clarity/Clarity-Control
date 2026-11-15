@@ -54,6 +54,22 @@ describe('title popover placement', () => {
     expect(popover.style.left).toBe('492px');
   });
 
+  it('keeps its edge inset left of the reserved scrollbar gutter', () => {
+    const { anchor, popover } = setup(rect(740, 100, 50, 16), { width: 300, height: 80 });
+    // A classic 15px scrollbar: clientWidth can count the gutter, the root's own box does not.
+    Object.defineProperty(document.documentElement, 'offsetWidth', {
+      value: 785,
+      configurable: true,
+    });
+    try {
+      openTitlePopover(anchor, popover);
+      expect(popover.style.left).toBe('477px');
+      expect(popover.style.maxWidth).toBe('min(18.75rem, 769px)');
+    } finally {
+      delete (document.documentElement as { offsetWidth?: number }).offsetWidth;
+    }
+  });
+
   it('flips above when below is too short and above has more room', () => {
     const { anchor, popover } = setup(rect(100, 520, 60, 16), { width: 200, height: 150 });
     openTitlePopover(anchor, popover);

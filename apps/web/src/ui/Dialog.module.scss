@@ -40,6 +40,12 @@
   width: min(28rem, calc(100vw - 2rem));
 }
 
+// A few fields (the batch schedule dialog): medium width, top-anchored so it never re-centres.
+.form {
+  width: min(36rem, calc(100vw - 2rem));
+  margin-top: min(12vh, 6rem);
+}
+
 .hint {
   margin-left: 0.5rem;
   font:
@@ -77,6 +83,10 @@
 
 .body {
   min-width: 0;
+}
+
+.closeMark {
+  display: none;
 }
 
 // The footer's one primary action is drawn with the accent edge.
@@ -138,6 +148,22 @@
     padding-block: 0;
     border-bottom: 1px solid var(--line);
 
+    // The square × on the right edge, as the Settings sheet: the same tap size, no text label.
+    .close {
+      flex: none;
+      width: var(--tap);
+      height: var(--tap);
+      padding: 0;
+      font-size: 1.125rem;
+      line-height: 1;
+    }
+    .closeText {
+      display: none;
+    }
+    .closeMark {
+      display: inline;
+    }
+
     h2 {
       margin: 0;
       font-size: var(--ctl-text);
@@ -155,5 +181,21 @@
     margin-top: 0;
     padding-bottom: calc(0.25rem + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--line);
+  }
+
+  // A short prompt (Withdraw, Discard draft) is a sheet as tall as its content, on the bottom edge
+  // (above the keyboard), not a mostly empty full-height page.
+  .compact {
+    // Anchored by its bottom edge only, so its height is its content.
+    top: auto;
+    height: auto;
+    border-top: 1px solid var(--pop-edge);
+    border-radius: 0.5rem 0.5rem 0 0;
+
+    .body {
+      flex: 0 1 auto;
+      min-height: 0;
+      overflow: auto;
+    }
   }
 }

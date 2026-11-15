@@ -2,6 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- First in the document on purpose: the hash router looks for a <base> on every link it renders
+         (createHref), and without one that search walks the whole page. target=_self is the default. -->
+    <base target="_self" />
     <!-- No interactive-widget: the keyboard shrinks only the visual viewport (ui/useKeyboardInset.ts). -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#1d2024" />

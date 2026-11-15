@@ -7,9 +7,20 @@ import { signToken } from '../src/crypto.js';
 import type { Env } from '../src/types.js';
 
 export const sha = (number: number) => number.toString(16).padStart(40, '0');
-export const tooltip = (text = 'original'): Tooltip => ({
+/**
+ * Edited English carries a newer revision than 'original', as the editor's save stamps it: the
+ * Worker refuses an English change that keeps the revision without "No translation impact".
+ */
+export const tooltip = (text = 'original', updatedAt?: string): Tooltip => ({
   hash: 123,
-  text: { en: { text, updatedAt: '2026-10-01T00:00:00Z', updatedBy: 'alice' } },
+  text: {
+    en: {
+      text,
+      updatedAt:
+        updatedAt ?? (text === 'original' ? '2026-10-01T00:00:00Z' : '2026-10-01T00:00:01Z'),
+      updatedBy: 'alice',
+    },
+  },
   associated: [],
 });
 export const config: Permissions = {
@@ -72,6 +83,10 @@ export class Fixture {
   /** Every outgoing fetch (what the Workers platform counts as a subrequest). */
   subrequests = 0;
   graphqlCalls = 0;
+  /** Extra top-level errors on every Commit `file(path:)` read (fail-closed checks). */
+  graphqlErrors: unknown[] = [];
+  /** Extra fields on every Commit target in those reads (fields the query never selected). */
+  graphqlTargetExtras: Record<string, unknown> = {};
   /** Serve GraphQL blobs as truncated, so reads fall back to the contents API. */
   truncateGraphql = false;
   /** Break contents-API base64 into 60-column lines, as GitHub does. */
@@ -81,6 +96,9 @@ export class Fixture {
   csv = 'Perk,Description\r\n"Thing","Line 1\nLine 2, ""quoted"""\r\n';
   failGoogle = false;
   aliases: Aliases = { 789: { to: 123, kind: 'sandbox' } };
+  /** Generator `sandboxConflicts.json`: shared sandbox perk -> tooltips sharing it. */
+  sandboxConflicts: Record<string, number[]> = {};
+  sandboxConflictReads = 0;
   extraItems: Record<string, unknown> = {};
   /** Generator `weaponTypes.json`; undefined serves a 404 (the file is optional). */
   weaponTypeTable?: unknown;
@@ -103,6 +121,8 @@ export class Fixture {
   /** Public GitHub accounts served by GET /users/:login. */
   accounts: Record<string, { id: number; login: string; type: string }> = {};
   accountLookups = 0;
+  /** Kick files created through the Contents API (by request path). */
+  kicks = new Set<string>();
 
   constructor(privateKey: string) {
     this.env = {
@@ -186,6 +206,27 @@ export class Fixture {
     );
   }
 
+  /**
+   * GitHub answers a `Commit.file(path:)` that resolves to nothing with `null` data AND a
+   * top-level NOT_FOUND error (verified live 2026-11-14), unlike `object(expression:)`, which is
+   * a silent `null`. The fixture reproduces that so reads must tolerate exactly those errors.
+   */
+  private commitResponse(target: Record<string, unknown>, fileAliases: readonly string[]) {
+    const errors = fileAliases
+      .filter((alias) => alias in target && target[alias] === null)
+      .map((alias) => ({
+        type: 'NOT_FOUND',
+        path: ['repository', 'ref', 'target', alias],
+        locations: [{ line: 1, column: 1 }],
+        message: `Could not resolve file for path '${alias}'.`,
+      }))
+      .concat(this.graphqlErrors as never[]);
+    return this.response({
+      data: { repository: { ref: { target: { ...target, ...this.graphqlTargetExtras } } } },
+      ...(errors.length ? { errors } : {}),
+    });
+  }
+
   private response(value: unknown, status = 200) {
     return new Response(JSON.stringify(value), { status });
   }
@@ -227,7 +268,7 @@ export class Fixture {
           }));
         target.dir = entries.length ? { object: { entries } } : null;
       }
-      return this.response({ data: { repository: { ref: { target } } } });
+      return this.commitResponse(target, ['perm', 'config', 'dir']);
     }
     if (input.variables.branch) {
       const files = this.current();
@@ -253,7 +294,18 @@ export class Fixture {
                 },
               };
       }
-      return this.response({ data: { repository: { ref: { target } } } });
+      for (const [name, path] of Object.entries(input.variables)) {
+        if (!/^t[0-9]+$/.test(name)) continue;
+        // Depth = nested `entries{` in this listing's selection (publishSnapshot `trees`).
+        const start = input.query.indexOf(`${name}:file(path:$${name})`);
+        const end = input.query.indexOf(' t', start + 1);
+        const selection = input.query.slice(start, end < 0 ? undefined : end);
+        target[name] = listTree(files, path, (selection.match(/entries\{/g) ?? []).length);
+      }
+      return this.commitResponse(
+        target,
+        Object.keys(target).filter((key) => /^[ot][0-9]+$/.test(key)),
+      );
     }
 
     for (const [name, expression] of Object.entries(input.variables)) {
@@ -301,6 +353,10 @@ export class Fixture {
       if (url.pathname.endsWith('/categories.json'))
         return this.response([{ id: 'perk', legacyType: 'Weapon Perk' }, ...this.extraCategories]);
       if (url.pathname.endsWith('/aliases.json')) return this.response(this.aliases);
+      if (url.pathname.endsWith('/sandboxConflicts.json')) {
+        this.sandboxConflictReads++;
+        return this.response(this.sandboxConflicts);
+      }
       if (url.pathname.endsWith('/weaponTypes.json')) {
         if (this.weaponTypeStatus) return this.response({}, this.weaponTypeStatus);
         return this.weaponTypeTable === undefined
@@ -414,6 +470,9 @@ export class Fixture {
       return this.response({ object: { sha: this.dataHead } });
     }
     if (path.startsWith('/contents/publish/kicks/') && method === 'PUT') {
+      // A create without a sha of an existing name is refused, as GitHub does.
+      if (this.kicks.has(path)) return this.response({ message: 'sha missing' }, 422);
+      this.kicks.add(path);
       this.writes.push(objectSchema.parse(raw));
       return this.response({ commit: { sha: sha(this.sequence++) } }, 201);
     }
@@ -438,6 +497,29 @@ export class Fixture {
     if (path === '/commits') return this.response(this.history);
     throw new Error(`Unexpected mock request: ${method} ${url.href}`);
   }
+}
+
+/** Names-only GraphQL listing of `dir` in a flat file map, `depth` levels deep (null: missing). */
+function listTree(files: Record<string, unknown>, dir: string, depth: number): unknown {
+  const prefix = `${dir}/`;
+  const paths = Object.keys(files).filter((path) => path.startsWith(prefix));
+  if (!paths.length) return null;
+  const level = (base: string, left: number): unknown => {
+    const children = new Map<string, boolean>();
+    for (const path of paths) {
+      if (!path.startsWith(base)) continue;
+      const rest = path.slice(base.length);
+      const slash = rest.indexOf('/');
+      const name = slash < 0 ? rest : rest.slice(0, slash);
+      children.set(name, children.get(name) || slash >= 0);
+    }
+    return {
+      entries: [...children].map(([name, isDir]) =>
+        left <= 1 ? { name } : { name, object: isDir ? level(`${base}${name}/`, left - 1) : {} },
+      ),
+    };
+  };
+  return { object: level(prefix, depth) };
 }
 
 function expectGoogleUrl(url: URL) {

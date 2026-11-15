@@ -3,6 +3,7 @@ import { act } from 'react';
 import { picker, pickerLabels, pickOption } from './finderPicker.testUtils';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { defaultSyncedSettings } from '@clarity/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -128,7 +129,10 @@ async function type(value: string) {
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   useDraftStore.setState({ drafts: {} });
-  useSettingsStore.setState({ device: { ...defaultDeviceSettings } });
+  useSettingsStore.setState({
+    device: { ...defaultDeviceSettings },
+    settings: { ...defaultSyncedSettings },
+  });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -258,8 +262,8 @@ describe('Exotic Weapons stepping', () => {
     expect(route()).toBe('/t/103?g=all');
   });
 
-  it('the device setting swaps the two gestures', async () => {
-    useSettingsStore.setState({ device: { ...defaultDeviceSettings, finderWheel: 'groups' } });
+  it('the account setting swaps the two gestures', async () => {
+    useSettingsStore.getState().update({ finderWheel: 'groups' });
     await mount('/t/100');
     await wheel({ shiftKey: true });
     expect(route()).toBe('/t/103');
@@ -270,7 +274,7 @@ describe('Exotic Weapons stepping', () => {
   });
 
   it('either gesture steps entries in a category without groups', async () => {
-    useSettingsStore.setState({ device: { ...defaultDeviceSettings, finderWheel: 'groups' } });
+    useSettingsStore.getState().update({ finderWheel: 'groups' });
     await mount('/t/12');
     expect(select('Weapon')).toBeNull();
     await wheel({ shiftKey: true });

@@ -4,6 +4,7 @@ import { getHistory, getVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { WordDiff } from '../../ui/diff';
 import { findTranslationSource, type TranslationSource } from './source';
+import { MarkupOnlyEnglish } from './MarkupOnlyEnglish';
 import styles from '../drift/Status.module.scss';
 
 export function EnglishDiff({
@@ -67,15 +68,9 @@ export function EnglishDiffContent({
       {source?.kind === 'found' && source.text === current ? (
         <p>The English has not changed since this translation.</p>
       ) : source?.kind === 'found' && isMarkupOnly(source.text, current) ? (
-        <>
-          <p data-markup-only>
-            <strong>Markup only:</strong> the English words did not change; only element tags (an
-            icon grouped with its words) were added, changed, or removed. The translation needs no
-            change for it.
-          </p>
-          {/* A word diff of the raw markup would strike words that did not change. */}
-          <p className={styles.text}>{current}</p>
-        </>
+        // A word diff of the raw markup would strike words that did not change: the current
+        // English renders, with the newly tagged spans outlined.
+        <MarkupOnlyEnglish before={source.text} current={current} hash={hash} />
       ) : source?.kind === 'found' ? (
         <>
           <p>

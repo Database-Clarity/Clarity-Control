@@ -1,5 +1,5 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { markupLanguage, type Lang, type MarkupLine, type MarkupSpan } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -8,7 +8,9 @@ import { previewDrafts } from '../conflicts/previewDrafts';
 import { MarkupLines, PreviewSpan } from '../preview/MarkupRenderer';
 import preview from '../preview/TooltipPreview.module.scss';
 import styles from './RenderedWordDiff.module.scss';
-import type { DiffLine, DiffSpan } from './renderedDiff';
+import { variantGlobals, type DiffLine, type DiffSpan } from './renderedDiff';
+import { HistoryWordDiff } from './HistoryWordDiff';
+import { WordDiff } from '../../ui/diff/WordDiff';
 import type { SourceMarker } from './sourceOnlyChanges';
 import { useRenderedDiff } from './useRenderedDiff';
 
@@ -39,13 +41,6 @@ function Parts({ parts }: { parts: MarkupSpan[] }) {
     );
   });
 }
-function Markers({ markers }: { markers: SourceMarker[] }) {
-  return markers.map((marker, index) => (
-    <p key={index} className={styles.sourceChange} data-source-change>
-      {marker.label}
-    </p>
-  ));
-}
 const diffParts = (parts: MarkupSpan[]) => <Parts parts={parts} />;
 // A changed line break, spacer, line class, or table is marked on the line itself.
 const diffLine = (line: MarkupLine) =>
@@ -54,28 +49,115 @@ const diffLine = (line: MarkupLine) =>
     : (line as DiffLine).diffKind === 'delete'
       ? styles.lineDelete
       : undefined;
-const Body = memo(function Body({
-  lines,
+const Body = memo(function Body({ lines, lang }: { lines: MarkupLine[]; lang: Lang }) {
+  return (
+    <div
+      data-rendered-body
+      className={`${preview.snippet} ${styles.body}`}
+      lang={markupLanguage(lang)}
+    >
+      <MarkupLines lines={lines} renderParts={diffParts} lineClass={diffLine} />
+    </div>
+  );
+});
+
+/** A shared fold opens both sides together, so neither column gains a private spacer. */
+function Comparison({
+  before,
+  after,
   lang,
-  markers = [],
+  beforeLabel,
+  afterLabel,
 }: {
-  lines: MarkupLine[];
+  before: MarkupLine[];
+  after: MarkupLine[];
   lang: Lang;
-  markers?: SourceMarker[];
+  beforeLabel: string;
+  afterLabel: string;
+}) {
+  const sides = (a: MarkupLine[], b: MarkupLine[]) =>
+    !a.length && !b.length ? null : (
+      <div className={styles.sides}>
+        <div>
+          <strong>{beforeLabel}</strong>
+          <Body lines={a} lang={lang} />
+        </div>
+        <div>
+          <strong>{afterLabel}</strong>
+          <Body lines={b} lang={lang} />
+        </div>
+      </div>
+    );
+  const same = (a: MarkupLine, b: MarkupLine) => JSON.stringify(a) === JSON.stringify(b);
+  let head = 0,
+    tail = 0;
+  const long =
+    Math.max(before.length, after.length) > 10 || JSON.stringify([before, after]).length > 2400;
+  if (long) {
+    while (head < Math.min(before.length, after.length) && same(before[head], after[head])) head++;
+    while (
+      tail < Math.min(before.length, after.length) - head &&
+      same(before[before.length - tail - 1], after[after.length - tail - 1])
+    )
+      tail++;
+  }
+  if (head < 3 && JSON.stringify(before.slice(0, head)).length < 800) head = 0;
+  if (tail < 3 && JSON.stringify(tail ? before.slice(-tail) : []).length < 800) tail = 0;
+  const fold = (a: MarkupLine[], b: MarkupLine[]) => (
+    <details className={styles.fold}>
+      <summary>
+        {a.length} unchanged {a.length === 1 ? 'line' : 'lines'}
+      </summary>
+      {sides(a, b)}
+    </details>
+  );
+  return (
+    <>
+      {!!head && fold(before.slice(0, head), after.slice(0, head))}
+      {sides(before.slice(head, before.length - tail), after.slice(head, after.length - tail))}
+      {!!tail && fold(before.slice(-tail), after.slice(-tail))}
+    </>
+  );
+}
+
+function SourceChanges({
+  markers,
+  before,
+  after,
+}: {
+  markers: SourceMarker[];
+  before: string;
+  after: string;
+}) {
+  const extract = (source: string, range: SourceMarker['previous']) =>
+    range
+      ? source
+          .split('\n')
+          .slice(range[0] - 1, range[1])
+          .join('\n')
+      : '';
+  return markers.map((marker, index) => (
+    <div key={index} className={styles.sourceChange} data-source-change>
+      <p>{marker.label.replace(/ · see Raw$/, '')}</p>
+      <HistoryWordDiff
+        before={marker.insertion?.[0] ? '' : extract(before, marker.previous)}
+        after={marker.insertion?.[1] ? '' : extract(after, marker.current)}
+      />
+    </div>
+  ));
+}
+
+const SourceFallback = memo(function SourceFallback({
+  before,
+  after,
+}: {
+  before: string;
+  after: string;
 }) {
   return (
-    <div className={`${preview.snippet} ${styles.body}`} lang={markupLanguage(lang)}>
-      <MarkupLines
-        lines={lines}
-        renderParts={diffParts}
-        lineClass={diffLine}
-        beforeLine={(index) => (
-          <Markers markers={markers.filter((marker) => marker.position === index)} />
-        )}
-        afterLines={
-          <Markers markers={markers.filter((marker) => marker.position >= lines.length)} />
-        }
-      />
+    <div className={styles.sourceChange} data-source-unchecked>
+      <p>Rendered comparison check unavailable · Source changes</p>
+      <WordDiff before={before} after={after} />
     </div>
   );
 });
@@ -87,6 +169,8 @@ export function RenderedWordDiff({
   hash,
   working = false,
   responsive = false,
+  beforeLabel,
+  afterLabel,
 }: {
   before: string;
   after: string;
@@ -94,7 +178,10 @@ export function RenderedWordDiff({
   hash: number;
   working?: boolean;
   responsive?: boolean;
+  beforeLabel?: string;
+  afterLabel?: string;
 }) {
+  const [variant, setVariant] = useState<'base' | 'enhanced'>();
   const data = useDataStore((state) => state.data);
   // Read when the comparison receives a source snapshot; do not subscribe this
   // renderer to every authoring keystroke (Working diff already waits for idle).
@@ -108,12 +195,15 @@ export function RenderedWordDiff({
     const type = data?.categories.find(
       (category) => category.id === data.items[hash]?.categoryId,
     )?.legacyType;
-    return {
-      variables: imports[2] ?? '',
-      titles: imports[3] ?? '',
-      imports,
-      type,
-    };
+    return variantGlobals(
+      {
+        variables: imports[2] ?? '',
+        titles: imports[3] ?? '',
+        imports,
+        type,
+      },
+      false,
+    );
   }, [lang, hash, data, drafts]);
   const { result, busy, sourceAnalysis, sourceUnavailable } = useRenderedDiff(
     before,
@@ -121,15 +211,17 @@ export function RenderedWordDiff({
     globals,
   );
   const markers = sourceAnalysis?.markers ?? [];
-  const side = (text: string, lines: MarkupLine[], located?: SourceMarker[]) =>
-    text && lines.length ? (
-      <Body lines={lines} lang={lang} markers={located} />
-    ) : (
-      <div className={`${preview.snippet} ${styles.body}`}>
-        {located && <Markers markers={located} />}
-        <span className={styles.missing}>{text ? '(no rendered text)' : '(not present)'}</span>
-      </div>
-    );
+  const output = result.output;
+  const enhanced =
+    (variant ?? (output?.enhanced && !output.base ? 'enhanced' : 'base')) === 'enhanced';
+  const shown = enhanced && result.enhanced ? result.enhanced : result;
+  const summary = output
+    ? output.base || output.enhanced
+      ? `Text changed · ${output.base && output.enhanced ? 'Base and Enhanced' : output.base ? 'Base' : 'Enhanced'}`
+      : 'Markup only: rendered text unchanged (Base and Enhanced)'
+    : sourceUnavailable
+      ? 'Rendered comparison check unavailable'
+      : 'Checking Base and Enhanced rendering…';
   return (
     <SkeletonBoundary
       pending={busy}
@@ -143,32 +235,34 @@ export function RenderedWordDiff({
         aria-busy={busy || undefined}
         data-one-sided={!before || !after || undefined}
       >
-        {!!markers.length && (
-          <p className={styles.sourceChange}>
-            {markers.length} source {markers.length === 1 ? 'change' : 'changes'} flagged below ·
-            Raw shows the markup
-          </p>
-        )}
-        {!!sourceAnalysis?.unchecked && (
-          <p className={styles.sourceChange} data-source-unchecked>
-            {sourceAnalysis.unchecked} changes not checked: see Raw
-          </p>
-        )}
-        {sourceUnavailable && before !== after && (
-          <p className={styles.sourceChange} data-source-unchecked>
-            Source changes not checked: see Raw
-          </p>
-        )}
-        <div className={styles.sides}>
-          <div>
-            <strong>{working ? 'Saved' : 'Previous / live'}</strong>
-            {side(before, result.before)}
+        <p className={styles.summary} role="status">
+          {summary}
+        </p>
+        <SourceChanges markers={markers} before={before} after={after} />
+        {result.enhanced && (
+          <div className={styles.variants} role="group" aria-label="Rendered variant">
+            <button type="button" aria-pressed={!enhanced} onClick={() => setVariant('base')}>
+              Base
+            </button>
+            <button type="button" aria-pressed={enhanced} onClick={() => setVariant('enhanced')}>
+              Enhanced
+            </button>
           </div>
-          <div>
-            <strong>{working ? 'Unsaved' : 'Current'}</strong>
-            {side(after, result.after, markers)}
-          </div>
-        </div>
+        )}
+        <Comparison
+          key={`${before}:${after}:${enhanced}`}
+          before={shown.before}
+          after={shown.after}
+          lang={lang}
+          beforeLabel={beforeLabel ?? (working ? 'Saved' : 'Previous / live')}
+          afterLabel={afterLabel ?? (working ? 'Unsaved' : 'Current')}
+        />
+        {sourceUnavailable && before !== after && <SourceFallback before={before} after={after} />}
+        {(!before || !after) && (
+          <p className={styles.missing}>
+            {!before ? 'Previous: (not present)' : 'Current: (not present)'}
+          </p>
+        )}
       </div>
     </SkeletonBoundary>
   );

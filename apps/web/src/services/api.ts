@@ -1,25 +1,8 @@
 import { hashSchema } from '../../../../packages/core/src/legacy';
-import { langSchema } from '../../../../packages/core/src/languages';
 import { syncedSettingsSchema, type SyncedSettings } from '../../../../packages/core/src/settings';
 import { tooltipSchema, type Tooltip } from '../../../../packages/core/src/schemas';
 import { z } from 'zod';
 
-export const apiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '') || undefined;
-const userSchema = z.object({
-  id: z.union([z.number(), z.string()]),
-  login: z.string(),
-  // `partner` (export partners, spec section 4) has no editing role: until the partner pages
-  // exist it reads as no role, so every editing control stays off for it.
-  role: z
-    .enum(['maintainer', 'editor', 'trial', 'translator', 'partner'])
-    .nullable()
-    .transform((role) => (role === 'partner' ? null : role)),
-  languages: z.array(langSchema).optional(),
-  /** Export projects this account is a partner of. */
-  projects: z.array(z.string()).optional(),
-});
-export type User = z.infer<typeof userSchema>;
-export type Me = User;
 export interface Change {
   hash: number;
   base: Tooltip | null;
@@ -35,80 +18,60 @@ const conflictSchema = z.object({
 export type SaveConflict = z.infer<typeof conflictSchema>;
 export type SaveResult =
   | { kind: 'saved'; commit: string; tooltips: Tooltip[]; savedAt?: number }
-  | { kind: 'conflicts'; conflicts: z.infer<typeof conflictSchema>[] }
+  | { kind: 'conflicts'; conflicts: z.infer<typeof conflictSchema>[]; serverAt?: number }
   | { kind: 'retry'; error: string };
 
+// Sign-in, sessions, `/me`, and authorized requests live in a zod/mini module the public report
+// page loads instead of this one, without the editor's save and settings schemas.
+import { apiRequest, authorization, endpoint, failure } from './apiAuth';
 export {
+  apiUrl,
+  apiRequest,
+  loginUrl,
+  getMe,
   setSession,
   clearSession,
   subscribeSession,
   rememberSignIn,
   consumePendingSignIn,
-} from './session';
-import { sessionToken, dropRejectedSession } from './session';
-function authorization(): Record<string, string> {
-  const token = sessionToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-function endpoint(path: string): string {
-  if (!apiUrl) throw new Error('VITE_API_URL is not configured. This app is read-only.');
-  return `${apiUrl}${path}`;
-}
-
-export function apiRequest(path: string, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers);
-  for (const [name, value] of Object.entries(authorization())) headers.set(name, value);
-  return fetch(endpoint(path), { ...init, credentials: 'omit', headers });
-}
-
-async function failure(response: Response): Promise<never> {
-  throw new Error(`API HTTP ${response.status}: ${await response.text()}`);
-}
-
-const legacyOrigin = 'https://database-clarity.github.io';
+  type User,
+  type Me,
+} from './apiAuth';
 
 /**
- * The sign-in URL carries the prepared browser nonce. The legacy site and local development
- * use the primary return target; other sites name their origin so sign-in returns to them.
+ * The server's clock when it answered (the Worker exposes `Date` to the editor's origins), so
+ * saved-overlay retirement does not depend on the browser clock. Undefined when the header is
+ * missing, unreadable, or out of range: callers then fall back to the browser clock.
  */
-export function loginUrl(client?: string): string {
-  const url = endpoint('/auth/login') + (client ? `?client=${encodeURIComponent(client)}` : '');
-  if (typeof location === 'undefined') return url;
-  const { origin, hostname } = location;
-  if (origin === legacyOrigin || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(hostname)) return url;
-  return origin.startsWith('http')
-    ? `${url}${client ? '&' : '?'}site=${encodeURIComponent(origin)}`
-    : url;
+export function serverTime(response: Response): number | undefined {
+  const time = Date.parse(response.headers.get('Date') ?? '');
+  return Number.isFinite(time) && time > 0 ? time : undefined;
 }
 
-export async function getMe(): Promise<User | null> {
-  const headers = authorization();
-  const response = await fetch(endpoint('/me'), {
-    credentials: 'omit',
-    headers,
-  });
-  if (response.status === 401) {
-    const token = sessionToken();
-    if (token && headers.Authorization === `Bearer ${token}`) dropRejectedSession(token);
-    return null;
-  }
-  if (!response.ok) return failure(response);
-  return userSchema.parse(await response.json());
-}
-
-export async function save(changes: Change[], message: string): Promise<SaveResult> {
+/** `noTranslationImpact` is sent only when ticked, so every other save's request is unchanged. */
+export async function save(
+  changes: Change[],
+  message: string,
+  noTranslationImpact = false,
+): Promise<SaveResult> {
   const response = await fetch(endpoint('/save'), {
     method: 'POST',
     credentials: 'omit',
     headers: { ...authorization(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ changes, message }),
+    body: JSON.stringify({
+      changes,
+      message,
+      ...(noTranslationImpact ? { noTranslationImpact } : {}),
+    }),
   });
   if (response.status === 409) {
     const data = z
       .union([z.object({ conflicts: z.array(conflictSchema) }), z.object({ error: z.string() })])
       .parse(await response.json());
-    return 'conflicts' in data ? { kind: 'conflicts', ...data } : { kind: 'retry', ...data };
+    const serverAt = serverTime(response);
+    return 'conflicts' in data
+      ? { kind: 'conflicts', ...data, ...(serverAt === undefined ? {} : { serverAt }) }
+      : { kind: 'retry', ...data };
   }
   if (!response.ok) return failure(response);
   const data = z
@@ -119,7 +82,9 @@ export async function save(changes: Change[], message: string): Promise<SaveResu
       savedAt: z.number().int().positive().max(8.64e15).optional().catch(undefined),
     })
     .parse(await response.json());
-  return { kind: 'saved', ...data };
+  // The explicit post-commit time is the more precise one; Date covers bodies without it.
+  const savedAt = data.savedAt ?? serverTime(response);
+  return { kind: 'saved', ...data, ...(savedAt === undefined ? {} : { savedAt }) };
 }
 
 const remoteSettingsSchema = z.object({

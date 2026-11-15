@@ -125,6 +125,11 @@ it.each([
   expect(result.reason).toBe('linked');
   expect(result.next?.compendium?.rowKey).toBe(sourceName);
 });
+it('opens Exotic Class Items on the Exotic Class tab', () => {
+  expect(
+    compendiumPreferredTabs('armor-trait-exotic-class-item', 'Spirit of Inmost Light'),
+  ).toEqual(['20898389']);
+});
 it('keeps bounded name variants conservative and prioritizes armor sets over ordinary mods', () => {
   expect(compendiumPreferredTabs('armor-mod-general', 'Set Bonus: \nWild Anthem')).toEqual([
     '1287885342',

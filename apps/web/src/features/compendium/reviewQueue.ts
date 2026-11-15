@@ -1,5 +1,11 @@
 import { isSetSelector } from './itemClassification';
-import { resolveAlias, resolveCompendiumLink, type CompendiumData } from '@clarity/core';
+import {
+  isMovedInactive,
+  normaliseCompendiumEnglish,
+  resolveAlias,
+  resolveCompendiumLink,
+  type CompendiumData,
+} from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { itemFor, tooltipFor } from '../navigation/catalog';
@@ -20,6 +26,7 @@ export function reviewEvidence(
     .flatMap((hash) => {
       // Enhanced tooltips can own distinct text; aliases never own a link.
       if (hash <= 3 || resolveAlias(hash, editor.aliases) !== hash) return [];
+      if (isMovedInactive(hash, editor.bundle.inactiveMoves)) return [];
       const base = tooltipFor(hash, editor);
       if (base.archive) return [];
       const item = itemFor(hash, editor);
@@ -32,7 +39,7 @@ export function reviewEvidence(
         fingerprint,
         item?.name,
         item?.categoryId,
-        base.text.en,
+        base.text.en && { ...base.text.en, text: normaliseCompendiumEnglish(base.text.en.text) },
         base.compendium,
       ]);
       return [

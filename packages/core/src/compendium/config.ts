@@ -136,6 +136,7 @@ export const compendiumCategoryTabs: Record<string, string[]> = {
   'weapon-mod': ['1662574278'],
   'armor-set-bonus': ['1287885342'],
   'armor-trait-exotic': ['1500097863', '20898389'],
+  'armor-trait-exotic-class-item': ['20898389'],
   'armor-mod-general': ['1934379638', '1925335732'],
   'armor-mod-combat': ['1934379638', '1925335732'],
   'armor-mod-activity': ['1934379638', '1925335732'],

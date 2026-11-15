@@ -4,7 +4,12 @@ import { findConflictBlocks, type Tooltip } from '@clarity/core';
 import type { SaveConflict } from '../services/api';
 import type { Drafts } from '../services/draftStorage';
 import { editorData } from '../services/save/fixtures.testSupport';
-import { clearSavedOverlay } from './savedOverlay';
+import {
+  applySavedOverlay,
+  clearSavedOverlay,
+  overlayClockSkewMs,
+  overlayServerSkewMs,
+} from './savedOverlay';
 import {
   applyHeadToData,
   conflictsKey,
@@ -154,6 +159,60 @@ describe('conflict store', () => {
     expect(draft()).toBeUndefined();
     expect(bundle()).toBeUndefined();
     expect(useConflictStore.getState().sessions).toEqual({});
+  });
+
+  describe('server time of the rejected save', () => {
+    const deletion: SaveConflict = { hash: 123, base, head: null, next: mine, fields: ['$exists'] };
+    const at = (time: number) => new Date(time).toISOString();
+    /** A bundle that still has the pre-conflict text, built at `generatedAt`. */
+    const stale = (generatedAt: number) => ({
+      ...useDataStore.getState().data!.bundle,
+      generatedAt: at(generatedAt),
+      tooltips: { 123: base },
+    });
+    // Browser clock = server clock + skew: slow (-10) or fast (+10) by ten minutes.
+    it.each([-10, 10])(
+      'dates an adopted server version by server time with a %i minute browser skew',
+      (minutes) => {
+        const serverAt = Date.now() - minutes * 60 * 1000;
+        useConflictStore.getState().begin([textConflict], [], serverAt);
+        expect(useConflictStore.getState().sessions[123]?.serverAt).toBe(serverAt);
+        expect(applySavedOverlay(stale(serverAt + overlayServerSkewMs)).tooltips[123]).toEqual(
+          head,
+        );
+        const newer = stale(serverAt + overlayServerSkewMs + 1000);
+        expect(applySavedOverlay(newer)).toBe(newer);
+      },
+    );
+    it.each([-10, 10])(
+      'dates an accepted server deletion by server time, also after a reload (%i minute skew)',
+      (minutes) => {
+        const serverAt = Date.now() - minutes * 60 * 1000;
+        useConflictStore.getState().begin([deletion], [], serverAt);
+        expect(JSON.parse(memory.getItem(conflictSessionKey('1', 123))!).serverAt).toBe(serverAt);
+        // A reload restores the session from this device; the answer comes later.
+        stop();
+        useConflictStore = make();
+        stop = useConflictStore.getState().start();
+        useConflictStore.getState().choose(123, '$exists', 'theirs');
+        expect(bundle()).toBeUndefined();
+        expect(
+          applySavedOverlay(stale(serverAt + overlayServerSkewMs)).tooltips[123],
+        ).toBeUndefined();
+        const newer = stale(serverAt + overlayServerSkewMs + 1000);
+        expect(applySavedOverlay(newer)).toBe(newer);
+      },
+    );
+    it('falls back to the browser clock when the server sent no time', () => {
+      useConflictStore.getState().begin([textConflict]);
+      expect(useConflictStore.getState().sessions[123]).not.toHaveProperty('serverAt');
+      const now = Date.now();
+      expect(applySavedOverlay(stale(now + overlayClockSkewMs - 1000), now).tooltips[123]).toEqual(
+        head,
+      );
+      const newer = stale(now + overlayClockSkewMs + 1000);
+      expect(applySavedOverlay(newer, now)).toBe(newer);
+    });
   });
 
   it('handles a tooltip created on the server meanwhile', () => {

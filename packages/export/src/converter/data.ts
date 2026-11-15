@@ -114,7 +114,7 @@ export const classNameList = {
   withText: [...textColoring, 'background' as const, 'bold' as const],
   empty: [...images, ...empty],
   withExtraFunctionality: ['link' as const, 'title' as const, 'formula' as const],
-  extra: ['enhancedArrow' as const, 'spacer' as const],
+  extra: ['arrow' as const, 'enhancedArrow' as const, 'spacer' as const],
   table
 }
 

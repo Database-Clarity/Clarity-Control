@@ -12,6 +12,17 @@ text, set-selector items, and items classified Inactive & Placeholder. Rows are 
 English gap first, the same order as before), then missing in finder order (category order, then name), so
 a translator works through one category at a time. Categories use the finder's labels.
 
+Outdated rows also show the English words added plus removed since the translation's source
+revision (a replacement counts twice). Only visible rows load history, after a short scroll
+debounce, with two worker jobs at most; leaving view cancels them. History parsing and the exact
+word comparison run in workers. Successful counts are cached per device, keyed by hash, source
+revision, and current English text; unavailable history has a retry action. `?sort=small` puts
+known counts first, ascending, and unknown/missing rows last. The sort is preserved on return.
+The displayed order stays fixed as counts arrive: use Refresh order to apply newly learned
+sizes. Failed size cells offer their own retry without adding a toolbar row.
+Category choices include fully translated categories with a zero work count. Unknown category
+URLs stay scoped to zero rather than showing unrelated totals.
+
 State is in the URL: `?lang=` (default: the first available language, never written), `?cat=` (category id),
 `?q=` (name, hash, or category; typing is debounced into the URL) and `?state=outdated|missing`. Picking a
 language pushes history; filters replace. Translators see only their assigned languages and no coverage;
@@ -19,23 +30,28 @@ editors and maintainers see every language plus a coverage table (translated, ou
 picks the language: a side rail when the page has room, otherwise a "Coverage" popover. Its totals
 count only the selected category (labelled "<Category> only", otherwise "All categories"); counts are
 built once per language for every category, so switching the filter is a lookup. The Outdated and
-Missing buttons count the selected category too. Read-only: nothing
-is written, and roles are still enforced by the Worker.
+Missing counts agree with that scope. Maintainers can switch coverage to a dense category ×
+language matrix showing translated / outdated / missing, with horizontal scrolling inside the
+table on narrow screens. Editors keep the language view. This page does not change saved
+translations; only derived counts are cached, and roles are still enforced by the Worker.
 
 The list is virtualized (fixed rows, a bounded DOM window, one tab stop). Up and Down move the selection,
 Page Up, Page Down, Home, and End jump, Enter opens it, and Enter in the filter opens the first match. Back
 from the editor restores the language, filters, selection, and scroll position for that history entry.
 
-Queue mode: a row opens the editor with the view's filters in the history entry's state
-(`worklist.ts` `queueState`; the URL is unchanged, and reload, Back, and Forward keep it). With that
-state the editor's pane header shows `tooltip/QueueControl`: "Queue" (back to the same view), the
-position ("12 of 148"), and Previous/Next, also on Alt+PageUp and Alt+PageDown. Its list is
-`queueFor`, the same call the tab makes, read from the loaded data on every render: a saved
-translation leaves at once ("Done · 147 left") and Next goes to what followed it
-(`queuePlace.ts`); an empty list reads "Queue done". Previous and Next are plain links, so the
-leave guard, drafts, and conflicts apply as for any navigation. Another language, the finder, or a
-copied link is an ordinary visit without the control. A row for an enhanced version with text of
-its own opens on its base's page with `variant=` (a plain link would redirect to the base's text).
+Queue mode: a row (or Enter in the filter) starts a work-through queue of the rows shown, at that
+row, on the shared model in `features/queue` (frozen membership, session storage, the queue id in
+the history entry's state; the URL is unchanged, and reload, Back, and Forward keep it). The editor's
+pane header then shows the shared control: "Translations" (Leave: back to the same view, at the
+same row), the position ("12 of 148", a menu of every entry with Rebuild queue), and Previous/Next,
+also on Alt+PageUp and Alt+PageDown. An entry is done when its saved translation is current, the
+tab's own rule: a saved translation reads "Done · 147 left" at once and Next goes to what followed
+it; an entry that falls behind later does not join an open queue (Rebuild queue asks again). Next
+on the last entry ends the queue ("End · 2 skipped", Revisit). Previous and Next are plain links,
+so the leave guard, drafts, and conflicts apply as for any navigation. Another language, the
+finder, or a copied link is an ordinary visit (the control shows the queue paused, with Resume). A
+row for an enhanced version with text of its own opens on its base's page with `variant=` (a plain
+link would redirect to the base's text).
 
 On a non-English tooltip, outdated translations show English changes in the Source panel. A
 single toggle switches to current English and remembers the choice locally. Translators do not

@@ -47,6 +47,8 @@ function TitleAnchor({ part, id }: { part: MarkupSpan; id: string }) {
       onBlur={hide}
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || !box.current?.matches(':popover-open, [data-open]')) return;
+        // The term closes first; a host dialog would otherwise cancel on Escape's default action.
+        event.preventDefault();
         event.stopPropagation();
         hide();
       }}
@@ -69,6 +71,12 @@ function TitleAnchor({ part, id }: { part: MarkupSpan; id: string }) {
 export function PreviewSpan({ part }: { part: MarkupSpan }) {
   const id = useId();
   const link = part.link ? linkUrl(part.link) : undefined;
+  if (part.classNames?.includes('arrow'))
+    return (
+      <>
+        ⁠<span className={classNames(part.classNames)} aria-label="leads to" />⁠
+      </>
+    );
   return (
     <span className={classNames(part.classNames)}>
       {part.title ? (

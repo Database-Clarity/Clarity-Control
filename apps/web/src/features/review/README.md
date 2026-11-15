@@ -10,6 +10,10 @@ select. Only the open change requests history. Up/Down (outside controls), the l
 and the phone's ‹ › walk the shown rows without wrapping; Space includes the open change.
 
 Selection survives navigation, but only still-pending hashes are submitted.
+"Work through N selected" and "Work through all N shown" (under the filters) open those changes
+in the editor as a work-through queue (`features/queue`); a change counts as done once it is saved
+again. Leave comes back with the filters and open change, and picks the selection again only for
+rows still saved as they were when the queue began.
 Editors and maintainers may push any number at once (the Worker reads them in batches). "Push selected"
 first opens a confirmation listing every tooltip going live (Enter confirms, Esc cancels; a held key or a
 double-click cannot confirm twice). The request includes the

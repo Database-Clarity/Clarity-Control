@@ -1,9 +1,12 @@
-import { offersBaseEnhanced, type ScopedMarkupGlobals } from '../markupScope';
+import { offeredHere, type ScopedMarkupGlobals } from '../markupScope';
 import { type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
+  elementTagNames,
+  enhancedArrowMarkup,
   expandSnippet,
   extractVariables,
+  writeVariable,
   markupSnippets,
   markupSymbols,
   markupTags,
@@ -19,7 +22,7 @@ import {
   type Rejection,
 } from '../markupInsertion';
 import { insertItem } from '../suggest/state';
-import type { SuggestItem } from '../suggest/source';
+import { enhancedArrowSnippet as arrowSnippet, type SuggestItem } from '../suggest/source';
 
 /**
  * How an entry looks on its button. The row and the "All" popover draw the same glyphs, so what
@@ -114,7 +117,7 @@ export function templateItem(
     keys: '',
   };
   if (entry.plain) {
-    // Plain text that never replaces the selection (a `#e`): it goes in at the caret.
+    // Plain text that never replaces the selection (the arrow): it goes in at the caret.
     const expanded = expandSnippet(snippet, '');
     return {
       ...base,
@@ -159,7 +162,7 @@ function viaTemplate(
     help: snippet.help,
     ...entry,
     run(view, globals) {
-      if (entry.id === 'base-enhanced-pair' && !offersBaseEnhanced(globals)) return 'context';
+      if (!offeredHere(entry.id, globals)) return 'context';
       const blocked = guard(view);
       if (blocked) return blocked;
       const item = templateItem(view.state, {
@@ -187,16 +190,6 @@ const tagById = (id: string) => {
   const found = markupTags.find((tag) => tag.id === id);
   if (!found) throw new Error(`Missing tag ${id}`);
   return found;
-};
-/** The bare enhanced arrow: plain text written at the caret, never over the selection. */
-const arrowSnippet: Snippet = {
-  id: 'enhanced-arrow',
-  label: '#e',
-  group: 'Enhanced',
-  template: '#e',
-  keywords: 'enhanced arrow e gold up',
-  usage: /#e(?![a-zA-Z0-9])/,
-  about: 'The enhanced arrow, written #e.',
 };
 
 const sentence = (text: string) => text[0]!.toUpperCase() + text.slice(1);
@@ -257,7 +250,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
         glyph: { kind: 'icon', name: symbol.name },
         usage: symbol.usage,
         about: symbol.about,
-        help: { example: `<${symbol.name}/>` },
+        help: { example: symbol.name === 'arrow' ? '30%<arrow/>33%' : `<${symbol.name}/>` },
       }),
     ),
     viaTemplate(snippetById('icon-word'), {
@@ -273,12 +266,12 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
     viaTemplate(arrowSnippet, {
       id: 'enhanced-arrow',
       group: 'Enhanced',
-      label: 'Enhanced arrow (#e)',
-      markup: '#e',
+      label: 'Enhanced arrow',
+      markup: enhancedArrowMarkup,
       keys: 'enhanced arrow e gold up',
       glyph: { kind: 'arrow', text: '' },
-      about: 'The enhanced arrow, written #e.',
-      usage: /#e(?![a-zA-Z0-9])/,
+      about: arrowSnippet.about,
+      usage: arrowSnippet.usage,
       help: { block: 'enhanced' },
       plain: true,
     }),
@@ -296,9 +289,9 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       id: 'enhanced-formula',
       group: 'Enhanced',
       label: 'Base with enhanced bonus',
-      markup: '#e${base+#d}',
+      markup: '<enhanced/>${base+#{d}}',
       keys: snippetById('enhanced-formula').keywords,
-      glyph: { kind: 'arrow', text: '${X+#d}' },
+      glyph: { kind: 'arrow', text: '${X+#{d}}' },
       usage: snippetById('enhanced-formula').usage,
       about: snippetById('enhanced-formula').about,
     }),
@@ -386,14 +379,16 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
   const variables = { ...documentVariables, ...extractVariables(globals.variables) };
   for (const [name, value] of Object.entries(variables)) {
     const own = name in documentVariables;
+    // The global `e` is the enhanced arrow, offered as `<enhanced/>` behind the gate above.
+    if (name === 'e' && !own) continue;
     entries.push({
       id: `var:${name}`,
       group: own ? 'Variables' : 'Global variables',
       label: `#${name}`,
-      markup: `#${name}`,
+      markup: writeVariable(name),
       keys: value,
       glyph: { kind: 'mono', text: `#${name}` },
-      usage: new RegExp(`#${name}(?![a-zA-Z0-9])`),
+      usage: new RegExp(`#${name}(?![a-zA-Z0-9])|#\\{${name}\\}`),
       about: value
         ? `A variable: ${value.length > 60 ? `${value.slice(0, 59)}…` : value}`
         : 'A variable.',
@@ -408,7 +403,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
           about: '',
           from: main.from,
           to: main.to,
-          insert: `#${name}`,
+          insert: writeVariable(name),
           stops: [],
           preview: null,
           reference: true,
@@ -419,9 +414,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       },
     });
   }
-  return entries.filter(
-    (entry) => entry.id !== 'base-enhanced-pair' || offersBaseEnhanced(globals),
-  );
+  return entries.filter((entry) => offeredHere(entry.id, globals));
 }
 
 /** The popover's group order. */
@@ -447,15 +440,14 @@ export const rowOrder: readonly string[] = [
   'pvp',
   'pair',
   '|',
-  ...['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'].map(
-    (name) => `icon:${name}`,
-  ),
+  ...elementTagNames.map((name) => `icon:${name}`),
   '|',
   ...['primary', 'special', 'heavy'].map((name) => `icon:${name}`),
   '|',
   ...['barrier', 'overload', 'unstoppable'].map((name) => `icon:${name}`),
   '|',
   ...['warlock', 'hunter', 'titan'].map((name) => `icon:${name}`),
+  'icon:arrow',
   '|',
   'link',
   'title',
@@ -482,21 +474,45 @@ export function rowEntries(entries: readonly MarkupEntry[]): (MarkupEntry | type
 
 type RowItem = MarkupEntry | typeof rowSeparator;
 
+const elementIds = new Set(elementTagNames.map((name) => `icon:${name}`));
+
 /**
  * The docked bar's order while translating (a phone): the entries the English text uses come
  * first, by where each is first used (ties keep the row's order), then one separator and the rest
- * in the row's order. Without a source text the row's order is returned as it is.
+ * in the row's order. An element icon counts as used in its tagged form too (`<solar Scorch />`),
+ * and the seven element icons lead together, from the first one used, so tag mode finds them side
+ * by side. Without a source text the row's order is returned as it is.
  */
 export function leadEntries(items: readonly RowItem[], sourceText?: string): readonly RowItem[] {
   if (!sourceText) return items;
   const used: { entry: MarkupEntry; at: number; order: number }[] = [];
   items.forEach((item, order) => {
     if (item === rowSeparator || !item.usage) return;
-    const at = sourceText.search(new RegExp(item.usage.source, item.usage.flags.replace('g', '')));
+    let at = sourceText.search(new RegExp(item.usage.source, item.usage.flags.replace('g', '')));
+    if (elementIds.has(item.id)) {
+      const tagged = sourceText.indexOf(`<${item.id.slice('icon:'.length)} `);
+      if (tagged >= 0 && (at < 0 || tagged < at)) at = tagged;
+    }
     if (at >= 0) used.push({ entry: item, at, order });
   });
   if (!used.length) return items;
   used.sort((a, b) => a.at - b.at || a.order - b.order);
+  const firstElement = used.find((use) => elementIds.has(use.entry.id));
+  if (firstElement) {
+    // All seven right where the first element used sits, in the row's order.
+    const elements = items.flatMap((item, order) =>
+      item !== rowSeparator && elementIds.has(item.id)
+        ? [{ entry: item, at: firstElement.at, order }]
+        : [],
+    );
+    const others = used.filter((use) => !elementIds.has(use.entry.id));
+    const index = others.findIndex(
+      (use) =>
+        use.at > firstElement.at || (use.at === firstElement.at && use.order > firstElement.order),
+    );
+    used.splice(0, used.length, ...others);
+    used.splice(index < 0 ? used.length : index, 0, ...elements);
+  }
   const leading = new Set(used.map((use) => use.entry));
   const rest: RowItem[] = [];
   for (const item of items) {

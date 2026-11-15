@@ -7,6 +7,8 @@
  * Everything happens in one synchronous pass on open (one forced layout, no React render), and the
  * box touches its anchor so the pointer can travel into it without leaving the anchor.
  */
+import { viewportWidth } from '../../ui/anchorPlacement';
+
 const EDGE = 8;
 
 type PopoverElement = HTMLElement & { showPopover?(): void; hidePopover?(): void };
@@ -32,7 +34,11 @@ export function openTitlePopover(
       )) ||
     rects[0] ||
     anchor.getBoundingClientRect();
-  const { clientWidth: viewW, clientHeight: viewH } = document.documentElement;
+  // The width left of the reserved scrollbar gutter (the shared popover rule): a box over the
+  // gutter is clipped there, so cap and clamp by it to keep the edge inset and the right border.
+  const viewW = viewportWidth(),
+    viewH = document.documentElement.clientHeight;
+  box.style.maxWidth = `min(18.75rem, ${viewW - EDGE * 2}px)`;
   box.style.maxHeight = '';
   const width = box.offsetWidth;
   let height = box.offsetHeight;

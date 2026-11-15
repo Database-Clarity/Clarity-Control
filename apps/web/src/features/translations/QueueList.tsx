@@ -1,4 +1,11 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { flushSync } from 'react-dom';
 import { Link, useNavigationType } from 'react-router-dom';
 import { behindLabel, type QueueRow } from './queue';
@@ -26,31 +33,82 @@ export function stateText(row: QueueRow): string {
   return row.state === 'missing' ? 'Missing' : `Outdated · ${behindLabel(row.ageMs ?? 0)}`;
 }
 
+/** What a list row needs: its identity and name (the Current queue and the Upcoming view). */
+export interface ListRow {
+  key: string;
+  hash: number;
+  name: string;
+}
+
+/** The state cell of a row: its text, a data-state for colour, and an optional explanation. */
+export interface RowState {
+  text: string;
+  state: string;
+  title?: string;
+  exported?: boolean;
+}
+
+/** The Current queue's columns: category, then Missing or Outdated with the gap. */
+const queueRowState = (row: QueueRow): RowState => ({
+  text: stateText(row),
+  state: row.state,
+  exported: row.exportedInEnglish,
+  title: row.exportedInEnglish
+    ? 'More than 90 days behind English, so the exported text is English'
+    : undefined,
+});
+
 /**
  * Fixed-height rows in a bounded window: a few dozen DOM rows however long the queue. One tab
  * stop; arrows, Home, End and Page keys move the selection, Enter opens it.
  */
-export function QueueList({
+export function QueueList<Row extends ListRow = QueueRow>({
   rows,
   linkTo,
+  onOpen,
+  restored,
   label,
   signature,
+  secondary = (row) => (row as unknown as QueueRow).category,
+  rowState = (row) => queueRowState(row as unknown as QueueRow),
+  title = (row) => `${row.name} · ${row.hash}`,
+  extra,
+  onVisible,
 }: {
-  rows: readonly QueueRow[];
+  rows: readonly Row[];
   /** Where a row opens the editor, and the queue mode state that goes with it. */
-  linkTo(row: QueueRow): { to: string; state: unknown };
+  linkTo(row: Row): { to: string; state: unknown };
+  /** A plain click or Enter opens `row` in queue mode: the queue starts here (`top`: the scroll). */
+  onOpen?(row: Row, top: number): void;
+  /** The second column (default: the category). */
+  secondary?(row: Row): string;
+  /** The state column (default: the Current queue's Missing / Outdated). */
+  rowState?(row: Row): RowState;
+  /** The row's tooltip text (default: name and hash). */
+  title?(row: Row): string;
+  extra?(row: Row): ReactNode;
+  onVisible?(rows: readonly Row[]): void;
+  /** Leave from that queue: the position and row to come back to. */
+  restored?: { top: number; selected: string | null };
   label: string;
   /** What the rows are filtered by: a position is only restored for the same view. */
   signature: string;
 }) {
   const arrival = useNavigationType();
-  const saved = arrival === 'POP' ? memory.get(signature) : undefined;
+  const saved = restored ?? (arrival === 'POP' ? memory.get(signature) : undefined);
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
   const [selected, setSelected] = useState(() => {
     const index = saved?.selected ? rows.findIndex((row) => row.key === saved.selected) : -1;
     return Math.max(0, index);
   });
+  const previousRows = useRef(rows);
+  if (previousRows.current !== rows) {
+    const key = previousRows.current[selected]?.key;
+    previousRows.current = rows;
+    const next = key ? rows.findIndex((row) => row.key === key) : -1;
+    if (next >= 0 && next !== selected) setSelected(next);
+  }
   const [rowHeight, setRowHeight] = useState(defaultRowHeight);
   const [viewport, setViewport] = useState(() => ({
     top: saved?.top ?? 0,
@@ -59,7 +117,12 @@ export function QueueList({
   const observed = useRef({ rowHeight, viewport });
   observed.current = { rowHeight, viewport };
   // Coming back from the editor, focus returns to the row that was opened.
-  const focusAfterRender = useRef(!!saved?.selected && document.activeElement === document.body);
+  // Leave from the queue (`restored`) always does: its link still holds focus as the list mounts.
+  const focusAfterRender = useRef(
+    !!saved?.selected && (restored !== undefined || document.activeElement === document.body),
+  );
+  const focusFrame = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(focusFrame.current), []);
   const scrolled = useRef(saved?.top ?? 0);
 
   useLayoutEffect(() => {
@@ -114,6 +177,12 @@ export function QueueList({
   const total = rows.length;
   const start = Math.max(0, Math.floor(viewport.top / rowHeight) - overscan);
   const end = Math.min(total, Math.ceil((viewport.top + viewport.height) / rowHeight) + overscan);
+  const visibleStart = Math.max(0, Math.floor(viewport.top / rowHeight));
+  const visibleEnd = Math.min(total, Math.ceil((viewport.top + viewport.height) / rowHeight));
+  useEffect(() => {
+    onVisible?.(rows.slice(visibleStart, visibleEnd));
+    return () => onVisible?.([]);
+  }, [rows, visibleStart, visibleEnd, onVisible]);
   const indices: number[] = [];
   for (let index = start; index < end; index++) indices.push(index);
   // The selected row keeps its place in the tab order and focus, even when scrolled away.
@@ -123,9 +192,18 @@ export function QueueList({
   useLayoutEffect(() => {
     if (!focusAfterRender.current) return;
     focusAfterRender.current = false;
-    host.current
-      ?.querySelector<HTMLAnchorElement>(`[data-index="${kept}"] a`)
-      ?.focus({ preventScroll: true });
+    // The workspace can mount the list before it shows it (a hidden row takes no focus): try each
+    // frame (about three seconds at most) until focus holds, unless it went somewhere else.
+    let tries = 0;
+    const attempt = () => {
+      const active = document.activeElement;
+      if (tries > 0 && active && active !== document.body) return;
+      const row = host.current?.querySelector<HTMLAnchorElement>(`[data-index="${kept}"] a`);
+      row?.focus({ preventScroll: true });
+      if (row && document.activeElement === row) return;
+      if (++tries < 180) focusFrame.current = requestAnimationFrame(attempt);
+    };
+    attempt();
   });
 
   const move = (next: number) => {
@@ -191,10 +269,12 @@ export function QueueList({
         {indices.map((index) => {
           const row = rows[index]!;
           const isSelected = index === kept;
+          const shown = rowState(row);
           return (
             <li
               key={row.key}
               className={styles.row}
+              data-extra={extra ? '' : undefined}
               data-index={index}
               aria-posinset={index + 1}
               aria-setsize={total}
@@ -205,26 +285,36 @@ export function QueueList({
                 tabIndex={isSelected ? 0 : -1}
                 data-selected={isSelected ? '' : undefined}
                 data-perf-navigation="true"
-                title={`${row.name} · ${row.hash}`}
+                title={title(row)}
                 onFocus={() => setSelected(index)}
                 // Safari does not focus a link on click; the opened row is still the one to return to.
-                onClick={() => (opened.current = row.key)}
+                onClick={(event) => {
+                  opened.current = row.key;
+                  // A new tab or window (a modified click) is an ordinary visit.
+                  if (
+                    event.button === 0 &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  )
+                    onOpen?.(row, scrolled.current);
+                }}
               >
                 <span className={styles.name}>{row.name}</span>
-                <span className={styles.category}>{row.category}</span>
+                <span className={styles.category} title={secondary(row)}>
+                  {secondary(row)}
+                </span>
                 <span
                   className={styles.state}
-                  data-state={row.state}
-                  data-exported={row.exportedInEnglish ? '' : undefined}
-                  title={
-                    row.exportedInEnglish
-                      ? 'More than 90 days behind English, so the exported text is English'
-                      : undefined
-                  }
+                  data-state={shown.state}
+                  data-exported={shown.exported ? '' : undefined}
+                  title={shown.title}
                 >
-                  {stateText(row)}
+                  {shown.text}
                 </span>
               </Link>
+              {extra && <span className={styles.extra}>{extra(row)}</span>}
             </li>
           );
         })}

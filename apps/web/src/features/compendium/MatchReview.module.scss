@@ -46,7 +46,7 @@
   input:focus-visible,
   summary:focus-visible {
     outline: 2px solid var(--mr-focus);
-    outline-offset: 3px;
+    outline-offset: var(--focus-offset, 3px);
   }
   label {
     display: grid;
@@ -124,7 +124,7 @@
   }
   a:focus-visible {
     outline: 2px solid var(--mr-focus);
-    outline-offset: 2px;
+    outline-offset: var(--focus-offset, 2px);
   }
 }
 .help {

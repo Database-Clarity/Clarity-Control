@@ -1,6 +1,10 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 
+// The legacy /push-live exporter (switch OFF) under test; the checked-in switch is ON since
+// PUB-ENABLE, and these paths stay for the publisher rollback.
+vi.mock('../../../config/publisher.json', () => ({ default: { enabled: false } }));
+
 afterEach(() => vi.unstubAllGlobals());
 
 test('editor validation, Worker save, and push-live preserve prismatic markup', async () => {

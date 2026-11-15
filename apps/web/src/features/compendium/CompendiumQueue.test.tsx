@@ -3,6 +3,7 @@ import { act, createElement, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { CompendiumQueue } from './CompendiumQueue';
 import { useCompendiumQueueStore, emptyCounts } from './queueStore';
 import { buildQueue } from './queueView';
@@ -103,4 +104,37 @@ it('clicking a row selects it by replacing the route', async () => {
   expect(search.get('hash')).toBe('101');
   expect(search.has('tab')).toBe(false);
   expect(search.get('show')).toBe('all');
+});
+
+it('closes the phone sheet once a row is chosen, and keeps it for filters', async () => {
+  const close = vi.fn();
+  await act(async () =>
+    root.render(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/compendium'] },
+        createElement(
+          FinderSheetCloseContext.Provider,
+          { value: close },
+          createElement(Route),
+          createElement(CompendiumQueue),
+        ),
+      ),
+    ),
+  );
+  const input = host.querySelector<HTMLInputElement>('[data-compendium-search]')!;
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  await act(async () => {
+    set.call(input, 'Entry');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+  });
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => {
+    host.querySelectorAll<HTMLElement>('[role="treeitem"][aria-level="2"]')[2].click();
+  });
+  expect(close).toHaveBeenCalledTimes(1);
+  const search = new URLSearchParams(host.querySelector('[data-route]')!.textContent!);
+  expect(search.get('hash')).toBe('102');
+  expect(search.get('q')).toBe('Entry');
 });

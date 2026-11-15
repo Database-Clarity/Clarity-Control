@@ -1,5 +1,5 @@
 /**
- * Element-tagged text: `<solar Scorch />` is one of the six element icons wrapping plain text on
+ * Element-tagged text: `<solar Scorch />` is one of the seven element icons wrapping plain text on
  * one line. It renders as the icon followed by the text in the element tint. Its lowered form,
  * the format every consumer reads today, is `<solar/>Scorch`: the icon immediately followed by
  * the text, nothing added or removed.
@@ -8,7 +8,15 @@
  * of the form `<element TEXT />`, where TEXT is not blank and holds no `<`, `|`, `[`, or `]`.
  * Any other token keeps today's meaning (a standalone icon, or the stray-tag diagnostic).
  */
-export const elementTagNames = ['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand'] as const;
+export const elementTagNames = [
+  'kinetic',
+  'arc',
+  'solar',
+  'void',
+  'stasis',
+  'strand',
+  'prismatic',
+] as const;
 export type ElementTagName = (typeof elementTagNames)[number];
 
 /** The parser's inline token, one line at most (the same pattern `lines.ts` splits on). */
@@ -92,16 +100,6 @@ export function markElementTags(text: string): string {
     marked.set(text, result);
   }
   return result;
-}
-
-/**
- * A markup-only edit: element tags added, changed, or removed (`<solar/>Scorch` and
- * `<solar Scorch />`) while the lowered text, what every consumer reads, stays exactly the same.
- */
-export function isMarkupOnly(before: string | undefined, after: string): boolean {
-  return (
-    before !== undefined && before !== after && lowerElementTags(before) === lowerElementTags(after)
-  );
 }
 
 /** Whether the preview draws a tagged span's text in the element tint (see `unsafeTint`). */

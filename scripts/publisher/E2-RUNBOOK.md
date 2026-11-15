@@ -1,7 +1,8 @@
-# E2 operator runbook (P1-E1; writes remain disabled)
+# E2 operator runbook (P1-E1; writes enabled to converter-v2-test by PUB-ENABLE)
 
 Run from the Description-editor checkout. No command here enables the publisher transport.
-The single release switch is `config/publisher.json` (`enabled: false` checked in).
+The single release switch is `config/publisher.json` (`enabled: true` checked in since PUB-ENABLE,
+2026-11-14; LIVE_BRANCH stays converter-v2-test, so writes reach only that branch).
 Vite defines VITE_PUBLISHER_ENABLED from that file, overriding shell/.env values; the Worker
 imports the same file. Rebuild both artifacts from the SAME commit when changing it.
 OFF preserves legacy /push-live and rejects POST /publish and /publish/kick even with a key.
@@ -9,16 +10,31 @@ ON returns 410 for every /push-live request, before authentication/upstream I/O.
 Status/key remain read-only. P1-F adds the remote publishing transport, gated OFF. Enablement
 still requires its independent safety/integration reviews and every gate below. Installed
 dry-run workflows continue to simulate publication; changing the shared switch alone cannot publish.
+The built runtime bakes config/publisher.json in at build time (the enable build's publisher.mjs
+carries `enabled: true`). Enabling remote writes therefore needed a new template build and PIN from a
+commit whose config says `enabled: true`, reviewed and CI-gated on that exact tree, then a
+re-install of .publisher with `publishWritesEnabled: true` (`install.mjs --pipeline-publish`).
+With an older (enabled: false) build, `publishWritesEnabled: true` in the installed
+config throws "Remote publishing disabled by config", and a hand-edited publisher.mjs fails its PIN.
+
+Signing-key rotation must wait until pending requests and landed receipts have been recorded.
+Recovery verifies requester credits against the trusted public key and fingerprint; a mismatch
+halts recording. Retain the original trusted verification key for operator recovery, and never
+rewrite a published commit or infer author credits from an unsigned receipt field.
 
 ## Install dry-run pipeline (root operator in E2)
 
-Template source PIN: `a11aa9692419f565e02dde609e1f374d29b57343`.
-Expected publisher.mjs SHA-256: `45a203a0d307d4d87a3fcd7a5550830f9190030f1b9f549a0735c298ce829b8b`.
+Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precondition](README.md#arrow-symbol-rollout-precondition).
+While `config/inactive.json` is non-empty, never roll back to a PIN without `inactiveMoves`.
+
+Template source PIN: `00681cfc5655141e9b73928636f70c4a896a60e0`.
+Expected publisher.mjs SHA-256: `2592fc5d51565731db6b3cef077df771136931c1add263911d92302d4dd32a59`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
 rebuilding and re-pinning.
 The runtime also includes the current Link only guards and the set-bonus publication hold.
+Its bundle pushes carry the report catalogs forward; the pipeline's report-items jobs refresh them.
 
 1. Record current editor-data, editor-data-bundle and converter-v2-test SHAs. Verify Actions
    contents:write permission; forward-only/no-delete data/live rules; candidate ref permissions.
@@ -38,6 +54,9 @@ The runtime also includes the current Link only guards and the set-bonus publica
    The operator then commits and normally pushes ONLY editor-data after review. Neither script
    commits nor pushes. No workflow files are installed on production branches or this editor repo.
 5. Observe pipeline artifact result.json: dryRun:true, publishWritesEnabled:false, no errors.
+   Check the run's report-items and report-items-push jobs are green and editor-data-bundle
+   still holds report-items.json and report-items.worker.json, both with the bundle's
+   sourceCommit (a cold Worker /reports and the web Reports page load).
    Check real bundle sourceCommit is current data head and publishQueue contains only opId,
    requester numeric id/login, hash list and createdAt (invalid requests expose opId/invalid only).
    Confirm data/live/candidate refs have no simulated commits; requests remain pending by design.
@@ -123,3 +142,22 @@ secondary/stats, catalog facts and upload-stamp classes (B1/B2/B3/R1 remain owne
 parity.json reports controls and byte parity; it does NOT automatically approve consumer diffs.
 Review missing/new entries, translations, globals, ordering, and compendium/archive leakage.
 No unexplained difference is acceptable; retain all inputs, pins and output files in the E2 report.
+
+## Scheduled batches (P4; after phase-B step 4, with the enable build)
+
+The P4 runtime changes publisher.mjs, so its template is re-pinned at the P4 merge (after
+phase-B step 4) with a PIN declaring `["elementTags", "sandboxPointers", "scheduledBatches"]` (the enable build
+adds `"markupBraces"`)
+(the source and digest at the top of this runbook). It reaches editor-data only with the enable
+build (step 8) or a later re-install (owner gate G3). Before
+re-installing: no batch may be `publishing`, and no claimed due.json entry may exist. While the
+installed PIN lacks the capability, the Worker refuses to schedule, so no batch request can be
+waiting for a runtime that cannot drain it. First real batch (G4, converter-v2-test): after its
+RECORD, run parity.mjs on its receipt. Its tooltip blobs are the composed live snapshots, which
+RECORD commits to editor-data under live/tooltips. Then check batch.json `result` (landedAt and
+its source, recordedAt, and exportNow), that schedule/due.json is empty, and that there are no
+unexpected schedule/activation-conflicts files. Rollback: as for the publisher, but first
+unschedule every scheduled batch and let every `publishing` one finish. An older runtime REJECTS
+any pending batch request (it fails the push schema) without returning the batch to draft,
+which would leave batch.json naming a finished opId. A claimed batch with no receipt resumes only
+on a runtime with the capability.

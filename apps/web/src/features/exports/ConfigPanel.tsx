@@ -42,6 +42,7 @@ import {
   rowValue,
   ruleRows,
   setData,
+  setArrowFallback,
   setPreset,
   setRow,
   setShape,
@@ -90,7 +91,21 @@ export function ConfigPanel({
         onRenamed={onRenamed}
       />
       {isLegacyFile(file) ? (
-        <LegacyNote preset={file.preset} />
+        <>
+          <LegacyNote preset={file.preset} />
+          {file.preset === 'clarityV2' && (
+            <Section title="Format">
+              <Flag
+                label="Use → instead of the arrow symbol"
+                title="Export the portable → character instead of the arrow drawing."
+                checked={file.arrowFallback ?? false}
+                onChange={(fallback) =>
+                  update((current) => setArrowFallback(current, key, fallback))
+                }
+              />
+            </Section>
+          )}
+        </>
       ) : (
         <>
           <DataSection file={file} fileKey={key} update={update} />
@@ -433,6 +448,14 @@ function DataSection({
                 update((current) => setData(current, key, 'bungieIdentical', value))
               }
             />
+            <Flag
+              label="Feature showcase"
+              title="Add the built-in formatting example under reserved id -1"
+              checked={file.data.includeShowcase ?? false}
+              onChange={(value) =>
+                update((current) => setData(current, key, 'includeShowcase', value))
+              }
+            />
           </div>
         </div>
       </div>
@@ -563,6 +586,7 @@ const symbolLabels: Record<string, string> = {
   hunter: 'Hunter',
   titan: 'Titan',
   warlock: 'Warlock',
+  arrow: 'Arrow',
   enhancedArrow: 'Enhanced arrow',
   bold: 'Bold',
   yellow: 'Yellow',
@@ -656,7 +680,7 @@ function FormatSection({
             <FormatRowView
               key={row}
               row={row}
-              rule={rowValue(file.format, row)}
+              rule={rowValue(file.format, row, file.shape)}
               shape={file.shape}
               changed={rowChanged(file, row)}
               onSet={onSet}
@@ -674,7 +698,7 @@ function FormatSection({
             <FormatRowView
               key={row}
               row={row}
-              rule={rowValue(file.format, row)}
+              rule={rowValue(file.format, row, file.shape)}
               shape={file.shape}
               changed={rowChanged(file, row)}
               onSet={onSet}

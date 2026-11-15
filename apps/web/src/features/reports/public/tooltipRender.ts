@@ -1,4 +1,4 @@
-import { langSchema, type Lang } from '../../../../../../packages/core/src/languages';
+import { languages, type Lang } from '../../../../../../packages/core/src/languageCodes';
 import {
   displayRevision,
   displayText,
@@ -100,7 +100,9 @@ export async function loadReportRender(
 ): Promise<ReportRender | undefined> {
   const item = catalog.items[String(viewed)];
   if (!item || viewed <= 3) return undefined;
-  const seenLang = langSchema.safeParse(requestedLang).data ?? 'en';
+  const seenLang: Lang = (languages as readonly string[]).includes(requestedLang)
+    ? (requestedLang as Lang)
+    : 'en';
   const commit = catalog.sourceCommit;
   const override = /^override:(\d+)$/.exec(item.variant);
   const source = override ? Number(override[1]) : item.owner;

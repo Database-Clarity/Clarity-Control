@@ -95,9 +95,10 @@ it('opens on hover with that revision diffed against its predecessor, per langua
   await wait(260);
   expect(dialog()).not.toBeNull();
   // Revision 3 against revision 2: only " three" is new in English, " deux" in French.
-  expect(dialog()!.querySelector('ins')!.textContent).toBe(' three');
+  // The highlight starts on ink; the space stays with the unchanged text.
+  expect(dialog()!.querySelector('[data-rendered-body] ins')!.textContent).toBe('three');
   expect(dialog()!.textContent).not.toContain('French');
-  expect(dialog()!.querySelectorAll('ins')).toHaveLength(1);
+  expect(dialog()!.querySelectorAll('[data-rendered-body] ins')).toHaveLength(1);
   expect(dialog()!.querySelector('pre')).toBeNull();
   // The popover floats: it is not inside the list's flow.
   expect(dialog()!.style.left).not.toBe('');
@@ -321,6 +322,28 @@ it('shows restored and deleted revisions without retrying immutable file absence
   expect(getVersion.mock.calls.filter(([, sha]) => sha === id(2))).toHaveLength(1);
 });
 
+it('keeps the desktop fallback placement left of the reserved scrollbar gutter', async () => {
+  // A classic 15px scrollbar: innerWidth counts the gutter, the root's own box does not.
+  Object.defineProperty(document.documentElement, 'offsetWidth', {
+    value: window.innerWidth - 15,
+    configurable: true,
+  });
+  const row = entries()[0].parentElement!;
+  // An entry near the right edge: no room beside it, so the popover goes below, right-aligned.
+  const bounds = vi
+    .spyOn(row, 'getBoundingClientRect')
+    .mockReturnValue(new DOMRect(window.innerWidth - 424, 200, 400, 50));
+  try {
+    await act(async () => entries()[0].click());
+    const right = parseFloat(dialog()!.style.left) + parseFloat(dialog()!.style.width);
+    expect(dialog()!.style.top).toBe('254px');
+    expect(right).toBe(window.innerWidth - 15 - 8);
+  } finally {
+    bounds.mockRestore();
+    delete (document.documentElement as { offsetWidth?: number }).offsetWidth;
+  }
+});
+
 describe('phone placement', () => {
   let phone = true;
   const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 772, width: 390 });
@@ -434,9 +457,84 @@ it('bridges Tab into a portaled revision and Shift+Tab back to its trigger', asy
       new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
     ),
   );
-  await wait(30);
-  expect(document.activeElement?.textContent).toBe('Restore this revision');
+  // Focus enters the previous revision's last control on the frame after it renders; wait for
+  // that hand-off itself rather than a fixed delay (a slow runner can be later than 30 ms).
+  await act(async () =>
+    vi.waitFor(() => expect(document.activeElement?.textContent).toBe('Restore this revision')),
+  );
   expect(entries()[0].getAttribute('aria-expanded')).toBe('true');
+});
+
+/**
+ * Shows a tooltip whose revisions are not cached yet (revisions are cached per tooltip) and holds
+ * their loads until the returned release, so a revision has no controls when focus reaches it.
+ * Each caller passes its own hash: the cache outlives a test.
+ */
+async function holdRevisionLoads(hash: number) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  getVersion.mockImplementation(async (_hash: number, sha: string) => {
+    await gate;
+    return { commit: sha, tooltip: { ...versions[sha], hash } };
+  });
+  // Trailers classify the list without loading any revision.
+  getHistory.mockResolvedValue({
+    page: 1,
+    commits: [3, 2, 1].map((n) => ({
+      ...commit(n),
+      message: `Edit ${n}
+
+Clarity-Changed: ${hash}=en`,
+    })),
+  });
+  useDataStore.setState({
+    data: {
+      bundle: { tooltips: { 10: base, [hash]: { ...base, hash } } },
+      items: {},
+      aliases: {},
+      categories: [],
+    } as unknown as EditorData,
+  });
+  await act(async () => root.render(<HistoryPanel hash={hash} />));
+  await wait(410);
+  return release;
+}
+
+it('Shift+Tab into a revision that is still loading enters its last control once it loads', async () => {
+  const release = await holdRevisionLoads(12);
+  await act(async () => entries()[1].focus());
+  await act(async () =>
+    entries()[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  await wait(50);
+  expect(dialog()!.textContent).not.toContain('Restore this revision');
+  expect(document.activeElement).toBe(entries()[0]);
+  await act(async () => release());
+  await act(async () =>
+    vi.waitFor(() => expect(document.activeElement?.textContent).toBe('Restore this revision')),
+  );
+  expect(entries()[0].getAttribute('aria-expanded')).toBe('true');
+});
+
+it('drops a pending Shift+Tab hand-off when focus moves on before the revision loads', async () => {
+  const release = await holdRevisionLoads(13);
+  await act(async () => entries()[1].focus());
+  await act(async () =>
+    entries()[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(entries()[0]);
+  await act(async () => entries()[2].focus());
+  await act(async () => release());
+  await wait(50);
+  expect(document.activeElement).toBe(entries()[2]);
+  // A later keyboard open of the first revision does not jump into it either.
+  await act(async () => entries()[0].focus());
+  await wait(50);
+  expect(document.activeElement).toBe(entries()[0]);
 });
 
 it('focuses the restore confirmation and returns Cancel to Restore, keeping Escape usable', async () => {
@@ -460,4 +558,48 @@ it('focuses the restore confirmation and returns Cancel to Restore, keeping Esca
   );
   expect(dialog()).toBeNull();
   expect(document.activeElement).toBe(entries()[0]);
+});
+
+it('Esc on an open term inside the revision closes the term first, then the revision', async () => {
+  // Another tooltip: revisions are cached per tooltip, and this one's are not loaded yet.
+  const term = 'title Detail (\nA definition\n)\nSee <title Details [Detail] /> now';
+  const terms: Record<string, Tooltip> = {
+    [id(3)]: { ...revision(`${term} three`), hash: 11 },
+    [id(2)]: { ...revision(term), hash: 11 },
+    [id(1)]: { ...revision('one'), hash: 11 },
+  };
+  getVersion.mockImplementation((hash: number, sha: string) =>
+    Promise.resolve({ commit: sha, tooltip: (hash === 11 ? terms : versions)[sha] }),
+  );
+  useDataStore.setState({
+    data: {
+      bundle: { tooltips: { 10: base, 11: { ...base, hash: 11 } } },
+      items: {},
+      aliases: {},
+      categories: [],
+    } as unknown as EditorData,
+  });
+  await act(async () => root.render(<HistoryPanel hash={11} />));
+  await wait(410);
+  await act(async () => entries()[0].click());
+  const anchor = await vi.waitFor(() => {
+    const found = dialog()?.querySelector<HTMLElement>('[aria-describedby]');
+    if (!found) throw Error('No term in the rendered revision yet');
+    return found;
+  });
+  await act(async () => anchor.focus());
+  const box = document.getElementById(anchor.getAttribute('aria-describedby')!)!;
+  expect(box.hasAttribute('data-open')).toBe(true);
+  const escape = () =>
+    act(async () => {
+      anchor.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+  await escape();
+  // The term closed; the revision (its host) stays open.
+  expect(box.hasAttribute('data-open')).toBe(false);
+  expect(dialog()).not.toBeNull();
+  await escape();
+  expect(dialog()).toBeNull();
 });

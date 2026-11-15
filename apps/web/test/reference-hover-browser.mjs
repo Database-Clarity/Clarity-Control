@@ -1,11 +1,19 @@
 /* global document */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
+import { startHarnessServer } from './harness-server.mjs';
 
-// Run with the web dev server on 5237; all data is synthetic.
-const shots = 'D:/GitHub/Description-editor/.agents/reports/hover-globals-shots';
+// Starts its own server; all data is synthetic. Screenshots go to argv[2].
+const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/hover-globals-shots');
 await mkdir(shots, { recursive: true });
+const port = Number(process.env.REFERENCE_HOVER_PORT ?? 5237);
+const url = `http://127.0.0.1:${port}/test/reference-hover.html`;
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -16,7 +24,7 @@ try {
       viewport: { width: 900, height: 520 },
       colorScheme: scheme,
     });
-    await page.goto('http://127.0.0.1:5237/test/reference-hover.html');
+    await page.goto(url);
     await page.locator('.cm-content').waitFor();
     const hover = async (text, name) => {
       const box = await page.evaluate((needle) => {
@@ -78,4 +86,5 @@ try {
   console.log('reference hover browser checks passed');
 } finally {
   await browser.close();
+  await server.close();
 }

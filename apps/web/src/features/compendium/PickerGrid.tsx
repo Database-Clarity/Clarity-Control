@@ -7,6 +7,12 @@ import styles from './Compendium.module.scss';
 import gridStyles from './PickerGrid.module.scss';
 import { pickerBands, type PickerBand } from './pickerBands';
 
+/**
+ * Time a fill task may spend on render and layout before it stops growing its step. A
+ * Compendium burst allows 10 ms tasks at a 60 ms cadence; a step may overshoot by a row.
+ */
+const taskBudgetMs = 6;
+
 const GridBand = memo(function GridBand({
   tab,
   band,
@@ -61,56 +67,102 @@ export const PickerGrid = memo(function PickerGrid({
   const body = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const bands = useMemo(() => pickerBands(tab, firstRow, lastRow), [tab, firstRow, lastRow]);
-  const [state, setState] = useState({ bands, count: 1 });
-  if (state.bands !== bands) setState({ bands, count: 1 });
-  const count = state.bands === bands ? state.count : 1;
+  const [state, setState] = useState({ bands, count: 1, filled: bands.length < 2 });
+  // The height the region had before this window: a new window fills inside it, hidden,
+  // rather than collapsing to one band and growing back while the user watches.
+  const reserved = useRef<number | undefined>(undefined);
+  if (state.bands !== bands) setState({ bands, count: 1, filled: bands.length < 2 });
+  const current = state.bands === bands ? state : { bands, count: 1, filled: bands.length < 2 };
+  const { count, filled } = current;
   useEffect(() => {
-    if (bands.length < 2 || typeof ResizeObserver === 'undefined') {
-      setState({ bands, count: bands.length });
-      return;
-    }
+    if (bands.length < 2) return;
     let cancelled = false,
       frame = 0,
-      mounted = 1;
+      mounted = 1,
+      filling = true,
+      // Measured render + layout cost per sheet row (a row is hundreds of layout objects); the
+      // first measurement is the first band's layout, which also carries first-use font work.
+      perRow = 0,
+      lastStep = 0,
+      timer: ReturnType<typeof setTimeout> | undefined;
     const channel = new MessageChannel();
-    const schedule = () => {
-      if (cancelled || mounted >= bands.length) return;
-      frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(() => channel.port2.postMessage(null));
-      });
-    };
-    channel.port1.onmessage = () => {
-      if (cancelled || mounted >= bands.length) return;
-      setState({ bands, count: ++mounted });
-      schedule();
-    };
-    let contentHeight = 0,
-      viewportHeight = 0,
-      first = true;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === body.current) contentHeight = entry.contentRect.height;
-        if (entry.target === viewport.current) viewportHeight = entry.contentRect.height;
+    // Hidden steps follow each other at once (the reveal waits on them). Below the region,
+    // steps are timers: they queue behind timers other code set in the meantime (paint
+    // stamps that follow the reveal's frame, for one) instead of starving them.
+    const next = () =>
+      filling ? channel.port2.postMessage(null) : (timer = setTimeout(run, 0));
+    // Lays out what is mounted inside this task, never in the frame.
+    const layout = () => body.current?.getBoundingClientRect().height ?? 0;
+    const rows = (from: number, to: number) => bands[to - 1].last - bands[from].first + 1;
+    const run = () => {
+      if (cancelled) return;
+      const start = performance.now();
+      // The first task lays out the first band (mounted with the sheet) and nothing else.
+      const first = !perRow;
+      if (first) {
+        layout();
+        perRow = Math.max(performance.now() - start, 0.01) / rows(0, 1);
       }
-      if (!first || !contentHeight || !viewportHeight) return;
-      first = false;
-      observer.disconnect();
-      // Fill the pane before its first paint, using real band heights. Mounting
-      // the entire window here would turn a short first band into a full-grid
-      // layout. Only the minimum complete bands needed for overflow are urgent.
-      while (mounted < bands.length && contentHeight <= viewportHeight + 1) {
-        flushSync(() => setState({ bands, count: ++mounted }));
-        contentHeight = body.current!.getBoundingClientRect().height;
-        viewportHeight = viewport.current!.clientHeight;
+      for (let step = 0; ; step++) {
+        if (filling) {
+          // Hidden until the visible region is full; the reveal paints in its own frame.
+          const height = layout();
+          const available = viewport.current?.clientHeight ?? 0;
+          if (mounted >= bands.length || height > available + 1) {
+            filling = false;
+            flushSync(() => setState({ bands, count: mounted, filled: true }));
+            // Same task as the reveal: only the reservation changed since the last layout.
+            reserved.current = viewport.current?.clientHeight || undefined;
+            // The rest starts after the reveal's frame, registered after this commit's own
+            // observers so work that reacts to the reveal is not queued behind the fill.
+            if (mounted < bands.length)
+              queueMicrotask(() => {
+                if (!cancelled) frame = requestAnimationFrame(next);
+              });
+            return;
+          }
+        }
+        if (mounted >= bands.length) return;
+        // Add as many bands as the measured cost fits into this task's budget, so a fast
+        // machine finishes in a task or two. No frame waits between tasks: below the region
+        // nothing shows, and a frame still runs between tasks when one is due.
+        const left = taskBudgetMs - (performance.now() - start);
+        if (first && !step && left < perRow) {
+          // As before budgeting: the first task also mounts the second band; the next task's
+          // height read lays it out (an extra task here is an extra frame before the reveal).
+          lastStep = 1;
+          flushSync(() => setState({ bands, count: ++mounted, filled: false }));
+          return next();
+        }
+        if (step && left < perRow) return next();
+        // Steps keep their unbudgeted sizes (1, then 2 rows while hidden; about 3 rows below
+        // the region), so a slow machine takes no more steps than it did. While hidden, the
+        // budget only packs more steps into a task (each rechecks the height, so the reveal
+        // never waits on rows past the region); below it, steps grow, at most doubling, so
+        // one low measurement cannot mount the window at once.
+        const least = filling ? (lastStep ? 2 : 1) : 3;
+        let end = mounted + 1;
+        while (
+          end < bands.length &&
+          (rows(mounted, end) < least ||
+            (!filling && end - mounted < 2 * lastStep && rows(mounted, end + 1) * perRow <= left))
+        )
+          end++;
+        const added = rows(mounted, end);
+        const begun = performance.now();
+        lastStep = end - mounted;
+        mounted = end;
+        flushSync(() => setState({ bands, count: mounted, filled: !filling }));
+        layout();
+        perRow = Math.max(performance.now() - begun, 0.01) / added;
       }
-      schedule();
-    });
-    observer.observe(body.current!);
-    observer.observe(viewport.current!);
+    };
+    channel.port1.onmessage = run;
+    next();
     return () => {
       cancelled = true;
-      observer.disconnect();
       cancelAnimationFrame(frame);
+      clearTimeout(timer);
       channel.port1.close();
       channel.port2.close();
     };
@@ -185,6 +237,9 @@ export const PickerGrid = memo(function PickerGrid({
       aria-label="Sheet cells around the name anchor"
       data-grid-complete={count === bands.length}
       data-grid-bands={count}
+      data-grid-filling={!filled}
+      aria-busy={!filled}
+      style={filled ? undefined : { visibility: 'hidden', minHeight: reserved.current ?? '36rem' }}
       tabIndex={0}
     >
       <div ref={body} style={{ width: `${5 + columns * 14}rem` }}>

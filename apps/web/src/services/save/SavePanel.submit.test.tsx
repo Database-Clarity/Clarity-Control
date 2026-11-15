@@ -205,6 +205,25 @@ describe('SaveController save submission', () => {
       expect(mocks.save).toHaveBeenCalledTimes(1);
     });
 
+    it('dates the adopted server version by the server time of the rejected save', async () => {
+      // The browser clock is ten minutes slow: only server time keeps the stale-bundle guard.
+      const serverAt = Date.now() + 10 * 60 * 1000;
+      mocks.save.mockResolvedValueOnce({
+        kind: 'conflicts',
+        conflicts: [{ hash: 123, base, head, next: mine, fields: ['text.en'] }],
+        serverAt,
+      });
+      await act(async () => root.render(createElement(SaveController)));
+      await review();
+      expect(useConflictStore.getState().sessions[123]?.serverAt).toBe(serverAt);
+      const stale = {
+        ...useDataStore.getState().data!.bundle,
+        generatedAt: new Date(serverAt - 1000).toISOString(),
+        tooltips: { 123: base },
+      };
+      expect(applySavedOverlay(stale).tooltips[123]).toEqual(head);
+    });
+
     it('cannot be reviewed again until resolved, then saves on top of theirs', async () => {
       mocks.save.mockResolvedValueOnce({
         kind: 'conflicts',

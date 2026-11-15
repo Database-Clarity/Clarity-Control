@@ -153,20 +153,21 @@ export function isEnhancedPair(base: number, variant: number, data: EditorData):
 }
 
 /**
- * Enhanced weapon parts and enhanced origin traits pair with their base like enhanced perks (owner
- * 2026-11-09). The generator gives both the shared "Weapon Trait Enhanced" export type, so the type
- * rule above cannot see the pair; the category ids can. Enhanced weapon mods stay separate (owner).
+ * Enhanced parts, origin traits, and mods share the "Weapon Trait Enhanced" export type.
+ * Use their generator-linked base categories instead (mods can belong to parts too).
+ * The generator resolves name, plug category, and socket-context ambiguity; never infer a link here.
  */
-const enhancedCategoryPairs: Readonly<Record<string, string>> = {
-  'weapon-perk-enhanced': 'weapon-perk',
-  'weapon-trait-origin-enhanced': 'weapon-trait-origin',
+const enhancedCategoryPairs: Readonly<Record<string, readonly string[]>> = {
+  'weapon-perk-enhanced': ['weapon-perk'],
+  'weapon-trait-origin-enhanced': ['weapon-trait-origin'],
+  'weapon-mod-enhanced': ['weapon-mod', 'weapon-perk'],
 };
 function isEnhancedCategoryPair(base: number, variant: number, data: EditorData): boolean {
   const variantCategory = data.items[variant]?.categoryId;
   return (
     variantCategory !== undefined &&
     variantCategory in enhancedCategoryPairs &&
-    data.items[base]?.categoryId === enhancedCategoryPairs[variantCategory]
+    enhancedCategoryPairs[variantCategory]!.includes(data.items[base]?.categoryId ?? '')
   );
 }
 

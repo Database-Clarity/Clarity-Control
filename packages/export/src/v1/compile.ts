@@ -3,7 +3,14 @@
 // (buildLegacy) byte for byte. Everything else resolves each row exactly as the editor preview
 // does (core parseMarkup with the same globals), so base/enhanced pairs, imports, titles, and
 // math match the preview, then selects, transforms, and encodes.
+import {
+  showcaseGlobals,
+  showcaseId,
+  showcaseName,
+  showcaseText,
+} from '@clarity/core/markup/showcase';
 import { parseMarkup, type MarkupGlobals, type MarkupLine } from '@clarity/core/markup/parse';
+import { lowerConsumerMarkup } from '@clarity/core/markup/braces';
 import {
   expandAliases,
   isAliasStub,
@@ -109,7 +116,10 @@ export function compile(input: LegacyInput, file: ExportFile, options: CompileOp
   if (isLegacyFile(file)) {
     if (hasRawPair(input))
       throw new Error('Base/enhanced markup needs the new converter; legacy presets refuse it');
-    const bytes = buildLegacy(input, file.preset, { identical: options.identical });
+    const bytes = buildLegacy(input, file.preset, {
+      identical: options.identical,
+      arrowFallback: file.arrowFallback,
+    });
     return {
       stages: compileStages,
       ran: ['resolve', 'select-rows', 'references', 'serialise'],
@@ -238,6 +248,20 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
       if (lines) descriptions[language] = transform(lines, format, shape, notes);
     }
     expanded[hash] = { hash: Number(hash), ...picked.get(hash), descriptions };
+  }
+  if (data.includeShowcase) {
+    const descriptions: Descriptions = {};
+    // Match lowerInput's consumer representation, including its removal of preview-only tint.
+    const { lines, diagnostics } = parseMarkup(lowerConsumerMarkup(showcaseText), showcaseGlobals);
+    if (diagnostics.length) throw new Error('Invalid built-in showcase markup');
+    // English example in each selected language: self-contained, never translated by data.
+    for (const language of languages)
+      descriptions[language] = transform(lines, format, shape, notes);
+    expanded[showcaseId] = {
+      hash: Number(showcaseId),
+      ...(keys.includes('name') ? { name: showcaseName } : {}),
+      descriptions,
+    };
   }
   if (notes.unchosen.size)
     notices.push({ kind: 'unchosen-symbol', symbols: [...notes.unchosen].sort() });

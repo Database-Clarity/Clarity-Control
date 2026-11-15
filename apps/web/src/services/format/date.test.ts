@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DateSettings } from './date';
-import { exactDate, formatDate, unknownTime } from './date';
+import { exactDate, formatDate, unknownTime, zonedNotBefore } from './date';
 
 const iso = '2023-02-12T20:12:00Z';
 const settings = (
@@ -70,5 +70,24 @@ describe('formatDate', () => {
     for (const bad of ['not a date', '', undefined, null, NaN]) {
       expect(formatDate(bad, settings('dmy', 'datetime'))).toBe(unknownTime);
     }
+  });
+});
+
+describe('zonedNotBefore', () => {
+  const now = new Date('2026-11-14T00:00:00.000Z');
+  it('shows the device zone, then UTC', () => {
+    expect(zonedNotBefore('2026-12-03T16:00:00.000Z', now, 'Europe/Berlin')).toBe(
+      'Thu 3 Dec 17:00 · 16:00 UTC',
+    );
+    expect(zonedNotBefore('2026-12-03T16:00:00.000Z', now, 'UTC')).toBe('Thu 3 Dec 16:00 UTC');
+    expect(zonedNotBefore('2026-12-03T16:00:00.000Z', now, 'unknown')).toBe('Thu 3 Dec 16:00 UTC');
+  });
+  it('names the UTC day when it differs, and the year outside this one', () => {
+    expect(zonedNotBefore('2026-12-03T23:30:00.000Z', now, 'Asia/Tokyo')).toBe(
+      'Fri 4 Dec 08:30 · Thu 3 Dec 23:30 UTC',
+    );
+    expect(zonedNotBefore('2027-01-05T09:00:00.000Z', now, 'Europe/Berlin')).toBe(
+      'Tue 5 Jan 2027 10:00 · 09:00 UTC',
+    );
   });
 });

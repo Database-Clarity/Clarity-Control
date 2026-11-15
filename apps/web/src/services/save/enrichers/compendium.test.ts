@@ -1,6 +1,7 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CompendiumData, Tooltip } from '@clarity/core';
 import { compendiumEnricher } from './compendium';
+import { changedSources, linksCompendium } from '../compendiumSource';
 import { loadCompendium } from '../../compendium';
 vi.mock('../../compendium', () => ({ loadCompendium: vi.fn() }));
 const cell = { plain: 'current', runs: [{ text: 'current', color: '#6fa8dc' }] };
@@ -124,4 +125,56 @@ it('blocks similar renamed links on English save until the row is explicitly con
   await expect(
     compendiumEnricher({ before: linked, next: confirmed, compendium: renamed }),
   ).resolves.toMatchObject({ compendium: { rowKey: 'Renamed' } });
+});
+
+describe('tag-only English edits review nothing in the Compendium', () => {
+  const tagged = (text: string): Tooltip => ({
+    ...base,
+    text: { en: { ...base.text.en!, text } },
+  });
+  const plain = tagged('Burns with Scorch');
+  const old = tagged('Burns with <solar/>Scorch');
+  const inline = tagged('Burns with <solar Scorch />');
+  const changes = (before: Tooltip, next: Tooltip) => [{ hash: 123, base: before, next }];
+  // The cell moved and changed since the snapshot: only a real review may record it.
+  const fresh = data;
+
+  it.each([
+    ['adds a tag', old, inline],
+    ['removes a tag', inline, old],
+    [
+      'tags several spans',
+      tagged('<void/>Volatile and <solar/>Scorch'),
+      tagged('<void Volatile /> and <solar Scorch />'),
+    ],
+  ])(
+    '%s: keeps the snapshot, fetches nothing, and asks for no acknowledgement',
+    async (_, a, b) => {
+      expect(await compendiumEnricher({ before: a, next: b })).toBe(b);
+      expect(loadCompendium).not.toHaveBeenCalled();
+      expect(linksCompendium(changes(a, b))).toBe(false);
+      expect(changedSources(changes(a, b), null, fresh)).toEqual([]);
+    },
+  );
+
+  it.each([
+    ['a tag edit with a text change', old, tagged('Burns hotter with <solar Scorch />')],
+    // An inserted icon is new output for every consumer, not tagging.
+    ['an inserted icon', plain, old],
+  ])('still snapshots %s', async (_, before, edited) => {
+    vi.mocked(loadCompendium).mockResolvedValue(data);
+    const result = await compendiumEnricher({ before, next: edited });
+    expect(result.compendium).toMatchObject({ gid: '2', snapshot: cell });
+    expect(linksCompendium(changes(before, edited))).toBe(true);
+    expect(changedSources(changes(before, edited), null, fresh)).toEqual([
+      { hash: 123, shown: base.compendium!.snapshot, fresh: cell },
+    ]);
+  });
+
+  it('saves a tag-only edit on an unresolved link instead of asking to relink', async () => {
+    vi.mocked(loadCompendium).mockResolvedValue({ ...data, tabs: [] });
+    expect(await compendiumEnricher({ before: old, next: inline })).toBe(inline);
+    const edited = tagged('Burns hotter with <solar Scorch />');
+    await expect(compendiumEnricher({ before: old, next: edited })).rejects.toThrow('relinking');
+  });
 });

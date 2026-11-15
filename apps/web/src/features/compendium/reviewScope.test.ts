@@ -99,3 +99,22 @@ it('never puts an enhanced weapon part in scope', () => {
   entry.next.compendium = {} as NonNullable<typeof entry.next.compendium>;
   expect(classifyScope(entry, 'catalog:weapon-perk-enhanced')).toBeUndefined();
 });
+
+it('excludes only generator-paired enhanced mods, while preserving existing links', () => {
+  const f = guidedFixture();
+  const entry = f.categories[0].entries[0];
+  const mod = {
+    hash: entry.hash,
+    name: entry.name,
+    icon: '',
+    categoryId: 'weapon-mod-enhanced',
+    inGameDescription: '',
+    baseHash: 1,
+  };
+  entry.classification = classifyItem(mod);
+  expect(entry.classification).toMatchObject({ ruleId: 'enhanced-mod', excluded: true });
+  expect(classifyScope(entry, 'catalog:weapon-mod-enhanced')).toBe('enhanced-mod');
+  expect(classifyItem({ ...mod, baseHash: undefined })?.ruleId).not.toBe('enhanced-mod');
+  entry.next.compendium = {} as NonNullable<typeof entry.next.compendium>;
+  expect(classifyScope(entry, 'catalog:weapon-mod-enhanced')).toBeUndefined();
+});

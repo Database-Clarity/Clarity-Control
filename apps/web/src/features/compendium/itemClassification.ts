@@ -1,4 +1,5 @@
-import type { Tooltip } from '@clarity/core';
+import { isPairedEnhancedMod, type Tooltip, type InactiveMoves } from '@clarity/core';
+import { inactiveOverride } from './inactiveOverride';
 import type { Item, Category } from '../../services/generator';
 import { loadManifestFacts, type ManifestFacts } from './manifestFacts';
 import triage from './owner-triage.json';
@@ -206,7 +207,19 @@ export function inferItemClassification(
 }
 /** Enhanced weapon parts are edited with their base and never need a tooltip of their own (owner 2026-11-09). */
 export const enhancedPartCategory = 'weapon-perk-enhanced';
-export function classifyItem(item: Item, tooltip?: Tooltip): ItemClassification | undefined {
+export function classifyItem(
+  item: Item,
+  tooltip?: Tooltip,
+  moves?: InactiveMoves,
+): ItemClassification | undefined {
+  const inactive = inactiveOverride(item.hash, moves);
+  if (inactive) return inactive;
+  if (isPairedEnhancedMod(item))
+    return classification(
+      item.categoryId,
+      'enhanced-mod',
+      'Enhanced weapon mod: edited with its base; no tooltip of its own needed.',
+    );
   if (item.categoryId === enhancedPartCategory)
     return classification(
       enhancedPartCategory,

@@ -3,13 +3,20 @@ import { refuseHeldSetBonuses } from './setBonusHold.js';
 import { refuseTaggedEntries } from './elementTags.js';
 import { z } from 'zod';
 import {
-  publishableHash,
+  inactivePublishableHash,
+  inactiveMovesPath,
+  isMovedInactive,
+  selectedInactiveMoves,
+  exportWithInactiveMoves,
+  applyInactiveLive,
+  type InactiveMoves,
   isTextlessDescription,
-  exportLegacy,
+  mergeLivePerks,
   hashSchema,
   pushedSchema,
   tooltipSchema,
   resolveAlias,
+  sandboxPointersPath,
   type Aliases,
   type LegacyCatalog,
   type Permissions,
@@ -20,6 +27,8 @@ import { blobsPerQuery, RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
 import { stampUploads } from './stamp.js';
+import { pushSandboxPicks } from './sandboxPointers.js';
+import { storedInactiveMoves } from './inactiveMoves.js';
 import type { Identity } from './types.js';
 
 /**
@@ -49,7 +58,9 @@ const roles: Permissions['users'][string]['role'][] = ['maintainer', 'editor'];
 /**
  * Subrequests (Workers FREE plan: 50 per request; GitHub.subrequestLimit keeps two spare):
  *   token 1 + catalog 3 (once) +
- *   write live, per attempt: head 1, permissions 1*, tooltip batches ceil(n/500)*, globals 1*, marker 1*,
+ *   write live, per attempt: head 1, permissions 1*, tooltip batches ceil((n+1)/500)* (the +1 is
+ *     config/sandbox-pointers.json, read in the same batch), generator sandbox conflicts 1* only
+ *     when a pick points at a tooltip, globals 1*, marker 1*,
  *     live head 1, live file 2 (contents + blob, it is over 1 MB), PUT 1 = 8 + batches
  *   record, per attempt: head 1, permissions 1, live head 1, marker 1, commit 4 = 8
  * (* skipped when the data head did not move since the previous attempt). The total for a
@@ -58,11 +69,16 @@ const roles: Permissions['users'][string]['role'][] = ['maintainer', 'editor'];
  * retry that no longer fits stops before touching GitHub, so a push can never run the
  * platform out of subrequests halfway through (the dangerous point is after the live write).
  */
-const writeLiveCost = (batches: number) => 8 + batches;
+const writeLiveCost = (batches: number) => 9 + batches;
 const recordCost = 8;
 
 interface Loaded {
+  moves: InactiveMoves;
   head: string;
+  /** Generator aliases plus the sandbox picks at `head`: what this push's stubs and digests use. */
+  aliases: Aliases;
+  /** Every key the picks file names; the live merge recomputes their entries (mergeLivePerks). */
+  pickKeys: string[];
   config: Permissions;
   tooltips: Tooltip[];
   snapshots: Record<string, Tooltip>;
@@ -80,39 +96,57 @@ async function loadAtHead(
   expected: Record<string, string> | undefined,
 ): Promise<Loaded> {
   const files = await github.files(
-    canonicalHashes.map((hash) => `tooltips/${hash}.json`),
+    [
+      ...canonicalHashes.map((hash) => `tooltips/${hash}.json`),
+      sandboxPointersPath,
+      inactiveMovesPath,
+    ],
     head,
   );
+  // Sandbox picks join the generator aliases before any digest or stub (core mergeSandboxPointers).
+  const picks = await pushSandboxPicks(github, aliases, files[canonicalHashes.length]);
+  aliases = picks.aliases;
+  const moves = storedInactiveMoves(files[canonicalHashes.length + 1]);
   const tooltips: Tooltip[] = [];
   const snapshots: Record<string, Tooltip> = {};
   const exportedHashes: Record<string, string> = {};
   for (const [index, hash] of canonicalHashes.entries()) {
     const file = files[index];
-    if (!file) throw new HttpError(404, `Tooltip ${hash} does not exist`);
-    const tooltip = tooltipSchema.parse(file.value);
+    if (!file && !isMovedInactive(hash, moves))
+      throw new HttpError(404, `Tooltip ${hash} does not exist`);
+    const tooltip = tooltipSchema.parse(file?.value ?? { hash, text: {}, associated: [] });
     if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');
-    if (isTextlessDescription(tooltip))
+    if (!isMovedInactive(hash, moves) && isTextlessDescription(tooltip))
       throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
     tooltips.push(tooltip);
     snapshots[`live/tooltips/${hash}.json`] = tooltip;
-    exportedHashes[hash] = await publishableHash(tooltip, aliases);
+    exportedHashes[hash] = await inactivePublishableHash(tooltip, aliases, moves);
     if (expected && expected[hash] !== exportedHashes[hash]) {
       throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
     }
   }
-  for (const tooltip of tooltips) {
+  const active = tooltips.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
+  for (const tooltip of active) {
     if (!facts[tooltip.hash] && !tooltip.custom) {
       throw new HttpError(422, `Missing generator facts for tooltip ${tooltip.hash}`);
     }
   }
-  refuseHeldSetBonuses(tooltips, facts);
+  refuseHeldSetBonuses(active, facts);
   // Element-tagged text needs no hold here: exportLegacy lowers it to today's format, and the
   // export itself is checked below (refuseTaggedEntries) before anything is written.
-  await refuseBaseEnhanced(github, head, canonicalHashes, aliases, tooltips);
+  if (active.length)
+    await refuseBaseEnhanced(
+      github,
+      head,
+      active.map((t) => t.hash),
+      aliases,
+      active,
+    );
   // A malformed marker is reported by the marker step below; here it just means "all changed".
   const pushed =
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
-  return { head, config, tooltips, snapshots, exportedHashes, pushed };
+  const pickKeys = picks.keys;
+  return { head, aliases, moves, pickKeys, config, tooltips, snapshots, exportedHashes, pushed };
 }
 
 export async function pushLive(
@@ -127,7 +161,10 @@ export async function pushLive(
   let aliases: Aliases | undefined;
   let canonicalHashes: number[] = [];
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (github.remaining < writeLiveCost(Math.ceil(hashes.length / blobsPerQuery)) + recordCost) {
+    if (
+      github.remaining <
+      writeLiveCost(Math.ceil((hashes.length + 2) / blobsPerQuery)) + recordCost
+    ) {
       if (!attempt) {
         throw new HttpError(503, 'This push needs too many upstream requests; push fewer tooltips');
       }
@@ -162,15 +199,45 @@ export async function pushLive(
     const file = await github.requiredFile('liveDescriptions.json', liveHead);
     const live = liveSchema.parse(file.value);
     const now = Date.now();
-    const entries = exportLegacy(tooltips, now, facts, aliases);
+    let entries: ReturnType<typeof exportWithInactiveMoves>;
+    try {
+      entries = exportWithInactiveMoves(
+        tooltips,
+        now,
+        facts,
+        loaded.aliases,
+        selectedInactiveMoves(loaded.moves, canonicalHashes, loaded.aliases),
+      );
+    } catch (error) {
+      if (Object.keys(loaded.moves).length) throw new HttpError(422, String(error));
+      throw error;
+    }
     refuseTaggedEntries(entries);
     stampUploads(entries, changed, live.perks, now, user.login);
+    let perks: Record<string, unknown>;
+    try {
+      perks = applyInactiveLive(
+        mergeLivePerks(
+          live.perks,
+          entries,
+          loaded.pickKeys.length
+            ? { keys: loaded.pickKeys, aliases: loaded.aliases, catalog: facts }
+            : undefined,
+        ),
+        loaded.moves,
+        canonicalHashes,
+        loaded.aliases,
+        live.perks,
+      );
+    } catch (error) {
+      throw new HttpError(422, String(error));
+    }
     try {
       liveCommit = await github.putLive(
         file.sha,
         {
           ...live,
-          perks: { ...live.perks, ...entries },
+          perks,
         },
         user,
       );

@@ -128,7 +128,8 @@ export function reviewCategories(
         ? { setBonus: { setName: items[0].setName, pieceCount: items[0].pieceCount } }
         : {}),
       classification:
-        editor.items[entry.hash] && classifyItem(editor.items[entry.hash], entry.next),
+        editor.items[entry.hash] &&
+        classifyItem(editor.items[entry.hash], entry.next, editor.bundle.inactiveMoves),
       exoticParentNames: [
         ...new Set(
           items

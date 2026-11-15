@@ -1,4 +1,4 @@
-import { findElementTags, type Lang, type Tooltip } from '@clarity/core';
+import { elementTagNames, findElementTags, type Lang, type Tooltip } from '@clarity/core';
 
 export interface SourceHistory {
   getHistory(
@@ -51,7 +51,7 @@ export async function findTranslationSource(
 }
 
 /** A standalone element icon (`<solar/>`): what unwrapping a tag leaves behind. */
-const elementIcon = /<(?:kinetic|arc|solar|void|stasis|strand) ?\/>/;
+const elementIcon = new RegExp(`<(?:${elementTagNames.join('|')}) ?/>`);
 
 /**
  * What the translation pane's English diff compares, or nothing: an outdated translation, and a

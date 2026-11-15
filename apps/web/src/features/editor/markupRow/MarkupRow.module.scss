@@ -32,6 +32,18 @@
     border-top: 1px solid var(--editor-edge);
     border-bottom: 0;
   }
+
+  // Tag mode on the docked bar: "All" steps aside (Suggest lists every option too) so the seven
+  // element symbols fit whole at tap size on a 390px phone. An open All popover keeps its trigger.
+  &[data-docked][data-tag-wrap] .allButton:not([aria-expanded='true']) {
+    display: none;
+  }
+
+  // Paused read-only (another tab changed the drafts): the row keeps its place, so the text
+  // never moves, and its controls take the shared disabled dimming (it is inert meanwhile).
+  &[data-disabled] > * {
+    opacity: 0.45;
+  }
 }
 
 .scrollWrap {
@@ -63,6 +75,44 @@
   &[data-more-start]::before,
   &[data-more-end]::after {
     opacity: 1;
+  }
+
+  // The docked bar (a phone) is narrow: slimmer fades leave the seven element symbols of tag mode
+  // clear of them at 100%.
+  .row[data-docked] > & {
+    &::before,
+    &::after {
+      width: 0.75rem;
+    }
+    // A wider end fade, solid for its last quarter: a button cut by the pinned Suggest fades out
+    // as a whole instead of leaving a thin edge at full contrast (a sliver that reads as a stray
+    // strip). In tag mode it stays slim, clear of the seven element symbols, and its solid half
+    // hides the next button's edge just past them.
+    &::after {
+      width: 1.5rem;
+      background: linear-gradient(90deg, transparent, var(--editor) 75%);
+    }
+    // A symbol cut so that less than half of it shows (--cut-start/--cut-end, set by MarkupRow)
+    // would leave its accent outline just past the slim fade: the fade then widens over the
+    // whole sliver, opaque from 1px before the cut button's edge, so only the gap ramps.
+    &:has([data-wrap])::before {
+      --fade: max(0.75rem, calc(var(--cut-start, 0px) + 4px));
+      width: var(--fade);
+      background: linear-gradient(
+        270deg,
+        transparent,
+        var(--editor) min(100%, calc(var(--fade) - var(--cut-start, 0px) - 1px))
+      );
+    }
+    &:has([data-wrap])::after {
+      --fade: max(0.75rem, calc(var(--cut-end, 0px) + 4px));
+      width: var(--fade);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        var(--editor) min(50%, calc(var(--fade) - var(--cut-end, 0px) - 1px))
+      );
+    }
   }
 }
 

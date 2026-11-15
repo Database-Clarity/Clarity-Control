@@ -3,6 +3,7 @@ import { PublishHttpError, type RemoteStatus } from '../../services/publisher/ap
 import { createMemoryOpStore, type OpStore } from '../../services/publisher/opStore';
 import {
   PublishDriver,
+  publishChunks,
   publishTiming,
   usePublishState,
   type DriverDeps,
@@ -44,6 +45,7 @@ function harness(store = createMemoryOpStore()): Harness {
     make() {
       const tracked: OpStore = {
         ...store,
+        list: (userId) => store.list(userId),
         add: async (op) => {
           log.push('store.add');
           return store.add(op);
@@ -136,6 +138,151 @@ it('retries 5xx and 429 with backoff, but gives up on a definite rejection', asy
   await settle();
   expect(ops().find((o) => o.hashes[0] === 30)?.status).toBe('failed');
   expect(created.opId).not.toBe(ops()[1]!.opId);
+});
+
+it("PUBLISH-502: a Worker's own 502 shows its message, then fails once the Worker has no record", async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  h.api.post.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  h.api.status.mockResolvedValue('unknown');
+  const created = await driver.create(inputs);
+  await settle();
+  expect(op().status).toBe('created');
+  expect(usePublishState.getState().notes[created.opId]).toBe(
+    'Worker error (HTTP 502: GitHub batch read failed); retrying.',
+  );
+  expect(h.api.status).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(
+    publishTiming.sendBackoffMs(0) + publishTiming.sendBackoffMs(1) + 200,
+  );
+  expect(h.api.post).toHaveBeenCalledTimes(publishTiming.workerErrorAttempts);
+  expect(h.api.status).toHaveBeenCalledWith(created.opId);
+  expect(op().status).toBe('failed');
+  expect(op().error).toMatch(/HTTP 502: GitHub batch read failed.*holds no request/);
+  // Finished: no further resends.
+  await vi.advanceTimersByTimeAsync(300_000);
+  expect(h.api.post).toHaveBeenCalledTimes(publishTiming.workerErrorAttempts);
+});
+
+it('PUBLISH-502: a Worker 502 after a landed create adopts the pending request instead of failing', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  h.api.post.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  h.api.status.mockResolvedValue('pending');
+  await driver.create(inputs);
+  await settle();
+  await vi.advanceTimersByTimeAsync(
+    publishTiming.sendBackoffMs(0) + publishTiming.sendBackoffMs(1) + 200,
+  );
+  expect(op().status).toBe('pending');
+});
+
+/** Drives one operation to its third Worker 502, with the status lookup held open. */
+async function heldThirdAttempt(h: Harness, driver: PublishDriver) {
+  let answer!: (value: RemoteStatus | 'unknown') => void;
+  let refuse!: (reason: unknown) => void;
+  h.api.post.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  h.api.status.mockImplementation(
+    () =>
+      new Promise((resolve, reject) => {
+        answer = resolve;
+        refuse = reject;
+      }),
+  );
+  const created = await driver.create(inputs);
+  await vi.advanceTimersByTimeAsync(
+    publishTiming.sendBackoffMs(0) + publishTiming.sendBackoffMs(1) + 200,
+  );
+  expect(h.api.status).toHaveBeenCalledTimes(1);
+  return {
+    created,
+    answer: (v: RemoteStatus | 'unknown') => answer(v),
+    refuse: (r: unknown) => refuse(r),
+  };
+}
+
+it('PUBLISH-502: a status reply from before a same-account restart never settles the resent publish', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const held = await heldThirdAttempt(h, driver);
+  // A token refresh restarts the driver for the same account; its resend is accepted.
+  h.api.post.mockReset();
+  h.api.post.mockResolvedValue({ status: 'pending' as const });
+  h.api.status.mockReset();
+  h.api.status.mockResolvedValue('pending');
+  await driver.start('1');
+  await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 100);
+  expect(op().status).toBe('pending');
+  held.answer('unknown');
+  await settle();
+  expect(op().status).toBe('pending');
+  expect(h.store.records.get(held.created.opId)?.status).toBe('pending');
+});
+
+it('PUBLISH-502: a late "unknown" never fails a record another tab already stored as pending', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const held = await heldThirdAttempt(h, driver);
+  // Another tab's resend of the same opId landed and stored `pending`.
+  await h.store.update(held.created.opId, (op) => ({
+    ...op,
+    status: 'pending',
+    acceptedAt: Date.now(),
+  }));
+  h.api.status.mockReset();
+  h.api.status.mockResolvedValue('pending');
+  held.answer('unknown');
+  await settle();
+  expect(h.store.records.get(held.created.opId)?.status).toBe('pending');
+  expect(op().status).toBe('pending');
+  expect(op().error).toBeUndefined();
+});
+
+it('PUBLISH-502: a status reply from before an account switch has no effect on either account', async () => {
+  for (const outcome of ['unknown', 'done', 'pending', 'reject'] as const) {
+    const h = harness();
+    const driver = h.make();
+    await driver.start('1');
+    const held = await heldThirdAttempt(h, driver);
+    await driver.start('2');
+    if (outcome === 'reject') held.refuse(new PublishHttpError(502, 'late', true));
+    else held.answer(outcome);
+    await settle();
+    expect(h.acked, outcome).toEqual([]);
+    expect(usePublishState.getState().notes, outcome).toEqual({});
+    expect(usePublishState.getState().ops, outcome).toEqual([]);
+    expect(h.store.records.get(held.created.opId)?.status, outcome).toBe('created');
+    driver.stop();
+  }
+});
+
+it('PUBLISH-502: edge 5xx pages, Worker 503s, and an unreachable status check keep retrying', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  // An edge 502 page has no Worker message: still "busy", never failed by count.
+  h.api.post.mockRejectedValue(new PublishHttpError(502, '<html>Bad gateway</html>'));
+  const created = await driver.create(inputs);
+  await vi.advanceTimersByTimeAsync(200_000);
+  expect(op().status).toBe('created');
+  expect(usePublishState.getState().notes[created.opId]).toBe('Worker busy (HTTP 502); retrying.');
+  expect(h.api.status).not.toHaveBeenCalled();
+  // The Worker's 503 means "retry the same opId".
+  h.api.post.mockRejectedValue(new PublishHttpError(503, 'Publish create unresolved', true));
+  await vi.advanceTimersByTimeAsync(200_000);
+  expect(op().status).toBe('created');
+  expect(h.api.status).not.toHaveBeenCalled();
+  // A Worker 502 whose status check also fails cannot prove nothing was queued: keep retrying.
+  h.api.post.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  h.api.status.mockRejectedValue(new PublishHttpError(502, 'GitHub batch read failed', true));
+  await vi.advanceTimersByTimeAsync(200_000);
+  expect(h.api.status).toHaveBeenCalled();
+  expect(op().status).toBe('created');
+  expect(usePublishState.getState().notes[created.opId]).toMatch(/^Worker error \(HTTP 502/);
 });
 
 it('resumes a stored operation after a reload with the same opId and body', async () => {
@@ -551,18 +698,131 @@ it('persists every chunk before sending and reuses each identity after a lost re
   const saved = [...h.store.records.values()];
   expect(saved.map((entry) => entry.hashes.length)).toEqual([50, 50, 1]);
   expect(new Set(saved.map((entry) => entry.groupId)).size).toBe(1);
-  expect(h.api.post).toHaveBeenCalledTimes(3);
+  expect(h.api.post).toHaveBeenCalledTimes(1);
   first.stop();
   const second = h.make();
   h.api.post.mockRejectedValue(new Error('Still offline'));
   await second.start('1');
   await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 100);
-  for (const entry of saved) {
+  expect(new Set(h.api.post.mock.calls.map(([body]) => body.opId))).toEqual(
+    new Set([saved[0]!.opId]),
+  );
+  h.api.post.mockResolvedValue({ status: 'pending' });
+  await vi.advanceTimersByTimeAsync(70_000);
+  for (const entry of saved)
     expect(h.api.post).toHaveBeenCalledWith({
       opId: entry.opId,
       hashes: entry.hashes,
       expected: entry.expected,
     });
-  }
   expect([...h.store.records.keys()]).toEqual(saved.map((entry) => entry.opId));
+});
+
+it('keeps the Nail, Meet Hammer pending import closure together across the old 50 boundary', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const many = Array.from({ length: 50 }, (_, i) => ({
+    hash: i + 100,
+    digest: digest(1),
+    previous: undefined,
+  }));
+  await driver.create([
+    ...many,
+    { hash: 1209885908, digest: digest(2), previous: undefined, dependencies: [2152442764] },
+    { hash: 2152442764, digest: digest(3), previous: undefined },
+  ]);
+  await settle();
+  expect(ops().map((op) => op.hashes)).toEqual([many.map((x) => x.hash), [1209885908, 2152442764]]);
+});
+it('keeps transitive imports and cycles in one oversize closure, and refuses missing pending selections', () => {
+  const many = Array.from({ length: 60 }, (_, i) => ({
+    hash: i,
+    digest: digest(1),
+    previous: undefined,
+    dependencies: [(i + 1) % 60],
+  }));
+  expect(publishChunks(many).map((chunk) => chunk.length)).toEqual([60]);
+  expect(() => publishChunks(many.slice(0, 59))).toThrow(/Select pending imported tooltip 59/);
+});
+
+it('does not send later group chunks after a definite earlier POST failure, even after dismissal and reload', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  h.api.post.mockRejectedValue(new PublishHttpError(413, 'Too large'));
+  await first.create(
+    Array.from({ length: 51 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await settle();
+  const saved = [...h.store.records.values()];
+  expect(h.api.post).toHaveBeenCalledTimes(1);
+  expect(saved.map((entry) => entry.status)).toEqual(['failed', 'failed']);
+  expect(saved[1]!.error).toContain('Further sends of this chunk were stopped');
+  await first.dismiss(saved[0]!.opId);
+  first.stop();
+  const second = h.make();
+  await second.start('1');
+  await settle();
+  expect(h.api.post).toHaveBeenCalledTimes(1);
+});
+
+it('uses persisted chunk order rather than random ULID order after reloading an unsent group', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  h.api.post.mockRejectedValue(new Error('offline'));
+  await first.create(
+    Array.from({ length: 51 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await settle();
+  first.stop();
+  const saved = [...h.store.records.values()];
+  h.store.records.clear();
+  for (const [index, entry] of saved.entries()) {
+    entry.opId = entry.opId.slice(0, 10) + (index === 0 ? 'Z' : '0').repeat(16);
+    entry.groupId = 'reload-order';
+    h.store.records.set(entry.opId, entry);
+  }
+  const second = h.make();
+  h.api.post.mockRejectedValue(new Error('offline'));
+  await second.start('1');
+  await vi.advanceTimersByTimeAsync(publishTiming.foreignAttemptMs + 100);
+  expect(new Set(h.api.post.mock.calls.map(([body]) => body.hashes[0]))).toEqual(new Set([0]));
+});
+
+it('backs off a group acceptance check when browser storage cannot be read', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  h.api.post.mockRejectedValue(new Error('offline'));
+  await driver.create(
+    Array.from({ length: 51 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await settle();
+  const list = vi.spyOn(h.store, 'list').mockRejectedValue(new Error('storage unavailable'));
+  const posts = h.api.post.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(h.api.post).toHaveBeenCalledTimes(posts);
+  expect(list.mock.calls.length).toBeLessThan(20);
+});
+
+it('never sends an old account’s operation after switching accounts during the attempt write', async () => {
+  const h = harness();
+  const update = h.store.update;
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  h.store.update = async (opId, change) => {
+    await blocked;
+    return update(opId, change);
+  };
+  const driver = h.make();
+  await driver.start('1');
+  await driver.create(inputs);
+  await driver.start('2');
+  release();
+  await settle();
+  expect(h.api.post).not.toHaveBeenCalled();
 });

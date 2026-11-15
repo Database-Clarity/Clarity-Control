@@ -9,6 +9,7 @@ import { languageLabel } from '../../languageLabels';
 import { useDataStore } from '../../stores/data';
 import { When } from '../../ui/When';
 import { classifiedCategory, editorName, itemFor, previewPiece } from '../navigation/catalog';
+import { previewPieceIcon } from '../navigation/groupIcons';
 import { TooltipPreview } from '../preview';
 import type { Published } from './previewCore';
 import { recentPicks, rememberPick, TooltipSearch, type Pick } from './TooltipSearch';
@@ -146,6 +147,7 @@ export function TooltipsPage() {
                 lang={lang}
                 name={item ? editorName(item) : `Hash ${hash}`}
                 piece={item ? previewPiece(item) : undefined}
+                pieceIcon={item ? previewPieceIcon(item) : undefined}
                 icon={item?.icon}
                 categoryLabel={item && data ? classifiedCategory(item, data)?.label : undefined}
                 globals={typed!}

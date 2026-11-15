@@ -146,6 +146,10 @@
   // from Void (278); 5.7:1 on the preview, 4.8:1 in the editor
   --el-stasis: #8577ff;
   --el-strand: #35e366;
+  // Prismatic is the game's magenta-pink (hue 322), deeper than the PvP line salmon (0) and the pale
+  // purple tag (300) it can sit beside, and apart from Void (278); 7.6:1 on the preview, 6.4:1 in
+  // the editor
+  --el-prismatic: #f075c3;
   // Compendium review, picker and diff pages (dark = their former raw colours); --sheet-* sit on the always-dark sheet
   --mr-edge: #596478;
   --mr-edge-2: #66758b;
@@ -320,6 +324,9 @@
   // (280); 5.4:1 on the preview and in the editor
   --el-stasis: #5b4ff0;
   --el-strand: #147a33;
+  // Prismatic is raspberry (hue 330), apart from Void (280) and the PvP red; 6.8:1 on the preview
+  // and in the editor
+  --el-prismatic: #a32766;
   // Compendium review, picker and diff pages; --sheet-* sit on the always-dark sheet, so they keep their dark values
   --mr-edge: var(--ctl-edge);
   --mr-edge-2: var(--ctl-edge);

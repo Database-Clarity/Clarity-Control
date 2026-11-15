@@ -9,6 +9,7 @@ import { spawn, spawnSync, execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { maxBuffer } from '../childProcess.mjs';
 
 const WORKER = 'clarity-publisher-cpu-preview';
 const PACE_MS = 400;
@@ -35,7 +36,7 @@ const cases = process.argv[3]
 const wrangler = path.resolve('node_modules/wrangler/bin/wrangler.js');
 const cfJs =
   process.env.CF_CLI_JS ??
-  path.join(execSync('npm root -g', { encoding: 'utf8' }).trim(), 'cf', 'bin', 'cf');
+  path.join(execSync('npm root -g', { encoding: 'utf8', maxBuffer }).trim(), 'cf', 'bin', 'cf');
 if (!fs.existsSync(wrangler) || !fs.existsSync(cfJs)) throw Error('wrangler or cf CLI missing');
 const env = { ...process.env, WRANGLER_SEND_METRICS: 'false' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -51,7 +52,7 @@ function run(args, file, extraEnv = {}) {
     env: { ...env, ...extraEnv },
     encoding: 'utf8',
     windowsHide: true,
-    maxBuffer: 256 << 20,
+    maxBuffer,
   });
   fs.writeFileSync(file, `${r.stdout ?? ''}${r.stderr ?? ''}`);
   if (r.error || r.status !== 0) throw Error(`Command failed (${r.status}); see ${file}`);

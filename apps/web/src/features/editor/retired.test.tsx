@@ -22,7 +22,7 @@ let latest = '';
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  useSettingsStore.getState().updateDevice({ symbolReveal: 'popover' });
+  useSettingsStore.getState().update({ symbolReveal: 'popover' });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

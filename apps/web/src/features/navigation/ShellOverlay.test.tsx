@@ -59,6 +59,12 @@ async function key(target: Element, name: string, shiftKey = false) {
   await act(async () => void target.dispatchEvent(event));
   return event;
 }
+/** Past the deferred inert: the next animation frame, then a task after it. */
+const afterFrame = () =>
+  act(
+    async () =>
+      void (await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))),
+  );
 const marker = () =>
   [...document.querySelectorAll('[data-shell-overlay]')].map((e) =>
     e.getAttribute('data-shell-overlay'),
@@ -109,13 +115,62 @@ describe('ShellOverlay', () => {
     expect(document.activeElement).toBe(q('a-last'));
   });
 
-  it('makes the shell inert only while a modal overlay is open', async () => {
+  it('makes the shell inert only while a modal overlay is open, after its opening frame', async () => {
     await act(async () => root.render(<Pair />));
     const shell = document.getElementById('shell-root')!;
     await click(q('open-a'));
+    // Not in the opening commit (it would restyle the page inside the click); focus is in already.
+    expect(shell.hasAttribute('inert')).toBe(false);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Overlay A');
+    await afterFrame();
     expect(shell.hasAttribute('inert')).toBe(true);
     await key(document.activeElement!, 'Escape');
     expect(shell.hasAttribute('inert')).toBe(false);
+  });
+
+  it('a close before the deferred inert lands leaves the shell interactive', async () => {
+    await act(async () => root.render(<Pair />));
+    const shell = document.getElementById('shell-root')!;
+    await click(q('open-a'));
+    await key(document.activeElement!, 'Escape');
+    await afterFrame();
+    expect(shell.hasAttribute('inert')).toBe(false);
+  });
+
+  it('switching overlays before the deferral leaves one inert, removed on the last close', async () => {
+    await act(async () => root.render(<Pair />));
+    const shell = document.getElementById('shell-root')!;
+    await click(q('open-a'));
+    await click(q('open-b'));
+    expect(marker()).toEqual(['Overlay B']);
+    await afterFrame();
+    expect(shell.hasAttribute('inert')).toBe(true);
+    await key(document.activeElement!, 'Escape');
+    await afterFrame();
+    expect(shell.hasAttribute('inert')).toBe(false);
+  });
+
+  it('keeps an inert another owner set before it opened', async () => {
+    await act(async () => root.render(<Pair />));
+    const shell = document.getElementById('shell-root')!;
+    shell.setAttribute('inert', 'other');
+    await act(async () => q('open-a').click());
+    await afterFrame();
+    await key(document.activeElement!, 'Escape');
+    await afterFrame();
+    expect(shell.getAttribute('inert')).toBe('other');
+  });
+
+  it('keeps Tab inside during the opening frame, before the shell is inert', async () => {
+    await act(async () => root.render(<Pair />));
+    const shell = document.getElementById('shell-root')!;
+    await click(q('open-a'));
+    expect(shell.hasAttribute('inert')).toBe(false);
+    q('a-last').focus();
+    expect((await key(q('a-last'), 'Tab')).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(q('a-first'));
+    expect((await key(q('a-first'), 'Tab', true)).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(q('a-last'));
   });
 
   it('a menu (non-modal) leaves the page interactive and closes when Tab leaves it', async () => {

@@ -259,6 +259,56 @@ it('hides selectors from review worklists without deleting their tooltip records
   expect(JSON.stringify(editor)).toBe(before);
 });
 
+it('hides inactive unlinked, repair, and saved-link rows, then restores their unchanged evidence and links', () => {
+  const original = reviewEvidence(editor, source, {}, fingerprint);
+  const progress = emptyProgress();
+  progress.decisions[104] = {
+    kind: 'open',
+    fingerprint: original.find((entry) => entry.hash === 104)!.evidence,
+  };
+  const saved = JSON.stringify(editor.bundle.tooltips);
+  const link = editor.bundle.tooltips[104].compendium;
+  const stamp = { by: 1, at: '2026-11-14T00:00:00Z' };
+  editor.bundle.inactiveMoves = { 100: stamp, 103: stamp, 104: stamp };
+  expect(reviewEvidence(editor, source, {}, fingerprint).map((entry) => entry.hash)).not.toEqual(
+    expect.arrayContaining([100, 103, 104]),
+  );
+  for (const hash of [100, 103, 104]) {
+    expect(
+      reviewEvidence(editor, source, {}, fingerprint).some((entry) => entry.hash === hash),
+    ).toBe(false);
+    expect(
+      reviewQueue(editor, source, {}, progress, fingerprint).some((entry) => entry.hash === hash),
+    ).toBe(false);
+  }
+  expect(JSON.stringify(editor.bundle.tooltips)).toBe(saved);
+  editor.bundle.inactiveMoves = Object.fromEntries(
+    [100, 103, 104].map((hash) => [hash, { ...stamp, inactive: false as const }]),
+  );
+  const restored = reviewEvidence(editor, source, {}, fingerprint);
+  expect(restored).toEqual(original);
+  expect(editor.bundle.tooltips[104].compendium).toBe(link);
+  const queue = reviewQueue(editor, source, {}, progress, fingerprint);
+  expect(queue.find((entry) => entry.hash === 100)?.reason).toBe('Unlinked');
+  expect(queue.find((entry) => entry.hash === 103)?.reason).toBe('Needs repair');
+  expect(queue.find((entry) => entry.hash === 104)?.status).toBe('saved');
+});
+
+it('preserves the shared English-equivalence helper across an inactive round trip', () => {
+  editor.bundle.tooltips[100].text.en!.text = '#e4 damage';
+  const old = reviewEvidence(editor, source, {}, fingerprint).find((entry) => entry.hash === 100)!;
+  const stamp = { by: 1, at: '2026-11-14T00:00:00Z' };
+  editor.bundle.inactiveMoves = { 100: stamp };
+  editor.bundle.tooltips[100].text.en!.text = '<enhanced/>4 damage';
+  expect(reviewEvidence(editor, source, {}, fingerprint).some((entry) => entry.hash === 100)).toBe(
+    false,
+  );
+  editor.bundle.inactiveMoves = { 100: { ...stamp, inactive: false } };
+  expect(
+    reviewEvidence(editor, source, {}, fingerprint).find((entry) => entry.hash === 100)!.evidence,
+  ).toBe(old.evidence);
+});
+
 it('keeps a similar rename in the repair queue until explicitly confirmed', () => {
   const base = editor.bundle.tooltips[104];
   base.compendium = {

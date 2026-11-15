@@ -1,3 +1,8 @@
+import {
+  buildLegacy,
+  deployedLegacyPresets,
+  type LegacyInput,
+} from '../../packages/export/src/legacy.js';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import {
   stableStringify,
@@ -5,24 +10,71 @@ import {
   isHeldSetBonus,
   setBonusHoldMessage,
   publishPayloadSchema,
-  publishIntentDigest,
+  parsePublishRequestPayload,
+  publishRequestIntentDigest,
   publishMonth,
   publishOpIdSchema,
   exportLegacy,
+  exportWithInactiveMoves,
+  applyInactiveLive,
+  inactiveMovesPath,
+  inactiveMovesSchema,
+  inactivePublishableHash,
+  hasUnpublishedInactiveMove,
+  unreviewedInactiveMessage,
+  isMovedInactive,
+  selectedInactiveMoves,
+  type InactiveMoves,
+  mergeLivePerks,
   findElementTags,
+  enhancedArrowMarkup,
   isTextlessDescription,
-  publishableHash,
   tooltipSchema,
   permissionsSchema,
   pushedSchema,
   resolveAlias,
+  mergeSandboxPointers,
+  sandboxPointersPath,
+  sandboxPointersSchema,
   type PublishPayload,
+  type PublishRequestPayload,
   type Aliases,
+  type SandboxConflicts,
   type LegacyCatalog,
   type Tooltip,
 } from '../../packages/core/src/index.js';
+import {
+  activate,
+  activationConflictSchema,
+  boundTranslationSources,
+  approvedDigest,
+  batchPublishPayloadSchema,
+  batchSchema,
+  compose,
+  schedulePaths,
+  withField,
+  type BatchMember,
+  type BatchPublishPayload,
+} from '@clarity/core/schedule';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
-import { RefRace, type Repository, type Tree } from './git.js';
+import {
+  appCredits,
+  requesterCredits,
+  RefRace,
+  type CommitCredits,
+  type Repository,
+  type Tree,
+} from './git.js';
+import {
+  batchMembers,
+  editDue,
+  editIndex,
+  iso,
+  resolveActivationMessage,
+  supersededMessage,
+  unpublishedMessage,
+  withEvent,
+} from './batch.js';
 import { setTimeout } from 'node:timers/promises';
 
 // Five unresolved retries total ~2.5 min. Simulator fixtures inject a no-wait backoff.
@@ -30,7 +82,12 @@ export const publishBackoff = () => setTimeout(30_000);
 
 const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
 
-/** The first exported hash whose strings still hold an element-tagged span or a preview marker. */
+/**
+ * The first exported hash whose strings still hold an authoring form that exportLegacy lowers: an
+ * element-tagged span or a preview marker, or a delimited variable or the arrow symbol (`#{`,
+ * `<enhanced/>`; capability markupBraces). Fail closed: today's apps would drop the text or print
+ * the markup. Any `#{` counts, braced name or not (real data has none).
+ */
 export function unloweredEntry(entries: Record<string, unknown>): string | undefined {
   const strings = (value: unknown): string[] =>
     typeof value === 'string'
@@ -38,9 +95,13 @@ export function unloweredEntry(entries: Record<string, unknown>): string | undef
       : value && typeof value === 'object'
         ? Object.values(value).flatMap(strings)
         : [];
+  const unlowered = (text: string) =>
+    /[\uE000\uE001]/.test(text) ||
+    findElementTags(text).length > 0 ||
+    text.includes('#{') ||
+    text.includes(enhancedArrowMarkup);
   for (const [hash, entry] of Object.entries(entries))
-    if (strings(entry).some((text) => /[\uE000\uE001]/.test(text) || findElementTags(text).length))
-      return hash;
+    if (strings(entry).some(unlowered)) return hash;
   return undefined;
 }
 const dataRef = (branch: string) => `refs/heads/${branch}`;
@@ -74,7 +135,28 @@ export interface Receipt {
   changed: number[];
   requester: PublishPayload['requester'];
   intentDigest: string;
+  /** Batch operations only (spec "Data model"); sourceCommit is then the claim commit S'. */
+  batchId?: string;
+  contentRevision?: number;
 }
+/** When the live write was confirmed by this run's CAS, or first observed after an ambiguity (R8). */
+export interface Landing {
+  at: number;
+  source: 'cas' | 'observed';
+}
+type Failure = { status: 'stale' | 'rejected' | 'superseded'; error?: string; outcomes?: unknown };
+/** A pending request as the queue orders it, read WITHOUT verification (ordering only). */
+type QueueEntry =
+  | { opId: string; kind: 'push'; createdAt?: number; payload?: PublishPayload }
+  | {
+      opId: string;
+      kind: 'batch';
+      key: number;
+      due: boolean;
+      /** batch.json at the head is publishing under this opId (a claim whose run died). */
+      claimed: boolean;
+      payload: BatchPublishPayload;
+    };
 export interface Options {
   repo: string;
   dataBranch: string;
@@ -84,12 +166,31 @@ export interface Options {
   publisherSha: string;
   generatorSha: string;
   aliases: Aliases;
+  /**
+   * The generator's sandboxConflicts.json at `generatorSha`, like `aliases`. Maintainer picks in
+   * the data branch's config/sandbox-pointers.json join the aliases only through it (PIN capability
+   * `sandboxPointers`); without it no pick applies, so stale reviews are refused, never mis-exported.
+   */
+  sandboxConflicts?: SandboxConflicts;
   facts: LegacyCatalog;
   now: () => number;
   runUrl: string;
   backoff?: (attempt: number) => Promise<void>;
 }
+export class ConsumerOutputRejected extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConsumerOutputRejected';
+  }
+}
+export class TextlessConsumerOutput extends ConsumerOutputRejected {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TextlessConsumerOutput';
+  }
+}
 export class Publisher {
+  private readonly checkedOutputs = new Set<string>();
   constructor(
     readonly git: Repository,
     readonly options: Options,
@@ -102,12 +203,54 @@ export class Publisher {
   read<T>(tree: Tree, path: string): T | undefined {
     return tree[path] ? (JSON.parse(this.git.blob(tree[path])) as T) : undefined;
   }
+  writeBlob(bytes: string) {
+    return this.git.writeBlob(bytes);
+  }
+  /**
+   * Generator aliases plus the maintainer sandbox picks at this snapshot (core mergeSandboxPointers,
+   * the same merge as the Worker and the editor). A malformed picks file throws: fail closed.
+   */
+  aliasesAt(tree: Tree): Aliases {
+    const raw = this.read<unknown>(tree, sandboxPointersPath);
+    if (raw === undefined) return this.options.aliases;
+    const pointers = sandboxPointersSchema.parse(raw);
+    return mergeSandboxPointers(
+      this.options.aliases,
+      this.options.sandboxConflicts ?? {},
+      pointers,
+    );
+  }
+  movesAt(tree: Tree): InactiveMoves {
+    try {
+      return inactiveMovesSchema.parse(
+        tree[inactiveMovesPath] ? this.read<unknown>(tree, inactiveMovesPath) : {},
+      );
+    } catch {
+      throw new ConsumerOutputRejected(`Invalid ${inactiveMovesPath}`);
+    }
+  }
+  /**
+   * The live-merge recompute for a publish from this snapshot (core mergeLivePerks): every key the
+   * picks file names, with the same merged aliases the export used. No picks file: none (v2).
+   */
+  pickRecomputeAt(tree: Tree) {
+    const raw = this.read<unknown>(tree, sandboxPointersPath);
+    if (raw === undefined) return undefined;
+    const keys = Object.keys(sandboxPointersSchema.parse(raw).pointers);
+    return keys.length
+      ? { keys, aliases: this.aliasesAt(tree), catalog: this.options.facts }
+      : undefined;
+  }
   /** Check direct association targets at the drain snapshot, without walking their drafts. */
-  checkAssociatedDescriptions(tree: Tree, tooltips: readonly Tooltip[]): void {
+  checkAssociatedDescriptions(
+    tree: Tree,
+    tooltips: readonly Tooltip[],
+    aliases: Aliases = this.options.aliases,
+  ): void {
     const known = new Map(tooltips.map((tooltip) => [tooltip.hash, tooltip]));
     for (const tooltip of tooltips) {
       for (const reference of tooltip.associated) {
-        const hash = resolveAlias(reference, this.options.aliases);
+        const hash = resolveAlias(reference, aliases);
         let target = known.get(hash);
         if (!target) {
           const value = this.read<unknown>(tree, `tooltips/${hash}.json`);
@@ -121,20 +264,98 @@ export class Publisher {
       }
     }
   }
-  queue(head: string): string[] {
+  /** Every pending request in git addition order, classified for ordering (unverified). */
+  pendingRequests(head: string): QueueEntry[] {
+    const tree = this.git.tree(head);
     const pending = new Set(
-      Object.keys(this.git.tree(head)).filter((p) =>
+      Object.keys(tree).filter((p) =>
         /^publish\/requests\/[0-7][0-9A-HJKMNP-TV-Z]{25}\.json$/.test(p),
       ),
     );
     const added = new Map<string, number>();
     for (const [i, entry] of this.git.additions(head, 'publish/requests/').entries())
       if (pending.has(entry.path)) added.set(entry.path, i);
+    const now = this.options.now();
     return [...pending]
       .sort((a, b) => added.get(a)! - added.get(b)! || a.localeCompare(b))
-      .map((p) => p.slice(17, -5));
+      .map((p): QueueEntry => {
+        const opId = p.slice(17, -5);
+        let value: unknown;
+        try {
+          value = JSON.parse(this.read<{ payload: string }>(tree, p)!.payload);
+        } catch {
+          return { opId, kind: 'push' };
+        }
+        const batch = batchPublishPayloadSchema.safeParse(value);
+        if (batch.success) {
+          const notBefore = Date.parse(batch.data.notBefore);
+          const stored = batchSchema.safeParse(
+            this.read<unknown>(tree, schedulePaths.batch(batch.data.batchId)),
+          ).data;
+          return {
+            opId,
+            kind: 'batch',
+            key: Math.max(notBefore, Date.parse(batch.data.createdAt)),
+            due: notBefore <= now,
+            claimed:
+              stored?.status === 'publishing' &&
+              stored.opId === opId &&
+              stored.claim?.opId === opId,
+            payload: batch.data,
+          };
+        }
+        const push = publishPayloadSchema.safeParse(value);
+        return push.success
+          ? { opId, kind: 'push', createdAt: Date.parse(push.data.createdAt), payload: push.data }
+          : { opId, kind: 'push' };
+      });
   }
-  async verifyRequest(blob: string, opId: string, tree: Tree) {
+  /**
+   * The drain order (spec "Publication path" 3): pending `push` requests (and anything that is not
+   * a valid batch request, which then fails verification) in git addition order, with each DUE
+   * batch request positioned at max(notBefore, createdAt): before the first push created at or
+   * after that instant. A batch not yet due (notBefore > runner clock) is neither drained nor
+   * pending work; scheduledQueue lists it. IN-FLIGHT operations drain before all fresh work, in
+   * that order: a batch already CLAIMED by its opId, and any request with a publish candidate or
+   * a receipt on live that is not yet recorded (a run died). Each was at the head of the queue
+   * when it froze its inputs, and a request ordered ahead of it later (a batch committed after
+   * the push's run began, or a push landing after a claim) would publish in between: the frozen
+   * operation would then revert it on live, or it would drop the frozen one's live output.
+   */
+  queue(head: string): string[] {
+    const entries = this.pendingRequests(head);
+    // Only a fresh due batch can be ordered ahead of a request that is already in flight (pushes
+    // keep addition order), so the ref and receipt probes run only then (a remote head() is a
+    // network round trip per request).
+    const reorders = entries.some((e) => e.kind === 'batch' && e.due && !e.claimed);
+    const liveHead = reorders ? this.git.head(dataRef(this.options.liveBranch)) : undefined;
+    const inFlight = (e: QueueEntry) =>
+      (e.kind === 'batch' && e.claimed) ||
+      (reorders &&
+        ((liveHead !== undefined && this.receipt(liveHead, e.opId) !== undefined) ||
+          this.git.head(paths(e.opId).candidate) !== undefined));
+    const fresh = entries.filter((e) => !inFlight(e));
+    const claimed = entries.filter(inFlight).map((e) => e.opId);
+    const batches = fresh
+      .filter((e) => e.kind === 'batch' && e.due)
+      .map((e, i) => ({ e, i, key: (e as { key: number }).key }))
+      .sort((a, b) => a.key - b.key || a.i - b.i);
+    const order: string[] = [];
+    for (const e of fresh) {
+      if (e.kind === 'batch') continue;
+      if (e.createdAt !== undefined)
+        while (batches.length && batches[0].key <= e.createdAt) order.push(batches.shift()!.e.opId);
+      order.push(e.opId);
+    }
+    return [...claimed, ...order, ...batches.map((b) => b.e.opId)];
+  }
+  /** Batch requests not yet due, soonest first (bundle.json `scheduledQueue`). */
+  scheduledQueue(head: string): BatchPublishPayload[] {
+    return this.pendingRequests(head)
+      .flatMap((e) => (e.kind === 'batch' && !e.due ? [e.payload] : []))
+      .sort((a, b) => a.notBefore.localeCompare(b.notBefore) || a.opId.localeCompare(b.opId));
+  }
+  async verifyRequest(blob: string, opId: string, tree: Tree): Promise<PublishRequestPayload> {
     const envelope = JSON.parse(this.git.blob(blob));
     if (typeof envelope.payload !== 'string' || typeof envelope.sig !== 'string')
       throw new Error('Invalid signed envelope');
@@ -147,10 +368,10 @@ export class Publisher {
       !verify(null, Buffer.from(envelope.payload), key, Buffer.from(envelope.sig, 'base64'))
     )
       throw new Error('Invalid signature or key pin');
-    const p = publishPayloadSchema.parse(JSON.parse(envelope.payload));
+    const p = await parsePublishRequestPayload(JSON.parse(envelope.payload));
     if (
       stableStringify(p) !== envelope.payload ||
-      (await publishIntentDigest(p)) !== p.intentDigest
+      (await publishRequestIntentDigest(p)) !== p.intentDigest
     )
       throw new Error('Noncanonical or altered intent');
     if (
@@ -163,7 +384,34 @@ export class Publisher {
     const permissions = permissionsSchema.parse(this.read(tree, 'config/permissions.json'));
     if (!['maintainer', 'editor'].includes(permissions.users[String(p.requester.id)]?.role))
       throw new Error('Requester revoked');
+    requesterCredits(p.requester);
     return p;
+  }
+  /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
+  credits(blob: string, opId: string): CommitCredits {
+    const envelope = JSON.parse(this.git.blob(blob));
+    const key = createPublicKey(this.options.publicKey);
+    if (
+      createHash('sha256')
+        .update(key.export({ type: 'spki', format: 'der' }))
+        .digest('hex') !== this.options.keyFingerprint ||
+      typeof envelope.payload !== 'string' ||
+      typeof envelope.sig !== 'string' ||
+      !verify(null, Buffer.from(envelope.payload), key, Buffer.from(envelope.sig, 'base64'))
+    )
+      throw new Error('Invalid credit envelope');
+    const raw = JSON.parse(envelope.payload);
+    const payload =
+      raw.kind === 'batch' ? batchPublishPayloadSchema.parse(raw) : publishPayloadSchema.parse(raw);
+    if (
+      stableStringify(payload) !== envelope.payload ||
+      payload.opId !== opId ||
+      payload.repo !== this.options.repo ||
+      payload.dataBranch !== this.options.dataBranch ||
+      payload.liveBranch !== this.options.liveBranch
+    )
+      throw new Error('Credit request target mismatch');
+    return requesterCredits(payload.requester);
   }
   receipt(commit: string, opId: string): Receipt | undefined {
     return this.read(this.git.tree(commit), paths(opId).receipt);
@@ -186,7 +434,58 @@ export class Publisher {
     if (!live?.perks || !live.databaseSettings) throw new Error('Invalid live file');
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
-    const bytes = json({ ...live, perks: { ...live.perks, ...entries } });
+    const picks = this.pickRecomputeAt(this.git.tree(r.sourceCommit));
+    let perks: Record<string, unknown>;
+    try {
+      const sourceTree = this.git.tree(r.sourceCommit);
+      perks = applyInactiveLive(
+        mergeLivePerks(live.perks, entries, picks),
+        this.movesAt(sourceTree),
+        r.entries.map((e) => e.hash),
+        this.aliasesAt(sourceTree),
+        live.perks,
+      );
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
+    const merged = { ...live, perks };
+    const bytes = json(merged);
+    const checkKey = createHash('sha256')
+      .update(tree['liveDescriptions.json'])
+      .update(bytes)
+      .digest('hex');
+    // Run the actual consumer converter at both snapshots. Historical empty rows are tolerated;
+    // newly empty rows stop candidate creation, including rebases and crash recovery.
+    if (!this.checkedOutputs.has(checkKey)) {
+      const hasMoves = Object.keys(this.movesAt(this.git.tree(r.sourceCommit))).length > 0;
+      for (const preset of [
+        ...deployedLegacyPresets,
+        ...(hasMoves ? ['clarityV2' as const] : []),
+      ]) {
+        const convert = (
+          input: unknown,
+        ): Record<string, { descriptions?: Record<string, unknown>; aliasOf?: number }> => {
+          try {
+            return JSON.parse(new TextDecoder().decode(buildLegacy(input as LegacyInput, preset)));
+          } catch (error) {
+            throw new ConsumerOutputRejected(`${preset} conversion failed: ${String(error)}`);
+          }
+        };
+        const before = convert(live),
+          after = convert(merged);
+        for (const [hash, row] of Object.entries(after)) {
+          const empty = (entry: typeof row | undefined) =>
+            entry !== undefined &&
+            entry.aliasOf === undefined &&
+            Object.keys(entry.descriptions ?? {}).length === 0;
+          if (empty(row) && !empty(before[hash]))
+            throw new TextlessConsumerOutput(
+              `${preset} tooltip ${hash} has no descriptions; nothing published`,
+            );
+        }
+      }
+      this.checkedOutputs.add(checkKey);
+    }
     return {
       bytes,
       outcome: bytes === this.git.blob(tree['liveDescriptions.json']) ? 'unchanged' : 'published',
@@ -200,7 +499,7 @@ export class Publisher {
       'liveDescriptions.json': this.git.writeBlob(bytes),
       [paths(r.opId).receipt]: this.git.writeBlob(json(r)),
     };
-    return this.git.commit(parent, tree, `Publish ${r.opId}`);
+    return this.git.commit(parent, tree, `Publish ${r.opId}`, this.credits(r.requestBlob, r.opId));
   }
   async record(
     opId: string,
@@ -208,6 +507,7 @@ export class Publisher {
     candidate: string | undefined,
     result?: { status: string; error?: string; outcomes?: unknown },
     requestBlob?: string,
+    landing?: Landing,
   ) {
     const p = paths(opId);
     for (let i = 0; i < 5; i++) {
@@ -222,11 +522,19 @@ export class Publisher {
         request = { invalidRequestBlob: blob };
       }
       let intentDigest: string | undefined;
+      let batchPayload: BatchPublishPayload | undefined;
       try {
-        intentDigest = JSON.parse((request as { payload: string }).payload).intentDigest;
+        const value = JSON.parse((request as { payload: string }).payload);
+        intentDigest = value.intentDigest;
+        batchPayload = batchPublishPayloadSchema.safeParse(value).data;
       } catch {
         /* rejected malformed envelope */
       }
+      // Batch requests: activation, conflict files, and the batch/due/index updates join THIS
+      // commit (spec "Publication path" 6), recomputed from S' and this head on every attempt.
+      const batchTimes = batchPayload
+        ? this.recordBatch(tree, opId, batchPayload, receipt, candidate, result, landing)
+        : undefined;
       if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
         for (const e of receipt.entries) {
@@ -275,10 +583,19 @@ export class Publisher {
             ? { publisherSha: receipt.publisherSha, generatorSha: receipt.generatorSha }
             : { publisherSha: this.options.publisherSha, generatorSha: this.options.generatorSha },
           runUrl: this.options.runUrl,
-          times: { now: receipt?.now ?? this.options.now() },
+          times: { now: receipt?.now ?? this.options.now(), ...batchTimes },
         }),
       );
-      const c = this.git.commit(h, tree, `Record ${opId}`);
+      let credits = appCredits;
+      if (receipt) credits = this.credits(blob, opId);
+      else {
+        try {
+          credits = this.credits(blob, opId);
+        } catch {
+          /* Unverified rejection is app-only; successful recovery must retain its author. */
+        }
+      }
+      const c = this.git.commit(h, tree, `Record ${opId}`, credits);
       try {
         this.git.cas(dataRef(this.options.dataBranch), h, c);
         return;
@@ -309,12 +626,18 @@ export class Publisher {
           requestBlob: t[p.request],
         }),
       );
+      let credits = appCredits;
+      try {
+        credits = this.credits(t[p.request], opId);
+      } catch {
+        /* A forged or malformed duplicate has no verified requester. */
+      }
       delete t[p.request];
       try {
         this.git.cas(
           dataRef(this.options.dataBranch),
           h,
-          this.git.commit(h, t, `Close duplicate ${opId}`),
+          this.git.commit(h, t, `Close duplicate ${opId}`, credits),
         );
         return;
       } catch (e) {
@@ -323,10 +646,33 @@ export class Publisher {
     }
     throw new Error('Duplicate closure raced');
   }
-  async operation(opId: string) {
+  async operation(opId: string): Promise<void> {
     const p = paths(opId),
       s = this.head(this.options.dataBranch),
       tree = this.git.tree(s);
+    try {
+      await this.publishOperation(opId, s, tree);
+    } catch (error) {
+      if (!(error instanceof ConsumerOutputRejected)) throw error;
+      // A content refusal is terminal: only the rejection Record changes data. Never
+      // leave it at the queue head, where it would block every later user's publish.
+      await this.record(
+        opId,
+        undefined,
+        undefined,
+        { status: 'rejected', error: String(error) },
+        tree[p.request],
+      );
+      try {
+        const candidate = this.git.head(p.candidate);
+        if (candidate) this.git.cas(p.candidate, candidate, undefined);
+      } catch {
+        /* A terminal Record is authoritative; candidate cleanup is best effort. */
+      }
+    }
+  }
+  private async publishOperation(opId: string, s: string, tree: Tree): Promise<void> {
+    const p = paths(opId);
     if (tree[p.log]) {
       await this.duplicate(opId);
       return;
@@ -337,13 +683,16 @@ export class Publisher {
       // Find the actual receipt-adding commit even if another writer advanced LIVE.
       const c = this.git.additions(live, p.receipt)[0]?.commit;
       if (!c) throw new Error('Receipt addition commit missing');
-      await this.record(opId, landed, c);
+      await this.record(opId, landed, c, undefined, undefined, {
+        at: this.options.now(),
+        source: 'observed',
+      });
       return;
     }
     const blob = tree[p.request];
     let candidate = this.candidate(opId, blob);
     if (!candidate) {
-      let payload: PublishPayload;
+      let payload: PublishRequestPayload;
       try {
         payload = await this.verifyRequest(blob, opId, tree);
       } catch (e) {
@@ -356,137 +705,106 @@ export class Publisher {
         );
         return;
       }
-      const entries: Entry[] = [],
-        tooltips: Tooltip[] = [],
-        outcomes: { hash: number; status: string }[] = [];
-      const seen = new Set<number>();
-      for (const hash of payload.hashes) {
-        const canonical = resolveAlias(hash, this.options.aliases),
-          oid = tree[`tooltips/${canonical}.json`];
-        const tooltip = tooltipSchema.safeParse(oid ? JSON.parse(this.git.blob(oid)) : undefined);
-        if (!tooltip.success || tooltip.data.hash !== canonical) {
-          outcomes.push({ hash: canonical, status: 'missing' });
-          continue;
-        }
-        const digest = await publishableHash(tooltip.data, this.options.aliases);
-        outcomes.push({
-          hash: canonical,
-          status: digest === payload.expected[hash] ? 'accepted' : 'stale',
-        });
-        if (!seen.has(canonical)) {
-          entries.push({ hash: canonical, digest, tooltipBlob: oid });
-          tooltips.push(tooltip.data);
-          seen.add(canonical);
-        }
-      }
-      if (outcomes.some((e) => e.status !== 'accepted')) {
-        await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
-        return;
-      }
-      if (tooltips.some(isTextlessDescription)) {
-        await this.record(
-          opId,
-          undefined,
-          undefined,
-          { status: 'rejected', error: 'Tooltip has no text to publish' },
-          blob,
-        );
-        return;
-      }
+      let aliases: Aliases;
       try {
-        this.checkAssociatedDescriptions(tree, tooltips);
-      } catch (error) {
+        aliases = this.aliasesAt(tree);
+      } catch (e) {
         await this.record(
           opId,
           undefined,
           undefined,
-          { status: 'rejected', error: String(error) },
+          { status: 'rejected', error: `Invalid ${sandboxPointersPath}: ${String(e)}` },
           blob,
         );
         return;
       }
-      if (tooltips.some((t) => !t.custom && !this.options.facts[t.hash])) {
-        await this.record(
-          opId,
-          undefined,
-          undefined,
-          { status: 'rejected', error: 'Missing generator facts' },
-          blob,
+      if (payload.kind === 'batch') {
+        const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
+        if (!r) return;
+        candidate = this.createCandidate(opId, blob, live, r);
+      } else {
+        const moves = this.movesAt(tree);
+        const entries: Entry[] = [],
+          tooltips: Tooltip[] = [],
+          outcomes: { hash: number; status: string }[] = [];
+        const seen = new Set<number>();
+        // Publisher guard (R3): a hash with an activation conflict file publishes only after the
+        // conflict is resolved, so a manual request can never overwrite the batch's live state.
+        const blocked = [...new Set(payload.hashes.map((h) => resolveAlias(h, aliases)))].filter(
+          (h) => tree[schedulePaths.conflict(h)],
         );
-        return;
-      }
-      // The data head can advance after the Worker signs. In particular, stale
-      // translation fallback can hide raw native markup from publishableHash.
-      // Reject it terminally instead of letting exportLegacy wedge the queue.
-      if (
-        tooltips.some((tooltip) =>
-          Object.values(tooltip.text).some((translation) => translation?.text.includes('{{')),
-        )
-      ) {
-        await this.record(
-          opId,
-          undefined,
-          undefined,
-          { status: 'rejected', error: baseEnhancedPublishMessage },
-          blob,
-        );
-        return;
-      }
-      // Set bonuses wait for cut-over (owner 2026-11-11): a terminal rejection before any write.
-      if (tooltips.some((t) => isHeldSetBonus(t, this.options.facts[t.hash]))) {
-        await this.record(
-          opId,
-          undefined,
-          undefined,
-          { status: 'rejected', error: setBonusHoldMessage },
-          blob,
-        );
-        return;
-      }
-      const now = this.options.now(),
-        pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
-      const exported = exportLegacy(tooltips, now, this.options.facts, this.options.aliases);
-      // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`. An
-      // export that still holds a tagged span (or a preview marker) would make apps drop text.
-      const unlowered = unloweredEntry(exported);
-      if (unlowered !== undefined) {
-        await this.record(
-          opId,
-          undefined,
-          undefined,
-          {
-            status: 'rejected',
-            error: `The export of tooltip ${unlowered} still holds element-tagged text`,
-          },
-          blob,
-        );
-        return;
-      }
-      const r: Receipt = {
-        opId,
-        requestBlob: blob,
-        sourceCommit: s,
-        liveParent: live,
-        now,
-        publisherSha: this.options.publisherSha,
-        generatorSha: this.options.generatorSha,
-        outcome: 'published',
-        entries,
-        exported,
-        changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
-        requester: payload.requester,
-        intentDigest: payload.intentDigest,
-      };
-      const c = this.buildCandidate(live, r);
-      for (let i = 0; i < 6 && !candidate; i++) {
-        try {
-          this.git.cas(p.candidate, undefined, c);
-        } catch {
-          /* ambiguous: always read back */
+        if (blocked.length) {
+          await this.record(
+            opId,
+            undefined,
+            undefined,
+            { status: 'rejected', error: `${resolveActivationMessage}: ${blocked.join(', ')}` },
+            blob,
+          );
+          return;
         }
-        candidate = this.candidate(opId, blob);
+        for (const hash of payload.hashes) {
+          const canonical = resolveAlias(hash, aliases),
+            oid = tree[`tooltips/${canonical}.json`];
+          const tooltip = tooltipSchema.safeParse(
+            oid
+              ? JSON.parse(this.git.blob(oid))
+              : isMovedInactive(canonical, moves)
+                ? { hash: canonical, text: {}, associated: [] }
+                : undefined,
+          );
+          if (!tooltip.success || tooltip.data.hash !== canonical) {
+            outcomes.push({ hash: canonical, status: 'missing' });
+            continue;
+          }
+          const digest = await inactivePublishableHash(tooltip.data, aliases, moves);
+          outcomes.push({
+            hash: canonical,
+            status: digest === payload.expected[hash] ? 'accepted' : 'stale',
+          });
+          if (!seen.has(canonical)) {
+            entries.push({
+              hash: canonical,
+              digest,
+              tooltipBlob: oid ?? this.git.writeBlob(json(tooltip.data)),
+            });
+            tooltips.push(tooltip.data);
+            seen.add(canonical);
+          }
+        }
+        if (outcomes.some((e) => e.status !== 'accepted')) {
+          await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
+          return;
+        }
+        const checked = this.checkAndExport(tree, tooltips, aliases);
+        if ('error' in checked) {
+          await this.record(
+            opId,
+            undefined,
+            undefined,
+            { status: 'rejected', error: checked.error },
+            blob,
+          );
+          return;
+        }
+        const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+        const r: Receipt = {
+          opId,
+          requestBlob: blob,
+          sourceCommit: s,
+          liveParent: live,
+          now: checked.now,
+          publisherSha: this.options.publisherSha,
+          generatorSha: this.options.generatorSha,
+          outcome: 'published',
+          entries,
+          exported: checked.exported,
+          changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
+          requester: payload.requester,
+          intentDigest: payload.intentDigest,
+        };
+        candidate = this.createCandidate(opId, blob, live, r);
       }
-      if (!candidate) throw new Error('Candidate create unresolved');
     }
     let rebases = 0;
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -496,7 +814,10 @@ export class Publisher {
         l = this.head(this.options.liveBranch);
       const found = this.receipt(l, opId);
       if (found || this.git.ancestor(c, l)) {
-        await this.record(opId, found ?? r, c);
+        await this.record(opId, found ?? r, c, undefined, undefined, {
+          at: this.options.now(),
+          source: 'observed',
+        });
         try {
           this.git.cas(p.candidate, c, undefined);
         } catch {
@@ -505,6 +826,13 @@ export class Publisher {
         return;
       }
       if (l === r.liveParent) {
+        // A candidate may predate this safety gate; validate it again before any live CAS.
+        const checked = this.merge(l, r);
+        const candidateBytes = this.git.blob(this.git.tree(c)['liveDescriptions.json']);
+        if (candidateBytes !== checked.bytes)
+          throw new ConsumerOutputRejected(
+            'stored candidate differs from its checked receipt; nothing published',
+          );
         let pushed = false;
         try {
           this.git.cas(dataRef(this.options.liveBranch), l, c);
@@ -513,7 +841,10 @@ export class Publisher {
           /* unresolved: SAME candidate next attempt */
         }
         if (pushed) {
-          await this.record(opId, r, c);
+          await this.record(opId, r, c, undefined, undefined, {
+            at: this.options.now(),
+            source: 'cas',
+          });
           try {
             this.git.cas(p.candidate, c, undefined);
           } catch {
@@ -535,14 +866,493 @@ export class Publisher {
     }
     throw new Error('Publish unresolved; no later operation may run');
   }
+  /**
+   * The manual-publish content checks and the export, shared by `push` and `batch` (same order,
+   * same messages). An error is a terminal rejection before any write.
+   */
+  checkAndExport(
+    tree: Tree,
+    tooltips: Tooltip[],
+    aliases: Aliases,
+  ): { error: string } | { now: number; exported: ReturnType<typeof exportLegacy> } {
+    const moves = selectedInactiveMoves(
+      this.movesAt(tree),
+      tooltips.map((t) => t.hash),
+      aliases,
+    );
+    const active = tooltips.filter((t) => !isMovedInactive(t.hash, moves));
+    if (active.some(isTextlessDescription)) return { error: 'Tooltip has no text to publish' };
+    try {
+      this.checkAssociatedDescriptions(tree, active, aliases);
+    } catch (error) {
+      return { error: String(error) };
+    }
+    if (active.some((t) => !t.custom && !this.options.facts[t.hash]))
+      return { error: 'Missing generator facts' };
+    // The data head can advance after the Worker signs. In particular, stale
+    // translation fallback can hide raw native markup from publishableHash.
+    // Reject it terminally instead of letting exportLegacy wedge the queue.
+    if (
+      active.some((tooltip) =>
+        Object.values(tooltip.text).some((translation) => translation?.text.includes('{{')),
+      )
+    )
+      return { error: baseEnhancedPublishMessage };
+    // Set bonuses wait for cut-over (owner 2026-11-11): a terminal rejection before any write.
+    if (active.some((t) => isHeldSetBonus(t, this.options.facts[t.hash])))
+      return { error: setBonusHoldMessage };
+    const now = this.options.now();
+    let exported: ReturnType<typeof exportLegacy>;
+    try {
+      exported = exportWithInactiveMoves(tooltips, now, this.options.facts, aliases, moves);
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
+    // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`, and
+    // `#{d}` and `<enhanced/>` to `#d` and `#e`. An export that still holds a tagged span, a
+    // preview marker, `#{`, or `<enhanced/>` would make apps drop text or print the markup.
+    const unlowered = unloweredEntry(exported);
+    if (unlowered !== undefined)
+      return { error: `The export of tooltip ${unlowered} still holds unlowered markup` };
+    return { now, exported };
+  }
+  createCandidate(opId: string, blob: string, live: string, r: Receipt) {
+    const p = paths(opId);
+    const c = this.buildCandidate(live, r);
+    let candidate: ReturnType<Publisher['candidate']>;
+    for (let i = 0; i < 6 && !candidate; i++) {
+      try {
+        this.git.cas(p.candidate, undefined, c);
+      } catch {
+        /* ambiguous: always read back */
+      }
+      candidate = this.candidate(opId, blob);
+    }
+    if (!candidate) throw new Error('Candidate create unresolved');
+    return candidate;
+  }
+  /**
+   * What a batch publishes from snapshot `tree` (spec "Publication path" 4, "Composition"): every
+   * guard on effective publication, inside the publisher (I1). Read-only; a failure is terminal.
+   */
+  async batchPlan(
+    tree: Tree,
+    payload: BatchPublishPayload,
+    aliases: Aliases,
+  ): Promise<
+    | { failure: Failure }
+    | {
+        entries: Entry[];
+        now: number;
+        exported: ReturnType<typeof exportLegacy>;
+        changed: number[];
+      }
+  > {
+    let members;
+    try {
+      members = batchMembers(this, tree, payload.batchId);
+    } catch (e) {
+      return { failure: { status: 'rejected', error: `Invalid batch member: ${String(e)}` } };
+    }
+    if (members.map((m) => m.hash).join() !== payload.hashes.join())
+      return {
+        failure: { status: 'rejected', error: 'Batch members differ from the signed request' },
+      };
+    if ((await approvedDigest(members)) !== payload.approvedDigest)
+      return {
+        failure: { status: 'rejected', error: 'Batch content differs from what was approved' },
+      };
+    const blocked = members.filter((m) => tree[schedulePaths.conflict(m.hash)]).map((m) => m.hash);
+    if (blocked.length)
+      return {
+        failure: {
+          status: 'rejected',
+          error: `${resolveActivationMessage}: ${blocked.join(', ')}`,
+        },
+      };
+    let pushed: Record<string, string>;
+    try {
+      pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+    } catch (e) {
+      return { failure: { status: 'rejected', error: `Invalid live/pushed.json: ${String(e)}` } };
+    }
+    const outcomes: { hash: number; status: string; fields?: string[]; reason?: string }[] = [];
+    const tooltips: Tooltip[] = [];
+    const moves = this.movesAt(tree);
+    for (const m of members) {
+      const stored = (path: string) => {
+        const value = this.read<unknown>(tree, path);
+        if (value === undefined) return null;
+        const tooltip = tooltipSchema.parse(value);
+        if (tooltip.hash !== m.hash) throw new Error(`${path} carries another hash`);
+        return tooltip;
+      };
+      let current: Tooltip | null, snapshot: Tooltip | null;
+      try {
+        current = stored(`tooltips/${m.hash}.json`);
+        snapshot = stored(`live/tooltips/${m.hash}.json`);
+      } catch (e) {
+        return { failure: { status: 'rejected', error: String(e) } };
+      }
+      if (resolveAlias(m.hash, aliases) !== m.hash) {
+        outcomes.push({ hash: m.hash, status: 'alias' });
+        continue;
+      }
+      if (await hasUnpublishedInactiveMove(m.hash, snapshot, pushed[m.hash], aliases, moves)) {
+        outcomes.push({ hash: m.hash, status: 'stale', reason: unreviewedInactiveMessage });
+        continue;
+      }
+      // Non-translation merge3 against current (translations follow Q4 and never block).
+      const activation = activate({ base: m.base, current, proposed: m.proposed });
+      if (!activation.ok) {
+        outcomes.push({ hash: m.hash, status: 'stale', fields: activation.fields });
+        continue;
+      }
+      const composed = this.composeMember(m, snapshot, current, pushed[m.hash] !== undefined);
+      if (composed.status === 'stale') {
+        outcomes.push({ hash: m.hash, status: 'stale', reason: composed.reason });
+        continue;
+      }
+      // Root ruling 2026-11-13: a batch-changed field whose base differs from the published
+      // snapshot would publish saved-but-unpublished work (I3): refused, never acknowledged.
+      if (composed.status === 'overlay' && composed.unpublished.length) {
+        outcomes.push({
+          hash: m.hash,
+          status: 'unpublished',
+          fields: composed.unpublished,
+          reason: unpublishedMessage,
+        });
+        continue;
+      }
+      outcomes.push({ hash: m.hash, status: 'accepted' });
+      tooltips.push(composed.tooltip);
+    }
+    if (outcomes.some((o) => o.status !== 'accepted'))
+      return { failure: { status: 'stale', outcomes } };
+    const checked = this.checkAndExport(tree, tooltips, aliases);
+    if ('error' in checked) return { failure: { status: 'rejected', error: checked.error } };
+    const entries: Entry[] = [];
+    for (const tooltip of tooltips)
+      entries.push({
+        hash: tooltip.hash,
+        digest: await inactivePublishableHash(tooltip, aliases, this.movesAt(tree)),
+        tooltipBlob: this.git.writeBlob(json(tooltip)),
+      });
+    return {
+      entries,
+      now: checked.now,
+      exported: checked.exported,
+      changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
+    };
+  }
+  /**
+   * compose() for one member (C1-C4), with the stamps of English and the Bungie snapshot taken
+   * from activation: when current already holds the batch's content for such a field, merge3's
+   * stamped rule keeps current's stamps in RECORD, so live takes them too and equals a manual
+   * publish of the activated tooltip (CONSUMER OUTPUT byte identity). Content always comes from
+   * the proposal (a clean activation has the proposal's content in every non-translation changed
+   * field); translations take the upcoming entry, then source stamps are bounded against final
+   * English exactly as in activation. `current` is the
+   * saved tooltip at the snapshot the claim validated (S, equal to S' outside schedule/).
+   */
+  composeMember(
+    m: BatchMember,
+    snapshot: Tooltip | null,
+    current: Tooltip | null,
+    pushed: boolean,
+  ): ReturnType<typeof compose> {
+    // English stamps are selected below; bounding earlier can age a translation of the final
+    // (convergent) English against the proposal's older revision.
+    const result = compose(
+      { hash: m.hash, base: m.base, proposed: m.proposed, snapshot, pushed },
+      false,
+    );
+    if (result.status === 'stale') return result;
+    const activation = activate({ base: m.base, current, proposed: m.proposed });
+    let tooltip = result.tooltip;
+    if (activation.ok)
+      for (const field of result.changed)
+        if (field === 'text.en' || field === 'bungieSnapshot')
+          tooltip = withField(tooltip, activation.tooltip, field);
+    return { ...result, tooltip: boundTranslationSources(tooltip) };
+  }
+  /** S' for a batch this opId already claimed: the oldest commit of the head's claimed run. */
+  claimCommit(batchId: string, opId: string): string {
+    // Only the claim commit sets `claim` (opIds are unique) and it stays until RECORD ends the
+    // operation, so the commits claimed by this opId are one suffix of first-parent history:
+    // binary search finds its first commit in O(log n) tree reads, however long the outage.
+    const commits = this.git.history(dataRef(this.options.dataBranch));
+    const claimedAt = (i: number) =>
+      batchSchema.safeParse(
+        this.read<unknown>(this.git.tree(commits[i]), schedulePaths.batch(batchId)),
+      ).data?.claim?.opId === opId;
+    let unclaimed = 0,
+      claimed = commits.length - 1;
+    // Fail closed unless the boundary is proven: an unclaimed first commit, a claimed head.
+    if (claimed < 1 || !claimedAt(claimed) || claimedAt(unclaimed))
+      throw new Error('Claim commit not found; operator required');
+    while (claimed - unclaimed > 1) {
+      const mid = (unclaimed + claimed) >> 1;
+      if (claimedAt(mid)) claimed = mid;
+      else unclaimed = mid;
+    }
+    return commits[claimed];
+  }
+  /**
+   * Validate at S, then CLAIM (spec "Publication path" 4, I2): one CAS S → S' marks the batch
+   * publishing and its due entry claimed. A race or an ambiguous CAS returns to run(), which
+   * re-reads the head and the queue order (a request admitted meanwhile may now come first) and
+   * re-validates from the top. A batch this opId already claimed (a run died after the claim)
+   * resumes from S' and drains before any other request. Returns the frozen receipt, or
+   * undefined once the operation is handled or left for the next queue pass.
+   */
+  async claimBatch(
+    opId: string,
+    blob: string,
+    s: string,
+    tree: Tree,
+    live: string,
+    payload: BatchPublishPayload,
+    aliases: Aliases,
+  ): Promise<Receipt | undefined> {
+    const fail = async (failure: Failure) => {
+      await this.record(opId, undefined, undefined, failure, blob);
+      return undefined;
+    };
+    const path = schedulePaths.batch(payload.batchId);
+    const parsed = batchSchema.safeParse(this.read<unknown>(tree, path));
+    if (!parsed.success)
+      return fail({ status: 'rejected', error: 'Missing or invalid batch.json' });
+    const batch = parsed.data;
+    const claimed =
+      batch.status === 'publishing' && batch.opId === opId && batch.claim?.opId === opId;
+    if (
+      batch.opId !== opId ||
+      (batch.status !== 'scheduled' && !claimed) ||
+      batch.scheduledContentRevision !== payload.contentRevision ||
+      batch.contentRevision !== payload.contentRevision ||
+      batch.notBefore !== payload.notBefore
+    )
+      return fail({ status: 'superseded', error: supersededMessage });
+    const source = claimed ? this.claimCommit(payload.batchId, opId) : s;
+    const at = claimed ? this.git.tree(source) : tree;
+    let frozenAliases = aliases;
+    if (claimed)
+      try {
+        frozenAliases = this.aliasesAt(at);
+      } catch (e) {
+        return fail({ status: 'rejected', error: `Invalid ${sandboxPointersPath}: ${String(e)}` });
+      }
+    const plan = await this.batchPlan(at, payload, frozenAliases);
+    if ('failure' in plan) return fail(plan.failure);
+    const receipt: Receipt = {
+      opId,
+      requestBlob: blob,
+      sourceCommit: source,
+      liveParent: live,
+      now: plan.now,
+      publisherSha: this.options.publisherSha,
+      generatorSha: this.options.generatorSha,
+      outcome: 'published',
+      entries: plan.entries,
+      exported: plan.exported,
+      changed: plan.changed,
+      requester: payload.requester,
+      intentDigest: payload.intentDigest,
+      batchId: payload.batchId,
+      contentRevision: payload.contentRevision,
+    };
+    // A refused batch must not leave even a claim commit behind.
+    this.merge(live, receipt);
+    let sourceCommit = source;
+    if (!claimed) {
+      const next = { ...tree };
+      const claimedAt = iso(this.options.now());
+      const updated = withEvent(
+        this,
+        next,
+        batch,
+        { status: 'publishing', claim: { opId, claimedAt } },
+        { at: claimedAt, by: payload.requester, action: 'claim', notBefore: payload.notBefore },
+      );
+      next[path] = this.git.writeBlob(json(updated));
+      editDue(this, next, (entries) => [
+        ...entries.filter((e) => e.batchId !== batch.id && e.opId !== opId),
+        { batchId: batch.id, opId, notBefore: payload.notBefore, claimed: true },
+      ]);
+      editIndex(this, next, updated, payload.hashes, claimedAt);
+      const c = this.git.commit(
+        s,
+        next,
+        `Claim batch ${batch.id} for ${opId}`,
+        this.credits(blob, opId),
+      );
+      try {
+        this.git.cas(dataRef(this.options.dataBranch), s, c);
+        sourceCommit = c;
+      } catch {
+        // RefRace (a Worker write won) or ambiguous (it may have landed: then the batch is
+        // claimed and drains first): run() re-reads the queue and re-validates from the top.
+        return undefined;
+      }
+    }
+    return { ...receipt, sourceCommit };
+  }
+  /**
+   * The batch part of RECORD at head `tree` (edited in place). With a landed receipt: activation
+   * per member (base and proposed from S' = receipt.sourceCommit, current from this head),
+   * conflict files, and the published batch. Without one (stale, rejected, superseded): the batch
+   * returns to draft, but only while it is still this opId's (R15). Returns the log's extra times.
+   */
+  recordBatch(
+    tree: Tree,
+    opId: string,
+    payload: BatchPublishPayload,
+    receipt: Receipt | undefined,
+    candidate: string | undefined,
+    result: { status: string; error?: string; outcomes?: unknown } | undefined,
+    landing: Landing | undefined,
+  ) {
+    const recordedAt = iso(this.options.now());
+    const path = schedulePaths.batch(payload.batchId);
+    const dropDue = () => editDue(this, tree, (entries) => entries.filter((e) => e.opId !== opId));
+    if (!receipt) {
+      dropDue();
+      const batch = batchSchema.safeParse(this.read<unknown>(tree, path)).data;
+      const owned =
+        batch &&
+        batch.opId === opId &&
+        (batch.status === 'scheduled' ||
+          (batch.status === 'publishing' && batch.claim?.opId === opId));
+      if (owned) {
+        const status = (['stale', 'rejected', 'superseded'] as const).find(
+          (s) => s === result?.status,
+        );
+        if (!status) throw new Error(`Unexpected batch result ${result?.status}`);
+        const outcomes = Array.isArray(result?.outcomes) ? result.outcomes : undefined;
+        const updated = withEvent(
+          this,
+          tree,
+          batch,
+          {
+            status: 'draft',
+            opId: null,
+            scheduledContentRevision: null,
+            claim: null,
+            notBefore: null,
+            zone: null,
+            result: {
+              opId,
+              status,
+              recordedAt,
+              ...(outcomes ? { outcomes } : {}),
+              ...(result?.error ? { error: result.error.slice(0, 2000) } : {}),
+            },
+          },
+          { at: recordedAt, by: payload.requester, action: status },
+        );
+        tree[path] = this.git.writeBlob(json(updated));
+        editIndex(this, tree, updated, payload.hashes, recordedAt);
+      }
+      return { recordedAt };
+    }
+    if (receipt.batchId !== payload.batchId) throw new Error('Receipt batch mismatch');
+    const frozen = this.git.tree(receipt.sourceCommit);
+    const members = batchMembers(this, frozen, payload.batchId);
+    const snapshotAt = (hash: number) => {
+      const value = this.read<unknown>(frozen, `live/tooltips/${hash}.json`);
+      return value === undefined ? null : tooltipSchema.parse(value);
+    };
+    const pushedAt = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
+    // The composed snapshots exist only as receipt OIDs: rewrite them from S' (deterministic)
+    // so a recovering runner holds the blobs, and fail closed if they ever differ.
+    const byHash = new Map(members.map((m) => [m.hash, m]));
+    for (const e of receipt.entries) {
+      const m = byHash.get(e.hash);
+      if (!m) throw new Error(`Receipt member ${e.hash} missing at S'; operator required`);
+      const saved = this.read<unknown>(frozen, `tooltips/${m.hash}.json`);
+      const composed = this.composeMember(
+        m,
+        snapshotAt(m.hash),
+        saved === undefined ? null : tooltipSchema.parse(saved),
+        pushedAt[m.hash] !== undefined,
+      );
+      if (
+        composed.status === 'stale' ||
+        this.git.writeBlob(json(composed.tooltip)) !== e.tooltipBlob
+      )
+        throw new Error(`Composition of ${e.hash} differs from its receipt; operator required`);
+    }
+    const batch = batchSchema.parse(this.read<unknown>(tree, path));
+    if (batch.status !== 'publishing' || batch.opId !== opId || batch.claim?.opId !== opId)
+      throw new Error(`Batch ${batch.id} is not claimed by ${opId}; operator required`);
+    const outcomes: { hash: number; status: string; fields?: string[] }[] = [];
+    for (const m of members) {
+      const currentPath = `tooltips/${m.hash}.json`;
+      const raw = this.read<unknown>(tree, currentPath);
+      const current = raw === undefined ? null : tooltipSchema.parse(raw);
+      const activation = activate({ base: m.base, current, proposed: m.proposed });
+      if (activation.ok) {
+        if (!current || stableStringify(current) !== stableStringify(activation.tooltip))
+          tree[currentPath] = this.git.writeBlob(json(activation.tooltip));
+        outcomes.push({ hash: m.hash, status: activation.created ? 'created' : 'activated' });
+        continue;
+      }
+      // I4: keep current entirely; the authoritative conflict file lists the conflicted fields
+      // and ALL batch-changed ones. Only the resolve route removes it.
+      const conflictPath = schedulePaths.conflict(m.hash);
+      if (tree[conflictPath])
+        throw new Error(`Activation conflict for ${m.hash} already exists; operator required`);
+      const file = activationConflictSchema.parse({
+        hash: m.hash,
+        batchId: batch.id,
+        opId,
+        fields: activation.fields,
+        changed: activation.changed,
+        base: m.base,
+        proposed: m.proposed,
+        currentAtRecord: current,
+      });
+      tree[conflictPath] = this.git.writeBlob(json(file));
+      outcomes.push({ hash: m.hash, status: 'conflict', fields: activation.fields });
+    }
+    const land = landing ?? { at: this.options.now(), source: 'observed' as const };
+    const landedAt = iso(land.at);
+    const unchanged = receipt.outcome === 'unchanged';
+    const updated = withEvent(
+      this,
+      tree,
+      batch,
+      {
+        status: 'published',
+        result: {
+          opId,
+          status: unchanged ? 'unchanged' : 'published',
+          recordedAt,
+          exportNow: iso(receipt.now),
+          outcomes,
+          ...(unchanged ? {} : { landedAt, landedAtSource: land.source, liveCommit: candidate }),
+        },
+      },
+      {
+        at: recordedAt,
+        by: payload.requester,
+        action: unchanged ? 'unchanged' : 'published',
+        hashes: payload.hashes,
+      },
+    );
+    tree[path] = this.git.writeBlob(json(updated));
+    dropDue();
+    editIndex(this, tree, updated, payload.hashes, recordedAt);
+    return { landedAt, landedAtSource: land.source, recordedAt };
+  }
   bundle() {
     const h = this.head(this.options.dataBranch),
       t = this.git.tree(h),
       ref = dataRef('editor-data-bundle'),
-      old = this.git.head(ref);
-    const prior = old
-      ? this.read<{ sourceCommit: string }>(this.git.tree(old), 'bundle.json')
-      : undefined;
+      old = this.git.head(ref),
+      oldTree = old ? this.git.tree(old) : {};
+    const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
       throw new Error('Bundle source would move backwards');
@@ -559,27 +1369,61 @@ export class Publisher {
         return [hash, tooltip];
       }),
     );
+    const batchEntry = (p: BatchPublishPayload) => ({
+      opId: p.opId,
+      kind: p.kind,
+      batchId: p.batchId,
+      requester: p.requester,
+      hashes: p.hashes,
+      createdAt: p.createdAt,
+      notBefore: p.notBefore,
+    });
     const publishQueue = this.queue(h).map((id) => {
       try {
         const e = this.read<{ payload: string }>(t, paths(id).request);
-        const p = publishPayloadSchema.parse(JSON.parse(e!.payload));
+        const value = JSON.parse(e!.payload);
+        if (value?.kind === 'batch') return batchEntry(batchPublishPayloadSchema.parse(value));
+        const p = publishPayloadSchema.parse(value);
         return { opId: id, requester: p.requester, hashes: p.hashes, createdAt: p.createdAt };
       } catch {
         return { opId: id, invalid: true };
       }
     });
+    // Batch requests not yet due: listed, never drained or counted as pending work (spec step 3).
+    const scheduledQueue = this.scheduledQueue(h).map(batchEntry);
+    // Maintainer sandbox picks ride along for the editor's alias view; omitted while there are
+    // none. A malformed file is left out rather than stopping the bundle (and with it the queue):
+    // publish requests are refused terminally on it (aliasesAt), and the Worker fails closed.
+    const sandboxPointers = sandboxPointersSchema.safeParse(
+      this.read<unknown>(t, sandboxPointersPath),
+    ).data;
+    let inactiveMoves: InactiveMoves | undefined;
+    try {
+      if (t[inactiveMovesPath]) inactiveMoves = this.movesAt(t);
+    } catch {
+      // Invalid JSON and invalid shapes must not wedge terminal rejection or bundle refresh.
+    }
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, 'config/permissions.json')),
       pushed: pushedSchema.parse(this.read(t, 'live/pushed.json')),
+      ...(inactiveMoves ? { inactiveMoves } : {}),
+      ...(sandboxPointers && Object.keys(sandboxPointers.pointers).length
+        ? { sandboxPointers }
+        : {}),
       publishQueue,
+      ...(scheduledQueue.length ? { scheduledQueue } : {}),
     };
+    // The publisher owns only bundle.json: every other file on the bundle branch (the report
+    // catalogs report-items*.json, rebuilt by the pipeline's report-items job) is carried
+    // forward byte-identical, so no bundle push can delete them.
     const c = this.git.commit(
       old,
-      { 'bundle.json': this.git.writeBlob(json(bundle)) },
+      { ...oldTree, 'bundle.json': this.git.writeBlob(json(bundle)) },
       `Bundle ${h}`,
+      appCredits,
     );
     this.git.cas(ref, old, c);
   }

@@ -215,6 +215,9 @@ const StyleMark = memo(function StyleMark({ note }: { note: StyleNote }) {
         onClick={() => setMark({ ...markClosed, open: !mark.open })}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && visible) {
+            // Only the marker closes: neither a host popover nor a native dialog (whose
+            // cancel is Escape's default action) takes this first Escape.
+            event.preventDefault();
             event.stopPropagation();
             setMark(markClosed);
           }

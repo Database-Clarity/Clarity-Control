@@ -66,6 +66,147 @@ describe('status bar', () => {
     expect(q('[data-severity="error"]')).not.toBeNull();
   });
 
+  it('steps its labels down only as far as the items need to fit, and back up when they fit', () => {
+    // jsdom has no layout: each step takes 60px off a 400px row of items in a 300px bar.
+    const widths = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return 400 - 60 * Number(this.dataset.fit ?? 0);
+      });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+    const status = () => q('[data-editor-status]')!;
+    render(bar({ issues: [{ severity: 'warning', message: 'x', from: 0, to: 1 }] }));
+    expect(status().dataset.fit).toBe('2');
+    // Fewer items: back to the widest step that fits.
+    widths.mockImplementation(function (this: HTMLElement) {
+      return 280 - 60 * Number(this.dataset.fit ?? 0);
+    });
+    render(bar());
+    expect(status().dataset.fit).toBe('0');
+    // Never past the last step, even if that still does not fit.
+    widths.mockReturnValue(1000);
+    render(bar({ glyphCount: 2 }));
+    expect(status().dataset.fit).toBe('5');
+    // A read-only reason cut short steps down as far as the short labels, never further.
+    widths.mockImplementation(function (this: HTMLElement) {
+      return this.matches('[data-status-reason]') ? 900 : 200;
+    });
+    render(bar({ readOnlyReason: 'Paused: another tab changed your drafts.' }));
+    expect(status().dataset.fit).toBe('2');
+    // A shown preview item squeezed below its content counts as crowded (its key hint would draw
+    // over the position); an idle, unreserved one may shrink freely.
+    const onShow = () => undefined;
+    widths.mockImplementation(function (this: HTMLElement) {
+      if (!this.matches('[data-status-preview]')) return 200;
+      return Number(this.closest<HTMLElement>('[data-editor-status]')!.dataset.fit) < 4 ? 900 : 200;
+    });
+    render(bar({ readOnlyReason: null, preview: { unpreviewed: 1, collapsed: false, onShow } }));
+    expect(status().dataset.fit).toBe('4');
+    root.unmount();
+    root = createRoot(host);
+    render(bar({ preview: { unpreviewed: 0, collapsed: false, onShow } }));
+    expect(status().dataset.fit).toBe('0');
+    // The counts keep their words for the text and their full names for assistive technology.
+    render(bar({ issues: [{ severity: 'error', message: 'x', from: 0, to: 1 }], glyphCount: 2 }));
+    expect(q('[data-status-issues]')?.textContent).toBe('1 issue');
+    expect(q('[data-status-issues]')?.getAttribute('aria-label')).toBe('1 markup issue');
+    // A caret move alone never measures.
+    const measured = widths.mock.calls.length;
+    render(
+      bar({
+        issues: [{ severity: 'error', message: 'x', from: 0, to: 1 }],
+        glyphCount: 2,
+        line: 9,
+      }),
+    );
+    expect(widths.mock.calls.length).toBe(measured);
+    vi.restoreAllMocks();
+  });
+
+  it('fits after the browser lays the bar out, never inside the render that mounts it', () => {
+    let report: (() => void) | undefined;
+    const observed: Element[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          report = () => callback([], this as unknown as ResizeObserver);
+        }
+        observe(element: Element) {
+          observed.push(element);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const widths = vi
+      .spyOn(HTMLElement.prototype, 'scrollWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return 400 - 60 * Number(this.dataset.fit ?? 0);
+      });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+    const status = () => q('[data-editor-status]')!;
+    render(bar({ issues: [{ severity: 'warning', message: 'x', from: 0, to: 1 }] }));
+    expect(widths).not.toHaveBeenCalled();
+    act(() => report!());
+    expect(status().dataset.fit).toBe('2');
+    // The same size again (its own steps): nothing to do.
+    const measured = widths.mock.calls.length;
+    act(() => report!());
+    expect(widths.mock.calls.length).toBe(measured);
+    // New items: observed afresh, measured when the observer reports after the next layout.
+    widths.mockImplementation(function (this: HTMLElement) {
+      return 280 - 60 * Number(this.dataset.fit ?? 0);
+    });
+    const observations = observed.length;
+    render(bar());
+    expect(widths.mock.calls.length).toBe(measured);
+    expect(observed.length).toBe(observations + 1);
+    act(() => report!());
+    expect(status().dataset.fit).toBe('0');
+    vi.restoreAllMocks();
+  });
+
+  it('drops a preview count whole when the short labels still cut it, never showing a fragment', () => {
+    // jsdom has no layout: the count text is cut while the bar is narrower than it needs.
+    const onShow = () => undefined;
+    const status = () => q('[data-editor-status]')!;
+    let countFitsFrom = Infinity;
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (!this.matches('[data-status-preview-text]')) return 200;
+      const bar = this.closest<HTMLElement>('[data-editor-status]')!;
+      if (bar.hasAttribute('data-count-dropped')) return 0;
+      return Number(bar.dataset.fit) >= countFitsFrom ? 100 : 900;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.matches('[data-status-preview-text]') ? 120 : 300;
+    });
+    // The short labels make room for it: it stays, whole.
+    countFitsFrom = 1;
+    render(bar({ preview: { unpreviewed: 1, collapsed: false, onShow } }));
+    expect(status().dataset.fit).toBe('1');
+    expect(status().hasAttribute('data-count-dropped')).toBe(false);
+    // A longer count no longer fits at any label step: it drops whole, and the labels, which fit
+    // without it, go back to their widest.
+    countFitsFrom = Infinity;
+    render(bar({ preview: { unpreviewed: 12, collapsed: false, onShow } }));
+    expect(status().hasAttribute('data-count-dropped')).toBe(true);
+    expect(status().dataset.fit).toBe('0');
+    // The button stays, with the full count in its title.
+    expect(q('[data-status-preview] button')?.title).toBe('12 changes not previewed');
+    expect(q('[data-status-preview] button')?.hasAttribute('disabled')).toBe(false);
+    // Room again (a wider bar or a shorter count): it comes back.
+    countFitsFrom = 0;
+    render(bar({ preview: { unpreviewed: 3, collapsed: false, onShow } }));
+    expect(status().hasAttribute('data-count-dropped')).toBe(false);
+    expect(status().dataset.fit).toBe('0');
+    vi.restoreAllMocks();
+  });
+
   it('offers the preview when edits were not previewed or the column is hidden', () => {
     const onShow = vi.fn();
     render(bar({ preview: { unpreviewed: 2, collapsed: true, onShow } }));
@@ -81,6 +222,23 @@ describe('status bar', () => {
     render(bar({ preview: { unpreviewed: 0, collapsed: false, onShow } }));
     expect(q('[data-status-preview]')?.getAttribute('data-inactive')).toBe('true');
     expect(q('[data-status-preview] button')?.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('lends the idle preview room to the labels until the preview first shows for that text', () => {
+    const onShow = vi.fn();
+    const review = (canonical: number) => ({ canonical, scheduled: [], visible: true });
+    const reserved = () => q('[data-status-preview]')?.hasAttribute('data-reserved');
+    render(bar({ preview: { review: review(1), collapsed: false, onShow } }));
+    expect(reserved()).toBe(false);
+    render(bar({ preview: { review: review(1), collapsed: true, onShow } }));
+    expect(reserved()).toBe(true);
+    // Idle again: it keeps its room, so the labels do not change back and forth.
+    render(bar({ preview: { review: review(1), collapsed: false, onShow } }));
+    expect(q('[data-status-preview]')?.hasAttribute('data-inactive')).toBe(true);
+    expect(reserved()).toBe(true);
+    // Another text starts unreserved.
+    render(bar({ preview: { review: review(2), collapsed: false, onShow } }));
+    expect(reserved()).toBe(false);
   });
 
   it('toggles a panel through its button', () => {

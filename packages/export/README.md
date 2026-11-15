@@ -186,3 +186,11 @@ Two Node scripts, bundled into `dist/` and installed as `.exports/` on the `conv
 
 `test/site/` runs every case through these scripts against local bare repositories and a
 simulated Pages project (no network).
+
+Custom style files may set `data.includeShowcase: true` to add one built-in
+formatting example under the reserved item id `-1` (outside Bungie's unsigned
+item-hash space). The optional field defaults to off when absent; legacy presets
+never accept it. The example is English in every selected language, uses the
+file's chosen keys and formatting rules, and does not depend on editor-data.
+The Exports preview starts with this example; its inclusion in downloaded files
+is a separate opt-in. Engine changes reach production through export pins.

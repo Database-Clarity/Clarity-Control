@@ -1,5 +1,13 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
@@ -27,6 +35,8 @@ import { useReviewMarks } from './reviewMarks';
 import { queueView, stepRow } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import { filterParams, useInFlight } from './ReviewSidebar';
+import { returnedState } from '../queue/WorkThroughBar';
+import { reviewStamp, type ReviewRestore } from '../queue/sources';
 import styles from './Review.module.scss';
 import {
   advanceReviewOpening,
@@ -34,10 +44,20 @@ import {
   retainReviewPage,
   useReviewOpening,
 } from './opening';
+import { useLeftQueue } from '../queue/useQueue';
+import {
+  BatchesHeader,
+  BatchesMain,
+  SubviewSwitch,
+  canReadBatches,
+  preloadBatches,
+  reviewSubview,
+} from './subview';
 
 const count = new Intl.NumberFormat('en');
 
 export function ReviewPage() {
+  useLeftQueue();
   const opening = useReviewOpening((state) => state.warming);
   const openingToken = useReviewOpening((state) => state.token);
   const article = useRef<HTMLElement>(null);
@@ -112,6 +132,11 @@ export function ReviewPage() {
   const data = useDataStore((state) => state.data);
   const load = useDataStore((state) => state.load);
   const user = useAuthStore((state) => state.user);
+  // Saved | Batches (scheduled changes; build switch OFF or no batch role: always Saved).
+  const subview = reviewSubview(searchParams, user);
+  const batchesView = useRef(subview === 'batches');
+  batchesView.current = subview === 'batches';
+  useEffect(() => preloadBatches(user), [user]);
   const drafts = useDraftStore((state) => state.drafts);
   const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
   const prepared = useMemo(
@@ -268,10 +293,29 @@ export function ReviewPage() {
     setSearchParams(params, { replace: true });
   }, [current, loading, searchParams, setSearchParams]);
   useEffect(() => clearSelection(), [user, clearSelection]);
+  // Leave from a work-through queue (after the clears above, which run on every mount): the publish selection comes back, but only for rows still
+  // saved as they were when the queue began (a row saved meanwhile is unreviewed again).
+  const returned = useRef(returnedState<ReviewRestore>(routeLocation.state));
+  useEffect(() => {
+    const restore = returned.current;
+    if (loading || !restore || !data) return;
+    returned.current = undefined;
+    const pending = new Map(entries.map((entry) => [entry.tooltip.hash, entry]));
+    const kept = restore.selected.filter(
+      (hash) =>
+        pending.has(hash) &&
+        !pending.get(hash)!.unpublishable &&
+        !inFlight.has(hash) &&
+        reviewStamp(data.bundle.tooltips[hash], data.aliases) === restore.stamps[hash],
+    );
+    if (kept.length) useReviewQueue.setState({ selected: new Set(kept) });
+  }, [loading, data, entries, inFlight]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (event.defaultPrevented || workspaceShortcutsBlocked(event)) return;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || pushing) return;
+      // The Saved list's keys (Space, P, arrows) never act on it while Batches is shown.
+      if (batchesView.current) return;
       if (
         event.target instanceof Element &&
         event.target.closest(
@@ -337,6 +381,28 @@ export function ReviewPage() {
     ? pushing || !!current.unpublishable || inFlight.has(current.tooltip.hash)
     : true;
 
+  const switcher =
+    SubviewSwitch && canReadBatches(user) ? (
+      <Suspense fallback={null}>
+        <SubviewSwitch />
+      </Suspense>
+    ) : null;
+  if (subview === 'batches' && BatchesMain && BatchesHeader)
+    return (
+      <article className={styles.page} data-subview="batches">
+        <header className={styles.summary}>
+          <h1 className={styles.readyStatus}>Review changes: batches</h1>
+          {switcher}
+          <Suspense fallback={null}>
+            <BatchesHeader />
+          </Suspense>
+        </header>
+        <Suspense fallback={<p className={styles.note}>Loading batches…</p>}>
+          <BatchesMain />
+        </Suspense>
+      </article>
+    );
+
   return (
     <>
       <p role="status" className={opening ? styles.openingStatus : styles.readyStatus}>
@@ -345,37 +411,43 @@ export function ReviewPage() {
       <article ref={article} aria-busy={loading} className={styles.page}>
         <header className={styles.summary}>
           <h1 className={styles.readyStatus}>Review changes</h1>
+          {switcher}
           <p className={styles.counts}>
             <span className={styles.segment}>
               <b>{count.format(changeCount)}</b> {changeCount === 1 ? 'change' : 'changes'}
             </span>
+            {/* Each "·" stays with the segment after it, so a wrapped line never ends in one. */}
             {markerTotal > 0 && (
               <>
-                {' · '}
-                <Link
-                  to={{ search: markerSearch(searchParams) }}
-                  replace
-                  title="Alias-marker migration leftovers: saved content equals live"
-                  className={styles.segment}
-                  onClick={() => openMarkers()}
-                >
-                  {count.format(markerTotal)} marker-only
-                </Link>
+                {' '}
+                <span className={styles.segment}>
+                  {'· '}
+                  <Link
+                    to={{ search: markerSearch(searchParams) }}
+                    replace
+                    title="Alias-marker migration leftovers: saved content equals live"
+                    onClick={() => openMarkers()}
+                  >
+                    {count.format(markerTotal)} marker-only
+                  </Link>
+                </span>
               </>
-            )}
-            {' · '}
-            <span className={styles.segment}>{hashes.length} selected</span>
+            )}{' '}
+            <span className={styles.segment}>· {hashes.length} selected</span>
             {hashes.length > 0 && (
               <>
-                {' · '}
-                <button
-                  type="button"
-                  className={styles.textButton}
-                  disabled={pushing}
-                  onClick={clearSelection}
-                >
-                  Clear
-                </button>
+                {' '}
+                <span className={styles.segment}>
+                  {'· '}
+                  <button
+                    type="button"
+                    className={styles.textButton}
+                    disabled={pushing}
+                    onClick={clearSelection}
+                  >
+                    Clear
+                  </button>
+                </span>
               </>
             )}
           </p>

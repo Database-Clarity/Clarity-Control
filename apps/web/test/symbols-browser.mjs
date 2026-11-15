@@ -4,7 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
+import { startHarnessServer } from './harness-server.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // Overhaul P2 step 9 (+ tinted colour tags) in the real shell on synthetic data: icon tags drawn as
 // fixed-width symbols, colour tags hidden with their text tinted in the preview's tag colour, the
@@ -17,13 +18,8 @@ await mkdir(shots, { recursive: true });
 const port = Number(process.env.SYMBOLS_BROWSER_PORT ?? 5299);
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -37,24 +33,36 @@ const lineTops = (page) =>
     }),
   );
 const noOverflow = async (page, label) => {
-  const overflow = await page.evaluate(() => ({
-    page: document.documentElement.scrollWidth - window.innerWidth,
-    wide: [...document.querySelectorAll('body *')]
-      .filter((el) => {
-        const r = el.getBoundingClientRect();
-        return (
-          r.width > 0 &&
-          r.right > window.innerWidth + 1 &&
-          !el.closest('[hidden]') &&
-          !el.closest('.cm-scroller') &&
-          !el.closest('[data-markup-row] [role=toolbar]')
-        );
-      })
-      .slice(0, 5)
-      .map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
-  }));
+  const overflow = await page.evaluate(() => {
+    const wide = [...document.querySelectorAll('body *')].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return (
+        r.width > 0 &&
+        r.right > window.innerWidth + 1 &&
+        !el.closest('[hidden]') &&
+        !el.closest('.cm-scroller') &&
+        !el.closest('[data-markup-row] [role=toolbar]')
+      );
+    });
+    const name = (el) => `${el.tagName}.${String(el.className).slice(0, 40)}`;
+    const inBar = (el) => el.parentElement?.closest('[data-editor-status]');
+    // The known defect is a phone-width one: anywhere wider, a cut bar item fails outright.
+    const phoneWidth = window.innerWidth <= 400;
+    return {
+      page: document.documentElement.scrollWidth - window.innerWidth,
+      wide: wide
+        .filter((el) => !phoneWidth || !inBar(el))
+        .slice(0, 5)
+        .map(name),
+      bar: wide
+        .filter((el) => phoneWidth && inBar(el))
+        .slice(0, 5)
+        .map((el) => `${name(el)} "${el.textContent}"`),
+    };
+  });
   assert.ok(overflow.page <= 0, `${label}: page scrolls horizontally by ${overflow.page}`);
   assert.deepEqual(overflow.wide, [], `${label}: elements run past the window`);
+  assert.deepEqual(overflow.bar, [], `${label}: status bar items run past the window`);
 };
 
 // Tags do not nest (the converter closes a tag at its first />), so icons and other tags sit beside
@@ -98,7 +106,7 @@ async function open(theme, viewport, phone, scale) {
     }, scale);
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', collectPageErrors(errors));
   await page.goto(url);
   await page.locator('header').first().waitFor();
   await page.evaluate(() => {
@@ -188,18 +196,31 @@ async function check(theme, width, height, phone, scale, name) {
   await noOverflow(page, `${label} widgets`);
   await page.screenshot({ path: `${shots}/${name}-widgets.png` });
 
-  const insideScroller = (page) =>
-    page.evaluate(() => {
+  // CodeMirror parks a new tooltip far off screen (top about -10000) until its next measure frame
+  // places it; judge the placement once it is placed (a tooltip never placed still fails here).
+  const insideScroller = async (page) => {
+    await page
+      .waitForFunction(
+        () => document.querySelector('.cm-symbol-popover')?.getBoundingClientRect().top > -1000,
+        null,
+        { timeout: 2000 },
+      )
+      .catch(() => undefined);
+    return page.evaluate(() => {
       const pop = document.querySelector('.cm-symbol-popover').getBoundingClientRect();
       const scroller = document.querySelector('.cm-scroller').getBoundingClientRect();
-      return pop.top >= scroller.top - 0.5 && pop.bottom <= scroller.bottom + 0.5;
+      return pop.top >= scroller.top - 0.5 && pop.bottom <= scroller.bottom + 0.5
+        ? true
+        : `popover ${Math.round(pop.top)}-${Math.round(pop.bottom)}, editor ${Math.round(scroller.top)}-${Math.round(scroller.bottom)}`;
     });
+  };
   const before = await lineTops(page);
   if (!phone) {
     // Hover: a popover with the markup, no line moves.
     await page.locator('.cm-symbol').nth(2).hover();
     await page.locator('.cm-symbol-popover').waitFor();
-    assert.ok(await insideScroller(page), `${label}: line-1 popover stays inside the editor`);
+    const hovered = await insideScroller(page);
+    assert.equal(hovered, true, `${label}: line-1 popover stays inside the editor (${hovered})`);
     assert.ok(
       (await page.locator('.cm-symbol-popover code').textContent()).startsWith('<'),
       `${label}: hover popover shows the markup`,
@@ -242,7 +263,8 @@ async function check(theme, width, height, phone, scale, name) {
   // Click selects the symbol: popover with the hint, Enter edits, Esc cancels. Nothing moves.
   await page.locator('.cm-symbol').nth(1).click();
   await page.locator('.cm-symbol-popover').waitFor();
-  assert.ok(await insideScroller(page), `${label}: pinned line-1 popover stays inside the editor`);
+  const pinned = await insideScroller(page);
+  assert.equal(pinned, true, `${label}: pinned line-1 popover stays inside the editor (${pinned})`);
   assert.deepEqual(await lineTops(page), before, `${label}: selecting a symbol moved text`);
   await page.keyboard.press('Enter');
   await page.locator('.cm-symbol-input').waitFor();
@@ -258,18 +280,43 @@ async function check(theme, width, height, phone, scale, name) {
 
   // Raw toggle: the markup shows, toggling back restores the exact layout.
   await page.locator('.cm-content').click({ position: { x: 4, y: 4 } });
-  // The markup row carries the toggle on every screen: a pressed-state button naming the shortcut.
-  const rawButton = page.locator('[data-markup-row] [data-raw-toggle]');
-  assert.equal(await rawButton.isVisible(), true, `${label}: raw button is in the markup row`);
+  // A pressed-state button naming the shortcut: in the markup row on a desktop, in the status bar
+  // on a phone, whose markup bar docks on the keyboard (092cdeaa: "Raw to the status bar").
+  const docked = (await page.locator('[data-markup-row][data-docked]').count()) > 0;
+  const rawButton = docked
+    ? page.locator('[data-editor-status] button', { hasText: /^Raw$/ })
+    : page.locator('[data-markup-row] [data-raw-toggle]');
+  assert.equal(
+    await rawButton.isVisible(),
+    true,
+    `${label}: raw button is in the ${docked ? 'status bar' : 'markup row'}`,
+  );
+  if (docked)
+    assert.equal(
+      await page.locator('[data-markup-row] [data-raw-toggle]').count(),
+      0,
+      `${label}: one raw button`,
+    );
+  // Nothing in the bar covers Raw (at 390 an overflowing item once did): a tap at its centre
+  // must reach it.
+  await rawButton.scrollIntoViewIfNeeded();
+  const cover = await rawButton.evaluate((button) => {
+    const r = button.getBoundingClientRect();
+    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return button.contains(top) ? null : `${top?.tagName}.${top?.className} "${top?.textContent}"`;
+  });
+  assert.equal(cover, null, `${label}: Raw is covered by ${cover}`);
+  // A real tap, always.
+  const pressRaw = () => rawButton.click();
   assert.equal(await rawButton.getAttribute('aria-pressed'), 'false', `${label}: raw is off`);
   assert.ok(
     (await rawButton.getAttribute('title')).includes('Ctrl+Shift+.'),
     `${label}: raw button tooltip names the shortcut`,
   );
-  await rawButton.click();
+  await pressRaw();
   assert.equal(await rawButton.getAttribute('aria-pressed'), 'true', `${label}: raw state shown`);
   assert.equal(await page.locator('.cm-symbol').count(), 0, `${label}: button shows raw`);
-  await rawButton.click();
+  await pressRaw();
   assert.equal(
     await page.locator('.cm-symbol').count(),
     widgets.length,
@@ -367,6 +414,7 @@ try {
     await page.screenshot({ path: `${shots}/caret-reveal-tint.png` });
     await context.close();
   }
+  knownDefectSummary();
   console.log('symbols browser checks passed');
 } finally {
   await browser.close();

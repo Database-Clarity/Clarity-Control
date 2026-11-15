@@ -99,7 +99,9 @@ it('lists groups with counts, marker-only collapsed last, and toggles groups ope
 it('selects rows and whole groups, never unpublishable or marker-only rows in bulk', async () => {
   const groupBox = host.querySelector<HTMLInputElement>('input[data-review-group-toggle="a"]')!;
   expect(host.querySelector('input[data-review-group-toggle="~marker-only"]')).toBeNull();
-  expect(host.querySelector<HTMLInputElement>('input[data-review-toggle="2"]')!.disabled).toBe(true);
+  expect(host.querySelector<HTMLInputElement>('input[data-review-toggle="2"]')!.disabled).toBe(
+    true,
+  );
   await click(groupBox);
   expect(selected()).toEqual([1]);
   expect(groupBox.checked).toBe(true);
@@ -164,4 +166,34 @@ it('filters from the column, keeping the open change only while it matches', asy
   expect(rows()).toEqual([1, 2, 4]);
   // Nothing was open under the empty filter: clearing opens the first change.
   expect(host.querySelector('output')?.textContent).toBe('/review?hash=1');
+});
+
+it('Collapse all / Expand all flips the shown category groups, keeps marker-only and the selection, and is remembered', async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
+  const toggle = () => host.querySelector<HTMLButtonElement>('button[class*="collapseAll"]')!;
+  await click(host.querySelector('input[data-review-toggle="1"]')!);
+  expect(toggle().textContent).toContain('Collapse all');
+  expect(toggle().querySelector('[aria-hidden]')!.textContent).toBe('Expand all');
+  await click(toggle());
+  expect(rows()).toEqual([]);
+  expect([...useReviewQueue.getState().collapsed].sort()).toEqual(['a', 'b']);
+  expect(useReviewQueue.getState().markerOpen).toBe(false);
+  expect(selected()).toEqual([1]);
+  expect(toggle().querySelector('[aria-hidden]')!.textContent).toBe('Collapse all');
+  expect(JSON.parse(localStorage.getItem('clarity-review-collapsed:v1')!)).toEqual(['a', 'b']);
+  // One group opened by hand: the label goes back to Collapse all.
+  await click(header('b'));
+  expect(toggle().querySelector('[aria-hidden]')!.textContent).toBe('Expand all');
+  await click(toggle());
+  expect(rows()).toEqual([]);
+  await click(toggle());
+  expect(rows()).toEqual([1, 2, 4]);
+  expect(localStorage.getItem('clarity-review-collapsed:v1')).toBeNull();
+  expect(selected()).toEqual([1]);
+  vi.unstubAllGlobals();
 });

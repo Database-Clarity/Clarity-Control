@@ -2,7 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigationType } from 'react-router-dom';
 import { useSettingsStore } from '../../stores/settings';
-import { followPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
+import {
+  followPlacement,
+  placeAnchored,
+  viewportWidth,
+  visibleArea,
+} from '../../ui/anchorPlacement';
 import { scaledPx } from '../../ui/scale';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useSettingsPanel } from './panel';
@@ -43,17 +48,21 @@ function anchor(button: Element | null): CSSProperties {
     };
   }
   const rect = button.getBoundingClientRect();
-  // The popover is 30rem wide (at most the window less a margin), whatever the interface scale.
-  const wide = Math.min(scaledPx(width), window.innerWidth - margin * 2);
-  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - wide - margin));
+  // The popover is 30rem wide (at most the window less a margin), whatever the interface scale;
+  // the window's width leaves out the reserved scrollbar gutter.
+  const room = viewportWidth();
+  const wide = Math.min(scaledPx(width), room - margin * 2);
+  const left = Math.max(margin, Math.min(rect.left, room - wide - margin));
   if (rect.top > window.innerHeight / 2)
     return {
       left,
+      width: wide,
       bottom: window.innerHeight - rect.top + gap,
       maxHeight: Math.max(240, rect.top - gap - edge),
     };
   return {
     left,
+    width: wide,
     top: rect.bottom + gap,
     maxHeight: Math.max(240, window.innerHeight - rect.bottom - gap - edge),
   };
@@ -81,7 +90,12 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
   const [style, setStyle] = useState(place);
   // Changing the interface scale here resizes the popover and its opener: place it again.
   const uiScale = useSettingsStore((state) => state.device.uiScale);
+  const placedScale = useRef(uiScale);
   useLayoutEffect(() => {
+    // The first placement came with the first render; placing again on mount would read layout
+    // in the opening commit and render the whole panel twice.
+    if (placedScale.current === uiScale) return;
+    placedScale.current = uiScale;
     setStyle(place());
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` only reads the opener.
   }, [uiScale]);
@@ -111,13 +125,31 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
   }, []);
   useLayoutEffect(() => {
     const background = layout.current;
-    background?.setAttribute('inert', '');
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    panel.current?.focus();
+    let previousOverflow = '';
+    let locked = false;
+    // The page behind goes inert (and stops scrolling) once the popover has painted: marking it
+    // inert restyles the whole page, which made the opening frame late. Focus is already in the
+    // panel and Tab is trapped there, so nothing behind it can be reached in that one frame.
+    const lock = () => {
+      locked = true;
+      background?.setAttribute('inert', '');
+      previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    };
+    let frame: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (typeof requestAnimationFrame === 'function')
+      frame = requestAnimationFrame(() => (timer = setTimeout(lock, 0)));
+    else lock();
+    // The panel is fixed and placed in view: no scroll, so focusing needs no layout pass here.
+    panel.current?.focus({ preventScroll: true });
     return () => {
-      background?.removeAttribute('inert');
-      document.body.style.overflow = previousOverflow;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      if (locked) {
+        background?.removeAttribute('inert');
+        document.body.style.overflow = previousOverflow;
+      }
       const target =
         opener?.isConnected && !opener.closest('[inert]')
           ? opener

@@ -1,0 +1,32 @@
+@use '../../ui/controls';
+
+.moved {
+  color: var(--accent-ink);
+}
+
+.error {
+  color: var(--warn);
+}
+
+.confirm {
+  display: grid;
+  gap: 8px;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+
+  p {
+    margin: 0;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+
+  button {
+    @include controls.button;
+    white-space: nowrap;
+  }
+}

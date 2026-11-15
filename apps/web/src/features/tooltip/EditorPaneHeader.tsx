@@ -2,9 +2,11 @@ import { useEffect } from 'react';
 import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
+import { InactiveMoveControl } from './InactiveMoveControl';
+import { applyInactiveMoves, useDataStore } from '../../stores/data';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
-import { PhoneTools } from './EditorMore';
+import { PhoneTools, type QueueBack } from './EditorMore';
 import {
   loadSandboxPerkText,
   sandboxPerkName,
@@ -45,6 +47,10 @@ export function EditorPaneHeader({
   queue,
   queueBack,
   draftLoader,
+  destination,
+  inactiveControl,
+  inactiveHash,
+  reserveDraft = false,
 }: {
   lang: Lang;
   onLanguage(lang: Lang): void;
@@ -67,9 +73,16 @@ export function EditorPaneHeader({
   /** Queue mode only: position, Previous, Next, and the way back to the Translations queue. */
   queue?: React.ReactNode;
   /** Queue mode only: the way back to the queue, for the phone's More sheet. */
-  queueBack?: { to: string; label: string };
+  queueBack?: QueueBack;
   /** "Load draft…" for an empty tooltip with an agent-written draft (editors and maintainers). */
   draftLoader?: React.ReactNode;
+  /** Scheduled changes: the badge naming the open batch this tooltip is in. */
+  destination?: React.ReactNode;
+  /** Maintainer-only inactive move, with its own deliberate confirmation. */
+  inactiveControl?: React.ReactNode;
+  /** Undefined on batch visits, where global move actions are unavailable. */
+  inactiveHash?: number;
+  reserveDraft?: boolean;
 }) {
   const phone = useMedia(phoneQuery);
   if (phone)
@@ -86,6 +99,10 @@ export function EditorPaneHeader({
           queue,
           queueBack,
           draftLoader,
+          destination,
+          inactiveControl,
+          inactiveHash,
+          reserveDraft,
         }}
       />
     );
@@ -98,25 +115,48 @@ export function EditorPaneHeader({
       title="Show or hide the markup row at the top of the editor"
       onClick={markup.toggle}
     >
-      Markup tools <kbd className={styles.key}>Ctrl+.</kbd>
+      {/* One flex item: the button's gap must not land between the two words. */}
+      <span>
+        Markup<span className={styles.markupWord}> tools</span>
+      </span>{' '}
+      <kbd className={styles.key}>Ctrl+.</kbd>
     </button>
   );
   return (
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
+      {destination}
       {activeOverride && (
-        <span className={styles.overrideTag}>
-          <EnhancedArrow /> Enhanced override
-          {overrides.length > 1 && <span className={styles.ell}>: {activeOverride.name}</span>}
+        // A narrow line says "↑ Override" (the arrow already means enhanced), then ellipsises.
+        <span
+          className={styles.overrideTag}
+          title={`Enhanced override${overrides.length > 1 ? `: ${activeOverride.name}` : ''}`}
+        >
+          <EnhancedArrow />
+          <span className={styles.ell}>
+            <span className={styles.overrideLong}>Enhanced override</span>
+            <span className={styles.overrideShort} aria-hidden="true">
+              Override
+            </span>
+            {overrides.length > 1 && `: ${activeOverride.name}`}
+          </span>
         </span>
       )}
-      {!draft && (
+      {!draft && !reserveDraft && (
         // Holds the place of the draft dot and Discard on a phone, where this row wraps, so the
         // first edit does not push the text down. It takes no space elsewhere.
         <span className={styles.draftSpacer} aria-hidden="true">
           <span className={styles.dot} />
           <span className={styles.ghost}>Discard</span>
         </span>
+      )}
+      {!draft && reserveDraft && (
+        <>
+          <span className={styles.dot} style={{ visibility: 'hidden' }} aria-hidden="true" />
+          <span className={styles.ghost} style={{ visibility: 'hidden' }} aria-hidden="true">
+            Discard
+          </span>
+        </>
       )}
       {draft && (
         <>
@@ -153,9 +193,11 @@ export function EditorPaneHeader({
       {markupTools}
       {queue}
       <span className={styles.paneRight}>
+        {inactiveControl}
         {grouped && (
           <Popover
             label="Grouped manifest perks"
+            triggerLabel="Grouped manifest perks"
             className={styles.ghost}
             trigger={
               <>
@@ -166,7 +208,7 @@ export function EditorPaneHeader({
             }
             triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
           >
-            <GroupedPerks perks={grouped} />
+            <GroupedPerks perks={grouped} currentHash={inactiveHash} />
           </Popover>
         )}
         {activeOverride ? (
@@ -231,12 +273,20 @@ function PhoneToolRow({
   queue,
   queueBack,
   draftLoader,
+  destination,
+  inactiveControl,
+  inactiveHash,
+  reserveDraft,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   return (
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
+      {destination}
       {draft && (
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
+      )}
+      {!draft && reserveDraft && (
+        <span className={styles.dot} style={{ visibility: 'hidden' }} aria-hidden="true" />
       )}
       {draftLoader}
       <PhoneTools
@@ -244,6 +294,7 @@ function PhoneToolRow({
         key={draftLoader ? 'after-draft' : 'tools'}
         markup={markup}
         draft={draft}
+        reserveDraft={reserveDraft}
         saving={saving}
         onDiscard={onDiscard}
         grouped={grouped}
@@ -251,7 +302,8 @@ function PhoneToolRow({
         onEditOverride={onEditOverride}
         queueBack={queueBack}
         queue={queue}
-        renderGrouped={(perks) => <GroupedPerks perks={perks} />}
+        renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
+        extra={inactiveControl}
       />
       {reason && (
         <span className={styles.badge} role="status" title={reason}>
@@ -279,7 +331,14 @@ function PhoneToolRow({
 }
 
 /** The maintainer's read-only list: hash, in-game name, base or enhanced, and how it joined. */
-export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
+export function GroupedPerks({
+  perks,
+  currentHash,
+}: {
+  perks: GroupedPerk[];
+  currentHash?: number;
+}) {
+  const moves = useDataStore((state) => state.data?.bundle.inactiveMoves);
   // Sandbox perks are not in the item catalog: their names come from the bundled sandbox perk
   // text, loaded once when this list first opens.
   const sandbox = useSandboxPerkText();
@@ -315,11 +374,26 @@ export function GroupedPerks({ perks }: { perks: GroupedPerk[] }) {
             )}
           </span>
           <span className={styles.groupedHow}>
-            {perk.how}
-            {perk.sharedBy && (
-              <span title={perk.sharedBy.join(', ')}>
-                {' · '}shared by {perk.sharedBy.length} owners
-              </span>
+            <span>
+              {perk.how}
+              {perk.sharedBy && (
+                <span title={perk.sharedBy.join(', ')}>
+                  {' · '}shared by {perk.sharedBy.length} owners
+                </span>
+              )}
+            </span>
+            {currentHash !== undefined && perk.hash !== currentHash && (
+              <InactiveMoveControl
+                hash={perk.hash}
+                name={
+                  perk.name ||
+                  (sandbox && sandboxPerkName(perk.hash, sandbox)) ||
+                  `Tooltip ${perk.hash}`
+                }
+                moves={moves}
+                onSaved={applyInactiveMoves}
+                className={styles.ghost}
+              />
             )}
           </span>
         </li>

@@ -10,9 +10,10 @@ import {
   type Extension,
 } from '@codemirror/state';
 import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
-import type { MarkupGlobals } from '@clarity/core';
+import { extractVariables, lowerDelimitedMarkup, type MarkupGlobals } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
 import { checkedWrap, tagSelection } from '../elementTags';
+import { askGroup, groupChange, pairAt } from '../iconPairs';
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
   caretContext,
@@ -45,6 +46,11 @@ export interface SuggestSnapshot {
   judged: boolean;
   /** The author moved the selection; until then the menu may move it to an option that fits. */
   picked: boolean;
+  /**
+   * Where this menu sits in a longer task, shown muted above the detail (the translator's "Tag
+   * the same words here": "2 of 4 in the translation"). Kept while browsing, gone with the menu.
+   */
+  aside?: string;
 }
 
 export interface SuggestHost {
@@ -63,6 +69,7 @@ const moveEffect = StateEffect.define<number>();
 const categoryEffect = StateEffect.define<null>();
 const messageEffect = StateEffect.define<string | null>();
 const judgeEffect = StateEffect.define<null>();
+const asideEffect = StateEffect.define<string>();
 
 const typedTriggers = new Set(['<', '#', '[']);
 
@@ -117,6 +124,7 @@ function derive(
     explicit,
     message: null,
     judged: !explicit,
+    aside: previous?.aside,
     picked: kept < 0 ? false : (previous?.picked ?? false),
   };
 }
@@ -170,6 +178,8 @@ export const suggestField = StateField.define<SuggestSnapshot | null>({
           message: null,
           picked: true,
         };
+      } else if (effect.is(asideEffect)) {
+        next = { ...next, aside: effect.value };
       } else if (effect.is(messageEffect)) {
         next = { ...next, message: effect.value };
       } else if (effect.is(judgeEffect) && !next.judged) {
@@ -204,6 +214,11 @@ export const suggestState = (state: EditorState): SuggestSnapshot | null =>
 
 export function openSuggest(view: EditorView): void {
   view.dispatch({ effects: openEffect.of({ explicit: true }) });
+}
+/** Moves the open menu to an option (absolute index) and says where it sits in a longer task. */
+export function guideSuggest(view: EditorView, index: number, aside: string): void {
+  if (!suggestState(view.state)) return;
+  view.dispatch({ effects: [moveEffect.of(index), asideEffect.of(aside)] });
 }
 export function closeSuggest(view: EditorView): void {
   if (suggestState(view.state)) view.dispatch({ effects: closeEffect.of(null) });
@@ -263,6 +278,23 @@ export function insertItem(
         ? checkedWrap(view.state, selection.from, selection.to, element)
         : null;
     if (!change || change.from !== item.from || change.insert !== item.insert) return 'context';
+  } else if (item.group) {
+    // "Group with icon" is judged again on the live text, by its own rules.
+    const pair = pairAt(view.state);
+    const change = pair && groupChange(view.state, pair, view.state.facet(suggestHost).globals);
+    if (!pair || !change || change.from !== item.from || change.insert !== item.insert)
+      return 'context';
+    if (change.dropsSpace) {
+      // It drops the space: the icon's popover asks first (symbols.ts), with the icon selected.
+      view.dispatch({
+        selection: { anchor: pair.iconFrom, head: pair.iconTo },
+        effects: [closeEffect.of(null), askGroup.of(pair.iconFrom)],
+        scrollIntoView: true,
+      });
+      rememberSuggestion(item.id);
+      view.focus();
+      return null;
+    }
   } else if (!item.reference) {
     const rejection = insertionRejection(
       view.state,
@@ -333,17 +365,37 @@ const whenOpen =
 /** The part of the menu that follows the language and globals; goes in the reconfigurable block. */
 export const suggestConfiguration = (host: SuggestHost): Extension => suggestHost.of(host);
 
+/** Whether the typed `#name` in a variable context already names a defined variable. */
+function finishedReference(state: EditorState, context: SuggestContext): boolean {
+  if (context.kind !== 'variable') return false;
+  const name = /^#([a-zA-Z0-9]+)$/.exec(state.sliceDoc(context.from, context.to))?.[1];
+  if (name === undefined) return false;
+  const { globals } = state.facet(suggestHost);
+  return (
+    Object.hasOwn(extractVariables(state.doc.toString()), name) ||
+    Object.hasOwn(extractVariables(globals.variables), name)
+  );
+}
+
 /**
  * Enter and Tab insert the highlighted option. When it would only re-type what is already there
  * (the author finished the word, e.g. `#e`), the menu steps aside and the key keeps its usual job.
+ * Until the author picks an option, two more cases count: an option that only re-spells it
+ * (`#{name}` after `#name`, `<enhanced/>` after `#e`: both lower to what is typed, braces.ts),
+ * and a finished reference to a defined name, so `#e` (the global arrow, never offered as a
+ * variable) + Enter starts a new line whatever the menu lists first. A picked option goes in.
  */
 function accept(view: EditorView, snapshot: SuggestSnapshot): boolean {
   const item = snapshot.items[snapshot.index];
+  const typed = item && view.state.sliceDoc(item.from, item.to);
   if (
     item &&
     !item.unavailable &&
     !item.stops.length &&
-    item.insert === view.state.sliceDoc(item.from, item.to)
+    (item.insert === typed ||
+      (!snapshot.picked &&
+        (lowerDelimitedMarkup(item.insert) === typed ||
+          finishedReference(view.state, snapshot.context))))
   ) {
     closeSuggest(view);
     return false;

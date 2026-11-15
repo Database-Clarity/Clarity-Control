@@ -21,8 +21,20 @@ Terminal logs contain recordCommit:null because embedding a commit's own hash is
 resolve the recording commit from first-parent history of the log path. Rejected/stale operations have
 no liveCommit. Bundle updates use CAS and source ancestry, including on failed/empty drains.
 
+Maintainer moves in `config/inactive.json` require PIN capability `inactiveMoves`.
+Saving a move changes editor classification immediately; outputs change only when its canonical
+review row publishes. A publish applies that row's decision and its alias decisions, while other
+staged moves remain unpublished. Move-out markers (`inactive: false`) retain re-add intent.
+The receipt's source commit freezes these decisions for retries, rebases, and parity checks.
+Canonical removal also removes its live alias stubs. Every retained live importer and association
+must remain valid: removal is rejected before a candidate or live write when a consumer still
+reads removed text. Edit/publish that importer first, or select its edit/removal together with the
+target. Selections containing a removal stay in one dependency group within the existing Worker
+caps, so a previously saved importer edit and its target removal cannot split across chunks.
+
 Request creation is head-bound CAS. A caller must consult `classifyPublishIntent` at each fresh head;
-creation timestamps are checked only for a new operation. No batches or coalescing are implemented.
+creation timestamps are checked only for a new operation. No coalescing is implemented; scheduled
+batches (`kind: 'batch'`) are described in "Scheduled batches (P4)" below.
 
 ## Worker request API (P1-B, writes disabled until enable-time secret)
 
@@ -71,15 +83,32 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `a11aa9692419f565e02dde609e1f374d29b57343` (v2).
-Runtime SHA-256: `45a203a0d307d4d87a3fcd7a5550830f9190030f1b9f549a0735c298ce829b8b`.
+Current template source: `00681cfc5655141e9b73928636f70c4a896a60e0` (v2).
+Runtime SHA-256: `2592fc5d51565731db6b3cef077df771136931c1add263911d92302d4dd32a59`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
 It lowers element-tagged text (`<solar Scorch />` to `<solar/>Scorch`) in exportLegacy, rejects
 an export that still holds one, and its PIN declares `capabilities: ["elementTags"]`, which the
 Worker's /save and /publish require while the publisher is on (element-tags.test.ts checks the build).
+Prismatic joined the element tags later: this build also declares `prismaticTags`, which the Worker
+additionally requires for `<prismatic Text />` (an older `elementTags` build would drop its text).
 The current core barrel also includes unused report-schema initialization in this runtime.
+This rebuild also carries the previous bundle's other files (the report catalogs) forward.
+It merges maintainer sandbox picks (config/sandbox-pointers.json, core mergeSandboxPointers with
+the config's generator `sandboxConflicts`) into the aliases it digests and exports, carries the
+picks in bundle.json, and its PIN declares `sandboxPointers`, which the Worker's
+PUT /sandbox-pointers requires while the publisher is on. Fill `sandboxConflicts` in config.json
+from the same pinned generator commit as `aliases`.
+It lowers delimited variables and the arrow symbol (`#{d}` to `#d`, `<enhanced/>` to `#e`, core
+braces.ts) in exportLegacy, rejects an export that still holds `#{` or `<enhanced/>`
+(unloweredEntry), and its PIN declares `markupBraces`, which the Worker's /save and /publish
+require for them while the publisher is on (build.mjs refuses the PIN without both markers).
+This is the enable build (PUB-ENABLE): config/publisher.json says `enabled: true`.
+Its publishableHash hashes each language's text as the exporters read it (lowerConsumerMarkup,
+ARROW-REWRITE), the same digest as the Worker's, so a spelling-only `<enhanced/>` or `#{d}` edit
+is not stale on publish and records the same push marker; the bundle differs from the 95f493a8
+build only in that line.
 Two consecutive builds and a clean checkout build must reproduce that digest.
 
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency
@@ -108,6 +137,18 @@ previous remote bundle. Simulation artifacts exclude all fetched remote history 
 bundle just published). would-be-commits.json lists prerequisite commits; when commits is zero,
 no Git bundle is emitted. Otherwise fetch would-be-commits.bundle into a clone containing those
 prerequisites to inspect the simulated heads.
+
+The publisher owns only bundle.json on editor-data-bundle. Every bundle push, dry-run included,
+carries every other file of the previous bundle forward byte-identical, so the report catalogs
+(report-items.json and report-items.worker.json, read by web Reports and the Worker's /reports)
+survive it. The same workflow run then rebuilds them in two jobs that replace bundle.yml's catalog
+step with its inputs (generator v2, editor 0acd005c). `report-items` (read-only token, after the
+pipeline job unless the run was cancelled) builds both catalogs for the bundle head it read;
+`report-items-push` (separate runner, contents:write) checks that the head has not moved, that the
+artifact holds exactly the two catalogs, and that each is v1 for that bundle's sourceCommit. It then
+pushes one fast-forward commit leased on that head (never --force), or does nothing when the
+catalogs are already current. A moved head fails the job and leaves the branch untouched; the next
+run rebuilds the catalogs. The workflow's concurrency group serializes all three jobs.
 
 All editor-data pushes (requests, kicks, saves) start the pipeline. GITHUB_TOKEN bundle pushes
 suppress downstream workflows; no workflow_dispatch/schedule is registered on production live.
@@ -187,3 +228,76 @@ The entire publisher fixture suite runs for both the simulator and local bare re
 file:// with real receive-pack. A separate contract compares CAS/tree/history results; faults
 cover dropped responses before/after pushes and a real pre-receive timeout. Tests use no
 GitHub publication calls. Run `npm test -- scripts/publisher --maxWorkers=2`.
+
+## Scheduled batches (P4, merge held until phase-B step 4)
+
+Spec: `.agents/reports/scheduled-changes/spec.md` (local coordination file). Contracts come only
+from `@clarity/core/schedule`; `packages/core/src/publishRequest.ts` adds the request union
+(`parsePublishRequestPayload`, `publishRequestIntentDigest`). `push` keeps its schema and digest
+byte-identical. The batch member is loaded with a dynamic import, because core/schedule reads
+publishRequest exports at load time and a static import would form a load-order cycle. esbuild
+inlines it into publisher.mjs; batch.test.ts drains a batch through a freshly built runtime.
+
+- Queue: a `batch` request drains once its notBefore is at or before the runner clock. It sits
+  before the first push created at or after max(notBefore, createdAt); pushes keep their git
+  addition order. A batch already claimed by its opId (its run died) drains before everything
+  else. A batch that is not yet due is neither drained nor counted as pending:
+  bundle.json lists it under `scheduledQueue` (key omitted while empty), and publishQueue batch
+  entries add `kind`, `batchId`, and `notBefore`.
+- Claim (I2): at head S, the publisher checks the signature, the key pin, and the requester's
+  role. batch.json must be `scheduled` for this opId, with the signed contentRevision and
+  notBefore; anything else is `superseded`. The members must equal the signed hash list, and
+  approvedDigest is recomputed from them (`rejected` on a mismatch). A hash with an activation
+  conflict file is rejected. Per member: non-translation merge3 against current (`stale` with
+  fields, `$exists` per R14), then composition (`stale` for C3), and `unpublished` fields are
+  refused as stale (root ruling). The manual content checks and the export run before ONE CAS
+  commit S → S'. That commit sets status publishing and the claim, marks the due entry claimed,
+  and updates the index. A race or an ambiguous CAS returns to run(), which re-reads the queue
+  order and re-validates from the top. A batch this opId already claimed (a run died after the
+  claim) resumes from S'. S' is found by binary search over first-parent history (the claimed
+  commits are one suffix), failing closed unless the boundary is proven.
+- Candidate and live write: the unchanged path, with receipt.sourceCommit = S' and the receipt
+  also carrying `batchId` and `contentRevision`. Entries are the composed tooltips (English and
+  the Bungie snapshot keep the stamps activation will keep, so live equals a manual publish of
+  the activated tooltip; content always comes from the proposal), whose
+  live/tooltips blobs are rewritten from S' at RECORD and must match the receipt OIDs (fail
+  closed).
+- RECORD: one commit. It writes the log (times add `landedAt`, `landedAtSource` 'cas' | 'observed',
+  and `recordedAt`, all ISO), pushed.json, and the composed live snapshots. Activation runs per
+  member: merge3(base@S', current@H, proposed@S') with Q4 and R14. A clean member writes
+  tooltips/<hash>.json; a conflicted one keeps current and gets
+  schedule/activation-conflicts/<hash>.json (never overwritten). batch.json becomes `published`
+  (or a published batch with an `unchanged` result), the due entry is removed, and the index is
+  updated.
+- Failure without a live write (stale, rejected, superseded): the same RECORD commit returns
+  the batch to draft (opId, claim, notBefore, and zone null, `result` kept), but only while
+  batch.json still names this opId (R15). The opId's due entry is removed either way.
+- Every manual `push` naming a hash with a conflict file is rejected before candidate creation
+  ("Resolve the batch activation first", R3).
+- Events past 200 move to `schedule/batches/<id>/events/<seq>.json` (seq = the 8-digit count
+  already archived; root ruling), in the same commit. due.json and index.json are advisory: a
+  missing or malformed file is left as it is, never a reason to stop the queue.
+- PIN capability `scheduledBatches`: build.mjs refuses to write a PIN unless the bundle contains
+  the claim and batch RECORD. The template is re-pinned with it at the P4 merge (root
+  2026-11-14, after phase-B step 4; "Current template source" above). `PUBLISHER_DIST` builds
+  into another directory.
+
+`npx vitest run scripts/publisher/batch.test.ts` runs every P4 publisher fixture (simulator, with
+the core path also over the local bare remote).
+
+The arrowSymbol capability retains <arrow/> in the shared intermediate. The separately installed converter engine lowers it to 🠚 in the seven legacy files; clarityV2 and custom exports retain the symbol, with → available as their formatting fallback.
+
+## Arrow symbol rollout precondition
+
+Before installing an `arrowSymbol` publisher PIN in editor-data, install the
+`.exports/` converter engine built from source commit
+`83da713384bb0c399209e43851e32fca5e035ca1` or a descendant that includes its arrow
+lowering. Verify that its `buildLegacy` emits U+1F81A for `<arrow/>` in all seven
+old-URL files, and record the installed `.exports/PIN`.
+
+This engine installation is also required before enabling publisher writes to
+the production `converter` branch. The publisher preserves `<arrow/>` in the
+shared `liveDescriptions.json` intermediate; its `arrowSymbol` capability alone
+does not update or verify the downstream converter. An older engine or the held
+npm converter drops the arrow. Keep the Worker's PIN gate closed until both
+components are installed. Installs and cut-over remain owner-gated.

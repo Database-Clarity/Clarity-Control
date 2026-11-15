@@ -1108,6 +1108,16 @@ describe('reports local D1', () => {
       (await call('/reports/index', 'GET', undefined, 1, '192.0.2.1', { 'If-None-Match': etag }))
         .status,
     ).toBe(304);
+    // Cross-origin reads keep the route's ETag exposure next to the Worker-wide Date.
+    const origin = { Origin: fixture.env.SITE_ORIGIN };
+    for (const [extra, status] of [
+      [origin, 200],
+      [{ ...origin, 'If-None-Match': etag }, 304],
+    ] as const) {
+      const cors = await call('/reports/index', 'GET', undefined, 1, '192.0.2.1', extra);
+      expect(cors.status).toBe(status);
+      expect(cors.headers.get('Access-Control-Expose-Headers')).toBe('ETag, Date');
+    }
     expect((await call(`/reports/${id}`, 'DELETE', undefined, 1)).status).toBe(200);
     const after = await call('/reports/index', 'GET', undefined, 1, '192.0.2.1', {
       'If-None-Match': etag,

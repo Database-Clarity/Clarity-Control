@@ -1,8 +1,8 @@
 name: v2 checks
 
 on:
-  push:
-    branches: [v2]
+  # No push trigger: every v2 fast-forward first passes the exact-tree Review suite
+  # (ci_suite.py), so a push run only repeats it and emails the owner on flakes.
   pull_request:
     branches: [v2]
 
@@ -18,8 +18,23 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm test
       - run: npm run build
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Shards are bin-packed by file weight (vitest.config.ts).
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}

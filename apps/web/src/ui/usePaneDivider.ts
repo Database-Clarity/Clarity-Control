@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -80,14 +81,33 @@ const clamp = (value: number, low: number, high: number) => Math.max(low, Math.m
  * saved sizes are design pixels, so a pane keeps its share of the window at every scale.
  */
 export function useScaleFactor(): number {
-  const [factor, setFactor] = useState(() => scaledPx(1));
+  const [factor, setFactor] = useState(currentScaleFactor);
   useEffect(() => {
-    const update = () => setFactor(scaledPx(1));
+    scaleReaders++;
+    const update = () => setFactor(currentScaleFactor());
     update();
     window.addEventListener('clarity-ui-scale', update);
-    return () => window.removeEventListener('clarity-ui-scale', update);
+    return () => {
+      window.removeEventListener('clarity-ui-scale', update);
+      if (--scaleReaders === 0) knownScaleFactor = undefined;
+    };
   }, []);
   return factor;
+}
+
+/**
+ * The root font size only changes with a `clarity-ui-scale` announcement, so one reading serves
+ * every mounted pane until the next one (and is dropped when none is mounted). Reading it on each
+ * mount forced a style recalculation of the freshly committed page (3.5-5.5 ms per editor handoff).
+ */
+let knownScaleFactor: number | undefined;
+let scaleReaders = 0;
+if (typeof window !== 'undefined')
+  window.addEventListener('clarity-ui-scale', () => {
+    knownScaleFactor = undefined;
+  });
+function currentScaleFactor(): number {
+  return (knownScaleFactor ??= scaledPx(1));
 }
 
 /**
@@ -104,7 +124,22 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
   const track = DIVIDER_TRACK * k;
   const persist = options.persist ?? true;
   const paused = options.paused ?? false;
-  const containerRef = useRef<HTMLDivElement>(null);
+  // The container is tracked as state so measuring starts when it mounts, not only when `paused`
+  // changes: a page may keep a skeleton up after it is unpaused and mount the columns later.
+  // React writes `current` on mount and unmount, so the setter fires only then.
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const containerRef = useMemo(() => {
+    let node: HTMLDivElement | null = null;
+    return {
+      get current() {
+        return node;
+      },
+      set current(next: HTMLDivElement | null) {
+        node = next;
+        setElement(next);
+      },
+    } as RefObject<HTMLDivElement>;
+  }, []);
   const measuredElement = useRef<HTMLDivElement>();
   const [containerWidth, setContainerWidth] = useState(0);
   const savedPane = useSettingsStore((state) => state.device.panes[storeKey]);
@@ -120,9 +155,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
 
   // Measured before the first paint, so a saved size never shows unclamped for a frame.
   useLayoutEffect(() => {
-    if (paused) return;
-    const element = containerRef.current;
-    if (!element) return;
+    if (paused || !element) return;
     const measure = () => {
       measuredElement.current = element;
       setContainerWidth(element.getBoundingClientRect().width);
@@ -139,7 +172,7 @@ export function usePaneDivider(options: PaneDividerOptions): PaneDividerHandle {
     });
     observer.observe(element, { box: 'border-box' });
     return () => observer.disconnect();
-  }, [paused]);
+  }, [paused, element]);
 
   const fallback =
     (typeof defaultWidth === 'function' ? defaultWidth(containerWidth) : defaultWidth) * k;

@@ -24,6 +24,7 @@ vi.mock('../auth/AuthStatus', () => ({
 }));
 vi.mock('../compendium/CompendiumBadge', () => ({
   CompendiumBadge: () => null,
+  CompendiumWarmup: () => null,
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
 vi.mock('../editor', () => ({ ClarityEditor: () => <textarea aria-label="Editor" /> }));

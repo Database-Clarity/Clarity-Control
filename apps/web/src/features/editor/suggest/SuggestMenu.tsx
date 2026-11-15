@@ -41,6 +41,8 @@ const edge = 8;
 const gap = 4;
 /** The tallest the menu is ever placed. */
 const tallest = 340;
+/** The least height the menu is ever given. */
+const least = 120;
 
 function place(view: EditorView, context: SuggestContext, width: number): Placement | null {
   const anchor = view.coordsAtPos(context.kind === 'selection' ? context.to : context.from);
@@ -54,13 +56,33 @@ function place(view: EditorView, context: SuggestContext, width: number): Placem
   if (!anchor || anchor.bottom <= scroller.top || anchor.top >= scroller.bottom) return null;
   const below = bottomEdge - anchor.bottom - gap - edge;
   // With the bar docked (a phone), the sticky header and pane tabs cover the top: stay below them.
-  const above = anchor.top - gap - Math.max(edge, dockedTopChrome() + gap);
-  const useBelow = below >= 240 || below >= above;
-  const space = Math.max(120, Math.min(useBelow ? below : above, tallest));
+  const chrome = Math.max(edge, dockedTopChrome() + gap);
+  // A selection over several lines: below, the menu hangs from its last line; above, it sits on
+  // its first (or the editor's top edge when that line has scrolled away), so it never covers the
+  // lines it transforms. Only when that leaves less than the menu's least height does it sit
+  // lower, as little as that needs, so it never rises over the chrome either.
+  const first =
+    context.kind === 'selection' && context.from < context.to
+      ? Math.min(
+          anchor.top,
+          Math.max(scroller.top, view.coordsAtPos(context.from, 1)?.top ?? scroller.top),
+        )
+      : anchor.top;
+  const top = Math.min(anchor.top, Math.max(first, chrome + gap + least));
+  const above = top - gap - chrome;
+  // Below only with its least height clear of the bar, unless above has no more: at a caret
+  // (first = top) this is the plain "more room below" rule.
+  const useBelow =
+    below >= 240 || (below >= first - gap - chrome && (below >= least || above < least));
+  const space = Math.max(least, Math.min(useBelow ? below : above, tallest));
+  // The page's width without its scrollbar; the menu stays inside the editor's column where the
+  // column is wide enough for it, so it does not cover the pane beside the text.
+  const pageRight = document.documentElement.clientWidth - edge;
+  const right = Math.min(pageRight, Math.max(scroller.right, scroller.left + width));
   return {
-    left: Math.min(Math.max(edge, anchor.left), Math.max(edge, window.innerWidth - width - edge)),
+    left: Math.max(edge, Math.min(anchor.left, right - width)),
     // Above the line the menu hangs from this edge (translateY(-100%) in the stylesheet).
-    top: useBelow ? anchor.bottom + gap : anchor.top - gap,
+    top: useBelow ? anchor.bottom + gap : top - gap,
     maxHeight: space,
     above: !useBelow,
   };
@@ -157,6 +179,8 @@ export function SuggestMenu({
   /** Where the list is scrolled to and how tall it is, kept here so nothing has to ask the layout. */
   const scrolled = useRef(0);
   const viewHeight = useRef(0);
+  /** Set once the list's height is known, so an option chosen before that is scrolled to then. */
+  const [measured, setMeasured] = useState(false);
   /** The pointer chose the option: it is under the pointer already, so the list must not move. */
   const byPointer = useRef(false);
   /** How many lines the unscrolled list draws: what fits the tallest the menu ever is. */
@@ -172,7 +196,12 @@ export function SuggestMenu({
 
   useLayoutEffect(() => {
     const measure = () => {
-      const width = surface.current?.offsetWidth ?? 544;
+      // Before the menu exists, its width as the stylesheet sets it (34rem, at most the page less
+      // its edges), so the first placement already fits at any UI scale.
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const width =
+        surface.current?.offsetWidth ||
+        Math.min(34 * rem, document.documentElement.clientWidth - 2 * edge);
       setPlacement(place(view, context, width));
     };
     measure();
@@ -243,6 +272,7 @@ export function SuggestMenu({
           if (fit > 0 && natural - fit > 1) node.style.maxHeight = `${fit}px`;
         }
         viewHeight.current = node.clientHeight;
+        if (viewHeight.current) setMeasured(true);
         lastMetrics = next;
         setMetrics(next);
       });
@@ -293,7 +323,7 @@ export function SuggestMenu({
       }
     }
     show(scrolled.current);
-  }, [snapshot.index, rows, rowOf, metrics, show]);
+  }, [snapshot.index, rows, rowOf, metrics, show, measured]);
 
   // An option that cannot go here still shows what it is: its own markup, rendered by itself.
   const previewSource = selected?.unavailable
@@ -440,6 +470,11 @@ export function SuggestMenu({
             Close
           </button>
         </div>
+        {snapshot.aside && (
+          <p className={styles.aside} role="status" data-suggest-aside>
+            {snapshot.aside}
+          </p>
+        )}
         {note && (
           // First under the name, so a short phone sheet never scrolls the reason out of view. Announced
           // once Enter was refused; before that it is the reason the option is greyed.

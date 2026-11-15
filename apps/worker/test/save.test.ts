@@ -2,6 +2,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { type Permissions, type Tooltip } from '@clarity/core';
 import { config, Fixture, makePrivateKey, tooltip } from './fixture.js';
 
+// The legacy /push-live exporter (switch OFF) under test; the checked-in switch is ON since
+// PUB-ENABLE, and these paths stay for the publisher rollback.
+vi.mock('../../../config/publisher.json', () => ({ default: { enabled: false } }));
+
 let key: string;
 let fixture: Fixture;
 beforeAll(async () => {
@@ -70,7 +74,12 @@ describe('save permission matrix', () => {
 
   it('allows translators to change only their assigned language', async () => {
     const next = tooltip();
-    next.text.de = { text: 'Deutsch', updatedAt: '2026-10-02T00:00:00Z', updatedBy: 'dan' };
+    next.text.de = {
+      text: 'Deutsch',
+      updatedAt: '2026-10-02T00:00:00Z',
+      updatedBy: 'dan',
+      sourceUpdatedAt: '2026-10-01T00:00:00Z',
+    };
     expect((await fixture.request('/save', 'POST', change(tooltip(), next), 4)).status).toBe(200);
   });
 
@@ -128,7 +137,12 @@ describe('save permission matrix', () => {
   it('preserves unowned head fields even when a translator forges the base', async () => {
     const base = tooltip('forged English');
     const next = structuredClone(base);
-    next.text.de = { text: 'Deutsch', updatedAt: '2026-10-02T00:00:00Z', updatedBy: 'dan' };
+    next.text.de = {
+      text: 'Deutsch',
+      updatedAt: '2026-10-02T00:00:00Z',
+      updatedBy: 'dan',
+      sourceUpdatedAt: '2026-10-01T00:00:00Z',
+    };
     const response = await fixture.request('/save', 'POST', change(base, next), 4);
     expect(response.status).toBe(200);
     expect(fixture.current()['tooltips/123.json']).toMatchObject({
@@ -408,4 +422,266 @@ it('checks the real head even if a translator forges a written base for a link-o
   );
   expect(response.status).toBe(422);
   expect(fixture.commits).toHaveLength(0);
+});
+
+describe('No translation impact (TR3)', () => {
+  // Stored: English at 2026-10-01 and a current German translation of it.
+  const translated = (english = 'original', updatedAt = '2026-10-01T00:00:00Z'): Tooltip => {
+    const value = tooltip(english, updatedAt);
+    value.text.de = {
+      text: 'Deutsch',
+      updatedAt: '2026-10-02T00:00:00Z',
+      updatedBy: 'dan',
+      sourceUpdatedAt: '2026-10-01T00:00:00Z',
+    };
+    return value;
+  };
+  /** English wording changed, English revision kept: what the editor sends when ticked. */
+  const kept = () => translated('original, fixed');
+  const ticked = (next = kept(), base = translated()) => ({
+    ...change(base, next),
+    noTranslationImpact: true,
+  });
+  beforeEach(() => fixture.moveData({ 'tooltips/123.json': translated() }));
+
+  it.each([1, 2])(
+    'lets role id %s keep the English revision, with the audit trailer',
+    async (id) => {
+      const response = await fixture.request('/save', 'POST', ticked(), id);
+      expect(response.status).toBe(200);
+      const [saved] = (await response.json()).tooltips as Tooltip[];
+      expect(saved.text.en).toEqual({ ...translated().text.en, text: 'original, fixed' });
+      expect(saved.text.de).toEqual(translated().text.de);
+      expect(fixture.commits[0].message).toBe(
+        'Edit tooltip\n\nClarity-No-Translation-Impact: 123\nClarity-Changed: 123=en',
+      );
+    },
+  );
+  it('refuses trials (403) and writes nothing', async () => {
+    const response = await fixture.request('/save', 'POST', ticked(), 3);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: 'Only editors and maintainers can mark a save as having no translation impact',
+    });
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('refuses translators: they cannot change English at all', async () => {
+    expect((await fixture.request('/save', 'POST', ticked(), 4)).status).toBe(403);
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('ignores the flag for a translation-only save (no trailer, any role that may save it)', async () => {
+    const next = translated();
+    next.text.de = { ...next.text.de!, text: 'Neu', updatedAt: '2026-10-03T00:00:00Z' };
+    for (const id of [4, 3]) {
+      const response = await fixture.request('/save', 'POST', ticked(next), id);
+      expect(response.status).toBe(200);
+      fixture.moveData({ 'tooltips/123.json': translated() });
+    }
+    expect(fixture.commits.map(({ message }) => message)).toEqual([
+      'Edit tooltip\n\nClarity-Changed: 123=de',
+      'Edit tooltip\n\nClarity-Changed: 123=de',
+    ]);
+  });
+  it('ignores the flag when English changes with a new revision or only by markup', async () => {
+    const newer = translated('original, fixed', '2026-10-05T00:00:00Z');
+    expect((await fixture.request('/save', 'POST', ticked(newer), 2)).status).toBe(200);
+    expect(fixture.commits[0].message).toBe('Edit tooltip\n\nClarity-Changed: 123=en');
+    fixture.moveData({ 'tooltips/123.json': translated('<solar/>Scorch') });
+    const markup = translated('<solar Scorch />');
+    expect(
+      (await fixture.request('/save', 'POST', ticked(markup, translated('<solar/>Scorch')), 3))
+        .status,
+    ).toBe(200);
+    expect(fixture.commits[1].message).toBe('Edit tooltip\n\nClarity-Changed: 123=en');
+  });
+  it('refuses a kept English revision without the flag, for every role', async () => {
+    for (const id of [1, 2, 3]) {
+      const response = await fixture.request('/save', 'POST', change(translated(), kept()), id);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        error: 'Tooltip 123: English text changed without a new English revision',
+      });
+    }
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('refuses a backdated English revision (it would keep translations current unflagged)', async () => {
+    const backdated = translated('original, fixed', '2026-09-30T00:00:00Z');
+    for (const body of [change(translated(), backdated), ticked(backdated)]) {
+      const response = await fixture.request('/save', 'POST', body, 3);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        error: 'Tooltip 123: the new English revision must be newer than the stored one',
+      });
+    }
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('refuses a kept revision that changes its author', async () => {
+    const next = kept();
+    next.text.en!.updatedBy = 'bob';
+    expect((await fixture.request('/save', 'POST', ticked(next), 2)).status).toBe(422);
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('merge3: a concurrent translator save merges and German stays current', async () => {
+    const head = translated();
+    head.text.fr = {
+      text: 'Francais',
+      updatedAt: '2026-10-03T00:00:00Z',
+      updatedBy: 'eve',
+      sourceUpdatedAt: '2026-10-01T00:00:00Z',
+    };
+    head.text.de = { ...head.text.de!, text: 'Deutsch neu', updatedAt: '2026-10-03T00:00:00Z' };
+    fixture.moveData({ 'tooltips/123.json': head });
+    const response = await fixture.request('/save', 'POST', ticked(), 2);
+    expect(response.status).toBe(200);
+    const [saved] = (await response.json()).tooltips as Tooltip[];
+    expect(saved.text).toEqual({
+      en: { ...translated().text.en, text: 'original, fixed' },
+      de: head.text.de,
+      fr: head.text.fr,
+    });
+    // Both translations still match the (kept) English revision: neither is outdated.
+    expect(saved.text.de?.sourceUpdatedAt).toBe(saved.text.en?.updatedAt);
+    expect(saved.text.fr?.sourceUpdatedAt).toBe(saved.text.en?.updatedAt);
+    expect(fixture.commits[0].message).toBe(
+      'Edit tooltip\n\nClarity-No-Translation-Impact: 123\nClarity-Changed: 123=en',
+    );
+  });
+  it('merge3: a concurrent English change conflicts; the trailer names only kept tooltips', async () => {
+    fixture.moveData({ 'tooltips/123.json': translated('theirs', '2026-10-04T00:00:00Z') });
+    expect((await fixture.request('/save', 'POST', ticked(), 2)).status).toBe(409);
+    expect(fixture.commits).toHaveLength(0);
+    fixture.moveData({ 'tooltips/123.json': translated() });
+    const other = { ...translated('other', '2026-10-05T00:00:00Z'), hash: 124 };
+    fixture.moveData({ 'tooltips/124.json': { ...translated(), hash: 124 } });
+    const body = ticked();
+    body.changes.push({ hash: 124, base: { ...translated(), hash: 124 }, next: other });
+    expect((await fixture.request('/save', 'POST', body, 1)).status).toBe(200);
+    expect(fixture.commits[0].message).toBe(
+      'Edit tooltip\n\nClarity-No-Translation-Impact: 123\nClarity-Changed: 123=en;124=en',
+    );
+  });
+  // Security review round 1 (M1): stamps of unchanged English, and English re-added after a delete.
+  const stampOnly = (updatedAt: string, updatedBy = 'alice', text = 'original') => {
+    const next = translated(text, updatedAt);
+    next.text.en!.updatedBy = updatedBy;
+    return next;
+  };
+  it('P1: a reworded save followed by a stamp-only save cannot reach a kept revision', async () => {
+    const first = translated('original, fixed', '2026-10-20T00:00:00Z');
+    expect((await fixture.request('/save', 'POST', change(translated(), first), 3)).status).toBe(
+      200,
+    );
+    fixture.moveData({ 'tooltips/123.json': first });
+    const back = stampOnly('2026-10-01T00:00:00Z', 'alice', 'original, fixed');
+    const response = await fixture.request('/save', 'POST', change(first, back), 3);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      error: 'Tooltip 123: unchanged English must keep its stored revision',
+    });
+  });
+  it('P2, P4, P6: unchanged or markup-only English cannot move its stamps (any role)', async () => {
+    fixture.moveData({ 'tooltips/123.json': translated('<solar/>Scorch') });
+    const markup = translated('<solar Scorch />', '2026-09-01T00:00:00Z');
+    const bodies = [
+      change(translated('<solar/>Scorch'), markup),
+      change(
+        translated('<solar/>Scorch'),
+        stampOnly('2099-01-01T00:00:00Z', 'alice', '<solar/>Scorch'),
+      ),
+      change(
+        translated('<solar/>Scorch'),
+        stampOnly('2026-10-01T00:00:00Z', 'mallory', '<solar/>Scorch'),
+      ),
+    ];
+    for (const body of bodies)
+      for (const id of [1, 3]) {
+        const response = await fixture.request('/save', 'POST', body, id);
+        expect(response.status).toBe(422);
+      }
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it("P10: English re-added after a delete must be newer than its translations' source", async () => {
+    const withoutEnglish = translated();
+    delete withoutEnglish.text.en;
+    fixture.moveData({ 'tooltips/123.json': withoutEnglish });
+    const readded = translated('reworded', '2026-10-01T00:00:00Z');
+    const refused = await fixture.request('/save', 'POST', change(withoutEnglish, readded), 3);
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({
+      error: "Tooltip 123: the new English revision must be newer than its translations' source",
+    });
+    const fresh = translated('reworded', '2026-10-05T00:00:00Z');
+    expect((await fixture.request('/save', 'POST', change(withoutEnglish, fresh), 3)).status).toBe(
+      200,
+    );
+  });
+  // Triage 1: translation stamps (O1) and future English revisions (O2).
+  it('O1 R5: a reworded English cannot mark an unchanged translation current', async () => {
+    const next = translated('original, fixed', '2026-10-20T00:00:00Z');
+    next.text.de = { ...next.text.de!, sourceUpdatedAt: '2026-10-20T00:00:00Z' };
+    const response = await fixture.request('/save', 'POST', change(translated(), next), 3);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      error: 'Tooltip 123: unchanged de text must keep its stored revision',
+    });
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('S1: a changed translation must name its English source revision (trial and translator)', async () => {
+    for (const user of [3, 4]) {
+      const next = translated();
+      next.text.de = { ...next.text.de!, text: 'Deutsch neu' };
+      delete next.text.de.sourceUpdatedAt;
+      const response = await fixture.request('/save', 'POST', change(translated(), next), user);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        error: 'Tooltip 123: the changed de text needs the English revision it translates',
+      });
+    }
+    // The same in one save with a reworded English.
+    const reworded = translated('original, fixed', '2026-10-20T00:00:00Z');
+    reworded.text.de = { ...reworded.text.de!, text: 'Deutsch neu' };
+    delete reworded.text.de.sourceUpdatedAt;
+    expect((await fixture.request('/save', 'POST', change(translated(), reworded), 3)).status).toBe(
+      422,
+    );
+    expect(fixture.commits).toHaveLength(0);
+  });
+  it('O1 R6: a translation cannot claim a source revision newer than its English', async () => {
+    for (const text of ['Deutsch', 'Deutsch neu']) {
+      const next = translated();
+      next.text.de = { ...next.text.de!, text, sourceUpdatedAt: '2099-01-01T00:00:00Z' };
+      const response = await fixture.request('/save', 'POST', change(translated(), next), 4);
+      expect(response.status).toBe(422);
+    }
+    // Changed text stamped against the stored English (the editor's stamp) still saves.
+    const honest = translated();
+    honest.text.de = { ...honest.text.de!, text: 'Deutsch neu', updatedAt: '2026-10-03T00:00:00Z' };
+    expect((await fixture.request('/save', 'POST', change(translated(), honest), 4)).status).toBe(
+      200,
+    );
+  });
+  it('O2: refuses an English revision far in the future, except the stored + 1 ms clamp', async () => {
+    const future = translated('original, fixed', '2099-01-01T00:00:00Z');
+    const refused = await fixture.request('/save', 'POST', change(translated(), future), 2);
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({
+      error: 'Tooltip 123: the English revision is in the future; check your device clock',
+    });
+    // A stored revision already ahead (another device's clock): the editor's clamp still saves.
+    const ahead = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+    const stored = translated('original', ahead);
+    fixture.moveData({ 'tooltips/123.json': stored });
+    const clamp = translated('original, fixed', new Date(Date.parse(ahead) + 1).toISOString());
+    expect((await fixture.request('/save', 'POST', change(stored, clamp), 2)).status).toBe(200);
+  });
+  it('a commit message cannot forge the audit line in the final trailer block', async () => {
+    const body = {
+      ...change(translated(), translated('original, fixed', '2026-10-05T00:00:00Z')),
+      message: 'Fix\n\nClarity-No-Translation-Impact: 123',
+    };
+    expect((await fixture.request('/save', 'POST', body, 2)).status).toBe(200);
+    expect(fixture.commits[0].message).toBe(
+      'Fix\n\nClarity-No-Translation-Impact: 123\n\nClarity-Changed: 123=en',
+    );
+  });
 });

@@ -1,9 +1,13 @@
 import { baseEnhancedMessage, enhancedMarkupType, scanBaseEnhanced } from './baseEnhanced.js';
 import { evaluateMarkupMath } from './arithmetic.js';
+import { lowerDelimitedMarkup } from './braces.js';
 import { extractBlocks, extractVariables } from './syntax.js';
 import type { MarkupDiagnostic, MarkupGlobals } from './types.js';
 
-/** Dependencies are recognised before comments are removed, exactly as production expands them. */
+/**
+ * Dependencies are recognised before comments are removed, exactly as production expands them.
+ * Reads the legacy form: preparation lowers `#{name}` first (braces.ts).
+ */
 export function markupVariableReferences(text: string): string[] {
   return text.match(/#[a-zA-Z0-9]+/g) ?? [];
 }
@@ -113,8 +117,11 @@ function resolveImports(
       }
       const name = line.match(/(?<=import) .+ (?=from)/)?.[0].trim() ?? '';
       const from = line.match(/(?<=from) (\d+|global)/)?.[0].trim() ?? '';
-      const source =
+      const raw =
         globals.imports?.[from] ?? (from === 'global' ? globals.imports?.['1'] : undefined);
+      // Each document is read in its legacy form (`#{name}`, `<enhanced/>`; braces.ts), as the
+      // exporters lower every tooltip before the converter extracts an export from it.
+      const source = raw === undefined ? undefined : lowerDelimitedMarkup(raw);
       const imported =
         name === 'main' || name === 'secondary'
           ? source
@@ -323,6 +330,13 @@ export function prepareMarkup(
   diagnostics: MarkupDiagnostic[],
   onCondition?: (name: string, block: string) => void,
 ) {
+  // Delimited variables and the arrow symbol are read in their legacy form, exactly as every
+  // consumer receives them (braces.ts). Idempotent, and the same strings when there are none.
+  text = lowerDelimitedMarkup(text);
+  if (globals.variables.includes('#{') || globals.variables.includes('<enhanced/>'))
+    globals = { ...globals, variables: lowerDelimitedMarkup(globals.variables) };
+  if (globals.titles.includes('#{') || globals.titles.includes('<enhanced/>'))
+    globals = { ...globals, titles: lowerDelimitedMarkup(globals.titles) };
   text = resolveImports(text, globals, diagnostics);
   const nativePairs =
     text.includes('{{') || globals.variables.includes('{{') || globals.titles.includes('{{');

@@ -1,8 +1,9 @@
-import { publishableHash } from '@clarity/core';
+import { inactivePublishableHash } from '@clarity/core';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
-import { canPush, type PendingTooltip } from './model';
+import { canPush, pendingTooltips, type PendingTooltip } from './model';
+import { publishDependencies } from './publishDependencies';
 import { publishDriver } from './publisher';
 import { useReviewSession } from './session';
 
@@ -25,8 +26,19 @@ export async function queuePublish(
     const digests = await Promise.all(
       entries.map(
         async ({ tooltip }) =>
-          [tooltip.hash, await publishableHash(tooltip, data.aliases)] as const,
+          [
+            tooltip.hash,
+            await inactivePublishableHash(tooltip, data.aliases, data.bundle.inactiveMoves),
+          ] as const,
       ),
+    );
+    const pending = await pendingTooltips(data);
+    const dependencies = publishDependencies(
+      data.bundle.tooltips,
+      data.aliases,
+      new Set(pending.filter((entry) => !entry.markerOnly).map((entry) => entry.tooltip.hash)),
+      entries.map((entry) => entry.tooltip),
+      data.bundle.inactiveMoves,
     );
     // Hashing is asynchronous: never submit after leaving the page, changing account/role, or
     // replacing the reviewed snapshot. The server re-verifies these exact digests anyway.
@@ -41,6 +53,7 @@ export async function queuePublish(
         hash,
         digest,
         previous: data.bundle.pushed[hash],
+        dependencies: dependencies.get(hash),
       })),
     );
     return true;

@@ -53,7 +53,6 @@ describe('device Compendium scale', () => {
     });
     expect(make(storage).getState().device).toMatchObject({
       theme: 'light',
-      editorFont: 'fira-code',
       compendiumScale: 100,
     });
   });

@@ -7,8 +7,11 @@
     ".": "./src/index.ts",
     "./markup/arithmetic": "./src/markup/arithmetic.ts",
     "./markup/elementTags": "./src/markup/elementTags.ts",
+    "./markup/braces": "./src/markup/braces.ts",
+    "./markup/showcase": "./src/markup/showcase.ts",
     "./markup/parse": "./src/markup/parse.ts",
-    "./setBonus": "./src/setBonus.ts"
+    "./setBonus": "./src/setBonus.ts",
+    "./schedule": "./src/schedule/index.ts"
   },
   "scripts": {
     "test": "vitest run",

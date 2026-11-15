@@ -118,6 +118,12 @@
   }
 }
 
+// TR3 audit line: an English change saved without marking translations outdated.
+.noImpact {
+  font-size: 0.75rem;
+  color: var(--warn);
+}
+
 .message {
   overflow-wrap: anywhere;
   color: var(--text2);
@@ -204,14 +210,25 @@
   }
 }
 
+// In a narrow column the date moves under the name as a whole: neither is squeezed into a word
+// per line ("Stardust ·" over "01.11.2026," over "13:00").
 .author {
   display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
+  vertical-align: baseline;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.35em;
+  min-width: 0;
+
+  time {
+    white-space: nowrap;
+  }
 
   img {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1em;
+    height: 1em;
+    align-self: center;
+    flex: none;
     border-radius: 50%;
   }
 }

@@ -17,7 +17,9 @@ function render(props: { footer?: ReactNode; busy?: boolean }) {
 describe('Dialog', () => {
   it('renders header, body and the footer slot in that order', () => {
     const html = render({ footer: createElement('button', { type: 'button' }, 'Save') });
-    expect(html).toMatch(/<header[^>]*><h2>Review<\/h2><button[^>]*>Close<\/button><\/header>/);
+    expect(html).toMatch(
+      /<header[^>]*><h2>Review<\/h2><button[^>]*><span[^>]*>Close<\/span><span[^>]*aria-hidden="true">×<\/span><\/button><\/header>/,
+    );
     const header = html.indexOf('<header');
     const body = html.indexOf('Body text');
     const footer = html.indexOf('<footer');

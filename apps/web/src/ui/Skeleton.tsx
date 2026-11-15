@@ -139,9 +139,19 @@ export function skeletonLineWidths(
   });
 }
 
-/** Once shown, a skeleton stays at least this long (ms), so it never only flashes. */
-export const skeletonMinimumMs = 400;
+/** Once painted, a skeleton stays on screen at least this long (ms), so it never only flashes. */
+export const skeletonMinimumMs = 200;
 type SkeletonClock = { shownAt?: number; holders: Set<symbol>; endFrame?: number };
+type PaintWatch = {
+  frame?: number;
+  task?: ReturnType<typeof setTimeout>;
+  fallback?: ReturnType<typeof setTimeout>;
+  onVisibility?: () => void;
+  /** After a fallback stamp, the first real frame moves the stamp to that paint. */
+  resume?: number;
+};
+/** A page that renders no frame for this long is not painting; the minimum then starts anyway. */
+const skeletonPaintFallbackMs = 1000;
 const SkeletonClockContext = createContext<SkeletonClock | undefined>(undefined);
 
 function useOwnSkeletonClock(identity: unknown): SkeletonClock {
@@ -188,9 +198,15 @@ export function useSkeletonVisible(
   const ownClock = useOwnSkeletonClock(identity);
   const activeClock = clock ?? inherited ?? ownClock;
   const [visible, setVisible] = useState(pending && !hasContent);
-  const shownAt = useRef<number | undefined>(
-    visible ? (activeClock.shownAt ?? Date.now()) : undefined,
-  );
+  // The minimum counts from the first painted frame, never from the commit: a busy commit
+  // can paint long after it, which used to cut the time on screen to ~130-160 ms.
+  const shownAt = useRef<number | undefined>(visible ? activeClock.shownAt : undefined);
+  const paint = useRef<PaintWatch>();
+  const latest = useRef({ pending });
+  // A new entry while shown gets two frames of grace before its own minimum starts.
+  const grace = useRef(false);
+  const [painted, setPainted] = useState(0);
+  latest.current.pending = pending;
   const shownFor = useRef(identity);
   const shownClock = useRef(activeClock);
   const holder = useRef(Symbol('skeleton consumer'));
@@ -209,22 +225,105 @@ export function useSkeletonVisible(
         release: joinSkeletonCycle(activeClock, holder.current),
       };
   }, [activeClock, holding]);
+  const stopPaintWatch = () => {
+    const watch = paint.current;
+    paint.current = undefined;
+    if (!watch) return;
+    if (watch.frame !== undefined) cancelAnimationFrame(watch.frame);
+    if (watch.task !== undefined) clearTimeout(watch.task);
+    if (watch.fallback !== undefined) clearTimeout(watch.fallback);
+    if (watch.resume !== undefined) cancelAnimationFrame(watch.resume);
+    if (watch.onVisibility) document.removeEventListener('visibilitychange', watch.onVisibility);
+  };
   useLayoutEffect(
     () => () => {
       membership.current?.release();
       membership.current = undefined;
+      stopPaintWatch();
     },
     [],
   );
   useLayoutEffect(() => {
-    const show = () => {
-      activeClock.shownAt ??= Date.now();
+    // Stamp the clock once the committed skeleton has painted: a task posted after the next
+    // frame's callbacks runs after that frame's paint (a commit inside a frame callback paints
+    // in that same frame, so the frame step is skipped). Never earlier than the paint, at most a
+    // frame later. An entry that finishes before that frame is never shown; one that finishes
+    // after the frame but before the stamp waits for it. A page that renders no frames (a hidden
+    // or throttled tab) gets the stamp after `skeletonPaintFallbackMs`, or swaps in directly
+    // when it turns hidden with the content ready.
+    // The fallback stamped a skeleton no frame had painted yet (hidden, throttled, or frozen
+    // page). When rendering resumes, its first frame paints the skeleton: restart the minimum
+    // there, so a load finishing just after the resume still gets its full time on screen.
+    const resumeWatch = (stamped: number) => {
+      const watch: PaintWatch = {};
+      paint.current = watch;
+      let current = stamped;
+      // Move this cycle's stamp later, never earlier; a newer cycle or entry is left alone.
+      const restamp = () => {
+        if (paint.current !== watch) return false;
+        if (activeClock.shownAt !== current || shownAt.current !== current) return false;
+        current = Math.max(current, Date.now());
+        activeClock.shownAt = shownAt.current = current;
+        return true;
+      };
+      watch.resume = requestAnimationFrame(() => {
+        watch.resume = undefined;
+        // Provisional (just before that paint) so a load finishing now still waits, then the
+        // task after the paint sets the final stamp, as for a normal reveal.
+        if (!restamp()) {
+          if (paint.current === watch) paint.current = undefined;
+          return;
+        }
+        setPainted((n) => n + 1);
+        watch.task = setTimeout(() => {
+          watch.task = undefined;
+          if (restamp()) setPainted((n) => n + 1);
+          if (paint.current === watch) paint.current = undefined;
+        }, 0);
+      });
+    };
+    const watchPaint = (inFrame: boolean) => {
+      if (paint.current) return;
+      const watch: PaintWatch = {};
+      paint.current = watch;
+      const rerun = () => {
+        if (!latest.current.pending) setPainted((n) => n + 1);
+      };
+      const stampNow = () => {
+        if (paint.current !== watch) return;
+        const unpainted = watch.frame !== undefined;
+        stopPaintWatch();
+        activeClock.shownAt ??= Date.now();
+        shownAt.current = activeClock.shownAt;
+        if (unpainted) resumeWatch(activeClock.shownAt);
+        rerun();
+      };
+      const stamp = () => {
+        watch.task = setTimeout(stampNow, 0);
+      };
+      if (inFrame) stamp();
+      else {
+        watch.frame = requestAnimationFrame(() => {
+          watch.frame = undefined;
+          stamp();
+        });
+        watch.fallback = setTimeout(stampNow, skeletonPaintFallbackMs);
+        watch.onVisibility = () => {
+          if (document.visibilityState === 'hidden') rerun();
+        };
+        document.addEventListener('visibilitychange', watch.onVisibility);
+      }
+    };
+    const show = (inFrame: boolean) => {
       shownAt.current = activeClock.shownAt;
       shownFor.current = identity;
       shownClock.current = activeClock;
       setVisible(true);
+      if (shownAt.current === undefined) watchPaint(inFrame);
     };
     const hide = () => {
+      stopPaintWatch();
+      grace.current = false;
       shownAt.current = undefined;
       setVisible(false);
     };
@@ -246,11 +345,21 @@ export function useSkeletonVisible(
         shownFor.current = identity;
         shownClock.current = activeClock;
         shownAt.current = undefined;
+        stopPaintWatch();
+        grace.current = true;
       }
-      if (shownAt.current === undefined) {
+      if (shownAt.current === undefined && !grace.current) shownAt.current = activeClock.shownAt;
+      if (shownAt.current === undefined && !grace.current) {
+        // Shown, but not stamped yet. Ready before its first frame (or in a hidden document,
+        // which paints nothing): never shown. Ready after that frame: wait for the stamp.
+        const unpainted = paint.current?.frame !== undefined;
+        if (!pending && (unpainted || document.visibilityState === 'hidden')) hide();
+        else watchPaint(false);
+      } else if (shownAt.current === undefined) {
         if (!pending) hide();
         else
           afterTwoFrames(() => {
+            grace.current = false;
             activeClock.shownAt ??= Date.now();
             shownAt.current = activeClock.shownAt;
           });
@@ -263,8 +372,8 @@ export function useSkeletonVisible(
         }
       }
     } else if (pending) {
-      if (!hasContent) show();
-      else afterTwoFrames(show);
+      if (!hasContent) show(false);
+      else afterTwoFrames(() => show(true));
     }
     return () => {
       active = false;
@@ -272,7 +381,7 @@ export function useSkeletonVisible(
       if (second !== undefined) cancelAnimationFrame(second);
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [pending, identity, hasContent, visible, activeClock]);
+  }, [pending, identity, hasContent, visible, activeClock, painted]);
   return visible || (pending && !hasContent);
 }
 

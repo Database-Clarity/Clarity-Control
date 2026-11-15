@@ -4,7 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { createServer } from 'vite';
+import { startHarnessServer } from './harness-server.mjs';
+import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 
 // The find & replace widget in the real shell on synthetic data: compact one-row widget top right
 // of the text (nothing below it moves), a replace row behind the chevron, count, toggles, keyboard
@@ -18,13 +19,8 @@ await mkdir(shots, { recursive: true });
 const port = Number(process.env.FIND_WIDGET_PORT ?? 5311);
 const url = `http://127.0.0.1:${port}/test/shell.html`;
 
-process.env.VITE_API_URL = 'https://api.fixture.invalid';
-const server = await createServer({
-  root: web,
-  configLoader: 'runner',
-  server: { host: '127.0.0.1', port, strictPort: true },
-});
-await server.listen();
+// A production build of the test pages by default (harness-server.mjs).
+const server = await startHarnessServer(web, port);
 const browser = await chromium.launch({
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -43,7 +39,7 @@ async function open(theme, viewport, phone, scale) {
   }, scale);
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', collectPageErrors(errors));
   await page.goto(url);
   await page.locator('header').first().waitFor();
   await page.evaluate(() => {
@@ -88,13 +84,35 @@ const widgetFacts = (page) =>
           return new Set([...range.getClientRects()].map((r) => Math.round(r.top / 4))).size > 1;
         })
         .map((node) => `${node.tagName}.${node.className}`),
+      // Touch targets are --tap (36px with the compact touch size at 100%, following the
+      // interface scale; 44px with "Touch control size: Large", f126ec68), not a fixed 44px.
+      tap: (() => {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;visibility:hidden;height:var(--tap)';
+        document.body.append(probe);
+        const tap = probe.getBoundingClientRect().height;
+        probe.remove();
+        return tap;
+      })(),
       small: controls
         .filter((node) => node.tagName !== 'SPAN')
         .map((node) => {
           const r = node.getBoundingClientRect();
-          return { name: node.getAttribute('name') ?? node.className, w: r.width, h: r.height };
-        })
-        .filter((c) => c.h < 43.5 || (c.name !== 'search' && c.name !== 'replace' && c.w < 43.5)),
+          return {
+            name: node.getAttribute('name') ?? node.className,
+            w: r.width,
+            h: r.height,
+            // The phone's search-scope row (This entry / Category / All, and Close moved into it)
+            // is a deliberate compact 1.5rem row (2588b227).
+            scope: Boolean(node.closest('[role=group][aria-label="Search scope"]')),
+          };
+        }),
+      // The field text is --ctl-text (14px at 100%, following the scale); only iOS Safari, which
+      // zooms into smaller fields, gets a 16px floor (controls.ios-field-text).
+      ctlText: parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--ctl-text'),
+      ),
+      rootSize: parseFloat(getComputedStyle(document.documentElement).fontSize),
       firstLine: document.querySelector('.cm-line').getBoundingClientRect().top,
       pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
       count: widget.querySelector('.fw-count').textContent,
@@ -144,9 +162,17 @@ try {
             problems.push('widget leaves the editor');
           if (Math.abs(facts.firstLine - before) > 0.5)
             problems.push(`text moved ${facts.firstLine - before}`);
-          if (phone && facts.small.length)
-            problems.push(`small targets ${JSON.stringify(facts.small)}`);
-          if (phone && facts.fontSize < 16) problems.push(`input font ${facts.fontSize}`);
+          const small = facts.small.filter((c) =>
+            c.scope
+              ? c.h < 1.5 * facts.rootSize - 0.5
+              : c.h < facts.tap - 0.5 ||
+                (c.name !== 'search' && c.name !== 'replace' && c.w < facts.tap - 0.5),
+          );
+          if (phone && small.length)
+            problems.push(`small targets (tap ${facts.tap}) ${JSON.stringify(small)}`);
+          const text = facts.ctlText * facts.rootSize;
+          if (phone && facts.fontSize < text - 0.05)
+            problems.push(`input font ${facts.fontSize} (want ${text})`);
           if (problems.length) failures.push(`${where}: ${problems.join('; ')}`);
         };
         check(await widgetFacts(page), 'open');
@@ -389,4 +415,5 @@ if (failures.length) {
   process.exit(1);
 }
 assert.ok(true);
+knownDefectSummary();
 console.log('find widget browser checks passed');

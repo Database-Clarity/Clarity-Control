@@ -1,13 +1,34 @@
 import publisherConfig from '../../config/publisher.json';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import { reviewGuidancePlugin } from './reviewGuidanceMiddleware';
 import { manifestFactsSchema } from './src/features/compendium/manifestFactsSchema';
 
 const exportsZod = '?exports-zod';
 const exportsCode = /\/apps\/web\/src\/features\/exports\/|\/packages\/export\//;
+// Chunks whose code first runs on the first keystroke after landing: the tooltip page and the
+// shared editor chunk (CodeMirror's view).
+const eagerCompile = /\/apps\/web\/src\/features\/tooltip\/TooltipPage\.tsx$|\/@codemirror\/view\//;
+const compileHint = '//# allFunctionsCalledOnLoad';
+const hinted = (moduleIds: readonly string[]) =>
+  moduleIds.some((id) => eagerCompile.test(id.replaceAll('\\', '/')));
+
+/**
+ * Scheduled changes build switch (spec I6). config/scheduled.json belongs to the Worker phase; until
+ * it exists the switch is OFF. A present file must say `"enabled": true` or `false`: a malformed one
+ * fails the build rather than shipping a guess.
+ */
+export function scheduledSwitch(path: string): boolean {
+  if (!existsSync(path)) return false;
+  const config: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const enabled = (config as { enabled?: unknown } | null)?.enabled;
+  if (typeof config !== 'object' || config === null || typeof enabled !== 'boolean')
+    throw new Error(`${path} must be an object with a boolean "enabled"`);
+  return enabled;
+}
+const scheduledConfig = fileURLToPath(new URL('../../config/scheduled.json', import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -29,6 +50,16 @@ export default defineConfig({
       },
       async resolveId(source, importer, options) {
         const suffix = '?report-public';
+        // First paint parses with zod/mini; Send, receipts, and My reports load the shared
+        // classic schemas later. Separate copies keep classic's share of zod's core in those
+        // lazy chunks instead of the entry (a shared module would be placed in the entry).
+        const mini = '?report-mini';
+        if (importer?.endsWith(mini) || (source === 'zod/mini' && importer?.endsWith(suffix))) {
+          const base = (importer ?? '').replace(/\?report-(public|mini)$/, '');
+          const resolved = await this.resolve(source, base, { ...options, skipSelf: true });
+          if (!resolved || resolved.external || resolved.id.includes('?')) return resolved;
+          return { ...resolved, id: resolved.id + mini };
+        }
         if (!source.endsWith(suffix) && !importer?.endsWith(suffix)) return null;
         const from = importer?.replace(suffix, '');
         const renderer: Record<string, string> = {
@@ -46,6 +77,16 @@ export default defineConfig({
         });
         if (!resolved || resolved.external || resolved.id.includes('?')) return resolved;
         const id = resolved.id.replaceAll('\\', '/');
+        // The shared sign-in modules on the public page's first paint read only sign-in,
+        // sessions, `/me`, and authorized requests: give them services/apiAuth.ts, without the
+        // editor's save and settings schemas. A name it lacks fails the build.
+        if (
+          id.endsWith('/apps/web/src/services/api.ts') &&
+          /\/apps\/web\/src\/(stores\/auth\.ts|features\/auth\/AuthStatus\.tsx)$/.test(
+            from?.replaceAll('\\', '/') ?? '',
+          )
+        )
+          return { ...resolved, id: resolved.id.replace(/api\.ts$/, 'apiAuth.ts') + suffix };
         if (
           /\.[cm]?[jt]sx?$/.test(id) &&
           (/\/(apps\/web|packages\/core)\//.test(id) ||
@@ -124,11 +165,47 @@ export default defineConfig({
         manifestFactsSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
       },
     },
+    {
+      // V8 explicit compile hint: compile every function of the chunks on the first-keystroke
+      // path while the script streams in (off the main thread), instead of lazily inside the
+      // first keystroke after landing (EDITOR-POLISH-2). Added after minification, which strips
+      // comments; the hint has to be the file's first line.
+      name: 'eager-compile-hint',
+      apply: 'build',
+      enforce: 'post',
+      // The line is added after hashing, so it has to change the hash itself: assets are cached
+      // immutable under their names (public/_headers), and returning users would keep the old file.
+      augmentChunkHash(chunk) {
+        if (hinted(chunk.moduleIds)) return compileHint;
+      },
+      // After Vite's own generateBundle work, which puts the preload map above the imports.
+      generateBundle: {
+        order: 'post',
+        handler(_options, bundle) {
+          for (const chunk of Object.values(bundle)) {
+            if (chunk.type !== 'chunk') continue;
+            if (!hinted(chunk.moduleIds)) continue;
+            chunk.code = `${compileHint}\n${chunk.code}`;
+            // One more generated line: shift the source map down by one line.
+            if (chunk.map) chunk.map.mappings = `;${chunk.map.mappings}`;
+            const map = bundle[`${chunk.fileName}.map`];
+            if (map?.type === 'asset' && typeof map.source === 'string') {
+              const json = JSON.parse(map.source) as { mappings: string };
+              json.mappings = `;${json.mappings}`;
+              map.source = JSON.stringify(json);
+            }
+          }
+        },
+      },
+    },
     react(),
     reviewGuidancePlugin(fileURLToPath(new URL('./review-guidance.json', import.meta.url))),
   ],
   define: {
     'import.meta.env.VITE_PUBLISHER_ENABLED': JSON.stringify(publisherConfig.enabled ? '1' : '0'),
+    'import.meta.env.VITE_SCHEDULED_ENABLED': JSON.stringify(
+      scheduledSwitch(scheduledConfig) ? '1' : '0',
+    ),
   },
   base: './',
   // JSON.parse is substantially cheaper than compiling a multi-megabyte object literal.

@@ -1,7 +1,9 @@
 import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
-import { pinLowersElementTags, publisherPinPath, refuseUnlowerableTags } from './elementTags.js';
+import { publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { loadAliases } from './catalog.js';
+import { pinMergesSandboxPointers, withSandboxPointers } from './sandboxPointers.js';
+import { pinAppliesInactiveMoves, storedInactiveMoves } from './inactiveMoves.js';
 import { z } from 'zod';
 import {
   classifyPublishIntent,
@@ -10,17 +12,26 @@ import {
   publishBodySchema,
   publishIntentDigest,
   publishMonth,
-  publishableHash,
+  inactivePublishableHash,
+  inactiveRemovalHash,
+  inactiveMovesPath,
+  isMovedInactive,
+  selectedInactiveMoves,
   resolveAlias,
+  sandboxPointersPath,
   publishOpIdSchema,
   publishPayloadSchema,
   stableStringify,
   validatePublishTime,
+  type Aliases,
+  type Tooltip,
 } from '@clarity/core';
 import { unbase64 } from './crypto.js';
 import { body, HttpError, json } from './http.js';
 import { requireAccess } from './permissions.js';
-import type { GitHub, RepoFile } from './github.js';
+import type { GitHub, RepoFile, TreeNode } from './github.js';
+import { schedulePaths } from '@clarity/core/schedule';
+import { switches } from './schedule/store.js';
 import type { Env, Identity } from './types.js';
 
 const envelopeSchema = z.object({ payload: z.string(), sig: z.string() }).strict();
@@ -41,12 +52,12 @@ let signingCache:
   | undefined;
 const statusIdsSchema = z.array(publishOpIdSchema).min(1).max(1);
 const resultStatusSchema = z.object({
-  status: z.enum(['done', 'unchanged', 'stale', 'rejected', 'failed']),
+  status: z.enum(['done', 'unchanged', 'stale', 'rejected', 'failed', 'cancelled']),
 });
 const kickSchema = z.object({ opId: publishOpIdSchema }).strict();
 
 /** PKCS8 PEM secret. Only the public SPKI and its fingerprint may leave this module. */
-async function signingKey(env: Env) {
+export async function signingKey(env: Env) {
   if (!env.PUBLISH_SIGNING_KEY) throw new HttpError(503, 'Publisher is not enabled');
   if (signingCache?.secret === env.PUBLISH_SIGNING_KEY) return signingCache.value;
   try {
@@ -91,6 +102,28 @@ function logged(file: RepoFile | null) {
   return file ? logSchema.parse(file.value) : undefined;
 }
 
+/**
+ * Admission copy of the publisher's guard (R3): a hash whose batch activation conflicted waits for
+ * its resolution before any manual publish. The publisher enforces it again at drain time (I1).
+ */
+function refuseActivationConflicts(
+  listing: readonly TreeNode[] | null | undefined,
+  hashes: readonly number[],
+  aliases: Aliases,
+): void {
+  if (!listing?.length) return;
+  const names = new Set(listing.map(({ name }) => name));
+  const blocked = hashes.filter((hash) => names.has(`${resolveAlias(hash, aliases)}.json`));
+  if (blocked.length)
+    throw new HttpError(
+      409,
+      `Tooltip ${blocked[0]} has an unresolved batch activation; resolve it first`,
+      {
+        hashes: blocked,
+      },
+    );
+}
+
 export async function publish(request: Request, github: GitHub, user: Identity) {
   const value = await body(request, publishBodySchema, 300 * 1024);
   const intent = {
@@ -104,17 +137,26 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
   const digest = await publishIntentDigest(intent);
   const paths = opPaths(value.opId);
   let checkedHead: string | undefined;
-  let aliases: Awaited<ReturnType<typeof loadAliases>> | undefined;
+  let generatorAliases: Awaited<ReturnType<typeof loadAliases>> | undefined;
+  let aliases: Awaited<ReturnType<typeof loadAliases>> = {};
   // Two create attempts plus a final reconciliation. Without imports, at most 13 requests
   // including token, aliases, and native-markup checks; dependency reads use the shared budget.
   // a final read is mandatory even when the last create timed out after landing.
   for (let attempt = 0; attempt < 3; attempt++) {
     // The publisher's PIN rides in the same read: its build must lower element-tagged text.
-    const snapshot = await github.publishSnapshot([
-      'config/permissions.json',
-      ...paths,
-      publisherPinPath,
-    ]);
+    // While scheduled batches are enabled, a names-only listing of the activation conflicts joins
+    // the same read (0 extra subrequests; spec "Activation and conflicts", R3).
+    const snapshot = await github.publishSnapshot(
+      [
+        'config/permissions.json',
+        ...paths,
+        publisherPinPath,
+        sandboxPointersPath,
+        inactiveMovesPath,
+      ],
+      [],
+      switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
+    );
     requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, [
       'maintainer',
       'editor',
@@ -138,20 +180,56 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       throw new HttpError(400, 'Publish opId outside creation window');
     }
     if (checkedHead !== snapshot.head) {
-      aliases ??= await loadAliases(github.env, github);
-      const checked = await refuseBaseEnhanced(github, snapshot.head, value.hashes, aliases);
-      // A tagged span in a published tooltip or a document it reads (imports, globals 2 and 3)
-      // needs a publisher build that lowers it; an older build would export it unlowered.
-      const lowers = pinLowersElementTags(snapshot.files[1 + paths.length]?.value);
-      for (const document of checked.values()) refuseUnlowerableTags(document, lowers, 'published');
-      refuseHeldSetBonuses(
-        value.hashes.flatMap((hash) => checked.get(resolveAlias(hash, aliases!)) ?? []),
+      generatorAliases ??= await loadAliases(github.env, github);
+      // Sandbox picks join the aliases only for a publisher build that merges them itself, so the
+      // reviewed digests match what that build records (an older build: a mismatch refuses).
+      const pin = snapshot.files[1 + paths.length]?.value;
+      aliases = pinMergesSandboxPointers(pin)
+        ? await withSandboxPointers(github, generatorAliases, snapshot.files[2 + paths.length])
+        : generatorAliases;
+      const moves = storedInactiveMoves(snapshot.files[3 + paths.length]);
+      if (
+        Object.keys(
+          selectedInactiveMoves(
+            moves,
+            value.hashes.map((hash) => resolveAlias(hash, aliases)),
+            aliases,
+          ),
+        ).length &&
+        !pinAppliesInactiveMoves(pin)
+      )
+        throw new HttpError(
+          409,
+          'The installed publisher lacks the "inactiveMoves" capability; update it before publishing these rows',
+        );
+      const active = value.hashes.filter(
+        (hash) => !isMovedInactive(resolveAlias(hash, aliases), moves),
       );
+      const checked = active.length
+        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases)
+        : new Map<number, Tooltip>();
+      // A tagged span, `#{name}`, or `<enhanced/>` in a published tooltip or a document it reads
+      // (imports, globals 2 and 3) needs a publisher build that lowers it; an older build would
+      // export it unlowered.
+      for (const document of checked.values())
+        refuseUnlowerable(document, { value: pin }, 'published');
+      refuseHeldSetBonuses(
+        active.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
+      );
+      refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
       for (const hash of value.hashes) {
+        if (isMovedInactive(resolveAlias(hash, aliases), moves)) {
+          if ((await inactiveRemovalHash(resolveAlias(hash, aliases))) !== value.expected[hash])
+            throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
+          continue;
+        }
         const tooltip = checked.get(resolveAlias(hash, aliases));
         if (tooltip && isTextlessDescription(tooltip))
           throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
-        if (!tooltip || (await publishableHash(tooltip, aliases)) !== value.expected[hash]) {
+        if (
+          !tooltip ||
+          (await inactivePublishableHash(tooltip, aliases, moves)) !== value.expected[hash]
+        ) {
           throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
         }
       }

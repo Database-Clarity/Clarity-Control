@@ -3,6 +3,10 @@ import { legacyPublishableHash, publishableHash } from '@clarity/core';
 import { subrequestLimit } from '../src/github.js';
 import { Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 
+// The legacy /push-live exporter (switch OFF) under test; the checked-in switch is ON since
+// PUB-ENABLE, and these paths stay for the publisher rollback.
+vi.mock('../../../config/publisher.json', () => ({ default: { enabled: false } }));
+
 let key: string;
 let fixture: Fixture;
 beforeAll(async () => {
@@ -16,6 +20,46 @@ afterEach(() => {
 });
 
 describe('pushed history snapshots', () => {
+  it('opens warm comparisons with two upstream calls, rechecks users, and follows new heads', async () => {
+    const upstream = globalThis.fetch;
+    let tokens = 0;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/access_tokens')) {
+        tokens++;
+        return Response.json({
+          token: 'installation-token',
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+        });
+      }
+      return upstream(input, init);
+    });
+    const digest = await publishableHash(tooltip());
+    fixture.moveData({ 'live/pushed.json': { 123: digest }, 'live/tooltips/123.json': tooltip() });
+    const first = await (await fixture.request('/history/123?live=1')).json();
+    fixture.subrequests = 0;
+    expect(
+      await (await fixture.request('/history/123?live=1', 'GET', undefined, 4)).json(),
+    ).toEqual(first);
+    expect(fixture.subrequests).toBe(1); // fresh head and permissions in one read
+    expect(tokens).toBe(1);
+    fixture.subrequests = 0;
+    expect((await fixture.request('/history/123?live=1', 'GET', undefined, 5)).status).toBe(403);
+    expect(fixture.subrequests).toBe(1);
+    // A permission revocation and a publish are visible on the very next request.
+    fixture.moveData({
+      'config/permissions.json': { users: { '1': { login: 'alice', role: 'maintainer' } } },
+      'live/pushed.json': { 123: await publishableHash(tooltip('published again')) },
+      'live/tooltips/123.json': tooltip('published again'),
+    });
+    expect((await fixture.request('/history/123?live=1', 'GET', undefined, 4)).status).toBe(403);
+    expect(await (await fixture.request('/history/123?live=1')).json()).toMatchObject({
+      tooltip: tooltip('published again'),
+    });
+    await fixture.request('/history/123');
+    fixture.subrequests = 0;
+    await fixture.request('/history/123');
+    expect(fixture.subrequests).toBe(1);
+  });
   it('distinguishes never published from unavailable historical content', async () => {
     expect(await (await fixture.request('/history/123?live=1')).json()).toEqual({
       pushedHash: null,
@@ -62,9 +106,9 @@ describe('pushed history snapshots', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/history/123?live=1');
     expect(response.status).toBe(409);
-    // token, head, permissions, marker, snapshot, catalog 3, then 10 pages x (list + batch)
-    expect(fixture.subrequests).toBe(1 + 1 + 1 + 1 + 1 + 3 + 10 * 2);
-    expect(fixture.graphqlCalls).toBe(10);
+    // token, head + permissions, marker, snapshot, catalog 3, then 10 pages x (list + batch)
+    expect(fixture.subrequests).toBe(1 + 1 + 1 + 1 + 3 + 10 * 2);
+    expect(fixture.graphqlCalls).toBe(11);
     expect(fixture.subrequests).toBeLessThanOrEqual(subrequestLimit);
   });
   it('recovers a marker recorded before the fallback digest existed', async () => {

@@ -96,6 +96,13 @@ it('offers the English diff for an outdated translation, and for a current one o
     current: 'Gain <solar/>Scorch.',
   });
   expect(englishDiffFor(tooltip('Gain Scorch.'), 'de', 'current')).toBeUndefined();
+  // Every element the core tags, Prismatic included: untagging leaves its icon, diff reachable.
+  expect(
+    englishDiffFor(tooltip('Gain <prismatic Transcendence />.'), 'de', 'current'),
+  ).toMatchObject({ current: 'Gain <prismatic Transcendence />.' });
+  expect(englishDiffFor(tooltip('Gain <prismatic/>Transcendence.'), 'de', 'current')).toMatchObject(
+    { current: 'Gain <prismatic/>Transcendence.' },
+  );
   expect(englishDiffFor(tooltip('Gain <solar/>Scorch.'), 'de', 'outdated')).toMatchObject({
     current: 'Gain <solar/>Scorch.',
   });

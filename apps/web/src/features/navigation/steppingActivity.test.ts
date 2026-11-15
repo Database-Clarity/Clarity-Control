@@ -202,3 +202,65 @@ it.each([false, true])('disposes pending activity and quiet work (held: %s)', (h
   vi.advanceTimersByTime(40);
   expect(useSteppingActivity.getState().active).toBe(false);
 });
+
+describe('a first frame that overran a frame', () => {
+  function frames() {
+    let nextId = 0;
+    const callbacks = new Map<number, FrameRequestCallback>();
+    vi.stubGlobal('navigator', { scheduling: { isInputPending: () => false } });
+    vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => {
+      callbacks.set(++nextId, run);
+      return nextId;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => callbacks.delete(id));
+    return () => {
+      const [id, run] = [...callbacks].at(-1)!;
+      callbacks.delete(id);
+      run(0);
+    };
+  }
+
+  it('keeps the next frame free of document work, then admits it', () => {
+    vi.useFakeTimers();
+    const nextFrame = frames();
+    const resume = vi.fn();
+    pulseStepping(undefined, resume);
+    const finish = beginSteppingFrame();
+    vi.advanceTimersByTime(30);
+    finish();
+    // The following frame catches the address up but still holds the document.
+    nextFrame();
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: true });
+    // The burst stays open past the 40 ms quiet timer while the frame is held.
+    vi.advanceTimersByTime(16);
+    nextFrame();
+    expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: false });
+  });
+
+  it('lets a second packet that arrives in the held frame keep the document deferred', () => {
+    vi.useFakeTimers();
+    const nextFrame = frames();
+    pulseStepping();
+    const finish = beginSteppingFrame();
+    vi.advanceTimersByTime(30);
+    finish();
+    nextFrame();
+    vi.advanceTimersByTime(16);
+    pulseStepping();
+    beginSteppingFrame()();
+    expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: true });
+  });
+
+  it('does not hold after a cheap first frame', () => {
+    vi.useFakeTimers();
+    const nextFrame = frames();
+    pulseStepping();
+    const finish = beginSteppingFrame();
+    vi.advanceTimersByTime(8);
+    finish();
+    vi.advanceTimersByTime(8);
+    nextFrame();
+    expect(useSteppingActivity.getState()).toMatchObject({ active: true, deferWorkspace: false });
+  });
+});

@@ -70,14 +70,10 @@ describe('settings store: local storage', () => {
     store.getState().updateDevice({ uiScale: 125 });
     expect(JSON.parse(values.get(deviceKey)!)).toEqual({
       uiScale: 125,
-      editorFont: 'default',
       editorFontSize: null,
       theme: 'system',
       panes: {},
       compendiumScale: 100,
-      suggestAccept: 'enter',
-      symbolReveal: 'popover',
-      finderWheel: 'entries',
       touchSize: 'compact',
       remembered: {},
     });
@@ -443,25 +439,6 @@ describe('settings store: Settings exit, tab hide and late responses', () => {
     store.getState().syncOnHide();
     await ticks();
     expect(server.calls.put).toHaveLength(1);
-  });
-});
-
-describe('editor font device preference', () => {
-  it('defaults older/invalid device copies and persists a choice across users and reload', async () => {
-    const { storage } = memoryStorage({ [deviceKey]: JSON.stringify({ textSize: 'large' }) });
-    const server = fakeServer();
-    const store = make(storage, server);
-    expect(store.getState().device.editorFont).toBe('default');
-    await store.getState().activate(editor);
-    store.getState().updateDevice({ editorFont: 'fira-code' });
-    await store.getState().leaveSettings();
-    expect(server.calls.put).toHaveLength(0);
-    expect(store.getState().pending).toEqual([]);
-    await store.getState().activate({ id: 99, role: 'translator' });
-    expect(store.getState().device.editorFont).toBe('fira-code');
-    expect(make(storage, server).getState().device.editorFont).toBe('fira-code');
-    storage.set(deviceKey, JSON.stringify({ editorFont: 'unknown' }));
-    expect(make(storage, server).getState().device.editorFont).toBe('default');
   });
 });
 

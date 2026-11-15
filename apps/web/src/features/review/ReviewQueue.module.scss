@@ -1,3 +1,4 @@
+@use '../../ui/controls';
 // The left column: one filter row, the counts line, and the virtual list (no card, no hashes).
 .queue {
   // The Compendium tab's font list and size: the queue opens from there with these fonts already
@@ -42,7 +43,7 @@
   input:focus-visible,
   select:focus-visible {
     outline: 2px solid var(--accent-ink);
-    outline-offset: -1px;
+    outline-offset: -2px;
   }
 }
 
@@ -54,11 +55,54 @@
   margin: 0.25rem 0.375rem;
   color: var(--text2);
 
+  // The same control as the page's "Clear filters".
   button {
-    height: 1.5rem;
-    padding: 0 0.5rem;
-    font: inherit;
+    @include controls.button;
     white-space: nowrap;
+  }
+}
+
+// Under the filters: "Work through N selected" and "Work through all N shown", then
+// Collapse all / Expand all at the end of the same line.
+.listBar {
+  display: flex;
+  // A narrow column wraps "Work through" above its buttons: the toggle stays on the buttons' line.
+  align-items: flex-end;
+  gap: 0.25rem;
+  flex: none;
+  min-width: 0;
+}
+
+.collapseAll {
+  @include controls.button;
+  flex: none;
+  display: inline-grid;
+  padding: 0 0.5rem;
+  white-space: nowrap;
+  color: var(--text2);
+  background: transparent;
+  border-color: var(--ghost-edge);
+
+  &:hover:not(:disabled) {
+    color: var(--text);
+  }
+
+  // Both labels in one cell; only the current one shows.
+  > span {
+    grid-area: 1 / 1;
+    text-align: center;
+  }
+  > [aria-hidden] {
+    visibility: hidden;
+  }
+}
+
+.workThrough {
+  flex: 1 1 auto;
+  min-width: 0;
+  > [role='group'] {
+    margin: 0;
+    gap: 0.25rem;
   }
 }
 
@@ -196,8 +240,12 @@
     border-radius: 0.125rem;
   }
 
-  small[data-mark='New'] {
+  small[data-mark='New'],
+  small[data-mark='Re-add'] {
     color: var(--accent-ink);
+  }
+  small[data-mark='Remove'] {
+    color: var(--warn);
   }
 }
 
@@ -325,4 +373,10 @@
   .group[data-marker] button {
     padding-inline-start: calc(var(--tap) + 0.5rem);
   }
+}
+
+.identity {
+  color: var(--text2);
+  font-size: 0.75rem;
+  font-weight: normal;
 }

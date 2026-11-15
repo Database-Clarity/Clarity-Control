@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync, realpathSy
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { maxBuffer } from './childProcess.mjs';
 import { LocalRepository } from './git.js';
 import { Publisher, type Options } from './publisher.js';
 import { runPipeline, verifyRuntime } from './pipeline.js';
@@ -29,9 +30,12 @@ async function main() {
     const repo = join(temp, 'simulator.git');
     execFileSync('git', ['clone', '--mirror', '--no-hardlinks', '--', local, repo], {
       stdio: 'pipe',
+      maxBuffer,
     });
-    execFileSync('git', ['--git-dir', repo, 'remote', 'remove', 'origin']);
-    execFileSync('git', ['--git-dir', repo, 'config', 'publisher.simulator', 'true']);
+    execFileSync('git', ['--git-dir', repo, 'remote', 'remove', 'origin'], { maxBuffer });
+    execFileSync('git', ['--git-dir', repo, 'config', 'publisher.simulator', 'true'], {
+      maxBuffer,
+    });
     const git = new LocalRepository(repo);
     const options = JSON.parse(readFileSync(config, 'utf8')) as Omit<Options, 'now' | 'backoff'>;
     const publisher = new Publisher(git, { ...options, now: Date.now });
@@ -42,14 +46,11 @@ async function main() {
       failure = e;
     }
     mkdirSync(out, { recursive: true });
-    execFileSync('git', [
-      '--git-dir',
-      repo,
-      'bundle',
-      'create',
-      join(out, 'would-be-commits.bundle'),
-      '--all',
-    ]);
+    execFileSync(
+      'git',
+      ['--git-dir', repo, 'bundle', 'create', join(out, 'would-be-commits.bundle'), '--all'],
+      { maxBuffer },
+    );
     writeFileSync(
       join(out, 'result.json'),
       JSON.stringify(

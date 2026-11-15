@@ -41,6 +41,16 @@ interface DraftState {
   updateDrafts(updates: { base: Tooltip; update: (tooltip: Tooltip) => Tooltip }[]): void;
   discard(hash: number): void;
   /**
+   * The same three by draft key. The Current store keys a draft by its hash (`edit` = `editAt`
+   * with `String(base.hash)`); the batch draft store (services/scheduled/batchDrafts.ts) keys
+   * `batch:<batchId>:<hash>`. The key must name `base.hash`; the storage schema checks it.
+   */
+  editAt(key: string, base: Tooltip, lang: Lang, text: string, author: string): void;
+  updateDraftsAt(
+    updates: { key: string; base: Tooltip; update: (tooltip: Tooltip) => Tooltip }[],
+  ): void;
+  discardAt(key: string): void;
+  /**
    * Answers "another tab changed the drafts" with Reload: reads what is stored now and merges it
    * with this tab's drafts (`merge(ancestor, mine, theirs)`), then stores the result.
    */
@@ -53,6 +63,13 @@ interface DraftState {
   onDiscard(listener: (hash: number) => void): () => void;
   /** Runs after a bound account write, before it is considered safely stored. */
   onStored(listener: (owner: string | null, drafts: Drafts) => void): () => void;
+  /**
+   * Whether `key` is a key of this store for tooltip `hash`: Current keys are the hash itself,
+   * batch keys `batch:<batchId>:<hash>`. Every keyed write checks it before changing anything, so
+   * a misrouted key can never reach storage (where the bucket's schema would then refuse the
+   * whole bucket on the next read).
+   */
+  ownsKey(key: string, hash: number): boolean;
   retry(): void;
   flush(): Promise<void>;
 }
@@ -73,7 +90,23 @@ function rememberSeparate(owner: string) {
   }
 }
 
-export function createDraftStore(storage: DraftStorage) {
+export interface DraftStoreOptions {
+  /**
+   * Refuse every edit while signed out (the batch draft store: batch destinations need an
+   * account, so its signed-out bucket stays empty).
+   */
+  requireOwner?: boolean;
+  /** The store's key rule (see `ownsKey`); default: the Current rule, the hash itself. */
+  ownsKey?: (key: string, hash: number) => boolean;
+}
+
+const currentKey = (key: string, hash: number) => key === String(hash);
+
+export function createDraftStore(storage: DraftStorage, options: DraftStoreOptions = {}) {
+  const ownsKey = options.ownsKey ?? currentKey;
+  const checkKey = (key: string, hash: number) => {
+    if (!ownsKey(key, hash)) throw new Error(`Draft key ${key} does not belong to tooltip ${hash}`);
+  };
   let queue = Promise.resolve();
   let hydration: Promise<void> | undefined;
   let owner: string | null = null;
@@ -283,8 +316,13 @@ export function createDraftStore(storage: DraftStorage) {
         set({ unowned: 0 });
       },
       edit(base, lang, text, author) {
+        get().editAt(String(base.hash), base, lang, text, author);
+      },
+      editAt(key, base, lang, text, author) {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before editing');
-        const draft = get().drafts[base.hash] ?? { base, next: base };
+        if (options.requireOwner && owner === null) throw new Error('Sign in to edit these drafts');
+        checkKey(key, base.hash);
+        const draft = get().drafts[key] ?? { base, next: base };
         const next: Tooltip = {
           ...draft.next,
           text: {
@@ -303,7 +341,7 @@ export function createDraftStore(storage: DraftStorage) {
           if (draft.base.text[lang]) next.text[lang] = draft.base.text[lang];
           else delete next.text[lang];
         }
-        const drafts: Drafts = { ...get().drafts, [base.hash]: { base: draft.base, next } };
+        const drafts: Drafts = { ...get().drafts, [key]: { base: draft.base, next } };
         // Returning text to its base value should not create a metadata-only draft.
         // A changed edited string already proves inequality. Compare all fields
         // only on a return to the saved text, rather than serializing every
@@ -312,7 +350,7 @@ export function createDraftStore(storage: DraftStorage) {
           text === (draft.base.text[lang]?.text ?? '') &&
           JSON.stringify(next) === JSON.stringify(draft.base)
         ) {
-          delete drafts[base.hash];
+          delete drafts[key];
         }
         set({ drafts });
         persist(drafts);
@@ -321,26 +359,38 @@ export function createDraftStore(storage: DraftStorage) {
         get().updateDrafts([{ base, update }]);
       },
       updateDrafts(updates) {
+        get().updateDraftsAt(
+          updates.map((update) => ({ ...update, key: String(update.base.hash) })),
+        );
+      },
+      updateDraftsAt(updates) {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before editing');
+        if (options.requireOwner && owner === null) throw new Error('Sign in to edit these drafts');
+        for (const { key, base } of updates) checkKey(key, base.hash);
         const drafts: Drafts = { ...get().drafts };
-        for (const { base, update } of updates) {
-          const draft = drafts[base.hash] ?? { base, next: base };
+        for (const { key, base, update } of updates) {
+          const draft = drafts[key] ?? { base, next: base };
           const next = update(structuredClone(draft.next));
           if (next.hash !== base.hash)
             throw new Error('A draft update cannot change the tooltip hash');
-          drafts[base.hash] = { base: draft.base, next };
-          if (JSON.stringify(next) === JSON.stringify(draft.base)) delete drafts[base.hash];
+          drafts[key] = { base: draft.base, next };
+          if (JSON.stringify(next) === JSON.stringify(draft.base)) delete drafts[key];
         }
         set({ drafts });
         persist(drafts);
       },
       discard(hash) {
+        get().discardAt(String(hash));
+        for (const listener of discardListeners) listener(hash);
+      },
+      discardAt(key) {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before discarding');
+        if (options.requireOwner && owner === null)
+          throw new Error('Sign in to discard these drafts');
         const drafts: Drafts = { ...get().drafts };
-        delete drafts[hash];
+        delete drafts[key];
         set({ drafts });
         persist(drafts);
-        for (const listener of discardListeners) listener(hash);
       },
       reloadFromStorage(merge) {
         const mine = generation;
@@ -401,6 +451,7 @@ export function createDraftStore(storage: DraftStorage) {
         storedListeners.add(listener);
         return () => void storedListeners.delete(listener);
       },
+      ownsKey,
       retry() {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before retrying storage');
         persist(get().drafts);
@@ -413,3 +464,12 @@ export function createDraftStore(storage: DraftStorage) {
 }
 
 export const useDraftStore = createDraftStore(draftStorage);
+
+// Batch drafts (scheduled changes, spec R6) live in their own store and IndexedDB buckets and
+// follow this store's account. With the build switch OFF (production default) this never runs:
+// the batch module is not loaded, so nothing reads or writes its buckets (I6).
+// The test is inline (not scheduledEnabled()) so Rollup sees a constant and drops the chunk.
+if (import.meta.env.VITE_SCHEDULED_ENABLED === '1')
+  void import('../services/scheduled/batchDrafts').then(({ linkBatchDrafts, useBatchDraftStore }) =>
+    linkBatchDrafts(useDraftStore, useBatchDraftStore),
+  );

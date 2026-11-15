@@ -18,9 +18,18 @@ import {
 } from '@clarity/core';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { canonicalHash, classifiedCategory, itemFor, tooltipFor } from '../navigation/catalog';
+import {
+  canonicalHash,
+  classifiedCategory,
+  itemFor,
+  previewPiece,
+  tooltipFor,
+} from '../navigation/catalog';
 import styles from './TooltipPreview.module.scss';
 import { Lines, linkUrl } from './MarkupRenderer';
+import { useLocalisedManifest } from '../manifest/localisedManifest';
+import { EnglishReveal } from '../manifest/EnglishReveal';
+import { weaponOwnerLabel, weaponOwners } from './weaponOwners';
 export { classNames, Lines, PreviewSpan } from './MarkupRenderer';
 
 export interface TooltipPreviewProps {
@@ -29,6 +38,8 @@ export interface TooltipPreviewProps {
   name: string;
   /** Exotic armour: the piece carrying this perk, shown above the perk's name. */
   piece?: string;
+  /** The piece's icon beside the piece row; '' leaves its box empty. */
+  pieceIcon?: string;
   icon?: string;
   categoryLabel?: string;
   globals: MarkupGlobals;
@@ -65,6 +76,7 @@ export function TooltipPreview({
   lang,
   name,
   piece,
+  pieceIcon,
   icon,
   categoryLabel,
   globals,
@@ -91,8 +103,11 @@ export function TooltipPreview({
     >
       <div className={styles.top}>
         <PreviewHeader
+          hash={tooltipHash}
+          lang={lang}
           name={name}
           piece={piece}
+          pieceIcon={pieceIcon}
           icon={icon}
           categoryLabel={categoryLabel}
           archiveIcon={archiveIcon}
@@ -120,7 +135,11 @@ export function TooltipPreview({
   );
 }
 
-function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
+function bungieUrl(icon: string | undefined): string | undefined {
+  return icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
+}
+
+function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
   const identity = useContext(LivePreviewIdentity);
   const target = useSteppingActivity((state) => (props.live ? state.target : undefined));
   const data = useDataStore((state) => (target ? state.data : null));
@@ -135,17 +154,77 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
         : undefined,
     [target, data, identity?.archiveIcon],
   );
-  const { name, piece, icon, categoryLabel, archiveIcon } =
+  const { hash, name, piece, pieceIcon, icon, categoryLabel, archiveIcon } =
     urgent || (props.live && identity) || props;
-  const iconUrl = icon?.startsWith('/common/') ? `https://www.bungie.net${icon}` : icon;
+  const localised = useLocalisedManifest(props.lang);
+  const item = useDataStore((state) => (hash === undefined ? undefined : state.data?.items[hash]));
+  const owners = useMemo(() => weaponOwners(item), [item]);
+  const weaponLabel = owners && weaponOwnerLabel(owners);
+  const translatedWeaponLabel =
+    owners &&
+    localised &&
+    weaponOwnerLabel(
+      owners.map((owner) => ({
+        ...owner,
+        name: localised.itemNames[owner.hash] || owner.name,
+      })),
+    );
+  const officialName = hash === undefined ? undefined : localised?.names[hash];
+  const setName = item?.setHash && (localised?.setNames[item.setHash] || item.setName);
+  const translatedName =
+    officialName && setName && item?.pieceCount
+      ? `${setName} (${item.pieceCount} pc): ${officialName}`
+      : officialName;
+  const translatedPiece =
+    item && localised && piece
+      ? previewPiece({
+          ...item,
+          name: translatedName || name,
+          itemName: (item.itemHash && localised.itemNames[item.itemHash]) || item.itemName,
+          ownerNames:
+            item.ownerNames &&
+            Object.fromEntries(
+              Object.entries(item.ownerNames).map(([owner, english]) => [
+                owner,
+                localised.itemNames[owner] || english,
+              ]),
+            ),
+        })
+      : undefined;
+  const iconUrl = bungieUrl(icon);
+  const pieceUrl = bungieUrl(pieceIcon);
   return (
-    <header className={styles.header}>
+    <header className={styles.header} data-weapon-owners={owners !== undefined || undefined}>
       {archiveIcon ? (
         <ArchiveIcon icon={icon} />
       ) : (
         iconUrl && linkUrl(iconUrl) && <img className={styles.icon} src={iconUrl} alt="" />
       )}
       <div className={styles.identity}>
+        {owners !== undefined && (
+          <div
+            className={styles.piece}
+            title={weaponLabel || undefined}
+            aria-hidden={!weaponLabel || undefined}
+          >
+            {owners.map((owner) => {
+              const url = bungieUrl(owner.icon);
+              return (
+                <span key={owner.hash} className={styles.pieceIcon} title={owner.name}>
+                  {url && linkUrl(url) && <img src={url} alt="" />}
+                </span>
+              );
+            })}
+            <span className={styles.pieceName}>
+              <EnglishReveal
+                english={weaponLabel || ''}
+                translated={translatedWeaponLabel}
+                lang={props.lang}
+                showTranslation
+              />
+            </span>
+          </div>
+        )}
         {piece !== undefined && (
           // An empty piece row still holds its line (exotic armour named after its piece).
           <div
@@ -153,15 +232,33 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean }) {
             title={piece || undefined}
             aria-hidden={!piece || undefined}
           >
-            {piece}
+            {pieceIcon !== undefined && piece && (
+              // Same box as the finder's: a piece missing from the icon file leaves it empty.
+              <span className={styles.pieceIcon}>
+                {pieceUrl && linkUrl(pieceUrl) && <img src={pieceUrl} alt="" />}
+              </span>
+            )}
+            <span className={styles.pieceName}>
+              <EnglishReveal
+                english={piece}
+                translated={translatedPiece}
+                lang={props.lang}
+                showTranslation
+              />
+            </span>
           </div>
         )}
         <div
           className={styles.name}
           title={name}
-          style={{ '--name-em': nameWidthEm(name) } as CSSProperties}
+          style={{ '--name-em': nameWidthEm(translatedName || name) } as CSSProperties}
         >
-          {name}
+          <EnglishReveal
+            english={name}
+            translated={translatedName}
+            lang={props.lang}
+            showTranslation
+          />
         </div>
         {categoryLabel && (
           <div className={styles.category} title={categoryLabel}>

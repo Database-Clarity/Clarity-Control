@@ -5,6 +5,10 @@ import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 import { GitHub } from '../src/github.js';
 import { publish } from '../src/publish.js';
 
+// The legacy /push-live exporter (switch OFF) under test; the checked-in switch is ON since
+// PUB-ENABLE, and these paths stay for the publisher rollback.
+vi.mock('../../../config/publisher.json', () => ({ default: { enabled: false } }));
+
 let key: string;
 let f: Fixture;
 beforeAll(async () => {

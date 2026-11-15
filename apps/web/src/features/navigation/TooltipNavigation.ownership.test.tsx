@@ -15,6 +15,11 @@ import { publishSteppingTarget, settleStepping, useSteppingActivity } from './st
 import type { ClarityEditorProps } from '../editor';
 import { observeNativeDialogShortcutOwner, workspaceShortcutsBlocked } from '../../ui/interaction';
 
+vi.mock('../../services/api', async (original) => ({
+  ...(await original<typeof import('../../services/api')>()),
+  apiUrl: 'https://worker.example/',
+}));
+
 vi.mock('../../services/save/SavePanel', () => ({
   SavePanel: () => null,
   SaveController: () => null,
@@ -26,6 +31,7 @@ vi.mock('../auth/AuthStatus', () => ({
 }));
 vi.mock('../compendium/CompendiumBadge', () => ({
   CompendiumBadge: () => null,
+  CompendiumWarmup: () => null,
   useCompendiumCount: () => ({ state: 'ready', count: 0 }),
 }));
 vi.mock('../editor', () => ({
@@ -343,6 +349,7 @@ describe('mounted Editor navigation interaction ownership', () => {
   });
 
   it('lands the newest document before typing immediately after a Shift flick stops', async () => {
+    useAuthStore.setState({ user: { id: 1, login: 'local draft', role: 'editor' } });
     vi.useFakeTimers();
     try {
       await mount();
@@ -430,6 +437,7 @@ describe('mounted Editor navigation interaction ownership', () => {
     },
   );
   it('catches up before editing a retained document, so the new item owns the input', async () => {
+    useAuthStore.setState({ user: { id: 1, login: 'local draft', role: 'editor' } });
     await mount();
     const edit = vi.fn();
     useDraftStore.setState({ edit });
@@ -661,6 +669,13 @@ describe('mounted Editor navigation interaction ownership', () => {
         document.body.style.overflow = owner ? 'clip' : '';
 
         await click(opener());
+        // The shell turns inert after the opening frame (ShellOverlay, R15).
+        await act(
+          async () =>
+            void (await new Promise((resolve) =>
+              requestAnimationFrame(() => setTimeout(resolve, 0)),
+            )),
+        );
         expect(shellRoot.hasAttribute('inert')).toBe(true);
         expect(document.body.style.overflow).toBe(owner ? 'clip' : '');
 
@@ -677,6 +692,13 @@ describe('mounted Editor navigation interaction ownership', () => {
         const shellRoot = host.querySelector<HTMLElement>('#shell-root')!;
         document.body.style.overflow = 'auto';
         await click(opener());
+        // The shell turns inert after the opening frame (ShellOverlay, R15).
+        await act(
+          async () =>
+            void (await new Promise((resolve) =>
+              requestAnimationFrame(() => setTimeout(resolve, 0)),
+            )),
+        );
         expect(shellRoot.hasAttribute('inert')).toBe(true);
 
         if (cleanup === 'navigation') {

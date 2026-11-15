@@ -1,25 +1,59 @@
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultSyncedSettings, type SyncedSettings } from '@clarity/core';
-import { Fixture, makePrivateKey, sha } from './fixture.js';
+import { Fixture, makePrivateKey } from './fixture.js';
 import worker from '../src/index.js';
 import {
-  coarseDate,
   decryptEntry,
   encryptEntry,
   settingsFileId,
   settingsKey,
-  type SettingsEntry,
+  type SettingsDatabase,
+  type SettingsStatement,
 } from '../src/settings.js';
 
 let key: string;
 let fixture: Fixture;
+let db: DatabaseSync;
+let beforeWrite: (() => Promise<void>) | undefined;
+const migration = readFileSync(
+  new URL('../migrations/settings/0001_user_settings.sql', import.meta.url),
+  'utf8',
+);
+const binding: SettingsDatabase = {
+  prepare(sql) {
+    let values: (string | number | null)[] = [];
+    const statement: SettingsStatement = {
+      bind(...bound) {
+        values = bound;
+        return statement;
+      },
+      async first<T>() {
+        return (db.prepare(sql).get(...values) ?? null) as T | null;
+      },
+      async run() {
+        const hook = beforeWrite;
+        beforeWrite = undefined;
+        await hook?.();
+        return { meta: { changes: Number(db.prepare(sql).run(...values).changes) } };
+      },
+    };
+    return statement;
+  },
+};
 beforeAll(async () => {
   key = await makePrivateKey();
 });
 beforeEach(() => {
   fixture = new Fixture(key);
+  db = new DatabaseSync(':memory:');
+  db.exec(migration);
+  fixture.env.SETTINGS_DB = binding;
+  beforeWrite = undefined;
 });
 afterEach(() => {
+  db.close();
   vi.unstubAllGlobals();
 });
 
@@ -30,14 +64,6 @@ const mine: SyncedSettings = {
   markupToolbar: 'open',
 };
 const revisionA = 'a'.repeat(32);
-type Store = { v: 1; entries: Record<string, SettingsEntry> };
-const store = () =>
-  fixture.settingsHead
-    ? (fixture.snapshots.get(fixture.settingsHead)?.['settings.json'] as Store | undefined)
-    : undefined;
-const settingsCommits = () =>
-  fixture.commits.filter((commit) => commit.message === 'Update synced settings');
-
 async function put(settings: unknown, revision: string | null, id = 1) {
   return fixture.request('/settings', 'PUT', { settings, revision }, id);
 }
@@ -70,7 +96,7 @@ describe('synced settings crypto', () => {
     expect(await decryptEntry(serverKey, id, { ...entry, extra: 1 })).toBeNull();
   });
 
-  it('uses fresh nonces and one fixed ciphertext size for every entry', async () => {
+  it('uses fresh nonces and unpadded ciphertext for every entry', async () => {
     const serverKey = await settingsKey(secret);
     const id = await settingsFileId(secret, 1);
     const long = { ...mine, timeZone: 'America/Argentina/ComodRivadavia' };
@@ -82,18 +108,76 @@ describe('synced settings crypto', () => {
     });
     expect(a.iv).not.toBe(b.iv);
     expect(a.ct).not.toBe(b.ct);
-    expect(short.ct.length).toBe(a.ct.length);
+    expect(short.ct.length).toBeLessThan(a.ct.length);
     expect(id).toMatch(/^[0-9a-f]{64}$/);
     expect(id).toBe(await settingsFileId(secret, 1));
     expect(id).not.toBe(await settingsFileId(secret, 2));
   });
 
-  it('rounds commit dates down to the UTC hour', () => {
-    expect(coarseDate(Date.parse('2026-11-02T17:42:13.512Z'))).toBe('2026-11-02T17:00:00Z');
+  it('decrypts pre-migration entries with defaults, and keeps the expanded ciphertext under the body limit', async () => {
+    const serverKey = await settingsKey(secret);
+    const id = await settingsFileId(secret, 1);
+    const old = Object.fromEntries(
+      Object.entries(mine).filter(
+        ([key]) =>
+          ![
+            'editorFont',
+            'suggestAccept',
+            'symbolReveal',
+            'finderWheel',
+            'worklistStepping',
+          ].includes(key),
+      ),
+    );
+    // Model an entry encrypted by the old Worker before these five keys existed.
+    const entry = await encryptEntry(serverKey, id, {
+      settings: old as SyncedSettings,
+      revision: revisionA,
+    });
+    expect((await decryptEntry(serverKey, id, entry))?.settings).toEqual(mine);
+    const expanded = await encryptEntry(serverKey, id, {
+      settings: {
+        ...mine,
+        editorFont: 'jetbrains-mono',
+        timeZone: 'America/Argentina/ComodRivadavia',
+      },
+      revision: revisionA,
+    });
+    expect(expanded.ct.length).toBeLessThan(1024);
+    expect(JSON.stringify(expanded).length).toBeLessThan(4096);
+    expect(JSON.stringify({ settings: mine, revision: revisionA }).length).toBeLessThan(512);
   });
 });
 
 describe('/settings endpoint', () => {
+  it('accepts old payloads without the five preferences and new payloads with them', async () => {
+    const old = Object.fromEntries(
+      Object.entries(mine).filter(
+        ([key]) =>
+          ![
+            'editorFont',
+            'suggestAccept',
+            'symbolReveal',
+            'finderWheel',
+            'worklistStepping',
+          ].includes(key),
+      ),
+    );
+    const first = await synced(await put(old, null));
+    expect(first.settings).toEqual(mine);
+    const next = {
+      ...mine,
+      editorFont: 'fira-code',
+      suggestAccept: 'tab',
+      symbolReveal: 'caret',
+      finderWheel: 'groups',
+      worklistStepping: false,
+    };
+    expect((await synced(await put(next, first.revision))).settings).toEqual(next);
+    expect((await read()).settings).toEqual(next);
+    expect((await put({ ...next, unknown: true }, null)).status).toBe(400);
+  });
+
   it('requires a session and an editing role', async () => {
     expect((await fixture.request('/settings', 'GET')).status).toBe(200);
     // User 5 has a valid session but no entry in config/permissions.json.
@@ -110,110 +194,77 @@ describe('/settings endpoint', () => {
     expect(fixture.commits).toHaveLength(0);
   });
 
-  it('writes to its own branch, never the data branch, creating it on first sync', async () => {
-    const dataHead = fixture.dataHead;
+  it('starts empty and stores only the caller row without GitHub storage requests', async () => {
+    const head = fixture.dataHead;
     expect(await read()).toEqual({ settings: null, revision: null, unreadable: false });
-    await synced(await put(mine, null));
-    const first = fixture.settingsHead;
-    expect(first).not.toBeNull();
-    expect(settingsCommits()[0].parents).toEqual([]);
-    await synced(await put(mine, null, 2));
-    expect(settingsCommits()[1].parents).toEqual([first]);
-    expect(fixture.dataHead).toBe(dataHead);
+    const first = await synced(await put(mine, null));
+    expect(await read()).toEqual({ ...first, unreadable: false });
+    const row = db.prepare('SELECT * FROM user_settings').get()!;
+    expect(row.id).toBe(await settingsFileId(fixture.env.SESSION_SECRET, 1));
+    expect(String(row.ct)).not.toContain('Europe/Berlin');
+    expect(row.revision).toBe(first.revision);
+    expect(row.updated_at).toEqual(expect.any(Number));
+    expect(fixture.settingsHead).toBeNull();
+    expect(fixture.dataHead).toBe(head);
+    expect(fixture.commits).toHaveLength(0);
+    // Only installation-token and fresh permission reads may reach GitHub.
+    const calls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(
+      calls.every((url) =>
+        /access_tokens|git\/ref\/heads\/editor-data|contents\/config\/permissions.json/.test(url),
+      ),
+    ).toBe(true);
   });
 
-  it('allows every role, including translators', async () => {
+  it('allows all editing roles and leaves other user rows untouched', async () => {
     for (const id of [1, 2, 3, 4]) await synced(await put(mine, null, id));
-    expect(Object.keys(store()!.entries)).toHaveLength(4);
+    expect(db.prepare('SELECT count(*) AS n FROM user_settings').get()?.n).toBe(4);
+    const aliceId = await settingsFileId(fixture.env.SESSION_SECRET, 1);
+    const alice = db.prepare('SELECT * FROM user_settings WHERE id=?').get(aliceId);
+    const bob = await read(2);
+    await synced(await put({ ...mine, dateFormat: 'mdy' }, bob.revision, 2));
+    expect(db.prepare('SELECT * FROM user_settings WHERE id=?').get(aliceId)).toEqual(alice);
   });
 
-  it('stores only fixed-size ciphertext under opaque ids, credited to the bot at a coarse time', async () => {
-    const { revision } = await synced(await put(mine, null));
-    const saved = store()!;
-    const ids = Object.keys(saved.entries);
-    expect(ids).toHaveLength(1);
-    expect(ids[0]).toMatch(/^[0-9a-f]{64}$/);
-    const bytes = `${JSON.stringify(saved)}\n${JSON.stringify(settingsCommits()[0])}`;
-    for (const leak of ['alice', '"1"', 'Europe/Berlin', 'iso', 'markupToolbar', revision]) {
-      expect(bytes).not.toContain(leak);
-    }
-    const bot = { name: 'clarity-test[bot]', email: 'clarity-test[bot]@users.noreply.github.com' };
-    const commit = settingsCommits()[0] as {
-      author: { date: string };
-      committer: { date: string };
-    };
-    expect(commit).toMatchObject({ author: bot, committer: bot });
-    expect(commit.author.date).toMatch(/T\d\d:00:00Z$/);
-    expect(commit.committer.date).toBe(commit.author.date);
-    expect(await read()).toEqual({ settings: mine, revision, unreadable: false });
-  });
-
-  it('re-encrypts every entry on every sync, so a commit does not reveal whose settings changed', async () => {
-    const alice = await synced(await put(mine, null, 1));
-    const bob = await synced(await put(defaultSyncedSettings, null, 2));
-    const before = store()!.entries;
-    await synced(await put({ ...defaultSyncedSettings, timeDisplay: 'date' }, bob.revision, 2));
-    const after = store()!.entries;
-    expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
-    for (const id of Object.keys(before)) {
-      expect(after[id].iv).not.toBe(before[id].iv);
-      expect(after[id].ct).not.toBe(before[id].ct);
-      expect(after[id].ct.length).toBe(before[id].ct.length);
-    }
-    // Alice's settings and revision are untouched by Bob's sync.
-    expect(await read(1)).toEqual({ settings: mine, revision: alice.revision, unreadable: false });
-  });
-
-  it('returns 409 with the stored copy when another device synced first', async () => {
+  it('returns 409 with the stored copy for stale revisions and skips no-op writes', async () => {
     const first = await synced(await put(mine, null));
     const stale = await put({ ...mine, dateFormat: 'mdy' }, null);
     expect(stale.status).toBe(409);
-    expect(await stale.json()).toMatchObject({ settings: mine, revision: first.revision });
-    // Other users' syncs rewrite every entry but never change this user's revision.
-    await synced(await put(mine, null, 2));
+    expect(await stale.json()).toMatchObject(first);
+    const before = db.prepare('SELECT * FROM user_settings').get();
+    expect(await synced(await put(mine, first.revision))).toEqual(first);
+    expect(db.prepare('SELECT * FROM user_settings').get()).toEqual(before);
     await synced(await put({ ...mine, dateFormat: 'mdy' }, first.revision));
-    expect(settingsCommits()).toHaveLength(3);
   });
 
-  it('skips no-op writes and retries when the settings branch moves', async () => {
-    const first = await synced(await put(mine, null));
-    expect(await (await put(mine, first.revision)).json()).toEqual(first);
-    expect(settingsCommits()).toHaveLength(1);
-    fixture.settingsRaces = 1;
-    await synced(await put({ ...mine, timeDisplay: 'relative' }, first.revision));
-    expect(settingsCommits()).toHaveLength(3);
+  it.each([false, true])('does not lose concurrent writes (existing row: %s)', async (existing) => {
+    const base = existing ? (await synced(await put(mine, null))).revision : null;
+    let winner: Awaited<ReturnType<typeof synced>>;
+    beforeWrite = async () => {
+      winner = await synced(await put({ ...mine, dateFormat: 'mdy' }, base));
+    };
+    const loser = await put({ ...mine, timeDisplay: 'date' }, base);
+    expect(loser.status).toBe(409);
+    expect(await loser.json()).toMatchObject(winner!);
+    expect(await read()).toEqual({ ...winner!, unreadable: false });
   });
 
-  it('retries when two first syncs race to create the branch', async () => {
-    fixture.settingsRaces = 1;
+  it('reports unreadable rows, isolates other users, and lets the owner repair safely', async () => {
     await synced(await put(mine, null));
-    expect(fixture.settingsHead).not.toBeNull();
+    const aliceId = await settingsFileId(fixture.env.SESSION_SECRET, 1);
+    db.prepare('UPDATE user_settings SET iv=? WHERE id=?').run('AAAAAAAAAAAAAAAA', aliceId);
+    expect(await read()).toEqual({ settings: null, revision: null, unreadable: true });
+    await synced(await put(mine, null, 2));
+    expect((await read()).unreadable).toBe(true);
+    await synced(await put(mine, null));
+    expect((await read()).unreadable).toBe(false);
+    db.prepare('UPDATE user_settings SET revision=? WHERE id=?').run('b'.repeat(32), aliceId);
+    expect((await read()).unreadable).toBe(true);
   });
 
-  it('reports a tampered entry as unreadable to its owner, who can overwrite it; others drop it', async () => {
-    await synced(await put(mine, null, 1));
-    const bob = await synced(await put(mine, null, 2));
-    const saved = store()!;
-    const secret = fixture.env.SESSION_SECRET;
-    const aliceId = await settingsFileId(secret, 1);
-    const commit = sha(fixture.sequence++);
-    fixture.snapshots.set(commit, {
-      'settings.json': {
-        ...saved,
-        entries: {
-          ...saved.entries,
-          [aliceId]: { ...saved.entries[aliceId], iv: 'AAAAAAAAAAAAAAAA' },
-        },
-      },
-    });
-    fixture.settingsHead = commit;
-    expect(await read(1)).toEqual({ settings: null, revision: null, unreadable: true });
-    expect((await read(2)).settings).toEqual(mine);
-    // Bob's next sync re-encrypts only readable entries; Alice can then start over.
-    await synced(await put({ ...mine, dateFormat: 'dmy' }, bob.revision, 2));
-    expect(Object.keys(store()!.entries)).toEqual([await settingsFileId(secret, 2)]);
-    await synced(await put(mine, null, 1));
-    expect(Object.keys(store()!.entries)).toHaveLength(2);
+  it('returns unavailable when the D1 binding is absent', async () => {
+    delete fixture.env.SETTINGS_DB;
+    expect((await fixture.request('/settings', 'GET')).status).toBe(503);
   });
 
   it('validates the schema and limits the size', async () => {

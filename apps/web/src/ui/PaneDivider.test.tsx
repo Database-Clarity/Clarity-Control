@@ -15,6 +15,7 @@ let notify: (entries?: ResizeObserverEntry[]) => void = () => {};
 let disconnected = 0;
 
 function Harness(options: Options) {
+  const { columns = true, ...rest } = options as Options & { columns?: boolean };
   const pane = usePaneDivider({
     storeKey: key,
     sizes: 'start',
@@ -22,8 +23,9 @@ function Harness(options: Options) {
     max: 480,
     defaultWidth: 336,
     reserve: 480,
-    ...options,
+    ...rest,
   });
+  if (!columns) return <output data-width>{pane.width}</output>;
   return (
     <div ref={pane.containerRef}>
       <output data-width>{pane.width}</output>
@@ -31,7 +33,7 @@ function Harness(options: Options) {
     </div>
   );
 }
-function render(options: Options = {}) {
+function render(options: Options & { columns?: boolean } = {}) {
   act(() => root.render(<Harness {...options} />));
   return host.querySelector('[role="separator"]') as HTMLDivElement;
 }
@@ -133,6 +135,32 @@ describe('PaneDivider', () => {
     expect(geometry).not.toHaveBeenCalled();
   });
 
+  it('measures and observes a container that mounts after measuring resumed (skeleton)', () => {
+    useSettingsStore.getState().setPane(key, { width: 600, collapsed: false });
+    const defaultWidth = (width: number) => (width ? Math.round(width / 3) : 280);
+    // Unpaused, but a skeleton is still up: no container yet.
+    render({ columns: false, defaultWidth, max: 2000 });
+    containerWidth = 1000;
+    render({ defaultWidth, max: 2000 });
+    // Saved 600 is clamped to the measured room: 1000 - 480 reserve - 16 track.
+    expect(shown()).toBe(504);
+    act(() => useSettingsStore.getState().setPane(key, null));
+    expect(shown()).toBe(333);
+    act(() =>
+      notify([
+        { borderBoxSize: [{ inlineSize: 1200, blockSize: 500 }] } as unknown as ResizeObserverEntry,
+      ]),
+    );
+    expect(shown()).toBe(400);
+    act(() => useSettingsStore.getState().setPane(key, { width: 900, collapsed: false }));
+    act(() =>
+      notify([
+        { borderBoxSize: [{ inlineSize: 800, blockSize: 500 }] } as unknown as ResizeObserverEntry,
+      ]),
+    );
+    expect(shown()).toBe(304);
+  });
+
   it('moves 8px per arrow and 32px with Shift, and stops at the limits', () => {
     const divider = render();
     press(divider, 'ArrowRight');
@@ -176,11 +204,13 @@ describe('PaneDivider', () => {
           ? ({ fontSize: `${rootPx}px` } as CSSStyleDeclaration)
           : real(element, pseudo),
       );
+      // The factor is read once per announcement, so a fresh stub is announced too.
+      setRoot(16);
     });
 
     it('scales limits, the default and the saved size from design pixels, and follows a scale change', () => {
       containerWidth = 1920;
-      rootPx = 24; // 150 %
+      setRoot(24); // 150 %
       const divider = render({ sizes: 'end', min: 320, max: 640, defaultWidth: 384 });
       expect(shown()).toBe(576);
       expect(divider.getAttribute('aria-valuemin')).toBe('480');
@@ -196,7 +226,7 @@ describe('PaneDivider', () => {
 
     it('saves a keyboard resize in design pixels, so another scale shows the same share', () => {
       containerWidth = 1920;
-      rootPx = 24;
+      setRoot(24);
       const divider = render({ sizes: 'end', min: 320, max: 640, defaultWidth: 384 });
       press(divider, 'ArrowLeft'); // one 8px design step = 12px on screen
       expect(shown()).toBe(588);
@@ -205,8 +235,31 @@ describe('PaneDivider', () => {
       expect(shown()).toBe(392);
     });
 
+    it('reads the root size once per announcement, not on every pane mount', () => {
+      const rootReads = () =>
+        vi
+          .mocked(window.getComputedStyle)
+          .mock.calls.filter(([element]) => element === document.documentElement).length;
+      containerWidth = 1920;
+      const before = rootReads();
+      const pane = { sizes: 'end', min: 320, max: 640, defaultWidth: 384 } as const;
+      act(() =>
+        root.render(
+          <>
+            <Harness {...pane} />
+            <Harness {...pane} />
+          </>,
+        ),
+      );
+      expect(rootReads()).toBe(before + 1);
+      expect(shown()).toBe(384);
+      setRoot(24);
+      expect(rootReads()).toBe(before + 2);
+      expect(shown()).toBe(576);
+    });
+
     it('keeps the editor its minimum share: the viewport clamp uses scaled reserve and divider', () => {
-      rootPx = 24;
+      setRoot(24);
       containerWidth = 1500;
       render({ sizes: 'end', min: 320, max: 640, defaultWidth: 640, reserve: 480 });
       // 1500 - 480*1.5 reserve - 16*1.5 divider = 756 available; the pane wants 960.

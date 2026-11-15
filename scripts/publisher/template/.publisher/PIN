@@ -1,7 +1,13 @@
 {
-  "sourceSha": "a11aa9692419f565e02dde609e1f374d29b57343",
-  "sha256": "45a203a0d307d4d87a3fcd7a5550830f9190030f1b9f549a0735c298ce829b8b",
+  "sourceSha": "00681cfc5655141e9b73928636f70c4a896a60e0",
+  "sha256": "2592fc5d51565731db6b3cef077df771136931c1add263911d92302d4dd32a59",
   "capabilities": [
-    "elementTags"
+    "elementTags",
+    "sandboxPointers",
+    "scheduledBatches",
+    "markupBraces",
+    "prismaticTags",
+    "inactiveMoves",
+    "arrowSymbol"
   ]
 }
