@@ -59,6 +59,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('FinderPicker', () => {
@@ -71,6 +73,7 @@ describe('FinderPicker', () => {
   });
 
   it('opens on ArrowDown at the current option, in labelled groups, with icon boxes', async () => {
+    vi.useFakeTimers();
     await key('ArrowDown');
     expect(trigger().getAttribute('aria-expanded')).toBe('true');
     expect(trigger().getAttribute('aria-controls')).toBe(listbox()!.id);
@@ -86,7 +89,7 @@ describe('FinderPicker', () => {
     expect(listbox()!.querySelectorAll('[role="option"] > span[aria-hidden]')).toHaveLength(4);
     // The image itself arrives just after the list first paints.
     expect(listbox()!.querySelectorAll('img')).toHaveLength(0);
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    await act(async () => vi.advanceTimersByTimeAsync(50));
     expect(listbox()!.querySelectorAll('img')).toHaveLength(1);
     expect(document.activeElement).toBe(trigger());
   });
@@ -137,4 +140,47 @@ describe('FinderPicker', () => {
     await act(async () => listbox()!.querySelector<HTMLElement>('[data-value="helm"]')!.click());
     expect(change).toHaveBeenCalledWith('helm');
   });
+  it('reveals opening and keyboard highlights, but does not scroll on pointer hover', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const offsets: Record<string, number> = { helm: 200, gauntlets: 300, gun: 400, glaive: 500 };
+      return offsets[this.dataset.value ?? ''] ?? 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(28);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100);
+    await key('Enter');
+    expect(listbox()!.scrollTop).toBe(228);
+    const hover = listbox()!.querySelector<HTMLElement>('[data-value="helm"]')!;
+    await act(async () => hover.dispatchEvent(new MouseEvent('mousemove', { bubbles: true })));
+    expect(active()).toBe(hover);
+    expect(listbox()!.scrollTop).toBe(228);
+    await key('End');
+    expect(active()?.textContent).toBe('Glaive');
+    expect(listbox()!.scrollTop).toBe(428);
+    await key('Escape');
+    await key('Enter');
+    expect(active()?.textContent).toBe('Gauntlets');
+    expect(listbox()!.scrollTop).toBe(228);
+  });
+
+  it.each(['Home', 'ArrowUp', 'h'])(
+    'reveals a hovered row even when %s targets the same index',
+    async (name) => {
+      vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return this.dataset.value === 'helm' ? 210 : 300;
+      });
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(28);
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100);
+      await key('Enter');
+      const hover = listbox()!.querySelector<HTMLElement>('[data-value="helm"]')!;
+      await act(async () => hover.dispatchEvent(new MouseEvent('mousemove', { bubbles: true })));
+      expect(listbox()!.scrollTop).toBe(228);
+      await key(name);
+      expect(active()).toBe(hover);
+      expect(listbox()!.scrollTop).toBe(210);
+    },
+  );
 });
