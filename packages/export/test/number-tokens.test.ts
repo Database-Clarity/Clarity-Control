@@ -103,14 +103,39 @@ describe('P11: language goldens through core export and all eight engine presets
     }
   });
 
-  test.each(['de', 'fr'] as const)('%s: English fallback retains dots and grouping', (language) => {
-    const source = input(language, english);
-    for (const preset of legacyPresets) {
-      const file = JSON.parse(new TextDecoder().decode(buildLegacy(source, preset)));
-      const descriptions = file[100]?.descriptions;
-      if (descriptions[language]) expect(descriptions[language]).toEqual(descriptions.en);
-    }
-  });
+  test.each(['de', 'fr'] as const)(
+    '%s: English-identical token translations keep local number formatting',
+    (language) => {
+      for (const sourceEnglish of ['Duration 4.5 seconds.', 'Duration ${2.5+2} seconds.']) {
+        const source = input(language, 'Duration #{=1} seconds.', sourceEnglish);
+        const literal = input(language, 'Duration 4,5 seconds.', sourceEnglish);
+        const perk = source.perks[100];
+        if (!('editor' in perk)) throw new Error('Expected canonical fixture');
+        expect(perk.editor[language]?.main).toBe(perk.editor.en?.main);
+        for (const preset of legacyPresets) {
+          const bytes = buildLegacy(source, preset);
+          const descriptions = JSON.parse(new TextDecoder().decode(bytes))[100].descriptions;
+          if (preset !== 'vaultZero') {
+            expect(JSON.stringify(descriptions[language])).toContain('Duration 4,5 seconds.');
+            expect(bytes).toEqual(buildLegacy(literal, preset));
+          }
+          expect(JSON.stringify(descriptions.en)).toContain('Duration 4.5 seconds.');
+        }
+        for (const style of styles) {
+          const file = newStyleFile('numbers', style, {
+            categories: ['perks'], sandboxPerks: [], frameAliases: false,
+            languages: [language], keys: [], bungieIdentical: false,
+          });
+          const result = compile(source, file, {
+            catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },
+          });
+          expect(JSON.stringify(result.expanded?.[100]?.descriptions[language])).toContain(
+            'Duration 4,5 seconds.',
+          );
+        }
+      }
+    },
+  );
 
   test('formats prose after maths, while excluding identifiers, comments, and cell modifiers', () => {
     expect(
