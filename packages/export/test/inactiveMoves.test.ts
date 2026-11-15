@@ -7,7 +7,10 @@ import {
   migrateLegacy,
   type Tooltip,
 } from '@clarity/core';
-import { buildLegacy, legacyPresets } from '../src/index.js';
+import { buildLegacy, legacyPresets, type LegacyInput } from '../src/index.js';
+
+// The fixtures supply catalog facts; the converter retains its historical stricter input type.
+const consumerInput = (perks: ReturnType<typeof exportLegacy>) => ({ perks }) as LegacyInput;
 
 it.each(legacyPresets)(
   'keeps real-data %s bytes identical with an empty inactive file',
@@ -27,8 +30,8 @@ it.each(legacyPresets)(
         { name: perk.name, type: perk.type },
       ]),
     );
-    const before = { perks: exportLegacy(tooltips, 0, facts) };
-    const after = { perks: exportWithInactiveMoves(tooltips, 0, facts, {}, {}) };
+    const before = consumerInput(exportLegacy(tooltips, 0, facts));
+    const after = consumerInput(exportWithInactiveMoves(tooltips, 0, facts, {}, {}));
     expect(buildLegacy(after, preset), preset).toEqual(buildLegacy(before, preset));
   },
   60_000,
@@ -52,17 +55,17 @@ it('removes only a moved fixture item and its stub from every consumer file', ()
   );
   facts['77'] = { name: 'Alias', type: 'Weapon Perk' };
   const aliases = { 77: { to: 142, kind: 'frame' as const } };
-  const before = { perks: exportLegacy(tooltips, 0, facts, aliases) };
-  const after = {
-    perks: exportWithInactiveMoves(tooltips, 0, facts, aliases, {
+  const before = consumerInput(exportLegacy(tooltips, 0, facts, aliases));
+  const after = consumerInput(
+    exportWithInactiveMoves(tooltips, 0, facts, aliases, {
       142: { by: 1, at: '2026-11-14T00:00:00Z' },
     }),
-  };
-  const restored = {
-    perks: exportWithInactiveMoves(tooltips, 0, facts, aliases, {
+  );
+  const restored = consumerInput(
+    exportWithInactiveMoves(tooltips, 0, facts, aliases, {
       142: { by: 1, at: '2026-11-14T00:00:00Z', inactive: false },
     }),
-  };
+  );
   for (const preset of legacyPresets) {
     expect(buildLegacy(restored, preset), `${preset}: restore`).toEqual(
       buildLegacy(before, preset),
