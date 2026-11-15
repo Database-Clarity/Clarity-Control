@@ -78,7 +78,7 @@ export type AliasStub = {
   hash: number
   /** Hash of the canonical perk this alias points at */
   aliasOf: number
-  aliasKind: 'sandbox' | 'frame'
+  aliasKind: 'sandbox' | 'frame' | 'name'
   name?: string
   type?: PerkTypes
   itemHash?: number

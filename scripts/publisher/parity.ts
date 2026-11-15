@@ -11,16 +11,14 @@ import {
   inactivePublishableHash,
   selectedInactiveMoves,
   mergeLivePerks,
-  mergeSandboxPointers,
+  aliasGroupsPath,
   sandboxPointersPath,
   sandboxPointersSchema,
-  type SandboxConflicts,
   type Tooltip,
-  type LegacyFacts,
-  type Aliases,
 } from '../../packages/core/src/index.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { maxBuffer } from './childProcess.mjs';
+import { Publisher, type Options } from './publisher.js';
 const [repo, commit, receiptPath, configPath, adapterPath, outArg] = process.argv.slice(2);
 if (!outArg)
   throw new Error(
@@ -35,12 +33,9 @@ const read = (ref: string, path: string) => JSON.parse(git('show', `${ref}:${pat
 const receipt = read(commit, receiptPath);
 if (!/^[a-f0-9]{40}$/.test(commit) || !receiptPath.startsWith('.publish/receipts/'))
   throw new Error('Exact test live commit and receipt required');
-const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
-  facts: Record<string, LegacyFacts>;
-  aliases: Aliases;
-  sandboxConflicts?: SandboxConflicts;
-  generatorSha: string;
-};
+const config = JSON.parse(readFileSync(configPath, 'utf8')) as Pick<
+  Options, 'facts' | 'aliases' | 'sandboxConflicts' | 'generatorSha' | 'aliasFacts'
+>;
 if (config.generatorSha !== receipt.generatorSha)
   throw new Error('Generator pin differs from receipt');
 const base = read(receipt.liveParent, 'liveDescriptions.json');
@@ -48,21 +43,14 @@ const actual = git('show', `${commit}:liveDescriptions.json`);
 const tooltips: Tooltip[] = receipt.entries.map((e: { tooltipBlob: string }) =>
   JSON.parse(git('cat-file', 'blob', e.tooltipBlob)),
 );
-// The sandbox picks at the receipt's source commit join the aliases exactly as the publisher did.
-let picks: unknown;
-try {
-  picks = read(receipt.sourceCommit, sandboxPointersPath);
-} catch {
-  picks = undefined; // no picks file at that commit
-}
-const aliases =
-  picks === undefined
-    ? config.aliases
-    : mergeSandboxPointers(
-        config.aliases,
-        config.sandboxConflicts ?? {},
-        sandboxPointersSchema.parse(picks),
-      );
+// Both configs come from S, with the publisher's real pinned-fact checks and composition.
+const atSource = (path: string): unknown =>
+  git('ls-tree', '--name-only', receipt.sourceCommit, '--', path).trim()
+    ? read(receipt.sourceCommit, path)
+    : undefined;
+const picks = atSource(sandboxPointersPath);
+const groups = atSource(aliasGroupsPath);
+const aliases = Publisher.aliasesAt(config, groups, picks);
 const moves = git('ls-tree', '--name-only', receipt.sourceCommit, '--', inactiveMovesPath).trim()
   ? inactiveMovesSchema.parse(read(receipt.sourceCommit, inactiveMovesPath))
   : {};
@@ -96,6 +84,7 @@ const expected =
                 aliases,
                 catalog: config.facts,
               },
+          groups === undefined ? undefined : { aliases, catalog: config.facts },
         ),
         moves,
         hashes,

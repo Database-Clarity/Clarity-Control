@@ -33,7 +33,10 @@ import {
   permissionsSchema,
   pushedSchema,
   resolveAlias,
-  mergeSandboxPointers,
+  aliasGroupsPath,
+  aliasGroupsSchema,
+  composeAliases,
+  type AliasItems,
   sandboxPointersPath,
   sandboxPointersSchema,
   type PublishPayload,
@@ -173,6 +176,8 @@ export interface Options {
    */
   sandboxConflicts?: SandboxConflicts;
   facts: LegacyCatalog;
+  /** Complete generator items pinned alongside aliases and legacy facts; installed at G2. */
+  aliasFacts?: { generatorSha: string; items: AliasItems };
   now: () => number;
   runUrl: string;
   backoff?: (attempt: number) => Promise<void>;
@@ -211,14 +216,77 @@ export class Publisher {
    * the same merge as the Worker and the editor). A malformed picks file throws: fail closed.
    */
   aliasesAt(tree: Tree): Aliases {
-    const raw = this.read<unknown>(tree, sandboxPointersPath);
-    if (raw === undefined) return this.options.aliases;
-    const pointers = sandboxPointersSchema.parse(raw);
-    return mergeSandboxPointers(
-      this.options.aliases,
-      this.options.sandboxConflicts ?? {},
-      pointers,
+    return Publisher.aliasesAt(
+      this.options,
+      this.read<unknown>(tree, aliasGroupsPath),
+      this.read<unknown>(tree, sandboxPointersPath),
     );
+  }
+  /** The read-only parity command shares the same pinned-fact checks and composition. */
+  static aliasesAt(
+    options: Pick<Options, 'aliases' | 'facts' | 'generatorSha' | 'aliasFacts' | 'sandboxConflicts'>,
+    raw: unknown,
+    pointers: unknown,
+  ): Aliases {
+    const groups = raw === undefined ? undefined : aliasGroupsSchema.parse(raw);
+    if (groups) {
+      const facts = options.aliasFacts;
+      if (
+        !facts ||
+        !/^[0-9a-f]{40}$/.test(facts.generatorSha) ||
+        facts.generatorSha !== options.generatorSha
+      )
+        throw new Error('Alias groups require matching pinned generator facts');
+      if (!facts.items || typeof facts.items !== 'object' || Array.isArray(facts.items))
+        throw new Error('Alias groups require complete pinned generator items');
+      // Do not mistake a LegacyCatalog or a partial group-only catalog for generator items.
+      for (const hash of new Set([
+        ...Object.keys(options.facts),
+        ...Object.values(groups.groups).flatMap((group) => group.members.map(String)),
+        ...Object.keys(facts.items ?? {}),
+      ])) {
+        const item = facts.items?.[hash];
+        if (
+          !item ||
+          !Number.isInteger(item.hash) || item.hash < 0 || item.hash > 0xffffffff ||
+          String(item.hash) !== hash ||
+          typeof item.name !== 'string' ||
+          typeof item.categoryId !== 'string' ||
+          !item.categoryId ||
+          typeof item.inGameDescription !== 'string' ||
+          typeof options.facts[hash]?.name !== 'string' ||
+          typeof options.facts[hash]?.type !== 'string'
+        )
+          throw new Error(`Incomplete pinned alias facts for ${hash}`);
+        for (const flag of ['isEnhanced', 'exotic'] as const)
+          if (item[flag] !== undefined && typeof item[flag] !== 'boolean')
+            throw new Error(`Invalid pinned alias fact ${hash}.${flag}`);
+        for (const field of ['plugCategoryHash', 'baseHash', 'dimBaseHash', 'itemHash'] as const)
+          if (
+            item[field] !== undefined &&
+            (!Number.isInteger(item[field]) || item[field]! < 0 || item[field]! > 0xffffffff)
+          )
+            throw new Error(`Invalid pinned alias fact ${hash}.${field}`);
+        if (
+          item.owners !== undefined &&
+          (!Array.isArray(item.owners) ||
+            item.owners.some(
+              (owner) => !Number.isInteger(owner) || owner < 0 || owner > 0xffffffff,
+            ))
+        )
+          throw new Error(`Invalid pinned alias owners for ${hash}`);
+      }
+    }
+    const composed = composeAliases(
+      options.aliases,
+      groups,
+      options.aliasFacts?.items ?? {},
+      options.sandboxConflicts ?? {},
+      pointers === undefined ? undefined : sandboxPointersSchema.parse(pointers),
+    );
+    if (groups && composed.issues.length)
+      throw new Error(`Alias group facts drift: ${JSON.stringify(composed.issues)}`);
+    return composed.aliases;
   }
   movesAt(tree: Tree): InactiveMoves {
     try {
@@ -434,15 +502,20 @@ export class Publisher {
     if (!live?.perks || !live.databaseSettings) throw new Error('Invalid live file');
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
-    const picks = this.pickRecomputeAt(this.git.tree(r.sourceCommit));
     let perks: Record<string, unknown>;
     try {
       const sourceTree = this.git.tree(r.sourceCommit);
+      if (sourceTree[aliasGroupsPath] && r.generatorSha !== this.options.generatorSha)
+        throw new Error('Generator revision differs from frozen alias-group receipt');
+      const aliases = this.aliasesAt(sourceTree);
+      const groups = sourceTree[aliasGroupsPath]
+        ? { aliases, catalog: this.options.facts }
+        : undefined;
       perks = applyInactiveLive(
-        mergeLivePerks(live.perks, entries, picks),
+        mergeLivePerks(live.perks, entries, this.pickRecomputeAt(sourceTree), groups),
         this.movesAt(sourceTree),
         r.entries.map((e) => e.hash),
-        this.aliasesAt(sourceTree),
+        aliases,
         live.perks,
       );
     } catch (error) {
@@ -713,7 +786,7 @@ export class Publisher {
           opId,
           undefined,
           undefined,
-          { status: 'rejected', error: `Invalid ${sandboxPointersPath}: ${String(e)}` },
+          { status: 'rejected', error: `Invalid alias configuration: ${String(e)}` },
           blob,
         );
         return;
@@ -1141,7 +1214,7 @@ export class Publisher {
       try {
         frozenAliases = this.aliasesAt(at);
       } catch (e) {
-        return fail({ status: 'rejected', error: `Invalid ${sandboxPointersPath}: ${String(e)}` });
+        return fail({ status: 'rejected', error: `Invalid alias configuration: ${String(e)}` });
       }
     const plan = await this.batchPlan(at, payload, frozenAliases);
     if ('failure' in plan) return fail(plan.failure);
@@ -1409,6 +1482,19 @@ export class Publisher {
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, 'config/permissions.json')),
       pushed: pushedSchema.parse(this.read(t, 'live/pushed.json')),
+      // Preserve malformed config too: omitting it would resurrect archived members in readers.
+      // Raw invalid JSON becomes null, which the web schema rejects, without wedging the queue.
+      ...(t[aliasGroupsPath]
+        ? {
+            aliasGroups: (() => {
+              try {
+                return this.read<unknown>(t, aliasGroupsPath);
+              } catch {
+                return null;
+              }
+            })(),
+          }
+        : {}),
       ...(inactiveMoves ? { inactiveMoves } : {}),
       ...(sandboxPointers && Object.keys(sandboxPointers.pointers).length
         ? { sandboxPointers }

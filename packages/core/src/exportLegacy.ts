@@ -66,8 +66,8 @@ function aliasStub(
   const entry = aliases[alias];
   if (!entry) return undefined;
   const facts = catalog?.[alias];
-  if (catalog && entry.kind === 'frame' && !facts) {
-    throw new Error(`Missing manifest facts for frame alias ${alias}`);
+  if (catalog && (entry.kind === 'frame' || entry.kind === 'name') && !facts) {
+    throw new Error(`Missing manifest facts for ${entry.kind} alias ${alias}`);
   }
   return {
     hash: Number(alias),
@@ -93,17 +93,41 @@ export function mergeLivePerks(
   live: Readonly<Record<string, unknown>>,
   entries: Readonly<Record<string, LegacyExportEntry>>,
   picks?: { keys: Iterable<string>; aliases: Aliases; catalog?: LegacyCatalog },
+  groups?: { aliases: Aliases; catalog: LegacyCatalog },
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...live, ...entries };
-  if (!picks) return merged;
-  for (const key of picks.keys) {
+  for (const key of picks?.keys ?? []) {
     if (Object.hasOwn(entries, key)) continue;
     const current = merged[key];
     if (isRecord(current) && !('aliasOf' in current)) continue;
-    const stub = aliasStub(key, picks.aliases, picks.catalog);
+    const stub = aliasStub(key, picks!.aliases, picks!.catalog);
     const target = stub && merged[String(stub.aliasOf)];
     if (stub && isRecord(target) && !('aliasOf' in target)) merged[key] = stub;
     else delete merged[key];
+  }
+  // Only an explicit group snapshot enables name reconciliation. Ungroup leaves an empty
+  // config, so former name stubs disappear until a reviewed export restores their own text.
+  // Never restore archived/draft text, or flatten an obsolete stub into an authored record.
+  if (groups) {
+    const keys = new Set([
+      ...Object.keys(live).filter((key) => {
+        const entry = live[key];
+        return isRecord(entry) && entry.aliasKind === 'name' && 'aliasOf' in entry;
+      }),
+      ...Object.keys(groups.aliases).filter((key) => groups.aliases[key]?.kind === 'name'),
+    ]);
+    for (const key of keys) {
+      if (Object.hasOwn(entries, key)) continue;
+      const stub = aliasStub(key, groups.aliases, groups.catalog);
+      const target = stub && merged[String(stub.aliasOf)];
+      if (stub && isRecord(target) && !('aliasOf' in target)) merged[key] = stub;
+      else {
+        const current = merged[key];
+        if (groups.aliases[key]?.kind === 'name' && isRecord(current) && !('aliasOf' in current))
+          throw new Error(`Publish canonical ${stub?.aliasOf} before grouping live tooltip ${key}`);
+        delete merged[key];
+      }
+    }
   }
   return merged;
 }
