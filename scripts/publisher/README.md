@@ -83,8 +83,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `00681cfc5655141e9b73928636f70c4a896a60e0` (v2).
-Runtime SHA-256: `2592fc5d51565731db6b3cef077df771136931c1add263911d92302d4dd32a59`.
+Current template source: `f3eb436b50a3d7ffa9fcdbaa170b89a230ac64b1` (v2).
+Runtime SHA-256: `706bf23064c4a894f8ad278fbfb5939d3b95895b0b85f3b209c615a1b196d043`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
@@ -105,10 +105,11 @@ braces.ts) in exportLegacy, rejects an export that still holds `#{` or `<enhance
 (unloweredEntry), and its PIN declares `markupBraces`, which the Worker's /save and /publish
 require for them while the publisher is on (build.mjs refuses the PIN without both markers).
 This is the enable build (PUB-ENABLE): config/publisher.json says `enabled: true`.
-Its publishableHash hashes each language's text as the exporters read it (lowerConsumerMarkup,
-ARROW-REWRITE), the same digest as the Worker's, so a spelling-only `<enhanced/>` or `#{d}` edit
-is not stale on publish and records the same push marker; the bundle differs from the 95f493a8
-build only in that line.
+Its publishableHash uses the same consumer-markup rules and English number map as the Worker,
+so number identity changes are publish-relevant, while spelling-only markup edits keep their hash.
+The `numberTokens` capability resolves translation tokens from each tooltip's live and frozen
+English values before lowering consumer markup. Invalid maps and unknown tokens refuse export.
+The shared intermediate keeps dots; decimal formatting belongs to the downstream engine.
 Two consecutive builds and a clean checkout build must reproduce that digest.
 
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency
@@ -301,3 +302,14 @@ shared `liveDescriptions.json` intermediate; its `arrowSymbol` capability alone
 does not update or verify the downstream converter. An older engine or the held
 npm converter drops the arrow. Keep the Worker's PIN gate closed until both
 components are installed. Installs and cut-over remain owner-gated.
+
+## Number tokens rollout precondition
+
+Before enabling number-token saves through a `numberTokens` publisher PIN, install the matching
+`.exports/` engine that formats numbers after maths per language, including English fallback.
+Verify all seven legacy outputs, clarityV2, and liveDescriptions against the real editor-data
+snapshot byte for byte, and keep `legacy-sha256.json` unchanged. The engine must also refuse
+any unresolved `#{=`. Record `.exports/PIN`, the publisher source SHA, and its runtime digest.
+The publisher PIN retains every existing capability, including `arrowSymbol` and `inactiveMoves`;
+their installation and rollback preconditions still apply. Root installs after both independent
+reviews and exact-tree CI approve. This source change performs no installation or cut-over.
