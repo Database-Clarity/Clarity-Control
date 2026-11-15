@@ -239,9 +239,9 @@ function QueueEditor() {
     </>
   );
 }
-async function startFilteredQueue() {
+async function startFilteredQueue(path = '/t/10?g=mark.retest&lang=de') {
   const router = createMemoryRouter([{ path: '/t/:hash', element: <QueueEditor /> }], {
-    initialEntries: ['/t/10?g=mark.retest&lang=de'],
+    initialEntries: [path],
   });
   await act(async () => root.render(<RouterProvider router={router} />));
   await type('Arc damage');
@@ -256,6 +256,18 @@ const leaveLink = () =>
   [...host.querySelectorAll<HTMLAnchorElement>('a')].find(
     (link) => link.textContent === 'Marked entries',
   )!;
+
+it('preserves the queue visit on Back when Work through starts at its origin entry URL', async () => {
+  const { router, queue } = await startFilteredQueue('/t/10?g=mark.retest');
+  expect(router.state.location.pathname + router.state.location.search).toBe(queue.origin.path);
+  await act(async () => leaveLink().click());
+  expect(router.state.historyAction).toBe('PUSH');
+  expect(useWorkQueues.getState().active).toBeNull();
+  await act(async () => router.navigate(-1));
+  expect(router.state.location.state.workThrough.id).toBe(queue.id);
+  expect(useWorkQueues.getState().active).toBe(queue.id);
+  expect(host.querySelector('[data-queue]')).not.toBeNull();
+});
 
 it('freezes shown matches, respects a refused Leave, and restores the filter on Leave and Forward', async () => {
   const { router, queue } = await startFilteredQueue();

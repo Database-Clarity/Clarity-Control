@@ -150,22 +150,22 @@ try {
         await page.locator('[role="option"][data-value="mark.retest"]').click();
         const field = nav.getByRole('combobox', { name: 'Tooltip', exact: true });
         if ((await field.getAttribute('aria-expanded')) !== 'true') await field.click();
-        const action = nav
+        const row = nav
           .getByRole('listbox', { name: 'Tooltips', exact: true })
           .getByRole('option')
           .filter({ hasText: 'Hammerhead' })
-          .first()
-          .getByRole('button', { name: 'Entry marks', exact: true });
-        await action.focus();
-        await page.keyboard.press('Enter');
-        await dialog.getByText('Retest reload timing', { exact: true }).waitFor();
+          .first();
+        await row.getByRole('img', { name: 'Needs retesting', exact: true }).waitFor();
+        assert.equal(
+          await row.getByRole('button', { name: 'Entry marks', exact: true }).count(),
+          0,
+        );
         await page.screenshot({ path: resolve(output, `finder-${label}.png`), fullPage: true });
         await check();
-        await page.keyboard.press('Escape');
         assert.equal(
           await nav.getByRole('listbox', { name: 'Tooltips', exact: true }).isVisible(),
           true,
-          `${label}: row popover keeps finder open`,
+          `${label}: static mark keeps finder open`,
         );
         await nav.getByRole('button', { name: 'Work through marked entries', exact: true }).click();
         await page
