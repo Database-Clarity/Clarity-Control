@@ -5,7 +5,6 @@ import {
   worklistOperationSchema,
   worklistIndexEntrySchema,
   worklistsSchema,
-  applyWorklistOperation,
   type SavedWorklist,
   type WorklistEntry,
   type WorklistOperation,
@@ -33,7 +32,7 @@ interface State {
   saving: Save[];
   failed: Save[];
   notice: string;
-  change(lists: SavedWorklist[]): Promise<boolean>;
+  change(id: string, op: WorklistOperation): Promise<boolean>;
   add(id: string | null, name: string, items: WorklistEntry[]): Promise<boolean>;
 }
 const empty = () => ({ lists: [], loaded: [], index: {}, saving: [], failed: [], notice: '' });
@@ -205,46 +204,7 @@ function enqueue(id: string, op: WorklistOperation): Promise<boolean> {
 export const useSavedWorklists = create<State>(() => ({
   scope: 'anonymous',
   ...empty(),
-  change(next): Promise<boolean> {
-    const current = useSavedWorklists.getState().lists;
-    const deleted = current.find((row) => !next.some((item) => item.id === row.id));
-    if (deleted) return enqueue(deleted.id, { type: 'delete' });
-    for (const row of next) {
-      const previous = current.find((item) => item.id === row.id);
-      if (!previous)
-        return enqueue(row.id, {
-          type: 'create',
-          name: row.name,
-          hashes: row.items.map((item) => item.hash),
-        });
-      if (row.name !== previous.name) return enqueue(row.id, { type: 'rename', name: row.name });
-      const removed = previous.items
-        .filter((item) => !row.items.some((next) => next.hash === item.hash))
-        .map((item) => item.hash);
-      if (removed.length) return enqueue(row.id, { type: 'remove', hashes: removed });
-      const added = row.items
-        .filter((item) => !previous.items.some((old) => old.hash === item.hash))
-        .map((item) => item.hash);
-      if (added.length) return enqueue(row.id, { type: 'add', hashes: added });
-      const hashes = previous.items.map((item) => item.hash);
-      const first = row.items.findIndex((item, index) => item.hash !== hashes[index]);
-      if (first >= 0) {
-        const last = row.items.reduce(
-          (last, item, index) => (item.hash !== hashes[index] ? index : last),
-          first,
-        );
-        for (const op of [
-          { type: 'move' as const, hash: row.items[first]!.hash, index: first },
-          { type: 'move' as const, hash: hashes[first]!, index: last },
-        ]) {
-          const moved = applyWorklistOperation({ name: row.name, hashes }, op)!;
-          if (moved.hashes.every((hash, at) => row.items[at]?.hash === hash))
-            return enqueue(row.id, op);
-        }
-      }
-    }
-    return Promise.resolve(false);
-  },
+  change: enqueue,
   add(id, name, items): Promise<boolean> {
     if (id && !useSavedWorklists.getState().lists.some((row) => row.id === id))
       throw new Error('This worklist was deleted. Choose another worklist.');

@@ -211,20 +211,14 @@ it('creates, renames, removes, moves both ways, and deletes with one operation e
   await loadWorklist(id);
   await add(2);
   await add(3);
-  const change = (mutate: (row: typeof created) => typeof created) =>
-    useSavedWorklists
-      .getState()
-      .change(useSavedWorklists.getState().lists.map((row) => (row.id === id ? mutate(row) : row)));
-  await change((row) => ({ ...row, name: 'Renamed' }));
-  await change((row) => ({ ...row, items: [row.items[1]!, row.items[2]!, row.items[0]!] }));
+  await useSavedWorklists.getState().change(id, { type: 'rename', name: 'Renamed' });
+  await useSavedWorklists.getState().change(id, { type: 'move', hash: 1, index: 2 });
   expect(rows.get(id)!.hashes).toEqual([2, 3, 1]);
-  await change((row) => ({ ...row, items: [row.items[2]!, row.items[0]!, row.items[1]!] }));
+  await useSavedWorklists.getState().change(id, { type: 'move', hash: 1, index: 0 });
   expect(rows.get(id)!.hashes).toEqual([1, 2, 3]);
-  await change((row) => ({ ...row, items: row.items.filter((item) => item.hash !== 2) }));
+  await useSavedWorklists.getState().change(id, { type: 'remove', hashes: [2] });
   expect(rows.get(id)).toEqual({ name: 'Renamed', hashes: [1, 3] });
-  await useSavedWorklists
-    .getState()
-    .change(useSavedWorklists.getState().lists.filter((row) => row.id !== id));
+  await useSavedWorklists.getState().change(id, { type: 'delete' });
   expect(rows.has(id)).toBe(false);
   expect(api.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(8);
 });
@@ -326,3 +320,12 @@ it('rejects actions during incomplete authentication and drops old reads after l
 // Removed F10 optimistic Rebuild overlay: Rebuild reads through the serial server chain.
 // Removed unsaved-create Rebuild: new lists enter the cache only after server success.
 // Removed F11 cloned-document durable recovery: no pending content is persisted.
+
+it('preserves consecutive rename intents even when the last action restores the saved name', async () => {
+  await loadWorklist(id);
+  const first = useSavedWorklists.getState().change(id, { type: 'rename', name: 'Other' });
+  const second = useSavedWorklists.getState().change(id, { type: 'rename', name: 'A' });
+  await Promise.all([first, second]);
+  expect(rows.get(id)!.name).toBe('A');
+  expect(api.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(2);
+});

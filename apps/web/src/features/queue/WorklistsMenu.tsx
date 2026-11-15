@@ -10,7 +10,7 @@ import { draftItems, savedItems, worklistAvailable } from './savedSources';
 import { startQueue } from './start';
 import { queueSources } from './sources';
 import type { QueueItem } from './model';
-import type { WorklistEntry } from '../../../../../packages/core/src/worklists';
+import type { WorklistEntry, WorklistOperation } from '../../../../../packages/core/src/worklists';
 import styles from './WorklistsMenu.module.scss';
 
 export function WorklistsMenu() {
@@ -188,9 +188,9 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
     close(false);
     navigate(target.to, { state: target.state });
   };
-  const update = (next: typeof lists) => {
+  const update = (id: string, op: WorklistOperation) => {
     try {
-      change(next);
+      void change(id, op);
       setError('');
     } catch (error) {
       setError(String(error));
@@ -238,11 +238,9 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
             <Rename
               name={list.name}
               disabled={!loaded.includes(list.id)}
-              onSave={(name) =>
-                update(lists.map((old) => (old.id === list.id ? { ...old, name } : old)))
-              }
+              onSave={(name) => update(list.id, { type: 'rename', name })}
             />
-            <Delete onDelete={() => update(lists.filter((old) => old.id !== list.id))} />
+            <Delete onDelete={() => update(list.id, { type: 'delete' })} />
           </div>
           {expanded[list.id] && !loaded.includes(list.id) && !error && (
             <p role="status">Loading entries…</p>
@@ -261,18 +259,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
                   <button
                     type="button"
                     aria-label={`Remove ${item.name || (data && itemFor(item.hash, data) ? editorName(itemFor(item.hash, data)!) : item.hash)}`}
-                    onClick={() =>
-                      update(
-                        lists.map((old) =>
-                          old.id === list.id
-                            ? {
-                                ...old,
-                                items: old.items.filter((entry) => entry.hash !== item.hash),
-                              }
-                            : old,
-                        ),
-                      )
-                    }
+                    onClick={() => update(list.id, { type: 'remove', hashes: [item.hash] })}
                   >
                     Remove
                   </button>
@@ -423,13 +410,7 @@ export function RemoveFromWorklist({
       await loadWorklist(id);
       const state = useSavedWorklists.getState();
       if (state.scope !== scope) throw new Error('The account changed.');
-      const saved = await state.change(
-        state.lists.map((list) =>
-          list.id === id
-            ? { ...list, items: list.items.filter((item) => item.hash !== hash) }
-            : list,
-        ),
-      );
+      const saved = await state.change(id, { type: 'remove', hashes: [hash] });
       if (saved && useSavedWorklists.getState().scope === scope) onRemoved?.();
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not remove this entry.');
