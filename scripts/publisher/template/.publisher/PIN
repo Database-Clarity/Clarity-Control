@@ -9,6 +9,7 @@
     "prismaticTags",
     "inactiveMoves",
     "arrowSymbol",
-    "numberTokens"
+    "numberTokens",
+    "aliasGroups"
   ]
 }
