@@ -56,6 +56,7 @@ export {
   activate,
   existsField,
   resolveActivation,
+  reconcileScheduledNumbers,
   type ActivationChoice,
   type ActivationInput,
   type ActivationResult,

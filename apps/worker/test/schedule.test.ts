@@ -11,6 +11,7 @@ import {
 } from '@clarity/core';
 import {
   activate,
+  compose,
   approvedDigest,
   batchIntentDigest,
   batchPublishPayloadSchema,
@@ -172,6 +173,96 @@ const schedule = (id = MAINTAINER, extra: Record<string, unknown> = {}) =>
   );
 
 describe('scheduled number-map authority', () => {
+  it.each([false, true])(
+    'keeps staged identities through multiple English edits (removed intermediate=%s)',
+    async (removed) => {
+      const base = withText(tooltip(), 'en', 'Damage 10.');
+      base.text.de = {
+        text: 'Schaden #{=1}.',
+        updatedAt: base.text.en!.updatedAt,
+        sourceUpdatedAt: base.text.en!.updatedAt,
+        updatedBy: 'dan',
+      };
+      f.moveData({
+        '.publisher/PIN': { capabilities: [...pin.capabilities, 'numberTokens'] },
+        'tooltips/123.json': base,
+        [memberPath()]: member(base, base),
+      });
+      let staged = base;
+      const stage = async (next: Tooltip, id = MAINTAINER) => {
+        const response = await call(`/batches/${ID}/save`, saveBody(next, staged), id);
+        expect(response.status, JSON.stringify(response.body)).toBe(200);
+        staged = (stored(memberPath()) as BatchMember).proposed;
+      };
+      await stage(withText(staged, 'en', 'Damage 10.\nBonus 5.'));
+      await stage(withText(staged, 'en', 'Damage 10.\nExtra 7.\nBonus 5.'));
+      expect(staged.text.en!.numbers!.ids).toEqual([1, 3, 2]);
+      await stage(withText(staged, 'de', 'Schaden #{=1}.\nExtra #{=3}.\nBonus #{=2}.'), TRANSLATOR);
+      if (removed) await stage(withText(staged, 'en', 'Damage 10.\nExtra 7.'));
+      const activated = activate({ base, current: base, proposed: staged });
+      const composed = compose({ hash: 123, base, proposed: staged, snapshot: base, pushed: true });
+      if (removed) {
+        // The head never referenced the newly retired proposal id: the common write policy
+        // may refuse it, but must never reuse it for a different live number.
+        expect(activated).toMatchObject({
+          ok: false,
+          reason: expect.stringContaining('Tooltip 123'),
+        });
+        expect(composed).toMatchObject({
+          status: 'stale',
+          reason: expect.stringContaining('Tooltip 123'),
+        });
+        const rebased = await call(`/batches/${ID}/rebase`, {
+          revision: storedBatch().revision,
+          hash: 123,
+          base,
+          next: staged,
+        });
+        expect(rebased.status).toBe(422);
+        expect(rebased.body.error).toContain('Tooltip 123');
+        expect((await schedule()).status).toBe(409);
+        expect(numberValues((stored(memberPath()) as BatchMember).proposed.text.en!).get(2)).toBe(
+          '5',
+        );
+        return;
+      }
+      expect(activated.ok).toBe(true);
+      if (!activated.ok) throw new Error(activated.reason);
+      expect(numberValues(activated.tooltip.text.en!).get(3)).toBe('7');
+      expect(numberValues(activated.tooltip.text.en!).get(2)).toBe('5');
+      expect(composed.status).not.toBe('stale');
+      if (composed.status === 'stale') throw new Error(composed.reason);
+      expect(numberValues(composed.tooltip.text.en!).get(3)).toBe('7');
+      expect(numberValues(composed.tooltip.text.en!).get(2)).toBe('5');
+      // The submitted cache is untrusted, even when the rebase keeps the staged words.
+      const next = structuredClone(staged);
+      next.text.en!.numbers = undefined;
+      const rebased = await call(`/batches/${ID}/rebase`, {
+        revision: storedBatch().revision,
+        hash: 123,
+        base,
+        next,
+      });
+      expect(rebased.status, JSON.stringify(rebased.body)).toBe(200);
+      const rebasedValue = (stored(memberPath()) as BatchMember).proposed;
+      expect(numberValues(rebasedValue.text.en!).get(3)).toBe('7');
+      expect(numberValues(rebasedValue.text.en!).get(2)).toBe('5');
+      // A moved source cannot safely reassign this proposal's ids by position.
+      f.moveData({ 'tooltips/123.json': withText(base, 'en', 'Damage 20.') });
+      const moved = stored('tooltips/123.json') as Tooltip;
+      const refused = await call(`/batches/${ID}/rebase`, {
+        revision: storedBatch().revision,
+        hash: 123,
+        base: moved,
+        next: staged,
+      });
+      expect(refused.status).toBe(422);
+      expect(refused.body.error).toContain('Tooltip 123: English number identities changed');
+      f.moveData({ 'tooltips/123.json': base });
+      expect((await schedule()).status).toBe(202);
+    },
+  );
+
   const numbered = () => {
     const value = withText(tooltip(), 'en', 'Deals 10 damage over 5 seconds.');
     value.text.de = {
@@ -202,6 +293,12 @@ describe('scheduled number-map authority', () => {
               next,
             })
           : await call(`/batches/${ID}/save`, saveBody(next, base));
+      if (operation === 'rebase') {
+        expect(response.status).toBe(422);
+        expect(response.body.error).toContain('Tooltip 123: English number identities changed');
+        expect((stored(memberPath()) as BatchMember).proposed).toEqual(base);
+        return;
+      }
       expect(response.status, JSON.stringify(response.body)).toBe(200);
       const proposed = (stored(memberPath()) as BatchMember).proposed;
       expect(numberValues(proposed.text.en!).get(1)).toBe('10');

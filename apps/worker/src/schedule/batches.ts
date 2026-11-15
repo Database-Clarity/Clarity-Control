@@ -12,6 +12,7 @@ import {
 import {
   activate,
   resolveActivation,
+  reconcileScheduledNumbers,
   batchIdSchema,
   batchMemberSchema,
   batchSchema,
@@ -626,17 +627,14 @@ export async function rebaseBatch(
     const changed = changedFields(current, input.next);
     if (!changed.length)
       throw new HttpError(422, 'Nothing left to publish; remove the tooltip from the batch');
-    const proposed = overlay(current, input.next, changed);
-    if (proposed.text.en) {
-      const english = { ...proposed.text.en };
-      const numbers =
-        current?.text.en?.text === english.text
-          ? current.text.en.numbers
-          : reconcileNumberMap(current?.text.en, english, proposed);
-      delete english.numbers;
-      if (numbers) english.numbers = numbers;
-      proposed.text.en = english;
-    }
+    const transfer = reconcileScheduledNumbers(
+      stored.base,
+      current,
+      stored.proposed,
+      overlay(current, input.next, changed),
+    );
+    if (!transfer.ok) throw new HttpError(422, transfer.reason);
+    const proposed = transfer.tooltip;
     // Activation commits the proposal's English stamps: same revision rule as a batch save.
     checkEnglishRevision(state.access, current, proposed, false);
     checkTranslationStamps(current, proposed);

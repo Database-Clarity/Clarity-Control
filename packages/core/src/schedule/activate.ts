@@ -1,5 +1,6 @@
 import { merge3 } from '../merge3.js';
-import { reconcileNumberMap } from '../numbers/map.js';
+import { readNumberMap, reconcileNumberMap } from '../numbers/map.js';
+import { stableStringify } from '../contentHash.js';
 import { validateNumberTooltip } from '../validation/numbers.js';
 import { boundTranslationSources } from './stamps.js';
 import { type Tooltip } from '../schemas.js';
@@ -31,6 +32,44 @@ export type ActivationResult =
 
 export type ActivationChoice = 'upcoming' | 'current';
 
+/** Transfer a server-owned proposal chain without reallocating the ids its translations use. */
+export function reconcileScheduledNumbers(
+  base: Tooltip | null,
+  source: Tooltip | null,
+  proposed: Tooltip,
+  tooltip: Tooltip,
+): { ok: true; tooltip: Tooltip } | { ok: false; reason: string } {
+  const english = tooltip.text.en;
+  if (!english) return { ok: true, tooltip };
+  const keepsProposal =
+    !sameFieldValue('text.en', base?.text.en, proposed.text.en) &&
+    english.text === proposed.text.en?.text &&
+    sameFieldValue('text.en', source?.text.en, base?.text.en);
+  const numbers = keepsProposal
+    ? proposed.text.en?.numbers
+    : source?.text.en?.text === english.text
+      ? source.text.en.numbers
+      : reconcileNumberMap(source?.text.en, english, tooltip);
+  const stagedTokens = Object.entries(tooltip.text).some(
+    ([lang, entry]) => lang !== 'en' && entry.text.includes('#{='),
+  );
+  if (
+    !keepsProposal &&
+    proposed.text.en &&
+    stagedTokens &&
+    stableStringify(readNumberMap({ text: english.text, numbers })) !==
+      stableStringify(readNumberMap(proposed.text.en))
+  )
+    return {
+      ok: false,
+      reason: `Tooltip ${tooltip.hash}: English number identities changed; reload and re-pick the staged numbers`,
+    };
+  const en = { ...english };
+  delete en.numbers;
+  if (numbers) en.numbers = numbers;
+  return { ok: true, tooltip: { ...tooltip, text: { ...tooltip.text, en } } };
+}
+
 /**
  * Field-level merge3 restricted to the batch-changed fields (I4): for a changed field F, base_F →
  * proposed_F is merged against current_F with merge3's exact rules (atomic, stamped, the
@@ -44,6 +83,7 @@ function mergeChanged(
   proposed: Tooltip,
   changed: readonly string[],
   choices: Readonly<Record<string, ActivationChoice>> = {},
+  identityBase: Tooltip | null = base,
 ) {
   let from = current;
   let to = current;
@@ -62,15 +102,14 @@ function mergeChanged(
   }
   const result = merge3(from, current, to);
   if (!result.ok) return result;
-  const english = result.merged.text.en;
-  if (english) {
-    const numbers =
-      current.text.en?.text === english.text
-        ? current.text.en.numbers
-        : reconcileNumberMap(current.text.en, english, result.merged);
-    delete english.numbers;
-    if (numbers) english.numbers = numbers;
-  }
+  const transfer = reconcileScheduledNumbers(identityBase, current, proposed, result.merged);
+  if (!transfer.ok)
+    return {
+      ok: false as const,
+      reason: transfer.reason,
+      conflicts: [{ field: 'text.en', base: undefined, head: undefined, next: transfer.reason }],
+    };
+  result.merged = transfer.tooltip;
   const issues = validateNumberTooltip(result.merged, current);
   if (issues.length)
     return {
@@ -149,7 +188,7 @@ export function resolveActivation({
     if (!choice) return { ok: false, missing: [existsField] };
     if (choice === 'current') return { ok: true, tooltip: null };
     const empty = { hash: proposed.hash, text: {}, associated: [] };
-    const result = mergeChanged(empty, empty, proposed, changedFields(null, proposed));
+    const result = mergeChanged(empty, empty, proposed, changedFields(null, proposed), {}, base);
     return result.ok
       ? { ok: true, tooltip: result.merged }
       : {

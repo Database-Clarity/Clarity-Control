@@ -93,7 +93,19 @@ const members = [
   // A tooltip the batch creates: no current English, so it is listed.
   member(null, tooltip(6, { en: entry('Six', t1) })),
   // Archived once published: never translatable.
-  member(null, tooltip(7, { en: entry('Seven', t1) }, { archive: { at: t1 } })),
+  member(
+    null,
+    tooltip(
+      7,
+      { en: entry('Seven', t1) },
+      {
+        archive: {
+          removedAt: t1,
+          lastSeen: { name: 'Seven', categoryId: 'perk', manifestVersion: 'test' },
+        },
+      },
+    ),
+  ),
 ];
 const data = build(Object.values(current));
 const batch: OpenBatch = {

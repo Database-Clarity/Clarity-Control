@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Tooltip } from '../schemas.js';
-import { numberValues } from '../numbers/map.js';
+import { numberValues, reconcileNumberMap } from '../numbers/map.js';
 import { usesEnglishFallback } from '../exportLegacy.js';
 import {
   activate,
@@ -106,6 +106,79 @@ describe('number-safe activation and composition', () => {
       }),
     },
   };
+  // Activation reads a stored, server-reconciled proposal; raw client forgery is tested on
+  // the Worker proposal routes, where those maps are removed before reaching core activation.
+  insertion.text.en!.numbers = reconcileNumberMap(before.text.en, insertion.text.en!, insertion);
+  it('preserves a created proposal chain, and refuses unsafe recreation onto an empty source', () => {
+    const staged: Tooltip = {
+      hash: 7,
+      associated: [],
+      text: {
+        en: entry('Duration 5.\nDamage 10.', T1, {
+          numbers: { ids: [2, 1], next: 3, retired: {} },
+        }),
+        de: entry('#{=1} Schaden, #{=2} Sekunden.', T1, { sourceUpdatedAt: T1 }),
+      },
+    };
+    const created = activate({ base: null, current: null, proposed: staged });
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw new Error(created.reason);
+    expect(numberValues(created.tooltip.text.en!).get(1)).toBe('10');
+    expect(numberValues(created.tooltip.text.en!).get(2)).toBe('5');
+    const whole = compose({ hash: 7, base: null, proposed: staged, snapshot: null, pushed: false });
+    expect(whole.status).toBe('whole');
+    if (whole.status === 'stale') throw new Error(whole.reason);
+    expect(numberValues(whole.tooltip.text.en!).get(1)).toBe('10');
+    const old: Tooltip = {
+      ...staged,
+      text: { ...staged.text, en: entry('Damage 10.\nDuration 5.') },
+    };
+    expect(
+      resolveActivation({
+        base: old,
+        current: null,
+        proposed: staged,
+        choices: { $exists: 'upcoming' },
+      }),
+    ).toMatchObject({ ok: false, reason: expect.stringContaining('Tooltip 7') });
+  });
+  it('refuses moved-source resolution instead of reassigning a staged live or retired id', () => {
+    const staged: Tooltip = {
+      ...before,
+      text: {
+        en: entry('Deals 10 damage over 5 seconds.\nHits 3.', T1, {
+          numbers: { ids: [1, 2, 4], next: 5, retired: { 3: '7' } },
+        }),
+        de: entry('Schaden #{=1}, #{=2} Sekunden, #{=3} Stapel.', T1, { sourceUpdatedAt: T1 }),
+      },
+    };
+    const moved: Tooltip = {
+      ...before,
+      text: { ...before.text, en: entry('Deals 20 damage over 5 seconds.', T2) },
+    };
+    expect(
+      resolveActivation({
+        base: before,
+        current: moved,
+        proposed: staged,
+        choices: { 'text.en': 'upcoming' },
+      }),
+    ).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('Tooltip 7: English number identities changed'),
+    });
+    const result = compose({
+      hash: 7,
+      base: before,
+      proposed: staged,
+      snapshot: before,
+      pushed: true,
+    });
+    expect(result).toMatchObject({
+      status: 'stale',
+      reason: expect.stringContaining('Number #{=3} was removed'),
+    });
+  });
   it('activation reconciles from current, never silently changing German 10 to 3', () => {
     const result = activate({ base: before, current: before, proposed: insertion });
     expect(result.ok).toBe(true);
@@ -125,7 +198,7 @@ describe('number-safe activation and composition', () => {
     if (result.status === 'stale') throw new Error(result.reason);
     expect(numberValues(result.tooltip.text.en!).get(1)).toBe('10');
   });
-  it('conflict resolution reconciles against the resolving head, not the staged map', () => {
+  it('refuses a resolving-head remap that changes staged token identities', () => {
     const head = {
       ...before,
       text: { ...before.text, en: entry('Deals 20 damage over 5 seconds.', T2) },
@@ -136,9 +209,10 @@ describe('number-safe activation and composition', () => {
       proposed: insertion,
       choices: { 'text.en': 'upcoming' },
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok || !result.tooltip) throw new Error('unexpected conflict');
-    expect(numberValues(result.tooltip.text.en!).get(1)).toBe('20');
+    expect(result).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('Tooltip 7: English number identities changed'),
+    });
   });
   it('activation and resolution refuse a new retired reference even when English is unchanged', () => {
     const head: Tooltip = {

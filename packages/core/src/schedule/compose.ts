@@ -1,5 +1,5 @@
 import { merge3 } from '../merge3.js';
-import { reconcileNumberMap } from '../numbers/map.js';
+import { reconcileScheduledNumbers } from './activate.js';
 import { validateNumberTooltip } from '../validation/numbers.js';
 import { tooltipSchema, type Tooltip } from '../schemas.js';
 import { boundTranslationSources } from './stamps.js';
@@ -79,16 +79,9 @@ export function compose(input: ComposeInput, boundSources = true): ComposeResult
   // Composition uses the published source; activation separately reconciles against current.
   // Never let a proposal's cached map renumber the snapshot's translations.
   const head = snapshot ?? base;
-  if (tooltip.text.en) {
-    const english = { ...tooltip.text.en };
-    const numbers =
-      head?.text.en?.text === english.text
-        ? head.text.en.numbers
-        : reconcileNumberMap(head?.text.en, english, tooltip);
-    delete english.numbers;
-    if (numbers) english.numbers = numbers;
-    tooltip = { ...tooltip, text: { ...tooltip.text, en: english } };
-  }
+  const transfer = reconcileScheduledNumbers(base, head, proposed, tooltip);
+  if (!transfer.ok) return { status: 'stale', reason: transfer.reason };
+  tooltip = transfer.tooltip;
   const issue = validateNumberTooltip(tooltip, head)[0];
   if (issue)
     return { status: 'stale', reason: `Tooltip ${hash} (${issue.lang}): ${issue.message}` };
