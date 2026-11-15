@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { permissionsSchema, stableStringify, tooltipSchema } from '@clarity/core';
 import { RefRace, type GitHub } from './github.js';
 import { body, hashParam, HttpError, json } from './http.js';
-import { permissions, requireAccess } from './permissions.js';
+import { requireAccess } from './permissions.js';
 import type { Identity } from './types.js';
 import { historySchema, pushedVersion } from './history.js';
 
@@ -66,8 +66,9 @@ export async function history(
   const hash = hashParam(rawHash);
   const url = new URL(request.url);
   const commit = url.searchParams.get('commit');
-  const head = await github.head();
-  requireAccess(await permissions(github, head), user, [
+  // One fresh upstream read ties this request's access check to the exact head being read.
+  const { head, permissions: access } = await github.exportsRead(null, false);
+  requireAccess(permissionsSchema.parse(access.value), user, [
     'maintainer',
     'editor',
     'trial',
@@ -85,12 +86,16 @@ export async function history(
   const page = Number(url.searchParams.get('page') ?? '1');
   if (!Number.isInteger(page) || page < 1 || page > 10000) throw new HttpError(400, 'Invalid page');
   const query = new URLSearchParams({
-    sha: github.env.DATA_BRANCH,
+    sha: head,
     path: `tooltips/${hash}.json`,
     per_page: '30',
     page: String(page),
   });
-  const commits = historySchema.parse(await github.result(`/commits?${query}`));
+  const commits = historySchema.parse(
+    await github.immutable(JSON.stringify(['commits', head, hash, page]), () =>
+      github.result(`/commits?${query}`),
+    ),
+  );
   return json({
     page,
     commits: commits.map((entry) => ({

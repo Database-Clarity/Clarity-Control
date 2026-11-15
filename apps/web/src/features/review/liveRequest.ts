@@ -1,7 +1,23 @@
 import { getPushedVersion } from '../../services/history';
 import { useAuthStore } from '../../stores/auth';
 
-function request(hash: number) {
+interface LiveRequest {
+  hash: number;
+  user: ReturnType<typeof useAuthStore.getState>['user'];
+  controller: AbortController;
+  pending: ReturnType<typeof getPushedVersion>;
+  value: Awaited<ReturnType<typeof getPushedVersion>> | undefined;
+}
+let active: LiveRequest | undefined;
+
+function request(hash: number): LiveRequest {
+  if (
+    active?.hash === hash &&
+    active.user === useAuthStore.getState().user &&
+    !active.controller.signal.aborted
+  )
+    return active;
+  active?.controller.abort();
   const controller = new AbortController();
   const pending = getPushedVersion(hash, controller.signal);
   const result = {
@@ -11,12 +27,16 @@ function request(hash: number) {
     pending,
     value: undefined as Awaited<typeof pending> | undefined,
   };
+  active = result;
   // Navigation may be abandoned before a detail component consumes the request.
   void pending.then(
     (value) => {
       result.value = value;
+      if (active === result) active = undefined;
     },
-    () => {},
+    () => {
+      if (active === result) active = undefined;
+    },
   );
   return result;
 }
@@ -34,8 +54,9 @@ export function preparedReviewLiveValue(hash: number) {
 
 /** Called only by the opened route's loader, never by background code preloading. */
 export function startReviewLiveRequest(hash: number, signal: AbortSignal) {
-  staged?.controller.abort();
-  staged = request(hash);
+  const next = request(hash);
+  if (staged !== next) staged?.controller.abort();
+  staged = next;
   const controller = staged.controller;
   if (signal.aborted) controller.abort();
   else signal.addEventListener('abort', () => controller.abort(), { once: true });

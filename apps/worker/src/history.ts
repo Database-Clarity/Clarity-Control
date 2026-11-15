@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { legacyPublishableHash, publishableHash, pushedSchema, tooltipSchema } from '@clarity/core';
+import {
+  legacyPublishableHash,
+  publishableHash,
+  pushedSchema,
+  tooltipSchema,
+  type Tooltip,
+} from '@clarity/core';
 import type { GitHub } from './github.js';
 import { catalog } from './catalog.js';
 import { HttpError, json } from './http.js';
@@ -16,15 +22,30 @@ export const historySchema = z.array(
 );
 
 export async function pushedVersion(github: GitHub, hash: number, head: string): Promise<Response> {
+  return json(
+    await github.immutable(JSON.stringify(['pushed', head, hash]), () =>
+      readPushedVersion(github, hash, head),
+    ),
+  );
+}
+
+async function readPushedVersion(
+  github: GitHub,
+  hash: number,
+  head: string,
+): Promise<{
+  pushedHash: string | null;
+  tooltip: Tooltip | null;
+}> {
   const pushed = pushedSchema.parse((await github.requiredFile('live/pushed.json', head)).value);
   const digest = pushed[hash];
-  if (!digest) return json({ pushedHash: null, tooltip: null });
+  if (!digest) return { pushedHash: null, tooltip: null };
   const snapshot = await github.file(`live/tooltips/${hash}.json`, head);
   if (snapshot) {
     const tooltip = tooltipSchema.parse(snapshot.value);
     // The snapshot is committed together with its marker. The marker also covers the aliases at
     // push time, which cannot be recomputed after they change, so only the hash is checked.
-    if (tooltip.hash === hash) return json({ pushedHash: digest, tooltip });
+    if (tooltip.hash === hash) return { pushedHash: digest, tooltip };
     throw new HttpError(502, 'Pushed tooltip snapshot does not match its marker');
   }
   // Older markers predate snapshots. Match content, not the marker commit's newer working text.
@@ -52,7 +73,7 @@ export async function pushedVersion(github: GitHub, hash: number, head: string):
         (await publishableHash(tooltip)) === digest ||
         (await legacyPublishableHash(tooltip)) === digest
       ) {
-        return json({ pushedHash: digest, tooltip });
+        return { pushedHash: digest, tooltip };
       }
     }
     if (commits.length < 30) break;
