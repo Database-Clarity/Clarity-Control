@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { SandboxConflicts, SandboxPick, SandboxPointers } from '@clarity/core';
+import {
+  composeAliases,
+  type SandboxConflicts,
+  type SandboxPick,
+  type SandboxPointers,
+} from '@clarity/core';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { VirtualList } from '../../ui/VirtualList';
 import { compactQuery, phoneQuery, useMedia } from '../../ui/useMedia';
@@ -102,19 +107,33 @@ export function SandboxPerksPage() {
   }, [permitted, user?.id, reload]);
 
   const generatorAliases = data ? (data.generatorAliases ?? data.aliases) : undefined;
+  // Picks are being edited here: only accepted groups augment the generator's text lookup.
+  const textAliases = useMemo(
+    () =>
+      data && generatorAliases
+        ? composeAliases(
+            generatorAliases,
+            data.bundle.aliasGroups,
+            data.items,
+            data.sandboxConflicts,
+          ).aliases
+        : undefined,
+    [data, generatorAliases],
+  );
   const rows = useMemo(
     () =>
       data && conflicts && saved && perkText && generatorAliases
         ? buildRows({
             conflicts,
             aliases: generatorAliases,
+            textAliases,
             tooltips: data.bundle.tooltips,
             items: data.items,
             perkText,
             saved: saved.pointers,
           })
         : null,
-    [data, conflicts, saved, perkText, generatorAliases],
+    [data, conflicts, saved, perkText, generatorAliases, textAliases],
   );
   const counts = useMemo(() => {
     const result = Object.fromEntries(statusOrder.map((value) => [value, 0])) as Record<
@@ -197,7 +216,7 @@ export function SandboxPerksPage() {
   }
 
   async function applyAllShown() {
-    if (!data || !generatorAliases) return;
+    if (!data || !textAliases) return;
     const candidates = bulkTargets;
     setBusy(true);
     setBulk(null);
@@ -205,7 +224,7 @@ export function SandboxPerksPage() {
     try {
       const result = await bulkCheck(
         candidates,
-        { tooltips: data.bundle.tooltips, aliases: generatorAliases },
+        { tooltips: data.bundle.tooltips, aliases: textAliases },
         (done) => setProgress({ done, total: candidates.length }),
       );
       const byHash = new Map(candidates.map((row) => [row.hash, row]));
@@ -228,7 +247,7 @@ export function SandboxPerksPage() {
     return row.hash === expanded ? base + 0.5 + (row.candidates.length + 1) * choice : base;
   };
   const compileContext =
-    data && generatorAliases ? { tooltips: data.bundle.tooltips, aliases: generatorAliases } : null;
+    data && textAliases ? { tooltips: data.bundle.tooltips, aliases: textAliases } : null;
   const preview = (hash: number) => (compileContext ? previewLine(hash, compileContext) : '');
 
   return (
