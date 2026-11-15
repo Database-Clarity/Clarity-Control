@@ -422,3 +422,130 @@ it('cloned live documents keep independent durable operations, recoverable after
     reopened.stop();
   }
 });
+
+it.each(['add', 'delete'])(
+  'authoritative Rebuild keeps its newer %s response when an older incoming GET lands first (F12)',
+  async (kind) => {
+    await loadWorklist(id);
+    let oldRead!: (r: Response) => void;
+    let freshRead!: (r: Response) => void;
+    let receivingIndex!: (r: Response) => void;
+    api.mockImplementationOnce(
+      () =>
+        new Promise<Response>((done) => {
+          oldRead = done;
+        }),
+    );
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'clarity-worklists:v3:1:invalidate',
+        newValue: JSON.stringify({ id }),
+      }),
+    );
+    await settle();
+    api.mockImplementationOnce(
+      () =>
+        new Promise<Response>((done) => {
+          freshRead = done;
+        }),
+    );
+    const data: EditorData = {
+      items: Object.fromEntries(
+        [1, 2].map((hash) => [
+          hash,
+          { hash, name: String(hash), icon: '', categoryId: 'perks', inGameDescription: '' },
+        ]),
+      ),
+      aliases: {},
+      categories: [],
+      bundle: {
+        tooltips: {},
+        sourceCommit: 'fixture',
+        generatedAt: '',
+        permissions: { users: {} },
+        pushed: {},
+      },
+    };
+    const queue = { origin: { restore: { worklistId: id } }, items: [] } as unknown as WorkQueue;
+    const rebuilding = queueSources.custom.rebuild(queue, { data, user: null, decisions: {} }, {});
+    await settle();
+    api.mockImplementationOnce(
+      () =>
+        new Promise<Response>((done) => {
+          receivingIndex = done;
+        }),
+    );
+    oldRead(reply());
+    await settle();
+    row = kind === 'add' ? { name: 'A', hashes: [1, 2] } : null;
+    revision++;
+    freshRead(reply());
+    try {
+      if (kind === 'delete') await expect(rebuilding).rejects.toThrow('deleted');
+      else expect((await rebuilding).map((item) => item.hash)).toEqual([1, 2]);
+    } finally {
+      receivingIndex(
+        Response.json({
+          lists: row
+            ? [{ id, name: row.name, count: row.hashes.length, revision: rev(), updatedAt: 1 }]
+            : [],
+        }),
+      );
+      await settle();
+    }
+  },
+);
+it('a GET sent before an acknowledged mutation cannot restore its older row', async () => {
+  await loadWorklist(id);
+  let oldRead!: (r: Response) => void;
+  api.mockImplementationOnce(
+    () =>
+      new Promise<Response>((done) => {
+        oldRead = done;
+      }),
+  );
+  const reading = loadWorklist(id, true);
+  useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  await syncWorklists();
+  oldRead(
+    Response.json({ worklist: { id, name: 'A', hashes: [1] }, revision: '1'.padStart(32, '0') }),
+  );
+  expect((await reading).items.map((item) => item.hash)).toEqual([1, 2]);
+  expect(useSavedWorklists.getState().pending).toBe(false);
+});
+it('refreshes an acknowledged mutation if a later-sent GET applied before its response', async () => {
+  await loadWorklist(id);
+  useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  let mutation!: (r: Response) => void;
+  api.mockImplementationOnce(
+    () =>
+      new Promise<Response>((done) => {
+        mutation = done;
+      }),
+  );
+  const writing = syncWorklists();
+  await settle();
+  await loadWorklist(id, true);
+  row = { name: 'A', hashes: [1, 2] };
+  revision++;
+  mutation(reply());
+  await writing;
+  expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1, 2]);
+  expect(useSavedWorklists.getState().pending).toBe(false);
+});
+it('rejects an authoritative response received after an account change', async () => {
+  await loadWorklist(id);
+  let release!: (r: Response) => void;
+  api.mockImplementationOnce(
+    () =>
+      new Promise<Response>((done) => {
+        release = done;
+      }),
+  );
+  const reading = loadWorklist(id, true);
+  const rejected = expect(reading).rejects.toThrow('account changed');
+  useAuthStore.setState({ user: { id: 2, login: 'two', role: 'editor' } as never });
+  release(reply());
+  await rejected;
+  expect(useSavedWorklists.getState().scope).toBe('2');
+});

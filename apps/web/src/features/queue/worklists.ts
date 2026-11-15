@@ -43,7 +43,13 @@ let refreshAfterFlight = false;
 let sendAfterFlight = false;
 const signals = new Set<string>();
 let ready = false;
-const versions = new Map<string, number>();
+const rowSequences = new Map<string, { sent: number; applied: number }>();
+// GETs and mutations share send order so an older GET cannot undo an acknowledged write.
+function sentSequence(id: string) {
+  const order = rowSequences.get(id) ?? { sent: 0, applied: 0 };
+  rowSequences.set(id, order);
+  return ++order.sent;
+}
 let timer: ReturnType<typeof setTimeout> | undefined;
 // A fresh document owns a fresh queue; opener/duplicated session storage is not identity.
 const tab = crypto.randomUUID();
@@ -206,9 +212,11 @@ export const useSavedWorklists = create<State>(() => ({
   },
 }));
 const entryPath = (id: string) => `/worklists/${encodeURIComponent(id)}`;
-function accept(id: string, reply: z.infer<typeof replySchema>) {
+function accept(id: string, reply: z.infer<typeof replySchema>, sequence: number) {
+  const order = rowSequences.get(id)!;
+  if (sequence <= order.applied) return false;
+  order.applied = sequence;
   const state = useSavedWorklists.getState();
-  versions.set(id, (versions.get(id) ?? 0) + 1);
   const base = state.base.filter((row) => row.id !== id);
   const index = { ...state.index };
   if (reply.worklist && reply.revision) {
@@ -227,14 +235,15 @@ function accept(id: string, reply: z.infer<typeof replySchema>) {
   } else delete index[id];
   useSavedWorklists.setState({ base, index, loaded: [...new Set([...state.loaded, id])] });
   render();
+  return true;
 }
 async function readRow(id: string, started: number) {
-  const version = versions.get(id);
+  const sequence = sentSequence(id);
   const response = await apiRequest(entryPath(id));
   if (!response.ok) throw new Error('Could not load this worklist. Retry when connected.');
   const reply = replySchema.parse(await response.json());
   if (started !== epoch || !accountReady()) throw new Error('The account changed.');
-  if (version === versions.get(id)) accept(id, reply);
+  accept(id, reply, sequence);
   return reply;
 }
 export async function loadWorklist(id: string, authoritative = false): Promise<SavedWorklist> {
@@ -313,6 +322,7 @@ export async function syncWorklists(refresh = false) {
             'This worklist was deleted on another device. Pending work is kept; copy it to a new list or discard it.',
           );
         }
+        const sequence = sentSequence(pending.id);
         const response = await apiRequest(entryPath(pending.id), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -348,7 +358,7 @@ export async function syncWorklists(refresh = false) {
             'This worklist was deleted. Pending work is kept; copy it to a new list or discard it.',
           );
         }
-        accept(pending.id, reply);
+        if (!accept(pending.id, reply, sequence)) await readRow(pending.id, started);
         const ops = useSavedWorklists.getState().ops.slice(1);
         useSavedWorklists.setState({
           ops,
