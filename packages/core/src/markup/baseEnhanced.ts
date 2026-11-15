@@ -29,7 +29,9 @@ export function scanBaseEnhanced(
     let pos = from + 2;
     /** The length of a delimited variable `#{name}` at `at` (its `#` is at `at - 1`), or 0. */
     const braced = (at: number) =>
-      text[at - 1] === '#' ? (/^\{[a-zA-Z0-9]+\}/.exec(text.slice(at, at + 64))?.[0].length ?? 0) : 0;
+      text[at - 1] === '#'
+        ? (/^\{(?:[a-zA-Z0-9]+|=[1-9]\d*)\}/.exec(text.slice(at))?.[0].length ?? 0)
+        : 0;
     const arm = (): string | null => {
       const begin = pos;
       while (pos < text.length && text[pos] !== '}' && !/[\r\n]/.test(text[pos])) {
