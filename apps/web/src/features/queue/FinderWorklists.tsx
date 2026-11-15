@@ -23,12 +23,18 @@ import { queueSources } from './sources';
 import styles from './FinderWorklists.module.scss';
 
 interface Selection {
+  active: boolean;
   selecting: boolean;
   selected: WorklistEntry[];
   choosing: WorklistEntry[] | null;
 }
 export type FinderWorklistController = StoreApi<Selection>;
-const initial = (): Selection => ({ selecting: false, selected: [], choosing: null });
+const initial = (): Selection => ({
+  active: false,
+  selecting: false,
+  selected: [],
+  choosing: null,
+});
 interface WorklistsContext {
   controller: FinderWorklistController;
   selection: Selection;
@@ -44,6 +50,7 @@ export function useFinderWorklists(open: boolean): FinderWorklistController {
 }
 function toggle(controller: FinderWorklistController, item: WorklistEntry) {
   controller.setState((state) => ({
+    active: true,
     selecting: true,
     selected: state.selected.some((old) => old.hash === item.hash)
       ? state.selected.filter((old) => old.hash !== item.hash)
@@ -76,7 +83,7 @@ export function finderWorklistKey(
     if (!items.length) return false;
     event.preventDefault();
     event.stopPropagation();
-    controller.setState({ choosing: items });
+    controller.setState({ active: true, choosing: items });
     return true;
   }
   return false;
@@ -100,7 +107,15 @@ export function FinderWorklistScope({
   return (
     <Context.Provider value={value}>
       <div {...props}>
-        <FinderWorklistBar data={data} />
+        {selection.active ? (
+          <FinderWorklistBar data={data} />
+        ) : (
+          <div className={styles.bar}>
+            <button type="button" onClick={() => controller.setState({ active: true })}>
+              Worklists
+            </button>
+          </div>
+        )}
         {children}
       </div>
     </Context.Provider>
@@ -120,7 +135,7 @@ export function FinderWorklistRow({
   const { controller, selection, user } = useContext(Context)!;
   const { selecting, choosing } = selection;
   const selected = selecting && selection.selected.some((item) => item.hash === hash);
-  if (global || !user) return children;
+  if (global || !user || !selection.active) return children;
   return (
     <span
       className={styles.row}
@@ -183,7 +198,11 @@ function FinderWorklistBar({ data }: { data: EditorData }) {
             <button
               type="button"
               aria-pressed={selecting}
-              onClick={() => controller.setState(selecting ? initial() : { selecting: true })}
+              onClick={() =>
+                controller.setState(
+                  selecting ? { ...initial(), active: true } : { selecting: true },
+                )
+              }
             >
               Select entries
             </button>

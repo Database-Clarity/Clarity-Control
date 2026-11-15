@@ -135,6 +135,7 @@ it('selects finder rows by keyboard and saves the frozen selection with inline n
 });
 it('adds one entry from its row action, and Cancel keeps the finder open', async () => {
   await act(async () => field().click());
+  await act(async () => button('Worklists').click());
   const add = host.querySelector<HTMLButtonElement>(
     'button[aria-label="Add Entry 12 to worklist"]',
   )!;
@@ -147,6 +148,7 @@ it('adds one entry from its row action, and Cancel keeps the finder open', async
 });
 it('opens built-in Drafts from the finder using the shared queue', async () => {
   await act(async () => field().click());
+  await act(async () => button('Worklists').click());
   await act(async () => button('Drafts worklist').click());
   const store = useWorkQueues.getState();
   expect(store.queues[store.active!]!.source).toBe('drafts');
@@ -170,6 +172,7 @@ it('keeps the original run and finder when preview review refuses Drafts opening
     prompt: null,
   });
   await act(async () => field().click());
+  await act(async () => button('Worklists').click());
   for (let attempt = 0; attempt < 6; attempt++) {
     await act(async () => button('Drafts worklist').click());
   }
@@ -190,4 +193,18 @@ it('keeps the multi-selection when cancelling a target, and freezes it while cho
   expect(button('Add 2 to worklist')).toBeDefined();
   expect(host.querySelectorAll('button[aria-checked="true"]')).toHaveLength(2);
   expect(useSavedWorklists.getState().lists).toEqual([]);
+});
+
+it('keeps worklist row and Drafts controls unmounted until the worklist UI is used', async () => {
+  await act(async () => field().click());
+  expect(host.querySelector('[aria-label="Finder worklists"]')).toBeNull();
+  expect(host.querySelector('button[aria-label="Add Entry 12 to worklist"]')).toBeNull();
+  await act(async () => button('Worklists').click());
+  expect(host.querySelector('[aria-label="Finder worklists"]')).not.toBeNull();
+  expect(host.querySelector('button[aria-label="Add Entry 12 to worklist"]')).not.toBeNull();
+  await press('Escape');
+  await act(async () => field().click());
+  expect(host.querySelector('[aria-label="Finder worklists"]')).toBeNull();
+  await press(' ', true);
+  expect(host.querySelector('button[aria-checked="true"]')).not.toBeNull();
 });
