@@ -1,0 +1,17 @@
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import { TooltipNavigation } from '../src/features/navigation/TooltipNavigation';
+import { FinderSheetContext } from '../src/features/navigation/FinderSheetContext';
+import { useCompendiumStore } from '../src/features/compendium/store';
+import { useDraftStore } from '../src/stores/drafts';
+import { upcomingStore } from '../src/features/tooltip/UpcomingSwitch.store';
+import type { EditorData } from '../src/stores/data';
+import '../src/ui/global.scss';
+const base = { hash: 10, text: { en: { text: '', updatedAt: '2026-11-15T00:00:00Z', updatedBy: 'test' } }, associated: [], compendium: { gid: '1', rowKey: 'Test', snapshot: { plain: 'old', runs: [{ text: 'old' }] }, snapshotAt: '2026-11-14T00:00:00Z' } };
+const items = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [10 + i, { hash: 10 + i, name: i === 0 ? 'Four marker entry' : `Entry ${i}`, categoryId: 'weapon-perk', icon: '', inGameDescription: 'Effect' }]));
+const data = { categories: [{ id: 'weapon-perk', label: 'Weapon Perks', group: 'Weapons', order: 1 }], items, aliases: {}, bundle: { tooltips: { 10: base }, sourceCommit: 'fixture', generatedAt: '2026-11-15T00:00:00Z', permissions: { users: {} }, pushed: {} } } as unknown as EditorData;
+useCompendiumStore.setState({ data: { fetchedAt: '', tabs: [{ gid: '1', name: 'Weapon Perks', rows: [{ name: 'Test', nameNorm: 'test', rowIndex: 1, cell: { plain: 'changed', runs: [{ text: 'changed' }] } }] }] } });
+useDraftStore.setState({ hydrated: true, drafts: { 10: { base, next: { ...base, associated: [11] } } } });
+upcomingStore().setState({ memberOf: { 10: { id: 'batch', name: 'Batch', status: 'scheduled', notBefore: null, revision: 1, hashes: [10] } } });
+const phone = matchMedia('(max-width: 767px)').matches;
+createRoot(document.getElementById('root')!).render(<MemoryRouter initialEntries={['/t/10']}><div style={{ margin: '100px 16px', maxWidth: phone ? 358 : 900 }}><FinderSheetContext.Provider value={phone}><TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} /></FinderSheetContext.Provider></div></MemoryRouter>);

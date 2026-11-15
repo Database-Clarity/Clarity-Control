@@ -79,6 +79,10 @@ import { useScaleFactor } from '../../ui/usePaneDivider';
 import styles from './TooltipFinder.module.scss';
 import { FinderPicker, type PickerSection } from './FinderPicker';
 import { FinderIcon } from './FinderIcon';
+import { FinderMarkers } from './FinderMarkers';
+import { prepareFinderMarkers, rollupFinderMarkers, type MarkerIndex } from './finderMarkerState';
+import { defaultLanguage } from '../tooltip/language';
+import { useAuthStore } from '../../stores/auth';
 import { exoticArmourRowIcon, groupIcon } from './groupIcons';
 import {
   clearStepStates,
@@ -132,7 +136,7 @@ interface Row {
 }
 
 const noItems: never[] = [];
-const noDrafts: ReturnType<typeof useDraftStore.getState>['drafts'] = {};
+const noMarkers: MarkerIndex = new Map();
 // Small lists remain eager; longer lists keep a symmetric, fully laid-out
 // window. Its contents never rely on deferred content-visibility painting.
 const retainedRowLimit = 96;
@@ -176,7 +180,7 @@ const FinderOption = memo(function FinderOption({
   current,
   active,
   data,
-  drafts,
+  markerIndex,
   source,
   allCategories,
   onActive,
@@ -193,7 +197,7 @@ const FinderOption = memo(function FinderOption({
   current: boolean;
   active: boolean;
   data: EditorData;
-  drafts: ReturnType<typeof useDraftStore.getState>['drafts'];
+  markerIndex: MarkerIndex;
   source: ReturnType<typeof useCompendiumStore.getState>['data'];
   allCategories: boolean;
   onActive(index: number): void;
@@ -208,7 +212,7 @@ const FinderOption = memo(function FinderOption({
 }) {
   const globalContents = useGlobalHover(row.global, data);
   const item = itemFor(row.hash, data);
-  const isDirty = variantHashes(row.hash, data).some((variant) => drafts[variant]);
+  const markerHashes = useMemo(() => variantHashes(row.hash, data), [row.hash, data]);
   const shared = sharedPerkLabel(row.hash, data, source);
   const frames = frameGroupSize(row.hash, data);
   const enhanced = enhancedPairs(row.hash, data).length > 0;
@@ -241,14 +245,9 @@ const FinderOption = memo(function FinderOption({
       onMouseMove={() => !active && onActive(index)}
       onClick={() => onCommit.current(row)}
     >
-      <span className={styles.mark} aria-hidden="true">
-        {isDirty ? '*' : ''}
-      </span>
+      <span className={styles.mark} aria-hidden="true"></span>
       <FinderIcon icon={row.icon ?? item?.icon} />
-      <span className={styles.name}>
-        {isDirty && <span className="sr-only">Unsaved draft: </span>}
-        {stacked ? row.entry : row.name}
-      </span>
+      <span className={styles.name}>{stacked ? row.entry : row.name}</span>
       {row.global ? (
         allCategories && <small>{row.category}</small>
       ) : (
@@ -269,6 +268,11 @@ const FinderOption = memo(function FinderOption({
             {item && allCategories && ` · ${row.category}`}
           </span>
         </small>
+      )}
+      {!row.global && (
+        <span className={styles.markers}>
+          <FinderMarkers hashes={markerHashes} flags={markerIndex.get(row.hash)} />
+        </span>
       )}
     </li>
   );
@@ -475,11 +479,33 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     () => (query.trim() ? navigationGroups(data, query, globalDefinitions) : groups),
     [data, groups, query, globalDefinitions],
   );
-  const drafts = useDraftStore((state) => (open ? state.drafts : noDrafts));
   const navigate = useNavigate();
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const location = useLocation();
+  const user = useAuthStore((state) => state.user);
+  const language = defaultLanguage(user, new URLSearchParams(location.search), undefined);
+  const [preparedMarkers, setPreparedMarkers] = useState<{
+    data: EditorData;
+    source: typeof compendiumSource;
+    language: typeof language;
+    index: MarkerIndex;
+  }>();
+  useEffect(() => {
+    let cancelled = false;
+    void prepareFinderMarkers(data, compendiumSource, language).then((index) => {
+      if (!cancelled) setPreparedMarkers({ data, source: compendiumSource, language, index });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [data, compendiumSource, language]);
+  const markerIndex =
+    preparedMarkers?.data === data &&
+    preparedMarkers.source === compendiumSource &&
+    preparedMarkers.language === language
+      ? preparedMarkers.index
+      : noMarkers;
   const urgentTarget = useSteppingActivity((state) => state.target);
   const hash = Number(pathname(urgentTarget ?? location.pathname).split('/')[2]);
   const routeSearch = urgentTarget ? (urgentTarget.split('?')[1] ?? '') : location.search;
@@ -1155,7 +1181,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           pointerHighlight={pointerHighlight}
           revealedActive={revealedActive}
           data={data}
-          drafts={drafts}
+          markerIndex={markerIndex}
           source={compendiumSource}
           allCategories={allCategories}
           onActive={hoverActive}
@@ -1232,9 +1258,19 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     () =>
       groups.map((group) => ({
         label: group.name,
-        options: group.sections.map((category) => ({ id: category.id, label: category.label })),
+        options: group.sections.map((category) => {
+          const markerHashes = category.items
+            .filter((item) => !item.global)
+            .flatMap((item) => variantHashes(item.hash, data));
+          return {
+            id: category.id,
+            label: category.label,
+            markerHashes,
+            markerFlags: rollupFinderMarkers(markerHashes, markerIndex),
+          };
+        }),
       })),
-    [groups],
+    [groups, data, markerIndex],
   );
   const categoryNode = (
     <FinderPicker
@@ -1260,17 +1296,30 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         ? [
             {
               options: [
-                { id: 'all', label: grouped.allLabel },
+                {
+                  id: 'all',
+                  label: grouped.allLabel,
+                  markerHashes: grouped.all.flatMap((entry) => variantHashes(entry.hash, data)),
+                  markerFlags: rollupFinderMarkers(
+                    grouped.all.map((entry) => entry.hash),
+                    markerIndex,
+                  ),
+                },
                 ...grouped.groups.map((group) => ({
                   id: group.id,
                   label: group.label,
                   icon: groupIcon(grouped, group.id),
+                  markerHashes: group.entries.flatMap((entry) => variantHashes(entry.hash, data)),
+                  markerFlags: rollupFinderMarkers(
+                    group.entries.map((entry) => entry.hash),
+                    markerIndex,
+                  ),
                 })),
               ],
             },
           ]
         : [],
-    [grouped],
+    [grouped, data, markerIndex],
   );
   const groupValue = grouped && !place.all && grouped.byId.has(place.group) ? place.group : 'all';
   const groupNode = grouped && (
@@ -1442,7 +1491,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
               ` ${groupKeys}+Scroll and Page Up/Down step ${grouped.groupLabel.toLowerCase()}s, stopping at the ends.`}
           </>
         )}{' '}
-        * = unsaved draft.
+        A square marks unsaved changes.
       </small>
     </FinderFrame>
   );

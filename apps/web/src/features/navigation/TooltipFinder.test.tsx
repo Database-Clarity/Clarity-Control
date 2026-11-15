@@ -574,8 +574,7 @@ describe('tooltip finder combobox', () => {
     await mount();
     await open();
     const gamma = options().find((o) => o.textContent?.includes('Gamma helm'))!;
-    expect(gamma.textContent).toContain('*');
-    expect(gamma.textContent).toContain('Unsaved draft');
+    expect(gamma.querySelector('[aria-label="Unsaved changes"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="Unsaved draft"]')).toBeNull();
     await press('Escape');
     useDraftStore.setState({ drafts: { 10: { base, next: base } } });
