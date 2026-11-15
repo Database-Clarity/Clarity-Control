@@ -32,6 +32,7 @@ interface State extends Copy {
   scope: string;
   pending: boolean;
   notice: string;
+  storageFailed: boolean;
   change(lists: SavedWorklist[]): void;
   add(id: string | null, name: string, items: WorklistEntry[]): void;
 }
@@ -55,11 +56,23 @@ function persist() {
   if (scope === 'anonymous') return;
   try {
     localStorage.setItem(key(scope), JSON.stringify({ lists, dirty, removed, loaded, index }));
+    if (useSavedWorklists.getState().storageFailed)
+      useSavedWorklists.setState({ storageFailed: false });
   } catch {
     useSavedWorklists.setState({
+      storageFailed: true,
       notice: 'Browser storage is unavailable. Keep this tab open until account sync succeeds.',
     });
   }
+}
+function syncNotice(message: string) {
+  const state = useSavedWorklists.getState();
+  useSavedWorklists.setState({
+    notice:
+      state.pending && state.storageFailed
+        ? `Keep this tab open: browser storage could not keep your changes. ${message}`
+        : message,
+  });
 }
 function schedule() {
   clearTimeout(timer);
@@ -77,6 +90,7 @@ export const useSavedWorklists = create<State>((set, get) => ({
   scope: 'anonymous',
   ...empty(),
   pending: false,
+  storageFailed: false,
   notice: '',
   change(lists) {
     const current = get();
@@ -266,10 +280,9 @@ export async function syncWorklists() {
         dirty: [...new Set([...current.dirty, ...(recovered || list ? [id] : [])])],
         loaded: [...new Set([...current.loaded, ...(recovered ? [id] : [])])],
       });
-      useSavedWorklists.setState({
-        notice:
-          'Merged changes from another device. Concurrent removals may reappear; all entries were kept.',
-      });
+      syncNotice(
+        'Merged changes from another device. Concurrent removals may reappear; all entries were kept.',
+      );
     } else if (removedId) {
       delete index[id];
       changed({ index, removed });
@@ -298,9 +311,9 @@ export async function syncWorklists() {
       useSavedWorklists.setState({ notice: 'Saved to your account.' });
   } catch (error) {
     if (started === epoch)
-      useSavedWorklists.setState({
-        notice: `${error instanceof Error ? error.message : 'Sync failed.'} Your local copy is kept. Retry when connected.`,
-      });
+      syncNotice(
+        `${error instanceof Error ? error.message : 'Sync failed.'} Retry when connected.`,
+      );
   } finally {
     flight = false;
     if (started !== epoch) schedule();
@@ -380,10 +393,9 @@ export function connectWorklists(): () => void {
         removed: { ...copy.data.removed, ...current.removed },
         index: { ...copy.data.index, ...current.index },
       });
-      useSavedWorklists.setState({
-        notice:
-          'Merged another tab’s changes. Concurrent removals may reappear; all entries were kept.',
-      });
+      syncNotice(
+        'Merged another tab’s changes. Concurrent removals may reappear; all entries were kept.',
+      );
     }
     ready = false;
     schedule();

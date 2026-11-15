@@ -3,17 +3,20 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { WorklistsManager } from './WorklistsMenu';
+import { WorklistPicker, WorklistsManager } from './WorklistsMenu';
 import { useSavedWorklists } from './worklists';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { setEditorDraftFetch } from '../../services/editorDrafts';
 import type { User } from '../../services/api';
+const api = vi.hoisted(() => vi.fn());
+vi.mock('../../services/apiAuth', () => ({ apiRequest: api }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let root: Root;
 let host: HTMLDivElement;
 beforeEach(async () => {
   vi.useFakeTimers();
+  api.mockReset();
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
@@ -90,4 +93,40 @@ it('cancels a new name and exposes empty-list opening as disabled', () => {
   expect(useSavedWorklists.getState().lists).toHaveLength(0);
   act(() => useSavedWorklists.getState().add(null, 'Empty', []));
   expect(button('Open').disabled).toBe(true);
+});
+
+it('does not add entries when the picker is cancelled during a lazy list read', async () => {
+  const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+  act(() =>
+    useSavedWorklists.setState({
+      lists: [{ id, name: 'Existing', items: [] }],
+      loaded: [],
+      index: { [id]: { id, name: 'Existing', count: 1, updatedAt: 1, revision: 'a'.repeat(32) } },
+    }),
+  );
+  let resolve!: (response: Response) => void;
+  api.mockImplementationOnce(
+    () =>
+      new Promise<Response>((done) => {
+        resolve = done;
+      }),
+  );
+  const close = vi.fn();
+  await act(async () =>
+    root.render(<WorklistPicker items={[{ hash: 2, name: 'New entry' }]} close={close} />),
+  );
+  await act(async () =>
+    [...host.querySelectorAll('button')]
+      .find((button) => button.textContent?.startsWith('Existing'))!
+      .click(),
+  );
+  await act(async () => root.render(null));
+  await act(async () =>
+    resolve(
+      Response.json({ worklist: { id, name: 'Existing', hashes: [1] }, revision: 'a'.repeat(32) }),
+    ),
+  );
+  expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1]);
+  expect(useSavedWorklists.getState().dirty).toEqual([]);
+  expect(close).not.toHaveBeenCalled();
 });

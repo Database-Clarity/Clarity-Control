@@ -1,5 +1,5 @@
 import { editorName, itemFor } from '../navigation/catalog';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Popover } from '../../ui/Popover';
 import { useDataStore } from '../../stores/data';
@@ -40,7 +40,7 @@ export function AddToWorklist({
     </Popover>
   );
 }
-function WorklistPicker({ items, close }: { items: WorklistEntry[]; close(): void }) {
+export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close(): void }) {
   const lists = useSavedWorklists((state) => state.lists);
   const index = useSavedWorklists((state) => state.index);
   const loaded = useSavedWorklists((state) => state.loaded);
@@ -48,13 +48,23 @@ function WorklistPicker({ items, close }: { items: WorklistEntry[]; close(): voi
   const [creating, setCreating] = useState(!lists.length);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const request = useRef(0);
+  useEffect(
+    () => () => {
+      request.current++;
+    },
+    [],
+  );
   const save = async (id: string | null) => {
+    const attempt = ++request.current;
     try {
       if (id) await loadWorklist(id);
+      if (attempt !== request.current) return;
       add(id, name, items);
       close();
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Could not add entries.');
+      if (attempt === request.current)
+        setError(error instanceof Error ? error.message : 'Could not add entries.');
     }
   };
   return (
@@ -123,7 +133,15 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       live = false;
     };
   }, [data]);
+  const openRequest = useRef(0);
+  useEffect(
+    () => () => {
+      openRequest.current++;
+    },
+    [location.key],
+  );
   const run = async (items: QueueItem[], id?: string) => {
+    const attempt = ++openRequest.current;
     if (id && data) {
       try {
         items = savedItems((await loadWorklist(id)).items, useDataStore.getState().data ?? data);
@@ -132,7 +150,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
         return;
       }
     }
-    if (!data || !items.length) return;
+    if (attempt !== openRequest.current || !data || !items.length) return;
     const first = items.find((item) => worklistAvailable(item.hash, data));
     if (!first) {
       setError('Every entry is unavailable. Remove unavailable entries or choose another list.');

@@ -219,3 +219,16 @@ it('does not resurrect a list deleted while its entries are loading', async () =
   expect(useSavedWorklists.getState().lists).toEqual([]);
   expect(useSavedWorklists.getState().removed[list.id]).toBe('a'.repeat(32));
 });
+
+it('preserves the browser-storage warning when account sync also fails', async () => {
+  await login();
+  vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+    throw new Error('quota exceeded');
+  });
+  useSavedWorklists.getState().change([list]);
+  request.mockRejectedValueOnce(new Error('offline'));
+  await syncWorklists();
+  expect(useSavedWorklists.getState().pending).toBe(true);
+  expect(useSavedWorklists.getState().notice).toContain('Keep this tab open');
+  expect(useSavedWorklists.getState().notice).not.toContain('local copy is kept');
+});
