@@ -26624,6 +26624,217 @@ init_merge3();
 init_languages();
 init_syntax();
 
+// packages/core/src/globals/model.ts
+init_zod();
+init_languages();
+init_legacy();
+init_schemas3();
+init_syntax();
+var globalIdSchema = external_exports.string().regex(/^g_[a-zA-Z0-9_-]{8,80}$/);
+var globalRevisionSchema = external_exports.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
+var globalDigestSchema = external_exports.string().regex(/^[a-f0-9]{64}$/);
+var globalKindSchema = external_exports.enum(["variables", "titles"]);
+function validGlobalName(kind, name) {
+  if (kind === "variables") return /^[a-zA-Z0-9]+$/.test(name);
+  return /^[A-Za-z0-9_]+(?: [A-Za-z0-9_]+)*$/.test(name) && Object.hasOwn(extractBlocks(`title ${name} (
+body
+)`, "title"), name);
+}
+var sourceSchema = external_exports.object({
+  repository: external_exports.string().min(1),
+  revision: globalRevisionSchema,
+  path: external_exports.string().min(1),
+  /** JSON keys selecting the original decoded string; spans index its UTF-16 code units. */
+  selector: external_exports.array(external_exports.string()).min(1),
+  spanConvention: external_exports.literal("decoded-utf16"),
+  hash: external_exports.union([external_exports.literal(2), external_exports.literal(3)]),
+  lang: langSchema,
+  from: external_exports.number().int().nonnegative(),
+  to: external_exports.number().int().positive()
+}).strict().refine((v) => v.to > v.from, "Source span must be nonempty");
+var globalDefinitionSchema = external_exports.object({
+  /** Body only; an empty variable is serialized as the legacy `empty` value. */
+  body: external_exports.string(),
+  revision: globalRevisionSchema,
+  updatedAt: timestampSchema,
+  updatedBy: external_exports.string(),
+  sourceUpdatedAt: timestampSchema.optional(),
+  sourceRevision: globalRevisionSchema.optional(),
+  /** Present if and only if migrated. */
+  provenance: sourceSchema.optional()
+}).strict();
+var globalRecordSchema = external_exports.object({
+  version: external_exports.literal(1),
+  id: globalIdSchema,
+  kind: globalKindSchema,
+  name: external_exports.string().min(1),
+  revision: globalRevisionSchema,
+  definitions: external_exports.partialRecord(langSchema, globalDefinitionSchema),
+  nameHistory: external_exports.array(
+    external_exports.object({
+      name: external_exports.string().min(1),
+      revision: globalRevisionSchema,
+      at: timestampSchema,
+      by: external_exports.string().min(1)
+    }).strict()
+  ),
+  tombstone: external_exports.object({ at: timestampSchema, by: external_exports.string().min(1) }).strict().optional()
+}).strict().superRefine((record2, ctx) => {
+  if (!validGlobalName(record2.kind, record2.name))
+    ctx.addIssue({ code: "custom", message: "Name cannot round-trip through the resolver" });
+  for (const [lang, definition] of Object.entries(record2.definitions)) {
+    if (definition.provenance && (definition.provenance.lang !== lang || definition.provenance.hash !== (record2.kind === "variables" ? 2 : 3)))
+      ctx.addIssue({ code: "custom", message: "Definition provenance kind/language mismatch" });
+    if (record2.kind === "variables" && /[\r\n]/.test(definition.body))
+      ctx.addIssue({ code: "custom", message: "Variables must fit on one line" });
+    if (record2.kind === "titles" && !definition.body.trim())
+      ctx.addIssue({ code: "custom", message: "Title bodies must not be empty" });
+  }
+});
+var globalSegmentSchema = external_exports.union([
+  external_exports.object({ literal: external_exports.string() }).strict(),
+  external_exports.object({
+    entryId: globalIdSchema,
+    beforeName: external_exports.string(),
+    afterName: external_exports.string(),
+    afterBody: external_exports.string()
+  }).strict()
+]);
+var globalAggregateSchema = external_exports.object({
+  document: external_exports.object(tooltipSchema.shape).omit({ text: true }).strict(),
+  languages: external_exports.partialRecord(
+    langSchema,
+    external_exports.object({
+      metadata: langTextSchema.omit({ text: true }),
+      segments: external_exports.array(globalSegmentSchema)
+    }).strict()
+  )
+}).strict();
+var globalStoreSchema = external_exports.object({
+  version: external_exports.literal(1),
+  entries: external_exports.array(globalRecordSchema),
+  aggregates: external_exports.array(globalAggregateSchema)
+}).strict().superRefine((store, ctx) => {
+  const ids = /* @__PURE__ */ new Set(), names = /* @__PURE__ */ new Set(), hashes = /* @__PURE__ */ new Set();
+  for (const entry of store.entries) {
+    if (ids.has(entry.id)) ctx.addIssue({ code: "custom", message: "Duplicate global ID" });
+    ids.add(entry.id);
+    const key = `${entry.kind}:${entry.name}`;
+    if (!entry.tombstone && names.has(key))
+      ctx.addIssue({ code: "custom", message: "Duplicate global name across languages" });
+    if (!entry.tombstone) names.add(key);
+  }
+  for (const aggregate of store.aggregates) {
+    const hash2 = aggregate.document.hash;
+    if (hash2 !== 2 && hash2 !== 3 || hashes.has(hash2))
+      ctx.addIssue({ code: "custom", message: "Expected unique aggregate hashes 2 and 3" });
+    hashes.add(hash2);
+    for (const [lang, layout] of Object.entries(aggregate.languages)) {
+      const seen = /* @__PURE__ */ new Set();
+      for (const segment of layout.segments) {
+        if (!("entryId" in segment)) continue;
+        const entry = store.entries.find((v) => v.id === segment.entryId);
+        if (!entry || entry.tombstone || entry.kind !== (hash2 === 2 ? "variables" : "titles") || !entry.definitions[lang] || seen.has(segment.entryId))
+          ctx.addIssue({ code: "custom", message: "Invalid or duplicate projection entry" });
+        seen.add(segment.entryId);
+      }
+      for (const entry of store.entries) {
+        if (!entry.tombstone && entry.kind === (hash2 === 2 ? "variables" : "titles") && entry.definitions[lang] && !seen.has(entry.id))
+          ctx.addIssue({ code: "custom", message: "Definition missing from projection" });
+      }
+    }
+  }
+  for (const entry of store.entries) {
+    if (entry.tombstone) continue;
+    for (const lang of Object.keys(entry.definitions))
+      if (!store.aggregates.some(
+        (a) => a.document.hash === (entry.kind === "variables" ? 2 : 3) && Object.hasOwn(a.languages, lang)
+      ))
+        ctx.addIssue({ code: "custom", message: "Missing language projection" });
+  }
+});
+var globalConsumerSchema = external_exports.object({
+  hash: hashSchema,
+  lang: langSchema,
+  destination: external_exports.string().regex(/^[a-zA-Z0-9_-]{1,80}$/)
+}).strict();
+var globalCauseSchema = external_exports.object({
+  globalId: globalIdSchema,
+  beforeRevision: globalRevisionSchema.nullable(),
+  afterRevision: globalRevisionSchema.nullable()
+}).strict();
+var globalReviewSchema = external_exports.object({
+  version: external_exports.literal(1),
+  consumer: globalConsumerSchema,
+  causes: external_exports.array(globalCauseSchema).min(1),
+  contentDigest: globalDigestSchema,
+  dependencyDigest: globalDigestSchema,
+  acknowledgement: external_exports.object({
+    by: external_exports.string().min(1),
+    at: timestampSchema,
+    contentDigest: globalDigestSchema,
+    dependencyDigest: globalDigestSchema,
+    /** Binds the before/after rendered review, including its complete cause set. */
+    impactDigest: globalDigestSchema,
+    decision: external_exports.enum(["edited", "no-text-change"])
+  }).strict().optional()
+}).strict();
+
+// packages/core/src/globals/impactModel.ts
+init_zod();
+var globalReadSchema = external_exports.object({
+  imports: external_exports.array(external_exports.object({ key: external_exports.string(), hash: external_exports.number().int().nonnegative() }).strict()),
+  variables: external_exports.array(external_exports.string()),
+  /** All global titles are prepared, even when their display tag is absent. */
+  conservativeTitles: external_exports.literal(true)
+}).strict();
+var globalImpactRowSchema = external_exports.object({
+  consumer: globalConsumerSchema,
+  causes: external_exports.array(globalCauseSchema).min(1),
+  reason: external_exports.enum(["variable-read", "title-preparation", "aggregate-import", "unproven"]),
+  before: external_exports.object({ rendered: external_exports.string(), reads: globalReadSchema }).strict().nullable(),
+  after: external_exports.object({ rendered: external_exports.string(), reads: globalReadSchema }).strict().nullable()
+}).strict();
+var globalImpactSchema = external_exports.object({
+  version: external_exports.literal(1),
+  beforeRevision: globalRevisionSchema,
+  afterRevision: globalRevisionSchema,
+  complete: external_exports.boolean(),
+  blockers: external_exports.array(external_exports.string()),
+  rows: external_exports.array(globalImpactRowSchema)
+}).strict().refine((v) => v.complete === (v.blockers.length === 0), "Completeness requires no blockers");
+var globalImpactHeaderSchema = external_exports.object({
+  repository: external_exports.string().min(1),
+  revision: globalRevisionSchema,
+  aliases: aliasesSchema,
+  types: external_exports.record(external_exports.string(), external_exports.string()),
+  mode: external_exports.enum(["authored", "live"])
+}).strict();
+
+// packages/core/src/globals/projection.ts
+init_contentHash();
+init_prepare();
+init_syntax();
+init_schemas3();
+
+// packages/core/src/globals/references.ts
+init_prepare();
+init_braces();
+
+// packages/core/src/globals/transition.ts
+init_contentHash();
+init_braces();
+init_syntax();
+init_languages();
+
+// packages/core/src/globals/source.ts
+init_braces();
+init_map();
+
+// packages/core/src/globals/impact.ts
+init_prepare();
+init_schemas3();
+
 // packages/core/src/status/index.ts
 init_languages();
 init_map();
