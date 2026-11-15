@@ -15,6 +15,21 @@ export const markTypeFromGroup = (group: string) =>
 const groupings = new WeakMap<CategorySection, GroupedSection>();
 const listedIndexes = new WeakMap<CategoryGroup[], Map<number, CategorySection['items'][number]>>();
 export const markedGrouping = (section: CategorySection) => groupings.get(section);
+export function markSearchMatches(
+  index: ReturnType<typeof useMarksStore.getState>['index'],
+  query: string,
+): Set<number> {
+  const search = query.trim().toLocaleLowerCase();
+  return new Set(
+    [...index]
+      .filter(([, entries]) =>
+        entries.some((entry) =>
+          `${entry.label} ${entry.note ?? ''}`.toLocaleLowerCase().includes(search),
+        ),
+      )
+      .map(([hash]) => hash),
+  );
+}
 export function markedScopeValue(entry: Entry, all: boolean, first: ReadonlyMap<number, string>) {
   return markTypeFromGroup(entry.group)
     ? `${all ? 'all:' : ''}${entry.group}`
@@ -153,15 +168,7 @@ export function useMarkedFinder(
   const results = useMemo(() => {
     if (!search) return groups;
     if (!section) return found;
-    const matches = new Set(
-      [...index]
-        .filter(([, entries]) =>
-          entries.some((entry) =>
-            `${entry.label} ${entry.note ?? ''}`.toLocaleLowerCase().includes(search),
-          ),
-        )
-        .map(([hash]) => hash),
-    );
+    const matches = markSearchMatches(index, search);
     // Preserve catalogue order and combine text results with mark label/note matches.
     const foundSections = new Map(
       found.flatMap((group) => group.sections.map((category) => [category.id, category] as const)),

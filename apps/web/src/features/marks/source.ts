@@ -4,9 +4,23 @@ import { merged, type QueueItem } from '../queue/model';
 import type { QueueSource } from '../queue/sources';
 import { useMarksStore } from './store';
 import { tooltipPath } from '../navigation/stepping';
+import { markSearchMatches } from './finder';
 
-export function markedQueueItems(data: EditorData, type: string, search = ''): QueueItem[] {
-  const marks = useMarksStore.getState().marks;
+export function markedQueueItems(
+  data: EditorData,
+  type: string,
+  search = '',
+  query = '',
+): QueueItem[] {
+  const { marks, index } = useMarksStore.getState();
+  const matching = query.trim()
+    ? new Set([
+        ...markSearchMatches(index, query),
+        ...navigationGroups(data, query).flatMap((group) =>
+          group.sections.flatMap((section) => section.items.map((item) => item.hash)),
+        ),
+      ])
+    : undefined;
   const items = new Map(
     navigationGroups(data, '').flatMap((group) =>
       group.sections.flatMap((section) => section.items.map((item) => [item.hash, item] as const)),
@@ -14,7 +28,10 @@ export function markedQueueItems(data: EditorData, type: string, search = ''): Q
   );
   return Object.entries(marks.entries)
     .filter(
-      ([hash, entries]) => items.has(Number(hash)) && entries.some((entry) => entry.type === type),
+      ([hash, entries]) =>
+        items.has(Number(hash)) &&
+        (!matching || matching.has(Number(hash))) &&
+        entries.some((entry) => entry.type === type),
     )
     .map(([hash]) => ({
       key: hash,
@@ -31,7 +48,7 @@ export const marksQueue: QueueSource = {
   done: () => (item) =>
     !useMarksStore.getState().marks.entries[item.hash]?.some((mark) => mark.type === item.detail),
   async rebuild(queue, { data }) {
-    const restore = queue.origin.restore as { type: string; search?: string };
-    return merged(queue, markedQueueItems(data, restore.type, restore.search));
+    const restore = queue.origin.restore as { type: string; search?: string; query?: string };
+    return merged(queue, markedQueueItems(data, restore.type, restore.search, restore.query));
   },
 };

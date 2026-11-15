@@ -1,11 +1,19 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  RouterProvider,
+  useBlocker,
+  useLocation,
+} from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Marks } from '@clarity/core/marks';
 import { useDataStore, type EditorData } from '../../stores/data';
-import { useQueueDone } from '../queue/useQueue';
+import { useQueueDone, useWorkThrough } from '../queue/useQueue';
+import { WorkThroughControl } from '../queue/QueueControl';
+import { resetWorkQueues, useWorkQueues } from '../queue/store';
 import type { WorkQueue } from '../queue/model';
 import { navigationGroups, groupedSection } from '../navigation/catalog';
 import { TooltipNavigation } from '../navigation/TooltipNavigation';
@@ -57,6 +65,8 @@ const marks: Marks = {
 };
 let host: HTMLDivElement;
 let root: Root;
+let previousData: EditorData | null;
+let blockLeave = false;
 function Echo() {
   const location = useLocation();
   return (
@@ -67,6 +77,10 @@ function Echo() {
   );
 }
 beforeEach(() => {
+  previousData = useDataStore.getState().data;
+  useDataStore.setState({ data });
+  resetWorkQueues();
+  blockLeave = false;
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.stubGlobal('matchMedia', () => ({
     matches: false,
@@ -83,6 +97,8 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   useMarksStore.getState().accept({ types: [], entries: {} });
+  useDataStore.setState({ data: previousData });
+  resetWorkQueues();
   vi.unstubAllGlobals();
 });
 it('groups marked entries across categories, keeps multiple memberships, and preserves route scope', () => {
@@ -209,4 +225,96 @@ it('restores a marked scope directly, and restores ordinary results after cleari
   expect(host.querySelector('[role=listbox]')!.textContent).not.toContain('Entry 30');
   await type('');
   expect(host.querySelector('[role=listbox]')!.textContent).toContain('Entry 30');
+});
+
+function QueueEditor() {
+  const location = useLocation();
+  useBlocker(() => blockLeave);
+  const work = useWorkThrough(location.state);
+  return (
+    <>
+      <TooltipNavigation data={data} />
+      {work && <WorkThroughControl work={work} />}
+      <Echo />
+    </>
+  );
+}
+async function startFilteredQueue() {
+  const router = createMemoryRouter([{ path: '/t/:hash', element: <QueueEditor /> }], {
+    initialEntries: ['/t/10?g=mark.retest&lang=de'],
+  });
+  await act(async () => root.render(<RouterProvider router={router} />));
+  await type('Arc damage');
+  expect(host.querySelector('[role=listbox]')!.textContent).not.toContain('Entry 30');
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="Work through marked entries"]')!.click(),
+  );
+  const queue = useWorkQueues.getState().queues[useWorkQueues.getState().active!]!;
+  return { router, queue };
+}
+const leaveLink = () =>
+  [...host.querySelectorAll<HTMLAnchorElement>('a')].find(
+    (link) => link.textContent === 'Marked entries',
+  )!;
+
+it('freezes shown matches, respects a refused Leave, and restores the filter on Leave and Forward', async () => {
+  const { router, queue } = await startFilteredQueue();
+  expect(queue.items.map((item) => item.hash)).toEqual([10]);
+  expect(queue.items.every((item) => item.path?.includes('lang=de'))).toBe(true);
+  expect(queue.origin.restore).toMatchObject({ type: 'retest', query: 'Arc damage' });
+  blockLeave = true;
+  await act(async () => leaveLink().click());
+  expect(useWorkQueues.getState().active).toBe(queue.id);
+  expect(host.querySelector('[data-queue]')).not.toBeNull();
+  blockLeave = false;
+  await act(async () => leaveLink().click());
+  expect(useWorkQueues.getState().active).toBeNull();
+  expect(host.querySelector('[data-queue]')).toBeNull();
+  expect(host.querySelector<HTMLInputElement>('input[aria-label=Tooltip]')!.value).toBe(
+    'Arc damage',
+  );
+  expect(host.querySelector('[role=listbox]')!.textContent).not.toContain('Entry 30');
+  await act(async () => router.navigate(-1));
+  expect(useWorkQueues.getState().active).toBe(queue.id);
+  expect(host.querySelector('[data-queue]')).not.toBeNull();
+  await act(async () => router.navigate(1));
+  expect(useWorkQueues.getState().active).toBeNull();
+  expect(host.querySelector('[data-queue]')).toBeNull();
+  expect(host.querySelector<HTMLInputElement>('input[aria-label=Tooltip]')!.value).toBe(
+    'Arc damage',
+  );
+});
+it('rebuilds with the saved finder query, without changing frozen membership before rebuilding', async () => {
+  const { queue } = await startFilteredQueue();
+  await act(async () =>
+    useMarksStore.getState().accept({
+      ...marks,
+      entries: {
+        ...marks.entries,
+        30: [{ ...marks.entries[30][0], note: 'Check Arc damage too' }],
+      },
+    }),
+  );
+  expect(queue.items.map((item) => item.hash)).toEqual([10]);
+  const rebuilt = await marksQueue.rebuild(queue, { data, user: null, decisions: {} }, {});
+  expect(rebuilt.map((item) => item.hash)).toEqual([10, 30]);
+  expect(rebuilt[0]).toBe(queue.items[0]);
+  expect(rebuilt.every((item) => item.path?.includes('lang=de'))).toBe(true);
+  await act(async () => useMarksStore.getState().accept(marks));
+  expect(
+    (await marksQueue.rebuild(queue, { data, user: null, decisions: {} }, {})).map(
+      (item) => item.hash,
+    ),
+  ).toEqual([10]);
+});
+it.each([
+  ['Needs retesting', [10, 30]],
+  ['Arc damage', [10]],
+  ['Entry 30', [30]],
+  ['no matches', []],
+  ['   ', [10, 30]],
+])('uses finder text and mark matching when building a queue for %s', (query, hashes) => {
+  expect(markedQueueItems(data, 'retest', '', query as string).map((item) => item.hash)).toEqual(
+    hashes,
+  );
 });

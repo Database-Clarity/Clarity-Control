@@ -88,6 +88,7 @@ import {
 import { FinderEntryMarks } from '../marks/FinderEntryMarks';
 import type { MarkDisplay } from '../marks/store';
 import { MarkedWorkThrough } from '../marks/queue';
+import { useLeftQueue } from '../queue/useQueue';
 import { FinderMarkGroup } from '../marks/FinderMarkGroup';
 import { prepareFinderMarkers, rollupFinderMarkers, type MarkerIndex } from './finderMarkerState';
 import { defaultLanguage } from '../tooltip/language';
@@ -451,6 +452,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   data: EditorData;
   variant?: 'bar' | 'sheet';
 }) {
+  useLeftQueue();
   const compendiumSource = useCompendiumStore((state) => state.data);
   const sheetOpen = useContext(FinderSheetContext);
   const closeSheet = useContext(FinderSheetCloseContext);
@@ -945,6 +947,14 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       setAllGroups(false);
     }
   }, [variant, sheetOpen]);
+  useEffect(() => {
+    const returned = (
+      location.state as { workThroughReturn?: { type?: unknown; query?: unknown } } | null
+    )?.workThroughReturn;
+    if (typeof returned?.type !== 'string' || typeof returned.query !== 'string') return;
+    setQuery(returned.query);
+    setOpen(true);
+  }, [location.key, location.state]);
   const sheetPlace = variant === 'sheet' ? `${hash}:${place.group}` : '';
   useLayoutEffect(() => {
     if (!open) return;
@@ -1171,7 +1181,13 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         />
       )}
       {variant === 'bar' && (
-        <MarkedWorkThrough data={data} group={place.group} all={place.all} onStart={restore} />
+        <MarkedWorkThrough
+          data={data}
+          group={place.group}
+          all={place.all}
+          query={query}
+          onStart={restore}
+        />
       )}
       <ul
         ref={list}
@@ -1502,6 +1518,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
             data={data}
             group={place.group}
             all={place.all}
+            query={query}
             onStart={closeSheet ?? restore}
           />
           {comboNode}

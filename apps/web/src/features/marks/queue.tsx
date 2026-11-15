@@ -30,11 +30,13 @@ export function MarkedWorkThrough({
   data,
   group,
   all,
+  query,
   onStart,
 }: {
   data: EditorData;
   group: string;
   all: boolean;
+  query: string;
   onStart?: () => void;
 }) {
   const navigate = useNavigate();
@@ -48,7 +50,7 @@ export function MarkedWorkThrough({
       onMouseDown={(event) => event.preventDefault()}
       className={styles.queueButton}
       onClick={() => {
-        const items = markedQueueItems(data, type, location.search);
+        const items = markedQueueItems(data, type, location.search, query);
         const first = items[0];
         if (!first) return;
         first.path = tooltipPath(first.hash, location.search, group);
@@ -65,7 +67,7 @@ export function MarkedWorkThrough({
           first,
           origin: {
             path: location.pathname + location.search,
-            restore: { type, search: location.search },
+            restore: { type, search: location.search, query },
           },
           focus: true,
         });
