@@ -30,8 +30,9 @@ test.each(legacyPresets)('%s matches the held converter byte for byte', (preset)
   );
 });
 
-// The pinned hashes are the held converter's on the fixture as stored (its tagged text dropped
-// to the bare icon, the reason the engine lowers first): the vendored converter is unchanged.
-test.each(legacyPresets)('%s: the vendored converter still writes the pinned bytes', (preset) => {
-  expect(sha256(heldBytes(input, preset, identical))).toBe(expected.fixture.files[preset]);
+// The old converter dropped Prismatic tokens, including their tagged text. An unknown token
+// reproduces that control while preserving span boundaries; S1 classifies the new symbol delta.
+test.each(legacyPresets)('%s: the non-Prismatic control retains the pinned bytes', (preset) => {
+  const control = JSON.parse(JSON.stringify(input).replaceAll('<prismatic', '<unverifiedElement'));
+  expect(sha256(heldBytes(control, preset, identical))).toBe(expected.fixture.files[preset]);
 });

@@ -92,30 +92,15 @@ export type Plan = {
 
 const encoder = new TextEncoder();
 
-/** Raw `{{` in any text of the input: a pair the legacy converter cannot express. */
-function hasRawPair(input: LegacyInput): boolean {
-  return Object.values(input.perks).some(
-    (perk) =>
-      !isAliasStub(perk) &&
-      Object.values(perk.editor).some(
-        (text) => text?.main.includes('{{') || text?.secondary.includes('{{'),
-      ),
-  );
-}
-
 /**
  * Builds one file. Throws when the input is invalid (bad aliases or associations), when a
  * tooltip in the file has a markup error the editor reports (unresolved or cyclic import,
- * malformed base/enhanced pair; the message names the hash and language), or when a
- * legacy preset meets base/enhanced markup it cannot express (refused until the owner decides
- * the cut-over output, as the Worker refuses the push).
+ * malformed base/enhanced pair; the message names the hash and language).
  */
 export function compile(input: LegacyInput, file: ExportFile, options: CompileOptions): Plan {
   // Element-tagged text compiles exactly as its lowered form (`<solar/>Scorch`) written by hand.
-  input = lowerInput(input);
+  input = lowerInput(input, undefined, !isLegacyFile(file) && file.format.elementTags);
   if (isLegacyFile(file)) {
-    if (hasRawPair(input))
-      throw new Error('Base/enhanced markup needs the new converter; legacy presets refuse it');
     const bytes = buildLegacy(input, file.preset, {
       identical: options.identical,
       arrowFallback: file.arrowFallback,
