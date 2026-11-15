@@ -20,6 +20,8 @@ const names = [
   'save-small-de',
   'save-largest-en',
   'save-largest-de',
+  'save-small-token-de',
+  'save-largest-token-de',
   'save-add',
   'publish-baseline',
   'push-live-single',
@@ -32,7 +34,7 @@ type Spec = {
   body: { changes?: { base: Tooltip; next: Tooltip }[]; hashes?: number[] };
   status: number;
 };
-type Fixture = { files: [string, unknown][]; spec: Spec };
+type Fixture = { files: [string, unknown][]; spec: Spec; tokenCount?: number };
 
 async function prepare() {
   mkdirSync(root, { recursive: true });
@@ -125,10 +127,32 @@ async function prepare() {
       if (name.startsWith('save-small'))
         base.text = { en: { ...base.text.en!, text: 'Damage 5.' } };
       const lang = name.endsWith('-de') ? 'de' : 'en';
+      if (name.includes('-token-')) {
+        const english = base.text.en!,
+          slots = core.numberSlots(english.text);
+        english.numbers = {
+          ids: slots.map((_: unknown, i: number) => i + 1),
+          next: slots.length + 1,
+          retired: {},
+        };
+        let text = '',
+          at = 0;
+        for (const [i, slot] of slots.entries()) {
+          text += english.text.slice(at, slot.from) + `#{=${i + 1}}`;
+          at = slot.to;
+        }
+        base.text.de = {
+          text: text + english.text.slice(at),
+          updatedAt: english.updatedAt,
+          updatedBy: 'fixture',
+          sourceUpdatedAt: english.updatedAt,
+        };
+      }
+      const source = name.includes('-token-') ? base.text.de! : base.text.en!;
       const next = structuredClone(base);
       next.text[lang] = {
-        ...base.text.en!,
-        text: base.text.en!.text + '!',
+        ...source,
+        text: source.text + '!',
         updatedAt: new Date().toISOString(),
         ...(lang === 'de' ? { sourceUpdatedAt: base.text.en!.updatedAt } : {}),
       };
@@ -171,7 +195,13 @@ async function prepare() {
       if (c.next.text.en?.text !== c.base.text.en?.text)
         c.next.text.en!.updatedAt = new Date().toISOString();
     }
-    fixtures[name] = { files: [...files], spec };
+    const tokenCount = spec.body.changes?.reduce(
+      (count, c) => count + (c.next.text.de?.text.match(/#\{=\d+\}/g)?.length ?? 0),
+      0,
+    );
+    if (name.includes('-token-') && !tokenCount) throw Error('Tokenized fixture has no tokens');
+    fixtures[name] = { files: [...files], spec, tokenCount };
+    if (name.includes('-token-')) console.log(`Token fixture ${name}: ${tokenCount} tokens.`);
   }
   writeFileSync(
     `${root}/save-data.json`,
@@ -220,7 +250,7 @@ export default {async fetch(req){
  const s=f.spec;
  const r=await worker.fetch(new Request('https://cpu.invalid'+s.path,{method:'POST',headers:{Authorization:'Bearer '+data.token,'Content-Type':'application/json'},body:JSON.stringify(s.body)}),globalThis.__saveEnv,{waitUntil(){}});
  const body=await r.text(); if(r.status!==s.status)throw Error(name+': '+r.status+' '+body);
- return Response.json({status:r.status,subrequests:globalThis.__saveCount,exportRows:globalThis.__saveExportRows});
+ return Response.json({status:r.status,subrequests:globalThis.__saveCount,exportRows:globalThis.__saveExportRows,tokenCount:f.tokenCount});
 }};`,
   );
   await build({
@@ -472,6 +502,7 @@ async function measure() {
     for (const name of measuredNames) {
       let subrequests = 0;
       let exportRows: number | undefined;
+      let tokenCount: number | undefined;
       const invoke = async () => {
         const r = await mf.dispatchFetch('http://localhost/' + name);
         const body = await r.text();
@@ -479,6 +510,8 @@ async function measure() {
         const result = JSON.parse(body);
         subrequests = result.subrequests;
         exportRows = result.exportRows;
+        tokenCount = result.tokenCount;
+        if (name.includes('-token-') && !tokenCount) throw Error('Tokenized request has no tokens');
         if (subrequests > 50) throw Error('Subrequest cap exceeded');
       };
       const cold = performance.now();
@@ -500,6 +533,7 @@ async function measure() {
         n,
         subrequests,
         exportRows,
+        tokenCount,
         meanWorkerdCpuMs,
         coldWallMs,
         wallP99Ms: samples[Math.ceil(n * 0.99) - 1],
