@@ -127,3 +127,19 @@ it('accounts for bounded exclusions and propagates them to proven duplicate cell
   expect(result.index.hashes).toEqual([]);
   expect(result.excluded.map((e) => e.hash)).toEqual([100, 101]);
 });
+it('retains only explicit PASS rows of a final rejected candidate without changing its bytes', () => {
+  const x = fixture(),
+    batch = x.batches[0];
+  batch.critique.verdict = 'REJECT';
+  batch.critique.checksByHash[100] = 'FAIL';
+  batch.postReviewExclusions = {
+    repairAttempts: 1,
+    rows: [{ hash: 100, reason: 'Failed after repair' }],
+  };
+  expect(assembleDrafts(x).excluded.map((row) => row.hash)).toEqual([100, 101]);
+  batch.postReviewExclusions.repairAttempts = 0;
+  expect(() => assembleDrafts(x)).toThrow('Invalid post-review exclusion evidence');
+  batch.postReviewExclusions.repairAttempts = 1;
+  batch.critique.checksByHash[100] = 'PASS';
+  expect(() => assembleDrafts(x)).toThrow('Invalid post-review exclusion evidence');
+});

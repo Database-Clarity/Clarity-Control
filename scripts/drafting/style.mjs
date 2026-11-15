@@ -27,6 +27,11 @@ const banned = [
     'total damage sum',
     /\btotal(?:s|ling|ing)?\b(?:(?!\bticks?\b)[^\n.!]){0,70}\bdamage\b|\bdamage\s+in\s+total\b/i,
   ],
+  [
+    'aggregate projectile damage sum',
+    /\b(?:all|both)\s+(?:\d+\s+)?(?:seekers|projectiles|knives|blasts|explosions)\s+can\s+deal\s+up to\b/i,
+  ],
+  ['aggregate cloud damage sum', /\bcloud can deal up to [^\n]*\bdamage over [\d.?]+ seconds?\b/i],
   ['ambiguous field reference', /\bin the field\b/i],
   ['obsolete precision stat', /\bPrecision Angle Threshold\b/i],
   ['player distance wording', /\benemies\s+less than\s+[\d.?]+\s+meters\s+away\b/i],

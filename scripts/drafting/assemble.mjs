@@ -40,6 +40,9 @@ export function assembleDrafts({
     if (
       !original ||
       sourceIdentity(original) !== sourceIdentity(item) ||
+      JSON.stringify(original.fragmentImprovements ?? []) !==
+        JSON.stringify(item.fragmentImprovements ?? []) ||
+      JSON.stringify(original.baseExotic ?? null) !== JSON.stringify(item.baseExotic ?? null) ||
       original.category !== item.category ||
       original.name !== item.name
     )
@@ -47,7 +50,13 @@ export function assembleDrafts({
     if (accepted.has(hash) || excluded.has(hash)) throw Error(`Duplicate disposition: ${hash}`);
     if (!knownHashes.has(Number(hash))) throw Error(`Unknown canonical hash: ${hash}`);
   };
-  for (const { input, bytes, critique, validation } of batches) {
+  for (const {
+    input,
+    bytes,
+    critique,
+    validation,
+    postReviewExclusions = { rows: [], repairAttempts: 0 },
+  } of batches) {
     const drafts = JSON.parse(bytes.toString());
     const hashes = input.items.map((item) => String(item.hash));
     const sourceWarnings = drafts._meta?.sourceWarnings ?? {};
@@ -70,8 +79,27 @@ export function assembleDrafts({
       drafts._meta?.guideKitSha256 !== guideKitSha256
     )
       throw Error('Duplicate hash or guide mismatch');
+    const postExcluded = new Map(
+      postReviewExclusions.rows.map((row) => [String(row.hash), row.reason]),
+    );
     if (
-      !['APPROVE', 'PASS', 'EXCLUDE_UNRESOLVED'].includes(critique.verdict) ||
+      postExcluded.size !== postReviewExclusions.rows.length ||
+      (postExcluded.size && postReviewExclusions.repairAttempts !== 1) ||
+      [...postExcluded].some(
+        ([hash, reason]) =>
+          !hashes.includes(hash) || !reason?.trim() || critique.checksByHash?.[hash] !== 'FAIL',
+      )
+    )
+      throw Error('Invalid post-review exclusion evidence');
+    const approvedVerdict = ['APPROVE', 'PASS', 'EXCLUDE_UNRESOLVED'].includes(critique.verdict);
+    // A final rejection still explicitly approves its PASS rows. After the
+    // single repair, drop every failed row without changing the reviewed bytes.
+    if (
+      (!approvedVerdict &&
+        !(
+          postExcluded.size &&
+          ['REJECT', 'FAIL', 'REVISE', 'REPAIR', 'REQUEST_CHANGES'].includes(critique.verdict)
+        )) ||
       critique.digestsReproduced !== true ||
       critique.guideKitSha256 !== guideKitSha256 ||
       critique.draftDigest !== draftDigest(drafts) ||
@@ -80,11 +108,12 @@ export function assembleDrafts({
       critique.candidateSha256 !== sha256(bytes)
     )
       throw Error('Exact independent approval required');
-    const omitted = new Map(
+    const authoredOmissions = new Map(
       (drafts._meta?.excluded ?? []).map((row) => [String(row.hash), row.reason]),
     );
+    const omitted = new Map([...authoredOmissions, ...postExcluded]);
     if (
-      omitted.size !== (drafts._meta?.excluded ?? []).length ||
+      omitted.size !== (drafts._meta?.excluded ?? []).length + postExcluded.size ||
       [...omitted].some(([hash, reason]) => !hashes.includes(hash) || !reason?.trim())
     )
       throw Error('Invalid exclusion evidence');
@@ -94,13 +123,15 @@ export function assembleDrafts({
       hashes.some((hash) => !outputHashes.includes(hash) && !omitted.has(hash))
     )
       throw Error('Candidate membership mismatch');
-    const retained = hashes.filter((hash) => !omitted.has(hash));
     if (
-      Object.keys(validation.errors).length ||
-      !sameKeys(Object.keys(validation.accepted), retained) ||
+      Object.keys(validation.errors).some((hash) => !omitted.has(hash)) ||
+      !sameKeys(
+        [...Object.keys(validation.accepted), ...Object.keys(validation.errors)],
+        hashes.filter((hash) => !authoredOmissions.has(hash)),
+      ) ||
       !sameKeys(
         (validation.excluded ?? []).map((row) => String(row.hash)),
-        [...omitted.keys()],
+        [...authoredOmissions.keys()],
       )
     )
       throw Error('Incomplete mechanical validation');

@@ -212,12 +212,69 @@ it('normalizes the explicit duration a second without licensing indefinite count
     'Unsupported number: 1',
   );
 });
+it('preserves an exact parent buff label only with its own sourced DR pair', () => {
+  const english = 'Grants <pve 25% /> <pvp [5%] /> Damage Resistance (Resist x2) to you.';
+  const input = {
+    ...item,
+    source: { text: 'Grants 25% [5%] Damage Resist.' },
+    baseExotic: { english },
+  };
+  expect(validateDraft(input, english, editor, app)).toEqual([]);
+  expect(validateDraft(input, english.replace('x2', 'x3'), editor, app)).toContain(
+    'Unsupported number: 3',
+  );
+  expect(
+    validateDraft(
+      { ...input, source: { text: 'Grants 10% [5%] Damage Resist.' } },
+      english,
+      editor,
+      app,
+    ),
+  ).toContain('Unsupported number: 2');
+});
+it('licenses explicit stack selectors for a source cap written as xN', () => {
+  const input = { ...item, source: { text: 'Up to a maximum of x6 stacks. Grants 70% damage.' } };
+  expect(validateDraft(input, 'Grants 70% damage at 1|2|3|4|5|6 stacks.', editor, app)).toEqual([]);
+  expect(validateDraft(input, 'Deals 2 damage.', editor, app)).toContain('Unsupported number: 2');
+});
 it('does not turn an automatic magazine refill into a manual reload claim', () => {
   const refill = { ...item, source: { text: 'Refills 50% of Magazine.' } };
   expect(validateDraft(refill, 'Refills 50% of the magazine.\n\n#Reload', editor, app)).toContain(
     'Unsupported manual-reload claim: source does not say reload',
   );
   expect(validateDraft(refill, 'Refills 50% of the magazine.', editor, app)).toEqual([]);
+});
+it('recognizes a sourced equipment name despite misplaced possessives', () => {
+  const source = {
+    ...item,
+    source: { text: "Does not work on Young Ahamkara Spine's Tripmines." },
+  };
+  const catalog = {
+    ...editor,
+    items: {
+      1: { name: 'Wish-Dragon Teeth', itemName: "Young Ahamkara's Spine" },
+      2: { name: 'Other Armor' },
+    },
+  };
+  expect(
+    validateDraft(source, "Does not work with <yellow Young Ahamkara's Spine />.", catalog, app),
+  ).toEqual([]);
+  expect(
+    validateDraft(source, 'Does not work with <yellow Other Armor />.', catalog, app),
+  ).toContain('Unsupported item name: Other Armor');
+});
+it('recognizes omitted articles but requires complete equipment-name words', () => {
+  const catalog = { ...editor, items: { 1: { name: 'The Stag' }, 2: { name: 'The Huckleberry' } } };
+  const source = { ...item, source: { text: 'Works with Huckleberry.' } };
+  expect(validateDraft(source, 'Works with <yellow The Huckleberry />.', catalog, app)).toEqual([]);
+  expect(
+    validateDraft(
+      { ...source, source: { text: 'Staggers enemies.' } },
+      'Works with <yellow The Stag />.',
+      catalog,
+      app,
+    ),
+  ).toContain('Unsupported item name: The Stag');
 });
 it('treats import IDs as references and preserves verbatim owner rewrites', () => {
   expect(validateDraft(item, 'import main from 2724068510', editor, app)).not.toContain(

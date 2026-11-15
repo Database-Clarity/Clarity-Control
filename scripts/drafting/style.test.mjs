@@ -16,6 +16,13 @@ it('rejects the final owner feedback patterns without rejecting a useful tick co
     styleLint('Ticks for a total of 19 ticks over 10 seconds, dealing 32 damage per tick.'),
   ).toEqual([]);
   expect(styleLint('Deals a total of 640 damage.')).toContain('Style: total damage sum');
+  expect(styleLint('All 4 seekers can deal up to 552 damage.')).toContain(
+    'Style: aggregate projectile damage sum',
+  );
+  expect(styleLint('The cloud can deal up to 156.7 damage over 5 seconds.')).toContain(
+    'Style: aggregate cloud damage sum',
+  );
+  expect(styleLint('The cloud deals 32 damage per tick.')).toEqual([]);
 });
 
 it('blocks repeated owner v4.8 misses before review', () => {

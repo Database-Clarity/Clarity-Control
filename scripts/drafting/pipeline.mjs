@@ -242,7 +242,20 @@ export function validateDraft(item, english, editor, app) {
   // A conversion is allowed only in its correct phrase. Remove those phrases
   // before checking the remaining literal numbers, so the same number elsewhere
   // cannot borrow the conversion's evidence.
-  const literalEnglish = english.replace(
+  // A named buff label is wording, not a borrowed stat value. Permit the
+  // parent's exact Resist label only beside its identical sourced DR pair.
+  const withParentLabels =
+    item.category === 'armor-trait-exotic-class-item' && item.baseExotic
+      ? english.replace(
+          /(<pve\s+[\d.]+%\s*\/>\s*<pvp\s+\[[\d.]+%\]\s*\/>\s+Damage Resistance)\s+\((Resist x\d+)\)/g,
+          (phrase, stat, label) =>
+            item.baseExotic.english.includes(phrase) &&
+            [...numbers(stat)].every((value) => numbers(item.source.text).has(value))
+              ? phrase.replace(label, 'Resist')
+              : phrase,
+        )
+      : english;
+  const literalEnglish = withParentLabels.replace(
     /((?:\d+(?:\.\d+)?\??%?\s*[–|-]\s*)*\d+(?:\.\d+)?\??)%\s+decreased\s+([A-Za-z/ -]*?(?:Animation Duration|Accuracy Cone Size|Draw Time))/gi,
     (phrase, values, label) =>
       values.split(/\s*[–|-]\s*/).every((token) => {
@@ -300,7 +313,7 @@ export function validateDraft(item, english, editor, app) {
     item.category.startsWith('armor-mod') && /Siphon$/.test(item.name ?? '')
       ? withFragments.replace(/with 1\|2\|3 mods equipped/g, 'with mods equipped')
       : withFragments;
-  const stackCap = /(?:maximum of|up to(?: a maximum of)?)\s+(\d+)\s+stacks?/i.exec(
+  const stackCap = /(?:maximum of|up to(?: a maximum of)?)\s+x?(\d+)\s+stacks?/i.exec(
     item.source.text,
   )?.[1];
   const withStackLabels =
@@ -324,17 +337,26 @@ export function validateDraft(item, english, editor, app) {
   for (const number of numbers(mechanics))
     if (!allowed.has(number)) errors.push(`Unsupported number: ${number}`);
   // Exotic cross-references must both exist and be present in the supplied evidence.
+  // Sheet spelling can put the possessive on another word of the same equipment
+  // name (Young Ahamkara Spine's). Normalize that punctuation for identity only.
+  const referenceNormal = (text) => normal(text.replace(/[’']s\b/gi, ''));
   const names = new Set(
     Object.values(editor.items)
       .flatMap((entry) => [entry.name, entry.itemName].filter(Boolean))
-      .map(normal),
+      .map(referenceNormal),
   );
-  const evidence = normal(
+  const evidence = referenceNormal(
     `${item.source.text} ${ownerNote} ${item.baseExotic?.english ?? ''} ${item.baseExotic?.name ?? ''}`,
   );
   for (const match of english.matchAll(/<yellow\s+(.+?)\s*\/>/g)) {
-    const name = normal(match[1]);
-    if (!names.has(name) || !evidence.includes(name))
+    const name = referenceNormal(match[1]);
+    // Sheets often omit a leading article from the same canonical name.
+    // Require complete words so 'staggers' cannot justify The Stag.
+    const sourceNames = [name, ...(name.startsWith('the ') ? [name.slice(4)] : [])];
+    if (
+      !names.has(name) ||
+      !sourceNames.some((candidate) => ` ${evidence} `.includes(` ${candidate} `))
+    )
       errors.push(`Unsupported item name: ${match[1]}`);
   }
   if (

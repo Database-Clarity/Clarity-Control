@@ -51,11 +51,11 @@ if (
 )
   throw Error('Enriched census differs from original matcher output');
 const batches = [];
+const postReviewExclusions = await read('post-review-exclusions.json');
+const state = await read('state.json');
 for (const id of [
-  'carry-01',
-  'carry-02',
-  'carry-03',
-  ...Array.from({ length: 11 }, (_, n) => `batch-${String(n + 1).padStart(2, '0')}`),
+  ...state.carryReviews.map((row) => row.id),
+  ...state.batches.map((row) => `batch-${row.id}`),
 ]) {
   const carry = id.startsWith('carry-');
   const [input, bytes, critique] = await Promise.all([
@@ -78,7 +78,13 @@ for (const id of [
         excluded: [],
       }
     : await read(`${id.slice(-2)}.validation.json`);
-  batches.push({ input, bytes, critique, validation });
+  batches.push({
+    input,
+    bytes,
+    critique,
+    validation,
+    postReviewExclusions: postReviewExclusions[id],
+  });
 }
 const server = await createServer({
   root,
@@ -102,6 +108,25 @@ try {
       .filter((hash) => catalog.canonicalHash(hash, editor) === hash),
   );
   for (const item of census) {
+    if (
+      item.baseExotic &&
+      editor.bundle.tooltips[item.baseExotic.hash]?.text.en?.text !== item.baseExotic.english
+    )
+      throw Error(`Parent wording differs from pinned bundle: ${item.hash}`);
+    for (const proof of item.fragmentImprovements ?? []) {
+      if (proof.source) {
+        if (proof.source.text !== proof.sourceText || loader.sourceChanged(proof, snapshot.source))
+          throw Error(`Fragment fingerprint mismatch: ${item.hash}`);
+      } else {
+        const rows =
+          snapshot.source.tabs
+            .find((tab) => tab.name === proof.sourceTab)
+            ?.rows.filter(
+              (row) => row.name === proof.sourceRow && row.cell.plain === proof.sourceText,
+            ) ?? [];
+        if (rows.length !== 1) throw Error(`Fragment row mismatch: ${item.hash}`);
+      }
+    }
     if (editor.bundle.tooltips[item.hash]?.text.en?.text?.trim())
       throw Error(`Existing English: ${item.hash}`);
     if (
