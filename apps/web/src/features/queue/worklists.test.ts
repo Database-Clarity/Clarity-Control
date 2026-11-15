@@ -1,3 +1,6 @@
+import { queueSources } from './sources';
+import type { WorkQueue } from './model';
+import type { EditorData } from '../../stores/data';
 // @vitest-environment jsdom
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import {
@@ -315,4 +318,107 @@ it('drains explicit Sync after a receiving index flight (F9)', async () => {
   await settle();
   await vi.advanceTimersByTimeAsync(600);
   expect(useSavedWorklists.getState().lists[0]!.name).toBe('New remote');
+});
+
+it('Rebuild reads authoritative remote membership, overlays own operations, and reports deletion (F10)', async () => {
+  await loadWorklist(id);
+  const data: EditorData = {
+    items: Object.fromEntries(
+      [1, 2, 3, 4].map((hash) => [
+        hash,
+        { hash, name: String(hash), icon: '', categoryId: 'perks', inGameDescription: '' },
+      ]),
+    ),
+    aliases: {},
+    categories: [],
+    bundle: {
+      tooltips: {},
+      sourceCommit: 'fixture',
+      generatedAt: '',
+      permissions: { users: {} },
+      pushed: {},
+    },
+  };
+  const queue = { origin: { restore: { worklistId: id } }, items: [] } as unknown as WorkQueue;
+  const rebuild = () => queueSources.custom.rebuild(queue, { data, user: null, decisions: {} }, {});
+  row = { name: 'A', hashes: [1, 2] };
+  revision++;
+  expect((await rebuild()).map((item) => item.hash)).toEqual([1, 2]);
+  row = { name: 'A', hashes: [2] };
+  revision++;
+  expect((await rebuild()).map((item) => item.hash)).toEqual([2]);
+  useSavedWorklists.getState().add(id, '', [{ hash: 3, name: 'Three' }]);
+  row = { name: 'A', hashes: [2, 4] };
+  revision++;
+  expect((await rebuild()).map((item) => item.hash)).toEqual([2, 4, 3]);
+  expect(useSavedWorklists.getState().ops).toHaveLength(1);
+  row = null;
+  revision++;
+  await expect(rebuild()).rejects.toThrow('deleted');
+  expect(useSavedWorklists.getState().ops).toHaveLength(1);
+});
+it('keeps unsaved local creates usable when rebuilding before their first server save', async () => {
+  useSavedWorklists.getState().add(null, 'Local only', [{ hash: 2, name: 'Two' }]);
+  const pending = useSavedWorklists.getState().ops[0]!;
+  const before = api.mock.calls.length;
+  expect((await loadWorklist(pending.id, true)).items[0]!.hash).toBe(2);
+  expect(api.mock.calls).toHaveLength(before);
+});
+it('cloned live documents keep independent durable operations, recoverable after both close (F11)', async () => {
+  disconnect();
+  sessionStorage.setItem('clarity-worklists-tab:v3', 'cloned-owner');
+  async function documentStore() {
+    vi.resetModules();
+    const auth = await import('../../stores/auth');
+    const store = await import('./worklists');
+    auth.useAuthStore.setState({
+      user: { id: 1, login: 'one', role: 'editor' } as never,
+      loading: false,
+      token: null,
+    });
+    const stop = store.connectWorklists();
+    await settle();
+    await store.loadWorklist(id);
+    return { ...store, stop };
+  }
+  const a = await documentStore();
+  a.useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  const b = await documentStore();
+  try {
+    a.useSavedWorklists.getState().add(id, '', [{ hash: 4, name: 'Four' }]);
+    b.useSavedWorklists.getState().add(id, '', [{ hash: 3, name: 'Three' }]);
+    const backups = [];
+    for (let n = 0; n < localStorage.length; n++) {
+      const key = localStorage.key(n)!;
+      if (key.startsWith('clarity-worklists:v3:1:pending:')) {
+        const value = JSON.parse(localStorage.getItem(key)!);
+        if (value.ops.length) backups.push(value);
+      }
+    }
+    expect(backups).toHaveLength(2);
+    expect(
+      backups.map((value) => value.recovery[0].items.map((item: { hash: number }) => item.hash)),
+    ).toEqual(
+      expect.arrayContaining([
+        [1, 2, 4],
+        [1, 3],
+      ]),
+    );
+  } finally {
+    a.stop();
+    b.stop();
+  }
+  const reopened = await documentStore();
+  try {
+    expect(
+      reopened.pendingSessionRecovery().map((row) => row.items.map((item) => item.hash)),
+    ).toEqual(
+      expect.arrayContaining([
+        [1, 2, 4],
+        [1, 3],
+      ]),
+    );
+  } finally {
+    reopened.stop();
+  }
 });

@@ -45,20 +45,10 @@ const signals = new Set<string>();
 let ready = false;
 const versions = new Map<string, number>();
 let timer: ReturnType<typeof setTimeout> | undefined;
-const tabKey = 'clarity-worklists-tab:v3';
-let tab: string | undefined;
-function tabId() {
-  if (tab) return tab;
-  try {
-    tab = sessionStorage.getItem(tabKey) ?? crypto.randomUUID();
-    sessionStorage.setItem(tabKey, tab);
-  } catch {
-    tab = crypto.randomUUID();
-  }
-  return tab;
-}
+// A fresh document owns a fresh queue; opener/duplicated session storage is not identity.
+const tab = crypto.randomUUID();
 const cacheKey = (scope: string) => `clarity-worklists:v3:${scope}`;
-const opsKey = (scope: string) => `${cacheKey(scope)}:pending:${tabId()}`;
+const opsKey = (scope: string) => `${cacheKey(scope)}:pending:${tab}`;
 const signalKey = (scope: string) => `${cacheKey(scope)}:invalidate`;
 const empty = () => ({
   base: [],
@@ -247,10 +237,12 @@ async function readRow(id: string, started: number) {
   if (version === versions.get(id)) accept(id, reply);
   return reply;
 }
-export async function loadWorklist(id: string): Promise<SavedWorklist> {
+export async function loadWorklist(id: string, authoritative = false): Promise<SavedWorklist> {
   const state = useSavedWorklists.getState();
   if (!state.lists.some((row) => row.id === id)) throw new Error('The saved worklist was deleted.');
-  if (!state.loaded.includes(id)) {
+  const localCreate =
+    state.ops.some((item) => item.id === id && item.op.type === 'create') && !state.index[id];
+  if (!state.loaded.includes(id) || (authoritative && !localCreate)) {
     if (!accountReady()) throw new Error('Wait for this account to finish signing in.');
     await readRow(id, epoch);
     keepCache();

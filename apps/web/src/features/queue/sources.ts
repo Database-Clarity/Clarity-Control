@@ -261,7 +261,7 @@ export const customSource: QueueSource = {
   },
   async rebuild(queue, { data }) {
     const id = (queue.origin.restore as { worklistId?: string }).worklistId;
-    const list = id ? await loadWorklist(id) : undefined;
+    const list = id ? await loadWorklist(id, true) : undefined;
     if (!list) throw new Error('The saved worklist was deleted; this run still keeps its items.');
     const previous = new Map(queue.items.map((item) => [item.key, item]));
     return savedItems(list.items, data).map((item) => previous.get(item.key) ?? item);

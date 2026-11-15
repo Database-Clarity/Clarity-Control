@@ -1,4 +1,7 @@
-import { afterEach, expect, it } from 'vitest';
+import { useAuthStore } from '../../stores/auth';
+const api = vi.hoisted(() => vi.fn());
+vi.mock('../../services/apiAuth', () => ({ apiRequest: api }));
+import { afterEach, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { setEditorDraftFetch } from '../../services/editorDrafts';
@@ -44,10 +47,16 @@ it('takes Drafts membership from the loader index and only saved English complet
 });
 it('reuses the queue, freezes membership, preserves the save baseline, and rebuilds explicitly', async () => {
   const current = data();
+  useAuthStore.setState({
+    user: { id: 1, login: 'one', role: 'editor' } as never,
+    loading: false,
+    token: null,
+  });
+  useSavedWorklists.setState({ scope: '1', base: [], ops: [], recovery: [], index: {} });
   const entry = { hash: 11, name: 'Alpha' };
   const items = savedItems([entry], current);
   useSavedWorklists.setState({
-    lists: [{ id: 'list', name: 'Weekend', items: [entry] }],
+    lists: [{ id: 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97', name: 'Weekend', items: [entry] }],
     loaded: ['list'],
   });
   useSavedWorklists.setState({ loaded: ['list'] });
@@ -72,6 +81,12 @@ it('reuses the queue, freezes membership, preserves the save baseline, and rebui
     lists: [{ id: 'list', name: 'Weekend', items: [entry, { hash: 12, name: 'Beta' }] }],
   });
   expect(queue.items).toHaveLength(1);
+  api.mockResolvedValueOnce(
+    Response.json({
+      worklist: { id: 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97', name: 'Weekend', hashes: [11, 12] },
+      revision: 'a'.repeat(32),
+    }),
+  );
   const rebuilt = await queueSources.custom.rebuild(queue, context, {});
   expect(rebuilt).toHaveLength(2);
   expect(rebuilt[0]!.detail).toBe(items[0]!.detail);
