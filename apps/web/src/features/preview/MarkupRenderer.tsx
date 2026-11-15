@@ -15,7 +15,17 @@ export function linkUrl(url: string): string | undefined {
  * A term with a tooltip: hover or focus opens its body as a top-layer popover (titlePopover.ts), Esc
  * closes it. The body stays rendered, so opening costs one placement and no React work.
  */
-function TitleAnchor({ part, id }: { part: MarkupSpan; id: string }) {
+export function TitleAnchor({
+  part,
+  id: suppliedId,
+  children,
+}: {
+  part: MarkupSpan;
+  id?: string;
+  children?: ReactNode;
+}) {
+  const generatedId = useId();
+  const id = suppliedId ?? generatedId;
   const box = useRef<HTMLSpanElement>(null);
   const anchor = useRef<HTMLSpanElement>(null);
   // One stable function: it is also the scroll listener, since scrolling anything while the popover
@@ -44,6 +54,7 @@ function TitleAnchor({ part, id }: { part: MarkupSpan; id: string }) {
       }}
       onPointerLeave={hide}
       onFocus={() => open()}
+      onClick={() => open()}
       onBlur={hide}
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || !box.current?.matches(':popover-open, [data-open]')) return;
@@ -53,7 +64,7 @@ function TitleAnchor({ part, id }: { part: MarkupSpan; id: string }) {
         hide();
       }}
     >
-      {part.text}
+      {children ?? part.text}
       <span
         ref={box}
         {...{ popover: 'manual' }}
@@ -85,8 +96,13 @@ export function PreviewSpan({ part }: { part: MarkupSpan }) {
         <a href={link} target="_blank" rel="noreferrer">
           {part.text}
         </a>
+      ) : part.link ? (
+        <TitleAnchor
+          part={{ text: part.text, title: [{ linesContent: [{ text: 'Unsafe link omitted' }] }] }}
+          id={id}
+        />
       ) : (
-        <span title={part.link ? 'Unsafe link omitted' : undefined}>{part.text}</span>
+        <span>{part.text}</span>
       )}
     </span>
   );

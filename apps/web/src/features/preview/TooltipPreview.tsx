@@ -26,7 +26,7 @@ import {
   tooltipFor,
 } from '../navigation/catalog';
 import styles from './TooltipPreview.module.scss';
-import { Lines, linkUrl } from './MarkupRenderer';
+import { Lines, linkUrl, TitleAnchor } from './MarkupRenderer';
 import { useLocalisedManifest } from '../manifest/localisedManifest';
 import { EnglishReveal } from '../manifest/EnglishReveal';
 import { weaponOwnerLabel, weaponOwners } from './weaponOwners';
@@ -202,16 +202,14 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
       )}
       <div className={styles.identity}>
         {owners !== undefined && (
-          <div
-            className={styles.piece}
-            title={weaponLabel || undefined}
-            aria-hidden={!weaponLabel || undefined}
-          >
+          <div className={styles.piece} aria-hidden={!weaponLabel || undefined}>
             {owners.map((owner) => {
               const url = bungieUrl(owner.icon);
               return (
-                <span key={owner.hash} className={styles.pieceIcon} title={owner.name}>
-                  {url && linkUrl(url) && <img src={url} alt="" />}
+                <span key={owner.hash} className={styles.pieceIcon} aria-label={owner.name}>
+                  <TitleAnchor part={{ title: [{ linesContent: [{ text: owner.name }] }] }}>
+                    {url && linkUrl(url) && <img src={url} alt={owner.name} />}
+                  </TitleAnchor>
                 </span>
               );
             })}
@@ -227,11 +225,7 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
         )}
         {piece !== undefined && (
           // An empty piece row still holds its line (exotic armour named after its piece).
-          <div
-            className={styles.piece}
-            title={piece || undefined}
-            aria-hidden={!piece || undefined}
-          >
+          <div className={styles.piece} aria-hidden={!piece || undefined}>
             {pieceIcon !== undefined && piece && (
               // Same box as the finder's: a piece missing from the icon file leaves it empty.
               <span className={styles.pieceIcon}>
@@ -250,7 +244,6 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
         )}
         <div
           className={styles.name}
-          title={name}
           style={{ '--name-em': nameWidthEm(translatedName || name) } as CSSProperties}
         >
           <EnglishReveal
@@ -261,8 +254,10 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
           />
         </div>
         {categoryLabel && (
-          <div className={styles.category} title={categoryLabel}>
-            {categoryLabel}
+          <div className={styles.category}>
+            <TitleAnchor
+              part={{ text: categoryLabel, title: [{ linesContent: [{ text: categoryLabel }] }] }}
+            />
           </div>
         )}
       </div>

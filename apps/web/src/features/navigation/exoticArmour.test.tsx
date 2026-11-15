@@ -229,17 +229,27 @@ describe('exotic armour in the editor headings', () => {
           globals={{ variables: '', titles: '' }}
         />,
       );
-    expect(markup('Contraverse Hold')).toMatch(
-      /Contraverse Hold<\/span><\/div><div[^>]*>Chaotic Exchanger/,
-    );
+    const header = document.createElement('div');
+    header.innerHTML = markup('Contraverse Hold');
+    expect(header.querySelector('header')?.textContent).toBe('Contraverse HoldChaotic Exchanger');
+    expect(header.querySelector('header [title]')).toBeNull();
     expect(markup()).not.toContain('Contraverse');
     // The piece icon sits in the piece row; the perk keeps its own icon beside the identity.
     const withIcon = markup('Contraverse Hold', '/common/destiny2_content/icons/piece.jpg');
-    expect(withIcon).toMatch(
-      /<img[^>]*perk-101\.png[^>]*>.*<img[^>]*piece\.jpg[^>]*><\/span><span[^>]*>Contraverse Hold/,
-    );
+    header.innerHTML = withIcon;
+    expect([...header.querySelectorAll('img')].map((image) => image.src)).toEqual([
+      'https://www.bungie.net/common/destiny2_content/icons/perk-101.png',
+      'https://www.bungie.net/common/destiny2_content/icons/piece.jpg',
+    ]);
+    expect(
+      header.querySelector('img[src$="piece.jpg"]')?.parentElement?.nextElementSibling?.textContent,
+    ).toBe('Contraverse Hold');
     // A piece missing from the icon file keeps an empty box; no piece icon without a piece name.
-    expect(markup('Contraverse Hold', '')).toMatch(/<span[^>]*><\/span><span[^>]*>Contraverse/);
+    header.innerHTML = markup('Contraverse Hold', '');
+    expect(header.querySelectorAll('img')).toHaveLength(1);
+    expect(header.querySelector('[class*="pieceName"]')?.previousElementSibling?.textContent).toBe(
+      '',
+    );
     expect(markup('', '/common/destiny2_content/icons/piece.jpg')).not.toContain('piece.jpg');
   });
 

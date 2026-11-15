@@ -128,7 +128,9 @@ it('keeps the perk icon and switches owner identity immediately during deferred 
       }),
     );
     expect(header().textContent).toContain('Shared perk · Toter Bote, Hartes Licht');
-    expect(header().querySelector('button')?.title).toContain(
+    expect(header().querySelector('button')?.hasAttribute('title')).toBe(false);
+    act(() => header().querySelector<HTMLButtonElement>('button')!.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       'Shared perk · Dead Messenger, Hard Light',
     );
   } finally {
