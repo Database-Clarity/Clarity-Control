@@ -4,6 +4,7 @@ import { refuseTaggedEntries } from './elementTags.js';
 import { z } from 'zod';
 import {
   inactivePublishableHash,
+  aliasGroupsPath,
   inactiveMovesPath,
   isMovedInactive,
   selectedInactiveMoves,
@@ -22,7 +23,8 @@ import {
   type Permissions,
   type Tooltip,
 } from '@clarity/core';
-import { catalog } from './catalog.js';
+import { aliasCatalog, catalog } from './catalog.js';
+import { publisherPinPath } from './elementTags.js';
 import { blobsPerQuery, RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
@@ -58,10 +60,10 @@ const roles: Permissions['users'][string]['role'][] = ['maintainer', 'editor'];
 /**
  * Subrequests (Workers FREE plan: 50 per request; GitHub.subrequestLimit keeps two spare):
  *   token 1 + catalog 3 (once) +
- *   write live, per attempt: head 1, permissions 1*, tooltip batches ceil((n+1)/500)* (the +1 is
- *     config/sandbox-pointers.json, read in the same batch), generator sandbox conflicts 1* only
- *     when a pick points at a tooltip, globals 1*, marker 1*,
- *     live head 1, live file 2 (contents + blob, it is over 1 MB), PUT 1 = 8 + batches
+ *   write live, per attempt: head 1, permissions 1*, metadata 1*, tooltip batches ceil(n/500)*,
+ *     generator sandbox conflicts 1* only when a pick points at a tooltip, globals 1*, marker 1*,
+ *     live head 1, live file 2 (contents + blob, it is over 1 MB), PUT 1 = 9 + batches.
+ *     With group config: pinned generator commit/catalog/conflicts add 5 per new data head.
  *   record, per attempt: head 1, permissions 1, live head 1, marker 1, commit 4 = 8
  * (* skipped when the data head did not move since the previous attempt). The total for a
  * first-try push without imports is 20 + batches, i.e. 26 for all ~2500 tooltips.
@@ -69,11 +71,12 @@ const roles: Permissions['users'][string]['role'][] = ['maintainer', 'editor'];
  * retry that no longer fits stops before touching GitHub, so a push can never run the
  * platform out of subrequests halfway through (the dangerous point is after the live write).
  */
-const writeLiveCost = (batches: number) => 9 + batches;
+const writeLiveCost = (batches: number) => 10 + batches;
 const recordCost = 8;
 
 interface Loaded {
   moves: InactiveMoves;
+  facts: LegacyCatalog;
   head: string;
   /** Generator aliases plus the sandbox picks at `head`: what this push's stubs and digests use. */
   aliases: Aliases;
@@ -90,23 +93,26 @@ async function loadAtHead(
   github: GitHub,
   head: string,
   config: Permissions,
-  canonicalHashes: number[],
+  hashes: number[],
   aliases: Aliases,
   facts: LegacyCatalog,
   expected: Record<string, string> | undefined,
 ): Promise<Loaded> {
-  const files = await github.files(
-    [
-      ...canonicalHashes.map((hash) => `tooltips/${hash}.json`),
-      sandboxPointersPath,
-      inactiveMovesPath,
-    ],
+  const [pointers, movesFile, groups] = await github.files(
+    [sandboxPointersPath, inactiveMovesPath, aliasGroupsPath, publisherPinPath],
     head,
   );
-  // Sandbox picks join the generator aliases before any digest or stub (core mergeSandboxPointers).
-  const picks = await pushSandboxPicks(github, aliases, files[canonicalHashes.length]);
+  // All configuration, including PIN, belongs to the same source head as the tooltips.
+  const generated = groups ? await aliasCatalog(github) : undefined;
+  if (generated) facts = generated.facts;
+  const picks = await pushSandboxPicks(github, aliases, pointers, groups, generated);
   aliases = picks.aliases;
-  const moves = storedInactiveMoves(files[canonicalHashes.length + 1]);
+  const moves = storedInactiveMoves(movesFile);
+  const canonicalHashes = [...new Set(hashes.map((hash) => resolveAlias(hash, aliases)))];
+  const files = await github.files(
+    canonicalHashes.map((hash) => `tooltips/${hash}.json`),
+    head,
+  );
   const tooltips: Tooltip[] = [];
   const snapshots: Record<string, Tooltip> = {};
   const exportedHashes: Record<string, string> = {};
@@ -121,10 +127,10 @@ async function loadAtHead(
     tooltips.push(tooltip);
     snapshots[`live/tooltips/${hash}.json`] = tooltip;
     exportedHashes[hash] = await inactivePublishableHash(tooltip, aliases, moves);
-    if (expected && expected[hash] !== exportedHashes[hash]) {
-      throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
-    }
   }
+  for (const hash of canonicalHashes)
+    if (expected && expected[hash] !== exportedHashes[hash])
+      throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
   const active = tooltips.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
   for (const tooltip of active) {
     if (!facts[tooltip.hash] && !tooltip.custom) {
@@ -146,7 +152,18 @@ async function loadAtHead(
   const pushed =
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
   const pickKeys = picks.keys;
-  return { head, aliases, moves, pickKeys, config, tooltips, snapshots, exportedHashes, pushed };
+  return {
+    head,
+    aliases,
+    facts,
+    moves,
+    pickKeys,
+    config,
+    tooltips,
+    snapshots,
+    exportedHashes,
+    pushed,
+  };
 }
 
 export async function pushLive(
@@ -179,11 +196,11 @@ export async function pushLive(
       const generated = await catalog(github.env, github);
       facts = generated.facts;
       aliases = generated.aliases;
-      canonicalHashes = [...new Set(hashes.map((hash) => resolveAlias(hash, generated.aliases)))];
     }
     if (loaded?.head !== head) {
-      loaded = await loadAtHead(github, head, config, canonicalHashes, aliases, facts, expected);
+      loaded = await loadAtHead(github, head, config, hashes, aliases, facts, expected);
     }
+    canonicalHashes = loaded.tooltips.map(({ hash }) => hash);
     const { tooltips, exportedHashes, pushed } = loaded;
     const changed = new Set(
       canonicalHashes.filter((hash) => pushed[hash] !== exportedHashes[hash]),
@@ -204,7 +221,7 @@ export async function pushLive(
       entries = exportWithInactiveMoves(
         tooltips,
         now,
-        facts,
+        loaded.facts,
         loaded.aliases,
         selectedInactiveMoves(loaded.moves, canonicalHashes, loaded.aliases),
       );
@@ -216,12 +233,26 @@ export async function pushLive(
     stampUploads(entries, changed, live.perks, now, user.login);
     let perks: Record<string, unknown>;
     try {
+      // Reuse the existing bounded alias cleanup for obsolete name stubs after ungroup or
+      // recanonicalization. Canonical live records remain protected by mergeLivePerks.
+      const aliasKeys = [
+        ...loaded.pickKeys,
+        ...Object.entries(live.perks)
+          .filter(
+            ([, entry]) =>
+              !!entry &&
+              typeof entry === 'object' &&
+              'aliasKind' in entry &&
+              entry.aliasKind === 'name',
+          )
+          .map(([hash]) => hash),
+      ];
       perks = applyInactiveLive(
         mergeLivePerks(
           live.perks,
           entries,
-          loaded.pickKeys.length
-            ? { keys: loaded.pickKeys, aliases: loaded.aliases, catalog: facts }
+          aliasKeys.length
+            ? { keys: aliasKeys, aliases: loaded.aliases, catalog: loaded.facts }
             : undefined,
         ),
         loaded.moves,

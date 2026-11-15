@@ -2,11 +2,16 @@ import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
 import { publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { loadAliases } from './catalog.js';
-import { pinMergesSandboxPointers, withSandboxPointers } from './sandboxPointers.js';
+import {
+  pinMergesSandboxPointers,
+  refuseUnsupportedAliasGroups,
+  withSandboxPointers,
+} from './sandboxPointers.js';
 import { pinAppliesInactiveMoves, storedInactiveMoves } from './inactiveMoves.js';
 import { z } from 'zod';
 import {
   classifyPublishIntent,
+  aliasGroupsPath,
   isTextlessDescription,
   permissionsSchema,
   publishBodySchema,
@@ -153,6 +158,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
         publisherPinPath,
         sandboxPointersPath,
         inactiveMovesPath,
+        aliasGroupsPath,
       ],
       [],
       switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
@@ -180,13 +186,18 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       throw new HttpError(400, 'Publish opId outside creation window');
     }
     if (checkedHead !== snapshot.head) {
-      generatorAliases ??= await loadAliases(github.env, github);
       // Sandbox picks join the aliases only for a publisher build that merges them itself, so the
       // reviewed digests match what that build records (an older build: a mismatch refuses).
       const pin = snapshot.files[1 + paths.length]?.value;
-      aliases = pinMergesSandboxPointers(pin)
-        ? await withSandboxPointers(github, generatorAliases, snapshot.files[2 + paths.length])
-        : generatorAliases;
+      const groups = snapshot.files[4 + paths.length];
+      refuseUnsupportedAliasGroups(groups, pin);
+      if (!groups) generatorAliases ??= await loadAliases(github.env, github);
+      aliases = await withSandboxPointers(
+        github,
+        generatorAliases ?? {},
+        pinMergesSandboxPointers(pin) ? snapshot.files[2 + paths.length] : null,
+        groups,
+      );
       const moves = storedInactiveMoves(snapshot.files[3 + paths.length]);
       if (
         Object.keys(

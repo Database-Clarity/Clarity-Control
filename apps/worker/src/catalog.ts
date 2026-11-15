@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { aliasesSchema, hashSchema, type Aliases, type LegacyCatalog } from '@clarity/core';
+import {
+  aliasesSchema,
+  hashSchema,
+  type Aliases,
+  type AliasItems,
+  type LegacyCatalog,
+} from '@clarity/core';
 import type { GitHub } from './github.js';
 import { HttpError, upstreamJson } from './http.js';
 import type { Env } from './types.js';
@@ -8,6 +14,12 @@ const itemSchema = z.object({
   hash: hashSchema,
   name: z.string(),
   categoryId: z.string(),
+  inGameDescription: z.string().optional(),
+  isEnhanced: z.boolean().optional(),
+  exotic: z.boolean().optional(),
+  plugCategoryHash: hashSchema.optional(),
+  baseHash: hashSchema.optional(),
+  dimBaseHash: hashSchema.optional(),
   itemHash: hashSchema.optional(),
   itemName: z.string().optional(),
   // Editor-only; accepted so the generator may emit it, never exported.
@@ -20,17 +32,21 @@ const categoriesSchema = z.array(
     legacyType: z.string().optional(),
   }),
 );
-export function source(env: Env): string {
+export function source(env: Env, revision = env.GENERATOR_BRANCH): string {
   return (
     `https://raw.githubusercontent.com/${encodeURIComponent(env.GENERATOR_OWNER)}/` +
-    `${encodeURIComponent(env.GENERATOR_REPO)}/${encodeURIComponent(env.GENERATOR_BRANCH)}/templates/v2`
+    `${encodeURIComponent(env.GENERATOR_REPO)}/${encodeURIComponent(revision)}/templates/v2`
   );
 }
 
 /** `budget` counts the subrequest against the operation's limit (see GitHub.spend). */
-export async function loadAliases(env: Env, budget?: Pick<GitHub, 'spend'>): Promise<Aliases> {
+export async function loadAliases(
+  env: Env,
+  budget?: Pick<GitHub, 'spend'>,
+  revision?: string,
+): Promise<Aliases> {
   budget?.spend();
-  return fetch(`${source(env)}/aliases.json`)
+  return fetch(`${source(env, revision)}/aliases.json`)
     .then(upstreamJson)
     .then((value) => aliasesSchema.parse(value));
 }
@@ -38,20 +54,26 @@ export async function loadAliases(env: Env, budget?: Pick<GitHub, 'spend'>): Pro
 export async function catalog(
   env: Env,
   budget?: Pick<GitHub, 'spend'>,
+  revision?: string,
 ): Promise<{
   facts: LegacyCatalog;
   aliases: Aliases;
+  items: AliasItems;
 }> {
   budget?.spend(2); // items and categories; aliases are counted by loadAliases
-  const root = source(env);
+  const root = source(env, revision);
   const [items, categories, aliases] = await Promise.all([
     fetch(`${root}/items.json`)
       .then(upstreamJson)
-      .then((value) => itemsSchema.parse(value)),
+      .then((value) =>
+        revision
+          ? z.record(z.string(), itemSchema.extend({ inGameDescription: z.string() })).parse(value)
+          : itemsSchema.parse(value),
+      ),
     fetch(`${root}/categories.json`)
       .then(upstreamJson)
       .then((value) => categoriesSchema.parse(value)),
-    loadAliases(env, budget),
+    loadAliases(env, budget, revision),
   ]);
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
   const facts: LegacyCatalog = {};
@@ -66,5 +88,32 @@ export async function catalog(
       ...(item.itemName === undefined ? {} : { itemName: item.itemName }),
     };
   }
-  return { facts, aliases };
+  return {
+    facts,
+    aliases,
+    items: Object.fromEntries(
+      Object.entries(items).map(([key, item]) => [
+        key,
+        {
+          ...item,
+          inGameDescription: item.inGameDescription ?? '',
+        },
+      ]),
+    ),
+  };
+}
+
+/** Pin ALL grouping inputs once, so a generator branch move cannot mix facts and aliases. */
+export async function aliasCatalog(github: GitHub) {
+  const env = github.env;
+  github.spend();
+  const { sha } = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) }).parse(
+    await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(env.GENERATOR_OWNER)}/${encodeURIComponent(env.GENERATOR_REPO)}/commits/${encodeURIComponent(env.GENERATOR_BRANCH)}`,
+      {
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Clarity-Editor' },
+      },
+    ).then(upstreamJson),
+  );
+  return { ...(await catalog(env, github, sha)), revision: sha };
 }

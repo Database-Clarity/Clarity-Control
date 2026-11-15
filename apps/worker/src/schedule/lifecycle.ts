@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   publishMonth,
+  aliasGroupsPath,
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
@@ -31,7 +32,11 @@ import { refuseUnlowerable } from '../elementTags.js';
 import { GitHub, RefRace, type RepoFile } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
-import { pinMergesSandboxPointers, withSandboxPointers } from '../sandboxPointers.js';
+import {
+  pinMergesSandboxPointers,
+  refuseUnsupportedAliasGroups,
+  withSandboxPointers,
+} from '../sandboxPointers.js';
 import { pinAppliesInactiveMoves, storedInactiveMoves } from '../inactiveMoves.js';
 import { inactiveMovesPath, isMovedInactive, selectedInactiveMoves } from '@clarity/core';
 import { refuseHeldSetBonuses } from '../setBonusHold.js';
@@ -148,7 +153,7 @@ export async function scheduleBatch(
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, scheduleRoles, {
       batchId,
-      extra: ['live/pushed.json', sandboxPointersPath, inactiveMovesPath],
+      extra: ['live/pushed.json', sandboxPointersPath, inactiveMovesPath, aliasGroupsPath],
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
     });
     if (!pinSchedulesBatches(state.pin))
@@ -177,6 +182,15 @@ export async function scheduleBatch(
       if (!check.ok) throw new HttpError(422, check.reason);
     }
     const operation = await scheduledOperation(github, state, batch);
+    if (!state.extra[3]) generatorAliases ??= await loadAliases(github.env, github);
+    refuseUnsupportedAliasGroups(state.extra[3], state.pin);
+    const saveAliases = await withSandboxPointers(
+      github,
+      generatorAliases ?? {},
+      state.extra[1],
+      state.extra[3],
+    );
+    refuseAliases(hashes, saveAliases);
     // ONE read for every member, its current copy, its published snapshot, and any conflict file.
     const files = await github.files(
       hashes.flatMap((hash) => [
@@ -240,12 +254,11 @@ export async function scheduleBatch(
     if (unpublished.length) refuseMembers(unpublishedMessage, unpublished);
     // The manual-publish checks (publish.ts) on what would publish: textless, imports and
     // associations (base/enhanced), element tags, `#{d}`, and `<enhanced/>` the PIN lowers, and held set bonuses.
-    generatorAliases ??= await loadAliases(github.env, github);
-    const saveAliases = await withSandboxPointers(github, generatorAliases, state.extra[1]);
     // A member the generator has since aliased would export its target, not the member: refuse
     // it as /save does, before any check reads documents by canonical hash.
     refuseAliases(hashes, saveAliases);
-    const aliases = pinMergesSandboxPointers(state.pin) ? saveAliases : generatorAliases;
+    const aliases =
+      state.extra[3] || pinMergesSandboxPointers(state.pin) ? saveAliases : generatorAliases!;
     const moves = storedInactiveMoves(state.extra[2]);
     if (
       Object.keys(selectedInactiveMoves(moves, hashes, aliases)).length &&

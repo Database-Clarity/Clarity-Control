@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   type Aliases,
+  aliasGroupsPath,
   languages,
   contentHash,
   carryNumberTranslations,
@@ -76,7 +77,6 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
     const changed: string[] = [];
     const carried: string[] = [];
     const kept: number[] = [];
-    const generatorAliases = (aliases ??= await loadAliases(github.env, github));
     // One batched read for all current copies: flat subrequests however many tooltips change.
     // While the publisher is the live exporter, a change carrying element-tagged text, `#{name}`,
     // or `<enhanced/>` also reads the publisher's PIN in the same call: only a build declaring
@@ -88,11 +88,20 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
         ...input.changes.map(({ hash }) => `tooltips/${hash}.json`),
         ...(readsPin ? [publisherPinPath] : []),
         sandboxPointersPath,
+        aliasGroupsPath,
       ],
       headCommit,
     );
+    const generatorAliases = current.at(-1)
+      ? {}
+      : (aliases ??= await loadAliases(github.env, github));
     // A picked shared sandbox perk is an alias of its target, exactly as push and publish see it.
-    const saveAliases = await withSandboxPointers(github, generatorAliases, current.at(-1));
+    const saveAliases = await withSandboxPointers(
+      github,
+      generatorAliases,
+      current.at(-2),
+      current.at(-1),
+    );
     let pin: { value: unknown } | undefined = readsPin
       ? { value: current[input.changes.length]?.value }
       : undefined;

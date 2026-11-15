@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   hashSchema,
+  aliasGroupsPath,
   merge3,
   reconcileNumberMap,
   sandboxPointersPath,
@@ -340,7 +341,7 @@ export async function saveBatch(
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, [...scheduleRoles, 'translator'], {
       batchId,
-      extra: [sandboxPointersPath],
+      extra: [sandboxPointersPath, aliasGroupsPath],
       trees: [{ path: batchDir(batchId), depth: 2 }],
     });
     const batch = requireBatch(state, batchId);
@@ -364,10 +365,10 @@ export async function saveBatch(
     }
     // Every change must name a canonical tooltip, as /save checks (a member the generator has
     // since aliased is refused too: publishing it would export its target instead).
-    aliases ??= await loadAliases(github.env, github);
+    if (!state.extra[1]) aliases ??= await loadAliases(github.env, github);
     refuseAliases(
       input.changes.map(({ hash }) => hash),
-      await withSandboxPointers(github, aliases, state.extra[0]),
+      await withSandboxPointers(github, aliases ?? {}, state.extra[0], state.extra[1]),
     );
     if (adds.length) {
       // Q2 needs every batch's members: a names-only listing of them all, at the SAME head (a
@@ -586,6 +587,7 @@ export async function saveBatch(
 async function draftState(github: GitHub, user: Identity, batchId: string, revision: number) {
   const state = await readState(github, user, scheduleRoles, {
     batchId,
+    extra: [sandboxPointersPath, aliasGroupsPath],
     trees: [{ path: batchDir(batchId), depth: 2 }],
   });
   const batch = requireBatch(state, batchId);
@@ -611,6 +613,16 @@ export async function rebaseBatch(
     const { state, batch, own, events } = await draftState(github, user, batchId, input.revision);
     if (!own.includes(input.hash))
       throw new HttpError(404, `Tooltip ${input.hash} is not in this batch`);
+    if (state.extra[0] || state.extra[1])
+      refuseAliases(
+        [input.hash],
+        await withSandboxPointers(
+          github,
+          await loadAliases(github.env, github),
+          state.extra[0],
+          state.extra[1],
+        ),
+      );
     const [memberRaw, currentRaw] = await github.files(
       [schedulePaths.member(batchId, input.hash), tooltipPath(input.hash)],
       state.head,
