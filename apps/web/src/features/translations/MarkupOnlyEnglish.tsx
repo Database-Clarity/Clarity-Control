@@ -182,7 +182,7 @@ export function MarkupOnlyEnglish({
         <ReadingTooltip text={current} hash={hash} />
       </div>
       {added.length > 0 && (
-        <p className={styles.tagHere}>
+        <div className={styles.tagHere}>
           <TitleAnchor
             part={{
               title: [
@@ -205,7 +205,7 @@ export function MarkupOnlyEnglish({
               {note}
             </span>
           )}
-        </p>
+        </div>
       )}
     </>
   );
