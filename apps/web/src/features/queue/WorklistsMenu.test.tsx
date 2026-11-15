@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RemoveFromWorklist, WorklistPicker, WorklistsManager } from './WorklistsMenu';
 import { useSavedWorklists } from './worklists';
+import { applyWorklistOperation } from '../../../../../packages/core/src/worklists';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { usePreviewReviewStore } from '../../stores/previewReview';
@@ -20,20 +21,46 @@ let host: HTMLDivElement;
 beforeEach(async () => {
   vi.useFakeTimers();
   api.mockReset();
+  const rows = new Map<string, { name: string; hashes: number[] }>();
+  api.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === '/worklists')
+      return Response.json({
+        lists: [...rows].map(([id, row]) => ({
+          id,
+          name: row.name,
+          count: row.hashes.length,
+          revision: 'a'.repeat(32),
+          updatedAt: 1,
+        })),
+      });
+    const id = path.split('/').at(-1)!;
+    if (init?.method === 'PUT') {
+      const { op } = JSON.parse(String(init.body));
+      const next = applyWorklistOperation(rows.get(id) ?? null, op);
+      if (next) rows.set(id, next);
+      else rows.delete(id);
+    }
+    return Response.json({
+      worklist: rows.has(id) ? { id, ...rows.get(id)! } : null,
+      revision: rows.has(id) ? 'a'.repeat(32) : null,
+    });
+  });
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
   });
-  useAuthStore.setState({ user: { id: 1, role: 'editor', login: 'one' } as User });
+  useAuthStore.setState({
+    user: { id: 1, role: 'editor', login: 'one' } as User,
+    loading: false,
+    token: null,
+  });
   useSavedWorklists.setState({
     scope: '1',
+    saving: [],
+    failed: [],
     lists: [],
-    pending: false,
-    base: [],
-    ops: [],
-    recovery: [],
-    blocked: null,
+
     loaded: [],
     index: {},
     notice: '',
@@ -77,28 +104,30 @@ function submit() {
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
   );
 }
-it('creates inline, renames through Enter submission, cancels deletion, and confirms deletion', () => {
+it('creates inline, renames through Enter submission, cancels deletion, and confirms deletion', async () => {
   act(() => button('New worklist…').click());
   type('New worklist name', 'Weekend');
-  submit();
+  await act(async () => submit());
   expect(useSavedWorklists.getState().lists[0]!.name).toBe('Weekend');
   act(() => button('Rename').click());
   type('Rename worklist', 'Renamed');
-  submit();
+  await act(async () => submit());
   expect(useSavedWorklists.getState().lists[0]!.name).toBe('Renamed');
   act(() => button('Delete…').click());
   act(() => button('Cancel').click());
   expect(useSavedWorklists.getState().lists).toHaveLength(1);
   act(() => button('Delete…').click());
-  act(() => button('Delete').click());
+  await act(async () => button('Delete').click());
   expect(useSavedWorklists.getState().lists).toHaveLength(0);
 });
-it('cancels a new name and exposes empty-list opening as disabled', () => {
+it('cancels a new name and exposes empty-list opening as disabled', async () => {
   act(() => button('New worklist…').click());
   type('New worklist name', 'Discarded');
   act(() => button('Cancel').click());
   expect(useSavedWorklists.getState().lists).toHaveLength(0);
-  act(() => useSavedWorklists.getState().add(null, 'Empty', []));
+  await act(async () => {
+    await useSavedWorklists.getState().add(null, 'Empty', []);
+  });
   expect(button('Open').disabled).toBe(true);
 });
 
@@ -106,7 +135,6 @@ it('does not add entries when the picker is cancelled during a lazy list read', 
   const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
   act(() =>
     useSavedWorklists.setState({
-      base: [{ id, name: 'Existing', items: [] }],
       lists: [{ id, name: 'Existing', items: [] }],
       loaded: [],
       index: { [id]: { id, name: 'Existing', count: 1, updatedAt: 1, revision: 'a'.repeat(32) } },
@@ -135,7 +163,7 @@ it('does not add entries when the picker is cancelled during a lazy list read', 
     ),
   );
   expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1]);
-  expect(useSavedWorklists.getState().ops).toEqual([]);
+  expect(useSavedWorklists.getState().saving).toEqual([]);
   expect(close).not.toHaveBeenCalled();
 });
 
@@ -143,7 +171,6 @@ it('removes an unavailable entry after an index-only cache refresh without dropp
   const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
   act(() =>
     useSavedWorklists.setState({
-      base: [{ id, name: 'Existing', items: [] }],
       lists: [{ id, name: 'Existing', items: [] }],
       loaded: [],
       index: { [id]: { id, name: 'Existing', count: 2, updatedAt: 1, revision: 'a'.repeat(32) } },
@@ -152,10 +179,20 @@ it('removes an unavailable entry after an index-only cache refresh without dropp
   api.mockResolvedValueOnce(
     Response.json({ worklist: { id, name: 'Existing', hashes: [1, 2] }, revision: 'a'.repeat(32) }),
   );
+  api.mockImplementation(async (path: string, init?: RequestInit) =>
+    path === '/worklists'
+      ? Response.json({
+          lists: [{ id, name: 'Existing', count: 1, updatedAt: 1, revision: 'a'.repeat(32) }],
+        })
+      : Response.json({
+          worklist: { id, name: 'Existing', hashes: init?.method === 'PUT' ? [2] : [1, 2] },
+          revision: 'a'.repeat(32),
+        }),
+  );
   await act(async () => root.render(<RemoveFromWorklist id={id} hash={1} />));
   await act(async () => button('Remove').click());
   expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([2]);
-  expect(useSavedWorklists.getState().ops.map((op) => op.id)).toEqual([id]);
+  expect(useSavedWorklists.getState().saving).toEqual([]);
 });
 
 it.each(['custom', 'drafts'])(
@@ -182,7 +219,6 @@ it.each(['custom', 'drafts'])(
     act(() => {
       useDataStore.setState({ data });
       useSavedWorklists.setState({
-        base: [{ id, name: 'Other list', items: [{ hash: 2, name: 'Two' }] }],
         lists: [{ id, name: 'Other list', items: [{ hash: 2, name: 'Two' }] }],
         loaded: [id],
       });
@@ -220,3 +256,47 @@ it.each(['custom', 'drafts'])(
     expect(close).not.toHaveBeenCalled();
   },
 );
+
+it('shows Saving on the affected list, keeps its saved state on failure, and retries once on click', async () => {
+  await act(async () => {
+    await useSavedWorklists.getState().add(null, 'Weekend', []);
+  });
+  const id = useSavedWorklists.getState().lists[0]!.id;
+  let reject!: (reason: Error) => void;
+  api.mockImplementationOnce(
+    () =>
+      new Promise<Response>((_, fail) => {
+        reject = fail;
+      }),
+  );
+  act(() => button('Rename').click());
+  type('Rename worklist', 'Changed');
+  await act(async () => submit());
+  expect(host.querySelector('summary')!.textContent).toContain('Saving…');
+  expect(useSavedWorklists.getState().lists[0]!.name).toBe('Weekend');
+  await act(async () => reject(new Error('offline')));
+  expect(host.textContent).toContain("Couldn't save —");
+  expect(host.querySelector('summary')!.textContent).not.toContain('Saving…');
+  const writes = api.mock.calls.filter(([, init]) => init?.method === 'PUT').length;
+  await act(async () => button('Sync').click());
+  expect(api.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(writes);
+  await act(async () => button('Retry').click());
+  expect(useSavedWorklists.getState().lists.find((list) => list.id === id)!.name).toBe('Changed');
+  expect(api.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(writes + 1);
+  expect(host.textContent).not.toContain("Couldn't save");
+});
+it('keeps a failed create retryable in the picker without adding an optimistic list', async () => {
+  const close = vi.fn();
+  await act(async () =>
+    root.render(<WorklistPicker items={[{ hash: 1, name: 'One' }]} close={close} />),
+  );
+  type('New worklist name', 'New');
+  api.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => submit());
+  expect(useSavedWorklists.getState().lists).toEqual([]);
+  expect(close).not.toHaveBeenCalled();
+  expect(host.textContent).toContain("Couldn't save —");
+  await act(async () => button('Retry').click());
+  expect(useSavedWorklists.getState().lists[0]!.name).toBe('New');
+  expect(useSavedWorklists.getState().lists[0]!.items[0]!.hash).toBe(1);
+});

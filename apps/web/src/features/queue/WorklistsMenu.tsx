@@ -5,19 +5,12 @@ import { Popover } from '../../ui/Popover';
 import { useDataStore } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
 import { usePreviewReviewStore } from '../../stores/previewReview';
-import {
-  loadWorklist,
-  syncWorklists,
-  useSavedWorklists,
-  pendingSessionRecovery,
-  copyPendingWorklist,
-  discardPendingWorklist,
-} from './worklists';
+import { loadWorklist, syncWorklists, useSavedWorklists, retryWorklist } from './worklists';
 import { draftItems, savedItems, worklistAvailable } from './savedSources';
 import { startQueue } from './start';
 import { queueSources } from './sources';
 import type { QueueItem } from './model';
-import type { SavedWorklist, WorklistEntry } from '../../../../../packages/core/src/worklists';
+import type { WorklistEntry } from '../../../../../packages/core/src/worklists';
 import styles from './WorklistsMenu.module.scss';
 
 export function WorklistsMenu() {
@@ -54,9 +47,11 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
   const index = useSavedWorklists((state) => state.index);
   const loaded = useSavedWorklists((state) => state.loaded);
   const add = useSavedWorklists((state) => state.add);
+  const saving = useSavedWorklists((state) => state.saving);
   const [creating, setCreating] = useState(!lists.length);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const request = useRef(0);
   useEffect(
     () => () => {
@@ -65,15 +60,20 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
     [],
   );
   const save = async (id: string | null) => {
+    if (busy) return;
+    setBusy(true);
     const attempt = ++request.current;
     try {
       if (id) await loadWorklist(id);
       if (attempt !== request.current) return;
-      add(id, name, items);
-      close();
+      if (await add(id, name, items)) {
+        if (attempt === request.current) close();
+      }
     } catch (error) {
       if (attempt === request.current)
         setError(error instanceof Error ? error.message : 'Could not add entries.');
+    } finally {
+      if (attempt === request.current) setBusy(false);
     }
   };
   return (
@@ -86,9 +86,13 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
           key={list.id}
           type="button"
           className={styles.choice}
+          disabled={busy}
           onClick={() => void save(list.id)}
         >
-          <span>{list.name}</span>
+          <span>
+            {list.name}
+            {saving.some((save) => save.id === list.id) ? ' · Saving…' : ''}
+          </span>
           <span>{loaded.includes(list.id) ? list.items.length : (index[list.id]?.count ?? 0)}</span>
         </button>
       ))}
@@ -112,11 +116,12 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-          <button type="submit" disabled={!name.trim()}>
-            Create
+          <button type="submit" disabled={busy || !name.trim()}>
+            {busy ? 'Saving…' : 'Create'}
           </button>
         </form>
       )}
+      <WorklistSaveStatus />
       {error && <p role="alert">{error}</p>}
     </div>
   );
@@ -124,26 +129,7 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
 export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: boolean): void }) {
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
-  const { lists, index, loaded, notice, pending, change, scope, blocked, recovery } =
-    useSavedWorklists();
-  const [sessions, setSessions] = useState<{ scope: string; rows: SavedWorklist[] }>({
-    scope,
-    rows: [],
-  });
-  const sessionRows = sessions.scope === scope ? sessions.rows : [];
-  const [discard, setDiscard] = useState(false);
-  useEffect(() => {
-    setSessions({ scope, rows: pendingSessionRecovery() });
-    setDiscard(false);
-  }, [scope]);
-  const actOnRecovery = (action: () => void) => {
-    try {
-      action();
-      setError('');
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-    }
-  };
+  const { lists, index, loaded, notice, saving, change } = useSavedWorklists();
   const [drafts, setDrafts] = useState<QueueItem[] | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
@@ -237,6 +223,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
           <summary>
             {list.name} ·{' '}
             {loaded.includes(list.id) ? list.items.length : (index[list.id]?.count ?? 0)}
+            {saving.some((save) => save.id === list.id) && ' · Saving…'}
           </summary>
           <div className={styles.row}>
             <button
@@ -331,78 +318,14 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       {user && (
         <div className={styles.row}>
           <span role="status">
-            {notice || (pending ? 'Saving changes…' : 'Saved worklists sync to your account.')}
+            {notice || (saving.length ? 'Saving…' : 'Saved worklists sync to your account.')}
           </span>
-          <button type="button" onClick={() => void syncWorklists(true)}>
+          <button type="button" onClick={() => void syncWorklists()}>
             Sync
           </button>
         </div>
       )}
-      {blocked && (
-        <section className={styles.content} aria-label="Pending work recovery">
-          <p>
-            Pending work is kept. Copy it into a new list, or discard this list’s pending changes so
-            other saves can continue.
-          </p>
-          {recovery.find((row) => row.id === blocked) && (
-            <button
-              type="button"
-              onClick={() =>
-                actOnRecovery(() =>
-                  copyPendingWorklist(
-                    recovery.find((row) => row.id === blocked)!,
-                    true,
-                    scope,
-                  ),
-                )
-              }
-            >
-              Copy to new list
-            </button>
-          )}
-          {!discard ? (
-            <button type="button" onClick={() => setDiscard(true)}>
-              Discard changes…
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() =>
-                  actOnRecovery(() => {
-                    discardPendingWorklist(blocked, scope);
-                    setDiscard(false);
-                  })
-                }
-              >
-                Confirm discard
-              </button>
-              <button type="button" onClick={() => setDiscard(false)}>
-                Cancel
-              </button>
-            </>
-          )}
-        </section>
-      )}
-      {sessionRows.length > 0 && (
-        <details>
-          <summary>Pending work from other sessions ({sessionRows.length})</summary>
-          <p>Copying creates a new list and leaves the other session unchanged.</p>
-          {sessionRows.map((row, index) => (
-            <div key={row.id + index} className={styles.row}>
-              <span className={styles.recoveryName}>
-                {row.name} · {row.items.length}
-              </span>
-              <button
-                type="button"
-                onClick={() => actOnRecovery(() => copyPendingWorklist(row, false, scope))}
-              >
-                Copy recovered work
-              </button>
-            </div>
-          ))}
-        </details>
-      )}
+      <WorklistSaveStatus />
       {error && <p role="alert">{error}</p>}
     </div>
   );
@@ -500,14 +423,14 @@ export function RemoveFromWorklist({
       await loadWorklist(id);
       const state = useSavedWorklists.getState();
       if (state.scope !== scope) throw new Error('The account changed.');
-      state.change(
+      const saved = await state.change(
         state.lists.map((list) =>
           list.id === id
             ? { ...list, items: list.items.filter((item) => item.hash !== hash) }
             : list,
         ),
       );
-      onRemoved?.();
+      if (saved && useSavedWorklists.getState().scope === scope) onRemoved?.();
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not remove this entry.');
     } finally {
@@ -522,9 +445,36 @@ export function RemoveFromWorklist({
         disabled={busy}
         onClick={() => void remove()}
       >
-        {busy ? 'Removing…' : label}
+        {busy ? 'Saving…' : label}
       </button>
+      <WorklistSaveStatus />
       {error && <span role="alert">{error}</span>}
+    </>
+  );
+}
+
+/** Failed operations live only in this tab, and run again only on this button. */
+function WorklistSaveStatus() {
+  const failed = useSavedWorklists((state) => state.failed);
+  const saving = useSavedWorklists((state) => state.saving);
+  const lists = useSavedWorklists((state) => state.lists);
+  return (
+    <>
+      {saving
+        .filter((save) => !lists.some((row) => row.id === save.id))
+        .map((save, index) => (
+          <p role="status" key={index}>
+            {save.name}: Saving…
+          </p>
+        ))}
+      {failed.map((save, index) => (
+        <p role="alert" key={index}>
+          {save.name}: Couldn't save —{' '}
+          <button type="button" onClick={() => void retryWorklist(save)}>
+            Retry
+          </button>
+        </p>
+      ))}
     </>
   );
 }

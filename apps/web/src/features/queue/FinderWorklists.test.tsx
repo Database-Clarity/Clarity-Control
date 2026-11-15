@@ -13,6 +13,8 @@ import { resetWorkQueues, useWorkQueues } from './store';
 import { startQueue } from './start';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+const api = vi.hoisted(() => vi.fn());
+vi.mock('../../services/apiAuth', () => ({ apiRequest: api }));
 const data: EditorData = {
   items: Object.fromEntries(
     [11, 12, 13].map((hash) => [
@@ -33,6 +35,28 @@ const data: EditorData = {
 let host: HTMLDivElement, root: Root;
 beforeEach(async () => {
   vi.useFakeTimers();
+  let row: { id: string; name: string; hashes: number[] } | null = null;
+  api.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === '/worklists')
+      return Response.json({
+        lists: row
+          ? [
+              {
+                id: row.id,
+                name: row.name,
+                count: row.hashes.length,
+                revision: 'a'.repeat(32),
+                updatedAt: 1,
+              },
+            ]
+          : [],
+      });
+    if (init?.method === 'PUT') {
+      const { op } = JSON.parse(String(init.body));
+      row = { id: path.split('/').at(-1)!, name: op.name, hashes: op.hashes };
+    }
+    return Response.json({ worklist: row, revision: row ? 'a'.repeat(32) : null });
+  });
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
@@ -45,14 +69,12 @@ beforeEach(async () => {
   });
   useSavedWorklists.setState({
     scope: '1',
+    saving: [],
+    failed: [],
     lists: [],
-    base: [],
-    ops: [],
-    recovery: [],
-    blocked: null,
+
     index: {},
     loaded: [],
-    pending: false,
   });
   setEditorDraftFetch(async () => Response.json({ schemaVersion: 1, hashes: [12] }));
   host = document.createElement('div');

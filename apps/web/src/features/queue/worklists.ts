@@ -5,7 +5,6 @@ import {
   worklistOperationSchema,
   worklistIndexEntrySchema,
   worklistsSchema,
-  worklistSchema,
   applyWorklistOperation,
   type SavedWorklist,
   type WorklistEntry,
@@ -14,60 +13,35 @@ import {
 import { apiRequest } from '../../services/apiAuth';
 import { useAuthStore } from '../../stores/auth';
 import { sessionToken } from '../../services/session';
+
 const replySchema = z.object({
   worklist: storedWorklistSchema.extend({ id: z.string().uuid() }).nullable(),
   revision: z.string().nullable(),
 });
 const indexSchema = z.object({ lists: z.array(worklistIndexEntrySchema).max(50) });
-const pendingSchema = z.array(z.object({ id: z.string().uuid(), op: worklistOperationSchema }));
-type Pending = z.infer<typeof pendingSchema>;
 type Meta = z.infer<typeof worklistIndexEntrySchema>;
+interface Save {
+  id: string;
+  name: string;
+  op: WorklistOperation;
+}
 interface State {
   scope: string;
-  base: SavedWorklist[];
   lists: SavedWorklist[];
-  ops: Pending;
-  recovery: SavedWorklist[];
-  blocked: string | null;
   loaded: string[];
   index: Record<string, Meta>;
-  pending: boolean;
+  saving: Save[];
+  failed: Save[];
   notice: string;
-  storageFailed: boolean;
-  change(lists: SavedWorklist[]): void;
-  add(id: string | null, name: string, items: WorklistEntry[]): void;
+  change(lists: SavedWorklist[]): Promise<boolean>;
+  add(id: string | null, name: string, items: WorklistEntry[]): Promise<boolean>;
 }
-let epoch = 0;
-let flight = false;
-let refreshAfterFlight = false;
-let sendAfterFlight = false;
-const signals = new Set<string>();
-let ready = false;
-const rowSequences = new Map<string, { sent: number; applied: number }>();
-// GETs and mutations share send order so an older GET cannot undo an acknowledged write.
-function sentSequence(id: string) {
-  const order = rowSequences.get(id) ?? { sent: 0, applied: 0 };
-  rowSequences.set(id, order);
-  return ++order.sent;
-}
-let timer: ReturnType<typeof setTimeout> | undefined;
-// A fresh document owns a fresh queue; opener/duplicated session storage is not identity.
-const tab = crypto.randomUUID();
+const empty = () => ({ lists: [], loaded: [], index: {}, saving: [], failed: [], notice: '' });
+let generation = 0;
+let controller = new AbortController();
+let chain: Promise<unknown> = Promise.resolve();
 const cacheKey = (scope: string) => `clarity-worklists:v3:${scope}`;
-const opsKey = (scope: string) => `${cacheKey(scope)}:pending:${tab}`;
-const signalKey = (scope: string) => `${cacheKey(scope)}:invalidate`;
-const empty = () => ({
-  base: [],
-  lists: [],
-  ops: [],
-  recovery: [],
-  blocked: null,
-  loaded: [],
-  index: {},
-  pending: false,
-  storageFailed: false,
-  notice: '',
-});
+const entryPath = (id: string) => `/worklists/${encodeURIComponent(id)}`;
 function accountReady() {
   const auth = useAuthStore.getState();
   if (auth.loading || !auth.user || String(auth.user.id) !== useSavedWorklists.getState().scope)
@@ -78,149 +52,39 @@ function accountReady() {
     return false;
   }
 }
-function project(base: SavedWorklist[], ops: Pending): SavedWorklist[] {
-  const rows = new Map(base.map((row) => [row.id, row]));
-  for (const { id, op } of ops) {
-    const previous = rows.get(id);
-    const next = applyWorklistOperation(
-      previous ? { name: previous.name, hashes: previous.items.map((item) => item.hash) } : null,
-      op,
-    );
-    if (!next) rows.delete(id);
-    else
-      rows.set(id, {
-        id,
-        name: next.name,
-        items: next.hashes.map((hash) => ({
-          hash,
-          name: previous?.items.find((item) => item.hash === hash)?.name ?? '',
-        })),
-      });
-  }
-  return [...rows.values()];
+function assertCurrent(started: number) {
+  if (started !== generation || !accountReady()) throw new Error('The account changed.');
 }
-function render() {
-  const state = useSavedWorklists.getState();
-  useSavedWorklists.setState({
-    lists: project(state.base, state.ops),
-    pending: state.ops.length > 0,
-    loaded: [
-      ...new Set([
-        ...state.loaded,
-        ...state.ops.filter((item) => item.op.type === 'create').map((item) => item.id),
-      ]),
-    ],
+/** All reads and writes use this chain. Resetting an account aborts its entire chain. */
+function serial<T>(work: (started: number) => Promise<T>): Promise<T> {
+  const started = generation;
+  const result = chain.then(() => {
+    assertCurrent(started);
+    return work(started);
   });
+  chain = result.catch(() => {});
+  return result;
 }
-function keepOps() {
-  const state = useSavedWorklists.getState();
-  try {
-    localStorage.setItem(
-      opsKey(state.scope),
-      JSON.stringify({ ops: state.ops, recovery: state.recovery }),
-    );
-    useSavedWorklists.setState({ storageFailed: false });
-  } catch {
-    useSavedWorklists.setState({
-      storageFailed: true,
-      notice: 'Keep this tab open: browser storage could not keep your pending operations.',
-    });
-  }
+async function request(path: string, started: number, init: RequestInit = {}) {
+  assertCurrent(started);
+  const response = await apiRequest(path, { ...init, signal: controller.signal });
+  assertCurrent(started);
+  return response;
 }
 function keepCache() {
-  const { scope, base, loaded, index } = useSavedWorklists.getState();
+  const { scope, lists, loaded, index } = useSavedWorklists.getState();
   try {
-    localStorage.setItem(cacheKey(scope), JSON.stringify({ base, loaded, index }));
+    localStorage.setItem(cacheKey(scope), JSON.stringify({ base: lists, loaded, index }));
   } catch {
-    /* Pending operations have separate protection. */
+    // A display cache is optional; saves only succeed with the server's acknowledgement.
   }
 }
-function schedule(refresh = false) {
-  clearTimeout(timer);
-  timer = setTimeout(() => void syncWorklists(refresh), 600);
-}
-function enqueue(id: string, op: WorklistOperation) {
+function accept(id: string, reply: z.infer<typeof replySchema>) {
   const state = useSavedWorklists.getState();
-  if (state.scope === 'anonymous') throw new Error('Sign in to save worklists.');
-  const ops = [...state.ops, { id, op }];
-  if (!worklistsSchema.safeParse(project(state.base, ops)).success)
-    throw new Error(
-      'Worklists allow up to 50 lists and 16 KB of hashes per list, and names of 1–80 characters.',
-    );
-  const visible = project(state.base, ops).find((row) => row.id === id);
-  const recovery = visible
-    ? [...state.recovery.filter((row) => row.id !== id), visible]
-    : state.recovery;
-  useSavedWorklists.setState({ ops, recovery, notice: 'Saving changes…' });
-  render();
-  keepOps();
-  schedule();
-}
-export const useSavedWorklists = create<State>(() => ({
-  scope: 'anonymous',
-  ...empty(),
-  change(next) {
-    const current = useSavedWorklists.getState().lists;
-    const deleted = current.find((row) => !next.some((item) => item.id === row.id));
-    if (deleted) {
-      enqueue(deleted.id, { type: 'delete' });
-      return;
-    }
-    for (const row of next) {
-      const previous = current.find((item) => item.id === row.id);
-      if (!previous) {
-        enqueue(row.id, {
-          type: 'create',
-          name: row.name,
-          hashes: row.items.map((item) => item.hash),
-        });
-        return;
-      }
-      if (row.name !== previous.name) {
-        enqueue(row.id, { type: 'rename', name: row.name });
-        return;
-      }
-      const removed = previous.items
-        .filter((item) => !row.items.some((next) => next.hash === item.hash))
-        .map((item) => item.hash);
-      if (removed.length) {
-        enqueue(row.id, { type: 'remove', hashes: removed });
-        return;
-      }
-      const added = row.items
-        .filter((item) => !previous.items.some((old) => old.hash === item.hash))
-        .map((item) => item.hash);
-      if (added.length) {
-        enqueue(row.id, { type: 'add', hashes: added });
-        return;
-      }
-      const moved = row.items.findIndex((item, index) => item.hash !== previous.items[index]?.hash);
-      if (moved >= 0) {
-        enqueue(row.id, { type: 'move', hash: row.items[moved]!.hash, index: moved });
-        return;
-      }
-    }
-  },
-  add(id, name, items) {
-    const row = useSavedWorklists.getState().lists.find((row) => row.id === id);
-    if (id && !row) throw new Error('This worklist was deleted. Choose another worklist.');
-    const hashes = [...new Set(items.map((item) => item.hash))];
-    enqueue(
-      id ?? crypto.randomUUID(),
-      row ? { type: 'add', hashes } : { type: 'create', name: name.trim(), hashes },
-    );
-  },
-}));
-const entryPath = (id: string) => `/worklists/${encodeURIComponent(id)}`;
-function accept(id: string, reply: z.infer<typeof replySchema>, sequence: number) {
-  const order = rowSequences.get(id)!;
-  if (sequence <= order.applied) return false;
-  order.applied = sequence;
-  const state = useSavedWorklists.getState();
-  const base = state.base.filter((row) => row.id !== id);
+  const lists = state.lists.filter((row) => row.id !== id);
   const index = { ...state.index };
   if (reply.worklist && reply.revision) {
-    base.push({
+    lists.push({
       id,
       name: reply.worklist.name,
       items: reply.worklist.hashes.map((hash) => ({ hash, name: '' })),
@@ -233,214 +97,181 @@ function accept(id: string, reply: z.infer<typeof replySchema>, sequence: number
       revision: reply.revision,
     };
   } else delete index[id];
-  useSavedWorklists.setState({ base, index, loaded: [...new Set([...state.loaded, id])] });
-  render();
-  return true;
+  useSavedWorklists.setState({ lists, index, loaded: [...new Set([...state.loaded, id])] });
+  keepCache();
 }
-async function readRow(id: string, started: number) {
-  const sequence = sentSequence(id);
-  const response = await apiRequest(entryPath(id));
+async function readRow(id: string, started: number, apply = true) {
+  const response = await request(entryPath(id), started);
   if (!response.ok) throw new Error('Could not load this worklist. Retry when connected.');
   const reply = replySchema.parse(await response.json());
-  if (started !== epoch || !accountReady()) throw new Error('The account changed.');
-  accept(id, reply, sequence);
+  assertCurrent(started);
+  if (apply) accept(id, reply);
   return reply;
 }
-export async function loadWorklist(id: string, authoritative = false): Promise<SavedWorklist> {
-  const state = useSavedWorklists.getState();
-  if (!state.lists.some((row) => row.id === id)) throw new Error('The saved worklist was deleted.');
-  const localCreate =
-    state.ops.some((item) => item.id === id && item.op.type === 'create') && !state.index[id];
-  if (!state.loaded.includes(id) || (authoritative && !localCreate)) {
-    if (!accountReady()) throw new Error('Wait for this account to finish signing in.');
-    await readRow(id, epoch);
-    keepCache();
-  }
-  const row = useSavedWorklists.getState().lists.find((row) => row.id === id);
-  if (!row)
-    throw new Error('This worklist was deleted on another device. Sync to update the index.');
-  return row;
-}
 async function readIndex(started: number) {
-  const before = useSavedWorklists.getState().index;
-  const response = await apiRequest('/worklists');
+  const response = await request('/worklists', started);
   if (!response.ok) throw new Error('Could not read the worklist index.');
   const remote = indexSchema.parse(await response.json());
-  if (started !== epoch || !accountReady()) return;
+  assertCurrent(started);
   const state = useSavedWorklists.getState();
   const index = Object.fromEntries(remote.lists.map((meta) => [meta.id, meta]));
-  for (const [id, meta] of Object.entries(state.index))
-    if (meta.revision !== before[id]?.revision) index[id] = meta;
   const loaded = state.loaded.filter((id) => index[id]?.revision === state.index[id]?.revision);
-  const base = Object.values(index).map(
+  const lists = remote.lists.map(
     (meta) =>
-      ((loaded.includes(meta.id) || state.ops.some((op) => op.id === meta.id)) &&
-        state.base.find((row) => row.id === meta.id)) || {
+      (loaded.includes(meta.id) && state.lists.find((row) => row.id === meta.id)) || {
         id: meta.id,
         name: meta.name,
         items: [],
       },
   );
-  useSavedWorklists.setState({ base, index, loaded });
-  render();
-  ready = true;
+  useSavedWorklists.setState({ lists, index, loaded, notice: '' });
+  keepCache();
 }
-/** Sends operations in order. A conflict gets one fresh-row retry, never a snapshot merge. */
-export async function syncWorklists(refresh = false) {
-  if (refresh) ready = false;
-  if (flight) {
-    if (refresh) refreshAfterFlight = true;
-    else sendAfterFlight = true;
-    return;
-  }
-  clearTimeout(timer);
-  if (!accountReady() || (useSavedWorklists.getState().blocked && !refresh)) return;
-  useSavedWorklists.setState({ blocked: null });
-  flight = true;
-  const started = epoch;
-  try {
-    if (!ready) await readIndex(started);
-    if (started !== epoch || !accountReady()) return;
-    while (useSavedWorklists.getState().ops.length) {
-      const pending = useSavedWorklists.getState().ops[0]!;
-      if (
-        pending.op.type !== 'create' &&
-        pending.op.type !== 'delete' &&
-        !useSavedWorklists.getState().loaded.includes(pending.id)
-      )
-        await readRow(pending.id, started);
-      let success = false;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const state = useSavedWorklists.getState();
-        if (
-          !state.index[pending.id] &&
-          pending.op.type !== 'create' &&
-          pending.op.type !== 'delete'
-        ) {
-          useSavedWorklists.setState({ blocked: pending.id });
-          throw new Error(
-            'This worklist was deleted on another device. Pending work is kept; copy it to a new list or discard it.',
-          );
-        }
-        const sequence = sentSequence(pending.id);
-        const response = await apiRequest(entryPath(pending.id), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            op: pending.op,
-            revision: state.index[pending.id]?.revision ?? null,
-          }),
-        });
-        if (started !== epoch || !accountReady()) return;
-        if (response.status === 409) {
-          if (attempt === 1)
-            throw new Error('Worklist kept changing on another device. Use Sync to retry.');
-          await readRow(pending.id, started);
-          continue;
-        }
-        if (!response.ok) {
-          if (response.status === 400 || response.status === 413)
-            useSavedWorklists.setState({ blocked: pending.id });
-          const error = z
-            .object({ error: z.string() })
-            .safeParse(await response.json().catch(() => null));
-          throw new Error(
-            error.success
-              ? error.data.error
-              : 'Could not sync this worklist. Retry when connected.',
-          );
-        }
-        const reply = replySchema.parse(await response.json());
-        if (started !== epoch || !accountReady()) return;
-        if (!reply.worklist && pending.op.type !== 'delete') {
-          useSavedWorklists.setState({ blocked: pending.id });
-          throw new Error(
-            'This worklist was deleted. Pending work is kept; copy it to a new list or discard it.',
-          );
-        }
-        if (!accept(pending.id, reply, sequence)) await readRow(pending.id, started);
-        const ops = useSavedWorklists.getState().ops.slice(1);
-        useSavedWorklists.setState({
-          ops,
-          recovery: useSavedWorklists
-            .getState()
-            .recovery.filter((row) => ops.some((op) => op.id === row.id)),
-        });
-        render();
-        keepOps();
-        keepCache();
-        try {
-          localStorage.setItem(
-            signalKey(useSavedWorklists.getState().scope),
-            JSON.stringify({ id: pending.id, nonce: crypto.randomUUID() }),
-          );
-        } catch {
-          /* Focus/Sync also refresh. */
-        }
-        success = true;
-        break;
-      }
-      if (!success) return;
-    }
-    keepCache();
-    useSavedWorklists.setState({ notice: 'Saved to your account.' });
-  } catch (error) {
-    if (started === epoch)
+export function loadWorklist(id: string, authoritative = false): Promise<SavedWorklist> {
+  return serial(async (started) => {
+    const state = useSavedWorklists.getState();
+    if (!state.lists.some((row) => row.id === id))
+      throw new Error('The saved worklist was deleted.');
+    if (authoritative || !state.loaded.includes(id)) await readRow(id, started);
+    assertCurrent(started);
+    const row = useSavedWorklists.getState().lists.find((row) => row.id === id);
+    if (!row) throw new Error('This worklist was deleted on another device.');
+    return row;
+  });
+}
+/** Refresh never replays a failed save. Retry is a separate, explicit user action. */
+export function syncWorklists(): Promise<void> {
+  const started = generation;
+  if (!accountReady()) return Promise.resolve();
+  return serial(readIndex).catch((error: unknown) => {
+    if (started === generation && accountReady())
       useSavedWorklists.setState({
-        notice: `${useSavedWorklists.getState().storageFailed ? 'Keep this tab open: browser storage could not keep your pending operations. ' : ''}${error instanceof Error ? error.message : 'Sync failed.'}`,
+        notice: error instanceof Error ? error.message : 'Refresh failed.',
       });
-  } finally {
-    try {
-      await readSignals(started);
-    } catch {
-      /* A later focus/Sync retries incoming reads. */
+  });
+}
+function save(item: Save): Promise<boolean> {
+  const started = generation;
+  useSavedWorklists.setState((state) => ({ saving: [...state.saving, item] }));
+  return serial(async () => {
+    let revision: string | null = useSavedWorklists.getState().index[item.id]?.revision ?? null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await request(entryPath(item.id), started, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: item.op, revision }),
+      });
+      if (response.status === 409 && attempt === 0) {
+        // Refetch for CAS, but keep the visible last-saved row until this op succeeds.
+        revision = (await readRow(item.id, started, false)).revision;
+        continue;
+      }
+      if (!response.ok) throw new Error('Could not save this worklist.');
+      const reply = replySchema.parse(await response.json());
+      assertCurrent(started);
+      if (!reply.worklist && item.op.type !== 'delete')
+        throw new Error('This worklist was deleted.');
+      accept(item.id, reply);
+      return true;
     }
-    finishFlight(started);
-  }
+    return false;
+  })
+    .catch(() => {
+      if (started === generation && accountReady())
+        useSavedWorklists.setState((state) => ({ failed: [...state.failed, item] }));
+      return false;
+    })
+    .then((success) => {
+      if (started !== generation || !accountReady()) return false;
+      useSavedWorklists.setState((state) => ({
+        saving: state.saving.filter((save) => save !== item),
+      }));
+      if (success) void syncWorklists();
+      return success;
+    });
 }
-function finishFlight(started: number) {
-  flight = false;
-  const refresh = refreshAfterFlight || started !== epoch;
-  const send = sendAfterFlight;
-  refreshAfterFlight = false;
-  sendAfterFlight = false;
-  if (refresh) {
-    ready = false;
-    schedule(true);
-  } else if (send && useSavedWorklists.getState().pending && !useSavedWorklists.getState().blocked)
-    schedule();
+export function retryWorklist(item: Save): Promise<boolean> {
+  const state = useSavedWorklists.getState();
+  if (!state.failed.includes(item) || !accountReady()) return Promise.resolve(false);
+  useSavedWorklists.setState({ failed: state.failed.filter((failed) => failed !== item) });
+  return save(item);
 }
-async function readSignals(started: number) {
-  const received = signals.size > 0;
-  while (signals.size && started === epoch && accountReady()) {
-    const id = [...signals][0]!;
-    signals.delete(id);
-    await readRow(id, started);
-  }
-  if (received && started === epoch && accountReady()) await readIndex(started);
+function enqueue(id: string, op: WorklistOperation): Promise<boolean> {
+  if (!accountReady()) throw new Error('Sign in to save worklists.');
+  op = worklistOperationSchema.parse(op);
+  const row = useSavedWorklists.getState().lists.find((row) => row.id === id);
+  return save({ id, op, name: 'name' in op ? op.name : (row?.name ?? 'Worklist') });
 }
+export const useSavedWorklists = create<State>(() => ({
+  scope: 'anonymous',
+  ...empty(),
+  change(next): Promise<boolean> {
+    const current = useSavedWorklists.getState().lists;
+    const deleted = current.find((row) => !next.some((item) => item.id === row.id));
+    if (deleted) return enqueue(deleted.id, { type: 'delete' });
+    for (const row of next) {
+      const previous = current.find((item) => item.id === row.id);
+      if (!previous)
+        return enqueue(row.id, {
+          type: 'create',
+          name: row.name,
+          hashes: row.items.map((item) => item.hash),
+        });
+      if (row.name !== previous.name) return enqueue(row.id, { type: 'rename', name: row.name });
+      const removed = previous.items
+        .filter((item) => !row.items.some((next) => next.hash === item.hash))
+        .map((item) => item.hash);
+      if (removed.length) return enqueue(row.id, { type: 'remove', hashes: removed });
+      const added = row.items
+        .filter((item) => !previous.items.some((old) => old.hash === item.hash))
+        .map((item) => item.hash);
+      if (added.length) return enqueue(row.id, { type: 'add', hashes: added });
+      const hashes = previous.items.map((item) => item.hash);
+      const first = row.items.findIndex((item, index) => item.hash !== hashes[index]);
+      if (first >= 0) {
+        const last = row.items.reduce(
+          (last, item, index) => (item.hash !== hashes[index] ? index : last),
+          first,
+        );
+        for (const op of [
+          { type: 'move' as const, hash: row.items[first]!.hash, index: first },
+          { type: 'move' as const, hash: hashes[first]!, index: last },
+        ]) {
+          const moved = applyWorklistOperation({ name: row.name, hashes }, op)!;
+          if (moved.hashes.every((hash, at) => row.items[at]?.hash === hash))
+            return enqueue(row.id, op);
+        }
+      }
+    }
+    return Promise.resolve(false);
+  },
+  add(id, name, items): Promise<boolean> {
+    if (id && !useSavedWorklists.getState().lists.some((row) => row.id === id))
+      throw new Error('This worklist was deleted. Choose another worklist.');
+    const hashes = [...new Set(items.map((item) => item.hash))];
+    return enqueue(
+      id ?? crypto.randomUUID(),
+      id ? { type: 'add', hashes } : { type: 'create', name: name.trim(), hashes },
+    );
+  },
+}));
 export function connectWorklists(): () => void {
+  let identity = '';
+  const reset = () => {
+    generation++;
+    controller.abort();
+    controller = new AbortController();
+    chain = Promise.resolve();
+  };
   const account = () => {
     const auth = useAuthStore.getState();
     const scope = String(auth.user?.id ?? 'anonymous');
-    if (auth.loading) {
-      epoch++;
-      ready = false;
-      return;
-    }
-    if (scope === useSavedWorklists.getState().scope) {
-      if (!ready) void syncWorklists();
-      return;
-    }
-    epoch++;
-    signals.clear();
-    ready = false;
-    clearTimeout(timer);
-    let base: SavedWorklist[] = [];
-    let loaded: string[] = [];
-    let index: Record<string, Meta> = {};
-    let ops: Pending = [];
-    let recovery: SavedWorklist[] = [];
+    const next = JSON.stringify([scope, auth.token, auth.loading]);
+    if (next === identity) return;
+    identity = next;
+    reset();
+    useSavedWorklists.setState({ scope, ...empty() });
+    if (!accountReady()) return;
     try {
       const cache = z
         .object({
@@ -449,126 +280,25 @@ export function connectWorklists(): () => void {
           index: z.record(z.string(), worklistIndexEntrySchema),
         })
         .parse(JSON.parse(localStorage.getItem(cacheKey(scope)) ?? 'null'));
-      ({ base, loaded, index } = cache);
+      // Cached rows are only for display. The first open must read the server again.
+      useSavedWorklists.setState({ lists: cache.base, index: cache.index });
     } catch {
-      /* Preserve unreadable cache on disk. */
+      // An absent or unreadable display cache does not affect server state.
     }
-    try {
-      ({ ops, recovery } = readPending(localStorage.getItem(opsKey(scope)), base));
-    } catch {
-      /* Preserve unreadable pending copy. */
-    }
-    useSavedWorklists.setState({ scope, ...empty(), base, loaded, index, ops, recovery });
-    render();
     void syncWorklists();
   };
   const unsubscribe = useAuthStore.subscribe(account);
   account();
-  const retry = () => void syncWorklists(true);
-  const storage = async (event: StorageEvent) => {
-    const state = useSavedWorklists.getState();
-    if (event.key !== signalKey(state.scope) || !event.newValue || !accountReady()) return;
-    const started = epoch;
-    try {
-      const { id } = z.object({ id: z.string().uuid() }).parse(JSON.parse(event.newValue));
-      signals.add(id);
-      if (flight) return;
-      flight = true;
-      try {
-        await readSignals(started);
-      } finally {
-        finishFlight(started);
-      }
-      // Receiving state changes neither persisted pending ops nor publication keys.
-    } catch (error) {
-      if (started === epoch)
-        useSavedWorklists.setState({
-          notice: error instanceof Error ? error.message : 'Sync failed.',
-        });
-    }
+  const refresh = () => {
+    if (document.visibilityState === 'visible') void syncWorklists();
   };
-  window.addEventListener('online', retry);
-  window.addEventListener('focus', retry);
-  window.addEventListener('storage', storage);
+  window.addEventListener('focus', refresh);
+  document.addEventListener('visibilitychange', refresh);
   return () => {
     unsubscribe();
-    window.removeEventListener('online', retry);
-    window.removeEventListener('focus', retry);
-    window.removeEventListener('storage', storage);
+    window.removeEventListener('focus', refresh);
+    document.removeEventListener('visibilitychange', refresh);
+    reset();
+    useSavedWorklists.setState({ scope: 'anonymous', ...empty() });
   };
-}
-
-function readPending(raw: string | null, base: SavedWorklist[] = []) {
-  const value: unknown = JSON.parse(raw ?? '[]');
-  if (Array.isArray(value)) {
-    const ops = pendingSchema.parse(value);
-    return {
-      ops,
-      recovery: project(base, ops).filter((row) => ops.some((op) => op.id === row.id)),
-    };
-  }
-  return z.object({ ops: pendingSchema, recovery: z.array(worklistSchema) }).parse(value);
-}
-/** Read-only discovery; copying creates a new id and never takes another live tab's queue. */
-export function pendingSessionRecovery(): SavedWorklist[] {
-  const state = useSavedWorklists.getState();
-  const result: SavedWorklist[] = [];
-  try {
-    for (let n = 0; n < localStorage.length; n++) {
-      const key = localStorage.key(n)!;
-      if (!key.startsWith(cacheKey(state.scope) + ':pending:') || key === opsKey(state.scope))
-        continue;
-      const pending = readPending(localStorage.getItem(key), state.base);
-      if (pending.ops.length) result.push(...pending.recovery);
-    }
-  } catch {
-    /* Leave unreadable files untouched. */
-  }
-  return result;
-}
-export function discardPendingWorklist(
-  id: string,
-  expectedScope = useSavedWorklists.getState().scope,
-) {
-  if (expectedScope !== useSavedWorklists.getState().scope) throw new Error('The account changed.');
-  if (flight) throw new Error('Wait for the current sync to finish.');
-  const state = useSavedWorklists.getState();
-  useSavedWorklists.setState({
-    ops: state.ops.filter((op) => op.id !== id),
-    recovery: state.recovery.filter((row) => row.id !== id),
-    blocked: null,
-    notice: 'Discarded pending changes for this list.',
-  });
-  render();
-  keepOps();
-  schedule();
-}
-export function copyPendingWorklist(
-  row: SavedWorklist,
-  replaceOwn = false,
-  expectedScope = useSavedWorklists.getState().scope,
-) {
-  if (expectedScope !== useSavedWorklists.getState().scope) throw new Error('The account changed.');
-  if (flight) throw new Error('Wait for the current sync to finish.');
-  const state = useSavedWorklists.getState();
-  const ops = replaceOwn ? state.ops.filter((op) => op.id !== row.id) : state.ops;
-  const id = crypto.randomUUID();
-  const next: Pending = [
-    ...ops,
-    { id, op: { type: 'create', name: row.name, hashes: row.items.map((item) => item.hash) } },
-  ];
-  if (!worklistsSchema.safeParse(project(state.base, next)).success)
-    throw new Error('Make room for the recovered list before copying it.');
-  useSavedWorklists.setState({
-    ops: next,
-    recovery: [
-      ...state.recovery.filter((item) => !replaceOwn || item.id !== row.id),
-      { ...row, id },
-    ],
-    blocked: null,
-    notice: 'Saving recovered work as a new list…',
-  });
-  render();
-  keepOps();
-  schedule();
 }

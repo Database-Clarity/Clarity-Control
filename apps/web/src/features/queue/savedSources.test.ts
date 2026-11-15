@@ -52,7 +52,7 @@ it('reuses the queue, freezes membership, preserves the save baseline, and rebui
     loading: false,
     token: null,
   });
-  useSavedWorklists.setState({ scope: '1', base: [], ops: [], recovery: [], index: {} });
+  useSavedWorklists.setState({ scope: '1', index: {}, saving: [], failed: [] });
   const entry = { hash: 11, name: 'Alpha' };
   const items = savedItems([entry], current);
   useSavedWorklists.setState({
