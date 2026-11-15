@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   storedWorklistSchema,
+  worklistOperationSchema,
+  applyWorklistOperation,
   worklistIdSchema,
   worklistsBodyLimit,
   worklistNameSchema,
@@ -88,8 +90,9 @@ const metaSchema = z.object({
   revision: revisionSchema,
 });
 const plainSchema = storedWorklistSchema.extend({ revision: revisionSchema });
-const putSchema = storedWorklistSchema.extend({ revision: revisionSchema.nullable() }).strict();
-const deleteSchema = z.object({ revision: revisionSchema }).strict();
+const putSchema = z
+  .object({ op: worklistOperationSchema, revision: revisionSchema.nullable() })
+  .strict();
 
 export async function encryptWorklist(key: CryptoKey, aad: string, value: unknown) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -174,8 +177,7 @@ export async function userWorklists(
       'Worklists allow 500 entries and 16 KB of unique entry hashes and names of 1–80 characters.',
       parsed.error.issues,
     );
-  const input = parsed?.success ? parsed.data : null;
-  const deletion = request.method === 'DELETE' ? deleteSchema.parse(raw) : null;
+  const operation = parsed?.success ? parsed.data : null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const row = await db
       .prepare(
@@ -193,19 +195,27 @@ export async function userWorklists(
       revision: plain?.revision ?? null,
     };
     if (request.method === 'GET') return json(stored);
-    if ((input ? input.revision : (deletion?.revision ?? null)) !== stored.revision)
+    if (!operation) throw new HttpError(405, 'Send a worklist operation');
+    if (operation.revision !== stored.revision)
       return json({ error: 'Worklist changed on another device', ...stored }, 409);
-    if (deletion) {
+    const applied = applyWorklistOperation(
+      plain ? { name: plain.name, hashes: plain.hashes } : null,
+      operation.op,
+    );
+    if (!applied) {
+      if (!row) return json(stored);
       const result = await db
         .prepare(
           'DELETE FROM user_worklists WHERE account_id = ? AND id = ? AND revision = ? AND ct = ?',
         )
-        .bind(account, listId, deletion.revision, row!.ct)
+        .bind(account, listId, operation.revision, row.ct)
         .run();
       if (result.meta.changes === 1) return json({ worklist: null, revision: null });
       continue;
     }
-    if (!input) throw new HttpError(405, 'Unsupported method');
+    const valid = storedWorklistSchema.safeParse(applied);
+    if (!valid.success) throw new HttpError(400, 'Worklists allow 500 entries and 16 KB per list.');
+    const input = valid.data;
     if (
       plain &&
       plain.name === input.name &&

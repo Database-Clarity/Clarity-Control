@@ -1,384 +1,223 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { connectWorklists, loadWorklist, syncWorklists, useSavedWorklists } from './worklists';
+import {
+  applyWorklistOperation,
+  type StoredWorklist,
+} from '../../../../../packages/core/src/worklists';
 import { useAuthStore } from '../../stores/auth';
-import type { User } from '../../services/api';
-import type { SavedWorklist } from '../../../../../packages/core/src/worklists';
-const request = vi.hoisted(() => vi.fn());
-vi.mock('../../services/apiAuth', () => ({ apiRequest: request }));
-const list: SavedWorklist = {
-  id: 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97',
-  name: 'Weekend',
-  items: [{ hash: 1, name: 'One' }],
-};
-let disconnect: (() => void) | undefined;
-const response = (worklist: SavedWorklist | null, revision = 'a'.repeat(32), status = 200) =>
-  new Response(
-    JSON.stringify({
-      worklist: worklist
-        ? { id: worklist.id, name: worklist.name, hashes: worklist.items.map((item) => item.hash) }
-        : null,
-      revision,
-    }),
-    { status },
-  );
-const indexResponse = (lists: SavedWorklist[], revision = 'a'.repeat(32)) =>
-  new Response(
-    JSON.stringify({
-      lists: lists.map((list) => ({
-        id: list.id,
-        name: list.name,
-        count: list.items.length,
-        updatedAt: 1,
-        revision,
-      })),
-    }),
-  );
+const api = vi.hoisted(() => vi.fn());
+vi.mock('../../services/apiAuth', () => ({ apiRequest: api }));
+const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+let row: StoredWorklist | null;
+let revision: number;
+let disconnect: () => void;
+let writes: [string, string][];
+const rev = () => String(revision).padStart(32, '0');
+const reply = () =>
+  Response.json({ worklist: row ? { id, ...row } : null, revision: row ? rev() : null });
 const settle = async () => {
-  for (let i = 0; i < 15; i++) await Promise.resolve();
+  for (let i = 0; i < 50; i++) await Promise.resolve();
 };
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers();
-  request.mockReset();
   const values = new Map<string, string>();
+  writes = [];
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+      writes.push([key, value]);
+    },
   });
   useAuthStore.setState({ user: null, token: null, loading: false });
   useSavedWorklists.setState({
     scope: 'anonymous',
+    base: [],
     lists: [],
-    pending: false,
-    dirty: [],
-    removed: {},
+    ops: [],
     loaded: [],
     index: {},
+    pending: false,
   });
+  row = { name: 'A', hashes: [1] };
+  revision = 1;
+  api.mockReset();
+  api.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === '/worklists')
+      return Response.json({
+        lists: row
+          ? [{ id, name: row.name, count: row.hashes.length, revision: rev(), updatedAt: 1 }]
+          : [],
+      });
+    if (!init) return reply();
+    const input = JSON.parse(String(init.body));
+    if (input.revision !== (row ? rev() : null)) return new Response('{}', { status: 409 });
+    row = applyWorklistOperation(row, input.op);
+    revision++;
+    return reply();
+  });
+  disconnect = connectWorklists();
+  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as never });
+  await settle();
 });
 afterEach(() => {
-  disconnect?.();
+  disconnect();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-const login = async () => {
-  request.mockResolvedValueOnce(indexResponse([]));
-  disconnect = connectWorklists();
-  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as User });
-  await settle();
-};
-it('debounces additions, saves locally immediately, and deduplicates membership', async () => {
-  await login();
-  const add = useSavedWorklists.getState().add;
-  useSavedWorklists.getState().change([list]);
-  add(list.id, '', [
-    { hash: 1, name: 'One' },
-    { hash: 2, name: 'Two' },
-  ]);
-  expect(request).toHaveBeenCalledTimes(1);
-  expect(JSON.parse(localStorage.getItem('clarity-worklists:v2:1')!).lists[0].items).toHaveLength(
-    2,
-  );
-  request.mockResolvedValueOnce(response(useSavedWorklists.getState().lists[0]!));
-  await vi.advanceTimersByTimeAsync(600);
-  expect(request).toHaveBeenCalledTimes(2);
-  expect(useSavedWorklists.getState().pending).toBe(false);
-});
-it('allows only one PUT and retains edits made while it is in flight', async () => {
-  await login();
-  useSavedWorklists.getState().change([list]);
-  let resolve!: (value: Response) => void;
-  request.mockImplementationOnce(
-    () =>
-      new Promise<Response>((done) => {
-        resolve = done;
-      }),
-  );
-  const writing = syncWorklists();
-  useSavedWorklists.getState().add(list.id, '', [{ hash: 2, name: 'Two' }]);
-  await syncWorklists();
-  expect(request).toHaveBeenCalledTimes(2);
-  resolve(response(list));
-  await writing;
-  expect(useSavedWorklists.getState().pending).toBe(true);
-  expect(useSavedWorklists.getState().lists[0]!.items).toHaveLength(2);
-});
-it('merges a 409 by id without dropping either device’s additions', async () => {
-  await login();
-  useSavedWorklists.getState().change([list]);
-  const other = { ...list, items: [{ hash: 2, name: 'Two' }] };
-  request.mockResolvedValueOnce(response(other, 'b'.repeat(32), 409));
-  await syncWorklists();
-  expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1, 2]);
-  expect(useSavedWorklists.getState().pending).toBe(true);
-  expect(useSavedWorklists.getState().notice).toContain('Concurrent removals');
-});
-it('keeps offline edits across disconnect, reconnect, and account switches', async () => {
-  await login();
-  useSavedWorklists.getState().change([list]);
-  request.mockRejectedValueOnce(new Error('offline'));
-  await syncWorklists();
-  expect(useSavedWorklists.getState().pending).toBe(true);
-  useAuthStore.setState({ user: null });
-  expect(useSavedWorklists.getState().lists).toEqual([]);
-  request.mockResolvedValueOnce(indexResponse([]));
-  request.mockResolvedValueOnce(response(list));
-  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as User });
-  await settle();
-  expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1]);
-});
-it('ignores a late response for another account', async () => {
-  let resolve!: (value: Response) => void;
-  request.mockImplementationOnce(
-    () =>
-      new Promise<Response>((done) => {
-        resolve = done;
-      }),
-  );
-  disconnect = connectWorklists();
-  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as User });
-  useAuthStore.setState({ user: null });
-  resolve(indexResponse([list]));
-  await settle();
-  expect(useSavedWorklists.getState().scope).toBe('anonymous');
-  expect(useSavedWorklists.getState().lists).toEqual([]);
-});
-
-it('keeps offline deletions when reconnect finds the same account revision', async () => {
-  await login();
-  useSavedWorklists.getState().change([list]);
-  request.mockResolvedValueOnce(response(list));
-  await syncWorklists();
-  useSavedWorklists.getState().change([]);
-  useAuthStore.setState({ user: null });
-  request.mockResolvedValueOnce(indexResponse([list]));
-  request.mockResolvedValueOnce(response(null));
-  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as User });
-  await settle();
-  expect(useSavedWorklists.getState().lists).toEqual([]);
-});
-
-it('loads index metadata without entries and fetches only the opened list', async () => {
-  request.mockResolvedValueOnce(indexResponse([list]));
-  disconnect = connectWorklists();
-  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as User });
-  await settle();
-  expect(useSavedWorklists.getState().lists[0]!.items).toEqual([]);
-  expect(useSavedWorklists.getState().index[list.id]!.count).toBe(1);
-  expect(request).toHaveBeenCalledTimes(1);
-  request.mockResolvedValueOnce(response(list));
-  expect((await loadWorklist(list.id)).items.map((item) => item.hash)).toEqual([1]);
-  expect(request.mock.calls[1]![0]).toBe(`/worklists/${list.id}`);
-  await loadWorklist(list.id);
-  expect(request).toHaveBeenCalledTimes(2);
-});
-
-it('does not write an old account’s pending list through a newly replaced session', async () => {
-  await login();
-  const token = (marker: string) =>
-    btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, marker })) + '.fixture';
-  const previous = token('previous'),
-    next = token('next');
-  localStorage.setItem('clarity-editor-session', previous);
-  useAuthStore.setState({ token: previous });
-  useSavedWorklists.getState().change([list]);
-  localStorage.setItem('clarity-editor-session', next);
-  await syncWorklists();
-  expect(request).toHaveBeenCalledTimes(1);
-  expect(useSavedWorklists.getState().pending).toBe(true);
-  useAuthStore.setState({ loading: true });
-  request.mockResolvedValueOnce(indexResponse([]));
-  useAuthStore.setState({
-    user: { id: 2, login: 'two', role: 'editor' } as User,
-    token: next,
-    loading: false,
-  });
-  await settle();
-  expect(useSavedWorklists.getState().scope).toBe('2');
-  expect(useSavedWorklists.getState().lists).toEqual([]);
-  expect(request.mock.calls.every((call) => call[1]?.method !== 'PUT')).toBe(true);
-});
-it('does not resurrect a list deleted while its entries are loading', async () => {
-  request.mockResolvedValueOnce(indexResponse([list]));
-  disconnect = connectWorklists();
-  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as User });
-  await settle();
-  let resolve!: (value: Response) => void;
-  request.mockImplementationOnce(
-    () =>
-      new Promise<Response>((done) => {
-        resolve = done;
-      }),
-  );
-  const loading = loadWorklist(list.id);
-  useSavedWorklists.getState().change([]);
-  resolve(response(list));
-  await expect(loading).rejects.toThrow('deleted while loading');
-  expect(useSavedWorklists.getState().lists).toEqual([]);
-  expect(useSavedWorklists.getState().removed[list.id]).toBe('a'.repeat(32));
-});
-
-it('preserves the browser-storage warning when account sync also fails', async () => {
-  await login();
-  vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-    throw new Error('quota exceeded');
-  });
-  useSavedWorklists.getState().change([list]);
-  request.mockRejectedValueOnce(new Error('offline'));
-  await syncWorklists();
-  expect(useSavedWorklists.getState().pending).toBe(true);
-  expect(useSavedWorklists.getState().notice).toContain('Keep this tab open');
-  expect(useSavedWorklists.getState().notice).not.toContain('local copy is kept');
-});
-
-it('keeps newer saved entries when a stale tab edits a clean list beside another pending list', async () => {
-  await login();
-  const newer = {
-    ...list,
-    items: [
-      { hash: 1, name: 'One' },
-      { hash: 3, name: 'Three' },
-    ],
-  };
-  useSavedWorklists.setState({
-    lists: [newer],
-    loaded: [list.id],
-    index: {
-      [list.id]: { id: list.id, name: list.name, count: 2, updatedAt: 2, revision: 'b'.repeat(32) },
-    },
-  });
-  useSavedWorklists.getState().add(null, 'Other pending list', []);
-  window.dispatchEvent(
-    new StorageEvent('storage', {
-      key: 'clarity-worklists:v2:1',
-      newValue: JSON.stringify({
-        lists: [
-          {
-            ...list,
-            items: [
-              { hash: 1, name: 'One' },
-              { hash: 2, name: 'Two' },
-            ],
-          },
-        ],
-        dirty: [list.id],
-        removed: {},
-        loaded: [list.id],
-        index: {
-          [list.id]: {
-            id: list.id,
-            name: list.name,
-            count: 1,
-            updatedAt: 1,
-            revision: 'a'.repeat(32),
-          },
-        },
-      }),
-    }),
-  );
-  request.mockResolvedValueOnce(indexResponse([newer], 'b'.repeat(32)));
-  request.mockImplementation(async (path: string, init: RequestInit) => {
-    const body = JSON.parse(String(init.body));
-    return Response.json({
-      worklist: { id: path.split('/').at(-1), name: body.name, hashes: body.hashes },
-      revision: 'c'.repeat(32),
-    });
-  });
-  await syncWorklists();
-  await syncWorklists();
-  const write = request.mock.calls.find(
-    ([path, init]) => path.endsWith(list.id) && init?.method === 'PUT',
-  )!;
-  const body = JSON.parse(write[1].body);
-  expect(body.revision).toBe('b'.repeat(32));
-  expect(body.hashes).toEqual([1, 3, 2]);
-});
-
-it('takes an incoming clean cache together with its revision and loaded state', async () => {
-  await login();
-  useSavedWorklists.setState({
-    lists: [list],
-    loaded: [list.id],
-    index: {
-      [list.id]: { id: list.id, name: list.name, count: 1, updatedAt: 2, revision: 'b'.repeat(32) },
-    },
-  });
-  useSavedWorklists.getState().add(null, 'Other pending list', []);
-  const meta = { id: list.id, name: list.name, count: 2, updatedAt: 1, revision: 'a'.repeat(32) };
-  window.dispatchEvent(
-    new StorageEvent('storage', {
-      key: 'clarity-worklists:v2:1',
-      newValue: JSON.stringify({
-        lists: [{ ...list, items: [] }],
-        dirty: [],
-        removed: {},
-        loaded: [],
-        index: { [list.id]: meta },
-      }),
-    }),
-  );
-  expect(useSavedWorklists.getState().index[list.id]).toEqual(meta);
-  expect(useSavedWorklists.getState().loaded).not.toContain(list.id);
-});
-
-it('refreshes a clean index for an explicit Sync without loading entries', async () => {
-  await login();
-  request.mockResolvedValueOnce(indexResponse([list]));
-  await syncWorklists(true);
-  expect(useSavedWorklists.getState().lists.map((entry) => entry.id)).toEqual([list.id]);
+it('loads only metadata until opening and sends an add operation, not a snapshot', async () => {
   expect(useSavedWorklists.getState().loaded).toEqual([]);
-  request.mockResolvedValueOnce(indexResponse([]));
+  await loadWorklist(id);
+  useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  await syncWorklists();
+  expect(row!.hashes).toEqual([1, 2]);
+  expect(useSavedWorklists.getState().pending).toBe(false);
+  const write = api.mock.calls.find(([, init]) => init?.method === 'PUT')!;
+  expect(JSON.parse(write[1].body)).toEqual({
+    op: { type: 'add', hashes: [2] },
+    revision: '1'.padStart(32, '0'),
+  });
+});
+it('refetches and replays only this tab operation after a conflict (F1)', async () => {
+  await loadWorklist(id);
+  useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  row = { name: 'A', hashes: [1, 3] };
+  revision = 2;
+  await syncWorklists();
+  expect(row!.hashes).toEqual([1, 3, 2]);
+  expect(useSavedWorklists.getState().lists[0]!.items.map((x) => x.hash)).toEqual([1, 3, 2]);
+});
+it('stops after the second conflict and retains the pending operation for Sync', async () => {
+  await loadWorklist(id);
+  useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  api.mockImplementation(async (path: string, init?: RequestInit) =>
+    init
+      ? new Response('{}', { status: 409 })
+      : path === '/worklists'
+        ? Response.json({ lists: [] })
+        : reply(),
+  );
+  await syncWorklists();
+  expect(useSavedWorklists.getState().pending).toBe(true);
+  expect(useSavedWorklists.getState().notice).toContain('Use Sync');
+  expect(api.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(2);
+});
+it('receiving invalidation replaces server state and never publishes or writes', async () => {
+  await loadWorklist(id);
+  row = { name: 'Remote', hashes: [1, 3] };
+  revision = 2;
+  writes = [];
+  const before = api.mock.calls.length;
+  window.dispatchEvent(
+    new StorageEvent('storage', {
+      key: 'clarity-worklists:v3:1:invalidate',
+      newValue: JSON.stringify({ id, nonce: 'remote' }),
+    }),
+  );
+  await settle();
+  expect(useSavedWorklists.getState().lists[0]!.name).toBe('Remote');
+  expect(writes).toEqual([]);
+  expect(api.mock.calls.slice(before).every(([, init]) => !init)).toBe(true);
+});
+it('keeps offline operations ordered across account reconnect', async () => {
+  await loadWorklist(id);
+  useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+  useSavedWorklists
+    .getState()
+    .change(useSavedWorklists.getState().lists.map((row) => ({ ...row, name: 'Renamed' })));
+  const server = api.getMockImplementation()!;
+  api.mockRejectedValue(new Error('offline'));
+  await syncWorklists();
+  expect(useSavedWorklists.getState().ops.map((x) => x.op.type)).toEqual(['add', 'rename']);
+  useAuthStore.setState({ user: null });
+  api.mockImplementation(server);
+  useAuthStore.setState({ user: { id: 1, login: 'one', role: 'editor' } as never });
+  await settle();
+  await syncWorklists();
+  expect(row).toEqual({ name: 'Renamed', hashes: [1, 2] });
+});
+it('explicit Sync refreshes new remote lists without loading entries', async () => {
+  row = null;
   await syncWorklists(true);
   expect(useSavedWorklists.getState().lists).toEqual([]);
-  expect(request.mock.calls.map(([path]) => path)).toEqual([
-    '/worklists',
-    '/worklists',
-    '/worklists',
-  ]);
-});
-
-it('retains an explicit Sync requested during an index read', async () => {
-  await login();
-  let resolve!: (value: Response) => void;
-  request.mockImplementationOnce(
-    () =>
-      new Promise<Response>((done) => {
-        resolve = done;
-      }),
-  );
-  const reading = syncWorklists(true);
+  row = { name: 'New', hashes: [3] };
+  revision++;
   await syncWorklists(true);
-  resolve(indexResponse([]));
-  await reading;
-  request.mockResolvedValueOnce(indexResponse([list]));
-  await vi.advanceTimersByTimeAsync(600);
-  expect(useSavedWorklists.getState().lists.map((entry) => entry.id)).toEqual([list.id]);
+  expect(useSavedWorklists.getState().lists[0]!.name).toBe('New');
 });
 
-it.each([false, true])(
-  'keeps pending additions when the %s tab has a concurrent deletion',
-  async (incomingDeletion) => {
-    await login();
-    const meta = { id: list.id, name: list.name, count: 1, updatedAt: 1, revision: 'a'.repeat(32) };
-    useSavedWorklists.setState({ lists: [list], loaded: [list.id], index: { [list.id]: meta } });
-    const edited = { ...list, items: [...list.items, { hash: 2, name: 'Two' }] };
-    useSavedWorklists.getState().change(incomingDeletion ? [edited] : []);
-    window.dispatchEvent(
-      new StorageEvent('storage', {
-        key: 'clarity-worklists:v2:1',
-        newValue: JSON.stringify({
-          lists: incomingDeletion ? [] : [edited],
-          dirty: incomingDeletion ? [] : [list.id],
-          removed: incomingDeletion ? { [list.id]: meta.revision } : {},
-          loaded: incomingDeletion ? [] : [list.id],
-          index: { [list.id]: meta },
-        }),
-      }),
-    );
-    expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1, 2]);
-    expect(useSavedWorklists.getState().dirty).toContain(list.id);
-    expect(useSavedWorklists.getState().removed).toEqual({});
+it.each(['add', 'rename'])(
+  'two real tabs converge after concurrent %s with zero receiving writes (F4)',
+  async (kind) => {
+    disconnect();
+    const listeners: EventListener[] = [];
+    const original = window.addEventListener.bind(window);
+    const spy = vi.spyOn(window, 'addEventListener').mockImplementation(((
+      type: string,
+      listener: EventListener,
+      options?: boolean | AddEventListenerOptions,
+    ) => {
+      if (type === 'storage') listeners.push(listener);
+      original(type, listener, options);
+    }) as typeof window.addEventListener);
+    async function makeTab() {
+      vi.resetModules();
+      sessionStorage.clear();
+      const auth = await import('../../stores/auth');
+      const store = await import('./worklists');
+      auth.useAuthStore.setState({
+        user: { id: 1, login: 'one', role: 'editor' } as never,
+        loading: false,
+        token: null,
+      });
+      const stop = store.connectWorklists();
+      await settle();
+      await store.loadWorklist(id);
+      return { ...store, stop };
+    }
+    const a = await makeTab();
+    const b = await makeTab();
+    try {
+      if (kind === 'add') {
+        a.useSavedWorklists.getState().add(id, '', [{ hash: 2, name: 'Two' }]);
+        b.useSavedWorklists.getState().add(id, '', [{ hash: 3, name: 'Three' }]);
+      } else {
+        a.useSavedWorklists
+          .getState()
+          .change(a.useSavedWorklists.getState().lists.map((row) => ({ ...row, name: 'Alpha' })));
+        b.useSavedWorklists
+          .getState()
+          .change(b.useSavedWorklists.getState().lists.map((row) => ({ ...row, name: 'Beta' })));
+      }
+      await a.syncWorklists();
+      const signalA = writes.filter(([key]) => key.endsWith(':invalidate')).at(-1)!;
+      writes = [];
+      await listeners[1]!(new StorageEvent('storage', { key: signalA[0], newValue: signalA[1] }));
+      await settle();
+      expect(writes).toEqual([]);
+      await b.syncWorklists();
+      const signalB = writes.filter(([key]) => key.endsWith(':invalidate')).at(-1)!;
+      writes = [];
+      await listeners[0]!(new StorageEvent('storage', { key: signalB[0], newValue: signalB[1] }));
+      await settle();
+      const puts = api.mock.calls.filter(([, init]) => init?.method === 'PUT').length;
+      for (let n = 0; n < 100; n++)
+        await listeners[n % 2]!(
+          new StorageEvent('storage', { key: signalB[0], newValue: signalB[1] }),
+        );
+      await settle();
+      expect(writes).toEqual([]);
+      expect(api.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(puts);
+      expect(a.useSavedWorklists.getState().lists).toEqual(b.useSavedWorklists.getState().lists);
+      expect(row).toEqual(
+        kind === 'add' ? { name: 'A', hashes: [1, 2, 3] } : { name: 'Beta', hashes: [1] },
+      );
+    } finally {
+      a.stop();
+      b.stop();
+      spy.mockRestore();
+    }
   },
 );

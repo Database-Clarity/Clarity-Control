@@ -105,17 +105,18 @@ export function QueueList<Row extends ListRow = QueueRow>({
   const saved = restored ?? (arrival === 'POP' ? memory.get(signature) : undefined);
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
-  const [selected, setSelected] = useState(() => {
-    const index = saved?.selected ? rows.findIndex((row) => row.key === saved.selected) : -1;
-    return Math.max(0, index);
-  });
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => saved?.selected ?? rows[0]?.key ?? null,
+  );
   const previousRows = useRef(rows);
-  if (previousRows.current !== rows) {
-    const key = previousRows.current[selected]?.key;
-    previousRows.current = rows;
-    const next = key ? rows.findIndex((row) => row.key === key) : -1;
-    if (next >= 0 && next !== selected) setSelected(next);
+  let selected = rows.findIndex((row) => row.key === selectedId);
+  if (selected < 0 && rows.length) {
+    const prior = previousRows.current.findIndex((row) => row.key === selectedId);
+    selected = Math.max(0, Math.min(prior, rows.length - 1));
+    setSelectedId(rows[selected]!.key);
   }
+  previousRows.current = rows;
+  const setSelected = (index: number) => setSelectedId(rows[index]?.key ?? null);
   const [rowHeight, setRowHeight] = useState(defaultRowHeight);
   const [viewport, setViewport] = useState(() => ({
     top: saved?.top ?? 0,

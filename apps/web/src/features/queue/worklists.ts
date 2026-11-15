@@ -1,35 +1,33 @@
-import { sessionToken } from '../../services/session';
 import { create } from 'zustand';
 import { z } from 'zod';
 import {
-  mergeWorklists,
-  recoveredWorklistsSchema,
-  worklistsSchema,
   storedWorklistSchema,
+  worklistOperationSchema,
   worklistIndexEntrySchema,
+  worklistsSchema,
+  applyWorklistOperation,
   type SavedWorklist,
   type WorklistEntry,
+  type WorklistOperation,
 } from '../../../../../packages/core/src/worklists';
 import { apiRequest } from '../../services/apiAuth';
 import { useAuthStore } from '../../stores/auth';
-
+import { sessionToken } from '../../services/session';
 const replySchema = z.object({
   worklist: storedWorklistSchema.extend({ id: z.string().uuid() }).nullable(),
   revision: z.string().nullable(),
 });
 const indexSchema = z.object({ lists: z.array(worklistIndexEntrySchema).max(50) });
-const copySchema = z.object({
-  lists: recoveredWorklistsSchema,
-  dirty: z.array(z.string()),
-  removed: z.record(z.string(), z.string()),
-  loaded: z.array(z.string()),
-  index: z.record(z.string(), worklistIndexEntrySchema),
-});
-type Copy = z.infer<typeof copySchema>;
-const empty = (): Copy => ({ lists: [], dirty: [], removed: {}, loaded: [], index: {} });
-const key = (scope: string) => `clarity-worklists:v2:${scope}`;
-interface State extends Copy {
+const pendingSchema = z.array(z.object({ id: z.string().uuid(), op: worklistOperationSchema }));
+type Pending = z.infer<typeof pendingSchema>;
+type Meta = z.infer<typeof worklistIndexEntrySchema>;
+interface State {
   scope: string;
+  base: SavedWorklist[];
+  lists: SavedWorklist[];
+  ops: Pending;
+  loaded: string[];
+  index: Record<string, Meta>;
   pending: boolean;
   notice: string;
   storageFailed: boolean;
@@ -38,11 +36,38 @@ interface State extends Copy {
 }
 let epoch = 0;
 let flight = false;
-let ready = false;
 let refreshAfterFlight = false;
+let sendAfterFlight = false;
+const signals = new Set<string>();
+let ready = false;
+const versions = new Map<string, number>();
 let timer: ReturnType<typeof setTimeout> | undefined;
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-function accountReady(): boolean {
+const tabKey = 'clarity-worklists-tab:v3';
+let tab: string | undefined;
+function tabId() {
+  if (tab) return tab;
+  try {
+    tab = sessionStorage.getItem(tabKey) ?? crypto.randomUUID();
+    sessionStorage.setItem(tabKey, tab);
+  } catch {
+    tab = crypto.randomUUID();
+  }
+  return tab;
+}
+const cacheKey = (scope: string) => `clarity-worklists:v3:${scope}`;
+const opsKey = (scope: string) => `${cacheKey(scope)}:pending:${tabId()}`;
+const signalKey = (scope: string) => `${cacheKey(scope)}:invalidate`;
+const empty = () => ({
+  base: [],
+  lists: [],
+  ops: [],
+  loaded: [],
+  index: {},
+  pending: false,
+  storageFailed: false,
+  notice: '',
+});
+function accountReady() {
   const auth = useAuthStore.getState();
   if (auth.loading || !auth.user || String(auth.user.id) !== useSavedWorklists.getState().scope)
     return false;
@@ -52,381 +77,367 @@ function accountReady(): boolean {
     return false;
   }
 }
-function persist() {
-  const { scope, lists, dirty, removed, loaded, index } = useSavedWorklists.getState();
-  if (scope === 'anonymous') return;
+function project(base: SavedWorklist[], ops: Pending): SavedWorklist[] {
+  const rows = new Map(base.map((row) => [row.id, row]));
+  for (const { id, op } of ops) {
+    const previous = rows.get(id);
+    const next = applyWorklistOperation(
+      previous ? { name: previous.name, hashes: previous.items.map((item) => item.hash) } : null,
+      op,
+    );
+    if (!next) rows.delete(id);
+    else
+      rows.set(id, {
+        id,
+        name: next.name,
+        items: next.hashes.map((hash) => ({
+          hash,
+          name: previous?.items.find((item) => item.hash === hash)?.name ?? '',
+        })),
+      });
+  }
+  return [...rows.values()];
+}
+function render() {
+  const state = useSavedWorklists.getState();
+  useSavedWorklists.setState({
+    lists: project(state.base, state.ops),
+    pending: state.ops.length > 0,
+    loaded: [
+      ...new Set([
+        ...state.loaded,
+        ...state.ops.filter((item) => item.op.type === 'create').map((item) => item.id),
+      ]),
+    ],
+  });
+}
+function keepOps() {
+  const state = useSavedWorklists.getState();
   try {
-    localStorage.setItem(key(scope), JSON.stringify({ lists, dirty, removed, loaded, index }));
-    if (useSavedWorklists.getState().storageFailed)
-      useSavedWorklists.setState({ storageFailed: false });
+    localStorage.setItem(opsKey(state.scope), JSON.stringify(state.ops));
+    useSavedWorklists.setState({ storageFailed: false });
   } catch {
     useSavedWorklists.setState({
       storageFailed: true,
-      notice: 'Browser storage is unavailable. Keep this tab open until account sync succeeds.',
+      notice: 'Keep this tab open: browser storage could not keep your pending operations.',
     });
   }
 }
-function syncNotice(message: string) {
-  const state = useSavedWorklists.getState();
-  useSavedWorklists.setState({
-    notice:
-      state.pending && state.storageFailed
-        ? `Keep this tab open: browser storage could not keep your changes. ${message}`
-        : message,
-  });
+function keepCache() {
+  const { scope, base, loaded, index } = useSavedWorklists.getState();
+  try {
+    localStorage.setItem(cacheKey(scope), JSON.stringify({ base, loaded, index }));
+  } catch {
+    /* Pending operations have separate protection. */
+  }
 }
 function schedule() {
   clearTimeout(timer);
   timer = setTimeout(() => void syncWorklists(), 600);
 }
-function changed(copy: Partial<Copy>) {
-  useSavedWorklists.setState(copy);
+function enqueue(id: string, op: WorklistOperation) {
   const state = useSavedWorklists.getState();
-  useSavedWorklists.setState({
-    pending: state.dirty.length > 0 || Object.keys(state.removed).length > 0,
-  });
-  persist();
+  if (state.scope === 'anonymous') throw new Error('Sign in to save worklists.');
+  const ops = [...state.ops, { id, op }];
+  if (!worklistsSchema.safeParse(project(state.base, ops)).success)
+    throw new Error(
+      'Worklists allow up to 50 lists, 500 entries and 16 KB of hashes per list, and names of 1–80 characters.',
+    );
+  useSavedWorklists.setState({ ops, notice: 'Saving changes…' });
+  render();
+  keepOps();
+  schedule();
 }
-export const useSavedWorklists = create<State>((set, get) => ({
+export const useSavedWorklists = create<State>(() => ({
   scope: 'anonymous',
   ...empty(),
-  pending: false,
-  storageFailed: false,
-  notice: '',
-  change(lists) {
-    const current = get();
-    if (current.scope === 'anonymous') throw new Error('Sign in to save worklists.');
-    const size = (value: SavedWorklist[]) =>
-      value.length + value.reduce((total, list) => total + list.items.length, 0);
-    const reducingRecovery =
-      !worklistsSchema.safeParse(current.lists).success &&
-      recoveredWorklistsSchema.safeParse(lists).success &&
-      size(lists) < size(current.lists);
-    if (!worklistsSchema.safeParse(lists).success && !reducingRecovery)
-      throw new Error(
-        'Worklists allow up to 50 lists, 500 entries and 16 KB of hashes per list, and names of 1–80 characters.',
-      );
-    const old = new Map(current.lists.map((list) => [list.id, list]));
-    const modified = lists.filter((list) => !same(list, old.get(list.id))).map((list) => list.id);
-    if (modified.some((id) => old.has(id) && !current.loaded.includes(id)))
-      throw new Error('Open this worklist to load its entries first.');
-    const kept = new Set(lists.map((list) => list.id));
-    const removed = { ...current.removed };
-    for (const list of current.lists)
-      if (!kept.has(list.id) && current.index[list.id])
-        removed[list.id] = current.index[list.id]!.revision;
-    for (const id of kept) delete removed[id];
-    set({ notice: 'Saving changes…' });
-    changed({
-      lists,
-      dirty: [...new Set([...current.dirty.filter((id) => kept.has(id)), ...modified])],
-      removed,
-      loaded: [...new Set([...current.loaded.filter((id) => kept.has(id)), ...modified])],
-    });
-    schedule();
+  change(next) {
+    const current = useSavedWorklists.getState().lists;
+    const deleted = current.find((row) => !next.some((item) => item.id === row.id));
+    if (deleted) {
+      enqueue(deleted.id, { type: 'delete' });
+      return;
+    }
+    for (const row of next) {
+      const previous = current.find((item) => item.id === row.id);
+      if (!previous) {
+        enqueue(row.id, {
+          type: 'create',
+          name: row.name,
+          hashes: row.items.map((item) => item.hash),
+        });
+        return;
+      }
+      if (row.name !== previous.name) {
+        enqueue(row.id, { type: 'rename', name: row.name });
+        return;
+      }
+      const removed = previous.items
+        .filter((item) => !row.items.some((next) => next.hash === item.hash))
+        .map((item) => item.hash);
+      if (removed.length) {
+        enqueue(row.id, { type: 'remove', hashes: removed });
+        return;
+      }
+      const added = row.items
+        .filter((item) => !previous.items.some((old) => old.hash === item.hash))
+        .map((item) => item.hash);
+      if (added.length) {
+        enqueue(row.id, { type: 'add', hashes: added });
+        return;
+      }
+      const moved = row.items.findIndex((item, index) => item.hash !== previous.items[index]?.hash);
+      if (moved >= 0) {
+        enqueue(row.id, { type: 'move', hash: row.items[moved]!.hash, index: moved });
+        return;
+      }
+    }
   },
   add(id, name, items) {
-    const lists = get().lists;
-    const list = lists.find((list) => list.id === id);
-    if (id && !list) throw new Error('This worklist was deleted. Choose another worklist.');
-    const hashes = new Set(list?.items.map((item) => item.hash));
-    const added = items
-      .filter((item) => {
-        if (hashes.has(item.hash)) return false;
-        hashes.add(item.hash);
-        return true;
-      })
-      .map(({ hash, name }) => ({ hash, name: name.slice(0, 160) }));
-    get().change(
-      list
-        ? lists.map((old) => (old === list ? { ...old, items: [...old.items, ...added] } : old))
-        : [...lists, { id: crypto.randomUUID(), name: name.trim(), items: added }],
+    const row = useSavedWorklists.getState().lists.find((row) => row.id === id);
+    if (id && !row) throw new Error('This worklist was deleted. Choose another worklist.');
+    const hashes = [...new Set(items.map((item) => item.hash))];
+    enqueue(
+      id ?? crypto.randomUUID(),
+      row ? { type: 'add', hashes } : { type: 'create', name: name.trim(), hashes },
     );
   },
 }));
 const entryPath = (id: string) => `/worklists/${encodeURIComponent(id)}`;
-const unpack = (remote: NonNullable<z.infer<typeof replySchema>['worklist']>): SavedWorklist => ({
-  id: remote.id,
-  name: remote.name,
-  items: remote.hashes.map((hash) => ({ hash, name: '' })),
-});
-
-/** Reads only this list. Locally loaded entries remain usable offline. */
-export async function loadWorklist(id: string): Promise<SavedWorklist> {
+function accept(id: string, reply: z.infer<typeof replySchema>) {
   const state = useSavedWorklists.getState();
-  const existing = state.lists.find((list) => list.id === id);
-  if (!existing) throw new Error('The saved worklist was deleted. This run keeps its items.');
-  if (state.loaded.includes(id)) return existing;
-  if (!accountReady()) throw new Error('Wait for this account to finish signing in.');
-  const started = epoch;
+  versions.set(id, (versions.get(id) ?? 0) + 1);
+  const base = state.base.filter((row) => row.id !== id);
+  const index = { ...state.index };
+  if (reply.worklist && reply.revision) {
+    base.push({
+      id,
+      name: reply.worklist.name,
+      items: reply.worklist.hashes.map((hash) => ({ hash, name: '' })),
+    });
+    index[id] = {
+      id,
+      name: reply.worklist.name,
+      count: reply.worklist.hashes.length,
+      updatedAt: Date.now(),
+      revision: reply.revision,
+    };
+  } else delete index[id];
+  useSavedWorklists.setState({ base, index, loaded: [...new Set([...state.loaded, id])] });
+  render();
+}
+async function readRow(id: string, started: number) {
+  const version = versions.get(id);
   const response = await apiRequest(entryPath(id));
   if (!response.ok) throw new Error('Could not load this worklist. Retry when connected.');
-  const remote = replySchema.parse(await response.json());
+  const reply = replySchema.parse(await response.json());
   if (started !== epoch || !accountReady()) throw new Error('The account changed.');
-  if (!remote.worklist || !remote.revision)
-    throw new Error('This worklist was deleted on another device. Sync to update the index.');
-  const current = useSavedWorklists.getState();
-  const local = current.lists.find((list) => list.id === id);
-  if (!local) throw new Error('This worklist was deleted while loading.');
-  if (current.loaded.includes(id) && current.index[id]?.revision !== state.index[id]?.revision)
-    return local;
-  const list =
-    current.dirty.includes(id) && local
-      ? mergeWorklists([local], [unpack(remote.worklist)])[0]!
-      : unpack(remote.worklist);
-  changed({
-    lists: current.lists.some((list) => list.id === id)
-      ? current.lists.map((old) => (old.id === id ? list : old))
-      : [...current.lists, list],
-    loaded: [...new Set([...current.loaded, id])],
-    index: {
-      ...current.index,
-      [id]: {
-        id,
-        name: remote.worklist.name,
-        count: remote.worklist.hashes.length,
-        updatedAt: current.index[id]?.updatedAt ?? 0,
-        revision: remote.revision,
-      },
-    },
-  });
-  return list;
+  if (version === versions.get(id)) accept(id, reply);
+  return reply;
 }
-
-/** Metadata-only index, and at most one changed-list write in flight. */
+export async function loadWorklist(id: string): Promise<SavedWorklist> {
+  const state = useSavedWorklists.getState();
+  if (!state.lists.some((row) => row.id === id)) throw new Error('The saved worklist was deleted.');
+  if (!state.loaded.includes(id)) {
+    if (!accountReady()) throw new Error('Wait for this account to finish signing in.');
+    await readRow(id, epoch);
+    keepCache();
+  }
+  const row = useSavedWorklists.getState().lists.find((row) => row.id === id);
+  if (!row)
+    throw new Error('This worklist was deleted on another device. Sync to update the index.');
+  return row;
+}
+async function readIndex(started: number) {
+  const before = useSavedWorklists.getState().index;
+  const response = await apiRequest('/worklists');
+  if (!response.ok) throw new Error('Could not read the worklist index.');
+  const remote = indexSchema.parse(await response.json());
+  if (started !== epoch || !accountReady()) return;
+  const state = useSavedWorklists.getState();
+  const index = Object.fromEntries(remote.lists.map((meta) => [meta.id, meta]));
+  for (const [id, meta] of Object.entries(state.index))
+    if (meta.revision !== before[id]?.revision) index[id] = meta;
+  const loaded = state.loaded.filter((id) => index[id]?.revision === state.index[id]?.revision);
+  const base = Object.values(index).map(
+    (meta) =>
+      ((loaded.includes(meta.id) || state.ops.some((op) => op.id === meta.id)) &&
+        state.base.find((row) => row.id === meta.id)) || {
+        id: meta.id,
+        name: meta.name,
+        items: [],
+      },
+  );
+  useSavedWorklists.setState({ base, index, loaded });
+  render();
+  ready = true;
+}
+/** Sends operations in order. A conflict gets one fresh-row retry, never a snapshot merge. */
 export async function syncWorklists(refresh = false) {
   if (refresh) ready = false;
   if (flight) {
     if (refresh) refreshAfterFlight = true;
+    else sendAfterFlight = true;
     return;
   }
+  clearTimeout(timer);
   if (!accountReady()) return;
   flight = true;
   const started = epoch;
   try {
-    if (!ready) {
-      const before = useSavedWorklists.getState().index;
-      const response = await apiRequest('/worklists');
-      if (!response.ok) throw new Error('Could not read the worklist index.');
-      const remote = indexSchema.parse(await response.json());
-      if (started !== epoch || !accountReady()) return;
-      const current = useSavedWorklists.getState();
-      const lists = [...current.lists];
-      const index = { ...current.index };
-      const loaded = new Set(current.loaded);
-      const ids = new Set(remote.lists.map((list) => list.id));
-      for (const meta of remote.lists) {
-        if (current.removed[meta.id]) continue;
-        const position = lists.findIndex((list) => list.id === meta.id);
-        // A list loaded or saved after this index request has the more recent revision.
-        if (index[meta.id]?.revision !== before[meta.id]?.revision) continue;
-        if (!current.dirty.includes(meta.id)) {
-          const local = position >= 0 ? lists[position] : undefined;
-          const cached = loaded.has(meta.id) && index[meta.id]?.revision === meta.revision;
-          const list = { id: meta.id, name: meta.name, items: cached ? (local?.items ?? []) : [] };
-          if (!cached) loaded.delete(meta.id);
-          if (position >= 0) lists[position] = list;
-          else lists.push(list);
+    if (!ready) await readIndex(started);
+    if (started !== epoch || !accountReady()) return;
+    while (useSavedWorklists.getState().ops.length) {
+      const pending = useSavedWorklists.getState().ops[0]!;
+      if (
+        pending.op.type !== 'create' &&
+        pending.op.type !== 'delete' &&
+        !useSavedWorklists.getState().loaded.includes(pending.id)
+      )
+        await readRow(pending.id, started);
+      let success = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const state = useSavedWorklists.getState();
+        const response = await apiRequest(entryPath(pending.id), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            op: pending.op,
+            revision: state.index[pending.id]?.revision ?? null,
+          }),
+        });
+        if (started !== epoch || !accountReady()) return;
+        if (response.status === 409) {
+          if (attempt === 1)
+            throw new Error('Worklist kept changing on another device. Use Sync to retry.');
+          await readRow(pending.id, started);
+          continue;
         }
-        // Pending edits retain their base revision, so CAS detects remote additions.
-        if (!current.dirty.includes(meta.id)) index[meta.id] = meta;
+        if (!response.ok) throw new Error('Could not sync this worklist. Retry when connected.');
+        const reply = replySchema.parse(await response.json());
+        if (started !== epoch || !accountReady()) return;
+        accept(pending.id, reply);
+        useSavedWorklists.setState({ ops: useSavedWorklists.getState().ops.slice(1) });
+        render();
+        keepOps();
+        keepCache();
+        try {
+          localStorage.setItem(
+            signalKey(useSavedWorklists.getState().scope),
+            JSON.stringify({ id: pending.id, nonce: crypto.randomUUID() }),
+          );
+        } catch {
+          /* Focus/Sync also refresh. */
+        }
+        success = true;
+        break;
       }
-      const kept = lists.filter((list) => ids.has(list.id) || current.dirty.includes(list.id));
-      const retained = new Set([...kept.map((list) => list.id), ...Object.keys(current.removed)]);
-      for (const id of Object.keys(index)) if (!retained.has(id)) delete index[id];
-      changed({ lists: kept, index, loaded: [...loaded].filter((id) => retained.has(id)) });
-      ready = true;
+      if (!success) return;
     }
-    let current = useSavedWorklists.getState();
-    const removedId = Object.keys(current.removed)[0];
-    const id = removedId ?? current.dirty[0];
-    if (!id) return;
-    const list = current.lists.find((list) => list.id === id);
-    if (!removedId && (!list || !worklistsSchema.safeParse([list]).success))
-      throw new Error(
-        'Merged worklist exceeds 500 entries or 16 KB. Remove entries to sync; all entries remain in this tab.',
-      );
-    const response = await apiRequest(entryPath(id), {
-      method: removedId ? 'DELETE' : 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        removedId
-          ? { revision: current.removed[id] }
-          : {
-              name: list!.name,
-              hashes: list!.items.map((item) => item.hash),
-              revision: current.index[id]?.revision ?? null,
-            },
-      ),
-    });
-    if (started !== epoch || !accountReady()) return;
-    if (!response.ok && response.status !== 409)
-      throw new Error('Could not sync this worklist. The account allows up to 50 lists.');
-    const remote = replySchema.parse(await response.json());
-    if (started !== epoch || !accountReady()) return;
-    current = useSavedWorklists.getState();
-    const removed = { ...current.removed };
-    delete removed[id];
-    const index = { ...current.index };
-    if (response.status === 409) {
-      const recovered = remote.worklist ? unpack(remote.worklist) : null;
-      if (recovered && remote.revision)
-        index[id] = {
-          id,
-          name: recovered.name,
-          count: recovered.items.length,
-          updatedAt: Date.now(),
-          revision: remote.revision,
-        };
-      else delete index[id];
-      changed({
-        lists: recovered ? mergeWorklists(current.lists, [recovered]) : current.lists,
-        index,
-        removed,
-        dirty: [...new Set([...current.dirty, ...(recovered || list ? [id] : [])])],
-        loaded: [...new Set([...current.loaded, ...(recovered ? [id] : [])])],
-      });
-      syncNotice(
-        'Merged changes from another device. Concurrent removals may reappear; all entries were kept.',
-      );
-    } else if (removedId) {
-      delete index[id];
-      changed({ index, removed });
-    } else if (remote.revision && list) {
-      index[id] = {
-        id,
-        name: list.name,
-        count: list.items.length,
-        updatedAt: Date.now(),
-        revision: remote.revision,
-      };
-      const latest = current.lists.find((entry) => entry.id === id);
-      // A list deleted while its create was in flight still needs a conditional delete.
-      if (!latest) removed[id] = remote.revision;
-      changed({
-        index,
-        removed,
-        dirty:
-          same(latest, list) || !latest
-            ? current.dirty.filter((entry) => entry !== id)
-            : current.dirty,
-      });
-    }
-    if (useSavedWorklists.getState().pending) schedule();
-    else if (!useSavedWorklists.getState().notice.includes('Concurrent removals'))
-      useSavedWorklists.setState({ notice: 'Saved to your account.' });
+    keepCache();
+    useSavedWorklists.setState({ notice: 'Saved to your account.' });
   } catch (error) {
     if (started === epoch)
-      syncNotice(
-        `${error instanceof Error ? error.message : 'Sync failed.'} Retry when connected.`,
-      );
+      useSavedWorklists.setState({
+        notice: `${useSavedWorklists.getState().storageFailed ? 'Keep this tab open: browser storage could not keep your pending operations. ' : ''}${error instanceof Error ? error.message : 'Sync failed.'}`,
+      });
   } finally {
+    try {
+      await readSignals(started);
+    } catch {
+      /* A later focus/Sync retries incoming reads. */
+    }
     flight = false;
-    if (refreshAfterFlight) {
+    if (sendAfterFlight && useSavedWorklists.getState().pending) {
+      sendAfterFlight = false;
+      schedule();
+    }
+    if (refreshAfterFlight || started !== epoch) {
       refreshAfterFlight = false;
       ready = false;
       schedule();
-    } else if (started !== epoch) schedule();
+    }
   }
 }
+async function readSignals(started: number) {
+  const received = signals.size > 0;
+  while (signals.size && started === epoch && accountReady()) {
+    const id = [...signals][0]!;
+    signals.delete(id);
+    await readRow(id, started);
+  }
+  if (received && started === epoch && accountReady()) await readIndex(started);
+}
 export function connectWorklists(): () => void {
-  let checking = useAuthStore.getState().loading;
   const account = () => {
-    if (useAuthStore.getState().loading) {
-      if (!checking) {
-        epoch++;
-        ready = false;
-      }
-      checking = true;
-      return;
-    }
-    const checked = checking;
-    if (checking) {
+    const auth = useAuthStore.getState();
+    const scope = String(auth.user?.id ?? 'anonymous');
+    if (auth.loading) {
       epoch++;
       ready = false;
-      checking = false;
+      return;
     }
-    const scope = String(useAuthStore.getState().user?.id ?? 'anonymous');
     if (scope === useSavedWorklists.getState().scope) {
-      if (checked) void syncWorklists();
+      if (!ready) void syncWorklists();
       return;
     }
     epoch++;
+    signals.clear();
     ready = false;
     clearTimeout(timer);
-    let copy = empty();
+    let base: SavedWorklist[] = [];
+    let loaded: string[] = [];
+    let index: Record<string, Meta> = {};
+    let ops: Pending = [];
     try {
-      const parsed = copySchema.safeParse(JSON.parse(localStorage.getItem(key(scope)) ?? 'null'));
-      if (parsed.success) copy = parsed.data;
+      const cache = z
+        .object({
+          base: worklistsSchema,
+          loaded: z.array(z.string()),
+          index: z.record(z.string(), worklistIndexEntrySchema),
+        })
+        .parse(JSON.parse(localStorage.getItem(cacheKey(scope)) ?? 'null'));
+      ({ base, loaded, index } = cache);
     } catch {
-      /* Keep unreadable copies until the account is read. */
+      /* Preserve unreadable cache on disk. */
     }
-    useSavedWorklists.setState({
-      scope,
-      ...copy,
-      pending: copy.dirty.length > 0 || Object.keys(copy.removed).length > 0,
-      notice: '',
-    });
+    try {
+      ops = pendingSchema.parse(JSON.parse(localStorage.getItem(opsKey(scope)) ?? '[]'));
+    } catch {
+      /* Preserve unreadable pending copy. */
+    }
+    useSavedWorklists.setState({ scope, ...empty(), base, loaded, index, ops });
+    render();
     void syncWorklists();
   };
   const unsubscribe = useAuthStore.subscribe(account);
   account();
-  const retry = () => {
-    ready = false;
-    void syncWorklists();
-  };
-  const storage = (event: StorageEvent) => {
-    const current = useSavedWorklists.getState();
-    if (event.key !== key(current.scope) || !event.newValue) return;
-    let raw: unknown;
+  const retry = () => void syncWorklists(true);
+  const storage = async (event: StorageEvent) => {
+    const state = useSavedWorklists.getState();
+    if (event.key !== signalKey(state.scope) || !event.newValue || !accountReady()) return;
+    const started = epoch;
     try {
-      raw = JSON.parse(event.newValue);
-    } catch {
-      return;
-    }
-    const copy = copySchema.safeParse(raw);
-    if (!copy.success) return;
-    if (!current.pending) changed(copy.data);
-    else {
-      const lists = [...current.lists];
-      const index = { ...current.index };
-      const loaded = new Set(current.loaded);
-      for (const list of copy.data.lists) {
-        const at = lists.findIndex((old) => old.id === list.id);
-        if (
-          at >= 0 &&
-          (current.dirty.includes(list.id) ||
-            (loaded.has(list.id) && copy.data.dirty.includes(list.id)))
-        ) {
-          // Keep this revision's contents when accepting another tab's pending edits.
-          lists[at] = mergeWorklists([lists[at]!], [list])[0]!;
-        } else {
-          if (at < 0) lists.push(list);
-          else lists[at] = list;
-          // Entries, loaded state, and their CAS base must travel together.
-          if (copy.data.index[list.id]) index[list.id] = copy.data.index[list.id]!;
-          else delete index[list.id];
-          if (copy.data.loaded.includes(list.id)) loaded.add(list.id);
-          else loaded.delete(list.id);
+      const { id } = z.object({ id: z.string().uuid() }).parse(JSON.parse(event.newValue));
+      signals.add(id);
+      if (flight) return;
+      flight = true;
+      try {
+        await readSignals(started);
+      } finally {
+        flight = false;
+        if (sendAfterFlight && useSavedWorklists.getState().pending) {
+          sendAfterFlight = false;
+          schedule();
         }
       }
-      const removed = { ...copy.data.removed, ...current.removed };
-      const dirty = [...new Set([...current.dirty, ...copy.data.dirty])];
-      // A concurrent deletion must not discard either tab's unsaved additions.
-      for (const id of dirty) delete removed[id];
-      changed({
-        lists: lists.filter((list) => !removed[list.id]),
-        dirty,
-        loaded: [...loaded],
-        removed,
-        index,
-      });
-      syncNotice(
-        'Merged another tab’s changes. Concurrent removals may reappear; all entries were kept.',
-      );
+      // Receiving state changes neither persisted pending ops nor publication keys.
+    } catch (error) {
+      if (started === epoch)
+        useSavedWorklists.setState({
+          notice: error instanceof Error ? error.message : 'Sync failed.',
+        });
     }
-    ready = false;
-    schedule();
   };
   window.addEventListener('online', retry);
   window.addEventListener('focus', retry);

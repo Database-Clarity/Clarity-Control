@@ -46,8 +46,8 @@ beforeEach(async () => {
   useSavedWorklists.setState({
     scope: '1',
     lists: [],
-    dirty: [],
-    removed: {},
+    base: [],
+    ops: [],
     index: {},
     loaded: [],
     pending: false,

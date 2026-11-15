@@ -30,8 +30,8 @@ beforeEach(async () => {
     scope: '1',
     lists: [],
     pending: false,
-    dirty: [],
-    removed: {},
+    base: [],
+    ops: [],
     loaded: [],
     index: {},
     notice: '',
@@ -104,6 +104,7 @@ it('does not add entries when the picker is cancelled during a lazy list read', 
   const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
   act(() =>
     useSavedWorklists.setState({
+      base: [{ id, name: 'Existing', items: [] }],
       lists: [{ id, name: 'Existing', items: [] }],
       loaded: [],
       index: { [id]: { id, name: 'Existing', count: 1, updatedAt: 1, revision: 'a'.repeat(32) } },
@@ -132,7 +133,7 @@ it('does not add entries when the picker is cancelled during a lazy list read', 
     ),
   );
   expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([1]);
-  expect(useSavedWorklists.getState().dirty).toEqual([]);
+  expect(useSavedWorklists.getState().ops).toEqual([]);
   expect(close).not.toHaveBeenCalled();
 });
 
@@ -140,6 +141,7 @@ it('removes an unavailable entry after an index-only cache refresh without dropp
   const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
   act(() =>
     useSavedWorklists.setState({
+      base: [{ id, name: 'Existing', items: [] }],
       lists: [{ id, name: 'Existing', items: [] }],
       loaded: [],
       index: { [id]: { id, name: 'Existing', count: 2, updatedAt: 1, revision: 'a'.repeat(32) } },
@@ -151,7 +153,7 @@ it('removes an unavailable entry after an index-only cache refresh without dropp
   await act(async () => root.render(<RemoveFromWorklist id={id} hash={1} />));
   await act(async () => button('Remove').click());
   expect(useSavedWorklists.getState().lists[0]!.items.map((item) => item.hash)).toEqual([2]);
-  expect(useSavedWorklists.getState().dirty).toEqual([id]);
+  expect(useSavedWorklists.getState().ops.map((op) => op.id)).toEqual([id]);
 });
 
 it.each(['custom', 'drafts'])(
@@ -178,6 +180,7 @@ it.each(['custom', 'drafts'])(
     act(() => {
       useDataStore.setState({ data });
       useSavedWorklists.setState({
+        base: [{ id, name: 'Other list', items: [{ hash: 2, name: 'Two' }] }],
         lists: [{ id, name: 'Other list', items: [{ hash: 2, name: 'Two' }] }],
         loaded: [id],
       });

@@ -59,7 +59,20 @@ const id = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
 const mine = { name: 'Weekend', hashes: [11, 12] };
 const path = `/worklists/${id}`;
 async function put(value: unknown, revision: string | null, user = 1, listId = id) {
-  return fixture.request(`/worklists/${listId}`, 'PUT', { ...(value as object), revision }, user);
+  return fixture.request(
+    `/worklists/${listId}`,
+    'PUT',
+    {
+      op:
+        revision === null
+          ? { type: 'create', ...(value as object) }
+          : 'type' in (value as object)
+            ? value
+            : { type: 'rename', name: (value as { name: string }).name },
+      revision,
+    },
+    user,
+  );
 }
 async function synced(response: Response) {
   expect(response.status).toBe(200);
@@ -128,11 +141,11 @@ it('does not rewrite unchanged rows and deletes only a matching revision', async
   const row = db.prepare('SELECT * FROM user_worklists').get();
   expect(await synced(await put(mine, first.revision))).toEqual(first);
   expect(db.prepare('SELECT * FROM user_worklists').get()).toEqual(row);
-  const second = await synced(await put({ ...mine, hashes: [11, 12, 13] }, first.revision));
-  const stale = await fixture.request(path, 'DELETE', { revision: first.revision });
+  const second = await synced(await put({ type: 'add', hashes: [13] }, first.revision));
+  const stale = await put({ type: 'delete' }, first.revision);
   expect(stale.status).toBe(409);
   expect(await stale.json()).toMatchObject(second);
-  expect((await fixture.request(path, 'DELETE', { revision: second.revision })).status).toBe(200);
+  expect((await put({ type: 'delete' }, second.revision)).status).toBe(200);
   expect((await read()).worklist).toBeNull();
 });
 it('rejects invalid and oversized membership, accepts a maximum-size list', async () => {
@@ -180,4 +193,17 @@ it('enforces the account cap when two devices create the fiftieth list concurren
   expect((await put(mine, null)).status).toBe(400);
   expect(db.prepare('SELECT count(*) AS n FROM user_worklists').get()!.n).toBe(50);
   expect((await fixture.request(`/worklists/${winner}`, 'GET')).status).toBe(200);
+});
+
+it('applies add, remove, and move to the server row and keeps repeats idempotent', async () => {
+  let result = await synced(await put(mine, null));
+  result = await synced(await put({ type: 'add', hashes: [12, 13] }, result.revision));
+  expect(result.worklist!.hashes).toEqual([11, 12, 13]);
+  const revision = result.revision;
+  result = await synced(await put({ type: 'add', hashes: [12, 13] }, revision));
+  expect(result.revision).toBe(revision);
+  result = await synced(await put({ type: 'move', hash: 13, index: 0 }, result.revision));
+  expect(result.worklist!.hashes).toEqual([13, 11, 12]);
+  result = await synced(await put({ type: 'remove', hashes: [11, 99] }, result.revision));
+  expect(result.worklist!.hashes).toEqual([13, 12]);
 });
