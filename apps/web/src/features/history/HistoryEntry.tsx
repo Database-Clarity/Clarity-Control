@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
-import type { Tooltip } from '@clarity/core';
+import type { Lang, Tooltip } from '@clarity/core';
 import type { Item } from '../../services/generator';
 import { scaledPx } from '../../ui/scale';
 import type { HistoryCommit } from '../../services/history';
@@ -63,6 +63,7 @@ export interface HistoryEntryProps {
   translator: boolean;
   /** The save marked this tooltip's English change "No translation impact" (TR3 audit line). */
   noTranslationImpact?: boolean;
+  carriedLanguages?: readonly Lang[];
   /** Restore is offered only when the page may edit and drafts have loaded. */
   canRestore: boolean;
   /** Published artifacts compare the selected state to its next published state. */
@@ -285,6 +286,11 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         <span className={styles.message}>
           {entry.message.split(/\r?\n/, 1)[0]} <code>{entry.commit.slice(0, 8)}</code>
         </span>
+        {!!props.carriedLanguages?.length && (
+          <span className={styles.noImpact}>
+            Numbers carried to {props.carriedLanguages.join(', ')}
+          </span>
+        )}
         {props.noTranslationImpact && (
           <span
             className={styles.noImpact}

@@ -2,7 +2,14 @@ import { SkeletonBoundary } from '../../ui/Skeleton';
 import type { Item } from '../../services/generator';
 import { useEffect, useState } from 'react';
 import { languageLabel } from '../../languageLabels';
-import { languages, sameCell, type CompendiumLink, type Tooltip } from '@clarity/core';
+import { numberTokens } from '@clarity/core/numbers';
+import {
+  usesEnglishFallback,
+  languages,
+  sameCell,
+  type CompendiumLink,
+  type Tooltip,
+} from '@clarity/core';
 import { CompendiumDiff } from '../compendium/CompendiumDiff';
 import { SourceRef } from '../compendium/SourceRef';
 import { linkLocation } from '../compendium/sourceLocation';
@@ -164,6 +171,24 @@ export function TooltipDiff({
             />
           </>
         )}
+      {languages
+        .filter(
+          (lang) =>
+            lang !== 'en' &&
+            current.text[lang] &&
+            numberTokens(current.text[lang]!.text).some(
+              ({ id }) =>
+                id !== undefined && Object.hasOwn(current.text.en?.numbers?.retired ?? {}, id),
+            ),
+        )
+        .map((lang) => (
+          <p key={`numbers-${lang}`}>
+            {languageLabel(lang)}: Numbers removed from English;{' '}
+            {usesEnglishFallback(current, lang)
+              ? 'this translation exports in English.'
+              : 'tokens keep their frozen old values until removed.'}
+          </p>
+        ))}
       {!changed.length && <p>No language text changes.</p>}
       {JSON.stringify(before?.associated ?? []) !== JSON.stringify(current.associated) && (
         <p>

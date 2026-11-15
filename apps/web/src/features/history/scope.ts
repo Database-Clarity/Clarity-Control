@@ -93,7 +93,7 @@ export function classifyInWorker(
 /**
  * Whether this save marked the tooltip's English change "No translation impact" (TR3): the Worker
  * lists it in the `Clarity-No-Translation-Impact` line of the save's final trailer block, just
- * before `Clarity-Changed`. Only that Worker-written final paragraph counts, so a commit message
+ * alongside `Clarity-Changed`. Only that Worker-written final paragraph counts, so a commit message
  * can neither forge nor hide the mark. Display only.
  */
 export function noImpactFromTrailer(message: string, hash: number): boolean {
@@ -103,7 +103,7 @@ export function noImpactFromTrailer(message: string, hash: number): boolean {
       .split(/\r?\n\r?\n/)
       .at(-1)
       ?.split(/\r?\n/) ?? [];
-  if (!block.at(-1)?.startsWith('Clarity-Changed: ')) return false;
+  if (!block.some((entry) => entry.startsWith('Clarity-Changed: '))) return false;
   const line = block.find((entry) => entry.startsWith('Clarity-No-Translation-Impact: '));
   return (
     line?.slice('Clarity-No-Translation-Impact: '.length).split(',').includes(String(hash)) ?? false
@@ -114,7 +114,12 @@ export function noImpactFromTrailer(message: string, hash: number): boolean {
  * Unknown/malformed tokens fall back to body classification. Never used for writes.
  */
 export function changesFromTrailer(message: string, hash: number): RevisionChanges | undefined {
-  const line = message?.trimEnd().split(/\r?\n/).at(-1);
+  const line = message
+    ?.trimEnd()
+    .split(/\r?\n\r?\n/)
+    .at(-1)
+    ?.split(/\r?\n/)
+    .find((entry) => entry.startsWith('Clarity-Changed: '));
   if (!line?.startsWith('Clarity-Changed: ')) return;
   const entries = line.slice('Clarity-Changed: '.length).split(';');
   const found = entries.filter((entry) => entry.startsWith(`${hash}=`));
@@ -128,6 +133,33 @@ export function changesFromTrailer(message: string, hash: number): RevisionChang
     else if (sharedFields.includes(token as SharedField) && token !== 'associated')
       result.fields.push(token as SharedField);
     else return;
+  }
+  return result;
+}
+
+/** Per-tooltip carry hint from the final save trailer block, independent of line order. */
+export function carriedFromTrailer(message: string, hash: number): Lang[] {
+  const lines =
+    message
+      .trimEnd()
+      .split(/\r?\n\r?\n/)
+      .at(-1)
+      ?.split(/\r?\n/) ?? [];
+  const carried = lines.filter((line) => line.startsWith('Clarity-Carried:'));
+  if (carried.length !== 1 || !carried[0].startsWith('Clarity-Carried: ')) return [];
+  const seen = new Set<string>();
+  let result: Lang[] = [];
+  for (const entry of carried[0].slice('Clarity-Carried: '.length).split(';')) {
+    const match = /^([1-9]\d*)=([a-z,-]+)$/.exec(entry);
+    if (!match || seen.has(match[1])) return [];
+    seen.add(match[1]);
+    const values = match[2].split(',');
+    if (
+      new Set(values).size !== values.length ||
+      values.some((lang) => lang === 'en' || !languages.includes(lang as Lang))
+    )
+      return [];
+    if (match[1] === String(hash)) result = values as Lang[];
   }
   return result;
 }

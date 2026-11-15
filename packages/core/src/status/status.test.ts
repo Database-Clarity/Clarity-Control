@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { exportLegacy, translationMaxAge, type LegacyEntry } from '../exportLegacy.js';
 import type { Tooltip } from '../schemas.js';
-import { bungieDrift, outdatedTranslations, translationQueue } from './index.js';
+import {
+  bungieDrift,
+  outdatedTranslations,
+  translationQueue,
+  translationStateOf,
+} from './index.js';
 
 const source = '2026-01-01T00:00:00.000Z';
 function tooltip(hash: number, age = 1): Tooltip {
@@ -55,7 +60,10 @@ describe('outdated translations', () => {
       [2, true],
       [1, false],
     ]);
-    const exported = exportLegacy([exact, over], Date.parse('2030-01-01T00:00:00.000Z')) as Record<string, LegacyEntry>;
+    const exported = exportLegacy([exact, over], Date.parse('2030-01-01T00:00:00.000Z')) as Record<
+      string,
+      LegacyEntry
+    >;
     expect(exported[1].editor.de?.main).toBe('Deutsch');
     expect(exported[2].editor.de?.main).toBe('English');
   });
@@ -155,5 +163,51 @@ describe('translation queue', () => {
       [4, 'de', 'missing'],
       [5, 'de', 'current'],
     ]);
+  });
+});
+
+describe('removed English numbers in the translation queue', () => {
+  it.each(['old', 'current', 'unknown'] as const)(
+    'flags a frozen token with %s source stamps until removed',
+    (stamp) => {
+      const value = tooltip(42, 1000);
+      value.text.en!.numbers = { ids: [], next: 2, retired: { 1: '5' } };
+      value.text.de!.text = 'Hält #{=1} Sekunden.';
+      value.text.de!.sourceUpdatedAt =
+        stamp === 'current' ? value.text.en!.updatedAt : stamp === 'unknown' ? undefined : source;
+      expect(translationStateOf(value, 'de')).toMatchObject({
+        state: 'outdated',
+        reason: 'numbers',
+        exportedInEnglish: false,
+      });
+      expect(translationQueue([value], ['de'])[0]).toMatchObject({
+        state: 'outdated',
+        reason: 'numbers',
+      });
+      value.text.de!.text = 'Hält an.';
+      expect(translationStateOf(value, 'de').reason).toBeUndefined();
+      expect(translationStateOf(value, 'de').state).toBe(stamp === 'old' ? 'outdated' : 'current');
+    },
+  );
+  it('flags unfreezable and language-specific frozen formulas with the real export fallback', () => {
+    const value = tooltip(42);
+    value.text.de!.text = '#{=1}';
+    for (const frozen of [null, { value: '${5+10}', fallback: ['de' as const] }]) {
+      value.text.en!.numbers = { ids: [], next: 2, retired: { 1: frozen } };
+      expect(translationStateOf(value, 'de')).toMatchObject({
+        reason: 'numbers',
+        exportedInEnglish: true,
+      });
+    }
+  });
+  it('keeps carried live tokens current, and ignores unreferenced retired ids', () => {
+    const value = tooltip(42);
+    value.text.en!.text = 'Grants 6 stacks.';
+    value.text.en!.numbers = { ids: [2], next: 3, retired: { 1: '5' } };
+    value.text.de!.text = '#{=2} Stapel';
+    value.text.de!.sourceUpdatedAt = value.text.en!.updatedAt;
+    expect(translationStateOf(value, 'de')).toEqual({ state: 'current' });
+    delete value.text.de;
+    expect(translationStateOf(value, 'de')).toEqual({ state: 'missing' });
   });
 });

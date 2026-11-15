@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import {
   classifyRevision,
+  carriedFromTrailer,
   changesFromTrailer,
   englishScope,
   isRelevant,
@@ -125,4 +126,38 @@ it('reads only this tooltip from the last save trailer, and rejects unknown hint
     'Clarity-Changed: 456=fr',
   ])
     expect(changesFromTrailer(message, 123)).toBeUndefined();
+});
+
+it('reads per-tooltip carry hints independently of trailer order, including CRLF', () => {
+  for (const lines of [
+    'Clarity-Changed: 123=en,de;456=en,it\nClarity-Carried: 123=de,fr;456=it',
+    'Clarity-Carried: 123=de,fr;456=it\nClarity-Changed: 123=en,de;456=en,it',
+  ]) {
+    const message = `Balance\n\nClarity-No-Translation-Impact: 123\n${lines}`;
+    expect(carriedFromTrailer(message, 123)).toEqual(['de', 'fr']);
+    expect(carriedFromTrailer(message.replaceAll('\n', '\r\n'), 456)).toEqual(['it']);
+    expect(carriedFromTrailer(message, 12)).toEqual([]);
+    expect(changesFromTrailer(message, 123)?.languages).toEqual(['en', 'de']);
+    expect(noImpactFromTrailer(message, 123)).toBe(true);
+  }
+});
+it('ignores absent, forged body, and malformed carry hints without errors', () => {
+  for (const value of [
+    '',
+    'de,fr',
+    '123=en',
+    '123=xx',
+    '123=de,de',
+    '123=de;123=fr',
+    '123=de;',
+    '123=de;456=xx',
+  ]) {
+    expect(carriedFromTrailer(`Save\n\nClarity-Carried: ${value}`, 123)).toEqual([]);
+  }
+  expect(
+    carriedFromTrailer('Clarity-Carried: 123=de\n\nSave\n\nClarity-Changed: 123=en', 123),
+  ).toEqual([]);
+  expect(
+    carriedFromTrailer('Save\n\nClarity-Carried: 123=de\nClarity-Carried: 123=fr', 123),
+  ).toEqual([]);
 });
