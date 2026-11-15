@@ -21376,10 +21376,14 @@ function markupCommentContext(text) {
   let offsets = Array.from({ length: text.length }, (_, index) => index);
   const comments = [];
   for (const [index, pattern] of [/\r/g, ...markupCommentPatterns].entries()) {
+    const matches2 = text.matchAll(pattern);
+    let next = matches2.next();
+    if (next.done) continue;
     let remaining = "";
     let remainingOffsets = [];
     let last = 0;
-    for (const match of text.matchAll(pattern)) {
+    for (; !next.done; next = matches2.next()) {
+      const match = next.value;
       remaining += text.slice(last, match.index);
       remainingOffsets = remainingOffsets.concat(offsets.slice(last, match.index));
       if (index > 0) {
@@ -22036,7 +22040,13 @@ function lineClasses(line, allowed2, offsets) {
   };
 }
 function markupInlineRanges(line) {
+  if (!line.includes("<")) return [];
   return [markupLineClasses, markupEmpty, []].flatMap((allowed2) => {
+    if (!allowed2.some((name) => line.includes(`<${name}/>`)))
+      return [...line.matchAll(new RegExp(inlineToken, "g"))].map((match) => ({
+        from: match.index,
+        to: match.index + match[0].length
+      }));
     const offsets = Array.from({ length: line.length }, (_, index) => index);
     const { cleanLine } = lineClasses(line, allowed2, offsets);
     return [...cleanLine.matchAll(new RegExp(inlineToken, "g"))].map((match) => ({
@@ -22219,12 +22229,16 @@ var init_lines = __esm({
 
 // packages/core/src/markup/numberSlots.ts
 function numberProse(text) {
+  if (!text.includes("\r") && !text.includes("//") && !text.includes("/*")) return text;
+  const { comments } = markupCommentContext(text);
+  if (!comments.length) return text.replace(/\r/g, " ");
   const chars = text.split("");
-  for (const { from, to } of markupCommentContext(text).comments)
+  for (const { from, to } of comments)
     for (let at = from; at < to; at++) if (chars[at] !== "\n") chars[at] = " ";
   return chars.join("").replace(/\r/g, " ");
 }
 function numberMathRanges(text) {
+  if (!text.includes("${")) return [];
   const refs = new Map(variableReferences(text).map((ref) => [ref.from, ref.to]));
   const ranges = [];
   for (let from = text.indexOf("${"); from >= 0; from = text.indexOf("${", from + 2)) {
@@ -22241,8 +22255,8 @@ function numberMathRanges(text) {
   }
   return ranges;
 }
-function numberTargetRanges(line) {
-  return markupInlineRanges(line).flatMap((range) => {
+function numberTargetRanges(line, inline = markupInlineRanges(line)) {
+  return inline.flatMap((range) => {
     const token = line.slice(range.from, range.to);
     if (!/^<(?:link|title|formula) /.test(token)) return [];
     const target = /\[.+\]/.exec(token);
@@ -22290,7 +22304,8 @@ function numberSlots(text, hash2) {
     const isHeading = heading(trimmed);
     const scope = JSON.stringify([block, nearestHeading]);
     const skip = /^<\s.*>\s*$/.test(trimmed);
-    const excluded = [...variableReferences(line), ...numberTargetRanges(line)];
+    const inlineRanges = markupInlineRanges(line);
+    const excluded = [...variableReferences(line), ...numberTargetRanges(line, inlineRanges)];
     for (const tag of line.matchAll(/<\/?[a-zA-Z_]+[0-9]*(?=[\s/>])/g))
       excluded.push({ from: tag.index, to: tag.index + tag[0].length });
     if (inTable)
@@ -22298,7 +22313,7 @@ function numberSlots(text, hash2) {
         excluded.push({ from: mod.index, to: mod.index + mod[0].length });
     const math = new Map(numberMathRanges(line).map((range) => [range.from, range.to]));
     const pairs = scanBaseEnhanced(line).pairs;
-    const inline = markupInlineRanges(line).filter(
+    const inline = inlineRanges.filter(
       (range) => /^<pv[ep] /.test(line.slice(range.from, range.to))
     );
     const start = /^\s*var [a-zA-Z0-9]+ = /.exec(line)?.[0].length ?? 0;

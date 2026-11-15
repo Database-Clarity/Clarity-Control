@@ -1150,6 +1150,9 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     place.all || allGroups || allCategories || (narrowed && Boolean(grouped?.owners.size));
   const listbox = open && (
     <div className={styles.popup} data-variant={variant} data-wide={wideRows || undefined}>
+      {variant === 'bar' && (
+        <MarkedWorkThrough data={data} group={place.group} all={place.all} onStart={restore} />
+      )}
       <ul
         ref={list}
         id={listId}
@@ -1474,14 +1477,18 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
               </div>
             )}
           </div>
-          <MarkedWorkThrough data={data} group={place.group} all={place.all} onStart={closeSheet ?? restore} />
+          <MarkedWorkThrough
+            data={data}
+            group={place.group}
+            all={place.all}
+            onStart={closeSheet ?? restore}
+          />
           {comboNode}
         </>
       ) : (
         <>
           {categoryNode}
           {groupNode}
-          <MarkedWorkThrough data={data} group={place.group} all={place.all} onStart={closeSheet ?? restore} />
           {comboNode}
           {positionNode}
         </>

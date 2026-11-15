@@ -15,6 +15,8 @@
 }
 .queueButton {
   @include controls.button;
+  flex: none;
+  max-width: 100%;
   white-space: nowrap;
 }
 
