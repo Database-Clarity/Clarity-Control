@@ -791,7 +791,10 @@ export class Publisher {
           opId,
           undefined,
           undefined,
-          { status: 'rejected', error: `Invalid alias configuration: ${String(e)}` },
+          {
+            status: 'rejected',
+            error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`,
+          },
           blob,
         );
         return;
@@ -1219,7 +1222,10 @@ export class Publisher {
       try {
         frozenAliases = this.aliasesAt(at);
       } catch (e) {
-        return fail({ status: 'rejected', error: `Invalid alias configuration: ${String(e)}` });
+        return fail({
+          status: 'rejected',
+          error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`,
+        });
       }
     const plan = await this.batchPlan(at, payload, frozenAliases);
     if ('failure' in plan) return fail(plan.failure);

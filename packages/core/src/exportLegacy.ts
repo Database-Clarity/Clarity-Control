@@ -112,7 +112,12 @@ export function mergeLivePerks(
     const keys = new Set([
       ...Object.keys(live).filter((key) => {
         const entry = live[key];
-        return isRecord(entry) && entry.aliasKind === 'name' && 'aliasOf' in entry;
+        return (
+          isRecord(entry) &&
+          'aliasOf' in entry &&
+          (entry.aliasKind === 'name' ||
+            (groups.aliases[key] && resolveAlias(Number(key), groups.aliases) !== entry.aliasOf))
+        );
       }),
       ...Object.keys(groups.aliases).filter((key) => groups.aliases[key]?.kind === 'name'),
     ]);

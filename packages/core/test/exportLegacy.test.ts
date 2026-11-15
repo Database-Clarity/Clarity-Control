@@ -31,6 +31,34 @@ test('name groups reconcile accepted, recanonicalized, and ungrouped live record
   expect(() => exportLegacy([tooltip()], 0, { 42: catalog[42] }, aliases)).toThrow('name alias 43');
 });
 
+test('name reconciliation retargets existing incoming sandbox stubs on unrelated publishes', () => {
+  const catalog = {
+    42: { name: 'Perk', type: 'Weapon Trait' },
+    43: { name: 'Perk', type: 'Weapon Trait' },
+  };
+  const live = {
+    ...exportLegacy([tooltip(), { ...tooltip(), hash: 43 }], 0, catalog),
+    700: { hash: 700, aliasOf: 43, aliasKind: 'sandbox' },
+  };
+  const generated = { 700: { to: 43, kind: 'sandbox' as const } };
+  const grouped = mergeLivePerks(live, {}, undefined, {
+    aliases: { ...generated, 43: { to: 42, kind: 'name' } },
+    catalog,
+  });
+  expect(grouped[700]).toEqual({ hash: 700, aliasOf: 42, aliasKind: 'sandbox' });
+  const ungrouped = mergeLivePerks(grouped, {}, undefined, { aliases: generated, catalog });
+  expect(ungrouped).not.toHaveProperty('43');
+  expect(ungrouped).not.toHaveProperty('700');
+  const restored = mergeLivePerks(
+    ungrouped,
+    exportLegacy([{ ...tooltip(), hash: 43 }], 0, catalog, generated),
+    undefined,
+    { aliases: generated, catalog },
+  );
+  expect(restored[700]).toEqual({ hash: 700, aliasOf: 43, aliasKind: 'sandbox' });
+  expect(mergeLivePerks(live, {})).toEqual(live);
+});
+
 test.each(['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'])(
   'passes %s markup unchanged into both consumer editor fields',
   (icon) => {
