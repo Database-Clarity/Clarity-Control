@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { EditorState } from '@codemirror/state';
+import { EditorState, Transaction } from '@codemirror/state';
+import { history as undoHistory, undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { NumberEnglishSource, numberAfter } from './NumberEnglishSource';
@@ -68,6 +69,7 @@ it('marks only source-owned numbers, lists hidden values, and updates sets witho
     parent: document.body,
     state: EditorState.create({
       extensions: [
+        undoHistory(),
         numberHost.of({ source, lang: 'de', changed: store.changed }),
         numberExtension(),
       ],
@@ -106,6 +108,28 @@ it('marks only source-owned numbers, lists hidden values, and updates sets witho
   expect(CSS.highlights.get('number-next')?.has(range)).toBe(true);
   act(() => pointNumber(editor));
   expect(CSS.highlights.get('number-used')?.has(range)).toBe(true);
+  const last = host.querySelector('[data-slot="3"]');
+  act(() => editor.dispatch({ selection: { anchor: 0 } }));
+  expect(
+    [...CSS.highlights.get('number-next')!].some(
+      (range) => range.startContainer === host.querySelector('[data-slot="1"]'),
+    ),
+  ).toBe(true);
+  act(() =>
+    editor.dispatch({
+      changes: { from: 0, insert: '#{=3}' },
+      selection: { anchor: 5 },
+      annotations: Transaction.userEvent.of('input.paste'),
+    }),
+  );
+  expect(
+    [...CSS.highlights.get('number-used')!].some((range) => range.startContainer === last),
+  ).toBe(true);
+  act(() => undo(editor));
+  expect(editor.state.doc.toString()).toBe('#{=2}');
+  expect(
+    [...CSS.highlights.get('number-used')!].some((range) => range.startContainer === last),
+  ).toBe(false);
   await act(async () => root.render(null));
   expect(CSS.highlights.size).toBe(0);
 });

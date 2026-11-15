@@ -9,6 +9,44 @@ const tooltip = (hash: number, text: string): Tooltip => ({
   associated: [],
 });
 
+test('resolves nested alias imports inside titles and preserves the real cycle diagnostic', () => {
+  const translated = (hash: number, english: string, german: string): Tooltip => {
+    const base = tooltip(hash, english);
+    return {
+      ...base,
+      text: {
+        ...base.text,
+        de: { ...base.text.en!, text: german, sourceUpdatedAt: base.text.en!.updatedAt },
+      },
+    };
+  };
+  const owner = translated(
+    10,
+    'Value 1.',
+    'title Info (\nimport main from 12\n)\n<title Detail [Info] />',
+  );
+  const inner = translated(11, 'Value 4.5.', 'Schaden #{=1}.');
+  const middle = translated(12, 'Value 9.', 'import main from 20');
+  const a = translated(40, 'Value 2.', 'Wert #{=1}.\nimport main from 41');
+  const b = translated(41, 'Value 3.', 'Wert #{=1}.\nimport main from 40');
+  for (const lookupOnly of [false, true]) {
+    const imports = tooltipImports(
+      { 10: owner, 11: inner, 12: middle, 40: a, 41: b },
+      {},
+      'de',
+      { 20: { to: 11, kind: 'name' } },
+      { lookupOnly },
+    );
+    const globals = previewNumberGlobals(owner, 'de', { variables: '', titles: '', imports });
+    expect(JSON.stringify(parseMarkup(owner.text.de!.text, globals))).toContain('Schaden 4,5.');
+    const cycle = parseMarkup('import main from 40', globals);
+    expect(cycle.diagnostics.some((issue) => issue.message.includes('possible cycle'))).toBe(true);
+    expect(JSON.stringify(cycle)).not.toContain('#{=');
+    expect(JSON.stringify(cycle)).toContain('Wert 2.');
+    expect(JSON.stringify(cycle)).toContain('Wert 3.');
+  }
+});
+
 test('resolves each imported document with its own English map, in both import modes', () => {
   const translated = (hash: number, english: string, german: string): Tooltip => {
     const base = tooltip(hash, english);

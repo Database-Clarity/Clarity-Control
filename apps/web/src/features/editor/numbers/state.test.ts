@@ -14,6 +14,7 @@ import {
   tabNumber,
   typedNumberOffer,
   convertTypedNumbers,
+  insertSourceNumber,
 } from './state';
 
 const views: EditorView[] = [];
@@ -33,6 +34,26 @@ function editor(english: string, doc = '') {
   return view;
 }
 const text = (view: EditorView) => view.state.doc.toString();
+
+it('inserts source clicks at the end before caret placement and then retains selections', () => {
+  const view = editor('Value 5.', 'Word');
+  expect(insertSourceNumber(view, 1)).toBe(true);
+  expect(text(view)).toBe('Word#{=1}');
+  view.dispatch({ selection: { anchor: 1, head: 3 } });
+  insertSourceNumber(view, 1);
+  expect(text(view)).toBe('W#{=1}d#{=1}');
+});
+
+it('has no typed offer for unmatched literals and explains when all live numbers are used', () => {
+  const view = editor('Value 5.', '999');
+  view.dispatch({ selection: { anchor: 3 } });
+  expect(typedNumberOffer(view.state)).toBeNull();
+  const complete = editor('Value 5.', '#{=1}');
+  complete.dispatch({ selection: { anchor: 5 } });
+  tabNumber(complete);
+  expect(complete.state.field(numberField).message).toBe('All numbers used');
+  expect(text(complete)).toBe('#{=1}');
+});
 
 it('converts unique typed values with formula variables in one undo and leaves equal choices literal', () => {
   const view = editor(

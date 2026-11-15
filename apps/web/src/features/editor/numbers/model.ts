@@ -140,7 +140,10 @@ export function numberSource(
     ];
     if (arm.includes('/cell')) {
       const previousLines = text.slice(0, lineStart).split('\n');
-      const tableLine = previousLines.findLastIndex((line) => /^< table\b/.test(line.trim()));
+      const tableLine = previousLines.reduce(
+        (last, line, index) => (/^< table\b/.test(line.trim()) ? index : last),
+        -1,
+      );
       inlineScope.push(`table row ${slot.line - tableLine}`, `cell ${/\/cell(\d+)/.exec(arm)![1]}`);
     }
     return {
