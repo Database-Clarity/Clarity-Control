@@ -1,13 +1,13 @@
 .source {
   min-width: 0;
 }
-:global(::highlight(number-todo)) {
+.source [data-number-state='todo'] {
   background: var(--mark);
 }
-:global(::highlight(number-next)) {
+.source [data-number-state='next'] {
   background: var(--mark);
   text-decoration: underline 2px solid;
 }
-:global(::highlight(number-used)) {
+.source [data-number-state='used'] {
   text-decoration: underline 1px solid var(--text3);
 }

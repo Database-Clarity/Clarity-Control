@@ -62,7 +62,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('marks only source-owned numbers, lists hidden values, and updates sets without rebuilding ranges', async () => {
+it('updates only changed span states, keeps elements stable, and leaves transient highlights alone', async () => {
+  CSS.highlights.set('clarity-term-open', new Highlight());
   const text = 'var d = 4.5\nDamage ${2*3} lasts 5 seconds.\nValue #d.';
   const source = numberSource(text, undefined, 'de'),
     store = createNumberStore();
@@ -99,23 +100,39 @@ it('marks only source-owned numbers, lists hidden values, and updates sets witho
     (span) => span.textContent === 'Value 4.5.',
   );
   expect(derived?.querySelector('[data-slot]')).toBeNull();
-  const range = [...CSS.highlights.get('number-todo')!][0];
+  const formula = host.querySelector<HTMLElement>('[data-slot="2"]')!;
+  expect(formula.dataset.numberState).toBe('todo');
   await act(async () => {
     insertNumber(editor, 2);
   });
-  expect(CSS.highlights.get('number-used')?.size).toBe(1);
-  expect(CSS.highlights.get('number-used')?.has(range)).toBe(true);
-  act(() => pointNumber(editor, 2));
-  expect(CSS.highlights.get('number-next')?.has(range)).toBe(true);
-  act(() => pointNumber(editor));
-  expect(CSS.highlights.get('number-used')?.has(range)).toBe(true);
-  const last = host.querySelector('[data-slot="3"]');
+  expect(formula.dataset.numberState).toBe('used');
+  const changes: MutationRecord[] = [];
+  const observer = new MutationObserver((records) => changes.push(...records));
+  observer.observe(host, {
+    attributes: true,
+    subtree: true,
+    attributeFilter: ['data-number-state'],
+  });
+  await act(async () => pointNumber(editor, 2));
+  expect(formula.dataset.numberState).toBe('next');
+  expect(changes.map((record) => (record.target as HTMLElement).dataset.slot).sort()).toEqual([
+    '2',
+    '3',
+  ]);
+  await act(async () => pointNumber(editor));
+  expect(formula.dataset.numberState).toBe('used');
+  changes.length = 0;
+  await act(async () => {
+    editor.dispatch({ changes: { from: editor.state.doc.length, insert: 'x' } });
+    editor.dispatch({
+      changes: { from: editor.state.doc.length - 1, to: editor.state.doc.length },
+    });
+  });
+  expect(changes).toEqual([]);
+  expect(host.querySelector('[data-slot="2"]')).toBe(formula);
+  const last = host.querySelector<HTMLElement>('[data-slot="3"]')!;
   act(() => editor.dispatch({ selection: { anchor: 0 } }));
-  expect(
-    [...CSS.highlights.get('number-next')!].some(
-      (range) => range.startContainer === host.querySelector('[data-slot="1"]'),
-    ),
-  ).toBe(true);
+  expect(host.querySelector<HTMLElement>('[data-slot="1"]')?.dataset.numberState).toBe('next');
   act(() =>
     editor.dispatch({
       changes: { from: 0, insert: '#{=3}' },
@@ -123,16 +140,15 @@ it('marks only source-owned numbers, lists hidden values, and updates sets witho
       annotations: Transaction.userEvent.of('input.paste'),
     }),
   );
-  expect(
-    [...CSS.highlights.get('number-used')!].some((range) => range.startContainer === last),
-  ).toBe(true);
+  expect(last.dataset.numberState).toBe('used');
   act(() => undo(editor));
   expect(editor.state.doc.toString()).toBe('#{=2}');
-  expect(
-    [...CSS.highlights.get('number-used')!].some((range) => range.startContainer === last),
-  ).toBe(false);
+  expect(last.dataset.numberState).not.toBe('used');
+  observer.disconnect();
   await act(async () => root.render(null));
-  expect(CSS.highlights.size).toBe(0);
+  expect(formula.hasAttribute('data-number-state')).toBe(false);
+  expect(CSS.highlights.size).toBe(1);
+  expect(CSS.highlights.has('clarity-term-open')).toBe(true);
 });
 
 it('decorates exact raw after-side slices, including numbers split across diff runs', async () => {

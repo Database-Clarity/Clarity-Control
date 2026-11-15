@@ -144,56 +144,39 @@ export function NumberEnglishSource({
     return () => observer.disconnect();
   }, [source, stepping, raw, changes]);
 
-  // Range identities stay installed while typing. A caret move changes only the affected sets.
-  const marked = useRef(new Map<Range, string>());
+  // Root-approved §4.5 exception: style existing spans to avoid global Highlight repainting.
+  // Element identities stay installed while typing; only changed states write an attribute.
+  const marked = useRef(new Map<HTMLElement, string>());
   useLayoutEffect(() => {
-    if (
-      !root.current ||
-      stepping ||
-      !source ||
-      typeof CSS === 'undefined' ||
-      !('highlights' in CSS) ||
-      typeof Highlight === 'undefined'
-    )
-      return;
-    const registry = CSS.highlights;
+    if (!root.current || stepping || !source) return;
     let pointed: number | undefined;
-    let ranges: { range: Range; id: number }[] = [];
+    let spans: { element: HTMLElement; id: number }[] = [];
     const clear = () => {
-      for (const { range } of ranges) {
-        const name = marked.current.get(range);
-        if (name) {
-          const highlight = registry.get(name);
-          highlight?.delete(range);
-          if (highlight?.size === 0) registry.delete(name);
-        }
-        marked.current.delete(range);
+      for (const { element } of spans) {
+        if (element.dataset.numberState === marked.current.get(element))
+          delete element.dataset.numberState;
+        marked.current.delete(element);
       }
     };
     const apply = () => {
-      for (const { range, id } of ranges) {
-        const snapshot = store.getSnapshot();
+      const snapshot = store.getSnapshot();
+      for (const { element, id } of spans) {
         const name =
-          id === (pointed ?? snapshot.next)
-            ? 'number-next'
-            : snapshot.used.has(id)
-              ? 'number-used'
-              : 'number-todo';
-        const previous = marked.current.get(range);
+          id === (pointed ?? snapshot.next) ? 'next' : snapshot.used.has(id) ? 'used' : 'todo';
+        const previous = marked.current.get(element);
         if (name === previous) continue;
-        if (previous) registry.get(previous)?.delete(range);
-        let highlight = registry.get(name);
-        if (!highlight) registry.set(name, (highlight = new Highlight()));
-        highlight.add(range);
-        marked.current.set(range, name);
+        element.dataset.numberState = name;
+        marked.current.set(element, name);
       }
     };
     const rebuild = () => {
       clear();
-      ranges = spanSource(root.current!).map((mark) => ({
-        range: mark.range,
-        id: Number((mark.range.startContainer as Element).getAttribute?.('data-slot')),
-      }));
+      spans = [...root.current!.querySelectorAll<HTMLElement>('[data-slot]')]
+        .filter(
+          (element) =>
+            !element.closest('[role="tooltip"]') && source.byId.has(Number(element.dataset.slot)),
+        )
+        .map((element) => ({ element, id: Number(element.dataset.slot) }));
       apply();
     };
     rebuild();
