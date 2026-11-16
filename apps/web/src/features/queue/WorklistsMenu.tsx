@@ -12,7 +12,13 @@ import {
   retryWorklist,
   type Save,
 } from './worklists';
-import { draftItems, savedItems, worklistAvailable } from './savedSources';
+import {
+  draftGroups,
+  draftItems,
+  savedItems,
+  worklistAvailable,
+  type DraftGroup,
+} from './savedSources';
 import { startQueue } from './start';
 import { queueSources } from './sources';
 import type { QueueItem } from './model';
@@ -159,7 +165,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const { lists, index, loaded, notice, saving, change } = useSavedWorklists();
-  const [drafts, setDrafts] = useState<QueueItem[] | null>(null);
+  const [drafts, setDrafts] = useState<DraftGroup[] | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -171,7 +177,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
     if (!data) return;
     let live = true;
     void draftItems(data).then((items) => {
-      if (live) setDrafts(items);
+      if (live) setDrafts(draftGroups(items, data));
     });
     return () => {
       live = false;
@@ -184,7 +190,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
     },
     [location.key],
   );
-  const run = async (items: QueueItem[], id?: string) => {
+  const run = async (items: QueueItem[], id?: string, category?: string) => {
     const attempt = ++openRequest.current;
     if (id && data) {
       try {
@@ -212,7 +218,10 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       scope: 'shown',
       items,
       first,
-      origin: { path: `${location.pathname}${location.search}`, restore: { worklistId: id } },
+      origin: {
+        path: `${location.pathname}${location.search}`,
+        restore: id ? { worklistId: id } : { category },
+      },
       focus: true,
     });
     close(false);
@@ -228,16 +237,25 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
   };
   return (
     <div className={styles.content}>
-      <button
-        type="button"
-        className={styles.choice}
-        disabled={!drafts?.length}
-        onClick={() => void run(drafts!)}
-      >
-        <span>Drafts</span>
-        <span>{drafts === null ? 'Loading…' : drafts.length}</span>
-      </button>
-      <p>Bulk drafts without saved English text. Save English to finish an entry.</p>
+      {!drafts?.length ? (
+        <button type="button" className={styles.choice} disabled>
+          <span>Drafts</span>
+          <span>{drafts === null ? 'Loading…' : 0}</span>
+        </button>
+      ) : (
+        drafts.map((group) => (
+          <button
+            key={group.id}
+            type="button"
+            className={styles.choice}
+            onClick={() => void run(group.items, undefined, group.id)}
+          >
+            <span>Drafts · {group.label}</span>
+            <span>{group.items.length}</span>
+          </button>
+        ))
+      )}
+      <p>Bulk drafts without saved English text, by category. Save English to finish an entry.</p>
       {!user && <p>Sign in to create and sync saved worklists.</p>}
       {lists.map((list) => (
         <details

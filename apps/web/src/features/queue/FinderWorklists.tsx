@@ -18,7 +18,7 @@ import type { WorklistEntry } from '../../../../../packages/core/src/worklists';
 import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { afterPaint } from '../navigation/FinderIcon';
 import { WorklistPicker } from './WorklistsMenu';
-import { draftItems } from './savedSources';
+import { draftGroups, draftItems } from './savedSources';
 import { startQueue } from './start';
 import { queueSources } from './sources';
 import styles from './FinderWorklists.module.scss';
@@ -280,7 +280,8 @@ function FinderDraftsButton({ data }: { data: EditorData }) {
     setBusy(true);
     setStatus('');
     try {
-      const items = await draftItems(data);
+      // Every category's drafts, in finder order.
+      const items = draftGroups(await draftItems(data), data).flatMap((group) => group.items);
       if (attempt !== request.current) return;
       if (!items.length) {
         setStatus('No bulk drafts need English text.');
