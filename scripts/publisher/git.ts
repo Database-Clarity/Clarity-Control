@@ -35,10 +35,13 @@ export function requesterCredits(user: { id: number; login: string }): CommitCre
 export interface Repository {
   head(ref: string): string | undefined;
   tree(commit: string): Tree;
+  treeModes?(commit: string): Record<string, string>;
   blob(oid: string): string;
   writeBlob(bytes: string): string;
   commit(parent: string | undefined, tree: Tree, message: string, credits?: CommitCredits): string;
   cas(ref: string, old: string | undefined, next: string | undefined): void;
+  /** Required by globals releases: source RECORD and live change are one transaction. */
+  casMany?(updates: { ref: string; old: string; next: string }[]): void;
   ancestor(a: string, b: string): boolean;
   history(ref: string): string[];
   additions(head: string, path: string): { commit: string; path: string }[];
@@ -101,6 +104,17 @@ export class LocalRepository implements Repository {
     );
     this.trees.set(commit, tree);
     return { ...tree };
+  }
+  treeModes(commit: string): Record<string, string> {
+    return Object.fromEntries(
+      this.git(['ls-tree', '-rz', '--full-tree', commit])
+        .split('\0')
+        .filter(Boolean)
+        .map((line) => {
+          const tab = line.indexOf('\t');
+          return [line.slice(tab + 1), line.slice(0, 6)];
+        }),
+    );
   }
   blob(oid: string) {
     if (!this.blobs.has(oid)) this.blobs.set(oid, this.git(['cat-file', 'blob', oid]));
@@ -167,6 +181,27 @@ export class LocalRepository implements Repository {
       this.git(['update-ref', ref, next ?? '0'.repeat(40), old ?? '0'.repeat(40)]);
     } catch {
       throw new RefRace(`Ref raced: ${ref}`);
+    }
+  }
+  casMany(updates: { ref: string; old: string; next: string }[]) {
+    if (
+      updates.length !== 2 ||
+      new Set(updates.map((update) => update.ref)).size !== 2 ||
+      updates.some(
+        ({ ref, old, next }) =>
+          !/^refs\/heads\/[A-Za-z0-9/_-]+$/.test(ref) ||
+          !/^[a-f0-9]{40}$/.test(old) ||
+          !/^[a-f0-9]{40}$/.test(next),
+      )
+    )
+      throw new Error('Invalid atomic publication');
+    try {
+      this.git(
+        ['update-ref', '--stdin'],
+        `start\n${updates.map(({ ref, old, next }) => `update ${ref} ${next} ${old}\n`).join('')}prepare\ncommit\n`,
+      );
+    } catch {
+      throw new RefRace('Atomic publication raced');
     }
   }
   ancestor(a: string, b: string) {

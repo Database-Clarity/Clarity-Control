@@ -99,4 +99,44 @@ export class RemoteRepository extends LocalRepository {
     }
     this.git(next ? ['update-ref', ref, next] : ['update-ref', '-d', ref]);
   }
+  override casMany(updates: { ref: string; old: string; next: string }[]) {
+    if (
+      updates.length !== 2 ||
+      !updates.some(({ ref }) => ref === 'refs/heads/editor-data') ||
+      !updates.some(({ ref }) => ref === 'refs/heads/converter-v2-test')
+    )
+      throw new Error('Atomic publication outside held scope');
+    for (const { ref, old, next } of updates) {
+      this.validate(ref);
+      if (
+        !/^[a-f0-9]{40}$/.test(old) ||
+        !/^[a-f0-9]{40}$/.test(next) ||
+        old === next ||
+        !this.ancestor(old, next)
+      )
+        throw new Error('Atomic publication must advance both branches');
+      if (this.head(ref) !== old) throw new RefRace('Atomic publication raced');
+    }
+    try {
+      this.remoteGit([
+        'push',
+        '--atomic',
+        '--porcelain',
+        ...updates.map(({ ref, old }) => `--force-with-lease=${ref}:${old}`),
+        this.remote,
+        ...updates.map(({ ref, next }) => `${next}:${ref}`),
+      ]);
+      const confirmed = updates.map(({ ref }) => this.head(ref));
+      if (!updates.every(({ next }, index) => confirmed[index] === next))
+        throw new TransportUnresolved('Atomic publication requires reconciliation');
+    } catch (error) {
+      // Reconcile ambiguity, never fall back to separate pushes.
+      const observed = updates.map(({ ref }) => this.head(ref));
+      if (updates.every(({ next }, index) => observed[index] === next)) return;
+      if (updates.some(({ old }, index) => observed[index] !== old))
+        throw new RefRace('Atomic publication raced or landed');
+      throw error;
+    }
+    for (const { ref, next } of updates) this.git(['update-ref', ref, next]);
+  }
 }

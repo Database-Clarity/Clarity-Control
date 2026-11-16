@@ -16,7 +16,12 @@ async function main() {
     const options = JSON.parse(readFileSync(config, 'utf8'));
     if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
       throw new Error('Config requires the publisher source PIN and full generator commit');
-    await runPipeline(source, options, output, flag === '--pipeline-publish');
+    await runPipeline(
+      source,
+      { ...options, publisherDigest: pin.sha256 },
+      output,
+      flag === '--pipeline-publish',
+    );
     return;
   }
   if (flag !== '--dry-run' || !source || !config || !output)
@@ -38,7 +43,12 @@ async function main() {
     });
     const git = new LocalRepository(repo);
     const options = JSON.parse(readFileSync(config, 'utf8')) as Omit<Options, 'now' | 'backoff'>;
-    const publisher = new Publisher(git, { ...options, now: Date.now });
+    const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
+    const publisher = new Publisher(git, {
+      ...options,
+      publisherDigest: pin.sha256,
+      now: Date.now,
+    });
     let failure: unknown;
     try {
       await publisher.run();

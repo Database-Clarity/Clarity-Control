@@ -79,6 +79,7 @@ import {
   withEvent,
 } from './batch.js';
 import { setTimeout } from 'node:timers/promises';
+import { GlobalsPublisher, hasGlobals, type GlobalReleaseReceipt } from './globals.js';
 
 // Five unresolved retries total ~2.5 min. Simulator fixtures inject a no-wait backoff.
 export const publishBackoff = () => setTimeout(30_000);
@@ -141,6 +142,7 @@ export interface Receipt {
   /** Batch operations only (spec "Data model"); sourceCommit is then the claim commit S'. */
   batchId?: string;
   contentRevision?: number;
+  globals?: GlobalReleaseReceipt;
 }
 /** When the live write was confirmed by this run's CAS, or first observed after an ambiguity (R8). */
 export interface Landing {
@@ -167,6 +169,8 @@ export interface Options {
   publicKey: string;
   keyFingerprint: string;
   publisherSha: string;
+  /** Verified running bundle digest, supplied by CLI rather than persisted config. */
+  publisherDigest?: string;
   generatorSha: string;
   aliases: Aliases;
   /**
@@ -586,12 +590,71 @@ export class Publisher {
     result?: { status: string; error?: string; outcomes?: unknown },
     requestBlob?: string,
     landing?: Landing,
+    atomicLive?: { parent: string; candidate: string },
   ) {
     const p = paths(opId);
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);
       if (tree[p.log]) return;
+      if (atomicLive) {
+        if (!receipt || !this.git.casMany)
+          throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
+        const signed = await this.verifyRequest(receipt.requestBlob, opId, tree);
+        const documents = await new GlobalsPublisher(this).validate(
+          receipt.globals,
+          tree,
+          h,
+          atomicLive.parent,
+        );
+        if (
+          !documents ||
+          receipt.sourceCommit !== h ||
+          signed.kind !== 'push' ||
+          stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots) ||
+          stableStringify(signed.requester) !== stableStringify(receipt.requester) ||
+          receipt.publisherSha !== this.options.publisherSha ||
+          receipt.generatorSha !== this.options.generatorSha
+        )
+          throw new ConsumerOutputRejected('Global receipt identity mismatch');
+        const aliases = this.aliasesAt(tree),
+          moves = selectedInactiveMoves(
+            this.movesAt(tree),
+            documents.map((document) => document.hash),
+            aliases,
+          );
+        const exported = exportWithInactiveMoves(
+          documents,
+          receipt.now,
+          this.options.facts,
+          aliases,
+          moves,
+        );
+        if (
+          stableStringify(exported) !== stableStringify(receipt.exported) ||
+          documents.length !== receipt.entries.length
+        )
+          throw new ConsumerOutputRejected('Global receipt export mismatch');
+        for (const document of documents) {
+          const entry = receipt.entries.find((entry) => entry.hash === document.hash);
+          if (
+            !entry ||
+            entry.digest !== (await inactivePublishableHash(document, aliases, moves)) ||
+            stableStringify(document) !==
+              stableStringify(JSON.parse(this.git.blob(entry.tooltipBlob)))
+          )
+            throw new ConsumerOutputRejected('Global receipt dependency mismatch');
+        }
+        const markers = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+        if (
+          stableStringify(
+            receipt.entries
+              .filter((entry) => markers[entry.hash] !== entry.digest)
+              .map((entry) => entry.hash),
+          ) !== stableStringify(receipt.changed)
+        )
+          throw new ConsumerOutputRejected('Global receipt upload marker mismatch');
+      }
       const blob = receipt?.requestBlob ?? requestBlob ?? tree[p.request];
       let request: unknown;
       try {
@@ -620,6 +683,9 @@ export class Publisher {
           tree[`live/tooltips/${e.hash}.json`] = e.tooltipBlob;
         }
         tree['live/pushed.json'] = this.git.writeBlob(json(pushed));
+        if (receipt.globals) {
+          await new GlobalsPublisher(this).record(tree, receipt.globals, h, candidate!);
+        }
       }
       if (tree[p.request] && tree[p.request] !== blob) {
         let strayIntent: string | undefined;
@@ -675,7 +741,16 @@ export class Publisher {
       }
       const c = this.git.commit(h, tree, `Record ${opId}`, credits);
       try {
-        this.git.cas(dataRef(this.options.dataBranch), h, c);
+        if (atomicLive)
+          this.git.casMany!([
+            { ref: dataRef(this.options.dataBranch), old: h, next: c },
+            {
+              ref: dataRef(this.options.liveBranch),
+              old: atomicLive.parent,
+              next: atomicLive.candidate,
+            },
+          ]);
+        else this.git.cas(dataRef(this.options.dataBranch), h, c);
         return;
       } catch (e) {
         if (!(e instanceof RefRace)) throw e;
@@ -800,6 +875,8 @@ export class Publisher {
         return;
       }
       if (payload.kind === 'batch') {
+        if (hasGlobals(tree))
+          throw new ConsumerOutputRejected('Scheduled publication requires pinned globals support');
         const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
         if (!r) return;
         candidate = this.createCandidate(opId, blob, live, r);
@@ -857,6 +934,28 @@ export class Publisher {
           await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
           return;
         }
+        let globals: GlobalReleaseReceipt | undefined;
+        if (hasGlobals(tree)) {
+          try {
+            const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
+            if (!release) throw new Error('Missing global release');
+            globals = release.receipt;
+            tooltips.splice(0, tooltips.length, ...release.documents);
+            entries.splice(
+              0,
+              entries.length,
+              ...(await Promise.all(
+                release.documents.map(async (tooltip) => ({
+                  hash: tooltip.hash,
+                  digest: await inactivePublishableHash(tooltip, aliases, moves),
+                  tooltipBlob: this.git.writeBlob(json(tooltip)),
+                })),
+              )),
+            );
+          } catch {
+            throw new ConsumerOutputRejected('Sync pending: global dependency review required');
+          }
+        }
         const checked = this.checkAndExport(tree, tooltips, aliases);
         if ('error' in checked) {
           await this.record(
@@ -883,6 +982,7 @@ export class Publisher {
           changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
+          ...(globals ? { globals } : {}),
         };
         candidate = this.createCandidate(opId, blob, live, r);
       }
@@ -914,6 +1014,30 @@ export class Publisher {
           throw new ConsumerOutputRejected(
             'stored candidate differs from its checked receipt; nothing published',
           );
+        if (r.globals || hasGlobals(this.git.tree(this.head(this.options.dataBranch)))) {
+          try {
+            await this.record(
+              opId,
+              r,
+              c,
+              undefined,
+              undefined,
+              { at: this.options.now(), source: 'cas' },
+              { parent: l, candidate: c },
+            );
+          } catch (error) {
+            if (error instanceof RefRace) throw error;
+            throw new ConsumerOutputRejected(
+              'Global publication changed or requires recovery; nothing partially published',
+            );
+          }
+          try {
+            this.git.cas(p.candidate, c, undefined);
+          } catch {
+            /* best effort */
+          }
+          return;
+        }
         let pushed = false;
         try {
           this.git.cas(dataRef(this.options.liveBranch), l, c);
@@ -934,6 +1058,8 @@ export class Publisher {
           return;
         }
       } else {
+        if (r.globals || hasGlobals(this.git.tree(this.head(this.options.dataBranch))))
+          throw new ConsumerOutputRejected('Global live inputs changed; review publication again');
         if (++rebases > 3) throw new Error('Rebase limit');
         const next = this.buildCandidate(l, r);
         try {
@@ -1524,9 +1650,10 @@ export class Publisher {
     );
     this.git.cas(ref, old, c);
   }
-  async run() {
+  async run(syncGlobals = true) {
     const start = this.options.now();
     try {
+      if (syncGlobals) await new GlobalsPublisher(this).drain();
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 60_000; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));
