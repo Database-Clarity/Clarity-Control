@@ -20,7 +20,7 @@ import {
   type BatchMember,
 } from '@clarity/core/schedule';
 import type { EditorData } from '../../stores/data';
-import { listBatches, readBatchMembers } from '../../services/scheduled/api';
+import { listBatches, readBatch, readBatchMembers } from '../../services/scheduled/api';
 import { useDataStore } from '../../stores/data';
 import {
   upcomingStore,
@@ -90,6 +90,8 @@ let open = new Map<string, OpenBatch>();
 const read = new Map<string, { revision: number; members: BatchMember[] }>();
 /** The revision a member read is in flight for, per batch. */
 const reading = new Map<string, number>();
+/** The listing head a behind-the-list read already asked to re-list from (no loop). */
+let staleHead: string | null = null;
 
 function setLoad(id: string, load: BatchLoad | undefined) {
   const store = upcomingStore();
@@ -170,19 +172,23 @@ export function ensureBatch(id: string) {
   if (reading.get(id) === batch.revision) return;
   reading.set(id, batch.revision);
   if (!load || load.state !== 'ready') setLoad(id, { state: 'loading', revision: batch.revision });
-  readBatchMembers(head, id, batch.hashes).then(
-    (found) => {
+  // batch.json at the same head says which revision these members are: the listed revision can be
+  // newer than the head (the index is advisory; the client overlays what it saw since).
+  Promise.all([readBatchMembers(head, id, batch.hashes), readBatch(head, id)]).then(
+    ([found, atHead]) => {
       if (reading.get(id) === batch.revision) reading.delete(id);
       if (open.get(id)?.revision !== batch.revision) return;
       const members = found.filter((member): member is BatchMember => member !== null);
-      read.set(id, { revision: batch.revision, members });
+      // Never certify members read behind the listed revision: the load keeps the revision
+      // actually read, so a later listing at a newer head reads them again.
+      const revision = Math.min(batch.revision, atHead?.revision ?? batch.revision);
+      read.set(id, { revision, members });
       const data = useDataStore.getState().data;
-      if (data)
-        setLoad(id, {
-          state: 'ready',
-          revision: batch.revision,
-          upcoming: upcomingState(members, data),
-        });
+      if (data) setLoad(id, { state: 'ready', revision, upcoming: upcomingState(members, data) });
+      if (revision < batch.revision && staleHead !== head) {
+        staleHead = head;
+        void refreshBatches();
+      }
     },
     (error: unknown) => {
       if (reading.get(id) === batch.revision) reading.delete(id);
@@ -266,6 +272,7 @@ export function resetUpcoming() {
   open = new Map();
   read.clear();
   reading.clear();
+  staleHead = null;
   listedAt = 0;
   listing = undefined;
   upcomingStore().setState({
