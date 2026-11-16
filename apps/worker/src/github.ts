@@ -81,7 +81,7 @@ export const rawReadFailure = () =>
 /** Paths that only the global entry Action may write once globals/ exists. */
 export const globalAggregatePath = /(?:^|\/)tooltips\/[23]\.json$/;
 
-function rawBlob(entry: unknown, maxFileBytes: number): RawBlob {
+async function rawBlob(entry: unknown, maxFileBytes: number): Promise<RawBlob> {
   const parsed = rawBlobFields.safeParse(entry);
   if (
     !parsed.success ||
@@ -92,8 +92,13 @@ function rawBlob(entry: unknown, maxFileBytes: number): RawBlob {
   )
     throw rawReadFailure();
   const bytes = new TextEncoder().encode(parsed.data.text);
-  // GraphQL text is decoded UTF-8; equal length proves nothing was replaced or dropped (R8).
-  if (bytes.byteLength !== parsed.data.byteSize) throw rawReadFailure();
+  // GraphQL text is decoded UTF-8. Equal length (R8) plus the Git blob SHA-1 of exactly these
+  // bytes proves they ARE the Blob named by oid: nothing was replaced or dropped (R4).
+  if (
+    bytes.byteLength !== parsed.data.byteSize ||
+    (await blobSha(parsed.data.text)) !== parsed.data.oid
+  )
+    throw rawReadFailure();
   return { sha: parsed.data.oid, bytes };
 }
 
@@ -576,14 +581,19 @@ export class GitHub {
       );
     if (!repository.success) throw rawReadFailure();
     let total = 0;
-    return paths.map((_, index) => {
+    const result: (RawBlob | null)[] = [];
+    for (const [index] of paths.entries()) {
       const entry = repository.data[`o${index}`];
-      if (entry === null) return null;
-      const blob = rawBlob(entry, maxFileBytes);
+      if (entry === null) {
+        result.push(null);
+        continue;
+      }
+      const blob = await rawBlob(entry, maxFileBytes);
       total += blob.bytes.byteLength;
       if (total > maxTotalBytes) throw rawReadFailure();
-      return blob;
-    });
+      result.push(blob);
+    }
+    return result;
   }
 
   /**
@@ -657,17 +667,22 @@ export class GitHub {
       if (!parsed.success || parsed.data.type !== type) throw rawReadFailure();
       return parsed.data.oid;
     };
+    const raw: (RawBlob | null)[] = [];
+    for (const [i] of texts.entries()) {
+      const value = target[`x${i}`];
+      if (value === null || value === undefined) {
+        raw.push(null);
+        continue;
+      }
+      const object = z.object({ object: z.unknown() }).strict().safeParse(value);
+      if (!object.success) throw rawReadFailure();
+      raw.push(await rawBlob(object.data.object, maxTextBytes));
+    }
     return {
       head: repository.data.ref.target.oid,
       trees: trees.map((_, i) => entry(`t${i}`, 'tree')),
       blobs: blobs.map((_, i) => entry(`b${i}`, 'blob')),
-      texts: texts.map((_, i) => {
-        const value = target[`x${i}`];
-        if (value === null || value === undefined) return null;
-        const object = z.object({ object: z.unknown() }).strict().safeParse(value);
-        if (!object.success) throw rawReadFailure();
-        return rawBlob(object.data.object, maxTextBytes);
-      }),
+      texts: raw,
       live: repository.data.live?.target.oid ?? null,
     };
   }
@@ -686,7 +701,7 @@ export class GitHub {
         ),
       );
     if (!repository.success) throw rawReadFailure();
-    const blob = rawBlob(repository.data.object, maxBytes);
+    const blob = await rawBlob(repository.data.object, maxBytes);
     if (blob.sha !== oid) throw rawReadFailure();
     return blob;
   }

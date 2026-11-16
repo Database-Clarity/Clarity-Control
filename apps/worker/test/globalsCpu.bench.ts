@@ -22,7 +22,8 @@ const sha1 = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-
 const pretty = (value) => JSON.stringify(value, null, 2) + '\\n';
 async function raw(path, value) {
   const text = pretty(value);
-  return { oid: await sha1(path + text), byteSize: new TextEncoder().encode(text).byteLength, isBinary: false, isTruncated: false, text };
+  const bytes = new TextEncoder().encode(text);
+  return { oid: await sha1('blob ' + bytes.byteLength + '\\0' + text), byteSize: bytes.byteLength, isBinary: false, isTruncated: false, text };
 }
 async function graphql(body) {
   const { files } = globalThis.__globalsCpu;

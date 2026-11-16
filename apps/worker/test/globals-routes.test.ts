@@ -178,6 +178,7 @@ describe('global entry routes (S5 integration)', () => {
     ['unknown binary state', { isBinary: null }],
     ['truncated', { isTruncated: true, text: null }],
     ['size mismatch', { byteSize: 3 }],
+    ['same-length different bytes', { oid: 'f'.repeat(40) }],
     ['oversized', { byteSize: 70_000, text: 'x'.repeat(70_000) }],
     ['response over the stream cap', { byteSize: 1, text: 'x'.repeat(400_000) }],
   ])('refuses a %s Blob with one fixed message (R3/R4/R8)', async (_name, override) => {
