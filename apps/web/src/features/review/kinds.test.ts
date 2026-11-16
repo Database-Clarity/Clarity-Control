@@ -145,6 +145,29 @@ describe('row words from the published text (real renderer)', () => {
   });
 });
 
+it('keeps the answer for the latest imports when they change during a running check', async () => {
+  // Code review 1 finding 1: hash 7 shows hash 8's text; hash 8 changes while 7 is checked.
+  const published = { status: 'ready' as const, tooltip: tooltip('Old') };
+  const saved = tooltip('import main from 8');
+  const row = entry(saved);
+  const snapshot = (text: string) =>
+    ({
+      bundle: { tooltips: { 7: saved, 8: { ...tooltip(text), hash: 8 } } },
+      items: {},
+      aliases: {},
+      categories: [],
+    }) as unknown as EditorData;
+  useKinds.setState({ byHash: {} });
+  classifyRows([{ entry: row, published }], snapshot('Old'));
+  classifyRows([{ entry: row, published }], snapshot('New'));
+  await expect
+    .poll(() => kindOf(row, published, useKinds.getState().byHash)?.kind)
+    .toBe('Text changed');
+  // The older check finished too, and never replaced the newer answer.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(kindOf(row, published, useKinds.getState().byHash)?.kind).toBe('Text changed');
+});
+
 it('counts a publish by kind, with the Oxford comma', () => {
   expect(kindCounts(['New', 'New', 'No visible change'])).toBe(
     '2 new tooltips and 1 with no visible change',

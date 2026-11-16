@@ -152,7 +152,11 @@ function sameSaved(done: Classified, saved: Tooltip) {
   return done.saved === saved || done.savedJson === JSON.stringify(saved);
 }
 
-const running = new WeakMap<Tooltip, Tooltip | null>();
+/** The latest check asked for per hash; an older check's answer never replaces a newer one. */
+const running = new Map<
+  number,
+  { saved: Tooltip; before: Tooltip; tooltips: EditorData['bundle']['tooltips'] }
+>();
 
 /**
  * Classify every row whose published text is in hand and that has no result for it yet. The
@@ -176,8 +180,12 @@ export function classifyRows(
     )
       continue;
     // New objects (a reload) or new imports: check again; the old word shows meanwhile.
-    if (running.get(saved) === before) continue;
-    running.set(saved, before);
+    const tooltips = data.bundle.tooltips;
+    const pending = running.get(saved.hash);
+    if (pending?.saved === saved && pending.before === before && pending.tooltips === tooltips)
+      continue;
+    const request = { saved, before, tooltips };
+    running.set(saved.hash, request);
     const changed = textLanguages(before, saved);
     void Promise.all(
       changed.map((lang) =>
@@ -188,7 +196,9 @@ export function classifyRows(
         ),
       ),
     ).then((outputs) => {
-      running.delete(saved);
+      // A newer check for this row (new saved text, published text, or imports) owns the result.
+      if (running.get(saved.hash) !== request) return;
+      running.delete(saved.hash);
       useKinds.setState((state) => ({
         byHash: {
           ...state.byHash,
@@ -196,7 +206,7 @@ export function classifyRows(
             saved,
             savedJson: JSON.stringify(saved),
             published: before,
-            tooltips: data.bundle.tooltips,
+            tooltips,
             value: publishedKind(before, saved, outputs),
           },
         },

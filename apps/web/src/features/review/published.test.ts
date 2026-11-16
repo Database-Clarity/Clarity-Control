@@ -101,6 +101,33 @@ it('tells a failed request (Retry) from an unrecoverable legacy marker', async (
   expect(state(2, 'm')).toMatchObject({ status: 'missing' });
 });
 
+it('never lets a request from before a reset overwrite the new result', async () => {
+  // Code review 1 finding 3: the old account's request fails late, after the new one succeeded.
+  let failOld!: (reason: Error) => void;
+  vi.mocked(getPushedVersion).mockImplementationOnce(
+    () => new Promise((_, reject) => (failOld = reject)),
+  );
+  await loadPublished([{ hash: 1, marker: 'm' }]);
+  await vi.waitFor(() => expect(getPushedVersion).toHaveBeenCalledOnce());
+  resetPublished();
+  vi.mocked(getPushedVersion).mockResolvedValueOnce({ pushedHash: 'm', tooltip: live(1) });
+  await loadPublished([{ hash: 1, marker: 'm' }]);
+  await vi.waitFor(() => expect(state(1, 'm')).toMatchObject({ status: 'ready' }));
+  failOld(new Error('API HTTP 401: old account'));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(state(1, 'm')).toMatchObject({ status: 'ready', tooltip: live(1) });
+});
+
+it('discards a load whose device-cache read outlived a reset', async () => {
+  vi.mocked(getPushedVersion).mockResolvedValue({ pushedHash: 'm', tooltip: live(1) });
+  const load = loadPublished([{ hash: 1, marker: 'm' }]);
+  resetPublished();
+  await load;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(state(1, 'm')).toBeUndefined();
+  expect(getPushedVersion).not.toHaveBeenCalled();
+});
+
 it('forgets failures when the account changes', async () => {
   vi.mocked(getPushedVersion).mockRejectedValue(new Error('API HTTP 401: sign in'));
   await loadPublished([{ hash: 1, marker: 'm' }]);

@@ -363,12 +363,14 @@ export function ReviewPage() {
     });
     if (ordered.some(({ tooltip }) => tooltip.hash === last.hash)) selectHash(last.hash);
   };
-  // A new open change (list, URL, Back) ends a pause without moving again.
+  // Another open change (a row click, the URL, Back) or new filters end a pause without moving
+  // again. The pause's own move clears it before it navigates, so it never cancels itself.
   const currentHash = current?.tooltip.hash;
+  const pauseRef = useRef(pause);
+  pauseRef.current = pause;
   useEffect(() => {
-    if (pause && pause.next?.tooltip.hash === currentHash) stopPause();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentHash]);
+    if (pauseRef.current) stopPause();
+  }, [currentHash, query, kindFilter, stopPause]);
 
   function askToPublish() {
     if (!data || !entries || comparing || pushing) return;

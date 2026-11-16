@@ -1212,3 +1212,41 @@ it('Refresh keeps the list, the open change, and every row word on screen while 
     'Text changed',
   );
 });
+
+it('a row picked during the pause wins: the pause ends without moving again', async () => {
+  // Code review 1 finding 2.
+  for (const hash of [20, 30]) bundle.tooltips[hash] = { ...structuredClone(tooltip), hash };
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: Object.fromEntries(
+      [10, 20, 30].map((hash) => [
+        hash,
+        { hash, name: `Tooltip ${hash}`, categoryId: 'other', icon: '', inGameDescription: '' },
+      ]),
+    ) as never,
+    aliases: {},
+  });
+  useAdvanceSetting.setState({ ms: 300 });
+  try {
+    await mount();
+    const open = () => host.querySelector('article h2')?.textContent;
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(host.querySelector('footer[aria-label="Decide"]')?.textContent).toContain(
+      'Next: Tooltip 20',
+    );
+    await act(async () =>
+      host.querySelector<HTMLAnchorElement>('a[data-review-hash="30"]')!.click(),
+    );
+    expect(open()).toBe('Tooltip 30');
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 400)));
+    expect(open()).toBe('Tooltip 30');
+    expect(button('Include ↵').disabled).toBe(false);
+    expect(host.querySelector('footer[aria-label="Decide"]')?.textContent).not.toContain('Next:');
+  } finally {
+    useAdvanceSetting.setState({ ms: 600 });
+  }
+});

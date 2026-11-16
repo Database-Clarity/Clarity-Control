@@ -111,14 +111,16 @@ function pump() {
     void getPushedVersion(hash)
       .then(
         (result) => {
-          if (usePublished.getState().byHash[hash]?.marker !== marker) return;
+          if (started !== generation || usePublished.getState().byHash[hash]?.marker !== marker)
+            return;
           put(hash, { status: 'ready', tooltip: result.tooltip, marker });
           // Only the exact pair is immutable; a server marker newer than ours shows once, unstored.
           if (result.pushedHash === marker && result.tooltip)
             void writeStored(hash, { marker, tooltip: result.tooltip });
         },
         (reason: unknown) => {
-          if (usePublished.getState().byHash[hash]?.marker !== marker) return;
+          if (started !== generation || usePublished.getState().byHash[hash]?.marker !== marker)
+            return;
           const error = errorMessage(reason);
           put(
             hash,
@@ -156,7 +158,10 @@ export async function loadPublished(
     for (const { hash, marker } of wanted) next[hash] = { status: 'loading', marker };
     return { byHash: next };
   });
+  const started = generation;
   const stored = await readStored(wanted.map(({ hash }) => hash));
+  // A reset (account change) while the device cache was read discards this load entirely.
+  if (started !== generation) return;
   const hits: Record<number, Entry> = {};
   for (const row of wanted) {
     const value = stored.get(row.hash);
