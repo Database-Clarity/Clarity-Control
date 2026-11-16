@@ -85,6 +85,7 @@ export const images = [
   'stasis' as const,
   'void' as const,
   'strand' as const,
+  'prismatic' as const,
 
   'heavy' as const,
   'primary' as const,

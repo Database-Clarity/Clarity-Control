@@ -1,3 +1,5 @@
+import { connectWorklists } from '../queue/worklists';
+import { useLeftQueue } from '../queue/useQueue';
 import { SkeletonBoundary } from '../../ui/Skeleton';
 import {
   useCallback,
@@ -41,6 +43,8 @@ import { RememberRoute } from '../settings/SettingsRedirect';
 import styles from './Layout.module.scss';
 
 export function Layout() {
+  useEffect(connectWorklists, []);
+  useLeftQueue();
   return (
     <WorkspaceLanguageProvider>
       <ShellSlotsProvider>

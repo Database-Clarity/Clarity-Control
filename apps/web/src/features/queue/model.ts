@@ -13,10 +13,17 @@
  * Positions count the items still to do (open and skipped), as the translator queue always did:
  * "12 of 148" is the 12th of 148 left, and an item finished while open reads "Done · 147 left".
  */
-import type { Lang } from '@clarity/core';
+import {
+  incomingAliases,
+  stableStringify,
+  type Aliases,
+  type Tooltip,
+  type Lang,
+} from '@clarity/core';
 
 /** The worklists a queue can come from. */
-export type QueueSourceId = 'review' | 'drift' | 'lost-text' | 'archive' | 'translations' | 'marks';
+export type QueueSourceId =
+  'review' | 'drift' | 'lost-text' | 'archive' | 'translations' | 'custom' | 'drafts' | 'marks';
 
 export type ItemStatus = 'open' | 'done' | 'skipped';
 
@@ -188,4 +195,29 @@ export function merged(queue: WorkQueue, rows: QueueItem[]): QueueItem[] {
   return rows
     .filter((row) => !selected || selected.has(row.key))
     .map((row) => old.get(row.key) ?? row);
+}
+
+/**
+ * The saved version of what a push publishes: a digest of exactly the inputs core's
+ * publishableHash reads (each language's saved text with its times, the associations, the custom
+ * definition, and the aliases pointing here). Any save of those changes it, markup-only ones too.
+ */
+export function reviewStamp(tooltip: Tooltip | undefined, aliases: Aliases): string {
+  if (!tooltip) return 'gone';
+  const { hash, text, associated, custom } = tooltip;
+  return digest(
+    stableStringify({ text, associated, custom, aliases: incomingAliases(hash, aliases) }),
+  );
+}
+
+/** Two independent 32-bit string hashes (FNV-1a and a djb2 variant): 64 bits, synchronous. */
+function digest(value: string): string {
+  let fnv = 0x811c9dc5;
+  let djb = 5381;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    fnv = Math.imul(fnv ^ code, 0x01000193);
+    djb = (Math.imul(djb, 33) + code) | 0;
+  }
+  return `${(fnv >>> 0).toString(36)}.${(djb >>> 0).toString(36)}.${value.length}`;
 }

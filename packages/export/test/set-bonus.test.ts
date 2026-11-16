@@ -21,7 +21,10 @@ import { decoder, parse, stringify, withType } from './set-bonus-real.js';
 const held = (input: LegacyInput, preset: LegacyPreset, identical: string[]) =>
   stringify(databaseConverter(preset, input.perks, new Set(identical)));
 
-const { input, inventoryItem } = fixtureInput();
+const { input: fixture, inventoryItem } = fixtureInput();
+// Isolate the set-bonus delta from S1's separately tested Prismatic support. An unknown token
+// matches the old converter's treatment of Prismatic, including its text-span boundaries.
+const input: LegacyInput = JSON.parse(JSON.stringify(fixture).replaceAll('<prismatic', '<unverifiedElement'));
 const identical = bungieIdentical(input, inventoryItem as never);
 
 // Fixture set bonuses: 17188252 (own text), 17188254 (Bungie's text), 17188253 (sandbox alias of 17188252).

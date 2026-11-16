@@ -85,4 +85,19 @@ describe('native base/enhanced inline markup', () => {
     const g = { ...globals(), imports: { 124: 'import main from 124' } };
     expect(parseMarkup('import main from 124', g).diagnostics[0]?.message).toContain('five passes');
   });
+  it.each(['toString', 'constructor', '__proto__'])('requires an own export for title import %s', (name) => {
+    const text = '{{base}{enhanced}} <title See [Help] />';
+    const g = {
+      ...globals(),
+      titles: `title Help (\nimport ${name} from 5\n)`,
+      imports: { 5: 'export Real (\nx\n)' },
+    };
+    expect(parseMarkup(text, g).diagnostics).toContainEqual({
+      severity: 'error', message: `Unresolved import "${name}" from 5.`,
+    });
+    g.imports[5] = `export ${name} (\nOwn {{x}{y}}\n)`;
+    const own = parseMarkup(text, g);
+    expect(own.diagnostics).toEqual([]);
+    expect(JSON.stringify(own.lines)).toContain('Own x');
+  });
 });

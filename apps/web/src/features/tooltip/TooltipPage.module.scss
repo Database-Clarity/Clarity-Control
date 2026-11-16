@@ -887,7 +887,8 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
 }
 // The translate-mode English pane's version row: the preview column's own strip (PreviewColumn
 // .bar), held at the top while the English scrolls. Markup is a toggle in the strip's look.
-.englishBar {
+.englishBar,
+.numberStartBar {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -905,6 +906,14 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
   > * {
     flex: none;
   }
+}
+.numberStartBar {
+  @include theme.mobile {
+    height: auto;
+    padding-block: 0.25rem;
+  }
+}
+.englishBar {
   @include theme.mobile {
     @include tabs.strip;
     gap: 0;
