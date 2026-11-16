@@ -192,6 +192,12 @@ describe('Ctrl+Click web addresses', () => {
     expect(open).toHaveBeenLastCalledWith('https://x.y/b', '_blank', 'noopener,noreferrer');
     expect(urlInLine('https://en.wiki/A_(b)', 3)?.url).toBe('https://en.wiki/A_(b)');
   });
+  test('square brackets inside a URL stay; the link markup closer does not', () => {
+    expect(urlInLine('see https://x.y/?ids[]=1 now', 8)?.url).toBe('https://x.y/?ids[]=1');
+    expect(urlInLine('https://[::1]/a', 3)?.url).toBe('https://[::1]/a');
+    expect(urlInLine('<link A [https://x.y/a[1]] />', 12)?.url).toBe('https://x.y/a[1]');
+    expect(urlInLine('<link A [https://x.y/?q=1] />', 12)?.url).toBe('https://x.y/?q=1');
+  });
   test('other schemes never open', () => {
     const open = opened();
     for (const doc of ['javascript:alert(1)', 'data:text/html,hi', 'mailto:a@b.c', 'ftp://x.y/']) {

@@ -2,15 +2,21 @@
  * Web addresses in tooltip text: bare URLs and the target of `<link Text [url] />`. Only http and
  * https are ever found, so other schemes (javascript:, data:, mailto:) can never be opened.
  */
-const urlPattern = /\bhttps?:\/\/[^\s<>[\]"'`]+/gi;
+const urlPattern = /\bhttps?:\/\/[^\s<>"'`]+/gi;
+const closers: Record<string, string> = { ')': '(', ']': '[' };
 
-/** Sentence punctuation after a URL ("see https://x.y/a.") is not part of it. */
+/**
+ * Sentence punctuation after a URL ("see https://x.y/a.") is not part of it, nor is an unmatched
+ * closing bracket: the `]` ending `<link Text [url] />`, or ")" around "(see https://x.y)".
+ * Matched ones stay ("?ids[]=1", "https://[::1]/", "A_(b)").
+ */
 function trimEnd(url: string): string {
   let end = url.length;
   for (;;) {
     const last = url[end - 1];
     if (last && '.,;:!?'.includes(last)) end--;
-    else if (last === ')' && count(url, '(', end) < count(url, ')', end)) end--;
+    else if (last && last in closers && count(url, closers[last]!, end) < count(url, last, end))
+      end--;
     else return url.slice(0, end);
   }
 }
