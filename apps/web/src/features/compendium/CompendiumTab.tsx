@@ -14,6 +14,7 @@ import { useDraftStore } from '../../stores/drafts';
 import {
   SkeletonBlock,
   SkeletonLine,
+  SkeletonRegion,
   SkeletonRows,
   SkeletonStatus,
   useSkeletonVisible,
@@ -757,21 +758,22 @@ function Workspace({
     <>
       <header className={styles.summary}>
         <h1 className="sr-only">Compendium</h1>
-        <p className={styles.counts}>
-          {rows ? (
-            <>
-              <Link to={linkTo('open')}>{number.format(counts.open)} to review</Link>
-              {' · '}
-              <Link to={linkTo('matched')}>
-                {number.format(counts.matched)} matched automatically
-              </Link>
-              {' · '}
-              <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
-            </>
-          ) : (
+        {rows ? (
+          <p className={styles.counts}>
+            <Link to={linkTo('open')}>{number.format(counts.open)} to review</Link>
+            {' · '}
+            <Link to={linkTo('matched')}>
+              {number.format(counts.matched)} matched automatically
+            </Link>
+            {' · '}
+            <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
+          </p>
+        ) : (
+          // Counts need the whole queue: a placeholder, never zeros.
+          <SkeletonRegion className={styles.counts}>
             <SkeletonLine width={60} />
-          )}
-        </p>
+          </SkeletonRegion>
+        )}
         <Link
           className={styles.linked}
           to={{ search: withTab(params) }}
@@ -817,6 +819,7 @@ function Workspace({
           outsideFilter={fromEditor}
           onReinclude={rows && selected.kind === 'not-needed' ? onReinclude : undefined}
           onStep={onStep}
+          stepDisabled={!rows}
         />
       ) : (
         <section className={styles.emptyState} aria-label="Nothing to show">

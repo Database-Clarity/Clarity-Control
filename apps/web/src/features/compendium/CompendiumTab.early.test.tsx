@@ -63,7 +63,7 @@ const title = () =>
 const bar = () => host.querySelector('[aria-label="Review actions"]')!;
 const barButton = (text: string) =>
   [...bar().querySelectorAll('button')].find((button) => button.textContent?.startsWith(text))!;
-const counts = () => host.querySelector('header p')?.textContent ?? '';
+const counts = () => host.querySelector('article > header > p')?.textContent ?? '';
 const press = async (key: string) =>
   act(async () => {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
@@ -187,6 +187,8 @@ it("shows the route's entry before the model, with every action waiting for it",
   expect(host.querySelector('[role="tree"]')).toBeNull();
   for (const label of ['Confirm', 'Pick row', 'Not needed', 'Skip'])
     expect(barButton(label).hasAttribute('disabled')).toBe(true);
+  for (const step of ['Previous entry', 'Next entry'])
+    expect(host.querySelector(`[aria-label="${step}"]`)?.hasAttribute('disabled')).toBe(true);
   await press('a');
   await press('Enter');
   await press('s');
@@ -199,6 +201,7 @@ it("shows the route's entry before the model, with every action waiting for it",
   expect(title()).toContain('Sample 102');
   expect(counts()).toContain('6 to review');
   expect(barButton('Confirm').hasAttribute('disabled')).toBe(false);
+  expect(host.querySelector('[aria-label="Next entry"]')?.hasAttribute('disabled')).toBe(false);
 });
 
 it("starts a hashless open on the editor's entry when it needs review, and keeps it", async () => {
