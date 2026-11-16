@@ -634,7 +634,7 @@ describe('Review → Batches: prepared requests (scheduling off the Worker)', ()
     fixture.failRequest(requestId, [{ reason: 'Runner lost' }], true);
     const view = await mount('maintainer');
     await view.settle(() => Boolean(view.button('Retry')));
-    expect(view.text()).toContain('An infrastructure failure');
+    expect(view.text()).toContain('failed for an infrastructure reason');
     await view.click('Retry');
     await view.settle(() => view.text().includes('attempt 2'));
     expect(view.detail()?.dataset.status).toBe('preparing');

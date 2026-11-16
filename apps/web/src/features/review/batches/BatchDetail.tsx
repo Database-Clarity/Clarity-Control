@@ -260,7 +260,9 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
                 ),
               action === 'cancel'
                 ? `${batch.name} cancelled. Nothing from it will publish.`
-                : `${batch.name} unscheduled: back to draft.`,
+                : preparation?.returnStatus === 'draft'
+                  ? `${batch.name} is back to draft; the queued save was not applied, and its drafts stay.`
+                  : `${batch.name} unscheduled: back to draft.`,
             )
           }
           onKick={() =>
@@ -529,7 +531,7 @@ function PreparationLines({
     );
   const reasons = record?.reasons ?? [];
   return (
-    <div className={styles.failed} data-status-line data-preparation>
+    <div className={`${styles.failed} ${styles.attention}`} data-status-line data-preparation>
       <p>
         Needs attention: the{' '}
         {preparation.kind === 'schedule'
@@ -538,9 +540,13 @@ function PreparationLines({
             ? 'queued translation save'
             : 'queued save'}{' '}
         could not be prepared.{' '}
-        {record?.retryable
-          ? 'An infrastructure failure: Retry sends the same request again.'
-          : `Nothing in the batch changed. ${preparation.returnStatus === 'scheduled' ? 'Unschedule' : 'Edit'} to return it to draft, fix, and submit again.`}
+        {!record
+          ? request?.error
+            ? ''
+            : 'Reading the request details…'
+          : record.retryable
+            ? 'The run failed for an infrastructure reason; Retry sends the same request again.'
+            : `Nothing in the batch changed. ${preparation.returnStatus === 'scheduled' ? 'Unschedule' : 'Edit'} to return it to draft, fix, and submit again.`}
       </p>
       {reasons.length > 0 && (
         <ul aria-label="Reasons">

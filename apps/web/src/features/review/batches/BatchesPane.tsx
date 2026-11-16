@@ -304,36 +304,34 @@ export function BatchesHeader() {
   ).length;
   const preparing = open.filter((entry) => entry.status === 'preparing').length;
   const attention = open.filter((entry) => entry.status === 'needs_attention').length;
-  const overdue = open.filter((entry) => isOverdue(entry)).length;
+  // Each open batch is counted once: a preparing batch past its time shows as "(n overdue)".
+  const latePreparing = open.filter(
+    (entry) => entry.status === 'preparing' && isOverdue(entry),
+  ).length;
+  const overdue = open.filter((entry) => entry.status !== 'preparing' && isOverdue(entry)).length;
+  const segment = (text: ReactNode, flagged = false) => (
+    <>
+      {' '}
+      <span className={styles.segment} data-overdue={flagged || undefined}>
+        · {text}
+      </span>
+    </>
+  );
   return (
     <>
-      <p className={reviewStyles.counts}>
-        <span className={reviewStyles.segment}>
+      <p className={`${reviewStyles.counts} ${styles.headerCounts}`}>
+        <span className={styles.segment}>
           <b>{count.format(open.length)}</b> open {open.length === 1 ? 'batch' : 'batches'}
-        </span>{' '}
-        <span className={reviewStyles.segment}>· {count.format(scheduled)} scheduled</span>
-        {preparing > 0 && (
-          <>
-            {' '}
-            <span className={reviewStyles.segment}>· {count.format(preparing)} preparing</span>
-          </>
-        )}
-        {overdue > 0 && (
-          <>
-            {' '}
-            <span className={reviewStyles.segment} data-overdue>
-              · {count.format(overdue)} overdue
-            </span>
-          </>
-        )}
-        {attention > 0 && (
-          <>
-            {' '}
-            <span className={reviewStyles.segment} data-overdue>
-              · {count.format(attention)} need{attention === 1 ? 's' : ''} attention
-            </span>
-          </>
-        )}
+        </span>
+        {segment(`${count.format(scheduled)} scheduled`)}
+        {preparing > 0 &&
+          segment(
+            `${count.format(preparing)} preparing${latePreparing ? ` (${count.format(latePreparing)} overdue)` : ''}`,
+            latePreparing > 0,
+          )}
+        {overdue > 0 && segment(`${count.format(overdue)} overdue`, true)}
+        {attention > 0 &&
+          segment(`${count.format(attention)} need${attention === 1 ? 's' : ''} attention`, true)}
       </p>
       <span className={reviewStyles.summaryEnd}>
         <button type="button" disabled={listing} onClick={() => void refreshBatches()}>

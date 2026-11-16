@@ -30,11 +30,10 @@
     border-radius: 50%;
     background: var(--accent-ink);
   }
-  /* A schedule that failed preparation: the Scheduled dot in the warning colour, ringed. */
+  /* A schedule that failed preparation: the Scheduled dot, in the warning colour. */
   &[data-kind='attention'] {
-    border: 1.5px solid var(--warn);
     border-radius: 50%;
-    background: var(--accent-ink);
+    background: var(--warn);
   }
   &[data-kind='unsaved'] {
     width: 0.375rem;
