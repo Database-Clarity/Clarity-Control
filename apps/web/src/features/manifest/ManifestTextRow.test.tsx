@@ -65,6 +65,10 @@ const items = {
   11: item(11, { baseHash: 1, inGameDescription: 'Another enhanced variant.' }),
   20: item(20, { enhancedHash: 21, inGameDescription: 'Frame text.' }),
   21: item(21, { baseHash: 20, inGameDescription: 'Enhanced frame text.' }),
+  30: item(30, { inGameDescription: 'Reloading grants bonus handling for a short time.' }),
+  31: item(31, { baseHash: 30, inGameDescription: 'Final blows blind nearby combatants.' }),
+  32: item(32, { inGameDescription: 'Base text only.' }),
+  33: item(33, { baseHash: 32 }),
 };
 
 describe('manifestText', () => {
@@ -184,16 +188,44 @@ describe('ManifestTextRow', () => {
     resetNamesForTests();
   });
   const show = (hash: number) => act(async () => root.render(<ManifestTextRow hash={hash} />));
+  // Diff marks in the text, not the legend's sample marks.
+  const mark = (tag: 'ins' | 'del') => host.querySelector(`p:not([data-legend]) > ${tag}`);
+
+  it('merges a pair into one text, and falls back to old then new for a rewrite', async () => {
+    await show(1);
+    const text = () => host.querySelector('p:not([data-legend]):last-of-type')!;
+    // Unchanged words appear once; only the enhanced-only word is marked.
+    expect(text().textContent).toBe('Kills grant greatly increased damage.\nStacks 3x.');
+    expect(host.textContent!.split('Stacks 3x.')).toHaveLength(2);
+    expect(mark('ins')?.textContent?.trim()).toBe('greatly');
+    expect(mark('del')).toBeNull();
+    expect(host.querySelector('[data-legend]')?.textContent).toBe('Base only Enhanced only');
+    expect(host.textContent).not.toContain('Enhanced:');
+    await show(30);
+    const blocks = [...host.querySelectorAll('p:not([data-legend])')];
+    expect(blocks.map((block) => block.textContent)).toEqual([
+      'Reloading grants bonus handling for a short time.',
+      'Final blows blind nearby combatants.',
+    ]);
+    expect(blocks[0].querySelector('del')?.textContent).toBe(blocks[0].textContent);
+    expect(blocks[1].querySelector('ins')?.textContent).toBe(blocks[1].textContent);
+  });
+
+  it('keeps the base text when the enhanced side has none', async () => {
+    await show(32);
+    expect(host.textContent).toContain('Base text only.');
+    expect(host.textContent).toContain('Enhanced: no manifest text');
+    expect(host.querySelector('del, ins')).toBeNull();
+  });
 
   it('shows both sides of a pair, diffs words, and captions identical text', async () => {
     await show(1);
-    expect(host.textContent).toContain('Kills grant increased damage.');
-    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    expect(mark('ins')?.textContent).toContain('greatly');
     await show(8);
-    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    expect(mark('ins')?.textContent).toContain('greatly');
     await show(9);
     expect(host.textContent).toContain('Enhanced: same text');
-    expect(host.querySelector('ins')).toBeNull();
+    expect(mark('ins')).toBeNull();
     await show(4);
     expect(host.textContent).not.toContain('Enhanced');
     expect(host.textContent).not.toContain('Kills grant');
@@ -202,20 +234,20 @@ describe('ManifestTextRow', () => {
   it('diffs the sandbox fallback for both members of a pair', async () => {
     await show(2);
     expect(host.textContent).toContain(perks[11][1]);
-    expect(host.querySelector('del')?.textContent).toContain('Rapid');
-    expect(host.querySelector('ins')?.textContent).toContain('While');
+    expect(mark('del')?.textContent).toContain('Rapid');
+    expect(mark('ins')?.textContent).toContain('While');
     await show(4);
-    expect(host.querySelector('del')).toBeNull();
+    expect(mark('del')).toBeNull();
   });
 
   it('follows the preview variant picker, and resets the pair when stepping away', async () => {
     await act(async () => root.render(<ManifestTextRow hash={1} enhancedHash={11} />));
-    expect(host.querySelector('ins')?.textContent).toContain('Another');
+    expect(mark('ins')?.textContent).toContain('Another');
     await act(async () => root.render(<ManifestTextRow hash={1} enhancedHash={8} />));
-    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    expect(mark('ins')?.textContent).toContain('greatly');
     expect(host.textContent).not.toContain('Another');
     await show(4);
-    expect(host.querySelector('ins')).toBeNull();
+    expect(mark('ins')).toBeNull();
   });
 
   it('uses the generator primary enhanced frame even when editing aliases hide it', async () => {
@@ -223,9 +255,9 @@ describe('ManifestTextRow', () => {
       data: { ...state.data!, aliases: { 21: { to: 20, kind: 'frame' } } },
     }));
     await show(20);
-    expect(host.querySelector('ins')?.textContent).toContain('Enhanced');
+    expect(mark('ins')?.textContent).toContain('Enhanced');
     await show(21);
-    expect(host.querySelector('ins')?.textContent).toContain('Enhanced');
+    expect(mark('ins')?.textContent).toContain('Enhanced');
   });
 
   it('localises arriving text, preserves missing rows, and clears it when switching to English', async () => {
@@ -283,7 +315,7 @@ describe('ManifestTextRow', () => {
     expect(host.querySelector('button')?.getAttribute('aria-expanded')).toBe('true');
     const label = () => host.querySelector('section')?.getAttribute('aria-label');
     expect(label()).toBe('Manifest text for Rampage, 1');
-    expect(host.textContent).toContain('Kills grant increased damage.');
+    expect(host.textContent).toContain('Kills grant greatly increased damage.');
     await show(7);
     expect(label()).toBe('Manifest text for Business Time, 7');
     expect(host.textContent).toContain('Holding down the trigger');
@@ -351,6 +383,6 @@ describe('ManifestTextRow', () => {
     await show(2);
     expect(host.textContent).toContain('the sandbox perk text failed to load');
     await show(1);
-    expect(host.textContent).toContain('Kills grant increased damage.');
+    expect(host.textContent).toContain('Kills grant greatly increased damage.');
   });
 });

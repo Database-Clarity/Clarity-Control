@@ -7,8 +7,11 @@ import { useDataStore } from '../../stores/data';
 import { canonicalHash, itemFor, variantHashes } from '../navigation/catalog';
 import { ManifestStatsRow } from './ManifestStatsRow';
 import { PanelRow } from '../../ui/PanelRow';
+import { INLINE_MAX_SHARE } from '../compendium/compendiumDiffProjection';
 import {
+  changedInkShare,
   loadSandboxPerkText,
+  type ManifestText,
   manifestSummary,
   manifestText,
   manifestDescription,
@@ -102,6 +105,32 @@ export function ManifestTextRow({
   if (!data) return null;
   const summary = manifestSummary(translated);
   const unavailable = text.kind === 'none' && text.perkHashes.length > 0 && sandboxPerkTextFailed();
+  const pair = enhancedHash !== undefined;
+  // A pair reads as one text: unchanged words once, base-only struck, enhanced-only marked. When
+  // most of it changed (the Compendium Changes threshold), the old text, then the new one.
+  // Translated text keeps the base text with its English original reveal, and the diff below it.
+  const shownTranslated =
+    before !== manifestDescription(text) || after !== manifestDescription(enhancedText);
+  const merged = pair && !!before && !!after && before !== after && !shownTranslated;
+  const rewrite = merged && changedInkShare(differences) > INLINE_MAX_SHARE;
+  const base = (
+    <BaseText text={text} hash={hash} lang={lang} unavailable={unavailable} localised={localised} />
+  );
+  const diff = (
+    <p className={styles.text}>
+      {differences.map((part, index) =>
+        part.kind === 'delete' ? (
+          <del key={index}>{part.text}</del>
+        ) : part.kind === 'insert' ? (
+          <ins className={styles.enhanced} key={index}>
+            {part.text}
+          </ins>
+        ) : (
+          <span key={index}>{part.text}</span>
+        ),
+      )}
+    </p>
+  );
   return (
     <>
       <ManifestStatsRow hash={hash} enhancedHash={enhancedHash} lang={lang} />
@@ -135,93 +164,125 @@ export function ManifestTextRow({
           }}
         >
           <SkeletonBoundary
-            pending={text.kind === 'loading'}
-            identity={hash}
+            pending={text.kind === 'loading' || (pair && enhancedText.kind === 'loading')}
+            identity={pair ? `${hash}:${enhancedHash}` : hash}
             label="Loading sandbox perk text…"
           >
-            {text.kind === 'own' && (
-              <p className={styles.text}>
-                <EnglishReveal
-                  english={text.description}
-                  translated={localised?.descriptions?.[hash]}
-                  lang={lang}
-                />
-              </p>
-            )}
-            {text.kind === 'sandbox' && (
+            {merged ? (
               <>
-                <p className={styles.hint}>
-                  No description of its own. From its sandbox{' '}
-                  {text.perks.length === 1 ? 'perk' : 'perks'}:
-                </p>
-                <dl className={styles.perks}>
-                  {text.perks.map((perk) => (
-                    <div key={perk.hash}>
-                      <dt>
-                        <EnglishReveal
-                          english={perk.name || 'Unnamed perk'}
-                          translated={localised?.sandboxPerks?.[perk.hash]?.[0]}
-                          lang={lang}
-                        />{' '}
-                        <span>· {perk.hash}</span>
-                      </dt>
-                      {/* A stat line ("-10 Grenade") is its own name: say it once. */}
-                      <dd className={perk.description === perk.name ? 'sr-only' : styles.text}>
-                        {perk.description === perk.name ? (
-                          'Same as the perk name.'
-                        ) : (
-                          <EnglishReveal
-                            english={perk.description}
-                            translated={localised?.sandboxPerks?.[perk.hash]?.[1]}
-                            lang={lang}
-                          />
-                        )}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </>
-            )}
-            {text.kind === 'none' && (
-              <p className={styles.hint}>
-                {unavailable
-                  ? 'No description of its own, and the sandbox perk text failed to load.'
-                  : text.perkHashes.length
-                    ? `No manifest description, and none on its sandbox ${text.perkHashes.length === 1 ? 'perk' : 'perks'} (${text.perkHashes.join(', ')}).`
-                    : 'No manifest description.'}
-              </p>
-            )}
-          </SkeletonBoundary>
-          {enhancedHash !== undefined && (
-            <SkeletonBoundary
-              pending={text.kind === 'loading' || enhancedText.kind === 'loading'}
-              identity={`${hash}:${enhancedHash}`}
-              label="Loading enhanced manifest text…"
-            >
-              <div className={styles.enhancedText}>
-                <p className={styles.hint}>
-                  {before === after ? 'Enhanced: same text' : 'Enhanced'}
-                </p>
-                {before !== after && (
-                  <p className={styles.text}>
-                    {differences.map((part, index) =>
-                      part.kind === 'delete' ? (
-                        <del key={index}>{part.text}</del>
-                      ) : part.kind === 'insert' ? (
-                        <ins className={styles.enhanced} key={index}>
-                          {part.text}
-                        </ins>
-                      ) : (
-                        <span key={index}>{part.text}</span>
-                      ),
-                    )}
+                {text.kind === 'sandbox' && (
+                  <p className={styles.hint}>
+                    No description of its own. From its sandbox{' '}
+                    {text.perks.length === 1 ? 'perk' : 'perks'}:
                   </p>
                 )}
-              </div>
-            </SkeletonBoundary>
-          )}
+                <p className={styles.hint} data-legend>
+                  <del>Base only</del> <ins className={styles.enhanced}>Enhanced only</ins>
+                </p>
+                {rewrite ? (
+                  <>
+                    <p className={styles.text}>
+                      <del>{before}</del>
+                    </p>
+                    <p className={`${styles.text} ${styles.rewritten}`}>
+                      <ins className={styles.enhanced}>{after}</ins>
+                    </p>
+                  </>
+                ) : (
+                  diff
+                )}
+              </>
+            ) : (
+              <>
+                {base}
+                {pair && (
+                  <div className={styles.enhancedText}>
+                    <p className={styles.hint}>
+                      {before === after
+                        ? 'Enhanced: same text'
+                        : after
+                          ? 'Enhanced'
+                          : 'Enhanced: no manifest text'}
+                    </p>
+                    {before !== after && after && diff}
+                  </div>
+                )}
+              </>
+            )}
+          </SkeletonBoundary>
         </PanelRow>
       </section>
+    </>
+  );
+}
+
+function BaseText({
+  text,
+  hash,
+  lang,
+  unavailable,
+  localised,
+}: {
+  text: ManifestText;
+  hash: number;
+  lang: Lang;
+  unavailable: boolean;
+  localised: ReturnType<typeof useLocalisedManifest>;
+}) {
+  return (
+    <>
+      {text.kind === 'own' && (
+        <p className={styles.text}>
+          <EnglishReveal
+            english={text.description}
+            translated={localised?.descriptions?.[hash]}
+            lang={lang}
+          />
+        </p>
+      )}
+      {text.kind === 'sandbox' && (
+        <>
+          <p className={styles.hint}>
+            No description of its own. From its sandbox {text.perks.length === 1 ? 'perk' : 'perks'}
+            :
+          </p>
+          <dl className={styles.perks}>
+            {text.perks.map((perk) => (
+              <div key={perk.hash}>
+                <dt>
+                  <EnglishReveal
+                    english={perk.name || 'Unnamed perk'}
+                    translated={localised?.sandboxPerks?.[perk.hash]?.[0]}
+                    lang={lang}
+                  />{' '}
+                  <span>· {perk.hash}</span>
+                </dt>
+                {/* A stat line ("-10 Grenade") is its own name: say it once. */}
+                <dd className={perk.description === perk.name ? 'sr-only' : styles.text}>
+                  {perk.description === perk.name ? (
+                    'Same as the perk name.'
+                  ) : (
+                    <EnglishReveal
+                      english={perk.description}
+                      translated={localised?.sandboxPerks?.[perk.hash]?.[1]}
+                      lang={lang}
+                    />
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
+      {text.kind === 'none' && (
+        <p className={styles.hint}>
+          {unavailable
+            ? 'No description of its own, and the sandbox perk text failed to load.'
+            : text.perkHashes.length
+              ? `No manifest description, and none on its sandbox ${text.perkHashes.length === 1 ? 'perk' : 'perks'} (${text.perkHashes.join(', ')}).`
+              : 'No manifest description.'}
+        </p>
+      )}
     </>
   );
 }

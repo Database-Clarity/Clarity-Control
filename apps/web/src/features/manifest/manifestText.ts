@@ -33,6 +33,24 @@ export function manifestWordDiff(before: string, after: string): WordChange[] {
 }
 
 /**
+ * The share of a word diff's ink that changed, as the Compendium Changes view measures it:
+ * (removed + added) / (2 × unchanged + removed + added). Compare with INLINE_MAX_SHARE.
+ */
+export function changedInkShare(parts: WordChange[]): number {
+  let changed = 0;
+  let total = 0;
+  for (const part of parts) {
+    const ink = part.text.replace(/\s+/gu, '').length;
+    if (part.kind === 'equal') total += 2 * ink;
+    else {
+      changed += ink;
+      total += ink;
+    }
+  }
+  return total ? changed / total : 0;
+}
+
+/**
  * Sandbox perk hash -> [name, description], as written by scripts/manifest/sandbox-perks.mjs. The
  * description is empty for a perk listed only for its name.
  */
