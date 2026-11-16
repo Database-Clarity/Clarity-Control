@@ -33,16 +33,44 @@ const markers = [
   },
 ] as const;
 
+/** A schedule still being prepared or that failed preparation keeps the marker, with its state. */
+const pendingMarkers = {
+  preparing: {
+    ...markers[2],
+    label: 'Scheduled · preparing',
+    explanation:
+      'An entry is in a batch whose schedule is being prepared; it is not scheduled yet.',
+  },
+  needs_attention: {
+    ...markers[2],
+    kind: 'attention',
+    label: 'Scheduled · needs attention',
+    explanation:
+      'Preparing the schedule of this entry’s batch failed, so it will not publish. Review → Batches shows the reasons.',
+  },
+} as const;
+
 function ScheduledMarker({ hashes }: { hashes: ReadonlySet<number> }) {
-  const scheduled = upcomingStore()((state) =>
-    Object.entries(state.memberOf).some(
-      ([hash, batch]) => hashes.has(Number(hash)) && batch.status === 'scheduled',
-    ),
-  );
-  return scheduled ? <Glyph marker={markers[2]} /> : null;
+  // A primitive selection: only a change of the shown state re-renders the row.
+  const state = upcomingStore()((store) => {
+    let found: 'scheduled' | 'preparing' | 'needs_attention' | null = null;
+    for (const [hash, batch] of Object.entries(store.memberOf)) {
+      if (!hashes.has(Number(hash))) continue;
+      if (batch.status === 'needs_attention' && batch.notBefore !== null) return batch.status;
+      if (batch.status === 'preparing' && batch.notBefore !== null) found = batch.status;
+      else if (batch.status === 'scheduled') found ??= 'scheduled';
+    }
+    return found;
+  });
+  if (!state) return null;
+  return <Glyph marker={state === 'scheduled' ? markers[2] : pendingMarkers[state]} />;
 }
 
-function Glyph({ marker }: { marker: (typeof markers)[number] }) {
+function Glyph({
+  marker,
+}: {
+  marker: (typeof markers)[number] | (typeof pendingMarkers)[keyof typeof pendingMarkers];
+}) {
   return (
     <TitleAnchor part={{ text: '', title: [{ linesContent: [{ text: marker.explanation }] }] }}>
       <span role="img" aria-label={marker.label} className={styles.glyph} data-kind={marker.kind} />
