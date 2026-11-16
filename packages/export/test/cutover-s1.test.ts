@@ -150,6 +150,44 @@ describe('S1 native consumer output in importer context', () => {
     for (const preset of legacyPresets) expect(() => buildLegacy(input, preset)).toThrow(/Unresolved import/);
   });
 
+  test.each(['toString', 'constructor', '__proto__'])('missing prototype-named title export %s fails closed', (name) => {
+    for (const source of ['See <title Label [Help] />', '{{base}{enhanced}} <title Label [Help] />']) {
+      const input = inputOf(source, {
+        3: perk(3, `title Help (\nimport ${name} from 5\n)`),
+        5: perk(5, 'export Real (\nx\n)'),
+      });
+      for (const preset of legacyPresets)
+        expect(() => buildLegacy(input, preset), preset).toThrow(`Unresolved import "${name}" from 5.`);
+      for (const style of styles)
+        expect(() => compile(input, custom(style), { catalog }), style).toThrow(`Unresolved import "${name}" from 5.`);
+    }
+  });
+
+  test.each([
+    ['enhanced', 'Weapon Trait Enhanced'],
+    ['catalyst', 'Weapon Catalyst Exotic'],
+    ['exotic perk', 'Weapon Perk Exotic'],
+  ])('%s alias text is independent of unrelated global pairs', (condition, type) => {
+    const source = `Base text\n${condition} (\nExtra alias text\n)`;
+    const extra = {
+      1: perk(1, ''), 2: perk(2, ''), 3: perk(3, ''),
+      101: { hash: 101, aliasOf: 100, aliasKind: 'frame', type },
+      102: { hash: 102, aliasOf: 100, aliasKind: 'sandbox', type },
+      103: { hash: 103, aliasOf: 100, aliasKind: 'frame', type: 'Weapon Trait' },
+    };
+    const ordinary = inputOf(source, extra);
+    const forced = inputOf(source, { ...extra, 2: perk(2, 'var P = {{1}{2}}') });
+    for (const preset of legacyPresets)
+      expect(buildLegacy(ordinary, preset), preset).toEqual(buildLegacy(forced, preset));
+    const output = json(buildLegacy(ordinary, 'clarityV2'));
+    expect(JSON.stringify(output[100].descriptions.en)).not.toContain('Extra alias text');
+    for (const hash of [101, 102]) {
+      expect(output[hash]).not.toHaveProperty('aliasOf');
+      expect(JSON.stringify(output[hash].descriptions.en)).toContain('Extra alias text');
+    }
+    expect(output[103]).toEqual({ hash: 103, aliasOf: 100 });
+  });
+
   test.each([
     ['malformed pair', '{{base}{enhanced}'],
     ['deleted import', '{{b}{e}}\nimport main from 999'],

@@ -240,8 +240,8 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   }
   if (data.includeShowcase) {
     const descriptions: Descriptions = {};
-    // Match lowerInput's consumer representation, including its removal of preview-only tint.
-    const { lines, diagnostics } = parseMarkup(lowerConsumerMarkup(showcaseText), showcaseGlobals);
+    // Match the same element-tag opt-in as ordinary rows.
+    const { lines, diagnostics } = parseMarkup(format.elementTags ? showcaseText : lowerConsumerMarkup(showcaseText), showcaseGlobals);
     if (diagnostics.length) throw new Error('Invalid built-in showcase markup');
     // English example in each selected language: self-contained, never translated by data.
     for (const language of languages)

@@ -17,7 +17,7 @@ import {
   validateReferences
 } from './index.js'
 import { cleanObject } from './helpers.js'
-import { convertDescription } from './descriptionConverter.js'
+import { descriptionConverter } from './descriptionConverter.js'
 
 /** Hashes whose English text is the same as Bungie's own description, see bungieIdentical in ../legacy.ts */
 export type IdenticalHashes = { has(hash: string): boolean }
@@ -28,7 +28,7 @@ export const databaseConverter = (converterType: string, database: IntermediateP
   // alias stubs become full copies of their original, used for every lookup and for the checks below
   const lookup = expandAliases(database)
   const references: { [hash: string]: LiveAlias } = {}
-  const nativeReferences: { [hash: string]: LivePerk } = {}
+  const variants: { [hash: string]: LivePerk } = {}
 
   const newDatabase: { [key: string]: LivePerk } = {}
   for (const [hash, rawPerk] of Object.entries(database)) {
@@ -53,7 +53,6 @@ export const databaseConverter = (converterType: string, database: IntermediateP
 
     const cleanPerk = getDataFromPerk(perk, settings.getFromPerk)
 
-    let native = false
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const descriptions = Object.entries(cleanPerk.editor).reduce<{ [key: string]: any }>(
       (acc, [language, descriptions]) => {
@@ -64,9 +63,7 @@ export const databaseConverter = (converterType: string, database: IntermediateP
           hash: cleanPerk.hash as number,
           language: language as Languages
         }
-        const converted = convertDescription(descriptionData)
-        native ||= converted.native
-        const convertedDescription = converted.lines
+        const convertedDescription = descriptionConverter(descriptionData)
         if (convertedDescription) {
           acc[language] = descriptionFilter(convertedDescription, converterType)
         }
@@ -82,7 +79,7 @@ export const databaseConverter = (converterType: string, database: IntermediateP
       descriptions
     }
     if (references[hash]) {
-      if (native) nativeReferences[hash] = convertedPerk
+      variants[hash] = convertedPerk
     } else newDatabase[hash] = convertedPerk
   }
 
@@ -90,10 +87,9 @@ export const databaseConverter = (converterType: string, database: IntermediateP
   for (const [hash, reference] of Object.entries(references)) {
     const target = newDatabase[reference.aliasOf]
     if (target === undefined) continue
-    // A reference to base text cannot represent an enhanced variant. Materialise only native
-    // aliases whose actual consumer descriptions differ; ordinary aliases retain their bytes.
-    const variant = nativeReferences[hash]
-    newDatabase[hash] = variant && JSON.stringify(variant.descriptions) !== JSON.stringify(target.descriptions)
+    // A reference cannot represent different text. Copy aliases whose consumer descriptions differ.
+    const variant = variants[hash]
+    newDatabase[hash] = JSON.stringify(variant.descriptions) !== JSON.stringify(target.descriptions)
       ? variant : reference as unknown as LivePerk
   }
 

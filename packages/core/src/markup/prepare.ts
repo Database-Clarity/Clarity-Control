@@ -127,10 +127,11 @@ function resolveImports(
       // Each document is read in its legacy form (`#{name}`, `<enhanced/>`; braces.ts), as the
       // exporters lower every tooltip before the converter extracts an export from it.
       const source = raw === undefined ? undefined : lowerDelimitedMarkup(raw);
-      const imported =
-        name === 'main' || name === 'secondary'
-          ? source
-          : extractBlocks(source ?? '', 'export')[name];
+      let imported = source;
+      if (name !== 'main' && name !== 'secondary') {
+        const blocks = extractBlocks(source ?? '', 'export');
+        imported = Object.hasOwn(blocks, name) ? blocks[name] : undefined;
+      }
       if (imported === undefined && visible) {
         diagnostics.push({
           severity: 'error',
