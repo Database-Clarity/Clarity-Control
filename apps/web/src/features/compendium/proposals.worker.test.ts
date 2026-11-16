@@ -3,6 +3,14 @@ import { guidedFixture } from '../../../test/guided-fixture';
 import { emptyProgress } from './reviewProgress';
 import { receiveWorkerResult, type WorkerReply } from './workerReplies';
 import approved from './approved-guidance.v1.json';
+import type { ReviewProposal } from './rapidReview';
+import { applyReviewProgress } from './reviewQueue';
+import {
+  earlyEntry,
+  preparedDecisions,
+  preparedProposals,
+  preparedQueueRows,
+} from './reviewViewCache';
 
 // Each test's worker module keeps its own quiet-period cache writes. Left pending, a 1 s timer
 // fired during a later test (slow CI) and wrote into that test's IndexedDB stub, pushing it
@@ -106,7 +114,7 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     release = resolve;
   });
   let assetRequests = 0;
-  let duringReply: Promise<Map<number, unknown>> | undefined;
+  let duringReply: Promise<import('./matchingSessionPlanning').PriorityReview> | undefined;
   let fullPublished = false;
   vi.stubGlobal('fetch', async () => {
     assetRequests++;
@@ -125,7 +133,7 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     onmessage: null as null | ((event: { data: unknown }) => void),
     postMessage(reply: WorkerReply) {
       if (reply.id === 4 && reply.partialRoot !== undefined)
-        duringReply = request(6, { priority: { token: 17, hash: 102, input, matchesOnly: true } });
+        duringReply = request(6, { priority: { token: 17, hash: 102, input } });
       if (reply.id === 6) expect(fullPublished).toBe(false);
       if (reply.id === 4 && reply.root !== undefined) fullPublished = true;
       // Selected replies must bypass the graph codec entirely.
@@ -162,8 +170,11 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const bytes = new TextEncoder().encode(JSON.stringify({ editor: f.editor, source: f.source }));
   worker.onmessage!({ data: { initialChunk: { token: 17, bytes: bytes.buffer } } });
   let finished = false;
-  const initialized = request(1, { initialize: { token: 17 } }).then(() => {
+  const initialized = request<Map<number, ReviewProposal>>(1, {
+    initialize: { token: 17 },
+  }).then((proposals) => {
     finished = true;
+    return proposals;
   });
   const input = {
     drafts: {},
@@ -180,33 +191,54 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const next = await request<Priority>(3, { priority: { token: 17, hash: 102, input } });
   expect(finished).toBe(false);
   expect(next.entry?.hash).toBe(102);
-  const pane = await request<Priority['matches']>(5, {
-    priority: { token: 17, hash: 100, input, matchesOnly: true },
-  });
-  expect([...pane.keys()]).toEqual([100]);
-  expect(pane).toEqual(first.matches);
-  expect(pane.get(100)?.tab.grid).toBeUndefined();
-  expect(pane.get(100)?.tab.rows).toEqual([]);
+  const pane = await request<Priority>(5, { priority: { token: 17, hash: 100, input } });
+  expect([...pane.matches.keys()]).toEqual([100]);
+  expect(pane).toEqual(first);
+  // One entry's review never carries a copy of the catalog.
+  expect(pane.matches.get(100)?.tab.grid).toBeUndefined();
+  expect(pane.matches.get(100)?.tab.rows).toEqual([]);
+  expect(pane.proposal?.match?.tab.grid).toBeUndefined();
   expect(assetRequests).toBe(1);
   release();
-  await initialized;
+  const core = await initialized;
   const full = await request<ReturnType<typeof import('./displayMatches').displayMatches>>(4, {
     input,
   });
+  // The tab's current entry ahead of the model is the model's own row, proposal, and decision.
+  const shown = preparedProposals(full, core);
+  const rows = preparedQueueRows(
+    applyReviewProgress(full.evidence, input.progress),
+    full,
+    shown,
+    new Set(),
+    new Map(),
+  );
   for (const review of [first, next]) {
     expect(review.entry).toEqual(
       full.categories.flatMap((c) => c.entries).find((e) => e.hash === review.hash),
     );
     expect(review.decision).toEqual(full.decisions.find((d) => d.hash === review.hash));
     expect(review.matches.get(review.hash)?.row).toEqual(full.matches.get(review.hash)?.row);
+    const early = earlyEntry(review, f.editor, {}, new Set());
+    expect(early?.row).toEqual(rows.find((row) => row.hash === review.hash));
+    expect(early?.decision).toEqual(preparedDecisions(full).get(review.hash));
+    const proposal = shown.get(review.hash);
+    expect(early?.proposal?.link).toEqual(proposal?.link);
+    expect(early?.proposal?.match?.row).toEqual(proposal?.match?.row);
+    expect(early?.proposal?.candidates.map((c) => c.row)).toEqual(
+      proposal?.candidates.map((c) => c.row),
+    );
   }
+  // Served from the finished display while the catalog is still being sent: the same review
+  // the single-entry plan computed.
   expect(duringReply).toBeDefined();
   const current = await duringReply!;
-  expect([...current.keys()]).toEqual([102]);
-  expect(current.get(102)).toEqual(full.matches.get(102));
+  expect([...current.matches.keys()]).toEqual([102]);
+  expect(current.matches.get(102)).toEqual(full.matches.get(102));
+  expect(current).toEqual(next);
   await expect(
     request(7, {
-      priority: { token: 17, hash: 102, input: { ...input, scope: 'changed' }, matchesOnly: true },
+      priority: { token: 17, hash: 102, input: { ...input, scope: 'changed' } },
     }),
   ).rejects.toThrow(/another dataset/);
 });

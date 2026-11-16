@@ -8,7 +8,7 @@ import type { EditorData } from '../../stores/data';
 import { proposalFor, type ReviewProposal } from './rapidReview';
 import type { displayMatches } from './displayMatches';
 import type { DisplayInput } from './matchingSession';
-import type { prepareMatchingPlan } from './matchingSessionPlanning';
+import type { PriorityReview, prepareMatchingPlan } from './matchingSessionPlanning';
 import { matchingSessionFingerprint } from './matchingSessionFingerprint';
 import { compactMatch } from './compactMatches';
 import {
@@ -118,7 +118,7 @@ type Request = {
   cancelInit?: { token: number };
   initialize?: { token: number };
   input?: DisplayInput;
-  priority?: { token: number; hash: number; input: DisplayInput; matchesOnly?: boolean };
+  priority?: { token: number; hash: number; input: DisplayInput };
   guide?: {
     document: GuidanceDocument;
     baseline: string;
@@ -200,17 +200,25 @@ async function servePriority() {
   if (!request || request.token !== modelToken) return;
   priority = undefined;
   try {
-    if (
-      request.matchesOnly &&
-      lastDisplay &&
-      lastDisplayInputKey === JSON.stringify(request.input)
-    ) {
+    if (lastDisplay && lastDisplayInputKey === JSON.stringify(request.input)) {
       // The complete plan already validated this exact input revision. Publish
-      // its current row before continuing to encode the background catalog.
-      const match = lastDisplay.matches.get(request.hash);
+      // its current entry before continuing to encode the background catalog.
+      const { hash } = request;
+      const match = lastDisplay.matches.get(hash);
+      const proposal = priorityProposals.get(hash);
       self.postMessage({
         id: request.id,
-        value: new Map(match ? [[request.hash, compactMatch(match)]] : []),
+        value: {
+          hash,
+          fingerprint: lastDisplay.fingerprint,
+          baseline: `${editor.bundle.sourceCommit}|${lastDisplay.fingerprint}`,
+          entry: lastDisplay.categories
+            .flatMap((category) => category.entries)
+            .find((entry) => entry.hash === hash),
+          proposal: proposal && compactProposal(proposal),
+          decision: lastDisplay.decisions.find((decision) => decision.hash === hash),
+          matches: new Map(match ? [[hash, compactMatch(match)]] : []),
+        } satisfies PriorityReview,
       });
       return;
     }
@@ -254,9 +262,8 @@ async function servePriority() {
       const matches = new Map(
         [...selected.matches].map(([hash, match]) => [hash, compactMatch(match)]),
       );
-      // The pane needs just this tooltip's validated match, not review evidence,
-      // candidates, or a second copy of the catalog's encoded value table.
-      if (request.matchesOnly) return matches;
+      // One entry's review (the pane's match, the tab's current entry), never a second copy
+      // of the catalog's encoded value table.
       return {
         hash: request.hash,
         fingerprint: priorityPlan.plan.fingerprint,
@@ -269,7 +276,7 @@ async function servePriority() {
           : undefined,
         decision: selected.decisions.find((decision) => decision.hash === request.hash),
         matches,
-      };
+      } satisfies PriorityReview;
     });
     // Native clone preserves Map/undefined/shared cells without a JS graph decoder.
     // Only selected-entry results use it; large background results stay transferable

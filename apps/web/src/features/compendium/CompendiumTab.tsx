@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CompendiumPage } from './CompendiumPage';
 import { compendiumChanges } from './tracking';
-import type { CompendiumData, Tooltip } from '@clarity/core';
+import { resolveAlias, type CompendiumData, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
@@ -13,6 +13,8 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import {
   SkeletonBlock,
+  SkeletonLine,
+  SkeletonRegion,
   SkeletonRows,
   SkeletonStatus,
   useSkeletonVisible,
@@ -49,6 +51,8 @@ import type { CompendiumSuggestion } from './suggestions';
 import { confirmCompendiumSelection } from './selection';
 import { useCompendiumStore } from './store';
 import { useDisplayMatches } from './useDisplayMatches';
+import { lastEditorEntry } from './editorEntry';
+import { earlyEntry } from './reviewViewCache';
 import { useProposals } from './useProposals';
 import { useReviewProgress } from './useReviewProgress';
 import { groupManifestItems } from './manifestItems';
@@ -56,6 +60,7 @@ import styles from './CompendiumTab.module.scss';
 
 const number = new Intl.NumberFormat('en');
 const noHints: CompendiumSuggestion[] = [];
+const noEntries: ReturnType<typeof reviewedEntries> = [];
 type StageLink = NonNullable<Tooltip['compendium']>;
 
 // Opening or closing the picker stage changes none of the detail's props, so the entry behind
@@ -86,7 +91,21 @@ export function CompendiumTab() {
   const { data, load, error } = useCompendiumStore();
   const { user, loading: authLoading } = useAuthStore();
   const drafts = useDraftStore((state) => state.drafts);
-  const display = useDisplayMatches(editor, data, drafts, user?.id);
+  const [params] = useSearchParams();
+  // The entry this open shows: the route's, else the tooltip last open in the editor (used only
+  // when it needs review). Its review arrives ahead of the catalog's model.
+  const routeHash = hashOf(params);
+  const [editorEntry] = useState(lastEditorEntry);
+  const editorHash =
+    editorEntry !== undefined && editor ? resolveAlias(editorEntry, editor.aliases) : undefined;
+  const display = useDisplayMatches(
+    editor,
+    data,
+    drafts,
+    user?.id,
+    undefined,
+    routeHash ?? editorHash,
+  );
   const prepared = display.reviewPrepared;
   useEffect(() => {
     void load();
@@ -95,10 +114,11 @@ export function CompendiumTab() {
     `${bundleUrl}|${compendiumDataUrl}|${apiUrl ?? 'read-only'}`,
     user?.id,
   );
-  const [params] = useSearchParams();
-  const ready =
-    !!editor && !!data && !authLoading && (!!prepared || typeof Worker === 'undefined');
-  const showSkeleton = useSkeletonVisible(!ready && !error, 'tab', false);
+  const sourceReady = !!editor && !!data && !authLoading;
+  const ready = sourceReady && (!!prepared || typeof Worker === 'undefined');
+  const early = sourceReady && !ready && !!display.review;
+  // Two frames of grace (the shared rule): a current entry that arrives by then never shows it.
+  const showSkeleton = useSkeletonVisible(!ready && !early && !error, 'tab', true);
   // The linked-sources view keeps the review workspace mounted (it renders nothing there): the
   // queue beside it stays listed instead of loading forever, and Back to the queue rebuilds nothing.
   const linked = params.get('tab') === 'linked';
@@ -129,13 +149,15 @@ export function CompendiumTab() {
         </p>
       )}
       {linked && editor && data && <CompendiumPage />}
-      {ready && !showSkeleton ? (
+      {editor && data && (ready || early) && !showSkeleton ? (
         <Workspace
           key={storageKey}
           storageKey={storageKey}
           editor={editor}
           source={data}
           prepared={prepared}
+          review={ready ? undefined : display.review}
+          editorHash={editorHash}
           linked={linked}
         />
       ) : (
@@ -153,6 +175,10 @@ export function CompendiumTab() {
   );
 }
 
+function hashOf(params: URLSearchParams) {
+  const value = params.get('hash') ? Number(params.get('hash')) : undefined;
+  return value !== undefined && Number.isSafeInteger(value) ? value : undefined;
+}
 function withTab(params: URLSearchParams) {
   const next = new URLSearchParams(params);
   next.set('tab', 'linked');
@@ -173,7 +199,10 @@ function loadRestored(scopeKey: string) {
       throw new Error('Invalid stored restore list');
     return { hashes: new Set<number>(value), error: '' };
   } catch {
-    return { hashes: new Set<number>(), error: 'Could not load restored scope from local storage.' };
+    return {
+      hashes: new Set<number>(),
+      error: 'Could not load restored scope from local storage.',
+    };
   }
 }
 
@@ -182,12 +211,18 @@ function Workspace({
   source,
   storageKey,
   prepared,
+  review,
+  editorHash,
   linked,
 }: {
   editor: EditorData;
   source: CompendiumData;
   storageKey: string;
   prepared?: ReturnType<typeof useDisplayMatches>['reviewPrepared'];
+  /** The current entry's review while the catalog's model is still on its way. */
+  review?: ReturnType<typeof useDisplayMatches>['review'];
+  /** The tooltip last open in the editor: an open without `hash` starts on it when it needs review. */
+  editorHash?: number;
   /** The linked-sources view is open: publish the queue, render nothing, take no keys. */
   linked: boolean;
 }) {
@@ -210,19 +245,24 @@ function Workspace({
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
 
-  const fingerprint = useMemo(
-    () => prepared?.fingerprint ?? sourceFingerprint(source.tabs),
-    [source, prepared],
-  );
+  // Without a worker the tab matches on this thread; with one, the evidence is the worker's.
   const evidence = useMemo(
     () =>
       prepared
         ? preparedEvidence(prepared, drafts, editor, source)
-        : reviewEvidence(editor, source, drafts, fingerprint),
-    [editor, source, drafts, fingerprint, prepared],
+        : typeof Worker === 'undefined'
+          ? reviewEvidence(editor, source, drafts, sourceFingerprint(source.tabs))
+          : undefined,
+    [editor, source, drafts, prepared],
   );
-  const entries = useMemo(() => reviewedEntries(evidence, progress), [evidence, progress]);
-  const entryByHash = useMemo(() => new Map(entries.map((entry) => [entry.hash, entry])), [entries]);
+  const entries = useMemo(
+    () => (evidence ? reviewedEntries(evidence, progress) : noEntries),
+    [evidence, progress],
+  );
+  const entryByHash = useMemo(
+    () => new Map(entries.map((entry) => [entry.hash, entry])),
+    [entries],
+  );
   const { proposals: core, loading: matching, error: proposalError } = useProposals(editor, source);
   const proposals = useMemo(
     () => (prepared ? preparedProposals(prepared, core) : core),
@@ -238,7 +278,7 @@ function Workspace({
       ),
     [editor.categories],
   );
-  const modelReady = !matching || !!proposalError;
+  const modelReady = !!evidence && (!matching || !!proposalError);
   const rows = useMemo(
     () =>
       modelReady ? preparedQueueRows(entries, prepared, proposals, scope.hashes, categories) : null,
@@ -251,8 +291,30 @@ function Workspace({
     query: params.get('q') ?? '',
     group: params.get('group') ?? '',
   };
-  const hashParam = params.get('hash') ? Number(params.get('hash')) : undefined;
-  const routeHash = hashParam !== undefined && Number.isSafeInteger(hashParam) ? hashParam : undefined;
+  const routeHash = hashOf(params);
+  // The current entry ahead of the model; its actions wait for the model (they need the queue).
+  const early = useMemo(
+    () => (review && !rows ? earlyEntry(review, editor, drafts, scope.hashes) : undefined),
+    [review, rows, editor, drafts, scope.hashes],
+  );
+  // Without `hash`, the editor's tooltip is the current entry when it is open work; the URL
+  // takes it (below), so the list highlights it once ready and nothing moves.
+  // With the model already there, it is settled now: no second render of the whole workspace.
+  const [startHash, setStartHash] = useState(() => {
+    if (routeHash !== undefined || editorHash === undefined) return undefined;
+    const row = rows?.find((candidate) => candidate.hash === editorHash);
+    return rows && !(row && openKinds.includes(row.kind)) ? undefined : editorHash;
+  });
+  const startRow =
+    startHash === undefined
+      ? undefined
+      : rows
+        ? rows.find((row) => row.hash === startHash)
+        : early?.row.hash === startHash
+          ? early.row
+          : undefined;
+  const startsOnEditor = routeHash === undefined && !!startRow && openKinds.includes(startRow.kind);
+  const currentHash = startsOnEditor ? startHash : routeHash;
   const model = useMemo(
     () =>
       buildQueue({
@@ -260,13 +322,19 @@ function Workspace({
         filters,
         categories,
         toggled,
-        hash: routeHash,
+        hash: currentHash,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, filters.show, filters.query, filters.group, categories, toggled, routeHash],
+    [rows, filters.show, filters.query, filters.group, categories, toggled, currentHash],
   );
-  const selected = rows ? selectedRow(rows, model.steps, routeHash) : undefined;
-  const selectedEntry = selected && entryByHash.get(selected.hash);
+  const selected = rows
+    ? selectedRow(rows, model.steps, currentHash)
+    : early && early.row.hash === currentHash
+      ? early.row
+      : undefined;
+  const selectedEntry = rows
+    ? selected && entryByHash.get(selected.hash)
+    : selected && early?.entry;
   const stepIndex = selected ? model.steps.findIndex((row) => row.hash === selected.hash) : -1;
   const canEdit = mayDraftLink(user?.role, !!apiUrl, hydrated, locked);
 
@@ -308,6 +376,26 @@ function Workspace({
   useEffect(() => {
     if (pending && !pending.searches.includes(search)) clearPending();
   }, [pending, search, clearPending]);
+  // The open's starting entry is settled once: the URL holds it, or it is not open work (the
+  // model's first row then, as before), or the user chose another entry.
+  useEffect(() => {
+    if (startHash === undefined) return;
+    if (linked || routeHash !== undefined || (rows && !startsOnEditor)) {
+      setStartHash(undefined);
+      return;
+    }
+    if (!startsOnEditor) return;
+    // After the entry is painted: writing history is a slow synchronous call (~30 ms), and this
+    // effect runs inside the tab click's commit.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => select(startHash));
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [startHash, startsOnEditor, routeHash, rows, linked, select]);
 
   // Publish the model the left column renders; selection and filters travel in the URL.
   const restoreScope = useCallback(
@@ -349,13 +437,18 @@ function Workspace({
       error: proposalError,
     });
   }, [publish, rows, counts, categories, model, selected?.hash, reinclude, proposalError]);
-  useEffect(() => () => publish({ rows: null, selected: undefined, reinclude: undefined }), [publish]);
+  useEffect(
+    () => () => publish({ rows: null, selected: undefined, reinclude: undefined }),
+    [publish],
+  );
 
   // ---- the selected entry's evidence ----
-  const decision = selected && preparedDecisions(prepared).get(selected.hash);
-  const proposal = selected && proposals.get(selected.hash);
+  const decision =
+    selected && (rows ? preparedDecisions(prepared).get(selected.hash) : early?.decision);
+  const proposal = selected && (rows ? proposals.get(selected.hash) : early?.proposal);
   const manifestItems = useMemo(
-    () => (selected ? (groupManifestItems(editor.items, editor.aliases).get(selected.hash) ?? []) : []),
+    () =>
+      selected ? (groupManifestItems(editor.items, editor.aliases).get(selected.hash) ?? []) : [],
     [selected, editor.items, editor.aliases],
   );
   // The entry's research hints, computed once per entry on first use: as blocks for entries
@@ -379,7 +472,12 @@ function Workspace({
   );
   const approved = useMemo(() => {
     if (selected?.kind !== 'changed' || !selectedEntry || !blocks[0]) return undefined;
-    return approvalEvidence(selected.hash, selectedEntry.name, selectedEntry.category, blocks[0].match);
+    return approvalEvidence(
+      selected.hash,
+      selectedEntry.name,
+      selectedEntry.category,
+      blocks[0].match,
+    );
   }, [selected, selectedEntry, blocks]);
   // The proposal is highlighted by default; a fuzzy candidate needs an explicit choice.
   const selectedHash = selected?.hash;
@@ -391,8 +489,9 @@ function Workspace({
   const block = blocks[highlight];
 
   // ---- decisions ----
+  // Decisions record against the model's evidence and move along its queue: none before it.
   const openForDecision =
-    !!selected && (openKinds.includes(selected.kind) || selected.kind === 'skipped');
+    !!rows && !!selected && (openKinds.includes(selected.kind) || selected.kind === 'skipped');
   const advanceFrom = (row: QueueRow) => {
     const next = nextOpenRow(model.steps, row.hash);
     // The decided entry stays open (and listed) until the move, so the pause shows what happened.
@@ -447,7 +546,9 @@ function Workspace({
       undo.links.some(
         ({ base, before, after }) =>
           !restoreLink(
-            useDraftStore.getState().drafts[base.hash]?.next ?? editor.bundle.tooltips[base.hash] ?? base,
+            useDraftStore.getState().drafts[base.hash]?.next ??
+              editor.bundle.tooltips[base.hash] ??
+              base,
             before as never,
             after as never,
           ),
@@ -471,8 +572,9 @@ function Workspace({
   // ---- keyboard ----
   const handlers = useRef({ confirm, decide, undoLast, select });
   handlers.current = { confirm, decide, undoLast, select };
-  const keyState = useRef({ model, selected, stepIndex, blocks, pending, picker, canEdit, linked });
-  keyState.current = { model, selected, stepIndex, blocks, pending, picker, canEdit, linked };
+  const ready = !!rows;
+  const keyState = useRef({ model, selected, stepIndex, blocks, pending, picker, ready, linked });
+  keyState.current = { model, selected, stepIndex, blocks, pending, picker, ready, linked };
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (event.defaultPrevented || event.repeat || workspaceShortcutsBlocked(event)) return;
@@ -549,7 +651,7 @@ function Workspace({
       } else if (lower === 'a') {
         event.preventDefault();
         handlers.current.confirm();
-      } else if (lower === 'p' && state.selected) {
+      } else if (lower === 'p' && state.selected && state.ready) {
         event.preventDefault();
         setPicker(true);
       } else if (lower === 'n') {
@@ -646,9 +748,7 @@ function Workspace({
   };
   const filtered = filters.show !== 'open' || !!filters.query || !!filters.group;
   const empty = rows !== null && !selected;
-  const readOnlyReason = canEdit
-    ? undefined
-    : 'Viewing only: sign in as an editor to link.';
+  const readOnlyReason = canEdit ? undefined : 'Viewing only: sign in as an editor to link.';
   const categoryOf = (id: string) => categories.get(id)?.label ?? `Other: ${id}`;
   const fromEditor = model.items.some(
     (item) =>
@@ -661,15 +761,29 @@ function Workspace({
     <>
       <header className={styles.summary}>
         <h1 className="sr-only">Compendium</h1>
-        <p className={styles.counts}>
-          <Link to={linkTo('open')}>{number.format(counts.open)} to review</Link>
-          {' · '}
-          <Link to={linkTo('matched')}>
-            {number.format(counts.matched)} matched automatically
-          </Link>
-          {' · '}
-          <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
-        </p>
+        {rows ? (
+          <p className={styles.counts}>
+            <Link to={linkTo('open')}>{number.format(counts.open)} to review</Link>
+            {' · '}
+            <Link to={linkTo('matched')}>
+              {number.format(counts.matched)} matched automatically
+            </Link>
+            {' · '}
+            <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
+          </p>
+        ) : (
+          // Counts need the whole queue: a placeholder, never zeros.
+          // An invisible line of the same shape holds the counts' height wherever they wrap.
+          <div className={`${styles.counts} ${styles.countsPending}`} aria-hidden="true">
+            <span className={styles.countsShape}>
+              000 to review · 0,000 matched automatically · 000 not needed
+            </span>
+            <SkeletonRegion className={styles.countsBars}>
+              <SkeletonLine width={60} />
+              <SkeletonLine width={30} />
+            </SkeletonRegion>
+          </div>
+        )}
         <Link
           className={styles.linked}
           to={{ search: withTab(params) }}
@@ -692,8 +806,12 @@ function Workspace({
           {progressError || scope.error}
         </p>
       )}
-      {readOnlyReason && rows !== null && <p className={styles.viewerNote}>{readOnlyReason}</p>}
-      {rows === null ? (
+      {/* Sign-in, not the queue, decides it: shown with the early entry too, so it never pushes it
+          down; never before drafts hydrate (an editor would see it flash). */}
+      {readOnlyReason && hydrated && (rows !== null || !!selected) && (
+        <p className={styles.viewerNote}>{readOnlyReason}</p>
+      )}
+      {rows === null && !selected ? (
         <SkeletonStatus>
           <div className={styles.loading}>
             <SkeletonBlock />
@@ -713,15 +831,15 @@ function Workspace({
           approved={approved}
           stale={selectedEntry?.stale}
           outsideFilter={fromEditor}
-          onReinclude={selected.kind === 'not-needed' ? onReinclude : undefined}
+          onReinclude={rows && selected.kind === 'not-needed' ? onReinclude : undefined}
           onStep={onStep}
+          stepDisabled={!rows}
         />
       ) : (
         <section className={styles.emptyState} aria-label="Nothing to show">
           {filtered ? (
             <p>
-              Nothing matches.{' '}
-              <Link to="?">Clear filters</Link>
+              Nothing matches. <Link to="?">Clear filters</Link>
             </p>
           ) : (
             <p>
@@ -734,13 +852,17 @@ function Workspace({
       {empty ? null : (
         <CompendiumActionBar
           canConfirm={canConfirm}
-          canPick={canEdit && !!selected && selected.kind !== 'not-needed' && !pending}
+          canPick={canEdit && !!rows && !!selected && selected.kind !== 'not-needed' && !pending}
           canDecide={!!selected && openForDecision && !pending}
           canUndo={!!undo && !locked && !(undo.links.length > 0 && !canEdit)}
           readOnlyReason={readOnlyReason}
           message={message}
           advancing={
-            pending && { name: pending.next?.name ?? 'end of queue', ms: advanceMs, token: pending.token }
+            pending && {
+              name: pending.next?.name ?? 'end of queue',
+              ms: advanceMs,
+              token: pending.token,
+            }
           }
           onConfirm={confirm}
           onPick={() => setPicker(true)}

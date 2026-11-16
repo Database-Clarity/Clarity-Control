@@ -177,6 +177,8 @@ export interface DetailProps {
   stale?: boolean;
   /** Prev/next for phones, where the queue is behind the list button. */
   onStep?: (direction: -1 | 1) => void;
+  /** Stepping waits for the queue (shown in place, disabled). */
+  stepDisabled?: boolean;
   onReinclude?: () => void;
   /** Listed only because it is open; the filters would hide it. */
   outsideFilter?: boolean;
@@ -196,6 +198,7 @@ export function CompendiumDetail({
   approved,
   stale,
   onStep,
+  stepDisabled,
   onReinclude,
   outsideFilter,
 }: DetailProps) {
@@ -210,6 +213,7 @@ export function CompendiumDetail({
             type="button"
             className={styles.step}
             aria-label="Previous entry"
+            disabled={stepDisabled}
             data-perf-navigation="true"
             onClick={() => onStep(-1)}
           >
@@ -249,6 +253,7 @@ export function CompendiumDetail({
             type="button"
             className={styles.step}
             aria-label="Next entry"
+            disabled={stepDisabled}
             data-perf-navigation="true"
             onClick={() => onStep(1)}
           >

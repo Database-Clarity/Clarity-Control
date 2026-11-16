@@ -5,7 +5,8 @@ import type { displayMatches } from './displayMatches';
 import { applyReviewProgress, type reviewEvidence } from './reviewQueue';
 import type { ReviewProgress } from './reviewProgress';
 import type { ReviewProposal } from './rapidReview';
-import { deriveQueueRows, type QueueRow } from './queueRows';
+import { deriveQueueRow, deriveQueueRows, type QueueRow } from './queueRows';
+import type { PriorityReview } from './matchingSessionPlanning';
 import { sortRows, type CategoryInfo } from './queueView';
 
 type Prepared = ReturnType<typeof displayMatches>;
@@ -166,6 +167,34 @@ export function warmPreparedProposals(prepared: Prepared, core: Map<number, Revi
   };
 }
 
+/**
+ * The current entry from its priority review, before the catalog's model: the same tooltip
+ * overlay, proposal projection, and row rules the catalog applies to it. Undefined when the
+ * entry is not in review (no evidence, or a saved link with nothing to decide).
+ */
+export function earlyEntry(
+  review: PriorityReview,
+  editor: EditorData,
+  drafts: Drafts,
+  restored: ReadonlySet<number>,
+) {
+  if (!review.entry) return undefined;
+  const { hash, decision } = review;
+  const base = editor.bundle.tooltips[hash] ?? review.entry.base;
+  const entry = { ...review.entry, base, next: drafts[hash]?.next ?? base };
+  const match = review.matches.get(hash);
+  const proposal: ReviewProposal | undefined = match
+    ? { match, link: decision?.link, candidates: review.proposal?.candidates ?? [] }
+    : review.proposal;
+  const row = deriveQueueRow(
+    entry,
+    new Map(decision ? [[hash, decision]] : []),
+    new Map(proposal ? [[hash, proposal]] : []),
+    restored,
+  );
+  return row && { row, entry, decision, proposal };
+}
+
 const rowCache = new WeakMap<
   ReturnType<typeof applyReviewProgress>,
   {
@@ -182,7 +211,8 @@ const decisionIndex = new WeakMap<Prepared, Map<number, Prepared['decisions'][nu
 export function preparedDecisions(prepared: Prepared | undefined) {
   if (!prepared) return new Map<number, Prepared['decisions'][number]>();
   let index = decisionIndex.get(prepared);
-  if (!index) decisionIndex.set(prepared, (index = new Map(prepared.decisions.map((d) => [d.hash, d]))));
+  if (!index)
+    decisionIndex.set(prepared, (index = new Map(prepared.decisions.map((d) => [d.hash, d]))));
   return index;
 }
 

@@ -78,47 +78,32 @@ function createSession(
     | undefined;
   let priorityKey: string | undefined;
   const priorities = new Map<number, Promise<PriorityReview>>();
-  const panePriorities = new Map<number, Promise<Matches>>();
-  function priorityInputs(input: DisplayInput) {
+  // One request per entry and input revision: the pane's match and the Compendium tab's
+  // current entry share it, so opening the tab on the editor's entry asks the worker nothing.
+  function prioritizeReview(input: DisplayInput, hash: number) {
     const key = displayInputKey(input);
     if (key !== priorityKey) {
       priorities.clear();
-      panePriorities.clear();
       priorityKey = key;
     }
+    const existing = priorities.get(hash);
+    if (existing) return existing;
+    const result = initialized.then(() =>
+      request<PriorityReview>({ priority: { token, input, hash } }),
+    );
+    priorities.set(hash, result);
+    void result.catch(() => {
+      if (priorities.get(hash) === result) priorities.delete(hash);
+    });
+    if (priorities.size > 64) priorities.delete(priorities.keys().next().value!);
+    return result;
   }
   return {
     proposals,
-    prioritize(input: DisplayInput, hash: number) {
-      priorityInputs(input);
-      const review = priorities.get(hash);
-      if (review) return review.then((value) => value.matches);
-      const existing = panePriorities.get(hash);
-      if (existing) return existing;
-      const result = initialized.then(() =>
-        request<Matches>({ priority: { token, input, hash, matchesOnly: true } }),
-      );
-      panePriorities.set(hash, result);
-      void result.catch(() => {
-        if (panePriorities.get(hash) === result) panePriorities.delete(hash);
-      });
-      if (panePriorities.size > 64) panePriorities.delete(panePriorities.keys().next().value!);
-      return result;
+    prioritize(input: DisplayInput, hash: number): Promise<Matches> {
+      return prioritizeReview(input, hash).then((value) => value.matches);
     },
-    prioritizeReview(input: DisplayInput, hash: number) {
-      priorityInputs(input);
-      const existing = priorities.get(hash);
-      if (existing) return existing;
-      const result = initialized.then(() =>
-        request<PriorityReview>({ priority: { token, input, hash } }),
-      );
-      priorities.set(hash, result);
-      void result.catch(() => {
-        if (priorities.get(hash) === result) priorities.delete(hash);
-      });
-      if (priorities.size > 64) priorities.delete(priorities.keys().next().value!);
-      return result;
-    },
+    prioritizeReview,
     get currentProposals() {
       return currentProposals;
     },
