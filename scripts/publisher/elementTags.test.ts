@@ -47,6 +47,7 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'inactiveMoves',
     'arrowSymbol',
     'numberTokens',
+    'aliasGroups',
   ]);
 });
 

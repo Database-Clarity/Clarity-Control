@@ -42,5 +42,5 @@ export const expandAliases = (perks: IntermediatePerks): ExpandedPerks => {
  */
 export const getAliasOutput = (settings: DescriptionFilter, stub: AliasStub): 'copy' | 'reference' | 'skip' => {
   if (settings.aliases === 'reference') return 'reference'
-  return stub.aliasKind === 'frame' ? 'copy' : 'skip'
+  return stub.aliasKind === 'frame' || stub.aliasKind === 'name' ? 'copy' : 'skip'
 }

@@ -160,7 +160,7 @@ export function inventoryGlobals(
   return store;
 }
 
-/** The ordered, read-only hash 2/3 compatibility view. Missing recipes/provenance fail closed. */
+/** The ordered, read-only hash 2/3 compatibility view. Missing recipes fail closed. */
 export function projectGlobals(input: GlobalStore): Record<string, Tooltip> {
   const store = globalStoreSchema.parse(input);
   const entries = new Map(store.entries.map((entry) => [entry.id, entry]));

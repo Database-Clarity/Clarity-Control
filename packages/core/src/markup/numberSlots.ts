@@ -26,14 +26,18 @@ const contains = (range: NumberRange, at: number) => at >= range.from && at < ra
 
 /** Preserve source offsets and line boundaries while removing the core's comment ranges. */
 export function numberProse(text: string): string {
+  if (!text.includes('\r') && !text.includes('//') && !text.includes('/*')) return text;
+  const { comments } = markupCommentContext(text);
+  if (!comments.length) return text.replace(/\r/g, ' ');
   const chars = text.split('');
-  for (const { from, to } of markupCommentContext(text).comments)
+  for (const { from, to } of comments)
     for (let at = from; at < to; at++) if (chars[at] !== '\n') chars[at] = ' ';
   return chars.join('').replace(/\r/g, ' ');
 }
 
 /** Maths is one span, including delimited variables' inner braces. */
 export function numberMathRanges(text: string): NumberRange[] {
+  if (!text.includes('${')) return [];
   const refs = new Map(variableReferences(text).map((ref) => [ref.from, ref.to]));
   const ranges: NumberRange[] = [];
   for (let from = text.indexOf('${'); from >= 0; from = text.indexOf('${', from + 2)) {
@@ -52,8 +56,8 @@ export function numberMathRanges(text: string): NumberRange[] {
 }
 
 /** The parser's inline ranges identify targets; labels remain translated prose. */
-export function numberTargetRanges(line: string): NumberRange[] {
-  return markupInlineRanges(line).flatMap((range) => {
+export function numberTargetRanges(line: string, inline = markupInlineRanges(line)): NumberRange[] {
+  return inline.flatMap((range) => {
     const token = line.slice(range.from, range.to);
     if (!/^<(?:link|title|formula) /.test(token)) return [];
     const target = /\[.+\]/.exec(token);
@@ -115,7 +119,8 @@ export function numberSlots(text: string, hash?: number): NumberSlot[] {
     const scope = JSON.stringify([block, nearestHeading]);
     // Structural headings contain names, not quantities; ordinary colon headings are prose.
     const skip = /^<\s.*>\s*$/.test(trimmed);
-    const excluded = [...variableReferences(line), ...numberTargetRanges(line)];
+    const inlineRanges = markupInlineRanges(line);
+    const excluded = [...variableReferences(line), ...numberTargetRanges(line, inlineRanges)];
     for (const tag of line.matchAll(/<\/?[a-zA-Z_]+[0-9]*(?=[\s/>])/g))
       excluded.push({ from: tag.index, to: tag.index + tag[0].length });
     if (inTable)
@@ -123,7 +128,7 @@ export function numberSlots(text: string, hash?: number): NumberSlot[] {
         excluded.push({ from: mod.index, to: mod.index + mod[0].length });
     const math = new Map(numberMathRanges(line).map((range) => [range.from, range.to]));
     const pairs = scanBaseEnhanced(line).pairs;
-    const inline = markupInlineRanges(line).filter((range) =>
+    const inline = inlineRanges.filter((range) =>
       /^<pv[ep] /.test(line.slice(range.from, range.to)),
     );
     const start = /^\s*var [a-zA-Z0-9]+ = /.exec(line)?.[0].length ?? 0;
