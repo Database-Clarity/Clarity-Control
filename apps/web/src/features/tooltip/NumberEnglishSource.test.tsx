@@ -96,6 +96,7 @@ it('updates only changed span states, keeps elements stable, and leaves transien
   expect(host.querySelector('[data-slot="2"]')?.textContent).toBe('6');
   expect(host.querySelector('[data-slot="3"]')?.textContent).toBe('5');
   expect(host.textContent).toContain('Not shown in the text: d = 4.5');
+  expect(host.querySelector('[data-hidden-number]')?.closest('[data-number-source]')).not.toBeNull();
   const derived = [...host.querySelectorAll('span')].find(
     (span) => span.textContent === 'Value 4.5.',
   );

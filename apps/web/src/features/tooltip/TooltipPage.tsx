@@ -876,18 +876,14 @@ function TooltipWorkspace({
           inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
           markHash={hash}
           draftLoader={
-            lang !== 'en' && !loading && access.reason === null && !textOf(activeHash) ? (
-              <StartEnglishLoader hash={activeHash} />
-            ) : (
-              draft && (
-                <DraftLoader
-                  draft={draft}
-                  name={nameOf(activeHash)}
-                  categoryLabel={baseCategory?.label}
-                  globals={globalsFor(activeHash)}
-                  onLoad={loadDraft}
-                />
-              )
+            draft && (
+              <DraftLoader
+                draft={draft}
+                name={nameOf(activeHash)}
+                categoryLabel={baseCategory?.label}
+                globals={globalsFor(activeHash)}
+                onLoad={loadDraft}
+              />
             )
           }
           queue={
@@ -962,6 +958,11 @@ function TooltipWorkspace({
             aria-label={`${heading} editor (${languageLabel(lang)})`}
             className={styles.editorSection}
           >
+            {lang !== 'en' && !loading && access.reason === null && !textOf(activeHash) && (
+              <div className={styles.englishBar}>
+                <StartEnglishLoader hash={activeHash} />
+              </div>
+            )}
             {batchEditing?.notice && (
               <p className={batchStyles.notice} role="status">
                 {batchEditing.notice}

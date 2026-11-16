@@ -8,6 +8,7 @@ import { insertSourceNumber } from '../editor/numbers/state';
 import type { NumberSource } from '../editor/numbers/model';
 import styles from './NumberEnglishSource.module.scss';
 import { useStore } from 'zustand';
+import { createPortal } from 'react-dom';
 
 /** Raw after-side pieces keep their exact source offsets, including split WordDiff runs. */
 export function numberAfter(source: NumberSource, text: string, offset: number): ReactNode {
@@ -55,6 +56,7 @@ export function NumberEnglishSource({
   const source = currentSource?.text === text ? currentSource : null;
   const root = useRef<HTMLDivElement>(null);
   const [hidden, setHidden] = useState<readonly number[]>([]);
+  const [pane, setPane] = useState<HTMLElement | null>(null);
   const slotContext = useMemo(
     () => (source ? { text, ids: source.slots.map((slot) => slot.id), hash } : undefined),
     [source, text, hash],
@@ -126,6 +128,7 @@ export function NumberEnglishSource({
       return;
     }
     const find = () => {
+      setPane(element.querySelector<HTMLElement>('[data-number-source]'));
       if (changes && !element.querySelector('[data-number-source]')) {
         setHidden([]);
         return;
@@ -213,22 +216,26 @@ export function NumberEnglishSource({
           spanSource={source ? spanSource : undefined}
         >
           {children(source ? renderAfter : undefined)}
-          {!raw && hidden.length > 0 && (
-            <p>
-              Not shown in the text:{' '}
-              {hidden.map((id, index) => (
-                <span key={id}>
-                  {index > 0 && ', '}
-                  {source?.byId.get(id)?.variable && `${source.byId.get(id)!.variable} = `}
-                  <span data-slot={id} data-hidden-number>
-                    {source?.byId.get(id)?.kind === 'M'
-                      ? source.byId.get(id)?.display
-                      : source?.byId.get(id)?.value}
+          {!raw &&
+            pane &&
+            hidden.length > 0 &&
+            createPortal(
+              <p className={styles.hidden}>
+                Not shown in the text:{' '}
+                {hidden.map((id, index) => (
+                  <span key={id}>
+                    {index > 0 && ', '}
+                    {source?.byId.get(id)?.variable && `${source.byId.get(id)!.variable} = `}
+                    <span data-slot={id} data-hidden-number>
+                      {source?.byId.get(id)?.kind === 'M'
+                        ? source.byId.get(id)?.display
+                        : source?.byId.get(id)?.value}
+                    </span>
                   </span>
-                </span>
-              ))}
-            </p>
-          )}
+                ))}
+              </p>,
+              pane,
+            )}
         </TermLayer>
       </div>
     </ReadingSlots.Provider>

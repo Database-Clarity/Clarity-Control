@@ -550,7 +550,8 @@ export function TermPopover({
       onPointerLeave={editing ? undefined : onPointerLeave}
     >
       <div className={`${styles.head} ${styles.caption}`}>
-        {kind} · {languageLabel(lang)}
+        {kind}
+        {!term.number && ` · ${languageLabel(lang)}`}
       </div>
       {term.number && (
         <p>

@@ -17,6 +17,7 @@ import { tokenizedEnglish } from './model';
 import rowStyles from '../markupRow/MarkupRow.module.scss';
 import chipStyles from '../markupRow/SuggestChip.module.scss';
 import styles from './NumberTools.module.scss';
+import statusStyles from '../StatusBar.module.scss';
 import { missingNumberVariables } from './diagnostics';
 import { dockedBarHeight } from '../markupRow/dock';
 import { numberTokens } from '@clarity/core';
@@ -57,6 +58,25 @@ export const NumberStatus = memo(function NumberStatus({
       message: state.message,
     })),
   );
+  const message = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const element = message.current;
+    if (!element) return;
+    element.setAttribute('popover', 'manual');
+    element.showPopover?.();
+    const place = () => {
+      const anchor = element.parentElement!.getBoundingClientRect();
+      element.style.left = `${Math.max(0, Math.min(anchor.left, innerWidth - element.offsetWidth))}px`;
+      element.style.top = `${anchor.top - element.offsetHeight}px`;
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [state.message]);
   if (!state.source) return null;
   const used = state.source.slots.filter((slot) => state.used.has(slot.id)).length;
   return (
@@ -77,9 +97,10 @@ export const NumberStatus = memo(function NumberStatus({
       aria-keyshortcuts="Control+K N"
       onClick={onOpen}
     >
-      Numbers {used}/{state.source.slots.length}
+      <span className={statusStyles.long}>Numbers </span>
+      {used}/{state.source.slots.length}
       {state.message && (
-        <span role="status" className={styles.message}>
+        <span role="status" ref={message} className={styles.message}>
           {state.message}
         </span>
       )}
@@ -155,10 +176,12 @@ export const NumberStrip = memo(function NumberStrip({
               ? `${slot.display} ƒ`
               : slot.display}
           {(state.source!.byDisplay.get(slot.display)?.length ?? 0) > 1 &&
-            ` ${adjacentWord(slot.context)}`}
+            ` ${adjacentWord(slot.context)} #${slot.id}`}
         </button>
       ))}
-      <span className={rowStyles.separator} aria-hidden="true" />
+      {(state.offer || slots.length > 0) && (
+        <span className={rowStyles.separator} aria-hidden="true" />
+      )}
     </>
   );
 });
@@ -449,7 +472,8 @@ export function NumberReadout({
     };
   }, [shown, slot, state.offer, view]);
   if (!shown || !slot) return null;
-  const label = `${slot.display} · ${slot.context} · ${slot.breadcrumb} · ${state.source!.slots.indexOf(slot) + 1} of ${state.source!.slots.length} · #${slot.id}`;
+  const matches = state.source!.byDisplay.get(slot.display)!;
+  const label = `${slot.display} · ${slot.context} · ${slot.breadcrumb} · ${matches.indexOf(slot.id) + 1} of ${matches.length} · #${slot.id}`;
   return createPortal(
     <div
       ref={surface}

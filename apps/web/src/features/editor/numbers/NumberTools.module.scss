@@ -37,9 +37,14 @@
   }
 }
 .message {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  border: 1px solid var(--ctl-edge);
+  color: var(--text);
+  max-width: 100vw;
+  box-sizing: border-box;
+  font: inherit;
   background: var(--editor);
   padding: 0.25rem;
 }

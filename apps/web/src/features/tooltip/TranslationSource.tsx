@@ -84,14 +84,6 @@ export function TranslationSource({
       label="English source"
       header={
         <RightPaneHeader title="English">
-          {terms && hash !== undefined && (
-            <StartEnglish
-              hash={hash}
-              lang={terms.lang}
-              canInsert={terms.canInsert}
-              onInsert={showEditor}
-            />
-          )}
           {diff && (
             <label className={styles.showsLabel}>
               <span>Shows:</span>
@@ -112,6 +104,14 @@ export function TranslationSource({
         </RightPaneHeader>
       }
     >
+      {terms && hash !== undefined && (
+        <StartEnglish
+          hash={hash}
+          lang={terms.lang}
+          canInsert={terms.canInsert}
+          onInsert={showEditor}
+        />
+      )}
       {!showChanges && text && (
         // Its own row under the header: the header also holds the pane tabs, and a 384px pane
         // cannot fit both (visual review 2026-11-14).
@@ -188,15 +188,18 @@ function StartEnglish({
   const view = translationView(hash);
   if (!view || view.state.doc.length) return null;
   return (
-    <button
-      type="button"
-      title="Copy English with its numbers as tokens (Ctrl+K, then S)"
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={() => {
-        if (startFromEnglish(view)) onInsert();
-      }}
-    >
-      Start from English
-    </button>
+    <div className={styles.englishBar}>
+      <button
+        type="button"
+        className={styles.ghost}
+        title="Copy English with its numbers as tokens (Ctrl+K, then S)"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          if (startFromEnglish(view)) onInsert();
+        }}
+      >
+        Start from English
+      </button>
+    </div>
   );
 }

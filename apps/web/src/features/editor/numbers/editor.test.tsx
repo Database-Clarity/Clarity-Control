@@ -90,8 +90,8 @@ it('adds no number row controls without English numbers and renders safely on th
 it('gives shared-value chips an adjacent word even when a formula ends a sentence', () => {
   mount('Lasts 5 seconds. Damage ${2+3}.');
   expect([...host.querySelectorAll('[data-number-chip]')].map((chip) => chip.textContent)).toEqual([
-    '5 seconds',
-    '5 ƒ Damage',
+    '5 seconds #1',
+    '5 ƒ Damage #2',
   ]);
 });
 

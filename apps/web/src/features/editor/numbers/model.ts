@@ -105,14 +105,14 @@ export function numberSource(
     const lineStart = text.lastIndexOf('\n', slot.from - 1) + 1;
     const lineEnd = text.indexOf('\n', slot.to);
     const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
-    const before = line
-      .slice(0, slot.from - lineStart)
+    const plain = (part: string) =>
+      part.replace(/<[^>]*>|<[^>]*$|^[^<]*>/g, ' ').replace(/\s+/g, ' ');
+    const before = plain(line.slice(0, slot.from - lineStart))
       .trim()
       .split(/\s+/)
       .slice(-2)
       .join(' ');
-    const after = line
-      .slice(slot.to - lineStart)
+    const after = plain(line.slice(slot.to - lineStart))
       .trim()
       .split(/\s+/)
       .slice(0, 2)

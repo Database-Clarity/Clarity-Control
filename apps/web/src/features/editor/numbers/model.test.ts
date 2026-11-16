@@ -1,6 +1,20 @@
 import { expect, it } from 'vitest';
 import { numberSource } from './model';
 
+it('drops complete and split markup from shared number context snippets', () => {
+  const source = numberSource(
+    '<strand/>Sever for 10 seconds.\n<pvp [15%] />\n<void/>Weaken for 5 seconds.',
+    undefined,
+    'de',
+  );
+  expect(source.slots.map((slot) => slot.context)).toEqual([
+    'Sever for _ seconds.',
+    '_',
+    'Weaken for _ seconds.',
+  ]);
+  expect(source.slots.every((slot) => !/[<>]/.test(slot.context))).toBe(true);
+});
+
 it('adds line numbers to otherwise identical contexts', () => {
   const source = numberSource('Lasts 5 seconds.\nLasts 5 seconds.', undefined, 'de');
   expect(source.slots.map((slot) => slot.breadcrumb)).toEqual([
