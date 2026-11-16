@@ -174,19 +174,13 @@ describe('scheduled batches client: writes and detail reads', () => {
     fixture.addEvents(batch.id, 205);
     const { head } = await api.listBatches();
     const stored = await api.readBatch(head, batch.id);
-    expect(stored?.events).toHaveLength(200);
+    expect(stored?.events).toHaveLength(20);
     expect(stored?.events[0].action).toBe('save');
     const older = await api.readArchivedEvents(head, batch.id);
-    // create + the first save + 5 of the added ones moved out, oldest first.
-    expect(older.map((event) => event.action)).toEqual([
-      'create',
-      'save',
-      'save',
-      'save',
-      'save',
-      'save',
-      'save',
-    ]);
+    // All 207 events survive: create + 186 saves archived, and 20 saves inline.
+    expect(older).toHaveLength(187);
+    expect(older[0].action).toBe('create');
+    expect(older.slice(1).every((event) => event.action === 'save')).toBe(true);
     expect(await api.readBatch(head, '01JFZZZZZZZZZZZZZZZZZZZZZZ')).toBeNull();
     // Publish, then RECORD finds current moved: a conflict file.
     await api.scheduleBatch(batch.id, stored!.revision, '2026-12-03T16:00:00.000Z', 'UTC');

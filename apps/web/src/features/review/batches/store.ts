@@ -64,6 +64,8 @@ let listing: Promise<void> | undefined;
 let queue: IndexEntry[] = [];
 let running = 0;
 let generation = 0;
+/** The listing head a behind-the-list read already asked to re-list from (no loop). */
+let staleHead: string | null = null;
 
 function setLoad(id: string, load: DetailLoad) {
   useBatches.setState((state) => ({ loads: { ...state.loads, [id]: load } }));
@@ -102,8 +104,33 @@ function pump() {
     void readDetail(head, entry)
       .then(
         (detail) => {
-          if (mine === generation)
-            setLoad(entry.id, { state: 'ready', revision: entry.revision, detail });
+          if (mine !== generation) return;
+          // The index is advisory (request admission does not update it): a newer batch.json at
+          // the head wins, so the row and the detail show the same status, time, and revision.
+          // The load keeps the revision actually read: one older than the listed entry (read at
+          // a head from before an overlaid write) is never fresh and is read again next listing.
+          const read = detail.batch;
+          setLoad(entry.id, { state: 'ready', revision: read.revision, detail });
+          if (read.revision < entry.revision && staleHead !== head) {
+            // Once per head: list again so the read moves to a head that has the write.
+            staleHead = head;
+            void refreshBatches();
+          }
+          if (read.revision > entry.revision)
+            useBatches.setState((state) => ({
+              entries:
+                state.entries?.map((listed) =>
+                  listed.id === entry.id && listed.revision < read.revision
+                    ? {
+                        ...listed,
+                        status: read.status,
+                        notBefore: read.notBefore,
+                        opId: read.opId,
+                        revision: read.revision,
+                      }
+                    : listed,
+                ) ?? null,
+            }));
         },
         (error: unknown) => {
           if (mine !== generation) return;
@@ -216,6 +243,7 @@ export function startBatches(): () => void {
 /** Tests: forget everything. */
 export function resetBatches() {
   generation++;
+  staleHead = null;
   queue = [];
   running = 0;
   listedAt = 0;

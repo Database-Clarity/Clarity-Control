@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { isMovedInactive, type InactiveMoves } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import {
@@ -113,38 +113,73 @@ export function InactiveMoveControl({
       className={[className, moved && styles.moved].filter(Boolean).join(' ')}
     >
       {(close) => (
-        <div className={styles.confirm} ref={explanation} tabIndex={-1}>
-          <strong>
-            {moved ? 'Resume exporting' : 'Stop exporting'} {confirmationName}?
-          </strong>
-          <p>
-            {moved
-              ? 'Its computed category returns immediately. Its text returns to every output on the next publish of this row.'
-              : 'It moves to Inactive & Placeholders immediately. Its text leaves every output (including DIM, light.gg, and clarityV2) on the next publish of this row. Its alias stubs are removed too. Text stays editable here.'}
-          </p>
-          <p>Importers must stop reading its text, or move to Inactive too, before publishing.</p>
-          {error && (
-            <p role="alert" className={styles.error}>
-              {error.replace(/[.!?]?$/, '.')} Close and reopen to reload, then try again.
-            </p>
-          )}
-          {!loaded && !error && <p role="status">Loading current moves…</p>}
-          <div className={styles.actions}>
-            <button type="button" onClick={() => close()}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!loaded || saving}
-              onClick={() => {
-                void save();
-              }}
-            >
-              {saving ? 'Saving…' : 'Move'}
-            </button>
-          </div>
-        </div>
+        <InactiveMoveConfirm
+          moved={moved}
+          name={confirmationName}
+          loaded={!!loaded}
+          saving={saving}
+          error={error}
+          focusRef={explanation}
+          onCancel={() => close()}
+          onMove={() => {
+            void save();
+          }}
+        />
       )}
     </Popover>
+  );
+}
+
+/**
+ * The deliberate Move confirm: what moving changes, then Cancel and Move. Move stays disabled until
+ * the current moves have loaded (a fresh revision) and while a save runs. Presentational only, so
+ * the UI gallery can show it without a server.
+ */
+export function InactiveMoveConfirm({
+  moved,
+  name,
+  loaded,
+  saving,
+  error,
+  focusRef,
+  onCancel,
+  onMove,
+}: {
+  moved: boolean;
+  /** The tooltip's name, or `Tooltip <hash>`. */
+  name: string;
+  loaded: boolean;
+  saving: boolean;
+  error: string | null;
+  focusRef?: RefObject<HTMLDivElement>;
+  onCancel(): void;
+  onMove(): void;
+}) {
+  return (
+    <div className={styles.confirm} ref={focusRef} tabIndex={-1}>
+      <strong>
+        {moved ? 'Resume exporting' : 'Stop exporting'} {name}?
+      </strong>
+      <p>
+        {moved
+          ? 'Its computed category returns immediately. Its text returns to every output on the next publish of this row.'
+          : 'It moves to Inactive & Placeholders immediately. Its text leaves every output (including DIM, light.gg, and clarityV2) on the next publish of this row. Its alias stubs are removed too. Text stays editable here.'}
+      </p>
+      <p>Importers must stop reading its text, or move to Inactive too, before publishing.</p>
+      {error && (
+        <p role="alert" className={styles.error}>
+          {error.replace(/[.!?]?$/, '.')} Close and reopen to reload, then try again.
+        </p>
+      )}
+      {!loaded && !error && <p role="status">Loading current moves…</p>}
+      <div className={styles.actions}>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" disabled={!loaded || saving} onClick={onMove}>
+          {saving ? 'Saving…' : 'Move'}
+        </button>
+      </div>
+    </div>
   );
 }

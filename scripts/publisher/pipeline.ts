@@ -8,6 +8,7 @@ import { LocalRepository } from './git.js';
 import { RemoteRepository } from './remote.js';
 import publisherConfig from '../../config/publisher.json';
 import { Publisher, type Options } from './publisher.js';
+import { GlobalsPublisher } from './globals.js';
 
 export type PipelineConfig = Omit<Options, 'now' | 'backoff' | 'publicKey'> & {
   keyEndpoint: string;
@@ -120,6 +121,9 @@ export async function runPipeline(
   const options: Options = { ...config, publicKey: '', now: Date.now };
   try {
     const initial = snapshot('initial');
+    // In write mode, commit the coalesced materialization before the first public
+    // bundle. Dry-run materialization remains in the disposable simulator below.
+    if (enabled) await new GlobalsPublisher(new Publisher(initial, options)).drain();
     publishBundle(initial, options);
     const bases = gitAt(initial.path, ['for-each-ref', '--format=%(objectname)', 'refs/heads/'])
       .trim()
@@ -147,7 +151,7 @@ export async function runPipeline(
       )
         throw new Error('Worker key fingerprint mismatch');
       options.publicKey = key.publicKey;
-      await new Publisher(initial, options).run();
+      await new Publisher(initial, options).run(!enabled);
     } catch (e) {
       failure = e;
     }

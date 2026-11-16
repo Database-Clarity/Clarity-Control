@@ -2025,8 +2025,10 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // mergeSandboxPointers) like the publisher, and merges live perks with core mergeLivePerks
     // (keys the picks file names are recomputed); with no picks file, as here, every byte is the same.
     // Re-pinned for error-log redaction, and removal of the unused publisher PIN read.
+    // Re-pinned for global-metadata detection and refusal of the non-atomic fallback
+    // writer. With no global metadata, the golden consumer bytes remain unchanged.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', '3f96a0949a78bdad92de834b7349a5cf5c44f275'],
+      ['apps/worker/src/push.ts', 'b63e67d694b7b07de2f6f1e6b27806b32e5817e6'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

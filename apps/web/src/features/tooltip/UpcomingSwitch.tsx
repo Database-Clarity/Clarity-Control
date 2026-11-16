@@ -42,6 +42,8 @@ const load = () =>
 
 const statusLabel: Record<OpenBatch['status'], string> = {
   draft: 'Draft',
+  preparing: 'Preparing',
+  needs_attention: 'Needs attention',
   scheduled: 'Scheduled',
   publishing: 'Publishing',
 };

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { errorMessage } from '../../../services/http';
 import { Link } from 'react-router-dom';
 import { contentHash, mergeTextWithMarkers, type Tooltip } from '@clarity/core';
 import {
@@ -16,12 +17,15 @@ import { zonedNotBefore } from '../../../services/format/date';
 import {
   endBatchSchedule,
   kickBatch,
+  readBatchStatus,
+  retryBatchRequest,
   readArchivedEvents,
   rebaseMember,
   removeFromBatch,
   resolveActivationConflict,
   scheduleBatch,
   type BatchEvent,
+  type BatchRequest,
 } from '../../../services/scheduled/api';
 import { canPushLive } from '../../auth/permissions';
 import { stampEnglish } from '../../../services/save/enrichers/metadata';
@@ -33,11 +37,11 @@ import {
   fieldLabel,
   fieldList,
   isOverdue,
+  isPreparation,
   memberView,
   outcomeLines,
   resultLabel,
-  statusLabel,
-  statusTone,
+  statusChip,
   translationCoverage,
   type IndexEntry,
   type MemberView,
@@ -58,7 +62,7 @@ const at = (iso: string) => zonedNotBefore(iso);
 /** The 2-minute pre-due window: advisory only (the claim fence is the guard). */
 const soonMs = 2 * 60_000;
 
-type Action = 'schedule' | 'now' | 'unschedule' | 'cancel' | 'kick';
+type Action = 'schedule' | 'now' | 'unschedule' | 'cancel' | 'kick' | 'retry';
 
 /**
  * One batch: status and revisions, the not-before line, the task strip, the change list (diff vs
@@ -82,6 +86,7 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
   // The Schedule dialog approves the revision it was opened on (members and first publications
   // frozen with it); a newer listed revision disables it (ScheduleDialog `latest`).
   const [dialog, setDialog] = useState<{ batch: Batch; first: number[] } | null>(null);
+  const request = useBatchRequest(load && 'detail' in load ? load.detail?.batch : undefined);
   const views = useMemo(
     () =>
       detail && data
@@ -122,17 +127,35 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
   const stale = views.filter((view) => view.stale.length);
   const first = views.filter((view) => view.first).map((view) => view.member.hash);
   const overdue = isOverdue(batch);
+  const chip = statusChip(batch);
   const coverage = translationCoverage(detail.members);
+  const preparation = batch.preparation ?? null;
+  // Retry: an infrastructure failure, or a preparation still not ready past its time. Translators
+  // may retry only their own save requests (contract: POST /retry).
+  const retryable =
+    preparation !== null &&
+    ((batch.status === 'needs_attention' && request?.request?.retryable === true) ||
+      (batch.status === 'preparing' && overdue));
+  const ownRetry =
+    !manage &&
+    retryable &&
+    user?.role === 'translator' &&
+    preparation?.kind === 'save' &&
+    request?.request?.requesterId === Number(user.id);
 
-  async function run(label: string, write: () => Promise<unknown>, done: string) {
+  async function run(
+    label: string,
+    write: () => Promise<unknown>,
+    done: string | ((result: unknown) => string),
+  ) {
     if (pending) return;
     setPending(label);
     setError(null);
     setNotice(null);
     setConfirm(null);
     try {
-      await write();
-      setNotice(done);
+      const result = await write();
+      setNotice(typeof done === 'string' ? done : done(result));
     } catch (reason) {
       setError(reason);
     } finally {
@@ -156,8 +179,8 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
     <section aria-label={`Batch ${batch.name}`} data-batch={batch.id} data-status={batch.status}>
       <div className={styles.identity}>
         <h2 title={batch.name}>{batch.name}</h2>
-        <span className={styles.chip} data-tone={overdue ? 'warn' : statusTone[batch.status]}>
-          {overdue ? 'Overdue' : statusLabel[batch.status]}
+        <span className={styles.chip} data-tone={chip.tone}>
+          {chip.label}
         </span>
         <span className={styles.identityEnd}>
           <span className={styles.muted}>
@@ -166,6 +189,17 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
         </span>
       </div>
       <StatusLines batch={batch} overdue={overdue} names={names} />
+      {preparation && (
+        <PreparationLines batch={batch} request={request} overdue={overdue} names={names} />
+      )}
+      {!preparation && batch.lastPreparationFailure && isOpenStatus(batch.status) && (
+        <FailedSaveLines
+          failure={batch.lastPreparationFailure}
+          request={request}
+          scheduled={batch.status !== 'draft'}
+          names={names}
+        />
+      )}
       <p className={styles.line}>
         Created by <Handle login={batch.createdBy.login} /> {at(batch.createdAt)}
         {scheduler && (
@@ -182,9 +216,11 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
           </>
         )}
       </p>
-      {manage && (
+      {(manage || ownRetry) && (
         <TaskStrip
           batch={batch}
+          manage={manage}
+          retryable={retryable}
           overdue={overdue}
           blocked={blocked}
           scheduleBlock={scheduleBlock}
@@ -207,7 +243,18 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
                   'now',
                   batch.zone ?? 'UTC',
                 ),
-              `${batch.name} is queued to publish now.`,
+              (result) =>
+                (result as Awaited<ReturnType<typeof scheduleBatch>>).queued
+                  ? `${batch.name}: Schedule requested. It publishes once its changes are prepared.`
+                  : `${batch.name} is queued to publish now.`,
+            )
+          }
+          onRetry={() =>
+            preparation &&
+            void run(
+              'retry',
+              () => retryBatchRequest(batch.id, batch.revision, preparation.requestId),
+              `${batch.name}: preparation requested again.`,
             )
           }
           onEnd={(action) =>
@@ -221,7 +268,9 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
                 ),
               action === 'cancel'
                 ? `${batch.name} cancelled. Nothing from it will publish.`
-                : `${batch.name} unscheduled: back to draft.`,
+                : preparation?.returnStatus === 'draft'
+                  ? `${batch.name} is back to draft; the queued save was not applied, and its drafts stay.`
+                  : `${batch.name} unscheduled: back to draft.`,
             )
           }
           onKick={() =>
@@ -229,7 +278,7 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
           }
         />
       )}
-      {!fresh && load?.state === 'loading' && (
+      {!fresh && load && load.state !== 'failed' && (
         <p className={styles.note} role="status">
           The batch changed; reading revision {entry.revision}…
         </p>
@@ -403,8 +452,193 @@ function StatusLines({
   );
 }
 
+interface RequestRead {
+  revision: number;
+  request: BatchRequest | null;
+  error?: string;
+}
+
+/**
+ * The request behind a preparing or failed batch (reasons, last attempt, workflow), from GET
+ * /batches/:id/status once per batch revision: the outstanding request while preparing or needing
+ * attention, else the request lastPreparationFailure names. Nothing is read otherwise.
+ */
+function useBatchRequest(batch: Batch | undefined): RequestRead | null {
+  const [read, setRead] = useState<RequestRead | null>(null);
+  const failure = batch && !isPreparation(batch.status) ? batch.lastPreparationFailure : null;
+  const active = Boolean(batch && (isPreparation(batch.status) || failure));
+  const id = batch?.id;
+  const revision = batch?.revision;
+  const asked = failure?.requestId;
+  useEffect(() => {
+    if (!active || !id || revision === undefined) return;
+    const controller = new AbortController();
+    readBatchStatus(id, controller.signal, asked).then(
+      ({ request }) => {
+        if (!controller.signal.aborted) setRead({ revision, request });
+      },
+      (reason: unknown) => {
+        if (!controller.signal.aborted)
+          setRead({ revision, request: null, error: errorMessage(reason) });
+      },
+    );
+    return () => controller.abort();
+  }, [id, revision, active, asked]);
+  return active && read?.revision === revision ? read : null;
+}
+
+/** Request reasons, one line each: "Name (hash) English: reason". */
+function ReasonList({
+  reasons,
+  names,
+}: {
+  reasons: NonNullable<BatchRequest['reasons']>;
+  names: (hash: number) => string;
+}) {
+  if (!reasons.length) return null;
+  return (
+    <ul aria-label="Reasons">
+      {reasons.map((item, index) => (
+        <li key={index}>
+          {item.hash !== undefined && `${names(item.hash)} (${item.hash})`}
+          {item.fields?.length
+            ? `${item.hash !== undefined ? ' ' : ''}${fieldList(item.fields)}`
+            : ''}
+          {item.hash !== undefined || item.fields?.length ? ': ' : ''}
+          {item.reason}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A background save the preparer refused while the batch kept going (owner exception: a
+ * translator save into a scheduled batch). FAILED, never Saved: the batch keeps its accepted
+ * version and target; the submitted edits were not applied and stay as the saver's drafts.
+ */
+function FailedSaveLines({
+  failure,
+  request,
+  scheduled,
+  names,
+}: {
+  failure: NonNullable<Batch['lastPreparationFailure']>;
+  request: RequestRead | null;
+  scheduled: boolean;
+  names: (hash: number) => string;
+}) {
+  const record = request?.request ?? null;
+  return (
+    <div className={`${styles.failed} ${styles.attention}`} data-status-line data-failed-save>
+      <p>
+        Save failed {at(failure.at)}: nothing from it was applied
+        {scheduled ? '; the batch stays scheduled with its accepted changes' : ''}. The submitted
+        edits stay as drafts on the device that saved them.
+      </p>
+      {record?.reasons?.length ? (
+        <ReasonList reasons={record.reasons} names={names} />
+      ) : (
+        <p>{failure.reason}</p>
+      )}
+      {record?.workflowUrl && (
+        <p className={styles.muted}>
+          <a href={record.workflowUrl} target="_blank" rel="noreferrer">
+            Workflow run ↗
+          </a>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Preparing / Needs attention: what was requested, exact reasons, last attempt, and the run. */
+function PreparationLines({
+  batch,
+  request,
+  overdue,
+  names,
+}: {
+  batch: Batch;
+  request: RequestRead | null;
+  overdue: boolean;
+  names: (hash: number) => string;
+}) {
+  const preparation = batch.preparation;
+  if (!preparation) return null;
+  const record = request?.request ?? null;
+  const what =
+    preparation.kind === 'schedule'
+      ? 'Schedule requested'
+      : preparation.returnStatus === 'scheduled'
+        ? 'Translation save queued'
+        : 'Save queued';
+  const run = record?.workflowUrl && (
+    <>
+      {' '}
+      ·{' '}
+      <a href={record.workflowUrl} target="_blank" rel="noreferrer">
+        Workflow run ↗
+      </a>
+    </>
+  );
+  const attempt = (
+    <>
+      {record ? `last attempt ${at(record.updatedAt)}` : `requested ${at(preparation.requestedAt)}`}{' '}
+      · attempt {record?.attempt ?? preparation.attempt}
+    </>
+  );
+  const unread = request?.error ? (
+    <p className={styles.line} role="alert">
+      Request details could not be read: {request.error}
+    </p>
+  ) : null;
+  if (batch.status === 'preparing')
+    return (
+      <>
+        <p className={overdue ? styles.warnLine : styles.line} data-status-line data-preparation>
+          Preparing: {what.toLowerCase()} · {attempt}
+          {run}
+          {overdue
+            ? '. Past its time and not ready, so nothing publishes yet; Retry asks again.'
+            : '. Nothing changes in the batch until the changes are prepared.'}
+        </p>
+        {unread}
+      </>
+    );
+  const reasons = record?.reasons ?? [];
+  return (
+    <div className={`${styles.failed} ${styles.attention}`} data-status-line data-preparation>
+      <p>
+        Needs attention: the{' '}
+        {preparation.kind === 'schedule'
+          ? 'requested schedule'
+          : preparation.returnStatus === 'scheduled'
+            ? 'queued translation save'
+            : 'queued save'}{' '}
+        could not be prepared.{' '}
+        {!record
+          ? request?.error
+            ? ''
+            : 'Reading the request details…'
+          : record.retryable
+            ? 'The run failed for an infrastructure reason; Retry sends the same request again.'
+            : `Nothing in the batch changed. ${preparation.returnStatus === 'scheduled' ? 'Unschedule' : 'Edit'} to return it to draft, fix, and submit again.`}
+      </p>
+      <ReasonList reasons={reasons} names={names} />
+      <p className={styles.muted}>
+        {attempt}
+        {run}
+      </p>
+      {unread}
+    </div>
+  );
+}
+
 function TaskStrip({
   batch,
+  manage,
+  retryable,
   overdue,
   blocked,
   scheduleBlock,
@@ -416,8 +650,12 @@ function TaskStrip({
   onNow,
   onEnd,
   onKick,
+  onRetry,
 }: {
   batch: Batch;
+  /** Maintainers and editors; otherwise only a translator's own Retry shows. */
+  manage: boolean;
+  retryable: boolean;
   overdue: boolean;
   blocked: boolean;
   scheduleBlock: string | null;
@@ -429,10 +667,23 @@ function TaskStrip({
   onNow(): void;
   onEnd(action: 'unschedule' | 'cancel'): void;
   onKick(): void;
+  onRetry(): void;
 }) {
   const editable = batch.status === 'draft' || batch.status === 'scheduled';
-  if (!editable && !overdue) return null;
+  const preparation = isPreparation(batch.status) ? batch.preparation : null;
+  if (!editable && !overdue && !preparation) return null;
   const busy = (label: string, text: string) => (pending === label ? `${text}...` : text);
+  const retry = retryable && (
+    <button type="button" className={styles.primary} disabled={blocked} onClick={onRetry}>
+      {busy('retry', 'Retry')}
+    </button>
+  );
+  if (!manage)
+    return retry ? (
+      <div className={styles.strip} role="group" aria-label="Request actions">
+        {retry}
+      </div>
+    ) : null;
   // In-place confirmations replace the strip's other actions, next to their trigger.
   if (confirm === 'cancel')
     return (
@@ -468,6 +719,36 @@ function TaskStrip({
         </button>
       </div>
     );
+  // Preparing / Needs attention: the request's own actions. Unschedule (a schedule, or a save to a
+  // scheduled batch) and Edit (a draft save) both return the batch to draft; edits stay local.
+  if (preparation) {
+    const toDraft = preparation.returnStatus === 'scheduled' ? 'Unschedule' : 'Edit';
+    return (
+      <div className={styles.strip} role="group" aria-label="Request actions">
+        {retry}
+        <button
+          type="button"
+          disabled={blocked}
+          title={
+            toDraft === 'Edit'
+              ? 'Back to draft; your submitted edits stay as local drafts'
+              : 'Back to draft; nothing publishes until you schedule again'
+          }
+          onClick={() => onEnd('unschedule')}
+        >
+          {busy('unschedule', toDraft)}
+        </button>
+        <button
+          type="button"
+          className={styles.dangerQuiet}
+          disabled={blocked}
+          onClick={() => onConfirm('cancel')}
+        >
+          Cancel batch…
+        </button>
+      </div>
+    );
+  }
   return (
     <div className={styles.strip} role="group" aria-label="Batch actions">
       {editable && (
@@ -496,7 +777,7 @@ function TaskStrip({
           )}
         </>
       )}
-      {overdue && (
+      {overdue && batch.status !== 'preparing' && (
         <button type="button" disabled={blocked} onClick={onKick}>
           {busy('kick', 'Kick')}
         </button>

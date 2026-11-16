@@ -9,6 +9,12 @@ Config supplies repo, dataBranch, liveBranch, publicKey (PEM from the independen
 endpoint), keyFingerprint (SHA-256 of SPKI DER, pinned independently), publisherSha, generatorSha,
 facts, aliases, and runUrl. Facts and aliases must come from the pinned generator commit.
 The standalone dry-run does not fetch keys or provide a write enable switch.
+The prepared `globalsRelease` capability uses `globals/layout.json` and an exact
+`globals/live/<destination>.json` baseline. One serialized Action drain materializes reviews
+and name proofs; failed sync retains causes and rows, and refreshes only occupied-name proofs
+so authors can repair a definition. Global releases require atomic Git updates of LIVE and
+RECORD, and never export unrelated saved definitions. Storage bootstrap, workflow installation,
+and activation remain separate owner gates; this template update performs none of them.
 The later publish transport must enforce forward-only LIVE/data refs and serialized execution;
 candidate ref swaps/deletes require exact old OIDs. Unresolved pushes wait 30 seconds between
 attempts (five waits maximum); successful writes record immediately. Tests inject a no-wait backoff.
@@ -83,8 +89,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `7ac1b9ce21412ad4ece2301c8777f3a9f6b3c8da` (v2).
-Runtime SHA-256: `061fd0b27fbef0d1ef921bd0bee2ebfa6fd62bb3f7ce40e5526232f0852e36e9`.
+Current template source: `cb6d0f7a8e4091cf2acc0958368cd54f656f67d0` (v2).
+Runtime SHA-256: `edd9179ea082ca05393cc7e827bb025699ccd271205dd67ff41bed1c9c2236fb`.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.

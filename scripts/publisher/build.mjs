@@ -48,6 +48,15 @@ for (const marker of [
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks alias groups (${marker}); refusing its PIN`);
+for (const marker of [
+  'globals/layout.json',
+  'globals/live/',
+  'planGlobalRelease(',
+  'casMany(',
+  'Sync pending: global dependency review required',
+])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks globals release (${marker}); refusing its PIN`);
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -78,6 +87,7 @@ writeFileSync(
         'arrowSymbol',
         'numberTokens',
         'aliasGroups',
+        'globalsRelease',
       ],
     },
     null,

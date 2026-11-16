@@ -73,6 +73,7 @@ const writeLiveCost = (batches: number) => 10 + batches;
 const recordCost = 8;
 
 interface Loaded {
+  globals: boolean;
   scope?: AliasScope;
   moves: InactiveMoves;
   facts: LegacyCatalog;
@@ -97,10 +98,19 @@ async function loadAtHead(
   generated: () => Promise<Awaited<ReturnType<typeof catalog>>>,
   expected: Record<string, string> | undefined,
 ): Promise<Loaded> {
-  const [pointers, movesFile, groups] = await github.files(
-    [sandboxPointersPath, inactiveMovesPath, aliasGroupsPath],
-    head,
+  const metadata = await github.publishSnapshot(
+    [
+      sandboxPointersPath,
+      inactiveMovesPath,
+      aliasGroupsPath,
+      'globals/sync.json',
+      'globals/layout.json',
+    ],
+    ['globals/sync.json', 'globals/layout.json'],
+    [{ path: 'globals', depth: 1 }],
   );
+  if (metadata.head !== head) throw new RefRace('Data branch changed');
+  const [pointers, movesFile, groups] = metadata.files;
   const scope = groups
     ? await consumerAliasScope(github, groups, pointers, hashes, true)
     : undefined;
@@ -158,6 +168,7 @@ async function loadAtHead(
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
   const pickKeys = picks.keys;
   return {
+    globals: metadata.trees[0] !== null,
     scope,
     head,
     aliases,
@@ -199,16 +210,26 @@ export async function pushLive(
     const config = loaded?.head === head ? loaded.config : await permissions(github, head);
     requireAccess(config, user, roles);
     if (loaded?.head !== head) {
-      loaded = await loadAtHead(
-        github,
-        head,
-        config,
-        hashes,
-        async () => (generated ??= await catalog(github.env, github)),
-        expected,
-      );
+      try {
+        loaded = await loadAtHead(
+          github,
+          head,
+          config,
+          hashes,
+          async () => (generated ??= await catalog(github.env, github)),
+          expected,
+        );
+      } catch (error) {
+        if (error instanceof RefRace) continue;
+        throw error;
+      }
     }
     canonicalHashes = loaded.canonicalHashes;
+    if (loaded.globals) {
+      // The legacy two-branch writer cannot atomically pin dependency reviews and
+      // write live. Global repositories must use the publisher transaction.
+      throw new HttpError(409, 'Global publication requires the dependency-safe publisher');
+    }
     const { tooltips, exportedHashes, pushed } = loaded;
     const changed = new Set(
       canonicalHashes.filter((hash) => pushed[hash] !== exportedHashes[hash]),

@@ -1,5 +1,16 @@
 # Scheduled batches: Worker (phase P2)
 
+The asynchronous preparation contract is implemented but inactive: `switches.preparation()`
+returns false. Enabling it also requires the installed PIN's `schedulePreparationV1` capability,
+which is absent until the Action preparer and publisher fence are installed. The synchronous
+save and schedule routes remain live. See `admission.ts` for signed, source-bound requests,
+request-ID replay/status, retry, cancellation, and one outstanding mutation per batch.
+
+Async admission reads no member bodies, catalogs, published snapshots, or advisory index. It
+stores exact request bytes and the signed intent in one CAS, returns 202 only after that CAS,
+and leaves accepted members and `contentRevision` unchanged. The Action refreshes the index
+when it drains requests. A queued response never includes `savedAt`.
+
 Spec: `.agents/reports/scheduled-changes/spec.md` ("Worker API", "Permissions", "Publication
 path" 1-2, "Free-plan budget"). Contracts come from `@clarity/core/schedule` (P1); this folder
 is admission only: the publisher re-checks everything at the claim (I1).
@@ -71,7 +82,8 @@ editor-data with 3 RefRace attempts.
 
 ## Event overflow (root ruling 2026-11-13, shared with the publisher)
 
-`batch.json` keeps the newest 200 events. A write that overflows moves the oldest events, in the
+`batch.json` keeps the newest 20 events. Legacy histories of up to 200 remain readable and are
+compacted on their next write. A write that overflows moves the oldest events, in the
 SAME commit as that batch.json write, to `schedule/batches/<id>/events/<seq>.json` with body
 `{events: [...]}` oldest first, where `seq` is the zero-padded 8-digit count of events archived
 before this file (the first file is `00000000.json`). Helpers: `eventArchivePath` and

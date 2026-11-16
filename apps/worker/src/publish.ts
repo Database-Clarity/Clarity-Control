@@ -31,6 +31,7 @@ import {
   validatePublishTime,
   type Aliases,
   type Tooltip,
+  type GlobalPublicationRead,
 } from '@clarity/core';
 import { unbase64 } from './crypto.js';
 import { body, HttpError, json } from './http.js';
@@ -39,6 +40,7 @@ import type { GitHub, RepoFile, TreeNode } from './github.js';
 import { schedulePaths } from '@clarity/core/schedule';
 import { switches } from './schedule/store.js';
 import type { Env, Identity } from './types.js';
+import { assertGlobalsPublication } from './globals/guards.js';
 
 const envelopeSchema = z.object({ payload: z.string(), sig: z.string() }).strict();
 const logSchema = z.object({ intentDigest: z.string().nullable(), result: z.unknown() });
@@ -130,7 +132,12 @@ function refuseActivationConflicts(
     );
 }
 
-export async function publish(request: Request, github: GitHub, user: Identity) {
+export async function publish(
+  request: Request,
+  github: GitHub,
+  user: Identity,
+  globalPublication?: GlobalPublicationRead,
+) {
   const value = await body(request, publishBodySchema, 300 * 1024);
   const intent = {
     ...value,
@@ -160,9 +167,14 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
         sandboxPointersPath,
         inactiveMovesPath,
         aliasGroupsPath,
+        'globals/sync.json',
+        'globals/layout.json',
       ],
-      [],
-      switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
+      ['globals/sync.json', 'globals/layout.json'],
+      [
+        ...(switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 as const }] : []),
+        { path: 'globals', depth: 1 },
+      ],
     );
     requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, [
       'maintainer',
@@ -232,7 +244,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       refuseHeldSetBonuses(
         active.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
       );
-      refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
+      if (switches.scheduled()) refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
       for (const hash of value.hashes) {
         if (isMovedInactive(resolveAlias(hash, aliases), moves)) {
           if ((await inactiveRemovalHash(resolveAlias(hash, aliases))) !== value.expected[hash])
@@ -248,6 +260,33 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
         ) {
           throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
         }
+      }
+      if (snapshot.trees[switches.scheduled() ? 1 : 0] !== null) {
+        const capabilities = (pin as { capabilities?: unknown } | undefined)?.capabilities;
+        if (
+          !Array.isArray(capabilities) ||
+          !capabilities.includes('globalsRelease') ||
+          !globalPublication
+        )
+          throw new HttpError(409, 'Sync pending: dependency-safe publisher proof required');
+        const consumers = [
+          ...new Set(value.hashes.map((hash) => resolveAlias(hash, aliases))),
+        ].flatMap((hash) => {
+          if (isMovedInactive(hash, moves))
+            return [{ hash, lang: 'en', destination: github.env.LIVE_BRANCH }];
+          const tooltip = checked.get(hash);
+          if (!tooltip) throw new HttpError(409, 'Sync pending: current consumer proof required');
+          return Object.keys(tooltip.text).map((lang) => ({
+            hash,
+            lang,
+            destination: github.env.LIVE_BRANCH,
+          }));
+        });
+        const proof = await globalPublication(snapshot.head, consumers);
+        if (proof.certificates.length !== consumers.length)
+          throw new HttpError(409, 'Sync pending: complete publication proof required');
+        for (const [index, consumer] of consumers.entries())
+          assertGlobalsPublication(proof.sources, proof.sync, proof.certificates[index], consumer);
       }
       checkedHead = snapshot.head;
     }

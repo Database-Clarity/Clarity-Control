@@ -58,6 +58,14 @@ const ExportProjectPage = () => <AppLazyPage load={loadExportProjectPage} />;
 const loadPublishedTooltipsPage = () =>
   import('./features/exports/TooltipsPage').then((module) => ({ default: module.TooltipsPage }));
 const PublishedTooltipsPage = () => <AppLazyPage load={loadPublishedTooltipsPage} />;
+// UI gallery (maintainers, no data): its own lazy chunks, never preloaded, so the editor's graph
+// does not grow. The frame route sits outside the Layout so the preview loads no workspace data.
+const loadGalleryPage = () =>
+  import('./features/gallery/GalleryPage').then((module) => ({ default: module.GalleryPage }));
+const GalleryPage = () => <AppLazyPage load={loadGalleryPage} />;
+const loadGalleryFrame = () =>
+  import('./features/gallery/GalleryFrame').then((module) => ({ default: module.GalleryFrame }));
+const GalleryFrame = () => <AppLazyPage load={loadGalleryFrame} />;
 const ReportPage = () => (
   <AppLazyPage load={() => import('./features/reports/public/ReportPublicPage')} />
 );
@@ -106,6 +114,7 @@ export const routes: RouteObject[] = [
   // Receives drafts from the old site; outside the Layout so it loads no data and is inert alone.
   { path: 'migrate', element: <MigratePage /> },
   { path: 'report/*', element: <ReportPage /> },
+  { path: 'management/ui/frame', element: <GalleryFrame /> },
   {
     element: <WorkspaceRouteLayer />,
     children: [
@@ -143,6 +152,7 @@ export const routes: RouteObject[] = [
         handle: { preload: loadGlobalDetailPage },
       },
       { path: 'management', element: <AdminPage />, handle: { preload: loadAdminPage } },
+      { path: 'management/ui', element: <GalleryPage /> },
       { path: 'exports', element: <ExportsPage /> },
       { path: 'exports/:project', element: <ExportProjectPage /> },
       { path: 'tooltips', element: <PublishedTooltipsPage /> },
