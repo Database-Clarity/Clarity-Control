@@ -2,6 +2,7 @@ import { usePreviewWarnings, type PreviewWarningContext } from '../preview/usePr
 import {
   memo,
   useEffect,
+  useCallback,
   useLayoutEffect,
   useRef,
   useSyncExternalStore,
@@ -11,12 +12,14 @@ import {
 } from 'react';
 import { canReplaceGlyph, type GlyphWarning, type ValidationIssue } from '@clarity/core';
 import styles from './StatusBar.module.scss';
+import { NumberStatus } from './numbers/NumberTools';
+import type { NumberStore } from './numbers/state';
 import type { CursorPositionStore } from './cursorPosition';
 import { keyOf } from './help/reference';
 import { describeGap, type ParityGap } from './parity';
 
 export type StatusPanel =
-  'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff' | 'parity' | 'terms';
+  'help' | 'issues' | 'glyphs' | 'conflicts' | 'retired' | 'diff' | 'parity' | 'terms' | 'numbers';
 
 export const CursorStatusBar = memo(function CursorStatusBar({
   cursor,
@@ -156,6 +159,7 @@ export function StatusBar({
   retiredCount = 0,
   parityCount = 0,
   terms,
+  numbers,
   line,
   column,
   preview,
@@ -180,6 +184,7 @@ export function StatusBar({
    * listed by the Terms item (Ctrl+K, then G). Undefined elsewhere: no item.
    */
   terms?: { count: number; loading: boolean; missing?: number };
+  numbers?: NumberStore;
   line: number;
   column: number;
   preview?: PreviewStatus;
@@ -201,6 +206,10 @@ export function StatusBar({
   const unpreviewed = preview?.review ? liveWarnings : (preview?.unpreviewed ?? 0);
   const errors = issues.filter((issue) => issue.severity === 'error').length;
   const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
+  const toggleNumbers = useCallback(
+    () => onPanel(panel === 'numbers' ? null : 'numbers'),
+    [onPanel, panel],
+  );
   const root = useRef<HTMLDivElement>(null);
   const showsPreview = preview ? unpreviewed > 0 || preview.collapsed : undefined;
   // The idle preview item gives its room to the labels until it first shows for this text; from
@@ -304,6 +313,17 @@ export function StatusBar({
         <span className={styles.long}>Markup help</span>
         <span className={styles.short}>Help</span>
       </button>
+      {numbers && (
+        <NumberStatus
+          store={numbers}
+          warning={issues.some(
+            (issue) => issue.message.includes('formula needs') || issue.code === 'glued-number',
+          )}
+          className={styles.item}
+          open={panel === 'numbers'}
+          onOpen={toggleNumbers}
+        />
+      )}
       {terms && (
         // Always drawn while translating (disabled while there is nothing to list), so a
         // tooltip with terms after one without moves nothing in the bar.
@@ -539,6 +559,7 @@ export function Overlay({
   heading,
   onClose,
   children,
+  keyboardAnchor = false,
 }: {
   id: string;
   label: string;
@@ -549,6 +570,7 @@ export function Overlay({
   heading?: ReactNode;
   onClose(): void;
   children: ReactNode;
+  keyboardAnchor?: boolean;
 }) {
   const root = useRef<HTMLElement>(null);
   // Where focus was when the panel opened (the text, or the bar item that opened it): closing
@@ -609,6 +631,7 @@ export function Overlay({
       className={styles.overlay}
       data-editor-overlay
       data-headed={headed || undefined}
+      data-keyboard-anchor={keyboardAnchor || undefined}
     >
       {headed ? (
         <>

@@ -31,14 +31,17 @@ test.each(legacyPresets)('%s matches the held converter byte for byte', (preset)
   );
 });
 
+// The old converter dropped Prismatic tokens, including their tagged text. An unknown token
+// reproduces that control while preserving span boundaries; S1 classifies the new symbol delta.
 // The pinned hashes are the held converter's on the fixture as stored (its tagged text dropped
 // to the bare icon, the reason the engine lowers first). S5 adds exactly the fixture's name alias
 // 2003 to seven legacy files; positively verify its expansion before removing that one row
 // from the historical control. Never re-pin the old hashes or filter an entire kind away.
 test.each(legacyPresets)(
-  '%s: only the explicit name alias changes the historical pinned bytes',
+  '%s: the non-Prismatic control changes only the explicit name alias',
   (preset) => {
-    const historical = JSON.parse(heldBytes(input, preset, identical));
+    const control = JSON.parse(JSON.stringify(input).replaceAll('<prismatic', '<unverifiedElement'));
+    const historical = JSON.parse(heldBytes(control, preset, identical));
     for (const hash of ['2003']) {
       if (preset === 'clarityV2') expect(historical[hash]).toEqual({ hash: 2003, aliasOf: 1003 });
       else {

@@ -2,11 +2,17 @@ import { cleanObject } from './helpers.js'
 
 import { getSettings } from './converterSettings.js'
 import { AllClassNames, DescriptionLine } from './types.js'
+import { prismaticAssets } from './prismatic.js'
 
 export const cleanDescription = <T>(obj: T, converterType: string): T => {
   const { getFromDescription, enhancedArrowReplacement } = getSettings(converterType)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const remover = (obj: any) => {
+    // DIM's verified custom-symbols glyph is portable text in its structured format.
+    if (converterType === 'dim' && obj?.classNames?.includes('prismatic')) {
+      obj.text = prismaticAssets.dim + (obj.text || '')
+      obj.classNames = obj.classNames.filter((name: string) => name !== 'prismatic')
+    }
     for (const key in obj) {
       if (key === 'text') {
         // replace enhanced arrow text

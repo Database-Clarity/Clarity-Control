@@ -81,6 +81,25 @@ afterEach(() => {
 });
 
 describe('translate mode right pane', () => {
+  it('opens English for an explicit number Reveal event without changing the default phone view', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 700px)',
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    width = 390;
+    render();
+    const workspace = host.querySelector('[data-view]')!;
+    expect(workspace.getAttribute('data-view')).toBe('translation');
+    act(() =>
+      workspace.dispatchEvent(
+        new CustomEvent('clarity-number-reveal', { bubbles: true, detail: { hash: 7, id: 1 } }),
+      ),
+    );
+    expect(workspace.getAttribute('data-view')).toBe('source');
+    expect(compendiumRenders).toBe(0);
+  });
   it('does no hidden Compendium work on a phone', () => {
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query === '(max-width: 700px)',

@@ -3,6 +3,7 @@
 // Only the file's own rules apply: a symbol the file does not name is dropped (its text kept)
 // and reported, so a symbol added later never appears in an existing file until chosen.
 import type { MarkupLine, MarkupSpan } from '@clarity/core/markup/parse';
+import { elementTagNames } from '@clarity/core/markup/elementTags';
 import type { FileFormat, SymbolRule } from './config.js';
 import { symbolIds, type Shape, type SymbolId } from './vocabulary.js';
 
@@ -45,6 +46,12 @@ function span(input: MarkupSpan, context: Context): OutSpan[] {
   const { format, shape } = context;
   const text = input.text ?? '';
   const names = unique(input.classNames);
+  // The element on tagged text names its tint, not another standalone icon. Only the
+  // elementText rule transforms this span; keeping it also keeps its element metadata.
+  const tint = names.includes('elementText')
+    ? names.find((name) => (elementTagNames as readonly string[]).includes(name))
+    : undefined;
+  if (tint) names.splice(names.indexOf(tint), 1);
   // Resolve the standalone drawing before applying any surrounding text style.
   if (names.includes('arrow')) names.unshift(...names.splice(names.indexOf('arrow'), 1));
   if (names.includes('link') && input.link !== undefined) {
@@ -99,6 +106,7 @@ function span(input: MarkupSpan, context: Context): OutSpan[] {
       delete out.text;
     }
   }
+  if (tint && out.classNames?.includes('elementText')) out.classNames.push(tint);
   return out.text === undefined && !out.classNames ? [] : [out];
 }
 

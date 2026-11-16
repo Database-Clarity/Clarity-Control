@@ -130,6 +130,10 @@
   color: var(--text3);
 }
 
+.option[data-category='Numbers'] .hint {
+  text-align: left;
+}
+
 .detail {
   flex: 1 1 0;
   min-width: 0;

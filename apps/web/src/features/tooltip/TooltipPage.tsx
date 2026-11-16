@@ -31,7 +31,7 @@ import { EditorView } from '@codemirror/view';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
-import { tooltipImports } from '../../services/tooltipImports';
+import { previewNumberGlobals, tooltipImports } from '../../services/tooltipImports';
 import { useDataStore, type EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { useDraftStore } from '../../stores/drafts';
@@ -73,7 +73,7 @@ import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
 import { canEditLanguage, canPushLive } from '../auth/permissions';
-import { DraftLoader, WithEditorDraft } from './DraftLoader';
+import { DraftLoader, StartEnglishLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
 import { useRememberedWorkspaceLanguage } from './WorkspaceLanguage';
 import { requireEnglish } from './requireEnglish';
@@ -498,13 +498,25 @@ function TooltipWorkspace({
   const legacyOf = (variant: number) =>
     data.categories.find((category) => category.id === archivedItemFor(variant, data)?.categoryId)
       ?.legacyType;
-  const globalsFor = (variant: number, typed = typedGlobals): ScopedMarkupGlobals =>
-    typed(
+  const globalsFor = (
+    variant: number,
+    typed = typedGlobals,
+    numberHash = variant,
+  ): ScopedMarkupGlobals => {
+    const globals = typed(
       legacyOf(variant),
       categoriesWithEnhanced(data).has(
         data.items[variant]?.categoryId ?? archivedItemFor(variant, data)?.categoryId ?? '',
       ),
     );
+    const source = typed === futureGlobals ? future : shown;
+    const model = typed === futureGlobals && futureData ? futureData : data;
+    return previewNumberGlobals(
+      source?.[numberHash]?.next ?? tooltipFor(numberHash, model),
+      lang,
+      globals,
+    );
+  };
   const textOf = (variant: number) =>
     (
       drafts[variant]?.next ??
@@ -578,7 +590,7 @@ function TooltipWorkspace({
         hash: variant,
         name: nameOf(variant),
         text: rendered ? rendered.text : previewTextOf(variant, source),
-        globals: globalsFor(variant, typed),
+        globals: globalsFor(variant, typed, rendered?.form === 'derived' ? hash : variant),
         derived: rendered?.form === 'derived',
       };
     });
@@ -586,14 +598,18 @@ function TooltipWorkspace({
   // The translate-mode English pane shows the item's first enhanced version too (owner
   // 2026-11-14). Its renders take the text and hash as primitives, so a new object costs nothing.
   const englishVariant = lang !== 'en' && activeHash === hash ? previewed[0] : undefined;
-  const englishEnhancedText =
+  const englishEnhancedRender =
     englishVariant === undefined
       ? undefined
-      : enhancedRender(hash, englishVariant, 'en', data, shown).text;
+      : enhancedRender(hash, englishVariant, 'en', data, shown);
   const englishEnhanced =
-    englishVariant === undefined || !englishEnhancedText
+    englishVariant === undefined || !englishEnhancedRender?.text
       ? undefined
-      : { hash: englishVariant, text: englishEnhancedText };
+      : {
+          hash: englishVariant,
+          text: englishEnhancedRender.text,
+          sourceHash: englishEnhancedRender.form === 'derived' ? activeHash : englishVariant,
+        };
   // Upcoming (read-only): the same views over the batch's future state instead of drafts.
   const previewViews = (() => {
     if (!future || !futureGlobals || !futureData) return enhancedViews;
@@ -804,6 +820,9 @@ function TooltipWorkspace({
             ? upcoming.overlay?.[variant]?.next.text.en?.text
             : base.text.en?.text
       }
+      sourceNumbers={
+        batchEditing ? upcoming.overlay?.[variant]?.next.text.en?.numbers : base.text.en?.numbers
+      }
       conflictSource={batchEditing ? undefined : conflictSourceOf(variant)}
       terms={!readOnly && canEditLanguage(user, lang)}
       workingDiff={
@@ -992,6 +1011,11 @@ function TooltipWorkspace({
             aria-label={`${heading} editor (${languageLabel(lang)})`}
             className={styles.editorSection}
           >
+            {lang !== 'en' && !loading && access.reason === null && !textOf(activeHash) && (
+              <div className={styles.numberStartBar}>
+                <StartEnglishLoader hash={activeHash} />
+              </div>
+            )}
             {batchEditing?.notice && (
               <p className={batchStyles.notice} role="status">
                 {batchEditing.notice}

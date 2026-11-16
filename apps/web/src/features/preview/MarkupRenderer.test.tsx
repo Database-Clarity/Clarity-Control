@@ -5,6 +5,69 @@ import { expect, it } from 'vitest';
 import { parseMarkup } from '@clarity/core';
 import { Lines, MarkupLines, PreviewSpan } from './MarkupRenderer';
 
+it('passes optional slot identity without changing the DOM of ordinary spans', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  try {
+    await act(async () => root.render(<PreviewSpan part={{ text: '5' }} />));
+    expect(host.innerHTML).toBe('<span><span>5</span></span>');
+    const ordinary = host.innerHTML;
+    await act(async () =>
+      root.render(<PreviewSpan part={{ text: '5', slots: [{ id: 7, from: 0, to: 1 }] }} />),
+    );
+    expect(host.querySelector('[data-slot="7"]')?.textContent).toBe('5');
+    await act(async () => root.render(<PreviewSpan part={{ text: '5', slots: undefined }} />));
+    expect(host.innerHTML).toBe(ordinary);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('retains number offsets when icon glue splits its following text span', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  const source = '<solar/>Damage 5 and 10.';
+  try {
+    await act(async () =>
+      root.render(<Lines lines={parseMarkup(source, undefined, { slots: [7, 8] }).lines} />),
+    );
+    expect(
+      [...host.querySelectorAll('[data-slot]')].map((span) => [
+        span.getAttribute('data-slot'),
+        span.textContent,
+      ]),
+    ).toEqual([
+      ['7', '5'],
+      ['8', '10'],
+    ]);
+    expect(host.textContent).toContain('Damage 5 and 10.');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('offers variable typing help without making derived digits into a number slot', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  const part = { text: 'Value 5.' };
+  try {
+    await act(async () => root.render(<PreviewSpan part={part} />));
+    const original = host.innerHTML;
+    await act(async () =>
+      root.render(<PreviewSpan part={{ ...part, variables: [{ name: 'd', from: 6, to: 7 }] }} />),
+    );
+    expect(host.querySelector('[title="Variable d: type #{d}"]')?.textContent).toBe('5');
+    expect(host.querySelector('[data-slot]')).toBeNull();
+    await act(async () => root.render(<PreviewSpan part={{ ...part, variables: undefined }} />));
+    expect(host.innerHTML).toBe(original);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 function freeze<T>(value: T): T {
   if (value && typeof value === 'object') {
     for (const child of Object.values(value)) freeze(child);

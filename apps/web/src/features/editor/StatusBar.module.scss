@@ -349,6 +349,16 @@
 .overlayBody {
   min-width: 0;
 }
+.overlay[data-headed][data-keyboard-anchor] {
+  position: fixed;
+  left: var(--page-x, 0.5rem);
+  right: var(--page-x, 0.5rem);
+  bottom: calc(var(--kb-inset, 0px) + var(--number-bar-height, 44px));
+  max-height: min(
+    20rem,
+    calc(var(--visible-h, 100dvh) - var(--number-bar-height, 44px) - var(--header-h, 3rem) - 0.5rem)
+  );
+}
 
 // A panel with a caption (the Changes view): the caption row and Close stay put, and only the
 // content under them scrolls, so a long text never scrolls its own Close out of reach.

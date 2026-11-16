@@ -118,6 +118,16 @@ export function VariantWorkspace({
     if (mode !== 'split') open('translation');
   };
   const stableShowEditor = useMemo(() => () => showEditor.current(), []);
+  const revealEnglish = useRef(() => {});
+  revealEnglish.current = () => {
+    if (present(source)) open('source');
+  };
+  useEffect(() => {
+    const root = container.current;
+    const reveal = () => revealEnglish.current();
+    root?.addEventListener('clarity-number-reveal', reveal);
+    return () => root?.removeEventListener('clarity-number-reveal', reveal);
+  }, [container]);
   const focusTab = useRef(false);
   // The side views that share the right pane, one at a time, through tabs in its header.
   const hasSource = present(source);

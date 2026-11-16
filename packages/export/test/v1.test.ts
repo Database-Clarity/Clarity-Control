@@ -377,10 +377,12 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
     }
   });
 
-  test('legacy presets refuse base/enhanced pairs; buildLegacy is unchanged', () => {
-    expect(() =>
-      compile(refsInput, { id: 'old', formatVersion: 1, preset: 'dim' }, { catalog }),
-    ).toThrow(/legacy presets refuse/);
+  test('legacy presets resolve native base/enhanced pairs', () => {
+    const plan = compile(refsInput, { id: 'old', formatVersion: 1, preset: 'dim' }, { catalog });
+    const output = json(plan.bytes);
+    expect(JSON.stringify(output[200].descriptions)).toContain('Trait base');
+    expect(JSON.stringify(output[201].descriptions)).toContain('Trait enhanced');
+    expect(decoder.decode(plan.bytes)).not.toContain('{{');
   });
 
   test('category-crossing associations are dropped only when their target is not in the file', () => {

@@ -23,7 +23,7 @@ test('absent setting stays absent, and new files are off', () => {
 });
 
 for (const style of styles) {
-  test(`${style}: showcase and a normal row compile identical descriptions`, () => {
+  test.each([false, true])(`${style}: showcase and a normal row compile identical descriptions (elementTags=%s)`, (elementTags) => {
     const perk = (hash: number, main: string): LegacyInput['perks'][string] => ({
       hash,
       name: 'Example',
@@ -44,6 +44,7 @@ for (const style of styles) {
       },
     };
     const file = newStyleFile('example', style);
+    file.format.elementTags = elementTags;
     file.data.categories = ['example'];
     file.data.includeShowcase = true;
     const plan = compile(sameText, file, {
@@ -54,6 +55,8 @@ for (const style of styles) {
     });
     expect(Object.keys(plan.expanded!)).toEqual(['100', showcaseId]);
     expect(plan.expanded![showcaseId].descriptions).toEqual(plan.expanded!['100'].descriptions);
+    if (style === 'structured')
+      expect(JSON.stringify(plan.expanded![showcaseId].descriptions).includes('elementText')).toBe(elementTags);
   });
   test(`${style}: opt-in adds exactly one reserved entry, with fixed output bytes`, async () => {
     const file = newStyleFile('example', style);
