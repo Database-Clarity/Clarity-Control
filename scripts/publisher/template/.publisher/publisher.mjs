@@ -31761,11 +31761,10 @@ var SchedulePreparer = class {
       pushed
     );
     const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree));
-    if ("failure" in plan)
-      throw new PreparationRejected(
-        plan.failure.error ?? plan.failure.status,
-        plan.failure.outcomes
-      );
+    if ("failure" in plan) {
+      const Rejection = plan.failure.proposalRejected ? ProposalRejected : PreparationRejected;
+      throw new Rejection(plan.failure.error ?? plan.failure.status, plan.failure.outcomes);
+    }
     const live = this.pub.head(this.pub.options.liveBranch);
     this.pub.merge(live, {
       ...plan,
@@ -32777,7 +32776,8 @@ var Publisher = class _Publisher {
       aliases
     );
     const active = tooltips.filter((t) => !isMovedInactive(t.hash, moves));
-    if (active.some(isTextlessDescription)) return { error: "Tooltip has no text to publish" };
+    if (active.some(isTextlessDescription))
+      return { error: "Tooltip has no text to publish", proposalRejected: true };
     try {
       this.checkAssociatedDescriptions(tree, active, aliases);
     } catch (error62) {
@@ -32788,9 +32788,9 @@ var Publisher = class _Publisher {
     if (active.some(
       (tooltip) => Object.values(tooltip.text).some((translation) => translation?.text.includes("{{"))
     ))
-      return { error: baseEnhancedPublishMessage };
+      return { error: baseEnhancedPublishMessage, proposalRejected: true };
     if (active.some((t) => isHeldSetBonus(t, this.options.facts[t.hash])))
-      return { error: setBonusHoldMessage };
+      return { error: setBonusHoldMessage, proposalRejected: true };
     const now = this.options.now();
     let exported;
     try {
@@ -32800,7 +32800,10 @@ var Publisher = class _Publisher {
     }
     const unlowered = unloweredEntry(exported);
     if (unlowered !== void 0)
-      return { error: `The export of tooltip ${unlowered} still holds unlowered markup` };
+      return {
+        error: `The export of tooltip ${unlowered} still holds unlowered markup`,
+        proposalRejected: true
+      };
     return { now, exported };
   }
   createCandidate(opId, blob, live, r) {
@@ -32901,7 +32904,7 @@ var Publisher = class _Publisher {
     if (outcomes.some((o) => o.status !== "accepted"))
       return { failure: { status: "stale", outcomes } };
     const checked = this.checkAndExport(tree, tooltips, aliases);
-    if ("error" in checked) return { failure: { status: "rejected", error: checked.error } };
+    if ("error" in checked) return { failure: { status: "rejected", ...checked } };
     const entries = [];
     for (const tooltip of tooltips)
       entries.push({
@@ -32967,7 +32970,8 @@ var Publisher = class _Publisher {
    */
   async claimBatch(opId, blob, s, tree, live, payload, aliases) {
     const fail = async (failure2) => {
-      await this.record(opId, void 0, void 0, failure2, blob);
+      const { status, error: error62, outcomes } = failure2;
+      await this.record(opId, void 0, void 0, { status, error: error62, outcomes }, blob);
       return void 0;
     };
     const path = schedulePaths.batch(payload.batchId);
