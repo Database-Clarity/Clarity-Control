@@ -21435,7 +21435,11 @@ function resolveImports(text, globals, diagnostics) {
       const from = line.match(/(?<=from) (\d+|global)/)?.[0].trim() ?? "";
       const raw = globals.imports?.[from] ?? (from === "global" ? globals.imports?.["1"] : void 0);
       const source = raw === void 0 ? void 0 : lowerDelimitedMarkup(raw);
-      const imported = name2 === "main" || name2 === "secondary" ? source : extractBlocks(source ?? "", "export")[name2];
+      let imported = source;
+      if (name2 !== "main" && name2 !== "secondary") {
+        const blocks = extractBlocks(source ?? "", "export");
+        imported = Object.hasOwn(blocks, name2) ? blocks[name2] : void 0;
+      }
       if (imported === void 0 && visible) {
         diagnostics.push({
           severity: "error",
@@ -23839,6 +23843,7 @@ var images = [
   "stasis",
   "void",
   "strand",
+  "prismatic",
   "heavy",
   "primary",
   "special",
@@ -23866,6 +23871,14 @@ var classNameList = {
   table
 };
 var allClassNames = Object.values(classNameList).flat();
+
+// packages/export/src/converter/prismatic.ts
+var prismaticAssets = {
+  dim: "\u{F0156}",
+  vaultZero: "[Prismatic]",
+  braytech: null,
+  crayon: null
+};
 
 // packages/export/src/converter/converterSettings.ts
 var converterSettings = {
@@ -23936,6 +23949,7 @@ var converterSettings = {
         "arc",
         "solar",
         "void",
+        "prismatic",
         "primary",
         "special",
         "heavy",
@@ -23956,6 +23970,7 @@ var converterSettings = {
         arc: ["<:arc:720178925317128243>", ""],
         solar: ["<:solar:720178909361995786>", ""],
         void: ["<:void:720178940240461864>", ""],
+        prismatic: [prismaticAssets.crayon ?? "", ""],
         primary: ["<:primary:968793055677251604>", ""],
         special: ["<:special:968793055631114330>", ""],
         heavy: ["<:heavy:968793055652106320>", ""],
@@ -24034,6 +24049,7 @@ var converterSettings = {
         "arc",
         "stasis",
         "strand",
+        "prismatic",
         "primary",
         "special",
         "heavy",
@@ -24058,6 +24074,7 @@ var converterSettings = {
         arc: ["\uE143", ""],
         stasis: ["\uE139", ""],
         strand: ["\uEF0E", ""],
+        prismatic: [prismaticAssets.braytech ?? "", ""],
         primary: ["\uF106", ""],
         special: ["\uF107", ""],
         heavy: ["\uF108", ""],
@@ -24091,6 +24108,7 @@ var converterSettings = {
         "stasis",
         "strand",
         "void",
+        "prismatic",
         "primary",
         "special",
         "heavy",
@@ -24114,6 +24132,7 @@ var converterSettings = {
         stasis: ["[Stasis]", ""],
         strand: ["[Strand]", ""],
         void: ["[Void]", ""],
+        prismatic: [prismaticAssets.vaultZero, ""],
         primary: ["[primary]", ""],
         special: ["[special]", ""],
         heavy: ["[heavy]", ""],
@@ -24730,344 +24749,6 @@ var separateBlocks = (description, titles) => {
   }, []);
 };
 
-// packages/export/src/converter/descriptionConverter.ts
-var prepareDescription = (descriptionData) => {
-  const { language, hash: hash2, database } = descriptionData;
-  let description = loadExports(descriptionData);
-  description = removePerkSpecificText(description, database[hash2].type);
-  description = loadVariables({ ...descriptionData, descriptionString: description });
-  const titles = extractTitles(removeUnusedText2(description, false));
-  description = doMath(description, database[hash2].editor[language]?.englishFallback ? "en" : language);
-  return {
-    preparedDescription: removeUnusedText2(description.trim()),
-    titles: {
-      ...titles,
-      ...extractTitles(database[3].editor[language]?.main),
-      ...extractTitles(database[3].editor[language]?.secondary)
-    }
-  };
-};
-var descriptionConverter = (descriptionData) => {
-  const { preparedDescription, titles } = prepareDescription(descriptionData);
-  const convertedTitles = Object.entries(titles || {}).reduce(
-    (acc, [titleName, titleContent]) => {
-      const { preparedDescription: preparedDescription2 } = prepareDescription({ ...descriptionData, descriptionString: titleContent });
-      const convertedTitles2 = separateTableWeaponType(preparedDescription2, {});
-      if (convertedTitles2) acc[titleName] = convertedTitles2;
-      return acc;
-    },
-    {}
-  );
-  return separateTableWeaponType(preparedDescription, convertedTitles);
-};
-
-// packages/export/src/converter/descriptionFilter.ts
-var cleanDescription = (obj, converterType) => {
-  const { getFromDescription, enhancedArrowReplacement } = getSettings(converterType);
-  const remover = (obj2) => {
-    for (const key in obj2) {
-      if (key === "text") {
-        if (enhancedArrowReplacement !== void 0 && obj2[key] === "\u{1F845}") {
-          obj2[key] = enhancedArrowReplacement;
-          continue;
-        }
-        if (obj2.classNames?.includes("pvp") && !getFromDescription.includeClassNames?.includes("pvp")) {
-          const pvpText = obj2[key].match(/\[.+?\]/g)?.[0].replace(/\[|\]/g, "");
-          if (pvpText === null) continue;
-          obj2[key] = obj2[key].replace(pvpText, `PVP: ${pvpText}`);
-          continue;
-        }
-      }
-      if (key === "classNames") {
-        obj2[key] = obj2[key]?.filter((className) => {
-          return getFromDescription.includeClassNames?.includes(className);
-        });
-        continue;
-      }
-      if (!getFromDescription.link && key === "link") {
-        delete obj2[key];
-        continue;
-      }
-      if (!getFromDescription.title && key === "title") {
-        delete obj2[key];
-        continue;
-      }
-      if (!getFromDescription.table && key === "table") {
-        delete obj2[key];
-        continue;
-      }
-      if (obj2[key]?.hasOwnProperty("formula") || obj2[key]?.hasOwnProperty("isFormula")) {
-        if (!getFromDescription.formula) {
-          delete obj2[key];
-          continue;
-        }
-      }
-      if (!obj2[key] || typeof obj2[key] !== "object") continue;
-      remover(obj2[key]);
-    }
-    return obj2;
-  };
-  return remover(obj);
-};
-var descriptionToString = (description, converterType) => {
-  const options = getSettings(converterType).toStringConverterOptions;
-  return description?.reduce((acc, line) => {
-    if (line.classNames?.includes("spacer")) return acc = acc + "\n";
-    const newLine = line.linesContent?.reduce((acc2, linesContent) => {
-      if (linesContent.link && options?.link) {
-        const [textStart, textEnd, linkStat, linkEnd] = options.link;
-        acc2 = acc2 + `${textStart}${linesContent.text}${textEnd}${linkStat}${linesContent.link}${linkEnd}`;
-        return acc2;
-      }
-      if (linesContent.classNames && linesContent.classNames?.length !== 0 && options?.classNames) {
-        const newText = linesContent.classNames.reduce((acc3, className) => {
-          if (className === void 0) return acc3;
-          const [classNameStart, classNameEnd] = options.classNames?.[className] || ["", ""];
-          acc3 = acc3 + `${classNameStart}${linesContent.text || ""}${classNameEnd}`;
-          return acc3;
-        }, "");
-        acc2 = acc2 + newText;
-        return acc2;
-      }
-      acc2 = acc2 + linesContent.text;
-      return acc2;
-    }, "");
-    if (line.classNames && line.classNames?.length !== 0 && options?.classNames) {
-      const lineWithClassNames = line.classNames.reduce((acc2, className) => {
-        if (className === void 0) return acc2;
-        const [classNameStart, classNameEnd] = options.classNames?.[className] || [
-          "",
-          ""
-        ];
-        acc2 = acc2 + `${classNameStart}${newLine}${classNameEnd}`;
-        return acc2;
-      }, "");
-      acc = acc + "\n" + lineWithClassNames;
-      return acc;
-    }
-    acc = acc + "\n" + newLine;
-    return acc;
-  }, "").trim();
-};
-var normalizeLegacySections = (lines) => {
-  if (!lines) return lines;
-  let previousSection;
-  return lines.flatMap((line) => {
-    const { weaponTypes: weaponTypes3, weaponBlock, weaponOther, ...body } = line;
-    const label = weaponOther ? "Other" : weaponTypes3?.filter(Boolean).join(", ");
-    const section = label ? `${weaponBlock ?? ""}:${label}` : void 0;
-    const heading2 = section && section !== previousSection ? [{ linesContent: [{ text: `${label}:` }] }] : [];
-    previousSection = section;
-    body.linesContent?.forEach((content) => {
-      content.title = normalizeLegacySections(content.title);
-    });
-    body.table?.forEach((row) => row.rowContent?.forEach((cell) => cell.cellContent?.forEach((content) => {
-      content.title = normalizeLegacySections(content.title);
-    })));
-    return [...heading2, body];
-  });
-};
-var descriptionFilter = (description, converterType) => {
-  const { toStringConverterOptions } = getSettings(converterType);
-  const newDescription = cleanObject(cleanDescription(normalizeLegacySections(description), converterType));
-  let removeSpacer = true;
-  const finalDescription = newDescription?.reduceRight((acc, line) => {
-    if (line.classNames?.includes("spacer") && removeSpacer) return acc;
-    removeSpacer = false;
-    acc.unshift(line);
-    return acc;
-  }, []);
-  if (!toStringConverterOptions) return finalDescription;
-  return descriptionToString(finalDescription, converterType);
-};
-
-// packages/export/src/converter/publisher.ts
-var databaseConverter = (converterType, database, identical) => {
-  const settings = getSettings(converterType);
-  validateReferences(database);
-  const lookup = expandAliases(database);
-  const references = {};
-  const newDatabase = {};
-  for (const [hash2, rawPerk] of Object.entries(database)) {
-    const aliasOutput = isAliasStub(rawPerk) ? getAliasOutput(settings, rawPerk) : "copy";
-    const perk = lookup[hash2];
-    if (aliasOutput === "skip" || perk === void 0) continue;
-    if (Number(hash2) < 50) continue;
-    const editorDescription = perk.editor.en?.main.trim() || "";
-    if (editorDescription === "") continue;
-    if (!settings.optional && identical.has(hash2)) continue;
-    if (isAliasStub(rawPerk) && aliasOutput === "reference") {
-      references[hash2] = { hash: rawPerk.hash, aliasOf: rawPerk.aliasOf };
-      continue;
-    }
-    const cleanPerk = getDataFromPerk(perk, settings.getFromPerk);
-    const descriptions = Object.entries(cleanPerk.editor).reduce(
-      (acc, [language, descriptions2]) => {
-        const descriptionData = {
-          database: lookup,
-          descriptionString: descriptions2[settings.editor],
-          editorType: settings.editor,
-          hash: cleanPerk.hash,
-          language
-        };
-        const convertedDescription = descriptionConverter(descriptionData);
-        if (convertedDescription) {
-          acc[language] = descriptionFilter(convertedDescription, converterType);
-        }
-        return acc;
-      },
-      {}
-    );
-    const { editor, ...withoutEditor } = cleanPerk;
-    newDatabase[hash2] = {
-      ...withoutEditor,
-      descriptions
-    };
-  }
-  for (const [hash2, reference] of Object.entries(references)) {
-    if (newDatabase[reference.aliasOf] !== void 0) newDatabase[hash2] = reference;
-  }
-  const output2 = cleanObject(newDatabase);
-  validateOutputReferences(output2);
-  return output2;
-};
-
-// packages/export/src/elementTags.ts
-init_braces();
-function lowerInput(input2, arrow) {
-  const lower2 = (text) => lowerConsumerMarkup(text, arrow);
-  let perks;
-  for (const [hash2, perk] of Object.entries(input2.perks)) {
-    if (!("editor" in perk) || !perk.editor) continue;
-    let editor;
-    for (const [language, text] of Object.entries(perk.editor)) {
-      if (!text) continue;
-      if (text.main.includes("#{=") || text.secondary.includes("#{="))
-        throw new Error(`Unresolved number token in ${hash2}/${language}`);
-      const main2 = lower2(text.main);
-      const secondary = lower2(text.secondary);
-      if (main2 === text.main && secondary === text.secondary) continue;
-      editor ??= { ...perk.editor };
-      editor[language] = { ...text, main: main2, secondary };
-    }
-    if (!editor) continue;
-    perks ??= { ...input2.perks };
-    perks[hash2] = { ...perk, editor };
-  }
-  return perks ? { ...input2, perks } : input2;
-}
-
-// packages/core/src/setBonus.ts
-var setBonusCategoryId = "armor-set-bonus";
-var setBonusLegacyType = "Armor Set Bonus";
-var setBonusHoldMessage = "Set bonuses need the new converter; they can be pushed after cut-over";
-var isSetBonusType = (type) => type === setBonusCategoryId || type === setBonusLegacyType;
-var isHeldSetBonus = (tooltip, facts) => isSetBonusType(facts ? facts.type : tooltip.custom?.categoryId);
-
-// packages/export/src/setBonus.ts
-function withSetBonusType(perks) {
-  let renamed;
-  for (const [hash2, perk] of Object.entries(perks)) {
-    const type = perk.type;
-    if (type === setBonusLegacyType || !isSetBonusType(type)) continue;
-    renamed ??= { ...perks };
-    renamed[hash2] = { ...perk, type: setBonusLegacyType };
-  }
-  return renamed ?? perks;
-}
-
-// packages/export/src/legacy.ts
-var legacyPresets = [
-  "clarity",
-  "dim",
-  "crayon",
-  "foundry",
-  "lightGG",
-  "braytech",
-  "vaultZero",
-  "clarityV2"
-];
-var deployedLegacyPresets = legacyPresets.filter(
-  (preset) => preset !== "clarityV2"
-);
-var encoder = new TextEncoder();
-var isLegacyPreset = (preset) => legacyPresets.includes(preset) && Object.hasOwn(converterSettings, preset);
-function buildLegacy(input2, preset, options = {}) {
-  if (!isLegacyPreset(preset)) throw new Error(`Unknown legacy preset: ${String(preset)}`);
-  const identical = new Set([...options.identical ?? []].map(String));
-  const output2 = databaseConverter(
-    preset,
-    withSetBonusType(
-      lowerInput(
-        input2,
-        preset === "clarityV2" ? options.arrowFallback ? "fallback" : void 0 : "legacy"
-      ).perks
-    ),
-    identical
-  );
-  const text = customJsonStringify(output2, ["stat", "multiplier", "weaponTypes", "classNames"]);
-  return encoder.encode(text);
-}
-
-// scripts/publisher/publisher.ts
-import { createHash, createPublicKey, verify } from "node:crypto";
-
-// packages/core/src/index.ts
-init_languages();
-init_legacy();
-init_schemas3();
-init_contentHash();
-
-// packages/core/src/aliases.ts
-init_zod();
-init_legacy();
-var aliasesSchema = external_exports.record(
-  external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((value2) => Number(value2) <= 4294967295),
-  external_exports.object({ to: hashSchema, kind: external_exports.enum(["sandbox", "frame", "name"]) }).strict()
-);
-function resolveAlias(hash2, aliases) {
-  const seen = /* @__PURE__ */ new Set();
-  while (aliases[hash2]) {
-    if (seen.has(hash2)) throw new Error(`Cyclic tooltip alias at ${hash2}`);
-    seen.add(hash2);
-    hash2 = aliases[hash2].to;
-  }
-  return hash2;
-}
-var incomingIndexes = /* @__PURE__ */ new WeakMap();
-function incomingAliases(hash2, aliases) {
-  let index = incomingIndexes.get(aliases);
-  if (!index) {
-    index = /* @__PURE__ */ new Map();
-    for (const [alias, { kind }] of Object.entries(aliases)) {
-      const target = resolveAlias(Number(alias), aliases);
-      const list = index.get(target);
-      if (list) list.push([Number(alias), kind]);
-      else index.set(target, [[Number(alias), kind]]);
-    }
-    for (const list of index.values()) list.sort((x, y) => x[0] - y[0]);
-    incomingIndexes.set(aliases, index);
-  }
-  return index.get(hash2) ?? [];
-}
-
-// packages/core/src/publishableHash.ts
-init_contentHash();
-
-// packages/core/src/exportLegacy.ts
-init_baseEnhanced();
-init_braces();
-init_languages();
-init_schemas3();
-
-// packages/core/src/validation/index.ts
-init_languages();
-
-// packages/core/src/markup/index.ts
-init_syntax();
-init_lines();
-init_prepare();
-
 // packages/core/src/markup/parse.ts
 init_braces();
 init_numberSlots();
@@ -25300,7 +24981,386 @@ function parseWith(text, globals, lower2, numbered2 = false, indexed = false) {
   return { lines: parseLines(format(tidy(prepared.text)), titles), diagnostics };
 }
 
+// packages/export/src/converter/descriptionConverter.ts
+var numberLanguage = ({ database, hash: hash2, language }) => database[hash2].editor[language]?.englishFallback ? "en" : language;
+var nativeDescription = (descriptionData, description) => {
+  const { database, hash: hash2, language } = descriptionData;
+  const library = (id) => {
+    const text = database[id]?.editor[language];
+    return [text?.main, text?.secondary].filter(Boolean).join("\n");
+  };
+  const variables = library(2);
+  const titles = library(3);
+  let native = [description, variables, titles].some((source) => source.includes("{{"));
+  const imports = new Proxy(/* @__PURE__ */ Object.create(null), {
+    get(_target, key) {
+      const source = typeof key === "string" ? database[key]?.editor[language]?.main : void 0;
+      if (source?.includes("{")) native = true;
+      return source;
+    }
+  });
+  const parsed = parseMarkup(description, {
+    variables,
+    titles,
+    imports,
+    type: database[hash2].type,
+    lang: numberLanguage(descriptionData)
+  });
+  if (!native) return void 0;
+  const error62 = parsed.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+  if (error62) throw new Error(`Tooltip ${hash2} (${language}): ${error62.message}`);
+  return parsed.lines;
+};
+var prepareDescription = (descriptionData, imported) => {
+  const { language, hash: hash2, database } = descriptionData;
+  let description = imported ?? loadExports(descriptionData);
+  description = removePerkSpecificText(description, database[hash2].type);
+  description = loadVariables({ ...descriptionData, descriptionString: description });
+  const titles = extractTitles(removeUnusedText2(description, false));
+  description = doMath(description, numberLanguage(descriptionData));
+  return {
+    preparedDescription: removeUnusedText2(description.trim()),
+    titles: {
+      ...titles,
+      ...extractTitles(database[3].editor[language]?.main),
+      ...extractTitles(database[3].editor[language]?.secondary)
+    }
+  };
+};
+var convertDescription = (descriptionData) => {
+  const imported = loadExports(descriptionData);
+  const native = nativeDescription(descriptionData, imported);
+  if (native !== void 0) return { lines: native.length ? native : void 0, native: true };
+  const { preparedDescription, titles } = prepareDescription(descriptionData, imported);
+  const convertedTitles = Object.entries(titles || {}).reduce(
+    (acc, [titleName, titleContent]) => {
+      const { preparedDescription: preparedDescription2 } = prepareDescription({ ...descriptionData, descriptionString: titleContent });
+      const convertedTitles2 = separateTableWeaponType(preparedDescription2, {});
+      if (convertedTitles2) acc[titleName] = convertedTitles2;
+      return acc;
+    },
+    {}
+  );
+  return { lines: separateTableWeaponType(preparedDescription, convertedTitles), native: false };
+};
+var descriptionConverter = (descriptionData) => convertDescription(descriptionData).lines;
+
+// packages/export/src/converter/descriptionFilter.ts
+var cleanDescription = (obj, converterType) => {
+  const { getFromDescription, enhancedArrowReplacement } = getSettings(converterType);
+  const remover = (obj2) => {
+    if (converterType === "dim" && obj2?.classNames?.includes("prismatic")) {
+      obj2.text = prismaticAssets.dim + (obj2.text || "");
+      obj2.classNames = obj2.classNames.filter((name2) => name2 !== "prismatic");
+    }
+    for (const key in obj2) {
+      if (key === "text") {
+        if (enhancedArrowReplacement !== void 0 && obj2[key] === "\u{1F845}") {
+          obj2[key] = enhancedArrowReplacement;
+          continue;
+        }
+        if (obj2.classNames?.includes("pvp") && !getFromDescription.includeClassNames?.includes("pvp")) {
+          const pvpText = obj2[key].match(/\[.+?\]/g)?.[0].replace(/\[|\]/g, "");
+          if (pvpText === null) continue;
+          obj2[key] = obj2[key].replace(pvpText, `PVP: ${pvpText}`);
+          continue;
+        }
+      }
+      if (key === "classNames") {
+        obj2[key] = obj2[key]?.filter((className) => {
+          return getFromDescription.includeClassNames?.includes(className);
+        });
+        continue;
+      }
+      if (!getFromDescription.link && key === "link") {
+        delete obj2[key];
+        continue;
+      }
+      if (!getFromDescription.title && key === "title") {
+        delete obj2[key];
+        continue;
+      }
+      if (!getFromDescription.table && key === "table") {
+        delete obj2[key];
+        continue;
+      }
+      if (obj2[key]?.hasOwnProperty("formula") || obj2[key]?.hasOwnProperty("isFormula")) {
+        if (!getFromDescription.formula) {
+          delete obj2[key];
+          continue;
+        }
+      }
+      if (!obj2[key] || typeof obj2[key] !== "object") continue;
+      remover(obj2[key]);
+    }
+    return obj2;
+  };
+  return remover(obj);
+};
+var descriptionToString = (description, converterType) => {
+  const options = getSettings(converterType).toStringConverterOptions;
+  return description?.reduce((acc, line) => {
+    if (line.classNames?.includes("spacer")) return acc = acc + "\n";
+    const newLine = line.linesContent?.reduce((acc2, linesContent) => {
+      if (linesContent.link && options?.link) {
+        const [textStart, textEnd, linkStat, linkEnd] = options.link;
+        acc2 = acc2 + `${textStart}${linesContent.text}${textEnd}${linkStat}${linesContent.link}${linkEnd}`;
+        return acc2;
+      }
+      if (linesContent.classNames && linesContent.classNames?.length !== 0 && options?.classNames) {
+        const newText = linesContent.classNames.reduce((acc3, className) => {
+          if (className === void 0) return acc3;
+          const [classNameStart, classNameEnd] = options.classNames?.[className] || ["", ""];
+          acc3 = acc3 + `${classNameStart}${linesContent.text || ""}${classNameEnd}`;
+          return acc3;
+        }, "");
+        acc2 = acc2 + newText;
+        return acc2;
+      }
+      acc2 = acc2 + linesContent.text;
+      return acc2;
+    }, "");
+    if (line.classNames && line.classNames?.length !== 0 && options?.classNames) {
+      const lineWithClassNames = line.classNames.reduce((acc2, className) => {
+        if (className === void 0) return acc2;
+        const [classNameStart, classNameEnd] = options.classNames?.[className] || [
+          "",
+          ""
+        ];
+        acc2 = acc2 + `${classNameStart}${newLine}${classNameEnd}`;
+        return acc2;
+      }, "");
+      acc = acc + "\n" + lineWithClassNames;
+      return acc;
+    }
+    acc = acc + "\n" + newLine;
+    return acc;
+  }, "").trim();
+};
+var normalizeLegacySections = (lines) => {
+  if (!lines) return lines;
+  let previousSection;
+  return lines.flatMap((line) => {
+    const { weaponTypes: weaponTypes3, weaponBlock, weaponOther, ...body } = line;
+    const label = weaponOther ? "Other" : weaponTypes3?.filter(Boolean).join(", ");
+    const section = label ? `${weaponBlock ?? ""}:${label}` : void 0;
+    const heading2 = section && section !== previousSection ? [{ linesContent: [{ text: `${label}:` }] }] : [];
+    previousSection = section;
+    body.linesContent?.forEach((content) => {
+      content.title = normalizeLegacySections(content.title);
+    });
+    body.table?.forEach((row) => row.rowContent?.forEach((cell) => cell.cellContent?.forEach((content) => {
+      content.title = normalizeLegacySections(content.title);
+    })));
+    return [...heading2, body];
+  });
+};
+var descriptionFilter = (description, converterType) => {
+  const { toStringConverterOptions } = getSettings(converterType);
+  const newDescription = cleanObject(cleanDescription(normalizeLegacySections(description), converterType));
+  let removeSpacer = true;
+  const finalDescription = newDescription?.reduceRight((acc, line) => {
+    if (line.classNames?.includes("spacer") && removeSpacer) return acc;
+    removeSpacer = false;
+    acc.unshift(line);
+    return acc;
+  }, []);
+  if (!toStringConverterOptions) return finalDescription;
+  return descriptionToString(finalDescription, converterType);
+};
+
+// packages/export/src/converter/publisher.ts
+var databaseConverter = (converterType, database, identical) => {
+  const settings = getSettings(converterType);
+  validateReferences(database);
+  const lookup = expandAliases(database);
+  const references = {};
+  const variants = {};
+  const newDatabase = {};
+  for (const [hash2, rawPerk] of Object.entries(database)) {
+    const aliasOutput = isAliasStub(rawPerk) ? getAliasOutput(settings, rawPerk) : "copy";
+    const perk = lookup[hash2];
+    if (aliasOutput === "skip" || perk === void 0) continue;
+    if (Number(hash2) < 50) continue;
+    const editorDescription = perk.editor.en?.main.trim() || "";
+    if (editorDescription === "") continue;
+    if (!settings.optional && identical.has(hash2)) continue;
+    if (isAliasStub(rawPerk) && aliasOutput === "reference") {
+      references[hash2] = { hash: rawPerk.hash, aliasOf: rawPerk.aliasOf };
+    }
+    const cleanPerk = getDataFromPerk(perk, settings.getFromPerk);
+    const descriptions = Object.entries(cleanPerk.editor).reduce(
+      (acc, [language, descriptions2]) => {
+        const descriptionData = {
+          database: lookup,
+          descriptionString: descriptions2[settings.editor],
+          editorType: settings.editor,
+          hash: cleanPerk.hash,
+          language
+        };
+        const convertedDescription = descriptionConverter(descriptionData);
+        if (convertedDescription) {
+          acc[language] = descriptionFilter(convertedDescription, converterType);
+        }
+        return acc;
+      },
+      {}
+    );
+    const { editor, ...withoutEditor } = cleanPerk;
+    const convertedPerk = {
+      ...withoutEditor,
+      descriptions
+    };
+    if (references[hash2]) {
+      variants[hash2] = convertedPerk;
+    } else newDatabase[hash2] = convertedPerk;
+  }
+  for (const [hash2, reference] of Object.entries(references)) {
+    const target = newDatabase[reference.aliasOf];
+    if (target === void 0) continue;
+    const variant = variants[hash2];
+    newDatabase[hash2] = JSON.stringify(variant.descriptions) !== JSON.stringify(target.descriptions) ? variant : reference;
+  }
+  const output2 = cleanObject(newDatabase);
+  validateOutputReferences(output2);
+  return output2;
+};
+
+// packages/export/src/elementTags.ts
+init_braces();
+function lowerInput(input2, arrow, elementTags = false) {
+  const lower2 = (text) => elementTags ? lowerDelimitedMarkup(text) : lowerConsumerMarkup(text, arrow);
+  let perks;
+  for (const [hash2, perk] of Object.entries(input2.perks)) {
+    if (!("editor" in perk) || !perk.editor) continue;
+    let editor;
+    for (const [language, text] of Object.entries(perk.editor)) {
+      if (!text) continue;
+      if (text.main.includes("#{=") || text.secondary.includes("#{="))
+        throw new Error(`Unresolved number token in ${hash2}/${language}`);
+      const main2 = lower2(text.main);
+      const secondary = lower2(text.secondary);
+      if (main2 === text.main && secondary === text.secondary) continue;
+      editor ??= { ...perk.editor };
+      editor[language] = { ...text, main: main2, secondary };
+    }
+    if (!editor) continue;
+    perks ??= { ...input2.perks };
+    perks[hash2] = { ...perk, editor };
+  }
+  return perks ? { ...input2, perks } : input2;
+}
+
+// packages/core/src/setBonus.ts
+var setBonusCategoryId = "armor-set-bonus";
+var setBonusLegacyType = "Armor Set Bonus";
+var setBonusHoldMessage = "Set bonuses need the new converter; they can be pushed after cut-over";
+var isSetBonusType = (type) => type === setBonusCategoryId || type === setBonusLegacyType;
+var isHeldSetBonus = (tooltip, facts) => isSetBonusType(facts ? facts.type : tooltip.custom?.categoryId);
+
+// packages/export/src/setBonus.ts
+function withSetBonusType(perks) {
+  let renamed;
+  for (const [hash2, perk] of Object.entries(perks)) {
+    const type = perk.type;
+    if (type === setBonusLegacyType || !isSetBonusType(type)) continue;
+    renamed ??= { ...perks };
+    renamed[hash2] = { ...perk, type: setBonusLegacyType };
+  }
+  return renamed ?? perks;
+}
+
+// packages/export/src/legacy.ts
+var legacyPresets = [
+  "clarity",
+  "dim",
+  "crayon",
+  "foundry",
+  "lightGG",
+  "braytech",
+  "vaultZero",
+  "clarityV2"
+];
+var deployedLegacyPresets = legacyPresets.filter(
+  (preset) => preset !== "clarityV2"
+);
+var encoder = new TextEncoder();
+var isLegacyPreset = (preset) => legacyPresets.includes(preset) && Object.hasOwn(converterSettings, preset);
+function buildLegacy(input2, preset, options = {}) {
+  if (!isLegacyPreset(preset)) throw new Error(`Unknown legacy preset: ${String(preset)}`);
+  const identical = new Set([...options.identical ?? []].map(String));
+  const output2 = databaseConverter(
+    preset,
+    withSetBonusType(
+      lowerInput(
+        input2,
+        preset === "clarityV2" ? options.arrowFallback ? "fallback" : void 0 : "legacy"
+      ).perks
+    ),
+    identical
+  );
+  const text = customJsonStringify(output2, ["stat", "multiplier", "weaponTypes", "classNames"]);
+  return encoder.encode(text);
+}
+
+// scripts/publisher/publisher.ts
+import { createHash, createPublicKey, verify } from "node:crypto";
+
+// packages/core/src/index.ts
+init_languages();
+init_legacy();
+init_schemas3();
+init_contentHash();
+
+// packages/core/src/aliases.ts
+init_zod();
+init_legacy();
+var aliasesSchema = external_exports.record(
+  external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((value2) => Number(value2) <= 4294967295),
+  external_exports.object({ to: hashSchema, kind: external_exports.enum(["sandbox", "frame", "name"]) }).strict()
+);
+function resolveAlias(hash2, aliases) {
+  const seen = /* @__PURE__ */ new Set();
+  while (aliases[hash2]) {
+    if (seen.has(hash2)) throw new Error(`Cyclic tooltip alias at ${hash2}`);
+    seen.add(hash2);
+    hash2 = aliases[hash2].to;
+  }
+  return hash2;
+}
+var incomingIndexes = /* @__PURE__ */ new WeakMap();
+function incomingAliases(hash2, aliases) {
+  let index = incomingIndexes.get(aliases);
+  if (!index) {
+    index = /* @__PURE__ */ new Map();
+    for (const [alias, { kind }] of Object.entries(aliases)) {
+      const target = resolveAlias(Number(alias), aliases);
+      const list = index.get(target);
+      if (list) list.push([Number(alias), kind]);
+      else index.set(target, [[Number(alias), kind]]);
+    }
+    for (const list of index.values()) list.sort((x, y) => x[0] - y[0]);
+    incomingIndexes.set(aliases, index);
+  }
+  return index.get(hash2) ?? [];
+}
+
+// packages/core/src/publishableHash.ts
+init_contentHash();
+
+// packages/core/src/exportLegacy.ts
+init_baseEnhanced();
+init_braces();
+init_languages();
+init_schemas3();
+
+// packages/core/src/validation/index.ts
+init_languages();
+
 // packages/core/src/markup/index.ts
+init_syntax();
+init_lines();
+init_prepare();
 init_elementTags();
 init_braces();
 init_weaponHeadings();
