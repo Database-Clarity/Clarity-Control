@@ -148,7 +148,11 @@ function Workspace({
   function setDraft(next: { key: string; body: string }) {
     setDrafts((previous) => {
       const values = { ...previous };
-      if (next.key) values[next.key] = { body: next.body, revision: entry?.revision };
+      if (next.key)
+        values[next.key] = {
+          body: next.body,
+          revision: previous[next.key]?.revision ?? entry?.revision,
+        };
       else delete values[key];
       return values;
     });
@@ -234,6 +238,7 @@ function Workspace({
     !conflict &&
     !!entry &&
     !!savedConsumer &&
+    validGlobalImpact(savedConsumer) &&
     canAcknowledgeGlobal(snapshot, entry.id, savedConsumer);
   const reviewKey =
     savedConsumer &&
@@ -598,7 +603,7 @@ function Workspace({
               <button
                 disabled={disabled || !dirty}
                 onClick={() => {
-                  setDraft({ key, body: saved });
+                  setDraft({ key: '', body: '' });
                   setProjected(undefined);
                 }}
               >
@@ -819,9 +824,7 @@ function Workspace({
                               <label>
                                 <input
                                   type="checkbox"
-                                  disabled={
-                                    !canAcknowledge || pending || raw || !validGlobalImpact(row)
-                                  }
+                                  disabled={!canAcknowledge || pending || raw}
                                   checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
                                   onChange={(e) =>
                                     setReviewed(e.target.checked ? reviewKey : undefined)
@@ -839,7 +842,6 @@ function Workspace({
                                   raw ||
                                   reviewed !== reviewKey ||
                                   !canReviewGlobal(actor, row.consumer.lang) ||
-                                  !validGlobalImpact(row) ||
                                   !canAcknowledge
                                 }
                                 onClick={() =>
