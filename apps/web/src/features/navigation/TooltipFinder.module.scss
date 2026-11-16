@@ -148,10 +148,7 @@
   // against the right edge. The name takes what it needs first; the context gets the rest and
   // gives way before the name truncates (owner 2026-11-16). A row that still truncates shows its
   // whole text in the finder's hint.
-  grid-template-columns: 1.25rem minmax(0, max-content) minmax(0, 1fr) var(
-      --finder-marker-width,
-      2.5625rem
-    );
+  grid-template-columns: 1.25rem minmax(0, max-content) minmax(0, 1fr) var(--finder-marker-width);
   align-items: center;
   gap: 0.375rem;
   min-height: 1.75rem;
@@ -185,7 +182,7 @@
 
   // The phone sheet cannot fit two names on one line: the entry above, its context below.
   &[data-two-line] {
-    grid-template-columns: 1.25rem minmax(0, 1fr) var(--finder-marker-width, 2.5625rem);
+    grid-template-columns: 1.25rem minmax(0, 1fr) var(--finder-marker-width);
     grid-template-rows: auto auto;
     align-content: center;
     row-gap: 0;
@@ -422,28 +419,16 @@
   line-height: 1.4;
 }
 
+// One marker column in every row: the status glyphs' slot, then the entry-mark flag's cell
+// (8px + 3px), kept whether or not a row has either, so the context text ends on one edge.
+.option {
+  --finder-marker-width: calc(2.5625rem + 11px);
+}
 .option > .markers {
   grid-column: -2;
   grid-row: 1;
-  justify-self: end;
-}
-.option[data-entry-marked] {
-  --finder-marker-width: 52px;
-
-  > .markers {
-    display: inline-flex;
-    align-items: center;
-  }
-}
-// The phone sheet gives the flag slot its width only when a flag is present: the name and its
-// context get the row.
-.popup[data-variant='sheet'] .option {
-  --finder-marker-width: auto;
-
-  > .markers > * {
-    width: auto;
-    flex-basis: auto;
-  }
+  display: flex;
+  align-items: center;
 }
 .option[data-two-line] > .markers {
   grid-row: 1 / span 2;
