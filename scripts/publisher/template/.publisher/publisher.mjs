@@ -25070,12 +25070,43 @@ init_prepare();
 
 // packages/core/src/markup/parse.ts
 init_braces();
+init_numberSlots();
+init_freeze();
+init_map();
+init_numberFormat();
 init_elementTags();
 init_lines();
 init_prepare();
 var reservedMarker = /[\uE000\uE001]/;
 var reservedMarkerMessage = "Remove the private-use character U+E000 or U+E001: the preview reserves it for element-tagged text.";
-function parseMarkup(text, globals = { variables: "", titles: "" }) {
+function parseMarkup(text, globals = { variables: "", titles: "" }, options) {
+  if (options) return parseNumberSlots(text, globals, options.slots);
+  return parseOrdinary(text, globals);
+}
+function parseOrdinary(text, globals, indexed = false) {
+  const numbered2 = !!globals.numberInput && text.includes("#{=");
+  const numberIssues = [];
+  if (numbered2) {
+    const input2 = globals.numberInput;
+    if (input2.issue) numberIssues.push({ severity: "error", message: input2.issue });
+    const tokens = numberTokens(text);
+    if (input2.fallback || tokens.some((token) => token.id !== void 0 && input2.values.get(token.id) === null))
+      return parseMarkup(input2.english, { ...globals, numberInput: void 0, lang: "en" });
+    for (const token of [...tokens].reverse())
+      if (token.id === void 0 || !input2.values.has(token.id)) {
+        numberIssues.push({
+          severity: "error",
+          message: token.id === void 0 ? "Malformed number token." : `Unknown number #{=${token.id}}.`
+        });
+        text = text.slice(0, token.from) + "?" + text.slice(token.to);
+      }
+    try {
+      text = resolveNumberTokens(text, input2.values);
+    } catch (error62) {
+      numberIssues.push({ severity: "error", message: String(error62) });
+      text = "?";
+    }
+  }
   let reserved = false;
   let tagged = false;
   const clean = (source) => {
@@ -25089,12 +25120,114 @@ function parseMarkup(text, globals = { variables: "", titles: "" }) {
     if (marked2 !== source) tagged = true;
     return lowerDelimitedMarkup(marked2);
   };
-  const tinted = parseWith(text, globals, mark);
-  const parsed = tagged ? parseWith(text, globals, (source) => lowerDelimitedMarkup(lowerElementTags(clean(source)))) : tinted;
+  const tinted = parseWith(text, globals, mark, numbered2, indexed);
+  const parsed = tagged ? parseWith(
+    text,
+    globals,
+    (source) => lowerDelimitedMarkup(lowerElementTags(clean(source))),
+    numbered2,
+    indexed
+  ) : tinted;
   const lines = tagged && JSON.stringify(untinted(tinted.lines)) === JSON.stringify(untinted(parsed.lines)) ? tinted.lines : parsed.lines;
   const diagnostics = parsed.diagnostics;
+  diagnostics.push(...numberIssues);
   if (reserved) diagnostics.push({ severity: "error", message: reservedMarkerMessage });
   return { lines, diagnostics };
+}
+function parseNumberSlots(text, globals, ids) {
+  const open2 = "\uE100", close = "\uE101";
+  if (text.includes(open2) || text.includes(close)) return parseMarkup(text, globals);
+  const variables = numberVariables(text);
+  const slots = numberSlots(text);
+  const markers = [];
+  let source = "", at = 0;
+  for (const [index, slot] of slots.entries()) {
+    const id = ids[index];
+    if (id === void 0 || variables.some(
+      (variable) => variable.from <= slot.from && !text.slice(variable.from, slot.from).includes("\n")
+    ))
+      continue;
+    const key = id.toString(16).replace(/[0-9a-f]/g, (char) => String.fromCharCode(103 + parseInt(char, 16)));
+    markers.push({ from: slot.from, to: slot.to, key });
+  }
+  for (const ref of variableReferences(text)) {
+    if (ref.name === "e" || slots.some((slot) => ref.from >= slot.from && ref.to <= slot.to) || variables.some(
+      (variable) => variable.from <= ref.from && !text.slice(variable.from, ref.from).includes("\n")
+    ))
+      continue;
+    const lineStart = text.lastIndexOf("\n", ref.from - 1) + 1;
+    const lineEnd = text.indexOf("\n", ref.to);
+    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+    if (numberTargetRanges(line).some(
+      (range) => ref.from - lineStart >= range.from && ref.from - lineStart < range.to
+    ))
+      continue;
+    markers.push({ from: ref.from, to: ref.to, key: "w" + ref.name });
+  }
+  for (const marker2 of markers.sort((a, b) => a.from - b.from)) {
+    source += text.slice(at, marker2.from) + open2 + marker2.key + close + text.slice(marker2.from, marker2.to) + open2 + close;
+    at = marker2.to;
+  }
+  source += text.slice(at);
+  const parsed = parseOrdinary(source, globals, true);
+  const spans2 = (parts) => {
+    let active;
+    return parts.flatMap((part) => {
+      const title = part.title ? lines(part.title) : void 0;
+      if (!part.text || !part.text.includes(open2) && active === void 0)
+        return [{ ...part, ...title && { title } }];
+      const slots2 = [];
+      const variables2 = [];
+      let output2 = "";
+      let at2 = 0, slot = active;
+      for (const marker2 of part.text.matchAll(/\uE100(w[a-zA-Z0-9]+|[g-v]*)\uE101/g)) {
+        if (marker2.index > at2) {
+          const from = output2.length;
+          output2 += part.text.slice(at2, marker2.index);
+          if (typeof slot === "number") slots2.push({ id: slot, from, to: output2.length });
+          else if (slot) variables2.push({ name: slot, from, to: output2.length });
+        }
+        slot = marker2[1].startsWith("w") ? marker2[1].slice(1) : marker2[1] ? parseInt(
+          [...marker2[1]].map((char) => (char.charCodeAt(0) - 103).toString(16)).join(""),
+          16
+        ) : void 0;
+        at2 = marker2.index + marker2[0].length;
+      }
+      if (at2 < part.text.length) {
+        const from = output2.length;
+        output2 += part.text.slice(at2);
+        if (typeof slot === "number") slots2.push({ id: slot, from, to: output2.length });
+        else if (slot) variables2.push({ name: slot, from, to: output2.length });
+      }
+      active = slot;
+      if (!output2 && !part.classNames?.length && !part.link && !part.title) return [];
+      return [
+        {
+          ...part,
+          text: output2,
+          ...slots2.length && { slots: slots2 },
+          ...variables2.length && { variables: variables2 },
+          ...title && { title }
+        }
+      ];
+    });
+  };
+  const lines = (input2) => input2.map((line) => ({
+    ...line,
+    ...line.linesContent && { linesContent: spans2(line.linesContent) },
+    ...line.table && {
+      table: line.table.map((row) => ({
+        ...row,
+        ...row.rowContent && {
+          rowContent: row.rowContent.map((cell) => ({
+            ...cell,
+            cellContent: spans2(cell.cellContent)
+          }))
+        }
+      }))
+    }
+  }));
+  return { ...parsed, lines: lines(parsed.lines) };
 }
 function untinted(lines) {
   const spans2 = (parts) => {
@@ -25123,7 +25256,7 @@ function untinted(lines) {
     }
   }));
 }
-function parseWith(text, globals, lower2) {
+function parseWith(text, globals, lower2, numbered2 = false, indexed = false) {
   const diagnostics = [];
   text = lower2(text);
   globals = {
@@ -25134,12 +25267,16 @@ function parseWith(text, globals, lower2) {
       imports: new Proxy(globals.imports, {
         get(target, key, receiver) {
           const value2 = Reflect.get(target, key, receiver);
+          if (typeof key === "string" && globals.numberInput?.hasImportedNumbers?.(key))
+            numbered2 = true;
           return typeof value2 === "string" ? lower2(value2) : value2;
         }
       })
     }
   };
   const prepared = prepareMarkup(text, globals, diagnostics);
+  const tidy = (text2) => indexed ? normalizeMarkupWhitespace(text2.replace(/\uE100w[a-zA-Z0-9]+\uE101\uE100\uE101/g, "")) : text2;
+  const format = (text2) => numbered2 && globals.lang === void 0 ? formatNumbers(text2, globals.numberInput?.lang) : text2;
   const titleBodies = prepared.nativeTitles ? Object.entries(prepared.titles).map(
     ([name2, content]) => prepared.nativeTitles[name2] ? prepareNativeTitle(prepared.nativeTitles[name2], globals) : prepareMarkup(content, globals, []).text
   ) : Object.values(prepared.titles).map((content) => prepareMarkup(content, globals, []).text);
@@ -25158,9 +25295,9 @@ function parseWith(text, globals, lower2) {
         diagnostics.push({ severity: "warning", message: `Unknown variable ${variable}.` });
       }
     }
-    titles[name2] = parseLines(body, {});
+    titles[name2] = parseLines(format(tidy(body)), {});
   }
-  return { lines: parseLines(prepared.text, titles), diagnostics };
+  return { lines: parseLines(format(tidy(prepared.text)), titles), diagnostics };
 }
 
 // packages/core/src/markup/index.ts
