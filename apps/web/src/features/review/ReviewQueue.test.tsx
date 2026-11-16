@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { HashRouter, MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { ReviewQueue } from './ReviewQueue';
-import { advanceReviewOpening, beginReviewOpening, useReviewOpening } from './opening';
 import type { PendingTooltip } from './model';
 import type { QueueView } from './queueModel';
 import { queueView } from './queueModel';
 import { useReviewQueue } from './queueStore';
 
 const views = new WeakMap<object, QueueView>();
+const noKinds = new Map();
 it('reveals the new selection instead of clamping to the bottom after a grouped filter shrinks', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   useReviewQueue.setState({ scrollTop: 0 });
@@ -36,7 +36,11 @@ it('reveals the new selection instead of clamping to the bottom after a grouped 
   const render = (rows: PendingTooltip[], hash: string) =>
     root.render(
       <MemoryRouter>
-        <ReviewQueue view={queueView(rows, '', '', new Set(), false)} selectedHash={hash} />
+        <ReviewQueue
+          kinds={noKinds}
+          view={queueView(rows, '', '', new Set(), 'hidden')}
+          selectedHash={hash}
+        />
       </MemoryRouter>,
     );
   try {
@@ -79,7 +83,8 @@ it('checks a group when every available row is selected and another row is in fl
       root.render(
         <MemoryRouter>
           <ReviewQueue
-            view={queueView(entries, '', '', new Set(), false)}
+            kinds={noKinds}
+            view={queueView(entries, '', '', new Set(), 'hidden')}
             selectedHash="1"
             inFlight={new Set([2])}
           />
@@ -175,7 +180,7 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
     await act(async () =>
       root.render(
         <MemoryRouter>
-          <ReviewQueue view={listView(changes)} selectedHash="1800" />
+          <ReviewQueue kinds={noKinds} view={listView(changes)} selectedHash="1800" />
         </MemoryRouter>,
       ),
     );
@@ -235,6 +240,10 @@ it('bounds a long queue, reveals deep URL selections, and keeps keyboard access 
       ),
     );
     expect(document.activeElement?.getAttribute('href')).toBe('/review?hash=0');
+    // Tab from a name reaches its editor link natively; from there the next row's name.
+    await act(async () =>
+      host.querySelector<HTMLAnchorElement>('a[data-review-edit="0"]')!.focus(),
+    );
     await act(async () =>
       document.activeElement?.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }),
@@ -292,7 +301,7 @@ it('coalesces wheel deltas before scrolling, preserves zoom/chaining, and cancel
     await act(async () =>
       root.render(
         <MemoryRouter>
-          <ReviewQueue view={listView(changes)} selectedHash="0" />
+          <ReviewQueue kinds={noKinds} view={listView(changes)} selectedHash="0" />
         </MemoryRouter>,
       ),
     );
@@ -407,7 +416,7 @@ it('preserves native link modifiers and current-route replacement with one queue
     await act(async () =>
       root.render(
         <MemoryRouter basename="/app" initialEntries={['/app/review']}>
-          <ReviewQueue view={listView(changes)} selectedHash={null} />
+          <ReviewQueue kinds={noKinds} view={listView(changes)} selectedHash={null} />
           <Location />
         </MemoryRouter>,
       ),
@@ -462,101 +471,6 @@ it('preserves native link modifiers and current-route replacement with one queue
   }
 });
 
-it('retains a keyboard activation and wheel delta during the readonly opening', async () => {
-  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  let serial = 0;
-  const frames = new Map<number, FrameRequestCallback>();
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-    frames.set(++serial, callback);
-    return serial;
-  });
-  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
-  const height = vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(400);
-  const bounds = vi
-    .spyOn(Element.prototype, 'getBoundingClientRect')
-    .mockReturnValue({ height: 64 } as DOMRect);
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
-  let changes = Array.from({ length: 1000 }, (_, hash) => ({
-    hash,
-    name: `Tooltip ${hash}`,
-    category: 'Perk',
-  }));
-  function Queue() {
-    const location = useLocation();
-    return (
-      <>
-        <ReviewQueue
-          view={listView(changes)}
-          selectedHash={new URLSearchParams(location.search).get('hash')}
-        />
-        <output>{location.pathname + location.search}</output>
-      </>
-    );
-  }
-  const previousURL = window.location.href;
-  window.history.replaceState(null, '', '/#/review?hash=0');
-  try {
-    beginReviewOpening();
-    const token = useReviewOpening.getState().token;
-    await act(async () =>
-      root.render(
-        <HashRouter>
-          <Queue />
-        </HashRouter>,
-      ),
-    );
-    const scroller = host.querySelector<HTMLElement>(
-      '[aria-label="Scroll pending saved changes"]',
-    )!;
-    await act(async () => scroller.focus());
-    await act(async () =>
-      scroller.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }),
-      ),
-    );
-    await act(async () =>
-      scroller.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-      ),
-    );
-    expect(host.querySelector('output')?.textContent).toBe('/review?hash=0');
-    changes = [...changes].reverse();
-    await act(async () =>
-      root.render(
-        <HashRouter>
-          <Queue />
-        </HashRouter>,
-      ),
-    );
-    const top = scroller.scrollTop;
-    await act(async () =>
-      scroller.dispatchEvent(
-        new WheelEvent('wheel', { deltaY: -128, bubbles: true, cancelable: true }),
-      ),
-    );
-    const batch = [...frames];
-    frames.clear();
-    await act(async () => batch.forEach(([, callback]) => callback(performance.now())));
-    expect(scroller.scrollTop).toBe(top - 128);
-    while (useReviewOpening.getState().warming)
-      await act(async () => {
-        advanceReviewOpening(token);
-      });
-    expect(host.querySelector('output')?.textContent).toBe('/review?hash=999');
-    expect(document.activeElement?.getAttribute('data-review-hash')).toBe('999');
-  } finally {
-    await act(async () => root.unmount());
-    host.remove();
-    window.history.replaceState(null, '', previousURL);
-    useReviewOpening.setState({ warming: false, limit: Infinity, required: 0 });
-    height.mockRestore();
-    bounds.mockRestore();
-    vi.unstubAllGlobals();
-  }
-});
-
 it('distinguishes the two real Tactical enhanced mods without changing unique names', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   useReviewQueue.setState({ scrollTop: 0 });
@@ -584,7 +498,8 @@ it('distinguishes the two real Tactical enhanced mods without changing unique na
       root.render(
         <MemoryRouter>
           <ReviewQueue
-            view={queueView(entries, '', '', new Set(), false)}
+            kinds={noKinds}
+            view={queueView(entries, '', '', new Set(), 'hidden')}
             selectedHash="974161790"
           />
         </MemoryRouter>,

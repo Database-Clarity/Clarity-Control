@@ -2,9 +2,13 @@ import type { MarkupGlobals } from '@clarity/core';
 import { compareDiffOutput, presentDiff, renderedDiff, variantGlobals } from './renderedDiff';
 import { sourceAnalysisSteps, type SourceAnalysis } from './sourceOnlyChanges';
 
-/** A comparison request, or a request to drop one (a newer diff or a closed view). */
+/**
+ * A comparison request, a request to drop one (a newer diff or a closed view), or a classify
+ * request (Review's row words): only whether the rendered text differs, answered at once.
+ */
 export type RenderedDiffRequest =
-  { id: number; before: string; after: string; globals: MarkupGlobals } | { cancel: number };
+  | { id: number; before: string; after: string; globals: MarkupGlobals; classify?: true }
+  | { cancel: number };
 /**
  * Replies per request: `result` (the presented diff, or no `result` and no
  * `sourceAnalysis` when the comparison failed), then `sourceAnalysis` once every
@@ -18,6 +22,8 @@ export type RenderedDiffReply = {
   };
   sourceAnalysis?: SourceAnalysis;
   sourceFailed?: true;
+  /** The reply to a classify request (absent when rendering threw). */
+  classified?: ReturnType<typeof compareDiffOutput>;
 };
 type Job = Extract<RenderedDiffRequest, { id: number }>;
 
@@ -95,6 +101,16 @@ self.onmessage = (event: MessageEvent<RenderedDiffRequest>) => {
     const index = queue.findIndex((job) => job.id === request.cancel);
     if (index >= 0) queue.splice(index, 1);
     else if (current === request.cancel) cancelled = true;
+    return;
+  }
+  if (request.classify) {
+    let classified: RenderedDiffReply['classified'];
+    try {
+      classified = compareDiffOutput(request.before, request.after, request.globals);
+    } catch {
+      classified = undefined;
+    }
+    reply({ id: request.id, classified });
     return;
   }
   queue.push(request);

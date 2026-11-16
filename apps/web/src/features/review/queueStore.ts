@@ -1,29 +1,31 @@
 import { create } from 'zustand';
 import type { PendingTooltip } from './model';
-import { markerGroup } from './queueModel';
+import { markerGroup, type Leftovers } from './queueModel';
 
 /**
  * Review state shared by the left-column queue and the page: the pending entries, what is
  * selected for the publish, and which groups are collapsed (not the URL; remembered per device).
  */
 interface ReviewQueueState {
-  /** Every pending saved change, marker-only included; null until the first comparison. */
+  /** Every pending saved change, leftovers included; null until the first comparison. */
   entries: PendingTooltip[] | null;
   selected: ReadonlySet<number>;
   collapsed: ReadonlySet<string>;
-  /** The marker-only group is collapsed by default. */
-  markerOpen: boolean;
+  /** Migration leftovers are hidden until the list's "Show". */
+  leftovers: Leftovers;
   /** The list's scroll position, kept across leaving and returning to the route. */
   scrollTop: number;
   setEntries(entries: PendingTooltip[]): void;
   toggle(hash: number): void;
+  /** Sets one row's tick (Include / Remove and their Undo). */
+  setIncluded(hash: number, included: boolean): void;
   /** Adds every hash when any is missing, otherwise removes them all (a group's checkbox). */
   toggleAll(hashes: readonly number[]): void;
+  /** Adds every hash ("Include all N"). */
+  includeAll(hashes: readonly number[]): void;
   clearSelection(): void;
   toggleGroup(id: string): void;
-  /** Collapse all or Expand all: the given category groups, never the marker-only group. */
-  setGroupsCollapsed(ids: readonly string[], collapsed: boolean): void;
-  openMarkers(): void;
+  showLeftovers(): void;
 }
 
 const empty: ReadonlySet<never> = new Set();
@@ -55,13 +57,21 @@ export const useReviewQueue = create<ReviewQueueState>((set) => ({
   entries: null,
   selected: empty,
   collapsed: readCollapsed(),
-  markerOpen: false,
+  leftovers: 'hidden',
   scrollTop: 0,
   setEntries: (entries) => set((state) => (state.entries === entries ? state : { entries })),
   toggle: (hash) =>
     set((state) => {
       const next = new Set(state.selected);
       if (!next.delete(hash)) next.add(hash);
+      return { selected: next };
+    }),
+  setIncluded: (hash, included) =>
+    set((state) => {
+      if (state.selected.has(hash) === included) return state;
+      const next = new Set(state.selected);
+      if (included) next.add(hash);
+      else next.delete(hash);
       return { selected: next };
     }),
   toggleAll: (hashes) =>
@@ -71,27 +81,21 @@ export const useReviewQueue = create<ReviewQueueState>((set) => ({
       else for (const hash of hashes) next.add(hash);
       return { selected: next };
     }),
+  includeAll: (hashes) =>
+    set((state) => {
+      if (hashes.every((hash) => state.selected.has(hash))) return state;
+      return { selected: new Set([...state.selected, ...hashes]) };
+    }),
   clearSelection: () => set((state) => (state.selected.size ? { selected: empty } : state)),
   toggleGroup: (id) =>
     set((state) => {
-      if (id === markerGroup) return { markerOpen: !state.markerOpen };
+      if (id === markerGroup)
+        return { leftovers: state.leftovers === 'open' ? 'collapsed' : 'open' };
       const next = new Set(state.collapsed);
       if (!next.delete(id)) next.add(id);
       writeCollapsed(next);
       return { collapsed: next };
     }),
-  setGroupsCollapsed: (ids, collapsed) =>
-    set((state) => {
-      const next = new Set(state.collapsed);
-      for (const id of ids)
-        if (id !== markerGroup) {
-          if (collapsed) next.add(id);
-          else next.delete(id);
-        }
-      if (next.size === state.collapsed.size && [...next].every((id) => state.collapsed.has(id)))
-        return state;
-      writeCollapsed(next);
-      return { collapsed: next };
-    }),
-  openMarkers: () => set((state) => (state.markerOpen ? state : { markerOpen: true })),
+  showLeftovers: () =>
+    set((state) => (state.leftovers === 'hidden' ? { leftovers: 'collapsed' } : state)),
 }));

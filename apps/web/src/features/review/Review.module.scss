@@ -2,35 +2,41 @@
 @use '../../ui/stepper';
 @use '../../data/variables' as theme;
 
+// Review changes: a triage like the Compendium queue. Head line, identity line, one sentence,
+// the evidence the change needs, and a decision bar fixed at the bottom of the column.
 .page {
-  // The shell's page padding (Layout .reviewMode .main); the header line and identity bar run
-  // edge to edge inside it, like the Compendium tab's.
+  // The shell's page padding (Layout .reviewMode .main); the head line, identity line, and bar
+  // run edge to edge inside it, like the Compendium tab's.
   --main-pad: clamp(1rem, 3vw, 2rem);
   // The shell assigns this width. Keep the route out of ancestor inline sizing.
   contain: inline-size layout;
   container-type: inline-size;
-  margin-top: calc(-1 * var(--main-pad));
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: calc(var(--app-h, 100dvh) - var(--header-h, 37px));
+  margin-block: calc(-1 * var(--main-pad));
   font-size: 0.8125rem;
   // ‹ › ↗ · use the named symbol fallback too (see ReviewQueue.module.scss).
   font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
 
+  kbd {
+    margin-inline-start: 0.25rem;
+    padding: 0 0.25rem;
+    font: inherit;
+    font-size: 0.6875rem;
+    color: var(--text2);
+    border: 1px solid var(--ghost-edge);
+    border-radius: 0.125rem;
+  }
+
   @include theme.mobile {
     --main-pad: var(--page-x);
-  }
-}
 
-.openingStatus {
-  position: fixed;
-  top: calc(var(--header-h, 37px) + 0.4rem);
-  right: 1rem;
-  z-index: 5;
-  margin: 0;
-  padding: 0.35rem 0.6rem;
-  color: var(--text);
-  background: var(--col);
-  border: 1px solid var(--line);
-  border-radius: 0.35rem;
-  pointer-events: none;
+    kbd {
+      display: none;
+    }
+  }
 }
 
 .readyStatus {
@@ -42,13 +48,9 @@
   white-space: nowrap;
 }
 
-.authNotice {
-  margin: 0 0 0.5rem;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--link);
-  border-radius: 0.1875rem;
-  background: var(--col);
+.notice {
+  margin: 0.375rem 0 0;
+  color: var(--text2);
 }
 
 .confirmSummary {
@@ -81,10 +83,16 @@
 }
 
 .confirmName {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.confirmKind {
+  min-width: 7.5rem;
+  text-align: end;
 }
 
 // Publisher activity: one fixed-grid line per publish (chip | text | action). Heights are constant
@@ -202,37 +210,22 @@
   }
 }
 
-.include {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin: 0.5rem 0;
-
-  kbd {
-    padding: 0 0.25rem;
-    font: inherit;
-    font-size: 0.75rem;
-    color: var(--text2);
-    border: 1px solid var(--ghost-edge);
-    border-radius: 0.125rem;
-  }
-}
-
-// ---- header line, identity bar, and detail (dense, one row each; no cards) ----
+// ---- head line and identity line (dense, one row each; no cards) ----
 .summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.375rem 0.75rem;
-  min-height: 2.25rem;
+  min-height: 2.75rem;
   margin: 0 calc(-1 * var(--main-pad));
   padding: 0.25rem var(--main-pad);
+  box-sizing: border-box;
   border-bottom: 1px solid var(--hair);
 }
 
 .counts {
-  // A 12rem basis: on a narrow column (768px) the counts wrap beside Refresh and Push instead of
-  // pushing the buttons onto a line of their own; a phone still puts the buttons under them.
+  // A 12rem basis: on a narrow column (768px) the counts wrap beside Refresh and Publish instead
+  // of pushing the buttons onto a line of their own.
   flex: 1 1 12rem;
   min-width: 0;
   margin: 0;
@@ -240,15 +233,6 @@
 
   b {
     color: var(--text);
-  }
-
-  // The marker-only link and Clear are tap targets on a phone.
-  @include theme.mobile-or-coarse {
-    a {
-      display: inline-flex;
-      align-items: center;
-      min-height: var(--tap-sm);
-    }
   }
 }
 
@@ -269,6 +253,11 @@
   background: var(--pri-hover) !important;
   border-color: var(--accent-ink) !important;
 
+  kbd {
+    color: inherit;
+    border-color: currentColor;
+  }
+
   &:disabled {
     color: var(--text2) !important;
     background: var(--ctl) !important;
@@ -285,6 +274,12 @@
   text-decoration: underline;
   cursor: pointer;
 
+  &:disabled {
+    color: var(--text3);
+    text-decoration: none;
+    cursor: default;
+  }
+
   @include theme.mobile-or-coarse {
     min-height: var(--tap-sm);
   }
@@ -299,15 +294,20 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
-  margin-block: 0.75rem;
+  gap: 0.5rem 0.75rem;
+  margin-block: 1rem;
 
   p {
+    flex: 1 0 100%;
     margin: 0;
     color: var(--text2);
   }
 
-  button {
+  b {
+    color: var(--text);
+  }
+
+  > button {
     @include controls.button;
   }
 }
@@ -317,9 +317,10 @@
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
-  min-height: 2rem;
-  margin: 0 calc(-1 * var(--main-pad)) 0.5rem;
+  min-height: 2.25rem;
+  margin: 0 calc(-1 * var(--main-pad));
   padding: 0.125rem var(--main-pad);
+  box-sizing: border-box;
   background: var(--strip);
   border-bottom: 1px solid var(--hair);
 
@@ -339,14 +340,14 @@
   align-items: baseline;
   gap: 0.5rem;
   min-width: 0;
+}
 
-  > .muted:first-child {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+.category {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .identityEnd {
@@ -355,6 +356,15 @@
   align-items: baseline;
   gap: 0.75rem;
   white-space: nowrap;
+
+  a {
+    color: var(--link);
+  }
+}
+
+.included {
+  color: var(--accent-ink);
+  font-weight: 600;
 }
 
 .muted {
@@ -369,57 +379,74 @@
   flex: none;
 }
 
-// A narrow page keeps the name: the category is the list's group, the hash is in the editor.
+// A narrow column keeps the name: the category is the list's group, the hash is in the editor.
 @container (max-width: 40rem) {
-  .identityText > .muted:first-child,
-  .identityText > .sep,
+  .category,
+  .sep,
   .hash {
     display: none;
   }
 }
 
-.mark {
-  flex: none;
-  padding: 0 0.25rem;
-  font-size: 0.75rem;
-  color: var(--text2);
-  border: 1px solid var(--ghost-edge);
-  border-radius: 0.125rem;
+// ---- the open change ----
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding-block: 0.625rem 1rem;
+}
 
-  &[data-mark='New'],
-  &[data-mark='Re-add'] {
-    color: var(--accent-ink);
+.rawToggle {
+  @include controls.button;
+  flex: none;
+  white-space: nowrap;
+
+  &[aria-pressed='true'] {
+    background: var(--sel);
+    border-color: var(--accent-ink);
   }
-  &[data-mark='Remove'] {
+}
+
+.detail {
+  flex: 1 1 auto;
+  min-width: 0;
+
+  h4 {
+    margin: 0 0 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  section + section {
+    margin-top: 0.75rem;
+  }
+}
+
+.sentence {
+  max-width: 44em;
+  min-height: 1.4em;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+
+  &[data-tone='warn'] b {
     color: var(--warn);
   }
+
+  &[data-tone='danger'] b {
+    color: var(--danger);
+  }
 }
 
-// The ‹ › stepper exists for phones; the keyboard and list do this on a desktop.
-.stepper {
-  display: none;
-}
-
-.markerNote {
-  margin: 0 0 0.5rem;
-  padding: 0.375rem 0.5rem;
-  color: var(--text2);
-  border: 1px solid var(--hair);
-  border-left: 3px solid var(--warn);
-  border-radius: 0.1875rem;
-}
-
-.changed,
+// Reserved: "Saved by" arrives with its own request and must never move what is below it.
 .savedBy {
-  margin: 0.25rem 0 0;
-}
-
-.savedBy {
+  min-height: 1.25rem;
+  margin: 0.25rem 0 0.75rem;
   color: var(--text2);
-  margin-bottom: 0.5rem;
 
-  // The author link is a tap target on a phone, like the header's marker-only link.
   @include theme.mobile-or-coarse {
+    min-height: var(--tap-sm);
+
     a {
       display: inline-flex;
       align-items: center;
@@ -428,120 +455,336 @@
   }
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-  margin-block: 0.75rem;
+.evidence {
+  min-width: 0;
+  max-width: 61rem;
 
-  button {
-    @include controls.button;
-    white-space: nowrap;
+  :global([data-rendered-body]) {
+    margin-bottom: 0.25rem;
+  }
+
+  // A removed word and its replacement sit apart, so "2" then "3" never reads as "23".
+  :global(del + ins) {
+    margin-inline-start: 2px;
   }
 }
 
-.include {
+.single {
+  max-width: 30rem;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 30rem));
+  gap: 1rem;
+}
+
+@container (max-width: 40rem) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+}
+
+.fold {
+  margin-block: 0.125rem 0.25rem;
+
+  > summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--text2);
+    font-size: 0.75rem;
+
+    &:hover {
+      color: var(--text);
+    }
+
+    // A touch target that keeps the disclosure marker (a flex summary would drop it).
+    @include theme.mobile-or-coarse {
+      line-height: var(--tap-sm);
+    }
+  }
+}
+
+.links p {
+  margin: 0 0 0.25rem;
+}
+
+// Raw markup: the only place markup appears; changed lines with one line of context.
+.rawBlock {
+  max-width: 61rem;
+  margin-top: 0.75rem;
+
+  > div + div {
+    margin-top: 0.5rem;
+  }
+}
+
+.raw {
+  margin: 0;
+  padding: 0.375rem 0;
+  overflow-x: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  background: var(--editor);
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+
+  del {
+    color: var(--del-text);
+    background: var(--del-bg);
+    text-decoration: line-through;
+  }
+
+  ins {
+    color: var(--ins);
+    background: var(--ins-bg);
+    text-decoration: none;
+  }
+}
+
+.rawLine {
+  display: grid;
+  grid-template-columns: 2.75rem 1rem minmax(0, 1fr);
+
+  > span:last-child {
+    padding-inline-end: 0.5rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+.rawNumber {
+  padding-inline-end: 0.5rem;
+  color: var(--text3);
+  text-align: end;
+  user-select: none;
+}
+
+.rawMark {
+  color: var(--text3);
+  user-select: none;
+}
+
+// ---- the decision bar (the Compendium queue's) ----
+.bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  margin: 0;
-  white-space: nowrap;
+  min-height: 2.75rem;
+  margin: auto calc(-1 * var(--main-pad)) 0;
+  padding: 0.375rem var(--main-pad);
+  box-sizing: border-box;
+  background: var(--page);
+  border-top: 1px solid var(--line);
 
-  kbd {
-    padding: 0 0.25rem;
-    font: inherit;
-    font-size: 0.75rem;
-    color: var(--text2);
-    border: 1px solid var(--ghost-edge);
-    border-radius: 0.125rem;
+  button,
+  .more > summary {
+    @include controls.button;
+    white-space: nowrap;
   }
 
-  @include theme.mobile-or-coarse {
-    min-height: var(--tap);
+  button[aria-pressed='true'] {
+    background: var(--sel);
+    border-color: var(--accent-ink);
+  }
+}
 
-    input {
-      width: 1.125rem;
-      height: 1.125rem;
+// The one solid accent control on the page, as Confirm in the Compendium queue.
+.include {
+  color: var(--on-accent) !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  font-weight: 600;
+
+  kbd {
+    color: inherit;
+    border-color: currentColor;
+  }
+}
+
+.barEnd {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  min-width: 0;
+
+  // Restore live text as draft: a quiet link-style action at the end of the bar.
+  > button {
+    min-height: 0;
+    padding: 0;
+    color: var(--link);
+    background: none !important;
+    border: 0;
+    text-decoration: underline;
+
+    &:disabled {
+      color: var(--text3);
+      text-decoration: none;
     }
+  }
+}
 
-    kbd {
+.next {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text2);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  strong {
+    color: var(--text);
+  }
+}
+
+// A narrow column keeps the buttons and Restore; the pause still shows as the line above.
+@container (max-width: 44rem) {
+  .next {
+    display: none;
+  }
+}
+
+.advanceLine {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--accent-ink);
+  transform-origin: left;
+  animation: advance linear forwards;
+}
+
+@keyframes advance {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .advanceLine {
+    animation: none;
+    transform: none;
+  }
+}
+
+.more {
+  position: relative;
+  flex: none;
+
+  > summary {
+    width: var(--tap);
+    padding: 0;
+    list-style: none;
+
+    &::-webkit-details-marker {
       display: none;
     }
   }
 }
 
+.moreMenu {
+  position: absolute;
+  inset: auto 0 calc(100% + 0.25rem) auto;
+  z-index: 4;
+  display: grid;
+  gap: 0.375rem;
+  width: max-content;
+  min-width: 13rem;
+  padding: 0.5rem;
+  background: var(--raised);
+  border: 1px solid var(--pop-edge);
+  border-radius: 0.25rem;
+}
+
+.step {
+  @include stepper.segment;
+  @include stepper.arrow;
+  cursor: pointer;
+}
+
 @media (max-width: 700px) {
-  // Phone: the name over `Category · marks` on the left, the stepper `‹ 1 of 140 ›` on the right
-  // (it wraps under the name at a large interface scale), "Open in editor" right-aligned under it.
+  // Phone: ‹ [name, then "7 / 25 · Included · Open in editor"] ›; the change fills the screen.
+  .summary {
+    padding-block: 0.375rem;
+  }
+
+  // "13 waiting" and the two buttons share one row while they fit.
+  .counts {
+    flex-basis: auto;
+  }
+
   .identity {
     flex-wrap: wrap;
-    gap: 0.25rem 0.5rem;
-    padding-block: 0.25rem;
+    gap: 0 0.5rem;
+    padding-block: 0.375rem;
+  }
+
+  .step:first-child {
+    order: 0;
   }
 
   .identityText {
-    flex: 1 1 12rem;
-    flex-wrap: wrap;
-    row-gap: 0;
+    order: 1;
+    flex: 1 1 0;
 
     h2 {
-      order: -1;
-      flex: 1 0 100%;
-      white-space: normal;
-      overflow-wrap: anywhere;
-    }
-
-    > .muted:first-child {
-      display: inline;
+      font-size: 1rem;
     }
   }
 
-  .stepper {
-    @include stepper.group;
-    margin-left: auto;
+  .step:last-child {
+    order: 2;
   }
 
-  .step,
-  .stepPosition {
-    @include stepper.segment;
-  }
-
-  .step {
-    @include stepper.arrow;
-    cursor: pointer;
-  }
-
+  // Position, Included, and Open in editor go under the name, between the arrows' columns.
   .identityEnd {
-    order: 10;
+    order: 3;
     flex: 1 0 100%;
-    justify-content: flex-end;
+    box-sizing: border-box;
     align-items: center;
-
-    > .muted {
-      display: none;
-    }
+    padding-inline: calc(var(--tap) + 0.5rem);
 
     a {
       display: inline-flex;
       align-items: center;
       min-height: var(--tap-sm);
+      margin-inline-start: auto;
     }
   }
-}
 
-// Phones: the text boxes run full-bleed; their own padding is the one page edge (owner 2026-11-10:
-// nothing is inset twice on a phone).
-@include theme.mobile {
-  .liveDiff :global(pre) {
-    margin-inline: calc(-1 * var(--page-x));
-    padding-inline: var(--page-x);
-    border-inline: 0;
-    border-radius: 0;
+  .detailHead {
+    padding-block: 0.5rem 0.75rem;
   }
-}
 
-// One count ("39 changes", "0 selected") never breaks inside itself when the line wraps.
-.segment {
-  white-space: nowrap;
+  .sentence {
+    font-size: 0.9375rem;
+  }
+
+  .single,
+  .columns {
+    max-width: none;
+  }
+
+  .bar {
+    padding-block: 0.375rem calc(0.375rem + env(safe-area-inset-bottom, 0px));
+
+    > button {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    > .include {
+      flex: 2 1 0;
+    }
+  }
 }

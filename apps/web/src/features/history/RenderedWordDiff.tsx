@@ -1,7 +1,14 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
 import { memo, useMemo, useState } from 'react';
-import { markupLanguage, type Lang, type MarkupLine, type MarkupSpan } from '@clarity/core';
-import { useDataStore } from '../../stores/data';
+import {
+  markupLanguage,
+  type Lang,
+  type MarkupGlobals,
+  type MarkupLine,
+  type MarkupSpan,
+} from '@clarity/core';
+import type { Drafts } from '../../services/draftStorage';
+import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { tooltipImports } from '../../services/tooltipImports';
 import { previewDrafts } from '../conflicts/previewDrafts';
@@ -13,6 +20,25 @@ import { HistoryWordDiff } from './HistoryWordDiff';
 import { WordDiff } from '../../ui/diff/WordDiff';
 import type { SourceMarker } from './sourceOnlyChanges';
 import { useRenderedDiff } from './useRenderedDiff';
+
+/** The markup globals a rendered comparison of `hash` uses (imports, variables, item type). */
+export function diffGlobals(
+  data: EditorData | null,
+  drafts: Drafts,
+  lang: Lang,
+  hash: number,
+): MarkupGlobals {
+  const imports = data
+    ? tooltipImports(data.bundle.tooltips, drafts, lang, data.aliases, { lookupOnly: true })
+    : {};
+  const type = data?.categories.find(
+    (category) => category.id === data.items[hash]?.categoryId,
+  )?.legacyType;
+  return variantGlobals(
+    { variables: imports[2] ?? '', titles: imports[3] ?? '', imports, type },
+    false,
+  );
+}
 
 function Parts({ parts }: { parts: MarkupSpan[] }) {
   const groups: { kind: DiffSpan['diffKind']; parts: MarkupSpan[] }[] = [];
@@ -49,7 +75,7 @@ const diffLine = (line: MarkupLine) =>
     : (line as DiffLine).diffKind === 'delete'
       ? styles.lineDelete
       : undefined;
-const Body = memo(function Body({ lines, lang }: { lines: MarkupLine[]; lang: Lang }) {
+export const Body = memo(function Body({ lines, lang }: { lines: MarkupLine[]; lang: Lang }) {
   return (
     <div
       data-rendered-body
@@ -186,25 +212,10 @@ export function RenderedWordDiff({
   // Read when the comparison receives a source snapshot; do not subscribe this
   // renderer to every authoring keystroke (Working diff already waits for idle).
   const drafts = useDraftStore.getState().drafts;
-  const globals = useMemo(() => {
-    const imports = data
-      ? tooltipImports(data.bundle.tooltips, previewDrafts(drafts), lang, data.aliases, {
-          lookupOnly: true,
-        })
-      : {};
-    const type = data?.categories.find(
-      (category) => category.id === data.items[hash]?.categoryId,
-    )?.legacyType;
-    return variantGlobals(
-      {
-        variables: imports[2] ?? '',
-        titles: imports[3] ?? '',
-        imports,
-        type,
-      },
-      false,
-    );
-  }, [lang, hash, data, drafts]);
+  const globals = useMemo(
+    () => diffGlobals(data, previewDrafts(drafts), lang, hash),
+    [lang, hash, data, drafts],
+  );
   const { result, busy, sourceAnalysis, sourceUnavailable } = useRenderedDiff(
     before,
     after,

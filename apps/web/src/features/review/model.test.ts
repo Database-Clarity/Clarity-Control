@@ -5,9 +5,11 @@ import {
   canPush,
   pendingTooltips,
   publishableHashes,
+  publishSelection,
   selectedPending,
   stepIndex,
   toggleSelection,
+  type PendingTooltip,
 } from './model';
 
 const tooltip: Tooltip = {
@@ -127,6 +129,33 @@ describe('review selection and navigation', () => {
     expect(original).toEqual(new Set([123, 999]));
     expect(toggleSelection(original, 456)).toEqual(new Set([123, 456, 999]));
     expect(selectedPending(original, await pendingTooltips(data([tooltip])))).toEqual([123]);
+  });
+  it('publishes exactly the included rows: still pending, publishable, not running, list order', () => {
+    const row = (hash: number, extra: Partial<PendingTooltip> = {}): PendingTooltip => ({
+      tooltip: { ...tooltip, hash },
+      name: `Row ${hash}`,
+      category: 'Perks',
+      categoryId: 'perk',
+      categoryOrder: 1,
+      markerOnly: false,
+      isNew: false,
+      ...extra,
+    });
+    const pending = [
+      row(1),
+      row(2),
+      row(3, { unpublishable: 'Set bonuses wait.' }),
+      row(4, { markerOnly: true }),
+      row(5),
+      row(6, { tooltip: { hash: 6, text: {}, associated: [] } }),
+    ];
+    // Ticked: 5, 1, 3 (held), 4 (a leftover ticked by hand), 6 (no text), 9 (no longer pending),
+    // and 2 inside a running publish. Nothing is included that was not ticked.
+    const sent = publishSelection(new Set([5, 1, 3, 4, 6, 9, 2]), pending, new Set([2]));
+    expect(sent.map(({ tooltip }) => tooltip.hash)).toEqual([1, 4, 5]);
+    expect(publishSelection(new Set(), pending, new Set())).toEqual([]);
+    // The entries are the pending rows themselves (the confirm dialog's list and the payload).
+    expect(sent[0]).toBe(pending[0]);
   });
   it('bounds previous/next including empty lists', () => {
     expect(stepIndex(0, -1, 2)).toBe(0);

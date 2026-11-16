@@ -1,21 +1,26 @@
 import { useEffect, useRef } from 'react';
 import { Dialog } from '../../ui/Dialog';
+import { kindCounts } from './kinds';
 import type { PendingTooltip } from './model';
+import type { RowKinds } from './queueModel';
 import styles from './Review.module.scss';
 
 /**
- * Last look before anything goes live: how many, and exactly which. Enter confirms (the button
- * has focus), Esc or Cancel backs out. Confirming works once: a repeated Enter (key held down),
- * the second click of a double-click, or a second activation before the dialog has unmounted
- * is ignored, so one confirmation never becomes two pushes.
+ * Last look before anything goes live: how many, of which kinds, and exactly which. Enter confirms
+ * (the button has focus), Esc or Cancel backs out. Confirming works once: a repeated Enter (key
+ * held down), the second click of a double-click, or a second activation before the dialog has
+ * unmounted is ignored, so one confirmation never becomes two pushes.
  */
 export function PushConfirm({
   entries,
+  kinds,
   background = false,
   onConfirm,
   onCancel,
 }: {
   entries: PendingTooltip[];
+  /** Each row's word, for the by-kind line and the list. */
+  kinds: RowKinds;
   /** Publisher flow: the run happens in the background after confirming (wording only). */
   background?: boolean;
   onConfirm(): void;
@@ -57,7 +62,9 @@ export function PushConfirm({
       }
     >
       <p className={styles.confirmSummary}>
-        {count === 1 ? '1 tooltip goes' : `${count} tooltips go`} live for everyone using Clarity.
+        {/* "19 new tooltips and 6 with no visible change go live …" */}
+        {kindCounts(entries.map(({ tooltip }) => kinds.get(tooltip.hash)))}{' '}
+        {count === 1 ? 'goes' : 'go'} live for everyone using Clarity.
       </p>
       {background && (
         <p className={styles.confirmSummary}>
@@ -72,6 +79,7 @@ export function PushConfirm({
             <small>
               {category} · {tooltip.hash}
             </small>
+            <small className={styles.confirmKind}>{kinds.get(tooltip.hash) ?? ''}</small>
           </li>
         ))}
       </ul>

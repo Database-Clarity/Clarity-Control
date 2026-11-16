@@ -3,19 +3,34 @@
 `#/review` compares each canonical saved tooltip's core `publishableHash` with
 the bundle's pushed marker. Local drafts and metadata-only edits do not count.
 Categories follow registry order; enhanced tooltips with their own authored text
-remain separate review items. The left column (`ReviewQueue`, a fixed-height virtual list) groups
-the changes by category with counts and a checkbox per row and per group (the publish selection);
-marker-only leftovers are one collapsed group at the bottom that never takes part in a group
-select. Only the open change requests history. Up/Down (outside controls), the list's own keys,
-and the phone's ‹ › walk the shown rows without wrapping; Space includes the open change.
+remain separate review items. The page is a triage like the Compendium queue (spec
+`.agents/reports/review-design/spec.md`). The left column (`ReviewQueue`, a fixed-height virtual
+list) groups the changes by category with counts, a checkbox per row and per group (the publish
+selection), the row's word, and an editor link on every row. Migration leftovers (marker-only) are
+one quiet "Show" line outside the counts and the list; shown, they are one collapsed group that
+never takes part in a group tick. Find matches name, category, and hash; the kind select filters
+by word, and "Include all N" ticks the publishable rows a filter shows.
 
-Selection survives navigation, but only still-pending hashes are submitted.
-"Work through N selected" and "Work through all N shown" (under the filters) open those changes
-in the editor as a work-through queue (`features/queue`); a change counts as done once it is saved
-again. Leave comes back with the filters and open change, and picks the selection again only for
-rows still saved as they were when the queue began.
-Editors and maintainers may push any number at once (the Worker reads them in batches). "Push selected"
-first opens a confirmation listing every tooltip going live (Enter confirms, Esc cancels; a held key or a
+Row words (`kinds.ts`): New, Removed, Restored, On hold, and Leftover are known locally. Text
+changed, No visible change, and Links changed come from the published text (`published.ts`): it is
+loaded once in the background for every published change (a few `GET /history/:hash?live=1` at a
+time; never-published rows send none), kept in memory and on the device in IndexedDB keyed by hash
+and pushed marker, and classified in the rendered-diff worker (Base and Enhanced). A row whose
+published text failed or is still loading has no word, never a guess. Row switches need no request;
+only the open change asks who saved it (its line is reserved).
+
+The detail leads with one sentence, then only the evidence the kind needs (the changed rendered
+lines in one column with removed words struck in place, Base and Enhanced side by side only when
+they differ; the plain text for new, removed, and restored tooltips). Raw markup (R, remembered per
+device) shows the changed source lines. The bar: Include (Enter or Space; Remove when included)
+moves to the next change after the Compendium's auto-advance pause (Esc stays), Skip (S), Undo (U),
+and "Restore live text as draft" (a confirm; nothing is saved or published). Up/Down, the list's
+own keys, and the phone's ‹ › walk the shown rows without wrapping; P publishes; / finds.
+
+Selection survives navigation, but only still-pending, publishable hashes outside a running
+publish are submitted (`publishSelection`).
+Editors and maintainers may push any number at once (the Worker reads them in batches). "Publish N"
+first opens a confirmation listing every tooltip going live with its word and a count by kind (Enter confirms, Esc cancels; a held key or a
 double-click cannot confirm twice). The request includes the
 reviewed content digests; a newer saved version causes a 409 rather than silently
 publishing unreviewed content. Successful responses update the local marker view
@@ -73,6 +88,6 @@ build-time; it is turned on only together with the Worker's `/publish` writes (d
   (`autoKicked` is stored, so a reload never repeats it). Retry kicks again at most every 30 s. Requests that
   other editors queued (`bundle.publishQueue`, informational) appear as one "N publish requests waiting"
   line with Retry.
-- Tooltips inside a queued operation show "publishing…" and cannot be selected again. Finished operations
+- Tooltips inside a queued operation show the word "Publishing…" and cannot be selected again. Finished operations
   stay 24 h (they rebuild the acknowledgment overlay after a reload) and can be dismissed.
 - Only editors/maintainers see any of this; the driver is inert for other roles.
