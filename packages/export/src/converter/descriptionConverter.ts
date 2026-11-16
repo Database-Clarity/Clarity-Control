@@ -17,10 +17,9 @@ const prepareDescription = (descriptionData: DescriptionData) => {
   description = loadVariables({ ...descriptionData, descriptionString: description })
   // Title bodies are prepared separately below; retain dot spelling for their single format pass.
   const titles = extractTitles(removeUnusedText(description, false))
-  // Core exports English fallback as an exact copy, which keeps English decimals too.
-  const editor = database[hash].editor
-  const numberLanguage = editor[language]?.main === editor.en?.main ? 'en' : language
-  description = doMath(description, numberLanguage)
+  // Stale or unfreezable fallback text keeps English numbers; real translations use their
+  // language even when resolving number tokens makes their text identical to English.
+  description = doMath(description, database[hash].editor[language]?.englishFallback ? 'en' : language)
 
   return {
     preparedDescription: removeUnusedText(description.trim()),
