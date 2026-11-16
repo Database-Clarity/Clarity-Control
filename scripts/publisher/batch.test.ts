@@ -1375,7 +1375,8 @@ describe('scheduled batches (simulator)', () => {
       'inactiveMoves',
       'arrowSymbol',
       'numberTokens',
-        'aliasGroups',
+      'aliasGroups',
+      'globalsRelease',
     ]);
     const f = await setup();
     // The dry-run CLI runs on the real clock: schedule a batch that is long due.
