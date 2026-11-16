@@ -704,7 +704,7 @@ export function ReviewPage() {
                 title={current.unpublishable}
                 onClick={decide}
               >
-                {included ? 'Remove' : 'Include'} <kbd>↵</kbd>
+                {included ? 'Remove' : 'Include'} <kbd>⏎</kbd>
               </button>
             )}
             <button type="button" disabled={!!pause || next === index} onClick={skip}>

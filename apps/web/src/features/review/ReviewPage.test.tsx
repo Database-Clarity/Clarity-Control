@@ -882,7 +882,7 @@ it('Enter includes the open change and moves on after the pause; U undoes and re
   await act(async () =>
     host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
   );
-  expect(button('Remove ↵')).toBeDefined();
+  expect(button('Remove ⏎')).toBeDefined();
   expect(host.querySelector('article')?.textContent).toContain('Included');
   // A focused control keeps Enter and Space for itself.
   await press(' ', button('Refresh'));
@@ -1244,7 +1244,7 @@ it('a row picked during the pause wins: the pause ends without moving again', as
     expect(open()).toBe('Tooltip 30');
     await act(async () => new Promise((resolve) => setTimeout(resolve, 400)));
     expect(open()).toBe('Tooltip 30');
-    expect(button('Include ↵').disabled).toBe(false);
+    expect(button('Include ⏎').disabled).toBe(false);
     expect(host.querySelector('footer[aria-label="Decide"]')?.textContent).not.toContain('Next:');
   } finally {
     useAdvanceSetting.setState({ ms: 600 });
