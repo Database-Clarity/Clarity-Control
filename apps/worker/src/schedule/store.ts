@@ -28,6 +28,8 @@ import type { Identity } from '../types.js';
 export const switches = {
   scheduled: (): boolean => scheduledConfig.enabled,
   publisher: (): boolean => publisherConfig.enabled,
+  /** Owner-gated: enable only after the preparer and claim fence have been installed. */
+  preparation: (): boolean => false,
 };
 
 /** PIN capability of a publisher build that drains, claims, and records `batch` requests (I6). */
@@ -177,7 +179,7 @@ export function parseBatch(value: unknown): Batch {
   const batch = batchSchema.parse({ ...rest, events: [] });
   if (
     !Array.isArray(events) ||
-    events.length > scheduleLimits.inlineEvents ||
+    events.length > scheduleLimits.legacyInlineEvents ||
     events.some((event) => !event || typeof event !== 'object' || Array.isArray(event))
   )
     throw new HttpError(502, 'Invalid batch event history');
@@ -288,17 +290,20 @@ export async function readState(
     batchId,
     extra = [],
     trees = [],
+    includeIndex = true,
   }: {
     batchId?: string;
     extra?: readonly string[];
     trees?: readonly { path: string; depth: number }[];
+    includeIndex?: boolean;
   } = {},
 ): Promise<ScheduleState> {
-  const paths = [...fixed, ...(batchId ? [schedulePaths.batch(batchId)] : []), ...extra];
+  const fixedPaths = includeIndex ? fixed : fixed.slice(0, 3);
+  const paths = [...fixedPaths, ...(batchId ? [schedulePaths.batch(batchId)] : []), ...extra];
   const snapshot = await github.publishSnapshot(paths, [], trees);
   const config = permissionsSchema.parse(snapshot.files[0]?.value);
   const access = requireAccess(config, user, roles);
-  const batchFile = batchId ? snapshot.files[fixed.length] : null;
+  const batchFile = batchId ? snapshot.files[fixedPaths.length] : null;
   return {
     head: snapshot.head,
     tree: snapshot.tree,
@@ -306,11 +311,22 @@ export async function readState(
     access,
     pin: snapshot.files[1]?.value ?? null,
     due: snapshot.files[2] ? dueSchema.parse(snapshot.files[2].value) : { entries: [] },
-    index: snapshot.files[3] ? parseIndex(snapshot.files[3].value) : { batches: [] },
+    index:
+      includeIndex && snapshot.files[3] ? parseIndex(snapshot.files[3].value) : { batches: [] },
     batch: batchFile ? parseBatch(batchFile.value) : null,
     extra: snapshot.files.slice(paths.length - extra.length),
     trees: snapshot.trees,
   };
+}
+
+/** Async admission ignores the advisory index; the Action refreshes it on its drain. */
+export function readAdmissionState(
+  github: GitHub,
+  user: Identity,
+  roles: Access['role'][],
+  options: Parameters<typeof readState>[3] = {},
+) {
+  return readState(github, user, roles, { ...options, includeIndex: false });
 }
 
 /** The batch a write targets, or 404; refuses every write once a claim exists (I2). */
@@ -325,6 +341,8 @@ export function refuseClaimed(batch: Batch): void {
     throw new HttpError(409, 'Publishing started');
   if (batch.status === 'published') throw new HttpError(409, 'This batch is published');
   if (batch.status === 'cancelled') throw new HttpError(409, 'This batch is cancelled');
+  if (batch.status === 'preparing' || batch.status === 'needs_attention' || batch.preparation)
+    throw new HttpError(409, 'A batch request is outstanding; retry, unschedule, or cancel it');
 }
 
 export function refuseRevision(batch: Batch, revision: number): void {

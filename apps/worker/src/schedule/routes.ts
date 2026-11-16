@@ -6,6 +6,12 @@ import { createBatch, listBatches, rebaseBatch, removeFromBatch, saveBatch } fro
 import { endSchedule, kickBatch, scheduleBatch } from './lifecycle.js';
 import { resolveBatch } from './resolve.js';
 import { switches } from './store.js';
+import {
+  admitBatchRequest,
+  batchRequestStatus,
+  retryBatchRequest,
+  endBatchRequest,
+} from './admission.js';
 
 export const isBatchPath = (path: string) => path === '/batches' || path.startsWith('/batches/');
 
@@ -14,7 +20,18 @@ export function refuseWhenOff(): void {
   if (!switches.scheduled()) throw new HttpError(503, 'Scheduled batches are not enabled');
 }
 
-const actions = ['save', 'rebase', 'remove', 'schedule', 'unschedule', 'cancel', 'resolve', 'kick'];
+const actions = [
+  'save',
+  'rebase',
+  'remove',
+  'schedule',
+  'unschedule',
+  'cancel',
+  'resolve',
+  'kick',
+  'status',
+  'retry',
+];
 
 export async function batchesRoute(
   request: Request,
@@ -29,21 +46,31 @@ export async function batchesRoute(
   }
   const match = /^\/batches\/([^/]+)\/([a-z]+)$/.exec(path);
   if (!match || !actions.includes(match[2]!)) throw new HttpError(404, 'Endpoint not found');
-  if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
   const id = match[1]!;
   if (!batchIdSchema.safeParse(id).success) throw new HttpError(400, 'Invalid batch id');
+  if (match[2] === 'status') {
+    if (request.method !== 'GET') throw new HttpError(405, 'Method not allowed');
+    return batchRequestStatus(github, user, id);
+  }
+  if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
   switch (match[2]) {
     case 'save':
+      if (switches.preparation()) return admitBatchRequest(request, github, user, id, 'save');
       return saveBatch(request, github, user, id);
     case 'rebase':
       return rebaseBatch(request, github, user, id);
     case 'remove':
       return removeFromBatch(request, github, user, id);
     case 'schedule':
+      if (switches.preparation()) return admitBatchRequest(request, github, user, id, 'schedule');
       return scheduleBatch(request, github, user, id);
+    case 'retry':
+      return retryBatchRequest(request, github, user, id);
     case 'unschedule':
+      if (switches.preparation()) return endBatchRequest(request, github, user, id, 'unschedule');
       return endSchedule(request, github, user, id, 'unschedule');
     case 'cancel':
+      if (switches.preparation()) return endBatchRequest(request, github, user, id, 'cancel');
       return endSchedule(request, github, user, id, 'cancel');
     case 'resolve':
       return resolveBatch(request, github, user, id);

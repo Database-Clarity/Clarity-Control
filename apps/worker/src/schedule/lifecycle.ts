@@ -1,22 +1,18 @@
 import { z } from 'zod';
+import { refuseScheduleMembers as refuseMembers, validateScheduleMembers } from './validation.js';
 import {
   publishMonth,
   aliasGroupsPath,
   sandboxPointersPath,
   stableStringify,
-  tooltipSchema,
   hasUnpublishedInactiveMove,
   unreviewedInactiveMessage,
-  type Tooltip,
 } from '@clarity/core';
 import {
-  activate,
   approvedDigest,
   batchIntentDigest,
-  batchMemberSchema,
   batchPublishPayloadSchema,
   checkNotBefore,
-  composeParsed as compose,
   dueSchema,
   isValidZone,
   notBeforeSchema,
@@ -24,7 +20,6 @@ import {
   scheduleLimits,
   schedulePaths,
   type Batch,
-  type BatchMember,
 } from '@clarity/core/schedule';
 import { refuseBaseEnhanced } from '../baseEnhanced.js';
 import { loadAliases } from '../catalog.js';
@@ -32,6 +27,7 @@ import { refuseUnlowerable } from '../elementTags.js';
 import { GitHub, RefRace, type RepoFile } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
+import { endBatchRequest } from './admission.js';
 import {
   pinMergesSandboxPointers,
   consumerAliasScope,
@@ -52,10 +48,10 @@ import {
   memberCap,
   pushedHashes,
   refuseAliases,
-  unpublishedMessage,
   memberHashes,
   newUlid,
   pinSchedulesBatches,
+  parseIndex,
   readState,
   refuseClaimed,
   refuseOpenCap,
@@ -89,14 +85,6 @@ const opPaths = (opId: string) => ({
 
 function requirePublisher(): void {
   if (!switches.publisher()) throw new HttpError(503, 'Publisher is not enabled');
-}
-
-/** A refusal that lists per-hash reasons (stale, unpublished, conflict files). */
-function refuseMembers(
-  message: string,
-  members: { hash: number; fields?: string[]; reason?: string }[],
-): never {
-  throw new HttpError(409, message, { members });
 }
 
 /**
@@ -202,56 +190,7 @@ export async function scheduleBatch(
       state.head,
     );
     const pushed = pushedHashes(state.extra[0]);
-    const members: BatchMember[] = [];
-    const composed: Tooltip[] = [];
-    const snapshots = new Map<number, Tooltip | null>();
-    const stale: { hash: number; fields?: string[]; reason?: string }[] = [];
-    const unpublished: { hash: number; fields: string[] }[] = [];
-    const blocked: { hash: number; reason: string }[] = [];
-    const first: number[] = [];
-    for (const [index, hash] of hashes.entries()) {
-      const [memberRaw, currentRaw, snapshotRaw, conflictRaw] = files.slice(
-        index * 4,
-        index * 4 + 4,
-      );
-      if (!memberRaw) throw new HttpError(502, `Batch member ${hash} is unreadable`);
-      const member = batchMemberSchema.parse(memberRaw.value);
-      if (member.hash !== hash) throw new HttpError(502, 'Stored member hash mismatch');
-      members.push(member);
-      if (conflictRaw) blocked.push({ hash, reason: 'Resolve the batch activation first' });
-      const current = currentRaw ? tooltipSchema.parse(currentRaw.value) : null;
-      const snapshot = snapshotRaw ? tooltipSchema.parse(snapshotRaw.value) : null;
-      snapshots.set(hash, snapshot);
-      const result = compose({
-        hash,
-        base: member.base,
-        proposed: member.proposed,
-        snapshot,
-        pushed: pushed.has(hash),
-      });
-      if (result.status === 'stale') {
-        stale.push({ hash, reason: result.reason });
-        continue;
-      }
-      // Root ruling after P1: batch fields carrying saved-but-unpublished work are refused (I3).
-      if (result.status === 'overlay' && result.unpublished.length)
-        unpublished.push({ hash, fields: result.unpublished });
-      if (result.status === 'whole') first.push(hash);
-      // Non-translation merge3 must be clean against current (R14 existence rule included);
-      // translations follow Q4 and never block.
-      const activation = activate({ base: member.base, current, proposed: member.proposed });
-      if (!activation.ok)
-        stale.push({
-          hash,
-          fields: activation.fields,
-          ...(activation.reason ? { reason: activation.reason } : {}),
-        });
-      composed.push(result.tooltip);
-    }
-    if (blocked.length) refuseMembers('Resolve the batch activation first', blocked);
-    if (stale.length)
-      refuseMembers('Current changed under this batch; rebase the listed tooltips', stale);
-    if (unpublished.length) refuseMembers(unpublishedMessage, unpublished);
+    const { members, composed, snapshots, first } = validateScheduleMembers(hashes, files, pushed);
     // The manual-publish checks (publish.ts) on what would publish: textless, imports and
     // associations (base/enhanced), element tags, `#{d}`, and `<enhanced/>` the PIN lowers, and held set bonuses.
     // A member the generator has since aliased would export its target, not the member: refuse
@@ -379,13 +318,18 @@ export async function endSchedule(
   batchId: string,
   action: 'unschedule' | 'cancel',
 ): Promise<Response> {
+  const pendingRequest = request.clone();
   const input = await body(request, revisionOnlySchema, 1024);
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, scheduleRoles, {
       batchId,
+      includeIndex: false,
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
     });
     const batch = requireBatch(state, batchId);
+    if (batch.preparation) return endBatchRequest(pendingRequest, github, user, batchId, action);
+    const [indexFile] = await github.files([schedulePaths.index], state.head);
+    state.index = indexFile ? parseIndex(indexFile.value) : { batches: [] };
     refuseClaimed(batch);
     refuseRevision(batch, input.revision);
     if (action === 'unschedule' && batch.status !== 'scheduled')

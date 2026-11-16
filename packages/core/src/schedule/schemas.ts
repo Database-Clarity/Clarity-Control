@@ -13,7 +13,9 @@ export const scheduleLimits = {
   /** Terminal (published, cancelled) entries kept in index.json besides the open ones. */
   indexTerminal: 100,
   /** Inline events per batch.json; older ones move to events/<seq>.json in the same commit. */
-  inlineEvents: 200,
+  inlineEvents: 20,
+  /** Read compatibility only: old batches are compacted on their next write. */
+  legacyInlineEvents: 200,
   nameLength: 80,
   /** notBefore must be at least this far ahead (or 'now'). */
   minLeadMs: 3 * 60_000,
@@ -66,13 +68,21 @@ export const notBeforeSchema = z
 
 export const batchStatusSchema = z.enum([
   'draft',
+  'preparing',
+  'needs_attention',
   'scheduled',
   'publishing',
   'published',
   'cancelled',
 ]);
 export type BatchStatus = z.infer<typeof batchStatusSchema>;
-export const openStatuses: readonly BatchStatus[] = ['draft', 'scheduled', 'publishing'];
+export const openStatuses: readonly BatchStatus[] = [
+  'draft',
+  'preparing',
+  'needs_attention',
+  'scheduled',
+  'publishing',
+];
 export const isOpenStatus = (status: BatchStatus) => openStatuses.includes(status);
 
 export const batchResultStatusSchema = z.enum([
@@ -99,6 +109,10 @@ export const batchEventActionSchema = z.enum([
   'rejected',
   'superseded',
   'resolve',
+  'request',
+  'retry',
+  'prepared',
+  'preparation_failed',
 ]);
 
 export const batchEventSchema = z
@@ -171,7 +185,21 @@ export const batchSchema = z
     claim: z.object({ opId: publishOpIdSchema, claimedAt: timestampSchema }).strict().nullable(),
     /** The latest operation's result. */
     result: batchResultSchema.nullable(),
-    events: z.array(batchEventSchema).max(scheduleLimits.inlineEvents),
+    /** Absent on legacy batches. Retained on failure; cleared only by a fenced CAS. */
+    preparation: z
+      .object({
+        requestId: publishOpIdSchema,
+        kind: z.enum(['schedule', 'save']),
+        returnStatus: z.enum(['draft', 'scheduled']),
+        requestedAt: timestampSchema,
+        attempt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    /** New publishers require this ready fence in addition to their claim-time validation. */
+    preparedRequestId: publishOpIdSchema.nullable().optional(),
+    events: z.array(batchEventSchema).max(scheduleLimits.legacyInlineEvents),
   })
   .strict()
   .superRefine((batch, ctx) => {
@@ -189,6 +217,18 @@ export const batchSchema = z
     if (succeeded && batch.status !== 'published')
       issue('Only a published batch carries a successful result');
     switch (batch.status) {
+      case 'preparing':
+      case 'needs_attention':
+        if (!batch.preparation || batch.claim !== null || batch.preparedRequestId != null)
+          issue('Preparation requires an outstanding request, no claim, and no ready fence');
+        if (batch.preparation?.returnStatus === 'scheduled' && (!batch.notBefore || !batch.opId))
+          issue('A pending schedule retains its target time and operation');
+        if (
+          batch.preparation?.returnStatus === 'draft' &&
+          (batch.opId !== null || batch.notBefore !== null)
+        )
+          issue('A pending draft save has no publication operation');
+        break;
       case 'draft':
       case 'cancelled':
         if (batch.opId !== null || batch.claim !== null || batch.scheduledContentRevision !== null)
@@ -222,6 +262,13 @@ export const batchSchema = z
         }
         break;
     }
+    if (batch.status !== 'preparing' && batch.status !== 'needs_attention' && batch.preparation)
+      issue('Only preparing or needs_attention carries an outstanding request');
+    if (
+      batch.preparedRequestId != null &&
+      !['scheduled', 'publishing', 'published'].includes(batch.status)
+    )
+      issue('Only prepared publication states carry a ready fence');
     if (
       batch.result &&
       batch.opId !== null &&
