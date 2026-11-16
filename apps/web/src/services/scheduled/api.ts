@@ -53,29 +53,35 @@ export async function listBatches(signal?: AbortSignal): Promise<BatchListing> {
 }
 
 /**
- * The newest batch.json this page has seen per batch (write and status answers, commit-pinned
- * reads). The index is advisory: request admission and Retry do not update it, so until the
- * preparer refreshes it a listed entry can lag its batch (contract: "C uses the immediate
- * response/status batch"). A newer revision seen here wins over the listed one.
+ * The newest state this page has seen per batch, from listed entries and batch.json (write and
+ * status answers, commit-pinned reads). The index is advisory: request admission and Retry do not
+ * update it, so a listed entry can lag its batch (contract: "C uses the immediate response/status
+ * batch"). Only a higher revision ever replaces what is kept, so a late answer read at an older
+ * head (index or batch.json) can never bring back an older state.
  */
-const latest = new Map<string, Batch>();
+type BatchView = Pick<
+  ScheduleIndex['batches'][number],
+  'status' | 'notBefore' | 'opId' | 'revision'
+>;
+const latest = new Map<string, BatchView>();
+function remember(id: string, view: BatchView): boolean {
+  const known = latest.get(id);
+  if (known && known.revision >= view.revision) return false;
+  latest.set(id, {
+    status: view.status,
+    notBefore: view.notBefore,
+    opId: view.opId,
+    revision: view.revision,
+  });
+  return true;
+}
 function adoptBatch(batch: Batch) {
-  const known = latest.get(batch.id);
-  if (!known || batch.revision > known.revision) latest.set(batch.id, batch);
+  remember(batch.id, batch);
 }
 function withLatest(entry: ScheduleIndex['batches'][number]): ScheduleIndex['batches'][number] {
-  const batch = latest.get(entry.id);
-  if (!batch || batch.revision <= entry.revision) {
-    if (batch) latest.delete(entry.id);
-    return entry;
-  }
-  return {
-    ...entry,
-    status: batch.status,
-    notBefore: batch.notBefore,
-    opId: batch.opId,
-    revision: batch.revision,
-  };
+  if (remember(entry.id, entry)) return entry;
+  const known = latest.get(entry.id)!;
+  return known.revision === entry.revision ? entry : { ...entry, ...known };
 }
 
 type Fetcher = (url: string) => Promise<Response>;

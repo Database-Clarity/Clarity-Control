@@ -287,6 +287,8 @@ interface SaveContext {
   batchOwner: string | null;
   sameAccount: () => boolean;
   onConfirmed?: (members: BatchMember[]) => void;
+  /** Queued saves: member checks made after the request completed. */
+  checks?: number;
 }
 
 /**
@@ -385,7 +387,8 @@ export async function settleQueued(): Promise<void> {
         const entry = entries.find((candidate) => candidate.id === save.batchId);
         const landed = request.result?.revision;
         if (entry && typeof landed === 'number' && entry.revision < landed) continue;
-        queued.delete(requestId);
+        // Tracking ends only after a member read: a failed read keeps it (next listing asks
+        // again); hashes not confirmed yet get up to three listings (a head that lags the write).
         const members = await readBatchMembers(head, save.batchId, [...save.sent.keys()]);
         const shown = new Map(
           members
@@ -397,8 +400,11 @@ export async function settleQueued(): Promise<void> {
         );
         if (confirmed.length) {
           reconcile(save, confirmed, shown);
+          for (const hash of confirmed) save.sent.delete(hash);
           void refreshUpcoming();
         }
+        save.checks = (save.checks ?? 0) + 1;
+        if (!save.sent.size || save.checks >= 3) queued.delete(requestId);
       } catch {
         // Unreadable now: the drafts stay, and the next listing asks again.
       }

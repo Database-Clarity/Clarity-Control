@@ -242,6 +242,20 @@ it('a queued save keeps its drafts until the preparer lands it, and on failure',
     const api = await import('../../services/scheduled/api');
     await api.retryBatchRequest(s.batch.id, s.fixture.batches.get(s.batch.id)!.revision, first);
     s.fixture.completeRequest(first);
+    // Member reads fail while raw GitHub is down: tracking and drafts stay, and the first listing
+    // after it recovers confirms them (code review round 1, finding 3).
+    let rawDown = true;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      if (rawDown && new Request(input, init).url.includes('/tooltips/'))
+        return Promise.resolve(new Response('busy', { status: 503 }));
+      return s.fixture.fetch(input, init);
+    });
+    await settled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(s.useBatchDraftStore.getState().drafts[key]?.next.text.de?.text).toBe('Queued German');
+    rawDown = false;
     await settled();
     await vi.waitFor(() => expect(s.useBatchDraftStore.getState().drafts[key]).toBeUndefined());
     expect(s.fixture.members.get(s.batch.id)?.get(123)?.proposed.text.de?.text).toBe(

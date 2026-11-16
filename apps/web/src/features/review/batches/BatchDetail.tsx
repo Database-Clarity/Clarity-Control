@@ -278,7 +278,7 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
           }
         />
       )}
-      {!fresh && load?.state === 'loading' && (
+      {!fresh && load && load.state !== 'failed' && (
         <p className={styles.note} role="status">
           The batch changed; reading revision {entry.revision}…
         </p>
