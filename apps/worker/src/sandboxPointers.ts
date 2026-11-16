@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import {
   applySandboxPicks,
+  aliasGroupsCapability,
+  aliasGroupsPath,
+  aliasGroupsSchema,
   emptySandboxPointers,
   hasSandboxTargets,
   hashSchema,
@@ -19,7 +22,7 @@ import {
   type SandboxConflicts,
   type SandboxPointers,
 } from '@clarity/core';
-import { source } from './catalog.js';
+import { aliasCatalog, aliasInputs, consumerAliases, scopedAliases, source } from './catalog.js';
 import { exporter, publisherPinPath } from './elementTags.js';
 import { blobContent, blobSha, RefRace, type GitHub, type RepoFile } from './github.js';
 import { body, HttpError, json, upstreamJson } from './http.js';
@@ -30,9 +33,10 @@ import type { Identity } from './types.js';
 export async function loadSandboxConflicts(
   env: GitHub['env'],
   budget?: Pick<GitHub, 'spend'>,
+  revision?: string,
 ): Promise<SandboxConflicts> {
   budget?.spend();
-  return fetch(`${source(env)}/${sandboxConflictsFile}`)
+  return fetch(`${source(env, revision)}/${sandboxConflictsFile}`)
     .then(upstreamJson)
     .then((value) => sandboxConflictsSchema.parse(value));
 }
@@ -46,18 +50,67 @@ export function storedSandboxPointers(file: RepoFile | null | undefined): Sandbo
 }
 
 /**
- * Generator aliases plus the picks stored at a data commit (see core `mergeSandboxPointers`).
- * Only when a pick points at a tooltip does this fetch the generator's conflicts (1 subrequest);
- * with no file or only "no tooltip" picks it returns `aliases` itself, at no cost.
+ * S1 composition from files read at the consumer's immutable head. Group config requires the
+ * complete catalog and conflicts at one pinned generator revision, including collision checks.
+ * Without groups, preserve the existing fast path: conflicts cost one request only for targets.
  */
 export async function withSandboxPointers(
   github: GitHub,
   aliases: Aliases,
   file: RepoFile | null | undefined,
+  groupsFile?: RepoFile | null,
+  generated?: Awaited<ReturnType<typeof aliasCatalog>>,
 ): Promise<Aliases> {
   const pointers = storedSandboxPointers(file);
+  if (groupsFile) {
+    const groups = storedAliasGroups(groupsFile)!;
+    generated ??= await aliasCatalog(github);
+    const conflicts = await loadSandboxConflicts(github.env, github, generated.revision);
+    return consumerAliases(generated.aliases, groups, generated.items, conflicts, pointers);
+  }
   if (!hasSandboxTargets(pointers)) return aliases;
   return mergeSandboxPointers(aliases, await loadSandboxConflicts(github.env, github), pointers);
+}
+
+export function storedAliasGroups(file: RepoFile | null | undefined) {
+  if (!file) return null;
+  const parsed = aliasGroupsSchema.safeParse(file.value);
+  if (!parsed.success) throw new HttpError(502, `Invalid ${aliasGroupsPath} in editor data`);
+  return parsed.data;
+}
+
+/** A fresh scope per request/attempt; extending it replaces the immutable alias map. */
+export async function consumerAliasScope(
+  github: GitHub,
+  groupsFile: RepoFile | null | undefined,
+  pointersFile: RepoFile | null | undefined,
+  hashes: readonly number[],
+  includeCategories = false,
+) {
+  const groups = storedAliasGroups(groupsFile);
+  if (!groups) return undefined;
+  const scope = scopedAliases(
+    await aliasInputs(github, includeCategories),
+    groups,
+    storedSandboxPointers(pointersFile),
+  );
+  scope.extend(hashes);
+  return scope;
+}
+
+export function pinMergesAliasGroups(pin: unknown): boolean {
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(aliasGroupsCapability);
+}
+
+/** Shared with alias mutation admission: an installed exporter must understand accepted groups. */
+export function refuseUnsupportedAliasGroups(file: RepoFile | null | undefined, pin: unknown) {
+  const groups = storedAliasGroups(file);
+  if (groups && Object.keys(groups.groups).length && !pinMergesAliasGroups(pin))
+    throw new HttpError(
+      409,
+      `The installed publisher lacks the "${aliasGroupsCapability}" capability`,
+    );
 }
 
 /**
@@ -174,13 +227,14 @@ export async function sandboxPointersRoute(
   for (let attempt = 0; attempt < 3; attempt++) {
     const head = await github.head();
     const publisher = exporter.publisherEnabled();
-    const [permissionFile, file, pin] = await github.files(
-      ['config/permissions.json', sandboxPointersPath, ...(publisher ? [publisherPinPath] : [])],
+    const [permissionFile, file, pin, groups] = await github.files(
+      ['config/permissions.json', sandboxPointersPath, publisherPinPath, aliasGroupsPath],
       head,
     );
     if (!permissionFile) throw new HttpError(502, 'Required repository file is missing');
     requireAccess(permissionsSchema.parse(permissionFile.value), user, ['maintainer']);
     if (invalid) throw invalid;
+    storedAliasGroups(groups);
     const stored = storedSandboxPointers(file);
     const revision = file?.sha ?? null;
     const exporting = !publisher || pinMergesSandboxPointers(pin?.value);
@@ -191,14 +245,29 @@ export async function sandboxPointersRoute(
         409,
         `The publisher installed in the data branch does not apply sandbox picks yet (${publisherPinPath} lacks the "${sandboxPointersCapability}" capability); picks cannot be saved until it is updated.`,
       );
+    if (publisher) refuseUnsupportedAliasGroups(groups, pin?.value);
     // CPU (Workers FREE plan, 10 ms): the route reads only the entries it checks, so it validates
     // those, not the whole generator files (the aliases alone are ~6,000 entries). Every lookup
     // below is an own-key test, and a candidate list is schema-checked before it is stored.
-    generator ??= {
-      aliases: (await generatorRecord(github, 'aliases.json')) as Aliases,
-      conflicts: await generatorRecord(github, sandboxConflictsFile),
-    };
-    const { aliases } = generator;
+    const grouped = groups ? await aliasCatalog(github) : undefined;
+    if (grouped)
+      generator = {
+        aliases: grouped.aliases,
+        conflicts: await loadSandboxConflicts(github.env, github, grouped.revision),
+      };
+    else
+      generator ??= {
+        aliases: (await generatorRecord(github, 'aliases.json')) as Aliases,
+        conflicts: await generatorRecord(github, sandboxConflictsFile),
+      };
+    const aliases = grouped
+      ? consumerAliases(
+          grouped.aliases,
+          storedAliasGroups(groups),
+          grouped.items,
+          generator.conflicts as SandboxConflicts,
+        )
+      : generator.aliases;
     const current = stored ?? emptySandboxPointers();
     const problems: string[] = [];
     const conflicts: SandboxConflicts = {};

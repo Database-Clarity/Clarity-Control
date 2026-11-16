@@ -422,3 +422,11 @@ test('paired enhanced mods need no separate wording', () => {
     enhancedWordingNeeded({ 42: { ...base, categoryId: 'weapon-perk' }, 43: mod }, {}, {}),
   ).toEqual([]);
 });
+
+test('empty groups preserve generated name aliases touching shared sandbox identities', () => {
+  const generated: Aliases = { 900: { to: 42, kind: 'name' } };
+  const conflicts = { 900: [42, 43] };
+  expect(
+    composeAliases(generated, { version: 1, groups: {}, rejected: {} }, items, conflicts),
+  ).toEqual(composeAliases(generated, null, items, conflicts));
+});
