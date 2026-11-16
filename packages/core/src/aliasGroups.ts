@@ -183,6 +183,36 @@ const owns = (item: AliasItem, owner: number) =>
   item.itemHash === owner || Boolean(item.owners?.includes(owner));
 const numbered = (item: AliasItem) => / (II|III|IV)$/.test(item.name);
 
+/** The same enhanced/base proof used to validate accepted groups, exposed for consumer routing.
+ * An absent or ambiguous base is never guessed unless all candidates resolve to one base group.
+ */
+export function aliasPairedBase(
+  item: AliasItem | undefined,
+  items: AliasItems,
+  aliases: Aliases,
+): number | undefined {
+  if (!item || !enhanced(item)) return item?.baseHash;
+  if (item.baseHash !== undefined)
+    return items[item.baseHash] && items[resolveAlias(item.baseHash, aliases)]
+      ? item.baseHash
+      : undefined;
+  const candidates = Object.values(items).filter(
+    (base) =>
+      !enhanced(base) &&
+      !exotic(base) &&
+      inScope(base) &&
+      name(base) === name(item) &&
+      item.plugCategoryHash !== undefined &&
+      base.plugCategoryHash === item.plugCategoryHash &&
+      base.categoryId === item.categoryId.replace(/-enhanced$/, ''),
+  );
+  const targets = new Set(candidates.map((base) => resolveAlias(base.hash, aliases)));
+  const target = [...targets][0];
+  return candidates.length > 1 && targets.size === 1 && target !== undefined && items[target]
+    ? target
+    : undefined;
+}
+
 /** Revalidate persisted decisions against current facts. Generated aliases always win. */
 export function effectiveAliases(
   generated: Aliases,
@@ -283,30 +313,6 @@ export function effectiveAliases(
     }
   }
   for (const key of Object.keys(aliases)) resolveAlias(Number(key), aliases);
-  // Older catalogs can lack a pointer for an enhanced item with several base candidates.
-  // Recover it only when every candidate belongs to one accepted base group.
-  const pairedBase = (item: AliasItem | undefined) => {
-    if (!item || !enhanced(item)) return item?.baseHash;
-    if (item.baseHash !== undefined)
-      return items[item.baseHash] && items[resolveAlias(item.baseHash, aliases)]
-        ? item.baseHash
-        : undefined;
-    const candidates = Object.values(items).filter(
-      (base) =>
-        !enhanced(base) &&
-        !exotic(base) &&
-        inScope(base) &&
-        name(base) === name(item) &&
-        item.plugCategoryHash !== undefined &&
-        base.plugCategoryHash === item.plugCategoryHash &&
-        base.categoryId === item.categoryId.replace(/-enhanced$/, ''),
-    );
-    const targets = new Set(candidates.map((base) => resolveAlias(base.hash, aliases)));
-    const target = [...targets][0];
-    return candidates.length > 1 && targets.size === 1 && target !== undefined && items[target]
-      ? target
-      : undefined;
-  };
   // Base-group drift can invalidate enhanced members even when their own facts still match.
   // Compare only active members, and repeat because removing an alias can expose another mismatch.
   let changed: boolean;
@@ -316,10 +322,10 @@ export function effectiveAliases(
       const canonical = Number(key),
         item = items[key];
       if (!item || !enhanced(item) || generated[key]) continue;
-      const canonicalBase = pairedBase(item);
+      const canonicalBase = aliasPairedBase(item, items, aliases);
       for (const member of group.members) {
         if (aliases[member]?.kind !== 'name' || aliases[member]?.to !== canonical) continue;
-        const memberBase = pairedBase(items[member]);
+        const memberBase = aliasPairedBase(items[member], items, aliases);
         if (
           canonicalBase === undefined ||
           memberBase === undefined ||
@@ -361,6 +367,7 @@ export function composeAliases(
   const result = effectiveAliases(generated, groups, items);
   const aliases: Aliases = { ...result.aliases };
   for (const [hash, alias] of Object.entries(result.aliases)) {
+    if (Object.hasOwn(generated, hash)) continue;
     if (
       alias.kind === 'name' &&
       (Object.hasOwn(conflicts, hash) || Object.hasOwn(conflicts, String(alias.to)))

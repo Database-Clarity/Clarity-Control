@@ -28354,6 +28354,7 @@ function composeAliases(generated, groups, items, conflicts = {}, pointers) {
   const result = effectiveAliases(generated, groups, items);
   const aliases = { ...result.aliases };
   for (const [hash2, alias] of Object.entries(result.aliases)) {
+    if (Object.hasOwn(generated, hash2)) continue;
     if (alias.kind === "name" && (Object.hasOwn(conflicts, hash2) || Object.hasOwn(conflicts, String(alias.to))))
       throw new Error(`Alias group member ${hash2} is a shared sandbox identity`);
   }
