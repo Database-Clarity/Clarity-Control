@@ -806,8 +806,9 @@ function Workspace({
           {progressError || scope.error}
         </p>
       )}
-      {/* Sign-in, not the queue, decides it: shown with the early entry too, so it never pushes it down. */}
-      {readOnlyReason && (rows !== null || !!selected) && (
+      {/* Sign-in, not the queue, decides it: shown with the early entry too, so it never pushes it
+          down; never before drafts hydrate (an editor would see it flash). */}
+      {readOnlyReason && hydrated && (rows !== null || !!selected) && (
         <p className={styles.viewerNote}>{readOnlyReason}</p>
       )}
       {rows === null && !selected ? (
