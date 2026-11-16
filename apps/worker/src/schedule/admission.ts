@@ -47,7 +47,7 @@ const scheduleInput = z
   .strict();
 const shallowTooltip = z.looseObject({
   hash: hashSchema,
-  text: z.record(langSchema, z.looseObject({ text: z.string(), updatedAt: z.string(), updatedBy: z.string() })),
+  text: z.partialRecord(langSchema, z.looseObject({ text: z.string(), updatedAt: z.string(), updatedBy: z.string() })),
 });
 /** Only the envelope is interpreted here. Full tooltip validation belongs to the preparer. */
 const saveInput = z
