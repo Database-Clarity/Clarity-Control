@@ -46,6 +46,7 @@ function emptyDatabase(): ReportsDatabase {
 }
 
 const R = 'r-aaaaaaaa';
+const W = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
 type Route = { method: string; path: string; body?: unknown };
 /** Every route outside /exports. `public` routes need no session at all. */
 const routes: (Route & { public?: true })[] = [
@@ -68,6 +69,14 @@ const routes: (Route & { public?: true })[] = [
     body: { changes: [{ hash: 123, base: tooltip(), next: tooltip('x') }], message: 'x' },
   },
   { method: 'POST', path: '/push-live', body: { hashes: [123] } },
+  { method: 'GET', path: '/worklists' },
+  { method: 'GET', path: `/worklists/${W}` },
+  {
+    method: 'PUT',
+    path: `/worklists/${W}`,
+    body: { op: { type: 'create', name: 'Review', hashes: [] }, revision: null },
+  },
+  { method: 'DELETE', path: `/worklists/${W}`, body: { revision: null } },
   { method: 'GET', path: '/settings' },
   { method: 'PUT', path: '/settings', body: { settings: defaultSyncedSettings, revision: null } },
   { method: 'GET', path: '/permissions' },

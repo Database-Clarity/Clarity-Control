@@ -47,7 +47,7 @@ function handlers() {
 }
 async function mount(
   spies: ReturnType<typeof handlers>,
-  props: { draft?: boolean; inactive?: boolean } = {},
+  props: { draft?: boolean; inactive?: boolean; worklist?: boolean } = {},
 ) {
   await act(async () =>
     root.render(
@@ -66,6 +66,7 @@ async function mount(
           onEditOverride={spies.onEditOverride}
           onBack={spies.onBack}
           inactiveControl={props.inactive ? <button>Move to Inactive</button> : undefined}
+          worklistControl={props.worklist ? <button>Add to worklist</button> : undefined}
           grouped={
             [{ hash: 9, name: 'Nine', enhanced: false, how: 'same name', reason: 'name' }] as never
           }
@@ -88,6 +89,13 @@ const click = (element: Element | undefined) =>
 const openMore = () => click(q('button[aria-label="More editor tools"]')!);
 
 describe('More (phone tool row)', () => {
+  it('keeps a real worklist action in More when it is the only extra control', async () => {
+    phone(true);
+    await mount(handlers(), { worklist: true });
+    expect(button('Add to worklist')).toBeUndefined();
+    await openMore();
+    expect(button('Add to worklist')).toBeDefined();
+  });
   it('keeps the inactive action in More instead of the main phone row', async () => {
     phone(true);
     await mount(handlers(), { inactive: true });

@@ -1,3 +1,4 @@
+import { AddToWorklist } from './WorklistsMenu';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDraftStore } from '../../stores/drafts';
@@ -203,6 +204,7 @@ export function WorkThroughBar({
       >
         All {shown.length} shown
       </button>
+      <AddToWorklist items={selected} label={`Add ${selected.length} to worklist`} />
       {selected.length > 0 && onClear && (
         <button
           type="button"
