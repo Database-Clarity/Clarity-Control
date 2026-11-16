@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { setEditorDraftFetch } from '../../services/editorDrafts';
-import { draftItems, savedItems, worklistAvailable } from './savedSources';
+import { draftGroups, draftItems, savedItems, worklistAvailable } from './savedSources';
 import { queueSources } from './sources';
 import { startQueue } from './start';
 import { useWorkQueues, resetWorkQueues } from './store';
@@ -97,6 +97,35 @@ it('reuses the queue, freezes membership, preserves the save baseline, and rebui
   await expect(queueSources.custom.rebuild(queue, context, {})).rejects.toThrow('deleted');
   expect(queue.items).toHaveLength(1);
 });
+it('groups the usable drafts by category when an alias cycle elsewhere breaks the finder sections', async () => {
+  const current = data();
+  current.items[13] = {
+    hash: 13,
+    name: 'Gamma',
+    icon: '',
+    categoryId: 'perks',
+    inGameDescription: '',
+  };
+  current.aliases = { 12: { to: 13, kind: 'name' }, 13: { to: 12, kind: 'name' } };
+  setEditorDraftFetch(async () => Response.json({ schemaVersion: 1, hashes: [11, 12, 13] }));
+  const items = await draftItems(current);
+  expect(items.map((item) => item.hash)).toEqual([11]);
+  const groups = draftGroups(items, current);
+  expect(groups.map((group) => [group.id, group.items.map((item) => item.hash)])).toEqual([
+    ['perks', [11]],
+  ]);
+  // A category's Rebuild still resolves.
+  const queue = { origin: { path: '/', restore: { category: 'perks' } } } as Parameters<
+    typeof queueSources.drafts.rebuild
+  >[0];
+  const rebuilt = await queueSources.drafts.rebuild(
+    queue,
+    { data: current, user: null, decisions: {} },
+    {},
+  );
+  expect(rebuilt.map((item) => item.hash)).toEqual([11]);
+});
+
 it('marks missing, archived, aliased, and cyclic entries unavailable through the real resolver', () => {
   const current = data();
   expect(worklistAvailable(11, current)).toBe(true);

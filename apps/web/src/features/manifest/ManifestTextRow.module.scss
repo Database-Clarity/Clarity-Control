@@ -6,19 +6,37 @@
     font-style: italic;
   }
 }
+// Name | value (right-aligned, tabular) | conditional note. Rows share the columns, so values line
+// up; a long name wraps inside its own column.
 .stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) max-content max-content;
+  justify-content: start;
+  margin: 0;
   padding: 0.375rem 0.25rem;
   font-size: 0.75rem;
   line-height: 1.4;
   user-select: text;
-  overflow-wrap: anywhere;
-  > span:not(:last-child)::after {
-    content: '·';
-    margin-left: 0.5rem;
-    color: var(--text2);
+  > div {
+    display: contents;
+  }
+  dt {
+    padding-right: 0.75rem;
+    overflow-wrap: anywhere;
+  }
+  dd {
+    margin: 0;
+    white-space: nowrap;
+    &:nth-of-type(1) {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    &:nth-of-type(2) {
+      color: var(--text2);
+      &:not(:empty) {
+        padding-left: 0.5rem;
+      }
+    }
   }
   @include theme.mobile {
     padding-inline: 0;
@@ -27,12 +45,6 @@
 .enhanced {
   color: var(--enhanced);
 }
-.conditional {
-  color: var(--text2);
-}
-.enhancedText {
-  margin-top: 0.5rem;
-}
 .text {
   margin: 0;
   color: var(--text);
@@ -40,6 +52,14 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
+}
+// Diff marks: spaces at a soft wrap collapse, so no strike or underline hangs past a line end.
+.text.diff {
+  white-space: pre-line;
+}
+.enhancedText,
+.text.rewritten {
+  margin-top: 0.5rem;
 }
 .summary {
   display: block;

@@ -32,6 +32,18 @@ export const switches = {
   preparation: (): boolean => false,
 };
 
+/**
+ * Contract v1: scheduling with global entries is unsupported. Once the data branch carries any
+ * global metadata (including a partial bootstrap), scheduling and scheduled saves fail closed;
+ * draft edits, unschedule, cancel, and member removal stay available.
+ */
+export function refuseGlobalScheduling(listing: TreeNode[] | null): void {
+  if (listing !== null)
+    throw new HttpError(409, 'Scheduling is not available while global entries exist');
+}
+/** Names-only `globals` listing read in the same snapshot as the state (no extra subrequest). */
+export const globalsListing = { path: 'globals', depth: 1 };
+
 /** PIN capability of a publisher build that drains, claims, and records `batch` requests (I6). */
 export const scheduledBatchesCapability = 'scheduledBatches';
 export function pinSchedulesBatches(pin: unknown): boolean {

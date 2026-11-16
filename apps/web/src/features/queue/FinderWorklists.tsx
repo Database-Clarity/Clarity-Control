@@ -13,12 +13,11 @@ import { createStore, useStore, type StoreApi } from 'zustand';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
 import { usePreviewReviewStore } from '../../stores/previewReview';
-import type { EditorData } from '../../stores/data';
 import type { WorklistEntry } from '../../../../../packages/core/src/worklists';
 import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { afterPaint } from '../navigation/FinderIcon';
-import { WorklistPicker } from './WorklistsMenu';
-import { draftItems } from './savedSources';
+import { DraftWorklistsPanel, WorklistPicker } from './WorklistsMenu';
+import type { DraftGroup } from './savedSources';
 import { startQueue } from './start';
 import { queueSources } from './sources';
 import styles from './FinderWorklists.module.scss';
@@ -89,15 +88,11 @@ export function finderWorklistKey(
 /** The only finder container change: keep all picker UI inside the existing blur boundary. */
 export function FinderWorklistScope({
   controller,
-  data,
   children,
-  'data-wide': wide,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   controller: FinderWorklistController;
-  data: EditorData;
   children: ReactNode;
-  'data-wide'?: boolean;
 }) {
   // Rows need no subscriptions. One boundary owns selection updates, and rows render their
   // checkbox only after the user enters worklist selection mode.
@@ -109,7 +104,6 @@ export function FinderWorklistScope({
     <Context.Provider value={value}>
       <div
         {...props}
-        data-wide={wide || selecting || undefined}
         onClickCapture={(event) => {
           // While selecting, a click anywhere on a row toggles it instead of opening the entry.
           if (!selecting || selection.choosing) return;
@@ -123,7 +117,7 @@ export function FinderWorklistScope({
           box.click();
         }}
       >
-        <FinderWorklistBar data={data} />
+        <FinderWorklistBar />
         {children}
       </div>
     </Context.Provider>
@@ -162,7 +156,7 @@ export function FinderWorklistRow({
     </span>
   );
 }
-function FinderWorklistBar({ data }: { data: EditorData }) {
+function FinderWorklistBar() {
   const { controller, selection, user } = useContext(Context)!;
   const { choosing } = selection;
   const selecting = user && selection.selecting;
@@ -171,6 +165,11 @@ function FinderWorklistBar({ data }: { data: EditorData }) {
   // The open frame draws only the bar's empty box (at its final height): its controls mount once
   // that frame has painted, keeping worklist work off the finder-open path.
   const [painted, setPainted] = useState(false);
+  const [drafts, setDrafts] = useState(false);
+  // The panel takes focus as it opens, so its Escape (and Tab) start inside it, not in the field.
+  useEffect(() => {
+    if (drafts) host.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [drafts]);
   useEffect(() => {
     let live = true;
     afterPaint(() => live && setPainted(true));
@@ -190,6 +189,29 @@ function FinderWorklistBar({ data }: { data: EditorData }) {
     controller.setState(initial());
     focus();
   };
+  if (drafts)
+    return (
+      <section
+        ref={host}
+        className={styles.picker}
+        aria-label="Drafts worklists"
+        onKeyDownCapture={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            setDrafts(false);
+            focus();
+          }
+        }}
+      >
+        <FinderDrafts
+          onCancel={() => {
+            setDrafts(false);
+            focus();
+          }}
+        />
+      </section>
+    );
   if (user && choosing)
     return (
       <section
@@ -255,37 +277,24 @@ function FinderWorklistBar({ data }: { data: EditorData }) {
                 Select entries
               </button>
             )}
-            <FinderDraftsButton data={data} />
+            <button type="button" onClick={() => setDrafts(true)}>
+              Drafts worklists
+            </button>
           </>
         )
       )}
     </div>
   );
 }
-function FinderDraftsButton({ data }: { data: EditorData }) {
+/** The per-category Drafts worklists, opened from the finder: each starts its own queue. */
+function FinderDrafts({ onCancel }: { onCancel(): void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const closeSheet = useContext(FinderSheetCloseContext);
   const [status, setStatus] = useState('');
-  const [busy, setBusy] = useState(false);
-  const request = useRef(0);
-  useEffect(
-    () => () => {
-      request.current++;
-    },
-    [location.key],
-  );
-  async function openDrafts() {
-    const attempt = ++request.current;
-    setBusy(true);
+  function open({ id, items }: DraftGroup) {
     setStatus('');
     try {
-      const items = await draftItems(data);
-      if (attempt !== request.current) return;
-      if (!items.length) {
-        setStatus('No bulk drafts need English text.');
-        return;
-      }
       if (
         !usePreviewReviewStore
           .getState()
@@ -297,27 +306,22 @@ function FinderDraftsButton({ data }: { data: EditorData }) {
         scope: 'shown',
         items,
         first: items[0]!,
-        origin: { path: `${location.pathname}${location.search}`, restore: {} },
+        origin: { path: `${location.pathname}${location.search}`, restore: { category: id } },
         focus: true,
       });
       closeSheet?.();
       navigate(target.to, { state: target.state });
     } catch {
-      if (attempt === request.current) setStatus('Drafts could not be opened. Try again.');
-    } finally {
-      if (attempt === request.current) setBusy(false);
+      setStatus('Drafts could not be opened. Try again.');
     }
   }
   return (
-    <>
-      <button type="button" disabled={busy} onClick={() => void openDrafts()}>
-        Drafts worklist
-      </button>
+    <DraftWorklistsPanel onOpen={open} onCancel={onCancel}>
       {status && (
         <span role="status" className={styles.hint}>
           {status}
         </span>
       )}
-    </>
+    </DraftWorklistsPanel>
   );
 }
