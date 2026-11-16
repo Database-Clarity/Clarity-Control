@@ -4,7 +4,7 @@ import { finderRowText, picker, pickerLabels, pickOption } from './finderPicker.
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { defaultSyncedSettings } from '@clarity/core';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { defaultDeviceSettings, useSettingsStore } from '../../stores/settings';
@@ -318,6 +318,18 @@ describe('Exotic Weapons list', () => {
     // Rows show the hash only for a search that matched it.
     await type('101');
     expect(rows().map(finderRowText)).toEqual(['The FundamentalsPerk · 101 · also Hard Light']);
+  });
+
+  it('sizes the list when it opens, not while typing', async () => {
+    await mount('/t/101');
+    const style = vi.spyOn(window, 'getComputedStyle');
+    const sized = () =>
+      style.mock.calls.filter(([element]) => element === document.documentElement);
+    await act(async () => field().click());
+    expect(sized()).toHaveLength(1);
+    for (const text of ['f', 'fu', 'fund', 'zzz']) await type(text);
+    expect(sized()).toHaveLength(1);
+    style.mockRestore();
   });
 
   it('lists every weapon in All, leading with the weapon, and marks only the open listing as current', async () => {

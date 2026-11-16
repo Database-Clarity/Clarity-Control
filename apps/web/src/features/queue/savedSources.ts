@@ -86,7 +86,13 @@ function finderSections(data: EditorData): Sections {
   let found = sections.get(data);
   if (!found) {
     found = { byHash: new Map(), byId: new Map() };
-    for (const group of navigationGroups(data, '', []))
+    let groups: ReturnType<typeof navigationGroups> = [];
+    try {
+      groups = navigationGroups(data, '', []);
+    } catch {
+      // An alias cycle elsewhere in the catalogue: every draft falls back to its own category.
+    }
+    for (const group of groups)
       for (const { id, label, items } of group.sections) {
         const section = { id, label, rank: found.byId.size };
         found.byId.set(id, section);

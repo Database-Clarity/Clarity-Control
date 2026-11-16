@@ -1269,12 +1269,13 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const hashQuery = /^\d+$/.test(trimmed) ? trimmed : '';
   // The header list widens to show its rows whole, up to the viewport: about the width the
   // longest row needs (estimated, as long lists render only the rows in view), never narrower
-  // within one opening, so typing does not make it jump.
+  // within one opening, so typing does not make it jump. It is sized when the list opens and when
+  // its scope changes (category, group, all groups, all categories, or the query emptying), never
+  // per keystroke: rows a query filters out of a scope are never wider than the scope's.
   const sheetList = variant === 'sheet';
-  const needed = useMemo(
-    () => (open && !sheetList ? rowsWidth(rows, allCategories) : 0),
-    [open, sheetList, rows, allCategories],
-  );
+  const emptyQuery = !trimmed;
+  const sizedRows = useRef(rows);
+  sizedRows.current = rows;
   const widest = useRef(0);
   useLayoutEffect(() => {
     if (!open || sheetList) {
@@ -1282,7 +1283,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       return;
     }
     const popup = root.current?.querySelector<HTMLElement>(`.${styles.popup}`);
-    if (!popup || !root.current) return;
+    const needed = rowsWidth(sizedRows.current, allCategories);
+    if (!popup || !root.current || (widest.current && needed <= widest.current)) return;
     widest.current = Math.max(widest.current, needed);
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const field = root.current.getBoundingClientRect();
@@ -1296,7 +1298,16 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     const left = Math.max(edge - field.left, Math.min(0, viewport - edge - field.left - width));
     popup.style.width = `${width}px`;
     popup.style.left = `${left}px`;
-  }, [open, sheetList, needed]);
+  }, [
+    open,
+    sheetList,
+    selectedCategory?.id,
+    place.group,
+    place.all,
+    allGroups,
+    allCategories,
+    emptyQuery,
+  ]);
   const listbox = open && (
     <FinderWorklistScope controller={worklists} className={styles.popup} data-variant={variant}>
       {variant === 'bar' && (
