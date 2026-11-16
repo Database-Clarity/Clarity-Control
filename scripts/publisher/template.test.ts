@@ -21,8 +21,8 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
   const root = 'scripts/publisher/template/.publisher';
   const pin = verifyRuntime(root);
   expect(pin).toEqual({
-    sourceSha: 'cb6d0f7a8e4091cf2acc0958368cd54f656f67d0',
-    sha256: 'edd9179ea082ca05393cc7e827bb025699ccd271205dd67ff41bed1c9c2236fb',
+    sourceSha: '42345c48906365b442f6cff691a28c57e1ef3a67',
+    sha256: 'f8782b62e1aa8c488d9be89c8c074a3ddf2447cfb640a44274766affb935d07a',
     capabilities: [
       'elementTags',
       'sandboxPointers',
@@ -34,6 +34,7 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
       'numberTokens',
       'aliasGroups',
       'globalsRelease',
+      'schedulePreparationV1',
     ],
   });
   expect(
@@ -362,7 +363,7 @@ it('the pipeline step publishes for real only when the installed config says pub
 describe('install.mjs', () => {
   const identity = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false'];
   /** A clean editor-data checkout whose origin names the data repository (never contacted). */
-  function checkout() {
+  function checkout(capabilities?: string[]) {
     const dir = mkdtempSync(join(tmpdir(), 'install-checkout-'));
     roots.push(dir);
     const git = (...args: string[]) => execFileSync('git', [...identity, '-C', dir, ...args]);
@@ -373,9 +374,20 @@ describe('install.mjs', () => {
     git('add', '.');
     git('commit', '-q', '-m', 'Seed');
     git('remote', 'add', 'origin', 'https://github.com/Database-Clarity/Live-Clarity-Database.git');
+    if (capabilities) {
+      mkdirSync(join(dir, '.publisher'));
+      writeFileSync(join(dir, '.publisher/PIN'), JSON.stringify({ capabilities }));
+      git('add', '.publisher/PIN');
+      git('commit', '-q', '-m', 'Install capability floor');
+    }
     return dir;
   }
-  function install(cwd: string, publishWritesEnabled: unknown, mode = '--plan') {
+  function install(
+    cwd: string,
+    publishWritesEnabled: unknown,
+    mode = '--plan',
+    capabilities?: string[],
+  ) {
     const pin = JSON.parse(
       readFileSync(join(cwd, 'scripts/publisher/template/.publisher/PIN'), 'utf8'),
     );
@@ -395,7 +407,7 @@ describe('install.mjs', () => {
     const dir = mkdtempSync(join(tmpdir(), 'install-config-'));
     roots.push(dir);
     writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
-    const target = checkout();
+    const target = checkout(capabilities);
     const result = spawnSync(
       process.execPath,
       ['scripts/publisher/install.mjs', target, join(dir, 'config.json'), mode],
@@ -429,6 +441,13 @@ describe('install.mjs', () => {
     const loose = install('.', 'true');
     expect(loose.status).not.toBe(0);
     expect(loose.stderr).toContain('publishWritesEnabled must be true or false');
+  });
+  it('preserves installed capability floors and refuses downgrading an unknown capability', () => {
+    const compatible = install('.', false, '--plan', ['schedulePreparationV1', 'globalsRelease']);
+    expect(compatible.status, compatible.stderr).toBe(0);
+    const downgrade = install('.', false, '--plan', ['futureCapability']);
+    expect(downgrade.status).not.toBe(0);
+    expect(downgrade.stderr).toContain('cannot drop installed capability floors');
   });
 
   it('refuses publish writes for a build whose baked switch is OFF', () => {

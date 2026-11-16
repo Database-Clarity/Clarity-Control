@@ -287,11 +287,14 @@ describe('CUTOVER-PRISMATIC', () => {
 
 // Decided deltas: native arm selection, Prismatic recognition/verified mappings, opted-in tagged
 // text, and the existing Armor Set Bonus rename. Every other control byte stays pinned.
-test.each(['live', 'editorData'] as const)('%s real-data control: seven files stay byte-identical', (name) => {
-  const { input, identical } = name === 'live' ? liveInput() : editorDataInput();
-  for (const preset of legacyPresets)
-    expect(sha256(buildLegacy(input, preset, { identical }))).toBe(expected[name].files[preset]);
-}, 120_000);
+test.each(['live', 'editorData'] as const)('%s real-data control: pinned input and consumer bytes', (name) => {
+  const { bytes, input, identical } = name === 'live' ? liveInput() : editorDataInput();
+  expect(sha256(bytes)).toBe(expected[name].inputSha256);
+  // parity-live.test.ts and parity-editor-data.test.ts pin EVERY preset's output on these
+  // same inputs. Keep one cheap end-to-end control here instead of rebuilding every file
+  // again in one timeout window (DIM's multi-language HTML dominates that work).
+  expect(sha256(buildLegacy(input, 'vaultZero', { identical }))).toBe(expected[name].files.vaultZero);
+});
 
 test('unused global pair keeps string preset bytes pinned, including empty real-data descriptions', () => {
   const { input, identical } = editorDataInput();

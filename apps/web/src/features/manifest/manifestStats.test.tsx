@@ -55,10 +55,28 @@ describe('manifest stats', () => {
       expect(host.textContent).toContain(asset.names[String(stat) as keyof typeof asset.names]);
       await show(0);
       expect(host.innerHTML).toBe('');
+      // Enhanced-only values are marked, base-only values struck; no placeholder dash or arrow.
       await show(0, Number(hash));
-      expect(host.textContent).toContain('— →');
+      expect(host.querySelector('ins')).not.toBeNull();
+      expect(host.querySelector('del')).toBeNull();
+      expect(host.textContent).not.toMatch(/[—→]/u);
       await show(Number(hash), 0);
-      expect(host.textContent).toContain('→ —');
+      expect(host.querySelector('del')).not.toBeNull();
+      expect(host.querySelector('ins')).toBeNull();
+      expect(host.textContent).not.toMatch(/[—→]/u);
+      // An unchanged pair shows each value once, unmarked.
+      await show(Number(hash), Number(hash));
+      expect(host.querySelector('del, ins')).toBeNull();
+      // A conditional note follows its value: plain alone, marked when only the enhanced has it.
+      const [conditional] = Object.entries(asset.items).find(([, stats]) =>
+        [...sumStats(stats).values()].some((stat) => stat.conditional),
+      )!;
+      await show(Number(conditional));
+      expect(host.textContent).toContain('conditional');
+      await show(0, Number(conditional));
+      expect([...host.querySelectorAll('ins')].map((node) => node.textContent)).toContain(
+        'conditional',
+      );
       await show(0);
       expect(host.innerHTML).toBe('');
     } finally {

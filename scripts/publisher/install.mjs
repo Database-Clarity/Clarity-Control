@@ -33,6 +33,15 @@ if (
     .digest('hex') !== pin.sha256
 )
   throw new Error('PIN mismatch');
+const installedPinPath = join(checkout, '.publisher/PIN');
+if (existsSync(installedPinPath)) {
+  const installed = JSON.parse(readFileSync(installedPinPath, 'utf8'));
+  if (
+    !Array.isArray(installed.capabilities) ||
+    installed.capabilities.some((capability) => !pin.capabilities.includes(capability))
+  )
+    throw new Error('Publisher install cannot drop installed capability floors');
+}
 const config = JSON.parse(readFileSync(resolve(configArg)));
 // The installed pipeline publishes for real exactly when config.publishWritesEnabled is true
 // (pipeline.yml picks --pipeline-publish). Refuse that config for a build whose baked switch
