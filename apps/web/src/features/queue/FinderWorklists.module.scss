@@ -34,19 +34,15 @@
 .row {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
 }
-// A plain checkbox in the marker slot; the whole row is the tap target while selecting.
+// A plain checkbox in the icon column; the whole row is the tap target while selecting.
 .check {
   width: 1rem;
   height: 1rem;
   margin: 0;
   accent-color: var(--accent-ink);
   cursor: pointer;
-}
-:global([role='option']):has(.row) {
-  --finder-marker-width: calc(41px + 1.25rem);
-}
-:global([role='option'][data-entry-marked]):has(.row) {
-  --finder-marker-width: calc(52px + 1.25rem);
 }

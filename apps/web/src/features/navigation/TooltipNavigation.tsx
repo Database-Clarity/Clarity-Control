@@ -267,7 +267,9 @@ const FinderOption = memo(function FinderOption({
       onClick={() => onCommit.current(row)}
     >
       <span className={styles.mark} aria-hidden="true"></span>
-      <FinderIcon icon={row.icon ?? item?.icon} />
+      <FinderWorklistRow hash={row.hash} name={row.entry ?? row.name} global={Boolean(row.global)}>
+        <FinderIcon icon={row.icon ?? item?.icon} />
+      </FinderWorklistRow>
       <span className={styles.name}>{stacked ? row.entry : row.name}</span>
       {row.global ? (
         allCategories && <small>{row.category}</small>
@@ -291,14 +293,8 @@ const FinderOption = memo(function FinderOption({
         </small>
       )}
       <span className={styles.markers}>
-        <FinderWorklistRow
-          hash={row.hash}
-          name={row.entry ?? row.name}
-          global={Boolean(row.global)}
-        >
-          <FinderMarkers hashes={markerHashes} flags={row.global ? 0 : markerIndex.get(row.hash)} />
-          {!!entryMarks?.length && <FinderEntryMarks entries={entryMarks} />}
-        </FinderWorklistRow>
+        <FinderMarkers hashes={markerHashes} flags={row.global ? 0 : markerIndex.get(row.hash)} />
+        {!!entryMarks?.length && <FinderEntryMarks entries={entryMarks} />}
       </span>
     </li>
   );

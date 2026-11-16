@@ -143,8 +143,8 @@ export function FinderWorklistRow({
   if (global || !user || !selection.selecting) return children;
   const selected = selection.selected.some((item) => item.hash === hash);
   return (
+    // While selecting, the checkbox takes the row icon's place: the row keeps its width.
     <span className={styles.row}>
-      {children}
       <input
         type="checkbox"
         data-worklist-check=""
