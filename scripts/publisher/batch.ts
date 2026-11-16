@@ -68,7 +68,10 @@ export function withEvent(
   event: Omit<BatchEvent, 'revision' | 'contentRevision'>,
 ): Batch {
   const revision = batch.revision + 1;
-  let events = [...batch.events, { ...event, revision, contentRevision: batch.contentRevision }];
+  let events = [
+    ...batch.events,
+    { ...event, revision, contentRevision: update.contentRevision ?? batch.contentRevision },
+  ];
   const overflow = events.length - scheduleLimits.inlineEvents;
   if (overflow > 0) {
     const prefix = `schedule/batches/${batch.id}/events/`;

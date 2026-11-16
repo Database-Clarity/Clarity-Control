@@ -33,6 +33,7 @@ import {
   type ReferenceTarget,
   type ResolvedReference,
 } from './references';
+import { openUrl, urlInLine, type UrlRange } from './urls';
 
 export type TooltipTarget = Extract<ReferenceTarget, { type: 'tooltip' }>;
 
@@ -72,6 +73,13 @@ export function referenceAtPosition(
   const range = { from: line.from + found.from, to: line.from + found.to };
   if ((range.from === pos && side < 0) || (range.to === pos && side > 0)) return null;
   return isInComment(doc.toString(), range.from, range.to) ? null : { ...found, range };
+}
+
+/** The http(s) URL touching `pos` (bare or inside `<link />`), in document offsets. */
+export function urlAtPosition(doc: Text, pos: number): UrlRange | null {
+  const line = doc.lineAt(pos);
+  const found = urlInLine(line.text, pos - line.from);
+  return found && { ...found, from: line.from + found.from, to: line.from + found.to };
 }
 
 /** Selection-only move to a definition in the open document; the text is never touched. */
@@ -293,8 +301,11 @@ export function referenceExtensions(host: ReferenceHost): Extension {
         let next: { from: number; to: number } | null = null;
         if (this.held && this.pointer) {
           const pos = this.view.posAtCoords(this.pointer);
-          const found = pos === null ? null : referenceAtPosition(this.view.state.doc, pos, 0);
-          if (found && canOpen(resolve(this.view.state, found), host)) next = found.range;
+          const doc = this.view.state.doc;
+          const url = pos === null ? null : urlAtPosition(doc, pos);
+          const found = pos === null || url ? null : referenceAtPosition(doc, pos, 0);
+          if (url) next = { from: url.from, to: url.to };
+          else if (found && canOpen(resolve(this.view.state, found), host)) next = found.range;
         }
         if (next?.from === this.shown?.from && next?.to === this.shown?.to) return;
         this.shown = next;
@@ -336,7 +347,15 @@ export function referenceExtensions(host: ReferenceHost): Extension {
       mousedown(event, view) {
         if (event.button !== 0 || !modifierHeld(event)) return false;
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-        if (pos === null || !referenceAtPosition(view.state.doc, pos, 0)) return false;
+        if (pos === null) return false;
+        // A URL wins over a reference inside it (`https://x.y/#id`), and only there.
+        const url = urlAtPosition(view.state.doc, pos);
+        if (url) {
+          event.preventDefault();
+          openUrl(url.url);
+          return true;
+        }
+        if (!referenceAtPosition(view.state.doc, pos, 0)) return false;
         event.preventDefault();
         return goTo(view, pos);
       },
