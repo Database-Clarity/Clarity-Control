@@ -85,12 +85,22 @@ export async function buildBundle(root, sourceCommit, generatedAt = new Date().t
     !Object.keys(picks).length
   )
     sandboxPointers = undefined;
+  let aliasGroups;
+  let hasAliasGroups = true;
+  try {
+    aliasGroups = await readJson(join(root, 'config', 'alias-groups.json'));
+  } catch (error) {
+    if (error.code === 'ENOENT') hasAliasGroups = false;
+    else if (error instanceof SyntaxError) aliasGroups = null;
+    else throw error;
+  }
   return {
     sourceCommit,
     generatedAt,
     tooltips,
     permissions,
     pushed,
+    ...(hasAliasGroups ? { aliasGroups } : {}),
     ...(inactiveMoves && Object.keys(inactiveMoves).length ? { inactiveMoves } : {}),
     ...(sandboxPointers ? { sandboxPointers } : {}),
   };
