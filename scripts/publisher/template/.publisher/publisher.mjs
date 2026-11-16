@@ -22992,7 +22992,9 @@ var init_schemas4 = __esm({
       /** Terminal (published, cancelled) entries kept in index.json besides the open ones. */
       indexTerminal: 100,
       /** Inline events per batch.json; older ones move to events/<seq>.json in the same commit. */
-      inlineEvents: 200,
+      inlineEvents: 20,
+      /** Read compatibility only: old batches are compacted on their next write. */
+      legacyInlineEvents: 200,
       nameLength: 80,
       /** notBefore must be at least this far ahead (or 'now'). */
       minLeadMs: 3 * 6e4,
@@ -23026,12 +23028,20 @@ var init_schemas4 = __esm({
     }, "Not a real UTC minute");
     batchStatusSchema = external_exports.enum([
       "draft",
+      "preparing",
+      "needs_attention",
       "scheduled",
       "publishing",
       "published",
       "cancelled"
     ]);
-    openStatuses = ["draft", "scheduled", "publishing"];
+    openStatuses = [
+      "draft",
+      "preparing",
+      "needs_attention",
+      "scheduled",
+      "publishing"
+    ];
     isOpenStatus = (status) => openStatuses.includes(status);
     batchResultStatusSchema = external_exports.enum([
       "published",
@@ -23056,7 +23066,11 @@ var init_schemas4 = __esm({
       "stale",
       "rejected",
       "superseded",
-      "resolve"
+      "resolve",
+      "request",
+      "retry",
+      "prepared",
+      "preparation_failed"
     ]);
     batchEventSchema = external_exports.object({
       at: timestampSchema,
@@ -23112,7 +23126,23 @@ var init_schemas4 = __esm({
       claim: external_exports.object({ opId: publishOpIdSchema, claimedAt: timestampSchema }).strict().nullable(),
       /** The latest operation's result. */
       result: batchResultSchema.nullable(),
-      events: external_exports.array(batchEventSchema).max(scheduleLimits.inlineEvents)
+      /** Absent on legacy batches. Retained on failure; cleared only by a fenced CAS. */
+      preparation: external_exports.object({
+        requestId: publishOpIdSchema,
+        kind: external_exports.enum(["schedule", "save"]),
+        returnStatus: external_exports.enum(["draft", "scheduled"]),
+        requestedAt: timestampSchema,
+        attempt: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+      }).strict().nullable().optional(),
+      /** New publishers require this ready fence in addition to their claim-time validation. */
+      preparedRequestId: publishOpIdSchema.nullable().optional(),
+      /** Latest failed proposal; full per-field reasons remain in its durable request record. */
+      lastPreparationFailure: external_exports.object({
+        requestId: publishOpIdSchema,
+        at: timestampSchema,
+        reason: external_exports.string().min(1).max(2e3)
+      }).strict().nullable().optional(),
+      events: external_exports.array(batchEventSchema).max(scheduleLimits.legacyInlineEvents)
     }).strict().superRefine((batch, ctx) => {
       const issue2 = (message) => ctx.addIssue({ code: "custom", message });
       if (batch.contentRevision > batch.revision) issue2("contentRevision exceeds revision");
@@ -23122,6 +23152,17 @@ var init_schemas4 = __esm({
       if (succeeded && batch.status !== "published")
         issue2("Only a published batch carries a successful result");
       switch (batch.status) {
+        case "preparing":
+        case "needs_attention":
+          if (!batch.preparation || batch.claim !== null || batch.preparedRequestId != null)
+            issue2("Preparation requires an outstanding request, no claim, and no ready fence");
+          if (batch.preparation?.returnStatus === "scheduled" && (!batch.notBefore || !batch.opId))
+            issue2("A pending schedule retains its target time and operation");
+          if (batch.preparation?.returnStatus === "draft" && (batch.opId !== null || batch.notBefore !== null))
+            issue2("A pending draft save has no publication operation");
+          if (batch.preparation?.kind === "schedule" && batch.preparation.returnStatus !== "scheduled")
+            issue2("A schedule preparation returns to scheduled");
+          break;
         case "draft":
         case "cancelled":
           if (batch.opId !== null || batch.claim !== null || batch.scheduledContentRevision !== null)
@@ -23144,6 +23185,10 @@ var init_schemas4 = __esm({
           }
           break;
       }
+      if (batch.status !== "preparing" && batch.status !== "needs_attention" && batch.preparation)
+        issue2("Only preparing or needs_attention carries an outstanding request");
+      if (batch.preparedRequestId != null && !["scheduled", "publishing", "published"].includes(batch.status))
+        issue2("Only prepared publication states carry a ready fence");
       if (batch.result && batch.opId !== null && batch.status !== "published" && batch.result.opId === batch.opId)
         issue2("A pending operation has no result yet");
     });
@@ -23232,8 +23277,8 @@ var init_schemas4 = __esm({
 // packages/core/src/schedule/digest.ts
 async function sha256(text) {
   const bytes = new TextEncoder().encode(text);
-  const digest4 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest4), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest5 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest5), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 function approvedProposal({ base, proposed }) {
   if (base === null) return withoutTranslations(proposed);
@@ -23478,6 +23523,143 @@ var init_zone = __esm({
   }
 });
 
+// packages/core/src/schedule/preparation.ts
+function matchesPreparationFence(batch, request) {
+  return batch.id === request.batchId && batch.status === "preparing" && batch.claim === null && batch.preparedRequestId == null && batch.preparation?.requestId === request.requestId && batch.preparation.attempt === request.attempt && request.status === "pending" && batch.revision === request.admissionRevision;
+}
+function canClaimPreparedBatch(batch, preparedRequestId) {
+  return batch.status === "scheduled" && batch.claim === null && !batch.preparation && batch.preparedRequestId === preparedRequestId && batch.opId !== null && batch.scheduledContentRevision === batch.contentRevision;
+}
+var init_preparation = __esm({
+  "packages/core/src/schedule/preparation.ts"() {
+    "use strict";
+  }
+});
+
+// packages/core/src/schedule/intent.ts
+async function scheduleBodyDigest(bytes) {
+  return Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))),
+    (byte) => byte.toString(16).padStart(2, "0")
+  ).join("");
+}
+async function signScheduleIntent(intent, key) {
+  const payload = stableStringify(scheduleIntentSchema.parse(intent));
+  const sig = btoa(
+    String.fromCharCode(
+      ...new Uint8Array(
+        await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(payload))
+      )
+    )
+  );
+  return { payload, sig };
+}
+async function verifyScheduleIntent(envelope, key) {
+  const checked = scheduleEnvelopeSchema.parse(envelope);
+  const signature = Uint8Array.from(atob(checked.sig), (char) => char.charCodeAt(0));
+  if (!await crypto.subtle.verify(
+    "Ed25519",
+    key,
+    signature,
+    new TextEncoder().encode(checked.payload)
+  ))
+    throw new Error("Invalid schedule intent signature");
+  return scheduleIntentSchema.parse(JSON.parse(checked.payload));
+}
+async function verifyScheduleRequest(value2, body2, key, target) {
+  const request = scheduleRequestSchema.parse(value2);
+  const intent = await verifyScheduleIntent(request.envelope, key);
+  if (intent.repo !== target.repo || intent.dataBranch !== target.dataBranch || intent.liveBranch !== target.liveBranch || intent.requestId !== request.requestId || intent.batchId !== request.batchId || intent.requester.id !== request.requesterId || intent.bodyDigest !== request.bodyDigest || await scheduleBodyDigest(body2) !== intent.bodyDigest)
+    throw new Error("Schedule request does not match its signed intent");
+  return { request, intent };
+}
+var schedulePreparationCapability, scheduleIntentPaths, revision, oid, digest, common, scheduleIntentSchema, scheduleEnvelopeSchema, preparationReasonSchema, scheduleRequestSchema;
+var init_intent = __esm({
+  "packages/core/src/schedule/intent.ts"() {
+    "use strict";
+    init_zod();
+    init_contentHash();
+    init_publishRequest();
+    init_schemas3();
+    init_schemas4();
+    schedulePreparationCapability = "schedulePreparationV1";
+    scheduleIntentPaths = {
+      request: (id) => `schedule/requests/${id}.json`,
+      body: (id) => `schedule/requests/${id}.body.json`,
+      publication: (batchId) => `schedule/batches/${batchId}/publication.json`
+    };
+    revision = external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+    oid = external_exports.string().regex(/^[0-9a-f]{40}$/);
+    digest = external_exports.string().regex(/^[0-9a-f]{64}$/);
+    common = {
+      version: external_exports.literal(1),
+      requestId: publishOpIdSchema,
+      batchId: publishOpIdSchema,
+      repo: external_exports.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+      dataBranch: external_exports.string().min(1).max(255),
+      liveBranch: external_exports.string().min(1).max(255),
+      requester: external_exports.object({
+        id: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        login: external_exports.string().min(1).max(39)
+      }).strict(),
+      expectedRevision: revision,
+      contentRevision: revision,
+      sourceCommit: oid,
+      /** Null only when the source batch has no members yet (a draft save). */
+      memberTreeOid: oid.nullable(),
+      createdAt: timestampSchema,
+      /** SHA-256 of the exact UTF-8 HTTP request bytes; the Worker computes it. */
+      bodyDigest: digest
+    };
+    scheduleIntentSchema = external_exports.discriminatedUnion("kind", [
+      external_exports.object({
+        ...common,
+        kind: external_exports.literal("schedule"),
+        notBefore: notBeforeSchema,
+        zone: external_exports.string().min(1).max(64)
+      }).strict(),
+      external_exports.object({
+        ...common,
+        kind: external_exports.literal("save"),
+        returnStatus: external_exports.enum(["draft", "scheduled"]),
+        /** Worker-derived owner policy; clients cannot select this field. */
+        onValidationFailure: external_exports.enum(["keep_scheduled", "needs_attention"])
+      }).strict().refine(
+        (intent) => intent.onValidationFailure !== "keep_scheduled" || intent.returnStatus === "scheduled",
+        "Only an existing schedule can survive a failed save"
+      )
+    ]);
+    scheduleEnvelopeSchema = external_exports.object({ payload: external_exports.string().max(4096), sig: external_exports.string().regex(/^[A-Za-z0-9+/]{86}==$/) }).strict();
+    preparationReasonSchema = external_exports.object({
+      reason: external_exports.string().min(1).max(2e3),
+      hash: external_exports.number().int().nonnegative().max(4294967295).optional(),
+      fields: external_exports.array(external_exports.string().min(1).max(100)).max(100).optional()
+    }).strict();
+    scheduleRequestSchema = external_exports.object({
+      envelope: scheduleEnvelopeSchema,
+      requestId: publishOpIdSchema,
+      batchId: publishOpIdSchema,
+      requesterId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      bodyDigest: digest,
+      admissionRevision: revision,
+      status: external_exports.enum(["pending", "needs_attention", "failed", "completed", "cancelled"]),
+      attempt: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      updatedAt: timestampSchema,
+      retryable: external_exports.boolean().optional(),
+      reasons: external_exports.array(preparationReasonSchema).max(100).optional(),
+      workflowUrl: external_exports.string().url().max(2e3).optional(),
+      /** Result is set only by the preparer, after its materialization CAS. */
+      result: external_exports.object({ revision, contentRevision: revision, status: external_exports.enum(["draft", "scheduled"]) }).strict().optional()
+    }).strict().superRefine((request, ctx) => {
+      if (request.status === "failed" && (!request.reasons?.length || request.result !== void 0))
+        ctx.addIssue({
+          code: "custom",
+          message: "A failed request has reasons and no successful save result"
+        });
+    });
+  }
+});
+
 // packages/core/src/schedule/index.ts
 var schedule_exports = {};
 __export(schedule_exports, {
@@ -23496,6 +23678,7 @@ __export(schedule_exports, {
   batchSchema: () => batchSchema,
   batchStatusSchema: () => batchStatusSchema,
   boundTranslationSources: () => boundTranslationSources,
+  canClaimPreparedBatch: () => canClaimPreparedBatch,
   changedFields: () => changedFields,
   checkNotBefore: () => checkNotBefore,
   compose: () => compose,
@@ -23508,17 +23691,28 @@ __export(schedule_exports, {
   isOpenStatus: () => isOpenStatus,
   isTranslationField: () => isTranslationField,
   isValidZone: () => isValidZone,
+  matchesPreparationFence: () => matchesPreparationFence,
   missingSnapshotReason: () => missingSnapshotReason,
   nextRevisions: () => nextRevisions,
   nonTranslationChanges: () => nonTranslationChanges,
   notBeforeSchema: () => notBeforeSchema,
   nowMinute: () => nowMinute,
   openStatuses: () => openStatuses,
+  preparationReasonSchema: () => preparationReasonSchema,
   reconcileScheduledNumbers: () => reconcileScheduledNumbers,
   resolveActivation: () => resolveActivation,
+  scheduleBodyDigest: () => scheduleBodyDigest,
+  scheduleEnvelopeSchema: () => scheduleEnvelopeSchema,
   scheduleIndexSchema: () => scheduleIndexSchema,
+  scheduleIntentPaths: () => scheduleIntentPaths,
+  scheduleIntentSchema: () => scheduleIntentSchema,
   scheduleLimits: () => scheduleLimits,
   schedulePaths: () => schedulePaths,
+  schedulePreparationCapability: () => schedulePreparationCapability,
+  scheduleRequestSchema: () => scheduleRequestSchema,
+  signScheduleIntent: () => signScheduleIntent,
+  verifyScheduleIntent: () => verifyScheduleIntent,
+  verifyScheduleRequest: () => verifyScheduleRequest,
   withField: () => withField,
   withoutTranslations: () => withoutTranslations,
   zoneOffsetMinutes: () => zoneOffsetMinutes,
@@ -23535,6 +23729,8 @@ var init_schedule = __esm({
     init_activate();
     init_zone();
     init_stamps();
+    init_preparation();
+    init_intent();
   }
 });
 
@@ -23572,7 +23768,7 @@ async function publishRequestIntentDigest(value2) {
   if (value2.kind === "batch") return (await schedule()).batchIntentDigest(value2);
   return publishIntentDigest(value2);
 }
-var publishOpIdSchema, digest, hashKey, publishBodySchema, publishPayloadSchema, schedule;
+var publishOpIdSchema, digest2, hashKey, publishBodySchema, publishPayloadSchema, schedule;
 var init_publishRequest = __esm({
   "packages/core/src/publishRequest.ts"() {
     "use strict";
@@ -23580,12 +23776,12 @@ var init_publishRequest = __esm({
     init_legacy();
     init_contentHash();
     publishOpIdSchema = external_exports.string().regex(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
-    digest = external_exports.string().regex(/^[0-9a-f]{64}$/);
+    digest2 = external_exports.string().regex(/^[0-9a-f]{64}$/);
     hashKey = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((s) => Number(s) <= 4294967295);
     publishBodySchema = external_exports.object({
       opId: publishOpIdSchema,
       hashes: external_exports.array(hashSchema).min(1).max(3e3).refine((a) => new Set(a).size === a.length),
-      expected: external_exports.record(hashKey, digest)
+      expected: external_exports.record(hashKey, digest2)
     }).strict().superRefine((v, ctx) => {
       if (Object.keys(v.expected).length !== v.hashes.length || v.hashes.some((h) => !v.expected[h]))
         ctx.addIssue({ code: "custom", message: "Exactly one expected digest per hash is required" });
@@ -23601,7 +23797,7 @@ var init_publishRequest = __esm({
         login: external_exports.string().min(1)
       }).strict(),
       createdAt: external_exports.string().datetime(),
-      intentDigest: digest
+      intentDigest: digest2
     }).strict().superRefine((v, ctx) => {
       if (!publishBodySchema.safeParse({ opId: v.opId, hashes: v.hashes, expected: v.expected }).success)
         ctx.addIssue({ code: "custom", message: "Invalid publish intent" });
@@ -23690,10 +23886,10 @@ var LocalRepository = class {
     const tree = Object.fromEntries(
       this.git(["ls-tree", "-rz", "--full-tree", commit2]).split("\0").filter(Boolean).map((line) => {
         const [meta3, path] = line.split("	");
-        const [mode, type, oid3] = meta3.split(" ");
+        const [mode, type, oid4] = meta3.split(" ");
         if (!this.preserveModes && (mode !== "100644" || type !== "blob"))
           throw new Error("Only plain blob trees supported");
-        return [path, oid3];
+        return [path, oid4];
       })
     );
     this.trees.set(commit2, tree);
@@ -23707,14 +23903,14 @@ var LocalRepository = class {
       })
     );
   }
-  blob(oid3) {
-    if (!this.blobs.has(oid3)) this.blobs.set(oid3, this.git(["cat-file", "blob", oid3]));
-    return this.blobs.get(oid3);
+  blob(oid4) {
+    if (!this.blobs.has(oid4)) this.blobs.set(oid4, this.git(["cat-file", "blob", oid4]));
+    return this.blobs.get(oid4);
   }
   writeBlob(bytes) {
-    const oid3 = this.git(["hash-object", "-w", "--stdin"], bytes).trim();
-    this.blobs.set(oid3, bytes);
-    return oid3;
+    const oid4 = this.git(["hash-object", "-w", "--stdin"], bytes).trim();
+    this.blobs.set(oid4, bytes);
+    return oid4;
   }
   requireCredits = false;
   commit(parent, tree, message, credits) {
@@ -23736,9 +23932,9 @@ var LocalRepository = class {
       this.git(["read-tree", "--empty"], void 0, env);
       this.git(
         ["update-index", "-z", "--index-info"],
-        Object.entries(tree).sort().map(([p, oid3]) => {
+        Object.entries(tree).sort().map(([p, oid4]) => {
           if (/[\0\n\t]/.test(p)) throw new Error("Invalid tree path");
-          return `${modes.get(p) ?? "100644"} ${oid3}	${p}\0`;
+          return `${modes.get(p) ?? "100644"} ${oid4}	${p}\0`;
         }).join(""),
         env
       );
@@ -26613,8 +26809,8 @@ async function publishableHash(tooltip, aliases = {}) {
       ...incoming.length ? { aliases: incoming } : {}
     })
   );
-  const digest4 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest4), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest5 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest5), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 // packages/core/src/index.ts
@@ -26725,8 +26921,8 @@ async function inactivePublishableHash(tooltip, aliases, moves = {}) {
 }
 async function inactiveRemovalHash(hash2) {
   const bytes = new TextEncoder().encode(stableStringify({ inactive: hash2 }));
-  const digest4 = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest4), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest5 = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest5), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 var unreviewedInactiveMessage = "Publish inactive move decisions in Review changes before scheduling or publishing this batch";
 async function hasUnpublishedInactiveMove(hash2, snapshot, pushed, aliases, moves) {
@@ -27447,19 +27643,19 @@ function calculateGlobalImpact(before, after, changes2, destination) {
 
 // packages/core/src/globalsRelease/model.ts
 init_zod();
-var oid = external_exports.string().regex(/^[a-f0-9]{40}$/);
-var digest2 = external_exports.string().regex(/^[a-f0-9]{64}$/);
+var oid2 = external_exports.string().regex(/^[a-f0-9]{40}$/);
+var digest3 = external_exports.string().regex(/^[a-f0-9]{64}$/);
 var globalSourcesSchema = external_exports.object({
-  authored: oid,
-  definitions: oid,
-  projections: oid,
-  config: oid,
-  live: oid,
-  upcoming: oid,
-  aliases: oid,
-  generator: oid,
-  fallback: digest2,
-  resolver: digest2
+  authored: oid2,
+  definitions: oid2,
+  projections: oid2,
+  config: oid2,
+  live: oid2,
+  upcoming: oid2,
+  aliases: oid2,
+  generator: oid2,
+  fallback: digest3,
+  resolver: digest3
 }).strict();
 var globalLayoutSchema = external_exports.object({ version: external_exports.literal(1), aggregates: globalStoreSchema.shape.aggregates }).strict().refine(
   (layout) => layout.aggregates.length === 2 && [2, 3].every(
@@ -27489,7 +27685,7 @@ async function globalIdentityDigest(value2, algorithm = "SHA-256") {
   return [...new Uint8Array(await crypto.subtle.digest(algorithm, bytes))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 async function observeGlobalSources(input2) {
-  for (const value2 of Object.values(input2)) if (value2 !== null) oid.parse(value2);
+  for (const value2 of Object.values(input2)) if (value2 !== null) oid2.parse(value2);
   return globalSourcesSchema.parse({
     authored: input2.authored,
     definitions: input2.definitions,
@@ -29171,13 +29367,13 @@ init_contentHash();
 init_zod();
 init_legacy();
 var commit = external_exports.string().regex(/^[0-9a-f]{40}$/);
-var digest3 = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var digest4 = external_exports.string().regex(/^[0-9a-f]{64}$/);
 var members2 = external_exports.array(hashSchema).min(2).max(256).refine((v) => new Set(v).size === v.length);
 var selection = {
   canonical: hashSchema,
   members: members2,
   /** Compare with server-recomputed membership/facts digest, never trust client eligibility. */
-  factsDigest: digest3,
+  factsDigest: digest4,
   /** Single-group only. Server still refuses loss of a locale absent from canonical text. */
   acknowledgeConflicts: external_exports.literal(true).optional(),
   note: external_exports.string().max(500).optional()
@@ -29188,7 +29384,7 @@ var aliasGroupOperationSchema = external_exports.discriminatedUnion("op", [
   external_exports.object({
     op: external_exports.literal("reject"),
     members: members2,
-    factsDigest: digest3,
+    factsDigest: digest4,
     reason: external_exports.string().max(500).optional()
   }).strict(),
   external_exports.object({ op: external_exports.literal("ungroup"), canonical: hashSchema }).strict(),
@@ -29577,8 +29773,8 @@ function batchMembers(io, tree, batchId) {
   return members3.sort((a, b) => a.hash - b.hash);
 }
 function withEvent(io, tree, batch, update, event) {
-  const revision = batch.revision + 1;
-  let events = [...batch.events, { ...event, revision, contentRevision: batch.contentRevision }];
+  const revision2 = batch.revision + 1;
+  let events = [...batch.events, { ...event, revision: revision2, contentRevision: batch.contentRevision }];
   const overflow = events.length - scheduleLimits.inlineEvents;
   if (overflow > 0) {
     const prefix = `schedule/batches/${batch.id}/events/`;
@@ -29596,7 +29792,7 @@ function withEvent(io, tree, batch, update, event) {
     tree[target] = io.writeBlob(json2({ events: events.slice(0, overflow) }));
     events = events.slice(overflow);
   }
-  return batchSchema.parse({ ...batch, ...update, revision, events });
+  return batchSchema.parse({ ...batch, ...update, revision: revision2, events });
 }
 function advisory(io, tree, path) {
   try {
@@ -29662,7 +29858,7 @@ var limits = {
   page: 3,
   destinations: 4
 };
-var oid2 = external_exports.string().regex(/^[a-f0-9]{40}$/);
+var oid3 = external_exports.string().regex(/^[a-f0-9]{40}$/);
 function globalFileBytes(value2) {
   return new TextEncoder().encode(`${JSON.stringify(value2, null, 2)}
 `).byteLength;
@@ -29670,14 +29866,14 @@ function globalFileBytes(value2) {
 var token = external_exports.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 var destinationsSchema = external_exports.array(token).min(1).max(limits.destinations).refine((v) => new Set(v).size === v.length, "Duplicate destination");
 var sourcesSchema = external_exports.object({
-  authored: oid2,
-  definitions: oid2,
-  projections: oid2,
-  config: oid2,
-  live: oid2,
-  upcoming: oid2,
-  aliases: oid2,
-  generator: oid2,
+  authored: oid3,
+  definitions: oid3,
+  projections: oid3,
+  config: oid3,
+  live: oid3,
+  upcoming: oid3,
+  aliases: oid3,
+  generator: oid3,
   fallback: globalDigestSchema,
   resolver: globalDigestSchema
 }).strict();
@@ -29690,12 +29886,12 @@ var nameProofRequestSchema = external_exports.object({
   name: external_exports.string().min(1).max(128),
   globalId: globalIdSchema.nullable(),
   revision: globalRevisionSchema.nullable(),
-  expectedHead: oid2,
+  expectedHead: oid3,
   sources: sourcesSchema,
   by: external_exports.string().min(1).max(128),
   at: external_exports.iso.datetime()
 }).strict();
-var sourceIdentity = external_exports.object({ path: external_exports.string().max(256), blob: oid2, revision: globalRevisionSchema }).strict();
+var sourceIdentity = external_exports.object({ path: external_exports.string().max(256), blob: oid3, revision: globalRevisionSchema }).strict();
 var pendingCauseSchema = external_exports.object({
   version: external_exports.literal(1),
   id: token,
@@ -29703,7 +29899,7 @@ var pendingCauseSchema = external_exports.object({
   globalId: globalIdSchema,
   lang: langSchema.nullable(),
   beforeSources: sourcesSchema,
-  expectedHead: oid2,
+  expectedHead: oid3,
   at: external_exports.iso.datetime(),
   by: external_exports.string().min(1).max(128),
   before: sourceIdentity.nullable(),
@@ -29796,7 +29992,7 @@ var pageSchema = external_exports.object({
 }).strict();
 var catalogSchema = external_exports.object({ version: external_exports.literal(1), lastPage: external_exports.number().int().min(0).max(99999) }).strict();
 var reviewPageSchema = external_exports.object({ ...proof, ids: external_exports.array(token).max(limits.page), nextCursor: token.nullable() }).strict();
-var expected = { expectedHead: oid2 };
+var expected = { expectedHead: oid3 };
 var existing = { id: globalIdSchema, revision: globalRevisionSchema };
 var definition = { lang: langSchema, body: external_exports.string().max(limits.body) };
 var mutationSchema = external_exports.object({
@@ -29823,7 +30019,7 @@ var mutationSchema = external_exports.object({
   ])
 }).strict();
 var retrySchema = external_exports.object({
-  expectedHead: oid2,
+  expectedHead: oid3,
   id: globalIdSchema,
   causeIds: external_exports.array(token).min(1).max(limits.causes).refine((v) => new Set(v).size === v.length, "Duplicate cause")
 }).strict();
@@ -29890,10 +30086,10 @@ var decoder = new TextDecoder("utf-8", { fatal: true });
 
 // apps/worker/src/globals/handlers.ts
 async function namePaths(kind, name2) {
-  const digest4 = new Uint8Array(
+  const digest5 = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${kind}:${name2}`))
   );
-  const key = [...digest4].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const key = [...digest5].map((b) => b.toString(16).padStart(2, "0")).join("");
   return {
     claim: `globals/names/${kind}/${key}.json`,
     proof: `globals/proofs/clashes/${kind}/${key}.json`
@@ -29915,13 +30111,13 @@ function globalTreeOid(tree, prefix, modes = {}) {
   const entries = Object.entries(tree).filter(([path]) => path.startsWith(`${prefix}/`));
   if (!entries.length) return emptyGitTree;
   const files = /* @__PURE__ */ new Map(), directories = /* @__PURE__ */ new Set();
-  for (const [path, oid3] of entries) {
+  for (const [path, oid4] of entries) {
     const rest = path.slice(prefix.length + 1), slash = rest.indexOf("/");
-    if (slash < 0) files.set(rest, oid3);
+    if (slash < 0) files.set(rest, oid4);
     else directories.add(rest.slice(0, slash));
   }
   const parts = [
-    ...[...files].map(([name2, oid3]) => ({ name: name2, oid: oid3, directory: false })),
+    ...[...files].map(([name2, oid4]) => ({ name: name2, oid: oid4, directory: false })),
     ...[...directories].map((name2) => ({
       name: name2,
       oid: globalTreeOid(tree, `${prefix}/${name2}`, modes),
@@ -29935,9 +30131,9 @@ function globalTreeOid(tree, prefix, modes = {}) {
   );
   const bytes = Buffer.concat(
     parts.map(
-      ({ name: name2, oid: oid3, directory }) => Buffer.concat([
+      ({ name: name2, oid: oid4, directory }) => Buffer.concat([
         Buffer.from(`${directory ? "40000" : modes[`${prefix}/${name2}`] ?? "100644"} ${name2}\0`),
-        Buffer.from(oid3, "hex")
+        Buffer.from(oid4, "hex")
       ])
     )
   );
@@ -30052,7 +30248,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
       );
     });
   }
-  capture(tree, revision, liveCommit) {
+  capture(tree, revision2, liveCommit) {
     const published = globalPublishedSchema.parse(
       this.read(tree, globalsReleasePaths.published(this.options.liveBranch))
     );
@@ -30065,7 +30261,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
     );
     const snapshot = (tooltips, mode) => ({
       repository: this.options.repo,
-      revision,
+      revision: revision2,
       aliases,
       types,
       tooltips,
@@ -30144,9 +30340,9 @@ var GlobalsPublisher = class _GlobalsPublisher {
       causes.push(...rowSchema.parse(this.read(tree, path)).review.causes);
     return [...new Map(causes.map((cause) => [stableStringify(cause), cause])).values()];
   }
-  async plan(tree, revision, live) {
-    await this.validateCauses(tree, revision);
-    const captured = this.capture(tree, revision, live);
+  async plan(tree, revision2, live) {
+    await this.validateCauses(tree, revision2);
+    const captured = this.capture(tree, revision2, live);
     const causes = this.causes(tree);
     const prior = /* @__PURE__ */ new Map();
     for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/causes/")).sort()) {
@@ -30219,11 +30415,11 @@ var GlobalsPublisher = class _GlobalsPublisher {
         throw new Error("Unproven global cause sources");
     }
   }
-  async release(tree, revision, roots, live) {
+  async release(tree, revision2, roots, live) {
     if (!hasGlobals(tree)) return void 0;
     const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
-    const sources = await this.sources(tree, live, revision);
-    const captured = this.capture(tree, revision, live), components = await this.plan(tree, revision, live);
+    const sources = await this.sources(tree, live, revision2);
+    const captured = this.capture(tree, revision2, live), components = await this.plan(tree, revision2, live);
     const selected = roots.map((hash2) => resolveAlias(hash2, captured.authored.aliases));
     const activeSelection = selected.filter(
       (hash2) => !isMovedInactive(hash2, this.publisher.movesAt(tree))
@@ -30275,15 +30471,15 @@ var GlobalsPublisher = class _GlobalsPublisher {
       destination: this.options.liveBranch,
       store
     });
-    const digest4 = await globalIdentityDigest({
-      sourceCommit: revision,
+    const digest5 = await globalIdentityDigest({
+      sourceCommit: revision2,
       sources,
       ids,
       documents,
       published,
       rows: ready.flatMap((component) => component.rows)
     });
-    const receipt = { version: 1, roots, sources, digest: digest4, published };
+    const receipt = { version: 1, roots, sources, digest: digest5, published };
     return { documents, receipt };
   }
   async validate(receipt, tree, head, live) {
@@ -31370,24 +31566,24 @@ var Publisher = class _Publisher {
           return;
         }
         for (const hash2 of payload.hashes) {
-          const canonical = resolveAlias(hash2, aliases), oid3 = tree[`tooltips/${canonical}.json`];
+          const canonical = resolveAlias(hash2, aliases), oid4 = tree[`tooltips/${canonical}.json`];
           const tooltip = tooltipSchema.safeParse(
-            oid3 ? JSON.parse(this.git.blob(oid3)) : isMovedInactive(canonical, moves) ? { hash: canonical, text: {}, associated: [] } : void 0
+            oid4 ? JSON.parse(this.git.blob(oid4)) : isMovedInactive(canonical, moves) ? { hash: canonical, text: {}, associated: [] } : void 0
           );
           if (!tooltip.success || tooltip.data.hash !== canonical) {
             outcomes.push({ hash: canonical, status: "missing" });
             continue;
           }
-          const digest4 = await inactivePublishableHash(tooltip.data, aliases, moves);
+          const digest5 = await inactivePublishableHash(tooltip.data, aliases, moves);
           outcomes.push({
             hash: canonical,
-            status: digest4 === payload.expected[hash2] ? "accepted" : "stale"
+            status: digest5 === payload.expected[hash2] ? "accepted" : "stale"
           });
           if (!seen.has(canonical)) {
             entries.push({
               hash: canonical,
-              digest: digest4,
-              tooltipBlob: oid3 ?? this.git.writeBlob(json5(tooltip.data))
+              digest: digest5,
+              tooltipBlob: oid4 ?? this.git.writeBlob(json5(tooltip.data))
             });
             tooltips.push(tooltip.data);
             seen.add(canonical);
@@ -32085,14 +32281,14 @@ var RemoteRepository = class extends LocalRepository {
       return void 0;
     }
     this.remoteGit(["fetch", "--no-tags", this.remote, ref]);
-    const oid3 = this.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
-    this.git(["update-ref", ref, oid3]);
-    return oid3;
+    const oid4 = this.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
+    this.git(["update-ref", ref, oid4]);
+    return oid4;
   }
   cas(ref, old, next) {
     this.validate(ref);
-    for (const oid3 of [old, next])
-      if (oid3 !== void 0 && !/^[0-9a-f]{40}$/.test(oid3)) throw new Error("Invalid object ID");
+    for (const oid4 of [old, next])
+      if (oid4 !== void 0 && !/^[0-9a-f]{40}$/.test(oid4)) throw new Error("Invalid object ID");
     const candidate = ref.startsWith("refs/heads/publish-candidate/");
     if (!candidate && (!next || old && !this.ancestor(old, next)))
       throw new Error("Data/live/bundle refs must advance monotonically");
@@ -32199,9 +32395,9 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
       "refs/remotes/origin/"
     ]);
     for (const line of refs.trim().split("\n")) {
-      const [ref, oid3] = line.split(" ");
+      const [ref, oid4] = line.split(" ");
       if (ref.endsWith("/HEAD")) continue;
-      command(["update-ref", ref.replace("refs/remotes/origin/", "refs/heads/"), oid3]);
+      command(["update-ref", ref.replace("refs/remotes/origin/", "refs/heads/"), oid4]);
     }
     const remoteNames = new Set(
       refs.split("\n").map((l) => l.split(" ")[0].replace("refs/remotes/origin/", "refs/heads/"))
