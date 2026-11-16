@@ -1,11 +1,17 @@
-import { useEffect, useMemo } from 'react';
+import { type ReactNode, useEffect, useMemo } from 'react';
 import type { Lang } from '@clarity/core';
 import { compareStats, loadManifestStats, useManifestStats } from './manifestStats';
 import { useLocalisedManifest } from './localisedManifest';
 import styles from './ManifestTextRow.module.scss';
 
-const amount = (stat: { value: number } | undefined) =>
-  stat ? `${stat.value > 0 ? '+' : ''}${stat.value}` : '—';
+const amount = (value: number) => `${value > 0 ? '+' : ''}${value}`;
+const enhanced = (text: string) => <ins className={styles.enhanced}>{text}</ins>;
+
+/**
+ * The entry's manifest investment stats as an aligned list: name, then the value right-aligned in
+ * its own column, then a "conditional" note. A pair diffs like the manifest text below it: an
+ * unchanged value shows once, a base-only value is struck, an enhanced-only value is marked.
+ */
 export function ManifestStatsRow({
   hash,
   enhancedHash,
@@ -30,28 +36,32 @@ export function ManifestStatsRow({
   );
   if (!rows.length) return null;
   return (
-    <div className={styles.stats} aria-label="Manifest stats">
+    <dl className={styles.stats} aria-label="Manifest stats">
       {rows.map(({ hash: stat, before, after, paired }) => {
-        const changed =
-          paired && (before?.value !== after?.value || before?.conditional !== after?.conditional);
-        const value = (side: typeof before) => (
-          <>
-            {amount(side)}
-            {side?.conditional && <span className={styles.conditional}> (conditional)</span>}
-          </>
-        );
+        const value =
+          !paired || before?.value === after?.value ? (
+            amount((before ?? after)!.value)
+          ) : (
+            <>
+              {before && <del>{amount(before.value)}</del>}
+              {before && after && ' '}
+              {after && enhanced(amount(after.value))}
+            </>
+          );
+        // A one-sided stat's note follows its value: struck or marked with it.
+        let note: ReactNode = null;
+        if (!paired || (before?.conditional && after?.conditional)) {
+          if ((before ?? after)!.conditional) note = 'conditional';
+        } else if (before?.conditional) note = <del>conditional</del>;
+        else if (after?.conditional) note = enhanced('conditional');
         return (
-          <span key={stat}>
-            {localised?.statNames?.[stat]?.trim() || stats?.names[stat] || stat} {value(before)}
-            {changed && (
-              <>
-                {' '}
-                → <span className={styles.enhanced}>{value(after)}</span>
-              </>
-            )}
-          </span>
+          <div key={stat}>
+            <dt>{localised?.statNames?.[stat]?.trim() || stats?.names[stat] || stat}</dt>
+            <dd>{value}</dd>
+            <dd>{note}</dd>
+          </div>
         );
       })}
-    </div>
+    </dl>
   );
 }
