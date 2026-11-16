@@ -23136,6 +23136,12 @@ var init_schemas4 = __esm({
       }).strict().nullable().optional(),
       /** New publishers require this ready fence in addition to their claim-time validation. */
       preparedRequestId: publishOpIdSchema.nullable().optional(),
+      /** Latest failed proposal; full per-field reasons remain in its durable request record. */
+      lastPreparationFailure: external_exports.object({
+        requestId: publishOpIdSchema,
+        at: timestampSchema,
+        reason: external_exports.string().min(1).max(2e3)
+      }).strict().nullable().optional(),
       events: external_exports.array(batchEventSchema).max(scheduleLimits.legacyInlineEvents)
     }).strict().superRefine((batch, ctx) => {
       const issue2 = (message) => ctx.addIssue({ code: "custom", message });
@@ -23612,7 +23618,16 @@ var init_intent = __esm({
         notBefore: notBeforeSchema,
         zone: external_exports.string().min(1).max(64)
       }).strict(),
-      external_exports.object({ ...common, kind: external_exports.literal("save"), returnStatus: external_exports.enum(["draft", "scheduled"]) }).strict()
+      external_exports.object({
+        ...common,
+        kind: external_exports.literal("save"),
+        returnStatus: external_exports.enum(["draft", "scheduled"]),
+        /** Worker-derived owner policy; clients cannot select this field. */
+        onValidationFailure: external_exports.enum(["keep_scheduled", "needs_attention"])
+      }).strict().refine(
+        (intent) => intent.onValidationFailure !== "keep_scheduled" || intent.returnStatus === "scheduled",
+        "Only an existing schedule can survive a failed save"
+      )
     ]);
     scheduleEnvelopeSchema = external_exports.object({ payload: external_exports.string().max(4096), sig: external_exports.string().regex(/^[A-Za-z0-9+/]{86}==$/) }).strict();
     preparationReasonSchema = external_exports.object({
@@ -23627,7 +23642,7 @@ var init_intent = __esm({
       requesterId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
       bodyDigest: digest,
       admissionRevision: revision,
-      status: external_exports.enum(["pending", "needs_attention", "completed", "cancelled"]),
+      status: external_exports.enum(["pending", "needs_attention", "failed", "completed", "cancelled"]),
       attempt: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
       updatedAt: timestampSchema,
       retryable: external_exports.boolean().optional(),
@@ -23635,7 +23650,13 @@ var init_intent = __esm({
       workflowUrl: external_exports.string().url().max(2e3).optional(),
       /** Result is set only by the preparer, after its materialization CAS. */
       result: external_exports.object({ revision, contentRevision: revision, status: external_exports.enum(["draft", "scheduled"]) }).strict().optional()
-    }).strict();
+    }).strict().superRefine((request, ctx) => {
+      if (request.status === "failed" && (!request.reasons?.length || request.result !== void 0))
+        ctx.addIssue({
+          code: "custom",
+          message: "A failed request has reasons and no successful save result"
+        });
+    });
   }
 });
 
