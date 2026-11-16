@@ -29,6 +29,8 @@ import {
   readRoles,
   readAdmissionState as readState,
   refuseClaimed,
+  globalsListing,
+  refuseGlobalScheduling,
   refuseRevision,
   requireBatch,
   saveChangeCap,
@@ -230,7 +232,7 @@ export async function admitBatchRequest(
       batchId,
       extra: [scheduleIntentPaths.request(id), ...operationPaths],
       oidOnly: operationPaths,
-      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
+      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
     const batch = requireBatch(state, batchId);
@@ -260,12 +262,13 @@ export async function admitBatchRequest(
     if (hashes.length > memberCap)
       throw new HttpError(422, `A batch holds at most ${memberCap} tooltips`);
     returnStatus = kind === 'schedule' || batch.status === 'scheduled' ? 'scheduled' : 'draft';
-    // Global entries are not schedulable: aggregate members fail closed once globals/ exists.
-    if (
+    if (returnStatus === 'scheduled') refuseGlobalScheduling(state.trees[1] ?? null);
+    // Draft saves stay available, but aggregate members fail closed once globals/ exists.
+    else if (
+      state.trees[1] &&
       [...hashes, ...('changes' in input ? input.changes.map(({ hash }) => hash) : [])].some(
         (hash) => hash === 2 || hash === 3,
-      ) &&
-      (await github.globalsBootstrapped(state.head))
+      )
     )
       throw new HttpError(409, 'Use global entry mutations; Sync pending protection is required');
     if ('changes' in input) {

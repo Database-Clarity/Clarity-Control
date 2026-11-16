@@ -210,6 +210,20 @@ describe('global entry routes (S5 integration)', () => {
     expect((await read(`/globals/${id}/history`, 99)).body.kind).toBe('forbidden');
   });
 
+  it('refuses deleting a compatibility library, but not removing a batch member', async () => {
+    const user = { id: 1, login: 'alice' };
+    const batchMember = 'schedule/batches/B/tooltips/2.json';
+    bootstrap();
+    f.moveData({ 'tooltips/2.json': { ...tooltip(), hash: 2 }, [batchMember]: {} });
+    const github = new GitHub(f.env);
+    await expect(
+      github.commit(f.dataHead, {}, 'Delete', user, { deletions: ['tooltips/2.json'] }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(f.current()['tooltips/2.json']).toBeDefined();
+    await github.commit(f.dataHead, {}, 'Remove member', user, { deletions: [batchMember] });
+    expect(f.current()[batchMember]).toBeUndefined();
+  });
+
   it('refuses raw aggregate saves once globals exist, but keeps legacy saves', async () => {
     const aggregate = { ...tooltip(), hash: 2 };
     f.moveData({ 'tooltips/2.json': aggregate });

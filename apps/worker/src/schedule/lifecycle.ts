@@ -54,6 +54,8 @@ import {
   parseIndex,
   readState,
   refuseClaimed,
+  globalsListing,
+  refuseGlobalScheduling,
   refuseOpenCap,
   refuseRevision,
   requireBatch,
@@ -143,7 +145,7 @@ export async function scheduleBatch(
     const state = await readState(github, user, scheduleRoles, {
       batchId,
       extra: ['live/pushed.json', sandboxPointersPath, inactiveMovesPath, aliasGroupsPath],
-      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
+      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     if (!pinSchedulesBatches(state.pin))
       throw new HttpError(
@@ -161,6 +163,7 @@ export async function scheduleBatch(
         422,
         `A batch publishes at most ${memberCap} tooltips; remove some first`,
       );
+    refuseGlobalScheduling(state.trees[1] ?? null);
     const rescheduling = batch.status === 'scheduled';
     if (!rescheduling && state.due.entries.length >= scheduleLimits.openBatches)
       throw new HttpError(409, `At most ${scheduleLimits.openBatches} scheduled batches`);

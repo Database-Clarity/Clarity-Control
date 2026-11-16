@@ -672,6 +672,41 @@ describe('preparation cancellation, retry, and claim fences', () => {
     f.moveData({ 'globals/sync.json': undefined });
     expect((await call('save', body)).status).toBe(202);
   });
+  it.each([true, false])(
+    'refuses scheduling ordinary consumers once globals exist (preparation %s)',
+    async (preparation) => {
+      vi.mocked(switches.preparation).mockReturnValue(preparation);
+      // Partial bootstrap: any globals metadata fails closed.
+      f.moveData({ 'globals/sync.json': { version: 1 } });
+      const head = f.dataHead;
+      // The synchronous routes take the same bodies without a requestId.
+      const strip = <T extends { requestId: string }>({ requestId, ...rest }: T) =>
+        preparation ? { requestId, ...rest } : rest;
+      const refused = await call('schedule', strip(scheduleBody()));
+      expect(refused.status).toBe(409);
+      expect(refused.body.error).toBe('Scheduling is not available while global entries exist');
+      expect(f.dataHead).toBe(head);
+      // Draft edits stay available.
+      // A sync save merges against the member's proposal, so base it on that proposal.
+      const edit = {
+        hash: 123,
+        base: tooltip('upcoming'),
+        next: tooltip('again', '2026-10-02T00:00:00Z'),
+      };
+      const draft = await call('save', strip({ ...saveBody(), changes: [edit] }));
+      expect([draft.status, draft.body.error]).toEqual([preparation ? 202 : 200, undefined]);
+    },
+  );
+  it('refuses a synchronous save into a scheduled batch once globals exist', async () => {
+    vi.mocked(switches.preparation).mockReturnValue(false);
+    scheduled();
+    f.moveData({ 'globals/sync.json': { version: 1 } });
+    const body: Record<string, unknown> = { ...saveBody(), revision: 2 };
+    delete body.requestId;
+    const refused = await call('save', body);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe('Scheduling is not available while global entries exist');
+  });
   it('kicks the existing pipeline once per minute on Retry of a still-pending request', async () => {
     expect((await call('save', saveBody())).status).toBe(202);
     const head = f.dataHead;

@@ -1027,9 +1027,11 @@ export class GitHub {
     if (
       branch === this.env.DATA_BRANCH &&
       head &&
-      [...Object.keys(files), ...Object.keys(rawFiles), ...Object.keys(blobRefs)].some((path) =>
+      ([...Object.keys(files), ...Object.keys(rawFiles), ...Object.keys(blobRefs)].some((path) =>
         globalAggregatePath.test(path),
-      ) &&
+      ) ||
+        // Removing an aggregate member from a batch stays allowed; deleting the library does not.
+        deletions.some((path) => /^tooltips\/[23]\.json$/.test(path))) &&
       (await this.globalsBootstrapped(head))
     )
       throw new HttpError(409, 'Use global entry mutations; Sync pending protection is required');
