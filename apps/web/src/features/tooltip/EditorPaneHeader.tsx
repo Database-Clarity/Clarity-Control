@@ -15,6 +15,7 @@ import {
 } from '../manifest/manifestText';
 import type { GroupedPerk } from './grouping';
 import styles from './TooltipPage.module.scss';
+import { MarksControl } from '../marks/MarksControl';
 
 export interface OverrideTarget {
   hash: number;
@@ -50,6 +51,7 @@ export function EditorPaneHeader({
   destination,
   inactiveControl,
   inactiveHash,
+  markHash,
   reserveDraft = false,
 }: {
   lang: Lang;
@@ -82,6 +84,7 @@ export function EditorPaneHeader({
   inactiveControl?: React.ReactNode;
   /** Undefined on batch visits, where global move actions are unavailable. */
   inactiveHash?: number;
+  markHash?: number;
   reserveDraft?: boolean;
 }) {
   const phone = useMedia(phoneQuery);
@@ -102,6 +105,7 @@ export function EditorPaneHeader({
           destination,
           inactiveControl,
           inactiveHash,
+          markHash,
           reserveDraft,
         }}
       />
@@ -193,6 +197,7 @@ export function EditorPaneHeader({
       {markupTools}
       {queue}
       <span className={styles.paneRight}>
+        {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} />}
         {inactiveControl}
         {grouped && (
           <Popover
@@ -276,12 +281,14 @@ function PhoneToolRow({
   destination,
   inactiveControl,
   inactiveHash,
+  markHash,
   reserveDraft,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   return (
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
       {destination}
+      {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} compact />}
       {draft && (
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
       )}

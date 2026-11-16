@@ -60,6 +60,8 @@ const routes: (Route & { public?: true })[] = [
   { method: 'GET', path: '/compendium/agent-guidance' },
   { method: 'POST', path: '/compendium/agent-guidance', body: { document: 'x', revision: null } },
   { method: 'GET', path: '/me' },
+  { method: 'GET', path: '/alias-groups' },
+  { method: 'POST', path: '/alias-groups', body: { expectedHead: 'a'.repeat(40), ops: [] } },
   {
     method: 'POST',
     path: '/save',
@@ -73,6 +75,12 @@ const routes: (Route & { public?: true })[] = [
   { method: 'GET', path: '/sandbox-pointers' },
   { method: 'PUT', path: '/sandbox-pointers', body: { revision: null, picks: {} } },
   { method: 'GET', path: '/inactive-moves' },
+  { method: 'GET', path: '/marks' },
+  {
+    method: 'PUT',
+    path: '/marks',
+    body: { revision: null, change: { action: 'mark', hash: 123, type: 'retest' } },
+  },
   { method: 'PUT', path: '/inactive-moves', body: { hash: 123, inactive: true, revision: null } },
   { method: 'GET', path: '/history/123' },
   { method: 'GET', path: '/reports/public?hash=123&lang=en', public: true },

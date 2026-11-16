@@ -90,7 +90,15 @@ describe('prepared workflows', () => {
 
   it('the publish pipeline ignores config-only pushes', () => {
     expect(pipeline).toMatch(
-      /branches: \[editor-data\]\n {4}# .*\n {4}paths-ignore: \['exports\/\*\*', 'glossary\/\*\*'\]/,
+      /branches: \[editor-data\]\n {4}# .*\n {4}paths-ignore: \['exports\/\*\*', 'glossary\/\*\*', 'config\/marks\.json'\]/,
     );
+  });
+
+  it('the legacy bundle workflow ignores entry mark pushes', () => {
+    const bundle = read('../../scripts/migrate/template/.github/workflows/bundle.yml');
+    expect(bundle).toMatch(
+      /branches: \[editor-data\]\n {4}# .*\n {4}paths-ignore: \['config\/marks\.json'\]/,
+    );
+    expect(bundle).toContain('workflow_dispatch:');
   });
 });

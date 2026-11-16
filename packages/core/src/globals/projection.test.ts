@@ -56,12 +56,9 @@ it('retains stable IDs and ancestry across rename and history, and rejects ident
   expect(() => assertGlobalTransition(before, after, {})).toThrow();
 });
 
-it('rejects duplicate declarations, missing provenance/recipes, mixed prose, and commented definitions', () => {
+it('rejects duplicate declarations, missing recipes, mixed prose, and commented definitions', () => {
   for (const source of ['var a = 1\nvar a = 2', 'prose\nvar a = 1', '/*\nvar a = 1\n*/'])
     expect(() => inventory([tooltip(2, source)])).toThrow();
-  const store = inventory([tooltip(2, 'var a = 1')]);
-  Reflect.deleteProperty(store.entries[0].definitions.en!, 'provenance');
-  expect(() => projectGlobals(store)).toThrow();
   const missing = inventory([tooltip(2, 'var a = 1')]);
   missing.aggregates[0].languages.en!.segments = [];
   expect(() => projectGlobals(missing)).toThrow();
@@ -188,7 +185,8 @@ describe.each(['live', 'intermediate'])('%s complete immutable fixture census', 
     });
     for (const entry of census.store.entries) {
       for (const [lang, definition] of Object.entries(entry.definitions)) {
-        const origin = definition.provenance;
+        const origin = definition.provenance!;
+        expect(origin).toBeDefined();
         expect(origin.path).toBe(source.path);
         expect(origin.selector).toEqual(['perks', String(origin.hash), 'editor', lang, 'main']);
         expect(origin.spanConvention).toBe('decoded-utf16');
