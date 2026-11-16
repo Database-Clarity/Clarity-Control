@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { TooltipNavigation } from '../navigation/TooltipNavigation';
 import { useAuthStore } from '../../stores/auth';
 import type { User } from '../../services/api';
-import type { EditorData } from '../../stores/data';
+import { useDataStore, type EditorData } from '../../stores/data';
 import { useSavedWorklists } from './worklists';
 import { setEditorDraftFetch } from '../../services/editorDrafts';
 import { resetWorkQueues, useWorkQueues } from './store';
@@ -79,6 +79,7 @@ beforeEach(async () => {
     loaded: [],
   });
   setEditorDraftFetch(async () => Response.json({ schemaVersion: 1, hashes: [12] }));
+  useDataStore.setState({ data });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -160,12 +161,18 @@ it('selects one entry with a row click, and Cancel keeps the finder open', async
   expect(field().getAttribute('aria-expanded')).toBe('true');
   expect(useSavedWorklists.getState().lists).toEqual([]);
 });
-it('opens built-in Drafts from the finder using the shared queue', async () => {
+it("opens a category's Drafts worklist from the finder using the shared queue", async () => {
   await openFinder();
-  await act(async () => button('Drafts worklist').click());
+  await act(async () => button('Drafts worklists').click());
+  // Escape and Cancel return to the bar with the finder still open.
+  await act(async () => button('Cancel').click());
+  expect(field().getAttribute('aria-expanded')).toBe('true');
+  await act(async () => button('Drafts worklists').click());
+  await act(async () => button('Drafts · Perks1').click());
   const store = useWorkQueues.getState();
   expect(store.queues[store.active!]!.source).toBe('drafts');
   expect(store.queues[store.active!]!.items.map((item) => item.hash)).toEqual([12]);
+  expect(store.queues[store.active!]!.origin.restore).toEqual({ category: 'perks' });
 });
 
 it('keeps the original run and finder when preview review refuses Drafts opening repeatedly', async () => {
@@ -185,8 +192,9 @@ it('keeps the original run and finder when preview review refuses Drafts opening
     prompt: null,
   });
   await openFinder();
+  await act(async () => button('Drafts worklists').click());
   for (let attempt = 0; attempt < 6; attempt++) {
-    await act(async () => button('Drafts worklist').click());
+    await act(async () => button('Drafts · Perks1').click());
   }
   expect(usePreviewReviewStore.getState().prompt).toBe(11);
   expect(JSON.stringify(useWorkQueues.getState())).toBe(before);

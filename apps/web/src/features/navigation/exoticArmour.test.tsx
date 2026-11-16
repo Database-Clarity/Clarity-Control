@@ -352,11 +352,11 @@ describe('exotic armour in the finder', () => {
     );
   });
 
-  it('shows the perk beside the hash, and a search by perk selects the piece row', async () => {
+  it('shows the perk beside the piece, and a search by perk selects the piece row', async () => {
     await mount('/t/101');
     await act(async () => field().click());
     const row = options().find((option) => option.textContent?.includes('Contraverse Hold'))!;
-    expect(row.querySelector('small')!.textContent).toBe('Chaotic Exchanger · 101');
+    expect(row.querySelector('small')!.textContent).toBe('Chaotic Exchanger');
     // A set's rows name the pieces once and keep each perk on the right; the slash list is the
     // shared mark, so the small text does not repeat it.
     const aeon = options().filter((option) => option.textContent?.startsWith('Aeon'));
@@ -365,8 +365,8 @@ describe('exotic armour in the finder', () => {
       'Aeon Safe/Soul/Swift',
     ]);
     expect(aeon.map((option) => option.querySelector('small')!.textContent)).toEqual([
-      'Sect of Force · 103',
-      'Sect of Insight · 4',
+      'Sect of Force',
+      'Sect of Insight',
     ]);
     expect(aeon[0].title).toMatch(/^Shared perk — used on: Aeon Safe, Aeon Soul, Aeon Swift/);
     await act(async () => {

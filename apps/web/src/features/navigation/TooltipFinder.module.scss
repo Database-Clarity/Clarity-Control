@@ -110,15 +110,9 @@
   border-radius: 0.25rem;
   overflow: hidden;
 
-  // Rows that carry a group, an entry, a kind, and a hash need the room. The list hangs from the
-  // field's right edge, which always has the readout and the account buttons beyond it, so it
-  // never leaves the viewport however tight or scaled the bar is.
-  &[data-wide]:not([data-variant='sheet']) {
-    width: max(100%, 30rem);
-    left: auto;
-    right: 0;
-    max-width: calc(100vw - 1rem);
-  }
+  // The header list's width and offset come from TooltipNavigation (its rows' width, kept inside
+  // the viewport); this is the width before that runs.
+  max-width: calc(100vw - 1rem);
 
   &[data-variant='sheet'] {
     position: static;
@@ -150,12 +144,11 @@
 
 .option {
   display: grid;
-  // Icon (a fixed 1.25rem box, the draft mark on its corner), name, a spacer, then the right-hand
-  // text against the right edge. Name and right-hand text each take what they need; only when
-  // both are too long do they share the row equally (the spacer collapses), so text never
-  // truncates while the row has room (owner DESIGN QUALITY; a short piece name used to cap a
-  // long perk at 55%).
-  grid-template-columns: 1.25rem minmax(0, max-content) minmax(0, 1fr) minmax(0, max-content) var(
+  // Icon (a fixed 1.25rem box, the draft mark on its corner), name, then the context text
+  // against the right edge. The name takes what it needs first; the context gets the rest and
+  // gives way before the name truncates (owner 2026-11-16). A row that still truncates shows its
+  // whole text in the finder's hint.
+  grid-template-columns: 1.25rem minmax(0, max-content) minmax(0, 1fr) var(
       --finder-marker-width,
       2.5625rem
     );
@@ -190,20 +183,6 @@
     min-height: var(--tap);
   }
 
-  // A weapon's or activity's row keeps its kind, hash, and "shared" whole: only the entry name
-  // ahead of them gives way.
-  &[data-grouped] {
-    grid-template-columns: 1.25rem minmax(0, 1fr) fit-content(75%) var(--finder-marker-width, 2.5625rem);
-
-    > small {
-      grid-column: auto;
-    }
-
-    .tail {
-      flex: none;
-    }
-  }
-
   // The phone sheet cannot fit two names on one line: the entry above, its context below.
   &[data-two-line] {
     grid-template-columns: 1.25rem minmax(0, 1fr) var(--finder-marker-width, 2.5625rem);
@@ -232,7 +211,7 @@
   }
 
   > small {
-    grid-column: 4;
+    grid-column: 3;
   }
 
   small {
@@ -458,4 +437,25 @@
 }
 .option[data-two-line] > .markers {
   grid-row: 1 / span 2;
+}
+
+// The whole text of a truncated highlighted row, under it (above it near the list's end).
+.hint {
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+  padding: 0.25rem 0.5rem;
+  @include controls.overlay-surface;
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+
+  small {
+    display: block;
+    color: var(--text2);
+    font-size: 0.75rem;
+  }
 }
