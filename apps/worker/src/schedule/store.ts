@@ -109,7 +109,7 @@ export const by = (user: Identity) => ({ id: user.id, login: user.login });
 
 // --- Event overflow (root ruling 2026-11-13, shared with the publisher, P4) -------------------
 /**
- * batch.json keeps the newest `scheduleLimits.inlineEvents` (200) events. A write that overflows
+ * batch.json keeps the newest `scheduleLimits.inlineEvents` (20) events. A write that overflows
  * moves the oldest ones, in the SAME commit, to `schedule/batches/<id>/events/<seq>.json` with
  * body {events: [...]} oldest first, where seq = the zero-padded 8-digit count of events archived
  * before this file (the first file is 00000000.json).
@@ -168,7 +168,7 @@ export function archivedCounter(
 }
 
 // --- Stored batch.json and index.json -------------------------------------------------------
-// CPU (spec "Free-plan budget"): a full history is 200 events of up to 100 hashes, and a full
+// CPU: legacy history is up to 200 events (new writes keep 20), each with up to 100 hashes; a full
 // index 150 entries of up to 100 hashes. The Worker never interprets inherited events or other
 // batches' index entries, so they are checked for shape and passed through unchanged; every
 // field the Worker reads, and everything it adds, is validated with the core schemas.
