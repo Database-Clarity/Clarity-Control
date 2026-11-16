@@ -1345,6 +1345,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       label="Category"
       className={styles.category}
       sections={categorySections}
+      columns={categorySections.length >= 4}
       value={selectedCategory?.id ?? ''}
       empty="No matching categories"
       onChange={(id) => {

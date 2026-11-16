@@ -180,7 +180,37 @@ describe('FinderPicker', () => {
       expect(listbox()!.scrollTop).toBe(228);
       await key(name);
       expect(active()).toBe(hover);
-      expect(listbox()!.scrollTop).toBe(210);
+      // The row stops below its pinned group heading (every element is 28px tall here).
+      expect(listbox()!.scrollTop).toBe(210 - 28);
     },
   );
+
+  it('in two columns scrolls the popup to reveal a row, with no pinned heading', async () => {
+    await act(async () =>
+      root.render(
+        <FinderPicker
+          label="Category"
+          sections={sections}
+          value="gauntlets"
+          onChange={change}
+          columns
+        />,
+      ),
+    );
+    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.dataset.value === 'glaive' ? 400 : this.dataset.value === 'helm' ? 210 : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(28);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100);
+    await key('Enter');
+    const popup = listbox()!.parentElement!;
+    expect(popup.hasAttribute('data-columns')).toBe(true);
+    await key('End');
+    expect(popup.scrollTop).toBe(328);
+    expect(listbox()!.scrollTop).toBe(0);
+    await key('Home');
+    expect(popup.scrollTop).toBe(210);
+  });
 });

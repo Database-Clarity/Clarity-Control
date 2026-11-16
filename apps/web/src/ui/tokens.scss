@@ -18,6 +18,8 @@
   --strip: #1a1e24;
   --decision: #1b1e27;
   --hover: #20252d;
+  // The highlight on a --raised surface (--hover does not show on it in the dark theme).
+  --raised-hover: #353a41;
   --sel: #232a36;
   // Text and glyphs
   --text: #e6edf3;
@@ -195,6 +197,7 @@
   --strip: #cfe3da;
   --decision: #c3d3df;
   --hover: #c9d9e5;
+  --raised-hover: #c9d9e5;
   --sel: #a9d3e6;
   // Text and glyphs
   --text: #0f151b;
