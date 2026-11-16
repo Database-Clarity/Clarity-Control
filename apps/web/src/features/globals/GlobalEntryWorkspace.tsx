@@ -731,7 +731,7 @@ function Workspace({
             >
               {tab === 'history' && history ? (
                 <GlobalHistory
-                  read={history}
+                  reader={history}
                   entry={entry}
                   lang={lang}
                   saved={saved}

@@ -4,7 +4,6 @@ import {
   globalImpactRowSchema,
   globalRecordSchema,
   globalReviewSchema,
-  langSchema,
 } from '@clarity/core';
 import { apiRequest } from './apiAuth';
 import { errorMessage } from './http';
@@ -12,7 +11,6 @@ import type {
   GlobalAuditDelta,
   GlobalEntryDelta,
   GlobalEntryPage,
-  GlobalHttpState,
   GlobalResult,
   GlobalReviewPage,
   GlobalsService,
@@ -63,28 +61,32 @@ const mutationDelta = z.union([
   z.object({ ...header, consumerId: z.string().max(128), review: globalReviewSchema }),
 ]);
 const retryDelta = z.object({ ...header, entries: z.tuple([globalRecordSchema]) });
+/** W b0e6884f: commits that touched the entry record (30 per page), newest first. */
 const historyPage = z.object({
-  ...header,
-  versions: z
+  head: header.head,
+  page: z.number().int().positive(),
+  commits: z
     .array(
       z.object({
-        revision: z.string().max(128),
-        at: z.string().max(64),
-        by: z.string().max(128),
-        operation: z.enum(['create', 'edit', 'rename', 'remove', 'restore']),
-        lang: langSchema.nullable(),
-        name: z.string().max(128),
-        body: z.string().max(8192).nullable(),
+        commit: header.head,
+        author: z.string().max(256).nullable(),
+        login: z.string().max(128).nullable(),
+        avatar: z.string().max(2048).nullable().optional(),
+        date: z.string().max(64).nullable(),
+        message: z.string().max(4096),
       }),
     )
-    .max(3),
-  nextCursor: z.string().nullable(),
+    .max(30),
 });
-export type GlobalHistoryVersion = z.infer<typeof historyPage>['versions'][number];
-export type GlobalHistoryPage = GlobalHttpState & {
-  versions: GlobalHistoryVersion[];
-  nextCursor: string | null;
-};
+const historyVersion = z.object({
+  head: header.head,
+  commit: header.head,
+  entry: globalRecordSchema,
+});
+export const globalHistoryPageSize = 30;
+export type GlobalHistoryPage = z.infer<typeof historyPage>;
+export type GlobalHistoryCommit = GlobalHistoryPage['commits'][number];
+export type GlobalHistoryVersion = z.infer<typeof historyVersion>;
 const envelope = z.object({
   kind: z.enum(['ok', 'conflict', 'retry', 'invalid', 'forbidden']),
   value: z.unknown().optional(),
@@ -185,7 +187,8 @@ function routeOf(mutation: Parameters<GlobalsService['mutate']>[0]['mutation']):
 }
 
 export interface GlobalsHttpTransport extends GlobalsTransport {
-  history(id: string, cursor: string): Promise<GlobalResult<GlobalHistoryPage>>;
+  history(id: string, page: number): Promise<GlobalResult<GlobalHistoryPage>>;
+  historyVersion(id: string, commit: string): Promise<GlobalResult<GlobalHistoryVersion>>;
 }
 
 /** Authenticated, bounded HTTP for the S3 GlobalsTransport contract (S2B handler shapes). */
@@ -224,10 +227,12 @@ export function createGlobalsHttpTransport(): GlobalsHttpTransport {
         await call(`/globals/${encodeURIComponent(request.id)}/retry`, retryDelta, post(request)),
         ({ entries, ...value }): GlobalEntryDelta => ({ ...http(value), entry: entries[0] }),
       ),
-    history: async (id, cursor) =>
-      map(
-        await call(`/globals/${encodeURIComponent(id)}/history${cursorQuery(cursor)}`, historyPage),
-        (value): GlobalHistoryPage => http(value),
+    history: async (id, page) =>
+      call(`/globals/${encodeURIComponent(id)}/history?page=${page}`, historyPage),
+    historyVersion: async (id, commit) =>
+      call(
+        `/globals/${encodeURIComponent(id)}/history?commit=${encodeURIComponent(commit)}`,
+        historyVersion,
       ),
   };
 }

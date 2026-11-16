@@ -5,7 +5,10 @@ import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 
 const entry = globalFixtureSnapshot.entries[0];
 const row = globalFixtureSnapshot.impacts.g_damage0001[0];
-const header = (status = 'current', causeIds: string[] = []) => ({
+const header = (
+  status: 'current' | 'sync-pending' | 'sync-failed' = 'current',
+  causeIds: string[] = [],
+) => ({
   head: fixtureHead(1),
   status,
   causeIds,
@@ -97,6 +100,34 @@ describe('authenticated globals transport', () => {
     expect(offline.kind).toBe('retry');
     expect(offline.kind !== 'ok' && offline.message).toMatch(/^Sync pending: /);
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('reads the W history pages and one version by commit', async () => {
+    const commit = 'c'.repeat(40);
+    fetch.mockResolvedValueOnce(
+      reply({
+        kind: 'ok',
+        value: {
+          head: fixtureHead(1),
+          page: 2,
+          commits: [{ commit, author: 'A', login: 'a', avatar: null, date: null, message: 'Save' }],
+        },
+      }),
+    );
+    expect((await (await transport()).history(entry.id, 2)).kind).toBe('ok');
+    expect(fetch.mock.calls[0][0]).toBe(
+      `https://worker.example/globals/${entry.id}/history?page=2`,
+    );
+    fetch.mockResolvedValueOnce(
+      reply({ kind: 'ok', value: { head: fixtureHead(1), commit, entry } }),
+    );
+    expect(await (await transport()).historyVersion(entry.id, commit)).toMatchObject({
+      kind: 'ok',
+      value: { entry },
+    });
+    expect(fetch.mock.calls[1][0]).toBe(
+      `https://worker.example/globals/${entry.id}/history?commit=${commit}`,
+    );
   });
 
   it('refuses oversized, malformed, and signed-out responses before using them', async () => {

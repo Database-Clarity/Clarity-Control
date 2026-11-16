@@ -40,7 +40,7 @@ export function GlobalEntryRoute() {
   return (
     <GlobalEntryWorkspace
       service={session.service}
-      history={session.transport.history}
+      history={session.transport}
       actor={actor}
       entryId={id ?? ''}
       onSnapshot={(snapshot) => rememberGlobalIdentities(snapshot.entries)}

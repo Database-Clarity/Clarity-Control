@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 const button = (text: string) => {
-  const value = [...host.querySelectorAll('button')].find((node) => node.textContent === text);
+  const value = [...document.querySelectorAll('button')].find((node) => node.textContent === text);
   if (!value) throw new Error(`Missing button: ${text}`);
   return value;
 };
@@ -134,32 +134,39 @@ it('keeps an unsaved definition across a remount (reload) and marks it stale aft
 });
 
 it('restores an older version into the draft; saving stays an ordinary edit', async () => {
-  const history = vi.fn<GlobalHistoryReader>().mockResolvedValue({
-    kind: 'ok',
-    value: {
-      head: fixtureHead(1),
-      version: 1,
-      status: 'current',
-      causeIds: [],
-      lastFailure: null,
-      nextCursor: null,
-      versions: [
-        {
-          revision: 'r0',
-          at: '2026-01-01T00:00:00Z',
-          by: 'someone',
-          operation: 'edit',
-          lang: 'en',
-          name: 'Damage',
-          body: '10%',
-        },
-      ],
-    },
-  });
+  const older = structuredClone(globalFixtureSnapshot.entries[0]);
+  older.definitions.en!.body = '10%';
+  const reader = {
+    history: vi.fn<GlobalHistoryReader['history']>().mockResolvedValue({
+      kind: 'ok',
+      value: {
+        head: fixtureHead(1),
+        page: 1,
+        commits: [
+          {
+            commit: 'c'.repeat(40),
+            author: 'Someone',
+            login: 'someone',
+            avatar: null,
+            date: '2026-01-01T00:00:00Z',
+            message: 'Save global entry with Sync pending cause',
+          },
+        ],
+      },
+    }),
+    historyVersion: vi.fn<GlobalHistoryReader['historyVersion']>().mockResolvedValue({
+      kind: 'ok',
+      value: { head: fixtureHead(1), commit: 'c'.repeat(40), entry: older },
+    }),
+  };
   const globals = service();
-  await mount('/globals/g_damage0001?tab=history', globals, history);
-  expect(history).toHaveBeenCalledWith('g_damage0001', 'p0');
-  await act(async () => button('Restore').click());
+  await mount('/globals/g_damage0001?tab=history', globals, reader);
+  expect(reader.history).toHaveBeenCalledWith('g_damage0001', 1);
+  expect(host.textContent).toContain('Save global entry with Sync pending cause, someone');
+  expect(host.textContent).not.toContain('Older versions');
+  await act(async () => button('Compare').click());
+  expect(reader.historyVersion).toHaveBeenCalledWith('g_damage0001', 'c'.repeat(40));
+  await act(async () => button('Restore into draft').click());
   expect(host.querySelector('textarea')!.value).toBe('10%');
   expect(host.textContent).toContain('Unsaved');
   expect(globals.mutate).not.toHaveBeenCalled();
