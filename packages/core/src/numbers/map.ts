@@ -26,7 +26,9 @@ export function implicitNumberMap(count: number): NumberMap {
   return { ids: Array.from({ length: count }, (_, i) => i + 1), next: count + 1, retired: {} };
 }
 export function readNumberMap(english: Pick<LangText, 'text' | 'numbers'>): NumberMap {
-  const count = numberSlots(english.text).length;
+  return numberMapForCount(english, numberSlots(english.text).length);
+}
+function numberMapForCount(english: Pick<LangText, 'text' | 'numbers'>, count: number): NumberMap {
   const map =
     english.numbers === undefined
       ? implicitNumberMap(count)
@@ -39,9 +41,10 @@ export function numberValues(
   english: Pick<LangText, 'text' | 'numbers'>,
   lang?: Lang,
 ): NumberValues {
-  const map = readNumberMap(english);
+  const slots = numberSlots(english.text);
+  const map = numberMapForCount(english, slots.length);
   const values = new Map<number, string | null>();
-  numberSlots(english.text).forEach((slot, i) => values.set(map.ids[i], slot.value));
+  slots.forEach((slot, i) => values.set(map.ids[i], slot.value));
   for (const [id, retired] of Object.entries(map.retired))
     values.set(
       Number(id),
@@ -80,8 +83,8 @@ export function reconcileNumberMap(
   tooltip: Pick<Tooltip, 'text'>,
 ): NumberMap | undefined {
   const old = before ?? { text: '' };
-  const map = readNumberMap(old);
   const alignment = alignSlots(old.text, after.text);
+  const map = numberMapForCount(old, alignment.before.length);
   const next: NumberMap = { ids: [], next: map.next, retired: { ...map.retired } };
   const carried = new Map([...alignment.map].map(([a, b]) => [b, map.ids[a]]));
   next.ids = alignment.after.map((_, index) => carried.get(index) ?? next.next++);
