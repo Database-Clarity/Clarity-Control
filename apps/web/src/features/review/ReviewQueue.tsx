@@ -12,18 +12,16 @@ import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { flushSync } from 'react-dom';
 import { useHref, useLocation, useNavigate } from 'react-router-dom';
 import styles from './ReviewQueue.module.scss';
-import { requireReviewRows, useReviewOpening } from './opening';
-import { changeMarks } from './changedFields';
-import { useReviewMarks } from './reviewMarks';
-import { markerGroup, type QueueGroup, type QueueItem, type QueueView } from './queueModel';
+import type { Kind } from './kinds';
+import {
+  markerGroup,
+  type QueueGroup,
+  type QueueItem,
+  type QueueView,
+  type RowKinds,
+} from './queueModel';
 import { useReviewQueue } from './queueStore';
 import type { PendingTooltip } from './model';
-import {
-  SkeletonRegion,
-  SkeletonRows,
-  SkeletonStatus,
-  useSkeletonVisible,
-} from '../../ui/Skeleton';
 
 const countFormat = new Intl.NumberFormat('en');
 
@@ -34,24 +32,24 @@ const overscan = 1;
 const QueueRow = memo(function QueueRow({
   entry,
   href,
+  editorHref,
   current,
   checked,
   locked,
-  publishing,
+  kind,
   distinguish,
 }: {
   entry: PendingTooltip;
   distinguish: boolean;
   href: string;
+  editorHref: string;
   current: boolean;
   checked: boolean;
-  /** Part of a publish that is still queued or being sent. */
-  publishing: boolean;
+  /** The row's word; "Publishing…" while part of a publish that is still running. */
+  kind: Kind | 'Publishing…' | undefined;
   /** Not selectable: unpublishable, or a publish is under way. */
   locked: string | undefined;
 }) {
-  const fields = useReviewMarks((state) => state.fields[entry.tooltip.hash]);
-  const marks = changeMarks(fields, entry);
   const hash = entry.tooltip.hash;
   return (
     <div className={styles.row} data-current={current || undefined}>
@@ -63,30 +61,35 @@ const QueueRow = memo(function QueueRow({
           disabled={!!locked}
           title={locked}
           data-review-toggle={hash}
-          aria-label={`Select ${entry.name}, ${entry.category}, ${hash}`}
+          aria-label={`Include ${entry.name}, ${entry.category}, ${hash}`}
         />
       </label>
       <a
         href={`${href}?hash=${hash}`}
         data-review-hash={hash}
         title={`${entry.name} · ${hash}${entry.unpublishable ? ` · ${entry.unpublishable}` : ''}`}
-        aria-label={`${entry.name} ${hash}`}
+        aria-label={`${entry.name} ${hash}${kind ? `, ${kind}` : ''}`}
         aria-current={current ? 'page' : undefined}
       >
         <span>
           {entry.name}
           {distinguish && <small className={styles.identity}> · {hash}</small>}
         </span>
-        {(marks.length > 0 || publishing) && (
-          <span className={styles.marks}>
-            {publishing && <small data-mark="Publishing">publishing…</small>}
-            {marks.map((mark) => (
-              <small key={mark} data-mark={mark}>
-                {mark}
-              </small>
-            ))}
-          </span>
+        {kind && (
+          <small className={styles.kind} data-kind={kind}>
+            {kind}
+          </small>
         )}
+      </a>
+      {/* Owner 2026-11-16: every item jumps straight to the editor to fix it up. */}
+      <a
+        className={styles.edit}
+        href={`${editorHref}/${hash}`}
+        data-review-edit={hash}
+        title="Open in editor"
+        aria-label={`Open ${entry.name} in editor`}
+      >
+        <span aria-hidden="true">↗</span>
       </a>
     </div>
   );
@@ -123,7 +126,7 @@ const GroupHeader = memo(function GroupHeader({
             readOnly
             disabled={locked}
             data-review-group-toggle={group.id}
-            aria-label={`Select all ${group.count} in ${group.label}`}
+            aria-label={`Include all ${group.count} in ${group.label}`}
           />
         </label>
       )}
@@ -133,7 +136,7 @@ const GroupHeader = memo(function GroupHeader({
         aria-expanded={!group.collapsed}
         title={
           marker
-            ? 'Alias-marker migration leftovers: saved content equals live. A data task clears these.'
+            ? 'Saved text already matches live; listed only because of the alias migration.'
             : undefined
         }
       >
@@ -149,16 +152,18 @@ let rememberedHash: string | null = null;
 
 /**
  * The left-column queue: category groups with counts, a checkbox per row (the publish
- * selection), and one collapsed marker-only group. Fixed heights per kind, a bounded DOM window,
+ * selection), the row's word, and an editor link. Fixed heights per kind, a bounded DOM window,
  * render-before-scroll, and URL selection reveals rows outside the current window.
  */
 export function ReviewQueue({
   view,
+  kinds,
   selectedHash,
   locked = false,
   inFlight,
 }: {
   view: QueueView;
+  kinds: RowKinds;
   selectedHash: string | null;
   /** A publish is starting: selection is frozen. */
   locked?: boolean;
@@ -200,8 +205,9 @@ export function ReviewQueue({
     },
     [items.length, offsets],
   );
-  // Resolve the router/base href once per window, rather than querying <base> per row.
+  // Resolve the router/base hrefs once per window, rather than querying <base> per row.
   const href = useHref('/review');
+  const editorHref = useHref('/t');
   const navigate = useNavigate();
   const location = useLocation();
   const firstRow = items.find((item) => item.kind === 'row');
@@ -215,19 +221,7 @@ export function ReviewQueue({
   // On a phone the list is the header's sheet: opening a change closes it over the detail.
   const closeSheet = useContext(FinderSheetCloseContext);
   const [focusIndex, setFocusIndex] = useState<number>();
-  const warming = useReviewOpening((state) => state.warming);
-  const openingLimit = useReviewOpening((state) => state.limit);
-  const openingToken = useReviewOpening((state) => state.token);
-  const showSkeleton = useSkeletonVisible(warming, openingToken, true);
-  const holding = warming || showSkeleton;
-  const pendingOpen = useRef<number>();
-  const restoringOpen = useRef<number>();
   const pendingReveal = useRef<number>();
-  const previousItems = useRef(items);
-  useLayoutEffect(() => {
-    if (previousItems.current !== items && warming) useReviewOpening.setState({ limit: 0 });
-    previousItems.current = items;
-  }, [items, warming]);
   // Start from the CSS viewport's default 37px header + filter row allowance, avoiding an
   // oversized provisional window at the ordinary scale. Native observation corrects other font
   // sizes and viewport bounds before paint, without reads. Returning to the same selection
@@ -382,35 +376,13 @@ export function ReviewQueue({
     host.current!.scrollTop = viewport.top;
   }, [viewport.top]);
   useEffect(() => {
-    if (warming || pendingOpen.current !== undefined) return;
-    if (restoringOpen.current !== undefined) {
-      if (selectedHash !== String(restoringOpen.current)) return;
-      const link = host.current?.querySelector<HTMLAnchorElement>(
-        `[data-review-hash="${restoringOpen.current}"]`,
-      );
-      if (link) {
-        restoringOpen.current = undefined;
-        link.focus({ preventScroll: true });
-      }
-      return;
-    }
-    if (!warming && focusIndex !== undefined)
+    if (focusIndex !== undefined)
       host.current
         ?.querySelector<HTMLElement>(
           `[data-index="${focusIndex}"] a, [data-index="${focusIndex}"] button`,
         )
         ?.focus({ preventScroll: true });
-  }, [focusIndex, warming, selectedHash, viewport.top]);
-  useEffect(() => {
-    if (warming || pendingOpen.current === undefined) return;
-    const hash = pendingOpen.current;
-    pendingOpen.current = undefined;
-    if (items.some((item) => item.kind === 'row' && item.entry.tooltip.hash === hash)) {
-      restoringOpen.current = hash;
-      setFocusIndex(undefined);
-      void navigate(`/review${hashSearch(location.search, hash)}`);
-    }
-  }, [warming, items, navigate, location.search]);
+  }, [focusIndex, viewport.top]);
   const start = Math.max(0, Math.min(items.length - 1, indexAt(viewport.top)) - overscan);
   let end = start;
   while (end < items.length && offsets[end]! < viewport.top + viewport.height) end++;
@@ -419,8 +391,6 @@ export function ReviewQueue({
   // A wheel scroll must not unmount the focused control and silently move focus to <body>.
   if (focusIndex !== undefined && focusIndex < items.length && !indices.includes(focusIndex))
     indices.push(focusIndex);
-  useLayoutEffect(() => requireReviewRows(indices.length), [indices.length, openingToken]);
-  const renderedIndices = warming ? indices.slice(0, openingLimit) : indices;
   const pageRows = Math.max(1, Math.floor(viewport.height / rowHeight));
 
   function open(hash: string) {
@@ -440,7 +410,6 @@ export function ReviewQueue({
       style={{ height: total }}
       tabIndex={0}
       aria-label="Scroll pending saved changes"
-      aria-busy={holding || undefined}
       onClick={(event) => {
         const target = event.target instanceof Element ? event.target : null;
         const checkbox = target?.closest<HTMLInputElement>('input[data-review-toggle]');
@@ -462,15 +431,23 @@ export function ReviewQueue({
           toggleGroup(header.dataset.reviewGroup!);
           return;
         }
-        if (
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.shiftKey
-        )
+        const plain =
+          !event.defaultPrevented &&
+          event.button === 0 &&
+          !event.metaKey &&
+          !event.altKey &&
+          !event.ctrlKey &&
+          !event.shiftKey;
+        const edit = target?.closest<HTMLAnchorElement>('a[data-review-edit]');
+        if (edit) {
+          // Modified clicks keep the native link (a new tab or window).
+          if (!plain) return;
+          event.preventDefault();
+          void navigate(`/t/${edit.dataset.reviewEdit}`);
+          closeSheet?.();
           return;
+        }
+        if (!plain) return;
         const link = target?.closest<HTMLAnchorElement>('a[data-review-hash]');
         if (
           !link ||
@@ -488,19 +465,10 @@ export function ReviewQueue({
         if (row) setFocusIndex(Number(row.dataset.index));
       }}
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          pendingOpen.current = undefined;
-          restoringOpen.current = undefined;
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
           setFocusIndex(undefined);
-        }
       }}
       onKeyDown={(event) => {
-        const focusedItem = focusIndex === undefined ? undefined : items[focusIndex];
-        if (warming && event.key === 'Enter' && focusedItem?.kind === 'row') {
-          event.preventDefault();
-          pendingOpen.current = focusedItem.entry.tooltip.hash;
-          return;
-        }
         const row = (event.target as Element).closest<HTMLElement>('[data-index]');
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         if (!row && (event.target !== event.currentTarget || event.key === 'Tab')) return;
@@ -511,7 +479,7 @@ export function ReviewQueue({
           item?.kind === 'row' &&
           event.target instanceof HTMLAnchorElement
         ) {
-          // Space on a row includes it in the publish, as on the page.
+          // Space on a row ticks it without moving.
           event.preventDefault();
           if (!locked && !item.entry.unpublishable && !inFlight?.has(item.entry.tooltip.hash))
             toggle(item.entry.tooltip.hash);
@@ -525,10 +493,13 @@ export function ReviewQueue({
         else if (event.key === 'Home') next = 0;
         else if (event.key === 'End') next = items.length - 1;
         else if (event.key === 'Tab') {
-          // Tab walks the rows' names (Space on a name selects it); Shift+Tab reaches a row's
-          // checkbox natively, then the previous row. Rows outside the window stay reachable.
-          const onCheckbox = event.target instanceof HTMLInputElement;
-          if (event.shiftKey ? !onCheckbox : onCheckbox) return;
+          // Tab walks a row's name, then its editor link, then the next row; Shift+Tab reaches a
+          // row's checkbox natively, then the previous row. Rows outside the window stay reachable.
+          const target = event.target as Element;
+          const onCheckbox = target instanceof HTMLInputElement;
+          const last =
+            target.matches('a[data-review-edit]') || target.matches('button[data-review-group]');
+          if (event.shiftKey ? !onCheckbox : !last) return;
           next = index + (event.shiftKey ? -1 : 1);
           if (next < 0 || next >= items.length) return;
         } else return;
@@ -565,34 +536,11 @@ export function ReviewQueue({
       <span ref={sizer} className={styles.rowSizer} aria-hidden="true" data-review-row-size="" />
       <span ref={headerSizer} className={styles.headerSizer} aria-hidden="true" />
       <div style={{ height: total }} aria-hidden="true" />
-      {showSkeleton && (
-        <div
-          className={styles.openingRows}
-          style={{ top: offsets[start], height: offsets[end]! - offsets[start]! }}
-        >
-          <SkeletonStatus>Loading saved changes</SkeletonStatus>
-          <SkeletonRegion>
-            {Array.from({ length: end - start }, (_, row) => (
-              <SkeletonRows
-                key={row}
-                count={1}
-                columns={[75, 25]}
-                rowHeight={`${offsets[start + row + 1]! - offsets[start + row]!}px`}
-              />
-            ))}
-          </SkeletonRegion>
-        </div>
-      )}
       <ul
         className={styles.list}
-        aria-hidden={holding || undefined}
-        style={{
-          top: offsets[start],
-          height: offsets[end]! - offsets[start]!,
-          visibility: holding ? 'hidden' : undefined,
-        }}
+        style={{ top: offsets[start], height: offsets[end]! - offsets[start]! }}
       >
-        {renderedIndices.map((index) => (
+        {indices.map((index) => (
           <li
             key={itemKey(items[index]!)}
             aria-posinset={index + 1}
@@ -632,17 +580,19 @@ export function ReviewQueue({
       );
     }
     const hash = item.entry.tooltip.hash;
+    const publishing = !!inFlight?.has(hash);
     return (
       <QueueRow
         entry={item.entry}
         distinguish={repeatedNames.has(`${item.entry.categoryId}:${item.entry.name}`)}
         href={href}
+        editorHref={editorHref}
         current={currentHash === String(hash)}
         checked={selected.has(hash)}
-        publishing={!!inFlight?.has(hash)}
+        kind={publishing ? 'Publishing…' : kinds.get(hash)}
         locked={
           item.entry.unpublishable ??
-          (inFlight?.has(hash) ? 'Publishing…' : locked ? 'A publish is starting' : undefined)
+          (publishing ? 'Publishing…' : locked ? 'A publish is starting' : undefined)
         }
       />
     );
@@ -656,7 +606,6 @@ function itemKey(item: QueueItem) {
 /** The list's search with only the open hash changed; filters stay. */
 export function hashSearch(search: string, hash: string | number) {
   const params = new URLSearchParams(search);
-  params.delete('marker');
   params.set('hash', String(hash));
   return `?${params.toString()}`;
 }

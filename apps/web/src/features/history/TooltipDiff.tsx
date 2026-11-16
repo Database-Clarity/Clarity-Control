@@ -84,7 +84,6 @@ export function TooltipDiff({
 }) {
   const changed = languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
   const [sourceView] = useRawDiff();
-  const dateSettings = useSyncedSettings();
   const [rendered, setRendered] = useState(1);
   const busy = !raw && !eagerLanguages && rendered < changed.length;
   useEffect(() => {
@@ -152,25 +151,7 @@ export function TooltipDiff({
           </SkeletonBoundary>
         </section>
       ))}
-      {(before?.compendium || current.compendium) &&
-        !sameSource(before?.compendium, current.compendium) && (
-          <CompendiumSources before={before?.compendium} after={current.compendium} />
-        )}
-      {(before?.compendium || current.compendium) &&
-        !sameCell(
-          before?.compendium?.snapshot ?? emptyCell,
-          current.compendium?.snapshot ?? emptyCell,
-        ) && (
-          <>
-            {sameSource(before?.compendium, current.compendium) && (
-              <CompendiumSources before={before?.compendium} after={current.compendium} />
-            )}
-            <CompendiumDiff
-              before={before?.compendium?.snapshot ?? emptyCell}
-              after={current.compendium?.snapshot ?? emptyCell}
-            />
-          </>
-        )}
+      <CompendiumChanges before={before} current={current} />
       {languages
         .filter(
           (lang) =>
@@ -190,6 +171,57 @@ export function TooltipDiff({
           </p>
         ))}
       {!changed.length && <p>No language text changes.</p>}
+      <FieldChanges before={before} current={current} item={item} />
+    </div>
+  );
+}
+
+/** The Compendium source and cell, when either changed. */
+export function CompendiumChanges({
+  before,
+  current,
+}: {
+  before: Tooltip | null;
+  current: Tooltip;
+}) {
+  return (
+    <>
+      {(before?.compendium || current.compendium) &&
+        !sameSource(before?.compendium, current.compendium) && (
+          <CompendiumSources before={before?.compendium} after={current.compendium} />
+        )}
+      {(before?.compendium || current.compendium) &&
+        !sameCell(
+          before?.compendium?.snapshot ?? emptyCell,
+          current.compendium?.snapshot ?? emptyCell,
+        ) && (
+          <>
+            {sameSource(before?.compendium, current.compendium) && (
+              <CompendiumSources before={before?.compendium} after={current.compendium} />
+            )}
+            <CompendiumDiff
+              before={before?.compendium?.snapshot ?? emptyCell}
+              after={current.compendium?.snapshot ?? emptyCell}
+            />
+          </>
+        )}
+    </>
+  );
+}
+
+/** What changed besides language text and the Compendium: associations, archive, identity. */
+export function FieldChanges({
+  before,
+  current,
+  item,
+}: {
+  before: Tooltip | null;
+  current: Tooltip;
+  item?: Item;
+}) {
+  const dateSettings = useSyncedSettings();
+  return (
+    <>
       {JSON.stringify(before?.associated ?? []) !== JSON.stringify(current.associated) && (
         <p>
           Associated tooltips: {before?.associated.join(', ') || '(none)'} →{' '}
@@ -202,7 +234,7 @@ export function TooltipDiff({
       {identityLines(before, current, item).map((line) => (
         <p key={line}>{line}</p>
       ))}
-    </div>
+    </>
   );
 }
 

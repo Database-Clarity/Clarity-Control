@@ -6,21 +6,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { recoveryDraft, artifactSchema } from '../lost-text/model';
 import artifact from '../lost-text/lost-text.json';
-import { ReviewDetail } from '../review/ReviewDetail';
+import { RestoreLive } from '../review/ReviewDetail';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
 import { useSaveState } from '../../services/save/state';
-
-vi.mock('../../services/api', async (original) => ({
-  ...(await original<typeof import('../../services/api')>()),
-  apiUrl: 'https://api.test',
-}));
-vi.mock('../../services/history', () => ({
-  getHistory: async () => ({ page: 1, commits: [] }),
-  getPushedVersion: async () => ({ tooltip: pushed, pushedHash: 'pushed' }),
-}));
-vi.mock('./TooltipDiff', () => ({ TooltipDiff: () => null }));
 
 const text = (value: string) => ({
   text: value,
@@ -69,9 +59,22 @@ it.each(['de', 'es'] as const)(
 );
 
 it.each(['maintainer', 'translator'] as const)(
-  'loads Review pushed German and rebases for %s',
+  'restores Review live German and rebases for %s',
   async (role) => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    // jsdom has no modal dialogs: show/hide is enough for the confirmation.
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.setAttribute('open', '');
+      },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.removeAttribute('open');
+      },
+    });
     useAuthStore.setState({ user: { id: 1, login: 'test', role, languages: ['de'] } });
     useDataStore.setState({
       data: {
@@ -90,10 +93,13 @@ it.each(['maintainer', 'translator'] as const)(
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
+    const done = vi.fn();
     await act(async () =>
       root!.render(
         <MemoryRouter>
-          <ReviewDetail
+          <RestoreLive
+            published={{ status: 'ready', tooltip: pushed }}
+            onDone={done}
             entry={{
               tooltip: saved,
               name: 'Test',
@@ -103,17 +109,16 @@ it.each(['maintainer', 'translator'] as const)(
               markerOnly: false,
               isNew: false,
             }}
-            included={false}
-            selectionLocked={false}
-            onInclude={() => {}}
           />
         </MemoryRouter>,
       ),
     );
     const button = (label: string) =>
       [...host!.querySelectorAll('button')].find((entry) => entry.textContent === label)!;
-    await act(async () => button('Load last pushed as draft').click());
-    await act(async () => button('Confirm load as draft').click());
+    await act(async () => button('Restore live text as draft').click());
+    expect(host.textContent).toContain('This replaces the existing local draft for Test');
+    await act(async () => button('Restore as draft').click());
+    expect(done).toHaveBeenCalledOnce();
     const draft = useDraftStore.getState().drafts[10];
     expect(draft.next.text.de).toEqual(pushed.text.de);
     expect(draft.base.text.de).toEqual(saved.text.de);

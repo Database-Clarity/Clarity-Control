@@ -76,10 +76,18 @@ async function selectAll() {
   for (const box of host.querySelectorAll<HTMLInputElement>('input[data-review-group-toggle]'))
     await act(async () => box.click());
   await waitFor(() => {
-    const publish = buttons('Publish selected')[0] ?? buttons('Push selected')[0];
-    expect(publish).toBeDefined();
+    const publish = headPublish();
+    expect(publish).not.toBeNull();
     expect(publish?.disabled).toBe(false);
   });
+}
+/** The head line's "Publish N", which opens the confirmation. */
+function headPublish() {
+  return host.querySelector<HTMLButtonElement>('button[data-review-publish]');
+}
+async function openPublish() {
+  await act(async () => headPublish()!.click());
+  await flush();
 }
 async function waitFor(check: () => void) {
   await vi.waitFor(async () => {
@@ -211,12 +219,12 @@ const posts = () => calls.filter((c) => c.path === '/publish');
 
 it('confirms, stores and sends one operation, then follows it from Publishing to Published', async () => {
   await mount();
-  expect(host.textContent).toContain('1 change · 0 selected');
+  expect(host.textContent).toContain('1 change waiting to go live');
   await selectAll();
-  await click('Publish selected');
+  await openPublish();
   const dialog = host.querySelector('dialog')!;
   expect(dialog.textContent).toContain('Publish to live');
-  expect(dialog.textContent).toContain('1 tooltip goes live for everyone using Clarity.');
+  expect(dialog.textContent).toContain('1 new tooltip goes live for everyone using Clarity.');
   expect(dialog.textContent).toContain('Tooltip 10');
   vi.useFakeTimers({ toFake: ['Date'] });
   await click('Publish 1');
@@ -233,8 +241,8 @@ it('confirms, stores and sends one operation, then follows it from Publishing to
     expect(activity.textContent).toContain('1 tooltip');
   });
   // Still pending in the list, but cannot be picked again.
-  expect(host.textContent).toContain('1 change · 0 selected');
-  expect(host.textContent).toContain('publishing…');
+  expect(host.textContent).toContain('1 change waiting to go live');
+  expect(host.textContent).toContain('Publishing…');
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
   // The Worker finishes: the next status poll turns it into Published and clears the pending count.
   statusAnswer = 'done';
@@ -243,7 +251,7 @@ it('confirms, stores and sends one operation, then follows it from Publishing to
   await waitFor(() => {
     const activity = host.querySelector('[aria-label="Publish activity"]')!;
     expect(activity.textContent).toContain('Published');
-    expect(host.textContent).toContain('0 changes · 0 selected');
+    expect(host.textContent).toContain('0 changes waiting to go live');
   });
   expect(vi.mocked(loadBundle)).toHaveBeenCalledTimes(1);
   expect(useReviewSession.getState().acknowledgments[10]).toEqual({
@@ -266,7 +274,7 @@ it('refuses an unselected pending import, then publishes its reviewed closure on
   await act(async () =>
     host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
   );
-  await click('Publish selected');
+  await openPublish();
   await click('Publish 1');
   await waitFor(() =>
     expect(useReviewSession.getState().error).toContain('Select pending imported tooltip 20'),
@@ -274,7 +282,7 @@ it('refuses an unselected pending import, then publishes its reviewed closure on
   expect(posts()).toHaveLength(0);
   expect(useReviewSession.getState().pushing).toBe(false);
   await selectAll();
-  await click('Publish selected');
+  await openPublish();
   await click('Publish 2');
   await waitFor(() => expect(posts()).toHaveLength(1));
   expect((posts()[0]!.body as { hashes: number[] }).hashes).toEqual([10, 20]);
@@ -284,7 +292,7 @@ it('refuses an unselected pending import, then publishes its reviewed closure on
 it('shows stale and failed outcomes and leaves the tooltips pending', async () => {
   await mount();
   await selectAll();
-  await click('Publish selected');
+  await openPublish();
   vi.useFakeTimers({ toFake: ['Date'] });
   await click('Publish 1');
   await waitFor(() => expect(posts()).toHaveLength(1));
@@ -296,7 +304,7 @@ it('shows stale and failed outcomes and leaves the tooltips pending', async () =
     expect(activity.textContent).toContain('Changed');
     expect(activity.textContent).toContain('Nothing from this request went live');
   });
-  expect(host.textContent).toContain('1 change · 0 selected');
+  expect(host.textContent).toContain('1 change waiting to go live');
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(false);
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
@@ -304,7 +312,7 @@ it('shows stale and failed outcomes and leaves the tooltips pending', async () =
 it('keeps the operation and offers Retry once it has waited three minutes', async () => {
   await mount();
   await selectAll();
-  await click('Publish selected');
+  await openPublish();
   vi.useFakeTimers({ toFake: ['Date'] });
   await click('Publish 1');
   await waitFor(() => expect(posts()).toHaveLength(1));
@@ -345,7 +353,7 @@ it('rebuilds the in-flight state from storage after a reload and never mints a s
   postAnswer = () => new Response('offline', { status: 503 });
   await mount();
   await selectAll();
-  await click('Publish selected');
+  await openPublish();
   await click('Publish 1');
   await waitFor(() => expect(posts()).toHaveLength(1));
   const first = (posts()[0]!.body as { opId: string }).opId;
@@ -369,16 +377,15 @@ it('shows no publish controls or activity to accounts that cannot publish', asyn
   useAuthStore.setState({ user: { ...user, role: 'trial' } });
   await mount();
   expect(host.querySelector('[aria-label="Publish activity"]')).toBeNull();
-  expect(buttons('Publish selected')).toHaveLength(0);
-  expect(buttons('Push selected')).toHaveLength(0);
+  expect(headPublish()).toBeNull();
+  expect(host.textContent).toContain('Sign in as an editor or maintainer to publish.');
 });
 
 it('flag off: the legacy push path and wording are unchanged and nothing is stored or polled', async () => {
   vi.stubEnv('VITE_PUBLISHER_ENABLED', '');
   await mount();
   await selectAll();
-  expect(buttons('Publish selected')).toHaveLength(0);
-  await click('Push selected');
+  await openPublish();
   expect(host.querySelector('dialog')!.textContent).toContain('Push to live');
   expect(buttons('Push 1 live')).toHaveLength(1);
   expect(host.querySelector('[aria-label="Publish activity"]')).toBeNull();

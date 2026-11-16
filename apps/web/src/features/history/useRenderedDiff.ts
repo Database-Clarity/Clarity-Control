@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MarkupGlobals } from '@clarity/core';
 import { diagnosticGlobals } from '../editor/diagnosticWorker';
-import { presentDiff, renderedDiff } from './renderedDiff';
+import { compareDiffOutput, presentDiff, renderedDiff } from './renderedDiff';
 import type { SourceAnalysis } from './sourceOnlyChanges';
 import type { RenderedDiffReply, RenderedDiffRequest } from './renderedDiff.worker';
 
@@ -13,6 +13,56 @@ const pending = new Map<number, (reply?: RenderedDiffReply) => void>();
 // Complete results only (diff and source check): a cancelled check never caches.
 const cache = new Map<string, Result>();
 const post = (request: RenderedDiffRequest) => worker?.postMessage(request);
+function startWorker() {
+  if (worker) return;
+  worker = new Worker(new URL('./renderedDiff.worker.ts', import.meta.url), { type: 'module' });
+  worker.onmessage = (event: MessageEvent<RenderedDiffReply>) =>
+    pending.get(event.data.id)?.(event.data);
+  worker.onerror = () => {
+    for (const callback of pending.values()) callback();
+    pending.clear();
+    worker?.terminate();
+    worker = undefined;
+  };
+}
+
+/**
+ * Whether two saved texts render differently (Base and Enhanced), off the main thread. Review
+ * asks this for every waiting change in the background; undefined when the check failed.
+ */
+export function classifyRendered(
+  before: string,
+  after: string,
+  globals: MarkupGlobals,
+): Promise<NonNullable<RenderedDiffReply['classified']> | undefined> {
+  const snapshot = diagnosticGlobals(
+    `${before}
+${after}`,
+    globals,
+  );
+  if (typeof Worker === 'undefined')
+    return Promise.resolve().then(() => {
+      try {
+        return compareDiffOutput(before, after, snapshot);
+      } catch {
+        return undefined;
+      }
+    });
+  return new Promise((resolve) => {
+    const id = ++sequence;
+    try {
+      startWorker();
+      pending.set(id, (reply) => {
+        pending.delete(id);
+        resolve(reply?.classified);
+      });
+      post({ id, before, after, globals: snapshot, classify: true });
+    } catch {
+      pending.delete(id);
+      resolve(undefined);
+    }
+  });
+}
 
 /** Keep the bounded word alignment off the opening/input path for long descriptions. */
 export function useRenderedDiff(before: string, after: string, globals: MarkupGlobals) {
@@ -61,19 +111,7 @@ export function useRenderedDiff(before: string, after: string, globals: MarkupGl
     };
     const run = () => {
       try {
-        if (!worker) {
-          worker = new Worker(new URL('./renderedDiff.worker.ts', import.meta.url), {
-            type: 'module',
-          });
-          worker.onmessage = (event: MessageEvent<RenderedDiffReply>) =>
-            pending.get(event.data.id)?.(event.data);
-          worker.onerror = () => {
-            for (const callback of pending.values()) callback();
-            pending.clear();
-            worker?.terminate();
-            worker = undefined;
-          };
-        }
+        startWorker();
         pending.set(id, finish);
         post({ id, before, after, globals: snapshot });
       } catch {

@@ -1,135 +1,410 @@
-import { LoadingSkeleton, SkeletonBoundary } from '../../ui/Skeleton';
-import { memo, useEffect, useState } from 'react';
-import { flushSync } from 'react-dom';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { parseMarkup, type Lang, type MarkupLine, type Tooltip } from '@clarity/core';
+import { languageLabel } from '../../languageLabels';
 import { getHistory, type HistoryCommit } from '../../services/history';
-import { CommitAuthor } from '../history/CommitAuthor';
-import { changedFields, changedSummary } from './changedFields';
-import { useReviewMarks } from './reviewMarks';
-import { useLocation } from 'react-router-dom';
-import type { Tooltip } from '@clarity/core';
-import { preparedReviewLiveValue, takeReviewLiveRequest } from './liveRequest';
 import { errorMessage } from '../../services/http';
-import { useAuthStore } from '../../stores/auth';
-import { useDraftStore } from '../../stores/drafts';
-import { useDataStore } from '../../stores/data';
-import { useSaveState } from '../../services/save/state';
 import { replaceDraft } from '../../services/save/drafts';
+import { useSaveState } from '../../services/save/state';
+import { useAuthStore } from '../../stores/auth';
+import { useDataStore, type EditorData } from '../../stores/data';
+import { useDraftStore } from '../../stores/drafts';
+import { Dialog } from '../../ui/Dialog';
+import { diffWords } from '../../ui/diff';
+import { SkeletonLine } from '../../ui/Skeleton';
+import { CommitAuthor } from '../history/CommitAuthor';
+import { Body, diffGlobals } from '../history/RenderedWordDiff';
+import {
+  presentDiff,
+  renderedDiff,
+  variantGlobals,
+  type DiffLine,
+  type DiffSpan,
+} from '../history/renderedDiff';
 import { revertDraft } from '../history/revert';
+import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
+import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor } from '../navigation/catalog';
-import { TooltipDiff } from '../history/TooltipDiff';
+import { textLanguages, type Classification } from './kinds';
 import type { PendingTooltip } from './model';
-import { useReviewOpening } from './opening';
+import type { Published } from './published';
+import { useDelayed } from './useDelayed';
 import styles from './Review.module.scss';
 
-export const ReviewDetail = memo(function ReviewDetail({
+const count = new Intl.NumberFormat('en');
+const list = (words: string[]) =>
+  words.length < 3 ? words.join(' and ') : `${words.slice(0, -1).join(', ')}, and ${words.at(-1)}`;
+
+/** The text a tooltip shows when its whole English text is an import of another tooltip. */
+function importedName(tooltip: Tooltip, data: EditorData | null): string | undefined {
+  const match = /^import main from (\d+)\s*$/.exec(tooltip.text.en?.text ?? '');
+  if (!match || !data) return undefined;
+  const hash = Number(match[1]);
+  return data.items[hash]?.name ?? data.bundle.tooltips[hash]?.custom?.name;
+}
+
+/** One sentence that answers "what will players see differently?" (spec §6). */
+function Sentence({
   entry,
-  included,
-  selectionLocked,
-  onInclude,
+  published,
+  classification,
+  onRetry,
 }: {
   entry: PendingTooltip;
-  /** The change is part of the publish selection. */
-  included: boolean;
-  /** Selection is unavailable (publishing, or nothing publishable here). */
-  selectionLocked: boolean;
-  onInclude(hash: number): void;
-}) {
-  const location = useLocation();
-  const [live, setLive] = useState<
-    { tooltip: Tooltip | null; pushedHash: string | null } | undefined
-  >(() => preparedReviewLiveValue(entry.tooltip.hash));
-  // The response is in hand but held for the opening's first paint: no longer loading.
-  const [held, setHeld] = useState(false);
-  const [error, setError] = useState<string>();
-  const [attempt, setAttempt] = useState(0);
-  const [confirm, setConfirm] = useState(false);
-  const [notice, setNotice] = useState<string>();
-  const [saved, setSaved] = useState<HistoryCommit | null>();
-  const record = useReviewMarks((state) => state.record);
-  const user = useAuthStore((state) => state.user);
-  const catalog = useDataStore((state) => state.data);
-  const reviewItem = catalog ? itemFor(entry.tooltip.hash, catalog) : undefined;
-  const draft = useDraftStore((state) => state.drafts[entry.tooltip.hash]);
-  const hydrated = useDraftStore((state) => state.hydrated);
-  const locked = useSaveState((state) => state.locked);
-  const canLoad =
-    !!user?.role &&
-    (user.role !== 'translator' || !!user.languages?.length) &&
-    hydrated &&
-    !locked &&
-    !!live?.tooltip &&
-    !!live.pushedHash;
-  function loadDraft() {
-    const currentUser = useAuthStore.getState().user;
-    const state = useDraftStore.getState();
-    if (
-      !currentUser?.role ||
-      (currentUser.role === 'translator' && !currentUser.languages?.length) ||
-      !state.hydrated ||
-      useSaveState.getState().locked ||
-      !live?.tooltip ||
-      !live.pushedHash
-    )
-      return;
-    try {
-      const saved = useDataStore.getState().data?.bundle.tooltips[entry.tooltip.hash];
-      if (!saved) throw new Error('The saved tooltip is no longer available.');
-      const existing = state.drafts[saved.hash];
-      // Rebase only the fields this restore replaces; retain the old merge base
-      // for any other local changes, including changes outside translator access.
-      const base = revertDraft(existing?.base ?? saved, saved, currentUser);
-      replaceDraft(base, revertDraft(existing?.next ?? saved, live.tooltip, currentUser), true);
-      setConfirm(false);
-      setNotice(
-        'Last pushed version loaded as a local draft. Review it in the editor; nothing was saved or pushed.',
-      );
-    } catch (reason) {
-      setError(errorMessage(reason));
-    }
-  }
-  useEffect(() => {
-    const { controller, pending, value } = takeReviewLiveRequest(entry.tooltip.hash);
-    let stopWaiting: (() => void) | undefined;
-    setLive(value);
-    setHeld(false);
-    setError(undefined);
-    void pending.then(
-      (result) => {
-        if (controller.signal.aborted) return;
-        const opening = useReviewOpening.getState();
-        // Commit a received comparison in this task: a scheduled render can land
-        // after the skeleton's second frame while the opening's row slices run,
-        // and then the skeleton shows and holds its minimum for content in hand.
-        if (!opening.warming || opening.limit > 0) flushSync(() => setLive(result));
-        else {
-          // A fast response must not add another comparison render before the
-          // local workspace's first paint. Input and the GET remain independent.
-          // The skeleton stops counting frames now: this short hold is local,
-          // so it never shows for (or holds back) a comparison already received.
-          flushSync(() => setHeld(true));
-          stopWaiting = useReviewOpening.subscribe((state) => {
-            if (state.warming && state.limit === 0) return;
-            stopWaiting?.();
-            if (!controller.signal.aborted) flushSync(() => setLive(result));
-          });
-        }
-      },
-      (reason: unknown) => {
-        if (!controller.signal.aborted) setError(errorMessage(reason));
-      },
+  published: Published | undefined;
+  classification: Classification | undefined;
+  onRetry(): void;
+}): ReactNode {
+  const data = useDataStore((state) => state.data);
+  const waiting = !classification && (!published || published.status === 'loading');
+  const late = useDelayed(waiting || (published?.status === 'ready' && !classification));
+  if (entry.unpublishable)
+    return (
+      <p className={styles.sentence} data-tone="warn">
+        <b>Can&apos;t be published yet.</b> {entry.unpublishable}
+      </p>
     );
-    // A filter navigation can stage a new request for the same hash.
-    // Consume it after that route commits, and cancel the previous consumer.
-    return () => {
-      stopWaiting?.();
-      controller.abort();
+  switch (classification?.kind) {
+    case 'Text changed': {
+      const { scope, languages = [] } = classification;
+      const where =
+        scope === 'both'
+          ? ' on the base and the enhanced perk'
+          : scope === 'enhanced'
+            ? ' on the enhanced perk only'
+            : scope === 'base'
+              ? ' on the base perk only'
+              : '';
+      const langs =
+        languages.length === 1 && languages[0] === 'en'
+          ? ''
+          : ` in ${list(languages.map((lang) => languageLabel(lang)))}`;
+      return (
+        <p className={styles.sentence}>
+          <b>Text changed</b>
+          {where}
+          {langs}.
+        </p>
+      );
+    }
+    case 'No visible change':
+      return (
+        <p className={styles.sentence}>
+          <b>No visible change.</b> Players see the same text as now.
+          {classification.markupLines
+            ? ` Only the markup changed (${count.format(classification.markupLines)} ${classification.markupLines === 1 ? 'line' : 'lines'}).`
+            : ''}
+        </p>
+      );
+    case 'New': {
+      const source = importedName(entry.tooltip, data);
+      return (
+        <p className={styles.sentence}>
+          <b>New tooltip.</b> Not published before.
+          {source ? ` It shows the text of ${source}.` : ''}
+        </p>
+      );
+    }
+    case 'Links changed':
+      return (
+        <p className={styles.sentence}>
+          <b>No text change.</b> Only links or identity differ:
+        </p>
+      );
+    case 'Removed':
+      return (
+        <p className={styles.sentence} data-tone="danger">
+          <b>Removes this tooltip.</b> It and its alias copies leave every output. The saved text
+          stays editable.
+        </p>
+      );
+    case 'Restored':
+      return (
+        <p className={styles.sentence}>
+          <b>Brings this tooltip back.</b> It returns to every output.
+        </p>
+      );
+    case 'Leftover':
+      return (
+        <p className={styles.sentence}>
+          <b>Nothing to publish.</b> The saved text already matches live; this entry is listed only
+          because of the alias migration.
+        </p>
+      );
+  }
+  if (published?.status === 'error')
+    return (
+      <p className={styles.sentence} role="alert">
+        <b>Couldn&apos;t load the published version.</b>{' '}
+        <button type="button" className={styles.textButton} onClick={onRetry}>
+          Retry
+        </button>
+      </p>
+    );
+  if (published?.status === 'missing')
+    return (
+      <p className={styles.sentence}>
+        <b>No record of the published version.</b> Showing the saved text only.
+      </p>
+    );
+  if (published?.status === 'ready' && classification === undefined && !late) return null;
+  // Not known yet: one skeleton line, only after real waiting.
+  return (
+    <p className={styles.sentence} aria-busy="true">
+      {late && <SkeletonLine width={40} />}
+    </p>
+  );
+}
+
+/** Rendered text, plain (New, Removed, Restored), 12 lines then "Show all". */
+function PlainText({ text, lang, hash }: { text: string; lang: Lang; hash: number }) {
+  const data = useDataStore((state) => state.data);
+  const [all, setAll] = useState(false);
+  const { base, enhanced } = useMemo(() => {
+    const globals = diffGlobals(data, {}, lang, hash);
+    const render = (variant: boolean) => parseMarkup(text, variantGlobals(globals, variant)).lines;
+    const base = render(false),
+      enhanced = render(true);
+    return {
+      base,
+      enhanced: JSON.stringify(base) === JSON.stringify(enhanced) ? undefined : enhanced,
     };
-  }, [entry.tooltip.hash, location.key, user, attempt]);
-  // The last saver, one request for the open change only (rows ask near the viewport).
+  }, [data, lang, hash, text]);
+  const cut = (lines: MarkupLine[]) => (all ? lines : lines.slice(0, 12));
+  const longest = Math.max(base.length, enhanced?.length ?? 0);
+  return (
+    <>
+      <Columns lang={lang} base={cut(base)} enhanced={enhanced && cut(enhanced)} />
+      {longest > 12 && !all && (
+        <button type="button" className={styles.textButton} onClick={() => setAll(true)}>
+          Show all {count.format(longest)} lines
+        </button>
+      )}
+    </>
+  );
+}
+
+/** One column, or Base and Enhanced side by side (stacked on a phone) when both are given. */
+function Columns({
+  lang,
+  base,
+  enhanced,
+  only,
+}: {
+  lang: Lang;
+  base?: ReactNode | MarkupLine[];
+  enhanced?: ReactNode | MarkupLine[];
+  /** Label a single column (only the enhanced perk changes). */
+  only?: string;
+}) {
+  const body = (content: ReactNode | MarkupLine[]) =>
+    Array.isArray(content) ? <Body lines={content as MarkupLine[]} lang={lang} /> : content;
+  if (base !== undefined && enhanced !== undefined)
+    return (
+      <div className={styles.columns}>
+        <div>
+          <h4>Base</h4>
+          {body(base)}
+        </div>
+        <div>
+          <h4>Enhanced</h4>
+          {body(enhanced)}
+        </div>
+      </div>
+    );
+  const single = base ?? enhanced;
+  return (
+    <div className={styles.single}>
+      {only && <h4>{only}</h4>}
+      {single !== undefined && body(single)}
+    </div>
+  );
+}
+
+const lineChanged = (line: DiffLine) =>
+  !!line.diffKind || !!(line.linesContent as DiffSpan[] | undefined)?.some((span) => span.diffKind);
+
+/** Changed lines with one line of context; the rest folds to "9 unchanged lines". */
+function Folded({ lines, lang }: { lines: DiffLine[]; lang: Lang }) {
+  const keep = lines.map(
+    (line, index) =>
+      lineChanged(line) ||
+      (!!lines[index - 1] && lineChanged(lines[index - 1]!)) ||
+      (!!lines[index + 1] && lineChanged(lines[index + 1]!)),
+  );
+  const parts: ReactNode[] = [];
+  for (let index = 0; index < lines.length;) {
+    let end = index;
+    while (end < lines.length && keep[end] === keep[index]) end++;
+    const run = lines.slice(index, end);
+    parts.push(
+      keep[index] ? (
+        <Body key={index} lines={run} lang={lang} />
+      ) : (
+        <details key={index} className={styles.fold}>
+          <summary>
+            {count.format(run.length)} unchanged {run.length === 1 ? 'line' : 'lines'}
+          </summary>
+          <Body lines={run} lang={lang} />
+        </details>
+      ),
+    );
+    index = end;
+  }
+  return <>{parts}</>;
+}
+
+/** A changed language: removed words struck and added words in place, sized to the change. */
+function TextChange({
+  before,
+  after,
+  lang,
+  hash,
+  classification,
+}: {
+  before: string;
+  after: string;
+  lang: Lang;
+  hash: number;
+  classification: Classification | undefined;
+}) {
+  const data = useDataStore((state) => state.data);
+  const globals = useMemo(() => diffGlobals(data, {}, lang, hash), [data, lang, hash]);
+  const { result, busy } = useRenderedDiff(before, after, globals);
+  const variants = classification?.variants;
+  const scope = classification?.scope;
+  const enhanced = useMemo(
+    () =>
+      variants && scope !== 'base'
+        ? (result.enhanced ??
+          presentDiff(
+            renderedDiff(
+              before,
+              after,
+              variantGlobals(globals, true),
+              before.length + after.length <= 4000,
+            ),
+          ))
+        : undefined,
+    [variants, scope, result, before, after, globals],
+  );
+  const late = useDelayed(busy);
+  if (busy)
+    return late ? (
+      <div className={styles.single} aria-busy="true">
+        <SkeletonLine width={90} />
+        <SkeletonLine width={70} />
+      </div>
+    ) : null;
+  const column = (diff: ReturnType<typeof renderedDiff> | undefined) =>
+    !diff ? undefined : diff.merged ? (
+      <Folded lines={diff.merged} lang={lang} />
+    ) : (
+      // Tables keep the two sides: the live text, then the saved text.
+      <>
+        <Body lines={diff.before} lang={lang} />
+        <Body lines={diff.after} lang={lang} />
+      </>
+    );
+  if (scope === 'enhanced')
+    return <Columns lang={lang} enhanced={column(enhanced)} only="Enhanced" />;
+  if (scope === 'base' && variants)
+    return <Columns lang={lang} base={column(result)} only="Base" />;
+  if (scope === 'both' && enhanced)
+    return <Columns lang={lang} base={column(result)} enhanced={column(enhanced)} />;
+  return <Columns lang={lang} base={column(result)} />;
+}
+
+/** Source lines that changed, with one line of context, line numbers, and changed characters. */
+function RawMarkup({ before, after }: { before: string; after: string }) {
+  const a = before.split('\n'),
+    b = after.split('\n');
+  let start = 0,
+    endA = a.length,
+    endB = b.length;
+  while (start < endA && start < endB && a[start] === b[start]) start++;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const parts = diffWords(a.slice(start, endA).join('\n'), b.slice(start, endB).join('\n'));
+  // Split the old (equal + deleted) and new (equal + inserted) sides into rows of marked runs.
+  const rows = (side: 'delete' | 'insert', from: number, length: number) => {
+    if (!length) return [];
+    const lines: ReactNode[][] = [[]];
+    for (const [index, part] of parts.entries()) {
+      if (part.kind !== 'equal' && part.kind !== side) continue;
+      part.text.split('\n').forEach((text, piece) => {
+        if (piece) lines.push([]);
+        if (!text) return;
+        const key = `${index}:${piece}`;
+        lines
+          .at(-1)!
+          .push(
+            part.kind === 'equal' ? (
+              <span key={key}>{text}</span>
+            ) : side === 'delete' ? (
+              <del key={key}>{text}</del>
+            ) : (
+              <ins key={key}>{text}</ins>
+            ),
+          );
+      });
+    }
+    return lines.map((content, index) => ({
+      number: from + index + 1,
+      mark: side === 'delete' ? '−' : '+',
+      content,
+    }));
+  };
+  const context = (line: number, text: string | undefined) =>
+    text === undefined ? [] : [{ number: line + 1, mark: '', content: [text] as ReactNode[] }];
+  const all = [
+    ...(start > 0 ? context(start - 1, a[start - 1]) : []),
+    ...rows('delete', start, endA - start),
+    ...rows('insert', start, endB - start),
+    ...context(endB, b[endB]),
+  ];
+  return (
+    <pre className={styles.raw}>
+      {all.map((row, index) => (
+        <span key={index} className={styles.rawLine} data-mark={row.mark || undefined}>
+          <span className={styles.rawNumber} aria-hidden="true">
+            {row.number}
+          </span>
+          <span className={styles.rawMark} aria-hidden="true">
+            {row.mark}
+          </span>
+          <span>{row.content}</span>
+        </span>
+      ))}
+    </pre>
+  );
+}
+
+/** The open change: one sentence, who saved it, and only the evidence its kind needs. */
+export const ReviewDetail = memo(function ReviewDetail({
+  entry,
+  published,
+  classification,
+  raw,
+  onRetry,
+}: {
+  entry: PendingTooltip;
+  published: Published | undefined;
+  classification: Classification | undefined;
+  /** Raw markup on (R). */
+  raw: boolean;
+  onRetry(): void;
+}) {
+  const user = useAuthStore((state) => state.user);
+  const data = useDataStore((state) => state.data);
+  const [saved, setSaved] = useState<HistoryCommit | null>();
+  // The last saver: one request for the open change only. Its line is reserved, so nothing
+  // moves when it arrives, and it never blocks the rest.
   useEffect(() => {
+    setSaved(undefined);
     if (!user?.role) return;
     const controller = new AbortController();
-    setSaved(undefined);
     void getHistory(entry.tooltip.hash, 1, controller.signal).then(
       (result) => {
         if (!controller.signal.aborted) setSaved(result.commits[0] ?? null);
@@ -140,105 +415,189 @@ export const ReviewDetail = memo(function ReviewDetail({
     );
     return () => controller.abort();
   }, [entry.tooltip.hash, user]);
-  const fields = live ? changedFields(live.tooltip, entry.tooltip) : undefined;
-  useEffect(() => {
-    if (fields) record(entry.tooltip.hash, fields);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, entry.tooltip, record]);
-  const summary =
-    entry.inactiveChange === 'remove'
-      ? 'Pending removal: this item and its alias stubs leave every output when this row is published. Saved text stays editable.'
-      : entry.inactiveChange === 'restore'
-        ? 'Pending re-add: this item returns to every output when this row is published.'
-        : entry.inactiveAliases?.length
-          ? `Publishing this row also applies the saved inactive decisions for alias hashes ${entry.inactiveAliases.join(', ')}.`
-          : entry.markerOnly
-            ? 'Alias marker only: the saved content equals the live version'
-            : live && !live.pushedHash
-              ? `${changedSummary(fields!) || 'All saved text'} · never pushed (no live version)`
-              : fields
-                ? changedSummary(fields) || 'No content differs from the live version'
-                : undefined;
-  return (
-    <section aria-label="Selected change">
-      {summary && (
-        <p className={styles.changed}>
-          <strong>Changed:</strong> {summary}
-        </p>
-      )}
+  const live = published?.status === 'ready' ? published.tooltip : undefined;
+  const kind = classification?.kind;
+  const saverLine = user?.role ? (
+    <p className={styles.savedBy}>
       {saved && (
-        <p className={styles.savedBy}>
+        <>
           Saved by <CommitAuthor entry={saved} />
-        </p>
+        </>
       )}
-      {error && (
-        <p role="alert">
-          {error}{' '}
-          <button type="button" onClick={() => setAttempt((value) => value + 1)}>
-            Retry live comparison
-          </button>
+    </p>
+  ) : null;
+  // The text a reader judges when there is no comparison: the saved text, plain.
+  const savedText = (tooltip: Tooltip) =>
+    Object.keys(tooltip.text).length
+      ? (Object.entries(tooltip.text) as [Lang, { text: string }][])
+          .filter(([, value]) => value?.text)
+          .map(([lang, value], _, all) => (
+            <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
+              {(all.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
+              <PlainText text={value.text} lang={lang} hash={entry.tooltip.hash} />
+            </section>
+          ))
+      : null;
+  let evidence: ReactNode = null;
+  if (kind === 'Text changed' && live) {
+    const changed = classification!.languages ?? textLanguages(live, entry.tooltip);
+    evidence = changed.map((lang) => (
+      <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
+        {(changed.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
+        <TextChange
+          before={live.text[lang]?.text ?? ''}
+          after={entry.tooltip.text[lang]?.text ?? ''}
+          lang={lang}
+          hash={entry.tooltip.hash}
+          classification={classification}
+        />
+      </section>
+    ));
+  } else if (kind === 'Links changed' && live)
+    evidence = (
+      <div className={styles.links}>
+        <CompendiumChanges before={live} current={entry.tooltip} />
+        <FieldChanges
+          before={live}
+          current={entry.tooltip}
+          item={data ? itemFor(entry.tooltip.hash, data) : undefined}
+        />
+      </div>
+    );
+  else if (kind === 'Removed') evidence = savedText(live ?? entry.tooltip);
+  else if (kind === 'New' || kind === 'Restored' || kind === 'On hold' || !kind) {
+    // Unknown (loading, failed, signed out): the saved text renders plain so it can be judged.
+    if (kind || published?.status !== 'loading') evidence = savedText(entry.tooltip);
+  }
+  const rawLanguages = live ? textLanguages(live, entry.tooltip) : [];
+  return (
+    <section aria-label="Selected change" className={styles.detail}>
+      <Sentence
+        entry={entry}
+        published={published}
+        classification={classification}
+        onRetry={onRetry}
+      />
+      {saverLine}
+      {entry.inactiveAliases?.length ? (
+        <p className={styles.note}>
+          Publishing this also applies the saved inactive decisions for alias hashes{' '}
+          {entry.inactiveAliases.join(', ')}.
         </p>
-      )}
-      <SkeletonBoundary
-        pending={!live && !held}
-        error={!!error}
-        identity={entry.tooltip.hash}
-        label="Loading last pushed text..."
-        text={Object.values(entry.tooltip.text)
-          .map((value) => value?.text ?? '')
-          .join('\n')}
-      >
-        {!live && held && <LoadingSkeleton label="Loading last pushed text..." visible={false} />}
-        {live && (
-          <>
-            {!live.pushedHash && !summary && (
-              <p>No recorded live version. All saved text is new.</p>
-            )}
-            <div className={styles.liveDiff}>
-              <TooltipDiff
-                before={live.tooltip}
-                current={entry.tooltip}
-                item={reviewItem}
-                responsive
+      ) : null}
+      <div className={styles.evidence}>{evidence}</div>
+      {raw && live && rawLanguages.length > 0 && (
+        <div className={styles.rawBlock} aria-label="Raw markup">
+          {rawLanguages.map((lang) => (
+            <div key={lang}>
+              {(rawLanguages.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
+              <RawMarkup
+                before={live.text[lang]?.text ?? ''}
+                after={entry.tooltip.text[lang]?.text ?? ''}
               />
             </div>
-            {notice && <p role="status">{notice}</p>}
-            {user?.role === 'translator' && (
-              <p>Only your assigned translation languages will be loaded.</p>
-            )}
-          </>
-        )}
-      </SkeletonBoundary>
-      <div className={styles.actions}>
-        <label className={styles.include}>
-          <input
-            type="checkbox"
-            checked={included}
-            disabled={selectionLocked}
-            onChange={() => onInclude(entry.tooltip.hash)}
-          />{' '}
-          Include in publish <kbd>Space</kbd>
-        </label>
-        {live &&
-          (!confirm ? (
-            <button type="button" disabled={!canLoad} onClick={() => setConfirm(true)}>
-              Load last pushed as draft
-            </button>
-          ) : (
+          ))}
+        </div>
+      )}
+      {raw && live === null && (
+        <p className={styles.note}>Raw markup compares with the published text: there is none.</p>
+      )}
+    </section>
+  );
+});
+
+/**
+ * "Restore live text as draft": loads the published text into a local draft after a confirm.
+ * Nothing is saved or published.
+ */
+export function RestoreLive({
+  entry,
+  published,
+  className,
+  onDone,
+}: {
+  entry: PendingTooltip;
+  published: Published | undefined;
+  className?: string;
+  onDone(message: string): void;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const [error, setError] = useState<string>();
+  const user = useAuthStore((state) => state.user);
+  const draft = useDraftStore((state) => state.drafts[entry.tooltip.hash]);
+  const hydrated = useDraftStore((state) => state.hydrated);
+  const locked = useSaveState((state) => state.locked);
+  const live = published?.status === 'ready' ? published.tooltip : null;
+  if (!user?.role) return null;
+  const canLoad =
+    (user.role !== 'translator' || !!user.languages?.length) && hydrated && !locked && !!live;
+  function load() {
+    const currentUser = useAuthStore.getState().user;
+    const state = useDraftStore.getState();
+    if (
+      !currentUser?.role ||
+      (currentUser.role === 'translator' && !currentUser.languages?.length) ||
+      !state.hydrated ||
+      useSaveState.getState().locked ||
+      !live
+    )
+      return;
+    try {
+      const saved = useDataStore.getState().data?.bundle.tooltips[entry.tooltip.hash];
+      if (!saved) throw new Error('The saved tooltip is no longer available.');
+      const existing = state.drafts[saved.hash];
+      // Rebase only the fields this restore replaces; retain the old merge base
+      // for any other local changes, including changes outside translator access.
+      const base = revertDraft(existing?.base ?? saved, saved, currentUser);
+      replaceDraft(base, revertDraft(existing?.next ?? saved, live, currentUser), true);
+      setConfirm(false);
+      onDone(
+        'Live text loaded as a local draft. Review it in the editor; nothing was saved or published.',
+      );
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className={className}
+        disabled={!canLoad}
+        title={live ? undefined : 'There is no published text to restore.'}
+        onClick={() => {
+          setError(undefined);
+          setConfirm(true);
+        }}
+      >
+        Restore live text as draft
+      </button>
+      {confirm && (
+        <Dialog
+          title="Restore live text as draft"
+          compact
+          onClose={() => setConfirm(false)}
+          footer={
             <>
-              <span>
-                This replaces {draft ? 'the existing local draft' : 'the editor content'} for this
-                tooltip. It does not save or push.
-              </span>
-              <button type="button" disabled={!canLoad} onClick={loadDraft}>
-                Confirm load as draft
+              <button type="button" disabled={!canLoad} onClick={load}>
+                Restore as draft
               </button>
               <button type="button" onClick={() => setConfirm(false)}>
                 Cancel
               </button>
             </>
-          ))}
-      </div>
-    </section>
+          }
+        >
+          <p>
+            This replaces {draft ? 'the existing local draft' : 'the editor content'} for{' '}
+            {entry.name} with the live text. It does not save or publish.
+          </p>
+          {user.role === 'translator' && (
+            <p>Only your assigned translation languages will be loaded.</p>
+          )}
+          {error && <p role="alert">{error}</p>}
+        </Dialog>
+      )}
+    </>
   );
-});
+}

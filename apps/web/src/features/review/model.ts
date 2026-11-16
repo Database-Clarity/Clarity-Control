@@ -33,6 +33,8 @@ export interface PendingTooltip {
   markerOnly: boolean;
   /** Never pushed: no recorded marker. */
   isNew: boolean;
+  /** The pushed marker this row is compared with (absent when never pushed). */
+  pushed?: string;
   inactiveChange?: 'remove' | 'restore';
   inactiveAliases?: number[];
 }
@@ -177,6 +179,7 @@ async function computePending(
         pushedMarker !== undefined &&
         digests[index].bare === pushedMarker,
       isNew: pushedMarker === undefined,
+      ...(pushedMarker !== undefined ? { pushed: pushedMarker } : {}),
       ...(removing
         ? { inactiveChange: 'remove' as const }
         : restoring
@@ -220,7 +223,21 @@ export function selectedPending(
     .map(({ tooltip }) => tooltip.hash);
 }
 
-/** What "Select page" picks: never the marker-only leftovers, which a data task clears. */
+/**
+ * What Publish sends (and the confirm dialog lists): exactly the ticked rows that are still
+ * pending and publishable, minus rows inside a publish that is still running; nothing else.
+ */
+export function publishSelection(
+  selected: ReadonlySet<number>,
+  pending: PendingTooltip[],
+  inFlight: ReadonlySet<number>,
+): PendingTooltip[] {
+  if (!selected.size) return [];
+  const chosen = new Set(selectedPending(selected, pending).filter((hash) => !inFlight.has(hash)));
+  return pending.filter(({ tooltip }) => chosen.has(tooltip.hash));
+}
+
+/** What "Include all N" and group ticks pick: never the leftovers, which a data task clears. */
 export function publishableHashes(page: PendingTooltip[]): number[] {
   return page
     .filter(

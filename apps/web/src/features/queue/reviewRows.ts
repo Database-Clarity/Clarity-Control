@@ -24,9 +24,9 @@ export function reviewRows(
   const view = queueView(
     entries,
     restore.query,
-    restore.category,
+    '',
     new Set(restore.collapsed),
-    restore.markerOpen,
+    restore.markerOpen ? 'open' : 'hidden',
   );
   return view.ordered
     .filter(({ tooltip }) => view.shown.has(tooltip.hash))

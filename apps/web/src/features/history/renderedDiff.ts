@@ -96,6 +96,9 @@ export function renderedDiff(
     // The rendered line of each token and whether it carries ink, for presentDiff's line groups.
     const lineOf: number[] = [];
     const inks: number[] = [];
+    // Structure tokens (one per line), for the one-column merge below.
+    const structure: boolean[] = [];
+    let tables = false;
     let lineIndex = 0;
     const split = (parts: MarkupSpan[], context: unknown): DiffSpan[] =>
       parts.flatMap((part) => {
@@ -106,6 +109,7 @@ export function renderedDiff(
         return words.map((text) => {
           const span = { ...part, text };
           tokens.push(span);
+          structure.push(false);
           lineOf.push(lineIndex);
           inks.push(inkOf(span));
           // One whitespace-free diff token per rendered word, icon, link, or title.
@@ -135,6 +139,8 @@ export function renderedDiff(
       // mark on that line. It carries no classes: a class change already marks
       // every span on its line, and a break change must own its mark alone.
       tokens.push(line);
+      structure.push(true);
+      if (source.table) tables = true;
       lineOf.push(lineIndex++);
       inks.push(0);
       keys.push(
@@ -144,7 +150,7 @@ export function renderedDiff(
       );
       return line;
     });
-    return { lines, tokens, lineOf, inks, keys: keys.join(' ') };
+    return { lines, tokens, structure, tables, lineOf, inks, keys: keys.join(' ') };
   }
   const left = side(before),
     right = side(after);
@@ -153,10 +159,34 @@ export function renderedDiff(
   // Rendered lines that share an unchanged word, icon, link, or title:
   // [previous line, current line]. presentDiff groups lines by them.
   const links: [number, number][] = [];
+  // One column (Review): the current lines with removed words in place before the added ones.
+  // Tables keep the two columns (a cell has no single place in a merged line).
+  const merging = !left.tables && !right.tables;
+  const merged: DiffLine[] = [];
+  let content: DiffSpan[] = [];
+  const close = (line: DiffLine, diffKind?: DiffLine['diffKind']) => {
+    merged.push({ ...line, linesContent: content, ...(diffKind ? { diffKind } : {}) });
+    content = [];
+  };
   for (const part of diffWords(left.keys, right.keys)) {
     const count = part.text.split(/\s+/).filter(Boolean).length;
     for (let i = 0; i < count; i++) {
       if (part.kind === 'equal' && left.inks[a]) links.push([left.lineOf[a], right.lineOf[b]]);
+      if (merging) {
+        if (part.kind === 'delete') {
+          const token = left.tokens[a];
+          if (!left.structure[a]) content.push({ ...(token as DiffSpan), diffKind: 'delete' });
+          // A removed break joins two lines; a removed line (only removed words) stays its own.
+          else if (!content.length) close(token as DiffLine, 'delete');
+          else if (content.every((span) => span.diffKind === 'delete')) close(token as DiffLine);
+        } else {
+          const token = right.tokens[b];
+          const kind = part.kind === 'insert' ? 'insert' : undefined;
+          if (!right.structure[b])
+            content.push(kind ? { ...(token as DiffSpan), diffKind: kind } : { ...token });
+          else close(token as DiffLine, !content.length ? kind : undefined);
+        }
+      }
       if (part.kind !== 'insert') {
         if (part.kind === 'delete') left.tokens[a].diffKind = 'delete';
         a++;
@@ -167,8 +197,13 @@ export function renderedDiff(
       }
     }
   }
-  for (const line of [...left.lines, ...right.lines]) eachRun(line, compact);
-  const result = { before: left.lines, after: right.lines };
+  if (merging && content.length) close({});
+  for (const line of [...left.lines, ...right.lines, ...merged]) eachRun(line, compact);
+  const result: { before: DiffLine[]; after: DiffLine[]; merged?: DiffLine[] } = {
+    before: left.lines,
+    after: right.lines,
+    ...(merging ? { merged } : {}),
+  };
   lineLinks.set(result, links);
   return result;
 }
@@ -253,8 +288,31 @@ export function presentDiff(diff: Diff): Diff {
       eachRun(line, (parts) => parts.map((part) => ({ ...part, diffKind: kind })));
     });
   }
+  // The one column applies the same threshold per line: a rewritten line reads as the old line,
+  // wholly removed, then the new line, wholly added.
+  if (diff.merged)
+    diff.merged = diff.merged.flatMap((line) => {
+      const parts = line.linesContent ?? [];
+      let changed = 0,
+        total = 0;
+      for (const part of parts as DiffSpan[]) {
+        const ink = inkOf(part);
+        total += ink;
+        if (part.diffKind) changed += ink;
+      }
+      if (!changed || changed / total <= INLINE_MAX_SHARE) return [line];
+      const version = (kind: 'insert' | 'delete'): DiffLine[] => {
+        const kept = (parts as DiffSpan[]).filter(
+          (part) => part.diffKind !== (kind === 'insert' ? 'delete' : 'insert'),
+        );
+        return kept.some((part) => inkOf(part))
+          ? [{ ...line, linesContent: compact(kept.map((part) => ({ ...part, diffKind: kind }))) }]
+          : [];
+      };
+      return [...version('delete'), ...version('insert')];
+    });
   const plain = (part: DiffSpan) => part.text !== undefined && !part.link && !part.title;
-  for (const line of [...diff.before, ...diff.after])
+  for (const line of [...diff.before, ...diff.after, ...(diff.merged ?? [])])
     eachRun(line, (parts) => {
       const joined = compact(
         parts.map((part, index) => {

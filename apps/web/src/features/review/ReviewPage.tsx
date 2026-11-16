@@ -1,4 +1,3 @@
-import { SkeletonBoundary } from '../../ui/Skeleton';
 import {
   Suspense,
   useCallback,
@@ -7,44 +6,39 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
+import { publisherEnabled } from '../../services/publisher/flag';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { workspaceShortcutsBlocked } from '../../ui/interaction';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { useAdvanceSetting } from '../compendium/advanceSetting';
+import { useRawDiff } from '../history/diffPreference';
+import { useLeftQueue } from '../queue/useQueue';
+import { classifyRows, kindOf, useKinds, useRowKinds } from './kinds';
 import {
   canPush,
   pendingTooltips,
   preparedPending,
+  publishSelection,
   publishSidebar,
-  selectedPending,
   type PendingTooltip,
 } from './model';
-import { PushConfirm } from './PushConfirm';
-import { ReviewDetail } from './ReviewDetail';
-import { acknowledgedMarkers, publishReviewed, useReviewSession } from './session';
-import { publisherEnabled } from '../../services/publisher/flag';
+import { loadPublished, publishedFor, publishedRows, usePublished } from './published';
 import { PublishActivity } from './PublishActivity';
 import { queuePublish } from './publishAction';
 import { publishDriver } from './publisher';
-import { workspaceShortcutsBlocked } from '../../ui/interaction';
-import { changeMarks } from './changedFields';
-import { useReviewMarks } from './reviewMarks';
+import { PushConfirm } from './PushConfirm';
 import { queueView, stepRow } from './queueModel';
 import { useReviewQueue } from './queueStore';
-import { filterParams, useInFlight } from './ReviewSidebar';
-import { returnedState } from '../queue/WorkThroughBar';
-import { reviewStamp, type ReviewRestore } from '../queue/sources';
-import styles from './Review.module.scss';
-import {
-  advanceReviewOpening,
-  readyReviewData,
-  retainReviewPage,
-  useReviewOpening,
-} from './opening';
-import { useLeftQueue } from '../queue/useQueue';
+import { ReviewDetail, RestoreLive } from './ReviewDetail';
+import { filterParams, SelectionCounts, useInFlight } from './ReviewSidebar';
+import { acknowledgedMarkers, publishReviewed, useReviewSession } from './session';
 import {
   BatchesHeader,
   BatchesMain,
@@ -53,70 +47,59 @@ import {
   preloadBatches,
   reviewSubview,
 } from './subview';
+import styles from './Review.module.scss';
 
 const count = new Intl.NumberFormat('en');
+const noEntries: PendingTooltip[] = [];
+
+/** The phone bar's "…" menu; it closes on Escape (focus back on "…"), a press outside, or use. */
+function More({ children }: { children: ReactNode }) {
+  const menu = useRef<HTMLDetailsElement>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = (refocus: boolean) => {
+      if (!menu.current?.open) return;
+      menu.current.open = false;
+      if (refocus) menu.current.querySelector('summary')?.focus();
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      close(true);
+    };
+    const pointerdown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || !menu.current?.contains(event.target)) close(false);
+    };
+    document.addEventListener('keydown', keydown);
+    document.addEventListener('pointerdown', pointerdown, true);
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      document.removeEventListener('pointerdown', pointerdown, true);
+    };
+  }, [open]);
+  return (
+    <details
+      ref={menu}
+      className={styles.more}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary aria-label="More actions">…</summary>
+      <div className={styles.moreMenu}>{children}</div>
+    </details>
+  );
+}
+
+interface Decision {
+  hash: number;
+  /** The tick before the decision. */
+  was: boolean;
+}
 
 export function ReviewPage() {
   useLeftQueue();
-  const opening = useReviewOpening((state) => state.warming);
-  const openingToken = useReviewOpening((state) => state.token);
+  const phone = useMedia(phoneQuery);
   const article = useRef<HTMLElement>(null);
-  useLayoutEffect(retainReviewPage, []);
-  useLayoutEffect(() => {
-    const state = useReviewOpening.getState();
-    if (!state.warming || state.token !== openingToken || !window.requestAnimationFrame) return;
-    let frame: number | undefined;
-    let timer: number | undefined;
-    let alive = true;
-    // Schedule before the first paint; a passive effect can miss its frame
-    // and leave an unnecessary idle frame before the bounded row slices.
-    let first = true;
-    const next = () => {
-      frame = requestAnimationFrame(() => {
-        timer = window.setTimeout(() => {
-          if (!alive) return;
-          if (first) {
-            performance.mark?.('review:opening-painted', {
-              detail: { token: openingToken, route: location.hash },
-            });
-            first = false;
-          }
-          if (!advanceReviewOpening(openingToken)) next();
-        }, 0);
-      });
-    };
-    next();
-    return () => {
-      alive = false;
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [openingToken]);
-  useEffect(() => {
-    const state = useReviewOpening.getState();
-    if (opening || state.warming || state.token !== openingToken || !window.requestAnimationFrame)
-      return;
-    let timer: number | undefined;
-    const frame = requestAnimationFrame(() => {
-      timer = window.setTimeout(() => {
-        const current = useReviewOpening.getState();
-        if (
-          !article.current?.isConnected ||
-          current.warming ||
-          current.token !== openingToken ||
-          !location.hash.startsWith('#/review')
-        )
-          return;
-        performance.mark?.('review:interactive', {
-          detail: { token: openingToken, route: location.hash },
-        });
-      }, 0);
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [opening, openingToken]);
   const [searchParams, setSearchParams] = useSearchParams();
   const routeLocation = useLocation();
   const selectionIntent = useRef<{ params: URLSearchParams; targets: Set<string> }>();
@@ -130,6 +113,7 @@ export function ReviewPage() {
       selectionIntent.current = undefined;
   }, [searchParams, routeLocation.key]);
   const data = useDataStore((state) => state.data);
+  const status = useDataStore((state) => state.status);
   const load = useDataStore((state) => state.load);
   const user = useAuthStore((state) => state.user);
   // Saved | Batches (scheduled changes; build switch OFF or no batch role: always Saved).
@@ -137,27 +121,27 @@ export function ReviewPage() {
   const batchesView = useRef(subview === 'batches');
   batchesView.current = subview === 'batches';
   useEffect(() => preloadBatches(user), [user]);
-  const drafts = useDraftStore((state) => state.drafts);
+  const drafts = useDraftStore((state) => Object.keys(state.drafts).length);
   const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
   const prepared = useMemo(
     () => (data && !Object.keys(acknowledgments).length ? preparedPending(data) : undefined),
     [data, acknowledgments],
   );
-  const [entries, setEntries] = useState<PendingTooltip[]>(prepared ?? []);
+  const [entries, setEntries] = useState<PendingTooltip[] | undefined>(prepared);
   const selected = useReviewQueue((state) => state.selected);
-  const toggleRow = useReviewQueue((state) => state.toggle);
+  const setIncluded = useReviewQueue((state) => state.setIncluded);
   const clearSelection = useReviewQueue((state) => state.clearSelection);
   const collapsed = useReviewQueue((state) => state.collapsed);
-  const markerOpen = useReviewQueue((state) => state.markerOpen);
-  const openMarkers = useReviewQueue((state) => state.openMarkers);
+  const leftovers = useReviewQueue((state) => state.leftovers);
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
   const [confirming, setConfirming] = useState<{ entries: PendingTooltip[]; data: EditorData }>();
-  const [loading, setLoading] = useState(!prepared);
-  useLayoutEffect(() => readyReviewData(!loading), [loading]);
+  // A newer snapshot is being compared; the old list and open change stay on screen meanwhile.
+  const [comparing, setComparing] = useState(!prepared);
   const query = searchParams.get('query') ?? '';
-  const categoryFilter = searchParams.get('category') ?? '';
+  const kindFilter = searchParams.get('kind') ?? '';
   const publisher = publisherEnabled();
   const inFlight = useInFlight();
+  const liveAvailable = Boolean(apiUrl && user?.role);
   useEffect(() => {
     // Pick up operations another tab started and anything now due, whenever this page opens.
     if (publisher) void publishDriver.refresh();
@@ -170,24 +154,29 @@ export function ReviewPage() {
     };
   }, []);
   const [error, setError] = useState<string>();
+  const [message, setMessage] = useState<string>();
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   useEffect(() => {
     let active = true;
     if (!data) return;
-    // The initial snapshot was already checked against these exact saved
-    // markers. Rechecking and cloning thousands of markers in the mount effect
-    // repeats that work before the first workspace paint.
+    // The initial snapshot was already checked against these exact saved markers.
     if (prepared) {
       setEntries(prepared);
-      setLoading(false);
+      setComparing(false);
       clearSelection();
+      setDecisions([]);
       return;
     }
     const markers = acknowledgedMarkers(data);
     const ready = preparedPending(data, markers);
-    setLoading(!ready);
-    if (ready) setEntries(ready);
-    clearSelection();
-    if (ready) return;
+    if (ready) {
+      setEntries(ready);
+      setComparing(false);
+      clearSelection();
+      setDecisions([]);
+      return;
+    }
+    setComparing(true);
     void pendingTooltips(data, markers).then(
       (result) => {
         if (!active) return;
@@ -195,12 +184,13 @@ export function ReviewPage() {
         // The list kept showing the previous snapshot while this one was compared: nothing picked
         // there may carry over to saved text nobody has looked at.
         clearSelection();
-        setLoading(false);
+        setDecisions([]);
+        setComparing(false);
       },
       (reason: unknown) => {
         if (active) {
           setError(errorMessage(reason));
-          setLoading(false);
+          setComparing(false);
         }
       },
     );
@@ -208,178 +198,283 @@ export function ReviewPage() {
       active = false;
     };
   }, [data, acknowledgments, prepared, clearSelection]);
+  const list = entries ?? noEntries;
+  // The published text of every waiting change, once, in the background; then the row words.
+  const published = usePublished((state) => state.byHash);
+  const classified = useKinds((state) => state.byHash);
+  useEffect(() => {
+    // A new snapshot (Refresh) also asks again for rows whose last request failed.
+    if (entries && liveAvailable) void loadPublished(publishedRows(entries), true);
+  }, [entries, liveAvailable, user]);
+  useEffect(() => {
+    if (!entries || !data) return;
+    classifyRows(
+      entries.map((entry) => ({
+        entry,
+        published: publishedFor(published, entry.tooltip.hash, entry.pushed),
+      })),
+      data,
+    );
+  }, [entries, published, data]);
+  const kinds = useRowKinds(entries ?? null);
   const view = useMemo(
-    () => queueView(entries, query, categoryFilter, collapsed, markerOpen),
-    [entries, query, categoryFilter, collapsed, markerOpen],
+    () => queueView(list, query, kindFilter, collapsed, leftovers, kinds),
+    [list, query, kindFilter, collapsed, leftovers, kinds],
   );
   const { ordered } = view;
-  const changeCount = useMemo(
-    () => entries.filter(({ markerOnly }) => !markerOnly).length,
-    [entries],
-  );
-  const markerTotal = entries.length - changeCount;
+  const changeCount = useMemo(() => list.filter(({ markerOnly }) => !markerOnly).length, [list]);
   const routedHash = searchParams.get('hash');
   const routedIndex =
     routedHash === null
       ? -1
       : ordered.findIndex(({ tooltip }) => String(tooltip.hash) === routedHash);
-  // `marker=1` (the header's marker-only link) opens the group's first row.
-  const markerRequest = searchParams.get('marker') === '1' && routedIndex < 0;
-  // Without a route or request, open the first change a person made; marker-only leftovers open
-  // only when asked for (the header link, or a URL naming one), never as a default.
-  const index =
-    routedIndex >= 0
-      ? routedIndex
-      : markerRequest && view.markerCount
-        ? view.contentCount
-        : view.contentCount
-          ? 0
-          : -1;
+  // Without a route, open the first change; leftovers open only when named or picked.
+  const index = routedIndex >= 0 ? routedIndex : view.contentCount ? 0 : -1;
   const current = index < 0 ? undefined : ordered[index];
-  // Moving the selection onto a marker-only row (URL, Back/Forward, the header link) shows its
-  // collapsed group; collapsing it again while that row stays open is left alone.
-  const previousHash = useRef<number>();
-  useEffect(() => {
-    const hash = current?.tooltip.hash;
-    if (hash === previousHash.current) return;
-    previousHash.current = hash;
-    if (current?.markerOnly) openMarkers();
-  }, [current, openMarkers]);
-  const selectIndex = useCallback(
-    (step: (current: number) => number) => {
-      if (!ordered.length) return;
+  const selectHash = useCallback(
+    (hash: number | undefined) => {
+      if (hash === undefined) return;
       const intent = selectionIntent.current;
       const params = new URLSearchParams(intent?.params ?? searchParams);
-      const pendingIndex = intent
-        ? ordered.findIndex(({ tooltip }) => String(tooltip.hash) === params.get('hash'))
-        : -1;
-      const entry = ordered[step(pendingIndex < 0 ? index : pendingIndex)];
-      if (!entry || params.get('hash') === String(entry.tooltip.hash)) return;
-      params.delete('marker');
-      params.set('hash', String(entry.tooltip.hash));
+      if (params.get('hash') === String(hash)) return;
+      params.set('hash', String(hash));
       const targets = intent?.targets ?? new Set<string>();
       targets.add(params.toString());
       selectionIntent.current = { params, targets };
       setSearchParams(params, { replace: true });
     },
-    [index, ordered, searchParams, setSearchParams],
+    [searchParams, setSearchParams],
   );
-  const shortcuts = useRef<(action: 'include' | 'publish') => void>(() => {});
-  const committedSelectIndex = useRef(selectIndex);
-  const committedView = useRef(view);
-  useLayoutEffect(() => {
-    // Window listeners can run after a commit but before passive effects bind
-    // a new closure. Use that commit's selection alongside any queued intent.
-    committedSelectIndex.current = selectIndex;
-    committedView.current = view;
-  }, [selectIndex, view]);
+  const selectIndex = useCallback(
+    (step: (current: number) => number) => {
+      if (!ordered.length) return;
+      const intent = selectionIntent.current;
+      const pendingIndex = intent
+        ? ordered.findIndex(({ tooltip }) => String(tooltip.hash) === intent.params.get('hash'))
+        : -1;
+      selectHash(ordered[step(pendingIndex < 0 ? index : pendingIndex)]?.tooltip.hash);
+    },
+    [index, ordered, selectHash],
+  );
   useEffect(() => {
-    if (loading) return;
-    publishSidebar(entries);
-  }, [entries, loading]);
+    if (entries) publishSidebar(entries);
+  }, [entries]);
   useEffect(() => {
-    if (loading || selectionIntent.current) return;
+    if (!entries || selectionIntent.current) return;
     const params = new URLSearchParams(searchParams);
     if (!current) {
-      if (!params.has('hash') && !params.has('marker')) return;
+      if (!params.has('hash')) return;
       params.delete('hash');
-      params.delete('marker');
       setSearchParams(params, { replace: true });
       return;
     }
-    if (searchParams.get('hash') === String(current.tooltip.hash) && !params.has('marker')) return;
-    params.delete('marker');
+    if (searchParams.get('hash') === String(current.tooltip.hash)) return;
     params.set('hash', String(current.tooltip.hash));
     setSearchParams(params, { replace: true });
-  }, [current, loading, searchParams, setSearchParams]);
-  useEffect(() => clearSelection(), [user, clearSelection]);
-  // Leave from a work-through queue (after the clears above, which run on every mount): the publish selection comes back, but only for rows still
-  // saved as they were when the queue began (a row saved meanwhile is unreviewed again).
-  const returned = useRef(returnedState<ReviewRestore>(routeLocation.state));
+  }, [current, entries, searchParams, setSearchParams]);
   useEffect(() => {
-    const restore = returned.current;
-    if (loading || !restore || !data) return;
-    returned.current = undefined;
-    const pending = new Map(entries.map((entry) => [entry.tooltip.hash, entry]));
-    const kept = restore.selected.filter(
-      (hash) =>
-        pending.has(hash) &&
-        !pending.get(hash)!.unpublishable &&
-        !inFlight.has(hash) &&
-        reviewStamp(data.bundle.tooltips[hash], data.aliases) === restore.stamps[hash],
-    );
-    if (kept.length) useReviewQueue.setState({ selected: new Set(kept) });
-  }, [loading, data, entries, inFlight]);
+    clearSelection();
+    setDecisions([]);
+  }, [user, clearSelection]);
+  // Review's own readiness mark (the shared perf harness): the first frame after the page painted.
+  useEffect(() => {
+    if (!entries || !window.requestAnimationFrame) return;
+    let timer: number | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => {
+        if (article.current?.isConnected && location.hash.startsWith('#/review'))
+          performance.mark?.('review:interactive', { detail: { route: location.hash } });
+      }, 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [entries === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const chosen = useMemo(
+    () => publishSelection(selected, list, inFlight),
+    [selected, list, inFlight],
+  );
+  const included = current ? selected.has(current.tooltip.hash) : false;
+  const locked = current
+    ? pushing || !canPush(user) || !!current.unpublishable || inFlight.has(current.tooltip.hash)
+    : true;
+
+  // ---- Include / Skip / Undo, with the Compendium's auto-advance pause ----
+  const advanceMs = useAdvanceSetting((state) => state.ms);
+  const [pause, setPause] = useState<{ next?: PendingTooltip; token: number; verb: string }>();
+  const pauseTimer = useRef<number>();
+  const stopPause = useCallback(() => {
+    if (pauseTimer.current !== undefined) window.clearTimeout(pauseTimer.current);
+    pauseTimer.current = undefined;
+    setPause(undefined);
+  }, []);
+  useEffect(() => stopPause, [stopPause]);
+  const nextEntry = () => {
+    if (!current) return undefined;
+    const next = stepRow(view, index, 1);
+    return next === index ? undefined : ordered[next];
+  };
+  const advance = (verb: string) => {
+    const next = nextEntry();
+    if (!next) return;
+    if (advanceMs === 0) return selectHash(next.tooltip.hash);
+    stopPause();
+    setPause({ next, token: Date.now(), verb });
+    pauseTimer.current = window.setTimeout(() => {
+      pauseTimer.current = undefined;
+      setPause(undefined);
+      selectHash(next.tooltip.hash);
+    }, advanceMs);
+  };
+  const decide = () => {
+    if (!current || locked || pause) return;
+    const hash = current.tooltip.hash;
+    setDecisions((stack) => [...stack.slice(-49), { hash, was: included }]);
+    setIncluded(hash, !included);
+    setMessage(`${current.name}: ${included ? 'removed from' : 'included in'} the publish.`);
+    advance(included ? 'Removed' : 'Included');
+  };
+  const skip = () => {
+    if (!current || pause) return;
+    const next = nextEntry();
+    if (next) selectHash(next.tooltip.hash);
+  };
+  const undo = () => {
+    const last = decisions.at(-1);
+    if (!last || pushing) return;
+    stopPause();
+    setDecisions((stack) => stack.slice(0, -1));
+    setIncluded(last.hash, last.was);
+    const entry = list.find(({ tooltip }) => tooltip.hash === last.hash);
+    setMessage(entry ? `${entry.name}: undone.` : 'Last decision undone.');
+    if (ordered.some(({ tooltip }) => tooltip.hash === last.hash)) selectHash(last.hash);
+  };
+  // A new open change (list, URL, Back) ends a pause without moving again.
+  const currentHash = current?.tooltip.hash;
+  useEffect(() => {
+    if (pause && pause.next?.tooltip.hash === currentHash) stopPause();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentHash]);
+
+  function askToPublish() {
+    if (!data || !entries || comparing || pushing) return;
+    if (chosen.length) setConfirming({ entries: chosen, data });
+  }
+  const [raw, setRaw] = useRawDiff();
+  const actions = useRef({ decide, skip, undo, askToPublish, selectIndex, raw, setRaw, pause });
+  actions.current = { decide, skip, undo, askToPublish, selectIndex, raw, setRaw, pause };
+  const committedView = useRef(view);
+  useLayoutEffect(() => {
+    committedView.current = view;
+  }, [view]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (event.defaultPrevented || workspaceShortcutsBlocked(event)) return;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || pushing) return;
-      // The Saved list's keys (Space, P, arrows) never act on it while Batches is shown.
+      // The Saved list's keys never act on it while Batches is shown.
       if (batchesView.current) return;
-      if (
-        event.target instanceof Element &&
-        event.target.closest(
-          'input, textarea, select, button, a, [contenteditable="true"], [aria-label="Scroll pending saved changes"]',
-        )
-      )
-        return;
-      if (event.key === ' ' || event.key.toLowerCase() === 'p') {
-        // Space includes the open change in the publish; P opens the publish confirmation.
-        event.preventDefault();
-        shortcuts.current(event.key === ' ' ? 'include' : 'publish');
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const control = !!target?.closest(
+        'button, a, summary, [aria-label="Scroll pending saved changes"]',
+      );
+      const key = event.key;
+      const lower = key.toLowerCase();
+      const run = actions.current;
+      if (key === '/') {
+        const find = document.querySelector<HTMLInputElement>('[data-review-find]');
+        if (find) {
+          event.preventDefault();
+          find.focus();
+        }
         return;
       }
-      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      if (key === 'Escape') {
+        if (run.pause) {
+          event.preventDefault();
+          stopPause();
+        }
+        return;
+      }
+      if (run.pause && (key === 'Enter' || key === 'ArrowDown')) {
+        // Move now, once, to the change the bar announced.
+        event.preventDefault();
+        const next = run.pause.next;
+        stopPause();
+        if (next) selectHash(next.tooltip.hash);
+        return;
+      }
+      if (lower === 'u') {
+        event.preventDefault();
+        run.undo();
+        return;
+      }
+      if (lower === 'r') {
+        event.preventDefault();
+        run.setRaw(!run.raw);
+        return;
+      }
+      if (lower === 'p') {
+        event.preventDefault();
+        run.askToPublish();
+        return;
+      }
+      if (lower === 's') {
+        event.preventDefault();
+        run.skip();
+        return;
+      }
+      // Enter, Space, and arrows belong to a focused control or the list.
+      if (control) return;
+      if (key === 'Enter' || key === ' ') {
+        event.preventDefault();
+        run.decide();
+        return;
+      }
+      if (key !== 'ArrowDown' && key !== 'ArrowUp') return;
       event.preventDefault();
-      const delta = event.key === 'ArrowDown' ? 1 : -1;
-      committedSelectIndex.current((value) => stepRow(committedView.current, value, delta));
+      if (run.pause) return;
+      const delta = key === 'ArrowDown' ? 1 : -1;
+      run.selectIndex((value) => stepRow(committedView.current, value, delta));
     }
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [pushing]);
-  const hashes = selected.size
-    ? selectedPending(selected, entries).filter((hash) => !inFlight.has(hash))
-    : [];
+  }, [pushing, selectHash, stopPause]);
 
-  function askToPublish() {
-    if (!data || loading || pushing) return;
-    const chosen = entries.filter(({ tooltip }) => hashes.includes(tooltip.hash));
-    if (chosen.length) setConfirming({ entries: chosen, data });
-  }
-  shortcuts.current = (action) => {
-    if (action === 'publish') {
-      if (canPush(user) && hashes.length) askToPublish();
-    } else if (current && !pushing && !current.unpublishable && !inFlight.has(current.tooltip.hash))
-      toggleRow(current.tooltip.hash);
-  };
-
-  async function publish({ entries: chosen, data: reviewed }: NonNullable<typeof confirming>) {
+  async function publish({ entries: picked, data: reviewed }: NonNullable<typeof confirming>) {
     setConfirming(undefined);
     setError(undefined);
     const succeeded = await (publisher ? queuePublish : publishReviewed)(
-      chosen,
+      picked,
       reviewed,
       () => mounted.current,
     );
-    if (succeeded && mounted.current) clearSelection();
+    if (succeeded && mounted.current) {
+      clearSelection();
+      setDecisions([]);
+    }
   }
 
-  const markerView = !!current?.markerOnly;
+  const leftoverView = !!current?.markerOnly;
   const position = current
-    ? markerView
+    ? leftoverView
       ? `${count.format(index - view.contentCount + 1)} / ${count.format(view.markerCount)}`
       : `${count.format(index + 1)} / ${count.format(view.contentCount)}`
     : '';
-  const fields = useReviewMarks((state) =>
-    current ? state.fields[current.tooltip.hash] : undefined,
-  );
-  const marks = current ? changeMarks(fields, current) : [];
   const previous = current ? stepRow(view, index, -1) : -1;
   const next = current ? stepRow(view, index, 1) : -1;
-  const liveAvailable = Boolean(apiUrl && user?.role);
-  const locked = current
-    ? pushing || !!current.unpublishable || inFlight.has(current.tooltip.hash)
-    : true;
+  const currentPublished = current
+    ? publishedFor(published, current.tooltip.hash, current.pushed)
+    : undefined;
+  const classification = current
+    ? kindOf(current, currentPublished, classified, data?.bundle.tooltips)
+    : undefined;
+  const retry = useCallback(() => {
+    if (current) void loadPublished([{ hash: current.tooltip.hash, marker: current.pushed }], true);
+  }, [current]);
+  const refreshing = status === 'loading' || comparing;
 
   const switcher =
     SubviewSwitch && canReadBatches(user) ? (
@@ -403,220 +498,226 @@ export function ReviewPage() {
       </article>
     );
 
+  const restore = current && (
+    <RestoreLive entry={current} published={currentPublished} onDone={setMessage} />
+  );
   return (
-    <>
-      <p role="status" className={opening ? styles.openingStatus : styles.readyStatus}>
-        {opening ? 'Loading sidebar…' : 'Review ready.'}
-      </p>
-      <article ref={article} aria-busy={loading} className={styles.page}>
-        <header className={styles.summary}>
-          <h1 className={styles.readyStatus}>Review changes</h1>
-          {switcher}
-          <p className={styles.counts}>
-            <span className={styles.segment}>
-              <b>{count.format(changeCount)}</b> {changeCount === 1 ? 'change' : 'changes'}
-            </span>
-            {/* Each "·" stays with the segment after it, so a wrapped line never ends in one. */}
-            {markerTotal > 0 && (
-              <>
-                {' '}
-                <span className={styles.segment}>
-                  {'· '}
-                  <Link
-                    to={{ search: markerSearch(searchParams) }}
-                    replace
-                    title="Alias-marker migration leftovers: saved content equals live"
-                    onClick={() => openMarkers()}
-                  >
-                    {count.format(markerTotal)} marker-only
-                  </Link>
-                </span>
-              </>
-            )}{' '}
-            <span className={styles.segment}>· {hashes.length} selected</span>
-            {hashes.length > 0 && (
-              <>
-                {' '}
-                <span className={styles.segment}>
-                  {'· '}
-                  <button
-                    type="button"
-                    className={styles.textButton}
-                    disabled={pushing}
-                    onClick={clearSelection}
-                  >
-                    Clear
-                  </button>
-                </span>
-              </>
-            )}
-          </p>
-          <span className={styles.summaryEnd}>
-            <button type="button" disabled={pushing || loading} onClick={() => void load()}>
-              Refresh
+    <article ref={article} aria-busy={!entries} className={styles.page}>
+      <header className={styles.summary}>
+        <h1 className={styles.readyStatus}>Review changes</h1>
+        {switcher}
+        <p className={styles.counts}>
+          {entries ? (
+            <SelectionCounts changes={changeCount} />
+          ) : (
+            'Checking what is waiting to go live…'
+          )}
+        </p>
+        <span className={styles.summaryEnd}>
+          <button type="button" disabled={pushing || refreshing} onClick={() => void load()}>
+            {refreshing && entries ? 'Refreshing…' : 'Refresh'}
+          </button>
+          {canPush(user) && (
+            <button
+              type="button"
+              className={styles.primary}
+              data-review-publish
+              disabled={pushing || comparing || !chosen.length}
+              onClick={askToPublish}
+            >
+              {pushing
+                ? publisher
+                  ? 'Starting…'
+                  : 'Publishing…'
+                : chosen.length
+                  ? `Publish ${count.format(chosen.length)}`
+                  : 'Publish'}
+              <kbd>P</kbd>
             </button>
+          )}
+        </span>
+      </header>
+      {!canPush(user) && (
+        <p className={styles.notice} role="note">
+          {apiUrl
+            ? 'Sign in as an editor or maintainer to publish.'
+            : 'Publishing needs a configured API. Saved changes remain local.'}
+        </p>
+      )}
+      {confirming && (
+        <PushConfirm
+          entries={confirming.entries}
+          kinds={kinds}
+          background={publisher}
+          onConfirm={() => void publish(confirming)}
+          onCancel={() => setConfirming(undefined)}
+        />
+      )}
+      {error && <p role="alert">{error}</p>}
+      {pushError && <p role="alert">{pushError}</p>}
+      {notice && <p role="status">{notice}</p>}
+      {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
+      {!entries ? null : !changeCount && !current ? (
+        <section className={styles.empty}>
+          <p>
+            <b>Nothing is waiting to go live.</b> Changes appear here once they are saved in the
+            editor.
+          </p>
+          {drafts > 0 && (
+            <p>
+              {count.format(drafts)} {drafts === 1 ? 'draft' : 'drafts'} on this device{' '}
+              {drafts === 1 ? 'is' : 'are'} not saved yet.{' '}
+              <button
+                type="button"
+                className={styles.textButton}
+                onClick={() =>
+                  document.querySelector<HTMLButtonElement>('[data-drafts-button]')?.click()
+                }
+              >
+                Open drafts
+              </button>
+            </p>
+          )}
+        </section>
+      ) : !current ? (
+        <section className={styles.empty}>
+          <p>No change matches.</p>
+          <button
+            type="button"
+            data-perf-navigation="true"
+            onClick={() =>
+              setSearchParams(filterParams(searchParams, list, kinds, '', ''), { replace: true })
+            }
+          >
+            Clear filters
+          </button>
+        </section>
+      ) : (
+        <>
+          <div className={styles.identity}>
+            {phone && (
+              <button
+                type="button"
+                className={styles.step}
+                aria-label="Previous change"
+                disabled={previous === index}
+                data-perf-navigation="true"
+                onClick={() => selectIndex((value) => stepRow(view, value, -1))}
+              >
+                ‹
+              </button>
+            )}
+            <span className={styles.identityText}>
+              <span className={`${styles.muted} ${styles.category}`}>{current.category}</span>
+              <span className={styles.sep} aria-hidden="true">
+                ·
+              </span>
+              <h2 title={current.name}>{current.name}</h2>
+              <span className={`${styles.muted} ${styles.hash}`}>{current.tooltip.hash}</span>
+            </span>
+            <span className={styles.identityEnd}>
+              {included && <span className={styles.included}>Included</span>}
+              <span className={styles.muted}>
+                {leftoverView ? `${position} leftovers` : position}
+              </span>
+              <Link to={`/t/${current.tooltip.hash}`}>Open in editor ↗</Link>
+            </span>
+            {phone && (
+              <button
+                type="button"
+                className={styles.step}
+                aria-label="Next change"
+                disabled={next === index}
+                data-perf-navigation="true"
+                onClick={() => selectIndex((value) => stepRow(view, value, 1))}
+              >
+                ›
+              </button>
+            )}
+          </div>
+          <div className={styles.detailHead}>
+            <ReviewDetail
+              key={current.tooltip.hash}
+              entry={current}
+              published={currentPublished}
+              classification={classification}
+              raw={raw}
+              onRetry={retry}
+            />
+            {!phone && (
+              <button
+                type="button"
+                className={styles.rawToggle}
+                aria-pressed={raw}
+                onClick={() => setRaw(!raw)}
+              >
+                Raw markup <kbd>R</kbd>
+              </button>
+            )}
+          </div>
+          <footer className={styles.bar} aria-label="Decide">
+            {pause && (
+              <span
+                key={pause.token}
+                className={styles.advanceLine}
+                style={{ animationDuration: `${advanceMs}ms` }}
+                aria-hidden="true"
+              />
+            )}
             {canPush(user) && (
               <button
                 type="button"
-                className={styles.primary}
-                disabled={pushing || loading || !hashes.length}
-                onClick={askToPublish}
+                className={styles.include}
+                disabled={locked || !!pause}
+                title={current.unpublishable}
+                onClick={decide}
               >
-                {publisher
-                  ? pushing
-                    ? 'Starting...'
-                    : `Publish selected (${hashes.length})`
-                  : pushing
-                    ? 'Pushing...'
-                    : `Push selected (${hashes.length})`}
+                {included ? 'Remove' : 'Include'} <kbd>↵</kbd>
               </button>
             )}
-          </span>
-        </header>
-        {Object.keys(drafts).length > 0 && (
-          <p className={styles.note}>
-            Local drafts are not included. Save them through the tooltip editor first.
-          </p>
-        )}
-        {!liveAvailable && (
-          <p className={styles.authNotice} role="note">
-            {apiUrl
-              ? 'Sign in as a configured member to compare live versions and browse history. Only editors and maintainers may push.'
-              : 'Live comparison and history need a configured API. Saved changes remain local.'}
-          </p>
-        )}
-        {confirming && (
-          <PushConfirm
-            entries={confirming.entries}
-            background={publisher}
-            onConfirm={() => void publish(confirming)}
-            onCancel={() => setConfirming(undefined)}
-          />
-        )}
-        {error && <p role="alert">{error}</p>}
-        {pushError && <p role="alert">{pushError}</p>}
-        {notice && <p role="status">{notice}</p>}
-        {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
-        <SkeletonBoundary
-          pending={loading}
-          error={!!error}
-          label="Comparing publishable content..."
-          shape="rows"
-        >
-          {!entries.length ? (
-            <p className={styles.note}>No saved changes are waiting to go live.</p>
-          ) : !current && !view.contentCount && view.markerCount ? (
-            <p className={styles.note}>
-              {changeCount
-                ? 'No changes made by a person match these filters.'
-                : 'No changes made by a person are waiting to go live.'}{' '}
-              <Link
-                to={{ search: markerSearch(searchParams) }}
-                replace
-                onClick={() => openMarkers()}
-              >
-                Show the {count.format(view.markerCount)} marker-only leftovers
-              </Link>
-            </p>
-          ) : !ordered.length ? (
-            <section className={styles.empty}>
-              <p>No saved changes match these filters.</p>
-              <button
-                type="button"
-                data-perf-navigation="true"
-                onClick={() =>
-                  setSearchParams(filterParams(searchParams, entries, '', ''), { replace: true })
-                }
-              >
-                Clear filters
-              </button>
-            </section>
-          ) : (
-            current && (
+            <button type="button" disabled={!!pause || next === index} onClick={skip}>
+              Skip <kbd>S</kbd>
+            </button>
+            {phone ? (
               <>
-                <div className={styles.identity}>
-                  <span className={styles.identityText}>
-                    <span className={styles.muted}>{current.category}</span>
-                    <span className={styles.sep} aria-hidden="true">
-                      ·
-                    </span>
-                    <h2 title={current.name}>{current.name}</h2>
-                    <span className={`${styles.muted} ${styles.hash}`}>{current.tooltip.hash}</span>
-                    {marks.map((mark) => (
-                      <small key={mark} className={styles.mark} data-mark={mark}>
-                        {mark}
-                      </small>
-                    ))}
-                  </span>
-                  {/* Phones: one joined stepper `‹ 1 of 140 ›` right of the name. */}
-                  <span className={styles.stepper} role="group" aria-label="Step through changes">
-                    <button
-                      type="button"
-                      className={styles.step}
-                      aria-label="Previous change"
-                      disabled={previous === index || pushing}
-                      data-perf-navigation="true"
-                      onClick={() => selectIndex((value) => stepRow(view, value, -1))}
-                    >
-                      ‹
+                <button type="button" aria-pressed={raw} onClick={() => setRaw(!raw)}>
+                  Raw
+                </button>
+                <More>
+                  {canPush(user) && (
+                    <button type="button" disabled={!decisions.length || pushing} onClick={undo}>
+                      Undo
                     </button>
-                    <span className={styles.stepPosition}>{position.replace(' / ', ' of ')}</span>
-                    <button
-                      type="button"
-                      className={styles.step}
-                      aria-label="Next change"
-                      disabled={next === index || pushing}
-                      data-perf-navigation="true"
-                      onClick={() => selectIndex((value) => stepRow(view, value, 1))}
-                    >
-                      ›
-                    </button>
-                  </span>
-                  <span className={styles.identityEnd}>
-                    <span className={styles.muted}>{position}</span>
-                    <Link to={`/t/${current.tooltip.hash}`}>Open in editor ↗</Link>
-                  </span>
-                </div>
-                {markerView && (
-                  <p className={styles.markerNote} role="note">
-                    Marker-only: an alias-marker migration leftover. The saved content equals the
-                    live version, so this is not a change a person made. A data task clears these;
-                    group select never includes them.
-                  </p>
-                )}
-                {current.unpublishable && <p className={styles.note}>{current.unpublishable}</p>}
-                {liveAvailable ? (
-                  <ReviewDetail
-                    key={current.tooltip.hash}
-                    entry={current}
-                    included={selected.has(current.tooltip.hash)}
-                    selectionLocked={locked}
-                    onInclude={toggleRow}
-                  />
-                ) : (
-                  <label className={styles.include}>
-                    <input
-                      type="checkbox"
-                      checked={selected.has(current.tooltip.hash)}
-                      disabled={locked}
-                      onChange={() => toggleRow(current.tooltip.hash)}
-                    />{' '}
-                    Include in publish <kbd>Space</kbd>
-                  </label>
-                )}
+                  )}
+                  {restore}
+                </More>
               </>
-            )
-          )}
-        </SkeletonBoundary>
-      </article>
-    </>
+            ) : (
+              canPush(user) && (
+                <button type="button" disabled={!decisions.length || pushing} onClick={undo}>
+                  Undo <kbd>U</kbd>
+                </button>
+              )
+            )}
+            <span className="sr-only" role="status">
+              {message}
+            </span>
+            {/* The phone bar keeps its four buttons; the pause shows as the line above them. */}
+            {!phone && (
+              <span className={styles.barEnd}>
+                {pause ? (
+                  <span className={styles.next}>
+                    {pause.verb}. Next: <strong>{pause.next?.name}</strong> · Esc to stay
+                  </span>
+                ) : (
+                  message && <span className={styles.next}>{message}</span>
+                )}
+                {restore}
+              </span>
+            )}
+          </footer>
+        </>
+      )}
+    </article>
   );
-}
-
-/** The header's marker-only link: the list's filters stay, the open change does not. */
-function markerSearch(params: URLSearchParams) {
-  const next = new URLSearchParams(params);
-  next.delete('hash');
-  next.set('marker', '1');
-  return `?${next.toString()}`;
 }
