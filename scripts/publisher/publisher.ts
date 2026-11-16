@@ -158,7 +158,13 @@ export interface Landing {
   at: number;
   source: 'cas' | 'observed';
 }
-type Failure = { status: 'stale' | 'rejected' | 'superseded'; error?: string; outcomes?: unknown };
+type Failure = {
+  status: 'stale' | 'rejected' | 'superseded';
+  error?: string;
+  outcomes?: unknown;
+  /** Known authored-content refusal; never inferred from a generic repository error. */
+  proposalRejected?: true;
+};
 /** A pending request as the queue orders it, read WITHOUT verification (ordering only). */
 type QueueEntry =
   | { opId: string; kind: 'push'; createdAt?: number; payload?: PublishPayload }
@@ -1135,14 +1141,17 @@ export class Publisher {
     tree: Tree,
     tooltips: Tooltip[],
     aliases: Aliases,
-  ): { error: string } | { now: number; exported: ReturnType<typeof exportLegacy> } {
+  ):
+    | { error: string; proposalRejected?: true }
+    | { now: number; exported: ReturnType<typeof exportLegacy> } {
     const moves = selectedInactiveMoves(
       this.movesAt(tree),
       tooltips.map((t) => t.hash),
       aliases,
     );
     const active = tooltips.filter((t) => !isMovedInactive(t.hash, moves));
-    if (active.some(isTextlessDescription)) return { error: 'Tooltip has no text to publish' };
+    if (active.some(isTextlessDescription))
+      return { error: 'Tooltip has no text to publish', proposalRejected: true };
     try {
       this.checkAssociatedDescriptions(tree, active, aliases);
     } catch (error) {
@@ -1158,10 +1167,10 @@ export class Publisher {
         Object.values(tooltip.text).some((translation) => translation?.text.includes('{{')),
       )
     )
-      return { error: baseEnhancedPublishMessage };
+      return { error: baseEnhancedPublishMessage, proposalRejected: true };
     // Set bonuses wait for cut-over (owner 2026-11-11): a terminal rejection before any write.
     if (active.some((t) => isHeldSetBonus(t, this.options.facts[t.hash])))
-      return { error: setBonusHoldMessage };
+      return { error: setBonusHoldMessage, proposalRejected: true };
     const now = this.options.now();
     let exported: ReturnType<typeof exportLegacy>;
     try {
@@ -1174,7 +1183,10 @@ export class Publisher {
     // preview marker, `#{`, or `<enhanced/>` would make apps drop text or print the markup.
     const unlowered = unloweredEntry(exported);
     if (unlowered !== undefined)
-      return { error: `The export of tooltip ${unlowered} still holds unlowered markup` };
+      return {
+        error: `The export of tooltip ${unlowered} still holds unlowered markup`,
+        proposalRejected: true,
+      };
     return { now, exported };
   }
   createCandidate(opId: string, blob: string, live: string, r: Receipt) {
@@ -1291,7 +1303,7 @@ export class Publisher {
     if (outcomes.some((o) => o.status !== 'accepted'))
       return { failure: { status: 'stale', outcomes } };
     const checked = this.checkAndExport(tree, tooltips, aliases);
-    if ('error' in checked) return { failure: { status: 'rejected', error: checked.error } };
+    if ('error' in checked) return { failure: { status: 'rejected', ...checked } };
     const entries: Entry[] = [];
     for (const tooltip of tooltips)
       entries.push({
@@ -1377,7 +1389,8 @@ export class Publisher {
     aliases: Aliases,
   ): Promise<Receipt | undefined> {
     const fail = async (failure: Failure) => {
-      await this.record(opId, undefined, undefined, failure, blob);
+      const { status, error, outcomes } = failure;
+      await this.record(opId, undefined, undefined, { status, error, outcomes }, blob);
       return undefined;
     };
     const path = schedulePaths.batch(payload.batchId);

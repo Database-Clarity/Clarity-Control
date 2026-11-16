@@ -514,6 +514,43 @@ describe('offline schedule preparation', () => {
     expect(f.request().status).toBe('needs_attention');
     expect(f.request().retryable).toBe(false);
   });
+  it('restores the accepted schedule when a translator proposal has native enhanced markup', async () => {
+    const f = await fixture();
+    f.admit('schedule');
+    await f.prep.drain();
+    const original = f.read(paths(R).request),
+      stored = f.read(schedulePaths.member(B, 123));
+    const next = structuredClone(f.proposed);
+    next.text.fr = {
+      text: '{{invalid native enhanced}}',
+      updatedAt: AT,
+      updatedBy: 'bob',
+      sourceUpdatedAt: next.text.en!.updatedAt,
+    };
+    f.admit('save', [{ hash: 123, base: f.proposed, next }], { id: 2, login: 'bob' });
+    await f.prep.drain();
+    expect(f.request(S).status).toBe('failed');
+    expect(f.request(S).retryable).toBe(false);
+    expect(f.request(S).reasons?.[0].reason).toContain('Base/enhanced markup');
+    expect(f.read(paths(R).request)).toEqual(original);
+    expect(f.read(schedulePaths.member(B, 123))).toEqual(stored);
+    expect(f.batch().preparedRequestId).toBe(R);
+    expect(f.read<{ entries: { opId: string }[] }>('schedule/due.json').entries[0].opId).toBe(R);
+    await f.pub.run();
+    expect(f.batch().status).toBe('published');
+  });
+  it('keeps missing generator facts separate from a rejected translator proposal', async () => {
+    const f = await fixture();
+    f.admit('schedule');
+    await f.prep.drain();
+    f.admit('save', [{ hash: 123, base: f.proposed, next: f.proposed }], { id: 2, login: 'bob' });
+    f.options.facts = {};
+    await f.prep.drain();
+    expect(f.request(S).status).toBe('needs_attention');
+    expect(f.request(S).result).toBeUndefined();
+    expect(f.request(S).reasons?.[0].reason).toBe('Missing generator facts');
+    expect(f.read(paths(R).request)).toBeUndefined();
+  });
   it.each(['revoked', 'collision', 'withdrawn'])(
     'isolates a failed translator restoration (%s) and commits its reasons',
     async (fault) => {

@@ -263,11 +263,10 @@ export class SchedulePreparer {
       pushed,
     );
     const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree));
-    if ('failure' in plan)
-      throw new PreparationRejected(
-        plan.failure.error ?? plan.failure.status,
-        plan.failure.outcomes,
-      );
+    if ('failure' in plan) {
+      const Rejection = plan.failure.proposalRejected ? ProposalRejected : PreparationRejected;
+      throw new Rejection(plan.failure.error ?? plan.failure.status, plan.failure.outcomes);
+    }
     // Exercise the actual consumer converter before announcing that the batch is ready.
     const live = this.pub.head(this.pub.options.liveBranch);
     this.pub.merge(live, {
