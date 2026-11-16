@@ -80,6 +80,8 @@ export function translationCoverage(members: readonly BatchMember[]): {
 
 export const statusLabel: Record<BatchStatus, string> = {
   draft: 'Draft',
+  preparing: 'Preparing',
+  needs_attention: 'Needs attention',
   scheduled: 'Scheduled',
   publishing: 'Publishing',
   published: 'Published',
@@ -90,6 +92,8 @@ export type Tone = 'idle' | 'busy' | 'ok' | 'warn' | 'bad';
 
 export const statusTone: Record<BatchStatus, Tone> = {
   draft: 'idle',
+  preparing: 'busy',
+  needs_attention: 'warn',
   scheduled: 'busy',
   publishing: 'busy',
   published: 'ok',
@@ -159,6 +163,10 @@ const eventWords: Record<Batch['events'][number]['action'], string> = {
   rejected: 'run rejected',
   superseded: 'run superseded',
   resolve: 'resolved an activation conflict',
+  request: 'requested preparation',
+  retry: 'retried preparation',
+  prepared: 'prepared the changes',
+  preparation_failed: 'preparation failed',
 };
 export const eventLabel = (action: Batch['events'][number]['action']) => eventWords[action];
 
