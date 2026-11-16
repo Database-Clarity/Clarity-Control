@@ -691,6 +691,38 @@ describe('Review → Batches: prepared requests (scheduling off the Worker)', ()
   });
 });
 
+describe('Review → Batches: a failed background save that kept the batch scheduled', () => {
+  it('shows FAILED with the request reasons and keeps Scheduled and its actions', async () => {
+    const batch = await seed();
+    const scheduled = await call(`/batches/${batch.id}/schedule`, {
+      revision: 2,
+      notBefore: '2026-12-03T16:00:00.000Z',
+      zone: 'UTC',
+    });
+    const requestId = '01JF00000000000000000000TS';
+    await call(`/batches/${batch.id}/save`, {
+      requestId,
+      revision: scheduled.batch.revision,
+      changes: [
+        { hash: 10, base: tooltip(10, 'Ten, upcoming'), next: tooltip(10, 'Ten, upcoming') },
+      ],
+      message: 'Translate',
+    });
+    fixture.failSaveKeepScheduled(requestId, [
+      { reason: 'German stamp is older than English', hash: 10 },
+    ]);
+    const view = await mount('maintainer');
+    await view.settle(() => view.text().includes('Save failed'));
+    expect(view.detail()?.dataset.status).toBe('scheduled');
+    const line = view.host.querySelector('[data-failed-save]')!.textContent!;
+    expect(line).toContain('nothing from it was applied');
+    expect(line).toContain('Rampage (10): German stamp is older than English');
+    expect(view.text()).not.toContain('Saved');
+    expect(view.button('Reschedule…')).toBeDefined();
+    await view.unmount();
+  });
+});
+
 /** POST paths the fixture answered. */
 const posts = (worker: BatchFixture) =>
   worker.log.filter(({ method }) => method === 'POST').map(({ path }) => path);

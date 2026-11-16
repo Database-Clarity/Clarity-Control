@@ -48,7 +48,34 @@ export async function listBatches(signal?: AbortSignal): Promise<BatchListing> {
   requireEnabled();
   const response = await apiRequest('/batches', { signal, cache: 'no-store' });
   if (!response.ok) return failure(response);
-  return listingSchema.parse(await response.json());
+  const listing = listingSchema.parse(await response.json());
+  return { ...listing, index: { batches: listing.index.batches.map(withLatest) } };
+}
+
+/**
+ * The newest batch.json this page has seen per batch (write and status answers, commit-pinned
+ * reads). The index is advisory: request admission and Retry do not update it, so until the
+ * preparer refreshes it a listed entry can lag its batch (contract: "C uses the immediate
+ * response/status batch"). A newer revision seen here wins over the listed one.
+ */
+const latest = new Map<string, Batch>();
+function adoptBatch(batch: Batch) {
+  const known = latest.get(batch.id);
+  if (!known || batch.revision > known.revision) latest.set(batch.id, batch);
+}
+function withLatest(entry: ScheduleIndex['batches'][number]): ScheduleIndex['batches'][number] {
+  const batch = latest.get(entry.id);
+  if (!batch || batch.revision <= entry.revision) {
+    if (batch) latest.delete(entry.id);
+    return entry;
+  }
+  return {
+    ...entry,
+    status: batch.status,
+    notBefore: batch.notBefore,
+    opId: batch.opId,
+    revision: batch.revision,
+  };
 }
 
 type Fetcher = (url: string) => Promise<Response>;
@@ -67,6 +94,7 @@ export function setRawFetch(next: Fetcher | undefined) {
   batchFiles.clear();
   conflictFiles.clear();
   keptHeads.length = 0;
+  latest.clear();
 }
 
 function keepHead(head: string) {
@@ -197,6 +225,7 @@ export function readBatch(head: string, batchId: string): Promise<Batch | null> 
     if (value === undefined) return null;
     const batch = batchSchema.parse(value);
     if (batch.id !== batchId) throw new Error(`batch.json of ${batchId} names ${batch.id}`);
+    adoptBatch(batch);
     return batch;
   });
 }
@@ -339,7 +368,10 @@ async function post<T>(path: string, body: unknown, schema: z.ZodType<T>): Promi
     body: JSON.stringify(body),
   });
   if (!response.ok) throw await refusal(response);
-  return schema.parse(await response.json());
+  const result = schema.parse(await response.json());
+  const batch = (result as { batch?: unknown }).batch;
+  if (batch && typeof batch === 'object' && 'revision' in batch) adoptBatch(batch as Batch);
+  return result;
 }
 
 const writeSchema = z.looseObject({ commit: headSchema, batch: batchSchema });
@@ -481,7 +513,14 @@ export function scheduleBatch(
 
 // --- Prepared requests (sched-actions-contract.md). Decoded loosely: the Worker owns the shape. --
 
-const requestStatusSchema = z.enum(['pending', 'needs_attention', 'completed', 'cancelled']);
+/** failed: terminal (a translator save into a scheduled batch the preparer refused). */
+const requestStatusSchema = z.enum([
+  'pending',
+  'needs_attention',
+  'failed',
+  'completed',
+  'cancelled',
+]);
 export const batchRequestSchema = z.looseObject({
   requestId: z.string(),
   requesterId: z.number().optional(),
@@ -497,6 +536,10 @@ export const batchRequestSchema = z.looseObject({
         fields: z.array(z.string()).optional(),
       }),
     )
+    .optional(),
+  /** A completed request: the batch revision its result landed at. */
+  result: z
+    .looseObject({ revision: z.number().int().nonnegative(), status: z.string().optional() })
     .optional(),
   /** Only a GitHub Actions run link is ever shown. */
   workflowUrl: z
@@ -536,15 +579,24 @@ export function queueBatchSave(
   );
 }
 
-/** GET /batches/:id/status: the batch and its outstanding request (null: none). */
-export async function readBatchStatus(batchId: string, signal?: AbortSignal) {
+/**
+ * GET /batches/:id/status: the batch and its outstanding request (null: none), or with
+ * `requestId` that request's record even after the batch cleared preparation (its result).
+ */
+export async function readBatchStatus(batchId: string, signal?: AbortSignal, requestId?: string) {
   requireEnabled();
   batchIdSchema.parse(batchId);
-  const response = await apiRequest(`/batches/${batchId}/status`, { signal, cache: 'no-store' });
+  const query = requestId ? `?requestId=${encodeURIComponent(requestId)}` : '';
+  const response = await apiRequest(`/batches/${batchId}/status${query}`, {
+    signal,
+    cache: 'no-store',
+  });
   if (!response.ok) throw await refusal(response);
-  return z
+  const status = z
     .looseObject({ batch: batchSchema, request: batchRequestSchema.nullable() })
     .parse(await response.json());
+  adoptBatch(status.batch);
+  return status;
 }
 
 /** POST /batches/:id/retry: the SAME request again after an infrastructure failure. */

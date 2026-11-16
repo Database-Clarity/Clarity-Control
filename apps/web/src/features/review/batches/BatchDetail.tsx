@@ -86,7 +86,7 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
   // The Schedule dialog approves the revision it was opened on (members and first publications
   // frozen with it); a newer listed revision disables it (ScheduleDialog `latest`).
   const [dialog, setDialog] = useState<{ batch: Batch; first: number[] } | null>(null);
-  const request = useBatchRequest(entry);
+  const request = useBatchRequest(load && 'detail' in load ? load.detail?.batch : undefined);
   const views = useMemo(
     () =>
       detail && data
@@ -191,6 +191,14 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
       <StatusLines batch={batch} overdue={overdue} names={names} />
       {preparation && (
         <PreparationLines batch={batch} request={request} overdue={overdue} names={names} />
+      )}
+      {!preparation && batch.lastPreparationFailure && isOpenStatus(batch.status) && (
+        <FailedSaveLines
+          failure={batch.lastPreparationFailure}
+          request={request}
+          scheduled={batch.status !== 'draft'}
+          names={names}
+        />
       )}
       <p className={styles.line}>
         Created by <Handle login={batch.createdBy.login} /> {at(batch.createdAt)}
@@ -451,17 +459,21 @@ interface RequestRead {
 }
 
 /**
- * The outstanding request (reasons, last attempt, workflow) of a preparing or failed batch, read
- * from GET /batches/:id/status once per listed revision. Nothing is read for other states.
+ * The request behind a preparing or failed batch (reasons, last attempt, workflow), from GET
+ * /batches/:id/status once per batch revision: the outstanding request while preparing or needing
+ * attention, else the request lastPreparationFailure names. Nothing is read otherwise.
  */
-function useBatchRequest(entry: IndexEntry): RequestRead | null {
+function useBatchRequest(batch: Batch | undefined): RequestRead | null {
   const [read, setRead] = useState<RequestRead | null>(null);
-  const active = isPreparation(entry.status);
+  const failure = batch && !isPreparation(batch.status) ? batch.lastPreparationFailure : null;
+  const active = Boolean(batch && (isPreparation(batch.status) || failure));
+  const id = batch?.id;
+  const revision = batch?.revision;
+  const asked = failure?.requestId;
   useEffect(() => {
-    if (!active) return;
+    if (!active || !id || revision === undefined) return;
     const controller = new AbortController();
-    const revision = entry.revision;
-    readBatchStatus(entry.id, controller.signal).then(
+    readBatchStatus(id, controller.signal, asked).then(
       ({ request }) => {
         if (!controller.signal.aborted) setRead({ revision, request });
       },
@@ -471,8 +483,73 @@ function useBatchRequest(entry: IndexEntry): RequestRead | null {
       },
     );
     return () => controller.abort();
-  }, [entry.id, entry.revision, active]);
-  return active && read?.revision === entry.revision ? read : null;
+  }, [id, revision, active, asked]);
+  return active && read?.revision === revision ? read : null;
+}
+
+/** Request reasons, one line each: "Name (hash) English: reason". */
+function ReasonList({
+  reasons,
+  names,
+}: {
+  reasons: NonNullable<BatchRequest['reasons']>;
+  names: (hash: number) => string;
+}) {
+  if (!reasons.length) return null;
+  return (
+    <ul aria-label="Reasons">
+      {reasons.map((item, index) => (
+        <li key={index}>
+          {item.hash !== undefined && `${names(item.hash)} (${item.hash})`}
+          {item.fields?.length
+            ? `${item.hash !== undefined ? ' ' : ''}${fieldList(item.fields)}`
+            : ''}
+          {item.hash !== undefined || item.fields?.length ? ': ' : ''}
+          {item.reason}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A background save the preparer refused while the batch kept going (owner exception: a
+ * translator save into a scheduled batch). FAILED, never Saved: the batch keeps its accepted
+ * version and target; the submitted edits were not applied and stay as the saver's drafts.
+ */
+function FailedSaveLines({
+  failure,
+  request,
+  scheduled,
+  names,
+}: {
+  failure: NonNullable<Batch['lastPreparationFailure']>;
+  request: RequestRead | null;
+  scheduled: boolean;
+  names: (hash: number) => string;
+}) {
+  const record = request?.request ?? null;
+  return (
+    <div className={`${styles.failed} ${styles.attention}`} data-status-line data-failed-save>
+      <p>
+        Save failed {at(failure.at)}: nothing from it was applied
+        {scheduled ? '; the batch stays scheduled with its accepted changes' : ''}. The submitted
+        edits stay as drafts on the device that saved them.
+      </p>
+      {record?.reasons?.length ? (
+        <ReasonList reasons={record.reasons} names={names} />
+      ) : (
+        <p>{failure.reason}</p>
+      )}
+      {record?.workflowUrl && (
+        <p className={styles.muted}>
+          <a href={record.workflowUrl} target="_blank" rel="noreferrer">
+            Workflow run ↗
+          </a>
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** Preparing / Needs attention: what was requested, exact reasons, last attempt, and the run. */
@@ -548,20 +625,7 @@ function PreparationLines({
             ? 'The run failed for an infrastructure reason; Retry sends the same request again.'
             : `Nothing in the batch changed. ${preparation.returnStatus === 'scheduled' ? 'Unschedule' : 'Edit'} to return it to draft, fix, and submit again.`}
       </p>
-      {reasons.length > 0 && (
-        <ul aria-label="Reasons">
-          {reasons.map((item, index) => (
-            <li key={index}>
-              {item.hash !== undefined && `${names(item.hash)} (${item.hash})`}
-              {item.fields?.length
-                ? `${item.hash !== undefined ? ' ' : ''}${fieldList(item.fields)}`
-                : ''}
-              {item.hash !== undefined || item.fields?.length ? ': ' : ''}
-              {item.reason}
-            </li>
-          ))}
-        </ul>
-      )}
+      <ReasonList reasons={reasons} names={names} />
       <p className={styles.muted}>
         {attempt}
         {run}

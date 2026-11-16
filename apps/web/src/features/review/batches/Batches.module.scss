@@ -418,7 +418,7 @@
 // Hash, fields, and badges wrap inside; the actions keep the title line.
 .memberInfo {
   display: flex;
-  flex: 1 1 9rem;
+  flex: 1 1 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.125rem 0.5rem;
@@ -595,7 +595,7 @@
 }
 
 .zone {
-  flex: 1 1 9rem;
+  flex: 1 1 12rem;
   min-width: 0;
 
   select {

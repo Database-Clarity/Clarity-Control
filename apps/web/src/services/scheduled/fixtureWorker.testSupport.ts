@@ -84,6 +84,8 @@ export function createBatchFixture(options: FixtureOptions) {
     Object.entries(options.current ?? {}).map(([hash, tooltip]) => [Number(hash), tooltip]),
   );
   const batches = new Map<string, Batch>();
+  /** What the advisory index still shows for a batch whose request admission it has not seen. */
+  const lagging = new Map<string, Batch>();
   const members = new Map<string, Map<number, BatchMember>>();
   let now = options.now ?? (() => new Date('2026-11-13T12:00:00.000Z'));
   const pushed = new Set(options.pushed ?? []);
@@ -172,6 +174,8 @@ export function createBatchFixture(options: FixtureOptions) {
       ]),
     });
     batches.set(batch.id, next);
+    // Request admission and Retry leave the advisory index as it was (contract); other writes refresh it.
+    if (action !== 'request' && action !== 'retry') lagging.delete(batch.id);
     advance();
     return next;
   };
@@ -243,6 +247,7 @@ export function createBatchFixture(options: FixtureOptions) {
       },
     };
     requests.set(requestId, request);
+    if (!lagging.has(batch.id)) lagging.set(batch.id, batch);
     const next = write(batch, 'request', memberList(batch.id), undefined, {
       status: 'preparing',
       notBefore,
@@ -428,24 +433,28 @@ export function createBatchFixture(options: FixtureOptions) {
     if (user.role === 'trial') return refuse(403, 'No batch access');
     const [, id, action] = route;
     if (request.method === 'GET' && !id) {
-      const index = [...batches.values()].map((batch) => ({
-        id: batch.id,
-        name: batch.name,
-        status: batch.status,
-        notBefore: batch.notBefore,
-        opId: batch.opId,
-        revision: batch.revision,
-        hashes: memberList(batch.id)
-          .map((member) => member.hash)
-          .sort((a, b) => a - b),
-        updatedAt: batch.events.at(-1)?.at ?? batch.createdAt,
-      }));
+      const index = [...batches.values()]
+        .map((live) => lagging.get(live.id) ?? live)
+        .map((batch) => ({
+          id: batch.id,
+          name: batch.name,
+          status: batch.status,
+          notBefore: batch.notBefore,
+          opId: batch.opId,
+          revision: batch.revision,
+          hashes: memberList(batch.id)
+            .map((member) => member.hash)
+            .sort((a, b) => a - b),
+          updatedAt: batch.events.at(-1)?.at ?? batch.createdAt,
+        }));
       return json(200, { head, index: { batches: index } });
     }
     if (request.method === 'GET' && id && action === 'status') {
       const batch = batches.get(id);
       if (!batch) return refuse(404, 'Batch not found');
-      return json(200, { batch, request: outstanding(batch)?.record ?? null });
+      const asked = url.searchParams.get('requestId');
+      const record = asked ? requests.get(asked)?.record : outstanding(batch)?.record;
+      return json(200, { batch, request: record ?? null });
     }
     if (request.method !== 'POST') return refuse(405, 'Method not allowed');
     const body = (await request.json()) as Record<string, unknown>;
@@ -490,6 +499,7 @@ export function createBatchFixture(options: FixtureOptions) {
         return refuse(409, 'Return to draft and submit a fresh request');
       const attempt = found.record.attempt + 1;
       setRecord(found, { status: 'pending', attempt, admissionRevision: batch.revision + 1 });
+      if (!lagging.has(id)) lagging.set(id, batch);
       const next = write(batch, 'retry', memberList(id), undefined, {
         status: 'preparing',
         preparation: { ...batch.preparation!, attempt },
@@ -668,25 +678,46 @@ export function createBatchFixture(options: FixtureOptions) {
       const found = requests.get(requestId)!;
       const batch = batches.get(found.batchId)!;
       const prep = batch.preparation!;
-      setRecord(found, { status: 'completed' });
+      const returned = batchSchema.parse({
+        ...batch,
+        status: found.kind === 'save' ? prep.returnStatus : 'scheduled',
+        preparation: null,
+        ...(found.kind === 'save' && prep.returnStatus === 'draft'
+          ? { notBefore: null, zone: null, opId: null }
+          : {}),
+        ...(found.kind === 'schedule'
+          ? { preparedRequestId: requestId, scheduledContentRevision: batch.contentRevision }
+          : {}),
+      });
       if (found.kind === 'save') {
-        const response = save(
-          batchSchema.parse({
-            ...batch,
-            status: prep.returnStatus,
-            preparation: null,
-            ...(prep.returnStatus === 'draft' ? { notBefore: null, zone: null, opId: null } : {}),
-          }),
-          found.changes!,
-        );
+        const response = save(returned, found.changes!);
         if (response.status !== 200) throw new Error(`Fixture save refused: ${response.status}`);
-        return;
-      }
-      write(batch, 'prepared', memberList(batch.id), undefined, {
+        // A save that changed nothing still clears preparation (one CAS in the preparer).
+        if (batches.get(batch.id)!.status === 'preparing')
+          write(returned, 'prepared', memberList(batch.id));
+      } else write(returned, 'prepared', memberList(batch.id));
+      const landed = batches.get(batch.id)!;
+      setRecord(found, {
+        status: 'completed',
+        result: {
+          revision: landed.revision,
+          contentRevision: landed.contentRevision,
+          status: landed.status,
+        },
+      });
+    },
+    /**
+     * Owner exception: a translator's save into a scheduled batch fails validation. The request is
+     * failed (terminal); the batch returns to scheduled, unchanged, with lastPreparationFailure.
+     */
+    failSaveKeepScheduled(requestId: string, reasons: { reason: string; hash?: number }[]) {
+      const found = requests.get(requestId)!;
+      const batch = batches.get(found.batchId)!;
+      setRecord(found, { status: 'failed', reasons, retryable: false });
+      write(batch, 'preparation_failed', memberList(batch.id), undefined, {
         status: 'scheduled',
         preparation: null,
-        preparedRequestId: requestId,
-        scheduledContentRevision: batch.contentRevision,
+        lastPreparationFailure: { requestId, at: now().toISOString(), reason: reasons[0].reason },
       });
     },
     /** The preparer records a failure: needs_attention with reasons; nothing else changes. */

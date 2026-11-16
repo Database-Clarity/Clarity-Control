@@ -28,6 +28,7 @@ import {
   memberCap,
   queueBatchSave,
   readBatchMembers,
+  readBatchStatus,
   saveChunk,
   saveToBatch,
   type BatchAdmission,
@@ -355,35 +356,57 @@ function trackQueued(requestId: string, save: SaveContext) {
 }
 
 /**
- * A queued save is settled once its batch is no longer preparing or waiting on a Retry: the
- * members at that head confirm what landed, and only those drafts drop (never earlier, and never
- * on a failure, Edit, Unschedule, or Cancel, where the batch does not show the changes).
+/**
+ * A queued save settles by its own request record (GET status?requestId; the index is advisory):
+ * pending or needs_attention waits; failed or cancelled keeps every draft (the save never
+ * applied); completed drops only the drafts the batch shows, once the listing has reached the
+ * request's result revision. Never earlier, so no savedAt or Saved shows before the save lands.
  */
+let settling = false;
 export async function settleQueued(): Promise<void> {
-  const { entries, head } = useBatches.getState();
-  if (!entries || !head) return;
-  for (const [requestId, save] of [...queued]) {
-    const entry = entries.find((candidate) => candidate.id === save.batchId);
-    if (entry && isPreparation(entry.status)) continue;
-    queued.delete(requestId);
-    if (!entry || !save.sameAccount()) continue;
-    try {
-      const members = await readBatchMembers(head, save.batchId, [...save.sent.keys()]);
-      const shown = new Map(
-        members.filter((member): member is BatchMember => member !== null).map((m) => [m.hash, m]),
-      );
-      const confirmed = [...save.sent.keys()].filter((hash) =>
-        confirms(shown.get(hash), save.sent.get(hash)!),
-      );
-      if (confirmed.length) {
-        reconcile(save, confirmed, shown);
-        void refreshUpcoming();
+  if (settling) return;
+  settling = true;
+  try {
+    for (const [requestId, save] of [...queued]) {
+      const { entries, head } = useBatches.getState();
+      if (!entries || !head) return;
+      if (!save.sameAccount()) {
+        queued.delete(requestId);
+        continue;
       }
-    } catch {
-      // Unconfirmed drafts simply stay.
+      try {
+        const { request } = await readBatchStatus(save.batchId, undefined, requestId);
+        if (!request || request.status === 'pending' || request.status === 'needs_attention')
+          continue;
+        if (request.status !== 'completed') {
+          queued.delete(requestId);
+          continue;
+        }
+        const entry = entries.find((candidate) => candidate.id === save.batchId);
+        const landed = request.result?.revision;
+        if (entry && typeof landed === 'number' && entry.revision < landed) continue;
+        queued.delete(requestId);
+        const members = await readBatchMembers(head, save.batchId, [...save.sent.keys()]);
+        const shown = new Map(
+          members
+            .filter((member): member is BatchMember => member !== null)
+            .map((member) => [member.hash, member]),
+        );
+        const confirmed = [...save.sent.keys()].filter((hash) =>
+          confirms(shown.get(hash), save.sent.get(hash)!),
+        );
+        if (confirmed.length) {
+          reconcile(save, confirmed, shown);
+          void refreshUpcoming();
+        }
+      } catch {
+        // Unreadable now: the drafts stay, and the next listing asks again.
+      }
     }
+  } finally {
+    settling = false;
+    if (!queued.size) stopWatching?.();
   }
-  if (!queued.size) stopWatching?.();
 }
 
 /** Tests: forget queued saves. */

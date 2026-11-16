@@ -102,8 +102,27 @@ function pump() {
     void readDetail(head, entry)
       .then(
         (detail) => {
-          if (mine === generation)
-            setLoad(entry.id, { state: 'ready', revision: entry.revision, detail });
+          if (mine !== generation) return;
+          // The index is advisory (request admission does not update it): a newer batch.json at
+          // the head wins, so the row and the detail show the same status, time, and revision.
+          const read = detail.batch;
+          const revision = Math.max(entry.revision, read.revision);
+          setLoad(entry.id, { state: 'ready', revision, detail });
+          if (read.revision > entry.revision)
+            useBatches.setState((state) => ({
+              entries:
+                state.entries?.map((listed) =>
+                  listed.id === entry.id && listed.revision < read.revision
+                    ? {
+                        ...listed,
+                        status: read.status,
+                        notBefore: read.notBefore,
+                        opId: read.opId,
+                        revision: read.revision,
+                      }
+                    : listed,
+                ) ?? null,
+            }));
         },
         (error: unknown) => {
           if (mine !== generation) return;

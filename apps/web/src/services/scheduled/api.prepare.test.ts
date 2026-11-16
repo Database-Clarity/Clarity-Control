@@ -155,6 +155,67 @@ describe('scheduled batches client: prepared requests', () => {
     ).rejects.toMatchObject({ name: 'BatchRefusal', status: 409 });
   });
 
+  it('shows its own admission although the advisory index lags, and reads a result by requestId', async () => {
+    vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+    const api = await load();
+    const batch = await draftWithMember(api);
+    const { queued } = await api.scheduleBatch(
+      batch.id,
+      batch.revision,
+      '2026-12-01T10:00:00.000Z',
+      'UTC',
+    );
+    // The fixture index still names the pre-admission draft (contract: admission never writes it).
+    const raw = await (await fixture.fetch('https://worker.example/batches')).json();
+    expect(raw.index.batches[0]).toMatchObject({ status: 'draft', revision: batch.revision });
+    const listed = await api.listBatches();
+    expect(listed.index.batches[0]).toMatchObject({
+      status: 'preparing',
+      revision: queued!.batch.revision,
+      notBefore: '2026-12-01T10:00:00.000Z',
+    });
+    fixture.completeRequest(queued!.requestId);
+    const after = await api.listBatches();
+    expect(after.index.batches[0].status).toBe('scheduled');
+    const { request } = await api.readBatchStatus(batch.id, undefined, queued!.requestId);
+    expect(request).toMatchObject({
+      status: 'completed',
+      result: { revision: after.index.batches[0].revision },
+    });
+  });
+
+  it('decodes a failed translator save: terminal, batch still scheduled with the failure summary', async () => {
+    const api = await load();
+    const batch = await draftWithMember(api);
+    const scheduled = await api.scheduleBatch(
+      batch.id,
+      batch.revision,
+      '2026-12-01T10:00:00.000Z',
+      'UTC',
+    );
+    expect(scheduled.queued).toBeUndefined();
+    vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+    const queued = await api.queueBatchSave(
+      batch.id,
+      scheduled.batch.revision,
+      [{ hash: 10, base: tooltip(10, 'New'), next: tooltip(10, 'New') }],
+      'Translate',
+    );
+    fixture.failSaveKeepScheduled(queued.requestId, [{ reason: 'stamp is older than English' }]);
+    const { batch: now, request } = await api.readBatchStatus(
+      batch.id,
+      undefined,
+      queued.requestId,
+    );
+    expect(request).toMatchObject({
+      status: 'failed',
+      reasons: [{ reason: 'stamp is older than English' }],
+    });
+    expect(request?.result).toBeUndefined();
+    expect(now.status).toBe('scheduled');
+    expect(now.lastPreparationFailure?.requestId).toBe(queued.requestId);
+  });
+
   it('decodes a legacy batch.json (no preparation fields) and a preparing one', () => {
     const legacy = {
       id: '01JF0000000000000000000001',

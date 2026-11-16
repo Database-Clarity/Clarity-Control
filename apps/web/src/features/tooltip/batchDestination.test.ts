@@ -254,6 +254,51 @@ it('a queued save keeps its drafts until the preparer lands it, and on failure',
   }
 });
 
+it('a failed translator save into a scheduled batch keeps the drafts; the batch stays scheduled', async () => {
+  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+  vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
+  const s = await setup();
+  const { refreshBatches } = await import('../review/batches/store');
+  const { resetQueued } = await import('../review/batches/saveDestination');
+  const key = s.batchDraftKey(s.batch.id, 123);
+  try {
+    // An editor schedules the batch (synchronously here), then the translator saves into it.
+    s.fixture.setUser({ id: 2, login: 'e', role: 'editor' });
+    const schedule = await s.fixture.handle(
+      new Request(`https://worker.example/batches/${s.batch.id}/schedule`, {
+        method: 'POST',
+        body: JSON.stringify({
+          revision: s.fixture.batches.get(s.batch.id)!.revision,
+          notBefore: '2026-12-01T10:00:00.000Z',
+          zone: 'UTC',
+        }),
+      }),
+    );
+    expect(schedule!.status).toBe(202);
+    s.fixture.setUser({ id: 1, login: 'm', role: 'translator', languages: ['de'] });
+    await s.loader.refreshBatches();
+    s.loader.ensureBatch(s.batch.id);
+    await vi.waitFor(() => {
+      const state = s.upcomingStore().getState();
+      const load = state.loads[s.batch.id];
+      expect(load?.state).toBe('ready');
+      expect(load?.revision).toBe(state.memberOf[123]?.revision);
+    });
+    s.runtime.edit(s.batch.id, s.future, s.future, 'de', 'Rejected German', 'm');
+    expect(await s.runtime.saveBatchDrafts(s.batch.id)).toContain('Save queued');
+    const [requestId] = [...s.fixture.requests.keys()];
+    s.fixture.failSaveKeepScheduled(requestId, [{ reason: 'stamp is older than English' }]);
+    await refreshBatches();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await refreshBatches();
+    expect(s.fixture.batches.get(s.batch.id)?.status).toBe('scheduled');
+    expect(s.useBatchDraftStore.getState().drafts[key]?.next.text.de?.text).toBe('Rejected German');
+    expect(s.fixture.members.get(s.batch.id)?.get(123)?.proposed.text.de).toBeUndefined();
+  } finally {
+    resetQueued();
+  }
+});
+
 it('a queued save that is cancelled keeps its drafts and stops tracking', async () => {
   vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
   // Node environment: the Batches listing timer only needs focus listeners.
