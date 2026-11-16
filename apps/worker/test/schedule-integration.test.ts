@@ -1,6 +1,11 @@
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { publishableHash, type Tooltip } from '@clarity/core';
+import { exportLegacy, publishableHash, type Tooltip } from '@clarity/core';
+import {
+  buildLegacy,
+  deployedLegacyPresets,
+  type LegacyInput,
+} from '../../../packages/export/src/legacy.js';
 import {
   batchSchema,
   canClaimPreparedBatch,
@@ -24,6 +29,7 @@ import { json } from '../../../scripts/publisher/batch.js';
 import { GitHub } from '../src/github.js';
 import { switches } from '../src/schedule/store.js';
 import { Fixture, config, makePrivateKey, sha, tooltip } from './fixture.js';
+import { stampUploads } from '../src/stamp.js';
 
 const B = '01K95H000000000000000000B1';
 const D = 'refs/heads/editor-data';
@@ -358,8 +364,33 @@ describe('Worker → signed intent → Action → publisher → web', () => {
     expect(receipt(id)).toBeDefined();
   });
   it('confirms durable admission before preparation, publishes only the ready version once due', async () => {
+    const liveParent = git.head(L)!;
+    const before = pub.read<LegacyInput>(git.tree(liveParent), 'liveDescriptions.json')!;
+    const sentinel = exportLegacy(
+      [{ ...tooltip('Preserve unrelated live content'), hash: 999 }],
+      clock,
+      { 999: { name: 'Unrelated live tooltip', type: 'perk' } },
+      {},
+    );
+    const baseline = {
+      ...before,
+      perks: {
+        ...before.perks,
+        ...sentinel,
+      },
+      databaseSettings: { folders: { saved: ['preserve-settings'] } },
+    };
+    git.cas(
+      L,
+      liveParent,
+      git.commit(liveParent, { 'liveDescriptions.json': git.writeBlob(json(baseline)) }),
+    );
+    const seededLive = git.head(L)!;
+    const savedOnly = { ...tooltip('Never publish this saved-only edit'), hash: 124 };
+    f.moveData({ 'tooltips/124.json': savedOnly });
     const accepted = member(),
       id = await schedule();
+    const approvedContentRevision = batch().contentRevision;
     expect(responses.at(-1)).toEqual({ path: `/batches/${B}/schedule`, status: 202 });
     expect(batch().status).toBe('preparing');
     expect(request(id).status).toBe('pending');
@@ -375,7 +406,45 @@ describe('Worker → signed intent → Action → publisher → web', () => {
     clock = Date.parse(batch().notBefore!) + 1;
     await pub.run();
     expect(batch().status).toBe('published');
-    expect(receipt(id)).toBeDefined();
+    const published = receipt(id)!;
+    expect(published).toMatchObject({
+      opId: id,
+      batchId: B,
+      contentRevision: approvedContentRevision,
+      requester: { id: 1, login: 'alice' },
+      outcome: 'published',
+      liveParent: seededLive,
+      publisherSha: pub.options.publisherSha,
+      generatorSha: pub.options.generatorSha,
+      changed: [123],
+    });
+    expect(published.entries.map((entry) => entry.hash)).toEqual([123]);
+    const claimTree = git.tree(published.sourceCommit);
+    expect(batchSchema.parse(pub.read(claimTree, batchPath))).toMatchObject({
+      id: B,
+      status: 'publishing',
+      opId: id,
+      preparedRequestId: id,
+      contentRevision: approvedContentRevision,
+      claim: { opId: id },
+    });
+    expect(pub.read(claimTree, memberPath)).toEqual(accepted);
+    expect(published.requestBlob).toBe(claimTree[paths(id).request]);
+    const expectedEntries = exportLegacy([accepted.proposed], published.now, pub.options.facts, {});
+    expect(published.exported).toEqual(expectedEntries);
+    stampUploads(expectedEntries, new Set([123]), baseline.perks, published.now, 'alice');
+    const expectedLive = { ...baseline, perks: { ...baseline.perks, ...expectedEntries } };
+    const actualLive = pub.read<LegacyInput>(git.tree(git.head(L)!), 'liveDescriptions.json')!;
+    expect(actualLive).toEqual(expectedLive);
+    expect(actualLive.perks[999]).toEqual(baseline.perks[999]);
+    expect(actualLive.perks[124]).toBeUndefined();
+    expect(f.current()['tooltips/124.json']).toEqual(savedOnly);
+    expect(deployedLegacyPresets).toHaveLength(7);
+    for (const preset of deployedLegacyPresets) {
+      const actual = buildLegacy(actualLive, preset);
+      expect(actual, preset).toEqual(buildLegacy(expectedLive as LegacyInput, preset));
+      expect(actual, preset).not.toEqual(buildLegacy(baseline as LegacyInput, preset));
+    }
     expect((await api.readBatchStatus(B, undefined, id)).request?.status).toBe('completed');
     const head = git.head(L);
     await pub.run();
