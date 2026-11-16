@@ -25,7 +25,14 @@ export function GalleryPage() {
   const role = useAuthStore((state) => state.user?.role);
   const loading = useAuthStore((state) => state.loading);
   const [params, setParams] = useSearchParams();
-  const settings = readSettings(params);
+  // The controls read this state, which updates at once (a router update is asynchronous, so a
+  // checkbox or the search field bound to the URL would flicker back or lose the caret); the URL
+  // only mirrors it, so a reload or a shared link keeps the choices.
+  const [settings, setSettings] = useState(() => readSettings(params));
+  const search = writeSettings(settings).toString();
+  useEffect(() => {
+    if (params.toString() !== search) setParams(search, { replace: true });
+  }, [search, params, setParams]);
   const hash = frameHash(settings);
   const frame = useRef<HTMLIFrameElement>(null);
   const loaded = useRef(false);
@@ -39,11 +46,8 @@ export function GalleryPage() {
   if (loading) return <LoadingSkeleton label="Checking maintainer access…" shape="page" />;
   if (role !== 'maintainer')
     return <p role="alert">Maintainer access is required to open the UI gallery.</p>;
-  // From the latest URL, so two quick changes never undo each other.
   const set = (patch: Partial<GallerySettings>) =>
-    setParams((current) => writeSettings({ ...readSettings(current), ...patch }), {
-      replace: true,
-    });
+    setSettings((current) => ({ ...current, ...patch }));
   return (
     <article className={styles.page}>
       <h1>UI gallery</h1>
