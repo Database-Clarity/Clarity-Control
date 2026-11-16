@@ -1,0 +1,121 @@
+{
+  "store": {
+    "version": 1,
+    "entries": [
+      {
+        "version": 1,
+        "id": "g_fixture0001",
+        "kind": "variables",
+        "name": "damage",
+        "revision": "r1",
+        "definitions": {
+          "en": {
+            "body": "10",
+            "revision": "r1",
+            "updatedAt": "2026-01-01T00:00:00Z",
+            "updatedBy": "fixture",
+            "provenance": {
+              "repository": "editor-data",
+              "revision": "source1",
+              "path": "tooltips/2.json",
+              "selector": ["text", "en", "text"],
+              "spanConvention": "decoded-utf16",
+              "hash": 2,
+              "lang": "en",
+              "from": 10,
+              "to": 25
+            }
+          }
+        },
+        "nameHistory": []
+      }
+    ],
+    "aggregates": [
+      {
+        "document": {
+          "hash": 2,
+          "associated": []
+        },
+        "languages": {
+          "en": {
+            "metadata": {
+              "updatedAt": "2026-01-01T00:00:00Z",
+              "updatedBy": "fixture"
+            },
+            "segments": [
+              {
+                "literal": "// legacy\n"
+              },
+              {
+                "entryId": "g_fixture0001",
+                "beforeName": "var ",
+                "afterName": " = ",
+                "afterBody": ""
+              },
+              {
+                "literal": "\n"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "review": {
+    "version": 1,
+    "consumer": {
+      "hash": 42,
+      "lang": "en",
+      "destination": "live"
+    },
+    "causes": [
+      {
+        "globalId": "g_fixture0001",
+        "beforeRevision": "r1",
+        "afterRevision": "r2"
+      }
+    ],
+    "contentDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependencyDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "impact": {
+    "version": 1,
+    "beforeRevision": "source1",
+    "afterRevision": "source2",
+    "complete": true,
+    "blockers": [],
+    "rows": [
+      {
+        "consumer": {
+          "hash": 42,
+          "lang": "en",
+          "destination": "live"
+        },
+        "causes": [
+          {
+            "globalId": "g_fixture0001",
+            "beforeRevision": "r1",
+            "afterRevision": "r2"
+          }
+        ],
+        "reason": "variable-read",
+        "before": {
+          "rendered": "[{\"linesContent\":[{\"text\":\"10\"}]}]",
+          "reads": {
+            "imports": [],
+            "variables": ["damage"],
+            "conservativeTitles": true
+          }
+        },
+        "after": {
+          "rendered": "[{\"linesContent\":[{\"text\":\"20\"}]}]",
+          "reads": {
+            "imports": [],
+            "variables": ["damage"],
+            "conservativeTitles": true
+          }
+        }
+      }
+    ]
+  }
+}

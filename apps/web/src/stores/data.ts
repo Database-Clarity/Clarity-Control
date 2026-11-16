@@ -12,6 +12,7 @@ import { loadGenerator, loadSandboxConflicts } from '../services/generator';
 import { loadBundle, type Bundle } from '../services/bundle';
 import { errorMessage } from '../services/http';
 import { applySavedOverlay, savedOverlayVersion } from './savedOverlay';
+import { useMarksStore } from '../features/marks/store';
 
 export type Catalog = Awaited<ReturnType<typeof loadGenerator>>;
 export interface EditorData extends Catalog {
@@ -110,7 +111,11 @@ export const useDataStore = create<DataState>((set, get) => ({
       const conflicts = sharedSandboxConflicts();
       // Only a head start for the finder: without it the finder groups the data when it renders.
       const navigation = import('../features/navigation/catalog').catch(() => undefined);
-      const [catalog, bundle] = await Promise.all([loadGenerator(), loadBundle()]);
+      const [catalog, bundle] = await Promise.all([
+        loadGenerator(),
+        loadBundle(),
+        useMarksStore.getState().load(),
+      ]);
       const picks =
         hasSandboxTargets(bundle.sandboxPointers) || bundle.aliasGroups
           ? await conflicts

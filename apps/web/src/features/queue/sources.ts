@@ -14,6 +14,7 @@ import { isDismissed } from '../lost-text/decisions';
 import type { LostText } from '../lost-text/model';
 import { merged, type QueueItem, type QueueSourceId, type WorkQueue } from './model';
 import type { TopRow } from './WorkThroughBar';
+import { marksQueue } from '../marks/source';
 
 export interface SourceContext {
   data: EditorData;
@@ -274,6 +275,7 @@ const translations: QueueSource = {
 };
 
 export const queueSources: Record<QueueSourceId, QueueSource> = {
+  marks: marksQueue,
   review,
   drift,
   'lost-text': lost,

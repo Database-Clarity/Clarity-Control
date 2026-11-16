@@ -655,7 +655,7 @@ function TooltipWorkspace({
       <InactivePreviewNotice hash={activeHash} phone={phone} />
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
-      <ManifestTextRow hash={activeHash} lang={lang} />
+      <ManifestTextRow hash={activeHash} lang={lang} enhancedHash={shownView?.hash} />
       {!readOnly && !batchEditing && <AssociationsPanel hash={activeHash} suspended={suspended} />}
       <HistoryPanel
         language={lang}
@@ -855,6 +855,7 @@ function TooltipWorkspace({
             )
           }
           inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
+          markHash={hash}
           draftLoader={
             draft && (
               <DraftLoader
