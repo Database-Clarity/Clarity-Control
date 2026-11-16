@@ -1,3 +1,4 @@
+import { AddToWorklist } from '../queue/WorklistsMenu';
 import {
   useEffect,
   useLayoutEffect,
@@ -104,17 +105,18 @@ export function QueueList<Row extends ListRow = QueueRow>({
   const saved = restored ?? (arrival === 'POP' ? memory.get(signature) : undefined);
   const host = useRef<HTMLDivElement>(null);
   const sizer = useRef<HTMLSpanElement>(null);
-  const [selected, setSelected] = useState(() => {
-    const index = saved?.selected ? rows.findIndex((row) => row.key === saved.selected) : -1;
-    return Math.max(0, index);
-  });
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => saved?.selected ?? rows[0]?.key ?? null,
+  );
   const previousRows = useRef(rows);
-  if (previousRows.current !== rows) {
-    const key = previousRows.current[selected]?.key;
-    previousRows.current = rows;
-    const next = key ? rows.findIndex((row) => row.key === key) : -1;
-    if (next >= 0 && next !== selected) setSelected(next);
+  let selected = rows.findIndex((row) => row.key === selectedId);
+  if (selected < 0 && rows.length) {
+    const prior = previousRows.current.findIndex((row) => row.key === selectedId);
+    selected = Math.max(0, Math.min(prior, rows.length - 1));
+    setSelectedId(rows[selected]!.key);
   }
+  previousRows.current = rows;
+  const setSelected = (index: number) => setSelectedId(rows[index]?.key ?? null);
   const [rowHeight, setRowHeight] = useState(defaultRowHeight);
   const [viewport, setViewport] = useState(() => ({
     top: saved?.top ?? 0,
@@ -252,79 +254,90 @@ export function QueueList<Row extends ListRow = QueueRow>({
   };
 
   return (
-    <div
-      ref={host}
-      className={styles.viewport}
-      onScroll={(event) => {
-        const top = event.currentTarget.scrollTop;
-        scrolled.current = top;
-        // Only a change of first row needs a new window; commit it in the scroll turn itself,
-        // so a flick never outruns the rows.
-        if (Math.floor(top / rowHeight) === Math.floor(observed.current.viewport.top / rowHeight))
-          return;
-        flushSync(() => setViewport((previous) => ({ ...previous, top })));
-      }}
-    >
-      <span ref={sizer} className={styles.sizer} aria-hidden="true" />
-      <ul
-        className={styles.list}
-        aria-label={label}
-        style={{ height: total * rowHeight }}
-        onKeyDown={onKeyDown}
+    <>
+      {rows[selected] && (
+        <div className={styles.listTools}>
+          <AddToWorklist
+            items={[rows[selected]!]}
+            className={styles.listAdd}
+            label={<span>Add {rows[selected]!.name} to worklist</span>}
+          />
+        </div>
+      )}
+      <div
+        ref={host}
+        className={styles.viewport}
+        onScroll={(event) => {
+          const top = event.currentTarget.scrollTop;
+          scrolled.current = top;
+          // Only a change of first row needs a new window; commit it in the scroll turn itself,
+          // so a flick never outruns the rows.
+          if (Math.floor(top / rowHeight) === Math.floor(observed.current.viewport.top / rowHeight))
+            return;
+          flushSync(() => setViewport((previous) => ({ ...previous, top })));
+        }}
       >
-        {indices.map((index) => {
-          const row = rows[index]!;
-          const isSelected = index === kept;
-          const shown = rowState(row);
-          return (
-            <li
-              key={row.key}
-              className={styles.row}
-              data-extra={extra ? '' : undefined}
-              data-index={index}
-              aria-posinset={index + 1}
-              aria-setsize={total}
-              style={{ top: index * rowHeight }}
-            >
-              <Link
-                {...linkTo(row)}
-                tabIndex={isSelected ? 0 : -1}
-                data-selected={isSelected ? '' : undefined}
-                data-perf-navigation="true"
-                title={title(row)}
-                onFocus={() => setSelected(index)}
-                // Safari does not focus a link on click; the opened row is still the one to return to.
-                onClick={(event) => {
-                  opened.current = row.key;
-                  // A new tab or window (a modified click) is an ordinary visit.
-                  if (
-                    event.button === 0 &&
-                    !event.ctrlKey &&
-                    !event.metaKey &&
-                    !event.shiftKey &&
-                    !event.altKey
-                  )
-                    onOpen?.(row, scrolled.current);
-                }}
+        <span ref={sizer} className={styles.sizer} aria-hidden="true" />
+        <ul
+          className={styles.list}
+          aria-label={label}
+          style={{ height: total * rowHeight }}
+          onKeyDown={onKeyDown}
+        >
+          {indices.map((index) => {
+            const row = rows[index]!;
+            const isSelected = index === kept;
+            const shown = rowState(row);
+            return (
+              <li
+                key={row.key}
+                className={styles.row}
+                data-extra={extra ? '' : undefined}
+                data-index={index}
+                aria-posinset={index + 1}
+                aria-setsize={total}
+                style={{ top: index * rowHeight }}
               >
-                <span className={styles.name}>{row.name}</span>
-                <span className={styles.category} title={secondary(row)}>
-                  {secondary(row)}
-                </span>
-                <span
-                  className={styles.state}
-                  data-state={shown.state}
-                  data-exported={shown.exported ? '' : undefined}
-                  title={shown.title}
+                <Link
+                  {...linkTo(row)}
+                  tabIndex={isSelected ? 0 : -1}
+                  data-selected={isSelected ? '' : undefined}
+                  data-perf-navigation="true"
+                  title={title(row)}
+                  onFocus={() => setSelected(index)}
+                  // Safari does not focus a link on click; the opened row is still the one to return to.
+                  onClick={(event) => {
+                    opened.current = row.key;
+                    // A new tab or window (a modified click) is an ordinary visit.
+                    if (
+                      event.button === 0 &&
+                      !event.ctrlKey &&
+                      !event.metaKey &&
+                      !event.shiftKey &&
+                      !event.altKey
+                    )
+                      onOpen?.(row, scrolled.current);
+                  }}
                 >
-                  {shown.text}
-                </span>
-              </Link>
-              {extra && <span className={styles.extra}>{extra(row)}</span>}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+                  <span className={styles.name}>{row.name}</span>
+                  <span className={styles.category} title={secondary(row)}>
+                    {secondary(row)}
+                  </span>
+                  <span
+                    className={styles.state}
+                    data-state={shown.state}
+                    data-exported={shown.exported ? '' : undefined}
+                    title={shown.title}
+                  >
+                    {shown.text}
+                  </span>
+                </Link>
+                {extra && <span className={styles.extra}>{extra(row)}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </>
   );
 }

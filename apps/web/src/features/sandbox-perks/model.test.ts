@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import type { SandboxPointers, Tooltip } from '@clarity/core';
+import { composeAliases, type SandboxPointers, type Tooltip } from '@clarity/core';
 import { buildRows, bulkCheck, effectivePick, matches, picksToSave, previewLine } from './model';
 import { at, fixture } from './fixture.testSupport';
 
 describe('worklist rows', () => {
+  it('keeps absent-group rows, previews, and bulk results identical with the text-alias input', async () => {
+    const input = fixture();
+    const textAliases = composeAliases(input.aliases, undefined, input.items).aliases;
+    expect(textAliases).toBe(input.aliases);
+    const before = buildRows(input);
+    const after = buildRows({ ...input, textAliases });
+    expect(after).toEqual(before);
+    const original = { tooltips: input.tooltips, aliases: input.aliases };
+    const composed = { tooltips: input.tooltips, aliases: textAliases };
+    for (const row of before)
+      for (const candidate of row.candidates)
+        expect(previewLine(candidate.hash, composed)).toBe(previewLine(candidate.hash, original));
+    expect(await bulkCheck(after, composed)).toEqual(await bulkCheck(before, original));
+  });
   it('buckets every row and suggests a pick where one is safe to suggest', () => {
     const rows = buildRows(fixture());
     expect(rows.map((row) => [row.hash, row.bucket, row.suggestion])).toEqual([

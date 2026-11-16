@@ -49,6 +49,7 @@ export function EditorPaneHeader({
   queueBack,
   draftLoader,
   destination,
+  worklistControl,
   inactiveControl,
   inactiveHash,
   markHash,
@@ -82,6 +83,7 @@ export function EditorPaneHeader({
   destination?: React.ReactNode;
   /** Maintainer-only inactive move, with its own deliberate confirmation. */
   inactiveControl?: React.ReactNode;
+  worklistControl?: React.ReactNode;
   /** Undefined on batch visits, where global move actions are unavailable. */
   inactiveHash?: number;
   markHash?: number;
@@ -103,6 +105,7 @@ export function EditorPaneHeader({
           queueBack,
           draftLoader,
           destination,
+          worklistControl,
           inactiveControl,
           inactiveHash,
           markHash,
@@ -197,6 +200,7 @@ export function EditorPaneHeader({
       {markupTools}
       {queue}
       <span className={styles.paneRight}>
+        {worklistControl}
         {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} />}
         {inactiveControl}
         {grouped && (
@@ -279,6 +283,7 @@ function PhoneToolRow({
   queueBack,
   draftLoader,
   destination,
+  worklistControl,
   inactiveControl,
   inactiveHash,
   markHash,
@@ -310,7 +315,14 @@ function PhoneToolRow({
         queueBack={queueBack}
         queue={queue}
         renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
-        extra={inactiveControl}
+        extra={
+          worklistControl || inactiveControl ? (
+            <>
+              {worklistControl}
+              {inactiveControl}
+            </>
+          ) : undefined
+        }
       />
       {reason && (
         <span className={styles.badge} role="status" title={reason}>

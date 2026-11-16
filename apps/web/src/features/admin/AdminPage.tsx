@@ -1,3 +1,4 @@
+import { WorklistsManager } from '../queue/WorklistsMenu';
 import { SkeletonBoundary } from '../../ui/Skeleton';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { languageLabel } from '../../languageLabels';
@@ -129,6 +130,10 @@ export function AdminPage() {
   return (
     <article className={styles.page}>
       <Heading />
+      <details>
+        <summary>My worklists</summary>
+        <WorklistsManager />
+      </details>
 
       {error && (
         <p role="alert">

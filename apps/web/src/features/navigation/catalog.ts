@@ -8,7 +8,7 @@ import {
   manifestPlug,
 } from '../compendium/itemClassification';
 import { currentArtifactOwners } from '../compendium/artifactIdentity';
-import { resolveAlias, type Tooltip, type CompendiumData } from '@clarity/core';
+import { aliasPairedBase, resolveAlias, type Tooltip, type CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Category, Item } from '../../services/generator';
 import { categoryDisplay, groupRank } from '../../services/categoryLabels';
@@ -38,7 +38,9 @@ export function canonicalHash(hash: number, data: EditorData): number {
     const item = data.items[hash];
     // A grouped frame owns one editor even if manifest pairing points elsewhere.
     if (frameGroupSize(hash, data) > 1) return remember(hash);
-    const target = item?.baseHash;
+    const target =
+      item?.baseHash ??
+      (data.bundle.aliasGroups ? aliasPairedBase(item, data.items, data.aliases) : undefined);
     if (target === undefined) return remember(hash);
     hash = target;
   }

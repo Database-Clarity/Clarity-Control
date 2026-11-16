@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { appJwt } from './crypto.js';
-import { HttpError } from './http.js';
+import { HttpError, upstreamJson } from './http.js';
 import type { Env, Identity } from './types.js';
 
 const shaSchema = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) });
@@ -291,6 +291,23 @@ export class GitHub {
       'User-Agent': 'clarity-editor',
       'X-GitHub-Api-Version': '2022-11-28',
     };
+  }
+
+  /** Pin grouping inputs with the installation's authenticated GitHub quota. */
+  async generatorRevision(): Promise<string> {
+    const env = this.env;
+    const headers = this.headers(await this.installationToken());
+    this.spend();
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(env.GENERATOR_OWNER)}/${encodeURIComponent(env.GENERATOR_REPO)}/commits/${encodeURIComponent(env.GENERATOR_BRANCH)}`,
+      { headers },
+    );
+    if (response.status === 403 || response.status === 429)
+      throw new HttpError(503, 'GitHub refused the generator lookup; try again later');
+    const { sha } = z
+      .object({ sha: z.string().regex(/^[0-9a-f]{40}$/) })
+      .parse(await upstreamJson(response));
+    return sha;
   }
 
   async request(path: string, method = 'GET', value?: unknown): Promise<Response> {

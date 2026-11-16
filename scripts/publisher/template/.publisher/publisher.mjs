@@ -20657,7 +20657,9 @@ var init_legacy = __esm({
       itemName: external_exports.string().optional(),
       editor: external_exports.partialRecord(langSchema, external_exports.object({
         main: external_exports.string(),
-        secondary: external_exports.string()
+        secondary: external_exports.string(),
+        // Export provenance: English fallback retains English number formatting.
+        englishFallback: external_exports.literal(true).optional()
       }).strict()),
       updateTracker: external_exports.object({
         descriptions: external_exports.partialRecord(langSchema, trackerEntrySchema),
@@ -24735,9 +24737,7 @@ var prepareDescription = (descriptionData) => {
   description = removePerkSpecificText(description, database[hash2].type);
   description = loadVariables({ ...descriptionData, descriptionString: description });
   const titles = extractTitles(removeUnusedText2(description, false));
-  const editor = database[hash2].editor;
-  const numberLanguage = editor[language]?.main === editor.en?.main ? "en" : language;
-  description = doMath(description, numberLanguage);
+  description = doMath(description, database[hash2].editor[language]?.englishFallback ? "en" : language);
   return {
     preparedDescription: removeUnusedText2(description.trim()),
     titles: {
@@ -26278,10 +26278,15 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
     for (const language of languages2) {
       const translation = tooltip.text[language];
       if (!translation) continue;
-      const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
+      const englishFallback = usesEnglishFallback(tooltip, language);
+      const exported = englishFallback && english ? english : translation;
       const resolved = exported.text.includes("#{=") && english ? resolveNumberTokens(exported.text, numberValues(english, language)) : exported.text;
       const text = lowerConsumerMarkup(resolved);
-      editor[language] = { main: text, secondary: text };
+      editor[language] = {
+        main: text,
+        secondary: text,
+        ...englishFallback ? { englishFallback: true } : {}
+      };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
         lastUpdate: Date.parse(exported.updatedAt),
@@ -28245,6 +28250,17 @@ var inScope = (item) => /^(weapon-(perk|trait|mod)|armor-mod|subclass)(-|$)/.tes
 var subclass = (item) => /^subclass(-|$)/.test(item.categoryId);
 var owns = (item, owner) => item.itemHash === owner || Boolean(item.owners?.includes(owner));
 var numbered = (item) => / (II|III|IV)$/.test(item.name);
+function aliasPairedBase(item, items, aliases) {
+  if (!item || !enhanced(item)) return item?.baseHash;
+  if (item.baseHash !== void 0)
+    return items[item.baseHash] && items[resolveAlias(item.baseHash, aliases)] ? item.baseHash : void 0;
+  const candidates = Object.values(items).filter(
+    (base) => !enhanced(base) && !exotic(base) && inScope(base) && name(base) === name(item) && item.plugCategoryHash !== void 0 && base.plugCategoryHash === item.plugCategoryHash && base.categoryId === item.categoryId.replace(/-enhanced$/, "")
+  );
+  const targets = new Set(candidates.map((base) => resolveAlias(base.hash, aliases)));
+  const target = [...targets][0];
+  return candidates.length > 1 && targets.size === 1 && target !== void 0 && items[target] ? target : void 0;
+}
 function effectiveAliases(generated, input2, items) {
   const groups = aliasGroupsSchema.parse(input2);
   const aliases = { ...aliasesSchema.parse(generated) };
@@ -28304,27 +28320,16 @@ function effectiveAliases(generated, input2, items) {
     }
   }
   for (const key of Object.keys(aliases)) resolveAlias(Number(key), aliases);
-  const pairedBase = (item) => {
-    if (!item || !enhanced(item)) return item?.baseHash;
-    if (item.baseHash !== void 0)
-      return items[item.baseHash] && items[resolveAlias(item.baseHash, aliases)] ? item.baseHash : void 0;
-    const candidates = Object.values(items).filter(
-      (base) => !enhanced(base) && !exotic(base) && inScope(base) && name(base) === name(item) && item.plugCategoryHash !== void 0 && base.plugCategoryHash === item.plugCategoryHash && base.categoryId === item.categoryId.replace(/-enhanced$/, "")
-    );
-    const targets = new Set(candidates.map((base) => resolveAlias(base.hash, aliases)));
-    const target = [...targets][0];
-    return candidates.length > 1 && targets.size === 1 && target !== void 0 && items[target] ? target : void 0;
-  };
   let changed;
   do {
     changed = false;
     for (const [key, group] of Object.entries(groups.groups)) {
       const canonical = Number(key), item = items[key];
       if (!item || !enhanced(item) || generated[key]) continue;
-      const canonicalBase = pairedBase(item);
+      const canonicalBase = aliasPairedBase(item, items, aliases);
       for (const member of group.members) {
         if (aliases[member]?.kind !== "name" || aliases[member]?.to !== canonical) continue;
-        const memberBase = pairedBase(items[member]);
+        const memberBase = aliasPairedBase(items[member], items, aliases);
         if (canonicalBase === void 0 || memberBase === void 0 || resolveAlias(memberBase, aliases) !== resolveAlias(canonicalBase, aliases)) {
           delete aliases[member];
           issues.push({
@@ -28349,6 +28354,7 @@ function composeAliases(generated, groups, items, conflicts = {}, pointers) {
   const result = effectiveAliases(generated, groups, items);
   const aliases = { ...result.aliases };
   for (const [hash2, alias] of Object.entries(result.aliases)) {
+    if (Object.hasOwn(generated, hash2)) continue;
     if (alias.kind === "name" && (Object.hasOwn(conflicts, hash2) || Object.hasOwn(conflicts, String(alias.to))))
       throw new Error(`Alias group member ${hash2} is a shared sandbox identity`);
   }
