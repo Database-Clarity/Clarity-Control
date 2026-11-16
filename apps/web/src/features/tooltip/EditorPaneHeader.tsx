@@ -15,6 +15,7 @@ import {
 } from '../manifest/manifestText';
 import type { GroupedPerk } from './grouping';
 import styles from './TooltipPage.module.scss';
+import { MarksControl } from '../marks/MarksControl';
 
 export interface OverrideTarget {
   hash: number;
@@ -48,8 +49,10 @@ export function EditorPaneHeader({
   queueBack,
   draftLoader,
   destination,
+  worklistControl,
   inactiveControl,
   inactiveHash,
+  markHash,
   reserveDraft = false,
 }: {
   lang: Lang;
@@ -80,8 +83,10 @@ export function EditorPaneHeader({
   destination?: React.ReactNode;
   /** Maintainer-only inactive move, with its own deliberate confirmation. */
   inactiveControl?: React.ReactNode;
+  worklistControl?: React.ReactNode;
   /** Undefined on batch visits, where global move actions are unavailable. */
   inactiveHash?: number;
+  markHash?: number;
   reserveDraft?: boolean;
 }) {
   const phone = useMedia(phoneQuery);
@@ -100,8 +105,10 @@ export function EditorPaneHeader({
           queueBack,
           draftLoader,
           destination,
+          worklistControl,
           inactiveControl,
           inactiveHash,
+          markHash,
           reserveDraft,
         }}
       />
@@ -193,6 +200,8 @@ export function EditorPaneHeader({
       {markupTools}
       {queue}
       <span className={styles.paneRight}>
+        {worklistControl}
+        {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} />}
         {inactiveControl}
         {grouped && (
           <Popover
@@ -274,14 +283,17 @@ function PhoneToolRow({
   queueBack,
   draftLoader,
   destination,
+  worklistControl,
   inactiveControl,
   inactiveHash,
+  markHash,
   reserveDraft,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   return (
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
       {destination}
+      {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} compact />}
       {draft && (
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
       )}
@@ -303,7 +315,14 @@ function PhoneToolRow({
         queueBack={queueBack}
         queue={queue}
         renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
-        extra={inactiveControl}
+        extra={
+          worklistControl || inactiveControl ? (
+            <>
+              {worklistControl}
+              {inactiveControl}
+            </>
+          ) : undefined
+        }
       />
       {reason && (
         <span className={styles.badge} role="status" title={reason}>

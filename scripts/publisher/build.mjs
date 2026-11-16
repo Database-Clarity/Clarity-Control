@@ -39,6 +39,15 @@ if (!runtime.includes('replaceAll("<arrow/>"'))
 for (const marker of ['resolveNumberTokens(', 'validateNumberTooltip(', 'numberValues('])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks number tokens (${marker}); refusing its PIN`);
+for (const marker of [
+  'config/alias-groups.json',
+  'composeAliases(',
+  'Incomplete pinned alias facts',
+  'Generator revision differs from frozen alias-group receipt',
+  'aliasKind === "name"',
+])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks alias groups (${marker}); refusing its PIN`);
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -68,6 +77,7 @@ writeFileSync(
         'inactiveMoves',
         'arrowSymbol',
         'numberTokens',
+        'aliasGroups',
       ],
     },
     null,

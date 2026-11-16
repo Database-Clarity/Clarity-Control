@@ -46,6 +46,7 @@ function emptyDatabase(): ReportsDatabase {
 }
 
 const R = 'r-aaaaaaaa';
+const W = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
 type Route = { method: string; path: string; body?: unknown };
 /** Every route outside /exports. `public` routes need no session at all. */
 const routes: (Route & { public?: true })[] = [
@@ -60,12 +61,22 @@ const routes: (Route & { public?: true })[] = [
   { method: 'GET', path: '/compendium/agent-guidance' },
   { method: 'POST', path: '/compendium/agent-guidance', body: { document: 'x', revision: null } },
   { method: 'GET', path: '/me' },
+  { method: 'GET', path: '/alias-groups' },
+  { method: 'POST', path: '/alias-groups', body: { expectedHead: 'a'.repeat(40), ops: [] } },
   {
     method: 'POST',
     path: '/save',
     body: { changes: [{ hash: 123, base: tooltip(), next: tooltip('x') }], message: 'x' },
   },
   { method: 'POST', path: '/push-live', body: { hashes: [123] } },
+  { method: 'GET', path: '/worklists' },
+  { method: 'GET', path: `/worklists/${W}` },
+  {
+    method: 'PUT',
+    path: `/worklists/${W}`,
+    body: { op: { type: 'create', name: 'Review', hashes: [] }, revision: null },
+  },
+  { method: 'DELETE', path: `/worklists/${W}`, body: { revision: null } },
   { method: 'GET', path: '/settings' },
   { method: 'PUT', path: '/settings', body: { settings: defaultSyncedSettings, revision: null } },
   { method: 'GET', path: '/permissions' },
@@ -73,6 +84,12 @@ const routes: (Route & { public?: true })[] = [
   { method: 'GET', path: '/sandbox-pointers' },
   { method: 'PUT', path: '/sandbox-pointers', body: { revision: null, picks: {} } },
   { method: 'GET', path: '/inactive-moves' },
+  { method: 'GET', path: '/marks' },
+  {
+    method: 'PUT',
+    path: '/marks',
+    body: { revision: null, change: { action: 'mark', hash: 123, type: 'retest' } },
+  },
   { method: 'PUT', path: '/inactive-moves', body: { hash: 123, inactive: true, revision: null } },
   { method: 'GET', path: '/history/123' },
   { method: 'GET', path: '/reports/public?hash=123&lang=en', public: true },

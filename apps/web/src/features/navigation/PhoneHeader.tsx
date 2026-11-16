@@ -1,3 +1,4 @@
+import { WorklistsMenu } from '../queue/WorklistsMenu';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { MenuUser } from './links';
@@ -122,6 +123,7 @@ export function PhoneHeader({
         </h1>
       )}
       <div className={styles.end}>
+        <WorklistsMenu />
         <DraftButton iconOnly />
       </div>
       <ShellOverlay

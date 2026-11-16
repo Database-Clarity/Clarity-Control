@@ -1,0 +1,38 @@
+.slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.1875rem;
+  width: 2.5625rem;
+  flex: 0 0 2.5625rem;
+  > span {
+    display: inline-flex;
+    width: 0.5rem;
+    align-items: center;
+    justify-content: center;
+  }
+}
+.glyph {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  background: var(--warn);
+  &[data-kind='missing'] {
+    border: 1.5px solid var(--warn);
+    border-radius: 50%;
+    background: none;
+  }
+  &[data-kind='outdated'] {
+    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  }
+  &[data-kind='scheduled'] {
+    border-radius: 50%;
+    background: var(--accent-ink);
+  }
+  &[data-kind='unsaved'] {
+    width: 0.375rem;
+    height: 0.375rem;
+    background: var(--text2);
+  }
+}

@@ -79,6 +79,27 @@ export function TitleAnchor({
 }
 
 /** One span of rendered markup: text, icon, link or title anchor. */
+function numberText(part: MarkupSpan): ReactNode {
+  if ((!part.slots?.length && !part.variables?.length) || !part.text) return part.text;
+  const out: ReactNode[] = [];
+  let at = 0;
+  const ranges = [...(part.slots ?? []), ...(part.variables ?? [])].sort((a, b) => a.from - b.from);
+  for (const slot of ranges) {
+    if (slot.from > at) out.push(part.text.slice(at, slot.from));
+    out.push(
+      <span
+        key={`${'id' in slot ? slot.id : slot.name}:${slot.from}`}
+        data-slot={'id' in slot ? slot.id : undefined}
+        title={'name' in slot ? `Variable ${slot.name}: type #{${slot.name}}` : undefined}
+      >
+        {part.text.slice(slot.from, slot.to)}
+      </span>,
+    );
+    at = slot.to;
+  }
+  if (at < part.text.length) out.push(part.text.slice(at));
+  return out;
+}
 export function PreviewSpan({ part }: { part: MarkupSpan }) {
   const id = useId();
   const link = part.link ? linkUrl(part.link) : undefined;
@@ -91,10 +112,12 @@ export function PreviewSpan({ part }: { part: MarkupSpan }) {
   return (
     <span className={classNames(part.classNames)}>
       {part.title ? (
-        <TitleAnchor part={part} id={id} />
+        <TitleAnchor part={part} id={id}>
+          {numberText(part)}
+        </TitleAnchor>
       ) : link ? (
         <a href={link} target="_blank" rel="noreferrer">
-          {part.text}
+          {numberText(part)}
         </a>
       ) : part.link ? (
         <TitleAnchor
@@ -102,7 +125,7 @@ export function PreviewSpan({ part }: { part: MarkupSpan }) {
           id={id}
         />
       ) : (
-        <span>{part.text}</span>
+        <span>{numberText(part)}</span>
       )}
     </span>
   );
@@ -128,6 +151,30 @@ const firstWord = (part: MarkupSpan | undefined) =>
   part && !part.title && !part.link && typeof part.text === 'string'
     ? /^\S+/.exec(part.text)?.[0]
     : undefined;
+function textPart(part: MarkupSpan, from: number, to = part.text!.length): MarkupSpan {
+  return {
+    ...part,
+    text: part.text!.slice(from, to),
+    ...(part.slots && {
+      slots: part.slots
+        .filter((slot) => slot.to > from && slot.from < to)
+        .map((slot) => ({
+          id: slot.id,
+          from: Math.max(slot.from, from) - from,
+          to: Math.min(slot.to, to) - from,
+        })),
+    }),
+    ...(part.variables && {
+      variables: part.variables
+        .filter((variable) => variable.to > from && variable.from < to)
+        .map((variable) => ({
+          name: variable.name,
+          from: Math.max(variable.from, from) - from,
+          to: Math.min(variable.to, to) - from,
+        })),
+    }),
+  };
+}
 /**
  * An icon and the word right after it (`<solar/>Scorch`, `<solar Scorch />`) share one
  * unbreakable run (iconGlue), so an icon is never left alone at a line end; a space after the icon
@@ -146,13 +193,11 @@ const normalParts: RenderParts = (parts) => {
     out.push(
       <span key={index} className={styles.iconGlue}>
         <PreviewSpan part={part} />
-        <PreviewSpan part={{ ...next, text: word }} />
+        <PreviewSpan part={textPart(next, 0, word.length)} />
       </span>,
     );
     if (word.length < next.text!.length)
-      out.push(
-        <PreviewSpan key={`${index}+`} part={{ ...next, text: next.text!.slice(word.length) }} />,
-      );
+      out.push(<PreviewSpan key={`${index}+`} part={textPart(next, word.length)} />);
     index++;
   }
   return out;

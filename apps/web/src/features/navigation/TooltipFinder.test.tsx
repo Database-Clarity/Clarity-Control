@@ -574,8 +574,7 @@ describe('tooltip finder combobox', () => {
     await mount();
     await open();
     const gamma = options().find((o) => o.textContent?.includes('Gamma helm'))!;
-    expect(gamma.textContent).toContain('*');
-    expect(gamma.textContent).toContain('Unsaved draft');
+    expect(gamma.querySelector('[aria-label="Unsaved changes"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="Unsaved draft"]')).toBeNull();
     await press('Escape');
     useDraftStore.setState({ drafts: { 10: { base, next: base } } });
@@ -826,4 +825,41 @@ describe('global declarations in the finder', () => {
     expect(route()).toBe('/t/3?global=Heading');
     expect(field().value).toBe('Heading');
   });
+});
+
+it('empty marker slot still selects the entry', async () => {
+  await mount('/t/10?lang=de');
+  await open();
+  const beta = options().find((o) => o.textContent?.includes('Beta helm'))!;
+  const slot = beta.querySelector('[class*="slot"]') as HTMLElement;
+  expect(slot).not.toBeNull();
+  await act(async () => slot.click());
+  expect(route()).toBe('/t/11?lang=de');
+});
+it('aggregate draft remains visible on global rows', async () => {
+  const base = {
+    hash: 2,
+    text: { en: { text: 'var Alpha = 10', updatedAt: '2026-11-15', updatedBy: 'test' } },
+    associated: [],
+  };
+  const source = {
+    ...data,
+    bundle: { ...data.bundle, tooltips: { 2: base } },
+  } as unknown as EditorData;
+  useDraftStore.setState({
+    hydrated: true,
+    drafts: { 2: { base, next: { ...base, associated: [10] } } },
+  });
+  await mount('/t/2?global=Alpha', source);
+  await open();
+  await paintGlobals();
+  expect(options()).toHaveLength(1);
+  expect(options()[0].querySelector('[aria-label="Unsaved changes"]')).not.toBeNull();
+  expect(options()[0].querySelector('[aria-label="Missing tooltip"]')).toBeNull();
+  const category = picker(host, 'Category')!;
+  await act(async () => category.click());
+  const categoryList = document.getElementById(category.getAttribute('aria-controls')!)!;
+  const variables = categoryList.querySelector('[data-value="globals-variables"]')!;
+  expect(variables.querySelector('[aria-label="Unsaved changes"]')).not.toBeNull();
+  expect(variables.querySelector('[aria-label="Missing tooltip"]')).toBeNull();
 });

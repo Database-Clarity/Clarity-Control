@@ -21,7 +21,10 @@ import { decoder, parse, stringify, withType } from './set-bonus-real.js';
 const held = (input: LegacyInput, preset: LegacyPreset, identical: string[]) =>
   stringify(databaseConverter(preset, input.perks, new Set(identical)));
 
-const { input, inventoryItem } = fixtureInput();
+const { input: fixture, inventoryItem } = fixtureInput();
+// Isolate the set-bonus delta from S1's separately tested Prismatic support. An unknown token
+// matches the old converter's treatment of Prismatic, including its text-span boundaries.
+const input: LegacyInput = JSON.parse(JSON.stringify(fixture).replaceAll('<prismatic', '<unverifiedElement'));
 const identical = bungieIdentical(input, inventoryItem as never);
 
 // Fixture set bonuses: 17188252 (own text), 17188254 (Bungie's text), 17188253 (sandbox alias of 17188252).
@@ -41,7 +44,23 @@ const expectedDiff = Object.fromEntries(
 test.each(legacyPresets)(
   '%s: the held output is unchanged; the only diff is the set-bonus type name',
   (preset) => {
-    expect(sha256(held(input, preset, identical))).toBe(expected.fixture.files[preset]);
+    const historical = JSON.parse(held(input, preset, identical));
+    // The fixture has exactly one name alias, 2003. S5 emits its canonical expansion in
+    // legacy files; verify it before excluding only that explicit row from the old control.
+    for (const hash of ['2003']) {
+      if (preset === 'clarityV2') expect(historical[hash]).toEqual({ hash: 2003, aliasOf: 1003 });
+      else {
+        const expansion: Record<string, unknown> = {
+          ...historical['1003'],
+          hash: 2003,
+          name: 'Name alias',
+        };
+        delete expansion.type;
+        expect(historical[hash]).toEqual(expansion);
+        delete historical[hash];
+      }
+    }
+    expect(sha256(stringify(historical))).toBe(expected.fixture.files[preset]);
     // The engine lowers the fixture's element-tagged text first (element-tags.test.ts).
     const before = held(lowerInput(input), preset, identical);
     const after = decoder.decode(buildLegacy(input, preset, { identical }));

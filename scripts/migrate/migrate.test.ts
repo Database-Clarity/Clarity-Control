@@ -289,6 +289,17 @@ describe('migration', () => {
 });
 
 describe('dependency-free bundle', () => {
+  it('never copies entry marks into the public bundle', async () => {
+    const root = await temporaryDirectory();
+    await writeMigration(root, await prepareMigration(database('draft'), database('live'), owner));
+    const generatedAt = '2026-11-15T00:00:00Z';
+    const plain = await buildBundle(root, sourceCommit, generatedAt);
+    for (const marks of ['{"types":[],"entries":{"42":[{"note":"Retest"}]}}', '{']) {
+      await writeFile(join(root, 'config', 'marks.json'), marks);
+      expect(await buildBundle(root, sourceCommit, generatedAt)).toEqual(plain);
+    }
+  });
+
   it('builds the exact public shape and runs using only Node', async () => {
     const root = await temporaryDirectory();
     const result = await prepareMigration(database('draft'), database('live'), owner);

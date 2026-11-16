@@ -15,7 +15,7 @@ export function finderIconUrl(icon: string | undefined): string | undefined {
  */
 const waiting = new Set<() => void>();
 let scheduled = false;
-function afterPaint(show: () => void) {
+export function afterPaint(show: () => void) {
   waiting.add(show);
   if (scheduled) return;
   scheduled = true;

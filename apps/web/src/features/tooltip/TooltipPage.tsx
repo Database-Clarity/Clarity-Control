@@ -1,3 +1,6 @@
+import { worklistAvailable } from '../queue/savedSources';
+import { useSavedWorklists } from '../queue/worklists';
+import { AddToWorklist, RemoveFromWorklist } from '../queue/WorklistsMenu';
 import { SkeletonBoundary, useSkeletonVisible } from '../../ui/Skeleton';
 import { loadingWorkspace } from './TooltipLoadingWorkspace';
 import type { ScopedMarkupGlobals } from '../editor/markupScope';
@@ -28,7 +31,7 @@ import { EditorView } from '@codemirror/view';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
-import { tooltipImports } from '../../services/tooltipImports';
+import { previewNumberGlobals, tooltipImports } from '../../services/tooltipImports';
 import { useDataStore, type EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { useDraftStore } from '../../stores/drafts';
@@ -39,6 +42,7 @@ import { theirsLabel } from '../conflicts/rebase';
 import type { CompareData } from '../conflicts/CompareView';
 import { useAuthStore } from '../../stores/auth';
 import {
+  itemFor,
   canonicalHash,
   classifiedCategory,
   editorName,
@@ -69,8 +73,9 @@ import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
 import { canEditLanguage, canPushLive } from '../auth/permissions';
-import { DraftLoader, WithEditorDraft } from './DraftLoader';
+import { DraftLoader, StartEnglishLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
+import { useRememberedWorkspaceLanguage } from './WorkspaceLanguage';
 import { requireEnglish } from './requireEnglish';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
@@ -126,7 +131,46 @@ const StableWorkspace = memo(TooltipWorkspace);
  * their own open in the same editor slot through "Edit override" (the base editor stays mounted
  * underneath, so its caret and undo history survive the round trip).
  */
-export function TooltipPage({
+export function TooltipPage(props: Parameters<typeof TooltipPageContent>[0]) {
+  const { hash } = useParams();
+  const [search] = useSearchParams();
+  const { state } = useLocation();
+  const work = useWorkThrough(state);
+  const data = useDataStore((state) => state.data);
+  const lists = useSavedWorklists((state) => state.lists);
+  const entry = Number(search.get('variant') ?? hash);
+  if (
+    props.hashOverride === undefined &&
+    data &&
+    work?.mode === 'active' &&
+    (work.queue.source === 'custom' || work.queue.source === 'drafts') &&
+    !worklistAvailable(entry, data)
+  ) {
+    const id = (work.queue.origin.restore as { worklistId?: string }).worklistId;
+    const list = lists.find((list) => list.id === id);
+    return (
+      <article className={styles.page}>
+        <WorkThroughControl work={work} />
+        <p role="status">
+          This entry is unavailable: it was removed, archived, or aliased. You can skip it or remove
+          it from the saved list.
+        </p>
+        {list && (
+          <RemoveFromWorklist
+            key={`${list.id}:${entry}`}
+            id={list.id}
+            hash={entry}
+            className={styles.ghost}
+            label="Remove from worklist"
+          />
+        )}
+      </article>
+    );
+  }
+  return <TooltipPageContent {...props} />;
+}
+
+function TooltipPageContent({
   hashOverride,
   readOnly = false,
 }: {
@@ -252,7 +296,7 @@ function TooltipWorkspace({
   const compendiumSource = useCompendiumStore((state) => state.data);
   const { parameter, search, state: routeState, setSearch, navigate } = route;
   const data = useDataStore((state) => state.data);
-  const [remembered, setRemembered] = useState<Lang>();
+  const [remembered, setRemembered] = useRememberedWorkspaceLanguage(hashOverride === undefined);
   // The enhanced version whose own text is open in the editor (null: the base). Keyed by item and
   // by the link's own `variant`, so moving to another tooltip starts on its base, and a link to
   // an override (the queue's Next, Back, Forward) opens what it names.
@@ -454,13 +498,25 @@ function TooltipWorkspace({
   const legacyOf = (variant: number) =>
     data.categories.find((category) => category.id === archivedItemFor(variant, data)?.categoryId)
       ?.legacyType;
-  const globalsFor = (variant: number, typed = typedGlobals): ScopedMarkupGlobals =>
-    typed(
+  const globalsFor = (
+    variant: number,
+    typed = typedGlobals,
+    numberHash = variant,
+  ): ScopedMarkupGlobals => {
+    const globals = typed(
       legacyOf(variant),
       categoriesWithEnhanced(data).has(
         data.items[variant]?.categoryId ?? archivedItemFor(variant, data)?.categoryId ?? '',
       ),
     );
+    const source = typed === futureGlobals ? future : shown;
+    const model = typed === futureGlobals && futureData ? futureData : data;
+    return previewNumberGlobals(
+      source?.[numberHash]?.next ?? tooltipFor(numberHash, model),
+      lang,
+      globals,
+    );
+  };
   const textOf = (variant: number) =>
     (
       drafts[variant]?.next ??
@@ -534,7 +590,7 @@ function TooltipWorkspace({
         hash: variant,
         name: nameOf(variant),
         text: rendered ? rendered.text : previewTextOf(variant, source),
-        globals: globalsFor(variant, typed),
+        globals: globalsFor(variant, typed, rendered?.form === 'derived' ? hash : variant),
         derived: rendered?.form === 'derived',
       };
     });
@@ -542,14 +598,18 @@ function TooltipWorkspace({
   // The translate-mode English pane shows the item's first enhanced version too (owner
   // 2026-11-14). Its renders take the text and hash as primitives, so a new object costs nothing.
   const englishVariant = lang !== 'en' && activeHash === hash ? previewed[0] : undefined;
-  const englishEnhancedText =
+  const englishEnhancedRender =
     englishVariant === undefined
       ? undefined
-      : enhancedRender(hash, englishVariant, 'en', data, shown).text;
+      : enhancedRender(hash, englishVariant, 'en', data, shown);
   const englishEnhanced =
-    englishVariant === undefined || !englishEnhancedText
+    englishVariant === undefined || !englishEnhancedRender?.text
       ? undefined
-      : { hash: englishVariant, text: englishEnhancedText };
+      : {
+          hash: englishVariant,
+          text: englishEnhancedRender.text,
+          sourceHash: englishEnhancedRender.form === 'derived' ? activeHash : englishVariant,
+        };
   // Upcoming (read-only): the same views over the batch's future state instead of drafts.
   const previewViews = (() => {
     if (!future || !futureGlobals || !futureData) return enhancedViews;
@@ -654,7 +714,7 @@ function TooltipWorkspace({
       <InactivePreviewNotice hash={activeHash} phone={phone} />
       {owner && <NoteRow text={owner} />}
       {shared && <NoteRow text={shared} />}
-      <ManifestTextRow hash={activeHash} lang={lang} />
+      <ManifestTextRow hash={activeHash} lang={lang} enhancedHash={shownView?.hash} />
       {!readOnly && !batchEditing && <AssociationsPanel hash={activeHash} suspended={suspended} />}
       <HistoryPanel
         language={lang}
@@ -760,6 +820,9 @@ function TooltipWorkspace({
             ? upcoming.overlay?.[variant]?.next.text.en?.text
             : base.text.en?.text
       }
+      sourceNumbers={
+        batchEditing ? upcoming.overlay?.[variant]?.next.text.en?.numbers : base.text.en?.numbers
+      }
       conflictSource={batchEditing ? undefined : conflictSourceOf(variant)}
       terms={!readOnly && canEditLanguage(user, lang)}
       workingDiff={
@@ -839,6 +902,16 @@ function TooltipWorkspace({
               {phone && batchEditing?.saveControl}
             </>
           }
+          worklistControl={
+            user ? (
+              <AddToWorklist
+                items={[
+                  { hash: activeHash, name: itemFor(activeHash, data)?.name ?? String(activeHash) },
+                ]}
+                className={styles.ghost}
+              />
+            ) : undefined
+          }
           inactiveControl={
             !!apiUrl &&
             !readOnly &&
@@ -854,6 +927,7 @@ function TooltipWorkspace({
             )
           }
           inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
+          markHash={hash}
           draftLoader={
             draft && (
               <DraftLoader
@@ -937,6 +1011,11 @@ function TooltipWorkspace({
             aria-label={`${heading} editor (${languageLabel(lang)})`}
             className={styles.editorSection}
           >
+            {lang !== 'en' && !loading && access.reason === null && !textOf(activeHash) && (
+              <div className={styles.numberStartBar}>
+                <StartEnglishLoader hash={activeHash} />
+              </div>
+            )}
             {batchEditing?.notice && (
               <p className={batchStyles.notice} role="status">
                 {batchEditing.notice}

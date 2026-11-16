@@ -92,30 +92,15 @@ export type Plan = {
 
 const encoder = new TextEncoder();
 
-/** Raw `{{` in any text of the input: a pair the legacy converter cannot express. */
-function hasRawPair(input: LegacyInput): boolean {
-  return Object.values(input.perks).some(
-    (perk) =>
-      !isAliasStub(perk) &&
-      Object.values(perk.editor).some(
-        (text) => text?.main.includes('{{') || text?.secondary.includes('{{'),
-      ),
-  );
-}
-
 /**
  * Builds one file. Throws when the input is invalid (bad aliases or associations), when a
  * tooltip in the file has a markup error the editor reports (unresolved or cyclic import,
- * malformed base/enhanced pair; the message names the hash and language), or when a
- * legacy preset meets base/enhanced markup it cannot express (refused until the owner decides
- * the cut-over output, as the Worker refuses the push).
+ * malformed base/enhanced pair; the message names the hash and language).
  */
 export function compile(input: LegacyInput, file: ExportFile, options: CompileOptions): Plan {
   // Element-tagged text compiles exactly as its lowered form (`<solar/>Scorch`) written by hand.
-  input = lowerInput(input);
+  input = lowerInput(input, undefined, !isLegacyFile(file) && file.format.elementTags);
   if (isLegacyFile(file)) {
-    if (hasRawPair(input))
-      throw new Error('Base/enhanced markup needs the new converter; legacy presets refuse it');
     const bytes = buildLegacy(input, file.preset, {
       identical: options.identical,
       arrowFallback: file.arrowFallback,
@@ -161,7 +146,7 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
       const markupGlobals: MarkupGlobals = {
         ...globals.get(language)!,
         type: perk.type,
-        lang: text === perk.editor.en?.main ? 'en' : language,
+        lang: perk.editor[language]?.englishFallback ? 'en' : language,
       };
       const { lines, diagnostics } = parseMarkup(text, markupGlobals);
       // What the editor shows as an error (an unresolved or cyclic import, a malformed
@@ -255,8 +240,8 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   }
   if (data.includeShowcase) {
     const descriptions: Descriptions = {};
-    // Match lowerInput's consumer representation, including its removal of preview-only tint.
-    const { lines, diagnostics } = parseMarkup(lowerConsumerMarkup(showcaseText), showcaseGlobals);
+    // Match the same element-tag opt-in as ordinary rows.
+    const { lines, diagnostics } = parseMarkup(format.elementTags ? showcaseText : lowerConsumerMarkup(showcaseText), showcaseGlobals);
     if (diagnostics.length) throw new Error('Invalid built-in showcase markup');
     // English example in each selected language: self-contained, never translated by data.
     for (const language of languages)

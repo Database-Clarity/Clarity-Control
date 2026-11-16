@@ -1,4 +1,5 @@
 import { isolateHistory } from '@codemirror/commands';
+import { insertNumber, numberHost } from '../numbers/state';
 import {
   EditorSelection,
   Facet,
@@ -269,6 +270,15 @@ export function insertItem(
   item: SuggestItem,
   target: InsertionTarget,
 ): Rejection | null {
+  if (item.numberPanel) {
+    view.dispatch({ effects: closeEffect.of(null) });
+    view.state.facet(numberHost).openPanel?.();
+    return null;
+  }
+  if (item.numberId !== undefined) {
+    view.dispatch({ effects: closeEffect.of(null) });
+    return insertNumber(view, item.numberId, { from: item.from, to: item.to }) ? null : 'context';
+  }
   if (item.wrap) {
     // An element-tag wrap is judged again on the live text, by its own rules.
     const selection = tagSelection(view.state, view.state.facet(suggestHost).globals);

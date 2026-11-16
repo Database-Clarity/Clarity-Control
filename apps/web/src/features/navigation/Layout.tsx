@@ -1,3 +1,5 @@
+import { connectWorklists } from '../queue/worklists';
+import { useLeftQueue } from '../queue/useQueue';
 import { SkeletonBoundary } from '../../ui/Skeleton';
 import {
   useCallback,
@@ -26,6 +28,7 @@ import { PreviewLeaveGuard } from './PreviewLeaveGuard';
 import { ShellColumnContext, type ShellColumn } from './ShellColumnContext';
 import { ShellSlotHost, ShellSlotsProvider } from './ShellSlots';
 import { TooltipNavigation } from './TooltipNavigation';
+import { WorkspaceLanguageProvider } from '../tooltip/WorkspaceLanguage';
 import { canonicalHash, editorName, exoticPiece, itemFor } from './catalog';
 import { documentTitle } from './documentTitle';
 import { links, workspacePath } from './links';
@@ -39,10 +42,14 @@ import { RememberRoute } from '../settings/SettingsRedirect';
 import styles from './Layout.module.scss';
 
 export function Layout() {
+  useEffect(connectWorklists, []);
+  useLeftQueue();
   return (
-    <ShellSlotsProvider>
-      <LayoutContent />
-    </ShellSlotsProvider>
+    <WorkspaceLanguageProvider>
+      <ShellSlotsProvider>
+        <LayoutContent />
+      </ShellSlotsProvider>
+    </WorkspaceLanguageProvider>
   );
 }
 

@@ -1,3 +1,4 @@
+import { WorklistsManager } from '../queue/WorklistsMenu';
 import { SkeletonBoundary } from '../../ui/Skeleton';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { languageLabel } from '../../languageLabels';
@@ -15,6 +16,7 @@ import {
 import { useAuthStore } from '../../stores/auth';
 import { changeAccess, maintainerCount, roles, type Access } from './permissions';
 import styles from './Admin.module.scss';
+import { MarkTypes } from '../marks/MarkTypes';
 
 export function AdminPage() {
   const { user, loading: authLoading } = useAuthStore();
@@ -128,6 +130,10 @@ export function AdminPage() {
   return (
     <article className={styles.page}>
       <Heading />
+      <details>
+        <summary>My worklists</summary>
+        <WorklistsManager />
+      </details>
 
       {error && (
         <p role="alert">
@@ -320,6 +326,7 @@ export function AdminPage() {
           </fieldset>
         )}
       </SkeletonBoundary>
+      <MarkTypes />
     </article>
   );
 }

@@ -537,7 +537,7 @@ describe('previous/next stepping buttons', () => {
   it('wraps the keyboard/wheel help so touch devices can hide it but keeps the draft legend', () => {
     const { markup } = stepper('/t/20');
     expect(markup).toMatch(/<small id="tooltip-stepping-help"[^>]*>Type to search\. Shift\+Scroll/);
-    expect(markup).toContain('* = unsaved draft.');
+    expect(markup).toContain('A square marks unsaved changes.');
   });
 });
 

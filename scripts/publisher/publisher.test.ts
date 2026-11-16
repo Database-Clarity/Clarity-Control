@@ -21,6 +21,7 @@ import {
   validatePublishBody,
   type PublishPayload,
   type Tooltip,
+  type AliasGroups,
 } from '../../packages/core/src/index.js';
 import { LocalRepository, RefRace, requesterCredits, type Tree } from './git.js';
 import { Publisher, paths, type Options } from './publisher.js';
@@ -713,6 +714,186 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       123: { ...stamp, inactive: false },
     });
   });
+
+  async function aliasSetup() {
+    const f = await setup();
+    const items = Object.fromEntries(
+      [123, 124].map((hash) => [
+        hash,
+        {
+          hash,
+          name: 'Thing',
+          categoryId: 'weapon-trait',
+          inGameDescription: 'In game',
+          plugCategoryHash: 20,
+          isEnhanced: false,
+          exotic: false,
+        },
+      ]),
+    );
+    f.options.aliasFacts = { generatorSha: f.options.generatorSha, items };
+    f.options.facts = Object.fromEntries(
+      [123, 124].map((hash) => [hash, { name: 'Thing', type: 'Weapon Trait' }]),
+    );
+    const groups = (canonical = 123): AliasGroups => ({
+      version: 1,
+      rejected: {},
+      groups: {
+        [canonical]: {
+          members: [123, 124],
+          kind: 'S',
+          basis: { name: 'Thing', categoryId: 'weapon-trait' },
+          by: { id: '1', login: 'alice' },
+          at: '2026-11-15T00:00:00Z',
+        },
+      },
+    });
+    const config = groups();
+    f.change(D, { 'config/alias-groups.json': config });
+    const live = () =>
+      f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!.perks;
+    const aliases = () => f.pub.aliasesAt(f.git.tree(f.git.head(D)!));
+    const log = (id: string) =>
+      f.pub.read<{ result: { status: string; error?: string } }>(
+        f.git.tree(f.git.head(D)!),
+        paths(id).log,
+      )!.result;
+    return { ...f, groups, config, live, aliases, log };
+  }
+
+  it('alias groups: reject stale review, publish members, recanonicalize, and restore ungrouped text', async () => {
+    const f = await aliasSetup();
+    await f.request(A);
+    await f.pub.run();
+    expect(f.log(A).status).toBe('stale');
+    await f.request(B, [124], { 124: await publishableHash(f.tooltip, f.aliases()) });
+    await f.pub.run();
+    f.assertDone(B);
+    expect(f.live()[124]).toMatchObject({ aliasOf: 123, aliasKind: 'name' });
+    const replacement = { ...f.tooltip, hash: 124 };
+    f.change(D, { 'config/alias-groups.json': f.groups(124), 'tooltips/124.json': replacement });
+    const C = A.slice(0, -1) + '3';
+    await f.request(C, [123], { 123: await publishableHash(replacement, f.aliases()) });
+    await f.pub.run();
+    f.assertDone(C);
+    expect(f.live()[123]).toMatchObject({ aliasOf: 124, aliasKind: 'name' });
+    expect(f.live()[124]).not.toHaveProperty('aliasOf');
+    f.change(D, {
+      'config/alias-groups.json': { version: 1, groups: {}, rejected: {} },
+      'tooltips/123.json': f.tooltip,
+    });
+    const E = A.slice(0, -1) + '4';
+    await f.request(E, [124], { 124: await publishableHash(replacement, {}) });
+    await f.pub.run();
+    f.assertDone(E);
+    expect(f.live()).not.toHaveProperty('123');
+    const F = A.slice(0, -1) + '5';
+    await f.request(F, [123], { 123: await publishableHash(f.tooltip, {}) });
+    await f.pub.run();
+    f.assertDone(F);
+    expect(f.live()[123]).not.toHaveProperty('aliasOf');
+    expect(f.live()[124]).not.toHaveProperty('aliasOf');
+  });
+
+  it.each(['missing', 'revision', 'partial', 'shape', 'drift', 'config', 'json'] as const)(
+    'alias groups: fail closed on %s facts/config without touching live',
+    async (invalid) => {
+      const f = await aliasSetup();
+      const before = f.git.head(L);
+      if (invalid === 'missing') delete f.options.aliasFacts;
+      if (invalid === 'revision') f.options.aliasFacts!.generatorSha = 'c'.repeat(40);
+      if (invalid === 'partial')
+        f.options.aliasFacts!.items = { 123: f.options.aliasFacts!.items[123]! };
+      if (invalid === 'shape')
+        f.options.aliasFacts!.items = {
+          ...f.options.aliasFacts!.items,
+          124: { ...f.options.aliasFacts!.items[124]!, categoryId: undefined as unknown as string },
+        };
+      if (invalid === 'drift')
+        f.options.aliasFacts!.items = {
+          ...f.options.aliasFacts!.items,
+          124: { ...f.options.aliasFacts!.items[124]!, name: 'Changed by generator' },
+        };
+      if (invalid === 'config') f.change(D, { 'config/alias-groups.json': { version: 2 } });
+      if (invalid === 'json') {
+        const h = f.git.head(D)!,
+          t = f.git.tree(h);
+        t['config/alias-groups.json'] = f.git.writeBlob('{');
+        f.git.cas(D, h, f.git.commit(h, t, 'Invalid config'));
+      }
+      await f.request(A);
+      await f.pub.run();
+      expect(f.log(A)).toMatchObject({
+        status: 'rejected',
+        error: expect.stringContaining('Invalid alias configuration'),
+      });
+      expect(f.git.head(L)).toBe(before);
+      const bundle = f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+      expect(bundle).toHaveProperty(
+        'aliasGroups',
+        invalid === 'json' ? null : invalid === 'config' ? { version: 2 } : f.config,
+      );
+    },
+  );
+
+  it.each(['beforeS', 'liveRace', 'recovery'] as const)(
+    'alias groups: freeze the correct config on %s change',
+    async (phase) => {
+      const f = await aliasSetup();
+      await f.request(A, [124], { 124: await publishableHash(f.tooltip, f.aliases()) });
+      if (phase === 'beforeS') {
+        f.change(D, { 'config/alias-groups.json': { version: 1, groups: {}, rejected: {} } });
+        await f.pub.run();
+        expect(f.log(A).status).toBe('stale');
+        return;
+      }
+      const cas = f.git.cas.bind(f.git);
+      let changed = false;
+      f.git.cas = (ref, old, next) => {
+        if (ref === L && phase === 'recovery') throw new Error('disconnect');
+        cas(ref, old, next);
+        if (ref === paths(A).candidate && !changed) {
+          changed = true;
+          f.change(D, { 'config/alias-groups.json': { version: 1, groups: {}, rejected: {} } });
+          if (phase === 'liveRace')
+            f.change(L, {
+              'liveDescriptions.json': { perks: { ...f.live() }, databaseSettings: { race: true } },
+            });
+        }
+      };
+      if (phase === 'recovery') {
+        f.options.backoff = async () => {
+          throw new Error('runner crash');
+        };
+        await expect(f.pub.run()).rejects.toThrow('runner crash');
+        f.git.cas = cas;
+        f.options.backoff = async () => {};
+      }
+      await f.pub.run();
+      f.git.cas = cas;
+      f.assertDone(A);
+      expect(f.live()[124]).toMatchObject({ aliasOf: 123 });
+      const landed = f.git.head(L)!;
+      const receipt = f.pub.receipt(landed, A)!;
+      expect(f.pub.read(f.git.tree(receipt.sourceCommit), 'config/alias-groups.json')).toEqual(
+        f.config,
+      );
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), 'config/alias-groups.json')).toEqual({
+        version: 1,
+        groups: {},
+        rejected: {},
+      });
+      const bundle = f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+      expect(bundle.sourceCommit).toBe(f.git.head(D));
+      expect(bundle.aliasGroups).toEqual({ version: 1, groups: {}, rejected: {} });
+    },
+  );
 
   async function setup() {
     const root = mkdtempSync(join(tmpdir(), 'publisher-fixture-'));
@@ -1498,22 +1679,28 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(perks['701']).toEqual({ hash: 701, aliasOf: 123, aliasKind: 'sandbox' });
     expect(perks).toHaveProperty('123');
   });
-  it.skipIf(transport !== 'simulator')(
-    'parity verifies a picked receipt with the merged aliases and matches the live bytes',
-    async () => {
-      const f = await setup();
-      f.options.sandboxConflicts = { 700: [123, 124] };
-      f.change(D, {
-        'config/sandbox-pointers.json': {
-          version: 1,
-          pointers: { 700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' } },
-        },
-      });
+  it.skipIf(transport !== 'simulator').each(['absent', 'picks', 'groups'] as const)(
+    'parity verifies %s config at the receipt snapshot and matches the live bytes',
+    async (mode) => {
+      const f = mode === 'groups' ? await aliasSetup() : await setup();
+      if (mode === 'picks') {
+        f.options.sandboxConflicts = { 700: [123, 124] };
+        f.change(D, {
+          'config/sandbox-pointers.json': {
+            version: 1,
+            pointers: {
+              700: { to: 123, candidates: [123, 124], by: 1, at: '2026-11-12T20:00:00Z' },
+            },
+          },
+        });
+      }
       await f.request(A, [123], {
-        123: await publishableHash(f.tooltip, { 700: { to: 123, kind: 'sandbox' } }),
+        123: await publishableHash(f.tooltip, f.pub.aliasesAt(f.git.tree(f.git.head(D)!))),
       });
       await f.pub.run();
       f.assertDone(A);
+      if (mode === 'groups')
+        f.change(D, { 'config/alias-groups.json': { version: 1, groups: {}, rejected: {} } });
       const dir = mkdtempSync(join(tmpdir(), 'parity-picks-'));
       roots.push(dir);
       const config = join(dir, 'config.json');
@@ -1531,6 +1718,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       ];
       try {
         // It stops at the (absent) converter adapters, after the digest check and the live bytes.
+        vi.resetModules();
         await expect(import('./parity.js')).rejects.toThrow(/missing-adapters|Cannot find|ERR_/);
       } finally {
         process.argv = previous;
@@ -1540,6 +1728,21 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       );
     },
   );
+  it('bundle.json never copies entry marks', async () => {
+    const f = await setup();
+    for (const marks of [{ types: [], entries: { 123: [{ note: 'Retest' }] } }, 'malformed']) {
+      f.change(D, { 'config/marks.json': marks });
+      f.pub.bundle();
+      const bundle = f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+      expect(bundle).not.toHaveProperty('marks');
+      expect(JSON.stringify(bundle)).not.toContain('Retest');
+      expect(JSON.stringify(bundle)).not.toContain('malformed');
+    }
+  });
+
   it('bundle.json carries maintainer sandbox picks only while the file holds some', async () => {
     const f = await setup();
     const bundle = () =>
@@ -1817,12 +2020,13 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // Retain the afa1e8e stamp oracle; re-pin push.ts for its reviewed native refusal
     // and budget checks, the link-only empty-description guard, and the set-bonus hold; the
     // element-tag export hold is lifted (exportLegacy lowers; untagged pushes write the same bytes).
-    // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
+    // Re-pin S3's head-coherent selection, pick cleanup scope, and absent-config fast path.
     // Re-pinned for sandbox picks: push merges config/sandbox-pointers.json (core
     // mergeSandboxPointers) like the publisher, and merges live perks with core mergeLivePerks
     // (keys the picks file names are recomputed); with no picks file, as here, every byte is the same.
+    // Re-pinned for error-log redaction, and removal of the unused publisher PIN read.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', 'a8ddaf850869b50f6d1e3d3f5b98e28e0ad92947'],
+      ['apps/worker/src/push.ts', '3f96a0949a78bdad92de834b7349a5cf5c44f275'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

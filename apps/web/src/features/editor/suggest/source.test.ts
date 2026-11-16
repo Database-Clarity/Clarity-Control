@@ -5,6 +5,8 @@ import type { MarkupGlobals } from '@clarity/core';
 import { fuzzyScore, suggestContext, suggestItems, type SuggestItem } from './source';
 import { recentSuggestions, rememberSuggestion, resetRecentCache } from './recent';
 import { corpusUsage } from './usage';
+import { numberSource } from '../numbers/model';
+import { numberHost, numberExtension } from '../numbers/state';
 
 // A category with base/enhanced markup, so every option is offered (markupScope.ts).
 const globals: MarkupGlobals & { allowBaseEnhanced: boolean } = {
@@ -23,6 +25,27 @@ function menu(doc: string, explicit = true, anchor?: number, head?: number, rece
 }
 const labels = (items: SuggestItem[], category?: string) =>
   items.filter((item) => !category || item.category === category).map((item) => item.label);
+
+test('lists five unused numbers plus more, and digit queries include used identities', () => {
+  const source = numberSource('Values 10, 20, 30, 40, 50, 60, 70.', undefined, 'de');
+  const state = (doc: string) =>
+    EditorState.create({
+      doc,
+      selection: { anchor: doc.length },
+      extensions: [numberHost.of({ source, lang: 'de' }), numberExtension()],
+    });
+  const idle = state('#{=1} ');
+  const items = suggestItems(suggestContext(idle, true)!, idle, globals, []).filter(
+    (item) => item.category === 'Numbers',
+  );
+  expect(items.map((item) => item.label)).toEqual(['20', '30', '40', '50', '60', '1 more']);
+  const query = state('#{=1} 10');
+  expect(
+    suggestItems(suggestContext(query, true)!, query, globals, []).find(
+      (item) => item.numberId === 1,
+    )?.label,
+  ).toBe('10');
+});
 
 describe('what the menu would replace', () => {
   test.each([

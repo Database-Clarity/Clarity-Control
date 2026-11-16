@@ -1,0 +1,17 @@
+.source {
+  min-width: 0;
+}
+.hidden {
+  margin: 0.25em 0 0;
+  font: inherit;
+}
+.source [data-number-state='todo'] {
+  background: var(--mark);
+}
+.source [data-number-state='next'] {
+  background: var(--mark);
+  text-decoration: underline 2px solid;
+}
+.source [data-number-state='used'] {
+  text-decoration: underline 1px solid var(--text3);
+}

@@ -66,8 +66,8 @@ function aliasStub(
   const entry = aliases[alias];
   if (!entry) return undefined;
   const facts = catalog?.[alias];
-  if (catalog && entry.kind === 'frame' && !facts) {
-    throw new Error(`Missing manifest facts for frame alias ${alias}`);
+  if (catalog && (entry.kind === 'frame' || entry.kind === 'name') && !facts) {
+    throw new Error(`Missing manifest facts for ${entry.kind} alias ${alias}`);
   }
   return {
     hash: Number(alias),
@@ -93,17 +93,46 @@ export function mergeLivePerks(
   live: Readonly<Record<string, unknown>>,
   entries: Readonly<Record<string, LegacyExportEntry>>,
   picks?: { keys: Iterable<string>; aliases: Aliases; catalog?: LegacyCatalog },
+  groups?: { aliases: Aliases; catalog: LegacyCatalog },
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...live, ...entries };
-  if (!picks) return merged;
-  for (const key of picks.keys) {
+  for (const key of picks?.keys ?? []) {
     if (Object.hasOwn(entries, key)) continue;
     const current = merged[key];
     if (isRecord(current) && !('aliasOf' in current)) continue;
-    const stub = aliasStub(key, picks.aliases, picks.catalog);
+    const stub = aliasStub(key, picks!.aliases, picks!.catalog);
     const target = stub && merged[String(stub.aliasOf)];
     if (stub && isRecord(target) && !('aliasOf' in target)) merged[key] = stub;
     else delete merged[key];
+  }
+  // Only an explicit group snapshot enables name reconciliation. Ungroup leaves an empty
+  // config, so former name stubs disappear until a reviewed export restores their own text.
+  // Never restore archived/draft text, or flatten an obsolete stub into an authored record.
+  if (groups) {
+    const keys = new Set([
+      ...Object.keys(live).filter((key) => {
+        const entry = live[key];
+        return (
+          isRecord(entry) &&
+          'aliasOf' in entry &&
+          (entry.aliasKind === 'name' ||
+            (groups.aliases[key] && resolveAlias(Number(key), groups.aliases) !== entry.aliasOf))
+        );
+      }),
+      ...Object.keys(groups.aliases).filter((key) => groups.aliases[key]?.kind === 'name'),
+    ]);
+    for (const key of keys) {
+      if (Object.hasOwn(entries, key)) continue;
+      const stub = aliasStub(key, groups.aliases, groups.catalog);
+      const target = stub && merged[String(stub.aliasOf)];
+      if (stub && isRecord(target) && !('aliasOf' in target)) merged[key] = stub;
+      else {
+        const current = merged[key];
+        if (groups.aliases[key]?.kind === 'name' && isRecord(current) && !('aliasOf' in current))
+          throw new Error(`Publish canonical ${stub?.aliasOf} before grouping live tooltip ${key}`);
+        delete merged[key];
+      }
+    }
   }
   return merged;
 }
@@ -146,7 +175,8 @@ export function exportLegacy(
     for (const language of languages) {
       const translation = tooltip.text[language];
       if (!translation) continue;
-      const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
+      const englishFallback = usesEnglishFallback(tooltip, language);
+      const exported = englishFallback && english ? english : translation;
       // Element-tagged text (`<solar Scorch />`), delimited variables (`#{d}`), and the arrow
       // symbol (`<enhanced/>`) leave the editor in today's format (`<solar/>Scorch`, `#d`, `#e`):
       // every consumer reads exactly what authors wrote before those forms existed.
@@ -155,7 +185,11 @@ export function exportLegacy(
           ? resolveNumberTokens(exported.text, numberValues(english, language))
           : exported.text;
       const text = lowerConsumerMarkup(resolved);
-      editor[language] = { main: text, secondary: text };
+      editor[language] = {
+        main: text,
+        secondary: text,
+        ...(englishFallback ? { englishFallback: true } : {}),
+      };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
         lastUpdate: Date.parse(exported.updatedAt),

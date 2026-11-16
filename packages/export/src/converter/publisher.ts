@@ -7,7 +7,6 @@ import {
   Languages,
   LiveAlias,
   LivePerk,
-  descriptionConverter,
   descriptionFilter,
   expandAliases,
   getAliasOutput,
@@ -18,6 +17,7 @@ import {
   validateReferences
 } from './index.js'
 import { cleanObject } from './helpers.js'
+import { descriptionConverter } from './descriptionConverter.js'
 
 /** Hashes whose English text is the same as Bungie's own description, see bungieIdentical in ../legacy.ts */
 export type IdenticalHashes = { has(hash: string): boolean }
@@ -28,6 +28,7 @@ export const databaseConverter = (converterType: string, database: IntermediateP
   // alias stubs become full copies of their original, used for every lookup and for the checks below
   const lookup = expandAliases(database)
   const references: { [hash: string]: LiveAlias } = {}
+  const variants: { [hash: string]: LivePerk } = {}
 
   const newDatabase: { [key: string]: LivePerk } = {}
   for (const [hash, rawPerk] of Object.entries(database)) {
@@ -48,7 +49,6 @@ export const databaseConverter = (converterType: string, database: IntermediateP
     // kept for after the loop, the original may not be output
     if (isAliasStub(rawPerk) && aliasOutput === 'reference') {
       references[hash] = { hash: rawPerk.hash, aliasOf: rawPerk.aliasOf }
-      continue
     }
 
     const cleanPerk = getDataFromPerk(perk, settings.getFromPerk)
@@ -74,15 +74,23 @@ export const databaseConverter = (converterType: string, database: IntermediateP
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { editor, ...withoutEditor } = cleanPerk
-    newDatabase[hash] = {
+    const convertedPerk = {
       ...(withoutEditor as unknown as LivePerk),
       descriptions
     }
+    if (references[hash]) {
+      variants[hash] = convertedPerk
+    } else newDatabase[hash] = convertedPerk
   }
 
   // a reference is only useful if the original is part of the same output, otherwise nothing can be looked up
   for (const [hash, reference] of Object.entries(references)) {
-    if (newDatabase[reference.aliasOf] !== undefined) newDatabase[hash] = reference as unknown as LivePerk
+    const target = newDatabase[reference.aliasOf]
+    if (target === undefined) continue
+    // A reference cannot represent different text. Copy aliases whose consumer descriptions differ.
+    const variant = variants[hash]
+    newDatabase[hash] = JSON.stringify(variant.descriptions) !== JSON.stringify(target.descriptions)
+      ? variant : reference as unknown as LivePerk
   }
 
   const output = cleanObject(newDatabase)
