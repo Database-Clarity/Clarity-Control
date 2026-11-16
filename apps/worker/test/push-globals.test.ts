@@ -8,7 +8,12 @@ beforeAll(async () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it.each(['globals/sync.json', 'globals/layout.json'])(
+it.each([
+  'globals/sync.json',
+  'globals/layout.json',
+  'globals/entries/g_partial000.json',
+  'globals/live/converter-v2-test.json',
+])(
   'refuses the non-atomic fallback writer when %s exists, including partial bootstrap',
   async (path) => {
     const f = new Fixture(key);

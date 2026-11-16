@@ -2028,7 +2028,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // Re-pinned for global-metadata detection and refusal of the non-atomic fallback
     // writer. With no global metadata, the golden consumer bytes remain unchanged.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', 'b44304a130d68c32ca1c2264ebf2da144bed29ac'],
+      ['apps/worker/src/push.ts', 'b63e67d694b7b07de2f6f1e6b27806b32e5817e6'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

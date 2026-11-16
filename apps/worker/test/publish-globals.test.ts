@@ -32,15 +32,17 @@ async function fixture() {
   };
   return { f, value };
 }
-it.each(['globals/sync.json', 'globals/layout.json'])(
-  'fails closed on %s with no installed S5 proof adapter',
-  async (path) => {
-    const { f, value } = await fixture();
-    f.moveData({ [path]: {} });
-    expect((await f.request('/publish', 'POST', value, 2)).status).toBe(409);
-    expect(f.current()[`publish/requests/${opId}.json`]).toBeUndefined();
-  },
-);
+it.each([
+  'globals/sync.json',
+  'globals/layout.json',
+  'globals/entries/g_partial000.json',
+  'globals/live/converter-v2-test.json',
+])('fails closed on %s with no installed S5 proof adapter', async (path) => {
+  const { f, value } = await fixture();
+  f.moveData({ [path]: {} });
+  expect((await f.request('/publish', 'POST', value, 2)).status).toBe(409);
+  expect(f.current()[`publish/requests/${opId}.json`]).toBeUndefined();
+});
 it('requires the capability and an exact current certificate for each selected consumer', async () => {
   const { f, value } = await fixture();
   f.moveData({ 'globals/sync.json': {}, '.publisher/PIN': { capabilities: ['globalsRelease'] } });

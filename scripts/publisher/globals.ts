@@ -38,7 +38,7 @@ import {
 } from '../../packages/core/src/inactiveMoves.js';
 import { stableStringify } from '../../packages/core/src/contentHash.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
-import { resolveAlias, type Aliases } from '../../packages/core/src/aliases.js';
+import { aliasesSchema, resolveAlias, type Aliases } from '../../packages/core/src/aliases.js';
 import type { GlobalImpactSnapshot } from '../../packages/core/src/globals/impactModel.js';
 import { batchMemberSchema } from '../../packages/core/src/schedule/schemas.js';
 import {
@@ -57,7 +57,7 @@ import {
 } from '../../apps/worker/src/globals/model.js';
 import { namePaths } from '../../apps/worker/src/globals/handlers.js';
 import { appCredits, RefRace, type Tree } from './git.js';
-import type { Publisher } from './publisher.js';
+import { Publisher, type Options } from './publisher.js';
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 const currentSync = {
@@ -147,13 +147,19 @@ export class GlobalsPublisher {
     if (globalFileBytes(value) > maximum) throw new Error('Global metadata exceeds its byte limit');
     tree[path] = this.git.writeBlob(json(value));
   }
-  async sources(tree: Tree, live: string, head?: string): Promise<GlobalSources> {
+  async sources(
+    tree: Tree,
+    live: string,
+    head?: string,
+    historical = false,
+  ): Promise<GlobalSources> {
     const pin = z
       .object({ sourceSha: z.string(), sha256: z.string(), capabilities: z.array(z.string()) })
       .parse(this.read(tree, '.publisher/PIN'));
     if (
-      pin.sourceSha !== this.options.publisherSha ||
-      pin.sha256 !== this.options.publisherDigest ||
+      (!historical &&
+        (pin.sourceSha !== this.options.publisherSha ||
+          pin.sha256 !== this.options.publisherDigest)) ||
       !pin.capabilities.includes('globalsRelease')
     )
       throw new Error('Installed publisher lacks globalsRelease');
@@ -172,6 +178,35 @@ export class GlobalsPublisher {
       generator: this.options.generatorSha,
       resolverRevision: pin.sourceSha,
     });
+  }
+  /** Historical identities use their installed public generator inputs, never the
+   * running epoch. The current snapshot still requires the verified running PIN.
+   */
+  private historical(tree: Tree, sources: GlobalSources) {
+    const raw = this.publisher.read<Options>(tree, '.publisher/config.json');
+    if (!raw) {
+      if (sources.generator !== this.options.generatorSha)
+        throw new Error('Missing historical generator inputs');
+      return this;
+    }
+    const generatorSha = z
+      .string()
+      .regex(/^[a-f0-9]{40}$/)
+      .parse(raw.generatorSha);
+    if (generatorSha !== sources.generator) throw new Error('Historical generator mismatch');
+    const facts = z
+      .record(z.string(), z.object({ name: z.string(), type: z.string() }))
+      .parse(raw.facts);
+    return new GlobalsPublisher(
+      new Publisher(this.git, {
+        ...this.options,
+        generatorSha,
+        facts,
+        aliases: aliasesSchema.parse(raw.aliases),
+        aliasFacts: raw.aliasFacts,
+        sandboxConflicts: raw.sandboxConflicts,
+      }),
+    );
   }
   store(tree: Tree): GlobalStore {
     const layout = globalLayoutSchema.parse(this.read(tree, globalsReleasePaths.layout));
@@ -333,7 +368,11 @@ export class GlobalsPublisher {
     const causes = this.causes(tree);
     const prior = new Map<
       string,
-      { snapshot: GlobalImpactSnapshot; names: Record<string, string> }
+      {
+        snapshot: GlobalImpactSnapshot;
+        names: Record<string, string>;
+        published: GlobalImpactSnapshot;
+      }
     >();
     for (const path of Object.keys(tree)
       .filter((path) => path.startsWith('globals/causes/'))
@@ -350,21 +389,12 @@ export class GlobalsPublisher {
       )
         continue;
       const beforeTree = this.git.tree(cause.expectedHead),
-        beforeStore = this.store(beforeTree);
+        historical = this.historical(beforeTree, cause.beforeSources),
+        before = historical.capture(beforeTree, cause.expectedHead, cause.beforeSources.live),
+        beforeStore = before.saved;
       prior.set(cause.expectedHead, {
-        snapshot: {
-          ...captured.authored,
-          revision: cause.expectedHead,
-          aliases: this.publisher.aliasesAt(beforeTree),
-          tooltips: {
-            ...this.canonicalDocuments(
-              beforeTree,
-              'tooltips',
-              this.publisher.aliasesAt(beforeTree),
-            ),
-            ...projectGlobals(beforeStore),
-          },
-        },
+        snapshot: before.authored,
+        published: before.live,
         names: Object.fromEntries(beforeStore.entries.map((entry) => [entry.id, entry.name])),
       });
     }
@@ -394,41 +424,29 @@ export class GlobalsPublisher {
       }
     // Scheduling stays disabled for globals. Frozen upcoming inputs cannot inherit a
     // changed global silently, even when that batch has never been activated.
-    for (const upcoming of this.upcoming(tree))
-      for (const component of result) {
-        const changes = component.ids.map((id) => {
-          const entry = captured.saved.entries.find((entry) => entry.id === id)!;
-          return {
-            cause: {
-              globalId: id,
-              beforeRevision:
-                captured.published.entries.find((entry) => entry.id === id)?.revision ?? null,
-              afterRevision: entry.revision,
-            },
-            kind: entry.kind,
-            beforeName: captured.published.entries.find((entry) => entry.id === id)?.name,
-            afterName: entry.name,
-          };
-        });
-        const before = {
-          ...captured.live,
-          tooltips: {
-            ...captured.authored.tooltips,
-            ...upcoming,
-            ...projectGlobals(captured.published),
-          },
-        };
-        const after = {
-          ...before,
-          tooltips: { ...before.tooltips, ...projectGlobals(component.store) },
-        };
-        const impact = calculateGlobalImpact(before, after, changes, this.options.liveBranch);
-        if (
-          !impact.complete ||
-          impact.rows.some((row) => Object.hasOwn(upcoming, row.consumer.hash))
+    for (const upcoming of this.upcoming(tree)) {
+      const snapshot = {
+        ...captured.live,
+        tooltips: {
+          ...captured.authored.tooltips,
+          ...upcoming,
+          ...projectGlobals(captured.published),
+        },
+      };
+      const frozen = await planGlobalRelease({
+        ...captured,
+        authored: snapshot,
+        live: snapshot,
+        causes,
+        destination: this.options.liveBranch,
+      });
+      if (
+        frozen.some((component) =>
+          component.rows.some((row) => Object.hasOwn(upcoming, row.view.consumer.hash)),
         )
-          throw new Error('Sync pending: upcoming global dependencies require rebase');
-      }
+      )
+        throw new Error('Sync pending: upcoming global dependencies require rebase');
+    }
     return result;
   }
   private async validateCauses(tree: Tree, head: string) {
@@ -438,10 +456,11 @@ export class GlobalsPublisher {
       if (
         !this.git.ancestor(cause.expectedHead, head) ||
         !sameSources(
-          await this.sources(
+          await this.historical(this.git.tree(cause.expectedHead), cause.beforeSources).sources(
             this.git.tree(cause.expectedHead),
             cause.beforeSources.live,
             cause.expectedHead,
+            true,
           ),
           cause.beforeSources,
         )
@@ -480,7 +499,15 @@ export class GlobalsPublisher {
     // dependent cannot silently fall back to a different global revision.
     if (
       (!aggregate && ready.length !== relevant.length) ||
-      (aggregate && relevant.length && !ready.length)
+      (aggregate && relevant.length && !ready.length) ||
+      relevant.some(
+        (component) =>
+          !ready.includes(component) &&
+          (component.rows.some((row) => activeSelection.includes(row.view.consumer.hash)) ||
+            component.hashes.some(
+              (hash) => hash !== 2 && hash !== 3 && activeSelection.includes(hash),
+            )),
+      )
     )
       throw new Error('Sync pending: global dependency review required');
     const ids = ready.flatMap((component) => component.ids);
@@ -742,6 +769,7 @@ export class GlobalsPublisher {
             // An incomplete declaration/fallback census produces NO new proof.
           }
           try {
+            if (stableStringify(failed) === stableStringify(original)) throw error;
             this.git.cas(
               `refs/heads/${this.options.dataBranch}`,
               head,
@@ -760,6 +788,7 @@ export class GlobalsPublisher {
 
   private async intents(tree: Tree, head: string) {
     const seen = new Set<string>();
+    const current = await this.sources(tree, this.publisher.head(this.options.liveBranch), head);
     for (const path of Object.keys(tree)
       .filter((path) => path.startsWith('globals/intents/'))
       .sort()) {
@@ -780,11 +809,15 @@ export class GlobalsPublisher {
         !!access &&
         ['editor', 'maintainer'].includes(access.role) &&
         this.git.ancestor(intent.expectedHead, head) &&
+        (
+          ['config', 'live', 'upcoming', 'aliases', 'generator', 'fallback', 'resolver'] as const
+        ).every((key) => current[key] === intent.sources[key]) &&
         sameSources(
-          await this.sources(
+          await this.historical(this.git.tree(intent.expectedHead), intent.sources).sources(
             this.git.tree(intent.expectedHead),
             intent.sources.live,
             intent.expectedHead,
+            true,
           ),
           intent.sources,
         );
@@ -869,9 +902,7 @@ export class GlobalsPublisher {
    * import cycles cannot prevent the same-name body edit needed to repair them.
    * Only occupied names are certified here; no release/removal proof is produced.
    */
-  private async occupiedProofs(tree: Tree, head: string, live: string) {
-    const captured = this.capture(tree, head, live);
-    const sources = await this.sources(tree, live, head);
+  private localNames(tree: Tree, captured: ReturnType<GlobalsPublisher['capture']>) {
     const documents = [
       ...Object.values(this.documents(tree, 'tooltips')),
       ...Object.values(captured.live.tooltips),
@@ -895,6 +926,12 @@ export class GlobalsPublisher {
             for (const definition of markupDefinitions(text))
               localNames.add(`${definition.kind}:${definition.name}`);
         }
+    return localNames;
+  }
+  private async occupiedProofs(tree: Tree, head: string, live: string) {
+    const captured = this.capture(tree, head, live);
+    const sources = await this.sources(tree, live, head);
+    const localNames = this.localNames(tree, captured);
     for (const entry of captured.saved.entries) {
       if (entry.tombstone) continue;
       const path = (await namePaths(entry.kind, entry.name)).proof;
@@ -961,6 +998,7 @@ export class GlobalsPublisher {
     // Alias-member archives are not effective canonical renders. Their authored
     // declarations/references still prevent name clashes and physical removal.
     const authoredSources = { ...captured.authored, tooltips: this.documents(tree, 'tooltips') };
+    const localNames = this.localNames(tree, captured);
     // Establish resolver coverage even when there are no changed globals.
     for (const snapshot of snapshots) {
       const validation = calculateGlobalImpact(snapshot, snapshot, [], this.options.liveBranch);
@@ -1021,19 +1059,8 @@ export class GlobalsPublisher {
         (entry) => !entry.tombstone && entry.kind === request.kind && entry.name === request.name,
       );
       const occupied = owners[0];
-      const localClash = [...snapshots, authoredSources].some((snapshot) =>
-        Object.values(snapshot.tooltips).some(
-          (document) =>
-            document.hash !== 2 &&
-            document.hash !== 3 &&
-            languages.some((lang) =>
-              markupDefinitions(globalSourceText(document, lang, snapshot.mode) ?? '').some(
-                (local) =>
-                  local.name === request.name &&
-                  local.kind === (request.kind === 'variables' ? 'variable' : 'title'),
-              ),
-            ),
-        ),
+      const localClash = localNames.has(
+        `${request.kind === 'variables' ? 'variable' : 'title'}:${request.name}`,
       );
       const path = (await namePaths(request.kind, request.name)).proof;
       if (localClash || new Set(owners.map((entry) => entry.id)).size > 1) {

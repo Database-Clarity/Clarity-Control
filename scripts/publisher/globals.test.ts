@@ -10,6 +10,7 @@ import {
   observeGlobalSources,
 } from '../../packages/core/src/globalsRelease/index.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
+import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js';
 import { inactivePublishableHash } from '../../packages/core/src/inactiveMoves.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
 import { globalFileBytes, rowSchema, syncSchema } from '../../apps/worker/src/globals/model.js';
@@ -190,6 +191,11 @@ async function fixture(titleSource = '') {
     sha256: options.publisherDigest,
     capabilities: ['globalsRelease'],
   });
+  write('.publisher/config.json', {
+    generatorSha: options.generatorSha,
+    aliases: options.aliases,
+    facts: options.facts,
+  });
   git.refs.set(D, git.commit(undefined, tree));
   git.refs.set(
     L,
@@ -257,7 +263,193 @@ async function fixture(titleSource = '') {
   return { git, pub, globals, saved, published, options, current, read, change, approve, request };
 }
 
+async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
+  for (const entry of f.saved.entries)
+    f.change({
+      [(await namePaths(entry.kind, entry.name)).claim]: {
+        id: entry.id,
+        kind: entry.kind,
+        name: entry.name,
+      },
+    });
+  const storage: GlobalsStorage = {
+    async readFiles(paths, head) {
+      const tree = f.git.tree(head);
+      return paths.map((path) =>
+        tree[path]
+          ? { sha: tree[path], bytes: new TextEncoder().encode(f.git.blob(tree[path])) }
+          : null,
+      );
+    },
+    async commit(head, files) {
+      if (head !== f.git.head(D)) throw new RefRace();
+      f.change(files);
+      return f.git.head(D)!;
+    },
+  };
+  const load = async (): Promise<GlobalsContext> => ({
+    storage,
+    head: f.git.head(D)!,
+    sources: await f.globals.sources(f.current(), f.git.head(L)!),
+    access: { role: 'maintainer', login: 'alice' },
+    user: { id: 1, login: 'alice' },
+    repository: f.options.repo,
+    destinations: [f.options.liveBranch],
+  });
+  const edit = (id: string, body: string) =>
+    globalsHandler(
+      new Request(`https://api.invalid/globals/${id}/body`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expectedHead: f.git.head(D),
+          mutation: {
+            operation: 'edit',
+            id,
+            revision: f.read(`globals/entries/${id}.json`).revision,
+            lang: 'en',
+            body,
+          },
+        }),
+      }),
+      load,
+    );
+  return { load, edit };
+}
+
 describe('dependency-safe global release', () => {
+  it.each([false, true])(
+    'repairs only never-published historical bad globals (published=%s)',
+    async (published) => {
+      const f = await fixture('title Info (\nBefore\n)');
+      const port = await mutationPort(f);
+      await f.globals.drain();
+      const id = f.saved.entries.find((entry) => entry.kind === 'titles')!.id;
+      expect((await port.edit(id, 'import main from 999')).status).toBe(200);
+      if (published) {
+        const store = f.globals.store(f.current());
+        const documents = {
+          ...f.globals.documents(f.current(), 'live/tooltips'),
+          ...projectGlobals(store),
+        };
+        f.change({
+          'globals/live/converter-v2-test.json': {
+            version: 1,
+            destination: f.options.liveBranch,
+            store,
+          },
+          'live/tooltips/3.json': documents[3],
+        });
+        f.git.refs.set(
+          L,
+          f.git.commit(f.git.head(L), {
+            'liveDescriptions.json': f.git.writeBlob(
+              encode({
+                perks: exportLegacy(Object.values(documents), 0, f.options.facts),
+                databaseSettings: {},
+              }),
+            ),
+          }),
+        );
+      }
+      await expect(f.globals.drain()).rejects.toThrow('incomplete');
+      const pending = f.read('globals/sync.json').causeIds;
+      expect((await port.edit(id, 'Repaired')).status).toBe(200);
+      if (published) await expect(f.globals.drain()).rejects.toThrow('incomplete');
+      else {
+        await f.globals.drain();
+        expect(f.read('globals/sync.json').status).toBe('current');
+        expect(f.read('globals/sync.json').causeIds).toEqual([]);
+      }
+      for (const cause of pending)
+        expect(f.current()[`globals/causes/${cause}.json`]).toBeDefined();
+    },
+  );
+  it.each(['publisher', 'generator'])(
+    'reconstructs pending cause provenance across a %s upgrade',
+    async (epoch) => {
+      const f = await fixture('title Info (\nBefore\n)');
+      const port = await mutationPort(f);
+      await f.globals.drain();
+      f.approve(40);
+      const id = f.saved.entries.find((entry) => entry.kind === 'titles')!.id;
+      expect((await port.edit(id, 'After')).status).toBe(200);
+      const expectedHead = f.git.head(D)!,
+        sources = await f.globals.sources(f.current(), f.git.head(L)!);
+      const claim = (await namePaths('titles', 'Renamed')).claim;
+      f.change({
+        'globals/intents/stale.json': {
+          version: 1,
+          id: 'stale1',
+          operation: 'rename',
+          globalId: id,
+          revision: f.read(`globals/entries/${id}.json`).revision,
+          expectedHead,
+          sources,
+          name: 'Renamed',
+          by: 'alice',
+          at: new Date(now).toISOString(),
+        },
+        [claim]: { id, kind: 'titles', name: 'Renamed', intentId: 'stale1' },
+      });
+      if (epoch === 'publisher') {
+        f.options.publisherSha = 'd'.repeat(40);
+        f.options.publisherDigest = 'e'.repeat(64);
+        f.change({
+          '.publisher/PIN': {
+            sourceSha: f.options.publisherSha,
+            sha256: f.options.publisherDigest,
+            capabilities: ['globalsRelease'],
+          },
+        });
+      } else {
+        f.options.generatorSha = 'f'.repeat(40);
+        f.change({
+          '.publisher/config.json': {
+            generatorSha: f.options.generatorSha,
+            facts: f.options.facts,
+            aliases: {},
+          },
+        });
+      }
+      await f.globals.drain();
+      expect(f.read('globals/sync.json').status).toBe('current');
+      expect(f.current()['globals/intents/stale.json']).toBeUndefined();
+      expect(f.current()[claim]).toBeUndefined();
+      expect(f.read(`globals/entries/${id}.json`).name).toBe('Info');
+      expect(
+        Object.keys(f.current())
+          .filter((path) => path.startsWith('globals/reviews/'))
+          .map((path) => f.read(path))
+          .filter((row) => row.review.consumer.hash === 40)
+          .every((row) => !row.review.acknowledgement),
+      ).toBe(true);
+    },
+  );
+  it('requires explicit consumers to be ready even alongside an approved aggregate', async () => {
+    const f = await fixture();
+    const gamma = structuredClone(f.saved.entries[1]);
+    gamma.id = 'g_newgamma000';
+    gamma.name = 'Gamma';
+    gamma.revision = 'gamma1';
+    gamma.nameHistory = [];
+    f.change({
+      [`globals/entries/${gamma.id}.json`]: gamma,
+      'tooltips/41.json': tooltip(41, 'Now #Gamma'),
+    });
+    await f.globals.drain();
+    f.approve(40);
+    await f.globals.drain();
+    for (const roots of [[41], [2, 41]])
+      await expect(
+        f.globals.release(f.current(), f.git.head(D)!, roots, f.git.head(L)!),
+      ).rejects.toThrow('review required');
+    const live = f.git.head(L);
+    await f.request([2, 41]);
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(live);
+    expect(f.read(paths(A).log).result.status).toBe('rejected');
+  });
   it('retains aggregate bytes, comments, ordering, missing languages, and unrelated definitions', async () => {
     const f = await fixture();
     expect(projectGlobals(composeGlobalRelease(f.published, f.saved, []))).toEqual(
@@ -543,6 +735,9 @@ describe('dependency-safe global release', () => {
         (path) => path === 'globals/sync.json' || path.startsWith('globals/proofs/clashes/'),
       ),
     ).toBe(true);
+    const failedHead = f.git.head(D);
+    await expect(f.globals.drain()).rejects.toThrow('incomplete');
+    expect(f.git.head(D)).toBe(failedHead);
     expect((await edit('Repaired title')).status).toBe(200);
     expect(f.read('globals/sync.json').causeIds).toHaveLength(2);
     await f.globals.drain();
@@ -776,4 +971,170 @@ describe('dependency-safe global release', () => {
     expect(local.head(D)).toBe(remoteNext);
     expect(local.head(L)).toBe(remoteNext);
   });
+});
+
+it.each(['current', 'historical'])(
+  'keeps %s non-global missing imports blocking during forward repair',
+  async (input) => {
+    const f = await fixture('title Info (\nBefore\n)');
+    const port = await mutationPort(f);
+    await f.globals.drain();
+    const id = f.saved.entries.find((entry) => entry.kind === 'titles')!.id;
+    expect((await port.edit(id, 'import main from 3')).status).toBe(200);
+    await expect(f.globals.drain()).rejects.toThrow();
+    if (input === 'historical') {
+      f.change({ 'tooltips/40.json': tooltip(40, 'import main from 999') });
+      await expect(f.globals.drain()).rejects.toThrow('incomplete');
+    }
+    expect((await port.edit(id, 'Repaired')).status).toBe(200);
+    f.change({
+      'tooltips/40.json': tooltip(40, input === 'current' ? 'import main from 999' : '#Alpha'),
+    });
+    await expect(f.globals.drain()).rejects.toThrow('incomplete');
+  },
+);
+
+it('rejects an upcoming consumer affected only by another variable aggregate fallback', async () => {
+  const f = await fixture();
+  const old = projectGlobals(f.published);
+  old[2].text.de = {
+    ...cell('var Alpha = 1\n\nvar Beta = 2\n'),
+    sourceUpdatedAt: '2026-01-01T00:00:00Z',
+  };
+  let n = 0;
+  const published = inventoryGlobals(
+    [old[2], old[3]],
+    {
+      repository: 'owner/data',
+      revision: 'initial',
+      locate: (hash, lang) => ({ path: `tooltips/${hash}.json`, selector: ['text', lang, 'text'] }),
+    },
+    () => `g_fixture${++n}000`,
+  );
+  const saved = structuredClone(published);
+  const alpha = saved.entries.find((entry) => entry.name === 'Alpha')!;
+  alpha.revision = 'later';
+  alpha.definitions.en!.revision = 'later';
+  alpha.definitions.en!.body = '100';
+  alpha.definitions.en!.updatedAt = '2026-11-01T00:00:00Z';
+  const docs = Object.fromEntries(
+    Object.keys(f.current())
+      .filter((path) => /^live\/tooltips\/\d+.json$/.test(path))
+      .map((path) => {
+        const doc = f.read(path) as Tooltip;
+        return [doc.hash, doc];
+      }),
+  );
+  Object.assign(docs, projectGlobals(published));
+  f.git.refs.set(
+    L,
+    f.git.commit(f.git.head(L), {
+      'liveDescriptions.json': f.git.writeBlob(
+        encode({
+          perks: exportLegacy(Object.values(docs), 0, f.options.facts),
+          databaseSettings: {},
+        }),
+      ),
+    }),
+  );
+  f.change({
+    'globals/layout.json': { version: 1, aggregates: published.aggregates },
+    'globals/live/converter-v2-test.json': {
+      version: 1,
+      destination: 'converter-v2-test',
+      store: published,
+    },
+    'tooltips/2.json': projectGlobals(saved)[2],
+    'live/tooltips/2.json': projectGlobals(published)[2],
+    ...Object.fromEntries(
+      saved.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+    ),
+    'schedule/batches/frozen/tooltips/42.json': {
+      hash: 42,
+      base: tooltip(42, 'unrelated'),
+      baseCommit: f.git.head(D),
+      proposed: { ...tooltip(42, 'unrelated'), text: { en: cell('unrelated'), de: cell('#Beta') } },
+      updatedAt: '2026-01-01T00:00:00Z',
+      updatedBy: 'alice',
+    },
+  });
+  const capture = f.globals.capture(f.current(), f.git.head(D)!, f.git.head(L)!);
+  const proposed = f.read('schedule/batches/frozen/tooltips/42.json').proposed;
+  const before = {
+    ...capture.live,
+    tooltips: { ...capture.authored.tooltips, 42: proposed, ...projectGlobals(published) },
+  };
+  const after = {
+    ...before,
+    tooltips: {
+      ...before.tooltips,
+      ...projectGlobals(composeGlobalRelease(published, saved, [alpha.id])),
+    },
+  };
+  const census = calculateGlobalImpact(
+    before,
+    after,
+    [
+      {
+        kind: 'titles',
+        beforeName: 'Probe',
+        afterName: 'Probe',
+        cause: { globalId: alpha.id, beforeRevision: 'initial', afterRevision: 'later' },
+      },
+    ],
+    f.options.liveBranch,
+  );
+  expect(census.complete).toBe(true);
+  const row = census.rows.find((row) => row.consumer.hash === 42 && row.consumer.lang === 'de')!;
+  expect(row.before?.rendered).not.toBe(row.after?.rendered);
+  await expect(f.globals.plan(f.current(), f.git.head(D)!, f.git.head(L)!)).rejects.toThrow(
+    'upcoming',
+  );
+});
+
+it('withholds a title-local name proof and keeps real S2 from creating a conflicting entry', async () => {
+  const f = await fixture('title Info (\nvar Local = 1\n#Local\nText\n)');
+  const port = await mutationPort(f);
+  f.change({
+    'globals/catalog.json': { version: 1, lastPage: 0 },
+    'globals/pages/p0.json': { version: 1, ids: [], nextCursor: null },
+  });
+  const sources = await f.globals.sources(f.current(), f.git.head(L)!);
+  f.change({
+    'globals/retries/local.json': {
+      version: 1,
+      type: 'name-proof',
+      id: 'local',
+      operation: 'create',
+      kind: 'variables',
+      name: 'Local',
+      globalId: null,
+      revision: null,
+      expectedHead: f.git.head(D),
+      sources,
+      by: 'alice',
+      at: new Date(now).toISOString(),
+    },
+  });
+  await f.globals.drain();
+  const response = await globalsHandler(
+    new Request('https://api.invalid/globals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedHead: f.git.head(D),
+        mutation: {
+          operation: 'create',
+          kind: 'variables',
+          name: 'Local',
+          lang: 'en',
+          body: '999',
+        },
+      }),
+    }),
+    port.load,
+  );
+  expect(f.current()[(await namePaths('variables', 'Local')).proof]).toBeUndefined();
+  expect(response.status).toBe(202);
+  expect(f.globals.store(f.current()).entries.some((entry) => entry.name === 'Local')).toBe(false);
 });

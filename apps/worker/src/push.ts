@@ -22,7 +22,6 @@ import {
   type LegacyCatalog,
   type Permissions,
   type Tooltip,
-  type GlobalPublicationRead,
 } from '@clarity/core';
 import { catalog, type AliasScope } from './catalog.js';
 import { blobsPerQuery, RefRace, type GitHub } from './github.js';
@@ -32,7 +31,6 @@ import { stampUploads } from './stamp.js';
 import { consumerAliasScope, pushSandboxPicks, storedSandboxPointers } from './sandboxPointers.js';
 import { storedInactiveMoves } from './inactiveMoves.js';
 import type { Identity } from './types.js';
-import { assertGlobalsPublication } from './globals/guards.js';
 
 /**
  * Not a product limit: a request this large is far past every tooltip there is. The Worker reads
@@ -109,9 +107,10 @@ async function loadAtHead(
       'globals/layout.json',
     ],
     ['globals/sync.json', 'globals/layout.json'],
+    [{ path: 'globals', depth: 1 }],
   );
-  if (metadata.head !== head) throw new HttpError(409, 'Data branch changed; retry push-live');
-  const [pointers, movesFile, groups, globalSync, globalLayout] = metadata.files;
+  if (metadata.head !== head) throw new RefRace('Data branch changed');
+  const [pointers, movesFile, groups] = metadata.files;
   const scope = groups
     ? await consumerAliasScope(github, groups, pointers, hashes, true)
     : undefined;
@@ -169,7 +168,7 @@ async function loadAtHead(
     pushedSchema.safeParse((await github.requiredFile('live/pushed.json', head)).value).data ?? {};
   const pickKeys = picks.keys;
   return {
-    globals: !!globalSync || !!globalLayout,
+    globals: metadata.trees[0] !== null,
     scope,
     head,
     aliases,
@@ -189,7 +188,6 @@ export async function pushLive(
   request: Request,
   github: GitHub,
   user: Identity,
-  globalPublication?: GlobalPublicationRead,
 ): Promise<Response> {
   const { hashes, expected } = await body(request, pushSchema);
   let liveCommit: string | undefined;
@@ -212,33 +210,24 @@ export async function pushLive(
     const config = loaded?.head === head ? loaded.config : await permissions(github, head);
     requireAccess(config, user, roles);
     if (loaded?.head !== head) {
-      loaded = await loadAtHead(
-        github,
-        head,
-        config,
-        hashes,
-        async () => (generated ??= await catalog(github.env, github)),
-        expected,
-      );
+      try {
+        loaded = await loadAtHead(
+          github,
+          head,
+          config,
+          hashes,
+          async () => (generated ??= await catalog(github.env, github)),
+          expected,
+        );
+      } catch (error) {
+        if (error instanceof RefRace) continue;
+        throw error;
+      }
     }
     canonicalHashes = loaded.canonicalHashes;
     if (loaded.globals) {
       // The legacy two-branch writer cannot atomically pin dependency reviews and
       // write live. Global repositories must use the publisher transaction.
-      // Read/validate even an installed adapter, so callers cannot mistake it for
-      // authorization to restore this fallback writer.
-      if (globalPublication) {
-        const consumers = loaded.tooltips.flatMap((tooltip) =>
-          Object.keys(tooltip.text).map((lang) => ({
-            hash: tooltip.hash,
-            lang,
-            destination: github.env.LIVE_BRANCH,
-          })),
-        );
-        const proof = await globalPublication(head, consumers);
-        for (const [index, consumer] of consumers.entries())
-          assertGlobalsPublication(proof.sources, proof.sync, proof.certificates[index], consumer);
-      }
       throw new HttpError(409, 'Global publication requires the dependency-safe publisher');
     }
     const { tooltips, exportedHashes, pushed } = loaded;

@@ -4,7 +4,8 @@ import { globalStoreSchema, type GlobalRecord, type GlobalStore } from '../globa
 import { projectGlobals } from '../globals/projection.js';
 
 /** Retain all existing literal bytes and recipes; add only newly introduced declarations.
- * Empty layouts/languages must be bootstrapped with real metadata, never invented here.
+ * New language cells start empty, using the real entry's metadata; existing
+ * layout bytes and metadata remain intact.
  */
 export function reconcileGlobalStore(
   layout: GlobalStore['aggregates'],

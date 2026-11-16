@@ -23,7 +23,12 @@ export interface GlobalReleaseInput {
   /** All queued and previously materialized causes for outstanding revisions. */
   causes: GlobalCause[];
   destination: string;
-  priorAuthored?: { snapshot: GlobalImpactSnapshot; names: Record<string, string> }[];
+  priorAuthored?: {
+    snapshot: GlobalImpactSnapshot;
+    names: Record<string, string>;
+    /** Actual published inputs at this historical cause, validated independently. */
+    published: GlobalImpactSnapshot;
+  }[];
 }
 export interface GlobalReleaseRow {
   id: string;
@@ -80,13 +85,15 @@ function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
       { ...input.authored, tooltips: { ...input.authored.tooltips, ...beforeGlobals } },
       { ...input.authored, tooltips: { ...input.authored.tooltips, ...afterGlobals } },
       undefined,
+      undefined,
     ],
     ...(input.priorAuthored ?? []).map(
-      ({ snapshot, names }) =>
+      ({ snapshot, names, published }) =>
         [
           snapshot,
           { ...input.authored, tooltips: { ...input.authored.tooltips, ...afterGlobals } },
           names,
+          published,
         ] as const,
     ),
     [
@@ -98,9 +105,12 @@ function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
         tooltips: afterLive,
       },
       undefined,
+      undefined,
     ],
   ] as const;
-  return pairs.map(([before, after, names]) => {
+  return pairs.map(([before, after, names, published]) => {
+    if (published && !calculateGlobalImpact(published, published, [], input.destination).complete)
+      throw new Error('Sync pending: historical published closure is incomplete');
     let observedBefore = before;
     let result = calculateGlobalImpact(
       observedBefore,
@@ -108,11 +118,14 @@ function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
       changes(input, ids, names),
       input.destination,
     );
-    if (!result.complete && names) {
+    if (!result.complete && names && published) {
       // A failed, never-published intermediate definition has no valid render.
       // Keep its authored consumers and causes, and review them against the real
       // published baseline. Current/after inputs must still resolve completely.
-      observedBefore = { ...before, tooltips: { ...before.tooltips, ...beforeGlobals } };
+      observedBefore = {
+        ...before,
+        tooltips: { ...before.tooltips, 2: published.tooltips[2], 3: published.tooltips[3] },
+      };
       result = calculateGlobalImpact(
         observedBefore,
         after,

@@ -171,7 +171,10 @@ export async function publish(
         'globals/layout.json',
       ],
       ['globals/sync.json', 'globals/layout.json'],
-      switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
+      [
+        ...(switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 as const }] : []),
+        { path: 'globals', depth: 1 },
+      ],
     );
     requireAccess(permissionsSchema.parse(snapshot.files[0]?.value), user, [
       'maintainer',
@@ -241,7 +244,7 @@ export async function publish(
       refuseHeldSetBonuses(
         active.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
       );
-      refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
+      if (switches.scheduled()) refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
       for (const hash of value.hashes) {
         if (isMovedInactive(resolveAlias(hash, aliases), moves)) {
           if ((await inactiveRemovalHash(resolveAlias(hash, aliases))) !== value.expected[hash])
@@ -258,7 +261,7 @@ export async function publish(
           throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
         }
       }
-      if (snapshot.files[7] || snapshot.files[8]) {
+      if (snapshot.trees[switches.scheduled() ? 1 : 0] !== null) {
         const capabilities = (pin as { capabilities?: unknown } | undefined)?.capabilities;
         if (
           !Array.isArray(capabilities) ||
