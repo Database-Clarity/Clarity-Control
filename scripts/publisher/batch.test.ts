@@ -975,7 +975,7 @@ describe('scheduled batches (simulator)', () => {
   );
 
   it.each(['schedule/due.json', 'schedule/index.json'])(
-    'code P2: a malformed %s (not even JSON) is left for repair and never stops the drain',
+    'code P2: a malformed %s never stops the drain, and the derived index is refreshed',
     async (path) => {
       const f = await setup();
       await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
@@ -988,7 +988,9 @@ describe('scheduled batches (simulator)', () => {
       const batch = f.batchFile();
       expect(batch.status).toBe('published');
       expect(f.receipts()).toHaveLength(1);
-      expect(f.tree()[path]).toBe(broken);
+      if (path === 'schedule/index.json')
+        expect(f.read<ScheduleIndex>(path)!.batches[0].status).toBe('published');
+      else expect(f.tree()[path]).toBe(broken);
     },
   );
 

@@ -475,6 +475,106 @@ describe('offline schedule preparation', () => {
     await f.pub.run();
     expect(f.pub.receipt(f.pub.head('converter-v2-test'), R)).toBeUndefined();
   });
+  it('keeps a real converter rejection of a translator proposal FAILED and restores accepted publication', async () => {
+    const f = await fixture();
+    f.admit('schedule');
+    await f.prep.drain();
+    const original = f.read(paths(R).request),
+      stored = f.read(schedulePaths.member(B, 123));
+    const next = structuredClone(f.proposed);
+    next.text.fr = {
+      text: 'import main from 124',
+      updatedAt: AT,
+      updatedBy: 'bob',
+      sourceUpdatedAt: next.text.en!.updatedAt,
+    };
+    f.admit('save', [{ hash: 123, base: f.proposed, next }], { id: 2, login: 'bob' });
+    await f.prep.drain();
+    expect(f.request(S).status).toBe('failed');
+    expect(f.request(S).retryable).toBe(false);
+    expect(f.request(S).result).toBeUndefined();
+    expect(f.batch().status).toBe('scheduled');
+    expect(f.read(paths(R).request)).toEqual(original);
+    expect(f.read(schedulePaths.member(B, 123))).toEqual(stored);
+    await f.pub.run();
+    expect(f.batch().status).toBe('published');
+  });
+  it('records converter content rejection of a schedule as non-retryable', async () => {
+    const f = await fixture();
+    const member = f.read<{ proposed: Tooltip }>(schedulePaths.member(B, 123));
+    member.proposed.text.fr = {
+      text: 'import main from 124',
+      updatedAt: AT,
+      updatedBy: 'alice',
+      sourceUpdatedAt: member.proposed.text.en!.updatedAt,
+    };
+    f.change({ [schedulePaths.member(B, 123)]: member });
+    f.admit('schedule');
+    await f.prep.drain();
+    expect(f.request().status).toBe('needs_attention');
+    expect(f.request().retryable).toBe(false);
+  });
+  it.each(['revoked', 'collision', 'withdrawn'])(
+    'isolates a failed translator restoration (%s) and commits its reasons',
+    async (fault) => {
+      const f = await fixture();
+      f.admit('schedule');
+      await f.prep.drain();
+      f.admit('save', [{ hash: 123, base: f.proposed, next: tip('invalid translator English') }], {
+        id: 2,
+        login: 'bob',
+      });
+      if (fault === 'revoked')
+        f.change({
+          'config/permissions.json': {
+            users: { 2: { login: 'bob', role: 'translator', languages: ['fr'] } },
+          },
+        });
+      else if (fault === 'collision') f.change({ [paths(R).log]: { terminal: true } });
+      else f.change({ [scheduleIntentPaths.publication(B)]: { invalid: true } });
+      await expect(f.prep.drain()).resolves.toBeUndefined();
+      expect(f.request(S).status).toBe('needs_attention');
+      expect(f.request(S).reasons?.some((r) => r.reason.includes('could not be restored'))).toBe(
+        true,
+      );
+      expect(f.batch().claim).toBeNull();
+      expect(f.read<{ entries: unknown[] }>('schedule/due.json').entries).toHaveLength(0);
+      await expect(f.pub.run()).resolves.toBeUndefined();
+    },
+  );
+  it('commits failure and refreshes index after rejecting a malformed accepted member', async () => {
+    const f = await fixture();
+    f.admit('schedule');
+    f.change({ [schedulePaths.member(B, 123)]: { invalid: true } });
+    await f.prep.drain();
+    expect(f.request().status).toBe('needs_attention');
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.read<{ entries: unknown[] }>('schedule/due.json').entries).toHaveLength(0);
+    expect(
+      f.read<{ batches: { hashes: number[] }[] }>('schedule/index.json').batches[0].hashes,
+    ).toEqual([123]);
+  });
+  it('repairs malformed due metadata from accepted and preparing batch states in the output CAS', async () => {
+    const f = await fixture();
+    f.admit('schedule');
+    const head = f.pub.head('editor-data'),
+      tree = f.git.tree(head);
+    tree['schedule/due.json'] = f.git.writeBlob('{');
+    f.git.cas(D, head, f.git.commit(head, tree, 'malformed due trigger'));
+    await f.prep.drain();
+    expect(f.request().status).toBe('completed');
+    expect(f.read<{ entries: { opId: string }[] }>('schedule/due.json').entries[0].opId).toBe(R);
+  });
+  it('does not report a corrupt PIN or repository snapshot as a rejected translator proposal', async () => {
+    const f = await fixture();
+    f.admit('schedule');
+    await f.prep.drain();
+    f.admit('save', [{ hash: 123, base: f.proposed, next: f.proposed }], { id: 2, login: 'bob' });
+    f.change({ '.publisher/PIN': { invalid: true } });
+    await f.prep.drain();
+    expect(f.request(S).status).toBe('needs_attention');
+    expect(f.request(S).result).toBeUndefined();
+  });
   it('reconciles an acknowledged-late CAS without applying twice', async () => {
     const f = await fixture();
     f.admit('schedule');

@@ -124,6 +124,7 @@ export async function runPipeline(
     const initial = snapshot('initial');
     // In write mode, commit the coalesced materialization before the first public
     // bundle. Dry-run materialization remains in the disposable simulator below.
+    if (!enabled) publishBundle(initial, options);
     const bases = gitAt(initial.path, ['for-each-ref', '--format=%(objectname)', 'refs/heads/'])
       .trim()
       .split('\n');
@@ -153,8 +154,6 @@ export async function runPipeline(
       const publisher = new Publisher(initial, options);
       // GITHUB_TOKEN commits do not trigger another workflow: prepare, globals, bundle,
       // and publication all happen in this serialized run, after reading latest heads.
-      // A simulation may bundle publicly only BEFORE its disposable materialization.
-      if (!enabled) publishBundle(initial, options);
       await new SchedulePreparer(publisher).drain();
       await new GlobalsPublisher(publisher).drain();
       if (enabled) publishBundle(initial, options);
