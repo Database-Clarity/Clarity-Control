@@ -57,6 +57,7 @@ export const FinderPicker = memo(function FinderPicker({
   disabled = false,
   icons = false,
   empty,
+  columns = false,
 }: {
   label: string;
   sections: PickerSection[];
@@ -68,9 +69,13 @@ export const FinderPicker = memo(function FinderPicker({
   icons?: boolean;
   /** The trigger's text when nothing is listed. */
   empty?: string;
+  /** A sectioned list too tall for one column: on a desktop its groups sit in two columns. */
+  columns?: boolean;
 }) {
   const base = useId();
   const phone = useMedia(phoneQuery);
+  // Two columns scroll together, so the popup (not the list) is the scroll container.
+  const twoColumns = columns && !phone;
   const trigger = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);
@@ -106,24 +111,26 @@ export const FinderPicker = memo(function FinderPicker({
     const own = anchor.getBoundingClientRect();
     // On a phone the list spans the trigger's control row (the finder's inner width), from the
     // row's left edge: a narrow trigger beside the stepper still gets a readable list. On a
-    // desktop it starts at the trigger and is at least 15rem wide.
+    // desktop it starts at the trigger and is at least 15rem wide (30rem in two columns).
     const row = phone ? anchor.parentElement?.getBoundingClientRect() : undefined;
     const rect = row ? { top: own.top, bottom: own.bottom, left: row.left, right: row.right } : own;
     const area = visibleArea(window);
     const input = {
       trigger: rect,
       area,
-      width: row ? row.width : Math.max(own.width, scaledPx(15 * 16)),
+      width: row ? row.width : Math.max(own.width, scaledPx(twoColumns ? 30 * 16 : 15 * 16)),
       align: 'start' as const,
       gap: 2,
     };
-    // At most about 14 rows: a long list (every exotic weapon) scrolls inside.
-    const cap = scaledPx(400);
-    const natural = Math.min(cap, (list.current?.scrollHeight ?? 0) + 2);
+    // At most 60rem (the room by the trigger limits it first): a long list scrolls inside.
+    const cap = scaledPx(960);
     const below = placeAnchored(input);
+    // Balanced columns are as tall as their width makes them: measure at the final width.
+    if (twoColumns) element.style.width = `${below.width}px`;
+    const natural = Math.min(cap, (list.current?.scrollHeight ?? 0) + 2);
     const placed = natural > below.maxHeight ? placeAnchored({ ...input, height: natural }) : below;
     applyPlacement(element, { ...placed, maxHeight: Math.min(placed.maxHeight, cap) });
-  }, [phone]);
+  }, [phone, twoColumns]);
   useLayoutEffect(() => {
     if (!open) return;
     place();
@@ -134,12 +141,16 @@ export const FinderPicker = memo(function FinderPicker({
   // highlights: revealing a clipped row under the pointer would make the list jump.
   useLayoutEffect(() => {
     if (!open || !highlight.scroll) return;
-    const element = list.current;
-    const row = element?.querySelector<HTMLElement>(`[id="${optionId(active)}"]`);
+    const element = twoColumns ? popup.current : list.current;
+    const row = list.current?.querySelector<HTMLElement>(`[id="${optionId(active)}"]`);
     if (!element || !row) return;
     const top = row.offsetTop;
     const bottom = top + row.offsetHeight;
-    if (top < element.scrollTop) element.scrollTop = top;
+    // One column pins the group heading (the row list's previous sibling) at the top: keep the
+    // row clear of it.
+    const heading = twoColumns ? null : row.parentElement?.previousElementSibling;
+    const pinned = heading instanceof HTMLElement ? heading.offsetHeight : 0;
+    if (top - pinned < element.scrollTop) element.scrollTop = top - pinned;
     else if (bottom > element.scrollTop + element.clientHeight)
       element.scrollTop = bottom - element.clientHeight;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -318,6 +329,7 @@ export const FinderPicker = memo(function FinderPicker({
             ref={popup}
             className={styles.popup}
             data-phone={phone || undefined}
+            data-columns={twoColumns || undefined}
             {...{ [overlayPartAttribute]: '' }}
             // A press on the list (its scrollbar too) keeps focus, and so the list, on the trigger.
             onMouseDown={(event) => event.preventDefault()}
