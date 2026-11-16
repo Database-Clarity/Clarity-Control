@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
-import { GitHub } from '../src/github.js';
+import { GitHub, blobSha } from '../src/github.js';
 import worker from '../src/index.js';
 import { signToken } from '../src/crypto.js';
 import { Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
@@ -12,6 +12,87 @@ beforeAll(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+it('retains and restores exact CRLF/non-ASCII JSON through existing blob references', async () => {
+  const fixture = new Fixture(key);
+  const github = new GitHub(fixture.env);
+  const raw =
+    JSON.stringify({ ...tooltip('Café — Ελληνικά'), hash: 42 }, null, 4).replaceAll('\n', '\r\n') +
+    '\r\n';
+  const oid = await blobSha(raw);
+  const stored = new Map([['tooltips/42.json', oid]]);
+  let trees = 0;
+  vi.spyOn(github, 'request').mockImplementation(async (path, method = 'GET', value) => {
+    if (path.startsWith('/contents/')) {
+      const name = path.slice('/contents/'.length).split('?')[0]!;
+      return stored.has(name)
+        ? Response.json({
+            sha: stored.get(name),
+            encoding: 'base64',
+            content: Buffer.from(raw).toString('base64'),
+          })
+        : new Response(null, { status: 404 });
+    }
+    if (path.startsWith('/git/commits/') && method === 'GET')
+      return Response.json({ tree: { sha: sha(1) } });
+    if (path === '/git/trees') {
+      trees++;
+      const input = value as { tree: { path: string; sha?: string | null; content?: string }[] };
+      for (const entry of input.tree) {
+        expect(entry.content).toBeUndefined();
+        if (entry.sha === null) stored.delete(entry.path);
+        else {
+          expect(entry.sha).toBe(oid);
+          stored.set(entry.path, entry.sha!);
+        }
+      }
+      return Response.json({ sha: sha(20 + trees) });
+    }
+    if (path === '/git/commits') return Response.json({ sha: sha(30 + trees) });
+    if (path.startsWith('/git/refs/heads/')) return new Response(null, { status: 200 });
+    throw new Error(path);
+  });
+  const original = await github.file('tooltips/42.json', sha(1));
+  expect(original!.sha).toBe(oid);
+  const archive = `migration-archives/alias-groups/${sha(1)}/42/42.json`;
+  const first = await github.commit(
+    sha(1),
+    {},
+    'Archive',
+    { id: 1, login: 'alice' },
+    { blobRefs: { [archive]: original!.sha }, deletions: ['tooltips/42.json'] },
+  );
+  expect(stored.get(archive)).toBe(oid);
+  expect(await github.file('tooltips/42.json', first)).toBeNull();
+  const retained = await github.file(archive, first);
+  const restored = await github.commit(
+    first,
+    {},
+    'Restore',
+    { id: 1, login: 'alice' },
+    { blobRefs: { 'tooltips/42.json': retained!.sha } },
+  );
+  expect((await github.file('tooltips/42.json', restored))!.sha).toBe(oid);
+  expect(stored.get(archive)).toBe(oid);
+  expect(await blobSha(raw)).toBe(stored.get('tooltips/42.json'));
+});
+
+it('rejects invalid or conflicting blob writes before any request', async () => {
+  const github = new GitHub(new Fixture(key).env);
+  const request = vi.spyOn(github, 'request');
+  const cases: NonNullable<Parameters<GitHub['commit']>[4]>[] = [
+    { blobRefs: { '../bad': sha(1) } },
+    { blobRefs: { 'tooltips/42.json': 'bad' } },
+    { blobRefs: { 'tooltips/42.json': sha(1) }, deletions: ['tooltips/42.json'] },
+    { blobRefs: { 'tooltips/42.json': sha(1) }, rawFiles: { 'tooltips/42.json': '{}' } },
+  ];
+  for (const options of cases) {
+    await expect(
+      github.commit(sha(1), {}, 'No', { id: 1, login: 'alice' }, options),
+    ).rejects.toMatchObject({ status: 400 });
+  }
+  expect(request).not.toHaveBeenCalled();
 });
 
 it('isolates immutable files by head, path, repository, and size mode, and returns private copies', async () => {

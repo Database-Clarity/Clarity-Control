@@ -1,6 +1,6 @@
 {
-  "sourceSha": "f3eb436b50a3d7ffa9fcdbaa170b89a230ac64b1",
-  "sha256": "706bf23064c4a894f8ad278fbfb5939d3b95895b0b85f3b209c615a1b196d043",
+  "sourceSha": "6e416394a054fbef6c22c2ba150de492219d9d4f",
+  "sha256": "e68ec91a74a4923e60788d552af92c265d39c6fc932b0bccad83a5789f95514c",
   "capabilities": [
     "elementTags",
     "sandboxPointers",
@@ -9,6 +9,7 @@
     "prismaticTags",
     "inactiveMoves",
     "arrowSymbol",
-    "numberTokens"
+    "numberTokens",
+    "aliasGroups"
   ]
 }

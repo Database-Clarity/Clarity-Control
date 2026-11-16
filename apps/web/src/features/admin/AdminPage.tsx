@@ -15,6 +15,7 @@ import {
 import { useAuthStore } from '../../stores/auth';
 import { changeAccess, maintainerCount, roles, type Access } from './permissions';
 import styles from './Admin.module.scss';
+import { MarkTypes } from '../marks/MarkTypes';
 
 export function AdminPage() {
   const { user, loading: authLoading } = useAuthStore();
@@ -320,6 +321,7 @@ export function AdminPage() {
           </fieldset>
         )}
       </SkeletonBoundary>
+      <MarkTypes />
     </article>
   );
 }

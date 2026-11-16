@@ -10,6 +10,7 @@ import {
   loadSandboxPerkText,
   manifestSummary,
   manifestText,
+  manifestWordDiff,
   resetSandboxPerkText,
   type SandboxPerkText,
 } from './manifestText';
@@ -52,9 +53,40 @@ const items = {
     itemName: 'Sweet Business',
     inGameDescription: 'Holding down the trigger boosts rate of fire and range.',
   }),
+  8: item(8, {
+    baseHash: 1,
+    inGameDescription: 'Kills grant greatly increased damage.\nStacks 3x.',
+  }),
+  9: item(9, {
+    baseHash: 7,
+    inGameDescription: 'Holding down the trigger boosts rate of fire and range.',
+  }),
+  10: item(10, { baseHash: 2, sandboxPerkHashes: [12] }),
+  11: item(11, { baseHash: 1, inGameDescription: 'Another enhanced variant.' }),
+  20: item(20, { enhancedHash: 21, inGameDescription: 'Frame text.' }),
+  21: item(21, { baseHash: 20, inGameDescription: 'Enhanced frame text.' }),
 };
 
 describe('manifestText', () => {
+  it('groups changed phrases and separates deletion from insertion', () => {
+    const parts = manifestWordDiff(
+      'Reduces recoil deviation for the weapon.',
+      'Greatly improves recoil direction.',
+    );
+    expect(parts.map((part) => part.text).join('')).not.toContain('ReducesGreatly');
+    expect(
+      parts
+        .filter((part) => part.kind === 'delete')
+        .map((part) => part.text)
+        .join(''),
+    ).toContain('deviation for the weapon.');
+    expect(
+      parts
+        .filter((part) => part.kind === 'insert')
+        .map((part) => part.text)
+        .join(''),
+    ).toContain('direction.');
+  });
   it('prefers the entry’s own description, even when it has sandbox perks', () => {
     expect(manifestText(items[1], perks)).toEqual({
       kind: 'own',
@@ -152,6 +184,49 @@ describe('ManifestTextRow', () => {
     resetNamesForTests();
   });
   const show = (hash: number) => act(async () => root.render(<ManifestTextRow hash={hash} />));
+
+  it('shows both sides of a pair, diffs words, and captions identical text', async () => {
+    await show(1);
+    expect(host.textContent).toContain('Kills grant increased damage.');
+    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    await show(8);
+    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    await show(9);
+    expect(host.textContent).toContain('Enhanced: same text');
+    expect(host.querySelector('ins')).toBeNull();
+    await show(4);
+    expect(host.textContent).not.toContain('Enhanced');
+    expect(host.textContent).not.toContain('Kills grant');
+  });
+
+  it('diffs the sandbox fallback for both members of a pair', async () => {
+    await show(2);
+    expect(host.textContent).toContain(perks[11][1]);
+    expect(host.querySelector('del')?.textContent).toContain('Rapid');
+    expect(host.querySelector('ins')?.textContent).toContain('While');
+    await show(4);
+    expect(host.querySelector('del')).toBeNull();
+  });
+
+  it('follows the preview variant picker, and resets the pair when stepping away', async () => {
+    await act(async () => root.render(<ManifestTextRow hash={1} enhancedHash={11} />));
+    expect(host.querySelector('ins')?.textContent).toContain('Another');
+    await act(async () => root.render(<ManifestTextRow hash={1} enhancedHash={8} />));
+    expect(host.querySelector('ins')?.textContent).toContain('greatly');
+    expect(host.textContent).not.toContain('Another');
+    await show(4);
+    expect(host.querySelector('ins')).toBeNull();
+  });
+
+  it('uses the generator primary enhanced frame even when editing aliases hide it', async () => {
+    useDataStore.setState((state) => ({
+      data: { ...state.data!, aliases: { 21: { to: 20, kind: 'frame' } } },
+    }));
+    await show(20);
+    expect(host.querySelector('ins')?.textContent).toContain('Enhanced');
+    await show(21);
+    expect(host.querySelector('ins')?.textContent).toContain('Enhanced');
+  });
 
   it('localises arriving text, preserves missing rows, and clears it when switching to English', async () => {
     vi.stubGlobal(

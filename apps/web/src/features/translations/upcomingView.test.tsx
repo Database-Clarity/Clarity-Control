@@ -297,7 +297,9 @@ describe('Translations Upcoming', () => {
         state: { upcomingFromList: false },
       },
     ]);
-    await settle(() => new URLSearchParams(location.search).get('open') === `${batch.id}:3`);
+    await settle(() =>
+      [...host.querySelectorAll('a')].some((link) => link.textContent === 'Previous'),
+    );
     expect(new URLSearchParams(location.search).get('open')).toBe(`${batch.id}:3`);
     await act(async () =>
       [...host.querySelectorAll('a')].find((link) => link.textContent === 'Previous')!.click(),

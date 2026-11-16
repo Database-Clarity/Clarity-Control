@@ -155,7 +155,10 @@
   // both are too long do they share the row equally (the spacer collapses), so text never
   // truncates while the row has room (owner DESIGN QUALITY; a short piece name used to cap a
   // long perk at 55%).
-  grid-template-columns: 1.25rem minmax(0, max-content) minmax(0, 1fr) minmax(0, max-content);
+  grid-template-columns: 1.25rem minmax(0, max-content) minmax(0, 1fr) minmax(0, max-content) var(
+      --finder-marker-width,
+      41px
+    );
   align-items: center;
   gap: 0.375rem;
   min-height: 1.75rem;
@@ -190,7 +193,7 @@
   // A weapon's or activity's row keeps its kind, hash, and "shared" whole: only the entry name
   // ahead of them gives way.
   &[data-grouped] {
-    grid-template-columns: 1.25rem minmax(0, 1fr) fit-content(75%);
+    grid-template-columns: 1.25rem minmax(0, 1fr) fit-content(75%) var(--finder-marker-width, 41px);
 
     > small {
       grid-column: auto;
@@ -203,7 +206,7 @@
 
   // The phone sheet cannot fit two names on one line: the entry above, its context below.
   &[data-two-line] {
-    grid-template-columns: 1.25rem minmax(0, 1fr);
+    grid-template-columns: 1.25rem minmax(0, 1fr) var(--finder-marker-width, 41px);
     grid-template-rows: auto auto;
     align-content: center;
     row-gap: 0;
@@ -438,4 +441,21 @@
   color: var(--text2);
   font-size: 0.75rem;
   line-height: 1.4;
+}
+
+.option > .markers {
+  grid-column: -2;
+  grid-row: 1;
+  justify-self: end;
+}
+.option[data-entry-marked] {
+  --finder-marker-width: 52px;
+
+  > .markers {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+.option[data-two-line] > .markers {
+  grid-row: 1 / span 2;
 }

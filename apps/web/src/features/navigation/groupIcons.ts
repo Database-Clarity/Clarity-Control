@@ -17,14 +17,14 @@ export function groupIcon(grouped: GroupedSection, id: string): string | undefin
 /**
  * An Exotic Armor perk's piece icon (exotic-armor-icons.json) when the perk's owners are one piece
  * (every owner hash carries the same name; two definitions of one piece share their icon). A perk
- * on several pieces (Aeon Safe/Soul/Swift), with no owners in the data, or outside Exotic Armor
- * returns undefined. A single piece missing from the file returns '' (an empty box), never another
- * item's icon.
+ * on several pieces (Aeon Safe/Soul/Swift) or outside Exotic Armor returns undefined. When owners
+ * are absent, itemHash identifies the piece. A piece missing from the file returns '' (an empty
+ * box), never another item's icon.
  */
 export function exoticPieceIcon(item: Item): string | undefined {
   if (item.categoryId !== exoticArmourCategory) return undefined;
-  const owners = item.owners ?? [];
-  if (!owners.length) return undefined;
+  const owners = item.owners?.length ? item.owners : item.itemHash ? [item.itemHash] : [];
+  if (!owners.length) return '';
   const names = new Set(owners.map((owner) => item.ownerNames?.[owner]?.trim() || String(owner)));
   if (names.size > 1) return undefined;
   const files = armour.icons as Record<string, string | undefined>;

@@ -4,7 +4,7 @@ import {
   type IntermediatePerk,
 } from '@icemourne/description-converter';
 import { describe, expect, test } from 'vitest';
-import { markupCommentContext, parseMarkup } from '../src/markup/index.js';
+import { markupCommentContext, markupInlineRanges, parseMarkup } from '../src/markup/index.js';
 import { evaluateMarkupMath } from '../src/markup/arithmetic.js';
 import { removeMarkupComments } from '../src/markup/prepare.js';
 import { database } from './helpers.js';
@@ -37,6 +37,8 @@ function withoutStats(lines: DescriptionLine[] | undefined): unknown {
 }
 
 test.each([
+  'Plain 5 seconds, without comments or tags.',
+  '😀 5\r\n6',
   '<bold Damage > /*\nignored\n*/10 />',
   'a /* one */ middle /* two */\nb',
   'a / /* hidden */ / hidden\nnext',
@@ -52,6 +54,27 @@ test.each([
     expect(comment.to).toBeGreaterThan(comment.from);
     expect(comment.to).toBeLessThanOrEqual(doc.length);
   }
+});
+
+test('keeps inline source offsets and each parser pass when class markers are removed', () => {
+  const source = '😀 <bold/> <pve 5 /> <bold/> <link 6 [12] />';
+  const ranges = markupInlineRanges(source);
+  expect(ranges.map(({ from, to }) => source.slice(from, to))).toEqual([
+    '<pve 5 />',
+    '<link 6 [12] />',
+    '<pve 5 />',
+    '<bold/>',
+    '<link 6 [12] />',
+    '<bold/>',
+    '<pve 5 />',
+    '<bold/>',
+    '<link 6 [12] />',
+  ]);
+  expect(markupInlineRanges('😀 <pve 5 />')).toEqual([
+    { from: 3, to: 12 },
+    { from: 3, to: 12 },
+    { from: 3, to: 12 },
+  ]);
 });
 
 describe.each(['live', 'intermediate'])('%s real-tooltip converter golden parity', (source) => {

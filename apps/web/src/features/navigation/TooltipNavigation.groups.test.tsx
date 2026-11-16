@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { picker, pickerLabels, pickOption } from './finderPicker.testUtils';
+import { finderRowText, picker, pickerLabels, pickOption } from './finderPicker.testUtils';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { defaultSyncedSettings } from '@clarity/core';
@@ -309,7 +309,7 @@ describe('Exotic Weapons list', () => {
   it("lists a weapon's entries with kind and hash, and names the other owner of a shared perk", async () => {
     await mount('/t/101');
     await act(async () => field().click());
-    expect(rows().map((row) => row.textContent)).toEqual([
+    expect(rows().map(finderRowText)).toEqual([
       'Dead FrameFrame · 100',
       'The FundamentalsPerk · 101 · also Hard Light',
       'Dead CatalystCatalyst · 102',
@@ -323,7 +323,7 @@ describe('Exotic Weapons list', () => {
     // The weapon is a column of its own (the alphabetical anchor); the entry follows with its kind.
     await choose(select('Weapon')!, 'all');
     await act(async () => field().click());
-    expect(rows().map((row) => row.textContent)).toEqual([
+    expect(rows().map(finderRowText)).toEqual([
       'Dead MessengerDead Frame · Frame · 100',
       'Dead MessengerThe Fundamentals · Perk · 101 · shared',
       'Dead MessengerDead Catalyst · Catalyst · 102',
@@ -370,7 +370,7 @@ describe('Exotic Weapons list', () => {
       [...empty().querySelectorAll('button')].map((button) => button.textContent);
     expect(buttons()).toEqual(['Search all exotic weapons', 'Search all categories', 'Clear']);
     await act(async () => empty().querySelectorAll('button')[0].click());
-    expect(rows().map((row) => row.textContent)).toEqual(['Hard LightLight Frame · Frame · 103']);
+    expect(rows().map(finderRowText)).toEqual(['Hard LightLight Frame · Frame · 103']);
   });
 
   it('Enter on an empty list widens one level at a time, and Clear or Escape restore the scope', async () => {
@@ -379,7 +379,7 @@ describe('Exotic Weapons list', () => {
     await type('light frame');
     expect(rows()).toHaveLength(0);
     await press('Enter');
-    expect(rows().map((row) => row.textContent)).toEqual(['Hard LightLight Frame · Frame · 103']);
+    expect(rows().map(finderRowText)).toEqual(['Hard LightLight Frame · Frame · 103']);
     await type('zzz');
     expect(rows()).toHaveLength(0);
     await press('Enter');
@@ -390,7 +390,7 @@ describe('Exotic Weapons list', () => {
         .click(),
     );
     // Cleared: back to the open item's own weapon.
-    expect(rows().map((row) => row.textContent)).toEqual([
+    expect(rows().map(finderRowText)).toEqual([
       'Dead FrameFrame · 100',
       'The FundamentalsPerk · 101 · also Hard Light',
       'Dead CatalystCatalyst · 102',
@@ -405,7 +405,7 @@ describe('Exotic Weapons list', () => {
     await mount('/t/101?g=all:1002');
     await act(async () => field().click());
     for (const text of ['f', 'fu', 'fun', 'fund', 'fundamentals']) await type(text);
-    expect(rows().map((row) => row.textContent)).toEqual([
+    expect(rows().map(finderRowText)).toEqual([
       'Dead MessengerThe Fundamentals · Perk · 101 · shared',
       'Hard LightThe Fundamentals · Perk · 101 · shared',
     ]);
