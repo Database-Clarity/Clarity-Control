@@ -54,8 +54,11 @@ export const scheduleIntentSchema = z.discriminatedUnion('kind', [
       onValidationFailure: z.enum(['keep_scheduled', 'needs_attention']),
     })
     .strict()
-    .refine((intent) => intent.onValidationFailure !== 'keep_scheduled' || intent.returnStatus === 'scheduled',
-      'Only an existing schedule can survive a failed save'),
+    .refine(
+      (intent) =>
+        intent.onValidationFailure !== 'keep_scheduled' || intent.returnStatus === 'scheduled',
+      'Only an existing schedule can survive a failed save',
+    ),
 ]);
 export type ScheduleIntent = z.infer<typeof scheduleIntentSchema>;
 export const scheduleEnvelopeSchema = z
@@ -92,7 +95,10 @@ export const scheduleRequestSchema = z
   .strict()
   .superRefine((request, ctx) => {
     if (request.status === 'failed' && (!request.reasons?.length || request.result !== undefined))
-      ctx.addIssue({ code: 'custom', message: 'A failed request has reasons and no successful save result' });
+      ctx.addIssue({
+        code: 'custom',
+        message: 'A failed request has reasons and no successful save result',
+      });
   });
 export type ScheduleRequest = z.infer<typeof scheduleRequestSchema>;
 

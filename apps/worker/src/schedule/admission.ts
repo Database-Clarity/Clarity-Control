@@ -47,7 +47,10 @@ const scheduleInput = z
   .strict();
 const shallowTooltip = z.looseObject({
   hash: hashSchema,
-  text: z.partialRecord(langSchema, z.looseObject({ text: z.string(), updatedAt: z.string(), updatedBy: z.string() })),
+  text: z.partialRecord(
+    langSchema,
+    z.looseObject({ text: z.string(), updatedAt: z.string(), updatedBy: z.string() }),
+  ),
 });
 /** Only the envelope is interpreted here. Full tooltip validation belongs to the preparer. */
 const saveInput = z
@@ -55,8 +58,12 @@ const saveInput = z
     requestId,
     revision,
     changes: z
-      .array(z.object({ hash: hashSchema, base: shallowTooltip.nullable(), next: shallowTooltip }).strict()
-        .refine(({ hash, base, next }) => hash === next.hash && (!base || base.hash === hash)))
+      .array(
+        z
+          .object({ hash: hashSchema, base: shallowTooltip.nullable(), next: shallowTooltip })
+          .strict()
+          .refine(({ hash, base, next }) => hash === next.hash && (!base || base.hash === hash)),
+      )
       .min(1)
       .max(saveChangeCap)
       .refine((changes) => new Set(changes.map(({ hash }) => hash)).size === changes.length),
@@ -209,8 +216,10 @@ export async function admitBatchRequest(
   const id = input.requestId;
   if (kind === 'schedule' && !/^\d{4}-\d{2}$/.test(publishMonth(id)))
     throw new HttpError(400, 'Schedule requestId outside creation window');
-  const operationPaths = kind === 'schedule'
-    ? [`publish/requests/${id}.json`, `publish/log/${publishMonth(id)}/${id}.json`] : [];
+  const operationPaths =
+    kind === 'schedule'
+      ? [`publish/requests/${id}.json`, `publish/log/${publishMonth(id)}/${id}.json`]
+      : [];
   let envelope: ScheduleRequest['envelope'] | undefined;
   let returnStatus: 'draft' | 'scheduled' = 'draft';
   let target: { notBefore: string; zone: string } | undefined;
@@ -234,9 +243,13 @@ export async function admitBatchRequest(
       return reply(state, existing);
     }
     if (kind === 'schedule') {
-      if (state.extra[1] || state.extra[2]) throw new HttpError(409, 'requestId already names a publication operation');
-      try { validatePublishTime(id, Date.now()); }
-      catch { throw new HttpError(400, 'Schedule requestId outside creation window'); }
+      if (state.extra[1] || state.extra[2])
+        throw new HttpError(409, 'requestId already names a publication operation');
+      try {
+        validatePublishTime(id, Date.now());
+      } catch {
+        throw new HttpError(400, 'Schedule requestId outside creation window');
+      }
     }
     if (ambiguous && !(ambiguous instanceof RefRace)) throw ambiguous;
     refuseClaimed(batch);
@@ -298,11 +311,17 @@ export async function admitBatchRequest(
         bodyDigest: submittedBody.digest,
       };
       const intent: ScheduleIntent =
-        kind === 'schedule' ? { ...common, kind, ...target! } : {
-          ...common, kind, returnStatus,
-          onValidationFailure: state.access.role === 'translator' && returnStatus === 'scheduled'
-            ? 'keep_scheduled' : 'needs_attention',
-        };
+        kind === 'schedule'
+          ? { ...common, kind, ...target! }
+          : {
+              ...common,
+              kind,
+              returnStatus,
+              onValidationFailure:
+                state.access.role === 'translator' && returnStatus === 'scheduled'
+                  ? 'keep_scheduled'
+                  : 'needs_attention',
+            };
       envelope = await signScheduleIntent(intent, (await signingKey(github.env)).key);
     } else if (batch.contentRevision !== firstSource!.contentRevision) {
       throw new HttpError(409, 'Batch content changed; use a new requestId');
@@ -344,7 +363,13 @@ export async function admitBatchRequest(
       );
       if (log || !publication) throw new HttpError(409, 'Publishing started');
       files[scheduleIntentPaths.publication(batchId)] = publication.value;
-      if (kind === 'schedule') files[`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`] = cancelledLog(publication, user, at, 'rescheduled');
+      if (kind === 'schedule')
+        files[`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`] = cancelledLog(
+          publication,
+          user,
+          at,
+          'rescheduled',
+        );
       deletions.push(path);
     }
     if (returnStatus === 'scheduled')
@@ -458,11 +483,16 @@ export async function retryBatchRequest(
         {
           [scheduleIntentPaths.request(input.requestId)]: retried,
           [`schedule/batches/${batchId}/batch.json`]: next,
-          ...(next.preparation?.returnStatus === 'scheduled' ? {
-            'schedule/due.json': withDueEntry(state.due, {
-              batchId, opId: next.opId!, notBefore: next.notBefore!, claimed: false,
-            }),
-          } : {}),
+          ...(next.preparation?.returnStatus === 'scheduled'
+            ? {
+                'schedule/due.json': withDueEntry(state.due, {
+                  batchId,
+                  opId: next.opId!,
+                  notBefore: next.notBefore!,
+                  claimed: false,
+                }),
+              }
+            : {}),
           ...(appended.archive ? { [appended.archive.path]: appended.archive.value } : {}),
         },
         `Retry preparation for batch "${batch.name}"`,
@@ -517,10 +547,14 @@ export async function endBatchRequest(
     )
       throw new HttpError(409, 'No unclaimed preparation to cancel');
     const id = batch.preparation.requestId;
-    const [file, publication, publicationLog] = await github.files([
-      scheduleIntentPaths.request(id), scheduleIntentPaths.publication(batchId),
-      ...(batch.opId ? [`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`] : []),
-    ], state.head);
+    const [file, publication, publicationLog] = await github.files(
+      [
+        scheduleIntentPaths.request(id),
+        scheduleIntentPaths.publication(batchId),
+        ...(batch.opId ? [`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`] : []),
+      ],
+      state.head,
+    );
     if (!file) throw new HttpError(502, 'Preparation request is unreadable');
     const record = checkedRequest(scheduleRequestSchema.parse(file.value), batchId, id);
     if (publicationLog) throw new HttpError(409, 'Publication operation is already terminal');
@@ -545,9 +579,18 @@ export async function endBatchRequest(
           [scheduleIntentPaths.request(id)]: { ...record, status: 'cancelled', updatedAt: at },
           [`schedule/batches/${batchId}/batch.json`]: next,
           'schedule/due.json': withoutDueEntry(state.due, batchId),
-          ...(batch.opId ? { [`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`]: cancelledLog(
-            batch.preparation.kind === 'save' ? publication ?? null : { sha: state.head, value: record.envelope }, user, at, action,
-          ) } : {}),
+          ...(batch.opId
+            ? {
+                [`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`]: cancelledLog(
+                  batch.preparation.kind === 'save'
+                    ? (publication ?? null)
+                    : { sha: state.head, value: record.envelope },
+                  user,
+                  at,
+                  action,
+                ),
+              }
+            : {}),
           ...(appended.archive ? { [appended.archive.path]: appended.archive.value } : {}),
         },
         `${action === 'cancel' ? 'Cancel' : 'Unschedule'} preparation for batch "${batch.name}"`,

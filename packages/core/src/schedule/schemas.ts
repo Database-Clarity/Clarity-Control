@@ -200,11 +200,15 @@ export const batchSchema = z
     /** New publishers require this ready fence in addition to their claim-time validation. */
     preparedRequestId: publishOpIdSchema.nullable().optional(),
     /** Latest failed proposal; full per-field reasons remain in its durable request record. */
-    lastPreparationFailure: z.object({
-      requestId: publishOpIdSchema,
-      at: timestampSchema,
-      reason: z.string().min(1).max(2000),
-    }).strict().nullable().optional(),
+    lastPreparationFailure: z
+      .object({
+        requestId: publishOpIdSchema,
+        at: timestampSchema,
+        reason: z.string().min(1).max(2000),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     events: z.array(batchEventSchema).max(scheduleLimits.legacyInlineEvents),
   })
   .strict()

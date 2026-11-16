@@ -141,14 +141,20 @@ afterEach(() => {
 });
 
 describe('durable asynchronous admission', () => {
-  it.each(['request', 'log'])('refuses a schedule requestId already used by a publication %s', async (kind) => {
-    const collision = kind === 'request' ? `publish/requests/${RID}.json` : `publish/log/${publishMonth(RID)}/${RID}.json`;
-    f.moveData({ [collision]: { opaque: 'Only its OID is needed' } });
-    const head = f.dataHead;
-    expect((await call('schedule', scheduleBody())).status).toBe(409);
-    expect(f.dataHead).toBe(head);
-    expect(record()).toBeUndefined();
-  });
+  it.each(['request', 'log'])(
+    'refuses a schedule requestId already used by a publication %s',
+    async (kind) => {
+      const collision =
+        kind === 'request'
+          ? `publish/requests/${RID}.json`
+          : `publish/log/${publishMonth(RID)}/${RID}.json`;
+      f.moveData({ [collision]: { opaque: 'Only its OID is needed' } });
+      const head = f.dataHead;
+      expect((await call('schedule', scheduleBody())).status).toBe(409);
+      expect(f.dataHead).toBe(head);
+      expect(record()).toBeUndefined();
+    },
+  );
   it.each([-2, 2])('rejects a new schedule ID %s days from now', async (days) => {
     const body = { ...scheduleBody(), requestId: newUlid(Date.now() + days * 86_400_000) };
     expect((await call('schedule', body)).status).toBe(400);
@@ -376,15 +382,27 @@ describe('durable asynchronous admission', () => {
   });
   it('restricts translator additions and scheduled-save count', async () => {
     expect(
-      (await call('save', { ...saveBody(), changes: [{ hash: 456, base: null, next: { ...tooltip(), hash: 456 } }] }, 4))
-        .status,
+      (
+        await call(
+          'save',
+          {
+            ...saveBody(),
+            changes: [{ hash: 456, base: null, next: { ...tooltip(), hash: 456 } }],
+          },
+          4,
+        )
+      ).status,
     ).toBe(403);
     scheduled();
     expect(
       (
         await call('save', {
           ...saveBody(),
-          changes: Array.from({ length: 11 }, (_, hash) => ({ hash, base: null, next: { ...tooltip(), hash } })),
+          changes: Array.from({ length: 11 }, (_, hash) => ({
+            hash,
+            base: null,
+            next: { ...tooltip(), hash },
+          })),
         })
       ).status,
     ).toBe(422);
@@ -407,46 +425,81 @@ describe('durable asynchronous admission', () => {
 });
 
 describe('preparation cancellation, retry, and claim fences', () => {
-  it.each(['unschedule', 'cancel'] as const)('writes the withdrawn publication tombstone on %s of a scheduled save', async (action) => {
-    scheduled();
-    expect((await call('save', saveBody())).status).toBe(202);
-    expect((await call(action, { revision: 3 })).status).toBe(200);
-    expect(f.current()[`publish/log/${publishMonth(OTHER)}/${OTHER}.json`]).toMatchObject({
-      request: { payload: 'old signed approval', sig: 'old signature' }, result: { status: 'cancelled', reason: action },
-    });
-  });
+  it.each(['unschedule', 'cancel'] as const)(
+    'writes the withdrawn publication tombstone on %s of a scheduled save',
+    async (action) => {
+      scheduled();
+      expect((await call('save', saveBody())).status).toBe(202);
+      expect((await call(action, { revision: 3 })).status).toBe(200);
+      expect(f.current()[`publish/log/${publishMonth(OTHER)}/${OTHER}.json`]).toMatchObject({
+        request: { payload: 'old signed approval', sig: 'old signature' },
+        result: { status: 'cancelled', reason: action },
+      });
+    },
+  );
   it('terminally logs the old publication in the reschedule admission CAS', async () => {
     scheduled();
     expect((await call('schedule', scheduleBody())).status).toBe(202);
     expect(storedBatch().opId).toBe(RID);
-    expect(f.current()[`publish/log/${publishMonth(OTHER)}/${OTHER}.json`]).toMatchObject({ result: { status: 'cancelled', reason: 'rescheduled' } });
+    expect(f.current()[`publish/log/${publishMonth(OTHER)}/${OTHER}.json`]).toMatchObject({
+      result: { status: 'cancelled', reason: 'rescheduled' },
+    });
     expect(f.current()[`publish/requests/${OTHER}.json`]).toBeUndefined();
   });
   it('restores a failed schedule due entry only on authenticated retry', async () => {
     expect((await call('schedule', scheduleBody())).status).toBe(202);
     const batch = storedBatch();
-    f.moveData({ [path]: { ...batch, status: 'needs_attention' }, [scheduleIntentPaths.request(RID)]: { ...record(), status: 'needs_attention', retryable: true }, 'schedule/due.json': { entries: [] } });
+    f.moveData({
+      [path]: { ...batch, status: 'needs_attention' },
+      [scheduleIntentPaths.request(RID)]: {
+        ...record(),
+        status: 'needs_attention',
+        retryable: true,
+      },
+      'schedule/due.json': { entries: [] },
+    });
     expect((await call('retry', { revision: 3, requestId: RID }, 3)).status).toBe(403);
     expect(f.current()['schedule/due.json']).toEqual({ entries: [] });
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
-    expect(f.current()['schedule/due.json']).toEqual({ entries: [{ batchId: ID, opId: RID, notBefore: batch.notBefore, claimed: false }] });
+    expect(f.current()['schedule/due.json']).toEqual({
+      entries: [{ batchId: ID, opId: RID, notBefore: batch.notBefore, claimed: false }],
+    });
   });
-  it.each([null, {}, { hash: 123 }, { hash: 999, text: {} }, { hash: 123, text: { de: null } }])('rejects shallow-invalid translator saves before withdrawing a schedule (%j)', async (next) => {
-    scheduled();
-    const head = f.dataHead;
-    expect((await call('save', { ...saveBody(), changes: [{ hash: 123, base: tooltip(), next }] }, 4)).status).toBe(400);
-    expect(f.dataHead).toBe(head);
-    expect(f.current()[`publish/requests/${OTHER}.json`]).toBeDefined();
-    expect(storedBatch().status).toBe('scheduled');
-  });
-  it.each([[1, 'needs_attention'], [2, 'needs_attention'], [4, 'keep_scheduled']] as const)('signs the owner failure policy for role holder %s', async (user, onValidationFailure) => {
-    scheduled();
-    expect((await call('save', saveBody(), user)).status).toBe(202);
-    expect(JSON.parse(record().envelope.payload)).toMatchObject({ kind: 'save', returnStatus: 'scheduled', onValidationFailure });
-  });
+  it.each([null, {}, { hash: 123 }, { hash: 999, text: {} }, { hash: 123, text: { de: null } }])(
+    'rejects shallow-invalid translator saves before withdrawing a schedule (%j)',
+    async (next) => {
+      scheduled();
+      const head = f.dataHead;
+      expect(
+        (await call('save', { ...saveBody(), changes: [{ hash: 123, base: tooltip(), next }] }, 4))
+          .status,
+      ).toBe(400);
+      expect(f.dataHead).toBe(head);
+      expect(f.current()[`publish/requests/${OTHER}.json`]).toBeDefined();
+      expect(storedBatch().status).toBe('scheduled');
+    },
+  );
+  it.each([
+    [1, 'needs_attention'],
+    [2, 'needs_attention'],
+    [4, 'keep_scheduled'],
+  ] as const)(
+    'signs the owner failure policy for role holder %s',
+    async (user, onValidationFailure) => {
+      scheduled();
+      expect((await call('save', saveBody(), user)).status).toBe(202);
+      expect(JSON.parse(record().envelope.payload)).toMatchObject({
+        kind: 'save',
+        returnStatus: 'scheduled',
+        onValidationFailure,
+      });
+    },
+  );
   it('does not let an editor select the translator failure policy', async () => {
     scheduled();
-    expect((await call('save', { ...saveBody(), onValidationFailure: 'keep_scheduled' })).status).toBe(400);
+    expect(
+      (await call('save', { ...saveBody(), onValidationFailure: 'keep_scheduled' })).status,
+    ).toBe(400);
     expect(f.commits).toHaveLength(0);
   });
   it('exposes a translator save failure while the offline-restored accepted schedule stays claimable', async () => {
@@ -456,15 +509,32 @@ describe('preparation cancellation, retry, and claim fences', () => {
     const originalMember = structuredClone(f.current()[member]);
     expect((await call('save', saveBody(), 4)).status).toBe(202);
     const pending = record();
-    const failed = scheduleRequestSchema.parse({ ...pending, status: 'failed', reasons: [{ hash: 123, reason: 'Invalid translation number token' }] });
+    const failed = scheduleRequestSchema.parse({
+      ...pending,
+      status: 'failed',
+      reasons: [{ hash: 123, reason: 'Invalid translation number token' }],
+    });
     // Simulate only B's contract output; this is not an execution of its future materializer.
     f.moveData({
-      [path]: { ...accepted, revision: 4, preparation: null, lastPreparationFailure: { requestId: RID, at: failed.updatedAt, reason: failed.reasons![0].reason } },
+      [path]: {
+        ...accepted,
+        revision: 4,
+        preparation: null,
+        lastPreparationFailure: {
+          requestId: RID,
+          at: failed.updatedAt,
+          reason: failed.reasons![0].reason,
+        },
+      },
       [scheduleIntentPaths.request(RID)]: failed,
       [`publish/requests/${OTHER}.json`]: f.current()[scheduleIntentPaths.publication(ID)],
     });
     const response = await f.request(`/batches/${ID}/status?requestId=${RID}`, 'GET', undefined, 2);
-    const status = await response.json() as { request: ScheduleRequest; batch: Batch; savedAt?: number };
+    const status = (await response.json()) as {
+      request: ScheduleRequest;
+      batch: Batch;
+      savedAt?: number;
+    };
     expect(response.status).toBe(200);
     expect(status.request.status).toBe('failed');
     expect(status.request.result).toBeUndefined();
@@ -473,9 +543,16 @@ describe('preparation cancellation, retry, and claim fences', () => {
     expect(canClaimPreparedBatch(status.batch, OTHER)).toBe(true);
     expect(matchesPreparationFence(status.batch, pending)).toBe(false);
     expect(f.current()[member]).toEqual(originalMember);
-    expect(f.current()['schedule/due.json']).toEqual({ entries: [{ batchId: ID, opId: OTHER, notBefore: accepted.notBefore, claimed: false }] });
+    expect(f.current()['schedule/due.json']).toEqual({
+      entries: [{ batchId: ID, opId: OTHER, notBefore: accepted.notBefore, claimed: false }],
+    });
     expect(scheduleRequestSchema.safeParse({ ...failed, reasons: [] }).success).toBe(false);
-    expect(scheduleRequestSchema.safeParse({ ...failed, result: { revision: 4, contentRevision: 1, status: 'scheduled' } }).success).toBe(false);
+    expect(
+      scheduleRequestSchema.safeParse({
+        ...failed,
+        result: { revision: 4, contentRevision: 1, status: 'scheduled' },
+      }).success,
+    ).toBe(false);
   });
   it.each([
     ['cancel', true],
