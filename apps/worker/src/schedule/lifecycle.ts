@@ -16,7 +16,7 @@ import {
   batchMemberSchema,
   batchPublishPayloadSchema,
   checkNotBefore,
-  compose,
+  composeParsed as compose,
   dueSchema,
   isValidZone,
   notBeforeSchema,

@@ -19,7 +19,7 @@ import {
   batchSchema,
   batchStatusSchema,
   changedFields,
-  compose,
+  composeParsed as compose,
   initialRevisions,
   isContentChange,
   isOpenStatus,

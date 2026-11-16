@@ -48,6 +48,7 @@ export {
 export { initialRevisions, isContentChange, nextRevisions, type Revisions } from './revisions.js';
 export {
   compose,
+  composeParsed,
   missingSnapshotReason,
   type ComposeInput,
   type ComposeResult,

@@ -52,9 +52,17 @@ export const missingSnapshotReason = 'No published snapshot; publish it manually
  * The publisher defers source bounding until it has selected the final English stamps.
  */
 export function compose(input: ComposeInput, boundSources = true): ComposeResult {
+  for (const tooltip of [input.base, input.proposed, input.snapshot])
+    if (tooltip && tooltipSchema.parse(tooltip).hash !== input.hash)
+      throw new Error(`Tooltip does not belong to member ${input.hash}`);
+  return composeParsed(input, boundSources);
+}
+
+/** Same composition for inputs already checked by tooltipSchema at the request's head. */
+export function composeParsed(input: ComposeInput, boundSources = true): ComposeResult {
   const { hash, base, proposed, snapshot, pushed } = input;
   for (const tooltip of [base, proposed, snapshot])
-    if (tooltip && tooltipSchema.parse(tooltip).hash !== hash)
+    if (tooltip && tooltip.hash !== hash)
       throw new Error(`Tooltip does not belong to member ${hash}`);
   const changed = changedFields(base, proposed);
   let tooltip = proposed;

@@ -23,6 +23,9 @@ const names = [
   'save-small-token-de',
   'save-largest-token-de',
   'save-add',
+  'save-edit',
+  'save-edit-sched',
+  'schedule',
   'publish-baseline',
   'push-live-single',
   'push-live-largest',
@@ -84,7 +87,7 @@ async function prepare() {
   let source = readFileSync('scripts/publisher/cpu/schedule.mjs', 'utf8');
   source = source.slice(0, source.indexOf("if (process.argv[2] === '--case')"));
   source +=
-    '\nexport {prepare,state,request,REAL,GLOBALS}; export function configure(aliases,lib){ ALIASES=aliases; MEMBERS=REAL.slice(0,lib.memberCap); }';
+    '\nexport {prepare,state,request,REAL,GLOBALS}; export function configure(aliases,lib,count=lib.memberCap){ ALIASES=aliases; MEMBERS=REAL.slice(0,count); }';
   writeFileSync(`${root}/save-fixtures.mjs`, source);
   const f = await import(pathToFileURL(`${root}/save-fixtures.mjs`).href);
   await f.prepare();
@@ -107,8 +110,9 @@ async function prepare() {
   f.configure(aliases, lib);
   const fixtures: Record<string, Fixture> = {};
   for (const name of names) {
+    f.configure(aliases, lib, name.endsWith('-sched') ? lib.scheduledSaveChangeCap : lib.memberCap);
     const { files, members } = await f.state(
-      name === 'publish-baseline' ? name : 'save-add',
+      ['publish-baseline', 'save-edit', 'save-edit-sched', 'schedule'].includes(name) ? name : 'save-add',
       real,
       lib,
     );
@@ -194,6 +198,9 @@ async function prepare() {
     for (const c of spec.body.changes ?? []) {
       if (c.next.text.en?.text !== c.base.text.en?.text)
         c.next.text.en!.updatedAt = new Date().toISOString();
+      for (const [lang, entry] of Object.entries(c.next.text))
+        if (lang !== 'en' && entry.text !== c.base.text[lang as Lang]?.text && c.next.text.en)
+          entry.sourceUpdatedAt = c.next.text.en.updatedAt;
     }
     const tokenCount = spec.body.changes?.reduce(
       (count, c) => count + (c.next.text.de?.text.match(/#\{=\d+\}/g)?.length ?? 0),
