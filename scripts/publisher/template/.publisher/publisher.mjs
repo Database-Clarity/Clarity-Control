@@ -30082,6 +30082,13 @@ var notFoundError = external_exports.object({
   type: external_exports.literal("NOT_FOUND"),
   path: external_exports.tuple([external_exports.literal("repository"), external_exports.literal("ref"), external_exports.literal("target"), external_exports.string()])
 });
+var rawBlobFields = external_exports.object({
+  oid: external_exports.string().regex(refPattern),
+  byteSize: external_exports.number().int().nonnegative(),
+  isBinary: external_exports.boolean().nullable(),
+  isTruncated: external_exports.boolean(),
+  text: external_exports.string().nullable()
+}).strict();
 var blobContent = (value2) => `${JSON.stringify(value2, null, 2)}
 `;
 var exportBlob = external_exports.object({ object: external_exports.union([blobFields, external_exports.object({}).strict()]) }).nullable();
