@@ -55,6 +55,26 @@ export const sourcesSchema = z
   .strict();
 export type Sources = z.infer<typeof sourcesSchema>;
 
+/** S4 consumes this alongside cause retries, produces a current per-name proof, and
+ * removes/coalesces the request. No definition, reservation, or impact cause is saved.
+ */
+export const nameProofRequestSchema = z
+  .object({
+    version: z.literal(1),
+    type: z.literal('name-proof'),
+    id: token,
+    operation: z.enum(['create', 'rename']),
+    kind: globalKindSchema,
+    name: z.string().min(1).max(128),
+    globalId: globalIdSchema.nullable(),
+    revision: globalRevisionSchema.nullable(),
+    expectedHead: oid,
+    sources: sourcesSchema,
+    by: z.string().min(1).max(128),
+    at: z.iso.datetime(),
+  })
+  .strict();
+
 const sourceIdentity = z
   .object({ path: z.string().max(256), blob: oid, revision: globalRevisionSchema })
   .strict();

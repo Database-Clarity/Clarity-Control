@@ -5,7 +5,7 @@ import { assertGlobalsPublication, assertNoRawGlobalMutation } from '../src/glob
 import { limits, paths, type Mutation, type Sources } from '../src/globals/model.js';
 import type { GlobalRecord } from '../../../packages/core/src/globals/model.js';
 import { readGlobalFiles, type GlobalsStorage } from '../src/globals/storage.js';
-import { globalFileBytes } from '../src/globals/model.js';
+import { globalFileBytes, nameProofRequestSchema } from '../src/globals/model.js';
 
 const head = 'a'.repeat(40),
   digest = 'b'.repeat(64),
@@ -223,7 +223,9 @@ describe('bounded global admission and durable Sync pending', () => {
         },
       },
     });
-    expect((await f.call({ ...edit, body: '字'.repeat(3000) })).status).toBe(503);
+    const oversized = await f.call({ ...edit, body: '字'.repeat(3000) });
+    expect(oversized.status).toBe(413);
+    expect(oversized.data.kind).toBe('invalid');
     expect(f.ctx.storage.commit).not.toHaveBeenCalled();
     f.files.set(paths.entry(id), entry);
     f.ctx.access.role = 'maintainer';
@@ -334,7 +336,7 @@ describe('bounded global admission and durable Sync pending', () => {
     ).toBe(409);
   });
 
-  it('creates a stable ID, source ancestry, claim, and bounded catalog entry atomically', async () => {
+  it('creates a stable ID, claim, and bounded catalog entry without inventing migration ancestry', async () => {
     const f = await fixture();
     await f.admit('Fresh', null);
     const result = await f.call({
@@ -348,9 +350,12 @@ describe('bounded global admission and durable Sync pending', () => {
     const saved = result.data.value.entry;
     expect(saved.id).toMatch(/^g_/);
     expect(saved.definitions.en.body).toBe('');
-    expect(f.files.get(saved.definitions.en.provenance.path)).toEqual({
-      text: 'var Fresh = empty',
-    });
+    expect(saved.definitions.en.provenance).toBeUndefined();
+    expect(
+      Object.keys(vi.mocked(f.ctx.storage.commit).mock.calls[0][1]).some((path) =>
+        path.startsWith('globals/sources/'),
+      ),
+    ).toBe(false);
     expect(f.files.get(paths.page('p0'))).toMatchObject({ ids: [id, saved.id] });
   });
 
@@ -876,5 +881,233 @@ describe('S3 snapshot and explicit durable-cause retry contract', () => {
       causeIds: ['other'],
     });
     expect((await f.call(ack)).status).toBe(409);
+  });
+});
+
+describe('root rulings N1(a), R5, and R7', () => {
+  const create: Mutation = {
+    operation: 'create',
+    kind: 'variables',
+    name: 'NeverUsedBefore',
+    lang: 'en',
+    body: 'unsaved body',
+  };
+
+  it.each(['missing', 'stale'] as const)(
+    'queues a %s proof for a never-used name without claiming the create saved',
+    async (state) => {
+      const f = await fixture(),
+        locations = await namePaths('variables', create.name);
+      if (state === 'stale') {
+        await f.admit(create.name, null);
+        f.files.set(locations.proof, {
+          ...(f.files.get(locations.proof) as object),
+          sources: { ...sources, authored: 'e'.repeat(40) },
+        });
+      } else expect(f.files.has(locations.proof)).toBe(false);
+      const syncBefore = structuredClone(f.files.get(paths.sync));
+      const result = await f.call(create);
+      expect(result.status).toBe(202);
+      expect(result.data).toMatchObject({
+        kind: 'retry',
+        message: 'Sync pending',
+        status: 'sync-pending',
+        mutationCompleted: false,
+      });
+      expect(result.data.entry).toBeUndefined();
+      const changes = vi.mocked(f.ctx.storage.commit).mock.calls[0][1];
+      const path = `globals/retries/${result.data.proofRequestId}.json`;
+      expect(Object.keys(changes)).toEqual([path]);
+      expect(nameProofRequestSchema.parse(changes[path])).toMatchObject({
+        type: 'name-proof',
+        operation: 'create',
+        kind: 'variables',
+        name: create.name,
+        globalId: null,
+        revision: null,
+        expectedHead: head,
+        sources,
+        by: 'editor',
+      });
+      expect(JSON.stringify(changes)).not.toContain(create.body);
+      expect(f.files.get(paths.sync)).toEqual(syncBefore);
+      expect(f.files.has(locations.claim)).toBe(false);
+      // S4 supplies the requested certificate; an explicit later retry can then save normally.
+      await f.admit(create.name, null);
+      f.ctx.head = result.data.head;
+      const saved = await f.call(create);
+      expect(saved.status).toBe(200);
+      expect(saved.data.value.entry.name).toBe(create.name);
+      expect(saved.data.value.causeIds).toHaveLength(1);
+    },
+  );
+
+  it.each(['missing', 'stale'] as const)(
+    'queues a %s rename proof without an intent, reservation, or rewritten entry',
+    async (state) => {
+      const f = await fixture(),
+        name = 'NewRenameName';
+      if (state === 'stale') {
+        await f.admit(name, null);
+        f.ctx.sources.generator = 'd'.repeat(40);
+      }
+      const result = await f.call({ operation: 'rename', id, revision: 'r1', name });
+      expect(result.status).toBe(202);
+      expect(result.data).toMatchObject({
+        kind: 'retry',
+        message: 'Sync pending',
+        mutationCompleted: false,
+        renameCompleted: false,
+      });
+      const changes = vi.mocked(f.ctx.storage.commit).mock.calls[0][1];
+      expect(Object.keys(changes)).toEqual([`globals/retries/${result.data.proofRequestId}.json`]);
+      expect(Object.values(changes)[0]).toMatchObject({
+        operation: 'rename',
+        globalId: id,
+        revision: 'r1',
+        name,
+      });
+      expect(f.files.get(paths.entry(id))).toEqual(entry);
+      expect(f.files.has((await namePaths('variables', name)).claim)).toBe(false);
+    },
+  );
+
+  it('never queues malformed proofs, invalid bodies, forbidden roles, stale revisions/heads, or CAS failures as successes', async () => {
+    const f = await fixture(),
+      locations = await namePaths('variables', create.name);
+    f.files.set(locations.proof, {});
+    expect((await f.call(create)).status).toBe(503);
+    f.files.delete(locations.proof);
+    expect((await f.call({ ...create, body: 'invalid\nbody' })).status).toBe(422);
+    expect((await f.call(create, { expectedHead: 'e'.repeat(40) })).status).toBe(409);
+    expect(
+      (await f.call({ operation: 'rename', id, revision: 'old', name: create.name })).status,
+    ).toBe(409);
+    f.ctx.access = { login: 'translator', role: 'translator', languages: ['de'] };
+    expect((await f.call(create)).status).toBe(403);
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+    f.ctx.access.role = 'editor';
+    vi.mocked(f.ctx.storage.commit).mockRejectedValueOnce(new RefRace());
+    const result = await f.call(create);
+    expect(result.status).toBe(409);
+    expect(result.data.kind).toBe('conflict');
+    expect(f.files.has(locations.claim)).toBe(false);
+    expect(f.ctx.storage.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns invalid rather than retry for permanent request/admission and catalog limits', async () => {
+    const f = await fixture();
+    const tooLong = await f.call({ ...edit, body: 'x'.repeat(limits.body + 1) });
+    expect(tooLong).toMatchObject({ status: 422, data: { kind: 'invalid' } });
+    const tooLarge = await f.call({ ...edit, body: 'x'.repeat(limits.requestBytes) });
+    expect(tooLarge).toMatchObject({ status: 413, data: { kind: 'invalid' } });
+    await f.admit(create.name, null);
+    f.files.set('globals/catalog.json', { version: 1, lastPage: 99999 });
+    f.files.set(paths.page('p99999'), {
+      version: 1,
+      ids: [id, 'g_second12', 'g_third123'],
+      nextCursor: null,
+    });
+    expect(await f.call(create)).toMatchObject({
+      status: 422,
+      data: { kind: 'invalid', message: 'Global catalog is full' },
+    });
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+  });
+
+  it('returns invalid for a permanently oversized response from bounded valid records', async () => {
+    const f = await fixture();
+    const ids = ['a', 'b', 'c'].map((letter) => `g_${letter.repeat(80)}`);
+    for (const entryId of ids) {
+      const value = {
+        ...entry,
+        id: entryId,
+        nameHistory: [{ name: 'Former', revision: 'r0', by: '', at: '2026-11-15T00:00:00Z' }],
+      };
+      value.nameHistory[0].by = 'x'.repeat(limits.entryBytes - globalFileBytes(value));
+      expect(globalFileBytes(value)).toBe(limits.entryBytes);
+      f.files.set(paths.entry(entryId), value);
+    }
+    f.files.set(paths.page('p0'), { version: 1, ids, nextCursor: null });
+    const causes = Array.from({ length: limits.causes }, (_, i) => String(i).padEnd(80, 'x'));
+    f.files.set(paths.sync, {
+      version: 1,
+      status: 'sync-failed',
+      causeIds: causes,
+      causeEntries: Object.fromEntries(causes.map((cause, i) => [cause, ids[i % 3]])),
+      lastFailure: 'failed',
+    });
+    f.ctx.destinations = Array.from({ length: 4 }, (_, i) => String(i).padEnd(80, 'd'));
+    const response = await globalsHandler(new Request('https://local/globals'), async () => f.ctx);
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({
+      kind: 'invalid',
+      message: 'Global response exceeds its byte limit',
+    });
+    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+  });
+
+  it.each(['edited', 'no-text-change'] as const)(
+    'refuses to relabel an existing equal-digest %s audit',
+    async (decision) => {
+      const f = await fixture(),
+        row = f.row();
+      const audit = {
+        by: 'alice',
+        at: '2026-11-15T00:00:00Z',
+        contentDigest: digest,
+        dependencyDigest: digest,
+        impactDigest: digest,
+        decision,
+      };
+      f.files.set(paths.row('review1'), {
+        ...row,
+        review: { ...row.review, acknowledgement: audit },
+      });
+      expect(await f.call(ack)).toMatchObject({ status: 409, data: { kind: 'conflict' } });
+      expect(
+        (f.files.get(paths.row('review1')) as { review: { acknowledgement: unknown } }).review
+          .acknowledgement,
+      ).toEqual(audit);
+      expect(f.ctx.storage.commit).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows a fresh audit after an earlier acknowledgement becomes stale', async () => {
+    const f = await fixture(),
+      row = f.row();
+    f.files.set(paths.row('review1'), {
+      ...row,
+      review: {
+        ...row.review,
+        acknowledgement: {
+          by: 'alice',
+          at: '2026-11-15T00:00:00Z',
+          contentDigest: digest,
+          dependencyDigest: digest,
+          impactDigest: 'c'.repeat(64),
+          decision: 'edited',
+        },
+      },
+    });
+    expect((await f.call(ack)).status).toBe(200);
+  });
+
+  it('preserves absent migration ancestry when editing post-migration definitions and adding translations', async () => {
+    const f = await fixture(),
+      fresh = structuredClone(entry);
+    delete fresh.definitions.en!.provenance;
+    f.files.set(paths.entry(id), fresh);
+    const edited = await f.call(edit);
+    expect(edited.status).toBe(200);
+    expect(edited.data.value.entry.definitions.en.provenance).toBeUndefined();
+    const translated = await f.call({
+      ...edit,
+      revision: edited.data.value.entry.revision,
+      lang: 'de',
+      body: 'neu',
+    });
+    expect(translated.status).toBe(200);
+    expect(translated.data.value.entry.definitions.de.provenance).toBeUndefined();
   });
 });

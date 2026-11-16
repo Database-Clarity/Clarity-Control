@@ -15,6 +15,7 @@ import {
   globalFileBytes,
   limits,
   mutationSchema,
+  nameProofRequestSchema,
   oid,
   pageSchema,
   pendingCauseSchema,
@@ -61,12 +62,28 @@ export async function namePaths(kind: string, name: string) {
 
 function bounded(value: unknown, maximum = limits.fileBytes): void {
   if (globalFileBytes(value) > maximum)
-    throw new HttpError(503, 'Global metadata exceeds its byte limit');
+    throw new HttpError(413, 'Global metadata exceeds its byte limit');
 }
 
 function boundedResponse(value: unknown): void {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.fileBytes)
-    throw new HttpError(503, 'Global response exceeds its byte limit');
+    throw new HttpError(413, 'Global response exceeds its byte limit');
+}
+
+function admission<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+  if (!result.success) throw new HttpError(422, 'Invalid global mutation');
+  return result.data;
+}
+
+async function mutationBody(request: Request) {
+  try {
+    return await body(request, mutationSchema, limits.requestBytes);
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 400 && error.details !== undefined)
+      throw new HttpError(422, 'Invalid global mutation');
+    throw error;
+  }
 }
 
 function syncView(sync: SyncState, causeIds = sync.causeIds) {
@@ -172,11 +189,27 @@ async function admitName(
   kind: GlobalRecord['kind'],
   name: string,
   id: string | null,
+  requestable = false,
 ) {
   validName(kind, name);
   const locations = await namePaths(kind, name);
-  const proof = await read(ctx, locations.proof, clashSchema);
-  currentProof(proof, ctx);
+  const [file] = await readGlobalFiles(
+    ctx.storage,
+    [locations.proof],
+    ctx.head,
+    limits.metadataBytes,
+  );
+  if (!file) {
+    if (requestable) return null;
+    throw new HttpError(503, 'Sync pending: required metadata is unavailable');
+  }
+  const parsedProof = clashSchema.safeParse(file.value);
+  if (!parsedProof.success) throw new HttpError(503, 'Sync pending: invalid metadata');
+  const proof = parsedProof.data;
+  if (!sameSources(proof.sources, ctx.sources)) {
+    if (requestable) return null;
+    currentProof(proof, ctx);
+  }
   if (proof.kind !== kind || proof.name !== name || proof.occupiedBy !== id)
     throw new HttpError(409, 'Global name is occupied or its proof does not match');
   const [claim] = await readGlobalFiles(
@@ -208,6 +241,53 @@ async function admitName(
   return locations;
 }
 
+async function requestNameProof(
+  ctx: GlobalsContext,
+  operation: 'create' | 'rename',
+  kind: GlobalRecord['kind'],
+  name: string,
+  before: GlobalRecord | null,
+): Promise<Response> {
+  const requestId = crypto.randomUUID();
+  const request = nameProofRequestSchema.parse({
+    version: 1,
+    type: 'name-proof',
+    id: requestId,
+    operation,
+    kind,
+    name,
+    globalId: before?.id ?? null,
+    revision: before?.revision ?? null,
+    expectedHead: ctx.head,
+    sources: ctx.sources,
+    by: ctx.user.login,
+    at: new Date().toISOString(),
+  });
+  bounded(request, limits.metadataBytes);
+  const head = await ctx.storage.commit(
+    ctx.head,
+    {
+      [`globals/retries/${requestId}.json`]: request,
+    },
+    'Request current global name proof',
+    ctx.user,
+  );
+  // A retry result preserves the client's unsaved mutation. Only proof work was queued;
+  // the unchanged source does not create an impact cause or block another destination.
+  return json(
+    {
+      kind: 'retry',
+      message: 'Sync pending',
+      status: 'sync-pending',
+      head,
+      proofRequestId: requestId,
+      mutationCompleted: false,
+      ...(operation === 'rename' ? { renameCompleted: false } : {}),
+    },
+    202,
+  );
+}
+
 async function acknowledge(
   ctx: GlobalsContext,
   mutation: Extract<Mutation, { operation: 'acknowledge' }>,
@@ -226,6 +306,14 @@ async function acknowledge(
     row.impactDigest !== mutation.impactDigest
   )
     throw new HttpError(409, 'The saved review is stale');
+  const previousAudit = row.review.acknowledgement;
+  if (
+    previousAudit &&
+    previousAudit.contentDigest === row.review.contentDigest &&
+    previousAudit.dependencyDigest === row.review.dependencyDigest &&
+    previousAudit.impactDigest === row.impactDigest
+  )
+    throw new HttpError(409, 'The saved review is already acknowledged');
   const next = {
     ...row,
     review: {
@@ -240,7 +328,7 @@ async function acknowledge(
       },
     },
   };
-  rowSchema.parse(next);
+  admission(rowSchema, next);
   bounded(next, limits.entryBytes);
   const entry = await read(ctx, paths.entry(mutation.id), entrySchema);
   if (entry.id !== mutation.id) throw new HttpError(503, 'Invalid global identity');
@@ -369,7 +457,8 @@ async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) 
     if (before!.kind === 'variables' && before!.name === 'e')
       throw new HttpError(422, 'The enhanced arrow is protected');
     if (mutation.name === before!.name) throw new HttpError(422, 'Name is unchanged');
-    const locations = await admitName(ctx, next.kind, mutation.name, null);
+    const locations = await admitName(ctx, next.kind, mutation.name, null, true);
+    if (!locations) return requestNameProof(ctx, 'rename', next.kind, mutation.name, before);
     intentId = causeId;
     files[locations.claim] = { id, kind: next.kind, name: mutation.name, intentId };
     files[`globals/intents/${intentId}.json`] = {
@@ -401,12 +490,17 @@ async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) 
       if (mutation.lang) delete next.definitions[mutation.lang];
       else next.tombstone = { by: ctx.user.login, at };
     } else {
-      const locations = await admitName(ctx, next.kind, next.name, before ? id : null);
-      const text = declaration(next.kind, next.name, mutation.body);
+      declaration(next.kind, next.name, mutation.body);
+      const locations = await admitName(
+        ctx,
+        next.kind,
+        next.name,
+        before ? id : null,
+        mutation.operation === 'create',
+      );
+      if (!locations) return requestNameProof(ctx, 'create', next.kind, next.name, null);
       files[locations.claim] = { id, kind: next.kind, name: next.name };
       const previous = next.definitions[mutation.lang];
-      const sourcePath = `globals/sources/${revision}.json`;
-      if (!previous) files[sourcePath] = { text };
       next.definitions[mutation.lang] = {
         body: mutation.body,
         revision,
@@ -418,21 +512,13 @@ async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) 
               sourceUpdatedAt: next.definitions.en.updatedAt,
             }
           : {}),
-        provenance: previous?.provenance ?? {
-          repository: ctx.repository,
-          revision,
-          path: sourcePath,
-          selector: ['text'],
-          spanConvention: 'decoded-utf16',
-          hash: next.kind === 'variables' ? 2 : 3,
-          lang: mutation.lang,
-          from: 0,
-          to: text.length,
-        },
+        // S1 c2cf5074 makes migration ancestry optional for post-migration cells.
+        // Preserve real ancestry; never invent it for a new definition or language.
+        ...(previous?.provenance ? { provenance: previous.provenance } : {}),
       };
     }
     next.revision = revision;
-    entrySchema.parse(next);
+    admission(entrySchema, next);
     bounded(next, limits.entryBytes);
     files[paths.entry(id)] = next;
     files[`globals/projections/${id}.json`] = {
@@ -451,7 +537,7 @@ async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) 
       if (page.ids.length < limits.page)
         files[paths.page(cursor)] = { ...page, ids: [...page.ids, id] };
       else {
-        if (catalog.lastPage >= 99999) throw new HttpError(503, 'Global catalog is full');
+        if (catalog.lastPage >= 99999) throw new HttpError(422, 'Global catalog is full');
         const nextCursor = `p${catalog.lastPage + 1}`;
         files[paths.page(cursor)] = { ...page, nextCursor };
         files[paths.page(nextCursor)] = { version: 1, ids: [id], nextCursor: null };
@@ -587,7 +673,7 @@ export async function globalsHandler(
       return json({ kind: 'ok', value });
     }
     if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
-    const input = await body(request, mutationSchema, limits.requestBytes);
+    const input = await mutationBody(request);
     if (input.expectedHead !== ctx.head) throw new HttpError(409, 'Source head changed');
     const action = input.mutation.operation;
     if (
@@ -596,7 +682,8 @@ export async function globalsHandler(
         : route[1] !== input.mutation.id || route[2] !== (action === 'edit' ? 'body' : action)
     )
       throw new HttpError(400, 'Route and mutation do not match');
-    return json({ kind: 'ok', value: await mutate(ctx, input.mutation, sync) });
+    const result = await mutate(ctx, input.mutation, sync);
+    return result instanceof Response ? result : json({ kind: 'ok', value: result });
   } catch (error) {
     if (error instanceof RefRace)
       return json({ kind: 'conflict', message: 'Source head changed' }, 409);
