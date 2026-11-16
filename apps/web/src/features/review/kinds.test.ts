@@ -5,6 +5,7 @@ import goldenTricorn from '../history/fixtures/golden-tricorn.json';
 import type { EditorData } from '../../stores/data';
 import {
   changedLines,
+  exportedText,
   classifyRows,
   kindCounts,
   kindOf,
@@ -142,6 +143,44 @@ describe('row words from the published text (real renderer)', () => {
     // A newer saved text is not the classified one: unknown until it is checked again.
     const newer = entry(tooltip(goldenTricorn.after + '\nMore'));
     expect(kindOf(newer, published, useKinds.getState().byHash)).toBeUndefined();
+  });
+});
+
+it('reads what goes live: a fallback flip and a number change are text changes', () => {
+  // Security review 1 finding 1.
+  const english = { text: 'English text', updatedAt: '2026-06-01T00:00:00Z', updatedBy: 'x' };
+  const french = (sourceUpdatedAt: string) => ({
+    text: 'Texte français',
+    updatedAt: '2026-06-01T00:00:00Z',
+    updatedBy: 'x',
+    sourceUpdatedAt,
+  });
+  // Before: the French text is over 90 days behind English, so French players read English.
+  const before = { ...tooltip('x'), text: { en: english, fr: french('2026-01-01T00:00:00Z') } };
+  // After: the translation is current again; the French words themselves did not change.
+  const after = { ...tooltip('x'), text: { en: english, fr: french('2026-06-01T00:00:00Z') } };
+  const outputs = textLanguages(before, after).map((lang) =>
+    compareDiffOutput(exportedText(before, lang), exportedText(after, lang), globals),
+  );
+  expect(publishedKind(before, after, outputs)).toMatchObject({
+    kind: 'Text changed',
+    languages: ['fr'],
+  });
+  // Only the stored number values change.
+  const numbered = (next: number): Tooltip => ({
+    ...tooltip('Deals damage.'),
+    text: {
+      en: {
+        text: 'Deals damage.',
+        updatedAt: '',
+        updatedBy: '',
+        numbers: { ids: ['1'], next: String(next), retired: {} } as never,
+      },
+    },
+  });
+  expect(publishedKind(numbered(1), numbered(2), [])).toMatchObject({
+    kind: 'Text changed',
+    numbers: true,
   });
 });
 

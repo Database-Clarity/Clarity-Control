@@ -5,7 +5,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
 import { SkeletonRows } from '../../ui/Skeleton';
 import { kindWords, useRowKinds, type Kind } from './kinds';
-import { publishableHashes, type PendingTooltip } from './model';
+import { canPush, publishableHashes, type PendingTooltip } from './model';
 import { activeHashes, usePublishState } from './publishDriver';
 import { matchesFilter, queueView, type RowKinds } from './queueModel';
 import { useReviewQueue } from './queueStore';
@@ -142,11 +142,21 @@ function SavedSidebar() {
   const changes = useMemo(() => entries?.filter((entry) => !entry.markerOnly) ?? [], [entries]);
   const leftoverCount = (entries?.length ?? 0) - changes.length;
   const filtered = !!(query || kind);
-  // "Include all N": the publishable changes the filters show, never leftovers or running ones.
+  // The changes on screen: the filters' rows outside collapsed groups (never leftovers).
+  const shownChanges = useMemo(
+    () =>
+      view && filtered
+        ? view.ordered.filter((entry) => !entry.markerOnly && view.shown.has(entry.tooltip.hash))
+        : [],
+    [view, filtered],
+  );
+  // "Include all N": exactly the publishable changes shown, never running ones; only for a role
+  // that can publish.
+  const user = useAuthStore((state) => state.user);
   const shownPublishable = useMemo(
     () =>
-      view && filtered ? publishableHashes(view.ordered).filter((hash) => !inFlight.has(hash)) : [],
-    [view, filtered, inFlight],
+      canPush(user) ? publishableHashes(shownChanges).filter((hash) => !inFlight.has(hash)) : [],
+    [shownChanges, inFlight, user],
   );
   const allIncluded = shownPublishable.every((hash) => selected.has(hash));
   const update = (nextQuery: string, nextKind: string) =>
@@ -202,9 +212,9 @@ function SavedSidebar() {
               )}
             </select>
           </div>
-          {filtered && view && view.contentCount > 0 && (
+          {shownChanges.length > 0 && (
             <div className={styles.listBar}>
-              <span>{count.format(view.contentCount)} shown</span>
+              <span>{count.format(shownChanges.length)} shown</span>
               {shownPublishable.length > 0 && (
                 <button
                   type="button"

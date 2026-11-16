@@ -1250,3 +1250,54 @@ it('a row picked during the pause wins: the pause ends without moving again', as
     useAdvanceSetting.setState({ ms: 600 });
   }
 });
+
+it('never offers a publish during a reload, and retires an open confirmation when the data changes', async () => {
+  // Security review 1 finding 2.
+  await mount();
+  const press = (key: string) =>
+    act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+      );
+    });
+  await act(async () =>
+    host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
+  );
+  await act(async () => button('Refresh').click());
+  expect(headPublish()!.disabled).toBe(true);
+  await press('p');
+  expect(host.querySelector('dialog[open]')).toBeNull();
+  await waitForReview();
+  await waitFor(() => expect(button('Refresh').disabled).toBe(false));
+  // A confirmation open on one snapshot closes, out loud, when the saved data is replaced.
+  await act(async () =>
+    host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
+  );
+  await openPublish();
+  expect(host.querySelector('dialog[open]')).not.toBeNull();
+  await act(async () => {
+    const newer = structuredClone(useDataStore.getState().data!);
+    newer.bundle.tooltips[10].text.en!.text = 'Saved meanwhile';
+    useDataStore.setState({ data: newer });
+  });
+  await waitFor(() => expect(host.querySelector('dialog[open]')).toBeNull());
+  expect(host.textContent).toContain('The list changed while the publish was being confirmed.');
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('P opens nothing for a role that cannot publish', async () => {
+  // Security review 1 finding 4.
+  useAuthStore.setState({ user: { ...user, role: 'translator', languages: ['de'] } });
+  await mount();
+  await act(async () =>
+    host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
+  );
+  await act(async () => {
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'p', bubbles: true, cancelable: true }),
+    );
+  });
+  expect(host.querySelector('dialog[open]')).toBeNull();
+  expect(headPublish()).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+});

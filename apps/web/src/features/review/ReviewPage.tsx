@@ -373,9 +373,20 @@ export function ReviewPage() {
   }, [currentHash, query, kindFilter, stopPause]);
 
   function askToPublish() {
-    if (!data || !entries || comparing || pushing) return;
-    if (chosen.length) setConfirming({ entries: chosen, data });
+    // Only a role that can publish, and never while a reload may replace the reviewed snapshot.
+    if (!canPush(user) || !data || !entries || comparing || reloading || pushing) return;
+    if (!chosen.length) return;
+    setError(undefined);
+    setConfirming({ entries: chosen, data });
   }
+  // A confirmation belongs to the snapshot it listed: new saved data retires it, out loud.
+  useEffect(() => {
+    if (!confirming || confirming.data === data) return;
+    setConfirming(undefined);
+    setError(
+      'The list changed while the publish was being confirmed. Review it and publish again.',
+    );
+  }, [confirming, data]);
   const [raw, setRaw] = useRawDiff();
   const actions = useRef({ decide, skip, undo, askToPublish, selectIndex, raw, setRaw, pause });
   actions.current = { decide, skip, undo, askToPublish, selectIndex, raw, setRaw, pause };
@@ -543,7 +554,7 @@ export function ReviewPage() {
               type="button"
               className={styles.primary}
               data-review-publish
-              disabled={pushing || comparing || !chosen.length}
+              disabled={pushing || refreshing || !chosen.length}
               onClick={askToPublish}
             >
               {pushing

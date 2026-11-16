@@ -1,4 +1,4 @@
-import { languages, type Lang, type Tooltip } from '@clarity/core';
+import { languages, usesEnglishFallback, type Lang, type Tooltip } from '@clarity/core';
 import { create } from 'zustand';
 import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
@@ -35,6 +35,8 @@ export interface Classification {
   variants?: boolean;
   /** No visible change: how many source lines changed. */
   markupLines?: number;
+  /** Text changed through the stored number values only. */
+  numbers?: boolean;
 }
 
 /** What a row is without its published text, or undefined when that text decides. */
@@ -47,8 +49,24 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
   return undefined;
 }
 
+/**
+ * The text a language goes live with: a translation that falls back goes out in English (the
+ * same rule as the publish digest), so a fallback flip is a change players see.
+ */
+export function exportedText(tooltip: Tooltip | null, lang: Lang): string {
+  if (!tooltip) return '';
+  return usesEnglishFallback(tooltip, lang)
+    ? (tooltip.text.en?.text ?? '')
+    : (tooltip.text[lang]?.text ?? '');
+}
+
+/** Languages whose saved source or exported text differs. */
 export const textLanguages = (before: Tooltip | null, current: Tooltip) =>
-  languages.filter((lang) => before?.text[lang]?.text !== current.text[lang]?.text);
+  languages.filter(
+    (lang) =>
+      before?.text[lang]?.text !== current.text[lang]?.text ||
+      exportedText(before, lang) !== exportedText(current, lang),
+  );
 
 /** Source lines between the first and last changed line (the larger side). */
 export function changedLines(before: string, after: string): number {
@@ -105,6 +123,9 @@ export function publishedKind(
       ...(variants ? { scope: base && enhanced ? 'both' : base ? 'base' : 'enhanced' } : {}),
     };
   }
+  // The stored number values feed the numbers players read; the publish digest covers them too.
+  if (!same(before.text.en?.numbers, current.text.en?.numbers))
+    return { kind: 'Text changed', languages: ['en'], variants: false, numbers: true };
   if (linksChanged(before, current)) return { kind: 'Links changed' };
   return {
     kind: 'No visible change',
@@ -190,8 +211,8 @@ export function classifyRows(
     void Promise.all(
       changed.map((lang) =>
         classifyRendered(
-          before.text[lang]?.text ?? '',
-          saved.text[lang]?.text ?? '',
+          exportedText(before, lang),
+          exportedText(saved, lang),
           diffGlobals(data, {}, lang, saved.hash),
         ),
       ),

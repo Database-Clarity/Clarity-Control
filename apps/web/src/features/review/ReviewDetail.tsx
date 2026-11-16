@@ -25,7 +25,7 @@ import { revertDraft } from '../history/revert';
 import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
 import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor } from '../navigation/catalog';
-import { textLanguages, type Classification } from './kinds';
+import { exportedText, textLanguages, type Classification } from './kinds';
 import type { PendingTooltip } from './model';
 import type { Published } from './published';
 import { useDelayed } from './useDelayed';
@@ -87,7 +87,7 @@ function Sentence({
         <p className={styles.sentence}>
           <b>Text changed</b>
           {where}
-          {langs}.
+          {langs}.{classification.numbers && ' The stored number values changed.'}
         </p>
       );
     }
@@ -461,8 +461,8 @@ export const ReviewDetail = memo(function ReviewDetail({
       <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
         {(changed.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
         <TextChange
-          before={live.text[lang]?.text ?? ''}
-          after={entry.tooltip.text[lang]?.text ?? ''}
+          before={exportedText(live, lang)}
+          after={exportedText(entry.tooltip, lang)}
           lang={lang}
           hash={entry.tooltip.hash}
           classification={classification}

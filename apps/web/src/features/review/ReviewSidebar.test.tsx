@@ -7,6 +7,7 @@ import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import type { PendingTooltip } from './model';
 import { useReviewQueue } from './queueStore';
 import { ReviewSidebar } from './ReviewSidebar';
+import { useAuthStore } from '../../stores/auth';
 
 const entry = (
   hash: number,
@@ -34,6 +35,8 @@ function Location() {
 
 beforeEach(async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  // "Include all" is drawn only for a role that can publish.
+  useAuthStore.setState({ user: { id: 1, login: 'fixture', role: 'maintainer' } });
   useReviewQueue.setState({
     entries: [
       entry(1, 'a'),
@@ -218,4 +221,31 @@ it('filters by find and kind; "Include all N" ticks exactly the publishable rows
   expect(rows()).toEqual([1, 2, 4]);
   // The open change still matched: it stays open.
   expect(host.querySelector('output')?.textContent).toBe('/review?hash=1');
+});
+
+it('"Include all N" ticks only rows on screen, and is not drawn for a role that cannot publish', async () => {
+  // Security review 1 findings 3 and 4.
+  const kind = host.querySelector<HTMLSelectElement>('select[aria-label="Kind of change"]')!;
+  await act(async () => {
+    kind.value = 'New';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(rows()).toEqual([1, 4]);
+  // Collapse group b: its row is no longer shown, so it is no longer counted or ticked.
+  await click(header('b'));
+  expect(rows()).toEqual([1]);
+  expect(host.textContent).toContain('1 shown');
+  const all = [...host.querySelectorAll('button')].find((b) =>
+    /^Include all/.test(b.textContent ?? ''),
+  )!;
+  expect(all.textContent).toBe('Include all 1');
+  await click(all);
+  expect(selected()).toEqual([1]);
+  await click(header('b'));
+  await act(async () =>
+    useAuthStore.setState({ user: { id: 2, login: 'reader', role: 'translator' } }),
+  );
+  expect(
+    [...host.querySelectorAll('button')].some((b) => /^Include all/.test(b.textContent ?? '')),
+  ).toBe(false);
 });
