@@ -250,6 +250,34 @@ it('matches actual converter decimals for fallback, identical translations, and 
     const german = result.rows.find((row) => row.consumer.lang === 'de')!;
     expect(JSON.parse(german.before!.rendered)).toEqual(liveRender(before, 100, 'de'));
     expect(JSON.parse(german.after!.rendered)).toEqual(liveRender(after, 100, 'de'));
-    expect(german.before!.rendered).toContain(translated === '#damage DE' ? '10,5' : '10.5');
+    expect(german.before!.rendered).toContain(translated === 'Alt' ? '10.5' : '10,5');
+    expect(german.after!.rendered).toContain(translated === 'Alt' ? '20.5' : '20,5');
+  }
+});
+
+it('matches live decimals for token-only translations and unfreezable fallback', () => {
+  for (const unfreezable of [false, true]) {
+    const consumer = tooltip(100, '#damage 1', '#damage #{=1}');
+    consumer.text.en!.numbers = {
+      ids: unfreezable ? [2] : [1],
+      next: unfreezable ? 3 : 2,
+      retired: unfreezable ? { 1: null } : {},
+    };
+    const before = snapshot([
+      tooltip(2, 'var damage = 10.5', 'var damage = 10.5'),
+      tooltip(3, '', ''),
+      consumer,
+    ]);
+    const after = structuredClone(before);
+    after.revision = 'source2';
+    after.tooltips[2].text.en!.text = 'var damage = 20.5';
+    after.tooltips[2].text.de!.text = 'var damage = 20.5';
+    const result = impacted(before, after);
+    expect(result.complete).toBe(true);
+    const german = result.rows.find((row) => row.consumer.lang === 'de')!;
+    expect(JSON.parse(german.before!.rendered)).toEqual(liveRender(before, 100, 'de'));
+    expect(JSON.parse(german.after!.rendered)).toEqual(liveRender(after, 100, 'de'));
+    expect(german.before!.rendered).toContain(unfreezable ? '10.5' : '10,5');
+    expect(german.after!.rendered).toContain(unfreezable ? '20.5' : '20,5');
   }
 });

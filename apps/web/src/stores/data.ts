@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import {
   hasSandboxTargets,
-  mergeSandboxPointers,
+  composeAliases,
+  type AliasGroupIssue,
   type Aliases,
   type SandboxConflicts,
   type SandboxPointers,
@@ -17,13 +18,15 @@ export type Catalog = Awaited<ReturnType<typeof loadGenerator>>;
 export interface EditorData extends Catalog {
   bundle: Bundle;
   /**
-   * The generator's own aliases; `aliases` is these plus the maintainer sandbox picks (core
-   * mergeSandboxPointers), exactly what push and publish digest and export with. Absent in
+   * The generator's own aliases; `aliases` composes these, accepted groups, and sandbox picks,
+   * exactly what push and publish digest and export with. Absent in
    * fixtures that build EditorData by hand (then `aliases` is the generator's).
    */
   generatorAliases?: Aliases;
   /** The generator's shared sandbox perks, once loaded. */
   sandboxConflicts?: SandboxConflicts;
+  /** Persisted decisions that no longer match current generator facts. */
+  aliasGroupIssues?: AliasGroupIssue[];
 }
 interface DataState {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -33,8 +36,8 @@ interface DataState {
 }
 
 /**
- * Editor data with the picks applied. Without a pick that points at a tooltip, `aliases` stays the
- * generator's very object, so alias-keyed caches and every digest are exactly as before.
+ * Compose groups from this tooltip snapshot before picks, including every pick refresh.
+ * Without groups or an active pick, preserve the generator alias object and existing digests.
  */
 export function withSandboxPicks(
   data: EditorData,
@@ -42,13 +45,24 @@ export function withSandboxPicks(
   conflicts = data.sandboxConflicts,
 ): EditorData {
   const generatorAliases = data.generatorAliases ?? data.aliases;
-  const aliases = conflicts
-    ? mergeSandboxPointers(generatorAliases, conflicts, pointers)
-    : generatorAliases;
+  if (
+    data.bundle.aliasGroups &&
+    !conflicts &&
+    Object.keys(data.bundle.aliasGroups.groups).length > 0
+  )
+    throw new Error('Cannot load alias groups: sandbox conflicts unavailable');
+  const { aliases, issues } = composeAliases(
+    generatorAliases,
+    data.bundle.aliasGroups,
+    data.items,
+    conflicts,
+    conflicts ? pointers : undefined,
+  );
   return {
     ...data,
     aliases,
     generatorAliases,
+    aliasGroupIssues: issues,
     ...(conflicts ? { sandboxConflicts: conflicts } : {}),
     bundle: { ...data.bundle, sandboxPointers: pointers },
   };
@@ -102,14 +116,17 @@ export const useDataStore = create<DataState>((set, get) => ({
         loadBundle(),
         useMarksStore.getState().load(),
       ]);
-      const picks = hasSandboxTargets(bundle.sandboxPointers) ? await conflicts : undefined;
+      const picks =
+        hasSandboxTargets(bundle.sandboxPointers) || bundle.aliasGroups
+          ? await conflicts
+          : undefined;
       const assemble = (): EditorData => {
         const base: EditorData = {
           ...catalog,
           generatorAliases: catalog.aliases,
           bundle: applySavedOverlay(bundle),
         };
-        return hasSandboxTargets(bundle.sandboxPointers)
+        return hasSandboxTargets(bundle.sandboxPointers) || bundle.aliasGroups
           ? withSandboxPicks(base, bundle.sandboxPointers, picks)
           : base;
       };

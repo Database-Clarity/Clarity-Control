@@ -161,7 +161,7 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
       const markupGlobals: MarkupGlobals = {
         ...globals.get(language)!,
         type: perk.type,
-        lang: text === perk.editor.en?.main ? 'en' : language,
+        lang: perk.editor[language]?.englishFallback ? 'en' : language,
       };
       const { lines, diagnostics } = parseMarkup(text, markupGlobals);
       // What the editor shows as an error (an unresolved or cyclic import, a malformed

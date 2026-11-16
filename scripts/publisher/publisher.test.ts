@@ -2020,13 +2020,13 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // Retain the afa1e8e stamp oracle; re-pin push.ts for its reviewed native refusal
     // and budget checks, the link-only empty-description guard, and the set-bonus hold; the
     // element-tag export hold is lifted (exportLegacy lowers; untagged pushes write the same bytes).
-    // The written, pair-free golden still matches byte for byte; empty refusals are tested above.
+    // Re-pin S3's head-coherent selection, pick cleanup scope, and absent-config fast path.
     // Re-pinned for sandbox picks: push merges config/sandbox-pointers.json (core
     // mergeSandboxPointers) like the publisher, and merges live perks with core mergeLivePerks
     // (keys the picks file names are recomputed); with no picks file, as here, every byte is the same.
-    // Re-pinned for error-log redaction only; push behavior and output are unchanged.
+    // Re-pinned for error-log redaction, and removal of the unused publisher PIN read.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', 'fe80df333b316b2ae4ad0462e820c2e7a8112233'],
+      ['apps/worker/src/push.ts', '3f96a0949a78bdad92de834b7349a5cf5c44f275'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');

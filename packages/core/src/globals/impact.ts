@@ -93,12 +93,8 @@ function resolveSnapshot(
         );
         const text = globalSourceText(tooltip, lang, snapshot.mode)!;
         blockHiddenImports(text);
-        // The live converter retains English decimals whenever its exported inputs are equal,
-        // including fallback and translations that happen to contain the same authored text.
-        const numberLanguage =
-          snapshot.mode === 'live' && text === globalSourceText(tooltip, 'en', snapshot.mode)
-            ? 'en'
-            : lang;
+        // Match the export's fallback decision, including translations identical to English.
+        const numberLanguage = globalSourceLanguage(tooltip, lang, snapshot.mode);
         const globals = {
           variables: catalog[2] ?? '',
           titles: catalog[3] ?? '',

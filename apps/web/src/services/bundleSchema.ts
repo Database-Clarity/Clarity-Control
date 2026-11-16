@@ -4,6 +4,7 @@ import {
   sandboxPointersSchema,
   inactiveMovesSchema,
   tooltipSchema,
+  aliasGroupsSchema,
 } from '@clarity/core';
 import { z } from 'zod';
 
@@ -18,6 +19,8 @@ export const bundleSchema = z.object({
     ),
   permissions: permissionsSchema,
   pushed: pushedSchema,
+  /** Accepted groups and archived tooltip removals belong to the same sourceCommit. */
+  aliasGroups: aliasGroupsSchema.optional(),
   /** Maintainer moves fail closed: a malformed file must not silently restore exports. */
   inactiveMoves: inactiveMovesSchema.optional(),
   /** Maintainer picks for shared sandbox perks (config/sandbox-pointers.json); absent while none. */
