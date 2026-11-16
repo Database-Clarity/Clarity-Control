@@ -7,6 +7,7 @@ import { bundleUrl } from '../../services/bundle';
 import { pendingCompendiumWorker, compendiumDataUrl } from '../../services/compendium';
 import { guidanceResponseSchema } from './guidanceSchema';
 import { matchingSession, prewarmMatchingSession } from './matchingSession';
+import type { PriorityReview } from './matchingSessionPlanning';
 import type { displayMatches } from './displayMatches';
 import { storedInputs, type StoredInputs } from './storedInputs';
 
@@ -74,6 +75,8 @@ export function useDisplayMatches(
   drafts: Drafts,
   userId?: string | number,
   priorityHash?: number,
+  /** The Compendium tab's current entry: its review is asked for ahead of the catalog. */
+  reviewHash?: number,
 ) {
   const typingUntil = useRef(0);
   useEffect(() => {
@@ -118,6 +121,15 @@ export function useDisplayMatches(
     revision: number;
     matches: Value['matches'];
     priorityHash?: number;
+  }>();
+  const [review, setReview] = useState<{
+    editor: EditorData;
+    source: CompendiumData;
+    evidence: string;
+    userId: typeof userId;
+    inputs: StoredInputs;
+    revision: number;
+    value: PriorityReview;
   }>();
   const [result, setResult] = useState<{
     editor: EditorData;
@@ -223,6 +235,17 @@ export function useDisplayMatches(
             priorityHash,
           }),
         );
+      // Published at once: the tab paints its current entry while the catalog completes.
+      if (reviewHash !== undefined)
+        void session
+          .prioritizeReview(input, reviewHash)
+          .then((value) => {
+            if (!cancelled)
+              setReview({ editor, source, evidence, userId, inputs, revision, value });
+          })
+          .catch(() => {
+            // The full request owns errors; superseded priority requests are expected.
+          });
       if (priorityHash !== undefined)
         void session
           .prioritize(input, priorityHash)
@@ -252,7 +275,18 @@ export function useDisplayMatches(
       if (idlePublication !== undefined) cancelIdleCallback(idlePublication);
       if (quietPublication !== undefined) clearTimeout(quietPublication);
     };
-  }, [editor, source, matchingDrafts, evidence, userId, revision, inputs, scope, priorityHash]);
+  }, [
+    editor,
+    source,
+    matchingDrafts,
+    evidence,
+    userId,
+    revision,
+    inputs,
+    scope,
+    priorityHash,
+    reviewHash,
+  ]);
   const current =
     result?.editor === editor &&
     result?.source === source &&
@@ -286,8 +320,19 @@ export function useDisplayMatches(
     earlyMatches.priorityHash === priorityHash
       ? earlyMatches.matches
       : undefined;
+  const currentReview =
+    review?.editor === editor &&
+    review.source === source &&
+    review.evidence === evidence &&
+    review.userId === userId &&
+    review.inputs.key === inputs.key &&
+    review.revision === revision &&
+    review.value.hash === reviewHash
+      ? review.value
+      : undefined;
   return {
     prepared: value,
+    review: currentReview,
     reviewPrepared,
     matches: value?.matches ?? partial,
     decisions: value?.decisions,

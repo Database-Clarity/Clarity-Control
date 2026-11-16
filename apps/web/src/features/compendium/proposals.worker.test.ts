@@ -3,6 +3,14 @@ import { guidedFixture } from '../../../test/guided-fixture';
 import { emptyProgress } from './reviewProgress';
 import { receiveWorkerResult, type WorkerReply } from './workerReplies';
 import approved from './approved-guidance.v1.json';
+import type { ReviewProposal } from './rapidReview';
+import { applyReviewProgress } from './reviewQueue';
+import {
+  earlyEntry,
+  preparedDecisions,
+  preparedProposals,
+  preparedQueueRows,
+} from './reviewViewCache';
 
 // Each test's worker module keeps its own quiet-period cache writes. Left pending, a 1 s timer
 // fired during a later test (slow CI) and wrote into that test's IndexedDB stub, pushing it
@@ -162,8 +170,11 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const bytes = new TextEncoder().encode(JSON.stringify({ editor: f.editor, source: f.source }));
   worker.onmessage!({ data: { initialChunk: { token: 17, bytes: bytes.buffer } } });
   let finished = false;
-  const initialized = request(1, { initialize: { token: 17 } }).then(() => {
+  const initialized = request<Map<number, ReviewProposal>>(1, {
+    initialize: { token: 17 },
+  }).then((proposals) => {
     finished = true;
+    return proposals;
   });
   const input = {
     drafts: {},
@@ -189,16 +200,34 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   expect(pane.get(100)?.tab.rows).toEqual([]);
   expect(assetRequests).toBe(1);
   release();
-  await initialized;
+  const core = await initialized;
   const full = await request<ReturnType<typeof import('./displayMatches').displayMatches>>(4, {
     input,
   });
+  // The tab's current entry ahead of the model is the model's own row, proposal, and decision.
+  const shown = preparedProposals(full, core);
+  const rows = preparedQueueRows(
+    applyReviewProgress(full.evidence, input.progress),
+    full,
+    shown,
+    new Set(),
+    new Map(),
+  );
   for (const review of [first, next]) {
     expect(review.entry).toEqual(
       full.categories.flatMap((c) => c.entries).find((e) => e.hash === review.hash),
     );
     expect(review.decision).toEqual(full.decisions.find((d) => d.hash === review.hash));
     expect(review.matches.get(review.hash)?.row).toEqual(full.matches.get(review.hash)?.row);
+    const early = earlyEntry(review, f.editor, {}, new Set());
+    expect(early?.row).toEqual(rows.find((row) => row.hash === review.hash));
+    expect(early?.decision).toEqual(preparedDecisions(full).get(review.hash));
+    const proposal = shown.get(review.hash);
+    expect(early?.proposal?.link).toEqual(proposal?.link);
+    expect(early?.proposal?.match?.row).toEqual(proposal?.match?.row);
+    expect(early?.proposal?.candidates.map((c) => c.row)).toEqual(
+      proposal?.candidates.map((c) => c.row),
+    );
   }
   expect(duringReply).toBeDefined();
   const current = await duringReply!;

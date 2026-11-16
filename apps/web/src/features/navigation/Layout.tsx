@@ -34,6 +34,7 @@ import { count } from './notices';
 import { useShellNotices } from './useShellNotices';
 import { ReviewSidebarNavigation } from './SidebarNavigation';
 import { CompendiumQueue } from '../compendium/CompendiumQueue';
+import { noteEditorEntry } from '../compendium/editorEntry';
 import { SettingsSync } from '../settings/SettingsSync';
 import { SettingsPopover } from '../settings/SettingsPopover';
 import { RememberRoute } from '../settings/SettingsRedirect';
@@ -104,6 +105,9 @@ function LayoutContent() {
   useEffect(() => {
     document.title = documentTitle(pageName);
   }, [pageName]);
+  useEffect(() => {
+    if (itemHash !== null) noteEditorEntry(itemHash);
+  }, [itemHash]);
   useEffect(() => {
     void load();
   }, [load]);
