@@ -5,7 +5,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SandboxPointers } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
-import { useDataStore, type EditorData } from '../../stores/data';
+import {
+  sharedSandboxConflicts,
+  useDataStore,
+  withSandboxPicks,
+  type EditorData,
+} from '../../stores/data';
 import { loadSandboxPerkText } from '../manifest/manifestText';
 import { getSandboxPointers, putSandboxPointers } from '../../services/sandboxPointers';
 import { at, fixture } from './fixture.testSupport';
@@ -18,6 +23,10 @@ vi.mock('../../services/api', async (original) => ({
 vi.mock('../../services/generator', async (original) => ({
   ...(await original<typeof import('../../services/generator')>()),
   loadSandboxConflicts: vi.fn(async () => fixture().conflicts),
+}));
+vi.mock('../../stores/data', async (original) => ({
+  ...(await original<typeof import('../../stores/data')>()),
+  sharedSandboxConflicts: vi.fn(),
 }));
 vi.mock('../../services/sandboxPointers', async (original) => ({
   ...(await original<typeof import('../../services/sandboxPointers')>()),
@@ -35,6 +44,7 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  vi.mocked(sharedSandboxConflicts).mockResolvedValue(input.conflicts);
   useAuthStore.setState({ user: { id: 1, login: 'alice', role: 'maintainer' }, loading: false });
   useDataStore.setState({
     data: {
@@ -96,6 +106,77 @@ const click = (element: HTMLElement) => act(async () => element.click());
 const saveBar = () => container.textContent ?? '';
 
 describe('Sandbox perks worklist', () => {
+  it('keeps a grouped member pick selectable and resolves its preview and bulk imports', async () => {
+    const conflicts = { 90: [20, 30] };
+    vi.mocked(sharedSandboxConflicts).mockResolvedValue(conflicts);
+    const data = useDataStore.getState().data!;
+    const tooltip = (hash: number, text: string) => ({
+      hash,
+      associated: [],
+      text: { en: { text, updatedAt: at, updatedBy: 'fixture' } },
+    });
+    const items = {
+      ...data.items,
+      10: { ...data.items[20]!, hash: 10, name: 'Twin', plugCategoryHash: 100 },
+      20: { ...data.items[20]!, name: 'Twin', plugCategoryHash: 100 },
+      30: { ...data.items[20]!, hash: 30, name: 'Other' },
+    };
+    const pointers: SandboxPointers = {
+      version: 1,
+      pointers: {
+        90: { to: 20, candidates: [20, 30], by: 1, at },
+      },
+    };
+    const grouped = withSandboxPicks(
+      {
+        ...data,
+        items,
+        bundle: {
+          ...data.bundle,
+          tooltips: { 10: tooltip(10, 'Canonical body'), 30: tooltip(21, 'import main from 20') },
+          aliasGroups: {
+            version: 1,
+            groups: {
+              10: {
+                members: [10, 20],
+                kind: 'S',
+                basis: { name: 'Twin', categoryId: 'weapon-trait' },
+                by: { id: '1', login: 'alice' },
+                at,
+              },
+            },
+            rejected: {},
+          },
+        },
+      },
+      pointers,
+      conflicts,
+    );
+    expect(grouped.aliases[90]).toEqual({ to: 10, kind: 'sandbox' });
+    useDataStore.setState({ data: grouped });
+    vi.mocked(getSandboxPointers).mockResolvedValue({ revision: null, pointers, exporting: true });
+    await render();
+    await choose(status(), 'all');
+    await click(button(row('90'), 'Choose'));
+    const radios = row('90').querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    expect(radios[0]!.disabled).toBe(false);
+    expect(radios[0]!.checked).toBe(true);
+    expect(row('90').textContent?.match(/Canonical body/g)).toHaveLength(2);
+    // Inspect the same-text bulk path with no saved decision.
+    vi.mocked(getSandboxPointers).mockResolvedValue({
+      revision: null,
+      pointers: empty,
+      exporting: true,
+    });
+    act(() => root.unmount());
+    root = createRoot(container);
+    await render();
+    await choose(status(), 'same-text');
+    await click(button(container, 'Apply all 1'));
+    expect(container.textContent).toContain('Staged 1 after the compiled check');
+    expect(row('90').dataset.state).toBe('staged');
+    expect(container.textContent).not.toContain('Unresolved import');
+  });
   it('is maintainer-only and reads nothing for other roles', async () => {
     useAuthStore.setState({ user: { id: 2, login: 'bob', role: 'editor' }, loading: false });
     await render();

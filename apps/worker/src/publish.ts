@@ -2,11 +2,17 @@ import { refuseBaseEnhanced } from './baseEnhanced.js';
 import { refuseHeldSetBonuses } from './setBonusHold.js';
 import { publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { loadAliases } from './catalog.js';
-import { pinMergesSandboxPointers, withSandboxPointers } from './sandboxPointers.js';
+import {
+  pinMergesSandboxPointers,
+  consumerAliasScope,
+  refuseUnsupportedAliasGroups,
+  withSandboxPointers,
+} from './sandboxPointers.js';
 import { pinAppliesInactiveMoves, storedInactiveMoves } from './inactiveMoves.js';
 import { z } from 'zod';
 import {
   classifyPublishIntent,
+  aliasGroupsPath,
   isTextlessDescription,
   permissionsSchema,
   publishBodySchema,
@@ -153,6 +159,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
         publisherPinPath,
         sandboxPointersPath,
         inactiveMovesPath,
+        aliasGroupsPath,
       ],
       [],
       switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
@@ -180,13 +187,21 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       throw new HttpError(400, 'Publish opId outside creation window');
     }
     if (checkedHead !== snapshot.head) {
-      generatorAliases ??= await loadAliases(github.env, github);
       // Sandbox picks join the aliases only for a publisher build that merges them itself, so the
       // reviewed digests match what that build records (an older build: a mismatch refuses).
       const pin = snapshot.files[1 + paths.length]?.value;
-      aliases = pinMergesSandboxPointers(pin)
-        ? await withSandboxPointers(github, generatorAliases, snapshot.files[2 + paths.length])
-        : generatorAliases;
+      const groups = snapshot.files[4 + paths.length];
+      if (groups) refuseUnsupportedAliasGroups(groups, pin);
+      if (!groups) generatorAliases ??= await loadAliases(github.env, github);
+      const pointerFile = pinMergesSandboxPointers(pin) ? snapshot.files[2 + paths.length] : null;
+      const scope = groups
+        ? await consumerAliasScope(github, groups, pointerFile, value.hashes)
+        : undefined;
+      aliases =
+        scope?.aliases ??
+        (pinMergesSandboxPointers(pin)
+          ? await withSandboxPointers(github, generatorAliases ?? {}, pointerFile)
+          : (generatorAliases ?? {}));
       const moves = storedInactiveMoves(snapshot.files[3 + paths.length]);
       if (
         Object.keys(
@@ -206,8 +221,9 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
         (hash) => !isMovedInactive(resolveAlias(hash, aliases), moves),
       );
       const checked = active.length
-        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases)
+        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases, [], scope)
         : new Map<number, Tooltip>();
+      aliases = scope?.aliases ?? aliases;
       // A tagged span, `#{name}`, or `<enhanced/>` in a published tooltip or a document it reads
       // (imports, globals 2 and 3) needs a publisher build that lowers it; an older build would
       // export it unlowered.

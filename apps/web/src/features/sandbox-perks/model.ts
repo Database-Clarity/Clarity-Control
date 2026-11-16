@@ -68,6 +68,8 @@ export interface WorklistInput {
   conflicts: SandboxConflicts;
   /** The generator's own aliases (picks are the thing being edited here). */
   aliases: Aliases;
+  /** Text follows accepted groups; candidate/pick identities use raw aliases above. */
+  textAliases?: Aliases;
   tooltips: Readonly<Record<string, Tooltip>>;
   items: Readonly<Record<string, Item>>;
   perkText: SandboxPerkText;
@@ -90,7 +92,8 @@ function firstLine(text: string | undefined): string {
 /** English source after whole-text `import main from X` chains: the tooltip whose text it is. */
 function textRoot(hash: number, input: WorklistInput): number {
   const seen = new Set<number>();
-  let current = hash;
+  const aliases = input.textAliases ?? input.aliases;
+  let current = resolveAlias(hash, aliases);
   while (!seen.has(current)) {
     seen.add(current);
     const english = input.tooltips[current]?.text.en?.text ?? '';
@@ -101,7 +104,7 @@ function textRoot(hash: number, input: WorklistInput): number {
         .join('\n'),
     );
     if (!match) return current;
-    current = resolveAlias(Number(match[1]), input.aliases);
+    current = resolveAlias(Number(match[1]), aliases);
   }
   return current;
 }
@@ -168,7 +171,7 @@ export function buildRows(input: WorklistInput): SandboxRow[] {
       const item = input.items[identity] ?? input.items[canonical];
       if (item) categoryIds.push(item.categoryId);
       if (candidates.some((candidate) => candidate.hash === canonical)) continue;
-      const tooltip = input.tooltips[canonical];
+      const tooltip = input.tooltips[resolveAlias(canonical, input.textAliases ?? input.aliases)];
       const own = input.items[canonical];
       candidates.push({
         hash: canonical,
@@ -326,7 +329,7 @@ export function compiled(
   const { outputs } = memo(context);
   const hit = outputs.get(key);
   if (hit !== undefined) return hit;
-  const tooltip = context.tooltips[hash];
+  const tooltip = context.tooltips[resolveAlias(hash, context.aliases)];
   // Missing or blank is decided on what consumers get: a stale blank translation exports English.
   const text = tooltip ? consumerText(tooltip, lang) : undefined;
   let result = '\u0000missing';
@@ -355,7 +358,7 @@ export function previewLine(hash: number, context: CompileContext): string {
   const { outputs } = memo(context);
   const hit = outputs.get(key);
   if (hit !== undefined) return hit;
-  const text = context.tooltips[hash]?.text.en?.text ?? '';
+  const text = context.tooltips[resolveAlias(hash, context.aliases)]?.text.en?.text ?? '';
   let result = '';
   if (text.trim()) {
     const imports = consumerImports(context, 'en');

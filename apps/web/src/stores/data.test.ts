@@ -4,10 +4,15 @@ import { clearSavedOverlay, overlayClockSkewMs, rememberSaved } from './savedOve
 import { loadBundle } from '../services/bundle';
 import { loadGenerator } from '../services/generator';
 import { prepareNavigationGroups } from '../features/navigation/catalog';
+import { useMarksStore } from '../features/marks/store';
 
 vi.mock('../services/bundle', () => ({ loadBundle: vi.fn() }));
 vi.mock('../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../features/navigation/catalog', () => ({ prepareNavigationGroups: vi.fn() }));
+vi.mock('../features/marks/store', () => ({
+  useMarksStore: { getState: () => ({ load: marksLoad }) },
+}));
+const { marksLoad } = vi.hoisted(() => ({ marksLoad: vi.fn() }));
 
 describe('editor data loading', () => {
   beforeEach(() => {
@@ -39,6 +44,7 @@ describe('editor data loading', () => {
     expect(useDataStore.getState().status).toBe('loading');
     await useDataStore.getState().load();
     expect(loadGenerator).toHaveBeenCalledTimes(1);
+    expect(useMarksStore.getState().load).toHaveBeenCalledTimes(1);
     expect(useDataStore.getState().data).toBeNull();
     resolveCatalog(catalog);
     await loading;
