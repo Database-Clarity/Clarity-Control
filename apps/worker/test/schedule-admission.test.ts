@@ -658,6 +658,20 @@ describe('preparation cancellation, retry, and claim fences', () => {
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
     expect(f.dataHead).toBe(head);
   });
+  it('refuses aggregate global members once globals exist, before any write', async () => {
+    const aggregate = { ...tooltip(), hash: 2 };
+    const body = { ...saveBody(), changes: [{ hash: 2, base: aggregate, next: aggregate }] };
+    f.moveData({ 'globals/sync.json': { version: 1 } });
+    const head = f.dataHead;
+    const refused = await call('save', body);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe(
+      'Use global entry mutations; Sync pending protection is required',
+    );
+    expect(f.dataHead).toBe(head);
+    f.moveData({ 'globals/sync.json': undefined });
+    expect((await call('save', body)).status).toBe(202);
+  });
   it('kicks the existing pipeline once per minute on Retry of a still-pending request', async () => {
     expect((await call('save', saveBody())).status).toBe(202);
     const head = f.dataHead;

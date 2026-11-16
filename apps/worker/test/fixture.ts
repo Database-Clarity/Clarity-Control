@@ -123,6 +123,8 @@ export class Fixture {
   accountLookups = 0;
   /** Kick files created through the Contents API (by request path). */
   kicks = new Set<string>();
+  /** Raw global Blob field overrides by repository path (binary/truncated/size probes). */
+  rawOverrides = new Map<string, Record<string, unknown>>();
 
   constructor(privateKey: string) {
     this.env = {
@@ -235,12 +237,85 @@ export class Fixture {
     return this.wrapBase64 ? `${(base64.match(/.{1,60}/g) ?? []).join('\n')}\n` : base64;
   }
 
+  /** Exact committed bytes of a JSON value, as the Worker writes it. */
+  private rawFields(path: string, value: unknown) {
+    const text = `${JSON.stringify(value, null, 2)}\n`;
+    return {
+      oid: blobOid(value),
+      byteSize: Buffer.byteLength(text, 'utf8'),
+      isBinary: false,
+      isTruncated: false,
+      text,
+      ...this.rawOverrides.get(path),
+    };
+  }
+
+  /** Deterministic stand-in for a Git tree OID: changes whenever any file below it changes. */
+  treeOid(files: Record<string, unknown>, path: string): string | null {
+    const prefix = `${path}/`;
+    const items = Object.keys(files)
+      .filter((name) => name.startsWith(prefix))
+      .sort();
+    if (!items.length) return null;
+    return createHash('sha1')
+      .update(JSON.stringify(items.map((name) => [name, blobOid(files[name])])))
+      .digest('hex');
+  }
+
   private graphql(raw: unknown): Response {
     this.graphqlCalls++;
     const input = z
       .object({ query: z.string(), variables: z.record(z.string(), z.string()) })
       .parse(raw);
     const repository: Record<string, unknown> = {};
+    if (input.query.startsWith('query GlobalsObserve(')) {
+      const files = this.current();
+      const target: Record<string, unknown> = { oid: this.dataHead };
+      const names = Object.keys(input.variables).filter((name) => /^[tbx][0-9]+$/.test(name));
+      for (const name of names) {
+        const path = input.variables[name]!;
+        const value = files[path];
+        if (name.startsWith('x'))
+          target[name] = value === undefined ? null : { object: this.rawFields(path, value) };
+        else if (value !== undefined) target[name] = { type: 'blob', oid: blobOid(value) };
+        else {
+          const tree = this.treeOid(files, path);
+          target[name] = tree ? { type: 'tree', oid: tree } : null;
+        }
+      }
+      const errors = names
+        .filter((name) => target[name] === null)
+        .map((name) => ({ type: 'NOT_FOUND', path: ['repository', 'ref', 'target', name] }));
+      return this.response({
+        data: { repository: { ref: { target }, live: { target: { oid: this.liveHead } } } },
+        ...(errors.length ? { errors } : {}),
+      });
+    }
+    if (input.query.includes('object(oid:$oid)')) {
+      const files = this.current();
+      const path = Object.keys(files).find((name) => blobOid(files[name]) === input.variables.oid);
+      return this.response({
+        data: { repository: { object: path ? this.rawFields(path, files[path]) : null } },
+      });
+    }
+    if (input.query.includes('object(expression:$e){oid}')) {
+      const [ref, path] = input.variables.e!.split(':');
+      const files = this.snapshots.get(ref!) ?? {};
+      const tree = this.treeOid(files, path!);
+      return this.response({ data: { repository: { object: tree ? { oid: tree } : null } } });
+    }
+    if (input.query.includes('fragment R on Blob')) {
+      for (const [name, expression] of Object.entries(input.variables)) {
+        if (!/^e[0-9]+$/.test(name)) continue;
+        const [ref, path] = expression.split(':');
+        const files = this.snapshots.get(ref!) ?? {};
+        const value = files[path!];
+        const tree = value === undefined ? this.treeOid(files, path!) : null;
+        repository[`o${name.slice(1)}`] =
+          value !== undefined ? this.rawFields(path!, value) : tree ? {} : null;
+      }
+      return this.response({ data: { repository } });
+    }
     if (input.query.includes('perm:file(path:$perm)')) {
       const files = this.current();
       const blob = (value: unknown) =>

@@ -260,6 +260,14 @@ export async function admitBatchRequest(
     if (hashes.length > memberCap)
       throw new HttpError(422, `A batch holds at most ${memberCap} tooltips`);
     returnStatus = kind === 'schedule' || batch.status === 'scheduled' ? 'scheduled' : 'draft';
+    // Global entries are not schedulable: aggregate members fail closed once globals/ exists.
+    if (
+      [...hashes, ...('changes' in input ? input.changes.map(({ hash }) => hash) : [])].some(
+        (hash) => hash === 2 || hash === 3,
+      ) &&
+      (await github.globalsBootstrapped(state.head))
+    )
+      throw new HttpError(409, 'Use global entry mutations; Sync pending protection is required');
     if ('changes' in input) {
       if (state.access.role === 'translator' && input.changes.some(({ base }) => base === null))
         throw new HttpError(403, 'Translators may change only existing tooltips');
