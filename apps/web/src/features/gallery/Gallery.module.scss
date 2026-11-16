@@ -231,11 +231,13 @@ textarea.input {
   width: min(28rem, calc(100vw - 2rem));
 }
 
+// The page around a real pane supplies its gutter; here the demo box does.
 .pane {
   display: flex;
   flex-direction: column;
   width: min(22rem, calc(100vw - 2rem));
   height: 9rem;
+  padding: 0 0.5rem 0.375rem;
   border: 1px solid var(--line);
 
   > * {
@@ -260,9 +262,17 @@ textarea.input {
 }
 
 .list {
-  width: min(20rem, calc(100vw - 2rem));
+  width: min(22rem, calc(100vw - 2rem));
   height: 12rem;
   border: 1px solid var(--line);
+
+  > p {
+    padding: 0.5rem;
+  }
+}
+
+.icon {
+  fill: currentColor;
 }
 
 .listHead {

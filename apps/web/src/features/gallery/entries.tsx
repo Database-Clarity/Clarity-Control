@@ -123,7 +123,7 @@ function DialogDemo({
                 disabled={busy}
                 onClick={() => setOpen(false)}
               >
-                {busy ? 'Saving…' : 'Discard'}
+                {busy ? 'Saving…' : variant === 'form' ? 'Create' : 'Discard'}
               </button>
             </>
           }
@@ -414,7 +414,7 @@ export const entries: readonly GalleryEntry[] = [
             Push live
           </button>
           <button type="button" className={styles.button} aria-label="Settings">
-            <GearIcon />
+            <GearIcon className={styles.icon} />
           </button>
         </Row>
       )),
@@ -712,7 +712,10 @@ export const entries: readonly GalleryEntry[] = [
       s('Long title', () => (
         <div className={styles.pane}>
           <RightPane label="Long" header={<RightPaneHeader title={long.de} />}>
-            <p className={styles.plain}>The title ellipsises; controls never wrap.</p>
+            <p className={styles.plain}>
+              A long title is clipped (no ellipsis); phones hide the title, so this header is empty
+              there.
+            </p>
           </RightPane>
         </div>
       )),
@@ -1089,16 +1092,12 @@ export const entries: readonly GalleryEntry[] = [
     group: 'Icons',
     title: 'Icons',
     from: 'features/navigation (GearIcon, BrandMark), features/archive (ArchiveIcon)',
-    note: 'Inline SVG in currentColor; the brand mark has a light and a dark drawing.',
+    note: 'Inline SVG; the gear takes currentColor from its button’s class (fill: currentColor). The brand mark has a light and a dark drawing.',
     states: [
-      s('Set', () => (
-        <Row>
-          <GearIcon />
-          <BrandMark />
-          <ArchiveIcon />
-          <EnhancedArrow size={16} />
-        </Row>
-      )),
+      s('Gear', () => <GearIcon className={styles.icon} />),
+      s('Brand mark', () => <BrandMark />),
+      s('Archive icon missing', () => <ArchiveIcon />),
+      s('Enhanced arrow', () => <EnhancedArrow size={16} />),
     ],
   },
 ];
