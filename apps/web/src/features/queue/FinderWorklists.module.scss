@@ -26,6 +26,10 @@
 }
 .picker {
   flex: none;
+  // A wide list (an all-categories search) does not stretch the panel's rows away from their counts.
+  > * {
+    max-width: 30rem;
+  }
   display: flex;
   flex-direction: column;
   gap: 0.375rem;

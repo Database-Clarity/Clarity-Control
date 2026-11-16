@@ -30,9 +30,6 @@
 .conditional {
   color: var(--text2);
 }
-.enhancedText {
-  margin-top: 0.5rem;
-}
 .text {
   margin: 0;
   color: var(--text);
@@ -40,6 +37,14 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
+}
+// Diff marks: spaces at a soft wrap collapse, so no strike or underline hangs past a line end.
+.text.diff {
+  white-space: pre-line;
+}
+.enhancedText,
+.text.rewritten {
+  margin-top: 0.5rem;
 }
 .summary {
   display: block;
