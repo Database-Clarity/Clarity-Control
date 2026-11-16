@@ -418,6 +418,25 @@
   container-type: inline-size;
 }
 
+// The highlighted row's own action, named after it, on the rows' inset.
+.listTools {
+  flex: none;
+  display: flex;
+  min-width: 0;
+  padding: 0 0.5rem 0.375rem;
+}
+.listAdd {
+  @include controls.button;
+  min-width: 0;
+  max-width: 100%;
+  > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .sizer,
 .list {
   @container (max-width: 36rem) {

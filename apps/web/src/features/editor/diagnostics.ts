@@ -3,11 +3,13 @@ import {
   validateText,
   type Lang,
   type MarkupGlobals,
+  type NumberMap,
   type ValidationIssue,
 } from '@clarity/core';
 import { StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
+import { numberVariableIssues } from './numbers/diagnostics';
 
 const validation = new WeakMap<MarkupGlobals, Map<string, ReturnType<typeof validateText>>>();
 const importFreeValidation = new Map<string, ReturnType<typeof validateText>>();
@@ -72,12 +74,14 @@ export function validationDiagnostics(
   requireEnglish = true,
   selfHash: () => number | undefined = () => undefined,
   sourceText: () => string | undefined = () => undefined,
+  sourceNumbers: () => NumberMap | undefined = () => undefined,
 ) {
   if (!hasDiagnosticWorker())
     return EditorView.decorations.compute(['doc'], (state) =>
-      decorationsFor(
-        validateEditorText(state.doc.toString(), lang, globals, requireEnglish, selfHash()),
-      ),
+      decorationsFor([
+        ...validateEditorText(state.doc.toString(), lang, globals, requireEnglish, selfHash()),
+        ...numberVariableIssues(state.doc.toString(), sourceText(), sourceNumbers(), lang),
+      ]),
     );
   return [
     asyncDiagnostics,
@@ -91,7 +95,11 @@ export function validationDiagnostics(
           this.check(view, 0);
         }
         update(update: ViewUpdate) {
-          if (update.docChanged || (this.detachedResult && update.view.dom.isConnected))
+          if (
+            update.docChanged ||
+            update.transactions.some((tr) => tr.reconfigured) ||
+            (this.detachedResult && update.view.dom.isConnected)
+          )
             this.check(update.view);
         }
         check(view: EditorView, delay = 40) {
@@ -107,6 +115,7 @@ export function validationDiagnostics(
             // The same input as the status bar's request (useEditorDiagnostics), so both share
             // one worker job per text.
             sourceText: sourceText(),
+            sourceNumbers: sourceNumbers(),
           };
           const apply = (issues: readonly ValidationIssue[]) => {
             if (!this.alive || this.revision !== revision || view.state.doc !== doc) return;

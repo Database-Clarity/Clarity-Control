@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { EditorState } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { useContext, useEffect, useRef } from 'react';
+import { Compartment, EditorState } from '@codemirror/state';
+import { Decoration, EditorView } from '@codemirror/view';
+import { numberSlots } from '@clarity/core';
+import { ReadingSlots, readingSlotsFor } from '../preview/ReadingTooltip';
 import { clarityHighlighting, clarityLanguage } from '../editor/language';
 import styles from './EnglishRaw.module.scss';
 
@@ -9,9 +11,11 @@ import styles from './EnglishRaw.module.scss';
  * (the same language and highlight style), selectable and copyable. No term marks here: the
  * rendered views and the Terms list (Ctrl+K, then G) carry them.
  */
-export function EnglishRaw({ text }: { text: string }) {
+export function EnglishRaw({ text, sourceHash }: { text: string; sourceHash?: number }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const slots = readingSlotsFor(useContext(ReadingSlots), text, sourceHash);
+  const marks = useRef(new Compartment());
   useEffect(() => {
     if (!host.current) return;
     const editor = new EditorView({
@@ -41,6 +45,7 @@ export function EnglishRaw({ text }: { text: string }) {
           }),
           clarityLanguage,
           clarityHighlighting,
+          marks.current.of(EditorView.decorations.of(Decoration.none)),
         ],
       }),
     });
@@ -54,8 +59,26 @@ export function EnglishRaw({ text }: { text: string }) {
   }, []);
   useEffect(() => {
     const editor = view.current;
-    if (!editor || editor.state.doc.toString() === text) return;
-    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: text } });
-  }, [text]);
+    if (!editor) return;
+    const decorations = slots
+      ? Decoration.set(
+          numberSlots(text).flatMap((slot, index) =>
+            slots[index] === undefined
+              ? []
+              : [
+                  Decoration.mark({
+                    attributes: { 'data-slot': String(slots[index]) },
+                  }).range(slot.from, slot.to),
+                ],
+          ),
+        )
+      : Decoration.none;
+    editor.dispatch({
+      ...(editor.state.doc.toString() === text
+        ? {}
+        : { changes: { from: 0, to: editor.state.doc.length, insert: text } }),
+      effects: marks.current.reconfigure(EditorView.decorations.of(decorations)),
+    });
+  }, [text, slots]);
   return <div ref={host} className={styles.raw} data-english-raw="" />;
 }

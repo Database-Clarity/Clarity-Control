@@ -9,18 +9,23 @@ import {
 import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
 import { validateEditorText } from './diagnostics';
 import { translationParity } from './parity';
+import { numberVariableIssues } from './numbers/diagnostics';
 
 const empty: DiagnosticResult = { issues: [], glyphs: [], retired: [], parity: [] };
 
 export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
-  const { text, lang, globals, requireEnglish, selfHash, sourceText, termCheck } = input;
+  const { text, lang, globals, requireEnglish, selfHash, sourceText, sourceNumbers, termCheck } =
+    input;
   const supported = hasDiagnosticWorker();
   const fallback = useMemo(
     () =>
       supported
         ? undefined
         : {
-            issues: validateEditorText(text, lang, globals, requireEnglish, selfHash),
+            issues: [
+              ...validateEditorText(text, lang, globals, requireEnglish, selfHash),
+              ...numberVariableIssues(text, sourceText, sourceNumbers, lang),
+            ],
             glyphs: glyphWarnings(text),
             retired: findRetiredMarkup(maskConflicts(text)),
             parity:
@@ -35,7 +40,17 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
               termCheck,
             }),
           },
-    [supported, text, lang, globals, requireEnglish, selfHash, sourceText, termCheck],
+    [
+      supported,
+      text,
+      lang,
+      globals,
+      requireEnglish,
+      selfHash,
+      sourceText,
+      sourceNumbers,
+      termCheck,
+    ],
   );
   const [completed, setCompleted] = useState<{
     input: DiagnosticInput;
@@ -45,7 +60,16 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
   useEffect(() => {
     if (!supported || !active) return;
     let current = true;
-    const captured = { text, lang, globals, requireEnglish, selfHash, sourceText, termCheck };
+    const captured = {
+      text,
+      lang,
+      globals,
+      requireEnglish,
+      selfHash,
+      sourceText,
+      sourceNumbers,
+      termCheck,
+    };
     const sameDocument =
       requestedDocument.current?.lang === lang && requestedDocument.current.selfHash === selfHash;
     // Snapshotting reachable imports parses markup too. Keep it out of render and
@@ -68,7 +92,18 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
       current = false;
       clearTimeout(timer);
     };
-  }, [active, supported, text, lang, globals, requireEnglish, selfHash, sourceText, termCheck]);
+  }, [
+    active,
+    supported,
+    text,
+    lang,
+    globals,
+    requireEnglish,
+    selfHash,
+    sourceText,
+    sourceNumbers,
+    termCheck,
+  ]);
   const pending =
     active &&
     supported &&
@@ -79,6 +114,7 @@ export function useEditorDiagnostics(input: DiagnosticInput, active = true) {
       completed.input.requireEnglish !== requireEnglish ||
       completed.input.selfHash !== selfHash ||
       completed.input.sourceText !== sourceText ||
+      completed.input.sourceNumbers !== sourceNumbers ||
       completed.input.termCheck !== termCheck);
   const sameDocument = completed?.input.lang === lang && completed?.input.selfHash === selfHash;
   return { ...(fallback ?? (sameDocument ? completed?.result : undefined) ?? empty), pending };

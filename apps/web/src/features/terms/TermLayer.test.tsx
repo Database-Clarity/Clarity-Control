@@ -8,7 +8,11 @@ import { TermLayer, TermPopover, type SpanSource } from './TermLayer';
 import { useSettingsStore } from '../../stores/settings';
 
 // jsdom has no CSS Custom Highlights, caret hit-testing, or range geometry: minimal stand-ins.
-class FakeHighlight extends Set<Range> {}
+class FakeHighlight extends Set<Range> {
+  constructor(...ranges: Range[]) {
+    super(ranges);
+  }
+}
 const box = { left: 0, right: 100, top: 0, bottom: 20, width: 100, height: 20, x: 0, y: 0 };
 let host: HTMLDivElement;
 let root: Root;
@@ -110,6 +114,115 @@ it('keeps the English in the accessible label and puts each Insert beside its na
   );
   // Signed out: no empty footer or footer action.
   expect(dialog.lastElementChild?.querySelector('strong')).not.toBeNull();
+});
+
+it('keeps the default popover DOM identical when optional number metadata is absent', async () => {
+  const anchor = document.createRange();
+  anchor.selectNodeContents(host);
+  const term = { en: 'Voltshot', kind: 'name' as const, official: ['Voltschuss'] };
+  const props = { anchor, lang: 'de' as const, canInsert: true, onInsert() {}, onClose() {} };
+  await act(async () => root.render(<TermPopover {...props} term={term} />));
+  const original = document.querySelector('[data-term-popover]')!.outerHTML;
+  await act(async () =>
+    root.render(<TermPopover {...props} term={{ ...term, number: undefined }} />),
+  );
+  expect(document.querySelector('[data-term-popover]')!.outerHTML).toBe(original);
+});
+
+it('routes a number through its insertion command and opens its popover on touch', async () => {
+  const insert = vi.fn(() => true);
+  const spans: SpanSource = (element) => {
+    const span = element.querySelector('[data-slot]')!;
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    return [
+      {
+        range,
+        term: {
+          en: '5',
+          kind: 'number',
+          official: ['5'],
+          insertOnClick: true,
+          number: { kind: 'Number', context: 'lasts _ seconds', scope: 'PvP', insert },
+        },
+      },
+    ];
+  };
+  await act(async () =>
+    root.render(
+      <TermLayer lang="de" hash={7} enabled={false} canInsert spanSource={spans}>
+        <span data-slot="1">5</span>
+      </TermLayer>,
+    ),
+  );
+  const span = host.querySelector('[data-slot]')!;
+  (document as unknown as { caretPositionFromPoint: unknown }).caretPositionFromPoint = () => ({
+    offsetNode: span.firstChild,
+    offset: 0,
+  });
+  const down = (touch: boolean) => {
+    const event = new Event('pointerdown', { bubbles: true });
+    Object.assign(event, { clientX: 5, clientY: 5, pointerType: touch ? 'touch' : 'mouse' });
+    span.dispatchEvent(event);
+  };
+  await act(async () => {
+    down(false);
+    span.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }),
+    );
+  });
+  expect(insert).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    down(true);
+    span.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }),
+    );
+  });
+  expect(insert).toHaveBeenCalledTimes(1);
+  const dialog = document.querySelector('[data-term-popover]')!;
+  expect(dialog.textContent).toContain('Number');
+  expect(dialog.textContent).toContain('PvP');
+  await act(async () => (dialog.querySelector('button') as HTMLButtonElement).click());
+  expect(insert).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    down(false);
+    span.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX: 15, clientY: 5, detail: 1 }),
+    );
+  });
+  expect(insert).toHaveBeenCalledTimes(2);
+  const selection = window.getSelection()!;
+  const selected = document.createRange();
+  selected.selectNodeContents(span);
+  selection.removeAllRanges();
+  selection.addRange(selected);
+  await act(async () => {
+    down(false);
+    span.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }),
+    );
+  });
+  expect(insert).toHaveBeenCalledTimes(2);
+  selection.removeAllRanges();
+  await act(async () =>
+    root.render(
+      <TermLayer lang="de" hash={7} enabled={false} canInsert={false} spanSource={spans}>
+        <span data-slot="1">5</span>
+      </TermLayer>,
+    ),
+  );
+  await act(async () => {
+    down(false);
+    span.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }),
+    );
+  });
+  expect(insert).toHaveBeenCalledTimes(2);
+  expect(
+    document.querySelector(
+      '[data-term-popover] button[aria-label="Insert at the caret in the translation"]',
+    ),
+  ).toBeNull();
 });
 
 it('keeps the in-game prefix separate from the name and attributes an agreed term in one footer', () => {
