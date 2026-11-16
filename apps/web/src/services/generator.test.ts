@@ -35,6 +35,18 @@ function stubFetch(weaponTypes: () => Response) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('generator catalog', () => {
+  it('preserves explicit enhanced and exotic facts, including false overrides', () => {
+    expect(itemSchema.parse({ ...item, isEnhanced: false, exotic: true })).toMatchObject({
+      isEnhanced: false,
+      exotic: true,
+    });
+    expect(itemSchema.parse({ ...item, isEnhanced: true, exotic: false })).toMatchObject({
+      isEnhanced: true,
+      exotic: false,
+    });
+    expect(() => itemSchema.parse({ ...item, isEnhanced: 'true' })).toThrow();
+    expect(() => itemSchema.parse({ ...item, exotic: 1 })).toThrow();
+  });
   it('accepts old catalogs and rejects malformed owner-name metadata', () => {
     const oldItem = Object.fromEntries(
       Object.entries(item).filter(([key]) => key !== 'ownerNames'),

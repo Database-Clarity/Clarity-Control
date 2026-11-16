@@ -9,6 +9,7 @@ import {
 } from '@clarity/core';
 import { refuseReservedNames } from './elementTags.js';
 import type { GitHub } from './github.js';
+import type { AliasScope } from './catalog.js';
 import { HttpError } from './http.js';
 
 /** Fail closed, at one immutable data commit, before signing or writing consumer input.
@@ -21,6 +22,7 @@ export async function refuseBaseEnhanced(
   roots: readonly number[],
   aliases: Aliases,
   loaded: readonly Tooltip[] = [],
+  scope?: AliasScope,
 ): Promise<ReadonlyMap<number, Tooltip>> {
   const known = new Map(loaded.map((tooltip) => [tooltip.hash, tooltip]));
   const loadMissing = async (hashes: readonly number[]) => {
@@ -40,6 +42,7 @@ export async function refuseBaseEnhanced(
   const visited = new Set<number>();
   let pending = [...roots, 2, 3];
   while (pending.length) {
+    if (scope) aliases = scope.extend(pending);
     const hashes = [...new Set(pending.map((hash) => resolveAlias(hash, aliases)))].filter(
       (hash) => !visited.has(hash),
     );
@@ -65,13 +68,9 @@ export async function refuseBaseEnhanced(
   }
   // Associations reference live entries, not their draft markup or draft associations.
   // Check only direct targets of the selected roots, separately from the import walk.
-  const associated = [
-    ...new Set(
-      roots
-        .flatMap((hash) => known.get(resolveAlias(hash, aliases))?.associated ?? [])
-        .map((hash) => resolveAlias(hash, aliases)),
-    ),
-  ];
+  const targets = roots.flatMap((hash) => known.get(resolveAlias(hash, aliases))?.associated ?? []);
+  if (scope) aliases = scope.extend(targets);
+  const associated = [...new Set(targets.map((hash) => resolveAlias(hash, aliases)))];
   await loadMissing(associated);
   for (const hash of associated) {
     const target = known.get(hash);
