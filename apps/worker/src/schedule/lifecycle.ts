@@ -54,6 +54,8 @@ import {
   parseIndex,
   readState,
   refuseClaimed,
+  globalsListing,
+  refuseGlobalScheduling,
   refuseOpenCap,
   refuseRevision,
   requireBatch,
@@ -143,7 +145,7 @@ export async function scheduleBatch(
     const state = await readState(github, user, scheduleRoles, {
       batchId,
       extra: ['live/pushed.json', sandboxPointersPath, inactiveMovesPath, aliasGroupsPath],
-      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
+      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     if (!pinSchedulesBatches(state.pin))
       throw new HttpError(
@@ -161,6 +163,7 @@ export async function scheduleBatch(
         422,
         `A batch publishes at most ${memberCap} tooltips; remove some first`,
       );
+    refuseGlobalScheduling(state.trees[1] ?? null);
     const rescheduling = batch.status === 'scheduled';
     if (!rescheduling && state.due.entries.length >= scheduleLimits.openBatches)
       throw new HttpError(409, `At most ${scheduleLimits.openBatches} scheduled batches`);
@@ -399,7 +402,7 @@ const compactMinute = (notBefore: string) => notBefore.slice(0, 16).replace(/[-T
  * Creates a kick through the Contents API without a sha, so a second create of the same name
  * gets 422 and is ignored (one kick per name). An App-token push starts the pipeline.
  */
-async function createKick(github: GitHub, path: string, value: unknown): Promise<boolean> {
+export async function createKick(github: GitHub, path: string, value: unknown): Promise<boolean> {
   const encoded = path.split('/').map(encodeURIComponent).join('/');
   const response = await github.request(`/contents/${encoded}`, 'PUT', {
     branch: github.env.DATA_BRANCH,
@@ -410,6 +413,10 @@ async function createKick(github: GitHub, path: string, value: unknown): Promise
   if (!response.ok) throw new HttpError(502, `GitHub kick failed (${response.status})`);
   return true;
 }
+
+/** One kick per batch per minute, shared by /kick and a pending Retry (same pipeline trigger). */
+export const batchKickPath = (batchId: string, now: number) =>
+  `publish/kicks/batch-${batchId}-${Math.floor(now / 60_000)}.json`;
 
 /**
  * POST /batches/:id/kick: maintainer/editor; only an overdue batch (> notBefore + 5 min) that is
@@ -429,8 +436,7 @@ export async function kickBatch(
     throw new HttpError(409, 'Only a scheduled or publishing batch can be kicked');
   if (!batch.notBefore || now <= Date.parse(batch.notBefore) + scheduleLimits.overdueMs)
     throw new HttpError(409, 'This batch is not overdue');
-  const minute = Math.floor(now / 60_000);
-  await createKick(github, `publish/kicks/batch-${batchId}-${minute}.json`, {
+  await createKick(github, batchKickPath(batchId, now), {
     batchId,
     opId: batch.opId,
     by: by(user),
