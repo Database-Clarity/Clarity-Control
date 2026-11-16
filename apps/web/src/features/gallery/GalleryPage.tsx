@@ -36,7 +36,30 @@ export function GalleryPage() {
   const hash = frameHash(settings);
   const frame = useRef<HTMLIFrameElement>(null);
   const loaded = useRef(false);
+  const [frameFailed, setFrameFailed] = useState(false);
   const [src, setSrc] = useState(() => frameSrc(hash));
+  useEffect(() => {
+    if (loading || role !== 'maintainer') return;
+    // Browsers can fire load even when framing is blocked, and do not reliably fire error.
+    // Wait for the gallery app itself to confirm it mounted instead.
+    const timer = window.setTimeout(() => setFrameFailed(true), 15_000);
+    const ready = (event: MessageEvent) => {
+      if (
+        event.origin !== window.location.origin ||
+        event.source !== frame.current?.contentWindow ||
+        event.data !== 'gallery-ready'
+      )
+        return;
+      window.clearTimeout(timer);
+      loaded.current = true;
+      setFrameFailed(false);
+    };
+    window.addEventListener('message', ready);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('message', ready);
+    };
+  }, [loading, role]);
   useEffect(() => {
     // Once the frame runs, a choice changes its route in place (no reload, no history entry).
     const win = frame.current?.contentWindow;
@@ -119,6 +142,11 @@ export function GalleryPage() {
         </label>
       </div>
       <div className={styles.stage}>
+        {frameFailed && (
+          <p role="alert">
+            Preview could not load. Reload the page or open the gallery on the main site.
+          </p>
+        )}
         <iframe
           ref={frame}
           className={styles.frame}
@@ -126,11 +154,16 @@ export function GalleryPage() {
           src={src}
           data-width={settings.width || undefined}
           style={settings.width ? { width: settings.width } : undefined}
+          hidden={frameFailed}
+          onError={() => setFrameFailed(true)}
           onLoad={() => {
-            loaded.current = true;
             // A choice made while the frame was loading.
             const win = frame.current?.contentWindow;
-            if (win && win.location.hash !== hash) win.location.replace(hash);
+            try {
+              if (win && win.location.hash !== hash) win.location.replace(hash);
+            } catch {
+              setFrameFailed(true);
+            }
           }}
         />
       </div>

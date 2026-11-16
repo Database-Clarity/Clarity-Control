@@ -1,8 +1,9 @@
 # Cloudflare static-assets headers (copied into dist by Vite).
-# Every page: no MIME sniffing, and never framed by another site.
+# Every page: no MIME sniffing; allow same-origin previews, never another site's frames.
 /*
   X-Content-Type-Options: nosniff
-  X-Frame-Options: DENY
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: frame-ancestors 'self'
 
 # Hashed build output never changes under the same name.
 /assets/*

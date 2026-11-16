@@ -58,6 +58,9 @@ const matches = (entry: GalleryEntry, query: string) =>
  * apply to this document only and are never saved.
  */
 export function GalleryFrame() {
+  useEffect(() => {
+    window.parent.postMessage('gallery-ready', window.location.origin);
+  }, []);
   // Before anything below reads or writes storage (sign-in, settings, the demos).
   useState(() => isolateStorage());
   const [params] = useSearchParams();
