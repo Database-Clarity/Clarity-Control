@@ -344,6 +344,51 @@ it('keeps the desktop fallback placement left of the reserved scrollbar gutter',
   }
 });
 
+it('never covers its entry when neither side fits: the larger side, height capped', async () => {
+  const observers: ResizeObserverCallback[] = [];
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        observers.push(callback);
+      }
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  const row = entries()[0].parentElement!;
+  // No room beside (near the right edge); a 600px diff fits neither below nor above.
+  const bounds = vi
+    .spyOn(row, 'getBoundingClientRect')
+    .mockReturnValue(new DOMRect(window.innerWidth - 424, 300, 400, 50));
+  const size = () =>
+    act(async () =>
+      observers[0](
+        [
+          {
+            target: dialog(),
+            borderBoxSize: [{ blockSize: 600 }],
+          } as unknown as ResizeObserverEntry,
+        ],
+        {} as ResizeObserver,
+      ),
+    );
+  try {
+    await act(async () => entries()[0].click());
+    await size();
+    // Below has more room (768 - 8 - 372 = 388 against 300 - 4 - 8 = 288).
+    expect([dialog()!.style.top, dialog()!.style.maxHeight]).toEqual(['372px', '388px']);
+    // Lower down, above has more room: held 4px over the entry, capped to the top edge.
+    bounds.mockReturnValue(new DOMRect(window.innerWidth - 424, 450, 400, 50));
+    window.dispatchEvent(new Event('resize'));
+    await size();
+    expect([dialog()!.style.top, dialog()!.style.maxHeight]).toEqual(['8px', '438px']);
+  } finally {
+    bounds.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
 describe('phone placement', () => {
   let phone = true;
   const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 772, width: 390 });

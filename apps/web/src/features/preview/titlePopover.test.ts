@@ -40,23 +40,23 @@ function setup(
 afterEach(() => (document.body.innerHTML = ''));
 
 describe('title popover placement', () => {
-  it('opens below its anchor, clear of the pointer, aligned to its left edge', () => {
+  it('opens below-right of its anchor, clear of the pointer', () => {
     const { anchor, popover } = setup(rect(100, 100, 60, 16), { width: 200, height: 80 });
     openTitlePopover(anchor, popover);
-    expect([popover.style.left, popover.style.top]).toEqual(['100px', '138px']);
+    expect([popover.style.left, popover.style.top]).toEqual(['160px', '138px']);
     expect(popover.hasAttribute('data-open')).toBe(true);
     closeTitlePopover(popover);
     expect(popover.hasAttribute('data-open')).toBe(false);
   });
 
-  it('shifts left to stay inside the viewport', () => {
+  it('flips to below-left of its anchor at the right edge', () => {
     const { anchor, popover } = setup(rect(740, 100, 50, 16), { width: 300, height: 80 });
     openTitlePopover(anchor, popover);
-    expect(popover.style.left).toBe('492px');
+    expect(popover.style.left).toBe('440px');
   });
 
-  it('keeps its edge inset left of the reserved scrollbar gutter', () => {
-    const { anchor, popover } = setup(rect(740, 100, 50, 16), { width: 300, height: 80 });
+  it('clamps inside the edge inset, left of the scrollbar gutter, when neither side fits', () => {
+    const { anchor, popover } = setup(rect(500, 100, 50, 16), { width: 600, height: 80 });
     // A classic 15px scrollbar: clientWidth can count the gutter, the root's own box does not.
     Object.defineProperty(document.documentElement, 'offsetWidth', {
       value: 785,
@@ -64,7 +64,7 @@ describe('title popover placement', () => {
     });
     try {
       openTitlePopover(anchor, popover);
-      expect(popover.style.left).toBe('477px');
+      expect(popover.style.left).toBe('177px');
       expect(popover.style.maxWidth).toBe('min(18.75rem, 769px)');
     } finally {
       delete (document.documentElement as { offsetWidth?: number }).offsetWidth;
@@ -89,7 +89,7 @@ describe('title popover placement', () => {
     anchor.getClientRects = () =>
       [rect(500, 100, 200, 16), rect(10, 120, 80, 16)] as unknown as DOMRectList;
     openTitlePopover(anchor, popover, { x: 30, y: 128 });
-    expect([popover.style.left, popover.style.top]).toEqual(['10px', '158px']);
+    expect([popover.style.left, popover.style.top]).toEqual(['90px', '158px']);
   });
 });
 
@@ -118,6 +118,8 @@ describe('title popover pointer clearance', () => {
           const box = placed(popover, 240, 48);
           expect(covers(box, x, y), `${trigger.left},${trigger.top} @ ${x},${y}`).toBe(false);
           expect(box.top >= trigger.bottom || box.bottom <= trigger.top).toBe(true);
+          // Off the trigger's column: the next row's marker below stays reachable.
+          expect(box.right <= trigger.left || box.left >= trigger.right).toBe(true);
         }
       document.body.innerHTML = '';
     }

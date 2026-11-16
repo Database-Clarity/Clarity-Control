@@ -2,8 +2,9 @@
  * The preview's term tooltips (`<title Name [key] />`) are popovers in the browser's top layer, so no
  * pane, scroller or `contain` ancestor can clip or cover them (the Popover API; where it does not
  * exist the element is simply `position: fixed`). They open on hover or focus, placed from the
- * anchor's own client rect: below it, flipped above when that leaves more room, shifted so the
- * whole box stays inside the viewport, and height-limited (scrolling) only when neither side fits.
+ * anchor's own client rect: below-right of it (below-left at the right edge), flipped above when
+ * that leaves more room, kept inside the viewport, and height-limited (scrolling) only when neither
+ * side fits.
  * Everything happens in one synchronous pass on open (one forced layout, no React render). Below the
  * anchor the box keeps POINTER_CLEARANCE so the pointer never covers it (keyboard focus opens it
  * in the same place); the anchor's close grace lets the pointer cross that gap into the box.
@@ -58,7 +59,16 @@ export function openTitlePopover(
     box.style.maxHeight = `${Math.max(room, 64)}px`;
     height = box.offsetHeight;
   }
-  box.style.left = `${Math.max(EDGE, Math.min(rect.left, viewW - width - EDGE))}px`;
+  // Below-right of the anchor, or below-left when the right has no room, so the box never covers
+  // the anchor's own column: the pointer can move straight on to the next row's marker or term
+  // while this box is still in its close grace. Clamped inside the viewport when neither fits.
+  const left =
+    rect.right + width <= viewW - EDGE
+      ? rect.right
+      : rect.left - width >= EDGE
+        ? rect.left - width
+        : Math.max(EDGE, Math.min(rect.left, viewW - width - EDGE));
+  box.style.left = `${left}px`;
   box.style.top = `${placeAbove ? rect.top - GAP - height : rect.bottom + belowGap}px`;
 }
 

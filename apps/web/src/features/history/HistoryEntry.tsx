@@ -436,12 +436,23 @@ function RevisionPopover({
       const beside = rect.right + gap + width <= viewW - edge;
       const height = Math.min(measuredHeight, window.innerHeight - edge * 2);
       const below = rect.bottom + gap;
-      // Beside, slide up rather than squash near the bottom of the window; below, flip above.
+      const belowRoom = window.innerHeight - edge - below;
+      const aboveRoom = rect.top - 4 - edge;
+      // Beside, slide up rather than squash near the bottom of the window. Otherwise below, or
+      // above when only that fits; when neither fits, the larger side, its height capped there
+      // (the content scrolls), so the box never covers the entry.
+      const side =
+        beside || height <= belowRoom || (height > aboveRoom && belowRoom >= aboveRoom)
+          ? 'below'
+          : 'above';
+      const room = beside
+        ? window.innerHeight - edge * 2
+        : Math.max(0, side === 'below' ? belowRoom : aboveRoom);
       const top = beside
         ? Math.min(Math.max(edge, rect.top), window.innerHeight - height - edge)
-        : below + height <= window.innerHeight - edge
+        : side === 'below'
           ? below
-          : Math.max(edge, rect.top - 4 - height);
+          : rect.top - 4 - Math.min(height, room);
       // Placement owns only these geometry properties. Updating them directly
       // avoids rendering the entire diff again after each size notification.
       Object.assign(element.style, {
@@ -450,7 +461,7 @@ function RevisionPopover({
         // A phone placement held it by its bottom edge (a rotation can switch placements).
         bottom: 'auto',
         width: `${width}px`,
-        maxHeight: `${window.innerHeight - edge * 2}px`,
+        maxHeight: `${room}px`,
       });
     };
     const refresh = (event?: Event) => {
