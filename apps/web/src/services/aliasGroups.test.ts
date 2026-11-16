@@ -7,6 +7,7 @@ import { itemSchema } from './generatorSchema';
 import { withSandboxPicks, useDataStore, type EditorData } from '../stores/data';
 import { canonicalHash, navigationGroups, variantHashes } from '../features/navigation/catalog';
 import { tooltipTextSources } from '../features/editor/references';
+import { useMarksStore } from '../features/marks/store';
 
 const at = '2026-11-15T00:00:00Z';
 const group = (members: number[], categoryId = 'weapon-trait') => ({
@@ -151,6 +152,31 @@ it('preserves explicit flags, reports drift, and rejects malformed groups withou
   );
 });
 
+it('preserves the unavailable-sandbox-facts degrade for empty groups and active picks', () => {
+  const original = fixture();
+  const data = {
+    ...original,
+    sandboxConflicts: undefined,
+    bundle: { ...original.bundle, aliasGroups: { version: 1 as const, groups: {}, rejected: {} } },
+  };
+  const pointers = {
+    version: 1 as const,
+    pointers: {
+      90: { to: 20, candidates: [20, 30], by: 1, at },
+    },
+  };
+  const unavailable = withSandboxPicks(data, pointers);
+  expect(unavailable.aliases).toEqual({});
+  expect(unavailable.bundle.sandboxPointers).toEqual(pointers);
+  expect(withSandboxPicks(unavailable, pointers, { 90: [20, 30] }).aliases[90]).toEqual({
+    to: 20,
+    kind: 'sandbox',
+  });
+  expect(() =>
+    withSandboxPicks({ ...data, bundle: { ...data.bundle, aliasGroups: groups } }, pointers),
+  ).toThrow('conflicts unavailable');
+});
+
 it('renders nested and global imports through the real resolver, ignoring stale alias text', () => {
   const data = withSandboxPicks(fixture(), undefined);
   const tooltip = (hash: number, text: string) => ({
@@ -181,12 +207,35 @@ it('renders nested and global imports through the real resolver, ignoring stale 
 it('loads, reloads, fails closed, and restores through the real bundle and generator readers', async () => {
   const data = fixture();
   let malformed = false;
+  let empty = false;
+  let sandboxUnavailable = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes('/config/marks.json'))
+        return Response.json({
+          types: [{ id: 'todo', label: 'To do', colour: 'blue', by: 1, at }],
+          entries: { 10: [{ type: 'todo', by: 1, at }] },
+        });
       if (url.endsWith('/bundle.json'))
-        return Response.json({ ...data.bundle, ...(malformed ? { aliasGroups: {} } : {}) });
+        return Response.json({
+          ...data.bundle,
+          ...(empty
+            ? {
+                aliasGroups: { version: 1, groups: {}, rejected: {} },
+                sandboxPointers: {
+                  version: 1,
+                  pointers: {
+                    90: { to: 20, candidates: [20, 30], by: 1, at },
+                  },
+                },
+              }
+            : {}),
+          ...(malformed ? { aliasGroups: {} } : {}),
+        });
+      if (url.endsWith('/sandboxConflicts.json') && sandboxUnavailable)
+        return new Response('', { status: 503 });
       if (url.includes('/config/inactive.json')) return new Response('', { status: 404 });
       if (url.endsWith('/categories.json')) return Response.json(data.categories);
       if (url.endsWith('/items.json')) return Response.json(data.items);
@@ -194,7 +243,19 @@ it('loads, reloads, fails closed, and restores through the real bundle and gener
     }),
   );
   await useDataStore.getState().load();
+  expect(useDataStore.getState().status).toBe('error');
+  expect(useDataStore.getState().error).toContain('conflicts unavailable');
+  empty = true;
+  await useDataStore.getState().load();
+  expect(useDataStore.getState().status).toBe('ready');
+  expect(useDataStore.getState().data?.aliases).toEqual({});
+  empty = false;
+  sandboxUnavailable = false;
+  await useDataStore.getState().load();
   expect(useDataStore.getState().data?.aliases[20]).toEqual({ to: 10, kind: 'name' });
+  expect(useMarksStore.getState().index.get(10)).toEqual([
+    expect.objectContaining({ type: 'todo', label: 'To do' }),
+  ]);
   await useDataStore.getState().load();
   expect(useDataStore.getState().data?.aliases[21]).toEqual({ to: 11, kind: 'name' });
   malformed = true;

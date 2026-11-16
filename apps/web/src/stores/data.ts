@@ -48,7 +48,7 @@ export function withSandboxPicks(
   if (
     data.bundle.aliasGroups &&
     !conflicts &&
-    (Object.keys(data.bundle.aliasGroups.groups).length > 0 || hasSandboxTargets(pointers))
+    Object.keys(data.bundle.aliasGroups.groups).length > 0
   )
     throw new Error('Cannot load alias groups: sandbox conflicts unavailable');
   const { aliases, issues } = composeAliases(
