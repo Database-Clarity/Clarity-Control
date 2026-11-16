@@ -4,6 +4,7 @@ import { EditorState } from '@codemirror/state';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { referenceExtensions, type TooltipTarget } from './referenceActions';
 import { sourcesFromGlobals } from './references';
+import { openUrl, urlInLine } from './urls';
 
 const globals = { variables: 'var damage = 25\nvar other = 1', titles: '' };
 const views: EditorView[] = [];
@@ -136,5 +137,96 @@ describe('Ctrl link hints', () => {
       new MouseEvent('mousemove', { clientX: 5, clientY: 5, ctrlKey: true, metaKey: true }),
     );
     expect(hint(view)).toBe('#mine');
+  });
+});
+
+describe('Ctrl+Click web addresses', () => {
+  const click = (view: EditorView, pos: number, ctrlKey: boolean) => {
+    vi.spyOn(view, 'posAtCoords').mockReturnValue(pos);
+    // CodeMirror's own mouse selection (when the click is not handled) measures too.
+    vi.spyOn(view, 'posAndSideAtCoords').mockReturnValue({ pos, assoc: 1 });
+    const event = new MouseEvent('mousedown', {
+      button: 0,
+      clientX: 5,
+      clientY: 5,
+      ctrlKey,
+      bubbles: true,
+      cancelable: true,
+    });
+    view.contentDOM.dispatchEvent(event);
+    return event;
+  };
+  const opened = () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    return open;
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  test('a bare URL opens in a new tab with no opener, leaving the text and caret alone', () => {
+    const open = opened();
+    const doc = 'See https://d2clarity.com/a?b=1 now';
+    const view = editor(doc, 0);
+    const event = click(view, 10, true);
+    expect(open).toHaveBeenCalledWith(
+      'https://d2clarity.com/a?b=1',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe(doc);
+    expect(view.state.selection.main.head).toBe(0);
+  });
+  test('the URL inside link markup opens without its brackets', () => {
+    const open = opened();
+    const doc = '<link Clarity [https://d2clarity.com] />';
+    const view = editor(doc, 0);
+    click(view, doc.indexOf('d2'), true);
+    expect(open).toHaveBeenCalledWith('https://d2clarity.com/', '_blank', 'noopener,noreferrer');
+  });
+  test('trailing punctuation is not part of the URL', () => {
+    const open = opened();
+    const view = editor('Read https://x.y/a. Then (see https://x.y/b), fine', 0);
+    click(view, 8, true);
+    expect(open).toHaveBeenLastCalledWith('https://x.y/a', '_blank', 'noopener,noreferrer');
+    click(view, 32, true);
+    expect(open).toHaveBeenLastCalledWith('https://x.y/b', '_blank', 'noopener,noreferrer');
+    expect(urlInLine('https://en.wiki/A_(b)', 3)?.url).toBe('https://en.wiki/A_(b)');
+  });
+  test('other schemes never open', () => {
+    const open = opened();
+    for (const doc of ['javascript:alert(1)', 'data:text/html,hi', 'mailto:a@b.c', 'ftp://x.y/']) {
+      const view = editor(doc, 0);
+      click(view, 5, true);
+    }
+    expect(urlInLine('xhttps://x.y', 3)).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    expect(openUrl('javascript:alert(1)')).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+  });
+  test('a plain click places the caret as usual', () => {
+    const open = opened();
+    const view = editor('See https://x.y/a', 0);
+    click(view, 8, false);
+    expect(open).not.toHaveBeenCalled();
+    // CodeMirror's own mouse selection ran (jsdom has no layout, so not the exact offset).
+    expect(view.state.selection.main.head).not.toBe(0);
+  });
+  test('a URL wins over a reference inside it, and only inside its range', () => {
+    const open = opened();
+    const navigate = vi.fn();
+    const doc = 'https://x.y/#damage #damage';
+    const view = editor(doc, 0, navigate);
+    click(view, 15, true);
+    expect(open).toHaveBeenCalledWith('https://x.y/#damage', '_blank', 'noopener,noreferrer');
+    expect(navigate).not.toHaveBeenCalled();
+    click(view, doc.length - 2, true);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+  test('Ctrl over a URL shows the link hint', () => {
+    const view = editor('See https://x.y/a.', 0);
+    vi.spyOn(view, 'posAtCoords').mockReturnValue(8);
+    view.dom.dispatchEvent(new MouseEvent('mousemove', { clientX: 5, clientY: 5, ctrlKey: true }));
+    expect(view.dom.querySelector('.clarity-reference-link')?.textContent).toBe('https://x.y/a');
   });
 });
