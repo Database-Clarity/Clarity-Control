@@ -641,6 +641,7 @@ it.each([undefined, emptyAliasGroups()])(
   'preserves generated name aliases with absent or empty groups (%j)',
   async (config) => {
     publisherConfig.enabled = false;
+    items[900] = { ...items[123]!, hash: 900 };
     f.aliases = { 900: { to: 123, kind: 'name' } };
     f.sandboxConflicts = { 900: [123, 126] };
     f.moveData({ [aliasGroupsPath]: config });
