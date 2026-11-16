@@ -1,5 +1,11 @@
 export { reviewStamp } from './model';
-import { draftItems, savedItems, worklistAvailable, worklistStamp } from './savedSources';
+import {
+  draftGroups,
+  draftItems,
+  savedItems,
+  worklistAvailable,
+  worklistStamp,
+} from './savedSources';
 import { loadWorklist } from './worklists';
 import { bungieDrift, translationStateOf, type Lang, type Tooltip } from '@clarity/core';
 import type { User } from '../../services/api';
@@ -278,7 +284,13 @@ export const draftsSource: QueueSource = {
     ({ data }) =>
     (item) =>
       !!data.bundle.tooltips[item.hash]?.text.en?.text.trim(),
-  rebuild: (_queue, { data }) => draftItems(data),
+  async rebuild(queue, { data }) {
+    const items = await draftItems(data);
+    // A category's Drafts worklist rebuilds to that category only.
+    const category = (queue.origin.restore as { category?: string }).category;
+    if (category === undefined) return items;
+    return draftGroups(items, data).find((group) => group.id === category)?.items ?? [];
+  },
 };
 
 export const queueSources: Record<QueueSourceId, QueueSource> = {

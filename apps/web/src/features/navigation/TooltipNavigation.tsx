@@ -216,6 +216,7 @@ const FinderOption = memo(function FinderOption({
   rowHeight,
   twoLine,
   narrow = false,
+  hashQuery,
 }: {
   row: Row;
   index: number;
@@ -234,8 +235,10 @@ const FinderOption = memo(function FinderOption({
   rowHeight: number;
   /** The phone sheet shows a grouped row as entry over "group · kind · hash". */
   twoLine: boolean;
-  /** A screen under 21rem wide: every row is two lines, the name over the perk and hash. */
+  /** A screen under 21rem wide: every row is two lines, the name over its context. */
   narrow?: boolean;
+  /** A digits-only search: rows whose hash it matches show the hash. */
+  hashQuery: string;
 }) {
   const globalContents = useGlobalHover(row.global, data);
   const item = itemFor(row.hash, data);
@@ -245,6 +248,18 @@ const FinderOption = memo(function FinderOption({
   const frames = frameGroupSize(row.hash, data);
   const enhanced = enhancedPairs(row.hash, data).length > 0;
   const stacked = twoLine && row.entry !== undefined;
+  // The hash shows only when the search matched it (owner: the manifest id is not relevant here).
+  const tail = [
+    stacked && row.all && row.name,
+    row.kind,
+    hashQuery && String(row.hash).includes(hashQuery) && String(row.hash),
+    row.extra,
+    shared && !row.listsPieces && !row.group && 'shared perk',
+    frames > 1 && `×${frames}`,
+    item && allCategories && row.category,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <li
       id={id}
@@ -289,15 +304,12 @@ const FinderOption = memo(function FinderOption({
             </span>
           )}
           {!stacked && row.perk && <span className={styles.perk}>{row.perk}</span>}
-          <span className={styles.tail}>
-            {stacked ? row.all && `${row.name} · ` : row.perk && ' · '}
-            {row.kind && `${row.kind} · `}
-            {row.hash}
-            {row.extra && ` · ${row.extra}`}
-            {shared && !row.listsPieces && !row.group && ' · shared perk'}
-            {frames > 1 && ` ×${frames}`}
-            {item && allCategories && ` · ${row.category}`}
-          </span>
+          {tail && (
+            <span className={styles.tail}>
+              {!stacked && row.perk && ' · '}
+              {tail}
+            </span>
+          )}
         </small>
       )}
       <span className={styles.markers}>
@@ -407,6 +419,84 @@ const FinderOptions = memo(function FinderOptions({
     </li>
   );
 });
+
+/**
+ * The whole text of the highlighted row when its name or context is cut off, in the finder's own
+ * surface (not a native title). It follows the highlight (pointer or keys) once it has moved in
+ * this opening, and hides while the list scrolls. Screen readers already get the whole option.
+ */
+function FinderHint({
+  list,
+  activeId,
+}: {
+  list: MutableRefObject<HTMLUListElement | null>;
+  activeId: string | undefined;
+}) {
+  const [hint, setHint] = useState<{
+    name: string;
+    context: string;
+    top: number;
+    above: boolean;
+  }>();
+  const opened = useRef(activeId);
+  useEffect(() => {
+    const element = list.current;
+    const hide = () => setHint(undefined);
+    element?.addEventListener('scroll', hide, { passive: true });
+    return () => element?.removeEventListener('scroll', hide);
+  }, [list]);
+  useEffect(() => {
+    const element = list.current;
+    const row = activeId && activeId !== opened.current ? document.getElementById(activeId) : null;
+    opened.current = undefined;
+    const parts = row?.querySelectorAll<HTMLElement>(
+      `.${styles.name}, small, .${styles.perk}, .${styles.tail}`,
+    );
+    const area = element?.offsetParent;
+    if (!row || !area || ![...parts!].some((part) => part.scrollWidth > part.clientWidth + 1)) {
+      setHint(undefined);
+      return;
+    }
+    const at = row.getBoundingClientRect();
+    const top = area.getBoundingClientRect().top;
+    // Below the row, or above it when the list's end is too close.
+    const above = at.bottom + 3 * at.height > element.getBoundingClientRect().bottom;
+    setHint({
+      name: row.querySelector(`.${styles.name}`)?.textContent ?? '',
+      context: row.querySelector('small')?.textContent ?? '',
+      top: (above ? at.top : at.bottom) - top,
+      above,
+    });
+  }, [list, activeId]);
+  if (!hint) return null;
+  return (
+    <div
+      className={styles.hint}
+      aria-hidden="true"
+      style={{ top: hint.top, transform: hint.above ? 'translateY(-100%)' : undefined }}
+    >
+      {hint.name}
+      {hint.context && <small>{hint.context}</small>}
+    </div>
+  );
+}
+
+/**
+ * About the width, in rem, the longest row needs to show whole: its name (0.8125rem text), its
+ * context (0.75rem), and the icon, gaps, markers, and scrollbar. Characters average ~0.55em.
+ */
+function rowsWidth(rows: Row[], allCategories: boolean): number {
+  let widest = 0;
+  for (const row of rows) {
+    const context =
+      (row.perk?.length ?? 0) +
+      (row.kind?.length ?? 0) +
+      (row.extra?.length ?? 0) +
+      (allCategories ? row.category.length : 0);
+    widest = Math.max(widest, row.name.length * 0.8125 + (context + 9) * 0.75);
+  }
+  return widest * 0.55 + 8.5;
+}
 
 const noRows: Row[] = [];
 const plainRow = (item: CategorySection['items'][number], section: CategorySection): Row => ({
@@ -1197,17 +1287,50 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       ? undefined
       : selectedCategory?.label;
   const widenGroups = grouped && narrowed ? `Search ${grouped.allLabel.toLowerCase()}` : undefined;
-  // Shared perks list the other weapon, and a long "entry · kind · hash" needs the room.
-  const wideRows =
-    place.all || allGroups || allCategories || (narrowed && Boolean(grouped?.owners.size));
+  const hashQuery = /^\d+$/.test(trimmed) ? trimmed : '';
+  // The header list widens to show its rows whole, up to the viewport: about the width the
+  // longest row needs (estimated, as long lists render only the rows in view), never narrower
+  // within one opening, so typing does not make it jump. It is sized when the list opens and when
+  // its scope changes (category, group, all groups, all categories, or the query emptying), never
+  // per keystroke: rows a query filters out of a scope are never wider than the scope's.
+  const sheetList = variant === 'sheet';
+  const emptyQuery = !trimmed;
+  const sizedRows = useRef(rows);
+  sizedRows.current = rows;
+  const widest = useRef(0);
+  useLayoutEffect(() => {
+    if (!open || sheetList) {
+      widest.current = 0;
+      return;
+    }
+    const popup = root.current?.querySelector<HTMLElement>(`.${styles.popup}`);
+    const needed = rowsWidth(sizedRows.current, allCategories);
+    if (!popup || !root.current || (widest.current && needed <= widest.current)) return;
+    widest.current = Math.max(widest.current, needed);
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const field = root.current.getBoundingClientRect();
+    const viewport = document.documentElement.clientWidth;
+    const edge = 0.5 * rem;
+    const width = Math.min(
+      Math.max(field.width, 30 * rem, widest.current * rem),
+      viewport - 2 * edge,
+    );
+    // Under the field, moved left only as far as the viewport's right edge needs.
+    const left = Math.max(edge - field.left, Math.min(0, viewport - edge - field.left - width));
+    popup.style.width = `${width}px`;
+    popup.style.left = `${left}px`;
+  }, [
+    open,
+    sheetList,
+    selectedCategory?.id,
+    place.group,
+    place.all,
+    allGroups,
+    allCategories,
+    emptyQuery,
+  ]);
   const listbox = open && (
-    <FinderWorklistScope
-      controller={worklists}
-      data={data}
-      className={styles.popup}
-      data-variant={variant}
-      data-wide={wideRows || undefined}
-    >
+    <FinderWorklistScope controller={worklists} className={styles.popup} data-variant={variant}>
       {variant === 'bar' && (
         <FinderMarkGroup
           grouped={grouped}
@@ -1277,8 +1400,10 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           rowHeight={rowHeight}
           twoLine={touchRows}
           narrow={narrow}
+          hashQuery={hashQuery}
         />
       </ul>
+      <FinderHint list={list} activeId={rows[active] ? optionId(rows[active]) : undefined} />
       {!rows.length && (
         <p className={styles.empty}>
           No tooltips match “{trimmed}”{scopeName ? ` in ${scopeName}` : ''}.
