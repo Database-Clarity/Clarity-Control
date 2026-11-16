@@ -52,7 +52,16 @@ export function AddToWorklist({
     </Popover>
   );
 }
-export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close(): void }) {
+export function WorklistPicker({
+  items,
+  close,
+  onCancel,
+}: {
+  items: WorklistEntry[];
+  close(): void;
+  /** The finder's Cancel, kept on the picker's action row. */
+  onCancel?(): void;
+}) {
   const lists = useSavedWorklists((state) => state.lists);
   const index = useSavedWorklists((state) => state.index);
   const loaded = useSavedWorklists((state) => state.loaded);
@@ -105,9 +114,16 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
         </button>
       ))}
       {!creating ? (
-        <button type="button" onClick={() => setCreating(true)}>
-          New worklist…
-        </button>
+        <div className={styles.row}>
+          <button type="button" onClick={() => setCreating(true)}>
+            New worklist…
+          </button>
+          {onCancel && (
+            <button type="button" onClick={onCancel}>
+              Cancel
+            </button>
+          )}
+        </div>
       ) : (
         <form
           className={styles.row}
@@ -127,6 +143,11 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
           <button type="submit" disabled={busy || !name.trim()}>
             {busy ? 'Saving…' : 'Create'}
           </button>
+          {onCancel && (
+            <button type="button" onClick={onCancel}>
+              Cancel
+            </button>
+          )}
         </form>
       )}
       <WorklistSaveStatus show={(save) => save.op.type === 'add' || save.op.type === 'create'} />

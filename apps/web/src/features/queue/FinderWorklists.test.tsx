@@ -93,6 +93,8 @@ beforeEach(async () => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  // Let after-paint work queued by this test finish before the next one starts.
+  act(() => vi.runAllTimers());
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -101,6 +103,13 @@ afterEach(() => {
   usePreviewReviewStore.setState({ host: null, entries: {}, prompt: null });
 });
 const field = () => host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+/** Opens the finder and lets the open frame paint, after which the worklist bar fills in. */
+async function openFinder() {
+  await act(async () => field().click());
+  await act(async () => {
+    vi.advanceTimersByTime(50);
+  });
+}
 const button = (text: string) =>
   [...host.querySelectorAll<HTMLButtonElement>('button')].find(
     (button) => button.textContent?.trim() === text,
@@ -120,7 +129,7 @@ function fill(label: string, value: string) {
   });
 }
 it('selects finder rows by keyboard and saves the frozen selection with inline naming', async () => {
-  await act(async () => field().click());
+  await openFinder();
   await press(' ', true);
   await press('ArrowDown');
   await press(' ', true);
@@ -136,7 +145,7 @@ it('selects finder rows by keyboard and saves the frozen selection with inline n
   expect(field().getAttribute('aria-expanded')).toBe('true');
 });
 it('selects one entry with a row click, and Cancel keeps the finder open', async () => {
-  await act(async () => field().click());
+  await openFinder();
   await act(async () => button('Select entries').click());
   const row = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
     option.querySelector('input[aria-label="Select Entry 12 for worklist"]'),
@@ -152,7 +161,7 @@ it('selects one entry with a row click, and Cancel keeps the finder open', async
   expect(useSavedWorklists.getState().lists).toEqual([]);
 });
 it('opens built-in Drafts from the finder using the shared queue', async () => {
-  await act(async () => field().click());
+  await openFinder();
   await act(async () => button('Drafts worklist').click());
   const store = useWorkQueues.getState();
   expect(store.queues[store.active!]!.source).toBe('drafts');
@@ -175,7 +184,7 @@ it('keeps the original run and finder when preview review refuses Drafts opening
     entries: { 11: { canonical: 11, dirty: 2, reviewed: 1 } },
     prompt: null,
   });
-  await act(async () => field().click());
+  await openFinder();
   for (let attempt = 0; attempt < 6; attempt++) {
     await act(async () => button('Drafts worklist').click());
   }
@@ -186,7 +195,7 @@ it('keeps the original run and finder when preview review refuses Drafts opening
 });
 
 it('keeps the multi-selection when cancelling a target, and freezes it while choosing', async () => {
-  await act(async () => field().click());
+  await openFinder();
   await press(' ', true);
   await press('ArrowDown');
   await press(' ', true);
@@ -200,13 +209,18 @@ it('keeps the multi-selection when cancelling a target, and freezes it while cho
 
 it('keeps worklist row controls unmounted until selection starts', async () => {
   await act(async () => field().click());
+  // The open frame draws the bar's box only; its controls follow once that frame has painted.
+  expect(host.querySelector('[aria-label="Finder worklists"]')!.querySelector('button')).toBeNull();
+  await act(async () => {
+    vi.advanceTimersByTime(50);
+  });
   expect(host.querySelector('input[data-worklist-check]')).toBeNull();
   await act(async () => button('Select entries').click());
   expect(host.querySelectorAll('input[data-worklist-check]').length).toBeGreaterThan(0);
   await act(async () => button('Done').click());
   expect(host.querySelector('input[data-worklist-check]')).toBeNull();
   await press('Escape');
-  await act(async () => field().click());
+  await openFinder();
   await press(' ', true);
   expect(host.querySelector('input[data-worklist-check]:checked')).not.toBeNull();
 });

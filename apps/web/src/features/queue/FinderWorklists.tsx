@@ -16,6 +16,7 @@ import { usePreviewReviewStore } from '../../stores/previewReview';
 import type { EditorData } from '../../stores/data';
 import type { WorklistEntry } from '../../../../../packages/core/src/worklists';
 import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
+import { afterPaint } from '../navigation/FinderIcon';
 import { WorklistPicker } from './WorklistsMenu';
 import { draftItems } from './savedSources';
 import { startQueue } from './start';
@@ -167,6 +168,16 @@ function FinderWorklistBar({ data }: { data: EditorData }) {
   const selecting = user && selection.selecting;
   const count = selection.selected.length;
   const host = useRef<HTMLDivElement>(null);
+  // The open frame draws only the bar's empty box (at its final height): its controls mount once
+  // that frame has painted, keeping worklist work off the finder-open path.
+  const [painted, setPainted] = useState(false);
+  useEffect(() => {
+    let live = true;
+    afterPaint(() => live && setPainted(true));
+    return () => {
+      live = false;
+    };
+  }, []);
   const focus = () =>
     host.current?.parentElement?.parentElement
       ?.querySelector<HTMLInputElement>('input[role="combobox"]')
@@ -193,10 +204,7 @@ function FinderWorklistBar({ data }: { data: EditorData }) {
           }
         }}
       >
-        <WorklistPicker items={choosing} close={finish} />
-        <button type="button" onClick={cancel}>
-          Cancel
-        </button>
+        <WorklistPicker items={choosing} close={finish} onCancel={cancel} />
       </section>
     );
   return (
@@ -233,21 +241,23 @@ function FinderWorklistBar({ data }: { data: EditorData }) {
           </button>
         </>
       ) : (
-        <>
-          {user && (
-            <button
-              type="button"
-              title="Ctrl+Space selects the highlighted entry; Ctrl+Enter adds it to a worklist"
-              onClick={() => {
-                controller.setState({ selecting: true });
-                focus();
-              }}
-            >
-              Select entries
-            </button>
-          )}
-          <FinderDraftsButton data={data} />
-        </>
+        painted && (
+          <>
+            {user && (
+              <button
+                type="button"
+                title="Ctrl+Space selects the highlighted entry; Ctrl+Enter adds it to a worklist"
+                onClick={() => {
+                  controller.setState({ selecting: true });
+                  focus();
+                }}
+              >
+                Select entries
+              </button>
+            )}
+            <FinderDraftsButton data={data} />
+          </>
+        )
       )}
     </div>
   );
