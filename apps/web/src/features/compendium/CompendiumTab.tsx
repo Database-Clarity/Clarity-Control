@@ -773,9 +773,16 @@ function Workspace({
           </p>
         ) : (
           // Counts need the whole queue: a placeholder, never zeros.
-          <SkeletonRegion className={styles.counts}>
-            <SkeletonLine width={60} />
-          </SkeletonRegion>
+          // An invisible line of the same shape holds the counts' height wherever they wrap.
+          <div className={`${styles.counts} ${styles.countsPending}`} aria-hidden="true">
+            <span className={styles.countsShape}>
+              000 to review · 0,000 matched automatically · 000 not needed
+            </span>
+            <SkeletonRegion className={styles.countsBars}>
+              <SkeletonLine width={60} />
+              <SkeletonLine width={30} />
+            </SkeletonRegion>
+          </div>
         )}
         <Link
           className={styles.linked}
@@ -799,7 +806,10 @@ function Workspace({
           {progressError || scope.error}
         </p>
       )}
-      {readOnlyReason && rows !== null && <p className={styles.viewerNote}>{readOnlyReason}</p>}
+      {/* Sign-in, not the queue, decides it: shown with the early entry too, so it never pushes it down. */}
+      {readOnlyReason && (rows !== null || !!selected) && (
+        <p className={styles.viewerNote}>{readOnlyReason}</p>
+      )}
       {rows === null && !selected ? (
         <SkeletonStatus>
           <div className={styles.loading}>

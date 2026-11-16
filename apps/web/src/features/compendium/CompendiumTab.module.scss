@@ -556,6 +556,21 @@ p.muted {
   }
 }
 
+// The counts' placeholder: shimmer bars over an invisible line shaped like the counts, so it
+// takes their height (one line, or two where they wrap) and nothing moves when they arrive.
+.countsPending {
+  position: relative;
+}
+
+.countsShape {
+  visibility: hidden;
+}
+
+.countsBars {
+  position: absolute;
+  inset: 0;
+}
+
 .viewerNote {
   display: none;
   margin: 0.375rem 0 0;
