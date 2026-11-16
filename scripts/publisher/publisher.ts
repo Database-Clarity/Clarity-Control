@@ -164,6 +164,7 @@ type Failure = {
   outcomes?: unknown;
   /** Known authored-content refusal; never inferred from a generic repository error. */
   proposalRejected?: true;
+  retryable?: true;
 };
 /** A pending request as the queue orders it, read WITHOUT verification (ordering only). */
 type QueueEntry =
@@ -207,7 +208,9 @@ export class ConsumerOutputRejected extends Error {
     this.name = 'ConsumerOutputRejected';
   }
 }
-export class TextlessConsumerOutput extends ConsumerOutputRejected {
+/** Only conversion of the merged proposal can attribute an output fault to that proposal. */
+export class ProposalOutputRejected extends ConsumerOutputRejected {}
+export class TextlessConsumerOutput extends ProposalOutputRejected {
   constructor(message: string) {
     super(message);
     this.name = 'TextlessConsumerOutput';
@@ -235,11 +238,15 @@ export class Publisher {
    * the same merge as the Worker and the editor). A malformed picks file throws: fail closed.
    */
   aliasesAt(tree: Tree): Aliases {
-    return Publisher.aliasesAt(
-      this.options,
-      this.read<unknown>(tree, aliasGroupsPath),
-      this.read<unknown>(tree, sandboxPointersPath),
-    );
+    try {
+      return Publisher.aliasesAt(
+        this.options,
+        this.read<unknown>(tree, aliasGroupsPath),
+        this.read<unknown>(tree, sandboxPointersPath),
+      );
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
   }
   /** The read-only parity command shares the same pinned-fact checks and composition. */
   static aliasesAt(
@@ -602,8 +609,13 @@ export class Publisher {
             throw new ConsumerOutputRejected(`${preset} conversion failed: ${String(error)}`);
           }
         };
-        const before = convert(live),
+        const before = convert(live);
+        let after: ReturnType<typeof convert>;
+        try {
           after = convert(merged);
+        } catch (error) {
+          throw new ProposalOutputRejected(error instanceof Error ? error.message : String(error));
+        }
         for (const [hash, row] of Object.entries(after)) {
           const empty = (entry: typeof row | undefined) =>
             entry !== undefined &&
@@ -1142,7 +1154,7 @@ export class Publisher {
     tooltips: Tooltip[],
     aliases: Aliases,
   ):
-    | { error: string; proposalRejected?: true }
+    | { error: string; proposalRejected?: true; retryable?: true }
     | { now: number; exported: ReturnType<typeof exportLegacy> } {
     const moves = selectedInactiveMoves(
       this.movesAt(tree),
@@ -1155,10 +1167,10 @@ export class Publisher {
     try {
       this.checkAssociatedDescriptions(tree, active, aliases);
     } catch (error) {
-      return { error: String(error) };
+      return { error: String(error), retryable: true };
     }
     if (active.some((t) => !t.custom && !this.options.facts[t.hash]))
-      return { error: 'Missing generator facts' };
+      return { error: 'Missing generator facts', retryable: true };
     // The data head can advance after the Worker signs. In particular, stale
     // translation fallback can hide raw native markup from publishableHash.
     // Reject it terminally instead of letting exportLegacy wedge the queue.

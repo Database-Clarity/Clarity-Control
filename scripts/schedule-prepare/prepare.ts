@@ -35,7 +35,12 @@ import {
 } from '../../apps/worker/src/schedule/store.js';
 import { appCredits, RefRace, type Tree } from '../publisher/git.js';
 import { batchMembers, json, iso, withEvent } from '../publisher/batch.js';
-import { ConsumerOutputRejected, paths, type Publisher } from '../publisher/publisher.js';
+import {
+  ConsumerOutputRejected,
+  ProposalOutputRejected,
+  paths,
+  type Publisher,
+} from '../publisher/publisher.js';
 import { hasGlobals } from '../publisher/globals.js';
 import {
   publication,
@@ -264,7 +269,11 @@ export class SchedulePreparer {
     );
     const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree));
     if ('failure' in plan) {
-      const Rejection = plan.failure.proposalRejected ? ProposalRejected : PreparationRejected;
+      const Rejection = plan.failure.proposalRejected
+        ? ProposalRejected
+        : plan.failure.retryable
+          ? ConsumerOutputRejected
+          : PreparationRejected;
       throw new Rejection(plan.failure.error ?? plan.failure.status, plan.failure.outcomes);
     }
     // Exercise the actual consumer converter before announcing that the batch is ready.
@@ -430,7 +439,7 @@ export class SchedulePreparer {
   ) {
     const semantic =
       error instanceof PreparationRejected ||
-      error instanceof ConsumerOutputRejected ||
+      error instanceof ProposalOutputRejected ||
       error instanceof InvalidScheduleIntent ||
       error instanceof z.ZodError ||
       error instanceof SyntaxError ||
@@ -464,7 +473,7 @@ export class SchedulePreparer {
     let update: Partial<Batch> = { status: 'needs_attention' };
     // Only a VERIFIED owner policy and a known proposal rejection may restore an old schedule.
     if (
-      (error instanceof ProposalRejected || error instanceof ConsumerOutputRejected) &&
+      (error instanceof ProposalRejected || error instanceof ProposalOutputRejected) &&
       checked?.intent.kind === 'save' &&
       checked.intent.onValidationFailure === 'keep_scheduled'
     ) {

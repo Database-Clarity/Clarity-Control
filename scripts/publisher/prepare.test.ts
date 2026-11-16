@@ -547,10 +547,122 @@ describe('offline schedule preparation', () => {
     f.options.facts = {};
     await f.prep.drain();
     expect(f.request(S).status).toBe('needs_attention');
+    expect(f.request(S).retryable).toBe(true);
     expect(f.request(S).result).toBeUndefined();
     expect(f.request(S).reasons?.[0].reason).toBe('Missing generator facts');
     expect(f.read(paths(R).request)).toBeUndefined();
   });
+  it('matrix 3: a valid translation with corrupt inactive configuration stays retryable', async () => {
+    const f = await fixture();
+    f.admit('schedule');
+    await f.prep.drain();
+    const stored = f.read(schedulePaths.member(B, 123));
+    const next = structuredClone(f.proposed);
+    next.text.fr = {
+      text: 'traduction valide',
+      updatedAt: AT,
+      updatedBy: 'bob',
+      sourceUpdatedAt: next.text.en!.updatedAt,
+    };
+    f.admit('save', [{ hash: 123, base: f.proposed, next }], { id: 2, login: 'bob' });
+    f.change({ 'config/inactive.json': [] });
+    await f.prep.drain();
+    expect(f.request(S).status).toBe('needs_attention');
+    expect(f.request(S).retryable).toBe(true);
+    expect(f.request(S).result).toBeUndefined();
+    expect(f.read(schedulePaths.member(B, 123))).toEqual(stored);
+    expect(f.read(paths(R).request)).toBeUndefined();
+    expect(f.read<{ entries: unknown[] }>('schedule/due.json').entries).toHaveLength(0);
+  });
+  it.each(['merge', 'aliases', 'git', 'before'] as const)(
+    'matrix 4: %s faults are infrastructure, not a FAILED translator proposal',
+    async (fault) => {
+      const f = await fixture();
+      f.admit('schedule');
+      await f.prep.drain();
+      const next = structuredClone(f.proposed);
+      next.text.fr = {
+        text: 'traduction valide',
+        updatedAt: AT,
+        updatedBy: 'bob',
+        sourceUpdatedAt: next.text.en!.updatedAt,
+      };
+      f.admit('save', [{ hash: 123, base: f.proposed, next }], { id: 2, login: 'bob' });
+      if (fault === 'aliases') f.change({ 'config/sandbox-pointers.json': { invalid: true } });
+      if (fault === 'merge')
+        vi.spyOn(f.pub, 'pickRecomputeAt').mockImplementation(() => {
+          throw new Error('Merge input unavailable');
+        });
+      if (fault === 'git') {
+        const liveOid = f.git.tree(f.pub.head('converter-v2-test'))['liveDescriptions.json'];
+        const blob = f.git.blob.bind(f.git);
+        vi.spyOn(f.git, 'blob').mockImplementation((oid) => {
+          if (oid === liveOid) throw new Error('Live blob unavailable');
+          return blob(oid);
+        });
+      }
+      if (fault === 'before') {
+        const head = f.pub.head('converter-v2-test'),
+          tree = f.git.tree(head);
+        tree['liveDescriptions.json'] = f.git.writeBlob(json({ perks: {}, databaseSettings: {} }));
+        f.git.cas(
+          L,
+          head,
+          f.git.commit(head, tree, 'Missing canonical reserved globals in existing live'),
+        );
+      }
+      await f.prep.drain();
+      expect(f.request(S).status).toBe('needs_attention');
+      expect(f.request(S).retryable).toBe(true);
+      expect(f.request(S).result).toBeUndefined();
+      expect(f.read(paths(R).request)).toBeUndefined();
+      expect(f.read<{ entries: unknown[] }>('schedule/due.json').entries).toHaveLength(0);
+    },
+  );
+  it.each(['member', 'digest', 'conflict', 'pushed', 'stale'] as const)(
+    'matrix 7: %s validation keeps the existing default',
+    async (fault) => {
+      const f = await fixture();
+      f.admit('schedule');
+      if (fault === 'member') f.change({ [schedulePaths.member(B, 123)]: { invalid: true } });
+      if (fault === 'digest') {
+        const m = f.read<{ proposed: Tooltip }>(schedulePaths.member(B, 123));
+        f.change({
+          [schedulePaths.member(B, 123)]: { ...m, proposed: tip('changed after signed source') },
+        });
+      }
+      if (fault === 'conflict') f.change({ [schedulePaths.conflict(123)]: {} });
+      if (fault === 'pushed') f.change({ 'live/pushed.json': { 123: 'invalid digest' } });
+      if (fault === 'stale') f.change({ 'tooltips/123.json': tip('concurrent saved English') });
+      await f.prep.drain();
+      expect(f.request().status).toBe('needs_attention');
+      expect(f.request().retryable).toBe(false);
+      expect(f.request().result).toBeUndefined();
+      expect(f.read(paths(R).request)).toBeUndefined();
+    },
+  );
+  it.each(['editor', 'maintainer'] as const)(
+    'matrix: %s content refusals keep needs_attention with reasons',
+    async (role) => {
+      const f = await fixture();
+      f.admit('schedule');
+      await f.prep.drain();
+      f.change({ 'config/permissions.json': { users: { 1: { login: 'alice', role } } } });
+      const next = structuredClone(f.proposed);
+      next.text.fr = {
+        text: '{{invalid native enhanced}}',
+        updatedAt: AT,
+        updatedBy: 'alice',
+        sourceUpdatedAt: next.text.en!.updatedAt,
+      };
+      f.admit('save', [{ hash: 123, base: f.proposed, next }]);
+      await f.prep.drain();
+      expect(f.request(S).status).toBe('needs_attention');
+      expect(f.request(S).reasons?.[0].reason).toContain('Base/enhanced');
+      expect(f.read(paths(R).request)).toBeUndefined();
+      expect(f.read<{ entries: unknown[] }>('schedule/due.json').entries).toHaveLength(0);
+    },
+  );
   it.each(['revoked', 'collision', 'withdrawn'])(
     'isolates a failed translator restoration (%s) and commits its reasons',
     async (fault) => {
