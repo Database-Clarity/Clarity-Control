@@ -299,9 +299,12 @@ function Workspace({
   );
   // Without `hash`, the editor's tooltip is the current entry when it is open work; the URL
   // takes it (below), so the list highlights it once ready and nothing moves.
-  const [startHash, setStartHash] = useState(() =>
-    routeHash === undefined ? editorHash : undefined,
-  );
+  // With the model already there, it is settled now: no second render of the whole workspace.
+  const [startHash, setStartHash] = useState(() => {
+    if (routeHash !== undefined || editorHash === undefined) return undefined;
+    const row = rows?.find((candidate) => candidate.hash === editorHash);
+    return rows && !(row && openKinds.includes(row.kind)) ? undefined : editorHash;
+  });
   const startRow =
     startHash === undefined
       ? undefined
