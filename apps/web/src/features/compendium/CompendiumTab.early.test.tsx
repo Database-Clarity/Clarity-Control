@@ -207,7 +207,11 @@ it("starts a hashless open on the editor's entry when it needs review, and keeps
   await render('/compendium');
   expect(state.reviewHash).toBe(103);
   expect(title()).toContain('Sample 103');
+  // The URL takes it after the first paint (a history write is slow).
+  expect(route().searchParams.get('hash')).toBeNull();
+  await act(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 1))));
   expect(route().searchParams.get('hash')).toBe('103');
+  expect(title()).toContain('Sample 103');
   await modelArrives();
   expect(title()).toContain('Sample 103');
   expect(useCompendiumQueueStore.getState().selected).toBe(103);

@@ -376,8 +376,21 @@ function Workspace({
   // model's first row then, as before), or the user chose another entry.
   useEffect(() => {
     if (startHash === undefined) return;
-    if (linked || routeHash !== undefined || (rows && !startsOnEditor)) setStartHash(undefined);
-    else if (startsOnEditor) select(startHash);
+    if (linked || routeHash !== undefined || (rows && !startsOnEditor)) {
+      setStartHash(undefined);
+      return;
+    }
+    if (!startsOnEditor) return;
+    // After the entry is painted: writing history is a slow synchronous call (~30 ms), and this
+    // effect runs inside the tab click's commit.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => select(startHash));
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
   }, [startHash, startsOnEditor, routeHash, rows, linked, select]);
 
   // Publish the model the left column renders; selection and filters travel in the URL.

@@ -114,7 +114,7 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     release = resolve;
   });
   let assetRequests = 0;
-  let duringReply: Promise<Map<number, unknown>> | undefined;
+  let duringReply: Promise<import('./matchingSessionPlanning').PriorityReview> | undefined;
   let fullPublished = false;
   vi.stubGlobal('fetch', async () => {
     assetRequests++;
@@ -133,7 +133,7 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     onmessage: null as null | ((event: { data: unknown }) => void),
     postMessage(reply: WorkerReply) {
       if (reply.id === 4 && reply.partialRoot !== undefined)
-        duringReply = request(6, { priority: { token: 17, hash: 102, input, matchesOnly: true } });
+        duringReply = request(6, { priority: { token: 17, hash: 102, input } });
       if (reply.id === 6) expect(fullPublished).toBe(false);
       if (reply.id === 4 && reply.root !== undefined) fullPublished = true;
       // Selected replies must bypass the graph codec entirely.
@@ -191,13 +191,13 @@ it('publishes selected review evidence before assets/full proposals, and reprior
   const next = await request<Priority>(3, { priority: { token: 17, hash: 102, input } });
   expect(finished).toBe(false);
   expect(next.entry?.hash).toBe(102);
-  const pane = await request<Priority['matches']>(5, {
-    priority: { token: 17, hash: 100, input, matchesOnly: true },
-  });
-  expect([...pane.keys()]).toEqual([100]);
-  expect(pane).toEqual(first.matches);
-  expect(pane.get(100)?.tab.grid).toBeUndefined();
-  expect(pane.get(100)?.tab.rows).toEqual([]);
+  const pane = await request<Priority>(5, { priority: { token: 17, hash: 100, input } });
+  expect([...pane.matches.keys()]).toEqual([100]);
+  expect(pane).toEqual(first);
+  // One entry's review never carries a copy of the catalog.
+  expect(pane.matches.get(100)?.tab.grid).toBeUndefined();
+  expect(pane.matches.get(100)?.tab.rows).toEqual([]);
+  expect(pane.proposal?.match?.tab.grid).toBeUndefined();
   expect(assetRequests).toBe(1);
   release();
   const core = await initialized;
@@ -229,13 +229,16 @@ it('publishes selected review evidence before assets/full proposals, and reprior
       proposal?.candidates.map((c) => c.row),
     );
   }
+  // Served from the finished display while the catalog is still being sent: the same review
+  // the single-entry plan computed.
   expect(duringReply).toBeDefined();
   const current = await duringReply!;
-  expect([...current.keys()]).toEqual([102]);
-  expect(current.get(102)).toEqual(full.matches.get(102));
+  expect([...current.matches.keys()]).toEqual([102]);
+  expect(current.matches.get(102)).toEqual(full.matches.get(102));
+  expect(current).toEqual(next);
   await expect(
     request(7, {
-      priority: { token: 17, hash: 102, input: { ...input, scope: 'changed' }, matchesOnly: true },
+      priority: { token: 17, hash: 102, input: { ...input, scope: 'changed' } },
     }),
   ).rejects.toThrow(/another dataset/);
 });
