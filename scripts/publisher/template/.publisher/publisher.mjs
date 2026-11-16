@@ -27629,13 +27629,15 @@ function impacts(input2, store, ids) {
     [
       { ...input2.authored, tooltips: { ...input2.authored.tooltips, ...beforeGlobals } },
       { ...input2.authored, tooltips: { ...input2.authored.tooltips, ...afterGlobals } },
+      void 0,
       void 0
     ],
     ...(input2.priorAuthored ?? []).map(
-      ({ snapshot, names }) => [
+      ({ snapshot, names, published }) => [
         snapshot,
         { ...input2.authored, tooltips: { ...input2.authored.tooltips, ...afterGlobals } },
-        names
+        names,
+        published
       ]
     ),
     [
@@ -27646,10 +27648,13 @@ function impacts(input2, store, ids) {
         types: input2.authored.types,
         tooltips: afterLive
       },
+      void 0,
       void 0
     ]
   ];
-  return pairs.map(([before, after, names]) => {
+  return pairs.map(([before, after, names, published]) => {
+    if (published && !calculateGlobalImpact(published, published, [], input2.destination).complete)
+      throw new Error("Sync pending: historical published closure is incomplete");
     let observedBefore = before;
     let result = calculateGlobalImpact(
       observedBefore,
@@ -27657,8 +27662,11 @@ function impacts(input2, store, ids) {
       changes(input2, ids, names),
       input2.destination
     );
-    if (!result.complete && names) {
-      observedBefore = { ...before, tooltips: { ...before.tooltips, ...beforeGlobals } };
+    if (!result.complete && names && published) {
+      observedBefore = {
+        ...before,
+        tooltips: { ...before.tooltips, 2: published.tooltips[2], 3: published.tooltips[3] }
+      };
       result = calculateGlobalImpact(
         observedBefore,
         after,
@@ -29947,7 +29955,7 @@ var intentSchema = external_exports.object({
   by: external_exports.string(),
   at: external_exports.iso.datetime()
 }).strict();
-var GlobalsPublisher = class {
+var GlobalsPublisher = class _GlobalsPublisher {
   constructor(publisher) {
     this.publisher = publisher;
   }
@@ -29965,9 +29973,9 @@ var GlobalsPublisher = class {
     if (globalFileBytes(value2) > maximum) throw new Error("Global metadata exceeds its byte limit");
     tree[path] = this.git.writeBlob(json4(value2));
   }
-  async sources(tree, live, head) {
+  async sources(tree, live, head, historical = false) {
     const pin = external_exports.object({ sourceSha: external_exports.string(), sha256: external_exports.string(), capabilities: external_exports.array(external_exports.string()) }).parse(this.read(tree, ".publisher/PIN"));
-    if (pin.sourceSha !== this.options.publisherSha || pin.sha256 !== this.options.publisherDigest || !pin.capabilities.includes("globalsRelease"))
+    if (!historical && (pin.sourceSha !== this.options.publisherSha || pin.sha256 !== this.options.publisherDigest) || !pin.capabilities.includes("globalsRelease"))
       throw new Error("Installed publisher lacks globalsRelease");
     const modes = this.git.treeModes?.(head ?? this.publisher.head(this.options.dataBranch)) ?? {};
     return observeGlobalSources({
@@ -29984,6 +29992,30 @@ var GlobalsPublisher = class {
       generator: this.options.generatorSha,
       resolverRevision: pin.sourceSha
     });
+  }
+  /** Historical identities use their installed public generator inputs, never the
+   * running epoch. The current snapshot still requires the verified running PIN.
+   */
+  historical(tree, sources) {
+    const raw = this.publisher.read(tree, ".publisher/config.json");
+    if (!raw) {
+      if (sources.generator !== this.options.generatorSha)
+        throw new Error("Missing historical generator inputs");
+      return this;
+    }
+    const generatorSha = external_exports.string().regex(/^[a-f0-9]{40}$/).parse(raw.generatorSha);
+    if (generatorSha !== sources.generator) throw new Error("Historical generator mismatch");
+    const facts = external_exports.record(external_exports.string(), external_exports.object({ name: external_exports.string(), type: external_exports.string() })).parse(raw.facts);
+    return new _GlobalsPublisher(
+      new Publisher(this.git, {
+        ...this.options,
+        generatorSha,
+        facts,
+        aliases: aliasesSchema.parse(raw.aliases),
+        aliasFacts: raw.aliasFacts,
+        sandboxConflicts: raw.sandboxConflicts
+      })
+    );
   }
   store(tree) {
     const layout = globalLayoutSchema.parse(this.read(tree, globalsReleasePaths.layout));
@@ -30123,21 +30155,10 @@ var GlobalsPublisher = class {
         (tuple2) => tuple2.globalId === cause.globalId && tuple2.beforeRevision === (cause.before?.revision ?? null) && (tuple2.afterRevision === cause.after.revision || tuple2.afterRevision === cause.intentId)
       ))
         continue;
-      const beforeTree = this.git.tree(cause.expectedHead), beforeStore = this.store(beforeTree);
+      const beforeTree = this.git.tree(cause.expectedHead), historical = this.historical(beforeTree, cause.beforeSources), before = historical.capture(beforeTree, cause.expectedHead, cause.beforeSources.live), beforeStore = before.saved;
       prior.set(cause.expectedHead, {
-        snapshot: {
-          ...captured.authored,
-          revision: cause.expectedHead,
-          aliases: this.publisher.aliasesAt(beforeTree),
-          tooltips: {
-            ...this.canonicalDocuments(
-              beforeTree,
-              "tooltips",
-              this.publisher.aliasesAt(beforeTree)
-            ),
-            ...projectGlobals(beforeStore)
-          }
-        },
+        snapshot: before.authored,
+        published: before.live,
         names: Object.fromEntries(beforeStore.entries.map((entry) => [entry.id, entry.name]))
       });
     }
@@ -30159,37 +30180,27 @@ var GlobalsPublisher = class {
         ))
           throw new Error("Sync pending: a removed global dependency is still referenced");
       }
-    for (const upcoming of this.upcoming(tree))
-      for (const component of result) {
-        const changes2 = component.ids.map((id) => {
-          const entry = captured.saved.entries.find((entry2) => entry2.id === id);
-          return {
-            cause: {
-              globalId: id,
-              beforeRevision: captured.published.entries.find((entry2) => entry2.id === id)?.revision ?? null,
-              afterRevision: entry.revision
-            },
-            kind: entry.kind,
-            beforeName: captured.published.entries.find((entry2) => entry2.id === id)?.name,
-            afterName: entry.name
-          };
-        });
-        const before = {
-          ...captured.live,
-          tooltips: {
-            ...captured.authored.tooltips,
-            ...upcoming,
-            ...projectGlobals(captured.published)
-          }
-        };
-        const after = {
-          ...before,
-          tooltips: { ...before.tooltips, ...projectGlobals(component.store) }
-        };
-        const impact = calculateGlobalImpact(before, after, changes2, this.options.liveBranch);
-        if (!impact.complete || impact.rows.some((row) => Object.hasOwn(upcoming, row.consumer.hash)))
-          throw new Error("Sync pending: upcoming global dependencies require rebase");
-      }
+    for (const upcoming of this.upcoming(tree)) {
+      const snapshot = {
+        ...captured.live,
+        tooltips: {
+          ...captured.authored.tooltips,
+          ...upcoming,
+          ...projectGlobals(captured.published)
+        }
+      };
+      const frozen = await planGlobalRelease({
+        ...captured,
+        authored: snapshot,
+        live: snapshot,
+        causes,
+        destination: this.options.liveBranch
+      });
+      if (frozen.some(
+        (component) => component.rows.some((row) => Object.hasOwn(upcoming, row.view.consumer.hash))
+      ))
+        throw new Error("Sync pending: upcoming global dependencies require rebase");
+    }
     return result;
   }
   async validateCauses(tree, head) {
@@ -30197,10 +30208,11 @@ var GlobalsPublisher = class {
     for (const id of sync.causeIds) {
       const cause = pendingCauseSchema.parse(this.read(tree, `globals/causes/${id}.json`));
       if (!this.git.ancestor(cause.expectedHead, head) || !sameSources(
-        await this.sources(
+        await this.historical(this.git.tree(cause.expectedHead), cause.beforeSources).sources(
           this.git.tree(cause.expectedHead),
           cause.beforeSources.live,
-          cause.expectedHead
+          cause.expectedHead,
+          true
         ),
         cause.beforeSources
       ))
@@ -30226,7 +30238,11 @@ var GlobalsPublisher = class {
         return stored.success && sameSources(stored.data.sources, sources) && this.approved(tree, row);
       })
     );
-    if (!aggregate && ready.length !== relevant.length || aggregate && relevant.length && !ready.length)
+    if (!aggregate && ready.length !== relevant.length || aggregate && relevant.length && !ready.length || relevant.some(
+      (component) => !ready.includes(component) && (component.rows.some((row) => activeSelection.includes(row.view.consumer.hash)) || component.hashes.some(
+        (hash2) => hash2 !== 2 && hash2 !== 3 && activeSelection.includes(hash2)
+      ))
+    ))
       throw new Error("Sync pending: global dependency review required");
     const ids = ready.flatMap((component) => component.ids);
     const store = composeGlobalRelease(captured.published, captured.saved, ids);
@@ -30443,6 +30459,7 @@ var GlobalsPublisher = class {
             if (proofError instanceof RefRace) continue;
           }
           try {
+            if (stableStringify(failed) === stableStringify(original)) throw error62;
             this.git.cas(
               `refs/heads/${this.options.dataBranch}`,
               head,
@@ -30460,6 +30477,7 @@ var GlobalsPublisher = class {
   }
   async intents(tree, head) {
     const seen = /* @__PURE__ */ new Set();
+    const current = await this.sources(tree, this.publisher.head(this.options.liveBranch), head);
     for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/intents/")).sort()) {
       const intent = intentSchema.parse(this.read(tree, path));
       const entryPath = globalsReleasePaths.entry(intent.globalId), entry = entrySchema.parse(this.read(tree, entryPath));
@@ -30469,11 +30487,12 @@ var GlobalsPublisher = class {
         permissionsSchema.parse(this.read(tree, "config/permissions.json")).users
       ).find((user) => user.login === intent.by);
       const key = `${intent.globalId}:${intent.revision}`;
-      const accepted = !seen.has(key) && entry.revision === intent.revision && !entry.tombstone && claim2?.intentId === intent.id && !!access && ["editor", "maintainer"].includes(access.role) && this.git.ancestor(intent.expectedHead, head) && sameSources(
-        await this.sources(
+      const accepted = !seen.has(key) && entry.revision === intent.revision && !entry.tombstone && claim2?.intentId === intent.id && !!access && ["editor", "maintainer"].includes(access.role) && this.git.ancestor(intent.expectedHead, head) && ["config", "live", "upcoming", "aliases", "generator", "fallback", "resolver"].every((key2) => current[key2] === intent.sources[key2]) && sameSources(
+        await this.historical(this.git.tree(intent.expectedHead), intent.sources).sources(
           this.git.tree(intent.expectedHead),
           intent.sources.live,
-          intent.expectedHead
+          intent.expectedHead,
+          true
         ),
         intent.sources
       );
@@ -30554,9 +30573,7 @@ var GlobalsPublisher = class {
    * import cycles cannot prevent the same-name body edit needed to repair them.
    * Only occupied names are certified here; no release/removal proof is produced.
    */
-  async occupiedProofs(tree, head, live) {
-    const captured = this.capture(tree, head, live);
-    const sources = await this.sources(tree, live, head);
+  localNames(tree, captured) {
     const documents = [
       ...Object.values(this.documents(tree, "tooltips")),
       ...Object.values(captured.live.tooltips),
@@ -30573,6 +30590,12 @@ var GlobalsPublisher = class {
             for (const definition2 of markupDefinitions(text))
               localNames.add(`${definition2.kind}:${definition2.name}`);
         }
+    return localNames;
+  }
+  async occupiedProofs(tree, head, live) {
+    const captured = this.capture(tree, head, live);
+    const sources = await this.sources(tree, live, head);
+    const localNames = this.localNames(tree, captured);
     for (const entry of captured.saved.entries) {
       if (entry.tombstone) continue;
       const path = (await namePaths(entry.kind, entry.name)).proof;
@@ -30622,6 +30645,7 @@ var GlobalsPublisher = class {
       )
     ];
     const authoredSources = { ...captured.authored, tooltips: this.documents(tree, "tooltips") };
+    const localNames = this.localNames(tree, captured);
     for (const snapshot of snapshots) {
       const validation = calculateGlobalImpact(snapshot, snapshot, [], this.options.liveBranch);
       if (!validation.complete) throw new Error("Sync pending: proof coverage is incomplete");
@@ -30669,14 +30693,8 @@ var GlobalsPublisher = class {
         (entry) => !entry.tombstone && entry.kind === request.kind && entry.name === request.name
       );
       const occupied = owners[0];
-      const localClash = [...snapshots, authoredSources].some(
-        (snapshot) => Object.values(snapshot.tooltips).some(
-          (document) => document.hash !== 2 && document.hash !== 3 && languages2.some(
-            (lang) => markupDefinitions(globalSourceText(document, lang, snapshot.mode) ?? "").some(
-              (local) => local.name === request.name && local.kind === (request.kind === "variables" ? "variable" : "title")
-            )
-          )
-        )
+      const localClash = localNames.has(
+        `${request.kind === "variables" ? "variable" : "title"}:${request.name}`
       );
       const path = (await namePaths(request.kind, request.name)).proof;
       if (localClash || new Set(owners.map((entry) => entry.id)).size > 1) {
