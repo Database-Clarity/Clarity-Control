@@ -2,6 +2,7 @@ import { hashSchema } from '../../../../packages/core/src/legacy';
 import { syncedSettingsSchema, type SyncedSettings } from '../../../../packages/core/src/settings';
 import { tooltipSchema, type Tooltip } from '../../../../packages/core/src/schemas';
 import { z } from 'zod';
+import { assertNoGlobalAggregates } from './globalsFlag';
 
 export interface Change {
   hash: number;
@@ -54,6 +55,7 @@ export async function save(
   message: string,
   noTranslationImpact = false,
 ): Promise<SaveResult> {
+  assertNoGlobalAggregates(changes.map(({ hash }) => hash));
   const response = await fetch(endpoint('/save'), {
     method: 'POST',
     credentials: 'omit',

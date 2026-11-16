@@ -41,6 +41,7 @@ import { SettingsSync } from '../settings/SettingsSync';
 import { SettingsPopover } from '../settings/SettingsPopover';
 import { RememberRoute } from '../settings/SettingsRedirect';
 import styles from './Layout.module.scss';
+import { globalsEnabled } from '../../services/globalsFlag';
 
 export function Layout() {
   useEffect(connectWorklists, []);
@@ -90,6 +91,8 @@ function LayoutContent() {
   );
   const workspacePending = status === 'loading' || (!hydrated && !draftError);
   const isEditor = location.pathname.startsWith('/t/');
+  // Per-entry globals keep the editor's finder, so stepping moves between entries by stable ID.
+  const isGlobalEntry = globalsEnabled && /^\/globals(\/|$)/.test(location.pathname);
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
   const isTranslations = location.pathname === '/translations';
@@ -238,7 +241,9 @@ function LayoutContent() {
   // The editor's finder is the tooltip combobox; Compendium and Review keep their queue lists.
   const finder = (
     <>
-      {isEditor && <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />}
+      {(isEditor || isGlobalEntry) && (
+        <TooltipNavigation data={data} variant={phone ? 'sheet' : 'bar'} />
+      )}
       {phone && isCompendium && <CompendiumQueue />}
       {phone && isReview && <ReviewSidebarNavigation />}
       <ShellSlotHost name="finder" className={styles.slotHost} />
@@ -277,7 +282,7 @@ function LayoutContent() {
             }
             kicker={openItem && exoticPiece(openItem)}
             finder={finder}
-            hasFinder={isEditor || contextual}
+            hasFinder={isEditor || isGlobalEntry || contextual}
             overlay={overlay}
           />
         ) : (

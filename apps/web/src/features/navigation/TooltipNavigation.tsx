@@ -7,6 +7,13 @@ import {
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { useGlobalCatalog, useGlobalHover } from '../globals/useGlobals';
 import { globalPath, type GlobalDefinition } from '../globals/model';
+import { globalsEnabled } from '../../services/globalsFlag';
+import {
+  aggregateGlobalRoute,
+  globalEntryPath,
+  useGlobalIdentities,
+  type GlobalIdentity,
+} from '../../stores/globalIdentities';
 import { useCompendiumStore } from '../compendium/store';
 import {
   memo,
@@ -118,6 +125,7 @@ import {
 
 // Stepping asks the preview leave guard before it moves anything; see createStepping.
 const pathname = (route: string) => route.split('?')[0];
+const noIdentities: Record<string, GlobalIdentity> = {};
 const steppingGuard: SteppingGuard = {
   allow: (from, to) => usePreviewReviewStore.getState().requestLeave(pathname(from), pathname(to)),
   epoch: () => usePreviewReviewStore.getState().epoch,
@@ -491,9 +499,20 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const listId = `${base}-list`;
   const optionId = (row: Row) => `${base}-o${row.key}`;
   const finderLocation = useLocation();
+  const globalIdentities = useGlobalIdentities((state) =>
+    globalsEnabled ? state.identities : noIdentities,
+  );
+  /** The route in aggregate terms: `/globals/:id` reads as `/t/2?global=Name` (or 3). */
+  const finderRoute = (path: string, search: string) =>
+    (globalsEnabled && aggregateGlobalRoute(path, search, globalIdentities)) || {
+      hash: Number(path.split('/')[2]),
+      search,
+    };
   const globalDefinitions = useGlobalCatalog(
     data,
-    open || new URLSearchParams(finderLocation.search).has('global'),
+    open ||
+      new URLSearchParams(finderLocation.search).has('global') ||
+      (globalsEnabled && globalEntryPath.test(finderLocation.pathname)),
   );
   const baseGroups = useMemo(
     () => navigationGroups(data, '', globalDefinitions),
@@ -538,8 +557,10 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       ? preparedMarkers.index
       : noMarkers;
   const urgentTarget = useSteppingActivity((state) => state.target);
-  const hash = Number(pathname(urgentTarget ?? location.pathname).split('/')[2]);
-  const routeSearch = urgentTarget ? (urgentTarget.split('?')[1] ?? '') : location.search;
+  const { hash, search: routeSearch } = finderRoute(
+    pathname(urgentTarget ?? location.pathname),
+    urgentTarget ? (urgentTarget.split('?')[1] ?? '') : location.search,
+  );
   const sections = useMemo(() => groups.flatMap((group) => group.sections), [groups]);
   const globalName = new URLSearchParams(routeSearch).get('global');
   const selectedGlobal = globalDefinitions.find(
@@ -712,8 +733,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   };
   const stepAt = () => {
     const where = stepLocation();
-    const at = Number(where.pathname.split('/')[2]);
-    return { where, hash: at, ...placeOf(at, where.search) };
+    const route = finderRoute(where.pathname, where.search);
+    return { where, hash: route.hash, ...placeOf(route.hash, route.search) };
   };
   /**
    * Moves to `target` unless there is none (the scope's end) or the guard refuses. `state` is the

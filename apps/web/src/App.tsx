@@ -1,5 +1,5 @@
 import { LoadingSkeleton, useSkeletonVisible } from './ui/Skeleton';
-import { Navigate, useLocation, useRoutes, type RouteObject } from 'react-router-dom';
+import { Navigate, useLocation, useParams, useRoutes, type RouteObject } from 'react-router-dom';
 import { LazyCompendiumTab } from './features/compendium/LazyCompendiumTab';
 import { useDataStore } from './stores/data';
 import { navigationGroups } from './features/navigation/catalog';
@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 import { visibleLinks } from './features/navigation/links';
 import { preloadWorkspaces, workspacePage } from './workspacePreload';
 import { reviewRoute } from './features/review/route';
+import { globalsEnabled } from './services/globalsFlag';
 
 import { AppLazyPage } from './AppLazyPage';
 import { TooltipPage } from './features/tooltip/TooltipPage';
@@ -103,6 +104,49 @@ const loadGlobalsPage = workspacePage(() =>
   import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalsPage })),
 );
 const GlobalsPage = () => <AppLazyPage load={loadGlobalsPage} />;
+// Per-entry globals (stable IDs) replace the aggregate list and the /t/2–/t/3 editors only when
+// the build turns the switch on; off, these routes and their chunk do not exist.
+const loadGlobalEntryRoute = () =>
+  import('./features/globals/GlobalEntryRoute').then((module) => ({
+    default: module.GlobalEntryRoute,
+  }));
+const GlobalEntryRoute = () => <AppLazyPage load={loadGlobalEntryRoute} />;
+const loadGlobalNameRoute = () =>
+  import('./features/globals/GlobalEntryRoute').then((module) => ({
+    default: module.GlobalNameRoute,
+  }));
+const GlobalNameRoute = () => <AppLazyPage load={loadGlobalNameRoute} />;
+const loadGlobalHandOff = () =>
+  import('./features/globals/GlobalEntryRoute').then((module) => ({
+    default: module.GlobalAggregateHandOff,
+  }));
+/** With globals on, the variables and titles aggregates hand off to their per-entry editor. */
+function TooltipRoute() {
+  const { hash } = useParams<'hash'>();
+  return hash === '2' || hash === '3' ? <AppLazyPage load={loadGlobalHandOff} /> : <TooltipPage />;
+}
+const globalRoutes: RouteObject[] = globalsEnabled
+  ? [
+      {
+        path: 'globals',
+        element: <GlobalEntryRoute />,
+        handle: { preload: loadGlobalEntryRoute },
+      },
+      {
+        path: 'globals/:id',
+        element: <GlobalEntryRoute />,
+        handle: { preload: loadGlobalEntryRoute },
+      },
+      { path: 'globals/:kind/:name', element: <GlobalNameRoute /> },
+    ]
+  : [
+      { path: 'globals', element: <GlobalsPage />, handle: { preload: loadGlobalsPage } },
+      {
+        path: 'globals/:kind/:name',
+        element: <GlobalDetailPage />,
+        handle: { preload: loadGlobalDetailPage },
+      },
+    ];
 
 /**
  * Every route in one place, as plain objects: main.tsx hands them to createHashRouter (a data
@@ -121,7 +165,7 @@ export const routes: RouteObject[] = [
       { index: true, element: <StartPage /> },
       {
         path: 't/:hash',
-        element: <TooltipPage />,
+        element: globalsEnabled ? <TooltipRoute /> : <TooltipPage />,
         handle: { preload: () => Promise.resolve({ default: TooltipPage }) },
       },
       {
@@ -145,12 +189,7 @@ export const routes: RouteObject[] = [
         element: <TranslationsPage />,
         handle: { preload: loadTranslationsPage },
       },
-      { path: 'globals', element: <GlobalsPage />, handle: { preload: loadGlobalsPage } },
-      {
-        path: 'globals/:kind/:name',
-        element: <GlobalDetailPage />,
-        handle: { preload: loadGlobalDetailPage },
-      },
+      ...globalRoutes,
       { path: 'management', element: <AdminPage />, handle: { preload: loadAdminPage } },
       { path: 'management/ui', element: <GalleryPage /> },
       { path: 'exports', element: <ExportsPage /> },
