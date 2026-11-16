@@ -20657,7 +20657,9 @@ var init_legacy = __esm({
       itemName: external_exports.string().optional(),
       editor: external_exports.partialRecord(langSchema, external_exports.object({
         main: external_exports.string(),
-        secondary: external_exports.string()
+        secondary: external_exports.string(),
+        // Export provenance: English fallback retains English number formatting.
+        englishFallback: external_exports.literal(true).optional()
       }).strict()),
       updateTracker: external_exports.object({
         descriptions: external_exports.partialRecord(langSchema, trackerEntrySchema),
@@ -24735,9 +24737,7 @@ var prepareDescription = (descriptionData) => {
   description = removePerkSpecificText(description, database[hash2].type);
   description = loadVariables({ ...descriptionData, descriptionString: description });
   const titles = extractTitles(removeUnusedText2(description, false));
-  const editor = database[hash2].editor;
-  const numberLanguage = editor[language]?.main === editor.en?.main ? "en" : language;
-  description = doMath(description, numberLanguage);
+  description = doMath(description, database[hash2].editor[language]?.englishFallback ? "en" : language);
   return {
     preparedDescription: removeUnusedText2(description.trim()),
     titles: {
@@ -26278,10 +26278,15 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
     for (const language of languages2) {
       const translation = tooltip.text[language];
       if (!translation) continue;
-      const exported = usesEnglishFallback(tooltip, language) && english ? english : translation;
+      const englishFallback = usesEnglishFallback(tooltip, language);
+      const exported = englishFallback && english ? english : translation;
       const resolved = exported.text.includes("#{=") && english ? resolveNumberTokens(exported.text, numberValues(english, language)) : exported.text;
       const text = lowerConsumerMarkup(resolved);
-      editor[language] = { main: text, secondary: text };
+      editor[language] = {
+        main: text,
+        secondary: text,
+        ...englishFallback ? { englishFallback: true } : {}
+      };
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
         lastUpdate: Date.parse(exported.updatedAt),
