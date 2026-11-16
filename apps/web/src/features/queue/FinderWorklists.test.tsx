@@ -164,7 +164,19 @@ it('selects one entry with a row click, and Cancel keeps the finder open', async
 it("opens a category's Drafts worklist from the finder using the shared queue", async () => {
   await openFinder();
   await act(async () => button('Drafts worklists').click());
-  // Escape and Cancel return to the bar with the finder still open.
+  // Escape (focus moved into the panel as it opened) and Cancel return to the bar, finder open.
+  expect(
+    host.querySelector('[aria-label="Drafts worklists"]')!.contains(document.activeElement),
+  ).toBe(true);
+  await act(async () =>
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(host.querySelector('[aria-label="Drafts worklists"]')).toBeNull();
+  expect(document.activeElement).toBe(field());
+  expect(field().getAttribute('aria-expanded')).toBe('true');
+  await act(async () => button('Drafts worklists').click());
   await act(async () => button('Cancel').click());
   expect(field().getAttribute('aria-expanded')).toBe('true');
   await act(async () => button('Drafts worklists').click());

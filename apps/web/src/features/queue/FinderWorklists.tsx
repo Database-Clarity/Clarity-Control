@@ -166,6 +166,10 @@ function FinderWorklistBar() {
   // that frame has painted, keeping worklist work off the finder-open path.
   const [painted, setPainted] = useState(false);
   const [drafts, setDrafts] = useState(false);
+  // The panel takes focus as it opens, so its Escape (and Tab) start inside it, not in the field.
+  useEffect(() => {
+    if (drafts) host.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [drafts]);
   useEffect(() => {
     let live = true;
     afterPaint(() => live && setPainted(true));

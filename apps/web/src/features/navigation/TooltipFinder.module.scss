@@ -435,6 +435,16 @@
     align-items: center;
   }
 }
+// The phone sheet gives the flag slot its width only when a flag is present: the name and its
+// context get the row.
+.popup[data-variant='sheet'] .option {
+  --finder-marker-width: auto;
+
+  > .markers > * {
+    width: auto;
+    flex-basis: auto;
+  }
+}
 .option[data-two-line] > .markers {
   grid-row: 1 / span 2;
 }
