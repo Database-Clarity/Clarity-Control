@@ -11,6 +11,8 @@ Anthropic's `frontend-design` skill to this product. Read it before designing or
 reshaping any surface. **Density wins; the brief's words win; the owner's product
 decisions in `.agents/t3/PRODUCT.md` win.**
 
+Shared elements live in the UI gallery (Management → UI gallery; `apps/web/src/features/gallery/README.md`): use what is there, and add new shared pieces there first.
+
 ## 1. What the product is
 
 Clarity Control is a dense, keyboard-driven editor for Destiny 2 tooltip text.
