@@ -15,6 +15,7 @@ import { categoryDisplay, groupRank } from '../../services/categoryLabels';
 import { activityDisplay, missingActivity } from '../../services/activityLabels';
 import { artifactOrder, noArtifact, noArtifactLabel } from '../../services/artifactLabels';
 import { entryKey, type Entry } from './stepping';
+import { markedGrouping } from '../marks/finder';
 
 const canonicalIndexes = new WeakMap<EditorData, Map<number, number>>();
 export function canonicalHash(hash: number, data: EditorData): number {
@@ -290,7 +291,7 @@ export function listName(item: Item, data: EditorData): string {
  * What a category's second dropdown groups by: a weapon (exotic owner), an activity (plug), or
  * an artifact (the current artifacts whose sockets offer the perk).
  */
-export type Grouping = 'weapon' | 'activity' | 'artifact';
+export type Grouping = 'weapon' | 'activity' | 'artifact' | 'mark';
 export interface CategorySection extends Category {
   items: ListedItem[];
   grouping?: Grouping;
@@ -327,6 +328,7 @@ const groupings: Readonly<Record<string, Grouping>> = {
   [artifactPerkCategory]: 'artifact',
 };
 const groupingLabels: Readonly<Record<Grouping, { all: string; group: string }>> = {
+  mark: { all: 'All mark types', group: 'Mark type' },
   weapon: { all: 'All exotic weapons', group: 'Weapon' },
   activity: { all: 'All activities', group: 'Activity' },
   artifact: { all: 'All artifacts', group: 'Artifact' },
@@ -425,6 +427,7 @@ export function groupedSection(
   section: CategorySection,
   data: EditorData,
 ): GroupedSection | undefined {
+  if (section.grouping === 'mark') return markedGrouping(section);
   if (!section.grouping) return undefined;
   if (groupedSections.has(section)) return groupedSections.get(section);
   const weapon = section.grouping === 'weapon';
