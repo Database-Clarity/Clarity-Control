@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { useAuthStore } from '../../stores/auth';
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../services/apiAuth', () => ({ apiRequest: api }));
