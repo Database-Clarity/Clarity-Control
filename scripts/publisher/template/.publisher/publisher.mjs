@@ -31762,7 +31762,7 @@ var SchedulePreparer = class {
     );
     const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree));
     if ("failure" in plan) {
-      const Rejection = plan.failure.proposalRejected ? ProposalRejected : PreparationRejected;
+      const Rejection = plan.failure.proposalRejected ? ProposalRejected : plan.failure.retryable ? ConsumerOutputRejected : PreparationRejected;
       throw new Rejection(plan.failure.error ?? plan.failure.status, plan.failure.outcomes);
     }
     const live = this.pub.head(this.pub.options.liveBranch);
@@ -31883,7 +31883,7 @@ var SchedulePreparer = class {
     );
   }
   async failure(tree, batch, request, error62, checked) {
-    const semantic = error62 instanceof PreparationRejected || error62 instanceof ConsumerOutputRejected || error62 instanceof InvalidScheduleIntent || error62 instanceof external_exports.ZodError || error62 instanceof SyntaxError || error62 instanceof HttpError && error62.status < 500;
+    const semantic = error62 instanceof PreparationRejected || error62 instanceof ProposalOutputRejected || error62 instanceof InvalidScheduleIntent || error62 instanceof external_exports.ZodError || error62 instanceof SyntaxError || error62 instanceof HttpError && error62.status < 500;
     const at = iso(this.pub.options.now());
     const reason = (error62 instanceof Error ? error62.message : String(error62)).slice(0, 2e3) || "Preparation failed";
     const details = error62 instanceof PreparationRejected || error62 instanceof HttpError ? error62.details : void 0;
@@ -31899,7 +31899,7 @@ var SchedulePreparer = class {
     const reasons = parsed.success && parsed.data.length ? parsed.data.slice(0, 100).map((r) => ({ ...r, reason: (r.reason ?? reason).slice(0, 2e3) })) : [{ reason }];
     let restored = false;
     let update = { status: "needs_attention" };
-    if ((error62 instanceof ProposalRejected || error62 instanceof ConsumerOutputRejected) && checked?.intent.kind === "save" && checked.intent.onValidationFailure === "keep_scheduled") {
+    if ((error62 instanceof ProposalRejected || error62 instanceof ProposalOutputRejected) && checked?.intent.kind === "save" && checked.intent.onValidationFailure === "keep_scheduled") {
       try {
         const source = checked.batch;
         const original = this.original(tree, checked);
@@ -32025,7 +32025,9 @@ var ConsumerOutputRejected = class extends Error {
     this.name = "ConsumerOutputRejected";
   }
 };
-var TextlessConsumerOutput = class extends ConsumerOutputRejected {
+var ProposalOutputRejected = class extends ConsumerOutputRejected {
+};
+var TextlessConsumerOutput = class extends ProposalOutputRejected {
   constructor(message) {
     super(message);
     this.name = "TextlessConsumerOutput";
@@ -32055,11 +32057,15 @@ var Publisher = class _Publisher {
    * the same merge as the Worker and the editor). A malformed picks file throws: fail closed.
    */
   aliasesAt(tree) {
-    return _Publisher.aliasesAt(
-      this.options,
-      this.read(tree, aliasGroupsPath),
-      this.read(tree, sandboxPointersPath)
-    );
+    try {
+      return _Publisher.aliasesAt(
+        this.options,
+        this.read(tree, aliasGroupsPath),
+        this.read(tree, sandboxPointersPath)
+      );
+    } catch (error62) {
+      throw new ConsumerOutputRejected(String(error62));
+    }
   }
   /** The read-only parity command shares the same pinned-fact checks and composition. */
   static aliasesAt(options, raw, pointers) {
@@ -32315,7 +32321,13 @@ var Publisher = class _Publisher {
             throw new ConsumerOutputRejected(`${preset} conversion failed: ${String(error62)}`);
           }
         };
-        const before = convert(live), after = convert(merged);
+        const before = convert(live);
+        let after;
+        try {
+          after = convert(merged);
+        } catch (error62) {
+          throw new ProposalOutputRejected(error62 instanceof Error ? error62.message : String(error62));
+        }
         for (const [hash2, row] of Object.entries(after)) {
           const empty2 = (entry) => entry !== void 0 && entry.aliasOf === void 0 && Object.keys(entry.descriptions ?? {}).length === 0;
           if (empty2(row) && !empty2(before[hash2]))
@@ -32781,10 +32793,10 @@ var Publisher = class _Publisher {
     try {
       this.checkAssociatedDescriptions(tree, active, aliases);
     } catch (error62) {
-      return { error: String(error62) };
+      return { error: String(error62), retryable: true };
     }
     if (active.some((t) => !t.custom && !this.options.facts[t.hash]))
-      return { error: "Missing generator facts" };
+      return { error: "Missing generator facts", retryable: true };
     if (active.some(
       (tooltip) => Object.values(tooltip.text).some((translation) => translation?.text.includes("{{"))
     ))
