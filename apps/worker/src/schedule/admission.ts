@@ -400,7 +400,10 @@ export async function retryBatchRequest(
     if (!record || batch.preparation?.requestId !== input.requestId)
       throw new HttpError(409, 'This request is no longer outstanding');
     checkedRequest(record, batchId, input.requestId);
-    if (state.access.role === 'translator' && record.requesterId !== user.id)
+    if (
+      state.access.role === 'translator' &&
+      (record.requesterId !== user.id || batch.preparation.kind !== 'save')
+    )
       throw new HttpError(403, 'Permission denied');
     if (record.status === 'pending' && batch.status === 'preparing') return reply(state, record);
     refuseRevision(batch, input.revision);

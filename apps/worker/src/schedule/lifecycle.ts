@@ -353,6 +353,7 @@ export async function endSchedule(
       ...batch,
       ...revisions,
       status: action === 'cancel' ? 'cancelled' : 'draft',
+      preparedRequestId: null,
       notBefore: null,
       zone: null,
       opId: null,

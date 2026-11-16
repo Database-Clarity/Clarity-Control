@@ -375,6 +375,46 @@ describe('durable asynchronous admission', () => {
 });
 
 describe('preparation cancellation, retry, and claim fences', () => {
+  it.each([
+    ['cancel', true],
+    ['cancel', false],
+    ['unschedule', true],
+    ['unschedule', false],
+  ] as const)('clears the ready fence on %s (activation=%s)', async (action, enabled) => {
+    scheduled();
+    f.moveData({ [path]: { ...storedBatch(), preparedRequestId: RID } });
+    vi.mocked(switches.preparation).mockReturnValue(enabled);
+    expect((await call(action, { revision: 2 })).status).toBe(200);
+    expect(storedBatch()).toMatchObject({
+      status: action === 'cancel' ? 'cancelled' : 'draft',
+      preparedRequestId: null,
+      opId: null,
+    });
+    expect(f.current()[`publish/requests/${OTHER}.json`]).toBeUndefined();
+  });
+  it.each(['pending', 'needs_attention'] as const)(
+    'refuses schedule retry after the requester is downgraded to translator (%s)',
+    async (status) => {
+      await call('schedule', scheduleBody());
+      f.moveData({
+        'config/permissions.json': {
+          users: {
+            ...config.users,
+            '1': { login: 'alice', role: 'translator', languages: ['de'] },
+          },
+        },
+        [path]: {
+          ...storedBatch(),
+          status: status === 'pending' ? 'preparing' : 'needs_attention',
+        },
+        [scheduleIntentPaths.request(RID)]: { ...record(), status, retryable: true },
+      });
+      const head = f.dataHead;
+      expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(403);
+      expect(f.dataHead).toBe(head);
+      expect(record().attempt).toBe(1);
+    },
+  );
   it.each(['retry', 'cancel'] as const)('reconciles a lost %s response', async (action) => {
     await call('save', saveBody());
     if (action === 'retry')
