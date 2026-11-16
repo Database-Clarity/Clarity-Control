@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { publishMonth } from '@clarity/core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   batchSchema,
@@ -15,11 +16,11 @@ import {
 import publisherConfig from '../../../config/publisher.json';
 import scheduledConfig from '../../../config/scheduled.json';
 import { GitHub } from '../src/github.js';
-import { switches } from '../src/schedule/store.js';
+import { newUlid, switches } from '../src/schedule/store.js';
 import { Fixture, config, makePrivateKey, tooltip } from './fixture.js';
 
 const ID = '01K95H00000000000000000B01';
-const RID = '01K95H00000000000000000A01';
+let RID: string;
 const OTHER = '01K95H00000000000000000A02';
 const path = `schedule/batches/${ID}/batch.json`;
 const member = `schedule/batches/${ID}/tooltips/123.json`;
@@ -77,6 +78,7 @@ beforeAll(async () => {
   appKey = await makePrivateKey();
 });
 beforeEach(() => {
+  RID = newUlid();
   scheduledConfig.enabled = true;
   publisherConfig.enabled = true;
   vi.spyOn(switches, 'preparation').mockReturnValue(true);
@@ -130,6 +132,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.useRealTimers();
   scheduledConfig.enabled = false;
   publisherConfig.enabled = false;
   vi.restoreAllMocks();
@@ -137,6 +140,34 @@ afterEach(() => {
 });
 
 describe('durable asynchronous admission', () => {
+  it.each(['request', 'log'])('refuses a schedule requestId already used by a publication %s', async (kind) => {
+    const collision = kind === 'request' ? `publish/requests/${RID}.json` : `publish/log/${publishMonth(RID)}/${RID}.json`;
+    f.moveData({ [collision]: { opaque: 'Only its OID is needed' } });
+    const head = f.dataHead;
+    expect((await call('schedule', scheduleBody())).status).toBe(409);
+    expect(f.dataHead).toBe(head);
+    expect(record()).toBeUndefined();
+  });
+  it.each([-2, 2])('rejects a new schedule ID %s days from now', async (days) => {
+    const body = { ...scheduleBody(), requestId: newUlid(Date.now() + days * 86_400_000) };
+    expect((await call('schedule', body)).status).toBe(400);
+    expect(f.commits).toHaveLength(0);
+  });
+  it('replays an admitted schedule after its creation window has passed', async () => {
+    const body = scheduleBody();
+    expect((await call('schedule', body)).status).toBe(202);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 2 * 86_400_000);
+    expect((await call('schedule', body)).status).toBe(202);
+    expect(f.commits).toHaveLength(1);
+  });
+  it('fences a publication-ID collision introduced during a ref race', async () => {
+    const collision = `publish/requests/${RID}.json`;
+    f.beforePatch = () => f.moveData({ [collision]: { doNotOverwrite: true } });
+    expect((await call('schedule', scheduleBody())).status).toBe(409);
+    expect(record()).toBeUndefined();
+    expect(f.current()[collision]).toEqual({ doNotOverwrite: true });
+  });
   it('archives legacy histories atomically and leaves a malformed advisory index untouched', async () => {
     const events = Array.from({ length: 200 }, (_, revision) => ({
       at: '2026-11-01T00:00:00Z',
@@ -344,7 +375,7 @@ describe('durable asynchronous admission', () => {
   });
   it('restricts translator additions and scheduled-save count', async () => {
     expect(
-      (await call('save', { ...saveBody(), changes: [{ hash: 456, base: null, next: {} }] }, 4))
+      (await call('save', { ...saveBody(), changes: [{ hash: 456, base: null, next: { ...tooltip(), hash: 456 } }] }, 4))
         .status,
     ).toBe(403);
     scheduled();
@@ -352,7 +383,7 @@ describe('durable asynchronous admission', () => {
       (
         await call('save', {
           ...saveBody(),
-          changes: Array.from({ length: 11 }, (_, hash) => ({ hash, base: null, next: {} })),
+          changes: Array.from({ length: 11 }, (_, hash) => ({ hash, base: null, next: { ...tooltip(), hash } })),
         })
       ).status,
     ).toBe(422);
@@ -375,6 +406,45 @@ describe('durable asynchronous admission', () => {
 });
 
 describe('preparation cancellation, retry, and claim fences', () => {
+  it.each(['unschedule', 'cancel'] as const)('writes the withdrawn publication tombstone on %s of a scheduled save', async (action) => {
+    scheduled();
+    expect((await call('save', saveBody())).status).toBe(202);
+    expect((await call(action, { revision: 3 })).status).toBe(200);
+    expect(f.current()[`publish/log/${publishMonth(OTHER)}/${OTHER}.json`]).toMatchObject({
+      request: { payload: 'old signed approval', sig: 'old signature' }, result: { status: 'cancelled', reason: action },
+    });
+  });
+  it('terminally logs the old publication in the reschedule admission CAS', async () => {
+    scheduled();
+    expect((await call('schedule', scheduleBody())).status).toBe(202);
+    expect(storedBatch().opId).toBe(RID);
+    expect(f.current()[`publish/log/${publishMonth(OTHER)}/${OTHER}.json`]).toMatchObject({ result: { status: 'cancelled', reason: 'rescheduled' } });
+    expect(f.current()[`publish/requests/${OTHER}.json`]).toBeUndefined();
+  });
+  it('restores a failed schedule due entry only on authenticated retry', async () => {
+    expect((await call('schedule', scheduleBody())).status).toBe(202);
+    const batch = storedBatch();
+    f.moveData({ [path]: { ...batch, status: 'needs_attention' }, [scheduleIntentPaths.request(RID)]: { ...record(), status: 'needs_attention', retryable: true }, 'schedule/due.json': { entries: [] } });
+    expect((await call('retry', { revision: 3, requestId: RID }, 3)).status).toBe(403);
+    expect(f.current()['schedule/due.json']).toEqual({ entries: [] });
+    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
+    expect(f.current()['schedule/due.json']).toEqual({ entries: [{ batchId: ID, opId: RID, notBefore: batch.notBefore, claimed: false }] });
+  });
+  it.each([null, {}, { hash: 123 }, { hash: 999, text: {} }, { hash: 123, text: { de: null } }])('rejects shallow-invalid translator saves before withdrawing a schedule (%j)', async (next) => {
+    scheduled();
+    const head = f.dataHead;
+    expect((await call('save', { ...saveBody(), changes: [{ hash: 123, base: tooltip(), next }] }, 4)).status).toBe(400);
+    expect(f.dataHead).toBe(head);
+    expect(f.current()[`publish/requests/${OTHER}.json`]).toBeDefined();
+    expect(storedBatch().status).toBe('scheduled');
+  });
+  it('can restrict scheduled translator saves with the owner policy switch', async () => {
+    scheduled();
+    vi.spyOn(switches, 'translatorScheduledSaves').mockReturnValue(false);
+    const head = f.dataHead;
+    expect((await call('save', saveBody(), 4)).status).toBe(403);
+    expect(f.dataHead).toBe(head);
+  });
   it.each([
     ['cancel', true],
     ['cancel', false],

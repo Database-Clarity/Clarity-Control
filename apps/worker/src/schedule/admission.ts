@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hashSchema, publishMonth } from '@clarity/core';
+import { hashSchema, langSchema, publishMonth, validatePublishTime } from '@clarity/core';
 import {
   checkNotBefore,
   isValidZone,
@@ -16,7 +16,7 @@ import {
 import { RefRace, type GitHub } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
-import { endSchedule } from './lifecycle.js';
+import { cancelledLog, endSchedule } from './lifecycle.js';
 import type { Identity } from '../types.js';
 import {
   by,
@@ -45,13 +45,18 @@ const requestId = scheduleRequestSchema.shape.requestId;
 const scheduleInput = z
   .object({ requestId, revision, notBefore: z.string(), zone: z.string().min(1).max(64) })
   .strict();
+const shallowTooltip = z.looseObject({
+  hash: hashSchema,
+  text: z.record(langSchema, z.looseObject({ text: z.string(), updatedAt: z.string(), updatedBy: z.string() })),
+});
 /** Only the envelope is interpreted here. Full tooltip validation belongs to the preparer. */
 const saveInput = z
   .object({
     requestId,
     revision,
     changes: z
-      .array(z.object({ hash: hashSchema, base: z.unknown(), next: z.unknown() }).strict())
+      .array(z.object({ hash: hashSchema, base: shallowTooltip.nullable(), next: shallowTooltip }).strict()
+        .refine(({ hash, base, next }) => hash === next.hash && (!base || base.hash === hash)))
       .min(1)
       .max(saveChangeCap)
       .refine((changes) => new Set(changes.map(({ hash }) => hash)).size === changes.length),
@@ -202,6 +207,10 @@ export async function admitBatchRequest(
   if (!parsed.success) throw new HttpError(400, 'Invalid request', parsed.error.issues);
   const input = parsed.data;
   const id = input.requestId;
+  if (kind === 'schedule' && !/^\d{4}-\d{2}$/.test(publishMonth(id)))
+    throw new HttpError(400, 'Schedule requestId outside creation window');
+  const operationPaths = kind === 'schedule'
+    ? [`publish/requests/${id}.json`, `publish/log/${publishMonth(id)}/${id}.json`] : [];
   let envelope: ScheduleRequest['envelope'] | undefined;
   let returnStatus: 'draft' | 'scheduled' = 'draft';
   let target: { notBefore: string; zone: string } | undefined;
@@ -210,7 +219,8 @@ export async function admitBatchRequest(
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, kind === 'save' ? readRoles : scheduleRoles, {
       batchId,
-      extra: [scheduleIntentPaths.request(id)],
+      extra: [scheduleIntentPaths.request(id), ...operationPaths],
+      oidOnly: operationPaths,
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
     });
     requireCapability(state);
@@ -223,6 +233,11 @@ export async function admitBatchRequest(
         throw new HttpError(409, 'This requestId was used for different input');
       return reply(state, existing);
     }
+    if (kind === 'schedule') {
+      if (state.extra[1] || state.extra[2]) throw new HttpError(409, 'requestId already names a publication operation');
+      try { validatePublishTime(id, Date.now()); }
+      catch { throw new HttpError(400, 'Schedule requestId outside creation window'); }
+    }
     if (ambiguous && !(ambiguous instanceof RefRace)) throw ambiguous;
     refuseClaimed(batch);
     refuseRevision(batch, input.revision);
@@ -233,6 +248,10 @@ export async function admitBatchRequest(
       throw new HttpError(422, `A batch holds at most ${memberCap} tooltips`);
     returnStatus = kind === 'schedule' || batch.status === 'scheduled' ? 'scheduled' : 'draft';
     if ('changes' in input) {
+      if (batch.status === 'scheduled' && state.access.role === 'translator' && !switches.translatorScheduledSaves())
+        throw new HttpError(403, 'Scheduled batch saves require an editor or maintainer');
+      if (state.access.role === 'translator' && input.changes.some(({ base }) => base === null))
+        throw new HttpError(403, 'Translators may change only existing tooltips');
       if (batch.status === 'scheduled' && input.changes.length > scheduledSaveChangeCap)
         throw new HttpError(
           422,
@@ -323,6 +342,7 @@ export async function admitBatchRequest(
       );
       if (log || !publication) throw new HttpError(409, 'Publishing started');
       files[scheduleIntentPaths.publication(batchId)] = publication.value;
+      if (kind === 'schedule') files[`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`] = cancelledLog(publication, user, at, 'rescheduled');
       deletions.push(path);
     }
     if (returnStatus === 'scheduled')
@@ -436,6 +456,11 @@ export async function retryBatchRequest(
         {
           [scheduleIntentPaths.request(input.requestId)]: retried,
           [`schedule/batches/${batchId}/batch.json`]: next,
+          ...(next.preparation?.returnStatus === 'scheduled' ? {
+            'schedule/due.json': withDueEntry(state.due, {
+              batchId, opId: next.opId!, notBefore: next.notBefore!, claimed: false,
+            }),
+          } : {}),
           ...(appended.archive ? { [appended.archive.path]: appended.archive.value } : {}),
         },
         `Retry preparation for batch "${batch.name}"`,
@@ -490,9 +515,13 @@ export async function endBatchRequest(
     )
       throw new HttpError(409, 'No unclaimed preparation to cancel');
     const id = batch.preparation.requestId;
-    const [file] = await github.files([scheduleIntentPaths.request(id)], state.head);
+    const [file, publication, publicationLog] = await github.files([
+      scheduleIntentPaths.request(id), scheduleIntentPaths.publication(batchId),
+      ...(batch.opId ? [`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`] : []),
+    ], state.head);
     if (!file) throw new HttpError(502, 'Preparation request is unreadable');
     const record = checkedRequest(scheduleRequestSchema.parse(file.value), batchId, id);
+    if (publicationLog) throw new HttpError(409, 'Publication operation is already terminal');
     const at = new Date().toISOString();
     const appended = await admissionEvent(github, state, batch, user, action, at);
     const next: Batch = checkedBatch({
@@ -514,6 +543,9 @@ export async function endBatchRequest(
           [scheduleIntentPaths.request(id)]: { ...record, status: 'cancelled', updatedAt: at },
           [`schedule/batches/${batchId}/batch.json`]: next,
           'schedule/due.json': withoutDueEntry(state.due, batchId),
+          ...(batch.opId ? { [`publish/log/${publishMonth(batch.opId)}/${batch.opId}.json`]: cancelledLog(
+            batch.preparation.kind === 'save' ? publication ?? null : { sha: state.head, value: record.envelope }, user, at, action,
+          ) } : {}),
           ...(appended.archive ? { [appended.archive.path]: appended.archive.value } : {}),
         },
         `${action === 'cancel' ? 'Cancel' : 'Unschedule'} preparation for batch "${batch.name}"`,

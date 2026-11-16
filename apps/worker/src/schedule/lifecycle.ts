@@ -91,7 +91,7 @@ function requirePublisher(): void {
  * The terminal log of an operation the Worker removes before any run (reschedule, unschedule,
  * cancel): publish/status reports 'cancelled'. Shape follows the publisher's RECORD log.
  */
-function cancelledLog(request: RepoFile | null, user: Identity, at: string, reason: string) {
+export function cancelledLog(request: RepoFile | null, user: Identity, at: string, reason: string) {
   let intentDigest: string | null = null;
   try {
     intentDigest = request

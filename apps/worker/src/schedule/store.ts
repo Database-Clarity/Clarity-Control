@@ -30,6 +30,8 @@ export const switches = {
   publisher: (): boolean => publisherConfig.enabled,
   /** Owner-gated: enable only after the preparer and claim fence have been installed. */
   preparation: (): boolean => false,
+  /** Owner decision pending; the outer preparation switch remains closed. */
+  translatorScheduledSaves: (): boolean => true,
 };
 
 /** PIN capability of a publisher build that drains, claims, and records `batch` requests (I6). */
@@ -291,16 +293,18 @@ export async function readState(
     extra = [],
     trees = [],
     includeIndex = true,
+    oidOnly = [],
   }: {
     batchId?: string;
     extra?: readonly string[];
     trees?: readonly { path: string; depth: number }[];
     includeIndex?: boolean;
+    oidOnly?: readonly string[];
   } = {},
 ): Promise<ScheduleState> {
   const fixedPaths = includeIndex ? fixed : fixed.slice(0, 3);
   const paths = [...fixedPaths, ...(batchId ? [schedulePaths.batch(batchId)] : []), ...extra];
-  const snapshot = await github.publishSnapshot(paths, [], trees);
+  const snapshot = await github.publishSnapshot(paths, oidOnly, trees);
   const config = permissionsSchema.parse(snapshot.files[0]?.value);
   const access = requireAccess(config, user, roles);
   const batchFile = batchId ? snapshot.files[fixedPaths.length] : null;
