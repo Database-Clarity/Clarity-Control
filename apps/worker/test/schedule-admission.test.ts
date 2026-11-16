@@ -658,6 +658,19 @@ describe('preparation cancellation, retry, and claim fences', () => {
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
     expect(f.dataHead).toBe(head);
   });
+  it('kicks the existing pipeline once per minute on Retry of a still-pending request', async () => {
+    expect((await call('save', saveBody())).status).toBe(202);
+    const head = f.dataHead;
+    expect((await call('retry', { revision: 3, requestId: RID }, 3)).status).toBe(403);
+    expect((await call('retry', { revision: 3, requestId: RID }, 4)).status).toBe(403);
+    expect(f.kicks.size).toBe(0);
+    expect((await call('retry', { revision: 3, requestId: RID }, 2)).status).toBe(202);
+    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
+    expect([...f.kicks]).toHaveLength(1);
+    expect([...f.kicks][0]).toMatch(new RegExp(`/contents/publish/kicks/batch-${ID}-\\d+\\.json$`));
+    expect(record().status).toBe('pending');
+    expect(f.dataHead).toBe(head);
+  });
   it('blocks semantic retries and current role loss, and permits editing via return to draft', async () => {
     await call('save', saveBody());
     f.moveData({

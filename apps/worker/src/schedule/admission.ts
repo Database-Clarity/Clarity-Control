@@ -16,7 +16,7 @@ import {
 import { RefRace, type GitHub } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
-import { cancelledLog, endSchedule } from './lifecycle.js';
+import { batchKickPath, cancelledLog, createKick, endSchedule } from './lifecycle.js';
 import type { Identity } from '../types.js';
 import {
   by,
@@ -452,7 +452,17 @@ export async function retryBatchRequest(
       (record.requesterId !== user.id || batch.preparation.kind !== 'save')
     )
       throw new HttpError(403, 'Permission denied');
-    if (record.status === 'pending' && batch.status === 'preparing') return reply(state, record);
+    if (record.status === 'pending' && batch.status === 'preparing') {
+      // ROOT RULING 2026-11-16: Retry on a still-pending request re-triggers preparation with
+      // the existing /kick pipeline trigger (same name scheme, so at most one kick per minute).
+      await signingKey(github.env); // kicks stay disabled until the enable-time secret exists
+      await createKick(github, batchKickPath(batchId, Date.now()), {
+        batchId,
+        requestId: input.requestId,
+        by: by(user),
+      });
+      return reply(state, record);
+    }
     refuseRevision(batch, input.revision);
     if (
       batch.claim ||
