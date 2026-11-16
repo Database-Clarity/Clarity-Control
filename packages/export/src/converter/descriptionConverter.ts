@@ -8,6 +8,10 @@ import { separateTableWeaponType } from './converterFunctions/separateTableWeapo
 import { DescriptionData, DescriptionLine } from './types.js'
 import { parseMarkup } from '@clarity/core/markup/parse'
 
+// Only provenance-marked English fallbacks retain English number formatting.
+const numberLanguage = ({ database, hash, language }: DescriptionData) =>
+  database[hash].editor[language]?.englishFallback ? 'en' : language
+
 /** Native inline nodes use the editor's real resolver, in the importing perk's context. */
 const nativeDescription = (descriptionData: DescriptionData, description: string) => {
   const { database, hash, language } = descriptionData
@@ -29,10 +33,9 @@ const nativeDescription = (descriptionData: DescriptionData, description: string
       return source
     }
   })
-  const editor = database[hash].editor
   const parsed = parseMarkup(description, {
     variables, titles, imports, type: database[hash].type,
-    lang: editor[language]?.main === editor.en?.main ? 'en' : language
+    lang: numberLanguage(descriptionData)
   })
   if (!native) return undefined
   const error = parsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error')
@@ -50,10 +53,9 @@ const prepareDescription = (descriptionData: DescriptionData, imported?: string)
   description = loadVariables({ ...descriptionData, descriptionString: description })
   // Title bodies are prepared separately below; retain dot spelling for their single format pass.
   const titles = extractTitles(removeUnusedText(description, false))
-  // Core exports English fallback as an exact copy, which keeps English decimals too.
-  const editor = database[hash].editor
-  const numberLanguage = editor[language]?.main === editor.en?.main ? 'en' : language
-  description = doMath(description, numberLanguage)
+  // Stale or unfreezable fallback text keeps English numbers; real translations use their
+  // language even when resolving number tokens makes their text identical to English.
+  description = doMath(description, numberLanguage(descriptionData))
 
   return {
     preparedDescription: removeUnusedText(description.trim()),

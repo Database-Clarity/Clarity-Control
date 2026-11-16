@@ -200,16 +200,16 @@ describe('S1 native consumer output in importer context', () => {
     for (const style of styles) expect(() => compile(input, custom(style), { catalog })).toThrow();
   });
 
-  test('native maths format by language, while exact English fallbacks retain dot spelling', () => {
+  test('native maths format by language, while provenance-marked English fallbacks retain dot spelling', () => {
     const input = inputOf('Value {{1.5}{2.5}} ${1.5+2}');
-    const base = input.perks[100] as typeof input.perks[100] & { editor: { de?: { main: string; secondary: string } } };
+    const base = input.perks[100] as typeof input.perks[100] & { editor: { de?: { main: string; secondary: string; englishFallback?: true } } };
     base.editor.de = { main: 'Wert {{1.5}{2.5}} ${1.5+2}', secondary: 'Wert {{1.5}{2.5}} ${1.5+2}' };
     for (const preset of legacyPresets.filter((p) => p !== 'vaultZero')) {
       const out = json(buildLegacy(input, preset));
       expect(JSON.stringify(out[100].descriptions.de)).toContain('Wert 1,5 3,5');
       expect(JSON.stringify(out[101].descriptions.de)).toContain('Wert 2,5 3,5');
     }
-    base.editor.de = { main: 'Value {{1.5}{2.5}} ${1.5+2}', secondary: 'Value {{1.5}{2.5}} ${1.5+2}' };
+    base.editor.de = { main: 'Value {{1.5}{2.5}} ${1.5+2}', secondary: 'Value {{1.5}{2.5}} ${1.5+2}', englishFallback: true };
     expect(JSON.stringify(json(buildLegacy(input, 'dim'))[100].descriptions.de)).toContain('Value 1.5 3.5');
   });
 
