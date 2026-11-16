@@ -126,15 +126,17 @@ describe('configured files (custom-export compiler) from tagged input', () => {
   );
 
   test('a legacy preset through compile is the held converter file', () => {
+    // Every preset's real-data hash is checked above. Exercise compile's legacy dispatch with
+    // vaultZero: its English-only plain text avoids DIM's costly multi-language HTML rendering.
     const plan = compile(
       tagged,
-      { id: 'old', formatVersion: 1, preset: 'dim' },
+      { id: 'old', formatVersion: 1, preset: 'vaultZero' },
       {
         catalog: realCatalog,
         identical,
       },
     );
-    expect(sha256(plan.bytes)).toBe(expected.editorData.files.dim);
+    expect(sha256(plan.bytes)).toBe(expected.editorData.files.vaultZero);
   });
 });
 
