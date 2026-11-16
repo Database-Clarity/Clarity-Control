@@ -11,8 +11,9 @@ For agents building UI:
   (`covers: ['Name']`); `coverage.test.tsx` fails until it has one, or until it is listed in
   `excluded` with a reason. Widely reused feature pieces get an entry too.
 - Fixtures stay inline and real (Destiny text, real markup, long German, Polish, and Russian
-  strings). A demo never saves anything; a component that saves takes a presentational part out
-  (see `InactiveMoveConfirm`).
+  strings). A demo never saves anything: a component that calls the server takes a presentational
+  part out (see `InactiveMoveConfirm`); remembered choices (Raw, Sheet colours) stay in the
+  frame's in-memory copy of browser storage (`isolateStorage`).
 
 How it works: `GalleryPage` (the toolbar) loads `GalleryFrame` in an iframe at
 `#/management/ui/frame`, outside the app shell. The frame is a real document, so its width

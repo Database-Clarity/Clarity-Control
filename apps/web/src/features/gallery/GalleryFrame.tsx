@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
 import { applyDeviceSettings, useSettingsStore } from '../../stores/settings';
@@ -12,6 +12,40 @@ import styles from './Gallery.module.scss';
 const reducedMotion =
   '*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}';
 
+/**
+ * The frame runs on an in-memory copy of this browser's storage: reads still find the session and
+ * settings, but a demo that remembers a choice (the Raw switch, Sheet colours) never changes the
+ * app's real preferences, here or in other tabs. Once per document; never written back.
+ */
+export function isolateStorage(win: Window = window): void {
+  for (const name of ['localStorage', 'sessionStorage'] as const) {
+    let real: Storage;
+    try {
+      real = win[name];
+    } catch {
+      continue; // Storage blocked: nothing can be written anyway.
+    }
+    if ('galleryCopy' in real) continue;
+    const copy = new Map<string, string>();
+    for (let index = 0; index < real.length; index++) {
+      const key = real.key(index);
+      if (key !== null) copy.set(key, real.getItem(key) ?? '');
+    }
+    const storage: Storage & { galleryCopy: true } = {
+      galleryCopy: true,
+      get length() {
+        return copy.size;
+      },
+      key: (index) => [...copy.keys()][index] ?? null,
+      getItem: (key) => copy.get(key) ?? null,
+      setItem: (key, value) => void copy.set(key, String(value)),
+      removeItem: (key) => void copy.delete(key),
+      clear: () => copy.clear(),
+    };
+    Object.defineProperty(win, name, { configurable: true, value: storage });
+  }
+}
+
 const matches = (entry: GalleryEntry, query: string) =>
   [entry.title, entry.group, entry.from, entry.note, ...entry.states.map((state) => state.label)]
     .join('\n')
@@ -24,6 +58,8 @@ const matches = (entry: GalleryEntry, query: string) =>
  * apply to this document only and are never saved.
  */
 export function GalleryFrame() {
+  // Before anything below reads or writes storage (sign-in, settings, the demos).
+  useState(() => isolateStorage());
   const [params] = useSearchParams();
   const { theme, scale, touch, reduceMotion, query } = readSettings(params);
   const role = useAuthStore((state) => state.user?.role);
