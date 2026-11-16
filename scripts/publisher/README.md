@@ -9,6 +9,15 @@ Config supplies repo, dataBranch, liveBranch, publicKey (PEM from the independen
 endpoint), keyFingerprint (SHA-256 of SPKI DER, pinned independently), publisherSha, generatorSha,
 facts, aliases, and runUrl. Facts and aliases must come from the pinned generator commit.
 The standalone dry-run does not fetch keys or provide a write enable switch.
+The `schedulePreparationV1` capability verifies Worker-signed save and schedule intents,
+their exact submitted bytes, and immutable member-tree identities. Preparation runs before
+the globals drain, bundle, and publisher in the same serialized pipeline. One CAS commits
+all accepted members, request results, ready fences, due entries, events, and the derived
+index. Unprepared batches cannot be claimed. A rejected translator save restores only the
+exact accepted schedule authorized by its signed owner policy; other failures need attention
+and leave due. Infrastructure Retry uses the existing authenticated pipeline kick.
+Scheduled publication with Globals metadata remains refused until pinned upcoming closure
+support is supplied; manual Globals publication retains its atomic LIVE/RECORD transaction.
 The prepared `globalsRelease` capability uses `globals/layout.json` and an exact
 `globals/live/<destination>.json` baseline. One serialized Action drain materializes reviews
 and name proofs; failed sync retains causes and rows, and refreshes only occupied-name proofs

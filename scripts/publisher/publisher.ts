@@ -55,6 +55,8 @@ import {
   batchSchema,
   compose,
   schedulePaths,
+  scheduleIntentPaths,
+  canClaimPreparedBatch,
   withField,
   type BatchMember,
   type BatchPublishPayload,
@@ -80,6 +82,13 @@ import {
 } from './batch.js';
 import { setTimeout } from 'node:timers/promises';
 import { GlobalsPublisher, hasGlobals, type GlobalReleaseReceipt } from './globals.js';
+import { SchedulePreparer, SCHEDULE_GLOBALS_UNSUPPORTED } from '../schedule-prepare/prepare.js';
+import {
+  verifiedSource,
+  verifiedRequest,
+  verifyPreparedPublication,
+  type PreparedPublication,
+} from '../schedule-prepare/intents.js';
 
 // Five unresolved retries total ~2.5 min. Simulator fixtures inject a no-wait backoff.
 export const publishBackoff = () => setTimeout(30_000);
@@ -400,7 +409,18 @@ export class Publisher {
    * operation would then revert it on live, or it would drop the frozen one's live output.
    */
   queue(head: string): string[] {
-    const entries = this.pendingRequests(head);
+    const tree = this.git.tree(head);
+    const entries = this.pendingRequests(head).filter((entry) => {
+      if (entry.kind !== 'batch') return true;
+      const batch = batchSchema.safeParse(
+        this.read(tree, schedulePaths.batch(entry.payload.batchId)),
+      ).data;
+      return (
+        !batch ||
+        batch.opId !== entry.opId ||
+        !['preparing', 'needs_attention'].includes(batch.status)
+      );
+    });
     // Only a fresh due batch can be ordered ahead of a request that is already in flight (pushes
     // keep addition order), so the ref and receipt probes run only then (a remote head() is a
     // network round trip per request).
@@ -434,6 +454,14 @@ export class Publisher {
   }
   async verifyRequest(blob: string, opId: string, tree: Tree): Promise<PublishRequestPayload> {
     const envelope = JSON.parse(this.git.blob(blob));
+    if (envelope.sourceIntent) {
+      const payload = await verifyPreparedPublication(this, envelope, opId);
+      const permissions = permissionsSchema.parse(this.read(tree, 'config/permissions.json'));
+      if (!['maintainer', 'editor'].includes(permissions.users[String(payload.requester.id)]?.role))
+        throw new Error('Requester revoked');
+      requesterCredits(payload.requester);
+      return payload;
+    }
     if (typeof envelope.payload !== 'string' || typeof envelope.sig !== 'string')
       throw new Error('Invalid signed envelope');
     const key = createPublicKey(this.options.publicKey);
@@ -467,6 +495,21 @@ export class Publisher {
   /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
   credits(blob: string, opId: string): CommitCredits {
     const envelope = JSON.parse(this.git.blob(blob));
+    if (envelope.sourceIntent) {
+      const { intent } = verifiedSource(this, envelope.sourceIntent);
+      const payload = batchPublishPayloadSchema.parse(JSON.parse(envelope.payload));
+      if (
+        intent.kind !== 'schedule' ||
+        intent.requestId !== opId ||
+        payload.opId !== opId ||
+        stableStringify(payload.requester) !== stableStringify(intent.requester) ||
+        payload.batchId !== intent.batchId ||
+        payload.notBefore !== intent.notBefore ||
+        payload.contentRevision !== intent.contentRevision
+      )
+        throw new Error('Prepared credit identity mismatch');
+      return requesterCredits(intent.requester);
+    }
     const key = createPublicKey(this.options.publicKey);
     if (
       createHash('sha256')
@@ -597,6 +640,18 @@ export class Publisher {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);
       if (tree[p.log]) return;
+      // An admitted save keeps the publication opId but withdraws its ready envelope.
+      // A late rejection must never tombstone it or remove the preparation's due kick.
+      if (
+        !receipt &&
+        new SchedulePreparer(this)
+          .batches(tree)
+          .some(
+            (batch) =>
+              batch.opId === opId && ['preparing', 'needs_attention'].includes(batch.status),
+          )
+      )
+        return;
       if (atomicLive) {
         if (!receipt || !this.git.casMany)
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
@@ -875,8 +930,7 @@ export class Publisher {
         return;
       }
       if (payload.kind === 'batch') {
-        if (hasGlobals(tree))
-          throw new ConsumerOutputRejected('Scheduled publication requires pinned globals support');
+        if (hasGlobals(tree)) throw new ConsumerOutputRejected(SCHEDULE_GLOBALS_UNSUPPORTED);
         const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
         if (!r) return;
         candidate = this.createCandidate(opId, blob, live, r);
@@ -1331,6 +1385,7 @@ export class Publisher {
     if (!parsed.success)
       return fail({ status: 'rejected', error: 'Missing or invalid batch.json' });
     const batch = parsed.data;
+    if (batch.opId === opId && ['preparing', 'needs_attention'].includes(batch.status)) return;
     const claimed =
       batch.status === 'publishing' && batch.opId === opId && batch.claim?.opId === opId;
     if (
@@ -1341,6 +1396,49 @@ export class Publisher {
       batch.notBefore !== payload.notBefore
     )
       return fail({ status: 'superseded', error: supersededMessage });
+    const envelope = JSON.parse(this.git.blob(blob)) as Partial<PreparedPublication>;
+    if (!claimed && Date.parse(payload.notBefore) > this.options.now()) return;
+    if (
+      batch.preparedRequestId != null ||
+      envelope.preparedRequestId != null ||
+      envelope.sourceIntent
+    ) {
+      if (
+        (!claimed && !canClaimPreparedBatch(batch, envelope.preparedRequestId ?? '')) ||
+        (claimed &&
+          (batch.preparation ||
+            !batch.preparedRequestId ||
+            batch.preparedRequestId !== envelope.preparedRequestId))
+      )
+        return fail({ status: 'rejected', error: 'Batch preparation ready fence mismatch' });
+      try {
+        new SchedulePreparer(this).pin(tree);
+        const checked = verifiedRequest(
+          this,
+          tree,
+          scheduleIntentPaths.request(batch.preparedRequestId!),
+        );
+        if (checked.request.status !== 'completed' || checked.intent.batchId !== batch.id)
+          throw new Error('Preparation result does not authorize this batch');
+        if (checked.intent.kind === 'save') {
+          const result = new SchedulePreparer(this).validateSave(tree, checked);
+          for (const member of result.written) {
+            const accepted = this.read<BatchMember>(
+              tree,
+              schedulePaths.member(batch.id, member.hash),
+            );
+            if (stableStringify(accepted?.proposed) !== stableStringify(member.proposed))
+              throw new Error('Accepted translations differ from prepared signed save');
+          }
+        } else if (
+          checked.intent.requestId !== payload.opId ||
+          stableStringify(checked.request.envelope) !== stableStringify(envelope.sourceIntent)
+        )
+          throw new Error('Prepared schedule approval mismatch');
+      } catch (error) {
+        return fail({ status: 'rejected', error: String(error) });
+      }
+    }
     const source = claimed ? this.claimCommit(payload.batchId, opId) : s;
     const at = claimed ? this.git.tree(source) : tree;
     let frozenAliases = aliases;
@@ -1446,6 +1544,7 @@ export class Publisher {
           batch,
           {
             status: 'draft',
+            preparedRequestId: null,
             opId: null,
             scheduledContentRevision: null,
             claim: null,
@@ -1653,7 +1752,10 @@ export class Publisher {
   async run(syncGlobals = true) {
     const start = this.options.now();
     try {
-      if (syncGlobals) await new GlobalsPublisher(this).drain();
+      if (syncGlobals) {
+        await new SchedulePreparer(this).drain();
+        await new GlobalsPublisher(this).drain();
+      }
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 60_000; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));

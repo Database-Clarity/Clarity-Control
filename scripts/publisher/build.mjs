@@ -57,6 +57,16 @@ for (const marker of [
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks globals release (${marker}); refusing its PIN`);
+for (const marker of [
+  'var SchedulePreparer = class',
+  'matchesPreparationFence(',
+  'canClaimPreparedBatch(',
+  'verifyPreparedPublication(',
+  'Cannot restore superseded publication',
+  'Schedule preparation CAS exhausted',
+])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks schedule preparation (${marker}); refusing its PIN`);
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -88,6 +98,7 @@ writeFileSync(
         'numberTokens',
         'aliasGroups',
         'globalsRelease',
+        'schedulePreparationV1',
       ],
     },
     null,

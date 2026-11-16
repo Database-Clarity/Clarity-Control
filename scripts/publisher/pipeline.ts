@@ -9,6 +9,7 @@ import { RemoteRepository } from './remote.js';
 import publisherConfig from '../../config/publisher.json';
 import { Publisher, type Options } from './publisher.js';
 import { GlobalsPublisher } from './globals.js';
+import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 
 export type PipelineConfig = Omit<Options, 'now' | 'backoff' | 'publicKey'> & {
   keyEndpoint: string;
@@ -123,8 +124,6 @@ export async function runPipeline(
     const initial = snapshot('initial');
     // In write mode, commit the coalesced materialization before the first public
     // bundle. Dry-run materialization remains in the disposable simulator below.
-    if (enabled) await new GlobalsPublisher(new Publisher(initial, options)).drain();
-    publishBundle(initial, options);
     const bases = gitAt(initial.path, ['for-each-ref', '--format=%(objectname)', 'refs/heads/'])
       .trim()
       .split('\n');
@@ -151,7 +150,15 @@ export async function runPipeline(
       )
         throw new Error('Worker key fingerprint mismatch');
       options.publicKey = key.publicKey;
-      await new Publisher(initial, options).run(!enabled);
+      const publisher = new Publisher(initial, options);
+      // GITHUB_TOKEN commits do not trigger another workflow: prepare, globals, bundle,
+      // and publication all happen in this serialized run, after reading latest heads.
+      // A simulation may bundle publicly only BEFORE its disposable materialization.
+      if (!enabled) publishBundle(initial, options);
+      await new SchedulePreparer(publisher).drain();
+      await new GlobalsPublisher(publisher).drain();
+      if (enabled) publishBundle(initial, options);
+      await publisher.run(false);
     } catch (e) {
       failure = e;
     }
@@ -160,7 +167,7 @@ export async function runPipeline(
     failure = e;
   } finally {
     try {
-      // Bounded catch-up pass; repairs failed/empty drains from real data, never simulated RECORDs.
+      // Bounded catch-up bundle from real data, never simulated RECORDs.
       publishBundle(snapshot('catch-up'), options);
     } catch (e) {
       failure ??= e;
