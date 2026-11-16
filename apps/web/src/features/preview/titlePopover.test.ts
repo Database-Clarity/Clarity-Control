@@ -131,18 +131,6 @@ describe('title popover pointer clearance', () => {
     expect([popover.style.left, popover.style.top]).toEqual(hovered);
   });
 
-  it('keeps the plain gap on a phone, where nothing hovers', () => {
-    const matchMedia = window.matchMedia;
-    window.matchMedia = ((query: string) => ({ matches: true, media: query })) as typeof matchMedia;
-    try {
-      const { anchor, popover } = setup(rect(100, 100, 60, 16), { width: 200, height: 80 });
-      openTitlePopover(anchor, popover);
-      expect(popover.style.top).toBe('120px');
-    } finally {
-      window.matchMedia = matchMedia;
-    }
-  });
-
   it('shows one at a time: the next box closes one still in its close grace', () => {
     const first = setup(rect(100, 100, 12, 12), { width: 200, height: 40 });
     const second = setup(rect(100, 130, 12, 12), { width: 200, height: 40 });

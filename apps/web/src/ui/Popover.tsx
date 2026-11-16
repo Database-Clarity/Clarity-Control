@@ -169,8 +169,7 @@ export function Popover({
         area,
         width: anchorElement ? rect.width : phone ? Infinity : width,
         gap,
-        // Touch never hovers: a phone keeps the popup by its trigger.
-        hover: openOnHover && !phone,
+        hover: openOnHover,
       };
       // Below first, at the final width, so the content's height is measured as it will wrap.
       const below = placeAnchored(input);

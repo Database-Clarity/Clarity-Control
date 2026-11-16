@@ -8,7 +8,7 @@
  * anchor the box keeps POINTER_CLEARANCE so the pointer never covers it (keyboard focus opens it
  * in the same place); the anchor's close grace lets the pointer cross that gap into the box.
  */
-import { isPhone, POINTER_CLEARANCE, viewportWidth } from '../../ui/anchorPlacement';
+import { POINTER_CLEARANCE, viewportWidth } from '../../ui/anchorPlacement';
 
 const EDGE = 8;
 const GAP = 4;
@@ -48,8 +48,8 @@ export function openTitlePopover(
   box.style.maxHeight = '';
   const width = box.offsetWidth;
   let height = box.offsetHeight;
-  // Below keeps clear of the pointer (touch has none: a phone keeps the plain gap).
-  const belowGap = isPhone() ? GAP : POINTER_CLEARANCE;
+  // Below keeps clear of the pointer (or the finger that tapped the anchor).
+  const belowGap = POINTER_CLEARANCE;
   const below = viewH - rect.bottom - belowGap - EDGE;
   const above = rect.top - GAP - EDGE;
   const placeAbove = height > below && above > below;
