@@ -12,7 +12,13 @@ import {
   retryWorklist,
   type Save,
 } from './worklists';
-import { draftItems, savedItems, worklistAvailable } from './savedSources';
+import {
+  draftGroups,
+  draftItems,
+  savedItems,
+  worklistAvailable,
+  type DraftGroup,
+} from './savedSources';
 import { startQueue } from './start';
 import { queueSources } from './sources';
 import type { QueueItem } from './model';
@@ -159,7 +165,6 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const { lists, index, loaded, notice, saving, change } = useSavedWorklists();
-  const [drafts, setDrafts] = useState<QueueItem[] | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -167,16 +172,6 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
   const [name, setName] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
-  useEffect(() => {
-    if (!data) return;
-    let live = true;
-    void draftItems(data).then((items) => {
-      if (live) setDrafts(items);
-    });
-    return () => {
-      live = false;
-    };
-  }, [data]);
   const openRequest = useRef(0);
   useEffect(
     () => () => {
@@ -184,7 +179,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
     },
     [location.key],
   );
-  const run = async (items: QueueItem[], id?: string) => {
+  const run = async (items: QueueItem[], id?: string, category?: string) => {
     const attempt = ++openRequest.current;
     if (id && data) {
       try {
@@ -212,7 +207,10 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       scope: 'shown',
       items,
       first,
-      origin: { path: `${location.pathname}${location.search}`, restore: { worklistId: id } },
+      origin: {
+        path: `${location.pathname}${location.search}`,
+        restore: id ? { worklistId: id } : { category },
+      },
       focus: true,
     });
     close(false);
@@ -228,16 +226,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
   };
   return (
     <div className={styles.content}>
-      <button
-        type="button"
-        className={styles.choice}
-        disabled={!drafts?.length}
-        onClick={() => void run(drafts!)}
-      >
-        <span>Drafts</span>
-        <span>{drafts === null ? 'Loading…' : drafts.length}</span>
-      </button>
-      <p>Bulk drafts without saved English text. Save English to finish an entry.</p>
+      <DraftWorklists onOpen={(group) => void run(group.items, undefined, group.id)} />
       {!user && <p>Sign in to create and sync saved worklists.</p>}
       {lists.map((list) => (
         <details
@@ -352,6 +341,78 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       )}
       <WorklistSaveStatus />
       {error && <p role="alert">{error}</p>}
+    </div>
+  );
+}
+/**
+ * The built-in Drafts worklists: one per finder category with bulk drafts that still need saved
+ * English, in finder order. Derived from the draft index and saved data (a save recounts them).
+ */
+export function DraftWorklists({
+  onOpen,
+  disabled = false,
+}: {
+  onOpen(group: DraftGroup): void;
+  disabled?: boolean;
+}) {
+  const data = useDataStore((state) => state.data);
+  const [drafts, setDrafts] = useState<DraftGroup[] | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    let live = true;
+    void draftItems(data).then((items) => {
+      if (live) setDrafts(draftGroups(items, data));
+    });
+    return () => {
+      live = false;
+    };
+  }, [data]);
+  return (
+    <>
+      {!drafts?.length ? (
+        <button type="button" className={styles.choice} disabled>
+          <span>Drafts</span>
+          <span>{drafts === null ? 'Loading…' : 0}</span>
+        </button>
+      ) : (
+        drafts.map((group) => (
+          <button
+            key={group.id}
+            type="button"
+            className={styles.choice}
+            disabled={disabled}
+            onClick={() => onOpen(group)}
+          >
+            <span>Drafts · {group.label}</span>
+            <span>{group.items.length}</span>
+          </button>
+        ))
+      )}
+      <p>Bulk drafts without saved English text, by category. Save English to finish an entry.</p>
+    </>
+  );
+}
+/** The Drafts worklists with the menu's own layout, for a host outside the Worklists menu. */
+export function DraftWorklistsPanel({
+  onOpen,
+  onCancel,
+  disabled,
+  children,
+}: {
+  onOpen(group: DraftGroup): void;
+  onCancel(): void;
+  disabled?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={styles.content}>
+      <DraftWorklists onOpen={onOpen} disabled={disabled} />
+      <div className={styles.row}>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        {children}
+      </div>
     </div>
   );
 }

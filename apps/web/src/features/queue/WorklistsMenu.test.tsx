@@ -328,7 +328,9 @@ it.each(['custom', 'drafts'])(
       prompt: null,
     });
     for (let attempt = 0; attempt < 6; attempt++) {
-      await act(async () => button(source === 'custom' ? 'Open' : 'Drafts1').click());
+      await act(async () =>
+        button(source === 'custom' ? 'Open' : 'Drafts · Other: perks1').click(),
+      );
     }
     expect(usePreviewReviewStore.getState().prompt).toBe(1);
     expect(JSON.stringify(useWorkQueues.getState())).toBe(before);
@@ -337,6 +339,91 @@ it.each(['custom', 'drafts'])(
   },
 );
 
+it('splits drafts into one worklist per finder category, in finder order, and recounts on save', async () => {
+  const entry = (hash: number, categoryId: string) => ({
+    hash,
+    name: `Entry ${hash}`,
+    icon: '',
+    categoryId,
+    inGameDescription: '',
+  });
+  const bundle = (saved: number[]): EditorData['bundle'] => ({
+    tooltips: Object.fromEntries(
+      saved.map((hash) => [hash, { hash, text: { en: { text: 'Saved' } } }]),
+    ) as unknown as EditorData['bundle']['tooltips'],
+    sourceCommit: 'fixture',
+    generatedAt: '',
+    permissions: { users: {} },
+    pushed: {},
+  });
+  const data: EditorData = {
+    items: Object.fromEntries(
+      // The finder hides entry 3; its draft still joins its category's list.
+      [
+        entry(11, 'second'),
+        entry(12, 'first'),
+        entry(13, 'second'),
+        entry(14, 'empty'),
+        entry(3, 'second'),
+      ].map((item) => [item.hash, item]),
+    ),
+    aliases: {},
+    // Generator order differs from the finder's: the finder sorts by group, then order.
+    categories: [
+      { id: 'second', label: 'Second', group: 'Weapons', order: 2 },
+      { id: 'empty', label: 'Empty', group: 'Weapons', order: 3 },
+      { id: 'first', label: 'First', group: 'Weapons', order: 1 },
+    ],
+    bundle: bundle([14]),
+  };
+  setEditorDraftFetch(async () => Response.json({ schemaVersion: 1, hashes: [11, 12, 13, 14, 3] }));
+  await act(async () => useDataStore.setState({ data }));
+  const rows = () =>
+    [...host.querySelectorAll('button')]
+      .map((button) => button.textContent!)
+      .filter((text) => text.startsWith('Drafts'));
+  // Entry 14 has saved English: its category has no drafts and is hidden.
+  expect(rows()).toEqual(['Drafts · First1', 'Drafts · Second3']);
+
+  // Saving English on one draft recounts its category; the last one hides it.
+  await act(async () => useDataStore.setState({ data: { ...data, bundle: bundle([14, 11]) } }));
+  expect(rows()).toEqual(['Drafts · First1', 'Drafts · Second2']);
+  await act(async () => useDataStore.setState({ data: { ...data, bundle: bundle([14, 11, 12]) } }));
+  expect(rows()).toEqual(['Drafts · Second2']);
+
+  // Each opens its own queue, scoped to its category on Rebuild too.
+  await act(async () => button('Drafts · Second2').click());
+  const queue = Object.values(useWorkQueues.getState().queues)[0]!;
+  expect(queue.source).toBe('drafts');
+  expect(queue.items.map((item) => item.hash)).toEqual([13, 3]);
+  expect(queue.origin.restore).toEqual({ category: 'second' });
+  const { queueSources } = await import('./sources');
+  const rebuilt = await queueSources.drafts.rebuild(
+    queue,
+    { data: { ...data, bundle: bundle([14]) }, user: null, decisions: {} },
+    {},
+  );
+  expect(rebuilt.map((item) => item.hash)).toEqual([11, 13, 3]);
+});
+it('shows a disabled Drafts row when no drafts need English text', async () => {
+  await act(async () =>
+    useDataStore.setState({
+      data: {
+        items: {},
+        aliases: {},
+        categories: [],
+        bundle: {
+          tooltips: {},
+          sourceCommit: 'fixture',
+          generatedAt: '',
+          permissions: { users: {} },
+          pushed: {},
+        },
+      },
+    }),
+  );
+  expect(button('Drafts0').disabled).toBe(true);
+});
 it('shows Saving on the affected list, keeps its saved state on failure, and retries once on click', async () => {
   await act(async () => {
     await useSavedWorklists.getState().add(null, 'Weekend', []);
