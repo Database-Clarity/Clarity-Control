@@ -42,6 +42,10 @@
   overflow-wrap: anywhere;
   user-select: text;
 }
+// Diff marks: spaces at a soft wrap collapse, so no strike or underline hangs past a line end.
+.text.diff {
+  white-space: pre-line;
+}
 .summary {
   display: block;
   overflow: hidden;

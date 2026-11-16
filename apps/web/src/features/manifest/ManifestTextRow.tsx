@@ -116,17 +116,24 @@ export function ManifestTextRow({
   const base = (
     <BaseText text={text} hash={hash} lang={lang} unavailable={unavailable} localised={localised} />
   );
+  // Marks never decorate the spaces around a change.
+  const marked = (Mark: 'del' | 'ins', value: string, index: number) => {
+    const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/u.exec(value)!;
+    return (
+      <span key={index}>
+        {lead}
+        <Mark className={Mark === 'ins' ? styles.enhanced : undefined}>{core}</Mark>
+        {trail}
+      </span>
+    );
+  };
   const diff = (
-    <p className={styles.text}>
+    <p className={`${styles.text} ${styles.diff}`}>
       {differences.map((part, index) =>
-        part.kind === 'delete' ? (
-          <del key={index}>{part.text}</del>
-        ) : part.kind === 'insert' ? (
-          <ins className={styles.enhanced} key={index}>
-            {part.text}
-          </ins>
-        ) : (
+        part.kind === 'equal' ? (
           <span key={index}>{part.text}</span>
+        ) : (
+          marked(part.kind === 'delete' ? 'del' : 'ins', part.text, index)
         ),
       )}
     </p>
@@ -181,10 +188,10 @@ export function ManifestTextRow({
                 </p>
                 {rewrite ? (
                   <>
-                    <p className={styles.text}>
+                    <p className={`${styles.text} ${styles.diff}`}>
                       <del>{before}</del>
                     </p>
-                    <p className={`${styles.text} ${styles.rewritten}`}>
+                    <p className={`${styles.text} ${styles.diff} ${styles.rewritten}`}>
                       <ins className={styles.enhanced}>{after}</ins>
                     </p>
                   </>

@@ -189,7 +189,7 @@ describe('ManifestTextRow', () => {
   });
   const show = (hash: number) => act(async () => root.render(<ManifestTextRow hash={hash} />));
   // Diff marks in the text, not the legend's sample marks.
-  const mark = (tag: 'ins' | 'del') => host.querySelector(`p:not([data-legend]) > ${tag}`);
+  const mark = (tag: 'ins' | 'del') => host.querySelector(`p:not([data-legend]) ${tag}`);
 
   it('merges a pair into one text, and falls back to old then new for a rewrite', async () => {
     await show(1);
