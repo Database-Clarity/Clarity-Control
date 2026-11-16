@@ -582,6 +582,119 @@ describe('Review → Batches', () => {
   });
 });
 
+describe('Review → Batches: prepared requests (scheduling off the Worker)', () => {
+  const requestId = '01JF00000000000000000000RQ';
+  async function requestSchedule(
+    id: string,
+    revision: number,
+    notBefore = '2026-12-03T16:00:00.000Z',
+  ) {
+    await call(`/batches/${id}/schedule`, { requestId, revision, notBefore, zone: 'UTC' });
+  }
+
+  it('shows Preparing, then Needs attention with exact reasons, run link, and Unschedule', async () => {
+    const batch = await seed();
+    await requestSchedule(batch.id, 2);
+    const view = await mount('maintainer');
+    await view.settle(() => view.text().includes('Preparing: schedule requested'));
+    const row = view.host.querySelector(`[data-batch-row="${batch.id}"]`)!;
+    expect(row.textContent).toContain('Preparing');
+    expect(view.text()).toContain('Not published before');
+    // Nothing that would bypass the outstanding request is offered.
+    expect(view.button('Schedule…')).toBeUndefined();
+    expect(view.button('Publish now')).toBeUndefined();
+    expect(view.button('Kick')).toBeUndefined();
+    expect(view.button('Retry')).toBeUndefined();
+    expect(view.button('Unschedule')).toBeDefined();
+    fixture.failRequest(
+      requestId,
+      [{ reason: 'current changed', hash: 10, fields: ['text.en'] }],
+      false,
+      'https://github.com/o/r/actions/runs/7',
+    );
+    await view.click('Refresh');
+    await view.settle(() => view.text().includes('Needs attention: schedule requested'));
+    expect(row.textContent).toContain('Needs attention');
+    expect(view.text()).toContain('Rampage (10) English: current changed');
+    expect(view.text()).toContain('last attempt');
+    const link = view.host.querySelector<HTMLAnchorElement>('[data-preparation] a')!;
+    expect(link.href).toBe('https://github.com/o/r/actions/runs/7');
+    expect(link.rel).toBe('noreferrer');
+    expect(view.button('Retry')).toBeUndefined();
+    await view.click('Unschedule');
+    await view.settle(() => view.detail()?.dataset.status === 'draft');
+    expect(fixture.requests.get(requestId)?.record.status).toBe('cancelled');
+    expect(view.button('Schedule…')).toBeDefined();
+    await view.unmount();
+  });
+
+  it('retries an infrastructure failure with the same request, then shows Scheduled', async () => {
+    const batch = await seed();
+    await requestSchedule(batch.id, 2);
+    fixture.failRequest(requestId, [{ reason: 'Runner lost' }], true);
+    const view = await mount('maintainer');
+    await view.settle(() => Boolean(view.button('Retry')));
+    expect(view.text()).toContain('An infrastructure failure');
+    await view.click('Retry');
+    await view.settle(() => view.text().includes('attempt 2'));
+    expect(view.detail()?.dataset.status).toBe('preparing');
+    expect(posts(fixture).filter((path) => path.endsWith('/retry'))).toHaveLength(1);
+    fixture.completeRequest(requestId);
+    await view.click('Refresh');
+    await view.settle(() => view.detail()?.dataset.status === 'scheduled');
+    expect(view.host.querySelector('[data-preparation]')).toBeNull();
+    expect(view.button('Reschedule…')).toBeDefined();
+    await view.unmount();
+  });
+
+  it('shows "Preparing · overdue" with Retry (never Kick) past the target time', async () => {
+    const batch = await seed();
+    await requestSchedule(batch.id, 2, '2026-11-13T12:10:00.000Z');
+    vi.setSystemTime(new Date('2026-11-13T12:20:00.000Z'));
+    try {
+      const view = await mount('maintainer');
+      await view.settle(() => view.text().includes('Preparing · overdue'));
+      expect(view.text()).toContain('nothing publishes yet');
+      expect(view.button('Retry')).toBeDefined();
+      expect(view.button('Kick')).toBeUndefined();
+      expect(view.text()).toContain('1 overdue');
+      await view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('offers Edit for a queued draft save, Cancel after confirmation, and translators only their own Retry', async () => {
+    const batch = await seed();
+    await call(`/batches/${batch.id}/save`, {
+      requestId,
+      revision: 2,
+      changes: [{ hash: 12, base: current[12], next: tooltip(12, 'Twelve, upcoming') }],
+      message: 'Stage',
+    });
+    fixture.failRequest(requestId, [{ reason: 'Runner lost' }], true);
+    const translator = await mount('translator');
+    await translator.settle(() => translator.text().includes('Needs attention: save queued'));
+    // The fixture's requester is user 1, the translator here: own save, so Retry only.
+    expect(translator.button('Retry')).toBeDefined();
+    expect(translator.button('Edit')).toBeUndefined();
+    expect(translator.button('Cancel batch…')).toBeUndefined();
+    await translator.unmount();
+    document.body.innerHTML = '';
+    const view = await mount('maintainer');
+    await view.settle(() => Boolean(view.button('Edit')));
+    await view.click('Cancel batch…');
+    await view.click('Cancel batch');
+    await view.settle(() => view.detail()?.dataset.status === 'cancelled');
+    expect(fixture.requests.get(requestId)?.record.status).toBe('cancelled');
+    await view.unmount();
+  });
+});
+
+/** POST paths the fixture answered. */
+const posts = (worker: BatchFixture) =>
+  worker.log.filter(({ method }) => method === 'POST').map(({ path }) => path);
+
 describe('Batches subview gate', () => {
   it('is Saved, with no switch and no Batches chunk, when the build switch is OFF', async () => {
     vi.stubEnv('VITE_SCHEDULED_ENABLED', '0');

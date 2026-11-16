@@ -100,17 +100,45 @@ export const statusTone: Record<BatchStatus, Tone> = {
   cancelled: 'idle',
 };
 
-/** Overdue: past notBefore + 5 min and not terminal (spec "Editor UX" Status; Kick). */
+/**
+ * Overdue: past notBefore + 5 min and not terminal (spec "Editor UX" Status; Kick). A schedule
+ * still preparing at its time is overdue too: it cannot publish until preparation lands.
+ */
 export function isOverdue(
   entry: Pick<IndexEntry, 'status' | 'notBefore'>,
   now: number = Date.now(),
 ): boolean {
   return (
-    (entry.status === 'scheduled' || entry.status === 'publishing') &&
+    (entry.status === 'scheduled' ||
+      entry.status === 'publishing' ||
+      entry.status === 'preparing') &&
     entry.notBefore !== null &&
     now > Date.parse(entry.notBefore) + scheduleLimits.overdueMs
   );
 }
+
+/** The row and detail status chip: "Preparing · overdue", "Overdue", or the status. */
+export function statusChip(
+  entry: Pick<IndexEntry, 'status' | 'notBefore'>,
+  now: number = Date.now(),
+): { label: string; tone: Tone } {
+  const overdue = isOverdue(entry, now);
+  if (entry.status === 'preparing' && overdue)
+    return { label: 'Preparing · overdue', tone: 'warn' };
+  if (overdue) return { label: 'Overdue', tone: 'warn' };
+  return { label: statusLabel[entry.status], tone: statusTone[entry.status] };
+}
+
+/** Preparing or needing attention: a request is outstanding and the batch takes no other write. */
+export const isPreparation = (status: BatchStatus) =>
+  status === 'preparing' || status === 'needs_attention';
+
+/**
+ * A schedule that is not scheduled yet: preparing or failed with its target time kept (a pending
+ * draft save has no time). The finder's Scheduled marker counts it.
+ */
+export const pendingSchedule = (entry: Pick<IndexEntry, 'status' | 'notBefore'>) =>
+  isPreparation(entry.status) && entry.notBefore !== null;
 
 /** Open batches first (soonest time first, untimed drafts last), then terminal, newest first. */
 export function orderBatches(entries: readonly IndexEntry[]): IndexEntry[] {

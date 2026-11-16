@@ -26,8 +26,11 @@ import {
   accountChanged,
   createBatch,
   memberCap,
+  queueBatchSave,
   readBatchMembers,
+  saveChunk,
   saveToBatch,
+  type BatchAdmission,
 } from '../../../services/scheduled/api';
 import {
   acceptBatchSaved,
@@ -37,9 +40,10 @@ import {
 } from '../../../services/scheduled/batchDrafts';
 import { useDraftStore } from '../../../stores/drafts';
 import { useDataStore } from '../../../stores/data';
-import { fieldList } from './model';
+import { preparationEnabled } from '../../../services/scheduled/flag';
+import { fieldList, isPreparation } from './model';
 import { nameFor } from './names';
-import { refreshBatches, useBatches } from './store';
+import { refreshBatches, startBatches, useBatches } from './store';
 
 export type Destination =
   { kind: 'current' } | { kind: 'batch'; id: string } | { kind: 'new'; name: string };
@@ -145,7 +149,11 @@ export async function saveReviewToBatch(
       .entries?.find((candidate) => candidate.id === destination.id);
     if (!entry) throw new Error('That batch is no longer listed. Pick another destination.');
     if (entry.status !== 'draft' && entry.status !== 'scheduled')
-      throw new Error(`${entry.name} is ${entry.status}; it takes no more changes.`);
+      throw new Error(
+        isPreparation(entry.status)
+          ? `${entry.name} has a request ${entry.status === 'preparing' ? 'preparing' : 'that needs attention'}; save to it once that settles. Nothing was saved.`
+          : `${entry.name} is ${entry.status}; it takes no more changes.`,
+      );
     staged = stagedDrafts(entry.id);
     const both = Object.values(staged)
       .map(({ next }) => next.hash)
@@ -166,6 +174,39 @@ export async function saveReviewToBatch(
   const all = [...changes, ...stagedChanges];
   const sent = new Map(all.map((change) => [change.hash, change]));
   const payload = all.map(({ hash, base, next }) => ({ hash, base, next }));
+  const save: SaveContext = {
+    batchId: batch.id,
+    sent,
+    submitted,
+    staged,
+    batchOwner,
+    sameAccount,
+    onConfirmed,
+  };
+  if (preparationEnabled()) {
+    // One prepared request per batch at a time: the whole save is one request, so it fits one cap.
+    const cap = batch.status === 'draft' ? saveChunk.draft : saveChunk.scheduled;
+    const nothing =
+      destination.kind === 'new'
+        ? `Created ${batch.name}, but nothing was queued to it.`
+        : `Nothing was saved to ${batch.name}.`;
+    if (payload.length > cap)
+      throw new Error(
+        `${nothing} One queued save takes at most ${cap} tooltips into a ${batch.status} batch; this one has ${payload.length}. Save fewer at a time.`,
+      );
+    sameAccountOr('Nothing was saved.');
+    let admission: BatchAdmission;
+    try {
+      admission = await queueBatchSave(batch.id, batch.revision, payload, message);
+    } catch (error) {
+      void refreshBatches();
+      throw new Error(`${nothing} ${refusalText(error)}`);
+    }
+    // Nothing is saved yet: every draft stays until the preparer lands the save (settleQueued).
+    trackQueued(admission.requestId, save);
+    void refreshBatches();
+    return `Save queued to ${batch.name}: ${plural(all.length, 'tooltip')} preparing. Drafts stay until the save lands.`;
+  }
   let members: BatchMember[];
   let accepted: number[];
   let failure: PartialBatchSave | null = null;
@@ -211,40 +252,7 @@ export async function saveReviewToBatch(
   }
   const confirmed = accepted.filter((hash) => confirms(shown.get(hash), sent.get(hash)!));
   const confirmedSet = new Set(confirmed);
-  let kept = 0;
-  const notes: string[] = [];
-  if (sameAccount()) {
-    try {
-      onConfirmed?.(confirmed.map((hash) => shown.get(hash)!));
-    } catch {
-      // The Worker receipt remains authoritative even if the local preview cannot refresh.
-      notes.push('Saved changes could not be shown in the preview. Reload to see them.');
-    }
-    // Current drafts: drop the confirmed ones that nobody edited during the save.
-    const store = useDraftStore.getState();
-    for (const hash of confirmed) {
-      const before = submitted[String(hash)];
-      const now = store.drafts[String(hash)];
-      if (!before || !now) continue;
-      if (stableStringify(now) === stableStringify(before)) store.discard(hash);
-      else kept++;
-    }
-    // Batch drafts: P3-0's reconciliation, for the confirmed ones only.
-    const settled: Drafts = {};
-    for (const [key, draft] of Object.entries(staged))
-      if (confirmedSet.has(draft.next.hash)) settled[key] = draft;
-    if (Object.keys(settled).length && batchOwner)
-      try {
-        acceptBatchSaved(
-          batch.id,
-          settled,
-          Object.values(settled).map(({ next }) => shown.get(next.hash)!),
-          batchOwner,
-        );
-      } catch (error) {
-        notes.push(error instanceof Error ? error.message : String(error));
-      }
-  }
+  const { kept, notes } = reconcile(save, confirmed, shown);
   void refreshBatches();
   void refreshUpcoming();
   const missing = all.map(({ hash }) => hash).filter((hash) => !confirmedSet.has(hash));
@@ -264,6 +272,124 @@ export async function saveReviewToBatch(
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+/** What a batch save needs to drop exactly the drafts the batch confirms. */
+interface SaveContext {
+  batchId: string;
+  /** The changes sent, by hash. */
+  sent: Map<number, Change>;
+  /** The Current drafts as the save review submitted them. */
+  submitted: Drafts;
+  /** The batch drafts sent along (batch:<id>:<hash>). */
+  staged: Drafts;
+  batchOwner: string | null;
+  sameAccount: () => boolean;
+  onConfirmed?: (members: BatchMember[]) => void;
+}
+
+/**
+ * Drops the drafts of `confirmed` hashes (the batch shows their every changed field): Current
+ * drafts nobody edited since, and the batch drafts through acceptBatchSaved. Only for the account
+ * that saved; everything else stays.
+ */
+function reconcile(
+  save: SaveContext,
+  confirmed: readonly number[],
+  shown: ReadonlyMap<number, BatchMember>,
+): { kept: number; notes: string[] } {
+  let kept = 0;
+  const notes: string[] = [];
+  if (!save.sameAccount()) return { kept, notes };
+  const confirmedSet = new Set(confirmed);
+  try {
+    save.onConfirmed?.(confirmed.map((hash) => shown.get(hash)!));
+  } catch {
+    // The Worker receipt remains authoritative even if the local preview cannot refresh.
+    notes.push('Saved changes could not be shown in the preview. Reload to see them.');
+  }
+  // Current drafts: drop the confirmed ones that nobody edited during the save.
+  const store = useDraftStore.getState();
+  for (const hash of confirmed) {
+    const before = save.submitted[String(hash)];
+    const now = store.drafts[String(hash)];
+    if (!before || !now) continue;
+    if (stableStringify(now) === stableStringify(before)) store.discard(hash);
+    else kept++;
+  }
+  // Batch drafts: P3-0's reconciliation, for the confirmed ones only.
+  const settled: Drafts = {};
+  for (const [key, draft] of Object.entries(save.staged))
+    if (confirmedSet.has(draft.next.hash)) settled[key] = draft;
+  if (Object.keys(settled).length && save.batchOwner)
+    try {
+      acceptBatchSaved(
+        save.batchId,
+        settled,
+        Object.values(settled).map(({ next }) => shown.get(next.hash)!),
+        save.batchOwner,
+      );
+    } catch (error) {
+      notes.push(error instanceof Error ? error.message : String(error));
+    }
+  return { kept, notes };
+}
+
+/** Queued saves of this page by requestId (memory only: after a reload their drafts simply stay). */
+const queued = new Map<string, SaveContext>();
+let stopWatching: (() => void) | undefined;
+
+function trackQueued(requestId: string, save: SaveContext) {
+  queued.set(requestId, save);
+  if (stopWatching) return;
+  // Keep the listing refreshing while a save is outstanding, and settle on every new listing.
+  const stopRefresh = startBatches();
+  const unsubscribe = useBatches.subscribe((state, before) => {
+    if (state.entries !== before.entries) void settleQueued();
+  });
+  stopWatching = () => {
+    stopRefresh();
+    unsubscribe();
+    stopWatching = undefined;
+  };
+}
+
+/**
+ * A queued save is settled once its batch is no longer preparing or waiting on a Retry: the
+ * members at that head confirm what landed, and only those drafts drop (never earlier, and never
+ * on a failure, Edit, Unschedule, or Cancel, where the batch does not show the changes).
+ */
+export async function settleQueued(): Promise<void> {
+  const { entries, head } = useBatches.getState();
+  if (!entries || !head) return;
+  for (const [requestId, save] of [...queued]) {
+    const entry = entries.find((candidate) => candidate.id === save.batchId);
+    if (entry && isPreparation(entry.status)) continue;
+    queued.delete(requestId);
+    if (!entry || !save.sameAccount()) continue;
+    try {
+      const members = await readBatchMembers(head, save.batchId, [...save.sent.keys()]);
+      const shown = new Map(
+        members.filter((member): member is BatchMember => member !== null).map((m) => [m.hash, m]),
+      );
+      const confirmed = [...save.sent.keys()].filter((hash) =>
+        confirms(shown.get(hash), save.sent.get(hash)!),
+      );
+      if (confirmed.length) {
+        reconcile(save, confirmed, shown);
+        void refreshUpcoming();
+      }
+    } catch {
+      // Unconfirmed drafts simply stay.
+    }
+  }
+  if (!queued.size) stopWatching?.();
+}
+
+/** Tests: forget queued saves. */
+export function resetQueued() {
+  queued.clear();
+  stopWatching?.();
 }
 
 /** The editor's Current / Upcoming listing picks the new members up at once. */

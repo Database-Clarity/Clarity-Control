@@ -183,6 +183,83 @@ export function createBatchFixture(options: FixtureOptions) {
 
   const ok = (status: number, body: object) => json(status, { head, commit: head, ...body });
 
+  /** Prepared requests (sched-actions-contract.md), by requestId, with what was submitted. */
+  interface FixtureRequest {
+    batchId: string;
+    kind: 'schedule' | 'save';
+    record: Record<string, unknown> & {
+      requestId: string;
+      requesterId: number;
+      status: 'pending' | 'needs_attention' | 'completed' | 'cancelled';
+      attempt: number;
+    };
+    changes?: FixtureChange[];
+  }
+  const requests = new Map<string, FixtureRequest>();
+  const outstanding = (batch: Batch) =>
+    batch.preparation ? requests.get(batch.preparation.requestId) : undefined;
+  const setRecord = (request: FixtureRequest, patch: Record<string, unknown>) => {
+    request.record = { ...request.record, ...patch, updatedAt: now().toISOString() };
+  };
+  const admissionReply = (status: number, batch: Batch, request: FixtureRequest) =>
+    json(status, {
+      commit: head,
+      requestId: request.record.requestId,
+      status: request.record.status,
+      batch,
+      ...(request.record.status === 'pending'
+        ? { message: request.kind === 'schedule' ? 'Schedule requested' : 'Save queued' }
+        : {}),
+      request: request.record,
+    });
+
+  /** Admission: one CAS that marks the batch preparing; no member or content change. */
+  function admit(batch: Batch, kind: 'schedule' | 'save', body: Record<string, unknown>) {
+    const requestId = String(body.requestId);
+    const known = requests.get(requestId);
+    if (known) return admissionReply(known.record.status === 'pending' ? 202 : 200, batch, known);
+    if (kind === 'schedule' && !canManage()) return refuse(403, 'Forbidden');
+    const returnStatus = kind === 'schedule' ? 'scheduled' : batch.status;
+    if (returnStatus !== 'draft' && returnStatus !== 'scheduled')
+      return refuse(409, 'This batch takes no request now');
+    const notBefore =
+      kind === 'schedule'
+        ? body.notBefore === 'now'
+          ? new Date(Math.floor(now().getTime() / 60_000) * 60_000).toISOString()
+          : String(body.notBefore)
+        : batch.notBefore;
+    const request: FixtureRequest = {
+      batchId: batch.id,
+      kind,
+      changes: kind === 'save' ? (body.changes as FixtureChange[]) : undefined,
+      record: {
+        requestId,
+        batchId: batch.id,
+        requesterId: Number(user.id),
+        status: 'pending',
+        attempt: 1,
+        admissionRevision: batch.revision + 1,
+        updatedAt: now().toISOString(),
+      },
+    };
+    requests.set(requestId, request);
+    const next = write(batch, 'request', memberList(batch.id), undefined, {
+      status: 'preparing',
+      notBefore,
+      zone: kind === 'schedule' ? ((body.zone as string | undefined) ?? 'UTC') : batch.zone,
+      opId: kind === 'schedule' ? requestId : batch.opId,
+      preparation: {
+        requestId,
+        kind,
+        returnStatus,
+        requestedAt: now().toISOString(),
+        attempt: 1,
+      },
+      preparedRequestId: null,
+    });
+    return admissionReply(202, next, request);
+  }
+
   function guard(batch: Batch | undefined, revision: unknown): Response | Batch {
     if (!batch) return refuse(404, 'Batch not found');
     if (batch.claim !== null || batch.status === 'publishing')
@@ -365,6 +442,11 @@ export function createBatchFixture(options: FixtureOptions) {
       }));
       return json(200, { head, index: { batches: index } });
     }
+    if (request.method === 'GET' && id && action === 'status') {
+      const batch = batches.get(id);
+      if (!batch) return refuse(404, 'Batch not found');
+      return json(200, { batch, request: outstanding(batch)?.record ?? null });
+    }
     if (request.method !== 'POST') return refuse(405, 'Method not allowed');
     const body = (await request.json()) as Record<string, unknown>;
     if (!id) {
@@ -394,9 +476,34 @@ export function createBatchFixture(options: FixtureOptions) {
     }
     if (action === 'kick') return kick(id);
     if (action === 'resolve') return resolve(id, body);
+    if (action === 'retry') {
+      const batch = batches.get(id);
+      const found = batch && outstanding(batch);
+      if (!batch || !found || found.record.requestId !== body.requestId)
+        return refuse(409, 'This request is no longer outstanding');
+      if (user.role === 'translator' && found.record.requesterId !== Number(user.id))
+        return refuse(403, 'Permission denied');
+      if (found.record.status === 'pending') return admissionReply(202, batch, found);
+      if (body.revision !== batch.revision)
+        return refuse(409, 'The batch changed; reload it and retry', { revision: batch.revision });
+      if (found.record.status !== 'needs_attention' || found.record.retryable !== true)
+        return refuse(409, 'Return to draft and submit a fresh request');
+      const attempt = found.record.attempt + 1;
+      setRecord(found, { status: 'pending', attempt, admissionRevision: batch.revision + 1 });
+      const next = write(batch, 'retry', memberList(id), undefined, {
+        status: 'preparing',
+        preparation: { ...batch.preparation!, attempt },
+      });
+      return admissionReply(202, next, found);
+    }
     const checked = guard(batches.get(id), body.revision);
     if (checked instanceof Response) return checked;
     const batch = checked;
+    const preparing = batch.status === 'preparing' || batch.status === 'needs_attention';
+    if (preparing && action !== 'unschedule' && action !== 'cancel')
+      return refuse(409, 'A batch request is outstanding; retry, unschedule, or cancel it');
+    if ((action === 'save' || action === 'schedule') && typeof body.requestId === 'string')
+      return admit(batch, action, body);
     switch (action) {
       case 'save':
         return save(batch, body.changes as FixtureChange[]);
@@ -477,14 +584,18 @@ export function createBatchFixture(options: FixtureOptions) {
       case 'unschedule':
       case 'cancel': {
         if (!canManage()) return refuse(403, 'Forbidden');
-        if (action === 'unschedule' && batch.status !== 'scheduled')
+        if (action === 'unschedule' && batch.status !== 'scheduled' && !preparing)
           return refuse(409, 'This batch is not scheduled');
+        const found = outstanding(batch);
+        if (found) setRecord(found, { status: 'cancelled' });
         const next = write(batch, action, memberList(id), undefined, {
           status: action === 'cancel' ? 'cancelled' : 'draft',
           notBefore: null,
           zone: null,
           opId: null,
           scheduledContentRevision: null,
+          preparation: null,
+          preparedRequestId: null,
         });
         return ok(200, { batch: next });
       }
@@ -551,6 +662,52 @@ export function createBatchFixture(options: FixtureOptions) {
     },
     kicks,
     conflicts,
+    requests,
+    /** The preparer lands a request: the save's members, or the schedule, in one commit. */
+    completeRequest(requestId: string) {
+      const found = requests.get(requestId)!;
+      const batch = batches.get(found.batchId)!;
+      const prep = batch.preparation!;
+      setRecord(found, { status: 'completed' });
+      if (found.kind === 'save') {
+        const response = save(
+          batchSchema.parse({
+            ...batch,
+            status: prep.returnStatus,
+            preparation: null,
+            ...(prep.returnStatus === 'draft' ? { notBefore: null, zone: null, opId: null } : {}),
+          }),
+          found.changes!,
+        );
+        if (response.status !== 200) throw new Error(`Fixture save refused: ${response.status}`);
+        return;
+      }
+      write(batch, 'prepared', memberList(batch.id), undefined, {
+        status: 'scheduled',
+        preparation: null,
+        preparedRequestId: requestId,
+        scheduledContentRevision: batch.contentRevision,
+      });
+    },
+    /** The preparer records a failure: needs_attention with reasons; nothing else changes. */
+    failRequest(
+      requestId: string,
+      reasons: { reason: string; hash?: number; fields?: string[] }[],
+      retryable = false,
+      workflowUrl?: string,
+    ) {
+      const found = requests.get(requestId)!;
+      const batch = batches.get(found.batchId)!;
+      setRecord(found, {
+        status: 'needs_attention',
+        reasons,
+        retryable,
+        ...(workflowUrl ? { workflowUrl } : {}),
+      });
+      write(batch, 'preparation_failed', memberList(batch.id), undefined, {
+        status: 'needs_attention',
+      });
+    },
     /** Current saved changed at head (another user's /save). */
     setCurrent(hash: number, tooltip: Tooltip | null) {
       if (tooltip) current.set(hash, tooltip);

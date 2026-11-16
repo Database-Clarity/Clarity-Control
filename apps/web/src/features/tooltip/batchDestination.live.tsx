@@ -77,7 +77,8 @@ export function edit(
     !batch ||
     batch.id !== batchId ||
     batch.status === 'publishing' ||
-    (batch.status === 'scheduled' && lang === 'en') ||
+    // A scheduled batch, or one whose schedule is preparing or failed, takes translations only.
+    ((batch.status === 'scheduled' || batch.notBefore !== null) && lang === 'en') ||
     load?.state !== 'ready' ||
     load.revision !== batch.revision ||
     stableStringify(load.upcoming.members[base.hash]?.proposed) !== stableStringify(base)
@@ -130,8 +131,14 @@ export async function saveBatchDrafts(batchId: string): Promise<string> {
   )
     throw new Error('Reload the batch and sign in before saving. Drafts were kept.');
   const batch = Object.values(state.memberOf).find((entry) => entry.id === batchId);
-  if (!batch || batch.revision !== load.revision || batch.status === 'publishing')
-    throw new Error('The batch is no longer editable. Drafts were kept.');
+  if (
+    !batch ||
+    batch.revision !== load.revision ||
+    (batch.status !== 'draft' && batch.status !== 'scheduled')
+  )
+    throw new Error(
+      'The batch takes no saves now (changed, publishing, or preparing a request). Drafts were kept.',
+    );
   const sameAccount = () => {
     const current = useAuthStore.getState();
     return (

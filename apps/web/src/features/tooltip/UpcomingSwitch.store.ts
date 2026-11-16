@@ -6,7 +6,7 @@ import type { Drafts } from '../../services/draftStorage';
 export interface OpenBatch {
   id: string;
   name: string;
-  status: 'draft' | 'scheduled' | 'publishing';
+  status: 'draft' | 'preparing' | 'needs_attention' | 'scheduled' | 'publishing';
   notBefore: string | null;
   revision: number;
   hashes: readonly number[];

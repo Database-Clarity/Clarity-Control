@@ -213,6 +213,65 @@ it('reconciles a confirmed save even when the local preview update fails', async
   expect(s.useDataStore.getState().data!.bundle.tooltips).toBe(s.saved);
 });
 
+it('a queued save keeps its drafts until the preparer lands it, and on failure', async () => {
+  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+  // Node environment: the Batches listing timer only needs focus listeners.
+  vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
+  const s = await setup();
+  const { refreshBatches } = await import('../review/batches/store');
+  const { resetQueued } = await import('../review/batches/saveDestination');
+  const key = s.batchDraftKey(s.batch.id, 123);
+  const settled = () =>
+    new Promise((resolve) => setTimeout(resolve, 0)).then(() => refreshBatches());
+  try {
+    s.runtime.edit(s.batch.id, s.future, s.future, 'de', 'Queued German', 'm');
+    expect(await s.runtime.saveBatchDrafts(s.batch.id)).toBe(
+      'Save queued to December patch: 1 tooltip preparing. Drafts stay until the save lands.',
+    );
+    const [first] = [...s.fixture.requests.keys()];
+    expect(s.fixture.batches.get(s.batch.id)?.status).toBe('preparing');
+    expect(s.fixture.members.get(s.batch.id)?.get(123)?.proposed.text.de).toBeUndefined();
+    await settled();
+    expect(s.useBatchDraftStore.getState().drafts[key]?.next.text.de?.text).toBe('Queued German');
+    // A failure (and its Edit back to draft) keeps the draft: nothing landed.
+    s.fixture.failRequest(first, [{ reason: 'Runner lost' }], true);
+    await settled();
+    expect(s.useBatchDraftStore.getState().drafts[key]).toBeDefined();
+    // Retry, then the preparer lands it: only now does the draft drop.
+    s.fixture.setUser({ id: 1, login: 'm', role: 'maintainer' });
+    const api = await import('../../services/scheduled/api');
+    await api.retryBatchRequest(s.batch.id, s.fixture.batches.get(s.batch.id)!.revision, first);
+    s.fixture.completeRequest(first);
+    await settled();
+    await vi.waitFor(() => expect(s.useBatchDraftStore.getState().drafts[key]).toBeUndefined());
+    expect(s.fixture.members.get(s.batch.id)?.get(123)?.proposed.text.de?.text).toBe(
+      'Queued German',
+    );
+    expect(s.useDraftStore.getState().drafts).toBe(s.before);
+    expect(s.useDataStore.getState().data!.bundle.tooltips).toBe(s.saved);
+  } finally {
+    resetQueued();
+  }
+});
+
+it('a queued save that is cancelled keeps its drafts and stops tracking', async () => {
+  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+  // Node environment: the Batches listing timer only needs focus listeners.
+  vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
+  const s = await setup();
+  const { refreshBatches } = await import('../review/batches/store');
+  const key = s.batchDraftKey(s.batch.id, 123);
+  s.runtime.edit(s.batch.id, s.future, s.future, 'de', 'Cancelled German', 'm');
+  await s.runtime.saveBatchDrafts(s.batch.id);
+  s.fixture.setUser({ id: 1, login: 'm', role: 'maintainer' });
+  const api = await import('../../services/scheduled/api');
+  await api.endBatchSchedule(s.batch.id, s.fixture.batches.get(s.batch.id)!.revision, 'unschedule');
+  await refreshBatches();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(s.fixture.batches.get(s.batch.id)?.status).toBe('draft');
+  expect(s.useBatchDraftStore.getState().drafts[key]?.next.text.de?.text).toBe('Cancelled German');
+});
+
 it('batch completion follows its own drafts, discard, and closed loads', async () => {
   const s = await setup();
   const { done } = await import('../queue/batchQueue');

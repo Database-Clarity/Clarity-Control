@@ -16,8 +16,8 @@ import {
   memberView,
   openConflicts,
   orderBatches,
-  statusLabel,
-  statusTone,
+  pendingSchedule,
+  statusChip,
   translationCoverage,
   type IndexEntry,
 } from './model';
@@ -68,7 +68,7 @@ function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean })
   const load = useBatches((state) => state.loads[entry.id]);
   const data = useDataStore((state) => state.data);
   const counts = useMemo(() => rowCounts(entry, load, data), [entry, load, data]);
-  const overdue = isOverdue(entry);
+  const chip = statusChip(entry);
   const next = new URLSearchParams(params);
   next.set('view', 'batches');
   next.set('batch', entry.id);
@@ -93,8 +93,8 @@ function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean })
           <span className={styles.rowName} title={entry.name}>
             {entry.name}
           </span>
-          <span className={styles.chip} data-tone={overdue ? 'warn' : statusTone[entry.status]}>
-            {overdue ? 'Overdue' : statusLabel[entry.status]}
+          <span className={styles.chip} data-tone={chip.tone}>
+            {chip.label}
           </span>
         </span>
         <span className={styles.rowWhen}>
@@ -299,7 +299,11 @@ export function BatchesHeader() {
   const entries = useBatches((state) => state.entries);
   const listing = useBatches((state) => state.listing);
   const open = entries?.filter((entry) => isOpenStatus(entry.status)) ?? [];
-  const scheduled = open.filter((entry) => entry.status !== 'draft').length;
+  const scheduled = open.filter(
+    (entry) =>
+      entry.status === 'scheduled' || entry.status === 'publishing' || pendingSchedule(entry),
+  ).length;
+  const attention = open.filter((entry) => entry.status === 'needs_attention').length;
   const overdue = open.filter((entry) => isOverdue(entry)).length;
   return (
     <>
@@ -313,6 +317,14 @@ export function BatchesHeader() {
             {' '}
             <span className={reviewStyles.segment} data-overdue>
               · {count.format(overdue)} overdue
+            </span>
+          </>
+        )}
+        {attention > 0 && (
+          <>
+            {' '}
+            <span className={reviewStyles.segment} data-overdue>
+              · {count.format(attention)} need{attention === 1 ? 's' : ''} attention
             </span>
           </>
         )}
