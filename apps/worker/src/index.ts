@@ -19,6 +19,7 @@ import { save } from './save.js';
 import { reports, purgeReports } from './reports.js';
 import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
 import { minuteCron, scheduleTick } from './schedule/lifecycle.js';
+import { userWorklists } from './worklists.js';
 import { userSettings } from './settings.js';
 import type { Context, Env } from './types.js';
 
@@ -71,6 +72,10 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
   if (request.method === 'POST' && path === '/save') return save(request, github, user);
   if (request.method === 'POST' && path === '/push-live') return pushLive(request, github, user);
+  const worklist = /^\/worklists\/([^/]+)$/.exec(path);
+  if ((path === '/worklists' || worklist) && ['GET', 'PUT', 'DELETE'].includes(request.method)) {
+    return userWorklists(request, github, user, worklist?.[1]);
+  }
   if (['GET', 'PUT'].includes(request.method) && path === '/settings') {
     return userSettings(request, github, user);
   }
