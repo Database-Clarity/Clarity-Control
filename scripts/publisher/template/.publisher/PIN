@@ -1,6 +1,6 @@
 {
-  "sourceSha": "cb6d0f7a8e4091cf2acc0958368cd54f656f67d0",
-  "sha256": "edd9179ea082ca05393cc7e827bb025699ccd271205dd67ff41bed1c9c2236fb",
+  "sourceSha": "d323fd2e23c4612c01fde4ab4f397dd8a53cf432",
+  "sha256": "727867bdda6cb5c75f6c8f7d77864ff4b7761da15c4a1299f2ca47511314a4ab",
   "capabilities": [
     "elementTags",
     "sandboxPointers",
@@ -11,6 +11,7 @@
     "arrowSymbol",
     "numberTokens",
     "aliasGroups",
-    "globalsRelease"
+    "globalsRelease",
+    "schedulePreparationV1"
   ]
 }
