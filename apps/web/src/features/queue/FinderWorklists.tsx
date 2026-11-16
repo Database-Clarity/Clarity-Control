@@ -23,14 +23,12 @@ import { queueSources } from './sources';
 import styles from './FinderWorklists.module.scss';
 
 interface Selection {
-  active: boolean;
   selecting: boolean;
   selected: WorklistEntry[];
   choosing: WorklistEntry[] | null;
 }
 export type FinderWorklistController = StoreApi<Selection>;
 const initial = (): Selection => ({
-  active: false,
   selecting: false,
   selected: [],
   choosing: null,
@@ -50,7 +48,6 @@ export function useFinderWorklists(open: boolean): FinderWorklistController {
 }
 function toggle(controller: FinderWorklistController, item: WorklistEntry) {
   controller.setState((state) => ({
-    active: true,
     selecting: true,
     selected: state.selected.some((old) => old.hash === item.hash)
       ? state.selected.filter((old) => old.hash !== item.hash)
@@ -83,7 +80,7 @@ export function finderWorklistKey(
     if (!items.length) return false;
     event.preventDefault();
     event.stopPropagation();
-    controller.setState({ active: true, choosing: items });
+    controller.setState({ choosing: items });
     return true;
   }
   return false;
@@ -93,29 +90,39 @@ export function FinderWorklistScope({
   controller,
   data,
   children,
+  'data-wide': wide,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   controller: FinderWorklistController;
   data: EditorData;
   children: ReactNode;
+  'data-wide'?: boolean;
 }) {
-  // Rows need no subscriptions. One boundary owns selection updates, and row actions
-  // consult selection only after the user enters worklist selection mode.
+  // Rows need no subscriptions. One boundary owns selection updates, and rows render their
+  // checkbox only after the user enters worklist selection mode.
   const selection = useStore(controller);
   const user = useAuthStore((state) => Boolean(state.user));
   const value = useMemo(() => ({ controller, selection, user }), [controller, selection, user]);
+  const selecting = user && selection.selecting;
   return (
     <Context.Provider value={value}>
-      <div {...props}>
-        {selection.active ? (
-          <FinderWorklistBar data={data} />
-        ) : (
-          <div className={styles.bar}>
-            <button type="button" onClick={() => controller.setState({ active: true })}>
-              Worklists
-            </button>
-          </div>
-        )}
+      <div
+        {...props}
+        data-wide={wide || selecting || undefined}
+        onClickCapture={(event) => {
+          // While selecting, a click anywhere on a row toggles it instead of opening the entry.
+          if (!selecting || selection.choosing) return;
+          const target = event.target as Element;
+          const box = target
+            .closest('[role="option"]')
+            ?.querySelector<HTMLInputElement>('input[data-worklist-check]');
+          if (!box || target === box) return;
+          event.preventDefault();
+          event.stopPropagation();
+          box.click();
+        }}
+      >
+        <FinderWorklistBar data={data} />
         {children}
       </div>
     </Context.Provider>
@@ -133,38 +140,31 @@ export function FinderWorklistRow({
   children: ReactNode;
 }) {
   const { controller, selection, user } = useContext(Context)!;
-  const { selecting, choosing } = selection;
-  const selected = selecting && selection.selected.some((item) => item.hash === hash);
-  if (global || !user || !selection.active) return children;
+  if (global || !user || !selection.selecting) return children;
+  const selected = selection.selected.some((item) => item.hash === hash);
   return (
-    <span
-      className={styles.row}
-      onMouseDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-    >
+    <span className={styles.row}>
       {children}
-      <button
-        type="button"
-        className={styles.action}
-        disabled={choosing !== null}
-        role={selecting ? 'checkbox' : undefined}
-        aria-checked={selecting ? selected : undefined}
-        aria-label={selecting ? `Select ${name} for worklist` : `Add ${name} to worklist`}
-        title={selecting ? 'Select for worklist (Ctrl+Space)' : 'Add to worklist (Ctrl+Enter)'}
-        onClick={() =>
-          selecting
-            ? toggle(controller, { hash, name })
-            : controller.setState({ choosing: [{ hash, name }] })
-        }
-      >
-        {selecting ? (selected ? '✓' : '□') : '+'}
-      </button>
+      <input
+        type="checkbox"
+        data-worklist-check=""
+        tabIndex={-1}
+        className={styles.check}
+        checked={selected}
+        disabled={selection.choosing !== null}
+        aria-label={`Select ${name} for worklist`}
+        title="Select for worklist (Ctrl+Space)"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={(event) => event.stopPropagation()}
+        onChange={() => toggle(controller, { hash, name })}
+      />
     </span>
   );
 }
 function FinderWorklistBar({ data }: { data: EditorData }) {
   const { controller, selection, user } = useContext(Context)!;
-  const { selecting, choosing } = selection;
+  const { choosing } = selection;
+  const selecting = user && selection.selecting;
   const count = selection.selected.length;
   const host = useRef<HTMLDivElement>(null);
   const focus = () =>
@@ -179,64 +179,75 @@ function FinderWorklistBar({ data }: { data: EditorData }) {
     controller.setState(initial());
     focus();
   };
+  if (user && choosing)
+    return (
+      <section
+        ref={host}
+        className={styles.picker}
+        aria-label="Add finder entries to worklist"
+        onKeyDownCapture={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            cancel();
+          }
+        }}
+      >
+        <WorklistPicker items={choosing} close={finish} />
+        <button type="button" onClick={cancel}>
+          Cancel
+        </button>
+      </section>
+    );
   return (
+    // The buttons swap as selection starts and ends: presses keep focus in the search field, so
+    // the finder never loses focus to a button that just unmounted.
     <div
       ref={host}
       className={styles.bar}
-      onKeyDownCapture={(event) => {
-        if (choosing && event.key === 'Escape') {
-          event.preventDefault();
-          event.stopPropagation();
-          cancel();
-        }
-      }}
+      role="group"
+      aria-label="Finder worklists"
+      onMouseDown={(event) => event.preventDefault()}
     >
-      {!choosing && (
-        <div className={styles.tools} role="group" aria-label="Finder worklists">
-          <FinderDraftsButton data={data} />
+      {selecting ? (
+        <>
+          <button
+            type="button"
+            disabled={!count}
+            onClick={() => controller.setState({ choosing: controller.getState().selected })}
+          >
+            Add {count} to worklist
+          </button>
+          <button
+            type="button"
+            disabled={!count}
+            onClick={() => {
+              controller.setState({ selected: [] });
+              focus();
+            }}
+          >
+            Clear
+          </button>
+          <button type="button" onClick={finish}>
+            Done
+          </button>
+        </>
+      ) : (
+        <>
           {user && (
             <button
               type="button"
-              aria-pressed={selecting}
-              onClick={() =>
-                controller.setState(
-                  selecting ? { ...initial(), active: true } : { selecting: true },
-                )
-              }
+              title="Ctrl+Space selects the highlighted entry; Ctrl+Enter adds it to a worklist"
+              onClick={() => {
+                controller.setState({ selecting: true });
+                focus();
+              }}
             >
               Select entries
             </button>
           )}
-          {user && selecting && (
-            <>
-              <button
-                type="button"
-                disabled={!count}
-                onClick={() => controller.setState({ choosing: controller.getState().selected })}
-              >
-                Add {count} to worklist
-              </button>
-              <button
-                type="button"
-                disabled={!count}
-                onClick={() => controller.setState({ selected: [] })}
-              >
-                Clear selection
-              </button>
-            </>
-          )}
-        </div>
-      )}
-      {user && !choosing && selecting && (
-        <span className={styles.hint}>Ctrl+Space selects; Ctrl+Enter adds to a worklist.</span>
-      )}
-      {user && choosing && (
-        <section className={styles.picker} aria-label="Add finder entries to worklist">
-          <WorklistPicker items={choosing} close={finish} />
-          <button type="button" onClick={cancel}>
-            Cancel
-          </button>
-        </section>
+          <FinderDraftsButton data={data} />
+        </>
       )}
     </div>
   );

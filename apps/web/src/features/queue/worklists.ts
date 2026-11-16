@@ -19,7 +19,7 @@ const replySchema = z.object({
 });
 const indexSchema = z.object({ lists: z.array(worklistIndexEntrySchema).max(50) });
 type Meta = z.infer<typeof worklistIndexEntrySchema>;
-interface Save {
+export interface Save {
   id: string;
   name: string;
   op: WorklistOperation;
@@ -201,7 +201,8 @@ function enqueue(id: string, op: WorklistOperation): Promise<boolean> {
   if (!accountReady()) throw new Error('Sign in to save worklists.');
   op = worklistOperationSchema.parse(op);
   const row = useSavedWorklists.getState().lists.find((row) => row.id === id);
-  return save({ id, op, name: 'name' in op ? op.name : (row?.name ?? 'Worklist') });
+  // The list's current name, so a failed rename still names the list it was for.
+  return save({ id, op, name: row?.name ?? ('name' in op ? op.name : 'Worklist') });
 }
 export const useSavedWorklists = create<State>(() => ({
   scope: 'anonymous',

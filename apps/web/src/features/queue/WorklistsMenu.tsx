@@ -1,11 +1,17 @@
 import { editorName, itemFor } from '../navigation/catalog';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Popover } from '../../ui/Popover';
 import { useDataStore } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
 import { usePreviewReviewStore } from '../../stores/previewReview';
-import { loadWorklist, syncWorklists, useSavedWorklists, retryWorklist } from './worklists';
+import {
+  loadWorklist,
+  syncWorklists,
+  useSavedWorklists,
+  retryWorklist,
+  type Save,
+} from './worklists';
 import { draftItems, savedItems, worklistAvailable } from './savedSources';
 import { startQueue } from './start';
 import { queueSources } from './sources';
@@ -31,7 +37,7 @@ export function AddToWorklist({
 }: {
   items: WorklistEntry[];
   className?: string;
-  label?: string;
+  label?: ReactNode;
 }) {
   const user = useAuthStore((state) => state.user);
   if (!user || !items.length) return null;
@@ -123,7 +129,7 @@ export function WorklistPicker({ items, close }: { items: WorklistEntry[]; close
           </button>
         </form>
       )}
-      <WorklistSaveStatus />
+      <WorklistSaveStatus show={(save) => save.op.type === 'add' || save.op.type === 'create'} />
       {error && <p role="alert">{error}</p>}
     </div>
   );
@@ -136,6 +142,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
@@ -225,23 +232,33 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
             {loaded.includes(list.id) ? list.items.length : (index[list.id]?.count ?? 0)}
             {saving.some((save) => save.id === list.id) && ' · Saving…'}
           </summary>
-          <div className={styles.row}>
-            <button
-              type="button"
-              disabled={
-                !data || !(loaded.includes(list.id) ? list.items.length : index[list.id]?.count)
-              }
-              onClick={() => void run(savedItems(list.items, data!), list.id)}
-            >
-              Open
-            </button>
+          {renaming === list.id ? (
             <Rename
               name={list.name}
-              disabled={!loaded.includes(list.id)}
               onSave={(name) => update(list.id, { type: 'rename', name })}
+              onClose={() => setRenaming(null)}
             />
-            <Delete onDelete={() => update(list.id, { type: 'delete' })} />
-          </div>
+          ) : (
+            <div className={styles.row}>
+              <button
+                type="button"
+                disabled={
+                  !data || !(loaded.includes(list.id) ? list.items.length : index[list.id]?.count)
+                }
+                onClick={() => void run(savedItems(list.items, data!), list.id)}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                disabled={!loaded.includes(list.id)}
+                onClick={() => setRenaming(list.id)}
+              >
+                Rename
+              </button>
+              <Delete onDelete={() => update(list.id, { type: 'delete' })} />
+            </div>
+          )}
           {expanded[list.id] && !loaded.includes(list.id) && (
             <WorklistLoader id={list.id} meta={index[list.id]} />
           )}
@@ -332,24 +349,24 @@ function WorklistLoader({ id, meta }: { id: string; meta?: WorklistIndexEntry })
   }, [id, meta]);
   return <p role={error ? 'alert' : 'status'}>{error || 'Loading entries…'}</p>;
 }
+/** Replaces the list's action row while open, so the name field gets the whole width. */
 function Rename({
   name,
   onSave,
-  disabled,
+  onClose,
 }: {
   name: string;
   onSave(name: string): void;
-  disabled?: boolean;
+  onClose(): void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [text, setText] = useState(name);
-  return editing ? (
+  return (
     <form
-      className={styles.row}
+      className={styles.edit}
       onSubmit={(event) => {
         event.preventDefault();
         onSave(text.trim());
-        setEditing(false);
+        onClose();
       }}
     >
       <input
@@ -362,21 +379,10 @@ function Rename({
       <button type="submit" disabled={!text.trim()}>
         Save
       </button>
-      <button type="button" onClick={() => setEditing(false)}>
+      <button type="button" onClick={onClose}>
         Cancel
       </button>
     </form>
-  ) : (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => {
-        setText(name);
-        setEditing(true);
-      }}
-    >
-      Rename
-    </button>
   );
 }
 function Delete({ onDelete }: { onDelete(): void }) {
@@ -442,29 +448,57 @@ export function RemoveFromWorklist({
       >
         {busy ? 'Saving…' : label}
       </button>
-      <WorklistSaveStatus />
-      {error && <span role="alert">{error}</span>}
+      <WorklistSaveStatus
+        show={(save) =>
+          save.id === id && save.op.type === 'remove' && save.op.hashes.includes(hash)
+        }
+      />
+      {error && (
+        <p role="alert" className={styles.failure}>
+          {error}
+        </p>
+      )}
     </>
   );
 }
 
-/** Failed operations live only in this tab, and run again only on this button. */
-function WorklistSaveStatus() {
+function failure(save: Save): string {
+  const { op, name } = save;
+  const count = (hashes: number[]) =>
+    hashes.length === 1 ? '1 entry' : `${hashes.length} entries`;
+  switch (op.type) {
+    case 'create':
+      return `Couldn't create ${name}.`;
+    case 'add':
+      return `Couldn't add ${count(op.hashes)} to ${name}.`;
+    case 'remove':
+      return `Couldn't remove ${count(op.hashes)} from ${name}.`;
+    case 'rename':
+      return `Couldn't rename ${name} to ${op.name}.`;
+    case 'delete':
+      return `Couldn't delete ${name}.`;
+    default:
+      return `Couldn't save ${name}.`;
+  }
+}
+/** Failed operations live only in this tab, and run again only on this button. Each place shows
+ * the saves it started (Management shows all of them). */
+function WorklistSaveStatus({ show = () => true }: { show?(save: Save): boolean }) {
   const failed = useSavedWorklists((state) => state.failed);
   const saving = useSavedWorklists((state) => state.saving);
   const lists = useSavedWorklists((state) => state.lists);
   return (
     <>
       {saving
-        .filter((save) => !lists.some((row) => row.id === save.id))
+        .filter((save) => show(save) && !lists.some((row) => row.id === save.id))
         .map((save, index) => (
-          <p role="status" key={index}>
+          <p role="status" className={styles.saving} key={index}>
             {save.name}: Saving…
           </p>
         ))}
-      {failed.map((save, index) => (
-        <p role="alert" key={index}>
-          {save.name}: Couldn't save —{' '}
+      {failed.filter(show).map((save, index) => (
+        <p role="alert" className={styles.failure} key={index}>
+          <span>{failure(save)}</span>
           <button type="button" onClick={() => void retryWorklist(save)}>
             Retry
           </button>

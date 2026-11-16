@@ -256,7 +256,13 @@ export function QueueList<Row extends ListRow = QueueRow>({
   return (
     <>
       {rows[selected] && (
-        <AddToWorklist items={[rows[selected]!]} label="Add selected to worklist" />
+        <div className={styles.listTools}>
+          <AddToWorklist
+            items={[rows[selected]!]}
+            className={styles.listAdd}
+            label={<span>Add {rows[selected]!.name} to worklist</span>}
+          />
+        </div>
       )}
       <div
         ref={host}

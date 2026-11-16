@@ -224,7 +224,15 @@ it('queues a remove click before a later Retry add, even when the row is not loa
   await act(async () => {
     await useSavedWorklists.getState().add(id, '', [{ hash: 1, name: 'One' }]);
   });
-  await act(async () => root.render(<RemoveFromWorklist id={id} hash={1} />));
+  // The failed add's Retry lives where adds start (the picker); Remove shows only its own saves.
+  await act(async () =>
+    root.render(
+      <>
+        <RemoveFromWorklist id={id} hash={1} />
+        <WorklistPicker items={[{ hash: 1, name: 'One' }]} close={() => {}} />
+      </>,
+    ),
+  );
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -347,7 +355,7 @@ it('shows Saving on the affected list, keeps its saved state on failure, and ret
   expect(host.querySelector('summary')!.textContent).toContain('Saving…');
   expect(useSavedWorklists.getState().lists[0]!.name).toBe('Weekend');
   await act(async () => reject(new Error('offline')));
-  expect(host.textContent).toContain("Couldn't save —");
+  expect(host.textContent).toContain("Couldn't rename Weekend to Changed.");
   expect(host.querySelector('summary')!.textContent).not.toContain('Saving…');
   const writes = api.mock.calls.filter(([, init]) => init?.method === 'PUT').length;
   await act(async () => button('Sync').click());
@@ -355,7 +363,7 @@ it('shows Saving on the affected list, keeps its saved state on failure, and ret
   await act(async () => button('Retry').click());
   expect(useSavedWorklists.getState().lists.find((list) => list.id === id)!.name).toBe('Changed');
   expect(api.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(writes + 1);
-  expect(host.textContent).not.toContain("Couldn't save");
+  expect(host.textContent).not.toContain("Couldn't");
 });
 it('keeps a failed create retryable in the picker without adding an optimistic list', async () => {
   const close = vi.fn();
@@ -367,7 +375,7 @@ it('keeps a failed create retryable in the picker without adding an optimistic l
   await act(async () => submit());
   expect(useSavedWorklists.getState().lists).toEqual([]);
   expect(close).not.toHaveBeenCalled();
-  expect(host.textContent).toContain("Couldn't save —");
+  expect(host.textContent).toContain("Couldn't create New.");
   await act(async () => button('Retry').click());
   expect(useSavedWorklists.getState().lists[0]!.name).toBe('New');
   expect(useSavedWorklists.getState().lists[0]!.items[0]!.hash).toBe(1);

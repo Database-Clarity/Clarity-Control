@@ -443,9 +443,15 @@ function QueueMenu({
         </span>
       </header>
       {queue.source === 'custom' && !savedList && (
-        <p role="status">The saved worklist was deleted. This run keeps its items.</p>
+        <p role="status" className={styles.menuNote}>
+          The saved worklist was deleted. This run keeps its items.
+        </p>
       )}
-      {removal && <p role="status">{removal}</p>}
+      {removal && (
+        <p role="status" className={styles.menuNote}>
+          {removal}
+        </p>
+      )}
       <ol className={styles.items}>
         {queue.items.map((item) => {
           const status = statusOf(queue, item, isDone);
@@ -455,7 +461,12 @@ function QueueMenu({
             context &&
             !worklistAvailable(item.hash, context.data);
           return (
-            <li key={item.key} ref={here ? current : undefined} data-status={status}>
+            <li
+              key={item.key}
+              ref={here ? current : undefined}
+              data-status={status}
+              data-action={(unavailable && savedList) || undefined}
+            >
               <Link
                 to={source.path(item)}
                 state={visitState({ id: queue.id, key: item.key })}
@@ -474,6 +485,7 @@ function QueueMenu({
                 <RemoveFromWorklist
                   id={savedList.id}
                   hash={item.hash}
+                  className={styles.itemAction}
                   onRemoved={() =>
                     setRemoval('Removed from the saved list. Rebuild to remove it from this run.')
                   }
