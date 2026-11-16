@@ -14,6 +14,7 @@ import { pushLive } from './push.js';
 import { sandboxPointersRoute } from './sandboxPointers.js';
 import { inactiveMovesRoute } from './inactiveMoves.js';
 import { marksRoute } from './marks.js';
+import { aliasGroupsRoute } from './aliasGroups.js';
 import { save } from './save.js';
 import { reports, purgeReports } from './reports.js';
 import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
@@ -34,6 +35,8 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (isBatchPath(path)) refuseWhenOff();
   const user = await identity(request, env);
   const github = new GitHub(env);
+  if (['GET', 'POST'].includes(request.method) && path === '/alias-groups')
+    return aliasGroupsRoute(request, github, user);
   const glossary = /^\/glossary\/([^/]+)$/.exec(path);
   if (glossary && ['GET', 'POST'].includes(request.method))
     return glossaryRoute(request, github, user, glossary[1]);

@@ -1,5 +1,36 @@
 import { useSyncExternalStore } from 'react';
 import type { Item } from '../../services/generatorSchema';
+import { diffWords, type WordChange } from '../../ui/diff/diffWords';
+
+/** Keep replacements readable: whitespace alone must not split a changed phrase. */
+export function manifestWordDiff(before: string, after: string): WordChange[] {
+  const parts = diffWords(before, after);
+  const result: WordChange[] = [];
+  for (let index = 0; index < parts.length;) {
+    if (parts[index].kind === 'equal') {
+      result.push(parts[index++]);
+      continue;
+    }
+    let end = index + 1;
+    while (end < parts.length && (parts[end].kind !== 'equal' || !parts[end].text.trim())) end++;
+    // Keep trailing unchanged whitespace outside the replacement.
+    if (parts[end - 1].kind === 'equal') end--;
+    const run = parts.slice(index, end);
+    const removed = run
+      .filter((part) => part.kind !== 'insert')
+      .map((part) => part.text)
+      .join('');
+    const added = run
+      .filter((part) => part.kind !== 'delete')
+      .map((part) => part.text)
+      .join('');
+    if (removed) result.push({ kind: 'delete', text: removed });
+    if (removed && added) result.push({ kind: 'equal', text: ' ' });
+    if (added) result.push({ kind: 'insert', text: added });
+    index = end;
+  }
+  return result;
+}
 
 /**
  * Sandbox perk hash -> [name, description], as written by scripts/manifest/sandbox-perks.mjs. The
@@ -73,6 +104,15 @@ export function manifestSummary(text: ManifestText): string {
     case 'none':
       return 'No manifest description';
   }
+}
+
+/** Plain manifest descriptions, in perk order, for the base/enhanced word comparison. */
+export function manifestDescription(text: ManifestText): string {
+  return text.kind === 'own'
+    ? text.description
+    : text.kind === 'sandbox'
+      ? text.perks.map((perk) => perk.description).join('\n')
+      : '';
 }
 
 // ---- the bundled sandbox perk text: one lazy chunk, fetched once, never per entry ----

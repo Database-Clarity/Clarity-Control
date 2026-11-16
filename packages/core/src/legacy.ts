@@ -24,6 +24,8 @@ export const legacyPerkSchema = legacyMetadataSchema.extend({
   itemName: z.string().optional(),
   editor: z.partialRecord(langSchema, z.object({
     main: z.string(), secondary: z.string(),
+    // Export provenance: English fallback retains English number formatting.
+    englishFallback: z.literal(true).optional(),
   }).strict()),
   updateTracker: z.object({
     descriptions: z.partialRecord(langSchema, trackerEntrySchema),

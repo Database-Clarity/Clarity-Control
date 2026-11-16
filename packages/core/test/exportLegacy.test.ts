@@ -1,7 +1,63 @@
 import { expect, test } from 'vitest';
-import { exportLegacy, translationMaxAge } from '../src/exportLegacy.js';
+import { exportLegacy, mergeLivePerks, translationMaxAge } from '../src/exportLegacy.js';
 import { migrateLegacy } from '../src/migrateLegacy.js';
 import { database, exportCanonical, tooltip } from './helpers.js';
+
+test('name groups reconcile accepted, recanonicalized, and ungrouped live records', () => {
+  const catalog = {
+    42: { name: 'Perk', type: 'Weapon Trait' },
+    43: { name: 'Perk', type: 'Weapon Trait' },
+  };
+  const first = exportLegacy([tooltip()], 0, catalog);
+  const other = exportLegacy([{ ...tooltip(), hash: 43 }], 0, catalog);
+  const aliases = { 43: { to: 42, kind: 'name' as const } };
+  const accepted = mergeLivePerks({ ...first, ...other }, {}, undefined, { aliases, catalog });
+  expect(accepted[43]).toEqual({ hash: 43, aliasOf: 42, aliasKind: 'name', ...catalog[43] });
+  const flipped = { 42: { to: 43, kind: 'name' as const } };
+  const next = mergeLivePerks(accepted, other, undefined, { aliases: flipped, catalog });
+  expect(next[42]).toMatchObject({ aliasOf: 43 });
+  expect(next[43]).toEqual(other[43]);
+  const undone = mergeLivePerks(next, {}, undefined, { aliases: {}, catalog });
+  expect(undone).not.toHaveProperty('42');
+  expect(undone[43]).toEqual(other[43]);
+  expect(mergeLivePerks(undone, first, undefined, { aliases: {}, catalog })).toEqual({
+    ...other,
+    ...first,
+  });
+  expect(mergeLivePerks(next, {})).toEqual(next);
+  expect(() => mergeLivePerks(other, {}, undefined, { aliases, catalog })).toThrow(
+    'Publish canonical',
+  );
+  expect(() => exportLegacy([tooltip()], 0, { 42: catalog[42] }, aliases)).toThrow('name alias 43');
+});
+
+test('name reconciliation retargets existing incoming sandbox stubs on unrelated publishes', () => {
+  const catalog = {
+    42: { name: 'Perk', type: 'Weapon Trait' },
+    43: { name: 'Perk', type: 'Weapon Trait' },
+  };
+  const live = {
+    ...exportLegacy([tooltip(), { ...tooltip(), hash: 43 }], 0, catalog),
+    700: { hash: 700, aliasOf: 43, aliasKind: 'sandbox' },
+  };
+  const generated = { 700: { to: 43, kind: 'sandbox' as const } };
+  const grouped = mergeLivePerks(live, {}, undefined, {
+    aliases: { ...generated, 43: { to: 42, kind: 'name' } },
+    catalog,
+  });
+  expect(grouped[700]).toEqual({ hash: 700, aliasOf: 42, aliasKind: 'sandbox' });
+  const ungrouped = mergeLivePerks(grouped, {}, undefined, { aliases: generated, catalog });
+  expect(ungrouped).not.toHaveProperty('43');
+  expect(ungrouped).not.toHaveProperty('700');
+  const restored = mergeLivePerks(
+    ungrouped,
+    exportLegacy([{ ...tooltip(), hash: 43 }], 0, catalog, generated),
+    undefined,
+    { aliases: generated, catalog },
+  );
+  expect(restored[700]).toEqual({ hash: 700, aliasOf: 43, aliasKind: 'sandbox' });
+  expect(mergeLivePerks(live, {})).toEqual(live);
+});
 
 test.each(['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'])(
   'passes %s markup unchanged into both consumer editor fields',
@@ -39,7 +95,11 @@ test.each([
     sourceUpdatedAt: new Date(englishTime - age).toISOString(),
   };
   const exported = exportCanonical([value], englishTime);
-  expect(exported['42'].editor.de).toEqual({ main: expected, secondary: expected });
+  expect(exported['42'].editor.de).toEqual({
+    main: expected,
+    secondary: expected,
+    ...(age > translationMaxAge ? { englishFallback: true } : {}),
+  });
   if (expected === 'English') {
     expect(exported['42'].updateTracker?.descriptions.de?.updatedBy).toBe('alice');
   }

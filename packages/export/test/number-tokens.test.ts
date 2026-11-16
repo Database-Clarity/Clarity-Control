@@ -17,7 +17,7 @@ function tokenized(text: string): string {
   return result;
 }
 
-function input(language: Lang, text?: string, sourceEnglish = english) {
+function input(language: Lang, text?: string, sourceEnglish = english, edit?: (item: Tooltip) => void) {
   text ??= tokenized(sourceEnglish).replace('Damage', 'Translated');
   const base = tooltip();
   const item: Tooltip = {
@@ -32,6 +32,7 @@ function input(language: Lang, text?: string, sourceEnglish = english) {
       },
     },
   };
+  edit?.(item);
   const globals = [1, 2, 3].map((hash) => ({
     ...base,
     hash,
@@ -103,14 +104,79 @@ describe('P11: language goldens through core export and all eight engine presets
     }
   });
 
-  test.each(['de', 'fr'] as const)('%s: English fallback retains dots and grouping', (language) => {
-    const source = input(language, english);
-    for (const preset of legacyPresets) {
-      const file = JSON.parse(new TextDecoder().decode(buildLegacy(source, preset)));
-      const descriptions = file[100]?.descriptions;
-      if (descriptions[language]) expect(descriptions[language]).toEqual(descriptions.en);
-    }
-  });
+  test.each(['de', 'fr'] as const)(
+    '%s: English-identical token translations keep local number formatting',
+    (language) => {
+      for (const sourceEnglish of ['Duration 4.5 seconds.', 'Duration ${2.5+2} seconds.']) {
+        const source = input(language, 'Duration #{=1} seconds.', sourceEnglish);
+        const literal = input(language, 'Duration 4,5 seconds.', sourceEnglish);
+        const perk = source.perks[100];
+        if (!('editor' in perk)) throw new Error('Expected canonical fixture');
+        expect(perk.editor[language]?.main).toBe(perk.editor.en?.main);
+        expect(perk.editor[language]?.englishFallback).toBeUndefined();
+        for (const preset of legacyPresets) {
+          const bytes = buildLegacy(source, preset);
+          const descriptions = JSON.parse(new TextDecoder().decode(bytes))[100].descriptions;
+          if (preset !== 'vaultZero') {
+            expect(JSON.stringify(descriptions[language])).toContain('Duration 4,5 seconds.');
+            expect(bytes).toEqual(buildLegacy(literal, preset));
+          }
+          expect(JSON.stringify(descriptions.en)).toContain('Duration 4.5 seconds.');
+        }
+        for (const style of styles) {
+          const file = newStyleFile('numbers', style, {
+            categories: ['perks'], sandboxPerks: [], frameAliases: false,
+            languages: [language], keys: [], bungieIdentical: false,
+          });
+          const result = compile(source, file, {
+            catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },
+          });
+          expect(JSON.stringify(result.expanded?.[100]?.descriptions[language])).toContain(
+            'Duration 4,5 seconds.',
+          );
+        }
+      }
+    },
+  );
+
+  test.each(['stale', 'unfreezable', 'language-specific frozen'] as const)(
+    '%s German fallback retains English dots and grouping',
+    (reason) => {
+      const sourceEnglish = 'Damage 4.5% for 2,985 frames x1.5 ${2.5+2}.';
+      const source = input('de', 'Schaden #{=99}.', sourceEnglish, (item) => {
+        if (reason === 'stale') {
+          item.text.de!.text = 'Schaden 1,5.';
+          item.text.de!.sourceUpdatedAt = '2025-01-01T00:00:00.000Z';
+        } else {
+          item.text.en!.numbers = {
+            ids: numberSlots(sourceEnglish).map((_, index) => index + 1),
+            next: 100,
+            retired: { 99: reason === 'unfreezable' ? null : { value: '1.5', fallback: ['de'] } },
+          };
+        }
+      });
+      const perk = source.perks[100];
+      if (!('editor' in perk)) throw new Error('Expected canonical fixture');
+      expect(perk.editor.de?.main).toBe(perk.editor.en?.main);
+      expect(perk.editor.de?.englishFallback).toBe(true);
+      const golden = 'Damage 4.5% for 2,985 frames x1.5 4.5.';
+      for (const preset of legacyPresets) {
+        const descriptions = JSON.parse(new TextDecoder().decode(buildLegacy(source, preset)))[100].descriptions;
+        expect(JSON.stringify(descriptions.en)).toContain(golden);
+        if (preset !== 'vaultZero') expect(descriptions.de).toEqual(descriptions.en);
+      }
+      for (const style of styles) {
+        const file = newStyleFile('numbers', style, {
+          categories: ['perks'], sandboxPerks: [], frameAliases: false,
+          languages: ['de'], keys: [], bungieIdentical: false,
+        });
+        const result = compile(source, file, {
+          catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },
+        });
+        expect(JSON.stringify(result.expanded?.[100]?.descriptions.de)).toContain(golden);
+      }
+    },
+  );
 
   test('formats prose after maths, while excluding identifiers, comments, and cell modifiers', () => {
     expect(
