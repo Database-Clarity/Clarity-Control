@@ -27,6 +27,7 @@ import {
   isPhone,
   naturalHeight,
   placeAnchored,
+  POINTER_CLEARANCE,
   viewportWidth,
   visibleArea,
 } from '../../ui/anchorPlacement';
@@ -430,15 +431,21 @@ function RevisionPopover({
       // counts the gutter, and a box over it is clipped there.
       const viewW = viewportWidth();
       const width = Math.min(geometry.width, viewW - edge * 2);
-      const beside = rect.right + 6 + width <= viewW - edge;
+      // Beside the entry or below it, clear of the pointer that hovers it (anchorPlacement.ts).
+      const gap = POINTER_CLEARANCE;
+      const beside = rect.right + gap + width <= viewW - edge;
       const height = Math.min(measuredHeight, window.innerHeight - edge * 2);
-      const wanted = beside ? Math.max(edge, rect.top) : rect.bottom + 4;
-      // Slide up rather than squash when the entry sits near the bottom of the window.
-      const top = Math.min(wanted, window.innerHeight - height - edge);
+      const below = rect.bottom + gap;
+      // Beside, slide up rather than squash near the bottom of the window; below, flip above.
+      const top = beside
+        ? Math.min(Math.max(edge, rect.top), window.innerHeight - height - edge)
+        : below + height <= window.innerHeight - edge
+          ? below
+          : Math.max(edge, rect.top - 4 - height);
       // Placement owns only these geometry properties. Updating them directly
       // avoids rendering the entire diff again after each size notification.
       Object.assign(element.style, {
-        left: `${beside ? rect.right + 6 : Math.max(edge, viewW - width - edge)}px`,
+        left: `${beside ? rect.right + gap : Math.max(edge, viewW - width - edge)}px`,
         top: `${top}px`,
         // A phone placement held it by its bottom edge (a rotation can switch placements).
         bottom: 'auto',

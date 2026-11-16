@@ -169,6 +169,8 @@ export function Popover({
         area,
         width: anchorElement ? rect.width : phone ? Infinity : width,
         gap,
+        // Touch never hovers: a phone keeps the popup by its trigger.
+        hover: openOnHover && !phone,
       };
       // Below first, at the final width, so the content's height is measured as it will wrap.
       const below = placeAnchored(input);
@@ -178,7 +180,7 @@ export function Popover({
     };
     place();
     return followPlacement(() => surface.current, place);
-  }, [open, gap, anchorElement, width]);
+  }, [open, gap, anchorElement, width, openOnHover]);
   useEffect(() => {
     if (!open || contain || anchorElement) return;
     // Preserve the trigger's place in sequential keyboard navigation across the portal.

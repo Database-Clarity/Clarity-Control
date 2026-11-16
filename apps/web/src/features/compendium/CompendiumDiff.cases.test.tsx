@@ -216,6 +216,9 @@ it('marker hover, focus, click, Enter activation, Esc, blur, and entry changes a
       new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }),
     ),
   );
+  // A short grace lets the pointer cross the gap into the detail, then it closes.
+  expect(expanded()).toBe('true');
+  await act(() => new Promise((resolve) => setTimeout(resolve, 160)));
   expect(expanded()).toBe('false');
   await act(async () => button.focus());
   expect(expanded()).toBe('true');

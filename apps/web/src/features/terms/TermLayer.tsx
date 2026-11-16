@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { createPortal } from 'react-dom';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
-import { applyPlacement, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
+import { applyPlacement, isPhone, placeAnchored, visibleArea } from '../../ui/anchorPlacement';
 import { When } from '../../ui/When';
 import { exactDate } from '../../services/format/date';
 import { useSyncedSettings } from '../../stores/settings';
@@ -477,6 +477,8 @@ export function TermPopover({
         width: element.offsetWidth,
         height: element.scrollHeight,
         align: 'start',
+        // Touch never hovers: a phone keeps the popover by its term.
+        hover: !isPhone(),
       });
       // Above the term when it fits there, so the popover never hides the next line of English
       // while it is read (visual review 2026-11-14); below otherwise, as placeAnchored chose.

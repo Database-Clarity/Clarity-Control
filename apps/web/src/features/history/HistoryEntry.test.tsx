@@ -162,7 +162,7 @@ it('positions from ResizeObserver sizes without synchronously measuring the new 
       ),
     );
     expect(dialog()!.style.top).toBe(`${window.innerHeight - 300 - 8}px`);
-    expect(dialog()!.style.left).toBe('306px');
+    expect(dialog()!.style.left).toBe('322px');
     bounds.mockReturnValue(new DOMRect(100, 200, 200, 50));
     await act(async () =>
       observers[0](
@@ -336,7 +336,7 @@ it('keeps the desktop fallback placement left of the reserved scrollbar gutter',
   try {
     await act(async () => entries()[0].click());
     const right = parseFloat(dialog()!.style.left) + parseFloat(dialog()!.style.width);
-    expect(dialog()!.style.top).toBe('254px');
+    expect(dialog()!.style.top).toBe('272px');
     expect(right).toBe(window.innerWidth - 15 - 8);
   } finally {
     bounds.mockRestore();

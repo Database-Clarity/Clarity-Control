@@ -455,7 +455,7 @@
   position: absolute;
   z-index: 4;
   inset-inline-start: 0;
-  top: 100%;
+  top: calc(100% + 22px); // POINTER_CLEARANCE (anchorPlacement.ts): clear of the pointer
   padding: calc(0.7rem * var(--cell-scale, 1));
   border: 1px solid var(--style-edge);
   background: var(--style-bg);
