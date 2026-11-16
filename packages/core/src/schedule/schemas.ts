@@ -13,7 +13,9 @@ export const scheduleLimits = {
   /** Terminal (published, cancelled) entries kept in index.json besides the open ones. */
   indexTerminal: 100,
   /** Inline events per batch.json; older ones move to events/<seq>.json in the same commit. */
-  inlineEvents: 200,
+  inlineEvents: 20,
+  /** Read compatibility only: old batches are compacted on their next write. */
+  legacyInlineEvents: 200,
   nameLength: 80,
   /** notBefore must be at least this far ahead (or 'now'). */
   minLeadMs: 3 * 60_000,
@@ -197,7 +199,17 @@ export const batchSchema = z
       .optional(),
     /** New publishers require this ready fence in addition to their claim-time validation. */
     preparedRequestId: publishOpIdSchema.nullable().optional(),
-    events: z.array(batchEventSchema).max(scheduleLimits.inlineEvents),
+    /** Latest failed proposal; full per-field reasons remain in its durable request record. */
+    lastPreparationFailure: z
+      .object({
+        requestId: publishOpIdSchema,
+        at: timestampSchema,
+        reason: z.string().min(1).max(2000),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    events: z.array(batchEventSchema).max(scheduleLimits.legacyInlineEvents),
   })
   .strict()
   .superRefine((batch, ctx) => {
@@ -226,6 +238,11 @@ export const batchSchema = z
           (batch.opId !== null || batch.notBefore !== null)
         )
           issue('A pending draft save has no publication operation');
+        if (
+          batch.preparation?.kind === 'schedule' &&
+          batch.preparation.returnStatus !== 'scheduled'
+        )
+          issue('A schedule preparation returns to scheduled');
         break;
       case 'draft':
       case 'cancelled':

@@ -1,31 +1,31 @@
 import { z } from 'zod';
 import {
+  batchSaveChangeSchema,
+  overlay,
+  parseMember,
+  refuseMemberSize,
+  sameTooltip,
+  validateBatchSave,
+} from './validation.js';
+import {
   hashSchema,
   aliasGroupsPath,
-  merge3,
-  reconcileNumberMap,
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
   type Aliases,
-  type Tooltip,
 } from '@clarity/core';
 import {
-  activate,
-  resolveActivation,
   reconcileScheduledNumbers,
   batchIdSchema,
   batchMemberSchema,
   batchSchema,
   batchStatusSchema,
   changedFields,
-  composeParsed as compose,
   initialRevisions,
   isContentChange,
   isOpenStatus,
-  isTranslationField,
   nextRevisions,
-  withField,
   withoutTranslations,
   schedulePaths,
   type Batch,
@@ -33,7 +33,7 @@ import {
 } from '@clarity/core/schedule';
 import { loadAliases } from '../catalog.js';
 import { refuseUnlowerable } from '../elementTags.js';
-import { blobContent, RefRace, type GitHub, type TreeNode } from '../github.js';
+import { RefRace, type GitHub, type TreeNode } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import {
   checkEdit,
@@ -47,13 +47,11 @@ import {
   appendEvent,
   pushedHashes,
   refuseAliases,
-  unpublishedMessage,
   archivedCounter,
   by,
   checkedBatch,
   child,
   indexEntry,
-  memberByteCap,
   memberCap,
   memberHashes,
   newUlid,
@@ -73,19 +71,13 @@ import {
 
 const revisionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const messageSchema = z.string().trim().min(1).max(500);
-const changeSchema = z
-  .object({ hash: hashSchema, base: tooltipSchema.nullable(), next: tooltipSchema })
-  .strict()
-  .refine(({ hash, base, next }) => next.hash === hash && (!base || base.hash === hash), {
-    message: 'Change hash, base hash and next hash must agree',
-  });
 const uniqueHashes = (list: readonly { hash: number }[]) =>
   new Set(list.map(({ hash }) => hash)).size === list.length;
 const saveSchema = z
   .object({
     revision: revisionSchema,
     changes: z
-      .array(changeSchema)
+      .array(batchSaveChangeSchema)
       .min(1)
       .max(saveChangeCap)
       .refine(uniqueHashes, 'Duplicate tooltip hash'),
@@ -127,43 +119,12 @@ const maxBody = 300 * 1024;
 
 const batchDir = (batchId: string) => `schedule/batches/${batchId}`;
 const tooltipPath = (hash: number) => `tooltips/${hash}.json`;
-// Both sides are schema-parsed already: equal canonical text = equal contentHash.
-const sameTooltip = (a: Tooltip | null, b: Tooltip | null) =>
-  a === null || b === null ? a === b : stableStringify(a) === stableStringify(b);
 /** Q2 reads only what it decides on from another batch's batch.json (CPU, full histories). */
 const holderSchema = z.looseObject({
   id: batchIdSchema,
   name: batchSchema.shape.name,
   status: batchStatusSchema,
 });
-const encoder = new TextEncoder();
-
-/**
- * `from` with each of `fields` taken from `to`. Stored proposals only ever move by a field the
- * shared changed-field set reports, so a stamp-only difference (R17: a no-op for approvedDigest
- * and contentRevision) never reaches storage and can never change what publishes (I5).
- */
-function overlay(from: Tooltip | null, to: Tooltip, fields: readonly string[]): Tooltip {
-  if (from === null) return to;
-  let value = from;
-  for (const field of fields) value = withField(value, to, field);
-  return tooltipSchema.parse(value);
-}
-
-function parseMember(value: unknown, batchId: string, hash: number): BatchMember {
-  const member = batchMemberSchema.parse(value);
-  if (member.hash !== hash)
-    throw new HttpError(502, `Stored member ${hash} of ${batchId} mismatch`);
-  return member;
-}
-
-function refuseMemberSize(member: BatchMember): void {
-  if (encoder.encode(blobContent(member)).byteLength > memberByteCap)
-    throw new HttpError(
-      413,
-      `Tooltip ${member.hash} is too large to stage in a batch (${memberByteCap / 1024} KiB per tooltip)`,
-    );
-}
 
 /**
  * The PIN the active exporter's lowering is judged by, as /save decides (elementTags.ts): none
@@ -318,14 +279,6 @@ async function refuseOtherOpenBatches(
   }
 }
 
-interface Conflict {
-  hash: number;
-  base: Tooltip | null;
-  head: Tooltip | null;
-  next: Tooltip;
-  fields: string[];
-}
-
 /**
  * POST /batches/:id/save {revision, changes, message}: /save semantics against the members'
  * stored proposals (spec "Worker API", "Permissions").
@@ -407,155 +360,21 @@ export async function saveBatch(
       state.head,
     );
     const pushed = scheduled ? pushedHashes(files.at(-1)) : undefined;
-    const blocked: { hash: number; fields: string[] }[] = [];
-    const stale: { hash: number; reason: string }[] = [];
-    const pin = exporterPin(state);
     const now = new Date().toISOString();
-    const conflicts: Conflict[] = [];
-    const before: BatchMember[] = [];
-    const written: BatchMember[] = [];
-    for (const [index, change] of input.changes.entries()) {
-      const file = files[index];
-      if (own.has(change.hash)) {
-        if (!file) throw new HttpError(502, `Batch member ${change.hash} is unreadable`);
-        const stored = parseMember(file.value, batchId, change.hash);
-        let merged = change.next;
-        if (change.base === null) {
-          conflicts.push({ ...change, head: stored.proposed, fields: ['$exists'] });
-          continue;
-        }
-        // Before the merge against what the client edited, after it against the stored proposal
-        // (save.ts:107/:127); the second check is the authoritative one.
-        checkEdit(access, change.base, change.next);
-        if (!sameTooltip(change.base, stored.proposed)) {
-          const result = merge3(change.base, stored.proposed, change.next);
-          if (!result.ok) {
-            conflicts.push({
-              ...change,
-              head: stored.proposed,
-              fields: result.conflicts.map(({ field }) => field),
-            });
-            continue;
-          }
-          merged = result.merged;
-        }
-        checkEdit(access, stored.proposed, merged);
-        const changed = changedFields(stored.proposed, merged);
-        if (!changed.length) continue; // stamp-only or identical: a no-op (R17)
-        if (batch.status !== 'draft' && changed.some((field) => !isTranslationField(field)))
-          throw new HttpError(409, 'Unschedule to edit', { hash: change.hash, fields: changed });
-        const proposed = overlay(stored.proposed, merged, changed);
-        if (proposed.text.en) {
-          const english = { ...proposed.text.en };
-          const numbers =
-            stored.proposed.text.en?.text === english.text
-              ? stored.proposed.text.en.numbers
-              : reconcileNumberMap(stored.proposed.text.en, english, proposed);
-          delete english.numbers;
-          if (numbers) english.numbers = numbers;
-          proposed.text.en = english;
-        }
-        // A batch save has no "No translation impact" tick (direct saves only, with their audit
-        // trailer): an English change needs a new, newer revision.
-        checkEnglishRevision(access, stored.proposed, proposed, false);
-        const currentFile = files[input.changes.length + index];
-        const current = currentFile ? tooltipSchema.parse(currentFile.value) : null;
-        if (current && current.hash !== change.hash)
-          throw new HttpError(502, 'Stored tooltip hash mismatch');
-        // Use the real Upcoming projection: identical concurrent English wording keeps
-        // current's revision, even when the batch itself changed English.
-        const projection = { base: stored.base, current, proposed };
-        const activation = activate(projection);
-        let english = activation.ok ? activation.tooltip.text.en : proposed.text.en;
-        if (!activation.ok) {
-          const choices: Record<string, 'upcoming'> = {};
-          for (const field of activation.fields)
-            if (field !== '$exists' || (stored.base !== null && current === null))
-              choices[field] = 'upcoming';
-          for (let pass = 0; pass < 2; pass++) {
-            const resolved = resolveActivation({ ...projection, choices });
-            if (resolved.ok) {
-              english = resolved.tooltip?.text.en;
-              break;
-            }
-            for (const field of resolved.missing) choices[field] = 'upcoming';
-          }
-        }
-        checkTranslationStamps(stored.proposed, proposed, english ?? proposed.text.en);
-        refuseUnlowerable(proposed, pin, 'saved', stored.proposed);
-        const member = batchMemberSchema.parse({
-          ...stored,
-          proposed,
-          updatedAt: now,
-          updatedBy: user.login,
-        });
-        refuseMemberSize(member);
-        if (pushed) {
-          const snapshotFile = files[2 * input.changes.length + index];
-          const composed = compose({
-            hash: change.hash,
-            base: member.base,
-            proposed: member.proposed,
-            snapshot: snapshotFile ? tooltipSchema.parse(snapshotFile.value) : null,
-            pushed: pushed.has(change.hash),
-          });
-          if (composed.status === 'stale')
-            stale.push({ hash: change.hash, reason: composed.reason });
-          else if (composed.status === 'overlay' && composed.unpublished.length)
-            blocked.push({ hash: change.hash, fields: composed.unpublished });
-        }
-        before.push(stored);
-        written.push(member);
-      } else {
-        const current = file ? tooltipSchema.parse(file.value) : null;
-        if (current && current.hash !== change.hash)
-          throw new HttpError(502, 'Stored tooltip hash mismatch');
-        // Adding sets base = current at this head; the client must have started from it.
-        if (!sameTooltip(change.base, current)) {
-          conflicts.push({
-            ...change,
-            head: current,
-            fields: change.base === null || current === null ? ['$exists'] : ['$base'],
-          });
-          continue;
-        }
-        checkEdit(access, current, change.next);
-        const changed = changedFields(current, change.next);
-        if (!changed.length) continue; // nothing to stage
-        const proposed = overlay(current, change.next, changed);
-        if (proposed.text.en) {
-          const english = { ...proposed.text.en };
-          const numbers =
-            current?.text.en?.text === english.text
-              ? current.text.en.numbers
-              : reconcileNumberMap(current?.text.en, english, proposed);
-          delete english.numbers;
-          if (numbers) english.numbers = numbers;
-          proposed.text.en = english;
-        }
-        checkEnglishRevision(access, current, proposed, false);
-        checkTranslationStamps(current, proposed);
-        refuseUnlowerable(proposed, pin, 'saved', current);
-        const member = batchMemberSchema.parse({
-          hash: change.hash,
-          base: current,
-          baseCommit: state.head,
-          proposed,
-          updatedAt: now,
-          updatedBy: user.login,
-        });
-        refuseMemberSize(member);
-        written.push(member);
-      }
-    }
+    const { conflicts, before, written } = validateBatchSave({
+      batch,
+      batchId,
+      input,
+      own,
+      files,
+      pushed,
+      pin: exporterPin(state),
+      access,
+      now,
+      user,
+      head: state.head,
+    });
     if (conflicts.length) return json({ conflicts }, 409);
-    // Same wording as schedule (lifecycle.ts): stale members need an unschedule and a rebase,
-    // unpublished fields need a publish first.
-    if (stale.length)
-      throw new HttpError(409, 'Current changed under this batch; rebase the listed tooltips', {
-        members: stale,
-      });
-    if (blocked.length) throw new HttpError(409, unpublishedMessage, { members: blocked });
     if (!written.length) return json({ commit: null, batch, members: [] });
     // approvalInput depends only on membership, bases, and the proposals without translations,
     // so a save that adds nothing and keeps every non-translation part is no content change

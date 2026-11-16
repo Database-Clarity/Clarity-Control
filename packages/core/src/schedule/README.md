@@ -7,6 +7,14 @@ except where a function takes `now`.
 
 ## Files and storage (`schemas.ts`)
 
+The inactive preparation contract adds `preparing` and `needs_attention` as open states.
+`preparation` binds a pending request ID, attempt, and intended return state;
+`preparedRequestId` is a separate ready fence. `intent.ts` defines the versioned Ed25519
+schedule/save envelope, exact-byte body digest, durable request/result record, and verification.
+`preparation.ts` exports the materialization and claim fences for the offline preparer.
+New writes keep 20 inline events; legacy histories of up to 200 remain readable until their
+next atomic archive write.
+
 - `batchSchema`: `schedule/batches/<id>/batch.json`. Status invariants: draft and cancelled carry no `opId`, `claim`, or `scheduledContentRevision`; scheduled has all three set except `claim`; publishing and published are claimed by their own `opId`; scheduled, publishing, and published keep `scheduledContentRevision` = `contentRevision`; only a published batch carries a published or unchanged `result` (its own); a published result records `landedAt`, `landedAtSource`, `recordedAt`, `exportNow`, and `liveCommit`, an unchanged one `recordedAt`.
 - `batchMemberSchema`: `schedule/batches/<id>/tooltips/<hash>.json`; `base` null = the batch creates the tooltip.
 - `dueSchema`: `schedule/due.json`; one entry per batch and per opId, ≤50.

@@ -551,7 +551,7 @@ describe('Review → Batches', () => {
     fixture.addEvents(batch.id, 203);
     const view = await mount('maintainer');
     await view.settle(() => Boolean(view.button('Load older events')));
-    expect(view.text()).toContain('Events (200+)');
+    expect(view.text()).toContain('Events (20+)');
     await view.click('Load older events');
     await view.settle(() => view.text().includes('Events (205)'));
     expect(view.text()).toContain('created the batch');
