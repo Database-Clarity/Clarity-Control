@@ -860,6 +860,8 @@ describe('reports local D1', () => {
     }
   });
   it('bounds failed human checks and avoids repeated GitHub lookups for null-role submitters', async () => {
+    // Stay 1 ms before both the ten-minute and daily window boundaries.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-15T23:59:59.999Z'));
     const upstream = globalThis.fetch;
     vi.stubGlobal(
       'fetch',
@@ -986,6 +988,8 @@ describe('reports local D1', () => {
     ).toBe(200);
   });
   it('rolls back all counters and report inserts for concurrent ceiling failures', async () => {
+    // Stay 1 ms before both the ten-minute and daily window boundaries.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-15T23:59:59.999Z'));
     const responses = await Promise.all(
       Array.from({ length: 5 }, () => call('/reports', 'POST', payload())),
     );
@@ -1041,6 +1045,8 @@ describe('reports local D1', () => {
     ).toBe(200);
   });
   it('enforces the global ceiling atomically, exempts role holders, and prechecks before Turnstile', async () => {
+    // Stay 1 ms before both the ten-minute and daily window boundaries.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-15T23:59:59.999Z'));
     const day = Math.floor(Date.now() / 86400000);
     await db
       .prepare('INSERT INTO limits VALUES(?,499,500,?)')
