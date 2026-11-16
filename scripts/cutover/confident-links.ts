@@ -5,9 +5,25 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { aliasesSchema, resolveAlias } from '../../packages/core/src/aliases.js';
 import { tooltipSchema, hasTooltipText, type Tooltip } from '../../packages/core/src/schemas.js';
-import { autoLinkCompendium } from '../../packages/core/src/compendium/link.js';
 import { compendiumDataSchema } from '../../packages/core/src/compendium/types.js';
 import { withCompendiumMatchingIndex } from '../../packages/core/src/compendium/resolve.js';
+import { isTrackedCompendiumTab } from '../../packages/core/src/compendium/config.js';
+import { inactiveMovesSchema } from '../../packages/core/src/inactiveMoves.js';
+import {
+  hasSandboxTargets,
+  mergeSandboxPointers,
+  sandboxPointersSchema,
+  sandboxConflictsSchema,
+} from '../../packages/core/src/sandboxPointers.js';
+import { itemsSchema, categorySchema } from '../../apps/web/src/services/generatorSchema.js';
+import { presentCategories } from '../../apps/web/src/services/categoryLabels.js';
+import { displayMatches } from '../../apps/web/src/features/compendium/displayMatches.js';
+import { reviewEvidence } from '../../apps/web/src/features/compendium/reviewQueue.js';
+import { proposalFor } from '../../apps/web/src/features/compendium/rapidReview.js';
+import { emptyProgress } from '../../apps/web/src/features/compendium/reviewProgress.js';
+import { confirmCompendiumSelection } from '../../apps/web/src/features/compendium/selection.js';
+import approved from '../../apps/web/src/features/compendium/approved-guidance.v1.json';
+import type { EditorData } from '../../apps/web/src/stores/data.js';
 
 /** Exact UTF-8 blobs, not a checkout. Callers fetch immutable Git objects. */
 export interface Inputs {
@@ -17,24 +33,17 @@ export interface Inputs {
   compendiumCommit: string;
   snapshotAt: string;
   itemsJson: string;
+  categoriesJson: string;
   aliasesJson: string;
   compendiumJson: string;
+  /** Exact editor-data config blobs; null means absent at editorHead. */
+  inactiveJson: string | null;
+  sandboxPointersJson: string | null;
+  /** From the same generator commit as items/categories/aliases; required for target picks. */
+  sandboxConflictsJson: string | null;
   files: Record<string, string>;
 }
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
-const itemSchema = z
-  .object({
-    hash: z.number().int().min(0).max(0xffffffff),
-    name: z.string(),
-    categoryId: z.string(),
-    itemName: z.string().optional(),
-    baseHash: z.number().int().optional(),
-    setName: z.string().optional(),
-    pieceCount: z.union([z.literal(2), z.literal(4)]).optional(),
-    hiddenFromEditor: z.boolean().optional(),
-    inGameDescription: z.string().optional(),
-  })
-  .passthrough();
 export const digest = (bytes: string) => createHash('sha256').update(bytes, 'utf8').digest('hex');
 /** Stable across object insertion order; blob values retain their exact bytes. */
 export function bytes(value: unknown): string {
@@ -57,12 +66,29 @@ function inputs(input: Inputs) {
   for (const key of ['editorHead', 'engineCommit', 'catalogCommit', 'compendiumCommit'] as const)
     sha.parse(input[key]);
   z.string().datetime({ offset: true }).parse(input.snapshotAt);
-  const items = z.record(z.string(), itemSchema).parse(JSON.parse(input.itemsJson));
-  for (const [key, item] of Object.entries(items))
-    if (key !== String(item.hash)) throw new Error(`Invalid catalog key: ${key}`);
-  const aliases = aliasesSchema.parse(JSON.parse(input.aliasesJson));
+  const items = itemsSchema.parse(JSON.parse(input.itemsJson));
+  const categories = presentCategories(
+    z.array(categorySchema).parse(JSON.parse(input.categoriesJson)),
+  );
+  const pointers =
+    input.sandboxPointersJson === null
+      ? undefined
+      : sandboxPointersSchema.parse(JSON.parse(input.sandboxPointersJson));
+  const conflicts =
+    input.sandboxConflictsJson === null
+      ? undefined
+      : sandboxConflictsSchema.parse(JSON.parse(input.sandboxConflictsJson));
+  if (hasSandboxTargets(pointers) && !conflicts)
+    throw new Error('Sandbox target picks require pinned conflicts');
+  const generatorAliases = aliasesSchema.parse(JSON.parse(input.aliasesJson));
+  const aliases = conflicts
+    ? mergeSandboxPointers(generatorAliases, conflicts, pointers)
+    : generatorAliases;
   for (const key of Object.keys(aliases)) resolveAlias(Number(key), aliases);
   const data = compendiumDataSchema.parse(JSON.parse(input.compendiumJson));
+  data.tabs = data.tabs.filter((tab) => isTrackedCompendiumTab(tab.name));
+  const inactiveMoves =
+    input.inactiveJson === null ? {} : inactiveMovesSchema.parse(JSON.parse(input.inactiveJson));
   const tooltips: Record<string, Tooltip> = {};
   for (const [path, raw] of Object.entries(input.files)) {
     if (!/^tooltips\/(0|[1-9]\d*)\.json$/.test(path)) throw new Error(`Invalid path: ${path}`);
@@ -70,8 +96,25 @@ function inputs(input: Inputs) {
     if (path !== `tooltips/${tooltip.hash}.json`) throw new Error(`Hash mismatch: ${path}`);
     tooltips[tooltip.hash] = tooltip;
   }
-  return { items, aliases, data, tooltips };
+  const editor: EditorData = {
+    items,
+    categories,
+    aliases,
+    generatorAliases,
+    ...(conflicts ? { sandboxConflicts: conflicts } : {}),
+    bundle: {
+      sourceCommit: input.editorHead,
+      generatedAt: input.snapshotAt,
+      permissions: { users: {} },
+      pushed: {},
+      tooltips,
+      inactiveMoves,
+      sandboxPointers: pointers,
+    },
+  };
+  return { items, aliases, data, tooltips, editor };
 }
+const optionalDigest = (value: string | null) => (value === null ? null : digest(value));
 function pins(input: Inputs) {
   return {
     engineCommit: input.engineCommit,
@@ -79,8 +122,13 @@ function pins(input: Inputs) {
     compendiumCommit: input.compendiumCommit,
     snapshotAt: input.snapshotAt,
     itemsSha256: digest(input.itemsJson),
+    categoriesSha256: digest(input.categoriesJson),
     aliasesSha256: digest(input.aliasesJson),
     compendiumSha256: digest(input.compendiumJson),
+    inactiveSha256: optionalDigest(input.inactiveJson),
+    sandboxPointersSha256: optionalDigest(input.sandboxPointersJson),
+    sandboxConflictsSha256: optionalDigest(input.sandboxConflictsJson),
+    guidanceSha256: digest(bytes(approved)),
   };
 }
 export interface Change {
@@ -120,20 +168,31 @@ function afterFiles(files: Record<string, string>, changes: Change[]) {
 }
 /** Includes the whole catalog, including entries with no stored tooltip or English text. */
 export function plan(input: Inputs): Manifest {
-  const { items, aliases, data, tooltips } = inputs(input);
+  const { items, aliases, data, tooltips, editor } = inputs(input);
   const changes: Change[] = [];
   const rows: Manifest['rows'] = [];
   const hashes = [...new Set([...Object.keys(items), ...Object.keys(tooltips)])]
     .map(Number)
     .sort((a, b) => a - b);
-  const families = new Map<number, (typeof items)[string][]>();
-  for (const item of Object.values(items)) {
-    const owner = resolveAlias(item.hash, aliases);
-    const family = families.get(owner) ?? [];
-    family.push(item);
-    families.set(owner, family);
-  }
   withCompendiumMatchingIndex(data, () => {
+    // The app's actual display pipeline is authoritative, including shipped guidance.
+    // No local drafts, local guidance, or personal review progress enter cut-over.
+    const proposals = new Map(
+      reviewEvidence(editor, data, {}, '').map((entry) => [
+        entry.hash,
+        proposalFor(entry.base, editor, data),
+      ]),
+    );
+    const displayed = displayMatches(
+      editor,
+      data,
+      {},
+      emptyProgress(),
+      undefined,
+      approved.scope,
+      proposals,
+    );
+    const decisions = new Map(displayed.decisions.map((decision) => [decision.hash, decision]));
     for (const hash of hashes) {
       const tooltip = tooltips[hash] ?? { hash, text: {}, associated: [] };
       const linkOnly = !hasTooltipText(tooltip);
@@ -143,18 +202,13 @@ export function plan(input: Inputs): Manifest {
       if (tooltip.compendium) reason = 'preserved';
       else if (tooltip.archive) reason = 'archived';
       else if (!items[hash]) reason = 'unknown';
+      else if (resolveAlias(hash, aliases) !== hash) reason = 'alias';
       else {
-        const result = autoLinkCompendium(
-          tooltip,
-          items,
-          aliases,
-          data,
-          input.snapshotAt,
-          tooltips,
-          families.get(hash) ?? [],
-        );
-        reason = result.reason;
-        next = result.next;
+        const match = displayed.matches.get(hash);
+        const link = match && confirmCompendiumSelection(match, data);
+        if (match && !link) throw new Error(`Displayed match cannot be confirmed: ${hash}`);
+        reason = link ? 'linked' : (decisions.get(hash)?.confidence ?? 'not-displayed');
+        if (link) next = { ...tooltip, compendium: { ...link, snapshotAt: input.snapshotAt } };
       }
       if (next) {
         tooltipSchema.parse(next);

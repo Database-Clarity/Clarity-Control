@@ -4,7 +4,11 @@ Preparation only. No data write, deploy, publisher hook, or approval is supplied
 this slice. G6 requires owner approval of the exact candidate and the write after
 cut-over. All existing human links remain authoritative, including unresolved
 links. Archived and unknown entries, aliases, ambiguous matches, and similarity
-suggestions are skipped. The real core resolver decides confident matches.
+suggestions are skipped. The app's shared displayMatches pipeline (review
+evidence, resolver proposals, and shipped approved guidance) decides the set and
+row. Only matches actually shown
+are persisted, with the same confirmCompendiumSelection payload. The core
+resolver is reached through that pipeline, never called in parallel by S3.
 
 ## Pinned dry run
 
@@ -18,12 +22,22 @@ node --input-type=module -e "import(process.argv[1]).then(m => m.runCli(process.
 
 `Inputs` contains full 40-character `editorHead`, `engineCommit`, `catalogCommit`,
 and `compendiumCommit`, a fixed ISO `snapshotAt`, exact UTF-8 `itemsJson`,
-`aliasesJson`, and `compendiumJson` blobs, and `files` mapping every tracked
-`tooltips/<hash>.json` to its exact Git blob bytes. Fetch immutable Git objects,
-never a mutable working directory or mixed bundle/branch snapshots. Catalog items
-and aliases come from the same generator commit (`templates/v2` on its v2 branch).
-Include the entire tooltip inventory, not the selected upload hashes. Engine
-identity and repository/ref provenance are trusted adapter inputs: the library
+`categoriesJson`, `aliasesJson`, and `compendiumJson` blobs; nullable exact
+`inactiveJson` and `sandboxPointersJson` editor-data config blobs (null means
+absent at editorHead); nullable `sandboxConflictsJson` from the same generator
+commit (required when any sandbox pick has a target); and `files` mapping every
+tracked `tooltips/<hash>.json` to its exact Git blob bytes. Fetch immutable Git
+objects, never a mutable working directory or mixed bundle/branch snapshots.
+Catalog items, categories, aliases, and sandbox conflicts come from the same
+generator commit (`templates/v2` on its v2 branch).
+Include the entire tooltip inventory, not the selected upload hashes. Pin
+config/inactive.json and config/sandbox-pointers.json at that same editor head.
+Sandbox picks merge through the app's core mergeSandboxPointers function; absent
+or no-target picks leave aliases unchanged. Missing conflicts for a target pick
+fail closed. The planner pins the shipped guidance's canonical SHA-256 and category
+blob bytes, uses tracked tabs only, and passes no drafts, local guidance, or
+personal review progress to displayMatches. Engine identity and repository/ref
+provenance are trusted adapter inputs: the library
 cannot prove that a caller's commit label names the executing source or blobs.
 
 The output directory must not exist. It receives `manifest.json` (exact before and
