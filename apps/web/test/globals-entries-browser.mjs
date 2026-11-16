@@ -18,6 +18,7 @@ const browser = await chromium.launch({
   headless: true,
 });
 const results = [];
+const geometry = [];
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
@@ -339,8 +340,9 @@ try {
   );
 
   const checkLayout = async (context) => {
-    const failures = await page.evaluate(() => {
+    const result = await page.evaluate(() => {
       const failures = [];
+      const metrics = {};
       const visible = (node) => node && node.getClientRects().length > 0;
       const box = (node) => node.getBoundingClientRect();
       const header = document.querySelector('article > header');
@@ -393,9 +395,100 @@ try {
         if (button.scrollWidth > button.clientWidth + 1)
           failures.push(`clipped control: ${button.textContent}`);
       }
-      return failures;
+      const pane = document.querySelector('aside[aria-label="Global usages and translations"]');
+      if (visible(pane)) {
+        const heading = pane.firstElementChild;
+        const body = heading.nextElementSibling.firstElementChild;
+        const content = body.firstElementChild;
+        metrics.paneEdges = {
+          header: [box(heading).left, box(heading).right],
+          body: [box(content).left, box(content).right],
+        };
+        if (
+          Math.abs(box(heading).left - box(content).left) > 1 ||
+          Math.abs(box(heading).right - box(content).right) > 1
+        )
+          failures.push('pane edges');
+        const source = [...body.querySelectorAll('h2')].find(
+          (node) => node.textContent === 'English source',
+        );
+        if (source) {
+          if (
+            parseFloat(getComputedStyle(source).fontSize) >
+            parseFloat(getComputedStyle(heading.querySelector('h2')).fontSize)
+          )
+            failures.push('translation heading hierarchy');
+          const rows = [...body.querySelectorAll('li')];
+          if (
+            rows.some(
+              (row) =>
+                getComputedStyle(row).listStyleType !== 'none' ||
+                Math.abs(box(row.lastElementChild).right - box(rows[0].lastElementChild).right) > 1,
+            )
+          )
+            failures.push('translation rows');
+        }
+      }
+      const rows = [...document.querySelectorAll('[data-global-consumer]')].filter(visible);
+      if (rows.length) {
+        const row = rows.find((node) => node.dataset.selected === 'true');
+        const name = row?.querySelector('[aria-pressed="true"]');
+        const meta = row?.lastElementChild;
+        if (row) {
+          metrics.selectedRowHeight = box(row).height;
+          const nameText = document.createRange();
+          nameText.selectNodeContents(name);
+          if (
+            Math.abs(nameText.getBoundingClientRect().left - box(meta.firstElementChild).left) > 1
+          )
+            failures.push('consumer text alignment');
+          if (
+            getComputedStyle(name).borderLeftWidth !== '0px' ||
+            getComputedStyle(name).backgroundColor !== 'rgba(0, 0, 0, 0)' ||
+            getComputedStyle(row).backgroundColor === 'rgba(0, 0, 0, 0)'
+          )
+            failures.push('whole-row selection');
+          const review = row.querySelector('[aria-haspopup="dialog"]');
+          if (
+            Math.abs(box(name).y + box(name).height / 2 - box(review).y - box(review).height / 2) >
+            1
+          )
+            failures.push('review on name row');
+          if (!meta.contains(row.querySelector('a'))) failures.push('open on meta row');
+        }
+        const list = rows[0].parentElement;
+        metrics.fullyVisibleConsumers = rows.filter(
+          (node) => box(node).top >= box(list).top - 1 && box(node).bottom <= box(list).bottom + 1,
+        ).length;
+        if (
+          rows.length > 50 &&
+          window.innerWidth === 1280 &&
+          getComputedStyle(document.documentElement).fontSize === '16px' &&
+          metrics.fullyVisibleConsumers < 5
+        )
+          failures.push('large-list density');
+      }
+      return { failures, metrics };
     });
-    assert.deepEqual(failures, [], context);
+    assert.deepEqual(result.failures, [], context);
+    geometry.push({ context, ...result.metrics });
+  };
+
+  const applyAppearance = async (theme, scale) => {
+    await page.evaluate(
+      ({ theme, scale }) => {
+        document.documentElement.dataset.theme = theme;
+        const style = document.createElement('style');
+        style.textContent = `html { font-size: ${scale}% !important; }`;
+        document.head.append(style);
+        window.dispatchEvent(new Event('clarity-ui-scale'));
+      },
+      { theme, scale },
+    );
+    assert.equal(
+      await page.evaluate(() => getComputedStyle(document.documentElement).fontSize),
+      `${(16 * scale) / 100}px`,
+    );
   };
 
   for (const width of [390, 768, 1280])
@@ -403,20 +496,7 @@ try {
       for (const scale of width === 390 ? [100, 120, 150] : [100, 150]) {
         await page.setViewportSize({ width, height: 900 });
         await open();
-        await page.evaluate(
-          ({ theme, scale }) => {
-            document.documentElement.dataset.theme = theme;
-            const style = document.createElement('style');
-            style.textContent = `html { font-size: ${scale}% !important; }`;
-            document.head.append(style);
-            window.dispatchEvent(new Event('clarity-ui-scale'));
-          },
-          { theme, scale },
-        );
-        assert.equal(
-          await page.evaluate(() => getComputedStyle(document.documentElement).fontSize),
-          `${(16 * scale) / 100}px`,
-        );
+        await applyAppearance(theme, scale);
         for (const view of width === 390 ? ['Editor', 'Usages', 'Preview'] : ['desktop']) {
           if (view !== 'desktop')
             await page.getByRole('button', { name: view, exact: true }).click();
@@ -432,6 +512,24 @@ try {
           });
         }
         await actions.click();
+        const menuRows = page
+          .getByRole('dialog', { name: 'Global actions', exact: true })
+          .getByRole('button');
+        const menuGeometry = await menuRows.evaluateAll((rows) =>
+          rows.map((row) => ({
+            text: row.textContent,
+            border: getComputedStyle(row).borderLeftWidth,
+            top: row.getBoundingClientRect().top,
+            bottom: row.getBoundingClientRect().bottom,
+          })),
+        );
+        assert.ok(menuGeometry.every((row) => row.border === '0px'));
+        assert.ok(
+          menuGeometry.every(
+            (row, index) => index === 0 || Math.abs(row.top - menuGeometry[index - 1].bottom) <= 1,
+          ),
+        );
+        geometry.push({ context: `${width}/${theme}/${scale}/actions`, menuRows: menuGeometry });
         await page.screenshot({
           path: resolve(output, `${width}-${theme}-${scale}-actions.png`),
           fullPage: true,
@@ -471,20 +569,7 @@ try {
         for (const status of ['sync-pending', 'sync-failed']) {
           await page.goto(`http://127.0.0.1:5296/test/globals-entries.html?sync=${status}`);
           await page.locator('.cm-content').waitFor();
-          await page.evaluate(
-            ({ theme, scale }) => {
-              document.documentElement.dataset.theme = theme;
-              const style = document.createElement('style');
-              style.textContent = `html { font-size: ${scale}% !important; }`;
-              document.head.append(style);
-              window.dispatchEvent(new Event('clarity-ui-scale'));
-            },
-            { theme, scale },
-          );
-          assert.equal(
-            await page.evaluate(() => getComputedStyle(document.documentElement).fontSize),
-            `${(16 * scale) / 100}px`,
-          );
+          await applyAppearance(theme, scale);
           if (width === 390)
             await page.getByRole('button', { name: 'Usages', exact: true }).click();
           assert.equal(
@@ -498,6 +583,15 @@ try {
             fullPage: true,
           });
         }
+        await page.goto('http://127.0.0.1:5296/test/globals-entries.html?largeList=1');
+        await page.locator('.cm-content').waitFor();
+        await applyAppearance(theme, scale);
+        if (width === 390) await page.getByRole('button', { name: 'Usages', exact: true }).click();
+        await checkLayout(`${width}/${theme}/${scale}/large-list`);
+        await page.screenshot({
+          path: resolve(output, `${width}-${theme}-${scale}-large-list.png`),
+          fullPage: true,
+        });
       }
   await page.setViewportSize({ width: 390, height: 900 });
   await open();
@@ -514,6 +608,7 @@ try {
     '390/768/1280, dark/light, 100/150%, phone 120%, phone views, pending/failed sync states, and review popover captures passed with zero document overflow and no page errors',
   );
   await writeFile(resolve(output, 'results.json'), JSON.stringify(results, null, 2));
+  await writeFile(resolve(output, 'geometry.json'), JSON.stringify(geometry, null, 2));
   console.log(results.join('\n'));
 } finally {
   await browser.close();

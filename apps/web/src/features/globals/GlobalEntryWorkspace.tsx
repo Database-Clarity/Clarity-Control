@@ -684,7 +684,7 @@ function Workspace({
                     ) : (
                       <p>Previous English source unavailable.</p>
                     ))}
-                  <ul>
+                  <ul className={styles.translations}>
                     {languages.map((value) => (
                       <li key={value}>
                         <button
@@ -692,14 +692,16 @@ function Workspace({
                           onClick={(e) => navigate({ lang: value }, e.currentTarget)}
                         >
                           {languageLabel(value)}
-                        </button>{' '}
-                        {!entry.definitions[value]
-                          ? 'Missing'
-                          : value === 'en' ||
-                              entry.definitions[value]?.sourceRevision ===
-                                entry.definitions.en?.revision
-                            ? 'Current'
-                            : 'Needs review'}
+                        </button>
+                        <span>
+                          {!entry.definitions[value]
+                            ? 'Missing'
+                            : value === 'en' ||
+                                entry.definitions[value]?.sourceRevision ===
+                                  entry.definitions.en?.revision
+                              ? 'Current'
+                              : 'Needs review'}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -779,38 +781,20 @@ function Workspace({
                   )}
                   <ul ref={usageList} className={styles.consumers}>
                     {shown.map((row) => (
-                      <li key={row.id} data-global-consumer={row.id}>
-                        <button
-                          className={styles.consumerSelect}
-                          disabled={disabled}
-                          aria-pressed={consumer?.id === row.id}
-                          onClick={() => update({ consumer: row.id })}
-                        >
-                          {row.name} ({languageLabel(row.consumer.lang)})
-                        </button>
-                        <span>
-                          {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
-                          {reviewState(row)}, {destinationLabel(row.consumer.destination)}
-                          {row.archived ? ', archived' : ''}
-                        </span>
-                        <div className={styles.consumerDetails}>
-                          <span>
-                            {row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}
-                          </span>
-                          <span>
-                            {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
-                          </span>
-                        </div>
-                        <div className={styles.consumerTools}>
-                          <Link
-                            tabIndex={disabled ? -1 : undefined}
-                            onClick={(e) => {
-                              if (disabled || dirty) e.preventDefault();
-                            }}
-                            to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
+                      <li
+                        key={row.id}
+                        data-global-consumer={row.id}
+                        data-selected={consumer?.id === row.id}
+                      >
+                        <div className={styles.consumerHeading}>
+                          <button
+                            className={styles.consumerSelect}
+                            disabled={disabled}
+                            aria-pressed={consumer?.id === row.id}
+                            onClick={() => update({ consumer: row.id })}
                           >
-                            {row.line === null ? 'Open consumer' : `Open line ${row.line}`}
-                          </Link>
+                            {row.name} ({languageLabel(row.consumer.lang)})
+                          </button>
                           <Popover
                             label="Review consumer impact"
                             trigger="Review"
@@ -886,6 +870,28 @@ function Workspace({
                               )}
                             </div>
                           </Popover>
+                        </div>
+                        <div className={styles.consumerMeta}>
+                          <span>
+                            {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
+                            {reviewState(row)}, {destinationLabel(row.consumer.destination)}
+                            {row.archived ? ', archived' : ''}
+                          </span>
+                          <span>
+                            {row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}
+                          </span>
+                          <span>
+                            {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
+                          </span>
+                          <Link
+                            tabIndex={disabled ? -1 : undefined}
+                            onClick={(e) => {
+                              if (disabled || dirty) e.preventDefault();
+                            }}
+                            to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
+                          >
+                            {row.line === null ? 'Open consumer' : `Open line ${row.line}`}
+                          </Link>
                         </div>
                       </li>
                     ))}
