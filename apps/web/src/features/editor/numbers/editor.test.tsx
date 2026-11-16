@@ -146,6 +146,9 @@ it('shows atomic values, the count, and equal-value context through the real Tab
   key(view, 'Tab');
   expect(changes.at(-1)).toBe('#{=1}');
   expect(host.querySelector('[data-status-numbers]')?.textContent).toContain('1/2');
+  expect(host.querySelector('[data-status-numbers]')?.getAttribute('aria-label')).toBe(
+    'Numbers 1/2',
+  );
   expect(document.querySelector('[data-number-readout]')?.textContent).toContain('stacks');
   key(view, 'Tab');
   expect(changes.at(-1)).toBe('#{=2}');

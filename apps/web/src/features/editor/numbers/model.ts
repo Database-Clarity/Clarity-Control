@@ -106,7 +106,7 @@ export function numberSource(
     const lineEnd = text.indexOf('\n', slot.to);
     const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
     const plain = (part: string) =>
-      part.replace(/<[^>]*>|<[^>]*$|^[^<]*>/g, ' ').replace(/\s+/g, ' ');
+      part.replace(/<[^>]*>|<[^>]*$|^[^<]*>|\/>/g, ' ').replace(/\s+/g, ' ');
     const before = plain(line.slice(0, slot.from - lineStart))
       .trim()
       .split(/\s+/)

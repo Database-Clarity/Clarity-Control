@@ -959,7 +959,7 @@ function TooltipWorkspace({
             className={styles.editorSection}
           >
             {lang !== 'en' && !loading && access.reason === null && !textOf(activeHash) && (
-              <div className={styles.englishBar}>
+              <div className={styles.numberStartBar}>
                 <StartEnglishLoader hash={activeHash} />
               </div>
             )}

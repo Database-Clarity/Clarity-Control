@@ -1,6 +1,11 @@
 import { expect, it } from 'vitest';
 import { numberSource } from './model';
 
+it('cleans nested and split wrapper delimiters through the real number source', () => {
+  const source = numberSource('Deal <yellow 5 <arc/> /> <pve 3 />', undefined, 'de');
+  expect(source.slots.map((slot) => slot.context)).toEqual(['Deal _', 'Deal _']);
+});
+
 it('drops complete and split markup from shared number context snippets', () => {
   const source = numberSource(
     '<strand/>Sever for 10 seconds.\n<pvp [15%] />\n<void/>Weaken for 5 seconds.',

@@ -188,7 +188,7 @@ function StartEnglish({
   const view = translationView(hash);
   if (!view || view.state.doc.length) return null;
   return (
-    <div className={styles.englishBar}>
+    <div className={styles.numberStartBar}>
       <button
         type="button"
         className={styles.ghost}

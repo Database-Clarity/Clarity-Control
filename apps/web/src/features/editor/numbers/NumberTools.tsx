@@ -84,6 +84,7 @@ export const NumberStatus = memo(function NumberStatus({
       type="button"
       className={className}
       data-status-numbers
+      aria-label={`Numbers ${used}/${state.source.slots.length}`}
       data-severity={
         [...state.used].some((id) => !state.source!.values.has(id))
           ? 'error'
