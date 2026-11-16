@@ -16,7 +16,6 @@ import {
   memberView,
   openConflicts,
   orderBatches,
-  pendingSchedule,
   statusChip,
   translationCoverage,
   type IndexEntry,
@@ -299,10 +298,11 @@ export function BatchesHeader() {
   const entries = useBatches((state) => state.entries);
   const listing = useBatches((state) => state.listing);
   const open = entries?.filter((entry) => isOpenStatus(entry.status)) ?? [];
+  // Only schedules that are ready count as scheduled; preparing and failed ones are named apart.
   const scheduled = open.filter(
-    (entry) =>
-      entry.status === 'scheduled' || entry.status === 'publishing' || pendingSchedule(entry),
+    (entry) => entry.status === 'scheduled' || entry.status === 'publishing',
   ).length;
+  const preparing = open.filter((entry) => entry.status === 'preparing').length;
   const attention = open.filter((entry) => entry.status === 'needs_attention').length;
   const overdue = open.filter((entry) => isOverdue(entry)).length;
   return (
@@ -312,6 +312,12 @@ export function BatchesHeader() {
           <b>{count.format(open.length)}</b> open {open.length === 1 ? 'batch' : 'batches'}
         </span>{' '}
         <span className={reviewStyles.segment}>· {count.format(scheduled)} scheduled</span>
+        {preparing > 0 && (
+          <>
+            {' '}
+            <span className={reviewStyles.segment}>· {count.format(preparing)} preparing</span>
+          </>
+        )}
         {overdue > 0 && (
           <>
             {' '}

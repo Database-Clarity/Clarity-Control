@@ -613,7 +613,7 @@ describe('Review → Batches: prepared requests (scheduling off the Worker)', ()
       'https://github.com/o/r/actions/runs/7',
     );
     await view.click('Refresh');
-    await view.settle(() => view.text().includes('Needs attention: schedule requested'));
+    await view.settle(() => view.text().includes('Needs attention: the requested schedule'));
     expect(row.textContent).toContain('Needs attention');
     expect(view.text()).toContain('Rampage (10) English: current changed');
     expect(view.text()).toContain('last attempt');
@@ -674,7 +674,7 @@ describe('Review → Batches: prepared requests (scheduling off the Worker)', ()
     });
     fixture.failRequest(requestId, [{ reason: 'Runner lost' }], true);
     const translator = await mount('translator');
-    await translator.settle(() => translator.text().includes('Needs attention: save queued'));
+    await translator.settle(() => translator.text().includes('Needs attention: the queued save'));
     // The fixture's requester is user 1, the translator here: own save, so Retry only.
     expect(translator.button('Retry')).toBeDefined();
     expect(translator.button('Edit')).toBeUndefined();

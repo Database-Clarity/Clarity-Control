@@ -531,7 +531,13 @@ function PreparationLines({
   return (
     <div className={styles.failed} data-status-line data-preparation>
       <p>
-        Needs attention: {what.toLowerCase()} could not be prepared.{' '}
+        Needs attention: the{' '}
+        {preparation.kind === 'schedule'
+          ? 'requested schedule'
+          : preparation.returnStatus === 'scheduled'
+            ? 'queued translation save'
+            : 'queued save'}{' '}
+        could not be prepared.{' '}
         {record?.retryable
           ? 'An infrastructure failure: Retry sends the same request again.'
           : `Nothing in the batch changed. ${preparation.returnStatus === 'scheduled' ? 'Unschedule' : 'Edit'} to return it to draft, fix, and submit again.`}
