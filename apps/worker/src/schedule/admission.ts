@@ -450,7 +450,7 @@ export async function retryBatchRequest(
     const state = await readState(github, user, readRoles, {
       batchId,
       extra: [scheduleIntentPaths.request(input.requestId)],
-      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
+      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
     const batch = requireBatch(state, batchId);
@@ -463,6 +463,9 @@ export async function retryBatchRequest(
       (record.requesterId !== user.id || batch.preparation.kind !== 'save')
     )
       throw new HttpError(403, 'Permission denied');
+    // A Retry kicks or re-arms scheduling: refuse it once globals exist, like admission.
+    if (batch.preparation.returnStatus === 'scheduled')
+      refuseGlobalScheduling(state.trees[1] ?? null);
     if (record.status === 'pending' && batch.status === 'preparing') {
       // ROOT RULING 2026-11-16: Retry on a still-pending request re-triggers preparation with
       // the existing /kick pipeline trigger (same name scheme, so at most one kick per minute).

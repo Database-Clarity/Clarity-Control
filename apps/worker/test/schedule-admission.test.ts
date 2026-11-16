@@ -707,6 +707,29 @@ describe('preparation cancellation, retry, and claim fences', () => {
     expect(refused.status).toBe(409);
     expect(refused.body.error).toBe('Scheduling is not available while global entries exist');
   });
+  it('refuses a scheduling Retry once globals exist, pending or needing attention', async () => {
+    expect((await call('schedule', scheduleBody())).status).toBe(202);
+    f.moveData({ 'globals/sync.json': { version: 1 } });
+    const pending = await call('retry', { revision: 3, requestId: RID });
+    expect([pending.status, pending.body.error]).toEqual([
+      409,
+      'Scheduling is not available while global entries exist',
+    ]);
+    expect(f.kicks.size).toBe(0);
+    f.moveData({
+      [path]: { ...storedBatch(), status: 'needs_attention' },
+      [scheduleIntentPaths.request(RID)]: {
+        ...record(),
+        status: 'needs_attention',
+        retryable: true,
+      },
+      'schedule/due.json': { entries: [] },
+    });
+    const head = f.dataHead;
+    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(409);
+    expect(f.dataHead).toBe(head);
+    expect(f.current()['schedule/due.json']).toEqual({ entries: [] });
+  });
   it('kicks the existing pipeline once per minute on Retry of a still-pending request', async () => {
     expect((await call('save', saveBody())).status).toBe(202);
     const head = f.dataHead;
