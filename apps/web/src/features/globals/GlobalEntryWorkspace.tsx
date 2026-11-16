@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 import { languages, type Lang, type MarkupGlobals } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { ClarityEditor } from '../editor/ClarityEditor';
 import { Popover } from '../../ui/Popover';
-import { RightPane, RightPaneHeader } from '../../ui/RightPane';
+import { RightPane } from '../../ui/RightPane';
 import { RenderedWordDiff } from '../history/RenderedWordDiff';
 import { RawDiffToggle } from '../history/RawDiffToggle';
 import { useRawDiff } from '../history/diffPreference';
@@ -31,6 +31,14 @@ import { GlobalImpactComparison, validGlobalImpact } from './GlobalImpactCompari
 
 const globals = { variables: '', titles: '' };
 type Action = 'create' | 'rename' | 'remove' | 'remove-language';
+const destinationLabel = (value: string) =>
+  value === 'live'
+    ? 'Live'
+    : value === 'saved'
+      ? 'Saved'
+      : value === 'upcoming'
+        ? 'Upcoming'
+        : value;
 
 /** Deliberately unmounted: S5 supplies the gated service and stable-ID route. */
 export function GlobalEntryWorkspace({
@@ -112,16 +120,18 @@ function Workspace({
 }) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const navigationType = useNavigationType();
   const scrollPositions = useRef(new Map<string, number>());
   const usageList = useRef<HTMLUListElement>(null);
   useLayoutEffect(() => {
     const list = usageList.current;
-    if (list) list.scrollTop = scrollPositions.current.get(location.key) ?? 0;
+    if (list && navigationType === 'POP')
+      list.scrollTop = scrollPositions.current.get(location.key) ?? 0;
     const positions = scrollPositions.current;
     return () => {
       if (list) positions.set(location.key, list.scrollTop);
     };
-  }, [location.key]);
+  }, [location.key, navigationType]);
   const selectedId = params.get('entry');
   const entries = snapshot.entries.filter((item) => !item.tombstone);
   const entry =
@@ -157,8 +167,13 @@ function Workspace({
   }, []);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
-  const [action, setAction] = useState<Action>();
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const navigationAnchor = useRef<HTMLElement>();
   const [navigation, setNavigation] = useState<Record<string, string>>();
+  useLayoutEffect(() => {
+    // The select becomes focusable again after the confirmation closes.
+    if (!navigation) navigationAnchor.current?.focus();
+  }, [navigation]);
   const [projected, setProjected] = useState<{
     key: string;
     body: string;
@@ -229,7 +244,7 @@ function Workspace({
       savedConsumer.review.dependencyDigest,
       savedConsumer.impactDigest,
     ]);
-  const disabled = pending || !!action || !!navigation || reviewOpen;
+  const disabled = pending || actionsOpen || !!navigation || reviewOpen;
   const editable = canEditGlobal(actor, lang);
   const structural = actor?.role === 'editor' || actor?.role === 'maintainer';
   function update(values: Record<string, string>, replace = false) {
@@ -242,7 +257,8 @@ function Workspace({
       { replace },
     );
   }
-  function navigate(values: Record<string, string>) {
+  function navigate(values: Record<string, string>, anchor: HTMLElement) {
+    navigationAnchor.current = anchor;
     if (disabled) return;
     if (dirty) setNavigation(values);
     else {
@@ -251,7 +267,7 @@ function Workspace({
     }
   }
   async function run(mutation?: GlobalMutation) {
-    if (busy.current) return;
+    if (busy.current) return false;
     busy.current = true;
     setPending(true);
     setError('');
@@ -259,14 +275,13 @@ function Workspace({
       const result = mutation
         ? await service.mutate({ expectedHead: snapshot.head, mutation })
         : await service.read();
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       if (result.kind === 'ok') {
         onSnapshot(result.value);
         setDraft({ key: '', body: '' });
         setProjected(undefined);
         if (!mutation) setDrafts({});
         setReviewed(undefined);
-        setAction(undefined);
         setConflict(false);
         if (mutation?.operation === 'remove') update({ entry: '' });
         if (mutation?.operation === 'create') {
@@ -275,6 +290,7 @@ function Workspace({
           );
           if (created) update({ entry: created.id, consumer: '' });
         }
+        return true;
       } else {
         setError(result.message);
         setConflict(result.kind === 'conflict');
@@ -285,6 +301,7 @@ function Workspace({
       busy.current = false;
       setPending(false);
     }
+    return false;
   }
   async function refreshSync(retry = false) {
     if ((retry && !entry) || busy.current) return;
@@ -367,57 +384,24 @@ function Workspace({
   }
   return (
     <article className={styles.workspace} aria-busy={pending}>
-      <header className={styles.toolbar}>
+      <header className={styles.header}>
         <h1>{entry?.name ?? 'Globals'}</h1>
+        {entry && <span>{entry.kind === 'variables' ? 'Variable' : 'Title'}</span>}
         {actor && actor.role !== 'translator' && (
-          <ActionPopover
-            action="create"
-            current={action}
-            setAction={setAction}
+          <GlobalActions
+            open={actionsOpen}
+            disabled={pending || !!navigation || reviewOpen}
+            onOpenChange={setActionsOpen}
             pending={pending}
             blocked={dirty || !!navigation || reviewOpen}
+            referenced={savedImpacts.length > 0}
+            structural={structural}
+            maintainer={actor.role === 'maintainer'}
             entry={entry}
             lang={lang}
             onSubmit={run}
           />
         )}
-        {entry && structural && (
-          <ActionPopover
-            action="rename"
-            current={action}
-            setAction={setAction}
-            pending={pending}
-            blocked={dirty || !!navigation || reviewOpen}
-            entry={entry}
-            lang={lang}
-            onSubmit={run}
-          />
-        )}
-        {entry && actor?.role === 'maintainer' && (
-          <ActionPopover
-            action="remove"
-            current={action}
-            setAction={setAction}
-            pending={pending}
-            blocked={dirty || !!navigation || reviewOpen || savedImpacts.length > 0}
-            entry={entry}
-            lang={lang}
-            onSubmit={run}
-          />
-        )}
-        {entry?.definitions[lang] && actor?.role === 'maintainer' && (
-          <ActionPopover
-            action="remove-language"
-            current={action}
-            setAction={setAction}
-            pending={pending}
-            blocked={dirty || !!navigation || reviewOpen || savedImpacts.length > 0}
-            entry={entry}
-            lang={lang}
-            onSubmit={run}
-          />
-        )}
-        <span>{entry?.kind}</span>
       </header>
       <div className={styles.syncNotice}>
         {entry && (
@@ -448,16 +432,16 @@ function Workspace({
       {entry && snapshot.renameIntents?.[entry.id]?.renameCompleted === false && (
         <p role="status">Rename queued; not complete.</p>
       )}
-      {Object.entries(snapshot.destinationSync)
-        .filter(([, state]) => state.status !== 'current')
-        .map(([destination, state]) => (
-          <p key={destination} role="status" className={styles.syncDestination}>
-            {destination}:{' '}
-            {state.status === 'sync-pending'
-              ? 'Sync pending. Publishing here is blocked until sync finishes.'
-              : 'Sync failed. Publishing here is blocked until sync succeeds.'}
-          </p>
-        ))}
+      {Object.values(snapshot.destinationSync).some((state) => state.status !== 'current') && (
+        <p role="status" className={styles.syncDestination}>
+          Publishing to{' '}
+          {Object.entries(snapshot.destinationSync)
+            .filter(([, state]) => state.status !== 'current')
+            .map(([destination]) => destinationLabel(destination))
+            .join(' and ')}{' '}
+          is blocked until sync finishes.
+        </p>
+      )}
       {(error || projectionError || staleDraft) && (
         <div role="alert">
           {error || projectionError || 'The saved revision changed while this draft was open.'}
@@ -468,14 +452,14 @@ function Workspace({
           )}
         </div>
       )}
-      <div className={styles.toolbar}>
+      <div className={styles.selection}>
         <label>
           Entry{' '}
           <select
             aria-label="Global entry"
             disabled={disabled}
             value={entry?.id ?? ''}
-            onChange={(e) => navigate({ entry: e.target.value, consumer: '' })}
+            onChange={(e) => navigate({ entry: e.target.value, consumer: '' }, e.currentTarget)}
           >
             {!entry && <option value="">Choose an entry</option>}
             {entries.map((item) => (
@@ -490,7 +474,7 @@ function Workspace({
           <select
             disabled={disabled}
             value={lang}
-            onChange={(e) => navigate({ lang: e.target.value, consumer: '' })}
+            onChange={(e) => navigate({ lang: e.target.value, consumer: '' }, e.currentTarget)}
           >
             {languages.map((value) => (
               <option key={value} value={value}>
@@ -502,7 +486,7 @@ function Workspace({
         {navigation && (
           <Popover
             label="Discard unsaved definition"
-            trigger="Discard"
+            anchorElement={navigationAnchor.current}
             contain
             open={!!navigation}
             onOpenChange={(open) => {
@@ -546,7 +530,7 @@ function Workspace({
             disabled={disabled}
             onClick={() => setPhone(view)}
           >
-            {view === 'usages' ? 'Usages / Translations' : view === 'editor' ? 'Editor' : 'Preview'}
+            {view === 'usages' ? 'Usages' : view === 'editor' ? 'Editor' : 'Preview'}
           </button>
         ))}
       </nav>
@@ -568,7 +552,7 @@ function Workspace({
             >
               {sync.status === 'current' ? (
                 <>
-                  Usages: {new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips ·{' '}
+                  Usages: {new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips,{' '}
                   {new Set(savedImpacts.map((row) => row.consumer.lang)).size} languages
                 </>
               ) : sync.status === 'sync-pending' ? (
@@ -585,21 +569,18 @@ function Workspace({
                 hash={entry.kind === 'variables' ? 2 : 3}
               />
             </Popover>
-            {consumer && (
-              <p>
-                Selected consumer: {consumer.name} · {languageLabel(consumer.consumer.lang)}
-              </p>
-            )}
-            <p>Saved revision: {entry.revision}</p>
           </aside>
           <section
             className={styles.editor}
             data-phone-visible={phone === 'editor'}
             aria-label="Definition editor"
           >
-            <div className={styles.toolbar}>
+            <div className={styles.definitionHeader}>
               <strong>Definition body</strong>
               <span>{dirty ? 'Unsaved' : 'Saved'}</span>
+              <span>Revision {entry.revision}</span>
+            </div>
+            <div className={styles.toolbar}>
               <button
                 disabled={disabled || !dirty || !editable || conflict || staleDraft}
                 onClick={() =>
@@ -661,14 +642,21 @@ function Workspace({
             <RightPane
               label="Global usages and translations"
               header={
-                <RightPaneHeader title={tab === 'translations' ? 'Translations' : 'Usages'}>
+                <div className={styles.paneHeader}>
+                  <h2>
+                    {tab === 'translations'
+                      ? 'Translations'
+                      : scope === 'projected'
+                        ? 'Projected impact'
+                        : 'Saved impact'}
+                  </h2>
                   <button
                     disabled={disabled}
                     onClick={() => update({ tab: tab === 'usages' ? 'translations' : 'usages' })}
                   >
                     {tab === 'usages' ? 'Translations' : 'Usages'}
                   </button>
-                </RightPaneHeader>
+                </div>
               }
             >
               {tab === 'translations' ? (
@@ -699,7 +687,10 @@ function Workspace({
                   <ul>
                     {languages.map((value) => (
                       <li key={value}>
-                        <button disabled={disabled} onClick={() => navigate({ lang: value })}>
+                        <button
+                          disabled={disabled}
+                          onClick={(e) => navigate({ lang: value }, e.currentTarget)}
+                        >
                           {languageLabel(value)}
                         </button>{' '}
                         {!entry.definitions[value]
@@ -715,9 +706,9 @@ function Workspace({
                 </div>
               ) : (
                 <div className={styles.paneBody}>
-                  <strong>
-                    {scope === 'projected' ? 'Projected impact — unsaved' : 'Saved impact'}
-                  </strong>
+                  {scope === 'projected' && (
+                    <p className={styles.impactHeading}>Projected impact — unsaved</p>
+                  )}
                   {dirty && !projection && (
                     <p>
                       Calculate projected impact to inspect this draft. Saved reviews remain
@@ -731,7 +722,7 @@ function Workspace({
                         : 'Saved usages will update when sync finishes.'}
                     </p>
                   )}
-                  <label>
+                  <label className={styles.search}>
                     Filter consumers{' '}
                     <input
                       type="search"
@@ -749,12 +740,12 @@ function Workspace({
                       },
                       {
                         key: 'usageLang',
-                        label: 'Consumer language',
+                        label: 'Language',
                         values: [...new Set(consumers.map((row) => row.consumer.lang))],
                       },
                       {
                         key: 'review',
-                        label: 'Review status',
+                        label: 'Review',
                         values: ['required', 'acknowledged', 'stale'],
                       },
                     ].map((filter) => (
@@ -788,106 +779,117 @@ function Workspace({
                   )}
                   <ul ref={usageList} className={styles.consumers}>
                     {shown.map((row) => (
-                      <li key={row.id}>
+                      <li key={row.id} data-global-consumer={row.id}>
                         <button
+                          className={styles.consumerSelect}
                           disabled={disabled}
                           aria-pressed={consumer?.id === row.id}
                           onClick={() => update({ consumer: row.id })}
                         >
-                          {row.name} · {languageLabel(row.consumer.lang)}
+                          {row.name} ({languageLabel(row.consumer.lang)})
                         </button>
                         <span>
-                          {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'} ·{' '}
-                          {reviewState(row)} · {row.consumer.destination}
-                          {row.archived ? ' · Archived' : ''}
+                          {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
+                          {reviewState(row)}, {destinationLabel(row.consumer.destination)}
+                          {row.archived ? ', archived' : ''}
                         </span>
-                        <span>{row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}</span>
-                        <span>
-                          {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
-                        </span>
-                        <Link
-                          tabIndex={disabled ? -1 : undefined}
-                          onClick={(e) => {
-                            if (disabled || dirty) e.preventDefault();
-                          }}
-                          to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
-                        >
-                          Open consumer{row.line === null ? '' : ` · line ${row.line}`}
-                        </Link>
+                        <div className={styles.consumerDetails}>
+                          <span>
+                            {row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}
+                          </span>
+                          <span>
+                            {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                        <div className={styles.consumerTools}>
+                          <Link
+                            tabIndex={disabled ? -1 : undefined}
+                            onClick={(e) => {
+                              if (disabled || dirty) e.preventDefault();
+                            }}
+                            to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
+                          >
+                            {row.line === null ? 'Open consumer' : `Open line ${row.line}`}
+                          </Link>
+                          <Popover
+                            label="Review consumer impact"
+                            trigger="Review"
+                            triggerLabel={`Review ${row.name}`}
+                            contain
+                            open={reviewOpen && consumer?.id === row.id}
+                            onOpenChange={(open) => {
+                              if (pending || actionsOpen || navigation) return;
+                              if (open) update({ consumer: row.id }, true);
+                              setReviewOpen(open);
+                              setReviewed(undefined);
+                            }}
+                          >
+                            <div className={styles.review}>
+                              <div className={styles.reviewHeader}>
+                                <strong>
+                                  {row.name} ({destinationLabel(row.consumer.destination)})
+                                </strong>
+                                <RawDiffToggle />
+                              </div>
+                              <GlobalImpactComparison row={row} raw={raw} />
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  disabled={
+                                    !canAcknowledge || pending || raw || !validGlobalImpact(row)
+                                  }
+                                  checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
+                                  onChange={(e) =>
+                                    setReviewed(e.target.checked ? reviewKey : undefined)
+                                  }
+                                />
+                                I reviewed both renders; no tooltip change needed.
+                              </label>
+                              <button
+                                disabled={
+                                  dirty ||
+                                  pending ||
+                                  actionsOpen ||
+                                  !!navigation ||
+                                  conflict ||
+                                  raw ||
+                                  reviewed !== reviewKey ||
+                                  !canReviewGlobal(actor, row.consumer.lang) ||
+                                  !validGlobalImpact(row) ||
+                                  !canAcknowledge
+                                }
+                                onClick={() =>
+                                  savedConsumer &&
+                                  canAcknowledge &&
+                                  void run({
+                                    operation: 'acknowledge',
+                                    id: entry.id,
+                                    consumerId: row.id,
+                                    contentDigest: savedConsumer.review.contentDigest,
+                                    impactDigest: savedConsumer.impactDigest,
+                                    dependencyDigest: savedConsumer.review.dependencyDigest,
+                                    decision: 'no-text-change',
+                                  })
+                                }
+                              >
+                                Acknowledge review
+                              </button>
+                              {dirty ? (
+                                <p>Save this definition before acknowledging impact.</p>
+                              ) : (
+                                !canAcknowledge && (
+                                  <p>
+                                    Only current, fully synced reviews can be acknowledged. Refresh
+                                    after sync finishes.
+                                  </p>
+                                )
+                              )}
+                            </div>
+                          </Popover>
+                        </div>
                       </li>
                     ))}
                   </ul>
-                  {consumer && (
-                    <Popover
-                      label="Review consumer impact"
-                      trigger={`Review ${consumer.name}`}
-                      contain
-                      open={reviewOpen}
-                      onOpenChange={(open) => {
-                        if (pending || action || navigation) return;
-                        setReviewOpen(open);
-                        setReviewed(undefined);
-                      }}
-                    >
-                      <div className={styles.review}>
-                        <strong>
-                          {consumer.name} · {consumer.consumer.destination}
-                        </strong>
-                        <RawDiffToggle />
-                        <GlobalImpactComparison row={consumer} raw={raw} />
-                        <label>
-                          <input
-                            type="checkbox"
-                            disabled={
-                              !canAcknowledge || pending || raw || !validGlobalImpact(consumer)
-                            }
-                            checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
-                            onChange={(e) => setReviewed(e.target.checked ? reviewKey : undefined)}
-                          />
-                          I reviewed both renders; no tooltip change needed.
-                        </label>
-                        <button
-                          disabled={
-                            dirty ||
-                            pending ||
-                            !!action ||
-                            !!navigation ||
-                            conflict ||
-                            raw ||
-                            reviewed !== reviewKey ||
-                            !canReviewGlobal(actor, consumer.consumer.lang) ||
-                            !validGlobalImpact(consumer) ||
-                            !canAcknowledge
-                          }
-                          onClick={() =>
-                            savedConsumer &&
-                            canAcknowledge &&
-                            void run({
-                              operation: 'acknowledge',
-                              id: entry.id,
-                              consumerId: consumer.id,
-                              contentDigest: savedConsumer.review.contentDigest,
-                              impactDigest: savedConsumer.impactDigest,
-                              dependencyDigest: savedConsumer.review.dependencyDigest,
-                              decision: 'no-text-change',
-                            })
-                          }
-                        >
-                          Acknowledge review
-                        </button>
-                        {dirty ? (
-                          <p>Save this definition before acknowledging impact.</p>
-                        ) : (
-                          !canAcknowledge && (
-                            <p>
-                              Only current, fully synced reviews can be acknowledged. Refresh after
-                              sync finishes.
-                            </p>
-                          )
-                        )}
-                      </div>
-                    </Popover>
-                  )}
                 </div>
               )}
             </RightPane>
@@ -898,31 +900,43 @@ function Workspace({
   );
 }
 
-function ActionPopover({
-  action,
-  current,
-  setAction,
+function GlobalActions({
+  open,
+  disabled,
+  onOpenChange,
+  structural,
+  maintainer,
+  referenced,
   pending,
   blocked,
   entry,
   lang,
   onSubmit,
 }: {
-  action: Action;
-  current?: Action;
-  setAction(value?: Action): void;
+  open: boolean;
+  disabled: boolean;
+  onOpenChange(value: boolean): void;
+  structural: boolean;
+  maintainer: boolean;
+  referenced: boolean;
   pending: boolean;
   blocked: boolean;
   entry?: GlobalEntry;
   lang: Lang;
-  onSubmit(mutation: GlobalMutation): Promise<void>;
+  onSubmit(mutation: GlobalMutation): Promise<boolean>;
 }) {
+  const [action, setAction] = useState<Action>();
+  const cancel = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (action) cancel.current?.focus();
+  }, [action]);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'variables' | 'titles'>('variables');
   const [body, setBody] = useState('');
   const removing = action === 'remove' || action === 'remove-language';
-  const label =
-    action === 'create'
+  const label = !action
+    ? 'Global actions'
+    : action === 'create'
       ? 'Create global'
       : action === 'rename'
         ? 'Rename'
@@ -932,88 +946,127 @@ function ActionPopover({
   return (
     <Popover
       label={label}
-      trigger={label}
+      trigger="Actions"
       contain
-      open={current === action}
-      onOpenChange={(open) => {
-        if (pending || (open && current && current !== action)) return;
-        setName(action === 'rename' ? (entry?.name ?? '') : '');
-        setBody('');
-        setAction(open ? action : undefined);
+      width={360}
+      open={open}
+      onOpenChange={(next) => {
+        if (next && disabled) return;
+        setAction(undefined);
+        onOpenChange(next);
       }}
     >
-      <form
-        className={styles.action}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (pending || blocked) return;
-          if (action === 'create') void onSubmit({ operation: 'create', name, kind, lang, body });
-          else if (entry)
-            void onSubmit(
-              action === 'rename'
-                ? { operation: 'rename', id: entry.id, revision: entry.revision, name }
-                : {
-                    operation: 'remove',
-                    id: entry.id,
-                    revision: entry.revision,
-                    ...(action === 'remove-language' ? { lang } : {}),
-                  },
-            );
-        }}
-      >
-        <strong>{label}</strong>
-        {!removing && (
-          <label>
-            Name{' '}
-            <input
-              required
-              disabled={pending}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-        )}
-        {action === 'create' && (
-          <>
-            <label>
-              Kind{' '}
-              <select
-                disabled={pending}
-                value={kind}
-                onChange={(e) => setKind(e.target.value as 'variables' | 'titles')}
-              >
-                <option value="variables">Variable</option>
-                <option value="titles">Title</option>
-              </select>
-            </label>
-            <label>
-              Definition body{' '}
-              <textarea disabled={pending} value={body} onChange={(e) => setBody(e.target.value)} />
-            </label>
-          </>
-        )}
-        <p>
-          {removing
-            ? `Remove ${action === 'remove-language' ? `the ${languageLabel(lang)} definition` : 'this unused global in every language'}? The server checks saved, live, and upcoming references.`
-            : action === 'rename'
-              ? 'Rename the stable entry and rewrite exact reference tokens in one transaction.'
-              : `Create a definition in ${languageLabel(lang)}.`}
-        </p>
-        <div className={styles.toolbar}>
-          <button
-            type="button"
-            data-autofocus
-            disabled={pending}
-            onClick={() => setAction(undefined)}
+      {(close) =>
+        !action ? (
+          <div className={styles.actionMenu}>
+            {(
+              [
+                ['create', 'Create global', true],
+                ['rename', 'Rename', entry && structural],
+                ['remove', 'Remove', entry && maintainer],
+                ['remove-language', 'Remove language', entry?.definitions[lang] && maintainer],
+              ] as const
+            ).map(
+              ([value, title, allowed]) =>
+                allowed && (
+                  <button
+                    key={value}
+                    onClick={() => {
+                      setName(value === 'rename' ? (entry?.name ?? '') : '');
+                      setBody('');
+                      setAction(value);
+                    }}
+                  >
+                    {title}
+                  </button>
+                ),
+            )}
+          </div>
+        ) : (
+          <form
+            className={styles.action}
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (pending || blocked || (removing && referenced)) return;
+              const success =
+                action === 'create'
+                  ? await onSubmit({ operation: 'create', name, kind, lang, body })
+                  : entry &&
+                    (await onSubmit(
+                      action === 'rename'
+                        ? { operation: 'rename', id: entry.id, revision: entry.revision, name }
+                        : {
+                            operation: 'remove',
+                            id: entry.id,
+                            revision: entry.revision,
+                            ...(action === 'remove-language' ? { lang } : {}),
+                          },
+                    ));
+              if (success) close();
+            }}
           >
-            Cancel
-          </button>
-          <button disabled={pending || blocked}>{pending ? 'Working…' : label}</button>
-        </div>
-        {blocked && (
-          <p>Finish or discard your draft first. Removal also requires zero references.</p>
-        )}
-      </form>
+            <strong>{label}</strong>
+            {!removing && (
+              <label>
+                Name{' '}
+                <input
+                  required
+                  disabled={pending}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+            )}
+            {action === 'create' && (
+              <>
+                <label>
+                  Kind{' '}
+                  <select
+                    disabled={pending}
+                    value={kind}
+                    onChange={(e) => setKind(e.target.value as 'variables' | 'titles')}
+                  >
+                    <option value="variables">Variable</option>
+                    <option value="titles">Title</option>
+                  </select>
+                </label>
+                <label>
+                  Definition body{' '}
+                  <textarea
+                    disabled={pending}
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                  />
+                </label>
+              </>
+            )}
+            <p>
+              {removing
+                ? `Remove ${action === 'remove-language' ? `the ${languageLabel(lang)} definition` : 'this unused global in every language'}? The server checks saved, live, and upcoming references.`
+                : action === 'rename'
+                  ? 'Rename the stable entry and rewrite exact reference tokens in one transaction.'
+                  : `Create a definition in ${languageLabel(lang)}.`}
+            </p>
+            <div className={styles.toolbar}>
+              <button
+                type="button"
+                ref={cancel}
+                data-autofocus
+                disabled={pending}
+                onClick={() => close()}
+              >
+                Cancel
+              </button>
+              <button disabled={pending || blocked || (removing && referenced)}>
+                {pending ? 'Working…' : label}
+              </button>
+            </div>
+            {(blocked || (removing && referenced)) && (
+              <p>Finish or discard your draft first. Removal also requires zero references.</p>
+            )}
+          </form>
+        )
+      }
     </Popover>
   );
 }

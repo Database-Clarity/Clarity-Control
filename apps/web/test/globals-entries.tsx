@@ -21,6 +21,17 @@ if (new URLSearchParams(location.search).has('unproven')) {
   row.direct = null;
   row.reason = 'unproven';
 }
+if (new URLSearchParams(location.search).has('largeList')) {
+  const row = seed.impacts.g_damage0001[0];
+  for (let index = 1; index <= 80; index++) {
+    const copy = structuredClone(row);
+    copy.id = `review_${100 + index}_en_live`;
+    copy.name = `Focused Fury consumer ${index}`;
+    copy.consumer.hash = 100 + index;
+    copy.review.consumer.hash = 100 + index;
+    seed.impacts.g_damage0001.push(copy);
+  }
+}
 const syncStatus = new URLSearchParams(location.search).get('sync');
 if (syncStatus === 'sync-pending' || syncStatus === 'sync-failed') {
   const state: GlobalSyncState = {
