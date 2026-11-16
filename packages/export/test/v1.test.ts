@@ -120,7 +120,7 @@ const file = (
       sandboxPerks: ['weapon-trait'],
       frameAliases: true,
       languages: ['en'],
-      keys: ['name', 'related'],
+      keys: ['name', 'references'],
       languageFiles: 'combined',
       bungieIdentical: false,
       ...patch,
@@ -393,13 +393,13 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
 
   test('category-crossing associations are dropped only when their target is not in the file', () => {
     const both = compile(refsInput, file(), { catalog });
-    expect(both.expanded![100].related).toEqual([101, 102]);
+    expect(both.expanded![100].references).toEqual([101, 102]);
     const only = compile(
       refsInput,
       file({ categories: ['armor-trait-exotic'], sandboxPerks: [] }),
       { catalog },
     );
-    expect(only.expanded![100]).not.toHaveProperty('related');
+    expect(only.expanded![100]).not.toHaveProperty('references');
     expect(Object.keys(only.expanded!)).toEqual(['100']);
   });
 
@@ -451,7 +451,7 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
       validateV1({ ...header, descriptions: [], perks: { 1: { description: 0 } } }),
     ).toThrow(/missing description/);
     expect(() =>
-      validateV1({ ...header, descriptions: [{}], perks: { 1: { description: 0, related: [2] } } }),
+      validateV1({ ...header, descriptions: [{}], perks: { 1: { description: 0, references: [2] } } }),
     ).toThrow(/not in the file/);
   });
 });
@@ -516,11 +516,20 @@ describe('format v1 keys, header, and language files', () => {
     expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(plan.expanded));
   });
 
-  test('edited writes the time only; editedBy adds the name', () => {
-    const time = json(build({ keys: ['edited'] }).bytes);
-    expect(time.perks[100]).toEqual({ edited: { en: { at: at(day) } }, description: 0 });
-    const name = json(build({ keys: ['editedBy'] }).bytes);
-    expect(name.perks[100]).toEqual({ edited: { en: { by: 'Ann' } }, description: 0 });
+  test('edited and editedBy are independent: either one alone validates and decodes', () => {
+    const time = build({ keys: ['edited'] });
+    expect(json(time.bytes).perks[100]).toEqual({ edited: { en: { at: at(day) } }, description: 0 });
+    // editedBy without edited (owner 2026-11-16): `edited.<lang>` holds only `by`.
+    const name = build({ keys: ['editedBy'] });
+    const parsed = json(name.bytes);
+    expect(parsed.perks[100]).toEqual({ edited: { en: { by: 'Ann' } }, description: 0 });
+    expect(() => validateV1(parsed)).not.toThrow();
+    expect(decodeV1(parsed)[100]).toEqual({
+      hash: 100,
+      edited: { en: { by: 'Ann' } },
+      descriptions: parsed.descriptions[0],
+    });
+    expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(name.expanded));
     expect(json(build({ keys: ['name'] }).bytes).perks[100]).not.toHaveProperty('edited');
   });
 

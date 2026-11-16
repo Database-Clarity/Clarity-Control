@@ -34,8 +34,9 @@ export type ExportLanguage = (typeof exportLanguages)[number];
 
 /**
  * Per-perk keys a file can include (spec section 7). `edited` writes `edited.<lang>.at` (ISO time
- * of the last edit); `editedBy` adds `edited.<lang>.by` (the editor's name). Default: `name` and
- * `edited` (styles.ts defaultData).
+ * of the last edit); `editedBy` writes `edited.<lang>.by` (the editor's name), with or without
+ * `edited`. `references` lists perks this one refers to. Default: `name` and `edited` (styles.ts
+ * defaultData).
  */
 export const itemKeys = [
   'name',
@@ -44,7 +45,7 @@ export const itemKeys = [
   'category',
   'edited',
   'editedBy',
-  'related',
+  'references',
 ] as const;
 export type ItemKey = (typeof itemKeys)[number];
 

@@ -69,8 +69,8 @@ export type PerkKeys = {
   /** The generator category id, as the config names it. */
   category?: string;
   edited?: Edited;
-  /** Related perks that are in the same file. */
-  related?: number[];
+  /** Perks this one refers to (keyword verbs and the like) that are in the same file. */
+  references?: number[];
 };
 /** A perk of the expanded (per-hash) form, before encoding. */
 export type ExpandedItem = { hash: number } & PerkKeys & { descriptions: Descriptions };
@@ -244,7 +244,7 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
     if (keys.has('itemHash') && perk.itemHash !== undefined) item.itemHash = perk.itemHash;
     if (keys.has('itemName') && perk.itemName) item.itemName = perk.itemName;
     if (keys.has('category')) item.category = categoryOf.get(hash);
-    if (keys.has('related') && perk.associated?.length) item.related = [...perk.associated];
+    if (keys.has('references') && perk.associated?.length) item.references = [...perk.associated];
     picked.set(hash, item);
   }
   /** `edited.<lang>` of a perk whose text in `language` was last edited in `source`. */
@@ -258,15 +258,15 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   };
   ran.push('select-keys');
 
-  // 4 reference policy: a related id whose target is not in this file is dropped. Every
+  // 4 reference policy: a referenced id whose target is not in this file is dropped. Every
   // selected row, canonical or alias, is its own item (no alias references in v1). Every
   // output holds every selected perk, so this holds for each of them.
   const inFile = new Set(selected.map(Number));
   for (const item of picked.values()) {
-    if (!item.related) continue;
-    const kept = item.related.filter((target) => inFile.has(target));
-    if (kept.length) item.related = kept;
-    else delete item.related;
+    if (!item.references) continue;
+    const kept = item.references.filter((target) => inFile.has(target));
+    if (kept.length) item.references = kept;
+    else delete item.references;
   }
   ran.push('references');
 
@@ -306,12 +306,12 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
         const edit = editedOf(hash, source);
         if (edit) edited[source] = edit;
       }
-      const { related, ...item } = picked.get(hash)!;
+      const { references, ...item } = picked.get(hash)!;
       expanded[hash] = {
         hash: Number(hash),
         ...item,
         ...(Object.keys(edited).length ? { edited } : {}),
-        ...(related ? { related } : {}),
+        ...(references ? { references } : {}),
         descriptions,
       };
     }
@@ -393,7 +393,7 @@ export function encodeV1(
   };
 }
 
-/** Checks the header, that every perk's `description` is stored, and that every related perk is
+/** Checks the header, that every perk's `description` is stored, and that every referenced perk is
  * in the file (the v1 output validation, spec section 3). */
 export function validateV1(file: FormatV1File): void {
   if (file.format !== 1 || !Array.isArray(file.descriptions) || !file.perks)
@@ -405,8 +405,8 @@ export function validateV1(file: FormatV1File): void {
       perk.description >= file.descriptions.length
     )
       throw new Error(`Perk ${hash} points at missing description ${perk.description}`);
-    for (const target of perk.related ?? [])
+    for (const target of perk.references ?? [])
       if (!Object.hasOwn(file.perks, String(target)))
-        throw new Error(`Perk ${hash} is related to ${target}, which is not in the file`);
+        throw new Error(`Perk ${hash} refers to ${target}, which is not in the file`);
   }
 }

@@ -118,8 +118,9 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, plan.outputs[i].by
   category of the item it is a perk of), frame aliases, languages, keys, and whether tooltips
   equal to Bungie's own text are included. Nothing is in a file until it is chosen. Keys:
   `name`, `itemHash`, `itemName` (the weapon or armor the perk belongs to), `category` (the
-  category id), `edited` (`edited.<lang>.at`, when the text was last edited), `editedBy` (adds
-  `edited.<lang>.by`, the editor's name), and `related`. A new file has `name` and `edited`.
+  category id), `edited` (`edited.<lang>.at`, when the text was last edited), `editedBy`
+  (`edited.<lang>.by`, the editor's name; it can be chosen without `edited`), and `references`
+  (perks this one refers to, such as keyword verbs). A new file has `name` and `edited`.
 - **Language files** (`data.languageFiles`): `combined` (the default) writes one file with every
   chosen language at `<project>/v1/<file>.json`; `perLanguage` writes one file per language at
   `<project>/v1/<file>/<lang>.json`. A per-language file is complete: a perk without text in that
@@ -147,7 +148,7 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, plan.outputs[i].by
    left out: hashes below 50, an empty English text, and a tooltip with nothing visible.
    A tooltip with no catalog item is left out and listed in a notice.
 3. **Keys**: only the chosen ones.
-4. **References**: a `related` hash that is not in the file is removed.
+4. **References**: a `references` hash that is not in the file is removed.
 5. **Symbols**, as chosen above. Tables (retired, none in today's data) are not written.
 6. **Encoding** (format v1, below): one output, or one per language.
 7. **Bytes**: minified JSON, after checking that every reference resolves.
