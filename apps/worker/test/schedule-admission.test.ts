@@ -9,6 +9,7 @@ import {
   scheduleBodyDigest,
   scheduleIntentPaths,
   schedulePreparationCapability,
+  scheduleRequestSchema,
   verifyScheduleRequest,
   type Batch,
   type ScheduleRequest,
@@ -438,12 +439,43 @@ describe('preparation cancellation, retry, and claim fences', () => {
     expect(f.current()[`publish/requests/${OTHER}.json`]).toBeDefined();
     expect(storedBatch().status).toBe('scheduled');
   });
-  it('can restrict scheduled translator saves with the owner policy switch', async () => {
+  it.each([[1, 'needs_attention'], [2, 'needs_attention'], [4, 'keep_scheduled']] as const)('signs the owner failure policy for role holder %s', async (user, onValidationFailure) => {
     scheduled();
-    vi.spyOn(switches, 'translatorScheduledSaves').mockReturnValue(false);
-    const head = f.dataHead;
-    expect((await call('save', saveBody(), 4)).status).toBe(403);
-    expect(f.dataHead).toBe(head);
+    expect((await call('save', saveBody(), user)).status).toBe(202);
+    expect(JSON.parse(record().envelope.payload)).toMatchObject({ kind: 'save', returnStatus: 'scheduled', onValidationFailure });
+  });
+  it('does not let an editor select the translator failure policy', async () => {
+    scheduled();
+    expect((await call('save', { ...saveBody(), onValidationFailure: 'keep_scheduled' })).status).toBe(400);
+    expect(f.commits).toHaveLength(0);
+  });
+  it('exposes a translator save failure while the offline-restored accepted schedule stays claimable', async () => {
+    scheduled();
+    f.moveData({ [path]: { ...storedBatch(), preparedRequestId: OTHER } });
+    const accepted = storedBatch();
+    const originalMember = structuredClone(f.current()[member]);
+    expect((await call('save', saveBody(), 4)).status).toBe(202);
+    const pending = record();
+    const failed = scheduleRequestSchema.parse({ ...pending, status: 'failed', reasons: [{ hash: 123, reason: 'Invalid translation number token' }] });
+    // Simulate only B's contract output; this is not an execution of its future materializer.
+    f.moveData({
+      [path]: { ...accepted, revision: 4, preparation: null, lastPreparationFailure: { requestId: RID, at: failed.updatedAt, reason: failed.reasons![0].reason } },
+      [scheduleIntentPaths.request(RID)]: failed,
+      [`publish/requests/${OTHER}.json`]: f.current()[scheduleIntentPaths.publication(ID)],
+    });
+    const response = await f.request(`/batches/${ID}/status?requestId=${RID}`, 'GET', undefined, 2);
+    const status = await response.json() as { request: ScheduleRequest; batch: Batch; savedAt?: number };
+    expect(response.status).toBe(200);
+    expect(status.request.status).toBe('failed');
+    expect(status.request.result).toBeUndefined();
+    expect(status.savedAt).toBeUndefined();
+    expect(status.batch.lastPreparationFailure?.reason).toBe('Invalid translation number token');
+    expect(canClaimPreparedBatch(status.batch, OTHER)).toBe(true);
+    expect(matchesPreparationFence(status.batch, pending)).toBe(false);
+    expect(f.current()[member]).toEqual(originalMember);
+    expect(f.current()['schedule/due.json']).toEqual({ entries: [{ batchId: ID, opId: OTHER, notBefore: accepted.notBefore, claimed: false }] });
+    expect(scheduleRequestSchema.safeParse({ ...failed, reasons: [] }).success).toBe(false);
+    expect(scheduleRequestSchema.safeParse({ ...failed, result: { revision: 4, contentRevision: 1, status: 'scheduled' } }).success).toBe(false);
   });
   it.each([
     ['cancel', true],

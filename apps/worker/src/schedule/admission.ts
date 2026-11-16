@@ -248,8 +248,6 @@ export async function admitBatchRequest(
       throw new HttpError(422, `A batch holds at most ${memberCap} tooltips`);
     returnStatus = kind === 'schedule' || batch.status === 'scheduled' ? 'scheduled' : 'draft';
     if ('changes' in input) {
-      if (batch.status === 'scheduled' && state.access.role === 'translator' && !switches.translatorScheduledSaves())
-        throw new HttpError(403, 'Scheduled batch saves require an editor or maintainer');
       if (state.access.role === 'translator' && input.changes.some(({ base }) => base === null))
         throw new HttpError(403, 'Translators may change only existing tooltips');
       if (batch.status === 'scheduled' && input.changes.length > scheduledSaveChangeCap)
@@ -300,7 +298,11 @@ export async function admitBatchRequest(
         bodyDigest: submittedBody.digest,
       };
       const intent: ScheduleIntent =
-        kind === 'schedule' ? { ...common, kind, ...target! } : { ...common, kind, returnStatus };
+        kind === 'schedule' ? { ...common, kind, ...target! } : {
+          ...common, kind, returnStatus,
+          onValidationFailure: state.access.role === 'translator' && returnStatus === 'scheduled'
+            ? 'keep_scheduled' : 'needs_attention',
+        };
       envelope = await signScheduleIntent(intent, (await signingKey(github.env)).key);
     } else if (batch.contentRevision !== firstSource!.contentRevision) {
       throw new HttpError(409, 'Batch content changed; use a new requestId');

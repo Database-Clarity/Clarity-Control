@@ -46,8 +46,16 @@ export const scheduleIntentSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
   z
-    .object({ ...common, kind: z.literal('save'), returnStatus: z.enum(['draft', 'scheduled']) })
-    .strict(),
+    .object({
+      ...common,
+      kind: z.literal('save'),
+      returnStatus: z.enum(['draft', 'scheduled']),
+      /** Worker-derived owner policy; clients cannot select this field. */
+      onValidationFailure: z.enum(['keep_scheduled', 'needs_attention']),
+    })
+    .strict()
+    .refine((intent) => intent.onValidationFailure !== 'keep_scheduled' || intent.returnStatus === 'scheduled',
+      'Only an existing schedule can survive a failed save'),
 ]);
 export type ScheduleIntent = z.infer<typeof scheduleIntentSchema>;
 export const scheduleEnvelopeSchema = z
@@ -69,7 +77,7 @@ export const scheduleRequestSchema = z
     requesterId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     bodyDigest: digest,
     admissionRevision: revision,
-    status: z.enum(['pending', 'needs_attention', 'completed', 'cancelled']),
+    status: z.enum(['pending', 'needs_attention', 'failed', 'completed', 'cancelled']),
     attempt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     updatedAt: timestampSchema,
     retryable: z.boolean().optional(),
@@ -81,7 +89,11 @@ export const scheduleRequestSchema = z
       .strict()
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((request, ctx) => {
+    if (request.status === 'failed' && (!request.reasons?.length || request.result !== undefined))
+      ctx.addIssue({ code: 'custom', message: 'A failed request has reasons and no successful save result' });
+  });
 export type ScheduleRequest = z.infer<typeof scheduleRequestSchema>;
 
 export async function scheduleBodyDigest(bytes: Uint8Array): Promise<string> {

@@ -30,8 +30,6 @@ export const switches = {
   publisher: (): boolean => publisherConfig.enabled,
   /** Owner-gated: enable only after the preparer and claim fence have been installed. */
   preparation: (): boolean => false,
-  /** Owner decision pending; the outer preparation switch remains closed. */
-  translatorScheduledSaves: (): boolean => true,
 };
 
 /** PIN capability of a publisher build that drains, claims, and records `batch` requests (I6). */
