@@ -9,7 +9,10 @@ let session: {
   service: ReturnType<typeof createGlobalsService>;
 } | null = null;
 
-/** One authenticated service per session token, so its cache never outlives a sign-out. */
+/**
+ * One authenticated service per session token, so its cache never outlives a sign-out. Called
+ * while rendering, so it never updates a store; the identity index is repository data and stays.
+ */
 export function globalsSession() {
   const token = useAuthStore.getState().token;
   if (session?.token !== token) {
@@ -20,7 +23,6 @@ export function globalsSession() {
       // One configured publication destination (S4 contract v1); its sync header is the repository's.
       service: createGlobalsService(transport, { destinations: ['live'] }),
     };
-    useGlobalIdentities.setState({ identities: {}, status: 'idle', error: '' });
   }
   return session;
 }
