@@ -24,11 +24,11 @@ import type { ExportFile, StyleFile } from './config.js';
 import {
   exportLanguages,
   isLegacyFile,
-  itemKeys,
+  isPerLanguage,
   type ExportLanguage,
-  type ItemKey,
+  type Shape,
 } from './vocabulary.js';
-import { emptyNotes, transform, type OutLine, type TransformNotes } from './transform.js';
+import { emptyNotes, transform, type Line, type TransformNotes } from './transform.js';
 
 /** Stage names, in order (spec section 3). */
 export const compileStages = [
@@ -58,16 +58,43 @@ export type CompileOptions = {
   identical?: Iterable<string | number>;
 };
 
-export type Descriptions = Partial<Record<ExportLanguage, OutLine[] | string>>;
-/** An item of the expanded (per-hash) form, before encoding. */
-export type ExpandedItem = { hash: number } & Partial<Record<ItemKey, unknown>> & {
-    descriptions: Descriptions;
-  };
+export type Descriptions = Partial<Record<ExportLanguage, Line[] | string>>;
+/** When a perk's text in a language was last edited (`at`, ISO) and by whom (`by`, opt-in). */
+export type Edited = Partial<Record<ExportLanguage, { at?: string; by?: string }>>;
+/** The chosen keys of one perk, in output order (spec section 7). */
+export type PerkKeys = {
+  name?: string;
+  itemHash?: number;
+  itemName?: string;
+  /** The generator category id, as the config names it. */
+  category?: string;
+  edited?: Edited;
+  /** Related perks that are in the same file. */
+  related?: number[];
+};
+/** A perk of the expanded (per-hash) form, before encoding. */
+export type ExpandedItem = { hash: number } & PerkKeys & { descriptions: Descriptions };
 
-/** Format v1 file (spec section 7): shared texts, items point at one by index. */
+/**
+ * Format v1 file (spec section 7): a self-describing header, every distinct `descriptions` value
+ * stored once, and each perk naming its one by index (`description`).
+ */
 export type FormatV1File = {
-  texts: Descriptions[];
-  items: Record<string, Partial<Record<ItemKey, unknown>> & { t: number }>;
+  format: 1;
+  shape: Shape;
+  languages: ExportLanguage[];
+  descriptions: Descriptions[];
+  perks: Record<string, PerkKeys & { description: number }>;
+};
+
+/** One URL's content: the whole file, or one language of a file split per language. */
+export type PlanOutput = {
+  languages: ExportLanguage[];
+  /** The expanded form (what the reference decoder returns). */
+  expanded: Record<string, ExpandedItem>;
+  /** The encoded file before serialising. */
+  file: FormatV1File;
+  bytes: Uint8Array;
 };
 
 export type Notice =
@@ -82,10 +109,13 @@ export type Plan = {
   /** Stages the file ran through; legacy presets skip select-keys, transform, and encode. */
   ran: CompileStage[];
   legacy: boolean;
-  /** v1 only: the expanded form (what the reference decoder returns). */
+  /** v1 only: one output per URL (one, or one per language for `languageFiles: "perLanguage"`). */
+  outputs?: PlanOutput[];
+  /** v1 only: `outputs[0].expanded`. */
   expanded?: Record<string, ExpandedItem>;
-  /** v1 only: the encoded file before serialising. */
+  /** v1 only: `outputs[0].file`. */
   file?: FormatV1File;
+  /** The bytes of the file (v1: of `outputs[0]`). */
   bytes: Uint8Array;
   notices: Notice[];
 };
@@ -134,13 +164,18 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   validateReferences(input.perks);
   const lookup = expandAliases(input.perks);
   const languages = exportLanguages.filter((language) => data.languages.includes(language));
-  const globals = new Map(languages.map((language) => [language, globalsOf(lookup, language)]));
+  // One file per language: a perk without text in a language carries its English text there.
+  const perLanguage = isPerLanguage(file);
+  const resolving = perLanguage
+    ? exportLanguages.filter((language) => language === 'en' || languages.includes(language))
+    : languages;
+  const globals = new Map(resolving.map((language) => [language, globalsOf(lookup, language)]));
   const resolved = new Map<string, Partial<Record<ExportLanguage, MarkupLine[]>>>();
   const resolve = (hash: string, perk: IntermediatePerk) => {
     let rows = resolved.get(hash);
     if (rows) return rows;
     rows = {};
-    for (const language of languages) {
+    for (const language of resolving) {
       const text = perk.editor[language]?.main;
       if (text === undefined) continue;
       const markupGlobals: MarkupGlobals = {
@@ -168,6 +203,7 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   const sandbox = new Set(data.sandboxPerks);
   const uncategorised: number[] = [];
   const selected: string[] = [];
+  const categoryOf = new Map<string, string>();
   for (const [hash, raw] of Object.entries(input.perks)) {
     const perk = lookup[hash];
     if (perk === undefined || Number(hash) < 50) continue;
@@ -184,74 +220,113 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
     }
     if (!(alias?.aliasKind === 'sandbox' ? sandbox : categories).has(category)) continue;
     const rows = resolve(hash, perk);
-    if (!languages.some((language) => rows[language])) continue;
+    // One file per language holds every perk in every language (English stands in).
+    if (
+      perLanguage
+        ? !languages.every((language) => rows[language] ?? rows.en)
+        : !languages.some((language) => rows[language])
+    )
+      continue;
     selected.push(hash);
+    categoryOf.set(hash, category);
   }
   if (uncategorised.length)
     notices.push({ kind: 'uncategorised', hashes: uncategorised.sort((a, b) => a - b) });
   ran.push('select-rows');
 
-  // 3 key selection: only the chosen keys, in a fixed order.
-  const keys = itemKeys.filter((key) => data.keys.includes(key));
-  const picked = new Map<string, Partial<Record<ItemKey, unknown>>>();
+  // 3 key selection: only the chosen keys, in a fixed order (`edited` is per output, below).
+  const keys = new Set(data.keys);
+  const picked = new Map<string, PerkKeys>();
   for (const hash of selected) {
     const perk = lookup[hash];
-    const item: Partial<Record<ItemKey, unknown>> = {};
-    for (const key of keys) {
-      if (key === 'updateTracker') {
-        const tracker = perk.updateTracker?.descriptions ?? {};
-        const descriptions = Object.fromEntries(
-          languages.flatMap((language) =>
-            tracker[language] ? [[language, tracker[language]]] : [],
-          ),
-        );
-        if (Object.keys(descriptions).length) item.updateTracker = { descriptions };
-        continue;
-      }
-      const value = perk[key as keyof IntermediatePerk];
-      if (value !== undefined && value !== '') item[key] = value;
-    }
+    const item: PerkKeys = {};
+    if (keys.has('name') && perk.name) item.name = perk.name;
+    if (keys.has('itemHash') && perk.itemHash !== undefined) item.itemHash = perk.itemHash;
+    if (keys.has('itemName') && perk.itemName) item.itemName = perk.itemName;
+    if (keys.has('category')) item.category = categoryOf.get(hash);
+    if (keys.has('related') && perk.associated?.length) item.related = [...perk.associated];
     picked.set(hash, item);
   }
+  /** `edited.<lang>` of a perk whose text in `language` was last edited in `source`. */
+  const editedOf = (hash: string, source: ExportLanguage) => {
+    const tracker = lookup[hash].updateTracker?.descriptions[source];
+    if (!tracker) return undefined;
+    const edit: { at?: string; by?: string } = {};
+    if (keys.has('edited')) edit.at = new Date(tracker.lastUpdate).toISOString();
+    if (keys.has('editedBy') && tracker.updatedBy) edit.by = tracker.updatedBy;
+    return Object.keys(edit).length ? edit : undefined;
+  };
   ran.push('select-keys');
 
-  // 4 reference policy: an associated id whose target is not in this file is dropped. Every
-  // selected row, canonical or alias, is its own item (no alias references in v1).
+  // 4 reference policy: a related id whose target is not in this file is dropped. Every
+  // selected row, canonical or alias, is its own item (no alias references in v1). Every
+  // output holds every selected perk, so this holds for each of them.
   const inFile = new Set(selected.map(Number));
   for (const item of picked.values()) {
-    if (!Array.isArray(item.associated)) continue;
-    const kept = (item.associated as number[]).filter((target) => inFile.has(target));
-    if (kept.length) item.associated = kept;
-    else delete item.associated;
+    if (!item.related) continue;
+    const kept = item.related.filter((target) => inFile.has(target));
+    if (kept.length) item.related = kept;
+    else delete item.related;
   }
   ran.push('references');
 
-  // 5 symbol transforms for the file's shape.
+  // 5 symbol transforms for the file's shape, then one expanded form per output: the whole file,
+  // or one per language, where a perk without text in that language (or one whose translation is
+  // behind and falls back to English) carries the English text and `edited.en`.
   const notes: TransformNotes = emptyNotes();
-  const expanded: Record<string, ExpandedItem> = {};
-  for (const hash of selected) {
-    const rows = resolved.get(hash)!;
-    const descriptions: Descriptions = {};
-    for (const language of languages) {
-      const lines = rows[language];
-      if (lines) descriptions[language] = transform(lines, format, shape, notes);
-    }
-    expanded[hash] = { hash: Number(hash), ...picked.get(hash), descriptions };
-  }
+  const transformed = new Map<string, Line[] | string>();
+  const textOf = (hash: string, language: ExportLanguage) => {
+    const key = `${hash}\n${language}`;
+    if (!transformed.has(key))
+      transformed.set(key, transform(resolved.get(hash)![language]!, format, shape, notes));
+    return transformed.get(key)!;
+  };
+  let showcase: Line[] | string | undefined;
   if (data.includeShowcase) {
-    const descriptions: Descriptions = {};
     // Match the same element-tag opt-in as ordinary rows.
-    const { lines, diagnostics } = parseMarkup(format.elementTags ? showcaseText : lowerConsumerMarkup(showcaseText), showcaseGlobals);
+    const { lines, diagnostics } = parseMarkup(
+      format.elementTags ? showcaseText : lowerConsumerMarkup(showcaseText),
+      showcaseGlobals,
+    );
     if (diagnostics.length) throw new Error('Invalid built-in showcase markup');
-    // English example in each selected language: self-contained, never translated by data.
-    for (const language of languages)
-      descriptions[language] = transform(lines, format, shape, notes);
-    expanded[showcaseId] = {
-      hash: Number(showcaseId),
-      ...(keys.includes('name') ? { name: showcaseName } : {}),
-      descriptions,
-    };
+    showcase = transform(lines, format, shape, notes);
   }
+  const expand = (outputLanguages: ExportLanguage[]) => {
+    const expanded: Record<string, ExpandedItem> = {};
+    for (const hash of selected) {
+      const rows = resolved.get(hash)!;
+      const descriptions: Descriptions = {};
+      const edited: Edited = {};
+      for (const language of outputLanguages) {
+        const own = rows[language] !== undefined;
+        if (!own && !perLanguage) continue;
+        descriptions[language] = textOf(hash, own ? language : 'en');
+        const english = !own || lookup[hash].editor[language]?.englishFallback === true;
+        const source = perLanguage && english ? 'en' : language;
+        const edit = editedOf(hash, source);
+        if (edit) edited[source] = edit;
+      }
+      const { related, ...item } = picked.get(hash)!;
+      expanded[hash] = {
+        hash: Number(hash),
+        ...item,
+        ...(Object.keys(edited).length ? { edited } : {}),
+        ...(related ? { related } : {}),
+        descriptions,
+      };
+    }
+    // The showcase is an English example in each language: self-contained, never translated.
+    if (showcase !== undefined)
+      expanded[showcaseId] = {
+        hash: Number(showcaseId),
+        ...(keys.has('name') ? { name: showcaseName } : {}),
+        descriptions: Object.fromEntries(outputLanguages.map((language) => [language, showcase])),
+      };
+    return expanded;
+  };
+  const expandedOutputs = (perLanguage ? languages.map((language) => [language]) : [languages]).map(
+    (outputLanguages) => ({ languages: outputLanguages, expanded: expand(outputLanguages) }),
+  );
   if (notes.unchosen.size)
     notices.push({ kind: 'unchosen-symbol', symbols: [...notes.unchosen].sort() });
   if (notes.retired.size)
@@ -259,48 +334,79 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   if (notes.tables) notices.push({ kind: 'tables-dropped', count: notes.tables });
   ran.push('transform');
 
-  // 6 encoding (section 7): shared texts, chosen keys only.
-  const encoded = encodeV1(expanded);
+  // 6 encoding (section 7): header, shared descriptions, chosen keys only.
+  const encoded = expandedOutputs.map((output) => ({
+    ...output,
+    file: encodeV1(output.expanded, { shape, languages: output.languages }),
+  }));
   ran.push('encode');
 
-  // 7 serialise: minified JSON, UTF-8, after checking every `t` and association resolves.
-  validateV1(encoded);
-  const bytes = encoder.encode(JSON.stringify(encoded));
+  // 7 serialise: minified JSON, UTF-8, after checking every description index and relation.
+  const outputs: PlanOutput[] = encoded.map((output) => {
+    validateV1(output.file);
+    return { ...output, bytes: encoder.encode(JSON.stringify(output.file)) };
+  });
   ran.push('serialise');
 
-  return { stages: compileStages, ran, legacy: false, expanded, file: encoded, bytes, notices };
+  const [first] = outputs;
+  return {
+    stages: compileStages,
+    ran,
+    legacy: false,
+    outputs,
+    expanded: first!.expanded,
+    file: first!.file,
+    bytes: first!.bytes,
+    notices,
+  };
 }
 
 /**
- * Encodes the expanded form as format v1: every distinct `descriptions` value is stored once in
- * `texts` (first use first), and each item names it by index `t`. Items keep their keys minus
- * `hash` (the object key) and `descriptions`.
+ * Encodes the expanded form as format v1: the header, every distinct `descriptions` value stored
+ * once (first use first), and each perk naming its one by index `description`. Perks keep their
+ * keys minus `hash` (the object key) and `descriptions`.
  */
-export function encodeV1(expanded: Record<string, ExpandedItem>): FormatV1File {
-  const texts: Descriptions[] = [];
+export function encodeV1(
+  expanded: Record<string, ExpandedItem>,
+  header: { shape: Shape; languages: ExportLanguage[] },
+): FormatV1File {
+  const descriptions: Descriptions[] = [];
   const index = new Map<string, number>();
-  const items: FormatV1File['items'] = {};
+  const perks: FormatV1File['perks'] = {};
   for (const [hash, item] of Object.entries(expanded)) {
-    const { descriptions, ...keys } = item;
+    const { descriptions: own, ...keys } = item;
     delete (keys as Partial<typeof keys>).hash;
-    const key = JSON.stringify(descriptions);
-    let t = index.get(key);
-    if (t === undefined) {
-      t = texts.push(descriptions) - 1;
-      index.set(key, t);
+    const key = JSON.stringify(own);
+    let description = index.get(key);
+    if (description === undefined) {
+      description = descriptions.push(own) - 1;
+      index.set(key, description);
     }
-    items[hash] = { ...keys, t };
+    perks[hash] = { ...keys, description };
   }
-  return { texts, items };
+  return {
+    format: 1,
+    shape: header.shape,
+    languages: [...header.languages],
+    descriptions,
+    perks,
+  };
 }
 
-/** Checks that every item's `t` names a stored text (the v1 output validation, spec section 3). */
+/** Checks the header, that every perk's `description` is stored, and that every related perk is
+ * in the file (the v1 output validation, spec section 3). */
 export function validateV1(file: FormatV1File): void {
-  for (const [hash, item] of Object.entries(file.items)) {
-    if (!Number.isInteger(item.t) || item.t < 0 || item.t >= file.texts.length)
-      throw new Error(`Item ${hash} points at missing text ${item.t}`);
-    for (const target of (item.associated as number[] | undefined) ?? [])
-      if (!Object.hasOwn(file.items, String(target)))
-        throw new Error(`Item ${hash} is associated with ${target}, which is not in the file`);
+  if (file.format !== 1 || !Array.isArray(file.descriptions) || !file.perks)
+    throw new Error('Not a format v1 file');
+  for (const [hash, perk] of Object.entries(file.perks)) {
+    if (
+      !Number.isInteger(perk.description) ||
+      perk.description < 0 ||
+      perk.description >= file.descriptions.length
+    )
+      throw new Error(`Perk ${hash} points at missing description ${perk.description}`);
+    for (const target of perk.related ?? [])
+      if (!Object.hasOwn(file.perks, String(target)))
+        throw new Error(`Perk ${hash} is related to ${target}, which is not in the file`);
   }
 }

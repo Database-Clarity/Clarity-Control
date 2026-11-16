@@ -63,7 +63,7 @@ describe('P11: language goldens through core export and all eight engine presets
     for (const style of styles) {
       const file = newStyleFile('numbers', style, {
         categories: ['perks'], sandboxPerks: [], frameAliases: false,
-        languages: ['de'], keys: [], bungieIdentical: false,
+        languages: ['de'], keys: [], languageFiles: 'combined', bungieIdentical: false,
       });
       // Text styles can explicitly inline title bodies instead of dropping them.
       if (style !== 'structured')
@@ -95,7 +95,7 @@ describe('P11: language goldens through core export and all eight engine presets
     for (const style of styles) {
       const file = newStyleFile('numbers', style, {
         categories: ['perks'], sandboxPerks: [], frameAliases: false,
-        languages: [language], keys: [], bungieIdentical: false,
+        languages: [language], keys: [], languageFiles: 'combined', bungieIdentical: false,
       });
       const result = compile(source, file, {
         catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },
@@ -126,7 +126,7 @@ describe('P11: language goldens through core export and all eight engine presets
         for (const style of styles) {
           const file = newStyleFile('numbers', style, {
             categories: ['perks'], sandboxPerks: [], frameAliases: false,
-            languages: [language], keys: [], bungieIdentical: false,
+            languages: [language], keys: [], languageFiles: 'combined', bungieIdentical: false,
           });
           const result = compile(source, file, {
             catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },
@@ -168,7 +168,7 @@ describe('P11: language goldens through core export and all eight engine presets
       for (const style of styles) {
         const file = newStyleFile('numbers', style, {
           categories: ['perks'], sandboxPerks: [], frameAliases: false,
-          languages: ['de'], keys: [], bungieIdentical: false,
+          languages: ['de'], keys: [], languageFiles: 'combined', bungieIdentical: false,
         });
         const result = compile(source, file, {
           catalog: { items: { 100: { categoryId: 'perks' } }, categories: [{ id: 'perks' }] },

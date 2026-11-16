@@ -8,7 +8,11 @@ import {
   compile,
   compileStages,
   decodeV1,
+  exportLanguages,
+  filePath,
+  fileUrls,
   isValidId,
+  itemKeys,
   legacyPresets,
   newStyleFile,
   projectIndex,
@@ -18,6 +22,7 @@ import {
   validateV1,
   type Catalog,
   type ExportConfig,
+  type LanguageFiles,
   type LegacyInput,
   type StyleFile,
 } from '../src/index.js';
@@ -115,7 +120,8 @@ const file = (
       sandboxPerks: ['weapon-trait'],
       frameAliases: true,
       languages: ['en'],
-      keys: ['name', 'associated'],
+      keys: ['name', 'related'],
+      languageFiles: 'combined',
       bungieIdentical: false,
       ...patch,
     },
@@ -387,13 +393,13 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
 
   test('category-crossing associations are dropped only when their target is not in the file', () => {
     const both = compile(refsInput, file(), { catalog });
-    expect(both.expanded![100].associated).toEqual([101, 102]);
+    expect(both.expanded![100].related).toEqual([101, 102]);
     const only = compile(
       refsInput,
       file({ categories: ['armor-trait-exotic'], sandboxPerks: [] }),
       { catalog },
     );
-    expect(only.expanded![100]).not.toHaveProperty('associated');
+    expect(only.expanded![100]).not.toHaveProperty('related');
     expect(Object.keys(only.expanded!)).toEqual(['100']);
   });
 
@@ -424,9 +430,9 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
   test('imports across excluded rows and globals still resolve (filters never break imports)', () => {
     const plan = compile(refsInput, file({ categories: ['verbs'] }), { catalog });
     expect(text(plan, 101)).toEqual([
-      { linesContent: [{ text: 'Verb one' }] },
-      { linesContent: [{ text: 'Imported body' }] },
-      { linesContent: [{ text: 'from global' }] },
+      { parts: [{ text: 'Verb one' }] },
+      { parts: [{ text: 'Imported body' }] },
+      { parts: [{ text: 'from global' }] },
     ]);
     expect(plan.expanded).not.toHaveProperty('400');
   });
@@ -437,13 +443,130 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
     expect(plan.notices).toContainEqual({ kind: 'uncategorised', hashes: [500] });
   });
 
-  test('every t index and association resolves; a broken file is refused', () => {
+  test('every description index and relation resolves; a broken file is refused', () => {
     const plan = compile(refsInput, file(), { catalog });
     expect(() => validateV1(plan.file!)).not.toThrow();
-    expect(() => validateV1({ texts: [], items: { 1: { t: 0 } } })).toThrow(/missing text/);
-    expect(() => validateV1({ texts: [{}], items: { 1: { t: 0, associated: [2] } } })).toThrow(
-      /not in the file/,
+    const header = { format: 1 as const, shape: 'lines' as const, languages: ['en' as const] };
+    expect(() =>
+      validateV1({ ...header, descriptions: [], perks: { 1: { description: 0 } } }),
+    ).toThrow(/missing description/);
+    expect(() =>
+      validateV1({ ...header, descriptions: [{}], perks: { 1: { description: 0, related: [2] } } }),
+    ).toThrow(/not in the file/);
+  });
+});
+
+// ---------------------------------------------------------------- keys, header, language files
+describe('format v1 keys, header, and language files', () => {
+  const day = Date.UTC(2026, 0, 1);
+  const translated = {
+    perks: {
+      ...globalsRows,
+      100: perk(100, 'Exotic <bold verbs />', {
+        type: 'Armor Trait Exotic',
+        editor: {
+          en: { main: 'Exotic <bold verbs />', secondary: '' },
+          de: { main: 'Exotisch <bold Verben />', secondary: '' },
+          fr: { main: 'Exotic <bold verbs />', secondary: '', englishFallback: true },
+        },
+        updateTracker: {
+          descriptions: {
+            en: { lastUpdate: day, updatedBy: 'Ann' },
+            de: { lastUpdate: day + 1000, updatedBy: 'Ben' },
+            fr: { lastUpdate: day + 2000, updatedBy: 'Cy' },
+          },
+        },
+      }),
+      102: perk(102, 'Verb two', {
+        updateTracker: { descriptions: { en: { lastUpdate: day, updatedBy: 'Ann' } } },
+      }),
+    },
+  } as unknown as LegacyInput;
+  const at = (ms: number) => new Date(ms).toISOString();
+  const build = (patch: Partial<StyleFile['data']>) =>
+    compile(
+      translated,
+      file({ categories: ['armor-trait-exotic', 'verbs'], sandboxPerks: [], ...patch }),
+      { catalog },
     );
+
+  test('new files default to one combined file with name and edited (no editor name)', () => {
+    const data = newStyleFile('x', 'structured').data;
+    expect(data.languageFiles).toBe('combined');
+    expect(data.keys).toEqual(['name', 'edited']);
+  });
+
+  test('the header describes the file and perks use the readable keys', () => {
+    const plan = build({ keys: [...itemKeys], languages: ['en', 'de'] });
+    const parsed = json(plan.bytes);
+    expect(Object.keys(parsed)).toEqual(['format', 'shape', 'languages', 'descriptions', 'perks']);
+    expect(parsed).toMatchObject({ format: 1, shape: 'lines', languages: ['en', 'de'] });
+    expect(parsed.perks[100]).toEqual({
+      name: 'Perk 100',
+      category: 'armor-trait-exotic',
+      edited: { en: { at: at(day), by: 'Ann' }, de: { at: at(day + 1000), by: 'Ben' } },
+      description: 0,
+    });
+    expect(parsed.descriptions[0].de).toEqual([
+      { parts: [{ text: 'Exotisch ' }, { text: 'Verben', style: ['bold'] }] },
+    ]);
+    // Combined files keep the existing English fallback and only list texts a perk has.
+    expect(parsed.perks[102].edited).toEqual({ en: { at: at(day), by: 'Ann' } });
+    expect(parsed.descriptions[parsed.perks[102].description]).not.toHaveProperty('de');
+    expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(plan.expanded));
+  });
+
+  test('edited writes the time only; editedBy adds the name', () => {
+    const time = json(build({ keys: ['edited'] }).bytes);
+    expect(time.perks[100]).toEqual({ edited: { en: { at: at(day) } }, description: 0 });
+    const name = json(build({ keys: ['editedBy'] }).bytes);
+    expect(name.perks[100]).toEqual({ edited: { en: { by: 'Ann' } }, description: 0 });
+    expect(json(build({ keys: ['name'] }).bytes).perks[100]).not.toHaveProperty('edited');
+  });
+
+  test('one file per language: complete, English stands in with edited.en', () => {
+    const plan = build({
+      keys: ['name', 'edited'],
+      languages: ['en', 'de', 'fr'],
+      languageFiles: 'perLanguage',
+    });
+    expect(plan.outputs!.map((output) => output.languages)).toEqual([['en'], ['de'], ['fr']]);
+    const [en, de, fr] = plan.outputs!.map((output) => json(output.bytes));
+    for (const [output, parsed] of plan.outputs!.map((o, i) => [o, [en, de, fr][i]] as const)) {
+      expect(parsed.languages).toEqual(output.languages);
+      expect(Object.keys(parsed.perks)).toEqual(['100', '102']);
+      expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(output.expanded));
+      expect(() => validateV1(parsed)).not.toThrow();
+    }
+    expect(plan.bytes).toEqual(plan.outputs![0]!.bytes);
+    // Own translation.
+    expect(de.perks[100].edited).toEqual({ de: { at: at(day + 1000) } });
+    expect(JSON.stringify(de.descriptions[de.perks[100].description])).toContain('Verben');
+    // No German text: the English text stands in, under `de`, with its English edit time.
+    expect(de.perks[102].edited).toEqual({ en: { at: at(day) } });
+    expect(de.descriptions[de.perks[102].description]).toEqual({
+      de: [{ parts: [{ text: 'Verb two' }] }],
+    });
+    // The 90-day English fallback is English text too: edited.en.
+    expect(fr.perks[100].edited).toEqual({ en: { at: at(day) } });
+    expect(JSON.stringify(fr.descriptions[fr.perks[100].description])).toContain('Exotic');
+    // A language without a single translation is still a complete file.
+    const ja = build({ languages: ['ja'], languageFiles: 'perLanguage' });
+    expect(Object.keys(ja.file!.perks)).toEqual(['100', '102']);
+    expect(ja.file!.languages).toEqual(['ja']);
+  });
+
+  test('URLs: one per file, or one per language in a folder; legacy files hold every language', () => {
+    const split = file({ languages: ['de', 'en'], languageFiles: 'perLanguage' });
+    expect(filePath('p', split)).toBe('p/v1/main');
+    expect(fileUrls('p', split)).toEqual([
+      { path: 'p/v1/main/en.json', languages: ['en'] },
+      { path: 'p/v1/main/de.json', languages: ['de'] },
+    ]);
+    const combined = file({ languages: ['de', 'en'] });
+    expect(fileUrls('p', combined)).toEqual([{ path: 'p/v1/main.json', languages: ['en', 'de'] }]);
+    const legacy = fileUrls('p', { id: 'old', formatVersion: 1, preset: 'dim' });
+    expect(legacy).toEqual([{ path: 'p/v1/old.json', languages: [...exportLanguages] }]);
   });
 });
 
@@ -456,25 +579,21 @@ describe('styles and symbol transforms (AC3)', () => {
     const plan = sample('structured');
     expect(text(plan, 100)).toEqual([
       {
-        linesContent: [
+        parts: [
           { text: 'Exotic ' },
-          { classNames: ['arc'] },
+          { icon: 'arc' },
           { text: 'uses 5 ' },
-          { text: 'verbs', classNames: ['bold'] },
+          { text: 'verbs', style: ['bold'] },
         ],
       },
     ]);
     expect(text(plan, 300)).toEqual([
       {
-        linesContent: [
+        parts: [
           { text: 'Frame ' },
-          { text: 'Docs', link: 'https://x.example', classNames: ['link'] },
+          { text: 'Docs', link: 'https://x.example' },
           { text: ' ' },
-          {
-            text: 'Help',
-            title: [{ linesContent: [{ text: 'Help text' }] }],
-            classNames: ['title'],
-          },
+          { text: 'Help', note: [{ parts: [{ text: 'Help text' }] }] },
         ],
       },
     ]);
@@ -628,7 +747,11 @@ describe('determinism and real data', () => {
     ).toString('utf8'),
   ) as Catalog;
   const { input, identical } = editorDataInput();
-  const everything = (style: (typeof styles)[number], shape?: 'lines' | 'text') =>
+  const everything = (
+    style: (typeof styles)[number],
+    shape?: 'lines' | 'text',
+    languageFiles: LanguageFiles = 'combined',
+  ) =>
     newStyleFile(
       'all',
       style,
@@ -651,16 +774,8 @@ describe('determinism and real data', () => {
           'zh-cht',
           'zh-chs',
         ],
-        keys: [
-          'name',
-          'itemHash',
-          'itemName',
-          'type',
-          'lastUpload',
-          'uploadedBy',
-          'updateTracker',
-          'associated',
-        ],
+        keys: [...itemKeys],
+        languageFiles,
         bungieIdentical: false,
       },
       shape,
@@ -685,13 +800,48 @@ describe('determinism and real data', () => {
       expect(() => validateV1(parsed)).not.toThrow();
       // String comparisons: deep equality on thousands of items is slow.
       expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(plan.expanded));
-      expect(Object.keys(parsed.items).length).toBeGreaterThan(2000);
+      expect(Object.keys(parsed.perks).length).toBeGreaterThan(2000);
       expect(decoder.decode(plan.bytes)).not.toContain('{{');
       expect(
         sha256(compile(input, everything(style, shape), { catalog: realCatalog, identical }).bytes),
       ).toBe(sha256(plan.bytes));
     },
     60_000,
+  );
+
+  test.each(['structured', 'markdown'] as const)(
+    'editor data, %s, 13 languages, one file per language: complete files that round-trip',
+    (style) => {
+      const plan = compile(input, everything(style, undefined, 'perLanguage'), {
+        catalog: realCatalog,
+        identical,
+      });
+      expect(plan.outputs!.map((output) => output.languages[0])).toEqual([...exportLanguages]);
+      const english = plan.outputs![0]!;
+      const hashes = Object.keys(english.file.perks);
+      expect(hashes.length).toBeGreaterThan(2000);
+      for (const output of plan.outputs!) {
+        const parsed = json(output.bytes);
+        expect(() => validateV1(parsed)).not.toThrow();
+        expect(parsed.languages).toEqual(output.languages);
+        expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(output.expanded));
+        // Every perk, in every language (the data has no translations yet: English stands in).
+        expect(Object.keys(parsed.perks)).toEqual(hashes);
+        const [language] = output.languages;
+        for (const hash of hashes)
+          expect(parsed.descriptions[parsed.perks[hash].description][language!]).toEqual(
+            english.expanded[hash]!.descriptions.en,
+          );
+        // English stand-ins carry English edit times.
+        const editedLanguages = new Set(
+          Object.values(parsed.perks).flatMap((perk) =>
+            Object.keys((perk as { edited?: object }).edited ?? {}),
+          ),
+        );
+        expect([...editedLanguages]).toEqual(['en']);
+      }
+    },
+    120_000,
   );
 
   test('the published input (i) builds every style as well', () => {
@@ -738,17 +888,72 @@ describe('determinism and real data', () => {
 });
 
 describe('project index and legacy bytes', () => {
-  test('index.json lists published URLs only', () => {
+  test('index.json lists published URLs only, one entry per URL', () => {
     const config = configSchema.parse(validConfig());
-    const numbers = {
+    const numbers = (outcome: 'built' | 'carried' | 'frozen') => ({
       sha256: 'a'.repeat(64),
       bytes: 10,
       lastUpdate: '2026-11-11T00:00:00Z',
-      outcome: 'built' as const,
-    };
-    const index = projectIndex(config, { 'dim/v1/main.json': numbers });
+      outcome,
+    });
+    const entry = { sha256: 'a'.repeat(64), bytes: 10, updatedAt: '2026-11-11T00:00:00Z' };
+    const index = projectIndex(config, { 'dim/v1/main.json': numbers('built') });
     expect(index.files).toEqual([
-      { id: 'main', formatVersion: 1, path: 'dim/v1/main.json', ...numbers },
+      {
+        id: 'main',
+        format: 1,
+        path: 'dim/v1/main.json',
+        languages: ['en'],
+        ...entry,
+        status: 'current',
+      },
+    ]);
+    // A file split per language, a legacy file, and a retained URL.
+    const split = structuredClone(config);
+    const main = split.files[0] as StyleFile;
+    main.data = { ...main.data, languages: ['en', 'de'], languageFiles: 'perLanguage' };
+    split.retained = [
+      {
+        path: 'dim/v1/old.json',
+        uid: 'uidold00',
+        formatVersion: 1,
+        snapshot: { id: 'old', formatVersion: 1, preset: 'dim' },
+        until: '2027-02-11T00:00:00.000Z',
+      },
+    ];
+    const built = projectIndex(configSchema.parse(split), {
+      'dim/v1/main/en.json': numbers('built'),
+      'dim/v1/main/de.json': numbers('carried'),
+      'dim/v1/legacy.json': numbers('built'),
+      'dim/v1/old.json': numbers('frozen'),
+    });
+    expect(
+      built.files.map(({ path, languages, status, updatesUntil }) => ({
+        path,
+        languages,
+        status,
+        updatesUntil,
+      })),
+    ).toEqual([
+      {
+        path: 'dim/v1/main/en.json',
+        languages: ['en'],
+        status: 'current',
+        updatesUntil: undefined,
+      },
+      { path: 'dim/v1/main/de.json', languages: ['de'], status: 'stale', updatesUntil: undefined },
+      {
+        path: 'dim/v1/legacy.json',
+        languages: [...exportLanguages],
+        status: 'current',
+        updatesUntil: undefined,
+      },
+      {
+        path: 'dim/v1/old.json',
+        languages: [...exportLanguages],
+        status: 'frozen',
+        updatesUntil: '2027-02-11T00:00:00.000Z',
+      },
     ]);
   });
 });
@@ -899,7 +1104,7 @@ describe('review fixes', () => {
     const parsed = parseMarkup('<bold/>damage').lines;
     expect(transform(parsed, styleFormats.markdown, 'text', emptyNotes())).toBe('**damage**');
     expect(transform(parsed, styleFormats.structured, 'lines', emptyNotes())).toEqual([
-      { classNames: ['bold'], linesContent: [{ text: 'damage' }] },
+      { style: ['bold'], parts: [{ text: 'damage' }] },
     ]);
     expect(transform(parsed, styleFormats.plain, 'text', emptyNotes())).toBe('damage');
   });
@@ -916,13 +1121,13 @@ describe('review fixes', () => {
       transform(parsed, { ...styleFormats.structured, titles: inline }, 'lines', emptyNotes()),
     ).toEqual([
       {
-        linesContent: [
+        parts: [
           { text: 'Label (Body ' },
-          { classNames: ['arc'] },
+          { icon: 'arc' },
           { text: ' plus ' },
-          { text: 'strength', classNames: ['bold'] },
+          { text: 'strength', style: ['bold'] },
           { text: ' ' },
-          { text: 'Second', classNames: ['yellow'] },
+          { text: 'Second', style: ['yellow'] },
           { text: ')' },
         ],
       },

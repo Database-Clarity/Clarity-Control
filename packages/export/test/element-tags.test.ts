@@ -111,7 +111,8 @@ describe('configured files (custom-export compiler) from tagged input', () => {
       sandboxPerks: realCatalog.categories.map((c) => c.id),
       frameAliases: true,
       languages: ['en', 'de', 'fr', 'ja'],
-      keys: ['name', 'associated'],
+      keys: ['name', 'related'],
+      languageFiles: 'combined',
       bungieIdentical: false,
     });
 

@@ -82,13 +82,17 @@ export const styleFormats: Record<Style, FileFormat> = {
   },
 };
 
-/** Data defaults of a new file: English, only `name`, no categories until chosen. */
+/**
+ * Data defaults of a new file: English in one combined file, `name` and `edited` (the last edit
+ * time per language; the editor's name is opt-in), no categories until chosen.
+ */
 export const defaultData = (): FileData => ({
   categories: [],
   sandboxPerks: [],
   frameAliases: true,
   languages: ['en'],
-  keys: ['name'],
+  languageFiles: 'combined',
+  keys: ['name', 'edited'],
   bungieIdentical: false,
 });
 

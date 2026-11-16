@@ -56,7 +56,7 @@ for (const style of styles) {
     expect(Object.keys(plan.expanded!)).toEqual(['100', showcaseId]);
     expect(plan.expanded![showcaseId].descriptions).toEqual(plan.expanded!['100'].descriptions);
     if (style === 'structured')
-      expect(JSON.stringify(plan.expanded![showcaseId].descriptions).includes('elementText')).toBe(elementTags);
+      expect(JSON.stringify(plan.expanded![showcaseId].descriptions).includes('"element":')).toBe(elementTags);
   });
   test(`${style}: opt-in adds exactly one reserved entry, with fixed output bytes`, async () => {
     const file = newStyleFile('example', style);

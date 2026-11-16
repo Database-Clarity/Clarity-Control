@@ -12,12 +12,13 @@ import { permissionsSchema, type Permissions } from '@clarity/core';
 import {
   configLimits,
   configSchema,
+  filePath,
+  fileUrls,
   immutableChanges,
   isLegacyFile,
   isValidId,
   migrateConfig,
   type ExportConfig,
-  type ExportFile,
 } from '@clarity/export/config';
 import { blobContent, blobSha, RefRace, type ExportsSnapshot, type GitHub } from './github.js';
 import { body, HttpError, json, upstreamJson } from './http.js';
@@ -77,6 +78,7 @@ function warmSchemas(): void {
       frameAliases: false,
       languages: ['en'],
       keys: ['name'],
+      languageFiles: 'combined',
       bungieIdentical: false,
     },
     format: {
@@ -111,9 +113,6 @@ function warmSchemas(): void {
   createSchema.safeParse({ config: {} });
 }
 warmSchemas();
-/** Same as the engine's `<project>/v<format>/<file>.json` (config.ts and project.ts). */
-const urlPath = (project: string, file: Pick<ExportFile, 'id' | 'formatVersion'>) =>
-  `${project}/v${file.formatVersion}/${file.id}.json`;
 
 function projectParam(raw: string): string {
   if (!isValidId(raw)) throw new HttpError(404, 'Export project not found');
@@ -210,9 +209,9 @@ export function planRetained(
   let retained = [...(next.retained ?? [])];
   for (const file of previous.files) {
     if (!file.uid) continue;
-    const path = urlPath(previous.id, file);
+    const path = filePath(previous.id, file);
     const after = nextByUid.get(file.uid);
-    if (after && urlPath(next.id, after) === path) continue;
+    if (after && filePath(next.id, after) === path) continue;
     if (retained.some((entry) => entry.path === path)) continue;
     retained.push({
       path,
@@ -222,7 +221,7 @@ export function planRetained(
       until,
     });
   }
-  const active = new Set(next.files.map((file) => `${file.uid}\n${urlPath(next.id, file)}`));
+  const active = new Set(next.files.map((file) => `${file.uid}\n${filePath(next.id, file)}`));
   retained = retained.filter((entry) => !active.has(`${entry.uid}\n${entry.path}`));
   const problems: string[] = [];
   const windows = (list: Retained[]) =>
@@ -246,7 +245,7 @@ export function planRetained(
   if (slots > configLimits.urlSlots)
     problems.push(
       `At most ${configLimits.urlSlots} URLs per project; this save needs ${slots}: ${next.files
-        .map((file) => urlPath(next.id, file))
+        .map((file) => filePath(next.id, file))
         .join(', ')}${retained.length ? `, retained ${windows(retained)}` : ''}`,
     );
   return { retained, problems };
@@ -537,10 +536,10 @@ export async function deleteProject(
     let urls: string[] = [];
     try {
       const config = stored(snapshot.config, id);
-      urls = [
-        ...config.files.map((file) => urlPath(id, file)),
-        ...(config.retained ?? []).map((entry) => entry.path),
-      ];
+      // Every URL, so a file split per language lists each of its languages.
+      urls = [...config.files, ...(config.retained ?? []).map((entry) => entry.snapshot)]
+        .flatMap((file) => fileUrls(id, file))
+        .map((url) => url.path);
     } catch (error) {
       // An unreadable config can still be deleted; it names no URLs we could list.
       if (!(error instanceof HttpError)) throw error;

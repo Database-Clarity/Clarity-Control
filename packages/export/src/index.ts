@@ -38,18 +38,23 @@ export {
   type CompileOptions,
   type CompileStage,
   type Descriptions,
+  type Edited,
   type ExpandedItem,
   type FormatV1File,
   type Notice,
+  type PerkKeys,
   type Plan,
+  type PlanOutput,
 } from './v1/compile.js';
 export { defaultData, newStyleFile, styleFormats, styleShapes } from './v1/styles.js';
-export type { OutLine, OutSpan } from './v1/transform.js';
+export type { Line, OutLine, OutSpan, Part } from './v1/transform.js';
 export {
-  filePath,
+  fileStatus,
   projectIndex,
+  type BuiltUrl,
   type FileNotice,
   type FileOutcome,
+  type FileStatus,
   type IndexFile,
   type ProjectIndex,
 } from './v1/project.js';

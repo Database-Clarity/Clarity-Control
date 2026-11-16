@@ -92,11 +92,13 @@ with the strict schema from `@clarity/export/config`:
 
 ```ts
 import { configSchema, migrateConfig } from '@clarity/export/config';
-import { compile, newStyleFile } from '@clarity/export';
+import { compile, fileUrls } from '@clarity/export';
 
 const config = migrateConfig(storedJson); // older schemas are brought up to date, then checked
-const plan = compile(input, config.files[0], { catalog, identical });
-write(`${config.id}/v1/${config.files[0].id}.json`, plan.bytes);
+const file = config.files[0];
+const plan = compile(input, file, { catalog, identical });
+// One URL, or one per language (`fileUrls` lists them in the order of `plan.outputs`).
+fileUrls(config.id, file).forEach((url, i) => write(url.path, plan.outputs[i].bytes));
 ```
 
 - **`configSchema`** refuses unknown keys everywhere, ids that are not path-safe (2 to 32 of
@@ -113,10 +115,18 @@ write(`${config.id}/v1/${config.files[0].id}.json`, plan.bytes);
 ### What a file can choose
 
 - **Data**: item categories, sandbox perks per item category (a sandbox perk belongs to the
-  category of the item it is a perk of), frame aliases, languages, keys (`name`, `itemHash`,
-  `itemName`, `type`, `lastUpload`, `uploadedBy`, `updateTracker`, `associated`), and whether
-  tooltips equal to Bungie's own text are included. Nothing is in a file until it is chosen.
-- **Shape**: `lines` (spans with class names, links, and titles) or `text` (one string per
+  category of the item it is a perk of), frame aliases, languages, keys, and whether tooltips
+  equal to Bungie's own text are included. Nothing is in a file until it is chosen. Keys:
+  `name`, `itemHash`, `itemName` (the weapon or armor the perk belongs to), `category` (the
+  category id), `edited` (`edited.<lang>.at`, when the text was last edited), `editedBy` (adds
+  `edited.<lang>.by`, the editor's name), and `related`. A new file has `name` and `edited`.
+- **Language files** (`data.languageFiles`): `combined` (the default) writes one file with every
+  chosen language at `<project>/v1/<file>.json`; `perLanguage` writes one file per language at
+  `<project>/v1/<file>/<lang>.json`. A per-language file is complete: a perk without text in that
+  language, or whose translation is more than 90 days behind its English text, carries the
+  English text under that language and `edited.en` instead of `edited.<lang>`. A file counts
+  once toward the 3 files and the 6 URL slots, whatever its languages.
+- **Shape**: `lines` (parts with icons, styles, links, and notes) or `text` (one string per
   language).
 - **Symbols**: each of the 16 icons, the enhanced arrow, bold, yellow, PvE, PvP, and element
   text is kept (lines only), dropped (its text stays), or replaced with text before and after.
@@ -137,9 +147,9 @@ write(`${config.id}/v1/${config.files[0].id}.json`, plan.bytes);
    left out: hashes below 50, an empty English text, and a tooltip with nothing visible.
    A tooltip with no catalog item is left out and listed in a notice.
 3. **Keys**: only the chosen ones.
-4. **References**: an `associated` hash that is not in the file is removed.
+4. **References**: a `related` hash that is not in the file is removed.
 5. **Symbols**, as chosen above. Tables (retired, none in today's data) are not written.
-6. **Encoding** (format v1, below).
+6. **Encoding** (format v1, below): one output, or one per language.
 7. **Bytes**: minified JSON, after checking that every reference resolves.
 
 Legacy presets skip steps 3, 5, and 6 and build exactly as before. They refuse base/enhanced
@@ -148,21 +158,43 @@ pairs until the owner decides what the old files show for them.
 ### Format v1
 
 ```json
-{ "texts": [{ "en": "Damage +10%" }], "items": { "123": { "name": "Perk", "t": 0 } } }
+{
+  "format": 1,
+  "shape": "lines",
+  "languages": ["en"],
+  "descriptions": [{ "en": [{ "parts": [{ "text": "Picking up a " }, { "icon": "heavy" }] }] }],
+  "perks": {
+    "123": {
+      "name": "Perk",
+      "category": "weapon-trait-exotic",
+      "edited": { "en": { "at": "2026-01-01T19:29:14.769Z" } },
+      "description": 0
+    }
+  }
+}
 ```
 
-Each distinct description is stored once in `texts`; an item points at its text by index `t`.
-An alias, a sandbox perk, or any tooltip with the same text shares that one entry. To get the
-older per-hash shape (`{ "123": { "hash": 123, "name": "Perk", "descriptions": { ... } } }`),
-copy `decoder/decode-v1.mjs` (about 20 lines, plain JavaScript) into your app:
+The header names the format, the shape, and the languages the file holds. Each distinct
+description is stored once in `descriptions`; a perk points at its one by index `description`.
+An alias, a sandbox perk, or any tooltip with the same text shares that one entry. In the lines
+shape a description is a list of lines; a line is `{ "spacer": true }` or `{ "parts": [...] }`
+with an optional `style`. A part is one of: `{ "icon": "heavy" }` (the 16 icons, `arrow`, and
+`enhancedArrow`, which keeps its glyph as `text`), or `{ "text": "..." }` with an optional
+`style` (`bold`, `yellow`, `pve`, `pvp`), `element` (`"solar"`, tagged element text), `link`
+(a URL), or `note` (the hover explanation, itself a list of lines). To get the older per-hash
+shape (`{ "123": { "hash": 123, "name": "Perk", "descriptions": { ... } } }`), copy
+`decoder/decode-v1.mjs` (about 25 lines, plain JavaScript) into your app:
 
 ```js
 import { decodeV1 } from './decode-v1.mjs';
-const items = decodeV1(await (await fetch(url)).json());
+const perks = decodeV1(await (await fetch(url)).json());
 ```
 
-Apps can poll `/<project>/index.json` (`projectIndex`), about 1 KB, which lists each file's
-sha256, size, and last update, and download a file only when its sha256 changes.
+Apps can poll `/<project>/index.json` (`projectIndex`), about 1 KB, which lists one entry per URL:
+`id`, `format`, `path`, `languages`, `sha256`, `bytes`, `updatedAt`, `status` (`current`;
+`stale`: the last build failed and the previous bytes stay; `frozen`), and `updatesUntil` on a
+retained old URL. An app finds its entry by file id and language and downloads only when that
+URL's sha256 changes. Legacy files list all 13 languages.
 
 ## Building the site and the old URLs
 

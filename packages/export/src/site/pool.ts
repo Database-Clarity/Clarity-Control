@@ -20,15 +20,26 @@ export type ChildInit = {
 export type BuildJob = {
   key: string;
   projectId: string;
-  /** Site path, `<project>/v<format>/<file>.json`. */
-  path: string;
+  /** The file's URLs (engine fileUrls): one, or one per language. */
+  urls: { path: string; languages: string[] }[];
   file: ExportFile;
+  /** Output `i` (URL `urls[i]`) is written to `<outPath>.<i>`. */
   outPath: string;
+  /** Limit per URL. */
   maxBytes: number;
 };
 
+/** One built URL. */
+export type BuiltOutput = {
+  path: string;
+  outPath: string;
+  sha256: string;
+  bytes: number;
+  markers: string[];
+};
+
 export type BuildResult =
-  | { key: string; ok: true; sha256: string; bytes: number; markers: string[]; notices: unknown[] }
+  | { key: string; ok: true; outputs: BuiltOutput[]; notices: unknown[] }
   | { key: string; ok: false; error: string; reason: 'failed' | 'invalid' | 'timeout' | 'crashed' };
 
 // --- child side -------------------------------------------------------------------------------
@@ -56,34 +67,52 @@ export async function childMain() {
   });
 
   function buildOne(job: BuildJob): BuildResult {
-    let bytes: Uint8Array;
+    let outputs: { languages?: readonly string[]; bytes: Uint8Array }[];
     let notices: unknown[];
     try {
       const plan = engine!.compile(input!, job.file, options!);
-      bytes = plan.bytes;
+      outputs = plan.outputs ?? [{ bytes: plan.bytes }];
       notices = plan.notices;
     } catch (error) {
       return { key: job.key, ok: false, reason: 'failed', error: messageOf(error) };
     }
     // Output validation, inside the isolation (spec section 3, re-check F1).
     try {
-      if (
-        !job.path.startsWith(`${job.projectId}/`) ||
-        job.path.split('/').some((part) => part === '..' || part === '' || part === '.')
-      )
-        throw new Error(`Path ${job.path} is outside project ${job.projectId}`);
-      if (bytes.byteLength > job.maxBytes)
-        throw new Error(`${bytes.byteLength} bytes is over the ${job.maxBytes}-byte limit`);
-      const parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
-      if (!engine!.isLegacyFile(job.file)) engine!.validateV1(parsed as Engine.FormatV1File);
-      const markers = engine!.markerSet(parsed, engine!.outputTokens(job.file));
-      writeFileSync(job.outPath, bytes);
+      if (outputs.length !== job.urls.length)
+        throw new Error(`${outputs.length} outputs for ${job.urls.length} URLs`);
+      const built = job.urls.map((url, index) => {
+        const { languages, bytes } = outputs[index]!;
+        if (languages && languages.join() !== url.languages.join())
+          throw new Error(`Output ${index} holds ${languages.join()}, not ${url.languages.join()}`);
+        if (
+          !url.path.startsWith(`${job.projectId}/`) ||
+          url.path.split('/').some((part) => part === '..' || part === '' || part === '.')
+        )
+          throw new Error(`Path ${url.path} is outside project ${job.projectId}`);
+        if (bytes.byteLength > job.maxBytes)
+          throw new Error(
+            `${url.path}: ${bytes.byteLength} bytes is over the ${job.maxBytes}-byte limit`,
+          );
+        const parsed = JSON.parse(
+          new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+        ) as unknown;
+        if (!engine!.isLegacyFile(job.file)) engine!.validateV1(parsed as Engine.FormatV1File);
+        return {
+          path: url.path,
+          outPath: `${job.outPath}.${index}`,
+          bytes,
+          markers: engine!.markerSet(parsed, engine!.outputTokens(job.file)),
+        };
+      });
+      for (const output of built) writeFileSync(output.outPath, output.bytes);
       return {
         key: job.key,
         ok: true,
-        sha256: sha256(bytes),
-        bytes: bytes.byteLength,
-        markers,
+        outputs: built.map(({ bytes, ...output }) => ({
+          ...output,
+          sha256: sha256(bytes),
+          bytes: bytes.byteLength,
+        })),
         notices,
       };
     } catch (error) {
