@@ -154,7 +154,8 @@ export function ReviewPage() {
     };
   }, []);
   const [error, setError] = useState<string>();
-  const [message, setMessage] = useState<string>();
+  // The bar's status line, for the change it is about; gone once the ticks are reset.
+  const [message, setMessage] = useState<{ text: string; hash: number; included?: boolean }>();
   const [decisions, setDecisions] = useState<Decision[]>([]);
   useEffect(() => {
     let active = true;
@@ -165,6 +166,7 @@ export function ReviewPage() {
       setComparing(false);
       clearSelection();
       setDecisions([]);
+      setMessage(undefined);
       return;
     }
     const markers = acknowledgedMarkers(data);
@@ -174,6 +176,7 @@ export function ReviewPage() {
       setComparing(false);
       clearSelection();
       setDecisions([]);
+      setMessage(undefined);
       return;
     }
     setComparing(true);
@@ -185,6 +188,7 @@ export function ReviewPage() {
         // there may carry over to saved text nobody has looked at.
         clearSelection();
         setDecisions([]);
+        setMessage(undefined);
         setComparing(false);
       },
       (reason: unknown) => {
@@ -275,6 +279,7 @@ export function ReviewPage() {
   useEffect(() => {
     clearSelection();
     setDecisions([]);
+    setMessage(undefined);
   }, [user, clearSelection]);
   // Review's own readiness mark (the shared perf harness): the first frame after the page painted.
   useEffect(() => {
@@ -333,7 +338,11 @@ export function ReviewPage() {
     const hash = current.tooltip.hash;
     setDecisions((stack) => [...stack.slice(-49), { hash, was: included }]);
     setIncluded(hash, !included);
-    setMessage(`${current.name}: ${included ? 'removed from' : 'included in'} the publish.`);
+    setMessage({
+      text: `${current.name}: ${included ? 'removed from' : 'included in'} the publish.`,
+      hash,
+      included: !included,
+    });
     advance(included ? 'Removed' : 'Included');
   };
   const skip = () => {
@@ -348,7 +357,10 @@ export function ReviewPage() {
     setDecisions((stack) => stack.slice(0, -1));
     setIncluded(last.hash, last.was);
     const entry = list.find(({ tooltip }) => tooltip.hash === last.hash);
-    setMessage(entry ? `${entry.name}: undone.` : 'Last decision undone.');
+    setMessage({
+      text: entry ? `${entry.name}: undone.` : 'Last decision undone.',
+      hash: last.hash,
+    });
     if (ordered.some(({ tooltip }) => tooltip.hash === last.hash)) selectHash(last.hash);
   };
   // A new open change (list, URL, Back) ends a pause without moving again.
@@ -454,6 +466,7 @@ export function ReviewPage() {
     if (succeeded && mounted.current) {
       clearSelection();
       setDecisions([]);
+      setMessage(undefined);
     }
   }
 
@@ -497,7 +510,11 @@ export function ReviewPage() {
     );
 
   const restore = current && (
-    <RestoreLive entry={current} published={currentPublished} onDone={setMessage} />
+    <RestoreLive
+      entry={current}
+      published={currentPublished}
+      onDone={(text) => setMessage({ text, hash: current.tooltip.hash })}
+    />
   );
   return (
     <article ref={article} aria-busy={!entries} className={styles.page}>
@@ -702,7 +719,7 @@ export function ReviewPage() {
               )
             )}
             <span className="sr-only" role="status">
-              {message}
+              {message?.text}
             </span>
             {/* The phone bar keeps its four buttons; the pause shows as the line above them. */}
             {!phone && (
@@ -712,7 +729,10 @@ export function ReviewPage() {
                     {pause.verb}. Next: <strong>{pause.next?.name}</strong> · Esc to stay
                   </span>
                 ) : (
-                  message && <span className={styles.next}>{message}</span>
+                  message?.hash === current.tooltip.hash &&
+                  (message.included === undefined || message.included === included) && (
+                    <span className={styles.next}>{message.text}</span>
+                  )
                 )}
                 {restore}
               </span>

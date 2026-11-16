@@ -23,7 +23,8 @@
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  // The kind select shows its whole value ("No visible change (6)"); Find takes the rest.
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.25rem;
   flex: none;
 
@@ -303,31 +304,35 @@
   }
 }
 
-// A narrow column (768 px windows, large interface scales) gives the room to the names: the
-// editor link shows on the open row, on hover, and on keyboard focus (it stays in the Tab order).
+// A narrow column (768 px windows, large interface scales) gives the room to the names: each row
+// takes two lines (name, then its word) and the filters stack. The virtual list reads the taller
+// row from .rowSizer.
 @container review-list (max-width: 17rem) {
-  @media (hover: hover) {
-    .row:not([data-current], :hover) .edit:not(:focus-visible) {
-      width: 0;
-      overflow: hidden;
-    }
-  }
-
   .findKey {
     display: none;
   }
 
-  // The name goes first; a long word gives way (the row's label and title keep it whole).
+  .filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rowSizer {
+    height: 2.75rem;
+  }
+
+  .row a {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 0;
+  }
+
   .row a > span:first-child {
-    flex: 1 0 55%;
+    flex: none;
   }
 
   .kind {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1rem;
   }
 
   .find input {

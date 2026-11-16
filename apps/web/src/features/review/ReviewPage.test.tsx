@@ -1186,6 +1186,13 @@ it('Refresh keeps the list, the open change, and every row word on screen while 
   await mount();
   const word = () => host.querySelector('a[data-review-hash="10"] small')?.textContent;
   await waitFor(() => expect(word()).toBe('Text changed'));
+  const bar = () => host.querySelector('footer[aria-label="Decide"]')?.textContent ?? '';
+  await act(async () => {
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+  });
+  expect(bar()).toContain('Tooltip 10: included in the publish.');
   await act(async () => button('Refresh').click());
   // Mid-reload: nothing is torn down and the button says what is happening.
   expect(button('Refreshing…').disabled).toBe(true);
@@ -1198,6 +1205,9 @@ it('Refresh keeps the list, the open change, and every row word on screen while 
   await waitFor(() => expect(button('Refresh').disabled).toBe(false));
   // The reloaded snapshot (new objects, same text) keeps its word without blanking.
   expect(word()).toBe('Text changed');
+  // Its ticks start empty, and the bar no longer claims the change is included.
+  expect(counts()[1]).toBe(0);
+  expect(bar()).not.toContain('included in the publish');
   expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
     'Text changed',
   );
