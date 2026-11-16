@@ -31589,6 +31589,8 @@ var PreparationRejected = class extends Error {
   }
   details;
 };
+var ProposalRejected = class extends PreparationRejected {
+};
 var SCHEDULE_GLOBALS_UNSUPPORTED = "Scheduled publication does not support globals yet";
 var saveInput = external_exports.object({
   requestId: external_exports.string(),
@@ -31610,7 +31612,7 @@ var SchedulePreparer = class {
   access(tree, id) {
     const access = permissionsSchema.parse(this.pub.read(tree, "config/permissions.json")).users[String(id)];
     if (!access || !["maintainer", "editor", "translator"].includes(access.role))
-      reject("Requester revoked");
+      throw new ProposalRejected("Requester revoked");
     return access;
   }
   pin(tree) {
@@ -31623,21 +31625,24 @@ var SchedulePreparer = class {
   validateSave(tree, checked) {
     const { intent, batch, members: members3 } = checked;
     if (intent.kind !== "save") return reject("Expected a signed save");
-    const input2 = saveInput.parse(checked.input);
+    const inputResult = saveInput.safeParse(checked.input);
+    if (!inputResult.success) throw new ProposalRejected("Invalid batch save proposal");
+    const input2 = inputResult.data;
     const access = this.access(tree, intent.requester.id);
     const own2 = new Set(members3.map((m) => m.hash));
     const adds = input2.changes.filter((c) => !own2.has(c.hash));
     if (intent.returnStatus === "scheduled" && input2.changes.length > scheduledSaveChangeCap)
-      reject("Too many scheduled save changes");
+      throw new ProposalRejected("Too many scheduled save changes");
     if (adds.length && (access.role === "translator" || batch.status !== "draft"))
-      reject("Unschedule to add batch members");
-    if (own2.size + adds.length > memberCap) reject("Too many batch members");
+      throw new ProposalRejected("Unschedule to add batch members");
+    if (own2.size + adds.length > memberCap) throw new ProposalRejected("Too many batch members");
     const aliases = this.pub.aliasesAt(tree);
     for (const { hash: hash2 } of input2.changes) {
-      if (resolveAlias(hash2, aliases) !== hash2) reject(`Tooltip ${hash2} is an alias`);
+      if (resolveAlias(hash2, aliases) !== hash2)
+        throw new ProposalRejected(`Tooltip ${hash2} is an alias`);
       for (const other of this.batches(tree)) {
         if (other.id !== batch.id && isOpenStatus(other.status) && tree[schedulePaths.member(other.id, hash2)])
-          reject(`Tooltip ${hash2} already belongs to open batch ${other.id}`);
+          throw new ProposalRejected(`Tooltip ${hash2} already belongs to open batch ${other.id}`);
       }
     }
     const scheduled = batch.status === "scheduled";
@@ -31651,25 +31656,34 @@ var SchedulePreparer = class {
       ...input2.changes.map(({ hash: hash2 }) => this.file(tree, `tooltips/${hash2}.json`)),
       ...scheduled ? input2.changes.map(({ hash: hash2 }) => this.file(tree, `live/tooltips/${hash2}.json`)) : []
     ];
-    const result = validateBatchSave({
-      batch,
-      batchId: batch.id,
-      input: input2,
-      own: own2,
-      files,
-      ...scheduled ? {
-        pushed: new Set(
-          Object.keys(pushedSchema.parse(this.pub.read(tree, "live/pushed.json"))).map(Number)
-        )
-      } : {},
-      pin: { value: this.pin(tree) },
-      access,
-      now: iso(this.pub.options.now()),
-      user: intent.requester,
-      head: intent.sourceCommit
-    });
+    let result;
+    try {
+      result = validateBatchSave({
+        batch,
+        batchId: batch.id,
+        input: input2,
+        own: own2,
+        files,
+        ...scheduled ? {
+          pushed: new Set(
+            Object.keys(pushedSchema.parse(this.pub.read(tree, "live/pushed.json"))).map(
+              Number
+            )
+          )
+        } : {},
+        pin: { value: this.pin(tree) },
+        access,
+        now: iso(this.pub.options.now()),
+        user: intent.requester,
+        head: intent.sourceCommit
+      });
+    } catch (error62) {
+      if (error62 instanceof HttpError && error62.status < 500)
+        throw new ProposalRejected(error62.message, error62.details);
+      throw error62;
+    }
     if (result.conflicts.length)
-      throw new PreparationRejected("Conflicting batch save", result.conflicts);
+      throw new ProposalRejected("Conflicting batch save", result.conflicts);
     return result;
   }
   batches(tree) {
@@ -31687,7 +31701,16 @@ var SchedulePreparer = class {
       notBefore: b.notBefore,
       opId: b.opId,
       revision: b.revision,
-      hashes: batchMembers(this.pub, tree, b.id).map((m) => m.hash),
+      // Advisory membership comes from names, not member bodies that validation may
+      // just have rejected. Failure outcomes must still be able to commit.
+      hashes: Object.keys(tree).flatMap((path) => {
+        const prefix = `schedule/batches/${b.id}/tooltips/`;
+        if (!path.startsWith(prefix)) return [];
+        const name2 = path.slice(prefix.length);
+        if (!/^(0|[1-9]\d*)\.json$/.test(name2)) return [];
+        const hash2 = hashSchema.safeParse(Number(name2.slice(0, -5)));
+        return hash2.success ? [hash2.data] : [];
+      }).sort((a, b2) => a - b2),
       updatedAt: b.events.at(-1)?.at ?? b.createdAt
     }));
     if (!entries.length && !tree[schedulePaths.index]) return;
@@ -31841,23 +31864,27 @@ var SchedulePreparer = class {
         }
       })
     );
-    if (scheduled) this.due(tree, updated);
+    this.refreshDue(tree);
   }
-  due(tree, batch) {
-    const due = dueSchema.parse(this.pub.read(tree, schedulePaths.due) ?? { entries: [] });
+  /** due is only a trigger: derive it from the authoritative states after materialization. */
+  refreshDue(tree) {
     tree[schedulePaths.due] = this.pub.writeBlob(
       json2(
         dueSchema.parse({
-          entries: [
-            ...due.entries.filter((e) => e.batchId !== batch.id && e.opId !== batch.opId),
-            { batchId: batch.id, opId: batch.opId, notBefore: batch.notBefore, claimed: false }
-          ]
+          entries: this.batches(tree).filter(
+            (batch) => batch.opId && batch.notBefore && (batch.status === "scheduled" || batch.status === "publishing" || batch.status === "preparing" && batch.preparation?.returnStatus === "scheduled")
+          ).map((batch) => ({
+            batchId: batch.id,
+            opId: batch.opId,
+            notBefore: batch.notBefore,
+            claimed: batch.claim?.opId === batch.opId
+          }))
         })
       )
     );
   }
   async failure(tree, batch, request, error62, checked) {
-    const semantic = error62 instanceof PreparationRejected || error62 instanceof InvalidScheduleIntent || error62 instanceof external_exports.ZodError || error62 instanceof SyntaxError || error62 instanceof HttpError && error62.status < 500;
+    const semantic = error62 instanceof PreparationRejected || error62 instanceof ConsumerOutputRejected || error62 instanceof InvalidScheduleIntent || error62 instanceof external_exports.ZodError || error62 instanceof SyntaxError || error62 instanceof HttpError && error62.status < 500;
     const at = iso(this.pub.options.now());
     const reason = (error62 instanceof Error ? error62.message : String(error62)).slice(0, 2e3) || "Preparation failed";
     const details = error62 instanceof PreparationRejected || error62 instanceof HttpError ? error62.details : void 0;
@@ -31873,28 +31900,38 @@ var SchedulePreparer = class {
     const reasons = parsed.success && parsed.data.length ? parsed.data.slice(0, 100).map((r) => ({ ...r, reason: (r.reason ?? reason).slice(0, 2e3) })) : [{ reason }];
     let restored = false;
     let update = { status: "needs_attention" };
-    if (semantic && checked?.intent.kind === "save" && checked.intent.onValidationFailure === "keep_scheduled") {
-      const source = checked.batch;
-      const original = this.original(tree, checked);
-      this.collision(tree, source.opId);
-      const payload = await this.pub.verifyRequest(
-        this.pub.writeBlob(json2(original)),
-        source.opId,
-        tree
-      );
-      if (payload.kind !== "batch" || payload.batchId !== batch.id || payload.contentRevision !== source.contentRevision || payload.notBefore !== source.notBefore || batch.opId !== source.opId || batch.notBefore !== source.notBefore)
-        reject("Cannot restore superseded publication");
-      tree[paths2(source.opId).request] = this.pub.writeBlob(json2(original));
-      update = {
-        status: "scheduled",
-        preparation: null,
-        preparedRequestId: source.preparedRequestId ?? null,
-        opId: source.opId,
-        notBefore: source.notBefore,
-        zone: source.zone,
-        scheduledContentRevision: source.scheduledContentRevision
-      };
-      restored = true;
+    if ((error62 instanceof ProposalRejected || error62 instanceof ConsumerOutputRejected) && checked?.intent.kind === "save" && checked.intent.onValidationFailure === "keep_scheduled") {
+      try {
+        const source = checked.batch;
+        const original = this.original(tree, checked);
+        this.collision(tree, source.opId);
+        const payload = await this.pub.verifyRequest(
+          this.pub.writeBlob(json2(original)),
+          source.opId,
+          tree
+        );
+        if (payload.kind !== "batch" || payload.batchId !== batch.id || payload.contentRevision !== source.contentRevision || payload.notBefore !== source.notBefore || batch.opId !== source.opId || batch.notBefore !== source.notBefore)
+          reject("Cannot restore superseded publication");
+        tree[paths2(source.opId).request] = this.pub.writeBlob(json2(original));
+        update = {
+          status: "scheduled",
+          preparation: null,
+          preparedRequestId: source.preparedRequestId ?? null,
+          opId: source.opId,
+          notBefore: source.notBefore,
+          zone: source.zone,
+          scheduledContentRevision: source.scheduledContentRevision
+        };
+        restored = true;
+      } catch (restoreError) {
+        if (reasons.length === 100) reasons.pop();
+        reasons.push({
+          reason: `Accepted schedule could not be restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`.slice(
+            0,
+            2e3
+          )
+        });
+      }
     }
     const updated = withEvent(
       this.pub,
@@ -31919,13 +31956,7 @@ var SchedulePreparer = class {
         ...this.pub.options.runUrl.startsWith("https://") ? { workflowUrl: this.pub.options.runUrl } : {}
       })
     );
-    if (restored) this.due(tree, updated);
-    else {
-      const due = dueSchema.parse(this.pub.read(tree, schedulePaths.due) ?? { entries: [] });
-      tree[schedulePaths.due] = this.pub.writeBlob(
-        json2({ entries: due.entries.filter((e) => e.batchId !== batch.id) })
-      );
-    }
+    this.refreshDue(tree);
   }
   async drain() {
     const ref = `refs/heads/${this.pub.options.dataBranch}`;
@@ -33472,6 +33503,7 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
   const options = { ...config2, publicKey: "", now: Date.now };
   try {
     const initial = snapshot("initial");
+    if (!enabled) publishBundle(initial, options);
     const bases = gitAt(initial.path, ["for-each-ref", "--format=%(objectname)", "refs/heads/"]).trim().split("\n");
     try {
       const endpoint = new URL(config2.keyEndpoint);
@@ -33487,7 +33519,6 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
         throw new Error("Worker key fingerprint mismatch");
       options.publicKey = key.publicKey;
       const publisher = new Publisher(initial, options);
-      if (!enabled) publishBundle(initial, options);
       await new SchedulePreparer(publisher).drain();
       await new GlobalsPublisher(publisher).drain();
       if (enabled) publishBundle(initial, options);
