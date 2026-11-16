@@ -228,6 +228,11 @@ export const batchSchema = z
           (batch.opId !== null || batch.notBefore !== null)
         )
           issue('A pending draft save has no publication operation');
+        if (
+          batch.preparation?.kind === 'schedule' &&
+          batch.preparation.returnStatus !== 'scheduled'
+        )
+          issue('A schedule preparation returns to scheduled');
         break;
       case 'draft':
       case 'cancelled':

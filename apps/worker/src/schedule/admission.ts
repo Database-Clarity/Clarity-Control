@@ -366,19 +366,17 @@ export async function batchRequestStatus(
   github: GitHub,
   user: Identity,
   batchId: string,
+  requestedId?: string,
 ): Promise<Response> {
+  if (requestedId !== undefined && !requestId.safeParse(requestedId).success)
+    throw new HttpError(400, 'Invalid requestId');
   const state = await readState(github, user, readRoles, { batchId });
   const batch = requireBatch(state, batchId);
-  if (!batch.preparation) return json({ batch, request: null });
-  const [file] = await github.files(
-    [scheduleIntentPaths.request(batch.preparation.requestId)],
-    state.head,
-  );
+  const id = requestedId ?? batch.preparation?.requestId;
+  if (!id) return json({ batch, request: null });
+  const [file] = await github.files([scheduleIntentPaths.request(id)], state.head);
   if (!file) throw new HttpError(502, 'Preparation request is unreadable');
-  return reply(
-    state,
-    checkedRequest(scheduleRequestSchema.parse(file.value), batchId, batch.preparation.requestId),
-  );
+  return reply(state, checkedRequest(scheduleRequestSchema.parse(file.value), batchId, id));
 }
 
 /** Retry the SAME immutable intent after an infrastructure failure; edits require a new intent. */

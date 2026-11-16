@@ -50,7 +50,12 @@ export async function batchesRoute(
   if (!batchIdSchema.safeParse(id).success) throw new HttpError(400, 'Invalid batch id');
   if (match[2] === 'status') {
     if (request.method !== 'GET') throw new HttpError(405, 'Method not allowed');
-    return batchRequestStatus(github, user, id);
+    return batchRequestStatus(
+      github,
+      user,
+      id,
+      new URL(request.url).searchParams.get('requestId') ?? undefined,
+    );
   }
   if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
   switch (match[2]) {

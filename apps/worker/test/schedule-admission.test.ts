@@ -277,6 +277,11 @@ describe('durable asynchronous admission', () => {
       },
     });
     expect((await call('save', body)).body.request.status).toBe('completed');
+    const completed = await f.request(`/batches/${ID}/status?requestId=${RID}`, 'GET');
+    expect(completed.status).toBe(200);
+    expect(
+      ((await completed.json()) as { request: ScheduleRequest }).request.result?.revision,
+    ).toBe(4);
   });
   it('reconciles a successful CAS whose response was lost', async () => {
     const commit = GitHub.prototype.commit;
@@ -370,6 +375,32 @@ describe('durable asynchronous admission', () => {
 });
 
 describe('preparation cancellation, retry, and claim fences', () => {
+  it.each(['retry', 'cancel'] as const)('reconciles a lost %s response', async (action) => {
+    await call('save', saveBody());
+    if (action === 'retry')
+      f.moveData({
+        [path]: { ...storedBatch(), status: 'needs_attention' },
+        [scheduleIntentPaths.request(RID)]: {
+          ...record(),
+          status: 'needs_attention',
+          retryable: true,
+        },
+      });
+    const commit = GitHub.prototype.commit;
+    vi.spyOn(GitHub.prototype, 'commit').mockImplementationOnce(async function (
+      this: GitHub,
+      ...args
+    ) {
+      await commit.apply(this, args);
+      throw new Error('Lost response');
+    });
+    const response = await call(
+      action,
+      action === 'retry' ? { revision: 3, requestId: RID } : { revision: 3 },
+    );
+    expect(response.status).toBe(action === 'retry' ? 202 : 200);
+    expect(f.commits).toHaveLength(2);
+  });
   it.each(['unschedule', 'cancel'])(
     '%s fences late results and works with activation off',
     async (action) => {
