@@ -13,7 +13,6 @@ import { useEffect } from 'react';
 import { visibleLinks } from './features/navigation/links';
 import { preloadWorkspaces, workspacePage } from './workspacePreload';
 import { reviewRoute } from './features/review/route';
-import { globalsEnabled } from './services/globalsFlag';
 
 import { AppLazyPage } from './AppLazyPage';
 import { TooltipPage } from './features/tooltip/TooltipPage';
@@ -125,28 +124,30 @@ function TooltipRoute() {
   const { hash } = useParams<'hash'>();
   return hash === '2' || hash === '3' ? <AppLazyPage load={loadGlobalHandOff} /> : <TooltipPage />;
 }
-const globalRoutes: RouteObject[] = globalsEnabled
-  ? [
-      {
-        path: 'globals',
-        element: <GlobalEntryRoute />,
-        handle: { preload: loadGlobalEntryRoute },
-      },
-      {
-        path: 'globals/:id',
-        element: <GlobalEntryRoute />,
-        handle: { preload: loadGlobalEntryRoute },
-      },
-      { path: 'globals/:kind/:name', element: <GlobalNameRoute /> },
-    ]
-  : [
-      { path: 'globals', element: <GlobalsPage />, handle: { preload: loadGlobalsPage } },
-      {
-        path: 'globals/:kind/:name',
-        element: <GlobalDetailPage />,
-        handle: { preload: loadGlobalDetailPage },
-      },
-    ];
+// Inline (not the shared constant) so the bundler folds it and drops the off branch's imports.
+const globalRoutes: RouteObject[] =
+  import.meta.env.VITE_GLOBALS_ENABLED === '1'
+    ? [
+        {
+          path: 'globals',
+          element: <GlobalEntryRoute />,
+          handle: { preload: loadGlobalEntryRoute },
+        },
+        {
+          path: 'globals/:id',
+          element: <GlobalEntryRoute />,
+          handle: { preload: loadGlobalEntryRoute },
+        },
+        { path: 'globals/:kind/:name', element: <GlobalNameRoute /> },
+      ]
+    : [
+        { path: 'globals', element: <GlobalsPage />, handle: { preload: loadGlobalsPage } },
+        {
+          path: 'globals/:kind/:name',
+          element: <GlobalDetailPage />,
+          handle: { preload: loadGlobalDetailPage },
+        },
+      ];
 
 /**
  * Every route in one place, as plain objects: main.tsx hands them to createHashRouter (a data
@@ -165,7 +166,7 @@ export const routes: RouteObject[] = [
       { index: true, element: <StartPage /> },
       {
         path: 't/:hash',
-        element: globalsEnabled ? <TooltipRoute /> : <TooltipPage />,
+        element: import.meta.env.VITE_GLOBALS_ENABLED === '1' ? <TooltipRoute /> : <TooltipPage />,
         handle: { preload: () => Promise.resolve({ default: TooltipPage }) },
       },
       {

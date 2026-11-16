@@ -6,8 +6,6 @@ import {
   type Lang,
   type Tooltip,
 } from '@clarity/core';
-import { globalsEnabled } from '../../services/globalsFlag';
-import { globalIdOf, useGlobalIdentities } from '../../stores/globalIdentities';
 
 export const globalTypes = [
   { kind: 'variables', hash: 2, label: 'Variables' },
@@ -67,12 +65,6 @@ export function globalPath(entry: GlobalDefinition, search = ''): string {
   const lang = new URLSearchParams(search).get('lang');
   const params = new URLSearchParams();
   if (languages.includes(lang as Lang)) params.set('lang', lang!);
-  // With globals on, a known entry opens by stable ID; an unknown one hands off from /t/2–/t/3.
-  const id =
-    globalsEnabled && entry.kind !== 'exports'
-      ? globalIdOf(useGlobalIdentities.getState().identities, entry.kind, entry.name)
-      : undefined;
-  if (id) return `/globals/${id}${params.size ? `?${params}` : ''}`;
   params.set('global', entry.name);
   return `/t/${entry.hash}?${params}`;
 }

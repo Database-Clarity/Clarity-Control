@@ -11,6 +11,7 @@ import { globalsEnabled } from '../../services/globalsFlag';
 import {
   aggregateGlobalRoute,
   globalEntryPath,
+  globalIdOf,
   useGlobalIdentities,
   type GlobalIdentity,
 } from '../../stores/globalIdentities';
@@ -598,6 +599,17 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       hash: Number(path.split('/')[2]),
       search,
     };
+  /** A declaration's route: by stable ID once the globals catalogue knows it (globals on). */
+  const declarationPath = (definition: GlobalDefinition, search: string) => {
+    const id =
+      globalsEnabled && definition.kind !== 'exports'
+        ? globalIdOf(globalIdentities, definition.kind, definition.name)
+        : undefined;
+    const lang = new URLSearchParams(search).get('lang');
+    return id
+      ? `/globals/${id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`
+      : globalPath(definition, search);
+  };
   const globalDefinitions = useGlobalCatalog(
     data,
     open ||
@@ -848,7 +860,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   };
   const scopeRoute = (entry: Entry, all: boolean, search: string) =>
     selectedCategory?.id.startsWith('globals-')
-      ? globalPath(
+      ? declarationPath(
           globalDefinitions.find(
             (definition) => definition.hash === entry.hash && definition.name === entry.group,
           )!,
@@ -1162,7 +1174,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   function choose(target: number, scopeParam?: string | null, global?: GlobalDefinition): boolean {
     stepping.commit();
     const path = global
-      ? globalPath(global, location.search)
+      ? declarationPath(global, location.search)
       : tooltipPath(target, location.search, scopeParam);
     if (!steppingGuard.allow(location.pathname, path)) return false;
     pulseStepping();
