@@ -1,3 +1,4 @@
+import { WorklistsMenu } from '../queue/WorklistsMenu';
 import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { workspacePath, type MenuUser, type WorkspaceMenu } from './links';
@@ -53,6 +54,7 @@ export function Header({
         <WorkspaceTabs user={user} pathname={pathname} routeFor={routeFor} />
         {!compact && <div className={styles.finder}>{finder}</div>}
         <div className={styles.end}>
+          <WorklistsMenu />
           <DraftButton />
           <SettingsButton />
           <IdentityMenu />
@@ -125,7 +127,7 @@ const ITEM_REM: Record<string, number> = {
   more: 4,
 };
 const ITEM_FALLBACK_REM = 5.5;
-const ACCOUNT_END_REM = 8.05;
+const ACCOUNT_END_REM = 13.05;
 /** The tab list's 2px gap. */
 const TAB_GAP_REM = 2 / 16;
 /** Bar padding, the lockup, its margin, and the bar's three gaps (Header.module.scss). */

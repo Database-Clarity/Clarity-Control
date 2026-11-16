@@ -1,6 +1,7 @@
 import { allClassNames, images, languageKeys } from './data.js'
 import { Languages } from './livePerkTypes.js'
 import { AllClassNames } from './types.js'
+import { prismaticAssets } from './prismatic.js'
 
 export type DescriptionFilter = {
   getFromPerk: {
@@ -200,6 +201,7 @@ export const converterSettings: { [key: string]: DescriptionFilter } = {
         'arc',
         'solar',
         'void',
+        'prismatic',
         'primary',
         'special',
         'heavy',
@@ -221,6 +223,7 @@ export const converterSettings: { [key: string]: DescriptionFilter } = {
         arc: ['<:arc:720178925317128243>', ''],
         solar: ['<:solar:720178909361995786>', ''],
         void: ['<:void:720178940240461864>', ''],
+        prismatic: [prismaticAssets.crayon ?? '', ''],
         primary: ['<:primary:968793055677251604>', ''],
         special: ['<:special:968793055631114330>', ''],
         heavy: ['<:heavy:968793055652106320>', ''],
@@ -306,6 +309,7 @@ export const converterSettings: { [key: string]: DescriptionFilter } = {
         'arc',
         'stasis',
         'strand',
+        'prismatic',
 
         'primary',
         'special',
@@ -332,6 +336,7 @@ export const converterSettings: { [key: string]: DescriptionFilter } = {
         arc: ['', ''],
         stasis: ['', ''],
         strand: ['', ''],
+        prismatic: [prismaticAssets.braytech ?? '', ''],
 
         primary: ['', ''],
         special: ['', ''],
@@ -370,6 +375,7 @@ export const converterSettings: { [key: string]: DescriptionFilter } = {
         'stasis',
         'strand',
         'void',
+        'prismatic',
         
         'primary',
         'special',
@@ -398,6 +404,7 @@ export const converterSettings: { [key: string]: DescriptionFilter } = {
         stasis:      ['[Stasis]' ,       ''],
         strand:      ['[Strand]',        ''],
         void:        ['[Void]'   ,       ''],
+        prismatic:   [prismaticAssets.vaultZero, ''],
           
         primary:     ['[primary]',       ''],
         special:     ['[special]',       ''],

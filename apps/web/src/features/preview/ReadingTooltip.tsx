@@ -10,6 +10,18 @@ import { Lines } from './TooltipPreview';
 import styles from './TooltipPreview.module.scss';
 
 export const ReadingGlobals = createContext<MarkupGlobals | undefined>(undefined);
+/** Only TranslationSource supplies identities; ordinary previews retain their exact tree. */
+export interface ReadingSlotIndex {
+  text: string;
+  ids: readonly number[];
+  hash?: number;
+}
+export const ReadingSlots = createContext<ReadingSlotIndex | undefined>(undefined);
+export function readingSlotsFor(source: ReadingSlotIndex | undefined, text: string, hash?: number) {
+  return source?.text === text && (source.hash === undefined || source.hash === hash)
+    ? source.ids
+    : undefined;
+}
 
 const emptyGlobals: MarkupGlobals = { variables: '', titles: '' };
 const catalogs = new WeakMap<EditorData, WeakMap<Drafts, Map<Lang, MarkupGlobals>>>();
@@ -71,16 +83,17 @@ export function readingParse(
   globals: MarkupGlobals,
   text: string,
   hash: number | undefined,
+  slots?: readonly number[],
 ) {
   const category =
     hash === undefined || !data ? undefined : archivedItemFor(hash, data)?.categoryId;
   const type = data?.categories.find((entry) => entry.id === category)?.legacyType;
   let cache = renders.get(globals);
   if (!cache) renders.set(globals, (cache = new Map()));
-  const key = JSON.stringify([type, text]);
+  const key = JSON.stringify(slots ? [type, text, slots] : [type, text]);
   let parsed = cache.get(key);
   if (!parsed) {
-    parsed = parseMarkup(previewText(text), { ...globals, type });
+    parsed = parseMarkup(previewText(text), { ...globals, type }, slots ? { slots } : undefined);
     // Bound each revision's cache; old data and draft snapshots are weakly held.
     if (cache.size >= 128) cache.delete(cache.keys().next().value!);
     cache.set(key, parsed);
@@ -97,16 +110,20 @@ export const ReadingTooltip = memo(function ReadingTooltip({
   text,
   lang = 'en',
   hash,
+  sourceHash = hash,
 }: {
   text: string;
   lang?: Lang;
   hash?: number;
+  sourceHash?: number;
 }) {
   const data = useDataStore((state) => state.data);
   const drafts = useDraftStore((state) => languageRevision(data, state.drafts, lang));
   const supplied = useContext(ReadingGlobals);
+  const slots = useContext(ReadingSlots);
   const globals = supplied ?? globalsFor(data, drafts, lang);
-  const parsed = readingParse(data, globals, text, hash);
+  const ids = readingSlotsFor(slots, text, sourceHash);
+  const parsed = readingParse(data, globals, text, hash, ids);
   const nativePopovers = hasNativePopovers();
   return (
     <div
@@ -114,6 +131,7 @@ export const ReadingTooltip = memo(function ReadingTooltip({
         .filter(Boolean)
         .join(' ')}
       lang={markupLanguage(lang)}
+      data-number-source={ids ? true : undefined}
     >
       <Lines lines={parsed.lines} />
     </div>

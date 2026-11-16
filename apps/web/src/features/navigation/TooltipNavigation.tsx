@@ -1,3 +1,9 @@
+import {
+  FinderWorklistScope,
+  FinderWorklistRow,
+  finderWorklistKey,
+  useFinderWorklists,
+} from '../queue/FinderWorklists';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { useGlobalCatalog, useGlobalHover } from '../globals/useGlobals';
 import { globalPath, type GlobalDefinition } from '../globals/model';
@@ -261,7 +267,9 @@ const FinderOption = memo(function FinderOption({
       onClick={() => onCommit.current(row)}
     >
       <span className={styles.mark} aria-hidden="true"></span>
-      <FinderIcon icon={row.icon ?? item?.icon} />
+      <FinderWorklistRow hash={row.hash} name={row.entry ?? row.name} global={Boolean(row.global)}>
+        <FinderIcon icon={row.icon ?? item?.icon} />
+      </FinderWorklistRow>
       <span className={styles.name}>{stacked ? row.entry : row.name}</span>
       {row.global ? (
         allCategories && <small>{row.category}</small>
@@ -458,6 +466,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const closeSheet = useContext(FinderSheetCloseContext);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const worklists = useFinderWorklists(open);
   const [active, setActive] = useState(0);
   const [draggingScrollbar, setDraggingScrollbar] = useState(false);
   const draggingScrollbarRef = useRef(false);
@@ -1076,6 +1085,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   useEffect(() => releaseKey, [releaseKey]);
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if (finderWorklistKey(event, worklists, open, rows[active])) return;
     if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'PageDown', 'PageUp'].includes(event.key))
       pointerHighlight.current = false;
     if (event.key === 'Escape') {
@@ -1170,7 +1180,13 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const wideRows =
     place.all || allGroups || allCategories || (narrowed && Boolean(grouped?.owners.size));
   const listbox = open && (
-    <div className={styles.popup} data-variant={variant} data-wide={wideRows || undefined}>
+    <FinderWorklistScope
+      controller={worklists}
+      data={data}
+      className={styles.popup}
+      data-variant={variant}
+      data-wide={wideRows || undefined}
+    >
       {variant === 'bar' && (
         <FinderMarkGroup
           grouped={grouped}
@@ -1302,7 +1318,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           Search all categories
         </button>
       )}
-    </div>
+    </FinderWorklistScope>
   );
   const sheet = variant === 'sheet';
   const categorySections = useMemo<PickerSection[]>(
@@ -1329,6 +1345,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       label="Category"
       className={styles.category}
       sections={categorySections}
+      columns={categorySections.length >= 4}
       value={selectedCategory?.id ?? ''}
       empty="No matching categories"
       onChange={(id) => {

@@ -39,6 +39,37 @@ function classKey(span: MarkupSpan) {
   return (span.classNames ?? []).filter(Boolean).join(' ');
 }
 
+const contentKey = (value: unknown) =>
+  JSON.stringify(value, (key, value) =>
+    key === 'slots' || key === 'variables' ? undefined : value,
+  );
+const ownsSpan = (span: MarkupSpan): boolean =>
+  Boolean(span.slots?.length || span.variables?.length || span.title?.some(ownsLine));
+function ownsLine(line: MarkupLine): boolean {
+  return Boolean(
+    line.linesContent?.some(ownsSpan) ||
+    line.table?.some((row) => row.rowContent?.some((cell) => cell.cellContent.some(ownsSpan))),
+  );
+}
+// Render the actual owned fragment when an unchanged run represents both documents.
+// Never attach its identities to a changed value from the other document.
+const sameLine = (before: MarkupLine, after: MarkupLine) => (ownsLine(before) ? before : after);
+function sliceSpan(span: MarkupSpan, text: string, offset: number): MarkupSpan {
+  if (!span.slots && !span.variables) return { ...span, text };
+  const slice = <T extends { from: number; to: number }>(ranges: readonly T[]) =>
+    ranges.flatMap((range) => {
+      const from = Math.max(range.from, offset),
+        to = Math.min(range.to, offset + text.length);
+      return from < to ? [{ ...range, from: from - offset, to: to - offset }] : [];
+    });
+  return {
+    ...span,
+    text,
+    ...(span.slots && { slots: slice(span.slots) }),
+    ...(span.variables && { variables: slice(span.variables) }),
+  };
+}
+
 function tokensOf(line: MarkupLine): Token[] {
   const tokens: Token[] = [];
   for (const span of line.linesContent ?? []) {
@@ -48,17 +79,19 @@ function tokensOf(line: MarkupLine): Token[] {
     } else if (span.text === undefined || span.link !== undefined || span.title !== undefined) {
       // Icons, links and titles are one word each: a link is changed or not as a whole.
       tokens.push({
-        key: `${classes}|${span.text ?? ''}|${span.link ?? ''}|${JSON.stringify(span.title ?? '')}`,
+        key: `${classes}|${span.text ?? ''}|${span.link ?? ''}|${contentKey(span.title ?? '')}`,
         span,
         arrow: false,
       });
     } else {
+      let offset = 0;
       for (const word of span.text.match(/\s+|\S+\s*/g) ?? []) {
         tokens.push({
           key: `${classes}|${word.trim()}`,
-          span: { ...span, text: word },
+          span: sliceSpan(span, word, offset),
           arrow: false,
         });
+        offset += word.length;
       }
     }
   }
@@ -76,7 +109,7 @@ function isBlank(line: MarkupLine): boolean {
 }
 
 function lineKey(line: MarkupLine): string {
-  return JSON.stringify([
+  return contentKey([
     line.classNames,
     line.table,
     line.linesContent?.map((span) => [span.text, span.classNames, span.link, span.title]),
@@ -144,7 +177,7 @@ function segmentsOf(before: MarkupLine, after: MarkupLine): CompareSegment[] {
   let j = 0;
   for (const [mi, mj] of [...matched, [a.length, b.length] as [number, number]]) {
     change(a.slice(i, mi), b.slice(j, mj));
-    if (mi < a.length) same([b[mj]]);
+    if (mi < a.length) same([ownsSpan(a[mi].span) ? a[mi] : b[mj]]);
     i = mi + 1;
     j = mj + 1;
   }
@@ -195,8 +228,10 @@ export function compareRenders(base: MarkupLine[], enhanced: MarkupLine[]): Comp
     start < base.length &&
     start < enhanced.length &&
     lineKey(base[start]) === lineKey(enhanced[start])
-  )
-    result.push({ kind: 'same', line: enhanced[start++] });
+  ) {
+    result.push({ kind: 'same', line: sameLine(base[start], enhanced[start]) });
+    start++;
+  }
   let endBase = base.length;
   let endEnhanced = enhanced.length;
   const tail: CompareLine[] = [];
@@ -206,7 +241,7 @@ export function compareRenders(base: MarkupLine[], enhanced: MarkupLine[]): Comp
     lineKey(base[endBase - 1]) === lineKey(enhanced[endEnhanced - 1])
   ) {
     endBase--;
-    tail.unshift({ kind: 'same', line: enhanced[--endEnhanced] });
+    tail.unshift({ kind: 'same', line: sameLine(base[endBase], enhanced[--endEnhanced]) });
   }
 
   const middleBase = base.slice(start, endBase);
@@ -238,7 +273,7 @@ export function compareRenders(base: MarkupLine[], enhanced: MarkupLine[]): Comp
   };
   for (const [i, j] of anchors) {
     flush(i, j);
-    result.push({ kind: 'same', line: middleEnhanced[j] });
+    result.push({ kind: 'same', line: sameLine(middleBase[i], middleEnhanced[j]) });
     bi = i + 1;
     ei = j + 1;
   }

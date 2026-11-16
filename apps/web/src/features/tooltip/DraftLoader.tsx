@@ -14,6 +14,26 @@ import {
 } from '../../services/editorDrafts';
 import pageStyles from './TooltipPage.module.scss';
 import styles from './DraftLoader.module.scss';
+import { translationView } from '../terms/insert';
+import { startFromEnglish } from '../editor/numbers/NumberTools';
+
+/** The empty translation uses the same header slot as an empty English draft. */
+export function StartEnglishLoader({ hash }: { hash: number }) {
+  return (
+    <button
+      type="button"
+      className={pageStyles.ghost}
+      title="Copy English with its numbers as tokens (Ctrl+K, then S)"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => {
+        const view = translationView(hash);
+        if (view) startFromEnglish(view);
+      }}
+    >
+      Start from English
+    </button>
+  );
+}
 
 /** After the workspace is ready, the session's one index request waits this long. */
 const indexDelay = 1500;

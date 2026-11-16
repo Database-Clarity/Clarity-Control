@@ -1,9 +1,14 @@
 import type { Lang } from '@clarity/core';
+import type { ReactNode } from 'react';
 import { VersionSwitch } from '../preview/PreviewColumn';
 import { ReadingCompare } from '../preview/ReadingCompare';
 import { ReadingTooltip } from '../preview/ReadingTooltip';
 import type { PreviewMode } from '../preview/previewMode';
-import { TermLayer } from '../terms/TermLayer';
+import { NumberEnglishSource } from './NumberEnglishSource';
+import { useNumberDocument } from '../editor/numbers/documents';
+import { translationView } from '../terms/insert';
+import { startFromEnglish } from '../editor/numbers/NumberTools';
+import { useShowEditor } from './VariantWorkspace';
 import { EnglishDiffContent } from '../translations/EnglishDiff';
 import { useSettingsStore } from '../../stores/settings';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
@@ -31,7 +36,7 @@ export function TranslationSource({
   hash?: number;
   diff?: { hash: number; sourceUpdatedAt: string; current: string };
   /** The English of the item's enhanced version (owner 2026-11-14: translators must see it). */
-  enhanced?: { hash: number; text: string };
+  enhanced?: { hash: number; text: string; sourceHash?: number };
   /**
    * Official game names over the current English (TR2): `enabled` for a language the account may
    * translate (its names file loads lazily), `canInsert` while the translation can be edited.
@@ -45,6 +50,7 @@ export function TranslationSource({
   const remember = useSettingsStore((state) => state.remember);
   const showChanges = Boolean(diff) && (remembered ?? fallback) === 'changes';
   const version: PreviewMode = enhanced ? (chosenVersion ?? 'compare') : 'base';
+  const showEditor = useShowEditor();
 
   const rendered = !text ? null : version === 'compare' && enhanced && hash !== undefined ? (
     <ReadingCompare
@@ -52,12 +58,26 @@ export function TranslationSource({
       baseHash={hash}
       enhancedText={enhanced.text}
       enhancedHash={enhanced.hash}
+      enhancedSourceHash={enhanced.sourceHash}
     />
   ) : version === 'enhanced' && enhanced ? (
-    <ReadingTooltip text={enhanced.text} hash={enhanced.hash} />
+    <ReadingTooltip text={enhanced.text} hash={enhanced.hash} sourceHash={enhanced.sourceHash} />
   ) : (
     <ReadingTooltip text={text} hash={hash} />
   );
+  const content = (renderAfter?: (text: string, offset: number) => ReactNode) =>
+    diff && showChanges ? (
+      <EnglishDiffContent {...diff} renderAfter={renderAfter} />
+    ) : raw && text ? (
+      <EnglishRaw
+        text={version === 'enhanced' && enhanced ? enhanced.text : text}
+        sourceHash={
+          version === 'enhanced' && enhanced ? (enhanced.sourceHash ?? enhanced.hash) : hash
+        }
+      />
+    ) : (
+      (rendered ?? <p>This tooltip has no English text yet.</p>)
+    );
 
   return (
     <RightPane
@@ -84,6 +104,14 @@ export function TranslationSource({
         </RightPaneHeader>
       }
     >
+      {terms && hash !== undefined && (
+        <StartEnglish
+          hash={hash}
+          lang={terms.lang}
+          canInsert={terms.canInsert}
+          onInsert={showEditor}
+        />
+      )}
       {!showChanges && text && (
         // Its own row under the header: the header also holds the pane tabs, and a 384px pane
         // cannot fit both (visual review 2026-11-14).
@@ -122,25 +150,56 @@ export function TranslationSource({
           </TitleAnchor>
         </div>
       )}
-      {diff && showChanges ? (
-        <EnglishDiffContent {...diff} />
-      ) : raw && text ? (
-        <EnglishRaw text={version === 'enhanced' && enhanced ? enhanced.text : text} />
-      ) : rendered && terms && hash !== undefined ? (
-        <TermLayer
+      {text && terms && hash !== undefined ? (
+        <NumberEnglishSource
           lang={terms.lang}
           hash={hash}
+          text={text}
           enabled={terms.enabled}
           canInsert={terms.canInsert}
           stepping={terms.stepping}
+          raw={raw && !showChanges}
+          changes={showChanges}
         >
-          {rendered}
-        </TermLayer>
-      ) : rendered ? (
-        rendered
+          {content}
+        </NumberEnglishSource>
       ) : (
-        <p>This tooltip has no English text yet.</p>
+        content()
       )}
     </RightPane>
+  );
+}
+
+import { useSyncExternalStore } from 'react';
+function StartEnglish({
+  hash,
+  lang,
+  canInsert,
+  onInsert,
+}: {
+  hash: number;
+  lang: Lang;
+  canInsert: boolean;
+  onInsert(): void;
+}) {
+  const store = useNumberDocument(hash, lang);
+  useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  if (!canInsert || typeof document === 'undefined') return null;
+  const view = translationView(hash);
+  if (!view || view.state.doc.length) return null;
+  return (
+    <div className={styles.numberStartBar}>
+      <button
+        type="button"
+        className={styles.ghost}
+        title="Copy English with its numbers as tokens (Ctrl+K, then S)"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          if (startFromEnglish(view)) onInsert();
+        }}
+      >
+        Start from English
+      </button>
+    </div>
   );
 }

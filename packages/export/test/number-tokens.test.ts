@@ -210,3 +210,18 @@ describe('unresolved tokens fail closed at the engine boundary', () => {
     },
   );
 });
+
+test('unused global pairs preserve Locale identity for equal resolved translations', () => {
+  const source = input('de', 'Duration #{=1} seconds.', 'Duration 4.5 seconds.');
+  const forced = structuredClone(source);
+  const variables = forced.perks[2];
+  if (!('editor' in variables)) throw new Error('Expected variables library');
+  for (const language of ['en', 'de'] as const)
+    variables.editor[language] = { main: 'var Unused = {{1}{2}}', secondary: 'var Unused = {{1}{2}}' };
+  const ordinary = JSON.parse(new TextDecoder().decode(buildLegacy(source, 'crayon')));
+  const native = JSON.parse(new TextDecoder().decode(buildLegacy(forced, 'crayon')));
+  expect(ordinary[100].descriptions.de).toContain('Duration 4,5 seconds.');
+  expect(native[100].descriptions.de).toBe(ordinary[100].descriptions.de);
+  for (const preset of legacyPresets)
+    expect(buildLegacy(forced, preset), preset).toEqual(buildLegacy(source, preset));
+});

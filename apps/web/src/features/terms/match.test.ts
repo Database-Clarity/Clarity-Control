@@ -136,4 +136,12 @@ describe('buildTermList', () => {
   it('is built once per names file and catalogue', () => {
     expect(buildTermList(items, file, 'de')).toBe(list);
   });
+  it('keeps official-name terms free of optional number commands and metadata', () => {
+    expect(
+      list.terms.every(
+        (term) => !Object.hasOwn(term, 'number') && !Object.hasOwn(term, 'insertOnClick'),
+      ),
+    ).toBe(true);
+    expect(JSON.parse(JSON.stringify(list.terms))).toEqual(list.terms);
+  });
 });

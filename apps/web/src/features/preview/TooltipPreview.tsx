@@ -29,6 +29,7 @@ import styles from './TooltipPreview.module.scss';
 import { Lines, linkUrl, TitleAnchor } from './MarkupRenderer';
 import { useLocalisedManifest } from '../manifest/localisedManifest';
 import { EnglishReveal } from '../manifest/EnglishReveal';
+import { previewNumberGlobals } from '../../services/tooltipImports';
 import { weaponOwnerLabel, weaponOwners } from './weaponOwners';
 export { classNames, Lines, PreviewSpan } from './MarkupRenderer';
 
@@ -87,11 +88,25 @@ export function TooltipPreview({
   children,
 }: TooltipPreviewProps) {
   const replaced = Boolean(children);
+  const saved = useDataStore((state) =>
+    lang === 'en' || globals.numberInput || tooltipHash === undefined
+      ? undefined
+      : state.data?.bundle.tooltips[tooltipHash],
+  );
+  const draft = useDraftStore((state) =>
+    lang === 'en' || globals.numberInput || tooltipHash === undefined
+      ? undefined
+      : state.drafts[tooltipHash]?.next,
+  );
+  const renderGlobals = useMemo(
+    () => (globals.numberInput ? globals : previewNumberGlobals(draft ?? saved, lang, globals)),
+    [draft, saved, lang, globals],
+  );
   // Compare supplies its already-rendered body and hides these diagnostics. Do not
   // parse the base a third time only to discard that result on every keystroke.
   const parsed = useMemo(
-    () => (replaced ? null : parseMarkup(text, globals)),
-    [text, globals, replaced],
+    () => (replaced ? null : parseMarkup(text, renderGlobals)),
+    [text, renderGlobals, replaced],
   );
   return (
     <section

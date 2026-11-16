@@ -21,7 +21,7 @@ const edge = 8;
  */
 export function placeChip(
   view: EditorView,
-  chip: Chip,
+  chip: Pick<Chip, 'covers'>,
   size: { width: number; height: number },
 ): Placement | null {
   const viewport = window.visualViewport;

@@ -90,6 +90,14 @@ export const helpEnhancedGlobals: MarkupGlobals = {
 /** The rows that are not markup options. */
 const extraRows: readonly Omit<HelpRow, 'words'>[] = [
   {
+    id: 'number-token',
+    group: 'Variables and math',
+    label: 'Number tokens',
+    about:
+      'In translations, Tab inserts the next English number as a token. Tab again cycles; Shift+Tab goes back. Typing or moving the caret ends the cycle. One undo removes the whole cycle.',
+    note: 'Ctrl+K, then N lists all numbers. Ctrl+K, then S starts an empty translation from English. Typed numbers stay text until you accept their Tab suggestion.',
+  },
+  {
     id: 'list-dot',
     group: 'Lists',
     label: 'List dot',
@@ -140,6 +148,7 @@ const extraRows: readonly Omit<HelpRow, 'words'>[] = [
 ];
 
 const extraWords: Record<string, string> = {
+  'number-token': 'number token translation tab cycle english',
   comment: 'comment note slash hidden',
   blank: 'blank empty line gap spacer space',
   'var-empty': 'variable empty nothing blank',

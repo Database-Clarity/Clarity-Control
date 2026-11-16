@@ -141,6 +141,34 @@
     color: var(--text3);
   }
 }
+// An unavailable saved entry: its Remove sits at the row's end, and a failed save wraps below,
+// both on the rows' 0.625rem inset.
+.items li[data-action] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  > a {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  > p {
+    flex: 1 1 100%;
+    padding: 0 0.625rem 0.25rem;
+  }
+}
+.itemAction {
+  @include controls.button;
+  flex: none;
+  margin-inline-end: 0.625rem;
+  white-space: nowrap;
+}
+.menuNote {
+  margin: 0;
+  padding: 0.375rem 0.625rem;
+  color: var(--text2);
+  font-size: 0.75rem;
+  border-bottom: 1px solid var(--hair);
+}
 .mark {
   flex: none;
   width: 0.5rem;

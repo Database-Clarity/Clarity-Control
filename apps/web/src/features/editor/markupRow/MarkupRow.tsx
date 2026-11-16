@@ -31,6 +31,8 @@ import {
 import { useKeyboardFollow, useKeyboardInset } from '../../../ui/useKeyboardInset';
 import type { UsageCorpus } from '../suggest/usage';
 import styles from './MarkupRow.module.scss';
+import { NumberStrip } from '../numbers/NumberTools';
+import type { NumberStore } from '../numbers/state';
 
 const noSubscription = () => () => {};
 const untagged: TagSelection = { kind: 'none' };
@@ -63,6 +65,8 @@ export const MarkupRow = memo(function MarkupRow({
   onSuggest,
   sourceText,
   tagSelection,
+  numbers,
+  onNumbers,
 }: {
   view: RefObject<EditorView | null>;
   globals: MarkupGlobals;
@@ -80,6 +84,8 @@ export const MarkupRow = memo(function MarkupRow({
   sourceText?: string;
   /** Whether the selection can be tagged with an element (the row's "Tag selection" mode). */
   tagSelection?: TagSelectionStore;
+  numbers?: NumberStore;
+  onNumbers?(): void;
 }) {
   const tagMode = useSyncExternalStore(
     tagSelection?.subscribe ?? noSubscription,
@@ -268,6 +274,7 @@ export const MarkupRow = memo(function MarkupRow({
           aria-orientation="horizontal"
           onKeyDown={keyDown}
         >
+          {numbers && onNumbers && <NumberStrip store={numbers} view={view} onOpen={onNumbers} />}
           {items.map((item, position) => {
             if (item === rowSeparator)
               return (
@@ -306,6 +313,9 @@ export const MarkupRow = memo(function MarkupRow({
               </button>
             );
           })}
+          {numbers && onNumbers && (
+            <NumberStrip store={numbers} view={view} onOpen={onNumbers} countOnly />
+          )}
         </div>
       </div>
       {/* The element symbols' outlined edge marks the mode; the label points back at them. On a

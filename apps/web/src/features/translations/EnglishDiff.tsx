@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { isMarkupOnly } from '@clarity/core';
 import { getHistory, getVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
@@ -33,10 +33,12 @@ export function EnglishDiffContent({
   hash,
   sourceUpdatedAt,
   current,
+  renderAfter,
 }: {
   hash: number;
   sourceUpdatedAt: string;
   current: string;
+  renderAfter?(text: string, offset: number): ReactNode;
 }) {
   const [source, setSource] = useState<TranslationSource | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +79,7 @@ export function EnglishDiffContent({
             English when translated → current English. Removed words are struck through; additions
             are underlined.
           </p>
-          <WordDiff before={source.text} after={current} />
+          <WordDiff before={source.text} after={current} renderAfter={renderAfter} />
         </>
       ) : (
         (source || error) && (
@@ -86,7 +88,7 @@ export function EnglishDiffContent({
               <p className={styles.muted}>{source.reason} Showing current English instead.</p>
             )}
             <h3>Current English (source diff unavailable)</h3>
-            <p className={styles.text}>{current}</p>
+            <p className={styles.text}>{renderAfter ? renderAfter(current, 0) : current}</p>
           </>
         )
       )}
