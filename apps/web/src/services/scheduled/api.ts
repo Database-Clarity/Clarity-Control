@@ -24,7 +24,8 @@ import {
 } from '@clarity/core/schedule';
 import { z } from 'zod';
 import { apiRequest, failure } from '../apiAuth';
-import { scheduledEnabled } from './flag';
+import { preparationEnabled, scheduledEnabled } from './flag';
+import { newOpId } from '../publisher/ulid';
 import { parseMemberTexts, type MemberParse } from './api.parse';
 
 /** editor-data lives in this repository; a head SHA pins every read to one commit. */
@@ -47,7 +48,40 @@ export async function listBatches(signal?: AbortSignal): Promise<BatchListing> {
   requireEnabled();
   const response = await apiRequest('/batches', { signal, cache: 'no-store' });
   if (!response.ok) return failure(response);
-  return listingSchema.parse(await response.json());
+  const listing = listingSchema.parse(await response.json());
+  return { ...listing, index: { batches: listing.index.batches.map(withLatest) } };
+}
+
+/**
+ * The newest state this page has seen per batch, from listed entries and batch.json (write and
+ * status answers, commit-pinned reads). The index is advisory: request admission and Retry do not
+ * update it, so a listed entry can lag its batch (contract: "C uses the immediate response/status
+ * batch"). Only a higher revision ever replaces what is kept, so a late answer read at an older
+ * head (index or batch.json) can never bring back an older state.
+ */
+type BatchView = Pick<
+  ScheduleIndex['batches'][number],
+  'status' | 'notBefore' | 'opId' | 'revision'
+>;
+const latest = new Map<string, BatchView>();
+function remember(id: string, view: BatchView): boolean {
+  const known = latest.get(id);
+  if (known && known.revision >= view.revision) return false;
+  latest.set(id, {
+    status: view.status,
+    notBefore: view.notBefore,
+    opId: view.opId,
+    revision: view.revision,
+  });
+  return true;
+}
+function adoptBatch(batch: Batch) {
+  remember(batch.id, batch);
+}
+function withLatest(entry: ScheduleIndex['batches'][number]): ScheduleIndex['batches'][number] {
+  if (remember(entry.id, entry)) return entry;
+  const known = latest.get(entry.id)!;
+  return known.revision === entry.revision ? entry : { ...entry, ...known };
 }
 
 type Fetcher = (url: string) => Promise<Response>;
@@ -66,6 +100,7 @@ export function setRawFetch(next: Fetcher | undefined) {
   batchFiles.clear();
   conflictFiles.clear();
   keptHeads.length = 0;
+  latest.clear();
 }
 
 function keepHead(head: string) {
@@ -196,6 +231,7 @@ export function readBatch(head: string, batchId: string): Promise<Batch | null> 
     if (value === undefined) return null;
     const batch = batchSchema.parse(value);
     if (batch.id !== batchId) throw new Error(`batch.json of ${batchId} names ${batch.id}`);
+    adoptBatch(batch);
     return batch;
   });
 }
@@ -338,7 +374,10 @@ async function post<T>(path: string, body: unknown, schema: z.ZodType<T>): Promi
     body: JSON.stringify(body),
   });
   if (!response.ok) throw await refusal(response);
-  return schema.parse(await response.json());
+  const result = schema.parse(await response.json());
+  const batch = (result as { batch?: unknown }).batch;
+  if (batch && typeof batch === 'object' && 'revision' in batch) adoptBatch(batch as Batch);
+  return result;
 }
 
 const writeSchema = z.looseObject({ commit: headSchema, batch: batchSchema });
@@ -454,18 +493,121 @@ export function removeFromBatch(batchId: string, revision: number, hashes: numbe
   return post(`/batches/${batchId}/remove`, { revision, hashes }, writeSchema);
 }
 
-/** Schedule or reschedule; `'now'` is Publish now (the Worker takes the current minute). */
+/**
+ * Schedule or reschedule; `'now'` is Publish now (the Worker takes the current minute). With the
+ * preparation switch ON the request carries a requestId and the Worker answers "Schedule
+ * requested" (`queued`): the batch is preparing, not scheduled yet.
+ */
 export function scheduleBatch(
   batchId: string,
   revision: number,
   notBefore: string | 'now',
   zone: string,
-) {
+): Promise<{ batch: Batch; queued?: BatchAdmission }> {
+  if (preparationEnabled())
+    return post(
+      `/batches/${batchId}/schedule`,
+      { requestId: newOpId(), revision, notBefore, zone },
+      admissionSchema,
+    ).then((queued) => ({ batch: queued.batch, queued }));
   return post(
     `/batches/${batchId}/schedule`,
     { revision, notBefore, zone },
     writeSchema.extend({ opId: z.string(), firstPublications: z.array(z.number()).optional() }),
   );
+}
+
+// --- Prepared requests (sched-actions-contract.md). Decoded loosely: the Worker owns the shape. --
+
+/** failed: terminal (a translator save into a scheduled batch the preparer refused). */
+const requestStatusSchema = z.enum([
+  'pending',
+  'needs_attention',
+  'failed',
+  'completed',
+  'cancelled',
+]);
+export const batchRequestSchema = z.looseObject({
+  requestId: z.string(),
+  requesterId: z.number().optional(),
+  status: requestStatusSchema,
+  attempt: z.number().int().positive(),
+  updatedAt: z.string(),
+  retryable: z.boolean().optional(),
+  reasons: z
+    .array(
+      z.looseObject({
+        reason: z.string(),
+        hash: z.number().optional(),
+        fields: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+  /** A completed request: the batch revision its result landed at. */
+  result: z
+    .looseObject({ revision: z.number().int().nonnegative(), status: z.string().optional() })
+    .optional(),
+  /** Only a GitHub Actions run link is ever shown. */
+  workflowUrl: z
+    .string()
+    .regex(/^https:\/\/github\.com\/[^\s"<>]+$/)
+    .optional()
+    .catch(undefined),
+});
+export type BatchRequest = z.infer<typeof batchRequestSchema>;
+const admissionSchema = z.looseObject({
+  commit: headSchema.nullable(),
+  requestId: z.string(),
+  status: requestStatusSchema,
+  batch: batchSchema,
+  message: z.string().optional(),
+  request: batchRequestSchema,
+});
+/** 202 "Schedule requested" / "Save queued" (or the replayed result of the same requestId). */
+export type BatchAdmission = z.infer<typeof admissionSchema>;
+
+/**
+ * POST /batches/:id/save as ONE prepared request (switch ON): the Worker stores it and answers
+ * at once; nothing is saved until the preparer lands it, so callers keep every draft.
+ */
+export function queueBatchSave(
+  batchId: string,
+  revision: number,
+  changes: readonly BatchChange[],
+  message: string,
+  requestId: string = newOpId(),
+) {
+  batchIdSchema.parse(batchId);
+  return post(
+    `/batches/${batchId}/save`,
+    { requestId, revision, changes, message },
+    admissionSchema,
+  );
+}
+
+/**
+ * GET /batches/:id/status: the batch and its outstanding request (null: none), or with
+ * `requestId` that request's record even after the batch cleared preparation (its result).
+ */
+export async function readBatchStatus(batchId: string, signal?: AbortSignal, requestId?: string) {
+  requireEnabled();
+  batchIdSchema.parse(batchId);
+  const query = requestId ? `?requestId=${encodeURIComponent(requestId)}` : '';
+  const response = await apiRequest(`/batches/${batchId}/status${query}`, {
+    signal,
+    cache: 'no-store',
+  });
+  if (!response.ok) throw await refusal(response);
+  const status = z
+    .looseObject({ batch: batchSchema, request: batchRequestSchema.nullable() })
+    .parse(await response.json());
+  adoptBatch(status.batch);
+  return status;
+}
+
+/** POST /batches/:id/retry: the SAME request again after an infrastructure failure. */
+export function retryBatchRequest(batchId: string, revision: number, requestId: string) {
+  return post(`/batches/${batchId}/retry`, { revision, requestId }, admissionSchema);
 }
 
 export function endBatchSchedule(

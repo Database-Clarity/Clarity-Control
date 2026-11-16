@@ -1273,15 +1273,15 @@ describe('scheduled batches (simulator)', () => {
     expect(f.read('schedule/activation-conflicts/123.json')).toBeUndefined();
   });
 
-  it('events past 200 move to events/<seq>.json in the same commit (root ruling)', async () => {
+  it('compacts legacy histories to 20 inline events in the same commit', async () => {
     const f = await setup();
     await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }], { events: 199 });
     await f.pub.run();
     const { batch } = assertPublished(f);
-    expect(batch.events).toHaveLength(200);
+    expect(batch.events).toHaveLength(20);
     expect(batch.events.at(-1)!.action).toBe('published');
     const archived = f.read<{ events: { action: string }[] }>(eventsArchive(BATCH, 0))!;
-    expect(archived.events).toHaveLength(1);
+    expect(archived.events).toHaveLength(180);
     expect(archived.events[0].action).toBe('save');
   });
 

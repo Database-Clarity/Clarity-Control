@@ -3,6 +3,7 @@ import { SkeletonBoundary } from '../../ui/Skeleton';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import { languageLabel } from '../../languageLabels';
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { languages, type Permissions } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
@@ -129,7 +130,7 @@ export function AdminPage() {
   const dirty = JSON.stringify(config) !== JSON.stringify(original);
   return (
     <article className={styles.page}>
-      <Heading />
+      <Heading gallery />
       <details>
         <summary>My worklists</summary>
         <WorklistsManager />
@@ -332,11 +333,13 @@ export function AdminPage() {
 }
 
 /** The page's one heading line: the dense title and what the page does, as on Translations. */
-function Heading() {
+function Heading({ gallery = false }: { gallery?: boolean }) {
   return (
     <header className={styles.head}>
       <h1>Management</h1>
       <p>Manage editor access by GitHub account. Changes apply only after saving.</p>
+      {/* Maintainers only (this page's gate): every shared element in all its states. */}
+      {gallery && <Link to="/management/ui">UI gallery</Link>}
     </header>
   );
 }

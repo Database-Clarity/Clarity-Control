@@ -61,9 +61,17 @@ export function ScheduleDialog({
     setPending(true);
     setError(null);
     try {
-      const { batch: next } = await scheduleBatch(batch.id, batch.revision, chosen.notBefore, zone);
+      const { batch: next, queued } = await scheduleBatch(
+        batch.id,
+        batch.revision,
+        chosen.notBefore,
+        zone,
+      );
+      const when = zonedNotBefore(next.notBefore ?? chosen.notBefore);
       onDone(
-        `${batch.name} ${reschedule ? 'rescheduled' : 'scheduled'}: not published before ${zonedNotBefore(next.notBefore ?? chosen.notBefore)}.`,
+        queued
+          ? `${batch.name}: ${reschedule ? 'Reschedule' : 'Schedule'} requested for ${when}. It shows Scheduled once its changes are prepared.`
+          : `${batch.name} ${reschedule ? 'rescheduled' : 'scheduled'}: not published before ${when}.`,
       );
     } catch (reason) {
       setError(reason);

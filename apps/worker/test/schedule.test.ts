@@ -954,7 +954,7 @@ describe('claim refusals and status rules', () => {
     const opId = (await schedule()).body.opId as string;
     const response = await call(`/batches/${ID}/unschedule`, { revision: storedBatch().revision });
     expect(response.status).toBe(200);
-    expect(f.subrequests).toBe(6);
+    expect(f.subrequests).toBe(7);
     expect(storedBatch()).toMatchObject({ status: 'draft', opId: null, notBefore: null });
     expect(stored(`publish/requests/${opId}.json`)).toBeUndefined();
     expect((stored(`publish/log/${publishMonth(opId)}/${opId}.json`) as Loose).result.status).toBe(
@@ -1084,13 +1084,13 @@ describe('save semantics', () => {
     f.moveData({ [batchPath()]: draft({ events: many }) });
     const proposal = (stored(memberPath()) as BatchMember).proposed;
     await call(`/batches/${ID}/save`, saveBody(withText(proposal, 'de', 'a'), proposal));
-    expect(stored(eventArchivePath(ID, 0))).toEqual({ events: [many[0]] });
-    expect(storedBatch().events).toHaveLength(200);
-    expect(storedBatch().events[0]).toEqual(many[1]);
+    expect(stored(eventArchivePath(ID, 0))).toEqual({ events: many.slice(0, 181) });
+    expect(storedBatch().events).toHaveLength(20);
+    expect(storedBatch().events[0]).toEqual(many[181]);
     const next = (stored(memberPath()) as BatchMember).proposed;
     const response = await call(`/batches/${ID}/save`, saveBody(withText(next, 'de', 'b'), next));
     expect(response.status).toBe(200);
-    expect(stored(eventArchivePath(ID, 1))).toEqual({ events: [many[1]] });
+    expect(stored(eventArchivePath(ID, 181))).toEqual({ events: [many[181]] });
     expect(eventArchivePath(ID, 1)).toBe(`${dir()}/events/00000001.json`);
   });
 });

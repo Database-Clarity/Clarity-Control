@@ -247,6 +247,11 @@
   background: var(--col);
 }
 
+/* Needs attention: the request failed, the batch did not (amber, like its chip). */
+.failed.attention {
+  border-left-color: var(--warn);
+}
+
 .notice {
   margin: 0.375rem 0;
   padding: 0.25rem 0.5rem;
@@ -710,4 +715,10 @@
   margin: 0;
   font-size: 0.75rem;
   color: var(--text2);
+}
+
+/* Batches header counts wrap beside Refresh, never pushing it onto a row of its own (phones). */
+p.headerCounts {
+  flex: 1 1 9rem;
+  min-width: 0;
 }

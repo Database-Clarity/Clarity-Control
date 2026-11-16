@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { nonTranslationChanges } from '@clarity/core/schedule';
+import { isOpenStatus, nonTranslationChanges } from '@clarity/core/schedule';
 import type { Change } from '../../../services/api';
 import { zonedNotBefore } from '../../../services/format/date';
 import { memberCap } from '../../../services/scheduled/api';
@@ -59,10 +59,8 @@ export function DestinationRow({
     return (entries ?? [])
       .filter(
         (entry) =>
-          (entry.status === 'draft' ||
-            entry.status === 'scheduled' ||
-            entry.status === 'publishing') &&
-          entry.id !== (value.kind === 'batch' ? value.id : ''),
+          // Preparing and failed requests reserve their members as well (open statuses).
+          isOpenStatus(entry.status) && entry.id !== (value.kind === 'batch' ? value.id : ''),
       )
       .flatMap((entry) =>
         entry.hashes

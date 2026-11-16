@@ -174,6 +174,22 @@ it('updates drafts, save/discard, and scheduled membership while mounted, with n
     });
     await act(async () => root.render(<FinderMarkers hashes={[10, 11]} />));
     expect(has('Scheduled')).toBe(true);
+    // Scheduling off the Worker: a pending schedule (target time kept) and a failed one stay
+    // marked, with the state in the accessible label; a pending draft save is not Scheduled.
+    const member = (status: 'preparing' | 'needs_attention', notBefore: string | null) => ({
+      memberOf: {
+        10: { id: 'batch', name: 'Batch', status, hashes: [10], notBefore, revision: 2 },
+      },
+    });
+    await act(async () => upcomingStore().setState(member('preparing', '2026-12-01T10:00:00Z')));
+    expect(has('Scheduled · preparing')).toBe(true);
+    await act(async () =>
+      upcomingStore().setState(member('needs_attention', '2026-12-01T10:00:00Z')),
+    );
+    expect(has('Scheduled · needs attention')).toBe(true);
+    expect(host.querySelector('[data-kind="attention"]')).not.toBeNull();
+    await act(async () => upcomingStore().setState(member('preparing', null)));
+    expect(host.querySelector('[data-kind="scheduled"], [data-kind="attention"]')).toBeNull();
     await act(async () => upcomingStore().setState({ memberOf: {} }));
     expect(has('Scheduled')).toBe(false);
   } finally {

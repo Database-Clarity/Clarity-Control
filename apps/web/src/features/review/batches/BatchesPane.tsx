@@ -16,8 +16,7 @@ import {
   memberView,
   openConflicts,
   orderBatches,
-  statusLabel,
-  statusTone,
+  statusChip,
   translationCoverage,
   type IndexEntry,
 } from './model';
@@ -68,7 +67,7 @@ function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean })
   const load = useBatches((state) => state.loads[entry.id]);
   const data = useDataStore((state) => state.data);
   const counts = useMemo(() => rowCounts(entry, load, data), [entry, load, data]);
-  const overdue = isOverdue(entry);
+  const chip = statusChip(entry);
   const next = new URLSearchParams(params);
   next.set('view', 'batches');
   next.set('batch', entry.id);
@@ -93,8 +92,8 @@ function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean })
           <span className={styles.rowName} title={entry.name}>
             {entry.name}
           </span>
-          <span className={styles.chip} data-tone={overdue ? 'warn' : statusTone[entry.status]}>
-            {overdue ? 'Overdue' : statusLabel[entry.status]}
+          <span className={styles.chip} data-tone={chip.tone}>
+            {chip.label}
           </span>
         </span>
         <span className={styles.rowWhen}>
@@ -299,23 +298,40 @@ export function BatchesHeader() {
   const entries = useBatches((state) => state.entries);
   const listing = useBatches((state) => state.listing);
   const open = entries?.filter((entry) => isOpenStatus(entry.status)) ?? [];
-  const scheduled = open.filter((entry) => entry.status !== 'draft').length;
-  const overdue = open.filter((entry) => isOverdue(entry)).length;
+  // Only schedules that are ready count as scheduled; preparing and failed ones are named apart.
+  const scheduled = open.filter(
+    (entry) => entry.status === 'scheduled' || entry.status === 'publishing',
+  ).length;
+  const preparing = open.filter((entry) => entry.status === 'preparing').length;
+  const attention = open.filter((entry) => entry.status === 'needs_attention').length;
+  // Each open batch is counted once: a preparing batch past its time shows as "(n overdue)".
+  const latePreparing = open.filter(
+    (entry) => entry.status === 'preparing' && isOverdue(entry),
+  ).length;
+  const overdue = open.filter((entry) => entry.status !== 'preparing' && isOverdue(entry)).length;
+  const segment = (text: ReactNode, flagged = false) => (
+    <>
+      {' '}
+      <span className={styles.segment} data-overdue={flagged || undefined}>
+        · {text}
+      </span>
+    </>
+  );
   return (
     <>
-      <p className={reviewStyles.counts}>
-        <span className={reviewStyles.segment}>
+      <p className={`${reviewStyles.counts} ${styles.headerCounts}`}>
+        <span className={styles.segment}>
           <b>{count.format(open.length)}</b> open {open.length === 1 ? 'batch' : 'batches'}
-        </span>{' '}
-        <span className={reviewStyles.segment}>· {count.format(scheduled)} scheduled</span>
-        {overdue > 0 && (
-          <>
-            {' '}
-            <span className={reviewStyles.segment} data-overdue>
-              · {count.format(overdue)} overdue
-            </span>
-          </>
-        )}
+        </span>
+        {segment(`${count.format(scheduled)} scheduled`)}
+        {preparing > 0 &&
+          segment(
+            `${count.format(preparing)} preparing${latePreparing ? ` (${count.format(latePreparing)} overdue)` : ''}`,
+            latePreparing > 0,
+          )}
+        {overdue > 0 && segment(`${count.format(overdue)} overdue`, true)}
+        {attention > 0 &&
+          segment(`${count.format(attention)} need${attention === 1 ? 's' : ''} attention`, true)}
       </p>
       <span className={reviewStyles.summaryEnd}>
         <button type="button" disabled={listing} onClick={() => void refreshBatches()}>

@@ -73,3 +73,19 @@ export {
   type ZonedTime,
 } from './zone.js';
 export { boundTranslationSources } from './stamps.js';
+export { matchesPreparationFence, canClaimPreparedBatch } from './preparation.js';
+export {
+  schedulePreparationCapability,
+  scheduleIntentPaths,
+  scheduleIntentSchema,
+  scheduleEnvelopeSchema,
+  scheduleRequestSchema,
+  preparationReasonSchema,
+  scheduleBodyDigest,
+  signScheduleIntent,
+  verifyScheduleIntent,
+  verifyScheduleRequest,
+  type ScheduleIntent,
+  type ScheduleEnvelope,
+  type ScheduleRequest,
+} from './intent.js';
