@@ -32,7 +32,10 @@ interface DataState {
   status: 'idle' | 'loading' | 'ready' | 'error';
   data: EditorData | null;
   error: string | null;
-  load(): Promise<void>;
+  /** A background reload (Review's Refresh) is running; the loaded data stays on screen. */
+  refreshing: boolean;
+  /** `background`: keep the current data and status while the new data loads (needs data). */
+  load(options?: { background?: boolean }): Promise<void>;
 }
 
 /**
@@ -103,9 +106,11 @@ export const useDataStore = create<DataState>((set, get) => ({
   status: 'idle',
   data: null,
   error: null,
-  async load() {
-    if (get().status === 'loading') return;
-    set({ status: 'loading', error: null });
+  refreshing: false,
+  async load(options) {
+    if (get().status === 'loading' || get().refreshing) return;
+    const background = !!options?.background && get().status === 'ready' && !!get().data;
+    set(background ? { refreshing: true } : { status: 'loading', error: null });
     try {
       // The conflicts file is small; it loads alongside, and is awaited only when picks need it.
       const conflicts = sharedSandboxConflicts();
@@ -140,9 +145,9 @@ export const useDataStore = create<DataState>((set, get) => ({
       await nextTask();
       // A save that finished meanwhile still shows (the finder then groups this data itself).
       if (savedOverlayVersion() !== overlay) data = assemble();
-      set({ status: 'ready', data });
+      set({ status: 'ready', data, refreshing: false });
     } catch (error) {
-      set({ status: 'error', error: errorMessage(error) });
+      set({ status: 'error', error: errorMessage(error), refreshing: false });
     }
   },
 }));

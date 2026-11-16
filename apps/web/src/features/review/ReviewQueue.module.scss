@@ -6,6 +6,7 @@
   // symbol glyph) costs the first layout on Windows, so the list uses two sizes and one weight,
   // and draws its chevrons in CSS rather than with ▸ ▾ glyphs.
   font-family: Arial, Helvetica, DestinySymbols, 'Segoe UI Symbol', sans-serif;
+  container: review-list / inline-size;
   display: flex;
   height: 100%;
   flex-direction: column;
@@ -22,7 +23,7 @@
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   gap: 0.25rem;
   flex: none;
 
@@ -302,6 +303,38 @@
   }
 }
 
+// A narrow column (768 px windows, large interface scales) gives the room to the names: the
+// editor link shows on the open row, on hover, and on keyboard focus (it stays in the Tab order).
+@container review-list (max-width: 17rem) {
+  @media (hover: hover) {
+    .row:not([data-current], :hover) .edit:not(:focus-visible) {
+      width: 0;
+      overflow: hidden;
+    }
+  }
+
+  .findKey {
+    display: none;
+  }
+
+  // The name goes first; a long word gives way (the row's label and title keep it whole).
+  .row a > span:first-child {
+    flex: 1 0 55%;
+  }
+
+  .kind {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .find input {
+    padding-inline-end: 0.4rem;
+  }
+}
+
 .group {
   font-size: 0.75rem;
   color: var(--text2);
@@ -390,8 +423,10 @@
   }
 
   // The phone sheet has no padding of its own: inset the filters, rows, and lines like the mock.
+  // The sheet sets its own height: the list fills what is left under its controls, so the
+  // lines after the last row (leftovers, drafts) always stay in view.
   .queue {
-    height: calc(0.7 * var(--app-h));
+    height: 100%;
     padding-inline: var(--page-x);
   }
 

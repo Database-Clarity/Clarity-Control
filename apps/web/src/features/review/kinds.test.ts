@@ -51,14 +51,12 @@ describe('row words known without the published text', () => {
     expect(localKind(entry(saved, { isNew: true, pushed: undefined }))?.kind).toBe('New');
     // A published change waits for its published text: never a guess.
     expect(localKind(entry(saved))).toBeUndefined();
-    expect(kindOf(entry(saved), undefined, {}, undefined)).toBeUndefined();
-    expect(kindOf(entry(saved), { status: 'loading' }, {}, undefined)).toBeUndefined();
-    expect(kindOf(entry(saved), { status: 'error', error: 'x' }, {}, undefined)).toBeUndefined();
-    expect(kindOf(entry(saved), { status: 'missing' }, {}, undefined)).toBeUndefined();
+    expect(kindOf(entry(saved), undefined, {})).toBeUndefined();
+    expect(kindOf(entry(saved), { status: 'loading' }, {})).toBeUndefined();
+    expect(kindOf(entry(saved), { status: 'error', error: 'x' }, {})).toBeUndefined();
+    expect(kindOf(entry(saved), { status: 'missing' }, {})).toBeUndefined();
     // The server has no published version: new.
-    expect(kindOf(entry(saved), { status: 'ready', tooltip: null }, {}, undefined)?.kind).toBe(
-      'New',
-    );
+    expect(kindOf(entry(saved), { status: 'ready', tooltip: null }, {})?.kind).toBe('New');
   });
 });
 
@@ -139,13 +137,11 @@ describe('row words from the published text (real renderer)', () => {
     useKinds.setState({ byHash: {} });
     classifyRows([{ entry: row, published }], data);
     await expect
-      .poll(() => kindOf(row, published, useKinds.getState().byHash, data.bundle.tooltips)?.kind)
+      .poll(() => kindOf(row, published, useKinds.getState().byHash)?.kind)
       .toBe('No visible change');
     // A newer saved text is not the classified one: unknown until it is checked again.
     const newer = entry(tooltip(goldenTricorn.after + '\nMore'));
-    expect(
-      kindOf(newer, published, useKinds.getState().byHash, data.bundle.tooltips),
-    ).toBeUndefined();
+    expect(kindOf(newer, published, useKinds.getState().byHash)).toBeUndefined();
   });
 });
 

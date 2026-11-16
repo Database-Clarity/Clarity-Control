@@ -718,6 +718,11 @@
     padding-block: 0.375rem;
   }
 
+  // "13 waiting" and the two buttons share one row while they fit.
+  .counts {
+    flex-basis: auto;
+  }
+
   .identity {
     flex-wrap: wrap;
     gap: 0 0.5rem;

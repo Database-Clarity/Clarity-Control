@@ -1,6 +1,6 @@
 import { languages, type Lang, type Tooltip } from '@clarity/core';
 import { create } from 'zustand';
-import { useDataStore, type EditorData } from '../../stores/data';
+import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
 import { classifyRendered } from '../history/useRenderedDiff';
 import type { PendingTooltip } from './model';
@@ -119,6 +119,7 @@ export function publishedKind(
 // ---- background classification ----
 interface Classified {
   saved: Tooltip;
+  savedJson: string;
   published: Tooltip | null;
   tooltips: EditorData['bundle']['tooltips'];
   value: Classification | undefined;
@@ -133,19 +134,22 @@ export function kindOf(
   entry: PendingTooltip,
   published: Published | undefined,
   byHash: KindsState['byHash'],
-  tooltips: EditorData['bundle']['tooltips'] | undefined,
 ): Classification | undefined {
   const local = localKind(entry);
   if (local) return local;
   if (published?.status !== 'ready') return undefined;
   if (!published.tooltip) return { kind: 'New' };
   const done = byHash[entry.tooltip.hash];
-  return done &&
-    done.saved === entry.tooltip &&
-    done.published === published.tooltip &&
-    done.tooltips === tooltips
+  // A reload (Refresh) brings equal saved text in new objects: the word stays while it is checked
+  // again against the new imports, never blanking.
+  return done && done.published === published.tooltip && sameSaved(done, entry.tooltip)
     ? done.value
     : undefined;
+}
+
+/** The classified saved text is this one (same object, or the same content after a reload). */
+function sameSaved(done: Classified, saved: Tooltip) {
+  return done.saved === saved || done.savedJson === JSON.stringify(saved);
 }
 
 const running = new WeakMap<Tooltip, Tooltip | null>();
@@ -171,6 +175,7 @@ export function classifyRows(
       done.tooltips === data.bundle.tooltips
     )
       continue;
+    // New objects (a reload) or new imports: check again; the old word shows meanwhile.
     if (running.get(saved) === before) continue;
     running.set(saved, before);
     const changed = textLanguages(before, saved);
@@ -189,6 +194,7 @@ export function classifyRows(
           ...state.byHash,
           [saved.hash]: {
             saved,
+            savedJson: JSON.stringify(saved),
             published: before,
             tooltips: data.bundle.tooltips,
             value: publishedKind(before, saved, outputs),
@@ -204,7 +210,6 @@ let rowMemo:
       entries: readonly PendingTooltip[];
       published: PublishedState['byHash'];
       kinds: KindsState['byHash'];
-      tooltips: EditorData['bundle']['tooltips'] | undefined;
       value: Map<number, Kind | undefined>;
     }
   | undefined;
@@ -214,23 +219,16 @@ export function rowKinds(
   entries: readonly PendingTooltip[],
   published: PublishedState['byHash'],
   kinds: KindsState['byHash'],
-  tooltips: EditorData['bundle']['tooltips'] | undefined,
 ): RowKinds {
-  if (
-    rowMemo?.entries === entries &&
-    rowMemo.published === published &&
-    rowMemo.kinds === kinds &&
-    rowMemo.tooltips === tooltips
-  )
+  if (rowMemo?.entries === entries && rowMemo.published === published && rowMemo.kinds === kinds)
     return rowMemo.value;
   const value = new Map<number, Kind | undefined>();
   for (const entry of entries)
     value.set(
       entry.tooltip.hash,
-      kindOf(entry, publishedFor(published, entry.tooltip.hash, entry.pushed), kinds, tooltips)
-        ?.kind,
+      kindOf(entry, publishedFor(published, entry.tooltip.hash, entry.pushed), kinds)?.kind,
     );
-  rowMemo = { entries, published, kinds, tooltips, value };
+  rowMemo = { entries, published, kinds, value };
   return value;
 }
 
@@ -238,8 +236,7 @@ const noEntries: PendingTooltip[] = [];
 export function useRowKinds(entries: readonly PendingTooltip[] | null): RowKinds {
   const published = usePublished((state) => state.byHash);
   const kinds = useKinds((state) => state.byHash);
-  const tooltips = useDataStore((state) => state.data?.bundle.tooltips);
-  return rowKinds(entries ?? noEntries, published, kinds, tooltips);
+  return rowKinds(entries ?? noEntries, published, kinds);
 }
 
 /** "19 new tooltips and 6 with no visible change": the confirm dialog's line. */

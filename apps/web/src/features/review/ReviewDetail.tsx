@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { parseMarkup, type Lang, type MarkupLine, type Tooltip } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { getHistory, type HistoryCommit } from '../../services/history';
+import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { replaceDraft } from '../../services/save/drafts';
 import { useSaveState } from '../../services/save/state';
@@ -10,7 +11,7 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { Dialog } from '../../ui/Dialog';
 import { diffWords } from '../../ui/diff';
-import { SkeletonLine } from '../../ui/Skeleton';
+import { SkeletonLine, SkeletonRegion } from '../../ui/Skeleton';
 import { CommitAuthor } from '../history/CommitAuthor';
 import { Body, diffGlobals } from '../history/RenderedWordDiff';
 import {
@@ -55,8 +56,12 @@ function Sentence({
   onRetry(): void;
 }): ReactNode {
   const data = useDataStore((state) => state.data);
+  // Published text is only asked for with an API and a signed-in role.
+  const compares = useAuthStore((state) => Boolean(apiUrl && state.user?.role));
   const waiting = !classification && (!published || published.status === 'loading');
-  const late = useDelayed(waiting || (published?.status === 'ready' && !classification));
+  const late = useDelayed(
+    compares && (waiting || (published?.status === 'ready' && !classification)),
+  );
   if (entry.unpublishable)
     return (
       <p className={styles.sentence} data-tone="warn">
@@ -146,12 +151,21 @@ function Sentence({
         <b>No record of the published version.</b> Showing the saved text only.
       </p>
     );
-  if (published?.status === 'ready' && classification === undefined && !late) return null;
-  // Not known yet: one skeleton line, only after real waiting.
+  if (!compares)
+    return (
+      <p className={styles.sentence}>
+        <b>Not compared.</b> Sign in to compare with the published text.
+      </p>
+    );
+  // Not known yet: the sentence's place is kept, and one skeleton line shows after real waiting.
   return (
-    <p className={styles.sentence} aria-busy="true">
-      {late && <SkeletonLine width={40} />}
-    </p>
+    <div className={styles.sentence} aria-busy="true">
+      {late && (
+        <SkeletonRegion>
+          <SkeletonLine width={40} />
+        </SkeletonRegion>
+      )}
+    </div>
   );
 }
 
@@ -291,8 +305,10 @@ function TextChange({
   if (busy)
     return late ? (
       <div className={styles.single} aria-busy="true">
-        <SkeletonLine width={90} />
-        <SkeletonLine width={70} />
+        <SkeletonRegion>
+          <SkeletonLine width={90} />
+          <SkeletonLine width={70} />
+        </SkeletonRegion>
       </div>
     ) : null;
   const column = (diff: ReturnType<typeof renderedDiff> | undefined) =>
@@ -499,6 +515,7 @@ export const ReviewDetail = memo(function ReviewDetail({
           ))}
         </div>
       )}
+      {raw && live && !rawLanguages.length && <p className={styles.note}>Markup unchanged.</p>}
       {raw && live === null && (
         <p className={styles.note}>Raw markup compares with the published text: there is none.</p>
       )}

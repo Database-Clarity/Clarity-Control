@@ -113,7 +113,7 @@ export function ReviewPage() {
       selectionIntent.current = undefined;
   }, [searchParams, routeLocation.key]);
   const data = useDataStore((state) => state.data);
-  const status = useDataStore((state) => state.status);
+  const reloading = useDataStore((state) => state.refreshing);
   const load = useDataStore((state) => state.load);
   const user = useAuthStore((state) => state.user);
   // Saved | Batches (scheduled changes; build switch OFF or no batch role: always Saved).
@@ -468,13 +468,11 @@ export function ReviewPage() {
   const currentPublished = current
     ? publishedFor(published, current.tooltip.hash, current.pushed)
     : undefined;
-  const classification = current
-    ? kindOf(current, currentPublished, classified, data?.bundle.tooltips)
-    : undefined;
+  const classification = current ? kindOf(current, currentPublished, classified) : undefined;
   const retry = useCallback(() => {
     if (current) void loadPublished([{ hash: current.tooltip.hash, marker: current.pushed }], true);
   }, [current]);
-  const refreshing = status === 'loading' || comparing;
+  const refreshing = reloading || comparing;
 
   const switcher =
     SubviewSwitch && canReadBatches(user) ? (
@@ -514,7 +512,11 @@ export function ReviewPage() {
           )}
         </p>
         <span className={styles.summaryEnd}>
-          <button type="button" disabled={pushing || refreshing} onClick={() => void load()}>
+          <button
+            type="button"
+            disabled={pushing || refreshing}
+            onClick={() => void load({ background: true })}
+          >
             {refreshing && entries ? 'Refreshing…' : 'Refresh'}
           </button>
           {canPush(user) && (

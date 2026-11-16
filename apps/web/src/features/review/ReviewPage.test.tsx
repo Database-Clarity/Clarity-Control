@@ -1170,3 +1170,35 @@ it('does not cap the selection at 100', async () => {
   await waitForPush();
   expect(JSON.parse(post.mock.calls[0][0]!.body as string).hashes).toHaveLength(121);
 });
+
+it('Refresh keeps the list, the open change, and every row word on screen while it reloads', async () => {
+  bundle.pushed = { 10: 'digest' };
+  const live = structuredClone(tooltip);
+  live.text.en!.text = 'Published text';
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      Response.json(
+        url.includes('live=1') ? { tooltip: live, pushedHash: 'digest' } : { page: 1, commits: [] },
+      ),
+    ),
+  );
+  await mount();
+  const word = () => host.querySelector('a[data-review-hash="10"] small')?.textContent;
+  await waitFor(() => expect(word()).toBe('Text changed'));
+  await act(async () => button('Refresh').click());
+  // Mid-reload: nothing is torn down and the button says what is happening.
+  expect(button('Refreshing…').disabled).toBe(true);
+  expect(host.querySelector('article h2')?.textContent).toBe('Tooltip 10');
+  expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
+    'Text changed',
+  );
+  expect(word()).toBe('Text changed');
+  await waitForReview();
+  await waitFor(() => expect(button('Refresh').disabled).toBe(false));
+  // The reloaded snapshot (new objects, same text) keeps its word without blanking.
+  expect(word()).toBe('Text changed');
+  expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
+    'Text changed',
+  );
+});
