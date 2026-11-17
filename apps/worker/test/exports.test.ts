@@ -77,6 +77,7 @@ const styleFile = (id: string, categories: string[] = []) => ({
     frameAliases: false,
     languages: ['en' as const],
     keys: ['name' as const],
+    languageFiles: 'combined' as const,
     bungieIdentical: false,
   },
   format: {
@@ -453,6 +454,44 @@ describe('retained URLs and URL ownership', () => {
     });
   });
 
+  it('a switch between one combined file and one file per language retains the old URL set as one entry', () => {
+    type File = ExportConfig['files'][number];
+    const base = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
+    const combined = base as File;
+    const split = {
+      ...base,
+      data: {
+        ...base.data,
+        languages: ['en' as const, 'de' as const],
+        languageFiles: 'perLanguage' as const,
+      },
+    };
+    const project = (file: File): ExportConfig => ({ ...dimConfig(), files: [file] });
+    const now = new Date(start);
+    const entry = (path: string, snapshot: File) => ({
+      path,
+      uid: 'cccccccccccccccc',
+      formatVersion: 1,
+      snapshot,
+      until: retainUntil(now),
+    });
+    expect(planRetained(project(combined), project(split), now)).toEqual({
+      retained: [entry('dim/v1/texts.json', combined)],
+      problems: [],
+    });
+    // Languages change inside the language folder: the same URL key, nothing retained (a
+    // removed language's URL ends at once).
+    const fewer = { ...split, data: { ...split.data, languages: ['de' as const] } };
+    expect(planRetained(project(split), project(fewer), now)).toEqual({
+      retained: [],
+      problems: [],
+    });
+    expect(planRetained(project(split), project(combined), now)).toEqual({
+      retained: [entry('dim/v1/texts', split)],
+      problems: [],
+    });
+  });
+
   it('retains a removed file, refuses a takeover of its URL, and restores it only through a maintainer', async () => {
     expect((await put('dim', { ...dimConfig(), files: twoFiles().files.slice(1) })).status).toBe(
       200,
@@ -616,9 +655,22 @@ describe('PUT /exports/projects/:id/partners and permissions back-compat', () =>
       role: 'partner',
       languages: [],
       projects: ['dim'],
+      schedulePreparation: false,
     });
-    expect(await me(EDITOR)).toEqual({ id: 2, login: 'bob', role: 'editor', languages: [] });
-    expect(await me(NOBODY)).toEqual({ id: 7, login: 'unknown', role: null, languages: [] });
+    expect(await me(EDITOR)).toEqual({
+      id: 2,
+      login: 'bob',
+      role: 'editor',
+      languages: [],
+      schedulePreparation: false,
+    });
+    expect(await me(NOBODY)).toEqual({
+      id: 7,
+      login: 'unknown',
+      role: null,
+      languages: [],
+      schedulePreparation: false,
+    });
     fixture.moveData({
       'config/permissions.json': {
         ...withPartners,
@@ -632,9 +684,16 @@ describe('PUT /exports/projects/:id/partners and permissions back-compat', () =>
       role: 'editor',
       languages: [],
       projects: ['dim'],
+      schedulePreparation: false,
     });
     fixture.moveData({ 'config/permissions.json': config });
-    expect(await me(PARTNER)).toEqual({ id: 5, login: 'unknown', role: null, languages: [] });
+    expect(await me(PARTNER)).toEqual({
+      id: 5,
+      login: 'unknown',
+      role: null,
+      languages: [],
+      schedulePreparation: false,
+    });
     expect(await me(MAINTAINER)).toMatchObject({ role: 'maintainer' });
   });
 

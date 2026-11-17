@@ -5,11 +5,11 @@
 import type { MarkupLine, MarkupSpan } from '@clarity/core/markup/parse';
 import { elementTagNames } from '@clarity/core/markup/elementTags';
 import type { FileFormat, SymbolRule } from './config.js';
-import { symbolIds, type Shape, type SymbolId } from './vocabulary.js';
+import { iconSymbols, symbolIds, type Shape, type SymbolId } from './vocabulary.js';
 
-/** One span of the lines shape. Keys are only present when they carry something. */
+/** One span of the resolved lines (internal; toLines writes format v1). Keys only when set. */
 export type OutSpan = { text?: string; classNames?: string[]; link?: string; title?: OutLine[] };
-/** One line of the lines shape. */
+/** One resolved line (internal; toLines writes format v1). */
 export type OutLine = { classNames?: string[]; linesContent?: OutSpan[] };
 
 /** What a transform noticed: symbols the file drops because it does not name them. */
@@ -201,13 +201,64 @@ export function renderText(input: readonly OutLine[], separator = '\n'): string 
     .trim();
 }
 
+/**
+ * One part of a line in format v1 (spec section 7): an `icon` (the 16 icons, `arrow`, and
+ * `enhancedArrow`, which keeps its glyph as `text`), or `text` with an optional `style` (bold,
+ * yellow, pve, pvp), `element` (tagged element text), `link`, or `note` (the hover explanation).
+ */
+export type Part = {
+  icon?: string;
+  text?: string;
+  style?: string[];
+  element?: string;
+  link?: string;
+  note?: Line[];
+};
+/** One line of format v1: its parts and line-wide `style`, or a spacer. */
+export type Line = { spacer: true } | { style?: string[]; parts: Part[] };
+
+const iconNames = new Set<string>([...iconSymbols, 'arrow', 'enhancedArrow']);
+
+function toPart(span: OutSpan): Part {
+  const names = (span.classNames ?? []).filter((name) => name !== 'link' && name !== 'title');
+  let element: string | undefined;
+  if (names.includes('elementText')) {
+    // span() above adds the tint as the last class name, after `elementText`.
+    const last = names[names.length - 1]!;
+    if ((elementTagNames as readonly string[]).includes(last)) element = names.pop();
+    names.splice(names.indexOf('elementText'), 1);
+  }
+  const icon = names.find((name) => iconNames.has(name));
+  const style = names.filter((name) => name !== icon);
+  return {
+    ...(icon ? { icon } : {}),
+    ...(span.text !== undefined ? { text: span.text } : {}),
+    ...(style.length ? { style } : {}),
+    ...(element ? { element } : {}),
+    ...(span.link !== undefined ? { link: span.link } : {}),
+    ...(span.title ? { note: toLines(span.title) } : {}),
+  };
+}
+
+/** The lines shape as format v1 writes it: `parts`, `style`, `icon`, `note`, and `spacer`. */
+export function toLines(input: readonly OutLine[]): Line[] {
+  return input.map((line) =>
+    line.classNames?.[0] === 'spacer' && !line.linesContent
+      ? { spacer: true }
+      : {
+          ...(line.classNames ? { style: line.classNames } : {}),
+          parts: (line.linesContent ?? []).map(toPart),
+        },
+  );
+}
+
 /** Transforms one resolved description for a file. */
 export function transform(
   input: readonly MarkupLine[],
   format: FileFormat,
   shape: Shape,
   notes: TransformNotes,
-): OutLine[] | string {
+): Line[] | string {
   const output = lines(input, { format, shape, notes });
-  return shape === 'lines' ? output : renderText(output);
+  return shape === 'lines' ? toLines(output) : renderText(output);
 }

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it } from 'vitest';
 import { parseMarkup } from '@clarity/core';
-import { Lines, MarkupLines, PreviewSpan } from './MarkupRenderer';
+import { Lines, MarkupLines, PreviewSpan, TitleAnchor } from './MarkupRenderer';
 
 it('passes optional slot identity without changing the DOM of ordinary spans', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -159,5 +159,42 @@ it('keeps an icon with the word right after it, and only that word', async () =>
     expect(glued()).toEqual([]);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+it('keeps a hovered title open while the pointer crosses the gap into it', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  document.body.append(host);
+  const wait = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+  try {
+    await act(async () =>
+      root.render(
+        <TitleAnchor part={{ text: 'Term', title: [{ linesContent: [{ text: 'Body' }] }] }} />,
+      ),
+    );
+    const anchor = host.querySelector<HTMLElement>('[aria-describedby]')!;
+    const box = host.querySelector<HTMLElement>('[role="tooltip"]')!;
+    const pointer = (type: string, target: HTMLElement, related: Element) =>
+      act(async () => {
+        target.dispatchEvent(new MouseEvent(type, { bubbles: true, relatedTarget: related }));
+      });
+    await pointer('pointerover', anchor, document.body);
+    expect(box.hasAttribute('data-open')).toBe(true);
+    // Out of the anchor into the gap, then into the box (its child) within the grace.
+    await pointer('pointerout', anchor, document.body);
+    await wait(50);
+    await pointer('pointerover', box, document.body);
+    await wait(150);
+    expect(box.hasAttribute('data-open')).toBe(true);
+    // Leaving for good closes it after the grace.
+    await pointer('pointerout', box, document.body);
+    expect(box.hasAttribute('data-open')).toBe(true);
+    await wait(160);
+    expect(box.hasAttribute('data-open')).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

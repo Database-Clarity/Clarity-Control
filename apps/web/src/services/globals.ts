@@ -120,8 +120,21 @@ export interface GlobalSnapshot {
   sourceBodies?: Record<string, Partial<Record<Lang, string>>>;
   sync: Record<string, GlobalSyncState>;
   destinationSync: Record<string, GlobalSyncState>;
-  renameIntents?: Record<string, { intentId: string; renameCompleted: false }>;
+  renameIntents?: Record<string, GlobalRenameIntent>;
   sources?: GlobalSourcePins;
+  /** Which entry owns each pending cause; a Retry sends only the selected entry's own. */
+  causeEntries?: Record<string, string>;
+}
+/**
+ * A queued rename. `name` is the requested name; once sync is current an intent whose entry does
+ * not carry that name was refused (stale intent, S4 R2) and reads `not-applied` until the next
+ * current refresh.
+ */
+export interface GlobalRenameIntent {
+  intentId: string;
+  renameCompleted: false;
+  name?: string;
+  status?: 'queued' | 'not-applied';
 }
 export interface GlobalSyncState {
   status: 'sync-pending' | 'sync-failed' | 'current';
@@ -192,6 +205,7 @@ export interface GlobalHttpState extends GlobalSyncState {
   head: string;
   version: 1;
   sources?: GlobalSourcePins;
+  causeEntries?: Record<string, string>;
 }
 export interface GlobalEntryPage extends GlobalHttpState {
   entries: GlobalEntry[];
@@ -266,11 +280,28 @@ export function createGlobalsService(
   function applyState(next: GlobalSnapshot, header: GlobalHttpState) {
     next.head = header.head;
     next.sources = header.sources;
+    // Cause ownership never changes, so receipts only add to it; current sync has no causes.
+    next.causeEntries =
+      header.status === 'current' ? {} : { ...next.causeEntries, ...header.causeEntries };
     next.sync = Object.fromEntries(next.entries.map((entry) => [entry.id, state(header)]));
     next.destinationSync = Object.fromEntries(
       options.destinations.map((destination) => [destination, state(header)]),
     );
-    if (header.status === 'current') next.renameIntents = {};
+    if (header.status === 'current')
+      next.renameIntents = Object.fromEntries(
+        Object.entries(next.renameIntents ?? {}).flatMap(([id, intent]) => {
+          const entry = next.entries.find((item) => item.id === id);
+          // Reported once already, or applied (or no requested name to compare): cleared.
+          if (
+            intent.status === 'not-applied' ||
+            !intent.name ||
+            !entry ||
+            entry.name === intent.name
+          )
+            return [];
+          return [[id, { ...intent, status: 'not-applied' as const }]];
+        }),
+      );
   }
   function mergeEntry(next: GlobalSnapshot, entry: GlobalEntry) {
     const old = next.entries.findIndex((item) => item.id === entry.id);
@@ -360,7 +391,12 @@ export function createGlobalsService(
       if (value.renameCompleted === false && value.intentId)
         base.renameIntents = {
           ...base.renameIntents,
-          [value.entry.id]: { intentId: value.intentId, renameCompleted: false },
+          [value.entry.id]: {
+            intentId: value.intentId,
+            renameCompleted: false,
+            ...(mutation?.operation === 'rename' ? { name: mutation.name } : {}),
+            status: 'queued',
+          },
         };
     } else {
       if (mutation?.operation !== 'acknowledge' || value.consumerId !== mutation.consumerId)
@@ -417,6 +453,7 @@ export function createGlobalsService(
         if (token !== generation) return conflict();
         if (header && !sameHeader(header, page.value)) return conflict();
         header ??= page.value;
+        next.causeEntries = { ...next.causeEntries, ...page.value.causeEntries };
         if (page.value.entries.length > 3)
           return invalid('Global catalog page exceeds three records.');
         for (const entry of page.value.entries) {

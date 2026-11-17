@@ -223,15 +223,15 @@ describe('exotic armour in the editor headings', () => {
     expect(data.items[101].name).toBe('Chaotic Exchanger');
   });
 
-  it('does not repeat a piece whose perk is named after it', () => {
+  it('keeps the piece of a perk named after it, so the perk name still shows', () => {
     const striders = perk(6, 'Blastwave Striders', {
       itemHash: 1188437342,
       itemName: 'Blastwave Striders',
       owners: [1188437342],
       ownerNames: { 1188437342: 'Blastwave Striders' },
     }) as unknown as EditorData['items'][number];
-    expect(exoticPiece(striders)).toBeUndefined();
-    expect(editorName(striders)).toBe('Blastwave Striders');
+    expect(exoticPiece(striders)).toBe('Blastwave Striders');
+    expect(editorName(striders)).toBe('Blastwave Striders · Blastwave Striders');
   });
 
   it('shows the piece above the perk in the preview header, only when there is one', () => {
@@ -284,7 +284,8 @@ describe('exotic armour in the editor headings', () => {
       owners: [1188437342],
       ownerNames: { 1188437342: 'Blastwave Striders' },
     });
-    expect(previewPieceIcon(striders as never)).toBeUndefined();
+    // A perk named after its piece shows the piece row, so it gets the piece icon too.
+    expect(previewPieceIcon(striders as never)).toMatch(/^\/common\//);
   });
 });
 

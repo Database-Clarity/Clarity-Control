@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  useSearchParams,
+} from 'react-router-dom';
 import { languages, type Lang, type MarkupGlobals } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { ClarityEditor } from '../editor/ClarityEditor';
@@ -27,6 +33,9 @@ import {
   type GlobalsService,
 } from '../../services/globals';
 import styles from './GlobalEntryWorkspace.module.scss';
+import { readGlobalDraft, writeGlobalDraft, type GlobalDraft } from './globalDrafts';
+import { GlobalHistory, type GlobalHistoryReader } from './GlobalHistory';
+import { useAuthStore } from '../../stores/auth';
 import { GlobalImpactComparison, validGlobalImpact } from './GlobalImpactComparison';
 
 const globals = { variables: '', titles: '' };
@@ -40,22 +49,38 @@ const destinationLabel = (value: string) =>
         ? 'Upcoming'
         : value;
 
-/** Deliberately unmounted: S5 supplies the gated service and stable-ID route. */
+/**
+ * Mounted at `/globals/:id` (stable ID, `entryId`) behind the globals switch; without `entryId`
+ * the selection lives in `?entry=`. No projection source is mounted yet: drafts show saved impact.
+ */
 export function GlobalEntryWorkspace({
   service,
   actor,
   globalsByLanguage,
   projectionSource,
+  entryId,
+  history,
+  onSnapshot,
 }: {
   service: GlobalsService;
   actor: GlobalActor;
   globalsByLanguage?: Partial<Record<Lang, MarkupGlobals>>;
   projectionSource?: GlobalProjectionSource;
+  /** Saved versions of an entry; the History tab shows only when it is supplied. */
+  history?: GlobalHistoryReader;
+  /** Routed mode: the entry comes from the path; '' or undefined opens the first entry. */
+  entryId?: string | null;
+  onSnapshot?(snapshot: GlobalSnapshot): void;
 }) {
   const [snapshot, setSnapshot] = useState<GlobalSnapshot>();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
+  const snapshotListener = useRef(onSnapshot);
+  snapshotListener.current = onSnapshot;
+  useEffect(() => {
+    if (snapshot) snapshotListener.current?.(snapshot);
+  }, [snapshot]);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -98,6 +123,8 @@ export function GlobalEntryWorkspace({
       actor={actor}
       globalsByLanguage={globalsByLanguage}
       projectionSource={projectionSource}
+      entryId={entryId}
+      history={history}
       onSnapshot={setSnapshot}
     />
   );
@@ -109,6 +136,8 @@ function Workspace({
   actor,
   globalsByLanguage,
   projectionSource,
+  entryId,
+  history,
   onSnapshot,
 }: {
   snapshot: GlobalSnapshot;
@@ -116,9 +145,13 @@ function Workspace({
   actor: GlobalActor;
   globalsByLanguage?: Partial<Record<Lang, MarkupGlobals>>;
   projectionSource?: GlobalProjectionSource;
+  entryId?: string | null;
+  history?: GlobalHistoryReader;
   onSnapshot(value: GlobalSnapshot): void;
 }) {
   const [params, setParams] = useSearchParams();
+  const routed = entryId !== undefined;
+  const navigateTo = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
   const scrollPositions = useRef(new Map<string, number>());
@@ -132,7 +165,7 @@ function Workspace({
       if (list) positions.set(location.key, list.scrollTop);
     };
   }, [location.key, navigationType]);
-  const selectedId = params.get('entry');
+  const selectedId = routed ? entryId || null : params.get('entry');
   const entries = snapshot.entries.filter((item) => !item.tombstone);
   const entry =
     entries.find((item) => item.id === selectedId) ?? (!selectedId ? entries[0] : undefined);
@@ -143,23 +176,25 @@ function Workspace({
       : 'en';
   const key = `${entry?.id}:${lang}`;
   const saved = entry?.definitions[lang]?.body ?? '';
-  // Retain keyed drafts when browser Back/Forward changes the URL directly.
-  const [drafts, setDrafts] = useState<Record<string, { body: string; revision?: string }>>({});
+  // Keyed drafts survive Back/Forward, finder stepping between entries, and reload (stored per
+  // account and stable ID); a draft keeps the revision it started from, so staleness survives too.
+  const owner = useAuthStore((state) => state.user?.login) ?? 'signed-out';
+  const [drafts, setDrafts] = useState<Record<string, GlobalDraft | null>>({});
+  const draftOf = (draftKey: string) =>
+    draftKey in drafts ? drafts[draftKey] : readGlobalDraft(owner, draftKey);
   function setDraft(next: { key: string; body: string }) {
-    setDrafts((previous) => {
-      const values = { ...previous };
-      if (next.key)
-        values[next.key] = {
-          body: next.body,
-          revision: previous[next.key]?.revision ?? entry?.revision,
-        };
-      else delete values[key];
-      return values;
-    });
+    const draftKey = next.key || key;
+    // Typing back to the saved text leaves no draft behind (no phantom stale draft later).
+    const value =
+      next.key && !(next.key === key && next.body === saved)
+        ? { body: next.body, revision: draftOf(draftKey)?.revision ?? entry?.revision }
+        : null;
+    writeGlobalDraft(owner, draftKey, value);
+    setDrafts((previous) => ({ ...previous, [draftKey]: value }));
   }
-  const body = drafts[key]?.body ?? saved;
+  const body = draftOf(key)?.body ?? saved;
   const dirty = body !== saved;
-  const staleDraft = dirty && drafts[key]?.revision !== entry?.revision;
+  const staleDraft = dirty && draftOf(key)?.revision !== entry?.revision;
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
   const mounted = useRef(true);
@@ -206,7 +241,11 @@ function Workspace({
   const [phone, setPhone] = useState('editor');
   const query = params.get('q') ?? '';
   const tab = params.get('tab') ?? (actor?.role === 'translator' ? 'translations' : 'usages');
+  const shownTab =
+    tab === 'translations' ? tab : tab === 'history' && history ? 'history' : 'usages';
   const sync = globalSyncState(snapshot, entry?.id ?? '');
+  // The Worker requeues only causes this entry owns; the repository-wide status still blocks.
+  const ownCauses = sync.causeIds.filter((cause) => snapshot.causeEntries?.[cause] === entry?.id);
   const savedImpacts = entry ? (snapshot.impacts[entry.id] ?? []) : [];
   const projection =
     dirty &&
@@ -216,10 +255,17 @@ function Workspace({
     projected.source === projectionSource
       ? projected.consumers
       : undefined;
-  const scope = dirty ? 'projected' : 'saved';
-  const consumers = dirty ? (projection ?? []) : savedImpacts;
+  const projectedScope = dirty && !!projectionSource;
+  const scope = projectedScope ? 'projected' : 'saved';
+  // One stable switcher: every view keeps its place and the open one reads as selected.
+  const paneViews: [string, string][] = [
+    ['usages', scope === 'projected' ? 'Projected impact' : 'Usages'],
+    ['translations', 'Translations'],
+    ...(history ? [['history', 'History'] as [string, string]] : []),
+  ];
+  const consumers = projectedScope ? (projection ?? []) : savedImpacts;
   function reviewState(row: GlobalConsumerView) {
-    return dirty ? 'projected' : globalReviewState(row as GlobalConsumer);
+    return projectedScope ? 'projected' : globalReviewState(row as GlobalConsumer);
   }
   const shown = consumers.filter(
     (row) =>
@@ -253,6 +299,17 @@ function Workspace({
   const editable = canEditGlobal(actor, lang);
   const structural = actor?.role === 'editor' || actor?.role === 'maintainer';
   function update(values: Record<string, string>, replace = false) {
+    if (routed && 'entry' in values) {
+      const { entry: id, ...rest } = values;
+      const next = new URLSearchParams(params);
+      for (const [name, value] of Object.entries(rest)) next.set(name, value);
+      const query = next.toString();
+      navigateTo(
+        { pathname: id ? `/globals/${id}` : '/globals', search: query ? `?${query}` : '' },
+        { replace },
+      );
+      return;
+    }
     setParams(
       (previous) => {
         const next = new URLSearchParams(previous);
@@ -319,7 +376,7 @@ function Workspace({
           ? await service.retrySync({
               expectedHead: snapshot.head,
               id: entry.id,
-              causeIds: sync.causeIds,
+              causeIds: ownCauses,
             })
           : await service.read();
       if (!mounted.current) return;
@@ -423,7 +480,8 @@ function Workspace({
         </button>
         {entry && sync.status === 'sync-failed' && (
           <button
-            disabled={disabled || !actor}
+            disabled={disabled || !actor || !ownCauses.length}
+            title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
             aria-label="Retry sync"
             onClick={() => void refreshSync(true)}
           >
@@ -434,9 +492,16 @@ function Workspace({
           <p role="alert">{sync.lastFailure ?? 'Failure details unavailable.'}</p>
         )}
       </div>
-      {entry && snapshot.renameIntents?.[entry.id]?.renameCompleted === false && (
-        <p role="status">Rename queued; not complete.</p>
-      )}
+      {entry &&
+        snapshot.renameIntents?.[entry.id]?.renameCompleted === false &&
+        (snapshot.renameIntents[entry.id].status === 'not-applied' ? (
+          <p role="alert">
+            Rename to {snapshot.renameIntents[entry.id].name} not applied. Rename again if it is
+            still needed.
+          </p>
+        ) : (
+          <p role="status">Rename queued; not complete.</p>
+        ))}
       {Object.values(snapshot.destinationSync).some((state) => state.status !== 'current') && (
         <p role="status" className={styles.syncDestination}>
           Publishing to{' '}
@@ -535,7 +600,11 @@ function Workspace({
             disabled={disabled}
             onClick={() => setPhone(view)}
           >
-            {view === 'usages' ? 'Usages' : view === 'editor' ? 'Editor' : 'Preview'}
+            {view === 'usages'
+              ? paneViews.find(([value]) => value === shownTab)![1]
+              : view === 'editor'
+                ? 'Editor'
+                : 'Preview'}
           </button>
         ))}
       </nav>
@@ -634,7 +703,7 @@ function Workspace({
             )}
             {projecting && <p role="status">Calculating projected impact… You can keep editing.</p>}
             {entry.kind === 'variables' && body === '' && <p>Explicit empty variable value.</p>}
-            {dirty && (
+            {dirty && projectionSource && (
               <button
                 disabled={disabled}
                 onClick={() => (projecting ? cancelProjection() : void project())}
@@ -647,24 +716,34 @@ function Workspace({
             <RightPane
               label="Global usages and translations"
               header={
-                <div className={styles.paneHeader}>
-                  <h2>
-                    {tab === 'translations'
-                      ? 'Translations'
-                      : scope === 'projected'
-                        ? 'Projected impact'
-                        : 'Saved impact'}
-                  </h2>
-                  <button
-                    disabled={disabled}
-                    onClick={() => update({ tab: tab === 'usages' ? 'translations' : 'usages' })}
-                  >
-                    {tab === 'usages' ? 'Translations' : 'Usages'}
-                  </button>
+                <div className={styles.paneTabs} role="group" aria-label="Pane view">
+                  {paneViews.map(([value, label]) => (
+                    <button
+                      key={value}
+                      aria-pressed={shownTab === value}
+                      disabled={disabled}
+                      onClick={() => update({ tab: value })}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               }
             >
-              {tab === 'translations' ? (
+              {tab === 'history' && history ? (
+                <GlobalHistory
+                  reader={history}
+                  entry={entry}
+                  lang={lang}
+                  saved={saved}
+                  canRestore={!disabled && editable && !conflict}
+                  onRestore={(value) => {
+                    setDraft({ key, body: value });
+                    setReviewed(undefined);
+                    setPhone('editor');
+                  }}
+                />
+              ) : tab === 'translations' ? (
                 <div className={styles.paneBody}>
                   <h2>English source</h2>
                   <pre>{entry.definitions.en?.body ?? 'No English definition.'}</pre>
@@ -716,13 +795,13 @@ function Workspace({
                   {scope === 'projected' && (
                     <p className={styles.impactHeading}>Projected impact — unsaved</p>
                   )}
-                  {dirty && !projection && (
+                  {projectedScope && !projection && (
                     <p>
                       Calculate projected impact to inspect this draft. Saved reviews remain
                       separate.
                     </p>
                   )}
-                  {dirty && (
+                  {projectedScope && (
                     <p>
                       {sync.status === 'current'
                         ? `Saved impact: ${savedImpacts.length} consumers.`
@@ -777,9 +856,9 @@ function Workspace({
                     <p>
                       {query
                         ? 'No matching consumers. Clear the filter to restore them.'
-                        : dirty && !projection
+                        : projectedScope && !projection
                           ? 'Projected usages have not been calculated.'
-                          : !dirty && sync.status !== 'current'
+                          : !projectedScope && sync.status !== 'current'
                             ? 'Saved usages will update when sync finishes.'
                             : 'No affected consumers.'}
                     </p>

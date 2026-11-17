@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { placeAnchored, viewportWidth, visibleArea, type PlacementArea } from './anchorPlacement';
+import {
+  placeAnchored,
+  POINTER_CLEARANCE,
+  viewportWidth,
+  visibleArea,
+  type PlacementArea,
+} from './anchorPlacement';
 
 // A 390x772 phone, 8px edges.
 const area: PlacementArea = { top: 8, bottom: 764, width: 390, layoutHeight: 772, edge: 8 };
@@ -30,6 +36,23 @@ describe('placeAnchored', () => {
     expect(placed.top).toBe('auto');
     expect(placed.bottom).toBe(772 - 596);
     expect(placed.maxHeight).toBe(596 - 8);
+  });
+
+  it('keeps a hover popup clear of the pointer below its trigger, and only below', () => {
+    const below = placeAnchored({ trigger: rect(44), area, width: 200, height: 100, hover: true });
+    // The pointer's hotspot is inside the trigger (bottom 80); its drawing ends 22px under it.
+    expect(below.top).toBe(80 + POINTER_CLEARANCE);
+    const above = placeAnchored({ trigger: rect(600), area, width: 200, height: 300, hover: true });
+    expect(above.side).toBe('above');
+    expect(above.bottom).toBe(772 - 596);
+    const desktop = placeAnchored({
+      trigger: rect(44),
+      area,
+      width: 200,
+      hover: true,
+      desktop: true,
+    });
+    expect(desktop.top).toBe(80 + POINTER_CLEARANCE);
   });
 
   it('stays below when the content fits there, even with more room above', () => {

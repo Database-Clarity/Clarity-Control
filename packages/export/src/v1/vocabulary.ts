@@ -1,7 +1,7 @@
 // The v1 vocabulary: names, limits, and ids shared by the config schema (config.ts, zod) and the
 // engine. Kept free of zod so the engine bundle the preview loads stays small.
 import { legacyPresets } from '../legacy.js';
-import type { ExportFile, LegacyFile } from './config.js';
+import type { ExportFile, LegacyFile, StyleFile } from './config.js';
 
 /** Current config schema version (the config JSON's own shape). */
 export const configSchemaVersion = 1;
@@ -32,18 +32,26 @@ export const exportLanguages = [
 ] as const;
 export type ExportLanguage = (typeof exportLanguages)[number];
 
-/** Per-item keys a file can include. `name` is the only default (spec section 7). */
+/**
+ * Per-perk keys a file can include (spec section 7). `edited` writes `edited.<lang>.at` (ISO time
+ * of the last edit); `editedBy` writes `edited.<lang>.by` (the editor's name), with or without
+ * `edited`. `references` lists perks this one refers to. Default: `name` and `edited` (styles.ts
+ * defaultData).
+ */
 export const itemKeys = [
   'name',
   'itemHash',
   'itemName',
-  'type',
-  'lastUpload',
-  'uploadedBy',
-  'updateTracker',
-  'associated',
+  'category',
+  'edited',
+  'editedBy',
+  'references',
 ] as const;
 export type ItemKey = (typeof itemKeys)[number];
+
+/** One file holding every chosen language, or one file per language (spec section 7). */
+export const languageFilesModes = ['combined', 'perLanguage'] as const;
+export type LanguageFiles = (typeof languageFilesModes)[number];
 
 /** The 16 icons of the v2 markup (core syntax.ts markupIcons), in the editor's order. */
 export const iconSymbols = [
@@ -96,3 +104,30 @@ export const isValidId = (id: string) =>
 /** A legacy preset file: frozen, built by the held converter path. */
 export const isLegacyFile = (file: ExportFile): file is LegacyFile =>
   (legacyPresets as readonly string[]).includes(file.preset);
+
+/** A style file split into one URL per language. */
+export const isPerLanguage = (file: ExportFile) =>
+  !isLegacyFile(file) && file.data.languageFiles === 'perLanguage';
+
+type FileRef = Pick<ExportFile, 'id' | 'formatVersion'> & Partial<Pick<StyleFile, 'data'>>;
+
+/**
+ * A file's URL key, relative to the site root: `<project>/v<format>/<file>.json`, or for one file
+ * per language the folder `<project>/v<format>/<file>` that holds `<lang>.json`. URL ownership,
+ * retained entries, and the URL slots count keys: one per file, whatever its languages.
+ */
+export const filePath = (projectId: string, file: FileRef) =>
+  `${projectId}/v${file.formatVersion}/${file.id}${file.data?.languageFiles === 'perLanguage' ? '' : '.json'}`;
+
+/** Every URL of a file, with the languages each holds (legacy files hold every language). */
+export function fileUrls(
+  projectId: string,
+  file: ExportFile,
+): { path: string; languages: ExportLanguage[] }[] {
+  const key = filePath(projectId, file);
+  if (isLegacyFile(file)) return [{ path: key, languages: [...exportLanguages] }];
+  const languages = exportLanguages.filter((language) => file.data.languages.includes(language));
+  return isPerLanguage(file)
+    ? languages.map((language) => ({ path: `${key}/${language}.json`, languages: [language] }))
+    : [{ path: key, languages }];
+}
