@@ -26,7 +26,15 @@ const listed = (names: string[]) =>
  * new save. Checking reads only; nothing changes until the confirm names what reverts and what
  * a later save already changed (those are restored per perk instead).
  */
-export function UploadRollback({ commit, lang }: { commit: string; lang: Lang }) {
+export function UploadRollback({
+  commit,
+  lang,
+  onDone,
+}: {
+  commit: string;
+  lang: Lang;
+  onDone?(message: string): void;
+}) {
   const names = useNames();
   const [plan, setPlan] = useState<RollbackPlan>();
   const [state, setState] = useState<'idle' | 'checking' | 'confirm' | 'applying'>('idle');
@@ -35,8 +43,13 @@ export function UploadRollback({ commit, lang }: { commit: string; lang: Lang })
   const trigger = useRef<HTMLButtonElement>(null);
   const confirm = useRef<HTMLButtonElement>(null);
   const language = languageLabel(lang);
+  const started = useRef(false);
+  // Focus follows the flow once it rendered: into the confirm, and back to the trigger when the
+  // confirm closes (cancel, done, or a failed check), never left on a removed control.
   useEffect(() => {
     if (state === 'confirm') confirm.current?.focus();
+    if (state === 'idle' && started.current) trigger.current?.focus();
+    if (state !== 'idle') started.current = true;
   }, [state]);
 
   async function check() {
@@ -55,10 +68,11 @@ export function UploadRollback({ commit, lang }: { commit: string; lang: Lang })
     setState('applying');
     try {
       const result = await applyRollback(commit, lang);
+      const message = `Rolled back ${language} in ${result.reverted.length} ${result.reverted.length === 1 ? 'tooltip' : 'tooltips'} as a new save.`;
+      // The panel keeps the outcome: the new bundle head remounts the list and this popover.
+      onDone?.(message);
       acceptSaved({}, result.tooltips, result.commit, [], result.savedAt);
-      setDone(
-        `Rolled back ${language} in ${result.reverted.length} ${result.reverted.length === 1 ? 'tooltip' : 'tooltips'} as a new save.`,
-      );
+      setDone(message);
       setPlan(undefined);
       setState('idle');
     } catch (cause) {
@@ -69,7 +83,6 @@ export function UploadRollback({ commit, lang }: { commit: string; lang: Lang })
   function cancel() {
     setPlan(undefined);
     setState('idle');
-    trigger.current?.focus();
   }
 
   const reverted = plan?.reverted.map(names) ?? [];

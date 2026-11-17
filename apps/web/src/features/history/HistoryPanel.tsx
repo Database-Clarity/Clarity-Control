@@ -52,6 +52,13 @@ export function HistoryPanel({
   attribution?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // An upload rollback moves the bundle head, which remounts the list below and closes its
+  // popover: the outcome is kept here, and focus moves to it.
+  const [rolledBack, setRolledBack] = useState<string>();
+  const rolledBackNotice = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (rolledBack) rolledBackNotice.current?.focus();
+  }, [rolledBack]);
   const scope = useMemo(() => viewScope(language, readOnly), [language, readOnly]);
   const user = useAuthStore((state) => state.user);
   const tooltip = useDataStore((state) => state.data?.bundle.tooltips[hash]);
@@ -88,6 +95,11 @@ export function HistoryPanel({
     >
       {attribution}
       {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
+      {rolledBack && (
+        <p role="status" tabIndex={-1} ref={rolledBackNotice}>
+          {rolledBack}
+        </p>
+      )}
       {signedIn && (
         <HistoryContent
           key={`v2-${cache.identity}-${language}-${readOnly}`}
@@ -95,6 +107,7 @@ export function HistoryPanel({
           hash={hash}
           readOnly={readOnly}
           suspended={suspended}
+          onRolledBack={setRolledBack}
         />
       )}
       {language === 'en' && (
@@ -113,7 +126,10 @@ function HistoryContent({
   hash,
   readOnly = false,
   suspended = false,
+  onRolledBack,
 }: {
+  /** Shows an upload rollback outcome above the list (which the rollback remounts). */
+  onRolledBack?(message: string): void;
   hash: number;
   readOnly?: boolean;
   suspended?: boolean;
@@ -349,6 +365,7 @@ function HistoryContent({
               canRestore={canRestore}
               onRestore={restore}
               rollbackLang={rollbackLang}
+              onRolledBack={onRolledBack}
             />
           ))}
         {visibleCount < commits.length && (

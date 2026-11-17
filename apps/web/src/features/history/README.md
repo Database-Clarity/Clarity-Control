@@ -33,7 +33,6 @@ Comparisons activate one language per painted frame, with `aria-busy` until all
 languages are active. ResizeObserver positions the surface without re-rendering
 the diff or synchronously reading its new height.
 
-
 An explicit Worker 404 saying the tooltip did not exist at an immutable commit is
 cached as an absent revision. Deletions show the previous text removed; restorations
 show the restored text added. Deleted versions cannot be restored as drafts.

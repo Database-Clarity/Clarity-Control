@@ -73,6 +73,8 @@ export interface HistoryEntryProps {
   onRestore(version: Tooltip): void;
   /** The language this user may roll back whole uploads in (managers, maintainers), if any. */
   rollbackLang?: Lang;
+  /** Receives the outcome of an upload rollback (the history list remounts after it). */
+  onRolledBack?(message: string): void;
 }
 
 /**
@@ -369,6 +371,7 @@ function RevisionPopover({
   legacy,
   scope,
   rollbackLang,
+  onRolledBack,
 }: HistoryEntryProps & {
   surface: RefObject<HTMLDivElement>;
   id: string;
@@ -693,7 +696,7 @@ function RevisionPopover({
           </div>
         )}
         {rollbackLang && !legacy && uploadChanged(entry.message, rollbackLang) && (
-          <UploadRollback commit={entry.commit} lang={rollbackLang} />
+          <UploadRollback commit={entry.commit} lang={rollbackLang} onDone={onRolledBack} />
         )}
       </div>
     </div>
