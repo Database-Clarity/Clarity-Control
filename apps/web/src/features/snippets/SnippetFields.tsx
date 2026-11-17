@@ -2,6 +2,9 @@ import { useId } from 'react';
 import { snippetContentSchema } from '../../../../../packages/core/src/customSnippets';
 import styles from './Snippets.module.scss';
 
+// The character count reads the same in every browser locale ("1,234 of 2,000").
+const count = new Intl.NumberFormat('en');
+
 export interface SnippetDraft {
   label: string;
   keywords: string;
@@ -145,7 +148,7 @@ export function SnippetFields({
         ),
         textReadOnly
           ? undefined
-          : `${draft.template.length.toLocaleString()} of 2,000 characters. Fields: {{1:default}}, caret end: {{0}}.`,
+          : `${count.format(draft.template.length)} of 2,000 characters. Fields: {{1:default}}, caret end: {{0}}.`,
       )}
     </div>
   );
