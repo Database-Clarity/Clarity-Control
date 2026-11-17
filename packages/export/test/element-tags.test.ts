@@ -105,8 +105,9 @@ describe('configured files (custom-export compiler) from tagged input', () => {
   ) as Catalog;
   const { input, identical } = editorDataInput();
   const tagged = raised(input).input;
-  const file = (style: (typeof styles)[number]) =>
-    newStyleFile('all', style, {
+  // Element tags off: authored tags lower exactly as in untagged input (new files default to on).
+  const file = (style: (typeof styles)[number]) => {
+    const made = newStyleFile('all', style, {
       categories: realCatalog.categories.map((c) => c.id),
       sandboxPerks: realCatalog.categories.map((c) => c.id),
       frameAliases: true,
@@ -115,6 +116,9 @@ describe('configured files (custom-export compiler) from tagged input', () => {
       languageFiles: 'combined',
       bungieIdentical: false,
     });
+    made.format.elementTags = false;
+    return made;
+  };
 
   test.each(styles)(
     '%s: the same bytes as the lowered input',
