@@ -1139,25 +1139,34 @@ it('withholds a title-local name proof and keeps real S2 from creating a conflic
   expect(f.globals.store(f.current()).entries.some((entry) => entry.name === 'Local')).toBe(false);
 });
 
-it.each([2, 3])('reads historical empty secondary only for reserved library %s', async (hash) => {
-  const f = await fixture('title Help (\nDetails\n)');
-  const currentLive = f.git.head(L)!;
-  const tree = f.git.tree(currentLive);
-  const actual = JSON.parse(f.git.blob(tree['liveDescriptions.json']));
-  const write = () => {
-    tree['liveDescriptions.json'] = f.git.writeBlob(encode(actual));
-    return f.git.commit(currentLive, tree);
-  };
-  expect(() => f.globals.capture(f.current(), f.git.head(D)!, currentLive)).not.toThrow();
-  actual.perks[hash].editor.en.secondary = '';
-  expect(() => f.globals.capture(f.current(), f.git.head(D)!, write())).not.toThrow();
-  actual.perks[hash].editor.en.secondary = 'different';
-  expect(() => f.globals.capture(f.current(), f.git.head(D)!, write())).toThrow(
-    'Published snapshots differ',
-  );
-  actual.perks[hash].editor.en.secondary = actual.perks[hash].editor.en.main;
-  actual.perks[40].editor.en.secondary = '';
-  expect(() => f.globals.capture(f.current(), f.git.head(D)!, write())).toThrow(
-    'Published snapshots differ',
-  );
-});
+it.each([2, 3, 40])(
+  'ignores historical derived secondary without changing live bytes for %s',
+  async (hash) => {
+    const f = await fixture('title Help (\nDetails\n)');
+    const currentLive = f.git.head(L)!;
+    const tree = f.git.tree(currentLive);
+    const actual = JSON.parse(f.git.blob(tree['liveDescriptions.json']));
+    const write = () => {
+      tree['liveDescriptions.json'] = f.git.writeBlob(encode(actual));
+      return f.git.commit(currentLive, tree);
+    };
+    expect(() => f.globals.capture(f.current(), f.git.head(D)!, currentLive)).not.toThrow();
+    actual.perks[hash].editor.en.secondary = '';
+    expect(() => f.globals.capture(f.current(), f.git.head(D)!, write())).not.toThrow();
+    actual.perks[hash].editor.en.secondary = 'different';
+    const historical = write();
+    const bytes = f.git.blob(f.git.tree(historical)['liveDescriptions.json']);
+    expect(() => f.globals.capture(f.current(), f.git.head(D)!, historical)).not.toThrow();
+    expect(f.git.blob(f.git.tree(historical)['liveDescriptions.json'])).toBe(bytes);
+    const main = actual.perks[hash].editor.en.main;
+    actual.perks[hash].editor.en.main = 'different main';
+    expect(() => f.globals.capture(f.current(), f.git.head(D)!, write())).toThrow(
+      'Published snapshots differ',
+    );
+    actual.perks[hash].editor.en.main = main;
+    actual.perks[hash].editor.en.unexpected = 'still strict';
+    expect(() => f.globals.capture(f.current(), f.git.head(D)!, write())).toThrow(
+      'Published snapshots differ',
+    );
+  },
+);

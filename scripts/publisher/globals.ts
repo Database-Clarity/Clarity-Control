@@ -307,17 +307,20 @@ export class GlobalsPublisher {
     const exported = exportLegacy(Object.values(liveDocuments), 0, this.options.facts, liveAliases);
     for (const [hash, value] of Object.entries(exported)) {
       if ('aliasOf' in value) continue;
-      // Historical reserved libraries have no secondary authoring surface. Accept only their
-      // empty secondary as the main-derived secondary; do not rewrite actual live bytes.
+      // V2 authors main only; secondary is derived by exportLegacy. Historical secondary
+      // values are not a source identity input. Compare every other field strictly, and
+      // never rewrite the actual live bytes as part of this read-compatibility rule.
+      const expectedEditor = structuredClone(value.editor);
       const actualEditor = structuredClone(actual.perks[hash]?.editor ?? null) as Record<
         string,
         Record<string, unknown>
       > | null;
-      if ((hash === '2' || hash === '3') && actualEditor)
-        for (const cell of Object.values(actualEditor))
-          if (cell && typeof cell === 'object' && !Array.isArray(cell) && cell.secondary === '')
-            cell.secondary = cell.main;
-      if (stableStringify(value.editor) !== stableStringify(actualEditor))
+      for (const editor of [expectedEditor, actualEditor])
+        if (editor && typeof editor === 'object' && !Array.isArray(editor))
+          for (const cell of Object.values(editor))
+            if (cell && typeof cell === 'object' && !Array.isArray(cell))
+              delete (cell as Record<string, unknown>).secondary;
+      if (stableStringify(expectedEditor) !== stableStringify(actualEditor))
         throw new Error('Published snapshots differ from actual live inputs');
     }
     return {
