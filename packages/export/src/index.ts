@@ -33,7 +33,6 @@ export {
   compile,
   compileStages,
   encodeV1,
-  standsInEnglish,
   validateV1,
   type Catalog,
   type CompileOptions,
@@ -60,8 +59,10 @@ export {
   type ProjectIndex,
 } from './v1/project.js';
 export { decodeV1 } from '../decoder/decode-v1.mjs';
-// The built-in feature showcase's markup source (`data.includeShowcase`), for the Exports page.
+// For the Exports page: the built-in feature showcase's markup source (`data.includeShowcase`)
+// and the per-language stand-in rule compile uses.
 export { showcaseText } from '@clarity/core/markup/showcase';
+export { standsIn } from './v1/compile.js';
 
 // Vocabulary check (spec section 5): marker sets of an output file.
 export { markerChange, markerSet, outputTokens, type MarkerChange } from './v1/markers.js';

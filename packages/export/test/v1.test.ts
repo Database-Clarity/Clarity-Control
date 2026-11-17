@@ -16,7 +16,7 @@ import {
   legacyPresets,
   newStyleFile,
   projectIndex,
-  standsInEnglish,
+  standsIn,
   styleFormats,
   styles,
   symbolIds,
@@ -577,10 +577,11 @@ describe('format v1 keys, header, and language files', () => {
     const perk = {
       editor: { de: { main: 'x' }, fr: { main: 'x', englishFallback: true as const } },
     };
-    expect(standsInEnglish(perk, 'de', true)).toBe(false);
-    expect(standsInEnglish(perk, 'de', false)).toBe(true);
-    expect(standsInEnglish(perk, 'fr', true)).toBe(true);
-    expect(standsInEnglish(perk, 'ja', false)).toBe(true);
+    const rows = { en: [], de: [], fr: [] };
+    expect(standsIn(perk, 'de', rows)).toBe(false);
+    expect(standsIn(perk, 'de', { en: [] })).toBe(true);
+    expect(standsIn(perk, 'fr', rows)).toBe(true);
+    expect(standsIn(perk, 'ja', rows)).toBe(true);
   });
 
   test('URLs: one per file, or one per language in a folder; legacy files hold every language', () => {
