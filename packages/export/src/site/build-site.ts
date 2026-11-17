@@ -183,6 +183,8 @@ async function locate(options: Record<string, string>) {
 // --- build -------------------------------------------------------------------------------------
 
 type Entry = {
+  /** Unique job identity, including distinct retained language subsets in one folder. */
+  key?: string;
   project: string;
   /** The file's URL key (engine filePath): its URL, or its language folder. */
   path: string;
@@ -386,6 +388,7 @@ export async function buildSite(options: Record<string, string>) {
       });
     for (const entry of project.retained ?? []) {
       const expired = Date.parse(entry.until) <= now.getTime();
+      if (expired && config.deletesRetained(entry)) continue;
       entries.push({
         project: project.id,
         path: entry.path,
@@ -401,10 +404,15 @@ export async function buildSite(options: Record<string, string>) {
           file: entry.snapshot.id,
           path: entry.path,
           kind: 'retained-ends',
-          message: `Keeps updating until ${entry.until}`,
+          message: `Keeps updating until ${entry.until}${config.deletesRetained(entry) ? ', then deleted' : ''}`,
         });
     }
   }
+  for (const entry of entries)
+    entry.key =
+      entry.kind === 'active' || entries.filter((other) => other.path === entry.path).length === 1
+        ? entry.path
+        : `${entry.path}/_retained-${sha256(entry.urls.map((url) => url.path).join(',')).slice(0, 16)}`;
   for (const entry of entries)
     for (const path of [entry.path, ...entry.urls.map((url) => url.path)])
       if (!safeSitePath(path) || !path.startsWith(`${entry.project}/`))
@@ -563,7 +571,7 @@ export async function buildSite(options: Record<string, string>) {
   //     The order is the last attempt, whatever its outcome (never attempted first). Attempts are
   //     per file (its URL key); a file split per language builds all its URLs in one job.
   const lastAttempt = (entry: Entry) =>
-    previous?.attempts?.[entry.path] ?? previous?.files[entry.urls[0]!.path]?.lastBuilt ?? '';
+    previous?.attempts?.[entry.key!] ?? previous?.files[entry.urls[0]!.path]?.lastBuilt ?? '';
   const attempts: Record<string, string> = {};
   builds.sort((a, b) => {
     const at = lastAttempt(a);
@@ -592,9 +600,9 @@ export async function buildSite(options: Record<string, string>) {
     while (queue.length || running.size) {
       while (queue.length && running.size < limits.pool && elapsed() < limits.carryAfterMs) {
         const entry = queue.shift()!;
-        attempts[entry.path] = nowIso;
+        attempts[entry.key!] = nowIso;
         const job: BuildJob = {
-          key: entry.path,
+          key: entry.key!,
           projectId: entry.project,
           urls: entry.urls,
           file: entry.file,
@@ -602,10 +610,10 @@ export async function buildSite(options: Record<string, string>) {
           maxBytes: limits.maxBytes,
         };
         running.set(
-          entry.path,
+          entry.key!,
           pool.run(job).then((result) => {
-            results.set(entry.path, result);
-            return entry.path;
+            results.set(entry.key!, result);
+            return entry.key!;
           }),
         );
       }
@@ -628,7 +636,7 @@ export async function buildSite(options: Record<string, string>) {
         budgetHit = true;
         pool.close();
         for (const path of running.keys())
-          skipped.push(builds.find((entry) => entry.path === path)!);
+          skipped.push(builds.find((entry) => entry.key === path)!);
         running.clear();
       }
     }
@@ -637,11 +645,11 @@ export async function buildSite(options: Record<string, string>) {
   }
 
   for (const entry of skipped) {
-    results.delete(entry.path);
+    results.delete(entry.key!);
     // Killed at the budget or never started: it keeps its old place (it goes first next run).
     const before = lastAttempt(entry);
-    if (before) attempts[entry.path] = before;
-    else delete attempts[entry.path];
+    if (before) attempts[entry.key!] = before;
+    else delete attempts[entry.key!];
     await carryOrDropAll(
       entry,
       'budget',
@@ -654,7 +662,7 @@ export async function buildSite(options: Record<string, string>) {
     }
   }
   for (const entry of builds) {
-    const result = results.get(entry.path);
+    const result = results.get(entry.key!);
     if (!result) continue;
     if (!result.ok) {
       const label =

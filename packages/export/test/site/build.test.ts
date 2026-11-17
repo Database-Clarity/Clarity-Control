@@ -3,8 +3,11 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { newStyleFile } from '../../src/index.js';
+import { planRetained } from '../../../../apps/worker/src/exports.js';
+import { configSchema } from '../../src/config.js';
 import { buildDist, fixturesDir, Harness } from './harness.js';
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -535,6 +538,80 @@ describe('build-site per-file outcomes', () => {
     }>('_build/manifest.json');
     expect(Object.keys(manifest.attempts).sort()).toEqual(['alpha/v1/main', 'alpha/v1/old']);
     expect(manifest.files['alpha/v1/main/de.json']!.outcome).toBe('built');
+  }, 180_000);
+
+  it('removed languages update for three months, re-additions reclaim URLs, and expired URLs disappear', async () => {
+    harness = new Harness();
+    const catalog = JSON.parse(
+      gunzipSync(readFileSync(join(fixturesDir, 'catalog-c3fed8c.json.gz'))).toString('utf8'),
+    );
+    const hash = Object.keys(catalog.items).find(
+      (hash) => catalog.items[hash].categoryId === 'weapon-trait',
+    )!;
+    const input = (text: string) => {
+      const data = JSON.parse(fixtureText());
+      data.perks[hash] = {
+        ...data.perks['1001'],
+        hash: Number(hash),
+        associated: [],
+        editor: { en: { main: text, secondary: text } },
+      };
+      return JSON.stringify(data);
+    };
+    const split = style('main', 'alpha00001');
+    split.data = { ...split.data, languages: ['en', 'de', 'fr'], languageFiles: 'perLanguage' };
+    let config = configSchema.parse(project('alpha', [split]));
+    await harness.seed({ input: input('Before'), projects: { alpha: config } });
+    expectOk(harness.legacyRun());
+    expectOk(harness.siteRun({ extra: ['--now', '2026-11-17T00:00:00.000Z'] }));
+    const before = harness.served('alpha/v1/main/de.json');
+    const middle = structuredClone(config);
+    if ('data' in middle.files[0]!) middle.files[0].data.languages = ['en', 'fr'];
+    middle.retained = planRetained(config, middle, new Date('2026-11-17T00:00:00.000Z')).retained;
+    config = configSchema.parse(middle);
+    const next = structuredClone(config);
+    if ('data' in next.files[0]!) next.files[0].data.languages = ['en'];
+    next.retained = planRetained(config, next, new Date('2026-11-18T00:00:00.000Z')).retained;
+    config = configSchema.parse(next);
+    harness.commit('editor-data', { 'exports/projects/alpha.json': JSON.stringify(config) });
+    harness.commit('converter', { 'liveDescriptions.json': input('After') });
+    expectOk(harness.legacyRun());
+    expectOk(harness.siteRun({ extra: ['--now', '2027-02-16T00:00:00.000Z'] }));
+    expect(harness.served('alpha/v1/main/de.json')).not.toEqual(before);
+    const index = () =>
+      harness.servedJson<{ files: { path: string; updatesUntil?: string; status: string }[] }>(
+        'alpha/index.json',
+      );
+    expect(index().files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'alpha/v1/main/de.json',
+          status: 'current',
+          updatesUntil: '2027-02-17T00:00:00.000Z',
+        }),
+      ]),
+    );
+    const reclaimed = structuredClone(config);
+    if ('data' in reclaimed.files[0]!) reclaimed.files[0].data.languages.push('fr');
+    reclaimed.retained = planRetained(
+      config,
+      reclaimed,
+      new Date('2027-02-16T00:00:00.000Z'),
+    ).retained;
+    config = configSchema.parse(reclaimed);
+    harness.commit('editor-data', { 'exports/projects/alpha.json': JSON.stringify(config) });
+    expectOk(harness.siteRun({ extra: ['--now', '2027-02-16T01:00:00.000Z'] }));
+    expect(index().files.find((file) => file.path.endsWith('/fr.json'))).not.toHaveProperty(
+      'updatesUntil',
+    );
+    expect(index().files).toHaveLength(3);
+    expectOk(harness.siteRun({ extra: ['--now', '2027-02-17T00:00:00.000Z'] }));
+    expect(harness.served('alpha/v1/main/de.json')).toBeUndefined();
+    expect(harness.served('alpha/v1/main/fr.json')).toBeDefined();
+    expect(index().files).toHaveLength(2);
+    expect(harness.servedJson<{ files: object }>('_build/manifest.json').files).not.toHaveProperty(
+      'alpha/v1/main/de.json',
+    );
   }, 180_000);
 
   it('a retained copy of a deployed legacy preset freezes on a vocabulary change; the active copy updates', async () => {

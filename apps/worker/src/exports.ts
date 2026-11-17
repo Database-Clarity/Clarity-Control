@@ -12,13 +12,16 @@ import { permissionsSchema, type Permissions } from '@clarity/core';
 import {
   configLimits,
   configSchema,
+  deletesRetained,
   filePath,
   fileUrls,
   immutableChanges,
   isLegacyFile,
+  isPerLanguage,
   isValidId,
   migrateConfig,
   type ExportConfig,
+  type RetainedConfirmation,
 } from '@clarity/export/config';
 import { blobContent, blobSha, RefRace, type ExportsSnapshot, type GitHub } from './github.js';
 import { body, HttpError, json, upstreamJson } from './http.js';
@@ -44,7 +47,16 @@ const loginSchema = z
   .trim()
   .regex(/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i, 'Enter a GitHub login');
 const createSchema = z.strictObject({ config: z.unknown() });
-const updateSchema = z.strictObject({ revision, config: z.unknown() });
+const deletionSchema = z.strictObject({
+  path: z.string(),
+  until: z.string(),
+  urls: z.array(z.string()),
+});
+const updateSchema = z.strictObject({
+  revision,
+  config: z.unknown(),
+  confirmDelete: z.array(deletionSchema).max(6).optional(),
+});
 const deleteSchema = z.strictObject({ revision });
 const partnersSchema = z.strictObject({
   /** The permissions.json blob SHA the maintainer loaded (`partnersRevision`). */
@@ -107,7 +119,13 @@ function warmSchemas(): void {
   });
   permissionsSchema.safeParse({ users: {}, partners: { '1': { login: 'w', projects: ['warm'] } } });
   const revision = '0'.repeat(40);
-  updateSchema.safeParse({ revision, config: {} });
+  updateSchema.safeParse({
+    revision,
+    config: {},
+    confirmDelete: [
+      { path: 'warm/v1/old', until: '2026-01-01T00:00:00.000Z', urls: ['warm/v1/old/en.json'] },
+    ],
+  });
   partnersSchema.safeParse({ revision, logins: ['warm'] });
   deleteSchema.safeParse({ revision });
   createSchema.safeParse({ config: {} });
@@ -197,6 +215,8 @@ export function retainUntil(now: Date): string {
  *   its old URL: snapshot = its last saved config, until = now + 3 months. Existing entries are
  *   kept as they are, so a window is never shortened.
  * - A file that returns to a URL its own uid retained takes it back: that entry is dropped.
+ * - Languages removed within a folder form one entry per save. Reclaims subtract just those
+ *   languages from existing snapshots; expired language entries no longer occupy slots.
  * Returns the list, or the problems (more than 2 entries for a file, more than 6 URLs).
  */
 export function planRetained(
@@ -206,23 +226,64 @@ export function planRetained(
 ): { retained: Retained[]; problems: string[] } {
   const until = retainUntil(now);
   const nextByUid = new Map(next.files.map((file) => [file.uid, file]));
-  let retained = [...(next.retained ?? [])];
+  let retained = (next.retained ?? []).filter(
+    (entry) => !deletesRetained(entry) || Date.parse(entry.until) > now.getTime(),
+  );
   for (const file of previous.files) {
     if (!file.uid) continue;
     const path = filePath(previous.id, file);
     const after = nextByUid.get(file.uid);
-    if (after && filePath(next.id, after) === path) continue;
-    if (retained.some((entry) => entry.path === path)) continue;
+    let snapshot = file;
+    let reason: 'language' | undefined;
+    if (after && filePath(next.id, after) === path) {
+      if (isLegacyFile(file) || !isPerLanguage(file)) continue;
+      const urls = new Set(fileUrls(next.id, after).map((url) => url.path));
+      const languages = file.data.languages.filter((lang) => !urls.has(`${path}/${lang}.json`));
+      if (!languages.length) continue;
+      snapshot = { ...file, data: { ...file.data, languages } };
+      reason = 'language';
+    }
+    const held = new Set(
+      retained.flatMap((entry) => fileUrls(next.id, entry.snapshot).map((url) => url.path)),
+    );
+    if (isPerLanguage(snapshot) && !isLegacyFile(snapshot)) {
+      snapshot = {
+        ...snapshot,
+        data: {
+          ...snapshot.data,
+          languages: snapshot.data.languages.filter((lang) => !held.has(`${path}/${lang}.json`)),
+        },
+      };
+      if (!snapshot.data.languages.length) continue;
+    } else if (held.has(path)) continue;
     retained.push({
       path,
       uid: file.uid,
       formatVersion: file.formatVersion,
-      snapshot: file,
+      snapshot,
+      ...(reason ? { reason } : {}),
       until,
     });
   }
-  const active = new Set(next.files.map((file) => `${file.uid}\n${filePath(next.id, file)}`));
-  retained = retained.filter((entry) => !active.has(`${entry.uid}\n${entry.path}`));
+  const active = new Set(
+    next.files.flatMap((file) => fileUrls(next.id, file).map((url) => `${file.uid}\n${url.path}`)),
+  );
+  retained = retained.flatMap((entry) => {
+    if (!isLegacyFile(entry.snapshot) && isPerLanguage(entry.snapshot)) {
+      const languages = entry.snapshot.data.languages.filter(
+        (lang) => !active.has(`${entry.uid}\n${entry.path}/${lang}.json`),
+      );
+      return languages.length
+        ? [
+            {
+              ...entry,
+              snapshot: { ...entry.snapshot, data: { ...entry.snapshot.data, languages } },
+            },
+          ]
+        : [];
+    }
+    return active.has(`${entry.uid}\n${entry.path}`) ? [] : [entry];
+  });
   const problems: string[] = [];
   const windows = (list: Retained[]) =>
     list.map((entry) => `${entry.path} until ${entry.until.slice(0, 10)}`).join(', ');
@@ -254,13 +315,15 @@ export function planRetained(
 /**
  * The accepted next config for a save by `role` (spec sections 4 and 5), or a 400/403 listing
  * every problem. Partners change only `files`; a maintainer may also rename the project and
- * delete retained entries whose window has ended. Uids and `retained` are server-owned.
+ * delete retained entries whose window has ended. Partners can confirm eviction of the oldest
+ * eligible language entries when limits require it. Uids and `retained` are server-owned.
  */
 export function acceptSave(
   previous: ExportConfig,
   raw: ExportConfig,
   role: Role,
   now: Date,
+  confirmDelete?: RetainedConfirmation['deletions'],
 ): ExportConfig {
   const next: ExportConfig = structuredClone(raw);
   const problems: string[] = [];
@@ -278,7 +341,7 @@ export function acceptSave(
     const same = next.files.find((candidate) => candidate.id === file.id && !candidate.uid);
     if (same) same.uid = file.uid;
   }
-  problems.push(...immutableChanges(before, next, { maintainer: role.maintainer }));
+  problems.push(...immutableChanges(before, next, { maintainer: role.maintainer, now }));
   if (role.maintainer) {
     const kept = new Set((next.retained ?? []).map((entry) => JSON.stringify(entry)));
     for (const entry of before.retained ?? [])
@@ -291,7 +354,47 @@ export function acceptSave(
     throw new HttpError(problems.some(isForbidden) ? 403 : 400, problems[0]!, problems);
   for (const file of next.files) file.uid ??= newUid();
   const plan = planRetained(before, next, now);
-  if (plan.problems.length) throw new HttpError(400, plan.problems[0]!, plan.problems);
+  if (plan.problems.length) {
+    const candidates = plan.retained
+      .filter(
+        (entry) =>
+          deletesRetained(entry) &&
+          (before.retained ?? []).some(
+            (old) => old.path === entry.path && old.until === entry.until && old.uid === entry.uid,
+          ),
+      )
+      .sort((a, b) => a.until.localeCompare(b.until));
+    const deletions: RetainedConfirmation['deletions'] = [];
+    let remaining = plan.retained;
+    const over = () =>
+      next.files.length + remaining.length > configLimits.urlSlots ||
+      remaining.some(
+        (entry) =>
+          remaining.filter((other) => other.uid === entry.uid).length >
+          configLimits.retainedPerFile,
+      );
+    for (const entry of candidates) {
+      if (!over()) break;
+      const ownOver =
+        remaining.filter((other) => other.uid === entry.uid).length > configLimits.retainedPerFile;
+      if (!ownOver && next.files.length + remaining.length <= configLimits.urlSlots) continue;
+      remaining = remaining.filter((other) => other !== entry);
+      deletions.push({
+        path: entry.path,
+        until: entry.until,
+        urls: fileUrls(next.id, entry.snapshot).map((url) => url.path),
+      });
+    }
+    if (over()) throw new HttpError(400, plan.problems[0]!, plan.problems);
+    const details: RetainedConfirmation = { kind: 'confirm-retained-deletion', deletions };
+    if (JSON.stringify(confirmDelete) !== JSON.stringify(deletions))
+      throw new HttpError(
+        409,
+        `Saving will delete the oldest kept URLs: ${deletions.flatMap((entry) => entry.urls).join(', ')}. Confirm to save.`,
+        details,
+      );
+    plan.retained = remaining;
+  }
   if (plan.retained.length) next.retained = plan.retained;
   else delete next.retained;
   return validated(next);
@@ -489,7 +592,7 @@ export async function updateProject(
       throw new HttpError(409, 'The project changed since it was loaded; reload and retry');
     const now = new Date();
     const previous = stored(snapshot.config, id);
-    const next = acceptSave(previous, raw, who, now);
+    const next = acceptSave(previous, raw, who, now, input.confirmDelete);
     if (blobContent(next) === blobContent(previous))
       return json({ commit: null, revision: snapshot.config.sha, config: previous });
     const last = snapshot.lastCommit ? Date.parse(snapshot.lastCommit) : Number.NaN;
