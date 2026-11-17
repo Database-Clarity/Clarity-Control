@@ -407,6 +407,23 @@ async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alph
 }
 
 describe('scheduled global closure', () => {
+  it('refuses an existing pin after all current globals metadata is removed', async () => {
+    const f = await fixture();
+    await withGlobals(f);
+    f.admit('schedule');
+    await f.prep.drain();
+    const live = f.pub.head('converter-v2-test');
+    const tree = f.git.tree(f.pub.head('editor-data'));
+    f.change(
+      {},
+      Object.keys(tree).filter((path) => path.startsWith('globals/')),
+    );
+    await f.pub.operation(R);
+    expect(f.pub.head('converter-v2-test')).toBe(live);
+    expect(f.batch().claim).toBeNull();
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.request().reasons?.[0].reason).toContain('metadata was removed');
+  });
   it('blocks a batch that already owes global review when scheduled', async () => {
     const f = await fixture();
     const { store } = await withGlobals(f);
@@ -565,7 +582,8 @@ describe('scheduled global closure', () => {
     await f.pub.operation(R);
     expect(f.pub.head('converter-v2-test')).toBe(before);
     expect(f.batch().claim).toBeNull();
-    expect(f.read(paths(R).log)).toMatchObject({ result: { status: 'rejected' } });
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.request().reasons?.[0].reason).toMatch(/global.*(review|changed)|Global.*changed/);
   });
 });
 

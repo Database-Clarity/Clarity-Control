@@ -594,7 +594,7 @@ export class SchedulePreparer {
         if (!matchesPreparationFence(current, request)) continue;
         Object.assign(tree, next);
       }
-      if (hasGlobals(tree)) {
+      if (readyOnly || hasGlobals(tree)) {
         // A data push can change a dependency long before notBefore. Do not leave an
         // obsolete ready fence looking scheduled until the due-time claim discovers it.
         for (const batch of this.batches(tree).filter((batch) => batch.status === 'scheduled')) {

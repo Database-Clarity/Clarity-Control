@@ -165,6 +165,8 @@ type Failure = {
   /** Known authored-content refusal; never inferred from a generic repository error. */
   proposalRejected?: true;
   retryable?: true;
+  /** Route an unclaimed globals refusal through the existing needs-attention preparation. */
+  globals?: true;
 };
 /** A pending request as the queue orders it, read WITHOUT verification (ordering only). */
 type QueueEntry =
@@ -1344,6 +1346,7 @@ export class Publisher {
             status: 'rejected',
             error:
               'Global metadata was removed after scheduling; return to draft and schedule again',
+            globals: true,
           },
         };
     }
@@ -1376,6 +1379,7 @@ export class Publisher {
           failure: {
             status: 'rejected',
             error: error instanceof Error ? error.message : String(error),
+            globals: true,
           },
         };
       }
@@ -1544,7 +1548,16 @@ export class Publisher {
         });
       }
     const plan = await this.batchPlan(at, payload, frozenAliases, source, live);
-    if ('failure' in plan) return fail(plan.failure);
+    if ('failure' in plan) {
+      if (plan.failure.globals && !claimed && batch.preparedRequestId) {
+        await new SchedulePreparer(this).drain(true);
+        const latest = batchSchema.parse(
+          this.read(this.git.tree(this.head(this.options.dataBranch)), path),
+        );
+        if (latest.opId === opId && latest.status === 'needs_attention') return;
+      }
+      return fail(plan.failure);
+    }
     const receipt: Receipt = {
       opId,
       requestBlob: blob,
