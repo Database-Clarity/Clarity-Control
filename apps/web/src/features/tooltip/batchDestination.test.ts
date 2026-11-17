@@ -214,10 +214,11 @@ it('reconciles a confirmed save even when the local preview update fails', async
 });
 
 it('a queued save keeps its drafts until the preparer lands it, and on failure', async () => {
-  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
   // Node environment: the Batches listing timer only needs focus listeners.
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   const s = await setup();
+  const { useAuthStore } = await import('../../stores/auth');
+  useAuthStore.setState({ user: { ...useAuthStore.getState().user!, schedulePreparation: true } });
   const { refreshBatches } = await import('../review/batches/store');
   const { resetQueued } = await import('../review/batches/saveDestination');
   const key = s.batchDraftKey(s.batch.id, 123);
@@ -269,9 +270,10 @@ it('a queued save keeps its drafts until the preparer lands it, and on failure',
 });
 
 it('a failed translator save into a scheduled batch keeps the drafts; the batch stays scheduled', async () => {
-  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   const s = await setup();
+  const { useAuthStore } = await import('../../stores/auth');
+  useAuthStore.setState({ user: { ...useAuthStore.getState().user!, schedulePreparation: true } });
   const { refreshBatches } = await import('../review/batches/store');
   const { resetQueued } = await import('../review/batches/saveDestination');
   const key = s.batchDraftKey(s.batch.id, 123);
@@ -314,10 +316,11 @@ it('a failed translator save into a scheduled batch keeps the drafts; the batch 
 });
 
 it('a queued save that is cancelled keeps its drafts and stops tracking', async () => {
-  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
   // Node environment: the Batches listing timer only needs focus listeners.
   vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} });
   const s = await setup();
+  const { useAuthStore } = await import('../../stores/auth');
+  useAuthStore.setState({ user: { ...useAuthStore.getState().user!, schedulePreparation: true } });
   const { refreshBatches } = await import('../review/batches/store');
   const key = s.batchDraftKey(s.batch.id, 123);
   s.runtime.edit(s.batch.id, s.future, s.future, 'de', 'Cancelled German', 'm');

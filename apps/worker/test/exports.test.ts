@@ -655,9 +655,22 @@ describe('PUT /exports/projects/:id/partners and permissions back-compat', () =>
       role: 'partner',
       languages: [],
       projects: ['dim'],
+      schedulePreparation: false,
     });
-    expect(await me(EDITOR)).toEqual({ id: 2, login: 'bob', role: 'editor', languages: [] });
-    expect(await me(NOBODY)).toEqual({ id: 7, login: 'unknown', role: null, languages: [] });
+    expect(await me(EDITOR)).toEqual({
+      id: 2,
+      login: 'bob',
+      role: 'editor',
+      languages: [],
+      schedulePreparation: false,
+    });
+    expect(await me(NOBODY)).toEqual({
+      id: 7,
+      login: 'unknown',
+      role: null,
+      languages: [],
+      schedulePreparation: false,
+    });
     fixture.moveData({
       'config/permissions.json': {
         ...withPartners,
@@ -671,9 +684,16 @@ describe('PUT /exports/projects/:id/partners and permissions back-compat', () =>
       role: 'editor',
       languages: [],
       projects: ['dim'],
+      schedulePreparation: false,
     });
     fixture.moveData({ 'config/permissions.json': config });
-    expect(await me(PARTNER)).toEqual({ id: 5, login: 'unknown', role: null, languages: [] });
+    expect(await me(PARTNER)).toEqual({
+      id: 5,
+      login: 'unknown',
+      role: null,
+      languages: [],
+      schedulePreparation: false,
+    });
     expect(await me(MAINTAINER)).toMatchObject({ role: 'maintainer' });
   });
 

@@ -477,6 +477,7 @@ export function TermPopover({
         width: element.offsetWidth,
         height: element.scrollHeight,
         align: 'start',
+        hover: true,
       });
       // Above the term when it fits there, so the popover never hides the next line of English
       // while it is read (visual review 2026-11-14); below otherwise, as placeAnchored chose.
