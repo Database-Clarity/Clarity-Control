@@ -404,6 +404,17 @@ describe('ProjectPage state', () => {
     expect(idField()).toBe(field);
   });
 
+  it('a new file has element tags on, and the toggle lists On (the default) before Off', async () => {
+    await open('/exports/pt');
+    await resolveLoad(0, project('pt', 'Project T', 1));
+    await click(addButton());
+    const toggle = q('[role="group"][aria-label="Element tags mode"]')!;
+    const buttons = [...toggle.querySelectorAll('button')];
+    expect(buttons.map((el) => el.textContent)).toEqual(['On', 'Off']);
+    expect(buttons[0]!.getAttribute('aria-pressed')).toBe('true');
+    expect(buttons[0]!.tabIndex).toBe(0);
+  });
+
   it('F5: Old URLs stay manageable with no active file', async () => {
     await open('/exports/p5');
     const loaded = project('p5', 'Five', 0);

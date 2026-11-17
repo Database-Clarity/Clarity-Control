@@ -893,6 +893,20 @@ const ruleAbout: Record<RuleRow, Record<string, string>> = {
   },
 };
 
+/**
+ * What a symbol row covers, for the rows whose name alone does not say it. Element, ammo,
+ * champion, and class icons need no line: the name is the icon.
+ */
+const symbolAbout: Partial<Record<FormatRow, string>> = {
+  arrow: 'The arrow between an old and a new value, as in 30%→33%.',
+  enhancedArrow: 'The mark that starts a line only Enhanced perks have.',
+  bold: 'Key words, and lines that are bold from start to end.',
+  exotic: 'Exotic names.',
+  pve: 'Values that apply in PvE, shown beside their PvP value.',
+  pvp: 'Values that apply only in PvP, such as [15%].',
+  elementText: 'Words tagged with an element, such as Jolt: their element tint (Element tags on).',
+};
+
 type ModeOption = { value: string; label: string; disabled?: boolean };
 
 function modesOf(row: FormatRow, shape: StyleFile['shape']): ModeOption[] {
@@ -900,9 +914,10 @@ function modesOf(row: FormatRow, shape: StyleFile['shape']): ModeOption[] {
   if (row === 'titles')
     return [keep, { value: 'drop', label: 'Drop' }, { value: 'inline', label: 'Inline' }];
   if (row === 'elementTags')
+    // The default (on) comes first, as in every other row.
     return [
-      { value: 'off', label: 'Off' },
       { value: 'on', label: 'On' },
+      { value: 'off', label: 'Off' },
     ];
   if (row === 'spacer')
     return [
@@ -937,6 +952,12 @@ const FormatRowView = memo(function FormatRowView({
 }) {
   const label = symbolLabels[row] ?? row;
   const mode = currentMode(row, rule);
+  const about =
+    mode === 'unset'
+      ? 'Not chosen yet: the file drops it, keeps the text, and adds a notice.'
+      : ((ruleRows as readonly string[]).includes(row)
+          ? ruleAbout[row as RuleRow][mode]
+          : symbolAbout[row]);
   const choose = (value: string) => {
     if (row === 'elementTags') onValue(row, value === 'on');
     else if (row === 'spacer') onValue(row, value);
@@ -977,12 +998,7 @@ const FormatRowView = memo(function FormatRowView({
         )}
         {label}
         {changed && <span className={styles.visuallyHidden}> (changed from the style)</span>}
-        {mode === 'unset' && (
-          <span className={styles.meta} title="Not chosen: dropped, text kept, with a notice">
-            {' '}
-            not set
-          </span>
-        )}
+        {mode === 'unset' && <span className={styles.meta}> not set</span>}
       </span>
       <span className={styles.rowMode} role="cell">
         <Segmented
@@ -1005,9 +1021,9 @@ const FormatRowView = memo(function FormatRowView({
           </button>
         ) : null}
       </span>
-      {(ruleRows as readonly string[]).includes(row) && ruleAbout[row as RuleRow][mode] && (
+      {about && (
         <span className={styles.rowAbout} role="cell">
-          {ruleAbout[row as RuleRow][mode]}
+          {about}
         </span>
       )}
       {fields.length > 0 && (

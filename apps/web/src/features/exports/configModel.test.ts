@@ -335,3 +335,28 @@ it('shows the effective portable arrow default for older text-shape configs', ()
   });
   expect(rowChanged(file, 'arrow')).toBe(false);
 });
+
+describe('element tags default', () => {
+  const empty: ExportConfig = { schema: 1, id: 'tags', name: 'Tags', files: [] };
+
+  it('is on for a new file and after a style switch, and counts as the style value', () => {
+    for (const style of styles) {
+      const added = addFile(fromConfig(empty, 'revision'), style);
+      const file = added.config.files[0] as StyleFile;
+      expect(file.format.elementTags).toBe(true);
+      expect(rowChanged(file, 'elementTags')).toBe(false);
+      const legacy = setPreset(added, fileKey(file), 'dim');
+      const back = setPreset(legacy, fileKey(file), style).config.files[0] as StyleFile;
+      expect(back.format.elementTags).toBe(true);
+    }
+  });
+
+  it('keeps a saved file with element tags off byte for byte, marked as changed', () => {
+    const file = newStyleFile('off', 'structured');
+    file.format.elementTags = false;
+    const config: ExportConfig = { ...empty, files: [{ ...file, uid: uid(1) }] };
+    const state = fromConfig(config, 'revision');
+    expect(JSON.stringify(toConfig(state))).toBe(JSON.stringify(config));
+    expect(rowChanged(state.config.files[0] as StyleFile, 'elementTags')).toBe(true);
+  });
+});
