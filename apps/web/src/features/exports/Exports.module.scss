@@ -942,9 +942,11 @@ $row: 1.75rem;
       border-left: 0;
     }
 
-    &:hover:not(:disabled) {
-      color: var(--text);
-      background: var(--ctl-hover);
+    @media (hover: hover) {
+      &:hover:not(:disabled) {
+        color: var(--text);
+        background: var(--ctl-hover);
+      }
     }
 
     &:focus-visible {

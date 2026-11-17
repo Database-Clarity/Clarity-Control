@@ -46,10 +46,12 @@
     border-bottom-right-radius: 0;
   }
 
-  &:hover:not(:disabled, [aria-disabled='true']) {
-    position: relative;
-    background: var(--ctl-hover);
-    border-color: var(--ctl-hover-edge);
+  @media (hover: hover) {
+    &:hover:not(:disabled, [aria-disabled='true']) {
+      position: relative;
+      background: var(--ctl-hover);
+      border-color: var(--ctl-hover-edge);
+    }
   }
 
   &:focus-visible {

@@ -32,9 +32,11 @@
   box-shadow: none;
   cursor: pointer;
 
-  &:hover:not(:disabled) {
-    color: var(--text);
-    background: transparent;
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      color: var(--text);
+      background: transparent;
+    }
   }
 
   &:focus-visible {
