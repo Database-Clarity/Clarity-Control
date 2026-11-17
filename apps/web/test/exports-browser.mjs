@@ -760,7 +760,10 @@ if (!process.argv.includes('--skip-preview')) {
     MAINTAINER,
   );
   assert.equal(renamed.status, 200);
-  await page.waitForSelector('button:has-text("Save"):not([disabled])', { timeout: 40_000 });
+  await page.waitForSelector(
+    'button:has-text("Save"):not([disabled]):not([aria-disabled="true"])',
+    { timeout: 40_000 },
+  );
   await page.locator('button:has-text("Save")').click();
   await ready(page, 'text=Someone saved this project');
   assert.equal(await page.locator('h1:has-text("Renamed elsewhere")').count(), 1);
@@ -975,6 +978,14 @@ for (const width of [390, 768, 1280])
           const symbolShot = `format-${width}-${theme}-${scale}.png`;
           await page.screenshot({ path: join(shots, symbolShot) });
           matrix.push({ shot: symbolShot, ...(await overflow(page)), errors });
+          // The rows with their own explanation lines: Text styles and the rule rows.
+          await page
+            .locator('[role="rowgroup"]:has-text("Text styles") [role="row"]')
+            .first()
+            .evaluate((el) => el.scrollIntoView({ block: 'start' }));
+          const rulesShot = `format-rules-${width}-${theme}-${scale}.png`;
+          await page.screenshot({ path: join(shots, rulesShot) });
+          matrix.push({ shot: rulesShot, ...(await overflow(page)), errors });
         }
         await context.close();
       }
