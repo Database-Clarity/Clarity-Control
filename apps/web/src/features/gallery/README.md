@@ -28,7 +28,7 @@ The store-connected feature pieces use props-only views in their existing module
 wrappers retain subscriptions, data preparation, editor commands, and persistence. The gallery's
 `liveEntries.tsx` supplies fixtures and local callbacks; opaque slots keep connected children at
 exactly their original DOM locations. Fixture hosts supply the bounded pane that an app host normally
-provides, including a local scroll area for workspace tabs wider than the available pane.
+provides.
 
 Phone workspace fixtures use `WorkspaceListView`; the desktop and phone Reports slots use
 `ReportsEntryView` and `ReportsMenuRowView` with fixture rows and controlled open state. The live
