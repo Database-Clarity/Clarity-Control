@@ -274,37 +274,39 @@ export function AdminPage() {
                             {access.role === 'translator' &&
                               access.languages?.some((lang) => lang !== 'en') && (
                                 <div
-                                  className={`${styles.languages} ${styles.manages}`}
+                                  className={styles.manages}
                                   role="group"
                                   aria-label={`${access.login}: manages`}
                                 >
                                   <span>Manages</span>
-                                  {access.languages
-                                    .filter((lang) => lang !== 'en')
-                                    .map((lang) => (
-                                      <label key={lang}>
-                                        <input
-                                          type="checkbox"
-                                          aria-label={`${access.login} manages ${languageLabel(lang)}`}
-                                          checked={access.manages?.includes(lang) ?? false}
-                                          onChange={(event) =>
-                                            update(
-                                              id,
-                                              translatorAccess(
-                                                access,
-                                                access.languages ?? [],
-                                                event.target.checked
-                                                  ? [...(access.manages ?? []), lang]
-                                                  : (access.manages?.filter(
-                                                      (value) => value !== lang,
-                                                    ) ?? []),
-                                              ),
-                                            )
-                                          }
-                                        />{' '}
-                                        {languageLabel(lang)}
-                                      </label>
-                                    ))}
+                                  <div className={styles.languages}>
+                                    {access.languages
+                                      .filter((lang) => lang !== 'en')
+                                      .map((lang) => (
+                                        <label key={lang}>
+                                          <input
+                                            type="checkbox"
+                                            aria-label={`${access.login} manages ${languageLabel(lang)}`}
+                                            checked={access.manages?.includes(lang) ?? false}
+                                            onChange={(event) =>
+                                              update(
+                                                id,
+                                                translatorAccess(
+                                                  access,
+                                                  access.languages ?? [],
+                                                  event.target.checked
+                                                    ? [...(access.manages ?? []), lang]
+                                                    : (access.manages?.filter(
+                                                        (value) => value !== lang,
+                                                      ) ?? []),
+                                                ),
+                                              )
+                                            }
+                                          />{' '}
+                                          {languageLabel(lang)}
+                                        </label>
+                                      ))}
+                                  </div>
                                 </div>
                               )}
                           </td>

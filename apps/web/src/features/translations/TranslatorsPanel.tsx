@@ -9,6 +9,7 @@ import {
   type Translator,
 } from '../../services/managers';
 import { Popover } from '../../ui/Popover';
+import { scaledPx } from '../../ui/scale';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import styles from './TranslatorsPanel.module.scss';
 
@@ -19,7 +20,12 @@ import styles from './TranslatorsPanel.module.scss';
  */
 export function TranslatorsButton({ lang, selfId }: { lang: Lang; selfId: number | string }) {
   return (
-    <Popover label={`${languageLabel(lang)} translators`} trigger="Translators" width={320}>
+    <Popover
+      label={`${languageLabel(lang)} translators`}
+      trigger="Translators"
+      // Scales with the interface, like its content.
+      width={scaledPx(320)}
+    >
       <TranslatorsPanel lang={lang} selfId={Number(selfId)} />
     </Popover>
   );
@@ -33,6 +39,8 @@ function TranslatorsPanel({ lang, selfId }: { lang: Lang; selfId: number }) {
   const [login, setLogin] = useState('');
   const [attempt, setAttempt] = useState(0);
   const field = useRef<HTMLInputElement>(null);
+  // After an add or remove, focus returns to the login field (a removed row's button is gone).
+  const refocus = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
     setError(undefined);
@@ -41,9 +49,15 @@ function TranslatorsPanel({ lang, selfId }: { lang: Lang; selfId: number }) {
     });
     return () => controller.abort();
   }, [lang, attempt]);
+  useEffect(() => {
+    if (busy || !refocus.current) return;
+    refocus.current = false;
+    field.current?.focus();
+  }, [busy]);
   const skeleton = useSkeletonVisible(!list && !error, `translators:${lang}`, !!list);
 
   async function run(action: () => Promise<Translator[]>, done: string) {
+    refocus.current = true;
     setBusy(true);
     setError(undefined);
     setNotice(undefined);
@@ -61,23 +75,12 @@ function TranslatorsPanel({ lang, selfId }: { lang: Lang; selfId: number }) {
   async function add(event: FormEvent) {
     event.preventDefault();
     const name = login.trim();
-    if (!name) return;
+    if (!name || busy) return;
     if (await run(() => addTranslator(lang, name), `Added ${name}.`)) setLogin('');
-    field.current?.focus();
   }
 
   return (
     <div className={styles.panel} aria-busy={busy || !list}>
-      {error && (
-        <p role="alert" className={styles.error}>
-          {error}
-          {!list && (
-            <button type="button" onClick={() => setAttempt((value) => value + 1)}>
-              Retry
-            </button>
-          )}
-        </p>
-      )}
       {!list && !error && (
         <LoadingSkeleton label="Loading translators..." shape="rows" visible={skeleton} />
       )}
@@ -119,13 +122,26 @@ function TranslatorsPanel({ lang, selfId }: { lang: Lang; selfId: number }) {
           aria-label="GitHub login to add"
           placeholder="GitHub login"
           value={login}
-          disabled={busy || !list}
+          // Read-only, not disabled, while a change runs: a disabled field drops focus.
+          readOnly={busy}
+          disabled={!list}
           onChange={(event) => setLogin(event.target.value)}
         />
         <button type="submit" disabled={busy || !list || !login.trim()}>
           Add
         </button>
       </form>
+      {/* Outcomes by the field the person typed in. */}
+      {error && (
+        <p role="alert" className={styles.error}>
+          {error}
+          {!list && (
+            <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+              Retry
+            </button>
+          )}
+        </p>
+      )}
       {notice && (
         <p role="status" className={styles.notice}>
           {notice}

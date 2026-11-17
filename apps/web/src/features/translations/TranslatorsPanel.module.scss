@@ -3,6 +3,8 @@
 // One dense list: login left, its action right; the add field closes the list.
 .panel {
   display: grid;
+  // One column the popover's width: a long login truncates instead of widening the list.
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
   font-size: 0.8125rem;
   color: var(--text);
@@ -25,7 +27,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    min-height: var(--tap);
+    // Every row as tall as a Remove button, the Manager row too.
+    @include controls.control-size;
   }
 
   li + li {

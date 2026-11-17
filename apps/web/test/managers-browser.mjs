@@ -37,6 +37,23 @@ async function layout(page, scope, label, pageOverflow = true) {
         .map((root) => root.getBoundingClientRect())
         .filter((r) => r.left < -0.5 || r.right > window.innerWidth + 0.5)
         .map((r) => `${r.left},${r.right}`),
+      // Controls drawn past the edge of the popover or dialog that holds them.
+      escaped: controls
+        .filter((c) => {
+          const box = c.closest('[role="dialog"]')?.getBoundingClientRect();
+          const r = c.getBoundingClientRect();
+          return box && r.width && (r.left < box.left - 0.5 || r.right > box.right + 0.5);
+        })
+        .map((c) => c.textContent || c.getAttribute('aria-label')),
+      // Rows of the translators list differ in height.
+      uneven: roots.flatMap((root) =>
+        [...root.querySelectorAll('ul[aria-label$=" translators"]')]
+          .map((list) =>
+            [...list.children].map((row) => Math.round(row.getBoundingClientRect().height)),
+          )
+          .filter((heights) => Math.max(...heights) - Math.min(...heights) > 2)
+          .map((heights) => heights.join('/')),
+      ),
     };
   }, scope);
   if (pageOverflow)
@@ -44,6 +61,8 @@ async function layout(page, scope, label, pageOverflow = true) {
   assert.deepEqual(result.clipped, [], `${label}: clipped controls`);
   assert.deepEqual(result.wrapped, [], `${label}: wrapped buttons`);
   assert.deepEqual(result.outside, [], `${label}: surface outside the viewport`);
+  assert.deepEqual(result.escaped, [], `${label}: controls past their popover`);
+  assert.deepEqual(result.uneven, [], `${label}: uneven list rows`);
 }
 
 const configs = [
@@ -57,6 +76,14 @@ const configs = [
 ];
 const writes = (page) => page.evaluate(() => window.writes.filter((w) => w.includes('rollback')));
 const errors = [];
+const focusedField = (page, when) =>
+  page
+    .waitForFunction(
+      () => document.activeElement?.getAttribute('aria-label') === 'GitHub login to add',
+      null,
+      { timeout: 3000 },
+    )
+    .catch(() => assert.fail(`focus left the login field ${when}`));
 try {
   for (const theme of ['dark', 'light'])
     for (const [width, height, scale] of configs) {
@@ -103,11 +130,14 @@ try {
         await page.getByRole('textbox', { name: 'GitHub login to add' }).fill('newbie');
         await page.keyboard.press('Enter');
         await page.getByRole('status').filter({ hasText: 'Added newbie.' }).waitFor();
+        await focusedField(page, 'after Add');
         await page.getByRole('textbox', { name: 'GitHub login to add' }).fill('bob');
         await page.getByRole('button', { name: 'Add', exact: true }).click();
         await page.getByRole('alert').filter({ hasText: 'only translators' }).waitFor();
+        await focusedField(page, 'after a refused Add');
         await page.getByRole('button', { name: 'Remove gail as French translator' }).click();
         await page.getByRole('status').filter({ hasText: 'Removed gail.' }).waitFor();
+        await focusedField(page, 'after Remove');
         await page.screenshot({ path: `${shots}/translators-after-${tag}.png` });
         await page.keyboard.press('Escape');
         assert.equal(

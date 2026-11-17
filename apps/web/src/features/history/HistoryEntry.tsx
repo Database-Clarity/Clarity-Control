@@ -695,7 +695,7 @@ function RevisionPopover({
             )}
           </div>
         )}
-        {rollbackLang && !legacy && uploadChanged(entry.message, rollbackLang) && (
+        {source && rollbackLang && !legacy && uploadChanged(entry.message, rollbackLang) && (
           <UploadRollback commit={entry.commit} lang={rollbackLang} onDone={onRolledBack} />
         )}
       </div>

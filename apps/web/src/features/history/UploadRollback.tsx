@@ -121,8 +121,8 @@ export function UploadRollback({
           )}
           {skipped.length > 0 && (
             <p>
-              Skips {skipped.length} changed by a later save (restore those per tooltip):{' '}
-              {listed(skipped)}.
+              Skips {skipped.length} changed by a later save (restore{' '}
+              {skipped.length === 1 ? 'it' : 'those'} per tooltip): {listed(skipped)}.
             </p>
           )}
           <span className={styles.confirmRow}>

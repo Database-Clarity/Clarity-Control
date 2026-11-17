@@ -82,7 +82,11 @@ export function HistoryPanel({
       label="History"
       open={open}
       onOpenChange={(next) => {
-        if (!next) cache.cancelPending();
+        if (!next) {
+          cache.cancelPending();
+          // The outcome belongs to this visit; reopening History starts clean.
+          setRolledBack(undefined);
+        }
         setOpen(next);
       }}
       summary={
@@ -96,7 +100,7 @@ export function HistoryPanel({
       {attribution}
       {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
       {rolledBack && (
-        <p role="status" tabIndex={-1} ref={rolledBackNotice}>
+        <p role="status" tabIndex={-1} ref={rolledBackNotice} className={styles.outcome}>
           {rolledBack}
         </p>
       )}
