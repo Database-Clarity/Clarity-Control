@@ -6,6 +6,7 @@ import { markupColors, markupEmpty, markupIcons, markupLineClasses } from './mar
 import { removeMarkupComments, markupImports, markupConditionMatches } from './markup/prepare.js';
 import { extractBlocks } from './markup/syntax.js';
 import { enhancedMarkupType } from './markup/baseEnhanced.js';
+import { numberTargetRanges } from './markup/numberSlots.js';
 
 export const snippetsPath = 'config/snippets.json';
 export const personalSnippetIdSchema = z.string().regex(/^me:[a-zA-Z0-9-]{1,64}$/);
@@ -66,12 +67,15 @@ export function snippetTemplateIssue(template: string): string | undefined {
   }
   // Remaining double braces belong to the base/enhanced grammar, checked by parseMarkup.
   if (/\{\{\d+(?::|\}\})/.test(text)) return 'Malformed template field';
-  const targets = [...source.matchAll(/<(?:link|title) [^<>\n]*?\[([^\]\n]+)\] \/>/g)].map(
-    (match) => {
-      const from = match.index + match[0].indexOf('[') + 1;
-      return { from, to: from + match[1].length };
-    },
-  );
+  let offset = 0;
+  const targets = source.split('\n').flatMap((line) => {
+    const ranges = numberTargetRanges(line).map((range) => ({
+      from: offset + range.from,
+      to: offset + range.to,
+    }));
+    offset += line.length + 1;
+    return ranges;
+  });
   for (const ref of variableReferences(source)) {
     // Link anchors (including the Enemy Rank seed) are reference targets, not variables.
     if (targets.some((target) => ref.from >= target.from && ref.to <= target.to)) continue;

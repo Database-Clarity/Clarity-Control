@@ -53,6 +53,18 @@ it('rejects pathological inputs with named cheap bounds before markup validation
   );
   expect(snippetTemplateIssue('<link Text [#Anchor] />')).toBeUndefined();
   expect(snippetTemplateIssue('<title Text [#Anchor] />')).toBeUndefined();
+  for (const template of [
+    '<link Build [https://example.com/?tag[]=a#details] />',
+    '<link Build [https://example.com/#part[1]] />',
+    'First line\n<link Build [https://example.com/#part[1]] />',
+  ])
+    expect(snippetTemplateIssue(template), template).toBeUndefined();
+  for (const template of [
+    '<link #plain [https://example.com] />',
+    '<link Text [#Anchor]',
+    '<link Text [#Anchor] /> #plain',
+  ])
+    expect(snippetTemplateIssue(template), template).toBeTruthy();
 });
 it('derives scope from expanded content', () => {
   expect(customSnippetScope('var {{1:name}} = {{2:1}}')).toMatchObject({
