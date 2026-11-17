@@ -33,7 +33,14 @@ export type IndexFile = {
 };
 
 /** The numbers build-site records for one URL. */
-export type BuiltUrl = { sha256: string; bytes: number; lastUpdate: string; outcome: FileOutcome };
+export type BuiltUrl = {
+  sha256: string;
+  bytes: number;
+  lastUpdate: string;
+  outcome: FileOutcome;
+  /** Languages the served bytes hold; a carried URL keeps those of its last build. */
+  languages?: ExportLanguage[];
+};
 
 /** A notice about one file: the compiler's own (`Notice`) or build-site's (carried, frozen, ...). */
 export type FileNotice = (Notice | { kind: string; message: string }) & { file: string };
@@ -65,7 +72,8 @@ export function projectIndex(
         id: file.id,
         format: file.formatVersion,
         path,
-        languages,
+        // The served bytes decide: carried bytes keep the languages of their last build.
+        languages: url.languages ?? languages,
         sha256: url.sha256,
         bytes: url.bytes,
         updatedAt: url.lastUpdate,
