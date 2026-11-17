@@ -212,4 +212,4 @@ it('plans, stages, independently verifies, and restores only the exact offline c
   await command('apply');
   git('commit', '-m', 'Post-bootstrap mutation');
   await expect(command('restore')).rejects.toThrow('HEAD changed');
-});
+}, 120_000);

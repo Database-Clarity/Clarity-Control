@@ -59,6 +59,7 @@ export default defineConfig({
       'scripts/weapon-section-inventory/*.test.mjs',
       'scripts/lost-text/*.test.mjs',
       'scripts/publisher/*.test.ts',
+      'scripts/globals/*.test.{ts,mjs}',
       'scripts/migrate/aliasGroupsBundle.test.ts',
       'scripts/mult-write/*.test.ts',
       'scripts/enhanced-arrow/*.test.ts',
