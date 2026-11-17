@@ -37,7 +37,7 @@ it('names invalid templates and label clashes', () => {
   ])
     expect(snippetTemplateIssue(template), template).toBeTruthy();
   for (const value of [
-    { label: 'LINK', template: 'ok' },
+    { label: 'PVE AND PVP VALUES', template: 'ok' },
     { label: 'x'.repeat(41), template: 'ok' },
     { label: 'Good', template: 'x'.repeat(2001) },
   ])

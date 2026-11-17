@@ -33,8 +33,8 @@ describe('snippet templates', () => {
     expect(expanded.text).toBe('#e${12+#d}');
   });
   test('wrapping snippets wrap each selected line', () => {
-    const wrap = markupSnippets.find((snippet) => snippet.id === 'wrap:yellow')!;
-    expect(expandSnippet(wrap, 'one\ntwo').text).toBe('<yellow one />\n<yellow two />');
+    const wrap = markupSnippets.find((snippet) => snippet.id === 'pve')!;
+    expect(expandSnippet(wrap, 'one\ntwo').text).toBe('<pve one />\n<pve two />');
   });
 });
 
