@@ -80,25 +80,53 @@ function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean })
       : '',
   ].filter(Boolean);
   return (
+    <BatchRowView
+      id={entry.id}
+      name={entry.name}
+      selected={selected}
+      search={`?${next}`}
+      chip={chip}
+      when={entry.notBefore ? zonedNotBefore(entry.notBefore) : 'No time set'}
+      facts={facts}
+    />
+  );
+}
+
+export function BatchRowView({
+  id,
+  name,
+  selected,
+  search,
+  chip,
+  when,
+  facts,
+}: {
+  id: string;
+  name: string;
+  selected: boolean;
+  search: string;
+  chip: { tone: string; label: string };
+  when: string;
+  facts: string[];
+}) {
+  return (
     <li>
       <Link
-        to={{ search: `?${next}` }}
+        to={{ search: search }}
         replace
         className={styles.row}
         aria-current={selected ? 'true' : undefined}
-        data-batch-row={entry.id}
+        data-batch-row={id}
       >
         <span className={styles.rowHead}>
-          <span className={styles.rowName} title={entry.name}>
-            {entry.name}
+          <span className={styles.rowName} title={name}>
+            {name}
           </span>
           <span className={styles.chip} data-tone={chip.tone}>
             {chip.label}
           </span>
         </span>
-        <span className={styles.rowWhen}>
-          {entry.notBefore ? zonedNotBefore(entry.notBefore) : 'No time set'}
-        </span>
+        <span className={styles.rowWhen}>{when}</span>
         <span className={styles.rowFacts}>
           {facts.map((fact, index) => (
             <Fragment key={fact}>

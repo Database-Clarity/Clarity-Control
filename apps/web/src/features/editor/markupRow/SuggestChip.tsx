@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+  type CSSProperties,
+} from 'react';
 import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
 import { acceptChip, dismissChip, markChipShown, type Chip, type ChipKey } from './chips';
@@ -93,6 +100,34 @@ export function SuggestChip({
     visibility: placement ? 'visible' : 'hidden',
   } as CSSProperties;
   return createPortal(
+    <SuggestChipView
+      chip={chip}
+      acceptKey={acceptKey}
+      surface={surface}
+      style={style}
+      onAccept={() => acceptChip(view)}
+      onDismiss={() => dismissChip(view)}
+    />,
+    document.body,
+  );
+}
+
+export function SuggestChipView({
+  chip,
+  acceptKey,
+  surface,
+  style,
+  onAccept,
+  onDismiss,
+}: {
+  chip: Pick<Chip, 'markup' | 'text' | 'glyph'>;
+  acceptKey: ChipKey;
+  surface?: RefObject<HTMLDivElement>;
+  style?: CSSProperties;
+  onAccept(): void;
+  onDismiss(): void;
+}) {
+  return (
     <div
       ref={surface}
       className={styles.chip}
@@ -105,9 +140,7 @@ export function SuggestChip({
       <button
         type="button"
         className={styles.accept}
-        onClick={() => {
-          acceptChip(view);
-        }}
+        onClick={onAccept}
         aria-label={`Insert ${chip.markup}`}
       >
         {chip.glyph && <EntryGlyph glyph={chip.glyph} />}
@@ -118,7 +151,7 @@ export function SuggestChip({
       <button
         type="button"
         className={styles.dismiss}
-        onClick={() => dismissChip(view)}
+        onClick={onDismiss}
         aria-label="Dismiss suggestion"
       >
         <span className={styles.esc}>Esc</span>
@@ -126,7 +159,6 @@ export function SuggestChip({
           ×
         </span>
       </button>
-    </div>,
-    document.body,
+    </div>
   );
 }

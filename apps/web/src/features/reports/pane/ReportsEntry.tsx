@@ -1,4 +1,12 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+  type KeyboardEvent,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../../languageLabels';
@@ -19,11 +27,11 @@ import { useReportsTab } from './tabStore';
 import styles from './ReportsEntry.module.scss';
 
 /** Tooltip + language pairs with open reports for this viewer, by count then name. */
-function CountsUnavailable() {
+function CountsUnavailable({ onRetry = refreshReportsIndex }: { onRetry?(): void }) {
   return (
     <p className={styles.empty}>
       Report counts are unavailable right now.{' '}
-      <button type="button" className={styles.retry} onClick={refreshReportsIndex}>
+      <button type="button" className={styles.retry} onClick={onRetry}>
         Retry
       </button>
     </p>
@@ -125,6 +133,47 @@ export function ReportsEntry({
   const openReport = useOpenReport();
   if (!seesReports(user)) return null;
   return (
+    <ReportsEntryView
+      open={open}
+      onOpenChange={setOpen}
+      buttonRef={button}
+      className={className}
+      badgeClassName={badgeClassName}
+      rows={rows}
+      loaded={loaded}
+      failed={failed}
+      onOpen={openReport}
+      onRetry={refreshReportsIndex}
+    />
+  );
+}
+
+export function ReportsEntryView({
+  className,
+  badgeClassName,
+  rows,
+  loaded,
+  failed,
+  onOpen,
+  onRetry,
+  open,
+  onOpenChange,
+  buttonRef,
+}: {
+  className: string;
+  badgeClassName: string;
+  rows: ReturnType<typeof useWorklist>['rows'];
+  loaded: boolean;
+  failed: boolean;
+  onOpen(hash: number, lang: string): void;
+  onRetry(): void;
+  open: boolean;
+  onOpenChange: Dispatch<SetStateAction<boolean>>;
+  buttonRef?: RefObject<HTMLButtonElement>;
+}) {
+  const ownButton = useRef<HTMLButtonElement>(null);
+  const button = buttonRef ?? ownButton;
+  return (
     <li>
       <button
         ref={button}
@@ -140,7 +189,7 @@ export function ReportsEntry({
               ? 'Reports (counts unavailable)'
               : `Reports, ${rows.length} with open reports`
         }
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => onOpenChange((value) => !value)}
       >
         Reports
         {/* A badge only when there is something to say: no reserved space while loading or at 0. */}
@@ -152,7 +201,7 @@ export function ReportsEntry({
       </button>
       <ShellOverlay
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => onOpenChange(false)}
         label="Open reports"
         anchorRef={button}
         // Nothing to list: a one-line popover sized to its message, not the worklist's width.
@@ -160,13 +209,13 @@ export function ReportsEntry({
         modal={false}
       >
         {failed ? (
-          <CountsUnavailable />
+          <CountsUnavailable onRetry={onRetry} />
         ) : (
           <Worklist
             rows={rows}
             onOpen={(hash, lang) => {
-              setOpen(false);
-              openReport(hash, lang);
+              onOpenChange(false);
+              onOpen(hash, lang);
             }}
           />
         )}
@@ -191,12 +240,48 @@ export function ReportsMenuRow({
   const openReport = useOpenReport();
   if (!seesReports(user) || (!loaded && !failed)) return null;
   return (
+    <ReportsMenuRowView
+      expanded={expanded}
+      onExpandedChange={setExpanded}
+      className={className}
+      badgeClassName={badgeClassName}
+      rows={rows}
+      failed={failed}
+      onNavigate={onNavigate}
+      onOpen={openReport}
+      onRetry={refreshReportsIndex}
+    />
+  );
+}
+
+export function ReportsMenuRowView({
+  className,
+  badgeClassName,
+  rows,
+  failed,
+  onNavigate,
+  onOpen,
+  onRetry,
+  expanded,
+  onExpandedChange,
+}: {
+  className: string;
+  badgeClassName: string;
+  rows: ReturnType<typeof useWorklist>['rows'];
+  failed: boolean;
+  onNavigate(): void;
+  onOpen(hash: number, lang: string): void;
+  onRetry(): void;
+  expanded: boolean;
+  onExpandedChange: Dispatch<SetStateAction<boolean>>;
+}) {
+  return (
     <>
       <button
         type="button"
         className={className}
         aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => onExpandedChange((value) => !value)}
       >
         <span>Reports</span>
         {rows.length > 0 && (
@@ -207,14 +292,14 @@ export function ReportsMenuRow({
       </button>
       {expanded &&
         (failed ? (
-          <CountsUnavailable />
+          <CountsUnavailable onRetry={onRetry} />
         ) : (
           <Worklist
             rows={rows}
             className={styles.phoneList}
             onOpen={(hash, lang) => {
               onNavigate();
-              openReport(hash, lang);
+              onOpen(hash, lang);
             }}
           />
         ))}

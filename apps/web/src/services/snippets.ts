@@ -7,6 +7,12 @@ import {
 } from '../../../../packages/core/src/customSnippets';
 import { markupSnippets } from '@clarity/core';
 import { apiRequest, failure } from './apiAuth';
+import {
+  effectiveSnippetsResponseSchema,
+  localizedSnippetLangSchema,
+  snippetTranslationsSchema,
+  type SnippetTranslationChange,
+} from '../../../../packages/core/src/localizedSnippets';
 
 const personalResponseSchema = z.object({
   snippet: storedPersonalSnippetSchema.nullable(),
@@ -55,6 +61,24 @@ export const savePersonalSnippet = (
     revision,
   });
 export const getTeamSnippets = () => request('/snippets/team', teamResponseSchema);
+/** Target-language effective catalogue; personal snippets remain a separate account read. */
+export const getLocalizedSnippets = (language: string) =>
+  request(
+    `/snippets/local/${localizedSnippetLangSchema.parse(language)}`,
+    effectiveSnippetsResponseSchema,
+  );
+export const getSnippetTranslations = (language: string) =>
+  request(
+    `/snippets/local/${localizedSnippetLangSchema.parse(language)}?view=translations`,
+    z.object({ translations: snippetTranslationsSchema }),
+  );
+/** Per-entry CAS: base null creates, next null deletes. enHash comes from the effective read. */
+export const saveSnippetTranslation = (language: string, change: SnippetTranslationChange) =>
+  request(
+    `/snippets/local/${localizedSnippetLangSchema.parse(language)}`,
+    z.object({ translations: snippetTranslationsSchema }),
+    change,
+  );
 /** Compare-and-set for one entry: base null creates, next null deletes. */
 export const saveTeamSnippet = (change: SnippetChange) =>
   request('/snippets/team', teamResponseSchema, change);

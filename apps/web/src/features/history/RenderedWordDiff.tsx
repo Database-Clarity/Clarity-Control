@@ -207,7 +207,6 @@ export function RenderedWordDiff({
   beforeLabel?: string;
   afterLabel?: string;
 }) {
-  const [variant, setVariant] = useState<'base' | 'enhanced'>();
   const data = useDataStore((state) => state.data);
   // Read when the comparison receives a source snapshot; do not subscribe this
   // renderer to every authoring keystroke (Working diff already waits for idle).
@@ -221,6 +220,48 @@ export function RenderedWordDiff({
     after,
     globals,
   );
+  return (
+    <RenderedWordDiffView
+      before={before}
+      after={after}
+      lang={lang}
+      hash={hash}
+      working={working}
+      responsive={responsive}
+      beforeLabel={beforeLabel}
+      afterLabel={afterLabel}
+      result={result}
+      busy={busy}
+      sourceAnalysis={sourceAnalysis}
+      sourceUnavailable={sourceUnavailable}
+    />
+  );
+}
+
+export function RenderedWordDiffView({
+  before,
+  after,
+  lang,
+  hash,
+  working = false,
+  responsive = false,
+  beforeLabel,
+  afterLabel,
+  result,
+  busy,
+  sourceAnalysis,
+  sourceUnavailable,
+}: {
+  before: string;
+  after: string;
+  lang: Lang;
+  hash: number;
+  working?: boolean;
+  responsive?: boolean;
+  beforeLabel?: string;
+  afterLabel?: string;
+} & ReturnType<typeof useRenderedDiff>) {
+  const [variant, setVariant] = useState<'base' | 'enhanced'>();
   const markers = sourceAnalysis?.markers ?? [];
   const output = result.output;
   const enhanced =

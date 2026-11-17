@@ -86,6 +86,13 @@ const routes: (Route & { public?: true })[] = [
     body: { snippet: { id: 'me:one', label: 'My bonus', template: 'Bonus' }, revision: null },
   },
   { method: 'GET', path: '/snippets/team' },
+  { method: 'GET', path: '/snippets/local/de' },
+  { method: 'GET', path: '/snippets/local/de?view=translations' },
+  {
+    method: 'PUT',
+    path: '/snippets/local/de',
+    body: { id: 'arrow-values', base: null, next: null },
+  },
   {
     method: 'PUT',
     path: '/snippets/team',
