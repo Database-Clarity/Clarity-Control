@@ -24,6 +24,7 @@ import { englishSymbols, subclassSymbol } from './typedSymbols';
 import { numberHost, numbersAllowed, orderedNumbers, usedNumbers } from '../numbers/state';
 import { canSaveSnippets, localSnippet, snippetCatalogue, snippetLang } from './custom';
 import { offersBaseEnhanced } from '../markupScope';
+import { snippetTemplateIssue } from '../../../../../../packages/core/src/customSnippets';
 
 export type SuggestCategory =
   'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals' | 'Numbers';
@@ -94,7 +95,7 @@ export interface SuggestItem {
   pinned?: boolean;
   /** In the on-request menu: why this option cannot go here. It stays listed; Enter leaves the text alone. */
   unavailable?: string;
-  /** A personal or team snippet: on equal score and recency, Mine, then Team, then built-in. */
+  /** A personal or team snippet: typed matches break score ties Mine, then Team, then built-in. */
   source?: 'mine' | 'team';
   /** "Save as snippet": opens the save form for the selection instead of inserting. */
   saveSnippet?: boolean;
@@ -609,6 +610,9 @@ function build(
         preview: null,
         reference: true,
         saveSnippet: true,
+        ...(snippetTemplateIssue(context.selection)
+          ? { unavailable: 'Fix the markup in the editor before saving it as a snippet.' }
+          : {}),
         keys: 'save snippet new mine',
       });
     addCustom();
@@ -819,7 +823,7 @@ const wrapOrder: SuggestCategory[] = ['Transforms', 'Snippets', 'Symbols', 'Tags
 
 const perCategory = 24;
 
-/** Ties after score and recency (owner Q4): Mine, then Team, then built-in. */
+/** Typed score ties (owner Q4): Mine, then Team, then built-in. */
 const sourceRank = (item: SuggestItem) =>
   item.source === 'mine' ? 0 : item.source === 'team' ? 1 : 2;
 
@@ -849,7 +853,9 @@ function rank(
           b.score - a.score ||
           Number(!!b.item.wrap) - Number(!!a.item.wrap) ||
           (context.query ? 0 : a.recency - b.recency) ||
-          sourceRank(a.item) - sourceRank(b.item) ||
+          (context.query
+            ? sourceRank(a.item) - sourceRank(b.item)
+            : Number(!!a.item.source) - Number(!!b.item.source)) ||
           a.index - b.index,
       )
       .slice(0, perCategory),
