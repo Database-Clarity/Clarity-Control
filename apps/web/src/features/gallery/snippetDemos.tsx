@@ -13,7 +13,7 @@ const fixtures: CustomSnippet[] = [
   },
   {
     id: 'me:rank',
-    label: 'Gegnerrang-Verknüpfung für Kampfeinheiten',
+    label: 'Gegnerrang-Verknüpfung für Kampfeinheit',
     template: '<link {{1:Enemy Rank}} [#CombatantClassifications] />',
   },
   { id: 'me:ammo', label: 'Ammo variable', template: 'var ammo = {{1:3}}\n#{ammo} rounds' },

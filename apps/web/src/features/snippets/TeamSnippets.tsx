@@ -100,7 +100,7 @@ export function TeamSnippets() {
         </button>
       )}
       {copyable.length > 0 && chosen && (
-        <span className={styles.toolbar}>
+        <span className={styles.copy}>
           <select
             aria-label="One of my snippets"
             value={chosen.snippet.id}

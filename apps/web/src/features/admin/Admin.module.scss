@@ -334,6 +334,7 @@ select.field {
 
 // Team snippets: the same heading scale as Mark types above it.
 .snippets {
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   gap: 0.5rem;
   margin-top: 1rem;

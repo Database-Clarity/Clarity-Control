@@ -134,6 +134,11 @@
   text-align: left;
 }
 
+.option[data-source] .hint {
+  flex: none;
+  margin-inline-start: auto;
+}
+
 .detail {
   flex: 1 1 0;
   min-width: 0;
