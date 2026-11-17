@@ -134,3 +134,43 @@ describe('custom snippets in the menus', () => {
     expect(typed('<refill').some((item) => item.source)).toBe(false);
   });
 });
+
+describe('markup bar and All buttons while translating', () => {
+  test('a template button inserts the language words, as Ctrl+Space does', async () => {
+    const { EditorView } = await import('@codemirror/view');
+    const { markupEntries } = await import('../markupRow/entries');
+    services.loadEditorSnippets.mockResolvedValue({ builtIn: [], mine: [], team: [] });
+    services.getLocalizedSnippets.mockResolvedValue({
+      snippets: [
+        {
+          id: 'icon-word',
+          label: 'Elementsymbol und Wort',
+          keywords: '',
+          template: '<{{1:solar}} {{2:Solar}} />',
+          enHash: 'x',
+          language: 'de',
+          hint: null,
+          outdated: false,
+        },
+        {
+          id: 'editor-note',
+          label: 'Notiz',
+          keywords: '',
+          template: '// {{1:Notiz}}',
+          enHash: 'x',
+          language: 'de',
+          hint: null,
+          outdated: false,
+        },
+      ],
+      outdated: [],
+      canManage: false,
+    });
+    await loadSnippetCatalogue('3:translator', 'de');
+    const view = new EditorView({ state: state('', 'de'), parent: document.body });
+    const note = markupEntries(enhanced).find((entry) => entry.id === 'editor-note')!;
+    expect(note.run(view, enhanced)).toBe('inserted');
+    expect(view.state.doc.toString()).toBe('// Notiz');
+    view.destroy();
+  });
+});

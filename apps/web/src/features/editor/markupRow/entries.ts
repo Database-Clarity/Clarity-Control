@@ -1,5 +1,10 @@
 import { offeredHere, offersBaseEnhanced, type ScopedMarkupGlobals } from '../markupScope';
-import type { SnippetCatalogue } from '../suggest/custom';
+import {
+  localSnippet,
+  snippetCatalogue,
+  snippetLang,
+  type SnippetCatalogue,
+} from '../suggest/custom';
 import { type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
@@ -166,11 +171,14 @@ function viaTemplate(
       if (!offeredHere(entry.id, globals)) return 'context';
       const blocked = guard(view);
       if (blocked) return blocked;
+      // Translating: the same words Ctrl+Space offers (the language being written decides).
+      const lang = view.state.facet(snippetLang);
+      const local = localSnippet(snippet, snippetCatalogue(lang), lang).snippet;
       const item = templateItem(view.state, {
         id: entry.id,
         label: entry.label,
         about: entry.about,
-        snippet,
+        snippet: local,
         plain,
       });
       if (!item) return 'context';
