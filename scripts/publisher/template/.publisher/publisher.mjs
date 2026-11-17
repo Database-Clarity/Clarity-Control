@@ -27404,24 +27404,34 @@ function resolveSnapshot(snapshot, blockers) {
       if (resolveAlias(tooltip.hash, snapshot.aliases) !== tooltip.hash)
         throw new Error(`Alias ${key} has its own tooltip`);
     }
+    const contexts = Object.values(snapshot.tooltips).map((tooltip) => ({
+      tooltip,
+      hash: tooltip.hash,
+      // Match exportLegacy's exact custom-tooltip fallback, including reserved hash 0.
+      type: snapshot.types[tooltip.hash] ?? tooltip.custom?.categoryId
+    }));
     for (const alias of Object.keys(snapshot.aliases)) {
       const canonical = resolveAlias(Number(alias), snapshot.aliases);
       const target = snapshot.tooltips[canonical];
       if (!target || snapshot.mode === "live" && isTextlessDescription(target)) continue;
-      if (!Object.hasOwn(snapshot.types, alias))
-        blockers.add(`Missing alias converter type provenance: ${snapshot.revision}/${alias}`);
-      else if (snapshot.types[alias] !== snapshot.types[canonical])
-        blockers.add(
-          `Alias-specific render context requires separate review: ${snapshot.revision}/${alias} -> ${canonical}`
-        );
+      const canonicalType = snapshot.types[canonical] ?? target.custom?.categoryId;
+      const type = snapshot.types[alias] ?? canonicalType;
+      if (type !== canonicalType) contexts.push({ tooltip: target, hash: Number(alias), type });
     }
-    for (const tooltip of Object.values(snapshot.tooltips)) {
+    const resolvedContexts = /* @__PURE__ */ new Map();
+    for (const { tooltip, hash: hash2, type } of contexts) {
       if (tooltip.hash >= 1 && tooltip.hash <= 3 || snapshot.mode === "live" && isTextlessDescription(tooltip))
         continue;
-      if (!Object.hasOwn(snapshot.types, String(tooltip.hash)))
+      if (type === void 0)
         blockers.add(`Missing converter type provenance: ${snapshot.revision}/${tooltip.hash}`);
       for (const language of Object.keys(tooltip.text)) {
         const lang = language;
+        const context = JSON.stringify([tooltip.hash, type, lang]);
+        const existing2 = resolvedContexts.get(context);
+        if (existing2) {
+          result.set(keyOf(hash2, lang), { hash: hash2, lang, result: existing2 });
+          continue;
+        }
         const blockHiddenImports = (source) => {
           const visible = removeUnusedText(source, false);
           if (markupImports(source).some((line) => !visible.includes(line.trim())))
@@ -27434,9 +27444,9 @@ function resolveSnapshot(snapshot, blockers) {
           {
             get(_target, key) {
               if (typeof key !== "string") return void 0;
-              const hash2 = key === "global" ? 1 : Number(key);
-              if (!Number.isInteger(hash2)) return void 0;
-              const imported = snapshot.tooltips[resolveAlias(hash2, snapshot.aliases)];
+              const hash3 = key === "global" ? 1 : Number(key);
+              if (!Number.isInteger(hash3)) return void 0;
+              const imported = snapshot.tooltips[resolveAlias(hash3, snapshot.aliases)];
               const source = imported && !(snapshot.mode === "live" && isTextlessDescription(imported)) ? globalSourceText(imported, lang, snapshot.mode) : void 0;
               if (source !== void 0) blockHiddenImports(source);
               return source;
@@ -27450,7 +27460,7 @@ function resolveSnapshot(snapshot, blockers) {
           variables: catalog[2] ?? "",
           titles: catalog[3] ?? "",
           imports: catalog,
-          type: snapshot.types[tooltip.hash],
+          type,
           lang: numberLanguage2
         };
         const validation = validateTextWithReads(
@@ -27466,17 +27476,19 @@ function resolveSnapshot(snapshot, blockers) {
           if (issue2.severity === "error")
             blockers.add(`${snapshot.revision}/${tooltip.hash}/${lang}: ${issue2.message}`);
         }
-        result.set(keyOf(tooltip.hash, lang), {
-          hash: tooltip.hash,
-          lang,
-          result: {
-            rendered: JSON.stringify(parsed.lines),
-            reads: {
-              imports: [...validation.reads.imports].map(([key, hash2]) => ({ key, hash: hash2 })),
-              variables: [...validation.reads.variables],
-              conservativeTitles: true
-            }
+        const rendered = {
+          rendered: JSON.stringify(parsed.lines),
+          reads: {
+            imports: [...validation.reads.imports].map(([key, hash3]) => ({ key, hash: hash3 })),
+            variables: [...validation.reads.variables],
+            conservativeTitles: true
           }
+        };
+        resolvedContexts.set(context, rendered);
+        result.set(keyOf(hash2, lang), {
+          hash: hash2,
+          lang,
+          result: rendered
         });
       }
     }
@@ -27707,6 +27719,9 @@ function changedGlobalIds(published, saved) {
 
 // packages/core/src/globalsRelease/plan.ts
 init_contentHash();
+function consumerDocument(snapshot, hash2) {
+  return snapshot.tooltips[resolveAlias(hash2, snapshot.aliases)];
+}
 function changes(input2, ids, names) {
   return ids.flatMap((id) => {
     const old = input2.published.entries.find((entry) => entry.id === id);
@@ -27847,7 +27862,11 @@ function expandReleaseDependencies(input2, before, after, impact, causes) {
         (rows.get(key(row))?.causes ?? []).map((cause) => [stableStringify(cause), cause])
       );
       const reads = [
-        row.consumer.hash,
+        // An alias's shared source can release even when this particular render context
+        // never reads the changed global. Membership is canonical on both sides; review
+        // identity stays on the alias row, including across alias-map changes.
+        resolveAlias(row.consumer.hash, before.aliases),
+        resolveAlias(row.consumer.hash, after.aliases),
         ...[...row.before?.reads.imports ?? [], ...row.after?.reads.imports ?? []].map(
           (read) => read.hash
         )
@@ -27919,7 +27938,7 @@ async function planGlobalRelease(input2) {
     for (const impact of contexts)
       for (const view of impact.rows) {
         const { hash: hash2, lang } = view.consumer;
-        const saved = input2.authored.tooltips[hash2] ?? input2.live.tooltips[hash2];
+        const saved = consumerDocument(input2.authored, hash2) ?? consumerDocument(input2.live, hash2);
         if (!saved) throw new Error("Deleted consumer dependency");
         const dependencies = new Set(
           [...view.before?.reads.imports ?? [], ...view.after?.reads.imports ?? []].map(
@@ -27934,8 +27953,12 @@ async function planGlobalRelease(input2) {
         }
         const id = await globalIdentityDigest(view.consumer);
         const old = rows.get(id);
-        const previous = input2.live.tooltips[hash2] ?? input2.priorAuthored?.find(({ snapshot }) => snapshot.tooltips[hash2])?.snapshot.tooltips[hash2] ?? input2.authored.tooltips[hash2];
-        const beforeSource = previous ? globalSourceText(previous, lang, input2.live.tooltips[hash2] ? "live" : "authored") ?? "" : "";
+        const previous = consumerDocument(input2.live, hash2) ?? input2.priorAuthored?.map(({ snapshot }) => consumerDocument(snapshot, hash2)).find(Boolean) ?? consumerDocument(input2.authored, hash2);
+        const beforeSource = previous ? globalSourceText(
+          previous,
+          lang,
+          consumerDocument(input2.live, hash2) ? "live" : "authored"
+        ) ?? "" : "";
         const afterSource = globalSourceText(saved, lang, "live") ?? "";
         rows.set(id, {
           id,
