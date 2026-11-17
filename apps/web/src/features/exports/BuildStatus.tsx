@@ -65,19 +65,35 @@ export function FileBuildStatus({
   notices,
   path,
   formatVersion,
+  language = null,
+  otherFailures = 0,
 }: {
   manifest: SiteManifest | null;
   notices: readonly SiteNotice[];
   path: string;
   formatVersion: number;
+  /** A file split per language: the language of `path`, named before its state. */
+  language?: string | null;
+  /** How many of the file's other language URLs failed to build. */
+  otherFailures?: number;
 }) {
   const state = buildState(manifest, path);
   const failed = notices.filter((notice) => notice.path === path && isFailure(notice));
+  const prefix = language ? <span className={styles.meta}>{language}</span> : null;
+  const others =
+    otherFailures > 0 ? (
+      <span className={styles.badText}>
+        {' '}
+        · {otherFailures} other {otherFailures === 1 ? 'language' : 'languages'} failed
+      </span>
+    ) : null;
   if (state.kind === 'absent')
     return (
       <span className={styles.buildCell} title={failed.map((notice) => notice.message).join('\n')}>
         <BuildDot state={failed.length ? 'bad' : 'none'} />
+        {prefix}
         {failed.length ? 'Build failed · not published' : 'Not built yet'}
+        {others}
       </span>
     );
   const word = state.kind === 'live' ? 'Live' : state.kind === 'carried' ? 'Carried' : 'Frozen';
@@ -87,11 +103,13 @@ export function FileBuildStatus({
       title={failed.map((notice) => notice.message).join('\n') || undefined}
     >
       <BuildDot state={failed.length ? 'bad' : state.kind === 'live' ? 'live' : 'warn'} />
+      {prefix}
       {word} <When value={state.file.lastUpdate} nowrap />{' '}
       {/* One piece: a narrow header wraps the status before it, never inside it. */}
       <span>
         · v{formatVersion} · {formatBytes(state.file.bytes)}
       </span>
+      {others}
     </span>
   );
 }

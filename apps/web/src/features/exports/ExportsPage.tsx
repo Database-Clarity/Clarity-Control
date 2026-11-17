@@ -2,7 +2,7 @@ import { SkeletonBoundary } from '../../ui/Skeleton';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 // Exports (spec section 8): maintainers get the projects list, one dense row per project; a
 // partner lands on their own project (or a list of their projects when they have several).
-import { configSchemaVersion, isValidId } from '@clarity/export/config';
+import { configSchemaVersion, fileUrls, isValidId } from '@clarity/export/config';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { errorMessage } from '../../services/http';
@@ -388,10 +388,14 @@ function DeleteProject({
       (project) =>
         live &&
         setUrls([
-          ...project.config.files.map(
-            (file) => `${project.id}/v${file.formatVersion}/${file.id}.json`,
+          ...project.config.files.flatMap((file) =>
+            fileUrls(project.id, file).map((url) => url.path),
           ),
-          ...(project.config.retained ?? []).map((entry) => entry.path),
+          ...(project.config.retained ?? []).flatMap((entry) =>
+            fileUrls(project.id, { ...entry.snapshot, formatVersion: entry.formatVersion }).map(
+              (url) => url.path,
+            ),
+          ),
         ]),
       // An unreadable config can still be deleted; it names no URLs.
       () => live && setUrls([]),

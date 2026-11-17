@@ -103,7 +103,7 @@ describe('the help reads one registry', () => {
     expect(at(adagio, 6, 1)).toBe('enhanced-arrow');
     expect(at(adagio, 6, 20)).toBe('enhanced-block');
     expect(at('A <pve 1 /> <pvp [2] /> b', 1, 14)).toBe('pair');
-    expect(at('Lasts 1 <pvp [2] /> s', 1, 10)).toBe('pvp-override');
+    expect(at('Lasts 1 <pvp [2] /> s', 1, 10)).toBe('pvp');
     expect(at('<bold/>Only', 1, 2)).toBe('line:bold');
     expect(at('<yellow Gjallarhorn />', 1, 3)).toBe('inline:yellow');
     expect(at('Applies <arc/>Jolt', 1, 10)).toBe('icon-word');

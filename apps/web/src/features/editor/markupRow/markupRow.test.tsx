@@ -243,7 +243,6 @@ describe('the markup row catalogue', () => {
       'pair',
       'pve',
       'pvp',
-      'pvp-override',
       'enhanced-block',
       'enhanced-formula',
       'icon-word',
