@@ -1009,11 +1009,19 @@ it.each(['maintainer', 'translator'] as const)(
     await click('Restore as draft');
     const draft = useDraftStore.getState().drafts[10];
     expect(draft.base.text.de).toEqual(saved.text.de);
-    expect(draft.next.text.de).toEqual(live.text.de);
+    // A translator's restored text names the English it translates (root 2026-11-16).
+    const restoredDe =
+      role === 'translator'
+        ? {
+            ...live.text.de!,
+            sourceUpdatedAt: live.text.de!.sourceUpdatedAt ?? live.text.en!.updatedAt,
+          }
+        : live.text.de;
+    expect(draft.next.text.de).toEqual(restoredDe);
     if (role === 'translator') expect(draft.next.text.en).toEqual(local.text.en);
     const merged = merge3(draft.base, saved, draft.next);
     expect(merged.ok).toBe(true);
-    if (merged.ok) expect(merged.merged.text.de).toEqual(live.text.de);
+    if (merged.ok) expect(merged.merged.text.de).toEqual(restoredDe);
     useDraftStore.getState().edit(saved, 'de', 'Further edit', 'fixture');
     expect(useDraftStore.getState().drafts[10].base.text.de).toEqual(saved.text.de);
     expect(

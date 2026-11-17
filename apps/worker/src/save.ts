@@ -25,6 +25,7 @@ import {
   checkTranslationStamps,
   permissions,
   requireAccess,
+  type Access,
 } from './permissions.js';
 import type { Identity } from './types.js';
 
@@ -56,7 +57,33 @@ const saveSchema = z
   .strict();
 
 export async function save(request: Request, github: GitHub, user: Identity): Promise<Response> {
-  const input = await body(request, saveSchema);
+  const result = await saveChanges(github, user, await body(request, saveSchema));
+  return 'conflicts' in result ? json(result, 409) : json(result);
+}
+
+export type SaveInput = z.infer<typeof saveSchema>;
+export type SaveResult =
+  | { commit: string; tooltips: Tooltip[]; savedAt: number }
+  | {
+      conflicts: {
+        hash: number;
+        base: Tooltip | null;
+        head: Tooltip | null;
+        next: Tooltip;
+        fields: string[];
+      }[];
+    };
+
+/**
+ * The /save pipeline (merge, every write check, server-owned maps, CAS commit authored by `user`).
+ * `authorize` adds a caller's own rule against the access read at each attempt's head (rollback).
+ */
+export async function saveChanges(
+  github: GitHub,
+  user: Identity,
+  input: SaveInput,
+  authorize?: (access: Access) => void,
+): Promise<SaveResult> {
   let aliases: Aliases | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
     const headCommit = await github.head();
@@ -66,6 +93,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       'trial',
       'translator',
     ]);
+    authorize?.(access);
     const conflicts: {
       hash: number;
       base: Tooltip | null;
@@ -194,7 +222,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
       ];
       changed.push(`${merged.hash}=${fields.join(',') || 'none'}`);
     }
-    if (conflicts.length) return json({ conflicts }, 409);
+    if (conflicts.length) return { conflicts };
     try {
       const commit = await github.commit(
         headCommit,
@@ -204,7 +232,7 @@ export async function save(request: Request, github: GitHub, user: Identity): Pr
         user,
       );
       // Explicit body time is readable cross-origin without exposing response headers.
-      return json({ commit, tooltips, savedAt: Date.now() });
+      return { commit, tooltips, savedAt: Date.now() };
     } catch (error) {
       if (!(error instanceof RefRace)) throw error;
     }

@@ -192,6 +192,18 @@ select.field {
   }
 }
 
+// Translation manager: the assigned languages this translator also manages, under them.
+.manages {
+  margin-block-start: 0.25rem;
+  padding-block-start: 0.25rem;
+  border-block-start: 1px solid var(--line);
+
+  > span {
+    color: var(--text2);
+    white-space: nowrap;
+  }
+}
+
 @include theme.mobile-or-coarse {
   .languages label {
     min-height: var(--tap);

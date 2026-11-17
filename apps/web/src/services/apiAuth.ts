@@ -25,6 +25,8 @@ const userSchema = z.object({
     z.transform((role) => (role === 'partner' ? null : role)),
   ),
   languages: z.optional(z.array(z.enum(languages))),
+  /** Languages this translator manages (translation manager); empty or absent otherwise. */
+  manages: z.optional(z.array(z.enum(languages))),
   /** Export projects this account is a partner of. */
   projects: z.optional(z.array(z.string())),
 });

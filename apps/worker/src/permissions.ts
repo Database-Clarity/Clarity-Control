@@ -7,6 +7,7 @@ import {
   isTextlessDescription,
   permissionsSchema,
   stableStringify,
+  type Lang,
   type Permissions,
   type Tooltip,
 } from '@clarity/core';
@@ -211,14 +212,7 @@ export function checkTranslationStamps(
     const before = head?.text[lang];
     const after = next.text[lang];
     if (!after) continue;
-    const tokenEdit = before?.text.includes('#{=') || after.text.includes('#{=');
-    const markupOnly = isMarkupOnly(
-      before?.text,
-      after.text,
-      tokenEdit && head?.text.en ? numberValues(head.text.en, lang) : undefined,
-      tokenEdit && english ? numberValues(english, lang) : undefined,
-    );
-    if (before && (after.text === before.text || markupOnly)) {
+    if (before && keepsTranslationRevision(head, lang, after.text, english)) {
       if (
         after.updatedAt !== before.updatedAt ||
         after.updatedBy !== before.updatedBy ||
@@ -243,6 +237,33 @@ export function checkTranslationStamps(
         `Tooltip ${next.hash}: the ${lang} source revision is newer than the English revision`,
       );
   }
+}
+
+/**
+ * Whether `text` in `lang` is the stored translation's text or a markup-only change of it (number
+ * tokens compared by value), so the stored revision stamps must stay (checkTranslationStamps).
+ */
+export function keepsTranslationRevision(
+  head: Tooltip | null,
+  lang: Lang,
+  text: string,
+  english = head?.text.en,
+): boolean {
+  const before = head?.text[lang];
+  if (!before) return false;
+  if (text === before.text) return true;
+  const tokenEdit = before.text.includes('#{=') || text.includes('#{=');
+  return isMarkupOnly(
+    before.text,
+    text,
+    tokenEdit && head?.text.en ? numberValues(head.text.en, lang) : undefined,
+    tokenEdit && english ? numberValues(english, lang) : undefined,
+  );
+}
+
+/** A translation manager's languages (PRODUCT "Translation managers"): translators only. */
+export function managedLanguages(access: Access | undefined): readonly string[] {
+  return access?.role === 'translator' ? (access.manages ?? []) : [];
 }
 
 /**

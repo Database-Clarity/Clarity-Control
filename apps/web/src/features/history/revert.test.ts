@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { type Tooltip } from '@clarity/core';
 import { revertDraft, restoreLegacyText } from './revert';
 import { englishScope } from './scope';
+import { uploadChanged } from './UploadRollback';
 
 const current: Tooltip = {
   hash: 123,
@@ -89,6 +90,37 @@ describe('history draft restoration', () => {
     expect(result.text.fr).toEqual(current.text.fr);
     expect(result.associated).toEqual(current.associated);
   });
+  it('restored translations keep the English revision they were written against', () => {
+    const old: Tooltip = {
+      hash: 123,
+      text: {
+        en: { text: 'Old', updatedAt: '2025-01-01T00:00:00Z', updatedBy: 'dan' },
+        de: {
+          text: 'Alt',
+          updatedAt: '2025-01-02T00:00:00Z',
+          updatedBy: 'eve',
+          sourceUpdatedAt: '2024-12-01T00:00:00Z',
+        },
+        fr: { text: 'Ancien', updatedAt: '2025-01-02T00:00:00Z', updatedBy: 'eve' },
+      },
+      associated: [],
+    };
+    const manager = {
+      id: 5,
+      login: 'erin',
+      role: 'translator' as const,
+      languages: ['de', 'fr'] as ['de', 'fr'],
+    };
+    const scope = { languages: ['en', 'de'] as const, fields: [] };
+    const scoped = revertDraft(current, old, manager, scope, true);
+    expect(scoped.text.de?.sourceUpdatedAt).toBe('2024-12-01T00:00:00Z');
+    expect(scoped.text.en).toEqual(current.text.en);
+    // A legacy entry without a source: that revision's English.
+    const whole = revertDraft(current, old, manager, undefined, true);
+    expect(whole.text.fr?.sourceUpdatedAt).toBe('2025-01-01T00:00:00Z');
+    // A rebased draft base copies the stored entry exactly.
+    expect(revertDraft(current, old, manager).text.fr).toEqual(old.text.fr);
+  });
   it('rejects users without permissions and versions for another hash', () => {
     expect(() => revertDraft(current, version, { id: 1, login: 'x', role: null })).toThrow(
       'permission',
@@ -96,5 +128,15 @@ describe('history draft restoration', () => {
     expect(() =>
       revertDraft(current, { ...version, hash: 456 }, { id: 1, login: 'x', role: 'editor' }),
     ).toThrow('different tooltip');
+  });
+});
+
+describe('upload rollback', () => {
+  it('offers an upload only for /save commits that changed the language', () => {
+    const message = 'Translate\n\nClarity-Changed: 123=de,fr;124=en,associations';
+    expect(uploadChanged(message, 'de')).toBe(true);
+    expect(uploadChanged(message, 'fr')).toBe(true);
+    expect(uploadChanged(message, 'es')).toBe(false);
+    expect(uploadChanged('Publish batch', 'de')).toBe(false);
   });
 });

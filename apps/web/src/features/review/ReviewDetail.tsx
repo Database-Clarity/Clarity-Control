@@ -566,7 +566,11 @@ export function RestoreLive({
       // Rebase only the fields this restore replaces; retain the old merge base
       // for any other local changes, including changes outside translator access.
       const base = revertDraft(existing?.base ?? saved, saved, currentUser);
-      replaceDraft(base, revertDraft(existing?.next ?? saved, live, currentUser), true);
+      replaceDraft(
+        base,
+        revertDraft(existing?.next ?? saved, live, currentUser, undefined, true),
+        true,
+      );
       setConfirm(false);
       onDone(
         'Live text loaded as a local draft. Review it in the editor; nothing was saved or published.',

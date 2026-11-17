@@ -120,13 +120,19 @@ it.each(['maintainer', 'translator'] as const)(
     await act(async () => button('Restore as draft').click());
     expect(done).toHaveBeenCalledOnce();
     const draft = useDraftStore.getState().drafts[10];
-    expect(draft.next.text.de).toEqual(pushed.text.de);
+    // A restored translation keeps the English it translates: its own source, else that
+    // version's English revision (the whole-version restore keeps the version as is).
+    const restoredDe =
+      role === 'maintainer'
+        ? pushed.text.de
+        : { ...pushed.text.de!, sourceUpdatedAt: pushed.text.en!.updatedAt };
+    expect(draft.next.text.de).toEqual(restoredDe);
     expect(draft.base.text.de).toEqual(saved.text.de);
     if (role === 'maintainer') {
       expect(draft.next).toEqual(pushed);
       expect(draft.base).toEqual(saved);
     } else {
-      expect(draft.next).toEqual({ ...local, text: { ...local.text, de: pushed.text.de } });
+      expect(draft.next).toEqual({ ...local, text: { ...local.text, de: restoredDe } });
       expect(draft.base).toEqual({ ...base, text: { ...base.text, de: saved.text.de } });
     }
   },

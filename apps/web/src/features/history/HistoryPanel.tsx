@@ -21,6 +21,7 @@ import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
 import { useRevisionCache } from './revisions';
 import { revertDraft } from './revert';
+import { canRollBackUpload } from '../auth/permissions';
 import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
 import {
@@ -279,11 +280,14 @@ function HistoryContent({
     (user?.role !== 'translator' ||
       scope.languages.some((language) => language !== 'en' && user.languages?.includes(language)));
 
+  const rollbackLang = readOnly
+    ? undefined
+    : scope.languages.find((language) => canRollBackUpload(user, language));
   const restore = useCallback(
     (version: Tooltip) => {
       setNotice(undefined);
       if (!base || !current || !user || !hydrated) return;
-      replaceDraft(base, revertDraft(current, version, user, scope));
+      replaceDraft(base, revertDraft(current, version, user, scope, true));
       setNotice(
         'Historical version loaded as a local draft. Review it in the editor and use the normal save flow to commit it; nothing was saved or pushed automatically.',
       );
@@ -344,6 +348,7 @@ function HistoryContent({
               noTranslationImpact={noImpactFromTrailer(entry.message, hash)}
               canRestore={canRestore}
               onRestore={restore}
+              rollbackLang={rollbackLang}
             />
           ))}
         {visibleCount < commits.length && (
