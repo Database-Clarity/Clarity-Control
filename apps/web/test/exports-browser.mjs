@@ -4,7 +4,7 @@
 // the repo's fixtures with the engine bundle exactly as build.mjs makes it). Nothing leaves the
 // machine except the app's own public data loads (generator catalog and bundle).
 //
-//   node apps/web/test/exports-browser.mjs <out dir> [--perf] [--built] [--skip-preview]
+//   node apps/web/test/exports-browser.mjs <out dir> [--perf] [--built [--build-only | --reuse-build]] [--skip-preview]
 //
 // `--built` runs a production build (vite build, then vite preview) instead of the dev server, so
 // the bundle and its chunking are what is tested and measured.
@@ -269,19 +269,27 @@ const appServer = { host: '127.0.0.1', port: ports.app, strictPort: true };
 let server;
 if (built) {
   const outDir = join(work, 'dist');
-  await viteBuild({
-    root: web,
-    configLoader: 'runner',
-    logLevel: 'warn',
-    build: {
-      outDir,
-      emptyOutDir: true,
-      // The G-PREVIEW page joins the build so its workers are the production ones too.
-      rollupOptions: {
-        input: { main: join(web, 'index.html'), preview: join(web, 'test/exports-preview.html') },
+  // A measurement reuses the build made before it (`--build-only`, run through heavy.py), so
+  // the measured command itself does not build.
+  if (!process.argv.includes('--reuse-build') || !existsSync(join(outDir, 'index.html')))
+    await viteBuild({
+      root: web,
+      configLoader: 'runner',
+      logLevel: 'warn',
+      build: {
+        outDir,
+        emptyOutDir: true,
+        // The G-PREVIEW page joins the build so its workers are the production ones too.
+        rollupOptions: {
+          input: { main: join(web, 'index.html'), preview: join(web, 'test/exports-preview.html') },
+        },
       },
-    },
-  });
+    });
+  if (process.argv.includes('--build-only')) {
+    site.close();
+    child.kill();
+    process.exit(0);
+  }
   server = await preview({
     root: web,
     configLoader: 'runner',
