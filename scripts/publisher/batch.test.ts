@@ -1379,6 +1379,7 @@ describe('scheduled batches (simulator)', () => {
       'numberTokens',
       'aliasGroups',
       'globalsRelease',
+      'scheduledGlobalsV1',
       'schedulePreparationV1',
       'exoticTags',
     ]);

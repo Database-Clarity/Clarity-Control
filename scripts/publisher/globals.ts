@@ -568,6 +568,13 @@ export class GlobalsPublisher {
         throw new Error(
           'The global resolver changed after scheduling; return to draft and schedule again',
         );
+      const sourceConfig = this.read(sourceTree, '.publisher/config.json') as
+        { generatorSha?: string } | undefined;
+      if (sourceConfig && sourceConfig.generatorSha !== this.options.generatorSha)
+        throw new Error(
+          'The global generator changed after scheduling; return to draft and schedule again',
+        );
+      const sourceAliases = this.publisher.aliasesAt(sourceTree);
       const snapshot = {
         ...captured.live,
         revision,
@@ -579,11 +586,7 @@ export class GlobalsPublisher {
         },
       };
       const pinned = this.store(sourceTree);
-      const pinnedDocuments = this.canonicalDocuments(
-        sourceTree,
-        'live/tooltips',
-        captured.authored.aliases,
-      );
+      const pinnedDocuments = this.canonicalDocuments(sourceTree, 'live/tooltips', sourceAliases);
       for (const document of documents)
         if (selected.includes(document.hash)) pinnedDocuments[document.hash] = document;
         else if (document.hash !== 2 && document.hash !== 3) {
@@ -594,6 +597,7 @@ export class GlobalsPublisher {
       const originalSnapshot = {
         ...snapshot,
         revision: batch.source,
+        aliases: sourceAliases,
         tooltips: { ...pinnedDocuments, ...projectGlobals(pinned) },
       };
       const comparison = calculateGlobalImpact(
@@ -613,7 +617,7 @@ export class GlobalsPublisher {
       if (
         comparison.rows.some(
           (row) =>
-            selected.includes(row.consumer.hash) &&
+            selected.includes(resolveAlias(row.consumer.hash, snapshot.aliases)) &&
             stableStringify(row.before) !== stableStringify(row.after),
         )
       )
@@ -621,7 +625,7 @@ export class GlobalsPublisher {
           'Global dependencies changed after scheduling; return to draft and schedule again',
         );
       const reads = comparison.rows
-        .filter((row) => selected.includes(row.consumer.hash))
+        .filter((row) => selected.includes(resolveAlias(row.consumer.hash, snapshot.aliases)))
         .map((row) => row.after!.reads);
       const used = store.entries.filter(
         (entry) =>

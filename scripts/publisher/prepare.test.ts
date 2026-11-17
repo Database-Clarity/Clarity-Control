@@ -356,6 +356,11 @@ async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alph
   };
   const member = f.read<Record<string, unknown>>(schedulePaths.member(B, 123));
   f.change({
+    '.publisher/config.json': {
+      generatorSha: f.options.generatorSha,
+      aliases: f.options.aliases,
+      facts: f.options.facts,
+    },
     '.publisher/PIN': {
       sourceSha: f.options.publisherSha,
       sha256: f.options.publisherDigest,
@@ -407,6 +412,16 @@ async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alph
 }
 
 describe('scheduled global closure', () => {
+  it('invalidates the pinned resolver generator before the due minute', async () => {
+    const f = await fixture();
+    await withGlobals(f);
+    f.admit('schedule');
+    await f.prep.drain();
+    f.options.generatorSha = 'd'.repeat(40);
+    await f.prep.drain(true);
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.request().reasons?.[0].reason).toContain('generator changed');
+  });
   it('refuses an existing pin after all current globals metadata is removed', async () => {
     const f = await fixture();
     await withGlobals(f);
