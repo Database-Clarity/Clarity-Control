@@ -1335,6 +1335,18 @@ export class Publisher {
       return { failure: { status: 'stale', outcomes } };
     let documents = tooltips;
     let globals: GlobalReleaseReceipt | undefined;
+    const prepared = this.read<PreparedPublication>(tree, paths(payload.opId).request);
+    if (!hasGlobals(tree) && prepared?.sourceIntent) {
+      const source = verifiedSource(this, prepared.sourceIntent);
+      if (hasGlobals(source.tree))
+        return {
+          failure: {
+            status: 'rejected',
+            error:
+              'Global metadata was removed after scheduling; return to draft and schedule again',
+          },
+        };
+    }
     if (hasGlobals(tree)) {
       try {
         new SchedulePreparer(this).pin(tree);
@@ -1343,7 +1355,7 @@ export class Publisher {
           throw new Error('The installed publisher does not support scheduled globals yet');
         if (members.some((member) => member.hash === 2 || member.hash === 3))
           throw new Error('Use global entry mutations instead of scheduled aggregate edits');
-        const envelope = this.read<PreparedPublication>(tree, paths(payload.opId).request);
+        const envelope = prepared;
         if (!envelope?.sourceIntent)
           throw new Error('Scheduled globals require a signed preparation source; schedule again');
         const source = verifiedSource(this, envelope.sourceIntent);

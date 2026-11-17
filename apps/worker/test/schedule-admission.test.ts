@@ -160,12 +160,20 @@ describe('durable asynchronous admission', () => {
       expect(f.dataHead).toBe(head);
     },
   );
-  it('admits globals schedules and scheduled saves only with all installed capabilities', async () => {
+  it('admits globals schedules and Retry with all installed capabilities', async () => {
     const capabilities = [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'];
     f.moveData({ 'globals/sync.json': { version: 1 }, '.publisher/PIN': { capabilities } });
     expect((await call('schedule', scheduleBody())).status).toBe(202);
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
     expect(f.kicks.size).toBe(1);
+  });
+  it('requires the globals capability for draft and scheduled saves', async () => {
+    f.moveData({ 'globals/sync.json': { version: 1 } });
+    expect((await call('save', saveBody())).status).toBe(422);
+    const capabilities = [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'];
+    f.moveData({ '.publisher/PIN': { capabilities } });
+    scheduled();
+    expect((await call('save', saveBody())).status).toBe(202);
   });
   it.each(['request', 'log'])(
     'refuses a schedule requestId already used by a publication %s',
