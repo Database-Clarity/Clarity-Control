@@ -1,4 +1,14 @@
-export const markupColors = ['blue', 'green', 'purple', 'yellow', 'center', 'bold', 'pve', 'pvp'];
+export const markupColors = [
+  'blue',
+  'green',
+  'purple',
+  'yellow',
+  'exotic',
+  'center',
+  'bold',
+  'pve',
+  'pvp',
+];
 export const markupIcons = [
   'kinetic',
   'arc',
@@ -26,7 +36,7 @@ export const markupLineClasses = [...markupColors, ...markupEmpty];
  */
 export const markupRetiredColors = ['blue', 'green', 'purple'];
 export const markupRetiredLineStyles = ['center', 'breakSpaces', 'background'];
-export const markupRetired = [...markupRetiredColors, ...markupRetiredLineStyles];
+export const markupRetired = [...markupRetiredColors, ...markupRetiredLineStyles, 'yellow'];
 export const markupTableClasses = [
   'background_1',
   'background_2',

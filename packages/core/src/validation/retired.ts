@@ -15,7 +15,14 @@ import {
  */
 export type RetiredKind = 'wrapper' | 'marker' | 'condition' | 'table';
 export type RetiredFixId =
-  'remove-tag' | 'to-yellow' | 'remove-marker' | 'remove-block' | 'keep-contents' | 'rows-to-lines';
+  | 'remove-tag'
+  | 'to-yellow'
+  | 'remove-marker'
+  | 'remove-block'
+  | 'keep-contents'
+  | 'rows-to-lines'
+  | 'rename-exotic'
+  | 'plain-export';
 
 export interface RetiredEdit {
   from: number;
@@ -118,9 +125,9 @@ function tokenOccurrence(
   if (retiredColours.includes(name))
     fixes.push({
       id: 'to-yellow',
-      label: 'Change to yellow',
+      label: 'Change to Exotic',
       structural: false,
-      edits: [{ from, to, insert: `<yellow ${inner} />` }],
+      edits: [{ from, to, insert: `<exotic ${inner} />` }],
     });
   return {
     kind: 'wrapper',
@@ -132,7 +139,7 @@ function tokenOccurrence(
     message: retired(
       noun(name),
       retiredColours.includes(name)
-        ? 'Remove the tag (the text stays) or change it to <yellow … />.'
+        ? 'Remove the tag (the text stays) or change it to <exotic … />.'
         : 'Remove the tag (the text stays).',
     ),
     fixes,
@@ -538,6 +545,43 @@ export function findRetiredMarkup(source: string): RetiredOccurrence[] {
       occurrence.refusalReason = reason ?? 'A lossless source edit could not be verified.';
       occurrence.message = retired(occurrence.token, `Fix by hand: ${occurrence.refusalReason}`);
     }
+  }
+  // These source spelling migrations intentionally retain the legacy parser behaviour.
+  // Change only the keyword, preserving every comment and byte of the body.
+  const context = markupCommentContext(source);
+  for (const match of context.text.matchAll(
+    /<yellow(?= |\/>).*?\/>|^export hidden (?=[A-z0-9 ]+ \()/gm,
+  )) {
+    const hidden = match[0].startsWith('export');
+    const keyword = hidden ? 'hidden ' : 'yellow';
+    const start = match.index + (hidden ? 7 : 1);
+    const from = context.offsets[match.index]!;
+    const to = context.offsets[match.index + match[0].length - 1]! + 1;
+    // Map each keyword byte separately so intervening block comments survive the fix.
+    const positions = context.offsets.slice(start, start + keyword.length);
+    found.push({
+      kind: hidden ? 'condition' : match[0] === '<yellow/>' ? 'marker' : 'wrapper',
+      name: hidden ? 'export hidden' : 'yellow',
+      token: hidden ? 'export hidden' : '<yellow … />',
+      source: source.slice(from, to),
+      from,
+      to,
+      message: hidden
+        ? 'Retired markup export hidden: use a plain export.'
+        : 'Deprecated markup <yellow … />: use <exotic … />.',
+      fixes: [
+        {
+          id: hidden ? 'plain-export' : 'rename-exotic',
+          label: hidden ? 'Change to export' : 'Change to <exotic … />',
+          structural: false,
+          edits: positions.map((at, index) => ({
+            from: at,
+            to: at + 1,
+            insert: index === 0 && !hidden ? 'exotic' : '',
+          })),
+        },
+      ],
+    });
   }
   return found.sort((a, b) => a.from - b.from || a.to - b.to);
 }

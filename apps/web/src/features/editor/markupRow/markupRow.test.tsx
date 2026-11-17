@@ -159,7 +159,7 @@ describe('the retired markup options', () => {
   it('are gone from the catalogue, the row and the All popover (the parser still reads them)', () => {
     const ids = markupEntries(globals).map((entry) => entry.id);
     for (const id of retired) expect(ids, id).not.toContain(id);
-    expect(ids).toEqual(expect.arrayContaining(['inline:bold', 'inline:yellow', 'line:bold']));
+    expect(ids).toEqual(expect.arrayContaining(['inline:bold', 'inline:exotic', 'line:bold']));
     for (const id of retired) expect(rowOrder, id).not.toContain(id);
     mount('x');
     for (const id of retired) expect(host.querySelector(`[data-entry="${id}"]`), id).toBeNull();
@@ -206,10 +206,10 @@ describe('the markup row catalogue', () => {
       'link',
       'title',
       'inline:bold',
-      'inline:yellow',
+      'inline:exotic',
     ]);
     expect(entries.some((entry) => entry.id === 'bullet')).toBe(false);
-    expect(entries.find((entry) => entry.id === 'inline:yellow')?.label).toBe('Exotic (yellow)');
+    expect(entries.find((entry) => entry.id === 'inline:exotic')?.label).toBe('Exotic');
     expect(entries.find((entry) => entry.id === 'enhanced-arrow')?.glyph).toEqual({
       kind: 'arrow',
       text: '',
@@ -221,7 +221,7 @@ describe('the markup row catalogue', () => {
   it('offers separate PvE and PvP tags next to the pair preset, and no tables anywhere', () => {
     const entries = markupEntries(globals);
     const markup = (id: string) => entries.find((entry) => entry.id === id)?.markup;
-    expect(markup('pair')).toBe('<pve value /> <pvp [value] />');
+    expect(markup('pair')).toBe('<pve [?] /> <pvp [?] />');
     expect(markup('pve')).toBe('<pve value />');
     expect(markup('pvp')).toBe('<pvp [value] />');
     for (const entry of entries) {
@@ -290,7 +290,7 @@ describe('the markup row', () => {
   it('writes the pair preset and the separate PvE and PvP tags', () => {
     const view = mount('x ');
     click(entryButton('pair'));
-    expect(view.state.doc.toString()).toBe('x <pve value /> <pvp [value] />');
+    expect(view.state.doc.toString()).toBe('x <pve [?] /> <pvp [?] />');
     const second = mount('y ');
     click(entryButton('pvp'));
     expect(second.state.doc.toString()).toBe('y <pvp [value] />');
@@ -335,9 +335,9 @@ describe('the markup row', () => {
   it('shows the markup on hover and the number key for the first nine', () => {
     mount('x');
     expect(entryButton('enhanced-arrow').title).toContain('key 1');
-    expect(entryButton('pair').title).toContain('<pve value /> <pvp [value] />');
+    expect(entryButton('pair').title).toContain('<pve [?] /> <pvp [?] />');
     expect(entryButton('inline:bold').title).not.toContain('key');
-    expect(entryButton('inline:yellow').title).toContain('Exotic (yellow)');
+    expect(entryButton('inline:exotic').title).toContain('Exotic');
   });
 
   it('never takes focus from the text when pressed', () => {
@@ -490,7 +490,7 @@ describe('inserting an enhanced section from the popover', () => {
     expect(text.startsWith('Reload speed up.' + NL + 'enhanced (' + NL)).toBe(true);
     // The <enhanced/> line is the enhanced arrow line, and it ships with text to replace.
     expect(text.endsWith(NL + ')')).toBe(true);
-    expect(text.split(NL).some((line) => line.startsWith('<enhanced/> ') && line.length > 12)).toBe(
+    expect(text.split(NL).some((line) => line.startsWith('<enhanced/> ') && line === '<enhanced/> ')).toBe(
       true,
     );
   });
@@ -563,7 +563,7 @@ describe('the raw markup toggle in the row', () => {
     act(() =>
       root.render(
         <ClarityEditor
-          value="<yellow ab /> <arc/>"
+          value="<exotic ab /> <arc/>"
           lang="en"
           globals={globals}
           markupRow={open}
@@ -574,21 +574,21 @@ describe('the raw markup toggle in the row', () => {
     );
 
   it('is a pressed-state button with a tooltip that names the shortcut', () => {
-    const view = mount('<yellow ab /> <arc/>');
+    const view = mount('<exotic ab /> <arc/>');
     expect(toggle()?.getAttribute('aria-pressed')).toBe('false');
     expect(toggle()?.title).toContain('Ctrl+Shift+.');
     expect(host.querySelectorAll('.cm-symbol')).toHaveLength(1);
     click(toggle()!);
     expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
     expect(host.querySelectorAll('.cm-symbol')).toHaveLength(0);
-    expect(view.state.doc.toString()).toBe('<yellow ab /> <arc/>');
+    expect(view.state.doc.toString()).toBe('<exotic ab /> <arc/>');
     click(toggle()!);
     expect(toggle()?.getAttribute('aria-pressed')).toBe('false');
     expect(host.querySelectorAll('.cm-symbol')).toHaveLength(1);
   });
 
   it('stays in sync with the keyboard shortcut', () => {
-    const view = mount('<yellow ab /> <arc/>');
+    const view = mount('<exotic ab /> <arc/>');
     shortcut(view);
     expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
     shortcut(view);
@@ -596,7 +596,7 @@ describe('the raw markup toggle in the row', () => {
   });
 
   it('is the only toggle while the row is shown, and the status bar takes over when it is hidden', () => {
-    mount('<yellow ab /> <arc/>');
+    mount('<exotic ab /> <arc/>');
     expect(statusToggle()).toBeNull();
     expect(host.querySelector('[data-raw-hint]')).toBeNull();
     click(toggle()!);

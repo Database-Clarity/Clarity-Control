@@ -11,7 +11,7 @@ var optional = empty
 title Showcase (
 This text is the note: apps show it on hover or tap.
 )
-<bold Bold /> marks key words and <yellow yellow /> marks Exotic names.
+<bold Bold /> marks key words and <exotic Exotic /> marks Exotic names.
 <bold/>A bold line is bold from start to end.
 <pve 30% /> <pvp [15%] /> pairs a PvE value with its PvP value.
 Lasts 11 <pvp [7.5] /> seconds: the bracketed value applies in PvP.
@@ -34,9 +34,6 @@ Element words come with their element, to draw as its icon or tint: <kinetic Kin
 enhanced (
 var d = 5
 <enhanced/>\${10+#{d}}% is an enhanced value: only Enhanced perks have this line.
-)
-export hidden Hidden (
-A hidden export is shared with other tooltips and never drawn here.
 )
 // Comments and variables are for editors: no file contains them.
 /* A block comment. */`;

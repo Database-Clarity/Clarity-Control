@@ -312,13 +312,13 @@ const icons = markupIcons.map((name) => `icon:${name}`);
 export const helpLayout: Readonly<Record<string, readonly string[]>> = {
   Values: ['pair', 'pve', 'pvp'],
   Lists: ['list-dot'],
-  Text: ['inline:bold', 'inline:yellow', 'line:bold'],
+  Text: ['editor-note', 'inline:bold', 'inline:exotic', 'line:bold'],
   Icons: ['icon-word', ...icons],
   'Comments and spacing': ['comment', 'blank'],
   Enhanced: ['base-enhanced-pair', 'enhanced-formula', 'enhanced-block', 'enhanced-arrow'],
   'Variables and math': ['decl-var', 'var-braces', 'var-empty', 'math'],
   References: ['link', 'title', 'decl-title'],
-  Sharing: ['decl-import', 'decl-export', 'decl-export-hidden'],
+  Sharing: ['decl-import', 'decl-export'],
   ...Object.fromEntries(
     [...new Set(editorKeys.map((key) => key.group))].map((group) => [
       group,
@@ -405,9 +405,9 @@ export function helpRows(): readonly HelpRow[] {
 
 /** Retired markup a search can name: a sample of each, so the answer is retired.ts's own words. */
 const retiredSamples: readonly { name: string; sample: string; instead?: string }[] = [
-  { name: 'blue', sample: '<blue x />', instead: 'inline:yellow' },
-  { name: 'green', sample: '<green x />', instead: 'inline:yellow' },
-  { name: 'purple', sample: '<purple x />', instead: 'inline:yellow' },
+  { name: 'blue', sample: '<blue x />', instead: 'inline:exotic' },
+  { name: 'green', sample: '<green x />', instead: 'inline:exotic' },
+  { name: 'purple', sample: '<purple x />', instead: 'inline:exotic' },
   { name: 'center', sample: '<center/>' },
   { name: 'centre', sample: '<center/>' },
   { name: 'background', sample: '<background/>' },
@@ -442,12 +442,13 @@ export function retiredAnswer(query: string): RetiredAnswer | null {
 export function helpIdForSuggestion(id: string): string | null {
   const bare = id.replace(/^snippet:/, '');
   const mapped: Record<string, string> = {
+    'icon:enhanced-arrow': 'enhanced-arrow',
     'tag:pve': 'pve',
     'tag:pvp': 'pvp',
     'tag:bold': 'inline:bold',
-    'tag:yellow': 'inline:yellow',
+    'tag:exotic': 'inline:exotic',
     'wrap:bold': 'inline:bold',
-    'wrap:yellow': 'inline:yellow',
+    'wrap:exotic': 'inline:exotic',
     'tag:title': 'title',
     'title-ref': 'title',
     'tag:link': 'link',
@@ -481,7 +482,7 @@ function rowInLine(line: string, column: number): string | null {
       return /^<pve [^<>]*\/>\s*<pvp /.test(line.slice(match.index)) ? 'pair' : 'pve';
     if (name === 'pvp') return /<pve [^<>]*\/>\s*$/.test(before) ? 'pair' : 'pvp';
     if (name === 'bold') return match[0] === '<bold/>' ? 'line:bold' : 'inline:bold';
-    if (name === 'yellow') return 'inline:yellow';
+    if (name === 'exotic' || name === 'yellow') return 'inline:exotic';
     if (name === 'link') return 'link';
     if (name === 'title') return 'title';
     if (name === 'enhanced' && match[0] === '<enhanced/>') return 'enhanced-arrow';
@@ -497,7 +498,7 @@ function rowInLine(line: string, column: number): string | null {
   if (/^title .+ \(/.test(line)) return 'decl-title';
   if (/^var /.test(line)) return /=\s*empty\s*$/.test(line) ? 'var-empty' : 'decl-var';
   if (/^import /.test(line)) return 'decl-import';
-  if (/^export hidden /.test(line)) return 'decl-export-hidden';
+  if (/^export hidden /.test(line)) return 'decl-export';
   if (/^export /.test(line)) return 'decl-export';
   if (line.startsWith('• ')) return 'list-dot';
   return null;
@@ -525,7 +526,7 @@ export function helpIdAt(state: EditorState, pos: number): string | null {
     if (/^\)\s*$/.test(text)) return null;
     if (/^enhanced \(\s*$/.test(text)) return 'enhanced-block';
     if (/^title .+ \(\s*$/.test(text)) return 'decl-title';
-    if (/^export hidden .+ \(\s*$/.test(text)) return 'decl-export-hidden';
+    if (/^export hidden .+ \(\s*$/.test(text)) return 'decl-export';
     if (/^export .+ \(\s*$/.test(text)) return 'decl-export';
   }
   return null;

@@ -4,11 +4,17 @@ import { describe, expect, it } from 'vitest';
 import { validateText } from './index.js';
 import {
   applyRetiredEdits,
-  findRetiredMarkup,
+  findRetiredMarkup as findAllRetiredMarkup,
   fixAllRetired,
   type RetiredFixId,
 } from './retired.js';
 import { retiredCensus } from './retired.census.js';
+
+// Keep this historical census focused on the earlier retired constructs.
+const findRetiredMarkup = (text: string) =>
+  findAllRetiredMarkup(text).filter(
+    (item) => item.name !== 'yellow' && item.name !== 'export hidden',
+  );
 
 const tokens = (text: string) => findRetiredMarkup(text).map((found) => found.token);
 const fix = (text: string, index: number, id: RetiredFixId) => {
@@ -48,7 +54,7 @@ describe('retired markup census', () => {
     expect(first).toMatchObject({
       severity: 'warning',
       message:
-        'Retired markup <blue … />: no longer supported. Remove the tag (the text stays) or change it to <yellow … />.',
+        'Retired markup <blue … />: no longer supported. Remove the tag (the text stays) or change it to <exotic … />.',
     });
     expect(text.slice(first!.from, first!.to)).toBe('<blue Solar Fulmination />');
     expect(text.slice(second!.from, second!.to)).toBe("<blue Hunter's Journal Artifact />");

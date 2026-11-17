@@ -392,7 +392,7 @@ function build(
   };
   const addSnippet = (snippet: Snippet, category: SuggestCategory) => {
     // A multi-line declaration needs a line of its own.
-    const id = `${category === 'Tags' ? '' : 'snippet:'}${snippet.id}`;
+    const id = `${category === 'Tags' ? '' : category === 'Symbols' ? 'icon:' : 'snippet:'}${snippet.id}`;
     if (skip?.has(id)) return;
     const noLine = snippet.block && (!context.lineIsFree || context.kind === 'selection');
     if (noLine && !every) return;
@@ -448,7 +448,7 @@ function build(
     for (const [name, value] of Object.entries(variables)) {
       variableItem(name, value);
     }
-    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Snippets');
+    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Symbols');
     if (offeredHere('enhanced-formula', globals))
       addSnippet(
         markupSnippets.find((snippet) => snippet.id === 'enhanced-formula')!,
@@ -557,7 +557,7 @@ function build(
       });
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');
-    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Snippets');
+    if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Symbols');
     for (const snippet of markupSnippets) {
       // The pair and everything that writes the enhanced arrow share one category gate.
       if (!offeredHere(snippet.id, globals)) continue;
@@ -751,7 +751,7 @@ function matchScore(item: SuggestItem, query: string): number {
 const defaultOrder: Record<ContextKind, SuggestCategory[]> = {
   selection: ['Transforms', 'Numbers', 'Snippets', 'Tags', 'Symbols'],
   tag: ['Tags', 'Symbols', 'Snippets', 'Globals'],
-  variable: ['Numbers', 'Variables', 'Globals', 'Snippets'],
+  variable: ['Numbers', 'Variables', 'Globals', 'Symbols', 'Snippets'],
   'title-name': ['Globals'],
   'import-source': ['Globals'],
   'import-name': ['Globals'],

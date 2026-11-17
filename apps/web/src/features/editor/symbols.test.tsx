@@ -391,7 +391,7 @@ describe('symbol view', () => {
       view.dispatch({ selection: { anchor: inner, head: inner + 1 }, effects: pinTag.of(true) }),
     );
     expect(host.querySelector('.cm-symbol-popover code')?.textContent).toBe('<pve … />');
-    expect(host.querySelector('.cm-symbol-hint')?.textContent).toContain('remove tag');
+    expect(host.querySelector('.cm-symbol-hint')?.textContent).toContain('Enter edit');
     act(() => {
       key(view, { key: 'Enter' });
     });
@@ -479,7 +479,7 @@ describe('symbol view', () => {
       altEnter(view);
       expect(view.state.selection.main).toMatchObject({ from: 10, to: 12 });
       expect(host.querySelector('.cm-symbol-popover code')?.textContent).toBe('<yellow … />');
-      expect(host.querySelector('.cm-symbol-hint')?.textContent).toContain('remove tag');
+      expect(host.querySelector('.cm-symbol-hint')?.textContent).toContain('Enter edit');
       // The pinned tag edits and removes exactly like the Alt+click one.
       act(() => {
         key(view, { key: 'Backspace' });

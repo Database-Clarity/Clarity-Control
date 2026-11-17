@@ -196,14 +196,14 @@ describe('the suggestion menu', () => {
     const index = options().findIndex((option) => option.textContent === 'PvE and PvP values');
     expect(index).toBeGreaterThan(-1);
     act(() => options()[index]!.click());
-    expect(view.state.doc.toString()).toBe('<pve value /> <pvp [value] />');
+    expect(view.state.doc.toString()).toBe('<pve [?] /> <pvp [?] />');
     const picked = () =>
       view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to);
-    expect(picked()).toBe('value');
-    expect(view.state.selection.main.from).toBe('<pve '.length);
+    expect(picked()).toBe('?');
+    expect(view.state.selection.main.from).toBe('<pve ['.length);
     press(view, 'Tab');
-    expect(view.state.selection.main.from).toBe('<pve value /> <pvp ['.length);
-    expect(picked()).toBe('value');
+    expect(view.state.selection.main.from).toBe('<pve [?] /> <pvp ['.length);
+    expect(picked()).toBe('?');
     press(view, 'Tab'); // past the last stop: the caret ends after it
     expect(view.state.selection.main.empty).toBe(true);
   });
@@ -270,7 +270,7 @@ describe('the suggestion menu', () => {
     expect(index).toBeGreaterThan(-1);
     act(() => options()[index]!.click());
     expect(view.state.doc.toString()).toBe(
-      'Base text.\n\nenhanced (\nvar d = amount\n<enhanced/> What the enhanced version changes.\n)',
+      'Base text.\n\nenhanced (\n<enhanced/> \n)',
     );
   });
 

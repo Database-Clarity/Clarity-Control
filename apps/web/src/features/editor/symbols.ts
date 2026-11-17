@@ -51,9 +51,9 @@ import type { SymbolReveal } from '../../stores/settings';
  * colour, like a syntax highlighter. The document is never changed by drawing: only what is shown is
  * replaced, and search, spellcheck and copy all work on the raw text.
  */
-export const symbolColours = ['yellow', 'pve', 'pvp', 'bold'] as const;
+export const symbolColours = ['exotic', 'yellow', 'pve', 'pvp', 'bold'] as const;
 const icons: ReadonlySet<string> = new Set(markupIcons);
-const retiredColours: ReadonlySet<string> = new Set(markupRetiredColors);
+const retiredColours: ReadonlySet<string> = new Set([...markupRetiredColors, 'yellow']);
 /**
  * The colours drawn as tints: the current ones plus the retired ones, which the parser and the
  * preview still render, so existing text looks as it always did until it is fixed (P0a).
@@ -88,7 +88,7 @@ export interface TagRange {
  * sit (PRODUCT.md "icons stay symbols"), so they are found on their own, not through these tokens.
  */
 const converterToken =
-  /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/g;
+  /<(?:blue|green|purple|yellow|exotic|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/g;
 
 function* lineTokens(text: string, offset: number) {
   let lineFrom = offset;
@@ -308,7 +308,7 @@ function symbolRanges(state: EditorState, from = 0, to = state.doc.length): Rang
         Decoration.mark({
           class: tag.element
             ? `cm-tint cm-tint-el cm-el-${tag.name}`
-            : `cm-tint cm-tint-${tag.name}`,
+            : `cm-tint cm-tint-${tag.name === 'exotic' ? 'yellow' : tag.name}`,
         }).range(tag.openTo, tag.closeFrom),
       );
     // The markup is hidden (zero width, atomic) unless the caret is in the tag. Element-tagged
@@ -558,9 +558,10 @@ function popoverDom(view: EditorView, popover: Popover) {
         const text = view.state.doc.toString();
         const populate = (occurrence: RetiredOccurrence | undefined) => {
           for (const node of actionNodes.splice(0)) node.remove();
-          const reasons = occurrence?.manualFixes?.map((fix) => `${fix.label}: ${fix.reason}`) ?? [
-            occurrence?.refusalReason ?? 'An exact source token could not be mapped.',
-          ];
+          const reasons = occurrence
+            ? (occurrence.manualFixes?.map((fix) => `${fix.label}: ${fix.reason}`) ??
+              (occurrence.refusalReason ? [occurrence.refusalReason] : []))
+            : ['An exact source token could not be mapped.'];
           for (const fix of occurrence?.fixes ?? []) {
             const button = document.createElement('button');
             button.type = 'button';

@@ -302,7 +302,7 @@ export const MarkupRow = memo(function MarkupRow({
                 title={
                   wraps
                     ? `Tag selection as ${elementLabel(item.label)}: <${item.label} … />${key ? `  ·  key ${key} while here` : ''}`
-                    : `${item.id === 'inline:yellow' ? `${item.label}: ` : ''}${item.markup}${key ? `  ·  key ${key} while here` : ''}`
+                    : `${item.id === 'inline:exotic' ? `${item.label}: ` : ''}${item.markup}${key ? `  ·  key ${key} while here` : ''}`
                 }
                 // Pressing never moves focus out of the text, so the selection stays put.
                 onMouseDown={(event) => event.preventDefault()}

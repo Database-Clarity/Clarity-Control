@@ -193,7 +193,7 @@ const tagById = (id: string) => {
 };
 
 const sentence = (text: string) => text[0]!.toUpperCase() + text.slice(1);
-const colours = ['yellow'] as const;
+const colours = ['exotic'] as const;
 
 /** Every markup option the editor offers, grouped as the "All" popover shows them. */
 export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): MarkupEntry[] {
@@ -247,7 +247,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       id: 'icon-word',
       group: 'Icons',
       label: 'Element icon and word',
-      markup: '<solar/>Solar',
+      markup: '<solar Solar />',
       keys: snippetById('icon-word').keywords,
       glyph: { kind: 'mono', text: '<icon/>Word' },
       usage: snippetById('icon-word').usage,
@@ -328,12 +328,12 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
     ...colours.map((colour) =>
       viaOption(`inline:${colour}`, {
         group: 'Format',
-        label: 'Exotic (yellow)',
+        label: 'Exotic',
         markup: `<${colour} text />`,
         keys: tagById(`tag:${colour}`).keywords,
-        glyph: { kind: 'colour', colour },
+        glyph: { kind: 'colour', colour: 'yellow' },
         usage: tagById(`tag:${colour}`).usage,
-        about: 'Exotic (yellow) text for exotic names.',
+        about: 'Exotic text for exotic names.',
         help: { example: `<${colour} Gjallarhorn />` },
       }),
     ),
@@ -350,7 +350,7 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       }),
     ),
     ...(
-      ['decl-var', 'decl-title', 'decl-export', 'decl-export-hidden', 'decl-import'] as const
+      ['decl-var', 'decl-title', 'decl-export', 'decl-import', 'editor-note'] as const
     ).map((id) => {
       const snippet = snippetById(id);
       return viaTemplate(snippet, {
@@ -443,7 +443,7 @@ export const rowOrder: readonly string[] = [
   'title',
   '|',
   'inline:bold',
-  'inline:yellow',
+  'inline:exotic',
 ];
 
 export const rowSeparator = '|';

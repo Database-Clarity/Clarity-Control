@@ -11,10 +11,10 @@ import { useSettingsStore } from '../../stores/settings';
 import { pinTag, toggleRawView } from './symbols';
 
 const globals: MarkupGlobals = { variables: '', titles: '' };
-// The two retired tags of tooltip 2799418574 (Rites of Ember), with a current yellow beside them.
+// The two retired tags of tooltip 2799418574 (Rites of Ember), with a current exotic beside them.
 const rites =
-  "Daybreak.\n\n<blue Solar Fulmination /> from the <blue Hunter's Journal Artifact /> doubles <yellow it />.";
-const clean = 'Daybreak.\n\n<yellow it /> and <bold this />.';
+  "Daybreak.\n\n<blue Solar Fulmination /> from the <blue Hunter's Journal Artifact /> doubles <exotic it />.";
+const clean = 'Daybreak.\n\n<exotic it /> and <bold this />.';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -77,6 +77,18 @@ const panel = () => q('#editor-panel-retired');
 const fixes = (id: string) => [...host.querySelectorAll<HTMLElement>(`[data-retired-fix="${id}"]`)];
 
 describe('retired markup in the editor', () => {
+  it('fixes yellow and hidden export spellings in one click, with undo', () => {
+    const old = '<yellow Gjallarhorn />\nexport hidden Bonus (\nText\n)';
+    mount(old);
+    click(status());
+    click(fixes('rename-exotic')[0]!);
+    expect(doc()).toContain('<exotic Gjallarhorn />');
+    click(fixes('plain-export')[0]!);
+    expect(doc()).toBe('<exotic Gjallarhorn />\nexport Bonus (\nText\n)');
+    expect(status()).toBeNull();
+    act(() => { undo(view()); });
+    expect(doc()).toContain('export hidden Bonus');
+  });
   it('shows the status item and wavy marks only while retired markup is in the text', () => {
     mount(rites);
     expect(status()?.textContent).toContain('2');
@@ -84,7 +96,7 @@ describe('retired markup in the editor', () => {
     const marks = [...host.querySelectorAll('.clarity-validation-retired')];
     expect(marks.map((mark) => mark.textContent).join('')).toContain('Solar Fulmination');
     expect(host.querySelector('.cm-content')?.textContent).not.toContain('<blue');
-    // Yellow is never flagged.
+    // Exotic is never flagged.
     expect(marks.some((mark) => mark.textContent === 'it')).toBe(false);
   });
 
@@ -151,7 +163,7 @@ describe('retired markup in the editor', () => {
     click(status());
     click(fixes('remove-tag')[0]!);
     expect(doc()).toBe(
-      "Daybreak.\n\nSolar Fulmination from the <blue Hunter's Journal Artifact /> doubles <yellow it />.",
+      "Daybreak.\n\nSolar Fulmination from the <blue Hunter's Journal Artifact /> doubles <exotic it />.",
     );
     expect(latest).toBe(doc());
     expect(status()?.getAttribute('aria-label')).toBe('1 retired markup');
@@ -176,7 +188,7 @@ describe('retired markup in the editor', () => {
     click(status());
     click(q('[data-retired-all]'));
     expect(doc()).toBe(
-      "Daybreak.\n\nSolar Fulmination from the Hunter's Journal Artifact doubles <yellow it />.",
+      "Daybreak.\n\nSolar Fulmination from the Hunter's Journal Artifact doubles <exotic it />.",
     );
     expect(status()).toBeNull();
     expect(q('[data-retired-all]')).toBeNull();
@@ -254,7 +266,7 @@ describe('retired markup in the editor', () => {
 });
 
 describe('the colour-tag popover on a retired tag', () => {
-  const text = 'x <blue ab /> y <yellow cd /> z';
+  const text = 'x <blue ab /> y <exotic cd /> z';
   const key = (init: KeyboardEventInit) =>
     runScopeHandlers(
       view(),
@@ -277,10 +289,10 @@ describe('the colour-tag popover on a retired tag', () => {
     expect(buttons()).toEqual(['Remove tag (keep the text)']);
   });
 
-  it('refuses Change to yellow with the verification reason', () => {
+  it('refuses Change to Exotic with the verification reason', () => {
     mount(text);
     pin(text.indexOf('ab'));
-    expect(host.querySelector('.cm-symbol-popover')?.textContent).toContain('Fix by hand: Change to yellow');
+    expect(host.querySelector('.cm-symbol-popover')?.textContent).toContain('Fix by hand: Change to Exotic');
     expect(doc()).toBe(text);
     expect(buttons()).toEqual(['Remove tag (keep the text)']);
   });
@@ -289,7 +301,7 @@ describe('the colour-tag popover on a retired tag', () => {
     mount(text);
     pin(text.indexOf('ab'));
     click(host.querySelectorAll<HTMLElement>('.cm-symbol-fix')[0]!);
-    expect(doc()).toBe('x ab y <yellow cd /> z');
+    expect(doc()).toBe('x ab y <exotic cd /> z');
   });
 
   it('Backspace on the pinned retired tag removes it the same way', () => {
@@ -298,7 +310,7 @@ describe('the colour-tag popover on a retired tag', () => {
     act(() => {
       key({ key: 'Backspace' });
     });
-    expect(doc()).toBe('x ab y <yellow cd /> z');
+    expect(doc()).toBe('x ab y <exotic cd /> z');
   });
 
   it('hover only hints (the popover cannot be reached by the pointer); a read-only editor offers no fix', () => {

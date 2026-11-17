@@ -15,7 +15,7 @@ import type { MarkupLine, MarkupSpan } from './types.js';
 import { weaponSectionHeadings } from './weaponHeadings.js';
 
 const inlineToken =
-  /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+  /<(?:blue|green|purple|yellow|exotic|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
 
 function lineClasses(line: string, allowed: string[], offsets?: number[]) {
   const classNames = allowed.filter((name) => line.includes(`<${name}/>`));

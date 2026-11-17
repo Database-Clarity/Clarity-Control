@@ -115,7 +115,7 @@ describe('options', () => {
     });
     const categories = [...new Set(found.items.map((item) => item.category))];
     expect(categories[0]).toBe('Transforms');
-    expect(found.items.find((item) => item.id === 'tag:yellow')!.insert).toBe('<yellow 6.5 [5] />');
+    expect(found.items.find((item) => item.id === 'tag:exotic')!.insert).toBe('<exotic 6.5 [5] />');
     // Block declarations and Globals do not apply to a selection.
     expect(categories).not.toContain('Globals');
     expect(found.items.some((item) => item.id === 'snippet:decl-var')).toBe(false);
@@ -126,7 +126,7 @@ describe('options', () => {
     // Not numeric, so there is no transform; the pair snippet still takes it as its first value.
     expect(found.items.some((item) => item.category === 'Transforms')).toBe(false);
     expect(found.items.find((item) => item.id === 'snippet:pair')!.insert).toBe(
-      '<pve XX [YY] /> <pvp [value] />',
+      '<pve [XX [YY]] /> <pvp [?] />',
     );
   });
 
@@ -209,7 +209,7 @@ describe('ranking', () => {
       'tag:purple',
     ])
       expect(ids, id).not.toContain(id);
-    expect(ids).toEqual(expect.arrayContaining(['style:bold', 'tag:yellow', 'tag:bold']));
+    expect(ids).toEqual(expect.arrayContaining(['style:bold', 'tag:exotic', 'tag:bold']));
   });
 
   test('recently used options come first when nothing is typed', () => {
@@ -223,7 +223,7 @@ describe('ranking', () => {
 
   test('the category holding the best match leads when something is typed', () => {
     expect(menu('<sol', false)!.items[0]!.category).toBe('Symbols');
-    expect(menu('<ye', false)!.items[0]!.category).toBe('Tags');
+    expect(menu('<exo', false)!.items[0]!.category).toBe('Tags');
   });
 });
 

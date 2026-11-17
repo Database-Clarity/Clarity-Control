@@ -42,9 +42,9 @@ describe('the help reads one registry', () => {
     for (const row of rows.filter((row) => row.entry))
       expect(entries.some((entry) => entry.id === row.entry!.id)).toBe(true);
     // Row names and explanations are the entry's own.
-    const yellow = rows.find((row) => row.id === 'inline:yellow')!;
-    const entry = entries.find((item) => item.id === 'inline:yellow')!;
-    expect([yellow.label, yellow.about]).toEqual([entry.label, entry.about]);
+    const exotic = rows.find((row) => row.id === 'inline:exotic')!;
+    const entry = entries.find((item) => item.id === 'inline:exotic')!;
+    expect([exotic.label, exotic.about]).toEqual([entry.label, entry.about]);
   });
 
   it('draws every example without an error and without retired markup', () => {
@@ -86,7 +86,7 @@ describe('the help reads one registry', () => {
   it('answers a retired name with retired.ts wording and the replacement row', () => {
     const blue = retiredAnswer('blue')!;
     expect(blue.message).toContain('<blue … />');
-    expect(blue.instead).toBe('inline:yellow');
+    expect(blue.instead).toBe('inline:exotic');
     expect(retiredAnswer('bl')).toBeNull();
     expect(retiredAnswer('table')?.message).toContain('table');
   });
@@ -105,7 +105,7 @@ describe('the help reads one registry', () => {
     expect(at('A <pve 1 /> <pvp [2] /> b', 1, 14)).toBe('pair');
     expect(at('Lasts 1 <pvp [2] /> s', 1, 10)).toBe('pvp');
     expect(at('<bold/>Only', 1, 2)).toBe('line:bold');
-    expect(at('<yellow Gjallarhorn />', 1, 3)).toBe('inline:yellow');
+    expect(at('<exotic Gjallarhorn />', 1, 3)).toBe('inline:exotic');
     expect(at('Applies <arc/>Jolt', 1, 10)).toBe('icon-word');
     expect(at('Uses <arc/> here', 1, 7)).toBe('icon:arc');
     expect(at('title Jolt (\nChains.\n)', 2, 2)).toBe('decl-title');
@@ -120,7 +120,7 @@ describe('the help reads one registry', () => {
   });
 
   it('maps menu options to their rows', () => {
-    expect(helpIdForSuggestion('tag:yellow')).toBe('inline:yellow');
+    expect(helpIdForSuggestion('tag:exotic')).toBe('inline:exotic');
     expect(helpIdForSuggestion('snippet:enhanced-block')).toBe('enhanced-block');
     expect(helpIdForSuggestion('icon:solar')).toBe('icon:solar');
     expect(helpIdForSuggestion('style:bold')).toBe('line:bold');
@@ -216,12 +216,12 @@ describe('the sheet in the editor', () => {
       openSuggest(view);
     });
     const snapshot = suggestState(view.state)!;
-    const target = snapshot.items.findIndex((item) => item.id === 'tag:yellow');
+    const target = snapshot.items.findIndex((item) => item.id === 'tag:exotic');
     expect(target).toBeGreaterThanOrEqual(0);
     act(() => moveSuggest(view, target, true));
     await press(host.querySelector('.cm-content')!, 'F1');
     expect(suggestState(view.state)).toBeNull();
-    expect(active()).toBe('inline:yellow');
+    expect(active()).toBe('inline:exotic');
   });
 
   it('Enter inserts what the markup row inserts, as one step, and returns to the text', async () => {
@@ -234,10 +234,10 @@ describe('the sheet in the editor', () => {
     const field = document.activeElement as HTMLInputElement;
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-      setter.call(field, 'yellow');
+      setter.call(field, 'exotic');
       field.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    expect(active()).toBe('inline:yellow');
+    expect(active()).toBe('inline:exotic');
     await press(field, 'Enter');
     expect(sheet()).toBeNull();
     const viaHelp = view.state.doc.toString();
@@ -247,7 +247,7 @@ describe('the sheet in the editor', () => {
       parent: document.body,
     });
     markupEntries(globals)
-      .find((entry) => entry.id === 'inline:yellow')!
+      .find((entry) => entry.id === 'inline:exotic')!
       .run(other, globals);
     expect(viaHelp).toBe(other.state.doc.toString());
     other.destroy();
@@ -264,7 +264,7 @@ describe('the sheet in the editor', () => {
       field.dispatchEvent(new Event('input', { bubbles: true }));
     });
     expect(sheet()!.querySelector('[data-status]')?.textContent).toContain('<blue … />');
-    expect(active()).toBe('inline:yellow');
+    expect(active()).toBe('inline:exotic');
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
       setter.call(field, 'zzz');

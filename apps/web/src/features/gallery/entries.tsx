@@ -73,7 +73,7 @@ const markup = [
   '<bold Special note: /> Final blows with <arc Jolt /> chain to <stasis/> frozen targets.',
   '• Rate of fire: 25%<arrow/>30%',
   '• <pve +40% /> damage, <pvp [+15%] /> against Guardians',
-  '<yellow Gjallarhorn /> applies <title jolted [Jolt] /> on <solar Scorch /> and <void Weaken />.',
+  '<exotic Gjallarhorn /> applies <title jolted [Jolt] /> on <solar Scorch /> and <void Weaken />.',
 ].join('\n');
 
 const before = 'Final blows with this weapon grant 20% reload speed for 5 seconds. Stacks 3 times.';

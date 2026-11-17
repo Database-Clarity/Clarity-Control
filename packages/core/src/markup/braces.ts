@@ -110,6 +110,8 @@ const delimited = /#\{([a-zA-Z0-9]+)\}|<enhanced\/>/g;
  * so that word is held in two parts.
  */
 export function lowerDelimitedMarkup(text: string): string {
+  // Exotic is authoring syntax; consumer class names and bytes remain yellow.
+  text = text.replace(/<exotic(?= |\/>)/g, '<yellow');
   if (!text.includes('#{') && !text.includes(enhancedArrowMarkup)) return text;
   const lines = text.split('\n');
   let changed = false;

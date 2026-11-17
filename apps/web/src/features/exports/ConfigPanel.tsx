@@ -722,7 +722,7 @@ const symbolLabels: Record<string, string> = {
   arrow: 'Arrow',
   enhancedArrow: 'Enhanced arrow',
   bold: 'Bold',
-  yellow: 'Yellow',
+  yellow: 'Exotic',
   pve: 'PvE',
   pvp: 'PvP',
   elementText: 'Element text',
