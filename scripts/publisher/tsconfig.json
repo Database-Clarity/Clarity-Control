@@ -1,4 +1,9 @@
 {
   "extends": "../../packages/core/tsconfig.json",
-  "include": ["*.ts", "../../packages/core/src", "../../apps/worker/src/stamp.ts"]
+  "include": [
+    "*.ts",
+    "../schedule-prepare/*.ts",
+    "../../packages/core/src",
+    "../../apps/worker/src/stamp.ts"
+  ]
 }

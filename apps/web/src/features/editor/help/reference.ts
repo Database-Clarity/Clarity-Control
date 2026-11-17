@@ -234,6 +234,14 @@ export const editorKeys: readonly EditorKey[] = [
     words: 'definition go to jump variable title import',
   },
   {
+    id: 'key-url',
+    group: 'Keys: find and go',
+    label: 'Open a web address',
+    keys: 'Ctrl+Click',
+    about: 'Of an http or https address, also inside <link />. It opens in a new tab.',
+    words: 'url link web address open browser',
+  },
+  {
     id: 'key-peek',
     group: 'Keys: find and go',
     label: 'Peek at contents',
