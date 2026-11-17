@@ -220,7 +220,15 @@ export class SchedulePreparer {
     });
     // Legacy Worker writes moved the updated entry to the end. Preserve an
     // equivalent index byte-for-byte on idle drains, regardless of that order.
-    const previous = scheduleIndexSchema.safeParse(this.pub.read(tree, schedulePaths.index));
+    let oldIndex: unknown;
+    try {
+      oldIndex = this.pub.read(tree, schedulePaths.index);
+    } catch (error) {
+      // This advisory blob may be invalid JSON. Rebuild it from authoritative
+      // batches, but keep surfacing repository/read failures.
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    const previous = scheduleIndexSchema.safeParse(oldIndex);
     if (
       previous.success &&
       stableStringify({
