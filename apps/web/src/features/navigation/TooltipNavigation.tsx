@@ -286,7 +286,6 @@ const FinderOption = memo(function FinderOption({
       className={styles.option}
       data-two-line={(!row.global && (stacked || narrow)) || undefined}
       data-grouped={row.group || undefined}
-      data-entry-marked={!!entryMarks?.length || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
       onClick={() => onCommit.current(row)}
@@ -509,7 +508,7 @@ const plainRow = (item: CategorySection['items'][number], section: CategorySecti
   // The row names the piece and keeps the perk on the right, so a set's rows stay
   // tellable apart even where the name column truncates.
   name: item.piece ?? item.name,
-  perk: item.perkName && item.perkName !== (item.piece ?? item.name) ? item.perkName : undefined,
+  perk: item.perkName,
   listsPieces: (item.pieces ?? 1) > 1 || sharesAllOwners(section.items),
   icon: exoticArmourRowIcon(item),
   category: section.label,

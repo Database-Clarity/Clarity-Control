@@ -8,7 +8,8 @@ import { exportsRoute } from './exports.js';
 import { GitHub } from './github.js';
 import { glossaryRoute } from './glossary.js';
 import { HttpError, json } from './http.js';
-import { partnerProjects, permissions, roleOf } from './permissions.js';
+import { managedLanguages, partnerProjects, permissions, roleOf } from './permissions.js';
+import { rollbackUpload, translatorsRoute } from './managers.js';
 import { publish, publishKey, publishStatus, publishKick } from './publish.js';
 import { pushLive } from './push.js';
 import { sandboxPointersRoute } from './sandboxPointers.js';
@@ -75,12 +76,14 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'GET' && path === '/me') {
     const config = await permissions(github, await github.head());
     const projects = partnerProjects(config, user);
+    const manages = managedLanguages(config.users[String(user.id)]);
     return json({
       id: user.id,
       login: user.login,
       role: roleOf(config, user),
       schedulePreparation: switches.preparation(),
       languages: config.users[String(user.id)]?.languages ?? [],
+      ...(manages.length ? { manages } : {}),
       ...(projects.length ? { projects } : {}),
     });
   }
@@ -109,6 +112,11 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (['GET', 'PUT'].includes(request.method) && path === '/marks') {
     return marksRoute(request, github, user);
   }
+  const translators = /^\/translators\/([^/]+)(?:\/([^/]+))?$/.exec(path);
+  if (translators && ['GET', 'POST', 'DELETE'].includes(request.method))
+    return translatorsRoute(request, github, user, translators[1]!, translators[2]);
+  if (['GET', 'POST'].includes(request.method) && path === '/rollback/upload')
+    return rollbackUpload(request, github, user);
   const item = /^\/history\/([^/]+)$/.exec(path);
   if (request.method === 'GET' && item) return history(request, github, user, item[1]);
   throw new HttpError(404, 'Endpoint not found');

@@ -97,6 +97,7 @@ export function stampRevisions(
       updatedBy: login,
     };
   }
+  const englishKept = !!text.en && text.en.updatedAt === before?.text.en?.updatedAt;
   for (const lang of languages) {
     const entry = text[lang];
     const previous = before?.text[lang]?.text;
@@ -107,8 +108,23 @@ export function stampRevisions(
       markupOnly(lang, previous, entry.text)
     )
       continue;
-    if (text.en) text[lang] = { ...entry, sourceUpdatedAt: text.en.updatedAt };
-    else throw new Error(`Cannot stamp ${lang} without an English source revision.`);
+    if (!text.en) throw new Error(`Cannot stamp ${lang} without an English source revision.`);
+    // A changed translation translates the current English, unless the draft carries another
+    // revision's stamps naming an older English while this save keeps English: a History restore
+    // of old text (root 2026-11-16) must not become current against newer English. Typing always
+    // names the current English; a copy of the stored stamps is an edit, stamped as before.
+    const drafted = next.text[lang]!;
+    const stored = before?.text[lang];
+    const own = drafted.sourceUpdatedAt;
+    const restored =
+      !stored ||
+      drafted.updatedAt !== stored.updatedAt ||
+      drafted.sourceUpdatedAt !== stored.sourceUpdatedAt;
+    const source =
+      englishKept && restored && own && Date.parse(own) < Date.parse(text.en.updatedAt)
+        ? own
+        : text.en.updatedAt;
+    text[lang] = { ...entry, sourceUpdatedAt: source };
   }
   return { ...next, text };
 }

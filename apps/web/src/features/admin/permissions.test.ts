@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { Permissions } from '@clarity/core';
-import { changeAccess } from './permissions';
+import { changeAccess, translatorAccess } from './permissions';
 
 const initial: Permissions = { users: { 1: { login: 'owner', role: 'maintainer' } } };
 
@@ -36,4 +36,22 @@ it('keeps the export partners map on every change (spec section 4)', () => {
   expect(changeAccess(initial, '2', { login: 'second', role: 'editor' })).not.toHaveProperty(
     'partners',
   );
+});
+
+it('keeps managed languages within the assigned ones (translation managers)', () => {
+  const access = {
+    login: 'erin',
+    role: 'translator' as const,
+    languages: ['de' as const, 'fr' as const],
+    manages: ['de' as const],
+  };
+  expect(translatorAccess(access, ['de', 'fr'], ['de', 'fr'])).toEqual({
+    ...access,
+    manages: ['de', 'fr'],
+  });
+  // Unassigning a managed language drops it; an empty list is left out (the schema needs one).
+  const plain = { login: access.login, role: access.role, languages: access.languages };
+  expect(translatorAccess(access, ['fr'])).toEqual({ ...plain, languages: ['fr'] });
+  const config = changeAccess(initial, '5', translatorAccess(access, ['fr']));
+  expect(config.users[5]).toEqual({ ...plain, languages: ['fr'] });
 });

@@ -21,6 +21,7 @@ import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
 import { useRevisionCache } from './revisions';
 import { revertDraft } from './revert';
+import { canRollBackUpload } from '../auth/permissions';
 import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
 import {
@@ -51,6 +52,13 @@ export function HistoryPanel({
   attribution?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // An upload rollback moves the bundle head, which remounts the list below and closes its
+  // popover: the outcome is kept here, and focus moves to it.
+  const [rolledBack, setRolledBack] = useState<string>();
+  const rolledBackNotice = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (rolledBack) rolledBackNotice.current?.focus();
+  }, [rolledBack]);
   const scope = useMemo(() => viewScope(language, readOnly), [language, readOnly]);
   const user = useAuthStore((state) => state.user);
   const tooltip = useDataStore((state) => state.data?.bundle.tooltips[hash]);
@@ -74,7 +82,11 @@ export function HistoryPanel({
       label="History"
       open={open}
       onOpenChange={(next) => {
-        if (!next) cache.cancelPending();
+        if (!next) {
+          cache.cancelPending();
+          // The outcome belongs to this visit; reopening History starts clean.
+          setRolledBack(undefined);
+        }
         setOpen(next);
       }}
       summary={
@@ -87,6 +99,11 @@ export function HistoryPanel({
     >
       {attribution}
       {!signedIn ? <p>Sign in as a configured member to view v2 history.</p> : null}
+      {rolledBack && (
+        <p role="status" tabIndex={-1} ref={rolledBackNotice} className={styles.outcome}>
+          {rolledBack}
+        </p>
+      )}
       {signedIn && (
         <HistoryContent
           key={`v2-${cache.identity}-${language}-${readOnly}`}
@@ -94,6 +111,7 @@ export function HistoryPanel({
           hash={hash}
           readOnly={readOnly}
           suspended={suspended}
+          onRolledBack={setRolledBack}
         />
       )}
       {language === 'en' && (
@@ -112,7 +130,10 @@ function HistoryContent({
   hash,
   readOnly = false,
   suspended = false,
+  onRolledBack,
 }: {
+  /** Shows an upload rollback outcome above the list (which the rollback remounts). */
+  onRolledBack?(message: string): void;
   hash: number;
   readOnly?: boolean;
   suspended?: boolean;
@@ -279,11 +300,14 @@ function HistoryContent({
     (user?.role !== 'translator' ||
       scope.languages.some((language) => language !== 'en' && user.languages?.includes(language)));
 
+  const rollbackLang = readOnly
+    ? undefined
+    : scope.languages.find((language) => canRollBackUpload(user, language));
   const restore = useCallback(
     (version: Tooltip) => {
       setNotice(undefined);
       if (!base || !current || !user || !hydrated) return;
-      replaceDraft(base, revertDraft(current, version, user, scope));
+      replaceDraft(base, revertDraft(current, version, user, scope, true));
       setNotice(
         'Historical version loaded as a local draft. Review it in the editor and use the normal save flow to commit it; nothing was saved or pushed automatically.',
       );
@@ -344,6 +368,8 @@ function HistoryContent({
               noTranslationImpact={noImpactFromTrailer(entry.message, hash)}
               canRestore={canRestore}
               onRestore={restore}
+              rollbackLang={rollbackLang}
+              onRolledBack={onRolledBack}
             />
           ))}
         {visibleCount < commits.length && (

@@ -69,6 +69,7 @@ export class Fixture {
   snapshots = new Map<string, Record<string, unknown>>();
   commits: Record<string, unknown>[] = [];
   commitParents = new Map<string, string[]>();
+  commitMessages = new Map<string, string>();
   writes: Record<string, unknown>[] = [];
   live: Record<string, unknown> = {
     perks: { '999': { hash: 999, editor: { en: { main: 'untouched' } } } },
@@ -170,14 +171,24 @@ export class Fixture {
     return this.snapshots.get(this.dataHead)!;
   }
 
-  moveData(changes: Record<string, unknown> = {}): void {
+  moveData(changes: Record<string, unknown> = {}, message = 'external change'): void {
     const before = this.current();
     const files = { ...before, ...changes };
     for (const [path, value] of Object.entries(changes))
       if (value === undefined) delete files[path];
+    const parent = this.dataHead;
     this.dataHead = sha(this.sequence++);
+    this.commitParents.set(this.dataHead, [parent]);
+    this.commitMessages.set(this.dataHead, message);
     this.snapshots.set(this.dataHead, files);
     this.touch(before, files);
+  }
+
+  /** Whether `ancestor` is `commit` or reachable from it by first parents (GitHub compare). */
+  private reaches(commit: string, ancestor: string): boolean {
+    for (let at: string | undefined = commit; at; at = this.commitParents.get(at)?.[0])
+      if (at === ancestor) return true;
+    return false;
   }
 
   private touch(before: Record<string, unknown>, after: Record<string, unknown>): void {
@@ -187,11 +198,17 @@ export class Fixture {
         this.touched.set(path, date);
   }
 
-  async request(path: string, method = 'GET', value?: unknown, id = 1): Promise<Response> {
+  async request(
+    path: string,
+    method = 'GET',
+    value?: unknown,
+    id = 1,
+    login = config.users[String(id)]?.login ?? 'unknown',
+  ): Promise<Response> {
     const token = await signToken(
       {
         id,
-        login: config.users[String(id)]?.login ?? 'unknown',
+        login,
         purpose: 'session',
         exp: Math.floor(Date.now() / 1000) + 3600,
       },
@@ -495,7 +512,29 @@ export class Fixture {
       });
     }
     if (path.startsWith('/git/commits/') && method === 'GET') {
-      return this.response({ tree: { sha: path.slice('/git/commits/'.length) } });
+      const id = path.slice('/git/commits/'.length);
+      if (!this.snapshots.has(id)) return this.response({ message: 'Not Found' }, 404);
+      return this.response({
+        tree: { sha: id },
+        message: this.commitMessages.get(id) ?? 'initial',
+        parents: (this.commitParents.get(id) ?? []).map((parent) => ({ sha: parent })),
+      });
+    }
+    const compare = /^\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/.exec(path);
+    if (compare && method === 'GET') {
+      const [, base, target] = compare as unknown as [string, string, string];
+      if (!this.snapshots.has(base) || !this.snapshots.has(target))
+        return this.response({ message: 'Not Found' }, 404);
+      return this.response({
+        status:
+          base === target
+            ? 'identical'
+            : this.reaches(base, target)
+              ? 'behind'
+              : this.reaches(target, base)
+                ? 'ahead'
+                : 'diverged',
+      });
     }
     if (path === '/git/trees' && method === 'POST') {
       const input = treeSchema.parse(raw);
@@ -515,6 +554,7 @@ export class Fixture {
       const id = sha(this.sequence++);
       this.commits.push(objectSchema.parse(raw));
       this.commitParents.set(id, input.parents);
+      this.commitMessages.set(id, input.message);
       this.snapshots.set(id, this.snapshots.get(input.tree)!);
       return this.response({ sha: id });
     }
