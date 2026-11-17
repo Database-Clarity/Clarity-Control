@@ -30415,8 +30415,12 @@ var GlobalsPublisher = class _GlobalsPublisher {
         throw new Error(
           "The global resolver changed after scheduling; return to draft and schedule again"
         );
-      const sourceConfig = this.read(sourceTree, ".publisher/config.json");
-      if (sourceConfig && sourceConfig.generatorSha !== this.options.generatorSha)
+      const sourceConfig = external_exports.object({ generatorSha: external_exports.string().regex(/^[a-f0-9]{40}$/) }).safeParse(this.read(sourceTree, ".publisher/config.json"));
+      if (!sourceConfig.success)
+        throw new Error(
+          "Pinned global generator provenance is missing; return to draft and schedule again"
+        );
+      if (sourceConfig.data.generatorSha !== this.options.generatorSha)
         throw new Error(
           "The global generator changed after scheduling; return to draft and schedule again"
         );
@@ -32003,37 +32007,50 @@ var SchedulePreparer = class {
         if (!matchesPreparationFence(current, request)) continue;
         Object.assign(tree, next);
       }
-      if (readyOnly || hasGlobals(tree)) {
-        for (const batch of this.batches(tree).filter((batch2) => batch2.status === "scheduled")) {
-          if (!batch.preparedRequestId) continue;
-          const path = scheduleIntentPaths.request(batch.preparedRequestId);
-          const checked = verifiedRequest(this.pub, tree, path);
+      let recheckedReady = false;
+      const currentGlobals = hasGlobals(tree);
+      for (const batch of this.batches(tree).filter((batch2) => batch2.status === "scheduled")) {
+        if (!batch.preparedRequestId) continue;
+        const path = scheduleIntentPaths.request(batch.preparedRequestId);
+        if (!currentGlobals) {
+          let pinnedGlobals = false;
           try {
-            const raw = this.pub.read(tree, paths2(batch.opId).request);
-            const payload = await this.pub.verifyRequest(
-              this.pub.writeBlob(json2(raw)),
-              batch.opId,
-              tree
-            );
-            if (payload.kind !== "batch") reject("Scheduled publication identity mismatch");
-            await this.validatePublication(tree, payload, head);
-          } catch (error62) {
-            const pending = batchSchema.parse({
-              ...batch,
-              status: "preparing",
-              preparedRequestId: null,
-              preparation: {
-                requestId: checked.request.requestId,
-                kind: checked.intent.kind,
-                returnStatus: "scheduled",
-                requestedAt: checked.intent.createdAt,
-                attempt: checked.request.attempt
-              }
-            });
-            await this.failure(tree, pending, checked.request, error62, checked);
+            const recorded = this.pub.read(tree, path);
+            const source = JSON.parse(recorded?.envelope.payload ?? "null")?.sourceCommit;
+            if (typeof source === "string" && /^[a-f0-9]{40}$/.test(source))
+              pinnedGlobals = hasGlobals(this.pub.git.tree(source));
+          } catch {
           }
+          if (!pinnedGlobals) continue;
+        }
+        const checked = verifiedRequest(this.pub, tree, path);
+        recheckedReady = true;
+        try {
+          const raw = this.pub.read(tree, paths2(batch.opId).request);
+          const payload = await this.pub.verifyRequest(
+            this.pub.writeBlob(json2(raw)),
+            batch.opId,
+            tree
+          );
+          if (payload.kind !== "batch") reject("Scheduled publication identity mismatch");
+          await this.validatePublication(tree, payload, head);
+        } catch (error62) {
+          const pending = batchSchema.parse({
+            ...batch,
+            status: "preparing",
+            preparedRequestId: null,
+            preparation: {
+              requestId: checked.request.requestId,
+              kind: checked.intent.kind,
+              returnStatus: "scheduled",
+              requestedAt: checked.intent.createdAt,
+              attempt: checked.request.attempt
+            }
+          });
+          await this.failure(tree, pending, checked.request, error62, checked);
         }
       }
+      if (readyOnly && !recheckedReady) return;
       this.refreshIndex(tree);
       if (stableStringify(tree) === stableStringify(original)) return;
       const commit2 = this.pub.git.commit(head, tree, "Prepare scheduled changes", appCredits);
@@ -33441,8 +33458,7 @@ var Publisher = class _Publisher {
         await new SchedulePreparer(this).drain();
         await new GlobalsPublisher(this).drain();
       }
-      if (hasGlobals(this.git.tree(this.head(this.options.dataBranch))))
-        await new SchedulePreparer(this).drain(true);
+      await new SchedulePreparer(this).drain(true);
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 6e4; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));
