@@ -18,6 +18,8 @@ import type { ExportConfig, ExportFile } from '../v1/config.js';
 import { locatePages, locateSim, type SiteState } from './pages.js';
 import { effectivePin, isPinId, type Pin } from './pins.js';
 import { BuildPool, childMain, type BuildJob, type BuildResult } from './pool.js';
+import { referenceProject } from './reference/project.js';
+import { referenceSite } from './reference/site.js';
 import {
   ensureCommit,
   fetchBytes,
@@ -322,7 +324,7 @@ export async function buildSite(options: Record<string, string>) {
   const parsedConfigs: { id: string; name: string; parsed?: ExportConfig; error?: string }[] = [];
   for (const name of configFiles) {
     const id = name.slice(0, -'.json'.length);
-    if (!engine.isValidId(id)) {
+    if (id === 'reference' || !engine.isValidId(id)) {
       notices.push({
         project: id,
         kind: 'invalid-config',
@@ -377,6 +379,17 @@ export async function buildSite(options: Record<string, string>) {
         message: `Categories the pinned catalog lacks: ${unknown.join(', ')}`,
       });
   }
+
+  const reference = structuredClone(referenceProject);
+  for (const file of reference.files) {
+    if ('data' in file) {
+      file.data.categories = (catalog.categories as { id: string }[]).map(
+        (category) => category.id,
+      );
+      file.data.sandboxPerks = [...file.data.categories];
+    }
+  }
+  configs.push(reference);
 
   const entries: Entry[] = [];
   for (const project of configs) {
@@ -784,6 +797,13 @@ export async function buildSite(options: Record<string, string>) {
       put(path, await carried(path));
       files[path] = { ...previous.files[path]!, outcome: 'carried' };
     }
+
+  // Docs, artwork, and examples travel with the script installed at the publish pin.
+  for (const [path, bytes] of referenceSite((path) => {
+    const outcome = outcomes.get(path);
+    return outcome ? (outcome.bytes ?? readFileSync(outcome.from!)) : undefined;
+  }))
+    record(path, bytes);
 
   const changelogPath = join(exportsDir, 'changelog.json');
   const changelog = existsSync(changelogPath)

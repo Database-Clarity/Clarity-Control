@@ -94,6 +94,7 @@ describe('pins and the legacy job', () => {
     await harness.seed({
       input: fixtureText(),
       projects: {
+        reference: project('reference', [style('main', 'reserved001')]),
         alpha: project('alpha', [
           style('main', 'alpha00001'),
           legacyFile('dim', 'alpha00002', 'dim'),
@@ -126,6 +127,20 @@ describe('pins and the legacy job', () => {
       harness.show(live, 'descriptions/dim.json'),
     );
     expect(harness.served('alpha/v1/main.json')).toBeDefined();
+    expect(configSchema.safeParse(project('reference', [])).success).toBe(false);
+    expect(harness.served('reference/v1/main.json')).toBeUndefined();
+    for (const shape of ['lines', 'text']) {
+      const file = harness.servedJson<{
+        format: number;
+        shape: string;
+        perks: Record<string, unknown>;
+      }>(`reference/v1/${shape}/en.json`);
+      expect(file).toMatchObject({ format: 1, shape });
+      expect(file.perks).toHaveProperty('-1');
+      expect(Object.keys(file.perks).length).toBeGreaterThan(1);
+    }
+    expect(harness.served('reference/index.html')!.toString()).toContain('id="kit"');
+    expect(harness.served('reference/partner-kit.zip')).toBeDefined();
     const index = harness.servedJson<{ files: { path: string; sha256: string }[] }>(
       'alpha/index.json',
     );
@@ -575,7 +590,11 @@ describe('build-site per-file outcomes', () => {
       files: Record<string, { outcome: string }>;
       attempts: Record<string, string>;
     }>('_build/manifest.json');
-    expect(Object.keys(manifest.attempts).sort()).toEqual(['alpha/v1/main', 'alpha/v1/old']);
+    expect(
+      Object.keys(manifest.attempts)
+        .filter((path) => path.startsWith('alpha/'))
+        .sort(),
+    ).toEqual(['alpha/v1/main', 'alpha/v1/old']);
     expect(manifest.files['alpha/v1/main/de.json']!.outcome).toBe('built');
   }, 180_000);
 

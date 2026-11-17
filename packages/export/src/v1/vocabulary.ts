@@ -96,7 +96,15 @@ export const configLimits = {
 } as const;
 
 export const idPattern = /^[a-z][a-z0-9-]{1,31}$/;
-const reservedIds = new Set(['_build', 'changelog', 'index', 'api', 'assets', 'well-known']);
+const reservedIds = new Set([
+  '_build',
+  'changelog',
+  'index',
+  'api',
+  'assets',
+  'well-known',
+  'reference',
+]);
 /** Project and file ids: path-safe and not a reserved name (spec section 4). */
 export const isValidId = (id: string) =>
   idPattern.test(id) && !reservedIds.has(id) && !/^v\d+$/.test(id);
