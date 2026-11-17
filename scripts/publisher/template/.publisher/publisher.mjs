@@ -305,7 +305,7 @@ function putProp(target, key, value2) {
   else
     target[key] = value2;
 }
-function mirrorShape(target, source, keys, wrap2) {
+function mirrorShape(target, source, keys, wrap) {
   const raw = sourceShape(source);
   for (const key of keys) {
     const desc = Object.getOwnPropertyDescriptor(raw, key);
@@ -314,10 +314,10 @@ function mirrorShape(target, source, keys, wrap2) {
     if (desc.get) {
       deferProp(target, key, () => {
         const value2 = source._zod.def.shape[key];
-        return wrap2 ? wrap2(value2, key) : value2;
+        return wrap ? wrap(value2, key) : value2;
       });
     } else
-      putProp(target, key, wrap2 ? wrap2(desc.value, key) : desc.value);
+      putProp(target, key, wrap ? wrap(desc.value, key) : desc.value);
   }
 }
 function mirrorProps(target, source) {
@@ -21335,7 +21335,17 @@ var markupColors, markupIcons, markupEmpty, markupLineClasses, markupRetiredColo
 var init_syntax = __esm({
   "packages/core/src/markup/syntax.ts"() {
     "use strict";
-    markupColors = ["blue", "green", "purple", "yellow", "center", "bold", "pve", "pvp"];
+    markupColors = [
+      "blue",
+      "green",
+      "purple",
+      "yellow",
+      "exotic",
+      "center",
+      "bold",
+      "pve",
+      "pvp"
+    ];
     markupIcons = [
       "kinetic",
       "arc",
@@ -21359,7 +21369,7 @@ var init_syntax = __esm({
     markupLineClasses = [...markupColors, ...markupEmpty];
     markupRetiredColors = ["blue", "green", "purple"];
     markupRetiredLineStyles = ["center", "breakSpaces", "background"];
-    markupRetired = [...markupRetiredColors, ...markupRetiredLineStyles];
+    markupRetired = [...markupRetiredColors, ...markupRetiredLineStyles, "yellow"];
     markupTableClasses = [
       "background_1",
       "background_2",
@@ -21946,6 +21956,7 @@ function reservedNames(text) {
   return found.sort((a, b) => a.from - b.from);
 }
 function lowerDelimitedMarkup(text) {
+  text = text.replace(/<exotic(?= |\/>)/g, "<yellow");
   if (!text.includes("#{") && !text.includes(enhancedArrowMarkup)) return text;
   const lines = text.split("\n");
   let changed = false;
@@ -22250,7 +22261,7 @@ var init_lines = __esm({
     init_elementTags();
     init_syntax();
     init_weaponHeadings();
-    inlineToken = /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+    inlineToken = /<(?:blue|green|purple|yellow|exotic|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
     elements = new Set(elementTagNames);
     markedPart = new RegExp(`(${inlineToken.source}|\u{1F845}|[\uE000\uE001])`, "g");
   }
@@ -25659,180 +25670,6 @@ function describeGlobalClash(clash) {
 
 // packages/core/src/markup/snippets.ts
 init_syntax();
-var wrap = (tag, about) => ({
-  id: `wrap:${tag}`,
-  label: `<${tag} text />`,
-  group: "Format",
-  template: `<${tag} {{1:text}} />`,
-  keywords: `${tag} wrap colour color format`,
-  usage: new RegExp(`<${tag} `),
-  wraps: true,
-  about
-});
-var markupSnippets = [
-  {
-    id: "arrow-values",
-    label: "Value becomes another",
-    group: "Values",
-    template: "{{1:30%}}<arrow/>{{2:33%}}",
-    keywords: "arrow leads to becomes change value",
-    usage: /<arrow\/>/,
-    about: "Two values joined by an arrow in the surrounding text colour.",
-    help: { example: "30%<arrow/>33%" }
-  },
-  {
-    id: "base-enhanced-pair",
-    label: "Base and enhanced text",
-    group: "Enhanced",
-    template: "{{{{1:base}}}{{{2:enhanced}}}}",
-    keywords: "base enhanced pair inline variant alternate",
-    usage: /\{\{/,
-    fromSelection: true,
-    about: "Base, then enhanced. No nesting.",
-    help: { block: "base-enhanced-pair" }
-  },
-  {
-    id: "pair",
-    label: "PvE and PvP values",
-    group: "Values",
-    template: "<pve {{1:value}} /> <pvp [{{2:value}}] />",
-    keywords: "pve pvp pair both numbers values",
-    usage: /<pve [^<>]*\/>\s*<pvp /,
-    fromSelection: true,
-    about: "A value for PvE and the bracketed PvP value beside it.",
-    help: { example: "<pve 1 /> <pvp [2] />" }
-  },
-  {
-    id: "pve",
-    label: "<pve value />",
-    group: "Values",
-    template: "<pve {{1:value}} />",
-    keywords: "pve value number",
-    usage: /<pve /,
-    wraps: true,
-    about: "A PvE-only value.",
-    help: { example: "<pve PvE: 10%|20% />" }
-  },
-  {
-    id: "pvp",
-    label: "<pvp [value] />",
-    group: "Values",
-    template: "<pvp [{{1:value}}] />",
-    keywords: "pvp value number",
-    usage: /<pvp /,
-    wraps: true,
-    about: "A PvP-only value, shown in brackets.",
-    help: { example: "11 <pvp [7.5] /> seconds" }
-  },
-  {
-    id: "enhanced-block",
-    label: "Enhanced section",
-    group: "Enhanced",
-    template: "enhanced (\nvar d = {{1:amount}}\n<enhanced/> {{2:What the enhanced version changes.}}\n)",
-    keywords: "enhanced block arrow section var",
-    usage: /^enhanced \(/m,
-    block: true,
-    about: "The enhanced-only section. Its first line already carries the enhanced arrow.",
-    help: { block: "enhanced" }
-  },
-  {
-    id: "enhanced-formula",
-    label: "<enhanced/>${base+#{d}}",
-    group: "Enhanced",
-    template: "<enhanced/>${{{1:base}}+#{d}}",
-    keywords: "enhanced formula e d base add bonus arrow",
-    usage: /(?:#e|<enhanced\/>)\$\{/,
-    about: "The base value with the enhanced bonus #{d} added in the enhanced version.",
-    help: { block: "enhanced" }
-  },
-  {
-    id: "icon-word",
-    label: "Element icon and word",
-    group: "Icons",
-    template: "<{{1:solar}}/>{{2:Solar}}",
-    keywords: "element icon word arc solar void stasis strand prismatic kinetic",
-    usage: /<(?:kinetic|arc|solar|void|stasis|strand|prismatic)\/>[A-Za-z]/,
-    about: "An element icon followed by its name.",
-    help: { example: "Applies <arc/>Jolt." }
-  },
-  {
-    id: "title-ref",
-    label: "Title reference",
-    group: "References",
-    template: "<title {{1:Text}} [{{2:Name}}] />",
-    keywords: "title reference global tooltip hover definition",
-    usage: /<title /,
-    wraps: true,
-    about: "Text that shows a title definition when hovered."
-  },
-  {
-    id: "link-ref",
-    label: "Link",
-    group: "References",
-    template: "<link {{1:Text}} [{{2:https://example.com}}] />",
-    keywords: "link url web reference",
-    usage: /<link /,
-    wraps: true,
-    about: "Text that links to a web address."
-  },
-  wrap("yellow", "Yellow text."),
-  wrap("bold", "Bold text."),
-  {
-    id: "decl-var",
-    label: "var name = value",
-    group: "Blocks",
-    template: "var {{1:name}} = {{2:value}}",
-    keywords: "var variable declare define",
-    usage: /^var /m,
-    block: true,
-    about: "A variable, used elsewhere as #name.",
-    help: { example: "var Zoom = 1\nZoom +#Zoom" }
-  },
-  {
-    id: "decl-title",
-    label: "title Name ( \u2026 )",
-    group: "Blocks",
-    template: "title {{1:Name}} (\n{{2:text}}\n)",
-    keywords: "title block definition global",
-    usage: /^title [A-Za-z0-9 ]+ \(/m,
-    block: true,
-    about: "A title definition other text can point at.",
-    help: { block: "title" }
-  },
-  {
-    id: "decl-export",
-    label: "export Name ( \u2026 )",
-    group: "Blocks",
-    template: "export {{1:Name}} (\n{{2:text}}\n)",
-    keywords: "export share",
-    usage: /^export /m,
-    block: true,
-    about: "A named text other tooltips can import.",
-    help: { example: "export name ( \u2026 )", note: "Drawn here too." }
-  },
-  {
-    id: "decl-export-hidden",
-    label: "export hidden Name ( \u2026 )",
-    group: "Blocks",
-    template: "export hidden {{1:Name}} (\n{{2:text}}\n)",
-    keywords: "export hidden share",
-    usage: /^export hidden /m,
-    block: true,
-    about: "An export that does not show in this tooltip.",
-    help: { example: "export hidden name ( \u2026 )", note: "Not drawn here." }
-  },
-  {
-    id: "decl-import",
-    label: "import name from \u2026",
-    group: "Blocks",
-    template: "import {{1:name}} from {{2:global}}",
-    keywords: "import use",
-    usage: /^import /m,
-    block: true,
-    about: "Brings in text another tooltip or the globals export.",
-    help: { example: "import main from 554409585", note: "Draws its text." }
-  }
-];
 var markupTags = [
   {
     id: "tag:pve",
@@ -25850,7 +25687,7 @@ var markupTags = [
     usage: /<pvp /,
     about: "A PvP-only value, shown in brackets."
   },
-  ...["yellow"].map((name2) => ({
+  ...["exotic"].map((name2) => ({
     id: `tag:${name2}`,
     label: `<${name2} />`,
     template: `<${name2} {{1:text}} />`,
@@ -26072,9 +25909,9 @@ function tokenOccurrence(token2, line, lineFrom, from, sourceToken = token2) {
   if (retiredColours.includes(name2))
     fixes.push({
       id: "to-yellow",
-      label: "Change to yellow",
+      label: "Change to Exotic",
       structural: false,
-      edits: [{ from, to, insert: `<yellow ${inner} />` }]
+      edits: [{ from, to, insert: `<exotic ${inner} />` }]
     });
   return {
     kind: "wrapper",
@@ -26085,7 +25922,7 @@ function tokenOccurrence(token2, line, lineFrom, from, sourceToken = token2) {
     to,
     message: retired(
       noun(name2),
-      retiredColours.includes(name2) ? "Remove the tag (the text stays) or change it to <yellow \u2026 />." : "Remove the tag (the text stays)."
+      retiredColours.includes(name2) ? "Remove the tag (the text stays) or change it to <exotic \u2026 />." : "Remove the tag (the text stays)."
     ),
     fixes
   };
@@ -26406,6 +26243,38 @@ function findRetiredMarkup(source) {
       occurrence.refusalReason = reason ?? "A lossless source edit could not be verified.";
       occurrence.message = retired(occurrence.token, `Fix by hand: ${occurrence.refusalReason}`);
     }
+  }
+  const context = markupCommentContext(source);
+  for (const match of context.text.matchAll(
+    /<yellow(?= |\/>).*?\/>|^export hidden (?=[A-z0-9 ]+ \()/gm
+  )) {
+    const hidden = match[0].startsWith("export");
+    const keyword = hidden ? "hidden " : "yellow";
+    const start = match.index + (hidden ? 7 : 1);
+    const from = context.offsets[match.index];
+    const to = context.offsets[match.index + match[0].length - 1] + 1;
+    const positions = context.offsets.slice(start, start + keyword.length);
+    found.push({
+      kind: hidden ? "condition" : match[0] === "<yellow/>" ? "marker" : "wrapper",
+      name: hidden ? "export hidden" : "yellow",
+      token: hidden ? "export hidden" : "<yellow \u2026 />",
+      source: source.slice(from, to),
+      from,
+      to,
+      message: hidden ? "Retired markup export hidden: use a plain export." : "Deprecated markup <yellow \u2026 />: use <exotic \u2026 />.",
+      fixes: [
+        {
+          id: hidden ? "plain-export" : "rename-exotic",
+          label: hidden ? "Change to export" : "Change to <exotic \u2026 />",
+          structural: false,
+          edits: positions.map((at, index) => ({
+            from: at,
+            to: at + 1,
+            insert: index === 0 && !hidden ? "exotic" : ""
+          }))
+        }
+      ]
+    });
   }
   return found.sort((a, b) => a.from - b.from || a.to - b.to);
 }
