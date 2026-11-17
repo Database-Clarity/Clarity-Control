@@ -89,8 +89,8 @@ export function entriesOf(engine: Engine, bytes: Uint8Array): Entries {
   if (
     parsed &&
     typeof parsed === 'object' &&
-    Array.isArray((parsed as { texts?: unknown }).texts) &&
-    typeof (parsed as { items?: unknown }).items === 'object'
+    Array.isArray((parsed as { descriptions?: unknown }).descriptions) &&
+    typeof (parsed as { perks?: unknown }).perks === 'object'
   )
     return engine.decodeV1(parsed as Parameters<Engine['decodeV1']>[0]);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))

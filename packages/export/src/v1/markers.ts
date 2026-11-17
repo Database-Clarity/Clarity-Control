@@ -1,8 +1,9 @@
 // Vocabulary check (spec section 5): a file's marker sets are its entry key paths with the value
-// type at each path, its class names (per path, so span- and line-level classes differ), and the
-// configured string markers (replacement tokens) it uses. Link, title, and formula presence are key
-// paths. A build that adds, removes, or retypes any member is breaking; text content and new
-// entries are not (entries, languages, and array positions are wildcards).
+// type at each path, its class names (legacy `classNames`; v1 `style`, `icon`, and `element`
+// values; per path, so part- and line-level classes differ), and the configured string markers
+// (replacement tokens) it uses. Link, title (v1 `note`), and formula presence are key paths. A
+// build that adds, removes, or retypes any member is breaking; text content and new entries are
+// not (entries, languages, and array positions are wildcards).
 import { converterSettings } from '../converter/index.js';
 import type { ExportFile } from './config.js';
 import { isLegacyFile } from './vocabulary.js';
@@ -20,11 +21,12 @@ export function markerSet(file: unknown, tokens: readonly string[] = []): string
   const wanted = [...new Set(tokens.filter((token) => token.length > 0))];
   // Paths whose keys are data (hashes, languages, text indices), not vocabulary.
   const v1 = isV1(file);
+  const classKeys = v1 ? ['style', 'icon', 'element'] : ['classNames'];
   const visit = (value: unknown, path: string, parentKey: string) => {
     markers.add(`${path}:${typeOf(value)}`);
     if (typeof value === 'string') {
       for (const token of wanted) if (!used.has(token) && value.includes(token)) used.add(token);
-      if (parentKey === 'classNames') markers.add(`class ${path}=${value}`);
+      if (classKeys.includes(parentKey)) markers.add(`class ${path}=${value}`);
       return;
     }
     if (Array.isArray(value)) {
@@ -43,10 +45,10 @@ export function markerSet(file: unknown, tokens: readonly string[] = []): string
 }
 
 const isV1 = (file: unknown) =>
-  !!file && typeof file === 'object' && 'texts' in file && 'items' in file;
+  !!file && typeof file === 'object' && 'descriptions' in file && 'perks' in file;
 
 function isDataKeyed(path: string, v1: boolean) {
-  if (v1) return path === '$.items' || path === '$.texts[]';
+  if (v1) return path === '$.perks' || path === '$.descriptions[]' || path === '$.perks.*.edited';
   // Legacy: { "<hash>": { ..., descriptions: { "<lang>": ... } } }
   return path === '$' || path === '$.*.descriptions';
 }

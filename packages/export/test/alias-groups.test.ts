@@ -156,6 +156,7 @@ test('v1 uses a name alias own category and facts, with frame and sandbox toggle
     frameAliases: false,
     languages: ['en', 'de'],
     keys: ['name'],
+    languageFiles: 'combined',
     bungieIdentical: false,
   });
   const source = input();
@@ -183,6 +184,7 @@ test('v1 refuses cyclic and deleted imports through name aliases using the real 
     sandboxPerks: [],
     frameAliases: false,
     keys: ['name'],
+    languageFiles: 'combined',
     bungieIdentical: false,
   });
   const source = input();

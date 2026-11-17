@@ -57,6 +57,7 @@ async function step(route, i, call) {
           frameAliases: true,
           languages: ['en', 'de'],
           keys: ['name', 'itemHash'],
+          languageFiles: 'combined',
           bungieIdentical: false,
         },
         format: {

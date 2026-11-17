@@ -77,6 +77,7 @@ const styleFile = (id: string, categories: string[] = []) => ({
     frameAliases: false,
     languages: ['en' as const],
     keys: ['name' as const],
+    languageFiles: 'combined' as const,
     bungieIdentical: false,
   },
   format: {
@@ -450,6 +451,44 @@ describe('retained URLs and URL ownership', () => {
           until: retainUntil(new Date()),
         },
       ],
+    });
+  });
+
+  it('a switch between one combined file and one file per language retains the old URL set as one entry', () => {
+    type File = ExportConfig['files'][number];
+    const base = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
+    const combined = base as File;
+    const split = {
+      ...base,
+      data: {
+        ...base.data,
+        languages: ['en' as const, 'de' as const],
+        languageFiles: 'perLanguage' as const,
+      },
+    };
+    const project = (file: File): ExportConfig => ({ ...dimConfig(), files: [file] });
+    const now = new Date(start);
+    const entry = (path: string, snapshot: File) => ({
+      path,
+      uid: 'cccccccccccccccc',
+      formatVersion: 1,
+      snapshot,
+      until: retainUntil(now),
+    });
+    expect(planRetained(project(combined), project(split), now)).toEqual({
+      retained: [entry('dim/v1/texts.json', combined)],
+      problems: [],
+    });
+    // Languages change inside the language folder: the same URL key, nothing retained (a
+    // removed language's URL ends at once).
+    const fewer = { ...split, data: { ...split.data, languages: ['de' as const] } };
+    expect(planRetained(project(split), project(fewer), now)).toEqual({
+      retained: [],
+      problems: [],
+    });
+    expect(planRetained(project(split), project(combined), now)).toEqual({
+      retained: [entry('dim/v1/texts', split)],
+      problems: [],
     });
   });
 
