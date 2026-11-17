@@ -30230,7 +30230,15 @@ var GlobalsPublisher = class _GlobalsPublisher {
     const exported = exportLegacy(Object.values(liveDocuments), 0, this.options.facts, liveAliases);
     for (const [hash2, value2] of Object.entries(exported)) {
       if ("aliasOf" in value2) continue;
-      if (stableStringify(value2.editor) !== stableStringify(actual.perks[hash2]?.editor ?? null))
+      const expectedEditor = structuredClone(value2.editor);
+      const actualEditor = structuredClone(actual.perks[hash2]?.editor ?? null);
+      for (const editor of [expectedEditor, actualEditor])
+        if (editor && typeof editor === "object" && !Array.isArray(editor)) {
+          for (const cell of Object.values(editor))
+            if (cell && typeof cell === "object" && !Array.isArray(cell))
+              delete cell.secondary;
+        }
+      if (stableStringify(expectedEditor) !== stableStringify(actualEditor))
         throw new Error("Published snapshots differ from actual live inputs");
     }
     return {
@@ -30407,6 +30415,12 @@ var GlobalsPublisher = class _GlobalsPublisher {
         throw new Error(
           "The global resolver changed after scheduling; return to draft and schedule again"
         );
+      const sourceConfig = this.read(sourceTree, ".publisher/config.json");
+      if (sourceConfig && sourceConfig.generatorSha !== this.options.generatorSha)
+        throw new Error(
+          "The global generator changed after scheduling; return to draft and schedule again"
+        );
+      const sourceAliases = this.publisher.aliasesAt(sourceTree);
       const snapshot = {
         ...captured.live,
         revision: revision2,
@@ -30418,11 +30432,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
         }
       };
       const pinned = this.store(sourceTree);
-      const pinnedDocuments = this.canonicalDocuments(
-        sourceTree,
-        "live/tooltips",
-        captured.authored.aliases
-      );
+      const pinnedDocuments = this.canonicalDocuments(sourceTree, "live/tooltips", sourceAliases);
       for (const document of documents)
         if (selected.includes(document.hash)) pinnedDocuments[document.hash] = document;
         else if (document.hash !== 2 && document.hash !== 3) {
@@ -30433,6 +30443,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
       const originalSnapshot = {
         ...snapshot,
         revision: batch.source,
+        aliases: sourceAliases,
         tooltips: { ...pinnedDocuments, ...projectGlobals(pinned) }
       };
       const comparison = calculateGlobalImpact(
@@ -30450,12 +30461,12 @@ var GlobalsPublisher = class _GlobalsPublisher {
       if (!comparison.complete)
         throw new Error("Scheduled global dependency closure is incomplete");
       if (comparison.rows.some(
-        (row) => selected.includes(row.consumer.hash) && stableStringify(row.before) !== stableStringify(row.after)
+        (row) => selected.includes(resolveAlias(row.consumer.hash, snapshot.aliases)) && stableStringify(row.before) !== stableStringify(row.after)
       ))
         throw new Error(
           "Global dependencies changed after scheduling; return to draft and schedule again"
         );
-      const reads = comparison.rows.filter((row) => selected.includes(row.consumer.hash)).map((row) => row.after.reads);
+      const reads = comparison.rows.filter((row) => selected.includes(resolveAlias(row.consumer.hash, snapshot.aliases))).map((row) => row.after.reads);
       const used = store.entries.filter(
         (entry) => entry.kind === "titles" || reads.some(
           (read) => read.variables.includes(entry.name) || read.imports.some((dependency) => dependency.hash === 2)
