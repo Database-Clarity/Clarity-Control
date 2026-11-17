@@ -3,6 +3,7 @@ import worker from '../src/index.js';
 import { signToken } from '../src/crypto.js';
 import { parseCsv } from '../src/csv.js';
 import { Fixture, makePrivateKey } from './fixture.js';
+import { switches } from '../src/schedule/store.js';
 
 let key: string;
 let fixture: Fixture;
@@ -19,6 +20,16 @@ afterEach(() => {
 const context = { waitUntil: () => {} };
 
 describe('sessions and OAuth web flow', () => {
+  it.each([true, false])('reports the Worker preparation switch as %s in /me', async (enabled) => {
+    const switchSpy = vi.spyOn(switches, 'preparation').mockReturnValue(enabled);
+    try {
+      const response = await fixture.request('/me');
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ schedulePreparation: enabled });
+    } finally {
+      switchSpy.mockRestore();
+    }
+  });
   it('binds state to the browser and redirects with a signed 30-day identity session in the fragment', async () => {
     const response = await worker.fetch(
       new Request('https://api.example/auth/login'),

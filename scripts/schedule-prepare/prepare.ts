@@ -218,6 +218,16 @@ export class SchedulePreparer {
     const index = scheduleIndexSchema.parse({
       batches: entries.filter((b) => isOpenStatus(b.status) || keep.has(b.id)),
     });
+    // Legacy Worker writes moved the updated entry to the end. Preserve an
+    // equivalent index byte-for-byte on idle drains, regardless of that order.
+    const previous = scheduleIndexSchema.safeParse(this.pub.read(tree, schedulePaths.index));
+    if (
+      previous.success &&
+      stableStringify({
+        batches: [...previous.data.batches].sort((a, b) => a.id.localeCompare(b.id)),
+      }) === stableStringify(index)
+    )
+      return;
     tree[schedulePaths.index] = this.pub.writeBlob(json(index));
   }
   collision(tree: Tree, opId: string) {
