@@ -31726,7 +31726,13 @@ var SchedulePreparer = class {
     const index = scheduleIndexSchema.parse({
       batches: entries.filter((b) => isOpenStatus(b.status) || keep.has(b.id))
     });
-    const previous = scheduleIndexSchema.safeParse(this.pub.read(tree, schedulePaths.index));
+    let oldIndex;
+    try {
+      oldIndex = this.pub.read(tree, schedulePaths.index);
+    } catch (error62) {
+      if (!(error62 instanceof SyntaxError)) throw error62;
+    }
+    const previous = scheduleIndexSchema.safeParse(oldIndex);
     if (previous.success && stableStringify({
       batches: [...previous.data.batches].sort((a, b) => a.id.localeCompare(b.id))
     }) === stableStringify(index))
