@@ -206,6 +206,11 @@ export default defineConfig({
     'import.meta.env.VITE_SCHEDULED_ENABLED': JSON.stringify(
       scheduledSwitch(scheduledConfig) ? '1' : '0',
     ),
+    // Per-entry globals stay off until the owner-gated activation. A build-time constant, so an
+    // off build drops the globals routes and chunks entirely instead of re-splitting shared chunks.
+    'import.meta.env.VITE_GLOBALS_ENABLED': JSON.stringify(
+      process.env.VITE_GLOBALS_ENABLED === '1' ? '1' : '0',
+    ),
   },
   base: './',
   // JSON.parse is substantially cheaper than compiling a multi-megabyte object literal.

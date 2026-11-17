@@ -15,6 +15,14 @@ import { useDataStore } from '../../stores/data';
 import { editorName, exoticPiece, itemFor } from './catalog';
 import { titleWidthEm } from '../preview/nameFit';
 import styles from './PhoneHeader.module.scss';
+import { globalsEnabled } from '../../services/globalsFlag';
+import {
+  aggregateGlobalRoute,
+  useGlobalIdentities,
+  type GlobalIdentity,
+} from '../../stores/globalIdentities';
+
+const noIdentities: Record<string, GlobalIdentity> = {};
 
 /**
  * Phone header (<= 700px), var(--bar) high, three things only: the Clarity mark opens the menu
@@ -56,10 +64,19 @@ export function PhoneHeader({
     kicker = exoticPiece(item) || undefined;
   }
   const location = useLocation();
+  const identities = useGlobalIdentities((state) =>
+    globalsEnabled ? state.identities : noIdentities,
+  );
   const globalRoute = target ?? `${location.pathname}${location.search}`;
-  const globalName = /^\/t\/[123](?:\?|$)/.test(globalRoute)
-    ? new URLSearchParams(globalRoute.split('?')[1]).get('global')
-    : null;
+  // A stable-ID entry (`/globals/:id`) is named like the declaration it opens.
+  const entryRoute = globalsEnabled
+    ? aggregateGlobalRoute(globalRoute.split('?')[0], globalRoute.split('?')[1] ?? '', identities)
+    : undefined;
+  const globalName = entryRoute
+    ? new URLSearchParams(entryRoute.search).get('global')
+    : /^\/t\/[123](?:\?|$)/.test(globalRoute)
+      ? new URLSearchParams(globalRoute.split('?')[1]).get('global')
+      : null;
   if (globalName) {
     title = globalName;
     kicker = undefined;

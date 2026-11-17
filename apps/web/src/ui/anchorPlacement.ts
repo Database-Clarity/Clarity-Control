@@ -10,6 +10,15 @@ import { phoneQuery } from './useMedia';
  * it is open (a confirm in place of a row) grows away from the trigger.
  */
 
+/**
+ * The gap a hover popup keeps below its trigger. The pointer's hotspot is inside the trigger and
+ * the system pointer (an arrow or a hand) is drawn down and right from it, about 20px, so a popup
+ * starting this far below the trigger's bottom edge is never under the pointer. Above the trigger
+ * needs only the plain gap: nothing of the pointer is drawn above its hotspot. Keyboard focus uses
+ * the same gap, so a popup opens in one place however it was opened.
+ */
+export const POINTER_CLEARANCE = 22;
+
 export interface TriggerRect {
   top: number;
   bottom: number;
@@ -55,6 +64,7 @@ export function placeAnchored({
   gap = 4,
   align = 'end',
   desktop = false,
+  hover = false,
 }: {
   trigger: TriggerRect;
   area: PlacementArea;
@@ -71,13 +81,16 @@ export function placeAnchored({
    * vertical clamp (desktop renders stay pixel-identical).
    */
   desktop?: boolean;
+  /** A hover popup: below the trigger it keeps POINTER_CLEARANCE, clear of the pointer. */
+  hover?: boolean;
 }): Placement {
   const { edge } = area;
+  const belowGap = hover ? Math.max(gap, POINTER_CLEARANCE) : gap;
   const fit = Math.max(0, Math.min(width, area.width - edge * 2));
   const wanted = align === 'end' ? trigger.right - fit : trigger.left;
   const left = Math.max(edge, Math.min(wanted, area.width - fit - edge));
   if (desktop) {
-    const top = trigger.bottom + gap;
+    const top = trigger.bottom + belowGap;
     return {
       side: 'below',
       left,
@@ -93,7 +106,7 @@ export function placeAnchored({
   // a trigger pushed under the keyboard clamps to the dock-cleared limit.
   const visible = Math.max(area.bottom, area.reach ?? area.bottom);
   const reach = trigger.bottom <= visible + 0.5 ? visible : area.bottom;
-  const belowTop = Math.max(area.top, Math.min(trigger.bottom + gap, area.bottom));
+  const belowTop = Math.max(area.top, Math.min(trigger.bottom + belowGap, area.bottom));
   const aboveBottom = Math.max(area.top, Math.min(trigger.top - gap, reach));
   const below = area.bottom - belowTop;
   const above = aboveBottom - area.top;

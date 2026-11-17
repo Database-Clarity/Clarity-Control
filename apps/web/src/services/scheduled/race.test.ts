@@ -19,7 +19,6 @@ afterEach(() => {
 });
 
 it('does not mark an older pinned detail fresh at an overlaid revision, and reads it again', async () => {
-  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
   const fixture = createBatchFixture({
     current: {},
     user: { id: 1, login: 'm', role: 'maintainer' },
@@ -77,7 +76,6 @@ it('keeps the highest revision after the index catches up and older answers arri
 });
 
 it('Upcoming never certifies old-head members at an overlaid revision, and reads them again', async () => {
-  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
   const { editorData, tooltip } = await import('../save/fixtures.testSupport');
   const old = { ...tooltip, text: { en: { ...tooltip.text.en!, text: 'Before save' } } };
   const next = { ...old, text: { en: { ...old.text.en, text: 'After save' } } };

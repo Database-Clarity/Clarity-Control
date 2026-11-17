@@ -104,7 +104,8 @@ export function useGlobalHover(
   return useMemo(() => {
     if (!entry) return undefined;
     const current = source
-      ? globalDefinitions({ [source.hash]: source }).find(({ name }) => name === entry.name)
+      ? (globalDefinitions({ [source.hash]: source }).find(({ name }) => name === entry.name) ??
+        entry)
       : entry;
     return Object.values(current?.definitions ?? {}).join('\n\n');
   }, [source, entry]);
