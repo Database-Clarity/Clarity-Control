@@ -16,7 +16,6 @@ const tooltip = (hash: number, en: string): Tooltip => ({
 const ulid = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 
 async function load() {
-  vi.resetModules();
   return import('./api');
 }
 
@@ -24,6 +23,7 @@ describe('scheduled batches client: prepared requests', () => {
   let fixture: BatchFixture;
   let posts: { path: string; body: Record<string, unknown> }[];
   beforeEach(() => {
+    vi.resetModules();
     vi.stubEnv('VITE_API_URL', 'https://worker.example/');
     vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
     for (const name of ['localStorage', 'sessionStorage'])
@@ -75,7 +75,9 @@ describe('scheduled batches client: prepared requests', () => {
   });
 
   it('switch ON: sends a ULID requestId and decodes "Schedule requested" as preparing', async () => {
-    vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+    (await import('../../stores/auth')).useAuthStore.setState({
+      user: { id: 1, login: 'm', role: 'maintainer', schedulePreparation: true },
+    });
     const api = await load();
     const batch = await draftWithMember(api);
     const result = await api.scheduleBatch(
@@ -106,7 +108,9 @@ describe('scheduled batches client: prepared requests', () => {
   });
 
   it('queues a save as ONE request; members change only when the preparer lands it', async () => {
-    vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+    (await import('../../stores/auth')).useAuthStore.setState({
+      user: { id: 1, login: 'm', role: 'maintainer', schedulePreparation: true },
+    });
     const api = await load();
     const { batch } = await api.createBatch('Queued');
     const queued = await api.queueBatchSave(
@@ -125,7 +129,9 @@ describe('scheduled batches client: prepared requests', () => {
   });
 
   it('decodes needs-attention reasons, keeps only a GitHub workflow link, and retries', async () => {
-    vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+    (await import('../../stores/auth')).useAuthStore.setState({
+      user: { id: 1, login: 'm', role: 'maintainer', schedulePreparation: true },
+    });
     const api = await load();
     const batch = await draftWithMember(api);
     const { queued } = await api.scheduleBatch(batch.id, batch.revision, 'now', 'UTC');
@@ -156,7 +162,9 @@ describe('scheduled batches client: prepared requests', () => {
   });
 
   it('shows its own admission although the advisory index lags, and reads a result by requestId', async () => {
-    vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+    (await import('../../stores/auth')).useAuthStore.setState({
+      user: { id: 1, login: 'm', role: 'maintainer', schedulePreparation: true },
+    });
     const api = await load();
     const batch = await draftWithMember(api);
     const { queued } = await api.scheduleBatch(
@@ -194,7 +202,9 @@ describe('scheduled batches client: prepared requests', () => {
       'UTC',
     );
     expect(scheduled.queued).toBeUndefined();
-    vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
+    (await import('../../stores/auth')).useAuthStore.setState({
+      user: { id: 1, login: 'm', role: 'maintainer', schedulePreparation: true },
+    });
     const queued = await api.queueBatchSave(
       batch.id,
       scheduled.batch.revision,

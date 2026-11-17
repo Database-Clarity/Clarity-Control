@@ -26,6 +26,7 @@ import { Publisher, paths, type Options } from './publisher.js';
 import { json } from './batch.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { runPipeline } from './pipeline.js';
+import { withIndexEntry } from '../../apps/worker/src/schedule/store.js';
 
 const D = 'refs/heads/editor-data',
   L = 'refs/heads/converter-v2-test';
@@ -962,6 +963,58 @@ describe('offline schedule preparation', () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 300_000);
+  it.each(['before', 'after'])(
+    'leaves the deployed %s index byte-identical with no intents in real Git',
+    async (version) => {
+      const root = mkdtempSync(join(tmpdir(), 'schedule-idle-'));
+      try {
+        execFileSync('git', ['init', '--bare', root], { stdio: 'pipe' });
+        execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true']);
+        const git = new LocalRepository(root),
+          f = await fixture(git);
+        const draft = f.batch(),
+          member = f.read(schedulePaths.member(B, 123));
+        const index = JSON.parse(
+          readFileSync(`scripts/schedule-prepare/fixtures/index-${version}.json`, 'utf8'),
+        );
+        const files: Record<string, unknown> = { [schedulePaths.index]: index };
+        for (const entry of index.batches) {
+          files[schedulePaths.batch(entry.id)] = JSON.parse(
+            readFileSync(`scripts/schedule-prepare/fixtures/${entry.id}.json`, 'utf8'),
+          );
+          for (const hash of entry.hashes) files[schedulePaths.member(entry.id, hash)] = {};
+        }
+        f.change(files, [schedulePaths.batch(B), schedulePaths.member(B, 123)]);
+        const head = git.head(D),
+          blob = git.tree(head!)[schedulePaths.index];
+        const commit = vi.spyOn(git, 'commit');
+        await f.prep.drain();
+        await f.prep.drain();
+        expect(commit).not.toHaveBeenCalled();
+        expect(git.head(D)).toBe(head);
+        expect(git.tree(head!)[schedulePaths.index]).toBe(blob);
+        const canonical = withIndexEntry(index, index.batches[0]);
+        expect(canonical.batches.map((entry) => entry.id)).toEqual(
+          index.batches.map((entry: { id: string }) => entry.id).sort(),
+        );
+        f.change({ [schedulePaths.index]: canonical });
+        commit.mockClear();
+        await f.prep.drain();
+        expect(commit).not.toHaveBeenCalled();
+        // A real new intent still materializes and refreshes the advisory index.
+        f.change({ [schedulePaths.batch(B)]: draft, [schedulePaths.member(B, 123)]: member });
+        f.admit('schedule');
+        await f.prep.drain();
+        expect(f.request().status).toBe('completed');
+        expect(
+          f.read<{ batches: { id: string; status: string }[] }>(schedulePaths.index).batches,
+        ).toContainEqual(expect.objectContaining({ id: B, status: 'scheduled' }));
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+    300_000,
+  );
   it('dry-run pipeline bundles only real source heads, while preparing and publishing in its artifact', async () => {
     const root = mkdtempSync(join(tmpdir(), 'schedule-pipeline-'));
     try {

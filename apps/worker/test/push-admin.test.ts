@@ -446,6 +446,7 @@ describe('permissions and history', () => {
       login: 'bob',
       role: 'translator',
       languages: ['ja'],
+      schedulePreparation: false,
     });
     const empty = await fixture.request('/permissions', 'PUT', {
       revision: saved.revision,
@@ -520,6 +521,7 @@ describe('permissions and history', () => {
       login: 'unknown',
       role: null,
       languages: [],
+      schedulePreparation: false,
     });
     expect(await (await fixture.request('/me', 'GET', undefined, 4)).json()).toMatchObject({
       role: 'translator',
