@@ -161,7 +161,10 @@ it('uses canonical sources for distinct alias contexts across authored, live, an
   expect(
     content(plans.flatMap((plan) => plan.rows.filter((row) => row.view.consumer.hash !== 41))),
   ).toEqual(content(canonical.flatMap((plan) => plan.rows)));
-  delete input.authored.tooltips[40]; // The prior snapshot still proves the removed consumer.
+  // Both current snapshots must lose the canonical; the prior snapshot still proves it.
+  input.authored.tooltips = input.live.tooltips = Object.fromEntries(
+    Object.entries(input.authored.tooltips).filter(([hash]) => hash !== '40'),
+  );
   await expect(planGlobalRelease(input)).rejects.toThrow('Deleted consumer dependency');
 });
 
