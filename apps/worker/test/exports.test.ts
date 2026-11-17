@@ -408,6 +408,226 @@ describe('PUT /exports/projects/:id', () => {
 });
 
 describe('retained URLs and URL ownership', () => {
+  it('evicts only the necessary own entry when per-file and project limits overlap', async () => {
+    const make = (
+      id: string,
+      uid: string,
+      languages: ('en' | 'de' | 'fr' | 'es')[],
+    ): ExportConfig['files'][number] => {
+      const file = styleFile(id);
+      return { ...file, uid, data: { ...file.data, languageFiles: 'perLanguage', languages } };
+    };
+    const f = make('file-f', 'ffffffff', ['en', 'es']);
+    const g = make('file-g', 'gggggggg', ['en']);
+    const h = make('file-h', 'hhhhhhhh', ['en']);
+    const kept = (file: typeof f, languages: ('de' | 'fr')[], days: number) => ({
+      reason: 'language' as const,
+      path: `dim/v1/${file.id}`,
+      uid: file.uid!,
+      formatVersion: 1 as const,
+      snapshot: make(file.id, file.uid!, languages),
+      until: new Date(Date.now() + days * 86_400_000).toISOString(),
+    });
+    const previous: ExportConfig = {
+      ...dimConfig(),
+      files: [f, g, h],
+      retained: [kept(g, ['de'], 88), kept(f, ['de'], 89), kept(f, ['fr'], 90)],
+    };
+    fixture.moveData({ 'exports/projects/dim.json': previous });
+    later();
+    const next = structuredClone(previous);
+    if ('data' in next.files[0]!) next.files[0].data.languages = ['en'];
+    const response = await put('dim', next);
+    expect(response.status).toBe(409);
+    const details = (await body(response)).details as { deletions: unknown[] };
+    expect(details.deletions).toEqual([
+      expect.objectContaining({ urls: ['dim/v1/file-f/de.json'] }),
+    ]);
+    expect(
+      (
+        await fixture.request(
+          '/exports/projects/dim',
+          'PUT',
+          { revision: revisionOf(), config: next, confirmDelete: details.deletions },
+          PARTNER,
+        )
+      ).status,
+    ).toBe(200);
+    expect(stored()!.retained).toContainEqual(previous.retained![0]);
+  });
+
+  it('does not let a different uid take a protected language folder through an unused language', async () => {
+    const file = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
+    const split = {
+      ...file,
+      data: {
+        ...file.data,
+        languageFiles: 'perLanguage' as const,
+        languages: ['en' as const, 'fr' as const],
+      },
+    };
+    fixture.moveData({ 'exports/projects/dim.json': { ...dimConfig(), files: [split] } });
+    later();
+    expect((await put('dim', { ...stored()!, files: [] })).status).toBe(200);
+    later();
+    const fresh = { ...split, uid: undefined };
+    const next = {
+      ...stored()!,
+      files: [{ ...fresh, data: { ...fresh.data, languages: ['de' as const] } }],
+    };
+    const response = await put('dim', next);
+    expect(response.status).toBe(400);
+    expect((await body(response)).error).toContain('The URL dim/v1/texts belongs to another file');
+  });
+  it('keeps removed languages, reclaims them, and confirms the oldest language entry at the limit', async () => {
+    const file = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
+    const split: ExportConfig['files'][number] = {
+      ...file,
+      data: { ...file.data, languageFiles: 'perLanguage', languages: ['en', 'de', 'fr', 'es'] },
+    };
+    fixture.moveData({ 'exports/projects/dim.json': { ...dimConfig(), files: [split] } });
+    later();
+    const remove = async (language: string) => {
+      const next = structuredClone(stored()!);
+      const active = next.files[0]!;
+      if ('data' in active)
+        active.data.languages = active.data.languages.filter((lang) => lang !== language);
+      return { next, response: await put('dim', next) };
+    };
+    expect((await remove('de')).response.status).toBe(200);
+    expect(stored()!.retained![0]).toMatchObject({
+      reason: 'language',
+      snapshot: { data: { languages: ['de'] } },
+    });
+    later();
+    expect((await remove('fr')).response.status).toBe(200);
+    later();
+    const { next, response } = await remove('es');
+    expect(response.status).toBe(409);
+    const details = (await body(response)).details as { kind: string; deletions: unknown[] };
+    expect(details).toMatchObject({
+      kind: 'confirm-retained-deletion',
+      deletions: [{ path: 'dim/v1/texts', urls: ['dim/v1/texts/de.json'] }],
+    });
+    expect(stored()!.retained).toHaveLength(2);
+    const wrong = await fixture.request(
+      '/exports/projects/dim',
+      'PUT',
+      { revision: revisionOf(), config: next, confirmDelete: [] },
+      PARTNER,
+    );
+    expect(wrong.status).toBe(409);
+    const confirmed = await fixture.request(
+      '/exports/projects/dim',
+      'PUT',
+      { revision: revisionOf(), config: next, confirmDelete: details.deletions },
+      PARTNER,
+    );
+    expect(confirmed.status).toBe(200);
+    expect(stored()!.retained).toHaveLength(2);
+    later();
+    const reclaim = structuredClone(stored()!);
+    if ('data' in reclaim.files[0]!) reclaim.files[0].data.languages.push('fr');
+    expect((await put('dim', reclaim)).status).toBe(200);
+    expect(stored()!.retained).toHaveLength(1);
+    expect(stored()!.retained![0]!.snapshot).toMatchObject({ data: { languages: ['es'] } });
+    later(100 * 86_400_000);
+    expect((await put('dim', stored()!)).status).toBe(200);
+    expect(stored()!.retained).toBeUndefined();
+  });
+
+  it('does not evict protected URL-switch entries to make space for a language removal', async () => {
+    const file = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
+    const split = {
+      ...file,
+      data: {
+        ...file.data,
+        languageFiles: 'perLanguage' as const,
+        languages: ['en' as const, 'de' as const],
+      },
+    };
+    const previous: ExportConfig = {
+      ...dimConfig(),
+      files: [split],
+      retained: ['older', 'oldest'].map((id) => ({
+        path: `dim/v1/${id}.json`,
+        uid: file.uid,
+        formatVersion: 1,
+        snapshot: { ...file, id },
+        until: retainUntil(new Date()),
+      })),
+    };
+    fixture.moveData({ 'exports/projects/dim.json': previous });
+    later();
+    const next = structuredClone(previous);
+    if ('data' in next.files[0]!) next.files[0].data.languages = ['en'];
+    const response = await put('dim', next);
+    expect(response.status).toBe(400);
+    expect((await body(response)).error).toContain(
+      'a maintainer can delete one after its window ends',
+    );
+    expect(stored()).toEqual(previous);
+  });
+
+  it('requires confirmation at six project slots, and rechecks a confirmed save after a CAS race', async () => {
+    const files: ExportConfig['files'] = ['one', 'two', 'three'].map((id, i) => ({
+      ...styleFile(id),
+      uid: `ccccccccccccccc${i}`,
+      data: { ...styleFile(id).data, languageFiles: 'perLanguage', languages: ['en', 'de'] },
+    }));
+    const previous: ExportConfig = {
+      ...dimConfig(),
+      files,
+      retained: files.map((file, i) => ({
+        reason: 'language',
+        path: `dim/v1/old-${i}`,
+        uid: file.uid!,
+        formatVersion: 1,
+        snapshot: { ...structuredClone(file), id: `old-${i}` },
+        until: new Date(Date.now() + (90 + i) * 86_400_000).toISOString(),
+      })),
+    };
+    fixture.moveData({ 'exports/projects/dim.json': previous });
+    later();
+    const next = structuredClone(previous);
+    if ('data' in next.files[1]!) next.files[1].data.languages = ['en'];
+    const response = await put('dim', next);
+    const responseBody = await body(response);
+    expect(response.status, JSON.stringify(responseBody)).toBe(409);
+    const details = responseBody.details as { deletions: unknown[] };
+    expect(details.deletions).toEqual([expect.objectContaining({ path: 'dim/v1/old-0' })]);
+    const rev = revisionOf();
+    fixture.beforePatch = () => fixture.moveData({ 'config/permissions.json': config });
+    const revoked = await fixture.request(
+      '/exports/projects/dim',
+      'PUT',
+      { revision: rev, config: next, confirmDelete: details.deletions },
+      PARTNER,
+    );
+    expect(revoked.status).toBe(403);
+    expect(stored()).toEqual(previous);
+    fixture.moveData({ 'config/permissions.json': withPartners });
+    expect(
+      (
+        await fixture.request(
+          '/exports/projects/dim',
+          'PUT',
+          { revision: rev, config: next, confirmDelete: details.deletions },
+          PARTNER,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fixture.request(
+          '/exports/projects/dim',
+          'PUT',
+          { revision: rev, config: next, confirmDelete: details.deletions },
+          PARTNER,
+        )
+      ).status,
+    ).toBe(409);
+  });
   const twoFiles = (): ExportConfig => ({
     ...dimConfig(),
     files: [
@@ -479,11 +699,19 @@ describe('retained URLs and URL ownership', () => {
       retained: [entry('dim/v1/texts.json', combined)],
       problems: [],
     });
-    // Languages change inside the language folder: the same URL key, nothing retained (a
-    // removed language's URL ends at once).
+    // Languages change inside the same folder; removed languages become a kept entry.
     const fewer = { ...split, data: { ...split.data, languages: ['de' as const] } };
     expect(planRetained(project(split), project(fewer), now)).toEqual({
-      retained: [],
+      retained: [
+        {
+          path: 'dim/v1/texts',
+          uid: split.uid,
+          formatVersion: 1,
+          reason: 'language',
+          snapshot: { ...split, data: { ...split.data, languages: ['en'] } },
+          until: retainUntil(now),
+        },
+      ],
       problems: [],
     });
     expect(planRetained(project(split), project(combined), now)).toEqual({
