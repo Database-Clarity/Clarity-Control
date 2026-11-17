@@ -8,19 +8,17 @@ import {
   configLimits,
   configSchemaVersion,
   exportLanguages,
+  filePath,
   isLegacyFile,
   isValidId,
   itemKeys,
+  languageFilesModes,
   shapes,
   styles,
   symbolIds,
 } from './vocabulary.js';
 
 export * from './vocabulary.js';
-
-/** `<project>/v<format>/<file>.json`, relative to the site root (also project.ts filePath). */
-const urlPath = (projectId: string, fileId: string, formatVersion: number) =>
-  `${projectId}/v${formatVersion}/${fileId}.json`;
 
 const id = z
   .string()
@@ -85,6 +83,8 @@ export const dataSchema = z.strictObject({
     (list) => list.length > 0,
     'Choose at least one language',
   ),
+  /** One file with every language, or one URL per language (`<file>/<lang>.json`). */
+  languageFiles: z.enum(languageFilesModes),
   keys: uniqueList(z.enum(itemKeys), itemKeys.length),
   /** Include tooltips whose English text is exactly Bungie's own description. */
   bungieIdentical: z.boolean(),
@@ -186,12 +186,10 @@ export const configSchema = z
     // A retained entry is the old URL of one of this project's files: its path is the path its
     // snapshot had, and every URL (active or retained) belongs to exactly one entry.
     const paths = new Map<string, string>();
-    config.files.forEach((file, index) =>
-      paths.set(urlPath(config.id, file.id, file.formatVersion), `files.${index}`),
-    );
+    config.files.forEach((file, index) => paths.set(filePath(config.id, file), `files.${index}`));
     (config.retained ?? []).forEach((entry, index) => {
       const at = ['retained', index];
-      const own = urlPath(config.id, entry.snapshot.id, entry.formatVersion);
+      const own = filePath(config.id, { ...entry.snapshot, formatVersion: entry.formatVersion });
       if (entry.path !== own)
         ctx.addIssue({
           code: 'custom',
@@ -289,7 +287,7 @@ export function immutableChanges(
   const retained = new Set((previous.retained ?? []).map((entry) => entry.uid));
   const owners = new Map<string, string>();
   for (const file of previous.files)
-    if (file.uid) owners.set(urlPath(previous.id, file.id, file.formatVersion), file.uid);
+    if (file.uid) owners.set(filePath(previous.id, file), file.uid);
   for (const entry of previous.retained ?? []) owners.set(entry.path, entry.uid);
   for (const file of next.files) {
     if (file.uid && !active.has(file.uid)) {
@@ -297,7 +295,7 @@ export function immutableChanges(
         problems.push(`File ${file.id} has a uid the server did not assign`);
       else if (!maintainer) problems.push(`Only a maintainer can restore file ${file.id}`);
     }
-    const path = urlPath(next.id, file.id, file.formatVersion);
+    const path = filePath(next.id, file);
     const owner = owners.get(path);
     if (owner !== undefined && owner !== file.uid)
       problems.push(`The URL ${path} belongs to another file`);

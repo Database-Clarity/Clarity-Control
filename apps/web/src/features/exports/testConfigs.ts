@@ -40,6 +40,7 @@ export function randomFile(seed: number, categories: readonly string[]): StyleFi
       frameAliases: random() < 0.5,
       languages: languages.length ? languages : ['en'],
       keys: some(itemKeys, 0.5),
+      languageFiles: 'combined',
       bungieIdentical: random() < 0.3,
     },
     shape,

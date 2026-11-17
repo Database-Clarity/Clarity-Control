@@ -57,6 +57,7 @@ const style = (id: string, uid: string, extra: Record<string, unknown> = {}) => 
     frameAliases: true,
     languages: ['en'],
     keys: ['name'],
+    languageFiles: 'combined',
     bungieIdentical: false,
   }),
   uid,
@@ -439,10 +440,10 @@ describe('pins and the legacy job', () => {
     );
     expect(status.legacy['dim.json']!.outcome).toBe('frozen');
     const index = harness.servedJson<{
-      files: { path: string; outcome: string }[];
+      files: { path: string; status: string }[];
       notices: { kind: string }[];
     }>('alpha/index.json');
-    expect(index.files.find((file) => file.path === 'alpha/v1/dim.json')?.outcome).toBe('frozen');
+    expect(index.files.find((file) => file.path === 'alpha/v1/dim.json')?.status).toBe('frozen');
     expect(index.notices.map((notice) => notice.kind)).toEqual(
       expect.arrayContaining(['frozen', 'carried-forward']),
     );
@@ -450,6 +451,92 @@ describe('pins and the legacy job', () => {
 });
 
 describe('build-site per-file outcomes', () => {
+  it('carried bytes keep the languages they hold in index.json (failed build and budget skip)', async () => {
+    harness = new Harness();
+    const file = style('main', 'alpha00001');
+    await harness.seed({ input: fixtureText(), projects: { alpha: project('alpha', [file]) } });
+    expectOk(harness.legacyRun());
+    expectOk(harness.siteRun());
+    const published = harness.served('alpha/v1/main.json');
+    file.data = { ...file.data, languages: ['de', 'en'] };
+    harness.commit('editor-data', {
+      'exports/projects/alpha.json': JSON.stringify(project('alpha', [file])),
+    });
+    const entry = () =>
+      harness.servedJson<{ files: { languages: string[]; status: string }[] }>('alpha/index.json')
+        .files[0];
+    for (const extra of [
+      ['--max-bytes', '20'],
+      ['--carry-after', '0'],
+    ]) {
+      expectOk(harness.siteRun({ extra }));
+      expect(harness.served('alpha/v1/main.json')).toEqual(published);
+      expect(entry()).toMatchObject({ languages: ['en'], status: 'stale' });
+      expect(readJson(harness.served('alpha/v1/main.json')).languages).toEqual(['en']);
+    }
+    expectOk(harness.siteRun());
+    expect(entry()).toMatchObject({ languages: ['en', 'de'], status: 'current' });
+  }, 180_000);
+
+  it('a file split per language publishes one URL per language from one build; a retained one keeps its URL set', async () => {
+    harness = new Harness();
+    const split = (id: string, uid: string) => {
+      const file = style(id, uid);
+      file.data = { ...file.data, languages: ['en', 'de', 'fr'], languageFiles: 'perLanguage' };
+      return file;
+    };
+    const until = '2099-01-01T00:00:00.000Z';
+    const retained = [
+      {
+        path: 'alpha/v1/old',
+        uid: 'alpha00009',
+        formatVersion: 1,
+        snapshot: split('old', 'alpha00009'),
+        until,
+      },
+    ];
+    await harness.seed({
+      input: fixtureText(),
+      projects: { alpha: project('alpha', [split('main', 'alpha00001')], retained) },
+    });
+    expectOk(harness.legacyRun());
+    expectOk(harness.siteRun());
+    const index = harness.servedJson<{
+      files: { path: string; languages: string[]; status: string; updatesUntil?: string }[];
+    }>('alpha/index.json');
+    const languages = ['en', 'de', 'fr'];
+    expect(
+      index.files.map((file) => [file.path, file.languages, file.status, file.updatesUntil]),
+    ).toEqual([
+      ...languages.map((language) => [
+        `alpha/v1/main/${language}.json`,
+        [language],
+        'current',
+        undefined,
+      ]),
+      ...languages.map((language) => [
+        `alpha/v1/old/${language}.json`,
+        [language],
+        'current',
+        until,
+      ]),
+    ]);
+    const english = readJson(harness.served('alpha/v1/main/en.json'));
+    for (const language of languages) {
+      const file = readJson(harness.served(`alpha/v1/main/${language}.json`));
+      expect(file.languages).toEqual([language]);
+      // Complete in every language: the fixture's untranslated perks carry the English text.
+      expect(Object.keys(file.perks)).toEqual(Object.keys(english.perks));
+    }
+    // One build per file: attempts are kept per file (its URL key), outcomes per URL.
+    const manifest = harness.servedJson<{
+      files: Record<string, { outcome: string }>;
+      attempts: Record<string, string>;
+    }>('_build/manifest.json');
+    expect(Object.keys(manifest.attempts).sort()).toEqual(['alpha/v1/main', 'alpha/v1/old']);
+    expect(manifest.files['alpha/v1/main/de.json']!.outcome).toBe('built');
+  }, 180_000);
+
   it('a retained copy of a deployed legacy preset freezes on a vocabulary change; the active copy updates', async () => {
     harness = new Harness();
     const retained = [
@@ -580,6 +667,7 @@ describe('build-site per-file outcomes', () => {
       frameAliases: true,
       languages: ['en'],
       keys: ['name', 'itemHash'],
+      languageFiles: 'combined',
       bungieIdentical: false,
     };
     harness.commit('editor-data', {

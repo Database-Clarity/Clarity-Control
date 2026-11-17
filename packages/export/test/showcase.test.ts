@@ -6,6 +6,7 @@ import {
   deployedLegacyPresets,
   legacyPresets,
   newStyleFile,
+  showcaseText as engineShowcaseText,
   styles,
   type LegacyInput,
 } from '../src/index.js';
@@ -56,7 +57,7 @@ for (const style of styles) {
     expect(Object.keys(plan.expanded!)).toEqual(['100', showcaseId]);
     expect(plan.expanded![showcaseId].descriptions).toEqual(plan.expanded!['100'].descriptions);
     if (style === 'structured')
-      expect(JSON.stringify(plan.expanded![showcaseId].descriptions).includes('elementText')).toBe(elementTags);
+      expect(JSON.stringify(plan.expanded![showcaseId].descriptions).includes('"element":')).toBe(elementTags);
   });
   test(`${style}: opt-in adds exactly one reserved entry, with fixed output bytes`, async () => {
     const file = newStyleFile('example', style);
@@ -80,6 +81,11 @@ for (const style of styles) {
     );
   });
 }
+
+test('the engine exports the showcase markup source it compiles', () => {
+  expect(engineShowcaseText).toBe(showcaseText);
+  expect(engineShowcaseText.length).toBeGreaterThan(0);
+});
 
 test('the seven frozen legacy file configs cannot opt in', () => {
   expect(deployedLegacyPresets).toHaveLength(7);

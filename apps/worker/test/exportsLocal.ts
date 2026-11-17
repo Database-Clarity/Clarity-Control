@@ -23,7 +23,8 @@ const styleFile = (id: string, uid: string, cats: string[]) => ({
     sandboxPerks: cats.slice(0, 4),
     frameAliases: true,
     languages: ['en', 'de', 'fr', 'es'],
-    keys: ['name', 'itemHash', 'itemName', 'type'],
+    keys: ['name', 'itemHash', 'itemName', 'category'],
+    languageFiles: 'combined',
     bungieIdentical: false,
   },
   format: {
