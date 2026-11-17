@@ -31726,6 +31726,11 @@ var SchedulePreparer = class {
     const index = scheduleIndexSchema.parse({
       batches: entries.filter((b) => isOpenStatus(b.status) || keep.has(b.id))
     });
+    const previous = scheduleIndexSchema.safeParse(this.pub.read(tree, schedulePaths.index));
+    if (previous.success && stableStringify({
+      batches: [...previous.data.batches].sort((a, b) => a.id.localeCompare(b.id))
+    }) === stableStringify(index))
+      return;
     tree[schedulePaths.index] = this.pub.writeBlob(json2(index));
   }
   collision(tree, opId) {
