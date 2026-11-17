@@ -904,7 +904,7 @@ const symbolAbout: Partial<Record<FormatRow, string>> = {
   exotic: 'Exotic names.',
   pve: 'Values that apply in PvE, shown beside their PvP value.',
   pvp: 'Values that apply only in PvP, such as [15%].',
-  elementText: 'Words tagged with an element, such as Jolt: their element tint (Element tags on).',
+  elementText: 'Words tagged with an element, such as Jolt, in its colour when Element tags is on.',
 };
 
 type ModeOption = { value: string; label: string; disabled?: boolean };
