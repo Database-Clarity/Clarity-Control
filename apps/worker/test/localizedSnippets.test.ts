@@ -134,7 +134,7 @@ it('rejects invalid skeletons with a named error, unknown ids, stale hashes, and
     expect((await save(1, next)).status).toBe(400);
   expect(fixture.commits).toHaveLength(0);
 });
-it('localizes built-ins and falls back for a stored current-hash skeleton mismatch', async () => {
+it('localizes built-ins and falls back for a stored stale hash', async () => {
   const initial = await getLocalizedSnippets('de');
   const first = initial.snippets[0]!;
   expect(
@@ -147,7 +147,7 @@ it('localizes built-ins and falls back for a stored current-hash skeleton mismat
       )
     ).status,
   ).toBe(200);
-  fixture.moveData({ 'snippets/de.json': { [source.id]: { ...translation, template: 'wrong' } } });
+  fixture.moveData({ 'snippets/de.json': { [source.id]: { ...translation, enHash: 'a'.repeat(64) } } });
   expect((await getLocalizedSnippets('de')).snippets.at(-1)?.hint).toBe('EN');
 });
 it('retries disjoint races, rejects competing entry writes, and reauthorizes managers', async () => {

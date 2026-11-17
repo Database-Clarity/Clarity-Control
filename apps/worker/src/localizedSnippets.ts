@@ -66,15 +66,8 @@ export async function localizedSnippetsRoute(
           const enHash = await snippetEnglishHash(source.template);
           const translation = translations[source.id];
           const outdated = !!translation && translation.enHash !== enHash;
-          let valid = false;
-          if (translation && !outdated) {
-            try {
-              validateSnippetTranslation(source.template, translation.template);
-              valid = true;
-            } catch (error) {
-              if (!(error instanceof SnippetSkeletonError)) throw error;
-            }
-          }
+          // PUT validates the template at this hash. Reads only check source freshness.
+          const valid = !!translation && !outdated;
           return {
             id: source.id,
             label: valid ? translation!.label : source.label,
