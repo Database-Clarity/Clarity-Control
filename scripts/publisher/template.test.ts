@@ -35,6 +35,7 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
       'aliasGroups',
       'globalsRelease',
       'schedulePreparationV1',
+      'exoticTags',
     ],
   });
   expect(

@@ -35,6 +35,8 @@ for (const marker of ['applyInactiveLive(', 'inactiveRemovalHash(', 'config/inac
     throw new Error(`Publisher runtime lacks inactive moves (${marker})`);
 if (!runtime.includes('replaceAll("<arrow/>"'))
   throw new Error('Publisher runtime lacks arrow symbol support; refusing its PIN');
+if (!runtime.includes('lowerExoticMarkup('))
+  throw new Error('Publisher runtime lacks Exotic tag lowering; refusing its PIN');
 // Number tokens must resolve from each tooltip's English map before consumer markup lowers.
 for (const marker of ['resolveNumberTokens(', 'validateNumberTooltip(', 'numberValues('])
   if (!runtime.includes(marker))
@@ -99,6 +101,7 @@ writeFileSync(
         'aliasGroups',
         'globalsRelease',
         'schedulePreparationV1',
+        'exoticTags',
       ],
     },
     null,

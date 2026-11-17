@@ -1,4 +1,5 @@
 import { lowerElementTags } from './elementTags.js';
+import { markupCommentContext, removeMarkupComments } from './comments.js';
 import { resolveNumberTokens, type NumberValues } from '../numbers/map.js';
 
 /**
@@ -17,6 +18,33 @@ import { resolveNumberTokens, type NumberValues } from '../numbers/map.js';
 export const enhancedArrowMarkup = '<enhanced/>';
 /** The legacy spelling of the arrow: the global variable e. Read forever, no longer offered. */
 export const legacyEnhancedArrow = '#e';
+
+const exoticTagPattern = /<exotic(?= |\/>)/g;
+const commentsOrCR = /\/\*|\/\/|\r/;
+
+/** Exotic authoring syntax, including keywords joined by production comment removal. */
+export function hasExoticMarkup(text: string): boolean {
+  if (!text.includes('<')) return false;
+  return /<exotic(?= |\/>)/.test(commentsOrCR.test(text) ? removeMarkupComments(text) : text);
+}
+
+/** Keep source comments intact while lowering the keyword consumers read as yellow. */
+export function lowerExoticMarkup(text: string): string {
+  if (
+    !text.includes('<') ||
+    (!text.includes('exotic') && !text.includes('/*') && !text.includes('\r'))
+  )
+    return text;
+  if (!commentsOrCR.test(text)) return text.replace(exoticTagPattern, '<yellow');
+  const context = markupCommentContext(text);
+  const matches = [...context.text.matchAll(exoticTagPattern)];
+  if (!matches.length) return text;
+  const characters = text.split('');
+  for (const match of matches)
+    for (let index = 0; index < 6; index++)
+      characters[context.offsets[match.index + 1 + index]!] = 'yellow'[index]!;
+  return characters.join('');
+}
 
 /** A variable reference: `#{name}` (delimited) or `#name` (greedy, today's form). */
 export const variableReferencePattern = /#\{([a-zA-Z0-9]+)\}|#([a-zA-Z0-9]+)/g;
@@ -111,7 +139,7 @@ const delimited = /#\{([a-zA-Z0-9]+)\}|<enhanced\/>/g;
  */
 export function lowerDelimitedMarkup(text: string): string {
   // Exotic is authoring syntax; consumer class names and bytes remain yellow.
-  text = text.replace(/<exotic(?= |\/>)/g, '<yellow');
+  text = lowerExoticMarkup(text);
   if (!text.includes('#{') && !text.includes(enhancedArrowMarkup)) return text;
   const lines = text.split('\n');
   let changed = false;

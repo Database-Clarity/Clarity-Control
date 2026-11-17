@@ -499,6 +499,37 @@ describe('Worker → signed intent → Action → publisher → web', () => {
     expect(f.current()['schedule/due.json']).toEqual({ entries: [] });
   });
 
+  it.each([false, true])(
+    'gates Exotic during actual scheduled-save preparation (capable=%s)',
+    async (capable) => {
+      const accepted = member();
+      if (capable) {
+        const pin = f.current()['.publisher/PIN'] as { capabilities: string[] };
+        f.moveData({
+          '.publisher/PIN': { ...pin, capabilities: [...pin.capabilities, 'exoticTags'] },
+        });
+      }
+      const next = tooltip('<exo/* keep */tic Gjallarhorn />');
+      next.text.en!.updatedAt = new Date(clock).toISOString();
+      const queued = await api.queueBatchSave(
+        B,
+        batch().revision,
+        [{ hash: 123, base: accepted.proposed, next }],
+        'Save Exotic draft',
+      );
+      expect(queued.request.status).toBe('pending');
+      expect(member()).toEqual(accepted);
+      await prep.drain();
+      const status = await api.readBatchStatus(B, undefined, queued.requestId);
+      expect(status.request?.status).toBe(capable ? 'completed' : 'needs_attention');
+      if (capable) expect(member().proposed.text.en?.text).toBe(next.text.en?.text);
+      else {
+        expect(JSON.stringify(status.request?.reasons)).toContain('exoticTags');
+        expect(member()).toEqual(accepted);
+      }
+    },
+  );
+
   it('keeps draft saves pending until real materialization confirms the accepted version', async () => {
     const accepted = member(),
       next = tooltip('new accepted draft');

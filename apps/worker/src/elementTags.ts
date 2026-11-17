@@ -2,6 +2,7 @@ import {
   enhancedArrowMarkup,
   findElementTags,
   hasDelimitedMarkup,
+  hasExoticMarkup,
   reservedNameMessage,
   reservedNames,
   validateNumberTooltip,
@@ -30,6 +31,12 @@ export const markupBracesCapability = 'markupBraces';
 export const prismaticTagsCapability = 'prismaticTags';
 export const arrowSymbolCapability = 'arrowSymbol';
 export const numberTokensCapability = 'numberTokens';
+/** Installed publisher builds that lower Exotic keywords, including comment-split spellings. */
+export const exoticTagsCapability = 'exoticTags';
+
+function hasExoticText(tooltip: Tooltip): boolean {
+  return Object.values(tooltip.text).some((entry) => entry && hasExoticMarkup(entry.text));
+}
 
 function hasNumberTokens(tooltip: Tooltip): boolean {
   return Object.values(tooltip.text).some((entry) => entry?.text.includes('#{='));
@@ -91,7 +98,8 @@ export function needsLowering(tooltip: Tooltip): boolean {
     hasTaggedText(tooltip) ||
     hasDelimitedText(tooltip) ||
     hasArrowSymbol(tooltip) ||
-    hasNumberTokens(tooltip)
+    hasNumberTokens(tooltip) ||
+    hasExoticText(tooltip)
   );
 }
 
@@ -141,6 +149,14 @@ export function refuseUnlowerable(
 ): void {
   const issue = validateNumberTooltip(tooltip, head)[0];
   if (issue) throw new HttpError(422, `Tooltip ${tooltip.hash} (${issue.lang}): ${issue.message}`);
+  if (exporter.publisherEnabled() && hasExoticText(tooltip)) {
+    const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;
+    if (!Array.isArray(capabilities) || !capabilities.includes(exoticTagsCapability))
+      throw new HttpError(
+        422,
+        `Tooltip ${tooltip.hash} contains <exotic … />, which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${exoticTagsCapability}" capability). Update the installed publisher first.`,
+      );
+  }
   if (hasNumberTokens(tooltip)) {
     const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;
     if (

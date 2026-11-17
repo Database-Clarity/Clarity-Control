@@ -100,6 +100,13 @@ identifies the exact implementation. Do not edit generated publisher.mjs by hand
 
 Current template source: `422bb35cc0c0daecc411ec8701e4d35e12a8d17a` (v2).
 Runtime SHA-256: `ee54fde36e0c4d36f6f9701697386a992b6df60d8d4720a697e3329e10056d04`.
+
+The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
+`yellow` consumer style, including comment-split keywords. While publishing is enabled,
+save, publish, and scheduled-proposal validation refuse Exotic text until the publisher
+installed in the data branch declares this capability. Install the updated template
+before saving Exotic text or running the separate gated data rewrite. The deprecated
+`yellow` alias and the format v1 `yellow` configuration key retain compatibility.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.

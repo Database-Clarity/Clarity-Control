@@ -502,6 +502,21 @@ it.each(['native', 'transitive'] as const)(
   },
 );
 
+it('refuses Exotic publication with an old PIN, and accepts a capable PIN', async () => {
+  const tagged = tooltip('<exo/* keep */tic Gjallarhorn />');
+  f.moveData({
+    'tooltips/123.json': tagged,
+    '.publisher/PIN': { capabilities: ['elementTags', 'markupBraces'] },
+  });
+  const body = { ...value, expected: { 123: await publishableHash(tagged, f.aliases) } };
+  const refused = await f.request('/publish', 'POST', body);
+  expect(refused.status).toBe(422);
+  expect((await refused.json()).error).toContain('exoticTags');
+  expect(f.current()[requestPath]).toBeUndefined();
+  f.moveData({ '.publisher/PIN': { capabilities: ['exoticTags'] } });
+  expect((await f.request('/publish', 'POST', body)).status).toBe(202);
+});
+
 it('refuses element-tagged text unless the publisher PIN at the data head declares elementTags', async () => {
   const tagged = tooltip('Gain <solar Scorch />.');
   f.moveData({ 'tooltips/123.json': tagged });
