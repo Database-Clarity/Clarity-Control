@@ -994,7 +994,7 @@ it.each(['current', 'historical'])(
   },
 );
 
-it('rejects an upcoming consumer affected only by another variable aggregate fallback', async () => {
+it('keeps sync available for an upcoming consumer affected by aggregate fallback', async () => {
   const f = await fixture();
   const old = projectGlobals(f.published);
   old[2].text.de = {
@@ -1087,9 +1087,9 @@ it('rejects an upcoming consumer affected only by another variable aggregate fal
   expect(census.complete).toBe(true);
   const row = census.rows.find((row) => row.consumer.hash === 42 && row.consumer.lang === 'de')!;
   expect(row.before?.rendered).not.toBe(row.after?.rendered);
-  await expect(f.globals.plan(f.current(), f.git.head(D)!, f.git.head(L)!)).rejects.toThrow(
-    'upcoming',
-  );
+  // Upcoming pins are invalidated by the preparer; their presence must not wedge
+  // the sync that produces the current global review ledger.
+  await expect(f.globals.plan(f.current(), f.git.head(D)!, f.git.head(L)!)).resolves.toBeDefined();
 });
 
 it('withholds a title-local name proof and keeps real S2 from creating a conflicting entry', async () => {

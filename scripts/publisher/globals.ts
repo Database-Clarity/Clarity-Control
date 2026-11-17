@@ -75,6 +75,8 @@ export interface GlobalReleaseReceipt {
   sources: GlobalSources;
   digest: string;
   published: z.infer<typeof globalPublishedSchema>;
+  /** Immutable signed scheduling source; never an Action-selected replacement pin. */
+  batchSource?: string;
 }
 
 /** Exact Git tree OID from the repository's flat blob tree, without shelling out or reading blobs. */
@@ -250,7 +252,7 @@ export class GlobalsPublisher {
         );
       });
   }
-  capture(tree: Tree, revision: string, liveCommit: string) {
+  capture(tree: Tree, revision: string, liveCommit: string, roots: Tooltip[] = []) {
     const published = globalPublishedSchema.parse(
       this.read(tree, globalsReleasePaths.published(this.options.liveBranch)),
     );
@@ -312,7 +314,11 @@ export class GlobalsPublisher {
       saved,
       published: published.store,
       authored: snapshot(
-        { ...this.canonicalDocuments(tree, 'tooltips', aliases), ...projectGlobals(saved) },
+        {
+          ...this.canonicalDocuments(tree, 'tooltips', aliases),
+          ...Object.fromEntries(roots.map((document) => [document.hash, document])),
+          ...projectGlobals(saved),
+        },
         'authored',
       ),
       live: {
@@ -362,9 +368,9 @@ export class GlobalsPublisher {
       causes.push(...rowSchema.parse(this.read(tree, path)).review.causes);
     return [...new Map(causes.map((cause) => [stableStringify(cause), cause])).values()];
   }
-  async plan(tree: Tree, revision: string, live: string) {
+  async plan(tree: Tree, revision: string, live: string, roots: Tooltip[] = []) {
     await this.validateCauses(tree, revision);
-    const captured = this.capture(tree, revision, live);
+    const captured = this.capture(tree, revision, live, roots);
     const causes = this.causes(tree);
     const prior = new Map<
       string,
@@ -422,31 +428,8 @@ export class GlobalsPublisher {
         )
           throw new Error('Sync pending: a removed global dependency is still referenced');
       }
-    // Scheduling stays disabled for globals. Frozen upcoming inputs cannot inherit a
-    // changed global silently, even when that batch has never been activated.
-    for (const upcoming of this.upcoming(tree)) {
-      const snapshot = {
-        ...captured.live,
-        tooltips: {
-          ...captured.authored.tooltips,
-          ...upcoming,
-          ...projectGlobals(captured.published),
-        },
-      };
-      const frozen = await planGlobalRelease({
-        ...captured,
-        authored: snapshot,
-        live: snapshot,
-        causes,
-        destination: this.options.liveBranch,
-      });
-      if (
-        frozen.some((component) =>
-          component.rows.some((row) => Object.hasOwn(upcoming, row.view.consumer.hash)),
-        )
-      )
-        throw new Error('Sync pending: upcoming global dependencies require rebase');
-    }
+    // Upcoming versions are checked against their signed pin by SchedulePreparer and
+    // again at claim. They must not prevent the sync that computes current review rows.
     return result;
   }
   private async validateCauses(tree: Tree, head: string) {
@@ -468,12 +451,18 @@ export class GlobalsPublisher {
         throw new Error('Unproven global cause sources');
     }
   }
-  async release(tree: Tree, revision: string, roots: number[], live: string) {
+  async release(
+    tree: Tree,
+    revision: string,
+    roots: number[],
+    live: string,
+    batch?: { source: string; documents: Tooltip[] },
+  ) {
     if (!hasGlobals(tree)) return undefined;
     const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
     const sources = await this.sources(tree, live, revision);
-    const captured = this.capture(tree, revision, live),
-      components = await this.plan(tree, revision, live);
+    const captured = this.capture(tree, revision, live, batch?.documents),
+      components = await this.plan(tree, revision, live, batch?.documents);
     const selected = roots.map((hash) => resolveAlias(hash, captured.authored.aliases));
     const activeSelection = selected.filter(
       (hash) => !isMovedInactive(hash, this.publisher.movesAt(tree)),
@@ -491,7 +480,12 @@ export class GlobalsPublisher {
         component.rows.every((row) => {
           const stored = rowSchema.safeParse(this.read(tree, `globals/reviews/${row.id}.json`));
           return (
-            stored.success && sameSources(stored.data.sources, sources) && this.approved(tree, row)
+            stored.success &&
+            sameSources(
+              batch ? { ...stored.data.sources, upcoming: sources.upcoming } : stored.data.sources,
+              sources,
+            ) &&
+            this.approved(tree, row)
           );
         }),
     );
@@ -533,6 +527,8 @@ export class GlobalsPublisher {
       }
     }
     const globals = projectGlobals(store);
+    if (batch) for (const hash of [2, 3]) if (!hashes.includes(hash)) hashes.push(hash);
+    hashes.sort((a, b) => a - b);
     const documents = hashes.map((hash) => {
       const document =
         globals[hash] ?? captured.authored.tooltips[hash] ?? captured.live.tooltips[hash];
@@ -544,6 +540,106 @@ export class GlobalsPublisher {
       destination: this.options.liveBranch,
       store,
     });
+    if (batch) {
+      if (!this.git.ancestor(batch.source, revision))
+        throw new Error('Scheduled global source is not in data branch history');
+      const sourceTree = this.git.tree(batch.source);
+      if (!hasGlobals(sourceTree))
+        throw new Error('Globals were added after scheduling; return to draft and schedule again');
+      const sourcePin = this.read(sourceTree, '.publisher/PIN') as
+        { sourceSha?: string; sha256?: string } | undefined;
+      if (
+        sourcePin?.sourceSha !== this.options.publisherSha ||
+        sourcePin.sha256 !== this.options.publisherDigest
+      )
+        throw new Error(
+          'The global resolver changed after scheduling; return to draft and schedule again',
+        );
+      const snapshot = {
+        ...captured.live,
+        revision,
+        aliases: captured.authored.aliases,
+        types: captured.authored.types,
+        tooltips: {
+          ...captured.live.tooltips,
+          ...Object.fromEntries(documents.map((document) => [document.hash, document])),
+        },
+      };
+      const pinned = this.store(sourceTree);
+      const pinnedDocuments = this.canonicalDocuments(
+        sourceTree,
+        'live/tooltips',
+        captured.authored.aliases,
+      );
+      for (const document of documents)
+        if (selected.includes(document.hash)) pinnedDocuments[document.hash] = document;
+        else if (document.hash !== 2 && document.hash !== 3) {
+          const original = this.read(sourceTree, `tooltips/${document.hash}.json`);
+          if (!original) throw new Error('Scheduled imported dependency was deleted');
+          pinnedDocuments[document.hash] = tooltipSchema.parse(original);
+        }
+      const originalSnapshot = {
+        ...snapshot,
+        revision: batch.source,
+        tooltips: { ...pinnedDocuments, ...projectGlobals(pinned) },
+      };
+      const comparison = calculateGlobalImpact(
+        originalSnapshot,
+        snapshot,
+        [
+          {
+            kind: 'titles',
+            beforeName: 'Release',
+            cause: { globalId: 'g_release000', beforeRevision: null, afterRevision: 'pin' },
+          },
+        ],
+        this.options.liveBranch,
+      );
+      if (!comparison.complete)
+        throw new Error('Scheduled global dependency closure is incomplete');
+      if (
+        comparison.rows.some(
+          (row) =>
+            selected.includes(row.consumer.hash) &&
+            stableStringify(row.before) !== stableStringify(row.after),
+        )
+      )
+        throw new Error(
+          'Global dependencies changed after scheduling; return to draft and schedule again',
+        );
+      const reads = comparison.rows
+        .filter((row) => selected.includes(row.consumer.hash))
+        .map((row) => row.after!.reads);
+      const used = store.entries.filter(
+        (entry) =>
+          entry.kind === 'titles' ||
+          reads.some(
+            (read) =>
+              read.variables.includes(entry.name) ||
+              read.imports.some((dependency) => dependency.hash === 2),
+          ),
+      );
+      for (const entry of used) {
+        const original = pinned.entries.find((candidate) => candidate.id === entry.id);
+        const current = captured.saved.entries.find((candidate) => candidate.id === entry.id);
+        if (
+          stableStringify(original) !== stableStringify(entry) ||
+          stableStringify(current) !== stableStringify(entry)
+        )
+          throw new Error(
+            `Global ${entry.name} changed after scheduling; return to draft and schedule again`,
+          );
+      }
+      // Removing or renaming a used definition must not turn it into an unobserved absence.
+      for (const entry of pinned.entries)
+        if (
+          (entry.kind === 'titles' || reads.some((read) => read.variables.includes(entry.name))) &&
+          !used.some((candidate) => candidate.id === entry.id)
+        )
+          throw new Error(
+            `Global ${entry.name} changed after scheduling; return to draft and schedule again`,
+          );
+    }
     const digest = await globalIdentityDigest({
       sourceCommit: revision,
       sources,
@@ -552,7 +648,14 @@ export class GlobalsPublisher {
       published,
       rows: ready.flatMap((component) => component.rows),
     });
-    const receipt: GlobalReleaseReceipt = { version: 1, roots, sources, digest, published };
+    const receipt: GlobalReleaseReceipt = {
+      version: 1,
+      roots,
+      sources,
+      digest,
+      published,
+      ...(batch ? { batchSource: batch.source } : {}),
+    };
     return { documents, receipt };
   }
   async validate(

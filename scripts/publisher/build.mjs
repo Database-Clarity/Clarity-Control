@@ -66,6 +66,7 @@ for (const marker of [
   'verifyPreparedPublication(',
   'Cannot restore superseded publication',
   'Schedule preparation CAS exhausted',
+  'Scheduled global source is not in data branch history',
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks schedule preparation (${marker}); refusing its PIN`);
@@ -100,6 +101,7 @@ writeFileSync(
         'numberTokens',
         'aliasGroups',
         'globalsRelease',
+        'scheduledGlobalsV1',
         'schedulePreparationV1',
         'exoticTags',
       ],

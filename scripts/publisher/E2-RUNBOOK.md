@@ -32,6 +32,12 @@ For `schedulePreparationV1`, install the verified runtime and serialized workflo
 reconcile legacy in-flight operations, and retain every installed capability floor. Only then
 deploy compatible Worker and web builds and enable asynchronous admission with owner approval.
 Never downgrade the preparation reader or claim fence while requests or claims remain.
+Before accepting globals schedules, scheduled saves, or Retry, install a verified
+`scheduledGlobalsV1` runtime retaining `globalsRelease`, `schedulePreparationV1`, and every
+existing capability. Root performs this installation in the authorized globals go-live
+sequence. Pinned global edits and owed reviews move affected batches to Needs attention;
+return them to draft and schedule again after review. Never rewrite their signed source
+to adopt newer definitions. Both claim and atomic LIVE/RECORD recheck the closure.
 The Action prepares intents before Globals, bundles, and drains publication in the same run.
 Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the manual fallback
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.

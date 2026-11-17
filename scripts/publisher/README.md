@@ -16,8 +16,14 @@ all accepted members, request results, ready fences, due entries, events, and th
 index. Unprepared batches cannot be claimed. A rejected translator save restores only the
 exact accepted schedule authorized by its signed owner policy; other failures need attention
 and remove the due entry. Infrastructure Retry uses the existing authenticated pipeline kick.
-Scheduled publication with Globals metadata remains refused until pinned upcoming closure
-support is supplied; manual Globals publication retains its atomic LIVE/RECORD transaction.
+The `scheduledGlobalsV1` capability permits asynchronous schedules with Globals metadata.
+The original signed schedule source pins the globals used by the batch's composed roots,
+including nested imports and conservative title preparation, through the real resolver.
+Preparation rechecks ready batches before their due time; changed pins or owed global reviews
+require attention and a fresh schedule, and claim rechecks the same contract. Batch roots,
+approved dependencies, Globals state, activation, and markers join one atomic LIVE/RECORD
+transaction. The Worker refuses globals schedules, scheduled saves, and Retry when the
+installed runtime lacks this capability, globalsRelease, or schedulePreparationV1.
 The prepared `globalsRelease` capability uses `globals/layout.json` and an exact
 `globals/live/<destination>.json` baseline. One serialized Action drain materializes reviews
 and name proofs; failed sync retains causes and rows, and refreshes only occupied-name proofs

@@ -141,6 +141,32 @@ afterEach(() => {
 });
 
 describe('durable asynchronous admission', () => {
+  it.each(['scheduledGlobalsV1', 'globalsRelease', 'schedulePreparationV1'])(
+    'requires the %s floor when globals exist',
+    async (missing) => {
+      f.moveData({
+        'globals/sync.json': { version: 1 },
+        '.publisher/PIN': {
+          capabilities: [
+            'scheduledBatches',
+            'schedulePreparationV1',
+            'globalsRelease',
+            'scheduledGlobalsV1',
+          ].filter((capability) => capability !== missing),
+        },
+      });
+      const head = f.dataHead;
+      expect((await call('schedule', scheduleBody())).status).toBe(422);
+      expect(f.dataHead).toBe(head);
+    },
+  );
+  it('admits globals schedules and scheduled saves only with all installed capabilities', async () => {
+    const capabilities = [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'];
+    f.moveData({ 'globals/sync.json': { version: 1 }, '.publisher/PIN': { capabilities } });
+    expect((await call('schedule', scheduleBody())).status).toBe(202);
+    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
+    expect(f.kicks.size).toBe(1);
+  });
   it.each(['request', 'log'])(
     'refuses a schedule requestId already used by a publication %s',
     async (kind) => {
@@ -662,6 +688,11 @@ describe('preparation cancellation, retry, and claim fences', () => {
     const aggregate = { ...tooltip(), hash: 2 };
     const body = { ...saveBody(), changes: [{ hash: 2, base: aggregate, next: aggregate }] };
     f.moveData({ 'globals/sync.json': { version: 1 } });
+    f.moveData({
+      '.publisher/PIN': {
+        capabilities: [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'],
+      },
+    });
     const head = f.dataHead;
     const refused = await call('save', body);
     expect(refused.status).toBe(409);
@@ -683,10 +714,20 @@ describe('preparation cancellation, retry, and claim fences', () => {
       const strip = <T extends { requestId: string }>({ requestId, ...rest }: T) =>
         preparation ? { requestId, ...rest } : rest;
       const refused = await call('schedule', strip(scheduleBody()));
-      expect(refused.status).toBe(409);
-      expect(refused.body.error).toBe('Scheduling is not available while global entries exist');
+      expect(refused.status).toBe(preparation ? 422 : 409);
+      expect(refused.body.error).toBe(
+        preparation
+          ? 'The installed publisher does not support scheduled globals yet'
+          : 'Scheduling is not available while global entries exist',
+      );
       expect(f.dataHead).toBe(head);
-      // Draft edits stay available.
+      // Draft edits stay available once the globals-capable runtime is installed.
+      if (preparation)
+        f.moveData({
+          '.publisher/PIN': {
+            capabilities: [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'],
+          },
+        });
       // A sync save merges against the member's proposal, so base it on that proposal.
       const edit = {
         hash: 123,
@@ -712,8 +753,8 @@ describe('preparation cancellation, retry, and claim fences', () => {
     f.moveData({ 'globals/sync.json': { version: 1 } });
     const pending = await call('retry', { revision: 3, requestId: RID });
     expect([pending.status, pending.body.error]).toEqual([
-      409,
-      'Scheduling is not available while global entries exist',
+      422,
+      'The installed publisher does not support scheduled globals yet',
     ]);
     expect(f.kicks.size).toBe(0);
     f.moveData({
@@ -726,7 +767,7 @@ describe('preparation cancellation, retry, and claim fences', () => {
       'schedule/due.json': { entries: [] },
     });
     const head = f.dataHead;
-    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(409);
+    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(422);
     expect(f.dataHead).toBe(head);
     expect(f.current()['schedule/due.json']).toEqual({ entries: [] });
   });

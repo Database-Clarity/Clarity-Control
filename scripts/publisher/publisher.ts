@@ -82,7 +82,7 @@ import {
 } from './batch.js';
 import { setTimeout } from 'node:timers/promises';
 import { GlobalsPublisher, hasGlobals, type GlobalReleaseReceipt } from './globals.js';
-import { SchedulePreparer, SCHEDULE_GLOBALS_UNSUPPORTED } from '../schedule-prepare/prepare.js';
+import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import {
   verifiedSource,
   verifiedRequest,
@@ -674,16 +674,33 @@ export class Publisher {
         if (!receipt || !this.git.casMany)
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
         const signed = await this.verifyRequest(receipt.requestBlob, opId, tree);
-        const documents = await new GlobalsPublisher(this).validate(
-          receipt.globals,
-          tree,
-          h,
-          atomicLive.parent,
-        );
+        let documents: Tooltip[] | undefined;
+        if (signed.kind === 'batch') {
+          const plan = await this.batchPlan(
+            tree,
+            signed,
+            this.aliasesAt(tree),
+            h,
+            atomicLive.parent,
+          );
+          if (
+            'failure' in plan ||
+            stableStringify(plan.globals) !== stableStringify(receipt.globals)
+          )
+            throw new ConsumerOutputRejected('Scheduled global receipt identity mismatch');
+          documents = plan.entries.map((entry) =>
+            tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob))),
+          );
+        } else
+          documents = await new GlobalsPublisher(this).validate(
+            receipt.globals,
+            tree,
+            h,
+            atomicLive.parent,
+          );
         if (
           !documents ||
           receipt.sourceCommit !== h ||
-          signed.kind !== 'push' ||
           stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots) ||
           stableStringify(signed.requester) !== stableStringify(receipt.requester) ||
           receipt.publisherSha !== this.options.publisherSha ||
@@ -948,7 +965,6 @@ export class Publisher {
         return;
       }
       if (payload.kind === 'batch') {
-        if (hasGlobals(tree)) throw new ConsumerOutputRejected(SCHEDULE_GLOBALS_UNSUPPORTED);
         const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
         if (!r) return;
         candidate = this.createCandidate(opId, blob, live, r);
@@ -1224,6 +1240,8 @@ export class Publisher {
     tree: Tree,
     payload: BatchPublishPayload,
     aliases: Aliases,
+    revision = this.head(this.options.dataBranch),
+    live = this.head(this.options.liveBranch),
   ): Promise<
     | { failure: Failure }
     | {
@@ -1231,6 +1249,7 @@ export class Publisher {
         now: number;
         exported: ReturnType<typeof exportLegacy>;
         changed: number[];
+        globals?: GlobalReleaseReceipt;
       }
   > {
     let members;
@@ -1314,10 +1333,45 @@ export class Publisher {
     }
     if (outcomes.some((o) => o.status !== 'accepted'))
       return { failure: { status: 'stale', outcomes } };
-    const checked = this.checkAndExport(tree, tooltips, aliases);
+    let documents = tooltips;
+    let globals: GlobalReleaseReceipt | undefined;
+    if (hasGlobals(tree)) {
+      try {
+        new SchedulePreparer(this).pin(tree);
+        const pin = this.read<{ capabilities: string[] }>(tree, '.publisher/PIN');
+        if (!pin?.capabilities.includes('scheduledGlobalsV1'))
+          throw new Error('The installed publisher does not support scheduled globals yet');
+        if (members.some((member) => member.hash === 2 || member.hash === 3))
+          throw new Error('Use global entry mutations instead of scheduled aggregate edits');
+        const envelope = this.read<PreparedPublication>(tree, paths(payload.opId).request);
+        if (!envelope?.sourceIntent)
+          throw new Error('Scheduled globals require a signed preparation source; schedule again');
+        const source = verifiedSource(this, envelope.sourceIntent);
+        const release = await new GlobalsPublisher(this).release(
+          tree,
+          revision,
+          payload.hashes,
+          live,
+          {
+            source: source.intent.sourceCommit,
+            documents: tooltips,
+          },
+        );
+        documents = release!.documents;
+        globals = release!.receipt;
+      } catch (error) {
+        return {
+          failure: {
+            status: 'rejected',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
+    }
+    const checked = this.checkAndExport(tree, documents, aliases);
     if ('error' in checked) return { failure: { status: 'rejected', ...checked } };
     const entries: Entry[] = [];
-    for (const tooltip of tooltips)
+    for (const tooltip of documents)
       entries.push({
         hash: tooltip.hash,
         digest: await inactivePublishableHash(tooltip, aliases, this.movesAt(tree)),
@@ -1328,6 +1382,7 @@ export class Publisher {
       now: checked.now,
       exported: checked.exported,
       changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
+      ...(globals ? { globals } : {}),
     };
   }
   /**
@@ -1476,7 +1531,7 @@ export class Publisher {
           error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`,
         });
       }
-    const plan = await this.batchPlan(at, payload, frozenAliases);
+    const plan = await this.batchPlan(at, payload, frozenAliases, source, live);
     if ('failure' in plan) return fail(plan.failure);
     const receipt: Receipt = {
       opId,
@@ -1494,6 +1549,7 @@ export class Publisher {
       intentDigest: payload.intentDigest,
       batchId: payload.batchId,
       contentRevision: payload.contentRevision,
+      ...(plan.globals ? { globals: plan.globals } : {}),
     };
     // A refused batch must not leave even a claim commit behind.
     this.merge(live, receipt);
@@ -1528,6 +1584,20 @@ export class Publisher {
         // claimed and drains first): run() re-reads the queue and re-validates from the top.
         return undefined;
       }
+    }
+    if (receipt.globals && sourceCommit !== source) {
+      // CLAIM changes only scheduling metadata. Rebind the head-bound release certificate
+      // to S' while preserving the immutable signed dependency pin.
+      const frozen = await this.batchPlan(
+        this.git.tree(sourceCommit),
+        payload,
+        frozenAliases,
+        sourceCommit,
+        live,
+      );
+      if ('failure' in frozen)
+        throw new ConsumerOutputRejected(frozen.failure.error ?? 'Scheduled global claim changed');
+      receipt.globals = frozen.globals;
     }
     return { ...receipt, sourceCommit };
   }
@@ -1601,8 +1671,18 @@ export class Publisher {
     // The composed snapshots exist only as receipt OIDs: rewrite them from S' (deterministic)
     // so a recovering runner holds the blobs, and fail closed if they ever differ.
     const byHash = new Map(members.map((m) => [m.hash, m]));
+    if (
+      receipt.globals &&
+      (stableStringify(receipt.globals.roots) !== stableStringify(payload.hashes) ||
+        stableStringify(members.map((member) => member.hash)) !== stableStringify(payload.hashes) ||
+        members.some((member) => !receipt.entries.some((entry) => entry.hash === member.hash)))
+    )
+      throw new Error('Global batch receipt roots differ from its signed members');
     for (const e of receipt.entries) {
       const m = byHash.get(e.hash);
+      // Global closure entries were checked as a set before the atomic transaction.
+      // They publish alongside the batch, but only actual members activate into current.
+      if (!m && receipt.globals) continue;
       if (!m) throw new Error(`Receipt member ${e.hash} missing at S'; operator required`);
       const saved = this.read<unknown>(frozen, `tooltips/${m.hash}.json`);
       const composed = this.composeMember(
@@ -1781,6 +1861,8 @@ export class Publisher {
         await new SchedulePreparer(this).drain();
         await new GlobalsPublisher(this).drain();
       }
+      if (hasGlobals(this.git.tree(this.head(this.options.dataBranch))))
+        await new SchedulePreparer(this).drain(true);
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 60_000; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));

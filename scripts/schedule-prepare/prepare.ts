@@ -60,8 +60,6 @@ class PreparationRejected extends Error {
 }
 /** Only a known rejection of submitted edits may exercise keep_scheduled. */
 class ProposalRejected extends PreparationRejected {}
-// Root ruling: SCHED-GLOBALS owns lifting this boundary before the G1 bootstrap.
-export const SCHEDULE_GLOBALS_UNSUPPORTED = 'Scheduled publication does not support globals yet';
 const saveInput = z
   .object({
     requestId: z.string(),
@@ -258,7 +256,6 @@ export class SchedulePreparer {
     head: string,
   ) {
     this.pin(tree);
-    if (hasGlobals(tree)) reject(SCHEDULE_GLOBALS_UNSUPPORTED);
     const members = batchMembers(this.pub, tree, payload.batchId);
     if (!members.length || members.length > memberCap)
       reject('Invalid scheduled batch member count');
@@ -285,7 +282,7 @@ export class SchedulePreparer {
       ]),
       pushed,
     );
-    const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree));
+    const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree), head);
     if ('failure' in plan) {
       const Rejection = plan.failure.proposalRejected
         ? ProposalRejected
@@ -380,8 +377,8 @@ export class SchedulePreparer {
         payload.notBefore !== batch.notBefore
       )
         reject('Publication approval identity mismatch');
-      await this.validatePublication(tree, payload, head);
       tree[paths(batch.opId!).request] = this.pub.writeBlob(json(envelope));
+      await this.validatePublication(tree, payload, head);
       ready = request.requestId;
     }
     const at = iso(this.pub.options.now());
@@ -564,7 +561,7 @@ export class SchedulePreparer {
     );
     this.refreshDue(tree);
   }
-  async drain() {
+  async drain(readyOnly = false) {
     const ref = `refs/heads/${this.pub.options.dataBranch}`;
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = this.pub.head(this.pub.options.dataBranch),
@@ -573,6 +570,7 @@ export class SchedulePreparer {
       // Only outstanding requests are relevant; retained terminal evidence and *.body.json
       // never enter enumeration, regardless of the size of the request history.
       const requests = this.batches(tree)
+        .filter(() => !readyOnly)
         .filter((b) => b.status === 'preparing' && b.preparation)
         .map((b) => scheduleIntentPaths.request(b.preparation!.requestId))
         .sort();
@@ -595,6 +593,39 @@ export class SchedulePreparer {
         const current = batchSchema.parse(this.pub.read(tree, schedulePaths.batch(batch.id)));
         if (!matchesPreparationFence(current, request)) continue;
         Object.assign(tree, next);
+      }
+      if (hasGlobals(tree)) {
+        // A data push can change a dependency long before notBefore. Do not leave an
+        // obsolete ready fence looking scheduled until the due-time claim discovers it.
+        for (const batch of this.batches(tree).filter((batch) => batch.status === 'scheduled')) {
+          if (!batch.preparedRequestId) continue;
+          const path = scheduleIntentPaths.request(batch.preparedRequestId);
+          const checked = verifiedRequest(this.pub, tree, path);
+          try {
+            const raw = this.pub.read<PreparedPublication>(tree, paths(batch.opId!).request);
+            const payload = await this.pub.verifyRequest(
+              this.pub.writeBlob(json(raw)),
+              batch.opId!,
+              tree,
+            );
+            if (payload.kind !== 'batch') reject('Scheduled publication identity mismatch');
+            await this.validatePublication(tree, payload, head);
+          } catch (error) {
+            const pending = batchSchema.parse({
+              ...batch,
+              status: 'preparing',
+              preparedRequestId: null,
+              preparation: {
+                requestId: checked.request.requestId,
+                kind: checked.intent.kind,
+                returnStatus: 'scheduled',
+                requestedAt: checked.intent.createdAt,
+                attempt: checked.request.attempt,
+              },
+            });
+            await this.failure(tree, pending, checked.request, error, checked);
+          }
+        }
       }
       this.refreshIndex(tree);
       if (stableStringify(tree) === stableStringify(original)) return;

@@ -30,7 +30,7 @@ import {
   readAdmissionState as readState,
   refuseClaimed,
   globalsListing,
-  refuseGlobalScheduling,
+  requireScheduledGlobals,
   refuseRevision,
   requireBatch,
   saveChangeCap,
@@ -235,6 +235,7 @@ export async function admitBatchRequest(
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
+    requireScheduledGlobals(state.trees[1] ?? null, state.pin);
     const batch = requireBatch(state, batchId);
     const existing = readRequest(state);
     if (existing) {
@@ -262,9 +263,8 @@ export async function admitBatchRequest(
     if (hashes.length > memberCap)
       throw new HttpError(422, `A batch holds at most ${memberCap} tooltips`);
     returnStatus = kind === 'schedule' || batch.status === 'scheduled' ? 'scheduled' : 'draft';
-    if (returnStatus === 'scheduled') refuseGlobalScheduling(state.trees[1] ?? null);
     // Draft saves stay available, but aggregate members fail closed once globals/ exists.
-    else if (
+    if (
       state.trees[1] &&
       [...hashes, ...('changes' in input ? input.changes.map(({ hash }) => hash) : [])].some(
         (hash) => hash === 2 || hash === 3,
@@ -453,6 +453,7 @@ export async function retryBatchRequest(
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
+    requireScheduledGlobals(state.trees[1] ?? null, state.pin);
     const batch = requireBatch(state, batchId);
     const record = readRequest(state);
     if (!record || batch.preparation?.requestId !== input.requestId)
@@ -463,9 +464,6 @@ export async function retryBatchRequest(
       (record.requesterId !== user.id || batch.preparation.kind !== 'save')
     )
       throw new HttpError(403, 'Permission denied');
-    // A Retry kicks or re-arms scheduling: refuse it once globals exist, like admission.
-    if (batch.preparation.returnStatus === 'scheduled')
-      refuseGlobalScheduling(state.trees[1] ?? null);
     if (record.status === 'pending' && batch.status === 'preparing') {
       // ROOT RULING 2026-11-16: Retry on a still-pending request re-triggers preparation with
       // the existing /kick pipeline trigger (same name scheme, so at most one kick per minute).

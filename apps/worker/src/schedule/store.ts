@@ -33,13 +33,24 @@ export const switches = {
 };
 
 /**
- * Contract v1: scheduling with global entries is unsupported. Once the data branch carries any
- * global metadata (including a partial bootstrap), scheduling and scheduled saves fail closed;
- * draft edits, unschedule, cancel, and member removal stay available.
+ * Legacy synchronous admission has no signed globals pin. Only asynchronous preparation
+ * supports globals; draft edits, unschedule, cancel, and member removal stay available.
  */
 export function refuseGlobalScheduling(listing: TreeNode[] | null): void {
   if (listing !== null)
     throw new HttpError(409, 'Scheduling is not available while global entries exist');
+}
+/** Async preparation understands pinned global closure only after this runtime is installed. */
+export function requireScheduledGlobals(listing: TreeNode[] | null, pin: unknown): void {
+  if (listing === null) return;
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  if (
+    !Array.isArray(capabilities) ||
+    !['scheduledGlobalsV1', 'globalsRelease', 'schedulePreparationV1'].every((capability) =>
+      capabilities.includes(capability),
+    )
+  )
+    throw new HttpError(422, 'The installed publisher does not support scheduled globals yet');
 }
 /** Names-only `globals` listing read in the same snapshot as the state (no extra subrequest). */
 export const globalsListing = { path: 'globals', depth: 1 };

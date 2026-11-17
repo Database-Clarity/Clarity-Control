@@ -19,10 +19,7 @@ import {
 import publisherConfig from '../../../config/publisher.json';
 import scheduledConfig from '../../../config/scheduled.json';
 import { Publisher, paths, type Options } from '../../../scripts/publisher/publisher.js';
-import {
-  SchedulePreparer,
-  SCHEDULE_GLOBALS_UNSUPPORTED,
-} from '../../../scripts/schedule-prepare/prepare.js';
+import { SchedulePreparer } from '../../../scripts/schedule-prepare/prepare.js';
 import { globalTreeOid } from '../../../scripts/publisher/globals.js';
 import { RefRace, type Repository, type Tree } from '../../../scripts/publisher/git.js';
 import { json } from '../../../scripts/publisher/batch.js';
@@ -679,7 +676,9 @@ describe('Worker → signed intent → Action → publisher → web', () => {
     f.moveData({ 'globals/sync.json': { version: 1 } });
     await prep.drain();
     expect(batch().status).toBe('needs_attention');
-    expect(request(id).reasons?.[0].reason).toBe(SCHEDULE_GLOBALS_UNSUPPORTED);
+    expect(request(id).reasons?.[0].reason).toBe(
+      'The installed publisher does not support scheduled globals yet',
+    );
     expect(receipt(id)).toBeUndefined();
     expect(f.current()[paths(id).request]).toBeUndefined();
   });

@@ -19,8 +19,9 @@ import {
   deployedLegacyPresets,
   type LegacyInput,
 } from '../../packages/export/src/legacy.js';
-import { SchedulePreparer, SCHEDULE_GLOBALS_UNSUPPORTED } from '../schedule-prepare/prepare.js';
-import { globalTreeOid } from './globals.js';
+import { SchedulePreparer } from '../schedule-prepare/prepare.js';
+import { GlobalsPublisher, globalTreeOid } from './globals.js';
+import { inventoryGlobals } from '../../packages/core/src/globals/projection.js';
 import { LocalRepository, RefRace, type Tree, type Repository } from './git.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { json } from './batch.js';
@@ -46,6 +47,7 @@ const sha = (s: string) => createHash('sha1').update(s).digest('hex');
 
 /** In-memory refs with immutable commit snapshots; real exporter/validators still execute. */
 class Memory implements Repository {
+  beforeAtomic?: () => void;
   refs = new Map<string, string>();
   blobs = new Map<string, string>();
   commits = new Map<string, { parent?: string; tree: Tree }>();
@@ -76,6 +78,13 @@ class Memory implements Repository {
     if (this.head(ref) !== old) throw new RefRace('raced');
     if (next) this.refs.set(ref, next);
     else this.refs.delete(ref);
+  }
+  casMany(updates: { ref: string; old: string; next: string }[]) {
+    const callback = this.beforeAtomic;
+    this.beforeAtomic = undefined;
+    callback?.();
+    if (updates.some(({ ref, old }) => this.head(ref) !== old)) throw new RefRace('atomic race');
+    for (const { ref, next } of updates) this.refs.set(ref, next);
   }
   history(ref: string) {
     const result: string[] = [];
@@ -326,6 +335,239 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
   }
   return { git, pub, prep, options, read, change, batch, request, admit, base, proposed, clock };
 }
+
+async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alpha', titles = '') {
+  const library = (hash: number, text: string) => ({ ...tip(text), hash });
+  const docs = [library(1, ''), library(2, 'var Alpha = 10\nvar Beta = 20'), library(3, titles)];
+  for (const doc of docs) f.options.facts[doc.hash] = { name: String(doc.hash), type: 'perk' };
+  let sequence = 0;
+  const store = inventoryGlobals(
+    docs.slice(1),
+    {
+      repository: f.options.repo,
+      revision: 'bootstrap',
+      locate: (hash, lang) => ({ path: `tooltips/${hash}.json`, selector: ['text', lang, 'text'] }),
+    },
+    () => `g_schedule${++sequence}000`,
+  );
+  const proposed = {
+    ...structuredClone(f.proposed),
+    text: { ...f.proposed.text, en: { ...f.proposed.text.en!, text: body } },
+  };
+  const member = f.read<Record<string, unknown>>(schedulePaths.member(B, 123));
+  f.change({
+    '.publisher/PIN': {
+      sourceSha: f.options.publisherSha,
+      sha256: f.options.publisherDigest,
+      capabilities: [
+        'scheduledBatches',
+        'schedulePreparationV1',
+        'globalsRelease',
+        'scheduledGlobalsV1',
+      ],
+    },
+    'globals/layout.json': { version: 1, aggregates: store.aggregates },
+    'globals/live/converter-v2-test.json': { version: 1, destination: f.options.liveBranch, store },
+    'globals/sync.json': {
+      version: 1,
+      status: 'current',
+      causeIds: [],
+      causeEntries: {},
+      lastFailure: null,
+    },
+    ...Object.fromEntries(
+      store.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+    ),
+    ...Object.fromEntries(
+      docs.flatMap((doc) => [
+        [`tooltips/${doc.hash}.json`, doc],
+        [`live/tooltips/${doc.hash}.json`, doc],
+      ]),
+    ),
+    [schedulePaths.member(B, 123)]: { ...member, proposed },
+  });
+  const old = f.git.head(L);
+  f.git.cas(
+    L,
+    old,
+    f.git.commit(
+      old,
+      {
+        'liveDescriptions.json': f.git.writeBlob(
+          json({
+            perks: exportLegacy([...docs, f.base], 0, f.options.facts, {}),
+            databaseSettings: {},
+          }),
+        ),
+      },
+      'globals bootstrap',
+    ),
+  );
+  return { store, proposed };
+}
+
+describe('scheduled global closure', () => {
+  it('blocks a batch that already owes global review when scheduled', async () => {
+    const f = await fixture();
+    const { store } = await withGlobals(f);
+    const alpha = structuredClone(store.entries.find((entry) => entry.name === 'Alpha')!);
+    alpha.revision = 'saved';
+    alpha.definitions.en!.revision = 'saved';
+    alpha.definitions.en!.body = '11';
+    f.change({ [`globals/entries/${alpha.id}.json`]: alpha });
+    await new GlobalsPublisher(f.pub).drain();
+    f.admit('schedule');
+    await f.prep.drain();
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.request().reasons?.[0].reason).toMatch(/global dependency review required/);
+    expect(f.batch().claim).toBeNull();
+  });
+  it('does not invalidate an unrelated variable edit', async () => {
+    const f = await fixture();
+    const { store } = await withGlobals(f);
+    f.admit('schedule');
+    await f.prep.drain();
+    const beta = structuredClone(store.entries.find((entry) => entry.name === 'Beta')!);
+    beta.revision = 'saved';
+    beta.definitions.en!.revision = 'saved';
+    beta.definitions.en!.body = '21';
+    f.change({ [`globals/entries/${beta.id}.json`]: beta });
+    await new GlobalsPublisher(f.pub).drain();
+    await f.prep.drain(true);
+    expect(f.request().reasons).toEqual([]);
+    expect(f.batch().status).toBe('scheduled');
+  });
+  it('leaves no partial LIVE or markers when data races the atomic transaction', async () => {
+    const f = await fixture();
+    const { store } = await withGlobals(f);
+    f.admit('schedule');
+    await f.prep.drain();
+    const live = f.pub.head('converter-v2-test'),
+      markers = f.read('live/pushed.json'),
+      snapshot = f.read('live/tooltips/123.json');
+    const alpha = structuredClone(store.entries.find((entry) => entry.name === 'Alpha')!);
+    alpha.revision = 'raced';
+    alpha.definitions.en!.revision = 'raced';
+    alpha.definitions.en!.body = '12';
+    (f.git as Memory).beforeAtomic = () =>
+      f.change({ [`globals/entries/${alpha.id}.json`]: alpha });
+    await f.pub.operation(R);
+    expect(f.pub.head('converter-v2-test')).toBe(live);
+    expect(f.read('live/pushed.json')).toEqual(markers);
+    expect(f.read('live/tooltips/123.json')).toEqual(snapshot);
+    expect(f.read(paths(R).log)).toMatchObject({ result: { status: 'rejected' } });
+  });
+  it.each(['import main from 999', 'import main from 123'])(
+    'refuses incomplete resolver closure: %s',
+    async (body) => {
+      const f = await fixture();
+      await withGlobals(f, body);
+      f.admit('schedule');
+      const live = f.pub.head('converter-v2-test');
+      await f.prep.drain();
+      expect(f.batch().status).toBe('needs_attention');
+      expect(f.request().reasons?.[0].reason).toMatch(/closure.*incomplete/);
+      expect(f.pub.head('converter-v2-test')).toBe(live);
+    },
+  );
+  it('observes a variable read in unused title preparation, including revision-only drift', async () => {
+    const f = await fixture();
+    const { store } = await withGlobals(f, 'unchanged root', 'title Info (\n#Alpha\n)');
+    f.admit('schedule', undefined, user, '2030-03-17T18:30:00.000Z');
+    await f.prep.drain();
+    expect(f.request().reasons).toEqual([]);
+    const entry = structuredClone(store.entries.find((entry) => entry.name === 'Alpha')!);
+    entry.revision = 'new-revision';
+    entry.definitions.en!.revision = 'new-revision';
+    f.change({ [`globals/entries/${entry.id}.json`]: entry });
+    await f.prep.drain(true);
+    expect(f.batch().status).toBe('needs_attention');
+  });
+  it('pins imported globals, publishes the composed roots, and records LIVE atomically', async () => {
+    const f = await fixture();
+    const { store, proposed } = await withGlobals(f, 'import main from 124');
+    const imported = { ...tip('#Alpha'), hash: 124 };
+    f.change({ 'tooltips/124.json': imported, 'live/tooltips/124.json': imported });
+    const old = f.git.head(L);
+    const live = f.pub.read<{ perks: Record<string, unknown>; databaseSettings: unknown }>(
+      f.git.tree(old!),
+      'liveDescriptions.json',
+    )!;
+    f.git.cas(
+      L,
+      old,
+      f.git.commit(
+        old,
+        {
+          'liveDescriptions.json': f.git.writeBlob(
+            json({
+              ...live,
+              perks: { ...live.perks, ...exportLegacy([imported], 0, f.options.facts, {}) },
+            }),
+          ),
+        },
+        'import library',
+      ),
+    );
+    f.admit('schedule');
+    await f.prep.drain();
+    expect(f.request().reasons).toEqual([]);
+    expect(f.batch().status).toBe('scheduled');
+    const before = f.pub.head('converter-v2-test');
+    let atomic = 0;
+    const git = f.git as Memory;
+    git.beforeAtomic = () => {
+      atomic++;
+      expect(f.pub.head('converter-v2-test')).toBe(before);
+      expect(f.batch().status).toBe('publishing');
+    };
+    await f.pub.operation(R);
+    expect(f.read<{ result: { error?: string } }>(paths(R).log).result.error).toBeUndefined();
+    expect(f.read(paths(R).log)).toMatchObject({ result: { status: 'done' } });
+    expect(f.batch().status).toBe('published');
+    expect(atomic).toBe(1);
+    const receipt = f.pub.receipt(f.pub.head('converter-v2-test'), R)!;
+    expect(receipt.globals?.roots).toEqual([123]);
+    expect(receipt.globals?.published.store).toEqual(store);
+    expect(receipt.entries.map((entry) => entry.hash)).toEqual([2, 3, 123]);
+    expect(f.read('live/tooltips/123.json')).toEqual(proposed);
+    expect(f.read('globals/live/converter-v2-test.json')).toEqual(receipt.globals?.published);
+  });
+  it.each(['edited', 'review'])('invalidates %s globals before the due minute', async (kind) => {
+    const f = await fixture();
+    const { store } = await withGlobals(f);
+    f.admit('schedule', undefined, user, '2030-03-17T18:30:00.000Z');
+    await f.prep.drain();
+    expect(f.batch().status).toBe('scheduled');
+    const before = f.pub.head('converter-v2-test');
+    const entry = structuredClone(store.entries.find((entry) => entry.name === 'Alpha')!);
+    entry.revision = 'edited';
+    entry.definitions.en!.revision = 'edited';
+    if (kind === 'review') entry.definitions.en!.body = '11';
+    f.change({ [`globals/entries/${entry.id}.json`]: entry });
+    await f.prep.drain(true);
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.batch().preparedRequestId).toBeNull();
+    expect(f.request().reasons?.[0].reason).toMatch(/global.*(review|changed)|Global.*changed/);
+    expect(f.pub.head('converter-v2-test')).toBe(before);
+    expect(f.batch().claim).toBeNull();
+  });
+  it('refuses claim-time drift without a claim or live write', async () => {
+    const f = await fixture();
+    const { store } = await withGlobals(f);
+    f.admit('schedule');
+    await f.prep.drain();
+    const before = f.pub.head('converter-v2-test');
+    const entry = structuredClone(store.entries[0]);
+    entry.definitions.en!.body = '12';
+    entry.revision = 'changed';
+    f.change({ [`globals/entries/${entry.id}.json`]: entry });
+    await f.pub.operation(R);
+    expect(f.pub.head('converter-v2-test')).toBe(before);
+    expect(f.batch().claim).toBeNull();
+    expect(f.read(paths(R).log)).toMatchObject({ result: { status: 'rejected' } });
+  });
+});
 
 describe('offline schedule preparation', () => {
   it('prepares before publishing, and produces one receipt and real seven-file exporter parity', async () => {
@@ -940,7 +1182,9 @@ describe('offline schedule preparation', () => {
     f.change({ 'globals/layout.json': {} });
     await f.prep.drain();
     expect(f.batch().status).toBe('needs_attention');
-    expect(f.request().reasons?.[0].reason).toBe(SCHEDULE_GLOBALS_UNSUPPORTED);
+    expect(f.request().reasons?.[0].reason).toBe(
+      'The installed publisher does not support scheduled globals yet',
+    );
     expect(f.batch().claim).toBeNull();
     expect(f.read(paths(R).request)).toBeUndefined();
   });
