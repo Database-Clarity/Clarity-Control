@@ -295,7 +295,14 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
   // and its reply (the reply's config replaces the page's).
   const saving = save.kind === 'saving' || save.kind === 'confirmation';
   const onSave = () => {
-    if (!state || !dirty || invalid || saving) return;
+    if (
+      !state ||
+      !dirty ||
+      invalid ||
+      saving ||
+      (save.kind === 'cooldown' && save.until > Date.now())
+    )
+      return;
     void finishSave(startSave(scope, id, state));
   };
 
@@ -401,7 +408,7 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
           type="button"
           className={styles.primary}
           onClick={() => void onSave()}
-          disabled={!dirty || !!invalid || save.kind === 'saving' || cooling > 0}
+          aria-disabled={!dirty || !!invalid || save.kind === 'saving' || cooling > 0}
           aria-haspopup={save.kind === 'confirmation' ? 'dialog' : undefined}
           aria-expanded={save.kind === 'confirmation' ? true : undefined}
           title={invalid ? 'Fix the marked fields first' : undefined}

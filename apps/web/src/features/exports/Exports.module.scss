@@ -53,7 +53,8 @@ $row: 1.75rem;
   background: var(--pri-hover);
   border-color: var(--accent-ink);
 
-  &:disabled {
+  &:disabled,
+  &[aria-disabled='true'] {
     color: var(--text2);
     background: var(--ctl);
     border-color: var(--ctl-edge);

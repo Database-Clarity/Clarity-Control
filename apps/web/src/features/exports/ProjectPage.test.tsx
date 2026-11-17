@@ -190,7 +190,7 @@ describe('ProjectPage state', () => {
       }),
     );
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
   });
   it('F3: a renamed second file stays selected and the URL follows', async () => {
     await open('/exports/p1?file=b1');
@@ -253,7 +253,7 @@ describe('ProjectPage state', () => {
       } satisfies SaveOutcome),
     );
     expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(false);
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
     expect(tab('a2')).toBeDefined();
   });
 
@@ -329,7 +329,7 @@ describe('ProjectPage state', () => {
     await resolveLoad(back, { ...project('pe', 'Project E'), revision: 's'.repeat(40), config });
     const ids = [...host.querySelectorAll('[role="tab"]')].map((el) => el.textContent);
     expect(ids).toEqual(['a1', 'descriptions']);
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
     expect(q('[role="alert"]')).toBeNull();
   });
 
@@ -356,7 +356,7 @@ describe('ProjectPage state', () => {
       'a1',
       'descriptions',
     ]);
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
     expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(false);
   });
 
@@ -384,7 +384,7 @@ describe('ProjectPage state', () => {
     await resolveLoad(2, before);
     expect(tab('renamed')).toBeDefined();
     expect(tab('a1')).toBeUndefined();
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
     // Read it again: the cache holds the saved config and revision, not the older read.
     await act(async () => navigate('/exports/pk'));
     await act(async () => navigate('/exports/pj'));
