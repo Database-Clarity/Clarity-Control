@@ -2,7 +2,11 @@ import { markupLanguage, type Lang } from '@clarity/core';
 import { Popover } from '../../ui/Popover';
 import styles from './EnglishReveal.module.scss';
 
-/** The shared anchored popup for hover, keyboard, click, and tap. */
+/**
+ * A localised text's English original, in the shared anchored popup (hover, keyboard, click, and
+ * tap). English text, or a translation equal to it, is plain text: a reveal that repeats what is
+ * already on screen is noise.
+ */
 export function EnglishReveal({
   english,
   translated,
@@ -12,23 +16,22 @@ export function EnglishReveal({
   english: string;
   translated: string | undefined;
   lang: Lang;
-  /** Names may be ellipsised: keep the full official spelling readable in the reveal. */
+  /** Names may be ellipsised: the reveal also shows the full translated spelling. */
   showTranslation?: boolean;
 }) {
   const localised = lang !== 'en' && !!translated?.trim() && translated !== english;
-  if (!localised && !showTranslation) return <>{english}</>;
-  const displayed = localised ? translated : english;
+  if (!localised) return <>{english}</>;
   return (
     <Popover
       key={`${lang}:${english}`}
-      label={localised ? 'English original' : 'Full name'}
-      trigger={<span lang={localised ? markupLanguage(lang) : 'en'}>{displayed}</span>}
-      triggerLabel={localised ? `${displayed} — show English original` : english}
+      label="English original"
+      trigger={<span lang={markupLanguage(lang)}>{translated}</span>}
+      triggerLabel={`${translated} — show English original`}
       openOnHover
       className={styles.trigger}
       width={400}
     >
-      {showTranslation && localised && (
+      {showTranslation && (
         <div className={`${styles.original} ${styles.translation}`} lang={markupLanguage(lang)}>
           {translated}
         </div>
