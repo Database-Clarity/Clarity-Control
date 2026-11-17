@@ -13,7 +13,13 @@ import {
   snippetsPath,
   type CustomSnippet,
 } from '../../../packages/core/src/customSnippets.js';
-import { snippetsAccountId, snippetsKey, encryptSnippet, decryptSnippet } from './snippetCrypto.js';
+import {
+  snippetsAccountId,
+  snippetsLabelId,
+  snippetsKey,
+  encryptSnippet,
+  decryptSnippet,
+} from './snippetCrypto.js';
 import { RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
@@ -80,6 +86,11 @@ export async function personalSnippetsRoute(
     const rows = JSON.parse(index?.rows ?? '[]') as Row[];
     return json({ snippets: await Promise.all(rows.map((row) => decode(row, account, key))) });
   }
+  try {
+    id = decodeURIComponent(id);
+  } catch {
+    throw new HttpError(400, 'Invalid personal snippet id');
+  }
   if (!personalSnippetIdSchema.safeParse(id).success)
     throw new HttpError(400, 'Invalid personal snippet id');
   const input = request.method === 'PUT' ? await body(request, personalWriteSchema, 32_000) : null;
@@ -101,6 +112,7 @@ export async function personalSnippetsRoute(
   } else {
     if (stableStringify(stored.snippet) === stableStringify(input.snippet)) return json(stored);
     const revision = crypto.randomUUID().replaceAll('-', '');
+    const labelId = await snippetsLabelId(github.env.SESSION_SECRET, account, input.snippet.label);
     const encrypted = await encryptSnippet(key, `${account}:${id}`, {
       snippet: input.snippet,
       revision,
@@ -108,17 +120,34 @@ export async function personalSnippetsRoute(
     const result = row
       ? await db
           .prepare(
-            'UPDATE user_snippets SET iv = ?, ct = ?, revision = ? WHERE account_id = ? AND id = ? AND revision = ? AND ct = ?',
+            'UPDATE user_snippets SET iv = ?, ct = ?, revision = ?, label_id = ? WHERE account_id = ? AND id = ? AND revision = ? AND ct = ? AND NOT EXISTS (SELECT 1 FROM user_snippets WHERE account_id = ? AND label_id = ? AND id != ?)',
           )
-          .bind(encrypted.iv, encrypted.ct, revision, account, id, row.revision, row.ct)
+          .bind(
+            encrypted.iv,
+            encrypted.ct,
+            revision,
+            labelId,
+            account,
+            id,
+            row.revision,
+            row.ct,
+            account,
+            labelId,
+            id,
+          )
           .run()
       : await db
           .prepare(
-            'INSERT INTO user_snippets (account_id, id, iv, ct, revision) SELECT ?, ?, ?, ?, ? WHERE (SELECT count(*) FROM user_snippets WHERE account_id = ?) < 50 ON CONFLICT(account_id, id) DO NOTHING',
+            'INSERT INTO user_snippets (account_id, id, iv, ct, revision, label_id) SELECT ?, ?, ?, ?, ?, ? WHERE (SELECT count(*) FROM user_snippets WHERE account_id = ?) < 50 ON CONFLICT DO NOTHING',
           )
-          .bind(account, id, encrypted.iv, encrypted.ct, revision, account)
+          .bind(account, id, encrypted.iv, encrypted.ct, revision, labelId, account)
           .run();
     if (result.meta.changes === 1) return json({ snippet: input.snippet, revision });
+    const duplicate = await db
+      .prepare('SELECT id FROM user_snippets WHERE account_id = ? AND label_id = ? AND id != ?')
+      .bind(account, labelId, id)
+      .first<{ id: string }>();
+    if (duplicate) throw new HttpError(400, 'Duplicate personal snippet label');
     if (!row) {
       const current = await readPersonalSnippet(github, user, id);
       if (!current.row) throw new HttpError(400, 'An account can save up to 50 personal snippets');
@@ -170,7 +199,9 @@ export async function teamSnippetsRoute(
         if (!personal.snippet || personal.revision !== input.sourceRevision)
           throw new HttpError(409, 'Personal snippet changed; reload before copying');
         change = { id: input.id, base: input.base, next: { ...personal.snippet, id: input.id } };
-        teamSnippetSchema.parse(change.next);
+        const checked = teamSnippetSchema.safeParse(change.next);
+        if (!checked.success)
+          throw new HttpError(400, checked.error.issues[0]?.message ?? 'Invalid snippet');
         if (change.base && change.base.id !== change.id)
           throw new HttpError(400, 'Snippet ids must match');
       } else change = await body(request, snippetChangeSchema, 32_000);
@@ -185,6 +216,9 @@ export async function teamSnippetsRoute(
     if (stableStringify(current) === stableStringify(change.next))
       return json({ team: parsed.data });
     const snippets: CustomSnippet[] = parsed.data.snippets.filter((s) => s.id !== op.id);
+    const nextLabel = change.next?.label.toLowerCase();
+    if (nextLabel && snippets.some((s) => s.label.toLowerCase() === nextLabel))
+      throw new HttpError(400, 'Duplicate team snippet label');
     if (change.next) snippets.push(change.next);
     if (snippets.length > 100) throw new HttpError(400, 'The team can save up to 100 snippets');
     const team = { v: 1 as const, snippets };

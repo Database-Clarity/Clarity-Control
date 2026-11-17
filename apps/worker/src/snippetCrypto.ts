@@ -11,6 +11,7 @@ function unbase64(value: string): Uint8Array<ArrayBuffer> {
 // Cache only server-derived CryptoKeys, as crypto.ts does; no account data or request I/O.
 let idKey: { secret: string; key: CryptoKey } | undefined;
 let contentKey: { secret: string; key: CryptoKey } | undefined;
+let labelKey: { secret: string; key: CryptoKey } | undefined;
 async function derive(secret: string, info: string): Promise<ArrayBuffer> {
   if (secret.length < 32) throw new Error('SESSION_SECRET must contain at least 32 characters');
   const base = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, [
@@ -45,6 +46,28 @@ export async function snippetsAccountId(secret: string, userId: number): Promise
         );
   idKey = { secret, key };
   return hex(await crypto.subtle.sign('HMAC', key, encoder.encode(String(userId))));
+}
+
+/** Private, account-scoped equality index for atomic case-insensitive label uniqueness. */
+export async function snippetsLabelId(
+  secret: string,
+  account: string,
+  label: string,
+): Promise<string> {
+  const key =
+    labelKey?.secret === secret
+      ? labelKey.key
+      : await crypto.subtle.importKey(
+          'raw',
+          await derive(secret, `${snippetsDomain}/label-id`),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['sign'],
+        );
+  labelKey = { secret, key };
+  return hex(
+    await crypto.subtle.sign('HMAC', key, encoder.encode(`${account}:${label.toLowerCase()}`)),
+  );
 }
 
 /** Server-wide content key; each row authenticates its own user id. */

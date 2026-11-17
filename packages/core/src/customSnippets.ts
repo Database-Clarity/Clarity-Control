@@ -20,8 +20,15 @@ builtInLabels.add(enhancedArrowMarkup);
  * Expansion and markup parsing reuse the built-in template expander and editor parser.
  */
 export function snippetTemplateIssue(template: string): string | undefined {
+  if ((template.match(/</g)?.length ?? 0) > 100) return 'Template allows at most 100 < characters';
+  if (variableReferences(template).length > 100)
+    return 'Template allows at most 100 variable references';
+  if (/\s{41}/.test(template)) return 'Template whitespace runs must be at most 40 characters';
   if (/\{\{(?:[1-9]\d*\}\}|0:)/.test(template)) return 'Template fields use {{n:default}} or {{0}}';
-  const text = expandTemplate(template).text;
+  const text = expandTemplate(template).text.trim();
+  if (variableReferences(text).length > 100)
+    return 'Template allows at most 100 variable references';
+  if (/\s{41}/.test(text)) return 'Template whitespace runs must be at most 40 characters';
   const source = removeMarkupComments(text);
   if (/#\{(?![a-zA-Z0-9]+\})/.test(source)) return 'Malformed variable: write #{name}';
   for (const line of source.split('\n')) {
@@ -59,13 +66,21 @@ export function snippetTemplateIssue(template: string): string | undefined {
   }
   // Remaining double braces belong to the base/enhanced grammar, checked by parseMarkup.
   if (/\{\{\d+(?::|\}\})/.test(text)) return 'Malformed template field';
+  const targets = [...source.matchAll(/<(?:link|title) [^<>\n]*?\[([^\]\n]+)\] \/>/g)].map(
+    (match) => {
+      const from = match.index + match[0].indexOf('[') + 1;
+      return { from, to: from + match[1].length };
+    },
+  );
   for (const ref of variableReferences(source)) {
     // Link anchors (including the Enemy Rank seed) are reference targets, not variables.
-    if (/\[[^\]\n]*$/.test(source.slice(0, ref.from))) continue;
+    if (targets.some((target) => ref.from >= target.from && ref.to <= target.to)) continue;
     if (source.slice(ref.from, ref.to).startsWith('#{')) continue;
     return 'Write variables as #{name}, rather than #name';
   }
-  const issue = [undefined, enhancedMarkupType]
+  const issue = (
+    customSnippetScope(template).enhanced ? [undefined, enhancedMarkupType] : [undefined]
+  )
     .flatMap((type) => validateText(text, 'en', { variables: '', titles: '', type }, false))
     .find(
       (issue) =>
@@ -141,6 +156,10 @@ export const teamSnippetsSchema = z
       .refine(
         (snippets) => new Set(snippets.map((s) => s.id)).size === snippets.length,
         'Duplicate snippet id',
+      )
+      .refine(
+        (snippets) => new Set(snippets.map((s) => s.label.toLowerCase())).size === snippets.length,
+        'Duplicate team snippet label',
       ),
   })
   .strict();

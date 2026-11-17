@@ -23,6 +23,8 @@ it('names invalid templates and label clashes', () => {
     '<unknown/>',
     '<bold broken',
     '#name',
+    'text [ #foo',
+    'Damage [#plainvar bonus',
     '#{name',
     '{{1:broken',
     '{{1}}',
@@ -40,6 +42,17 @@ it('names invalid templates and label clashes', () => {
     { label: 'Good', template: 'x'.repeat(2001) },
   ])
     expect(customSnippetSchema.safeParse({ id: 'me:1', ...value }).success).toBe(false);
+});
+it('rejects pathological inputs with named cheap bounds before markup validation', () => {
+  expect(snippetTemplateIssue('<'.repeat(101))).toContain('100 <');
+  expect(snippetTemplateIssue('#{a} '.repeat(101))).toContain('100 variable');
+  expect(snippetTemplateIssue('#{{1:{a}}} '.repeat(101))).toContain('100 variable');
+  expect(snippetTemplateIssue(' '.repeat(41))).toContain('40 characters');
+  expect(snippetTemplateIssue('X' + (' '.repeat(40) + '{{0}}').repeat(20) + 'x')).toContain(
+    '40 characters',
+  );
+  expect(snippetTemplateIssue('<link Text [#Anchor] />')).toBeUndefined();
+  expect(snippetTemplateIssue('<title Text [#Anchor] />')).toBeUndefined();
 });
 it('derives scope from expanded content', () => {
   expect(customSnippetScope('var {{1:name}} = {{2:1}}')).toMatchObject({

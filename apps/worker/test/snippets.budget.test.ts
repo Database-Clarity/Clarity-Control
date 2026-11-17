@@ -3,7 +3,13 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { expect, it, vi } from 'vitest';
 import { GitHub, blobContent } from '../src/github.js';
 import { personalSnippetsRoute, teamSnippetsRoute } from '../src/snippets.js';
-import { snippetsAccountId, snippetsKey, encryptSnippet } from '../src/snippetCrypto.js';
+import {
+  snippetsAccountId,
+  snippetsLabelId,
+  snippetsKey,
+  encryptSnippet,
+} from '../src/snippetCrypto.js';
+import { snippetTemplateIssue } from '../../../packages/core/src/customSnippets.js';
 import { config } from './fixture.js';
 import type { SettingsDatabase, SettingsStatement } from '../src/settings.js';
 import type { Env } from '../src/types.js';
@@ -41,22 +47,24 @@ it('measures every snippets route with full-cap documents and local D1, excludin
     snippets: Array.from({ length: 100 }, (_, n) => ({
       ...mine,
       id: `team:${n}`,
-      label: 'Team bonus',
+      label: `Team bonus ${n}`,
     })),
   };
   const initialRevision = 'a'.repeat(32);
   for (let n = 0; n < 50; n++) {
     const id = `me:${n}`;
+    const label = `My bonus ${n}`;
     const cipher = await encryptSnippet(key, `${account}:${id}`, {
-      snippet: { ...mine, id },
+      snippet: { ...mine, id, label },
       revision: initialRevision,
     });
-    db.prepare('INSERT INTO user_snippets VALUES (?, ?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO user_snippets VALUES (?, ?, ?, ?, ?, ?)').run(
       account,
       id,
       cipher.iv,
       cipher.ct,
       initialRevision,
+      await snippetsLabelId(secret, account, label),
     );
   }
   const github = new GitHub({
@@ -173,3 +181,35 @@ it('measures every snippets route with full-cap documents and local D1, excludin
     vi.restoreAllMocks();
   }
 }, 60_000);
+
+it('records bounded pathological templates without rewriting the markup validator', () => {
+  const rows = [];
+  const cases: Record<string, string> = {
+    'long-title-whitespace': 'title ' + ' '.repeat(1990) + 'x',
+    whitespace: ' '.repeat(2000),
+    'less-than': '<'.repeat(2000),
+    'native-pairs': '{{base}{enhanced}} '.repeat(100),
+    variables: '#{a} '.repeat(400),
+    math: '${1+#{a}} '.repeat(200),
+    'title-words': 'title ' + 'a '.repeat(995),
+    'variables-at-bound': '#{a} '.repeat(100),
+  };
+  for (const [name, template] of Object.entries(cases)) {
+    for (let n = 0; n < 5; n++) snippetTemplateIssue(template);
+    const cpu = process.cpuUsage();
+    const start = performance.now();
+    let issue: string | undefined;
+    for (let n = 0; n < 50; n++) issue = snippetTemplateIssue(template);
+    const elapsed = process.cpuUsage(cpu);
+    rows.push({
+      name,
+      length: template.length,
+      issue: issue ?? null,
+      cpuProxyMs: (elapsed.user + elapsed.system) / 50000,
+      wallMs: (performance.now() - start) / 50,
+    });
+  }
+  console.log('SNIPPETS_PATHOLOGICAL_CPU', JSON.stringify(rows));
+  if (process.env.SNIPPETS_PATHOLOGICAL_OUTPUT)
+    writeFileSync(process.env.SNIPPETS_PATHOLOGICAL_OUTPUT, JSON.stringify(rows, null, 2));
+});

@@ -4,5 +4,7 @@ CREATE TABLE user_snippets (
   iv TEXT NOT NULL,
   ct TEXT NOT NULL,
   revision TEXT NOT NULL,
-  PRIMARY KEY (account_id, id)
+  label_id TEXT NOT NULL,
+  PRIMARY KEY (account_id, id),
+  UNIQUE (account_id, label_id)
 );

@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
@@ -5,6 +6,14 @@ import type { SettingsDatabase, SettingsStatement } from '../src/settings.js';
 import { Fixture, makePrivateKey } from './fixture.js';
 import { snippetsPath } from '../../../packages/core/src/customSnippets.js';
 import worker from '../src/index.js';
+import { apiRequest } from '../../web/src/services/apiAuth';
+import { getPersonalSnippet, savePersonalSnippet } from '../../web/src/services/snippets';
+vi.mock('../../web/src/services/apiAuth', () => ({
+  apiRequest: vi.fn(),
+  failure: async (response: Response) => {
+    throw new Error(await response.text());
+  },
+}));
 
 let key: string;
 let fixture: Fixture;
@@ -45,6 +54,13 @@ beforeEach(() => {
     db.exec(readFileSync(new URL(`../migrations/settings/${migration}`, import.meta.url), 'utf8'));
   fixture.env.SETTINGS_DB = binding;
   beforeWrite = undefined;
+  vi.mocked(apiRequest).mockImplementation((path, init) =>
+    fixture.request(
+      path,
+      init?.method ?? 'GET',
+      init?.body ? JSON.parse(String(init.body)) : undefined,
+    ),
+  );
 });
 afterEach(() => {
   db.close();
@@ -66,6 +82,34 @@ async function ok(response: Response) {
   expect(response.status, JSON.stringify(value)).toBe(200);
   return value;
 }
+it('takes the real client URLs through the Worker for personal CRUD', async () => {
+  const saved = await savePersonalSnippet(snippet.id, snippet, null);
+  expect(await getPersonalSnippet(snippet.id)).toEqual(saved);
+  expect(await savePersonalSnippet(snippet.id, null, saved.revision)).toEqual({
+    snippet: null,
+    revision: null,
+  });
+});
+it('enforces case-insensitive labels atomically per source, while allowing the same label across sources', async () => {
+  const saved = await ok(await put());
+  const duplicate = { ...snippet, id: 'me:second', label: 'MY BONUS' };
+  expect((await put(duplicate, null, 1, duplicate.id)).status).toBe(400);
+  const other = await ok(await put({ ...duplicate, label: 'Other' }, null, 1, duplicate.id));
+  expect((await put(duplicate, other.revision, 1, duplicate.id)).status).toBe(400);
+  expect((await put({ ...snippet, label: 'MY BONUS' }, saved.revision)).status).toBe(200);
+  await ok(await put(snippet, null, 2));
+  await ok(await saveTeam());
+  expect(
+    (await saveTeam({ ...team, id: 'team:second', label: 'MY BONUS' }, null, 1, 'team:second'))
+      .status,
+  ).toBe(400);
+  beforeWrite = async () => {
+    await ok(await put({ ...snippet, id: 'me:winner', label: 'Concurrent' }, null, 1, 'me:winner'));
+  };
+  expect(
+    (await put({ ...snippet, id: 'me:loser', label: 'CONCURRENT' }, null, 1, 'me:loser')).status,
+  ).toBe(400);
+});
 it('isolates encrypted personal CRUD for all four editor roles, and denies outsiders', async () => {
   for (const user of [1, 2, 3, 4]) {
     expect(await ok(await fixture.request('/snippets/mine', 'GET', undefined, user))).toEqual({
@@ -114,9 +158,9 @@ it('rejects invalid writes, enforces the atomic cap, and authenticates ciphertex
   ])
     expect((await put(value)).status).toBe(400);
   for (let n = 0; n < 49; n++)
-    await ok(await put({ ...snippet, id: `me:${n}` }, null, 1, `me:${n}`));
+    await ok(await put({ ...snippet, id: `me:${n}`, label: `Bonus ${n}` }, null, 1, `me:${n}`));
   beforeWrite = async () => {
-    await ok(await put({ ...snippet, id: 'me:winner' }, null, 1, 'me:winner'));
+    await ok(await put({ ...snippet, id: 'me:winner', label: 'Winner' }, null, 1, 'me:winner'));
   };
   expect((await put()).status).toBe(400);
   const saved = await ok(await fixture.request('/snippets/mine/me:0', 'GET'));
@@ -151,14 +195,18 @@ it('enforces the team cap, ids, and validation', async () => {
   fixture.moveData({
     [snippetsPath]: {
       v: 1,
-      snippets: Array.from({ length: 100 }, (_, n) => ({ ...team, id: `team:${n}` })),
+      snippets: Array.from({ length: 100 }, (_, n) => ({
+        ...team,
+        id: `team:${n}`,
+        label: `Bonus ${n}`,
+      })),
     },
   });
   expect((await saveTeam()).status).toBe(400);
   await ok(
     await saveTeam(
       { ...team, id: 'team:0', label: 'Edited' },
-      { ...team, id: 'team:0' },
+      { ...team, id: 'team:0', label: 'Bonus 0' },
       1,
       'team:0',
     ),
@@ -183,7 +231,7 @@ it('denies anonymous and partner-only accounts', async () => {
 });
 it('rejects ciphertext moved between accounts or ids', async () => {
   await ok(await put());
-  await ok(await put({ ...snippet, id: 'me:other' }, null, 1, 'me:other'));
+  await ok(await put({ ...snippet, id: 'me:other', label: 'Other' }, null, 1, 'me:other'));
   await ok(await put(snippet, null, 2));
   const rows = db.prepare('SELECT * FROM user_snippets ORDER BY account_id, id').all();
   const target = rows[0];
@@ -198,7 +246,7 @@ it('rejects ciphertext moved between accounts or ids', async () => {
   expect(results.some((r) => r.status === 503)).toBe(true);
 });
 it('retries unrelated team changes, refuses same-entry races, and rechecks revoked permissions', async () => {
-  const other = { ...team, id: 'team:other' };
+  const other = { ...team, id: 'team:other', label: 'Other' };
   fixture.beforePatch = () => fixture.moveData({ [snippetsPath]: { v: 1, snippets: [other] } });
   expect((await ok(await saveTeam())).team.snippets).toEqual([other, team]);
   fixture.beforePatch = () =>
