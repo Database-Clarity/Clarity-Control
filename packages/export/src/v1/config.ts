@@ -168,8 +168,8 @@ export const retainedSchema = z
       });
   });
 
-/** Change to ['language', 'url'] when the owner approves the same rule for URL switches. */
-export const retainedDeletionReasons: readonly string[] = ['language'];
+/** Every kept URL updates for three months, then is deleted (or confirm-evicted at a limit). */
+export const retainedDeletionReasons: readonly string[] = ['language', 'url'];
 export const deletesRetained = (entry: { reason?: 'language' }) =>
   retainedDeletionReasons.includes(entry.reason ?? 'url');
 

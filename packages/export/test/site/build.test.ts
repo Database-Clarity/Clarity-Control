@@ -1002,7 +1002,7 @@ describe('build-site per-file outcomes', () => {
     expect(readFileSync(join(harness.pages, 'canonical'), 'utf8')).toBe(canonical);
   }, 180_000);
 
-  it('expired retained entries are carried frozen (downloads only); snapshots keep the last three', async () => {
+  it('expired format-switch URLs are deleted; snapshots keep the last three', async () => {
     harness = new Harness();
     const retained = [
       {
@@ -1028,12 +1028,17 @@ describe('build-site per-file outcomes', () => {
       expectOk(harness.siteRun({ extra: ['--now', '2030-02-01T00:00:00.000Z'] }));
       ids.push(harness.servedJson<{ buildId: string }>('_build/status.json').buildId);
     }
-    expect(harness.served('alpha/v1/old.json')).toEqual(old);
+    expect(harness.served('alpha/v1/old.json')).toBeUndefined();
     const manifest = harness.servedJson<{
       files: Record<string, { outcome: string }>;
       snapshots: { buildId: string }[];
     }>('_build/manifest.json');
-    expect(manifest.files['alpha/v1/old.json']!.outcome).toBe('frozen');
+    expect(manifest.files['alpha/v1/old.json']).toBeUndefined();
+    expect(
+      harness
+        .servedJson<{ files: { path: string }[] }>('alpha/index.json')
+        .files.some((file) => file.path === 'alpha/v1/old.json'),
+    ).toBe(false);
     expect(manifest.snapshots.map((snapshot) => snapshot.buildId)).toEqual(ids.slice(-4).reverse());
     expect(harness.served(`_build/${ids[0]}/engine.mjs`)).toBeUndefined();
     for (const id of ids.slice(-4)) expect(harness.served(`_build/${id}/input.json`)).toBeDefined();

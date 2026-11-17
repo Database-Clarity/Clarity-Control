@@ -644,7 +644,7 @@ describe('styles and symbol transforms (AC3)', () => {
       format: {
         ...base.format,
         titles: { mode: 'inline', pattern: ['', '', ' (', ')'] },
-        symbols: { yellow: { mode: 'replace', before: '_', after: '_' } },
+        symbols: { exotic: { mode: 'replace', before: '_', after: '_' } },
         spacer: 'drop',
       },
     };
@@ -1155,7 +1155,7 @@ describe('review fixes', () => {
           { text: ' plus ' },
           { text: 'strength', style: ['bold'] },
           { text: ' ' },
-          { text: 'Second', style: ['yellow'] },
+          { text: 'Second', style: ['exotic'] },
           { text: ')' },
         ],
       },
@@ -1167,4 +1167,38 @@ describe('review fixes', () => {
       'Label (Body  plus strength Second)',
     );
   });
+});
+
+test('v1 uses exotic for inline, line, nested-note, and arrow styles and config keys', () => {
+  const file = newStyleFile('exotic-test', 'structured');
+  expect(file.format.symbols).toHaveProperty('exotic', { mode: 'keep' });
+  expect(file.format.symbols).not.toHaveProperty('yellow');
+  expect(
+    configSchema.safeParse({
+      ...validConfig(),
+      files: [{ ...file, format: { ...file.format, symbols: { yellow: { mode: 'keep' } } } }],
+    }).success,
+  ).toBe(false);
+  const parsed = parseMarkup(
+    'title T (\n<exotic/>Note\n)\n<exotic/>Line\n<exotic Name<arrow/>Name /> <title Label [T] />',
+  ).lines;
+  const kept = transform(parsed, file.format, 'lines', emptyNotes());
+  expect(JSON.stringify(kept)).toContain('"exotic"');
+  expect(JSON.stringify(kept)).not.toContain('"yellow"');
+  expect(kept).toMatchObject([
+    { style: ['exotic'] },
+    {
+      parts: [
+        { text: 'Name', style: ['exotic'] },
+        { icon: 'arrow', style: ['exotic'] },
+        { text: 'Name', style: ['exotic'] },
+        { text: ' ' },
+        { text: 'Label', note: [{ style: ['exotic'], parts: [{ text: 'Note' }] }] },
+      ],
+    },
+  ]);
+  file.format.symbols.exotic = { mode: 'replace', before: '_', after: '_' };
+  expect(transform(parseMarkup('<yellow/>Line').lines, file.format, 'lines', emptyNotes())).toEqual(
+    [{ parts: [{ text: '_Line_' }] }],
+  );
 });

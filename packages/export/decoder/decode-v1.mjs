@@ -6,6 +6,7 @@
 //     "descriptions": [ { "en": ... } ], "perks": { "<hash>": { "name": "...", "description": 0 } } }
 // decodeV1 returns the per-hash shape older files used:
 //   { "<hash>": { "hash": <number>, "name": "...", "descriptions": { "en": ... } } }
+// Styles, including `exotic`, pass through unchanged in lines and nested notes.
 // Perks that share a description share the same object; copy it (structuredClone) before changing it.
 
 /**

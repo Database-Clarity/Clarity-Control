@@ -78,7 +78,7 @@ export const symbolIds = [
   'arrow',
   'enhancedArrow',
   'bold',
-  'yellow',
+  'exotic',
   'pve',
   'pvp',
   'elementText',
