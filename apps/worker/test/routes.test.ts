@@ -87,6 +87,7 @@ const routes: (Route & { public?: true })[] = [
   },
   { method: 'GET', path: '/snippets/team' },
   { method: 'GET', path: '/snippets/local/de' },
+  { method: 'GET', path: '/snippets/local/de?view=translations' },
   {
     method: 'PUT',
     path: '/snippets/local/de',

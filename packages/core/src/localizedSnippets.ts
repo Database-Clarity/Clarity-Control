@@ -113,7 +113,6 @@ export const effectiveSnippetsResponseSchema = z.object({
       outdated: z.boolean(),
     }),
   ),
-  translations: snippetTranslationsSchema,
   outdated: z.array(localizedSnippetIdSchema),
   canManage: z.boolean(),
 });

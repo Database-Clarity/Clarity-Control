@@ -67,6 +67,11 @@ export const getLocalizedSnippets = (language: string) =>
     `/snippets/local/${localizedSnippetLangSchema.parse(language)}`,
     effectiveSnippetsResponseSchema,
   );
+export const getSnippetTranslations = (language: string) =>
+  request(
+    `/snippets/local/${localizedSnippetLangSchema.parse(language)}?view=translations`,
+    z.object({ translations: snippetTranslationsSchema }),
+  );
 /** Per-entry CAS: base null creates, next null deletes. enHash comes from the effective read. */
 export const saveSnippetTranslation = (language: string, change: SnippetTranslationChange) =>
   request(

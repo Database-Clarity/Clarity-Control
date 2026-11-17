@@ -47,6 +47,13 @@ it('measures localized routes at the full team cap with current translations, ex
   const runs: Record<string, () => Promise<Response>> = {
     get: () =>
       localizedSnippetsRoute(new Request('https://api.test/snippets/local/de'), github, user, 'de'),
+    management: () =>
+      localizedSnippetsRoute(
+        new Request('https://api.test/snippets/local/de?view=translations'),
+        github,
+        user,
+        'de',
+      ),
     put: () =>
       localizedSnippetsRoute(
         new Request('https://api.test/snippets/local/de', {

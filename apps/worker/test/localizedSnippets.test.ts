@@ -6,6 +6,7 @@ import { snippetsPath } from '../../../packages/core/src/customSnippets.js';
 import { apiRequest } from '../../web/src/services/apiAuth';
 import {
   getLocalizedSnippets,
+  getSnippetTranslations,
   saveSnippetTranslation,
   SnippetConflictError,
 } from '../../web/src/services/snippets';
@@ -109,10 +110,10 @@ it('detects outdated English and falls back; exposes outdated ids and stored ent
     template: source.template + ' now',
   });
   expect(result.outdated).toEqual([source.id]);
-  expect(result.translations[source.id]).toEqual(translation);
+  expect((await getSnippetTranslations('de')).translations[source.id]).toEqual(translation);
   const reader = await (await fixture.request('/snippets/local/de', 'GET', undefined, 4)).json();
   expect(reader.outdated).toEqual([]);
-  expect(reader.translations).toEqual({});
+  expect(reader).not.toHaveProperty('translations');
   expect((await save(1, translation, translation)).status).toBe(409);
 });
 it('rejects invalid skeletons with a named error, unknown ids, stale hashes, and bounds', async () => {
@@ -165,10 +166,24 @@ it('preserves a disjoint translation committed during a ref race', async () => {
   const other = { ...translation, template: first.template, enHash: first.enHash };
   fixture.beforePatch = () => fixture.moveData({ 'snippets/de.json': { [first.id]: other } });
   expect((await save()).status).toBe(200);
-  expect((await getLocalizedSnippets('de')).translations).toEqual({
+  expect((await getSnippetTranslations('de')).translations).toEqual({
     [first.id]: other,
     [source.id]: translation,
   });
+});
+it.each([
+  [1, 200],
+  [6, 200],
+  [2, 403],
+  [3, 403],
+  [4, 403],
+  [7, 403],
+  [5, 403],
+  [99, 403],
+])('management read role %s -> %s', async (user, status) => {
+  expect(
+    (await fixture.request('/snippets/local/de?view=translations', 'GET', undefined, user)).status,
+  ).toBe(status);
 });
 it('checks destinations, languages, oversized requests, and authentication', async () => {
   for (const lang of ['en', 'xx', '..'])

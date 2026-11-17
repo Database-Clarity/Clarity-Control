@@ -33,6 +33,8 @@ export async function localizedSnippetsRoute(
     throw new HttpError(503, 'Snippet destination is not configured');
   const path = `snippets/${lang}.json`;
   const write = request.method === 'PUT';
+  const management =
+    request.method === 'GET' && new URL(request.url).searchParams.get('view') === 'translations';
   let change: SnippetTranslationChange | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
     const head = await github.head();
@@ -43,20 +45,21 @@ export async function localizedSnippetsRoute(
       'translator',
     ]);
     const canManage = access.role === 'maintainer' || managedLanguages(access).includes(lang);
-    if (write && !canManage)
+    if ((write || management) && !canManage)
       throw new HttpError(
         403,
         'Only this language’s translation managers and maintainers may edit its snippets',
       );
     const [file, teamFile] = await Promise.all([
       github.file(path, head, write),
-      github.file(snippetsPath, head, write),
+      management ? Promise.resolve(null) : github.file(snippetsPath, head, write),
     ]);
     const stored = snippetTranslationsSchema.safeParse(file?.value ?? {});
     const team = teamSnippetsSchema.safeParse(teamFile?.value ?? emptyTeamSnippets());
     if (!stored.success || !team.success) throw new HttpError(502, 'Invalid stored snippets');
     const english = [...localizableBuiltIns, ...team.data.snippets];
     const translations = stored.data;
+    if (management) return json({ translations });
     if (!write) {
       const snippets = await Promise.all(
         english.map(async (source) => {
@@ -86,7 +89,6 @@ export async function localizedSnippetsRoute(
       );
       return json({
         snippets,
-        translations: canManage ? translations : {},
         outdated: canManage ? snippets.filter((s) => s.outdated).map((s) => s.id) : [],
         canManage,
       } satisfies import('../../../packages/core/src/localizedSnippets.js').EffectiveSnippetsResponse);
