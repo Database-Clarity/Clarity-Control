@@ -239,7 +239,7 @@ function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
           </div>
         )}
         {piece !== undefined && (
-          // An empty piece row still holds its line (exotic armour named after its piece).
+          // An empty piece row still holds its line (exotic armour whose piece the data does not name).
           <div className={styles.piece} aria-hidden={!piece || undefined}>
             {pieceIcon !== undefined && piece && (
               // Same box as the finder's: a piece missing from the icon file leaves it empty.
