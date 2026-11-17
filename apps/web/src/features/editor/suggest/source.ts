@@ -22,6 +22,8 @@ import { groupChange, pairAt } from '../iconPairs';
 import { locateBlocks, locateVariables } from '../references';
 import { englishSymbols, subclassSymbol } from './typedSymbols';
 import { numberHost, numbersAllowed, orderedNumbers, usedNumbers } from '../numbers/state';
+import { canSaveSnippets, localSnippet, snippetCatalogue, snippetLang } from './custom';
+import { offersBaseEnhanced } from '../markupScope';
 
 export type SuggestCategory =
   'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals' | 'Numbers';
@@ -92,6 +94,10 @@ export interface SuggestItem {
   pinned?: boolean;
   /** In the on-request menu: why this option cannot go here. It stays listed; Enter leaves the text alone. */
   unavailable?: string;
+  /** A personal or team snippet: on equal score and recency, Mine, then Team, then built-in. */
+  source?: 'mine' | 'team';
+  /** "Save as snippet": opens the save form for the selection instead of inserting. */
+  saveSnippet?: boolean;
 }
 
 /** The short reason an option shows when it cannot go at the caret. */
@@ -252,8 +258,10 @@ export function suggestItems(
   state: EditorState,
   globals: MarkupGlobals,
   recent: readonly string[] = [],
+  /** On request (Ctrl+Space): custom snippets are listed without a query too. */
+  explicit = false,
 ): SuggestItem[] {
-  return rank(build(context, state, globals, false), context, recent);
+  return rank(build(context, state, globals, false, undefined, explicit), context, recent);
 }
 
 /**
@@ -297,6 +305,7 @@ function build(
   every: boolean,
   /** Options already listed (the pinned ones): not built a second time. */
   skip?: ReadonlySet<string>,
+  explicit = false,
 ): SuggestItem[] {
   const { documentVariables, variables, titles, titleNames } = documentFacts(state, globals);
   const items: SuggestItem[] = [];
@@ -390,27 +399,54 @@ function build(
       keys: value,
     });
   };
-  const addSnippet = (snippet: Snippet, category: SuggestCategory) => {
+  const lang = state.facet(snippetLang);
+  const catalogue = snippetCatalogue(lang);
+  const addSnippet = (
+    builtIn: Snippet,
+    category: SuggestCategory,
+    custom?: { source: 'mine' | 'team'; link: boolean; english: boolean },
+  ) => {
     // A multi-line declaration needs a line of its own.
-    const id = `${category === 'Tags' ? '' : category === 'Symbols' ? 'icon:' : 'snippet:'}${snippet.id}`;
+    const id = `${category === 'Tags' ? '' : category === 'Symbols' ? 'icon:' : 'snippet:'}${builtIn.id}`;
     if (skip?.has(id)) return;
+    // While translating, built-ins carry the target language's words (English ones say so).
+    const local = custom
+      ? { snippet: builtIn, english: custom.english }
+      : localSnippet(builtIn, catalogue, lang);
+    const snippet = local.snippet;
     const noLine = snippet.block && (!context.lineIsFree || context.kind === 'selection');
     if (noLine && !every) return;
     const expanded = expandSnippet(snippet, noLine ? '' : context.selection);
     if (!every && context.kind === 'selection' && !snippet.wraps && !snippet.fromSelection) return;
+    const hints = [
+      custom ? (custom.source === 'mine' ? 'Mine' : 'Team') : '',
+      local.english ? 'EN' : '',
+    ].filter(Boolean);
     push({
       id,
       category,
       label: snippet.label,
+      ...(hints.length ? { hint: hints.join(' · ') } : {}),
       about: snippet.about,
       insert: expanded.text,
       stops: expanded.stops,
       preview: snippet.group === 'Blocks' || noLine ? null : undefined,
       ...(noLine ? { unavailable: unavailableReasons.line } : {}),
-      usage: snippet.usage,
-      link: snippet.id === 'link-ref' || snippet.id === 'tag:link',
-      keys: snippet.keywords,
+      ...(custom ? { source: custom.source } : { usage: snippet.usage }),
+      link: custom ? custom.link : snippet.id === 'link-ref' || snippet.id === 'tag:link',
+      keys: custom ? `${snippet.keywords} ${expanded.text}` : snippet.keywords,
     });
+  };
+  /**
+   * Personal, then team snippets, in the Snippets category. The menu that opens while typing lists
+   * them only once something typed matches; they follow every rule the built-ins follow.
+   */
+  const addCustom = () => {
+    if (!every && !explicit && !query) return;
+    for (const found of [...catalogue.mine, ...catalogue.team]) {
+      if (found.enhanced && !offersBaseEnhanced(globals)) continue;
+      addSnippet(found.snippet, 'Snippets', found);
+    }
   };
 
   if (context.kind === 'selection' || every) {
@@ -558,6 +594,25 @@ function build(
     }
     for (const tag of markupTags) addSnippet(snippetOf(tag), 'Tags');
     if (offeredHere(enhancedArrowSnippet.id, globals)) addSnippet(enhancedArrowSnippet, 'Symbols');
+    if (
+      context.kind === 'selection' &&
+      context.selection.trim() &&
+      canSaveSnippets() &&
+      !skip?.has('save-snippet')
+    )
+      push({
+        id: 'save-snippet',
+        category: 'Snippets',
+        label: 'Save as snippet',
+        hint: 'Mine',
+        about: 'Saves the selected text as one of your snippets.',
+        insert: '',
+        preview: null,
+        reference: true,
+        saveSnippet: true,
+        keys: 'save snippet new mine',
+      });
+    addCustom();
     for (const snippet of markupSnippets) {
       // The pair and everything that writes the enhanced arrow share one category gate.
       if (!offeredHere(snippet.id, globals)) continue;
@@ -655,7 +710,10 @@ export function requestItems(
   recent: readonly string[] = [],
 ): SuggestItem[] {
   const group = groupItem(state, globals);
-  const pinned = [...(group ? [group] : []), ...suggestItems(context, state, globals, recent)];
+  const pinned = [
+    ...(group ? [group] : []),
+    ...suggestItems(context, state, globals, recent, true),
+  ];
   const taken = new Set(pinned.map((item) => item.id));
   const others = build(context, state, globals, true, taken).filter(
     (item) => !context.query || matchScore(item, context.query) > 0,
@@ -762,6 +820,10 @@ const wrapOrder: SuggestCategory[] = ['Transforms', 'Snippets', 'Symbols', 'Tags
 
 const perCategory = 24;
 
+/** Ties after score and recency (owner Q4): Mine, then Team, then built-in. */
+const sourceRank = (item: SuggestItem) =>
+  item.source === 'mine' ? 0 : item.source === 'team' ? 1 : 2;
+
 function rank(
   items: SuggestItem[],
   context: SuggestContext,
@@ -786,6 +848,7 @@ function rank(
           b.score - a.score ||
           Number(!!b.item.wrap) - Number(!!a.item.wrap) ||
           (context.query ? 0 : a.recency - b.recency) ||
+          sourceRank(a.item) - sourceRank(b.item) ||
           a.index - b.index,
       )
       .slice(0, perCategory),

@@ -37,6 +37,7 @@ import { BuildDot } from '../exports/BuildStatus';
 import { EntryGlyph } from '../editor/markupRow/EntryGlyph';
 import { ScaleControl } from '../settings/SettingsContent';
 import { liveEntries } from './liveEntries';
+import { SnippetErrorsDemo, SnippetListDemo } from './snippetDemos';
 import styles from './Gallery.module.scss';
 
 /** One state of an element, rendered as a component so demos may hold their own state. */
@@ -1100,6 +1101,24 @@ export const entries: readonly GalleryEntry[] = [
       s('Brand mark', () => <BrandMark />),
       s('Archive icon missing', () => <ArchiveIcon />),
       s('Enhanced arrow', () => <EnhancedArrow size={16} />),
+    ],
+  },
+  // Snippets
+  {
+    id: 'snippet-list',
+    group: 'Snippets',
+    title: 'Snippet list',
+    from: 'features/snippets/SnippetManager (SnippetFields for the form)',
+    note: 'Settings → Snippets and Management → Team snippets: rows of label and markup, the form opens in place. Saves here stay local.',
+    states: [
+      s('Default', () => <SnippetListDemo />),
+      s('Empty', () => <SnippetListDemo start={[]} />),
+      s('Loading', () => <SnippetListDemo loading />),
+      s('Load error', () => (
+        <SnippetListDemo error="Snippets could not load: Snippets are unavailable" />
+      )),
+      s('Conflict on save', () => <SnippetListDemo conflict />),
+      s('Validation messages', () => <SnippetErrorsDemo />),
     ],
   },
 ];

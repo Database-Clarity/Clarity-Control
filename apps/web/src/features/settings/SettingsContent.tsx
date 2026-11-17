@@ -18,6 +18,8 @@ import { themePreferences, type ThemePreference } from '../../ui/theme';
 import { exactDate, formatDate } from '../../services/format/date';
 import { browserTimeZone, syncStatusText, themeLabels, valueLabel } from './labels';
 import { SettingsChoice } from './SettingsChoice';
+import { useAuthStore } from '../../stores/auth';
+import { MySnippets } from '../snippets/MySnippets';
 import styles from './Settings.module.scss';
 
 const example = '2023-02-12T20:12:00Z';
@@ -132,6 +134,8 @@ export function SettingsContent() {
   const state = useSettingsStore();
   const { settings, device, update, updateDevice, remember, retry, resetPaneWidths } = state;
   const [panesReset, setPanesReset] = useState(false);
+  // Every editor role has personal snippets (partners read as no role).
+  const snippets = useAuthStore((auth) => Boolean(auth.user?.role));
   // The size setting only does something where the touch sizes apply.
   const touch = useMedia(touchQuery);
   // Phones: a setting whose value is long (over 24 characters) takes the full line under its label.
@@ -318,6 +322,16 @@ export function SettingsContent() {
           </select>
         </label>
       </fieldset>
+      {snippets && (
+        <fieldset>
+          <legend>Snippets</legend>
+          <p className={styles.hint}>
+            Yours only, synced to your account. Ctrl+Space and the menu while typing list them
+            marked Mine; select text and press Ctrl+Space to save it as one.
+          </p>
+          <MySnippets />
+        </fieldset>
+      )}
       <fieldset>
         <legend>This device</legend>
         <p className={styles.hint}>Kept in this browser only; never synced.</p>

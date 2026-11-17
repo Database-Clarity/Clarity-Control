@@ -6,7 +6,14 @@ import { fuzzyScore } from '../suggest/source';
 import type { UsageCorpus } from '../suggest/usage';
 import { stickyChromeBottom } from './dock';
 import { EntryGlyph } from './EntryGlyph';
-import { entryGroups, entryMessage, markupEntries, type MarkupEntry } from './entries';
+import {
+  customEntries,
+  entryGroups,
+  entryMessage,
+  markupEntries,
+  type MarkupEntry,
+} from './entries';
+import { emptyCatalogue, snippetLang, useSnippetCatalogue } from '../suggest/custom';
 import styles from './MarkupRow.module.scss';
 
 function AllList({
@@ -26,10 +33,16 @@ function AllList({
 }) {
   const [query, setQuery] = useState('');
   const [current, setCurrent] = useState<MarkupEntry | null>(null);
+  // Team and personal snippets for this editor's language (none until loaded, or signed out).
+  const lang = view.current?.state.facet(snippetLang);
+  const catalogue = useSnippetCatalogue((state) => (lang && state.byLang[lang]) || emptyCatalogue);
   // Variables are read when the popover opens, so the list is the document as it is now.
   const entries = useMemo(
-    () => markupEntries(globals, view.current?.state.doc.toString() ?? ''),
-    [globals, view],
+    () => [
+      ...markupEntries(globals, view.current?.state.doc.toString() ?? ''),
+      ...customEntries(catalogue, globals),
+    ],
+    [globals, view, catalogue],
   );
   const groups = useMemo(
     () =>

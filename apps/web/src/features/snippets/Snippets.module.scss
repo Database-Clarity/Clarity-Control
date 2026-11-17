@@ -1,0 +1,208 @@
+@use '../../ui/controls';
+@use '../../data/variables' as theme;
+
+// Snippet lists and forms (Settings → Snippets, Management → Team snippets, the save dialog, and
+// Translations → Snippet translations): one dense list, rows of label + markup, actions on the
+// right; the form opens in place of the row it edits.
+
+.manager {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+
+  button {
+    @include controls.button;
+    white-space: nowrap;
+  }
+
+  select {
+    @include controls.field;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.count {
+  margin-inline-end: auto;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  min-width: 0;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.summary {
+  display: flex;
+  flex: 1 1 14rem;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.label {
+  flex: none;
+  max-width: 50%;
+  overflow-wrap: anywhere;
+}
+
+.text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text2);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowActions {
+  display: flex;
+  flex: none;
+  gap: 0.25rem;
+  margin-inline-start: auto;
+}
+
+.form {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 0.5rem;
+  min-width: 0;
+  padding-block: 0.25rem;
+}
+
+.fields {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+
+  input,
+  textarea {
+    @include controls.field;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+  }
+
+  label {
+    font-weight: 600;
+  }
+}
+
+.field {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+
+  p {
+    margin: 0;
+  }
+}
+
+.template {
+  min-height: 4.5rem;
+  padding-block: 0.25rem;
+  resize: vertical;
+  font-family: ui-monospace, monospace;
+  font-variant-ligatures: none;
+}
+
+.english {
+  overflow-wrap: anywhere;
+  color: var(--text2);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+
+.hintText,
+.muted {
+  color: var(--text2);
+  font-size: 0.75rem;
+}
+
+.error {
+  color: var(--bad-ink);
+  font-size: 0.75rem;
+}
+
+.notice {
+  color: var(--text2);
+}
+
+.conflict {
+  padding: 0.25rem 0.5rem;
+  color: var(--text);
+  background: var(--alert-bg);
+  border: 1px solid var(--alert-edge);
+  border-radius: 0.25rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+
+  button[data-primary] {
+    border-color: var(--accent-ink);
+    font-weight: 600;
+  }
+}
+
+// Translations: the language picker and the outdated list above the rows.
+.languageRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.outdated {
+  padding: 0.25rem 0.5rem;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-edge);
+  border-radius: 0.25rem;
+}
+
+.state {
+  flex: none;
+  color: var(--text2);
+  font-size: 0.75rem;
+}
+
+.state[data-state='outdated'] {
+  color: var(--warn);
+}
+
+@include theme.mobile-or-coarse {
+  .manager button {
+    min-height: var(--tap);
+  }
+
+  .text {
+    font-size: var(--ctl-text);
+  }
+}

@@ -331,3 +331,20 @@ select.field {
     }
   }
 }
+
+// Team snippets: the same heading scale as Mark types above it.
+.snippets {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.8125rem;
+
+  h2 {
+    margin: 0;
+    font-size: 0.875rem;
+  }
+
+  p {
+    margin: 0;
+  }
+}

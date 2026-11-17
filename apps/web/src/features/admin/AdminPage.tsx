@@ -18,6 +18,7 @@ import { useAuthStore } from '../../stores/auth';
 import { changeAccess, maintainerCount, roles, translatorAccess, type Access } from './permissions';
 import styles from './Admin.module.scss';
 import { MarkTypes } from '../marks/MarkTypes';
+import { TeamSnippets } from '../snippets/TeamSnippets';
 
 export function AdminPage() {
   const { user, loading: authLoading } = useAuthStore();
@@ -369,6 +370,14 @@ export function AdminPage() {
         )}
       </SkeletonBoundary>
       <MarkTypes />
+      <section className={styles.snippets} aria-label="Team snippets">
+        <h2>Team snippets</h2>
+        <p>
+          Shared with everyone who edits; Ctrl+Space and the menu while typing list them marked
+          Team.
+        </p>
+        <TeamSnippets />
+      </section>
     </article>
   );
 }

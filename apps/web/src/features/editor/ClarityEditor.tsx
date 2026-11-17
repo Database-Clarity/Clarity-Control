@@ -109,6 +109,14 @@ import {
 import { helpIdForSuggestion } from './help/reference';
 import type { UsageCorpus } from './suggest/usage';
 import type { ReferenceSources } from './references';
+import {
+  closeSaveSnippet,
+  loadSnippetCatalogue,
+  snippetCatalogue,
+  useSaveSnippet,
+} from './suggest/custom';
+import { SaveSnippetDialog } from '../snippets/SaveSnippetDialog';
+import { useAuthStore } from '../../stores/auth';
 import styles from './ClarityEditor.module.scss';
 
 // The markup help is code only its first open needs. Once the editor has been input-quiet for a
@@ -274,7 +282,7 @@ function configuration(
       'aria-label': 'Clarity markup',
       'aria-multiline': 'true',
     }),
-    suggestConfiguration({ globals, onChange: onSuggest }),
+    suggestConfiguration({ globals, onChange: onSuggest }, lang),
     chipHost.of({ globals, ...chips }),
     validationDiagnostics(
       lang,
@@ -336,6 +344,15 @@ export function ClarityEditor({
   panelOpen.current = panel !== null;
   const closePanel = useRef(() => setPanel(null));
   const closeAndFocus = () => setPanel(null);
+  // Personal and team snippets (and, translating, the language's words) join the menus once
+  // loaded; signed out, a partner, or a failed load: built-ins only, nothing shown here.
+  const snippetAccount = useAuthStore((auth) =>
+    auth.user?.role ? `${String(auth.user.id)}:${auth.user.role}` : null,
+  );
+  useEffect(() => {
+    void loadSnippetCatalogue(snippetAccount, lang);
+  }, [snippetAccount, lang]);
+  const savingSnippet = useSaveSnippet((save) => (save.owner === view.current ? save.text : null));
   // The help row to open on, when F1 came over the Ctrl+Space menu; else the caret's markup.
   const [helpStart, setHelpStart] = useState<string | null>(null);
   const helpOpen = useRef(false);
@@ -1219,6 +1236,16 @@ export function ClarityEditor({
           globals={globals}
           lang={lang}
           usage={usage}
+        />
+      )}
+      {savingSnippet !== null && (
+        <SaveSnippetDialog
+          text={savingSnippet}
+          existingLabels={snippetCatalogue(lang).mine.map((found) => found.snippet.label)}
+          onClose={() => {
+            closeSaveSnippet();
+            view.current?.focus();
+          }}
         />
       )}
       {chip && view.current && !suggestion && (

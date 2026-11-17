@@ -1,4 +1,5 @@
-import { offeredHere, type ScopedMarkupGlobals } from '../markupScope';
+import { offeredHere, offersBaseEnhanced, type ScopedMarkupGlobals } from '../markupScope';
+import type { SnippetCatalogue } from '../suggest/custom';
 import { type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import {
@@ -407,6 +408,47 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
   return entries.filter((entry) => offeredHere(entry.id, globals));
 }
 
+/**
+ * Team and personal snippets for the "All" popover, in its last two groups. They insert like the
+ * built-in templates, under the same rules; the enhanced ones only where base/enhanced is offered.
+ */
+export function customEntries(
+  catalogue: SnippetCatalogue,
+  globals: ScopedMarkupGlobals,
+): MarkupEntry[] {
+  return [...catalogue.team, ...catalogue.mine].flatMap((found) => {
+    if (found.enhanced && !offersBaseEnhanced(globals)) return [];
+    const snippet = found.snippet;
+    const entry: MarkupEntry = {
+      id: snippet.id,
+      group: found.source === 'mine' ? 'Mine' : 'Team',
+      label: found.english ? `${snippet.label} · EN` : snippet.label,
+      markup: snippet.template.replace(/\{\{\d+:([^}]*)\}\}/g, '$1').replace(/\{\{0\}\}/g, ''),
+      keys: snippet.keywords,
+      glyph: { kind: 'text', text: found.english ? `${snippet.label} · EN` : snippet.label },
+      about: snippet.about,
+      run(view) {
+        const blocked = guard(view);
+        if (blocked) return blocked;
+        const item = templateItem(view.state, {
+          id: `snippet:${snippet.id}`,
+          label: snippet.label,
+          about: snippet.about,
+          snippet,
+        });
+        if (!item) return 'context';
+        const rejection = insertItem(
+          view,
+          { ...item, link: found.link },
+          { typed: item.from === item.to },
+        );
+        return rejection ?? 'inserted';
+      },
+    };
+    return [entry];
+  });
+}
+
 /** The popover's group order. */
 export const entryGroups = [
   'Text',
@@ -419,6 +461,8 @@ export const entryGroups = [
   'Declarations',
   'Variables',
   'Global variables',
+  'Team',
+  'Mine',
 ] as const;
 
 /** The owner's markup bar order (independent of the core icon registry). */

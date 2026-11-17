@@ -11,7 +11,12 @@ import {
   type Extension,
 } from '@codemirror/state';
 import { EditorView, ViewPlugin, keymap } from '@codemirror/view';
-import { extractVariables, lowerDelimitedMarkup, type MarkupGlobals } from '@clarity/core';
+import {
+  extractVariables,
+  lowerDelimitedMarkup,
+  type Lang,
+  type MarkupGlobals,
+} from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
 import { checkedWrap, tagSelection } from '../elementTags';
 import { askGroup, groupChange, pairAt } from '../iconPairs';
@@ -29,6 +34,7 @@ import {
   unavailableReasons,
 } from './source';
 import { setStops, stopsExtension } from './stops';
+import { askSaveSnippet, snippetLang } from './custom';
 
 /** What the menu shows. Browsing only ever changes this, never the document. */
 export interface SuggestSnapshot {
@@ -270,6 +276,12 @@ export function insertItem(
   item: SuggestItem,
   target: InsertionTarget,
 ): Rejection | null {
+  if (item.saveSnippet) {
+    const { from, to } = view.state.selection.main;
+    view.dispatch({ effects: closeEffect.of(null) });
+    askSaveSnippet(view.state.sliceDoc(from, to), view);
+    return null;
+  }
   if (item.numberPanel) {
     view.dispatch({ effects: closeEffect.of(null) });
     view.state.facet(numberHost).openPanel?.();
@@ -373,7 +385,8 @@ const whenOpen =
   };
 
 /** The part of the menu that follows the language and globals; goes in the reconfigurable block. */
-export const suggestConfiguration = (host: SuggestHost): Extension => suggestHost.of(host);
+export const suggestConfiguration = (host: SuggestHost, lang?: Lang): Extension =>
+  lang ? [suggestHost.of(host), snippetLang.of(lang)] : suggestHost.of(host);
 
 /** Whether the typed `#name` in a variable context already names a defined variable. */
 function finishedReference(state: EditorState, context: SuggestContext): boolean {

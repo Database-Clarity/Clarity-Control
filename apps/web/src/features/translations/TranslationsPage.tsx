@@ -17,6 +17,7 @@ import { canonicalHash } from '../navigation/catalog';
 import { useAuthStore } from '../../stores/auth';
 import { managesLanguage } from '../auth/permissions';
 import { TranslatorsButton } from './TranslatorsPanel';
+import { SnippetTranslationsButton } from '../snippets/SnippetTranslations';
 import { useDataStore } from '../../stores/data';
 import {
   SkeletonRegion,
@@ -579,9 +580,15 @@ export function TranslationsPage() {
       )}
     </>
   );
+  const manager = !!user && !!language && managesLanguage(user, language);
+  // Snippet words: that language's managers and maintainers (never English).
+  const snippetWords = !!language && language !== 'en' && (manager || user?.role === 'maintainer');
   const managersControl =
-    user && language && managesLanguage(user, language) ? (
-      <TranslatorsButton lang={language} selfId={user.id} />
+    manager || snippetWords ? (
+      <>
+        {manager && user && language && <TranslatorsButton lang={language} selfId={user.id} />}
+        {snippetWords && language && <SnippetTranslationsButton lang={language} />}
+      </>
     ) : null;
   const sourceSwitch = batchesAllowed ? (
     <SourceSwitch source={source} onSource={chooseSource} />
