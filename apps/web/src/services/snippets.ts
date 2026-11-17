@@ -63,11 +63,17 @@ export const savePersonalSnippet = (
 export const getTeamSnippets = () => request('/snippets/team', teamResponseSchema);
 /** Target-language effective catalogue; personal snippets remain a separate account read. */
 export const getLocalizedSnippets = (language: string) =>
-  request(`/snippets/local/${localizedSnippetLangSchema.parse(language)}`, effectiveSnippetsResponseSchema);
+  request(
+    `/snippets/local/${localizedSnippetLangSchema.parse(language)}`,
+    effectiveSnippetsResponseSchema,
+  );
 /** Per-entry CAS: base null creates, next null deletes. enHash comes from the effective read. */
 export const saveSnippetTranslation = (language: string, change: SnippetTranslationChange) =>
-  request(`/snippets/local/${localizedSnippetLangSchema.parse(language)}`,
-    z.object({ translations: snippetTranslationsSchema }), change);
+  request(
+    `/snippets/local/${localizedSnippetLangSchema.parse(language)}`,
+    z.object({ translations: snippetTranslationsSchema }),
+    change,
+  );
 /** Compare-and-set for one entry: base null creates, next null deletes. */
 export const saveTeamSnippet = (change: SnippetChange) =>
   request('/snippets/team', teamResponseSchema, change);

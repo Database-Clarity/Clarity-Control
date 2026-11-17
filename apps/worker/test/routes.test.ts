@@ -87,7 +87,11 @@ const routes: (Route & { public?: true })[] = [
   },
   { method: 'GET', path: '/snippets/team' },
   { method: 'GET', path: '/snippets/local/de' },
-  { method: 'PUT', path: '/snippets/local/de', body: { id: 'arrow-values', base: null, next: null } },
+  {
+    method: 'PUT',
+    path: '/snippets/local/de',
+    body: { id: 'arrow-values', base: null, next: null },
+  },
   {
     method: 'PUT',
     path: '/snippets/team',
