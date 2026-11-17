@@ -93,6 +93,8 @@ workflow registration/enablement belong to subsequent phases.
 
 `template/.github/workflows/pipeline.yml` and `template/.publisher/` are installation
 artifacts, not active workflows in this editor repository. No installation is performed here.
+Pushes changing only `exports/**`, `glossary/**`, `snippets/**`, or `config/marks.json`
+do not trigger the editor-data pipeline.
 The plain Node 24 runtime includes packages/core and has no runtime npm dependencies.
 `npm run build:publisher -- --template` rebuilds both runtime and PIN from the committed
 source HEAD. Commit source first, then build/commit the generated files so the source pin

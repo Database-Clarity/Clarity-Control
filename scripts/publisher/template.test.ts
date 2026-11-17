@@ -17,6 +17,13 @@ import * as z from 'zod';
 import { langSchema } from '../../packages/core/src/languages.js';
 import { verifyRuntime } from './pipeline.js';
 
+it('ignores exports, glossary, snippets, and entry marks on editor-data pushes', () => {
+  const workflow = readFileSync('scripts/publisher/template/.github/workflows/pipeline.yml', 'utf8');
+  expect(workflow).toContain(
+    "paths-ignore: ['exports/**', 'glossary/**', 'snippets/**', 'config/marks.json']",
+  );
+});
+
 it('ships the reviewed v2 template with a matching integrity pin and documentation', () => {
   const root = 'scripts/publisher/template/.publisher';
   const pin = verifyRuntime(root);
