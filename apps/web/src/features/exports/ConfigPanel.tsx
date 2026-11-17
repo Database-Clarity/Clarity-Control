@@ -955,9 +955,9 @@ const FormatRowView = memo(function FormatRowView({
   const about =
     mode === 'unset'
       ? 'Not chosen yet: the file drops it, keeps the text, and adds a notice.'
-      : ((ruleRows as readonly string[]).includes(row)
-          ? ruleAbout[row as RuleRow][mode]
-          : symbolAbout[row]);
+      : (ruleRows as readonly string[]).includes(row)
+        ? ruleAbout[row as RuleRow][mode]
+        : symbolAbout[row];
   const choose = (value: string) => {
     if (row === 'elementTags') onValue(row, value === 'on');
     else if (row === 'spacer') onValue(row, value);
