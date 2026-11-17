@@ -298,10 +298,17 @@ $row: 1.75rem;
 }
 
 .urlList {
+  overflow-wrap: anywhere;
   margin: 0.5rem 0;
   padding-left: 1.25rem;
   font-family: var(--mono, monospace);
   font-size: 0.8125rem;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 // Project page ----------------------------------------------------------------------------------

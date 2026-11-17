@@ -1,7 +1,12 @@
 // Client for the Worker's /exports routes (export spec section 4; P3 reports/export-p3.md).
 // Every response is parsed; a stored config is validated again with the shared strict schema
 // (`migrateConfig`), so the page never edits a config the Worker would refuse to read.
-import { migrateConfig, type ExportConfig } from '@clarity/export/config';
+import {
+  migrateConfig,
+  type ExportConfig,
+  type ExportSaveConfirmation,
+  type RetainedConfirmationResponse,
+} from '@clarity/export/config';
 import { z } from 'zod';
 import { apiRequest } from '../../services/api';
 
@@ -108,6 +113,7 @@ const savedSchema = z.object({
 
 export type SaveOutcome =
   | { kind: 'saved'; revision: string; config: ExportConfig; commit: string | null }
+  | { kind: 'confirmation'; message: string; details: RetainedConfirmationResponse['details'] }
   /** The project changed since it was loaded (409): reload, keep the edits. */
   | { kind: 'conflict'; message: string }
   /** Saved moments ago (429): the Worker names the wait in seconds. */
@@ -116,6 +122,18 @@ export type SaveOutcome =
 
 function outcome(error: unknown): SaveOutcome {
   if (!(error instanceof ExportsError)) throw error;
+  if (error.status === 409) {
+    const details = z
+      .object({
+        kind: z.literal('confirm-retained-deletion'),
+        deletions: z
+          .array(z.object({ path: z.string(), until: z.string(), urls: z.array(z.string()) }))
+          .min(1),
+      })
+      .safeParse(error.details);
+    if (details.success)
+      return { kind: 'confirmation', message: error.message, details: details.data };
+  }
   if (error.status === 409) return { kind: 'conflict', message: error.message };
   if (error.status === 429) {
     const wait = z.object({ retryAfter: z.number() }).safeParse(error.details);
@@ -132,12 +150,13 @@ export async function saveProject(
   id: string,
   revisionId: string,
   config: ExportConfig,
+  confirmation: ExportSaveConfirmation = {},
 ): Promise<SaveOutcome> {
   try {
     const data = savedSchema.parse(
       await call(`/exports/projects/${encodeURIComponent(id)}`, {
         method: 'PUT',
-        body: JSON.stringify({ revision: revisionId, config }),
+        body: JSON.stringify({ revision: revisionId, config, ...confirmation }),
       }),
     );
     return {

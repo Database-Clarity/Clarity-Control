@@ -3,7 +3,12 @@ import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 // config on the left and the preview on the right; one column with Config | Preview tabs on
 // phones and at 768. The URL holds the file tab (`file`), the preview pick (`pick`), and the
 // narrow view (`view`), so Back walks through them.
-import { configLimits, configSchema, fileUrls } from '@clarity/export/config';
+import {
+  configLimits,
+  configSchema,
+  fileUrls,
+  type ExportSaveConfirmation,
+} from '@clarity/export/config';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../services/http';
@@ -13,6 +18,7 @@ import { usePaneDivider } from '../../ui/usePaneDivider';
 import { useMedia } from '../../ui/useMedia';
 import { ExportsError, loadProject, saveProject, type SaveOutcome } from './api';
 import { FileBuildStatus } from './BuildStatus';
+import { KeptUrlConfirm } from './KeptUrlConfirm';
 import { ConfigPanel, RetainedSection } from './ConfigPanel';
 import {
   addFile,
@@ -46,8 +52,13 @@ const pendingSaves = new Map<string, Promise<SaveOutcome>>();
  * Sends a save. Its reply always lands in the scope's cache (the page may have been left), so a
  * stored config never meets a draft that predates it; the page itself applies it if still open.
  */
-function startSave(scope: string, id: string, state: ProjectState): Promise<SaveOutcome> {
-  const pending = saveProject(id, state.revision, state.config)
+function startSave(
+  scope: string,
+  id: string,
+  state: ProjectState,
+  confirmation?: ExportSaveConfirmation,
+): Promise<SaveOutcome> {
+  const pending = saveProject(id, state.revision, state.config, confirmation)
     .catch((error: unknown): SaveOutcome => ({ kind: 'refused', message: errorMessage(error) }))
     .then((outcome) => {
       pendingSaves.delete(scope);
@@ -69,6 +80,7 @@ type SaveState =
   | { kind: 'idle' }
   | { kind: 'saving' }
   | { kind: 'saved' }
+  | Extract<SaveOutcome, { kind: 'confirmation' }>
   | { kind: 'conflict'; message: string }
   | { kind: 'cooldown'; until: number; message: string }
   | { kind: 'refused'; message: string; details?: unknown };
@@ -107,6 +119,7 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
     [scope],
   );
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
+  const saveButton = useRef<HTMLButtonElement>(null);
   // The preview's language and its last output live here: the header names the shown language's
   // URL, and the phone's Preview tab marks what changed while Config was open.
   const [language, setLanguage] = useState<string | null>(null);
@@ -280,7 +293,7 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
 
   // The config is read-only while a save is on its way, so no edit can land between the request
   // and its reply (the reply's config replaces the page's).
-  const saving = save.kind === 'saving';
+  const saving = save.kind === 'saving' || save.kind === 'confirmation';
   const onSave = () => {
     if (!state || !dirty || invalid || saving) return;
     void finishSave(startSave(scope, id, state));
@@ -384,14 +397,29 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
         )}
         {path && <CopyUrl url={fileUrl(path)} />}
         <button
+          ref={saveButton}
           type="button"
           className={styles.primary}
           onClick={() => void onSave()}
           disabled={!dirty || !!invalid || save.kind === 'saving' || cooling > 0}
+          aria-haspopup={save.kind === 'confirmation' ? 'dialog' : undefined}
+          aria-expanded={save.kind === 'confirmation' ? true : undefined}
           title={invalid ? 'Fix the marked fields first' : undefined}
         >
           {saveLabel}
         </button>
+        {save.kind === 'confirmation' && (
+          <KeptUrlConfirm
+            anchor={saveButton}
+            details={save.details}
+            onCancel={() => setSave({ kind: 'idle' })}
+            onConfirm={() =>
+              void finishSave(
+                startSave(scope, id, state, { confirmDelete: save.details.deletions }),
+              )
+            }
+          />
+        )}
       </div>
     </div>
   );
