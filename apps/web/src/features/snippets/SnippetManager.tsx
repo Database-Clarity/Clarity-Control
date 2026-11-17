@@ -127,7 +127,7 @@ export function SnippetManager({
     if (ok) {
       setEditing(null);
       setFocus(`[data-edit="${next.id}"]`);
-    }
+    } else setFocus('[data-save]'); // A refused save keeps the form: focus back on Save.
   }
 
   async function remove(snippet: CustomSnippet) {
@@ -135,7 +135,7 @@ export function SnippetManager({
     if (ok) {
       setDeleting(null);
       setFocus('[data-new]');
-    }
+    } else setFocus('[data-confirm]');
   }
 
   const form = editing && (
@@ -152,7 +152,7 @@ export function SnippetManager({
         }}
       />
       <div className={styles.actions}>
-        <button type="submit" data-primary disabled={busy}>
+        <button type="submit" data-primary data-save disabled={busy}>
           {busy ? 'Saving…' : editing === 'new' ? 'Save snippet' : 'Save changes'}
         </button>
         <button

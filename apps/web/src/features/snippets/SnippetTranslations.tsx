@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Lang } from '@clarity/core';
 import {
@@ -88,6 +88,17 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
     kind: 'done' | 'conflict' | 'error';
   } | null>(null);
 
+  // Where keyboard focus goes after an action, so it never drops out of the dialog.
+  const root = useRef<HTMLDivElement>(null);
+  const [focus, setFocus] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!focus) return;
+    const target = root.current?.querySelector<HTMLElement>(focus);
+    if (!target || (target as HTMLButtonElement).disabled) return;
+    target.focus();
+    setFocus(null);
+  }, [focus, busy]);
+
   const reload = useCallback(() => {
     setLoadError(null);
     setEnglish(null);
@@ -132,7 +143,13 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
     setNotice(null);
   }
 
-  async function write(snippet: EnglishSnippet, next: SnippetTranslation | null, done: string) {
+  async function write(
+    snippet: EnglishSnippet,
+    next: SnippetTranslation | null,
+    done: string,
+    /** Focus after a refused write: Save, or the remove confirm. */
+    retry: string,
+  ) {
     setBusy(true);
     setNotice(null);
     try {
@@ -146,8 +163,10 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
       setEditing(null);
       setRemoving(null);
       setNotice({ text: done, kind: 'done' });
+      setFocus(`[data-edit="${snippet.id}"]`);
       invalidateSnippetCatalogue();
     } catch (error) {
+      setFocus(retry);
       setNotice(
         error instanceof SnippetConflictError
           ? { text: conflictMessage, kind: 'conflict' }
@@ -174,6 +193,7 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
         enHash: await snippetEnglishHash(editing.template),
       },
       `Saved the ${languageLabel(lang)} words for “${editing.label}”.`,
+      '[data-save]',
     );
   }
 
@@ -183,7 +203,7 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
 
   return (
     <Dialog title={`Snippet translations · ${languageLabel(lang)}`} busy={busy} onClose={onClose}>
-      <div className={styles.manager}>
+      <div ref={root} className={styles.manager}>
         <p className={styles.hintText}>
           While translating into {languageLabel(lang)}, Ctrl+Space and the markup menus use these
           words; snippets without a current translation show in English, marked EN. Change only the
@@ -253,6 +273,7 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                           draft={draft}
                           errors={errors}
                           disabled={busy}
+                          autoFocus
                           english={{
                             label: snippet.label,
                             keywords: snippet.keywords,
@@ -264,10 +285,17 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                           }}
                         />
                         <div className={styles.actions}>
-                          <button type="submit" data-primary disabled={busy}>
+                          <button type="submit" data-primary data-save disabled={busy}>
                             {busy ? 'Saving…' : 'Save translation'}
                           </button>
-                          <button type="button" disabled={busy} onClick={() => setEditing(null)}>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setEditing(null);
+                              setFocus(`[data-edit="${snippet.id}"]`);
+                            }}
+                          >
                             Cancel
                           </button>
                         </div>
@@ -293,6 +321,7 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                         <span className={styles.rowActions}>
                           <button
                             type="button"
+                            data-edit={snippet.id}
                             aria-label={`Translate ${snippet.label}`}
                             disabled={busy}
                             onClick={() => start(snippet)}
@@ -304,12 +333,14 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                               <>
                                 <button
                                   type="button"
+                                  data-confirm
                                   disabled={busy}
                                   onClick={() =>
                                     void write(
                                       snippet,
                                       null,
                                       `Removed the ${languageLabel(lang)} words for “${snippet.label}”.`,
+                                      '[data-confirm]',
                                     )
                                   }
                                 >
@@ -318,7 +349,10 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                                 <button
                                   type="button"
                                   disabled={busy}
-                                  onClick={() => setRemoving(null)}
+                                  onClick={() => {
+                                    setRemoving(null);
+                                    setFocus(`[data-remove="${snippet.id}"]`);
+                                  }}
                                 >
                                   Keep
                                 </button>
@@ -326,9 +360,13 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                             ) : (
                               <button
                                 type="button"
+                                data-remove={snippet.id}
                                 aria-label={`Remove the ${languageLabel(lang)} words for ${snippet.label}`}
                                 disabled={busy}
-                                onClick={() => setRemoving(snippet.id)}
+                                onClick={() => {
+                                  setRemoving(snippet.id);
+                                  setFocus('[data-confirm]');
+                                }}
                               >
                                 Remove
                               </button>

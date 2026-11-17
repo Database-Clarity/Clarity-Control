@@ -6,6 +6,7 @@
 // right; the form opens in place of the row it edits.
 
 .manager {
+  container-type: inline-size;
   display: grid;
   // One track that never grows past its container (a long option in the copy picker would).
   grid-template-columns: minmax(0, 1fr);
@@ -231,8 +232,8 @@
   color: var(--warn);
 }
 
-@include theme.mobile {
-  // Phones: the markup goes under its label.
+// A narrow list (phones, the Settings sheet): the markup goes under its label, using the full width.
+@container (max-width: 56rem) {
   .summary {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
