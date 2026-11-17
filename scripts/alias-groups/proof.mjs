@@ -20,7 +20,7 @@ const footer = 'main().catch((e) => {\n  console.error(String(e));\n  process.ex
 if (!runtime.trimEnd().endsWith(footer)) throw new Error('Unknown installed runtime entry point');
 const instrumented =
   runtime.slice(0, runtime.lastIndexOf(footer)) +
-  'export {exportLegacy,buildLegacy,legacyPresets,composeAliases,publishableHash};\n';
+  'export {exportWithInactiveMoves,buildLegacy,legacyPresets,composeAliases,publishableHash};\n';
 const auditPath = resolve(out, 'installed-engine.mjs');
 writeFileSync(auditPath, instrumented);
 const installed = await import(pathToFileURL(auditPath));
@@ -65,11 +65,13 @@ function view(files) {
   const localCatalog = { ...catalog };
   for (const t of docs)
     if (t.custom) localCatalog[t.hash] = { name: t.custom.name, type: t.custom.categoryId };
-  const perks = installed.exportLegacy(
+  const moves = files['config/inactive.json'] ? JSON.parse(files['config/inactive.json']) : {};
+  const perks = installed.exportWithInactiveMoves(
     docs.filter((t) => !aliases[t.hash] && (localCatalog[t.hash] || t.hash <= 3)),
     Date.parse(plan.input.at),
     localCatalog,
     aliases,
+    moves,
   );
   return { docs, aliases, input: { perks } };
 }
