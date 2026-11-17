@@ -1,5 +1,29 @@
 import { expect, test } from 'vitest';
+import { compile } from 'sass';
+import { fileURLToPath } from 'node:url';
 import { isV1Lines, lastEdit, outputRows, renderLine, rowKeys } from './output';
+
+test('Exotic output uses the themed yellow colour for lines, text, and arrows', () => {
+  const line = renderLine({
+    style: ['exotic'],
+    parts: [
+      { text: 'Name', style: ['exotic'] },
+      { icon: 'arrow', style: ['exotic'] },
+    ],
+  });
+  const css = compile(
+    fileURLToPath(new URL('../preview/TooltipPreview.module.scss', import.meta.url)),
+  ).css;
+  const rule = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((match) =>
+    match[1].split(',').some((selector) => selector.trim() === '.exotic'),
+  );
+  expect(line.classNames).toEqual(['exotic']);
+  expect(line.linesContent?.map((part) => part.classNames)).toEqual([
+    ['exotic'],
+    ['arrow', 'exotic'],
+  ]);
+  expect(rule?.[2]).toMatch(/color:\s*var\(--tp-yellow\)/);
+});
 
 test('format v1 lines map to the class names the tooltip renderer draws', () => {
   expect(

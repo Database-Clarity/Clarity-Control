@@ -735,7 +735,7 @@ const symbolLabels: Record<string, string> = {
 function Glyph({ row }: { row: FormatRow }) {
   if (row === 'enhancedArrow') return <EnhancedArrow size="0.75rem" />;
   if (row === 'bold' || row === 'exotic' || row === 'pve' || row === 'pvp')
-    return <span className={classNames([row === 'exotic' ? 'yellow' : row])}>Aa</span>;
+    return <span className={classNames([row])}>Aa</span>;
   if (row === 'elementText') return <span className={styles.glyphText}>Arc</span>;
   if ((ruleRows as readonly string[]).includes(row))
     return (
