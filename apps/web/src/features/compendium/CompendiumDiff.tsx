@@ -201,6 +201,10 @@ const StyleMark = memo(function StyleMark({ note }: { note: StyleNote }) {
   const visible = mark.open || mark.hovered || mark.focused;
   const id = useId();
   const leaving = useRef<ReturnType<typeof setTimeout>>();
+  // The delayed leave applies to the state as it is then: a blur, Escape, click, focus, or new
+  // owner during the grace is kept, never undone by the state at the time of leaving.
+  const latest = useRef({ mark, setMark });
+  latest.current = { mark, setMark };
   useEffect(() => () => clearTimeout(leaving.current), []);
   return (
     <span
@@ -213,7 +217,10 @@ const StyleMark = memo(function StyleMark({ note }: { note: StyleNote }) {
       // A short grace lets the pointer cross the gap below the marker into the detail.
       onMouseLeave={() => {
         clearTimeout(leaving.current);
-        leaving.current = setTimeout(() => setMark({ ...mark, hovered: false }), 150);
+        leaving.current = setTimeout(() => {
+          const { mark, setMark } = latest.current;
+          if (mark.hovered) setMark({ ...mark, hovered: false });
+        }, 150);
       }}
       onFocus={() => setMark({ ...mark, focused: true })}
       onBlur={(event) => {

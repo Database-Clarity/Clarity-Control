@@ -279,3 +279,36 @@ it('opens scaled cell style details in the top layer and dismisses them with Esc
     else Reflect.deleteProperty(HTMLElement.prototype, 'showPopover');
   }
 });
+
+it('a dismissal during the leave grace stays dismissed', async () => {
+  const before = text('Style marker line');
+  const after = cell({ text: before.plain, bold: true });
+  const { host } = await mount(before, after);
+  const button = host.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+  const expanded = () => button.getAttribute('aria-expanded');
+  const hoverAndLeave = async () => {
+    await act(async () => button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    await act(async () =>
+      button.dispatchEvent(
+        new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }),
+      ),
+    );
+  };
+  const grace = () => act(() => new Promise((resolve) => setTimeout(resolve, 160)));
+  // Blur within the grace: the timer must not restore the focus it had when the pointer left.
+  await act(async () => button.focus());
+  await hoverAndLeave();
+  await act(async () => button.blur());
+  expect(expanded()).toBe('false');
+  await grace();
+  expect(expanded()).toBe('false');
+  // Escape within the grace, focus kept: it stays closed.
+  await act(async () => button.focus());
+  await hoverAndLeave();
+  await act(async () => {
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  expect(expanded()).toBe('false');
+  await grace();
+  expect(expanded()).toBe('false');
+});
