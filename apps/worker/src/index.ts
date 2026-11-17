@@ -30,6 +30,7 @@ import { minuteCron, scheduleTick } from './schedule/lifecycle.js';
 import { switches } from './schedule/store.js';
 import { userWorklists } from './worklists.js';
 import { personalSnippetsRoute, teamSnippetsRoute } from './snippets.js';
+import { localizedSnippetsRoute } from './localizedSnippets.js';
 import { userSettings } from './settings.js';
 import type { Context, Env } from './types.js';
 
@@ -96,6 +97,9 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'POST' && path === '/push-live') return pushLive(request, github, user);
   const worklist = /^\/worklists\/([^/]+)$/.exec(path);
   const personalSnippet = /^\/snippets\/mine\/([^/]+)$/.exec(path);
+  const snippetLocale = /^\/snippets\/local\/([^/]+)$/.exec(path);
+  if (snippetLocale && ['GET', 'PUT'].includes(request.method))
+    return localizedSnippetsRoute(request, github, user, snippetLocale[1]);
   if ((path === '/snippets/mine' || personalSnippet) && ['GET', 'PUT'].includes(request.method))
     return personalSnippetsRoute(request, github, user, personalSnippet?.[1]);
   if (path === '/snippets/team' && ['GET', 'PUT'].includes(request.method))
