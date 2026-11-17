@@ -319,7 +319,7 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
         const source = englishStandIn ? 'en' : language;
         const edit = editedOf(hash, source);
         if (edit) edited[source] = edit;
-        else if (englishStandIn) edited.en = {};
+        else if (englishStandIn && (keys.has('edited') || keys.has('editedBy'))) edited.en = {};
       }
       const { references, ...item } = picked.get(hash)!;
       expanded[hash] = {

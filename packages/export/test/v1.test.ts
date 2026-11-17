@@ -612,7 +612,7 @@ describe('format v1 keys, header, and language files', () => {
     ([['edited'], ['editedBy'], ['name'], []] satisfies StyleFile['data']['keys'][]).map((keys) => [
       keys,
     ]),
-  )('English stand-ins retain their marker with keys %j and no tracker', (keys) => {
+  )('English stand-ins respect metadata selection with keys %j and no tracker', (keys) => {
     const input = structuredClone(translated) as Loose;
     delete input.perks[100].updateTracker;
     delete input.perks[102].updateTracker;
@@ -630,8 +630,14 @@ describe('format v1 keys, header, and language files', () => {
     const [en, de, fr] = plan.outputs!;
     expect(en.file.perks[102]).not.toHaveProperty('edited');
     expect(de.file.perks[100]).not.toHaveProperty('edited');
-    expect(de.file.perks[102].edited).toEqual({ en: {} });
-    expect(fr.file.perks[100].edited).toEqual({ en: {} });
+    if (keys.some((key) => key === 'edited' || key === 'editedBy')) {
+      expect(de.file.perks[102].edited).toEqual({ en: {} });
+      expect(fr.file.perks[100].edited).toEqual({ en: {} });
+    } else {
+      for (const output of plan.outputs!)
+        for (const perk of Object.values(output.file.perks))
+          expect(perk).not.toHaveProperty('edited');
+    }
     for (const output of plan.outputs!)
       expect(decodeV1(json(output.bytes))).toEqual(output.expanded);
   });
