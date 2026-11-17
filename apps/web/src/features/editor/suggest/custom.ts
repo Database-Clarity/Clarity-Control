@@ -73,19 +73,26 @@ interface CatalogueState {
 
 export const useSnippetCatalogue = create<CatalogueState>(() => ({ byLang: {}, account: null }));
 
+/** The current read per account and language; a superseded read's answer is dropped. */
 const loading = new Map<string, Promise<void>>();
+/** Languages asked for by this account's editors: a change reads them all again. */
+const requested = new Set<Lang>();
 
 /** Loads (once per account and language) what the menus offer beside the built-ins. */
 export function loadSnippetCatalogue(account: string | null, lang: Lang): Promise<void> {
   if (useSnippetCatalogue.getState().account !== account) {
     loading.clear();
+    requested.clear();
     useSnippetCatalogue.setState({ byLang: {}, account });
   }
   if (!account) return Promise.resolve();
+  requested.add(lang);
   const key = `${account}:${lang}`;
   const running = loading.get(key);
   if (running) return running;
-  const load = (async () => {
+  // Assigned before any of its awaits resolve; the read compares itself with the current one.
+  let load: Promise<void> | undefined = undefined;
+  load = (async () => {
     const [custom, local] = await Promise.all([
       loadEditorSnippets(),
       lang === 'en' ? Promise.resolve(null) : getLocalizedSnippets(lang).catch(() => null),
@@ -112,7 +119,8 @@ export function loadSnippetCatalogue(account: string | null, lang: Lang): Promis
           })
         : entry('team', snippet, lang !== 'en');
     });
-    if (useSnippetCatalogue.getState().account !== account) return;
+    // A later read (after another save) or another account replaced this one.
+    if (loading.get(key) !== load) return;
     useSnippetCatalogue.setState((state) => ({
       byLang: {
         ...state.byLang,
@@ -125,7 +133,7 @@ export function loadSnippetCatalogue(account: string | null, lang: Lang): Promis
     }));
   })().catch(() => {
     // Built-ins only, no error in the editor; the next editor mount tries again.
-    loading.delete(key);
+    if (loading.get(key) === load) loading.delete(key);
   });
   loading.set(key, load);
   return load;
@@ -133,10 +141,11 @@ export function loadSnippetCatalogue(account: string | null, lang: Lang): Promis
 
 /** After a change in Settings, Management, or Translations: the menus read afresh. */
 export function invalidateSnippetCatalogue(): void {
-  const { account, byLang } = useSnippetCatalogue.getState();
+  const { account } = useSnippetCatalogue.getState();
   loading.clear();
-  // The loaded languages read again; the menus keep the old lists until the new ones arrive.
-  for (const lang of Object.keys(byLang) as Lang[]) void loadSnippetCatalogue(account, lang);
+  // Every language asked for (loaded or still loading) reads again; reads already in flight are
+  // dropped. The menus keep the old lists until the new ones arrive.
+  for (const lang of [...requested]) void loadSnippetCatalogue(account, lang);
 }
 
 /** What the menus offer now for this language (built-ins only until loaded). */

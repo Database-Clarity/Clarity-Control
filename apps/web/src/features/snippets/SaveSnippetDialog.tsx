@@ -34,6 +34,11 @@ export function SaveSnippetDialog({
   const form = useRef<HTMLFormElement>(null);
   // After the dialog opens (showModal moves focus to its first control): start on Label.
   useEffect(() => form.current?.querySelector<HTMLInputElement>('input')?.focus(), []);
+  const saveButton = useRef<HTMLButtonElement>(null);
+  // A refused save leaves the dialog open: focus goes back to Save once it is enabled again.
+  useEffect(() => {
+    if (!busy && failure) saveButton.current?.focus();
+  }, [busy, failure]);
 
   async function save(event?: React.FormEvent) {
     event?.preventDefault();
@@ -73,7 +78,7 @@ export function SaveSnippetDialog({
       onClose={onClose}
       footer={
         <>
-          <button type="submit" form="save-snippet" data-primary disabled={busy}>
+          <button ref={saveButton} type="submit" form="save-snippet" data-primary disabled={busy}>
             {busy ? 'Saving…' : 'Save snippet'}
           </button>
           <button type="button" disabled={busy} onClick={onClose}>

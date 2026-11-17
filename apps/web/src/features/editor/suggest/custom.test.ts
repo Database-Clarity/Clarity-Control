@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { EditorState } from '@codemirror/state';
 import type { Lang, MarkupGlobals } from '@clarity/core';
 import { requestItems, suggestContext, suggestItems } from './source';
-import { loadSnippetCatalogue, snippetCatalogue, snippetLang } from './custom';
+import {
+  invalidateSnippetCatalogue,
+  loadSnippetCatalogue,
+  snippetCatalogue,
+  snippetLang,
+} from './custom';
 
 const services = vi.hoisted(() => ({
   loadEditorSnippets: vi.fn(),
@@ -171,5 +176,50 @@ describe('markup bar and All buttons while translating', () => {
     expect(note.run(view, enhanced)).toBe('inserted');
     expect(view.state.doc.toString()).toBe('// Notiz');
     view.destroy();
+  });
+});
+
+describe('catalogue reads after changes', () => {
+  const deferred = () => {
+    let resolve!: (value: unknown) => void;
+    const promise = new Promise((done) => (resolve = done));
+    return { promise, resolve };
+  };
+  const answer = (label: string) => ({
+    builtIn: [],
+    mine: [{ id: 'me:x', label, template: 'x' }],
+    team: [],
+  });
+
+  test('an older read that answers last never replaces a newer one', async () => {
+    const first = deferred();
+    const second = deferred();
+    const third = deferred();
+    services.loadEditorSnippets
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise);
+    const initial = loadSnippetCatalogue('4:editor', 'en');
+    invalidateSnippetCatalogue(); // save A: read A
+    invalidateSnippetCatalogue(); // save B: read B
+    third.resolve(answer('After B'));
+    await Promise.resolve();
+    second.resolve(answer('After A'));
+    first.resolve(answer('Before'));
+    await initial;
+    await new Promise((done) => setTimeout(done));
+    expect(snippetCatalogue('en').mine.map((found) => found.snippet.label)).toEqual(['After B']);
+  });
+
+  test('a save while the first read is pending reads again', async () => {
+    const first = deferred();
+    services.loadEditorSnippets
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(answer('Saved'));
+    void loadSnippetCatalogue('5:editor', 'en');
+    invalidateSnippetCatalogue();
+    first.resolve(answer('Stale'));
+    await new Promise((done) => setTimeout(done));
+    expect(snippetCatalogue('en').mine.map((found) => found.snippet.label)).toEqual(['Saved']);
   });
 });
