@@ -242,6 +242,8 @@ function Workspace({
   const shownTab =
     tab === 'translations' ? tab : tab === 'history' && history ? 'history' : 'usages';
   const sync = globalSyncState(snapshot, entry?.id ?? '');
+  // The Worker requeues only causes this entry owns; the repository-wide status still blocks.
+  const ownCauses = sync.causeIds.filter((cause) => snapshot.causeEntries?.[cause] === entry?.id);
   const savedImpacts = entry ? (snapshot.impacts[entry.id] ?? []) : [];
   const projection =
     dirty &&
@@ -372,7 +374,7 @@ function Workspace({
           ? await service.retrySync({
               expectedHead: snapshot.head,
               id: entry.id,
-              causeIds: sync.causeIds,
+              causeIds: ownCauses,
             })
           : await service.read();
       if (!mounted.current) return;
@@ -476,7 +478,8 @@ function Workspace({
         </button>
         {entry && sync.status === 'sync-failed' && (
           <button
-            disabled={disabled || !actor}
+            disabled={disabled || !actor || !ownCauses.length}
+            title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
             aria-label="Retry sync"
             onClick={() => void refreshSync(true)}
           >

@@ -33,7 +33,16 @@ export function rememberGlobalIdentities(entries: readonly GlobalEntry[]): void 
     identities: Object.fromEntries(
       entries
         .filter((entry) => !entry.tombstone)
-        .map((entry) => [entry.id, { kind: entry.kind, name: entry.name }]),
+        .map((entry) => [
+          entry.id,
+          {
+            kind: entry.kind,
+            name: entry.name,
+            definitions: Object.fromEntries(
+              Object.entries(entry.definitions).map(([lang, value]) => [lang, value!.body]),
+            ),
+          },
+        ]),
     ),
     status: 'ready',
     error: '',

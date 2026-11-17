@@ -122,6 +122,8 @@ export interface GlobalSnapshot {
   destinationSync: Record<string, GlobalSyncState>;
   renameIntents?: Record<string, GlobalRenameIntent>;
   sources?: GlobalSourcePins;
+  /** Which entry owns each pending cause; a Retry sends only the selected entry's own. */
+  causeEntries?: Record<string, string>;
 }
 /**
  * A queued rename. `name` is the requested name; once sync is current an intent whose entry does
@@ -203,6 +205,7 @@ export interface GlobalHttpState extends GlobalSyncState {
   head: string;
   version: 1;
   sources?: GlobalSourcePins;
+  causeEntries?: Record<string, string>;
 }
 export interface GlobalEntryPage extends GlobalHttpState {
   entries: GlobalEntry[];
@@ -277,6 +280,9 @@ export function createGlobalsService(
   function applyState(next: GlobalSnapshot, header: GlobalHttpState) {
     next.head = header.head;
     next.sources = header.sources;
+    // Cause ownership never changes, so receipts only add to it; current sync has no causes.
+    next.causeEntries =
+      header.status === 'current' ? {} : { ...next.causeEntries, ...header.causeEntries };
     next.sync = Object.fromEntries(next.entries.map((entry) => [entry.id, state(header)]));
     next.destinationSync = Object.fromEntries(
       options.destinations.map((destination) => [destination, state(header)]),
@@ -447,6 +453,7 @@ export function createGlobalsService(
         if (token !== generation) return conflict();
         if (header && !sameHeader(header, page.value)) return conflict();
         header ??= page.value;
+        next.causeEntries = { ...next.causeEntries, ...page.value.causeEntries };
         if (page.value.entries.length > 3)
           return invalid('Global catalog page exceeds three records.');
         for (const entry of page.value.entries) {

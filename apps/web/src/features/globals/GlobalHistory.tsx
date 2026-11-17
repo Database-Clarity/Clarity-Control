@@ -3,6 +3,7 @@ import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
 import { WordDiff } from '../../ui/diff/WordDiff';
+import { When } from '../../ui/When';
 import type { GlobalEntry, GlobalResult } from '../../services/globals';
 import {
   globalHistoryPageSize,
@@ -90,13 +91,7 @@ export function GlobalHistory({
               {commit.login || commit.author ? `, ${commit.login ?? commit.author}` : ''}
               {commit.date && (
                 <>
-                  ,{' '}
-                  <time dateTime={commit.date}>
-                    {new Date(commit.date).toLocaleString(undefined, {
-                      dateStyle: 'medium',
-                      timeStyle: 'short',
-                    })}
-                  </time>
+                  , <When value={commit.date} />
                 </>
               )}
             </span>

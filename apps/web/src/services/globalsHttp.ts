@@ -25,6 +25,10 @@ const header = {
   status: z.enum(['sync-pending', 'sync-failed', 'current']),
   causeIds: z.array(z.string().max(128)).max(32),
   lastFailure: z.string().max(512).nullable().optional(),
+  /** Per-entry views (handlers.ts snapshot): which entry owns each pending cause. */
+  sync: z
+    .record(globalIdSchema, z.object({ causeIds: z.array(z.string().max(128)).max(32) }))
+    .optional(),
 };
 const entryPage = z.object({
   ...header,
@@ -166,10 +170,18 @@ async function call<T>(
     : { kind: 'invalid', message: 'The globals response did not match the expected shape.' };
 }
 
-const http = <T extends { lastFailure?: string | null }>(value: T) => ({
+const http = <
+  T extends { lastFailure?: string | null; sync?: Record<string, { causeIds: string[] }> },
+>({
+  sync,
+  ...value
+}: T) => ({
   ...value,
   version: 1 as const,
   lastFailure: value.lastFailure ?? null,
+  causeEntries: Object.fromEntries(
+    Object.entries(sync ?? {}).flatMap(([id, state]) => state.causeIds.map((cause) => [cause, id])),
+  ),
 });
 const map = <A, B>(result: GlobalResult<A>, next: (value: A) => B): GlobalResult<B> =>
   result.kind === 'ok' ? { kind: 'ok', value: next(result.value) } : result;

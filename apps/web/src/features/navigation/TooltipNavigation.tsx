@@ -12,6 +12,7 @@ import {
   aggregateGlobalRoute,
   globalEntryPath,
   globalIdOf,
+  identityDefinitions,
   useGlobalIdentities,
   type GlobalIdentity,
 } from '../../stores/globalIdentities';
@@ -610,11 +611,34 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       ? `/globals/${id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`
       : globalPath(definition, search);
   };
-  const globalDefinitions = useGlobalCatalog(
-    data,
+  const catalogActive =
     open ||
-      new URLSearchParams(finderLocation.search).has('global') ||
-      (globalsEnabled && globalEntryPath.test(finderLocation.pathname)),
+    new URLSearchParams(finderLocation.search).has('global') ||
+    (globalsEnabled && globalEntryPath.test(finderLocation.pathname));
+  const aggregateDefinitions = useGlobalCatalog(data, catalogActive);
+  const identitiesReady = useGlobalIdentities(
+    (state) => globalsEnabled && state.status === 'ready',
+  );
+  useEffect(() => {
+    // Globals on: the finder lists authoritative entries, so load their catalogue when it is needed.
+    if (
+      import.meta.env.VITE_GLOBALS_ENABLED === '1' &&
+      catalogActive &&
+      useGlobalIdentities.getState().status === 'idle'
+    )
+      void import('../../stores/globalEntries').then((module) => module.loadGlobalIdentities());
+  }, [catalogActive]);
+  // Variables and titles from the entries once known (renames and new entries included);
+  // exports stay aggregate declarations.
+  const globalDefinitions = useMemo(
+    () =>
+      identitiesReady
+        ? [
+            ...aggregateDefinitions.filter((definition) => definition.kind === 'exports'),
+            ...identityDefinitions(globalIdentities),
+          ].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))
+        : aggregateDefinitions,
+    [identitiesReady, aggregateDefinitions, globalIdentities],
   );
   const baseGroups = useMemo(
     () => navigationGroups(data, '', globalDefinitions),

@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import type { Lang } from '@clarity/core';
+import type { GlobalDefinition } from '../features/globals/model';
 
 /**
  * Stable identity of a live global entry: its ID never changes, its name can. Kept apart from
@@ -7,6 +9,8 @@ import { create } from 'zustand';
 export interface GlobalIdentity {
   kind: 'variables' | 'titles';
   name: string;
+  /** Saved bodies by language, for finder hovers. */
+  definitions: Partial<Record<Lang, string>>;
 }
 
 interface GlobalIdentitiesState {
@@ -33,6 +37,24 @@ export function globalIdOf(
   for (const [id, identity] of Object.entries(identities))
     if (identity.kind === kind && identity.name === name) return id;
   return undefined;
+}
+
+/**
+ * The finder's variables and titles from authoritative live entries (new and renamed ones
+ * included, removed ones left out), in the aggregate catalogue's shape and order.
+ */
+export function identityDefinitions(
+  identities: Record<string, GlobalIdentity>,
+): GlobalDefinition[] {
+  return Object.values(identities)
+    .map(({ kind, name, definitions }) => ({
+      kind,
+      hash: kind === 'variables' ? 2 : 3,
+      name,
+      definitions,
+      lines: {},
+    }))
+    .sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
 }
 
 /**
