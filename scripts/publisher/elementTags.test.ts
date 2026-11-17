@@ -50,6 +50,7 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'aliasGroups',
     'globalsRelease',
     'schedulePreparationV1',
+    'exoticTags',
   ]);
 });
 

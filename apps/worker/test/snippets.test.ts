@@ -149,7 +149,7 @@ it.each([false, true])('preserves a competing personal write (existing: %s)', as
 });
 it('rejects invalid writes, enforces the atomic cap, and authenticates ciphertext against account/id/revision', async () => {
   for (const value of [
-    { ...snippet, label: 'Link' },
+    { ...snippet, label: 'PvE and PvP values' },
     { ...snippet, label: 'x'.repeat(41) },
     { ...snippet, template: '<bad/>' },
     { ...snippet, template: 'x'.repeat(2001) },

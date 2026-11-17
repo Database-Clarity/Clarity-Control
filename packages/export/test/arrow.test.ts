@@ -47,15 +47,29 @@ test('custom files keep the drawing or emit the configured text fallback', () =>
   );
 });
 
-test.each(['pve', 'pvp', 'yellow', 'bold'])('arrows inherit the %s text style', (style) => {
-  const text = `<${style} 30%<arrow/>33% />`;
-  expect(validateText(text, 'en')).toEqual([]);
-  expect(parseMarkup(text).lines[0].linesContent).toEqual([
-    { text: '30%', classNames: [style] },
-    { classNames: [style, 'arrow'] },
-    { text: '33%', classNames: [style] },
-  ]);
-});
+test.each(['pve', 'pvp', 'yellow', 'exotic', 'bold'])(
+  'arrows inherit the %s text style',
+  (style) => {
+    const text = `<${style} 30%<arrow/>33% />`;
+    expect(validateText(text, 'en')).toEqual(
+      style === 'yellow'
+        ? [
+            expect.objectContaining({
+              severity: 'warning',
+              code: 'retired',
+              message: expect.stringContaining('<exotic'),
+            }),
+          ]
+        : [],
+    );
+    const consumerStyle = style === 'exotic' ? 'yellow' : style;
+    expect(parseMarkup(text).lines[0].linesContent).toEqual([
+      { text: '30%', classNames: [consumerStyle] },
+      { classNames: [consumerStyle, 'arrow'] },
+      { text: '33%', classNames: [consumerStyle] },
+    ]);
+  },
+);
 
 test('the text fallback keeps surrounding formatting', () => {
   const file = newStyleFile('arrow-markdown', 'markdown');
