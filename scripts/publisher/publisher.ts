@@ -1886,8 +1886,7 @@ export class Publisher {
         await new SchedulePreparer(this).drain();
         await new GlobalsPublisher(this).drain();
       }
-      if (hasGlobals(this.git.tree(this.head(this.options.dataBranch))))
-        await new SchedulePreparer(this).drain(true);
+      await new SchedulePreparer(this).drain(true);
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 60_000; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));

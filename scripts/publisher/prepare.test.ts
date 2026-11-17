@@ -20,6 +20,7 @@ import {
   type LegacyInput,
 } from '../../packages/export/src/legacy.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
+import { publication, schedulePayload } from '../schedule-prepare/intents.js';
 import { GlobalsPublisher, globalTreeOid } from './globals.js';
 import { inventoryGlobals } from '../../packages/core/src/globals/projection.js';
 import { LocalRepository, RefRace, type Tree, type Repository } from './git.js';
@@ -412,6 +413,78 @@ async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alph
 }
 
 describe('scheduled global closure', () => {
+  it.each([null, {}, { generatorSha: 'not-a-commit' }])(
+    'refuses missing or malformed immutable generator provenance: %j',
+    async (config) => {
+      const f = await fixture();
+      await withGlobals(f);
+      f.change(
+        config === null ? {} : { '.publisher/config.json': config },
+        config === null ? ['.publisher/config.json'] : [],
+      );
+      f.admit('schedule');
+      const live = f.pub.head('converter-v2-test');
+      await f.prep.drain();
+      expect(f.batch().status).toBe('needs_attention');
+      expect(f.request().reasons?.[0].reason).toContain('generator provenance is missing');
+      expect(f.batch().claim).toBeNull();
+      expect(f.pub.head('converter-v2-test')).toBe(live);
+    },
+  );
+  it('refuses missing signed generator provenance at claim of an older ready batch', async () => {
+    const f = await fixture();
+    await withGlobals(f);
+    f.change({}, ['.publisher/config.json']);
+    f.admit('schedule');
+    // Emulate an older preparer's ready output, retaining the real signature and source.
+    const request = f.request(),
+      batch = f.batch();
+    const payload = await schedulePayload(f.pub, request.envelope);
+    f.change({
+      [paths(R).request]: publication(payload, request.envelope, R),
+      [schedulePaths.batch(B)]: {
+        ...batch,
+        status: 'scheduled',
+        preparation: null,
+        preparedRequestId: R,
+        scheduledContentRevision: batch.contentRevision,
+      },
+      [scheduleIntentPaths.request(R)]: {
+        ...request,
+        status: 'completed',
+        retryable: false,
+        reasons: [],
+        result: {
+          revision: batch.revision,
+          contentRevision: batch.contentRevision,
+          status: 'scheduled',
+        },
+      },
+    });
+    f.options.generatorSha = 'd'.repeat(40);
+    const live = f.pub.head('converter-v2-test');
+    await f.pub.operation(R);
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.request().reasons?.[0].reason).toContain('generator provenance is missing');
+    expect(f.batch().claim).toBeNull();
+    expect(f.pub.head('converter-v2-test')).toBe(live);
+  });
+  it('keeps legacy no-globals ready-only runs byte-inert on data and live', async () => {
+    const f = await fixture();
+    f.admit('schedule', undefined, user, '2030-03-17T18:30:00.000Z');
+    await f.prep.drain();
+    f.change({
+      'schedule/index.json': { legacyAdvisory: 'preserve these exact bytes' },
+      [scheduleIntentPaths.body(R)]: { malformedLegacyEvidence: true },
+    });
+    const data = f.pub.head('editor-data'),
+      live = f.pub.head('converter-v2-test');
+    await f.pub.run(false);
+    expect(f.pub.head('editor-data')).toBe(data);
+    expect(f.pub.head('converter-v2-test')).toBe(live);
+    expect(f.batch().status).toBe('scheduled');
+    expect(f.batch().preparedRequestId).toBe(R);
+  });
   it('invalidates the pinned resolver generator before the due minute', async () => {
     const f = await fixture();
     await withGlobals(f);
@@ -422,23 +495,30 @@ describe('scheduled global closure', () => {
     expect(f.batch().status).toBe('needs_attention');
     expect(f.request().reasons?.[0].reason).toContain('generator changed');
   });
-  it('refuses an existing pin after all current globals metadata is removed', async () => {
-    const f = await fixture();
-    await withGlobals(f);
-    f.admit('schedule');
-    await f.prep.drain();
-    const live = f.pub.head('converter-v2-test');
-    const tree = f.git.tree(f.pub.head('editor-data'));
-    f.change(
-      {},
-      Object.keys(tree).filter((path) => path.startsWith('globals/')),
-    );
-    await f.pub.operation(R);
-    expect(f.pub.head('converter-v2-test')).toBe(live);
-    expect(f.batch().claim).toBeNull();
-    expect(f.batch().status).toBe('needs_attention');
-    expect(f.request().reasons?.[0].reason).toContain('metadata was removed');
-  });
+  it.each(['prepare', 'run', 'pipeline', 'claim'])(
+    'withdraws an existing pin after namespace removal through %s',
+    async (path) => {
+      const f = await fixture();
+      await withGlobals(f);
+      f.admit('schedule', undefined, user, path === 'claim' ? DUE : '2030-03-17T18:30:00.000Z');
+      await f.prep.drain();
+      const live = f.pub.head('converter-v2-test');
+      const tree = f.git.tree(f.pub.head('editor-data'));
+      f.change(
+        {},
+        Object.keys(tree).filter((path) => path.startsWith('globals/')),
+      );
+      if (path === 'prepare') await f.prep.drain();
+      else if (path === 'run') await f.pub.run();
+      else if (path === 'pipeline') await f.pub.run(false);
+      else await f.pub.operation(R);
+      expect(f.pub.head('converter-v2-test')).toBe(live);
+      expect(f.batch().claim).toBeNull();
+      expect(f.batch().status).toBe('needs_attention');
+      expect(f.batch().preparedRequestId).toBeNull();
+      expect(f.request().reasons?.[0].reason).toContain('metadata was removed');
+    },
+  );
   it('blocks a batch that already owes global review when scheduled', async () => {
     const f = await fixture();
     const { store } = await withGlobals(f);

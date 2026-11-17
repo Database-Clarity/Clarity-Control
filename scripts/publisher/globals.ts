@@ -568,9 +568,14 @@ export class GlobalsPublisher {
         throw new Error(
           'The global resolver changed after scheduling; return to draft and schedule again',
         );
-      const sourceConfig = this.read(sourceTree, '.publisher/config.json') as
-        { generatorSha?: string } | undefined;
-      if (sourceConfig && sourceConfig.generatorSha !== this.options.generatorSha)
+      const sourceConfig = z
+        .object({ generatorSha: z.string().regex(/^[a-f0-9]{40}$/) })
+        .safeParse(this.read(sourceTree, '.publisher/config.json'));
+      if (!sourceConfig.success)
+        throw new Error(
+          'Pinned global generator provenance is missing; return to draft and schedule again',
+        );
+      if (sourceConfig.data.generatorSha !== this.options.generatorSha)
         throw new Error(
           'The global generator changed after scheduling; return to draft and schedule again',
         );

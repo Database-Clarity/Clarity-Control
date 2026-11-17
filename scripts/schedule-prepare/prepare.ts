@@ -594,39 +594,57 @@ export class SchedulePreparer {
         if (!matchesPreparationFence(current, request)) continue;
         Object.assign(tree, next);
       }
-      if (readyOnly || hasGlobals(tree)) {
-        // A data push can change a dependency long before notBefore. Do not leave an
-        // obsolete ready fence looking scheduled until the due-time claim discovers it.
-        for (const batch of this.batches(tree).filter((batch) => batch.status === 'scheduled')) {
-          if (!batch.preparedRequestId) continue;
-          const path = scheduleIntentPaths.request(batch.preparedRequestId);
-          const checked = verifiedRequest(this.pub, tree, path);
+      let recheckedReady = false;
+      const currentGlobals = hasGlobals(tree);
+      // A data push can change a dependency long before notBefore. Do not leave an
+      // obsolete ready fence looking scheduled until the due-time claim discovers it.
+      for (const batch of this.batches(tree).filter((batch) => batch.status === 'scheduled')) {
+        if (!batch.preparedRequestId) continue;
+        const path = scheduleIntentPaths.request(batch.preparedRequestId);
+        if (!currentGlobals) {
+          // Discovery only: a positive match below still requires the complete signed
+          // request. Legacy no-globals work keeps its existing claim-time validation.
+          let pinnedGlobals = false;
           try {
-            const raw = this.pub.read<PreparedPublication>(tree, paths(batch.opId!).request);
-            const payload = await this.pub.verifyRequest(
-              this.pub.writeBlob(json(raw)),
-              batch.opId!,
-              tree,
-            );
-            if (payload.kind !== 'batch') reject('Scheduled publication identity mismatch');
-            await this.validatePublication(tree, payload, head);
-          } catch (error) {
-            const pending = batchSchema.parse({
-              ...batch,
-              status: 'preparing',
-              preparedRequestId: null,
-              preparation: {
-                requestId: checked.request.requestId,
-                kind: checked.intent.kind,
-                returnStatus: 'scheduled',
-                requestedAt: checked.intent.createdAt,
-                attempt: checked.request.attempt,
-              },
-            });
-            await this.failure(tree, pending, checked.request, error, checked);
+            const recorded = this.pub.read<ScheduleRequest>(tree, path);
+            const source: unknown = JSON.parse(recorded?.envelope.payload ?? 'null')?.sourceCommit;
+            if (typeof source === 'string' && /^[a-f0-9]{40}$/.test(source))
+              pinnedGlobals = hasGlobals(this.pub.git.tree(source));
+          } catch {
+            // Malformed legacy evidence cannot authorize a claim; leave its old path intact.
           }
+          if (!pinnedGlobals) continue;
+        }
+        const checked = verifiedRequest(this.pub, tree, path);
+        // The signed source remains authoritative if the entire current namespace
+        // disappears. Legacy no-globals schedules retain their existing behavior.
+        recheckedReady = true;
+        try {
+          const raw = this.pub.read<PreparedPublication>(tree, paths(batch.opId!).request);
+          const payload = await this.pub.verifyRequest(
+            this.pub.writeBlob(json(raw)),
+            batch.opId!,
+            tree,
+          );
+          if (payload.kind !== 'batch') reject('Scheduled publication identity mismatch');
+          await this.validatePublication(tree, payload, head);
+        } catch (error) {
+          const pending = batchSchema.parse({
+            ...batch,
+            status: 'preparing',
+            preparedRequestId: null,
+            preparation: {
+              requestId: checked.request.requestId,
+              kind: checked.intent.kind,
+              returnStatus: 'scheduled',
+              requestedAt: checked.intent.createdAt,
+              attempt: checked.request.attempt,
+            },
+          });
+          await this.failure(tree, pending, checked.request, error, checked);
         }
       }
+      if (readyOnly && !recheckedReady) return;
       this.refreshIndex(tree);
       if (stableStringify(tree) === stableStringify(original)) return;
       const commit = this.pub.git.commit(head, tree, 'Prepare scheduled changes', appCredits);
