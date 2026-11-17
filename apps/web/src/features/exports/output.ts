@@ -96,19 +96,32 @@ export function outputRows(entry: unknown): Row[] {
   return rows;
 }
 
-/** A row's identity for "what changed": its place in the tree and text, without the comma. */
-export const rowKey = (row: Row) => `${row.indent}:${row.text.replace(/,$/, '')}`;
+/**
+ * Each row's identity for "what changed": its language, place in the tree, and text without the
+ * comma, plus which occurrence of that row it is, so two equal lines (after a style is dropped)
+ * and equal lines in two languages stay apart.
+ */
+export function rowKeys(rows: readonly Row[]): string[] {
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    const key = `${row.line?.language ?? ''}\n${row.indent}\n${row.text.replace(/,$/, '')}`;
+    const occurrence = seen.get(key) ?? 0;
+    seen.set(key, occurrence + 1);
+    return `${key}\n${occurrence}`;
+  });
+}
 
 export const rowsText = (rows: readonly Row[]) =>
   rows.map((row) => `${'  '.repeat(row.indent)}${row.text}`).join('\n');
 
 /**
  * What the last config change did to the shown entry: the rows that are new, and how many rows
- * went. `before` holds the row keys from before the change.
+ * went. `before` holds the row keys (rowKeys) from before the change.
  */
 export function lastEdit(rows: readonly Row[], before: ReadonlySet<string>) {
-  const changed = new Set(rows.filter((row) => !before.has(rowKey(row))));
-  const now = new Set(rows.map(rowKey));
+  const keys = rowKeys(rows);
+  const changed = new Set(rows.filter((_, index) => !before.has(keys[index]!)));
+  const now = new Set(keys);
   let removed = 0;
   for (const key of before) if (!now.has(key)) removed += 1;
   const message = changed.size

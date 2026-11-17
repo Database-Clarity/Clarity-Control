@@ -21,6 +21,7 @@ import {
 } from './previewCore';
 import type { BuildStatus } from './site';
 import { randomFiles } from './testConfigs';
+import { lastEdit, outputRows, rowKeys } from './output';
 
 const root = new URL('../../../../../', import.meta.url);
 const sha = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
@@ -216,6 +217,33 @@ describe('G-PREVIEW', () => {
       });
       expect(sample.kind === 'entry' && !!sample.standIn, `${hash} ${language}`).toBe(flagged);
     }
+  }, 300_000);
+
+  it('the last edit marks a line that becomes a copy of another (Bold dropped)', async () => {
+    const snapshot = await loadSnapshot(io(), site, status);
+    const categories = catalog.categories.map((category) => category.id);
+    const keep = newStyleFile('marks', 'structured', {
+      ...newStyleFile('x1', 'structured').data,
+      categories,
+    });
+    const drop = { ...keep, format: structuredClone(keep.format) };
+    drop.format.symbols.bold = { mode: 'drop' };
+    const english = nodeEngine.compile(snapshot.input, keep, { catalog, identical });
+    const hash = Object.keys(english.expanded!).find((key) => key !== '-1')!;
+    type Perks = Record<string, { editor?: Record<string, { main: string; secondary: string }> }>;
+    const perks = structuredClone(snapshot.input.perks) as Perks;
+    perks[hash]!.editor!.en = { main: 'Plain\n<bold Plain />', secondary: '' };
+    const input = { ...snapshot.input, perks } as typeof snapshot.input;
+    const preview = new Preview(io(), { ...snapshot, input }, { site, liveRaw });
+    const entryOf = async (file: ExportFile) => {
+      const sample = await preview.sample(file, hash, null, 'en');
+      if (sample.kind !== 'entry') throw new Error(`${hash}: ${sample.kind}`);
+      return outputRows(sample.entry);
+    };
+    const before = new Set(rowKeys(await entryOf(keep)));
+    const edit = lastEdit(await entryOf(drop), before);
+    expect(edit.message).toBe('1 line changed by your last edit');
+    expect([...edit.changed].map((row) => row.line)).toEqual([{ language: 'en', index: 1 }]);
   }, 300_000);
 
   it('unchanged deployed legacy presets show the pinned live bytes', async () => {

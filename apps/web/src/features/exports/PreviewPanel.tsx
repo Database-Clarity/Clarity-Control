@@ -30,7 +30,7 @@ import {
   lastEdit,
   outputRows,
   renderLine,
-  rowKey,
+  rowKeys,
   rowsText,
   type Description,
   type Descriptions,
@@ -72,7 +72,8 @@ export function liveRefFor(
 export interface LastOutput {
   key: string;
   fileJson: string;
-  rows: Set<string>;
+  /** Row keys (rowKeys) of that output; null when the perk was absent or the build failed. */
+  rows: Set<string> | null;
   before: Set<string> | null;
 }
 
@@ -154,13 +155,15 @@ export function PreviewPanel({
             ? memory.before
             : memory.rows
           : null;
-      if (pair.preview.kind === 'entry')
-        lastOutput.current = {
-          key: memoryKey,
-          fileJson,
-          rows: new Set(outputRows(pair.preview.entry).map(rowKey)),
-          before,
-        };
+      // Every answer is remembered, an absent perk or a failed build too (no rows), so a later
+      // pick never compares with an output from before another pick.
+      const entry = pair.preview.kind === 'entry' ? pair.preview.entry : undefined;
+      lastOutput.current = {
+        key: memoryKey,
+        fileJson,
+        rows: entry === undefined ? null : new Set(rowKeys(outputRows(entry))),
+        before,
+      };
       setSample({ pair, version: asked, key: memoryKey, before });
     };
     client.sample(JSON.parse(fileJson) as ExportFile, hash, live, diffOn, lang).then(

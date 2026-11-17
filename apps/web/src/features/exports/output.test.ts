@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { isV1Lines, lastEdit, outputRows, renderLine, rowKey } from './output';
+import { isV1Lines, lastEdit, outputRows, renderLine, rowKeys } from './output';
 
 test('format v1 lines map to the class names the tooltip renderer draws', () => {
   expect(
@@ -39,7 +39,7 @@ test('output rows hold one tooltip line each, and the last edit names what chang
     { language: 'en', index: 0 },
     { language: 'en', index: 1 },
   ]);
-  const keys = new Set(rows.map(rowKey));
+  const keys = new Set(rowKeys(rows));
   const changed = outputRows({
     hash: 1,
     descriptions: { en: [{ parts: [{ text: 'A' }] }, { parts: [{ text: 'C' }] }] },
@@ -53,5 +53,24 @@ test('output rows hold one tooltip line each, and the last edit names what chang
   // A text-shape string breaks into one row per tooltip line.
   expect(outputRows({ descriptions: { en: 'One\nTwo' } }).filter((row) => row.line)).toHaveLength(
     2,
+  );
+});
+
+test('equal lines stay apart: within a language (repeats) and across languages', () => {
+  const plain = { parts: [{ text: 'Plain' }] };
+  const bold = { parts: [{ text: 'Plain', style: ['bold'] }] };
+  // Dropping bold turns the second line into a copy of the first: still one changed line.
+  const before = new Set(rowKeys(outputRows({ descriptions: { en: [plain, bold] } })));
+  const edit = lastEdit(outputRows({ descriptions: { en: [plain, plain] } }), before);
+  expect(edit.message).toBe('1 line changed by your last edit');
+  expect([...edit.changed].map((row) => row.line)).toEqual([{ language: 'en', index: 1 }]);
+  // The same change in a second language whose line already read that way is still marked.
+  const both = new Set(rowKeys(outputRows({ descriptions: { en: [bold], de: [plain] } })));
+  const after = lastEdit(outputRows({ descriptions: { en: [plain], de: [plain] } }), both);
+  expect([...after.changed].map((row) => row.line)).toEqual([{ language: 'en', index: 0 }]);
+  // Two equal lines removed count as two.
+  const two = new Set(rowKeys(outputRows({ descriptions: { en: [plain, plain, bold] } })));
+  expect(lastEdit(outputRows({ descriptions: { en: [bold] } }), two).message).toBe(
+    '2 lines removed by your last edit',
   );
 });
