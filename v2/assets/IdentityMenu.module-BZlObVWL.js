@@ -1,1 +1,0 @@
-const t="_button_60dsy_1",s="_picture_60dsy_75",n="_initial_60dsy_98",i="_label_60dsy_108",_="_menu_60dsy_120",e="_revision_60dsy_230",o={button:t,picture:s,initial:n,label:i,menu:_,revision:e};export{o as s};
