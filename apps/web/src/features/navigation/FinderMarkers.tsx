@@ -62,6 +62,14 @@ function ScheduledMarker({ hashes }: { hashes: ReadonlySet<number> }) {
     }
     return found;
   });
+  return <ScheduledMarkerView state={state} />;
+}
+
+export function ScheduledMarkerView({
+  state,
+}: {
+  state: 'scheduled' | 'preparing' | 'needs_attention' | null;
+}) {
   if (!state) return null;
   return <Glyph marker={state === 'scheduled' ? markers[2] : pendingMarkers[state]} />;
 }
@@ -94,6 +102,28 @@ export const FinderMarkers = memo(function FinderMarkers({
   );
   const unsaved = useDraftStore(selectUnsaved);
   return (
+    <FinderMarkersView
+      flags={flags}
+      unsaved={unsaved}
+      scheduled={
+        import.meta.env.VITE_SCHEDULED_ENABLED === '1' ? (
+          <ScheduledMarker hashes={members} />
+        ) : undefined
+      }
+    />
+  );
+});
+
+export function FinderMarkersView({
+  flags = 0,
+  unsaved = false,
+  scheduled,
+}: {
+  flags?: number;
+  unsaved?: boolean;
+  scheduled?: import('react').ReactNode;
+}) {
+  return (
     <span
       className={styles.slot}
       onClick={(event) => {
@@ -107,8 +137,8 @@ export const FinderMarkers = memo(function FinderMarkers({
         .map((marker) =>
           flags & marker.flag ? <Glyph key={marker.kind} marker={marker} /> : null,
         )}
-      {import.meta.env.VITE_SCHEDULED_ENABLED === '1' && <ScheduledMarker hashes={members} />}
+      {scheduled}
       {unsaved && <Glyph marker={markers[3]} />}
     </span>
   );
-});
+}

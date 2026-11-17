@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The project page's state across requests, accounts, and file tabs (EXPORT-P4 code review
 // F1–F5, F7): the real ProjectPage and ConfigPanel with the Worker calls held by the test.
-import type { ExportConfig } from '@clarity/export/config';
+import type { ExportConfig, ExportSaveConfirmation } from '@clarity/export/config';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -13,14 +13,23 @@ import { ProjectPage } from './ProjectPage';
 
 const calls = vi.hoisted(() => ({
   load: [] as { id: string; resolve(value: unknown): void; reject(error: unknown): void }[],
-  save: [] as { config: unknown; resolve(value: unknown): void }[],
+  save: [] as {
+    revision: string;
+    config: unknown;
+    confirmation?: ExportSaveConfirmation;
+    resolve(value: unknown): void;
+  }[],
 }));
 vi.mock('./api', async (original) => ({
   ...(await original<typeof import('./api')>()),
   loadProject: (id: string) =>
     new Promise((resolve, reject) => calls.load.push({ id, resolve, reject })),
-  saveProject: (_id: string, _revision: string, config: unknown) =>
-    new Promise((resolve) => calls.save.push({ config, resolve })),
+  saveProject: (
+    _id: string,
+    revision: string,
+    config: unknown,
+    confirmation?: ExportSaveConfirmation,
+  ) => new Promise((resolve) => calls.save.push({ revision, config, confirmation, resolve })),
 }));
 vi.mock('./useSite', () => {
   const site = { manifest: null, notices: [], refresh: async () => undefined };
@@ -119,6 +128,70 @@ afterEach(async () => {
 });
 
 describe('ProjectPage state', () => {
+  const deletions = [
+    {
+      path: 'old',
+      until: '2027-01-01T00:00:00Z',
+      urls: ['p1/v1/old-en.json', 'p1/v1/old-fr.json'],
+    },
+    { path: 'older', until: '2027-01-02T00:00:00Z', urls: ['p1/v1/older.json'] },
+  ];
+  async function requestConfirmation(id: string) {
+    await open(`/exports/${id}`);
+    await resolveLoad(0, project(id, 'Confirmation'));
+    await typeId('renamed');
+    await key(idField(), 'Enter');
+    await click(saveButton()!);
+    await act(async () =>
+      calls.save[0]!.resolve({
+        kind: 'confirmation',
+        details: { kind: 'confirm-retained-deletion', deletions },
+      }),
+    );
+  }
+  it('lists every kept URL, cancels without retrying, and returns focus to Save', async () => {
+    await requestConfirmation('confirm-cancel');
+    const dialog = document.querySelector('[role="dialog"]')!;
+    for (const entry of deletions)
+      for (const url of entry.urls) expect(dialog.textContent).toContain(url);
+    expect(calls.save).toHaveLength(1);
+    expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(true);
+    expect(document.activeElement?.textContent).toBe('Cancel');
+    await click(dialog.querySelector('button')!);
+    expect(calls.save).toHaveLength(1);
+    expect(document.activeElement).toBe(saveButton());
+    expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(false);
+    expect(tab('renamed')).toBeDefined();
+  });
+  it('Escape cancels, while confirmation retries the exact revision, config, and deletion list', async () => {
+    await requestConfirmation('confirm-keyboard');
+    await key(document.activeElement as HTMLElement, 'Escape');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(saveButton());
+    await click(saveButton()!);
+    await act(async () =>
+      calls.save[1]!.resolve({
+        kind: 'confirmation',
+        details: { kind: 'confirm-retained-deletion', deletions },
+      }),
+    );
+    const confirm = document.querySelector('[role="dialog"] button:last-child')!;
+    await click(confirm);
+    expect(calls.save).toHaveLength(3);
+    expect(calls.save[2]!.revision).toBe(calls.save[1]!.revision);
+    expect(calls.save[2]!.config).toBe(calls.save[1]!.config);
+    expect(calls.save[2]!.confirmation).toEqual({ confirmDelete: deletions });
+    await act(async () =>
+      calls.save[2]!.resolve({
+        kind: 'saved',
+        config: calls.save[2]!.config,
+        revision: 's'.repeat(40),
+        commit: null,
+      }),
+    );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
+  });
   it('F3: a renamed second file stays selected and the URL follows', async () => {
     await open('/exports/p1?file=b1');
     await resolveLoad(0, project('p1', 'One'));
@@ -180,7 +253,7 @@ describe('ProjectPage state', () => {
       } satisfies SaveOutcome),
     );
     expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(false);
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
     expect(tab('a2')).toBeDefined();
   });
 
@@ -256,7 +329,7 @@ describe('ProjectPage state', () => {
     await resolveLoad(back, { ...project('pe', 'Project E'), revision: 's'.repeat(40), config });
     const ids = [...host.querySelectorAll('[role="tab"]')].map((el) => el.textContent);
     expect(ids).toEqual(['a1', 'descriptions']);
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
     expect(q('[role="alert"]')).toBeNull();
   });
 
@@ -283,7 +356,7 @@ describe('ProjectPage state', () => {
       'a1',
       'descriptions',
     ]);
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
     expect(q('#export-file-panel')!.hasAttribute('inert')).toBe(false);
   });
 
@@ -311,7 +384,7 @@ describe('ProjectPage state', () => {
     await resolveLoad(2, before);
     expect(tab('renamed')).toBeDefined();
     expect(tab('a1')).toBeUndefined();
-    expect(saveButton()!.disabled).toBe(true);
+    expect(saveButton()!.getAttribute('aria-disabled')).toBe('true');
     // Read it again: the cache holds the saved config and revision, not the older read.
     await act(async () => navigate('/exports/pk'));
     await act(async () => navigate('/exports/pj'));

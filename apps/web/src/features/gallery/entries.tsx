@@ -36,6 +36,7 @@ import { Multiline } from '../compendium/RichCell';
 import { BuildDot } from '../exports/BuildStatus';
 import { EntryGlyph } from '../editor/markupRow/EntryGlyph';
 import { ScaleControl } from '../settings/SettingsContent';
+import { liveEntries } from './liveEntries';
 import styles from './Gallery.module.scss';
 
 /** One state of an element, rendered as a component so demos may hold their own state. */
@@ -397,6 +398,7 @@ function ScaleDemo() {
 // ---- Entries ----------------------------------------------------------------------------------
 
 export const entries: readonly GalleryEntry[] = [
+  ...liveEntries,
   // Controls
   {
     id: 'button',

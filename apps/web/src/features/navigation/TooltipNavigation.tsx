@@ -263,6 +263,96 @@ const FinderOption = memo(function FinderOption({
     .filter(Boolean)
     .join(' · ');
   return (
+    <FinderOptionView
+      id={id}
+      index={index}
+      current={current}
+      active={active}
+      total={total}
+      virtual={virtual}
+      rowHeight={rowHeight}
+      twoLine={twoLine}
+      narrow={narrow}
+      stacked={stacked}
+      title={globalContents ?? shared}
+      global={Boolean(row.global)}
+      grouped={row.group}
+      name={(stacked ? row.entry : row.name) ?? ''}
+      category={row.category}
+      perk={row.perk}
+      allCategories={allCategories}
+      enhanced={enhanced}
+      tail={tail}
+      onActive={onActive}
+      onCommit={() => onCommit.current(row)}
+      icon={
+        <FinderWorklistRow
+          hash={row.hash}
+          name={row.entry ?? row.name}
+          global={Boolean(row.global)}
+        >
+          <FinderIcon icon={row.icon ?? item?.icon} />
+        </FinderWorklistRow>
+      }
+      markers={
+        <>
+          <FinderMarkers hashes={markerHashes} flags={row.global ? 0 : markerIndex.get(row.hash)} />
+          {!!entryMarks?.length && <FinderEntryMarks entries={entryMarks} />}
+        </>
+      }
+    />
+  );
+});
+
+export function FinderOptionView({
+  id,
+  index,
+  current,
+  active,
+  total,
+  virtual,
+  rowHeight,
+  narrow = false,
+  stacked,
+  title,
+  global,
+  grouped,
+  name,
+  category,
+  perk,
+  allCategories,
+  enhanced,
+  tail,
+  onActive,
+  onCommit,
+  icon,
+  markers,
+}: {
+  id: string;
+  index: number;
+  current: boolean;
+  active: boolean;
+  total: number;
+  virtual: boolean;
+  rowHeight: number;
+  twoLine: boolean;
+  narrow?: boolean;
+  stacked: boolean;
+  title?: string;
+  global: boolean;
+  grouped?: string;
+  name: string;
+  category?: string;
+  perk?: string;
+  allCategories: boolean;
+  enhanced: boolean;
+  tail: string;
+  onActive(index: number): void;
+  onCommit(): void;
+  icon: ReactNode;
+  markers: ReactNode;
+}) {
+  return (
     <li
       id={id}
       style={
@@ -282,21 +372,19 @@ const FinderOption = memo(function FinderOption({
       aria-setsize={total}
       data-active={active || undefined}
       data-current={current || undefined}
-      title={globalContents ?? shared}
+      title={title}
       className={styles.option}
-      data-two-line={(!row.global && (stacked || narrow)) || undefined}
-      data-grouped={row.group || undefined}
+      data-two-line={(!global && (stacked || narrow)) || undefined}
+      data-grouped={grouped || undefined}
       onMouseDown={(event) => event.preventDefault()}
       onMouseMove={() => !active && onActive(index)}
-      onClick={() => onCommit.current(row)}
+      onClick={() => onCommit()}
     >
       <span className={styles.mark} aria-hidden="true"></span>
-      <FinderWorklistRow hash={row.hash} name={row.entry ?? row.name} global={Boolean(row.global)}>
-        <FinderIcon icon={row.icon ?? item?.icon} />
-      </FinderWorklistRow>
-      <span className={styles.name}>{stacked ? row.entry : row.name}</span>
-      {row.global ? (
-        allCategories && <small>{row.category}</small>
+      {icon}
+      <span className={styles.name}>{name}</span>
+      {global ? (
+        allCategories && <small>{category}</small>
       ) : (
         <small>
           {enhanced && (
@@ -304,22 +392,19 @@ const FinderOption = memo(function FinderOption({
               <EnhancedArrow />
             </span>
           )}
-          {!stacked && row.perk && <span className={styles.perk}>{row.perk}</span>}
+          {!stacked && perk && <span className={styles.perk}>{perk}</span>}
           {tail && (
             <span className={styles.tail}>
-              {!stacked && row.perk && ' · '}
+              {!stacked && perk && ' · '}
               {tail}
             </span>
           )}
         </small>
       )}
-      <span className={styles.markers}>
-        <FinderMarkers hashes={markerHashes} flags={row.global ? 0 : markerIndex.get(row.hash)} />
-        {!!entryMarks?.length && <FinderEntryMarks entries={entryMarks} />}
-      </span>
+      <span className={styles.markers}>{markers}</span>
     </li>
   );
-});
+}
 
 interface FinderOptionsProps extends Omit<
   ComponentProps<typeof FinderOption>,

@@ -23,6 +23,25 @@ const reply = (status: number, body: unknown) =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe('saveProject', () => {
+  it('recognizes deletion confirmation before ordinary 409 conflicts and retries with consent', async () => {
+    const details = {
+      kind: 'confirm-retained-deletion',
+      deletions: [{ path: 'old', until: '2027-01-01T00:00:00Z', urls: ['sample/v1/old.json'] }],
+    } as const;
+    const fetch = reply(409, { error: 'Confirm deletion', details });
+    vi.stubGlobal('fetch', fetch);
+    expect(await saveProject('sample', revision, config)).toEqual({
+      kind: 'confirmation',
+      message: 'Confirm deletion',
+      details,
+    });
+    const consent = {
+      confirmDelete: [...details.deletions].map((entry) => ({ ...entry, urls: [...entry.urls] })),
+    };
+    await saveProject('sample', revision, config, consent);
+    const [, init] = fetch.mock.calls[1] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ revision, config, ...consent });
+  });
   it('maps 409, 429, and refusals', async () => {
     vi.stubGlobal('fetch', reply(409, { error: 'The project changed since it was loaded' }));
     expect(await saveProject('sample', revision, config)).toEqual({
