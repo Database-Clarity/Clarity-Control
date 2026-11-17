@@ -482,20 +482,26 @@ function OutputView({ rows, changed }: { rows: readonly Row[]; changed: Readonly
 
 function DiffView({ live, after }: { live: SampleResult | null; after: string }) {
   const before = live?.kind === 'entry' ? rowsText(outputRows(live.entry)) : '';
+  const message =
+    live?.kind !== 'entry'
+      ? live?.kind === 'error'
+        ? live.message
+        : 'Not in the live file: all new.'
+      : before === after
+        ? 'Same as the live file.'
+        : null;
   return (
-    <div
-      className={`${styles.output} ${styles.outputDiff}`}
-      tabIndex={0}
-      aria-label="Changes against the live file"
-    >
-      {live?.kind !== 'entry' ? (
-        <p className={styles.meta}>
-          {live?.kind === 'error' ? live.message : 'Not in the live file: all new.'}
-        </p>
-      ) : before === after ? (
-        <p className={styles.meta}>Same as the live file.</p>
-      ) : null}
-      {before !== after && <WordDiff before={before} after={after} />}
+    <div className={styles.diffPane}>
+      <p className={styles.meta}>{message}</p>
+      {before !== after && (
+        <div
+          className={`${styles.output} ${styles.outputDiff}`}
+          tabIndex={0}
+          aria-label="Changes against the live file"
+        >
+          <WordDiff before={before} after={after} />
+        </div>
+      )}
     </div>
   );
 }
