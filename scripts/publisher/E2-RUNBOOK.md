@@ -37,8 +37,8 @@ Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the ma
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
 No installation, activation, or external data write is authorized by generating this template.
 
-Template source PIN: `422bb35cc0c0daecc411ec8701e4d35e12a8d17a`.
-Expected publisher.mjs SHA-256: `ee54fde36e0c4d36f6f9701697386a992b6df60d8d4720a697e3329e10056d04`.
+Template source PIN: `4006a24b1401494554ca6ebcaeb9211b0aac7a4f`.
+Expected publisher.mjs SHA-256: `17d1fb4c841a8c45dde3c91e7065f20d14eb963357ab212545ed200b47c07c4c`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires

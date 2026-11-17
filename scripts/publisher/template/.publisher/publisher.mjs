@@ -120,6 +120,47 @@ var init_elementTags = __esm({
   }
 });
 
+// packages/core/src/markup/comments.ts
+function markupCommentContext(text) {
+  let offsets = Array.from({ length: text.length }, (_, index) => index);
+  const comments = [];
+  for (const [index, pattern] of [/\r/g, ...markupCommentPatterns].entries()) {
+    const matches2 = text.matchAll(pattern);
+    let next = matches2.next();
+    if (next.done) continue;
+    let remaining = "";
+    let remainingOffsets = [];
+    let last = 0;
+    for (; !next.done; next = matches2.next()) {
+      const match = next.value;
+      remaining += text.slice(last, match.index);
+      remainingOffsets = remainingOffsets.concat(offsets.slice(last, match.index));
+      if (index > 0) {
+        comments.push({
+          from: offsets[match.index],
+          to: offsets[match.index + match[0].length - 1] + 1
+        });
+      }
+      last = match.index + match[0].length;
+    }
+    remaining += text.slice(last);
+    remainingOffsets = remainingOffsets.concat(offsets.slice(last));
+    text = remaining;
+    offsets = remainingOffsets;
+  }
+  return { text, offsets, comments };
+}
+function removeMarkupComments(text) {
+  return text.replace(/\r/g, "").replace(markupCommentPatterns[0], "").replace(markupCommentPatterns[1], "");
+}
+var markupCommentPatterns;
+var init_comments = __esm({
+  "packages/core/src/markup/comments.ts"() {
+    "use strict";
+    markupCommentPatterns = [/\/\*[^]*\*\/\n?/g, /^ *?\/\/.*$\n?| +\/\/.*$/gm];
+  }
+});
+
 // node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
@@ -21393,38 +21434,6 @@ function markupImports(text) {
 function markupConditionMatches(text, keyword) {
   return [...text.matchAll(new RegExp(`^${keyword} \\([\\s\\S]*?\\n\\)$`, "gm"))];
 }
-function markupCommentContext(text) {
-  let offsets = Array.from({ length: text.length }, (_, index) => index);
-  const comments = [];
-  for (const [index, pattern] of [/\r/g, ...markupCommentPatterns].entries()) {
-    const matches2 = text.matchAll(pattern);
-    let next = matches2.next();
-    if (next.done) continue;
-    let remaining = "";
-    let remainingOffsets = [];
-    let last = 0;
-    for (; !next.done; next = matches2.next()) {
-      const match = next.value;
-      remaining += text.slice(last, match.index);
-      remainingOffsets = remainingOffsets.concat(offsets.slice(last, match.index));
-      if (index > 0) {
-        comments.push({
-          from: offsets[match.index],
-          to: offsets[match.index + match[0].length - 1] + 1
-        });
-      }
-      last = match.index + match[0].length;
-    }
-    remaining += text.slice(last);
-    remainingOffsets = remainingOffsets.concat(offsets.slice(last));
-    text = remaining;
-    offsets = remainingOffsets;
-  }
-  return { text, offsets, comments };
-}
-function removeMarkupComments(text) {
-  return text.replace(/\r/g, "").replace(markupCommentPatterns[0], "").replace(markupCommentPatterns[1], "");
-}
 function normalizeMarkupWhitespace(text) {
   return text.replace(unusedMarkup.blanks, "\n\n").trim();
 }
@@ -21677,10 +21686,12 @@ function prepareMarkup(text, globals, diagnostics, onCondition) {
     }
   };
 }
-var markupConditions, markupCommentPatterns, unusedMarkup, pairSource, pieceLength, nativeSource, nativeStructure, renderNative;
+var markupConditions, unusedMarkup, pairSource, pieceLength, nativeSource, nativeStructure, renderNative;
 var init_prepare = __esm({
   "packages/core/src/markup/prepare.ts"() {
     "use strict";
+    init_comments();
+    init_comments();
     init_baseEnhanced();
     init_arithmetic();
     init_numberFormat();
@@ -21691,7 +21702,6 @@ var init_prepare = __esm({
       ["catalyst", "Weapon Catalyst Exotic"],
       ["exotic perk", "Weapon Perk Exotic"]
     ];
-    markupCommentPatterns = [/\/\*[^]*\*\/\n?/g, /^ *?\/\/.*$\n?| +\/\/.*$/gm];
     unusedMarkup = {
       hidden: /^export hidden .* \([^]*?\n\)$/gm,
       exportOpen: /^export .* \( *$\n/gm,
@@ -21921,6 +21931,23 @@ var init_map = __esm({
 });
 
 // packages/core/src/markup/braces.ts
+function hasExoticMarkup(text) {
+  if (!text.includes("<")) return false;
+  return /<exotic(?= |\/>)/.test(commentsOrCR.test(text) ? removeMarkupComments(text) : text);
+}
+function lowerExoticMarkup(text) {
+  if (!text.includes("<") || !text.includes("exotic") && !text.includes("/*") && !text.includes("\r"))
+    return text;
+  if (!commentsOrCR.test(text)) return text.replace(exoticTagPattern, "<yellow");
+  const context = markupCommentContext(text);
+  const matches2 = [...context.text.matchAll(exoticTagPattern)];
+  if (!matches2.length) return text;
+  const characters = text.split("");
+  for (const match of matches2)
+    for (let index = 0; index < 6; index++)
+      characters[context.offsets[match.index + 1 + index]] = "yellow"[index];
+  return characters.join("");
+}
 function variableReferences(text, offset = 0) {
   if (!text.includes("#")) return [];
   const found = [];
@@ -21956,7 +21983,7 @@ function reservedNames(text) {
   return found.sort((a, b) => a.from - b.from);
 }
 function lowerDelimitedMarkup(text) {
-  text = text.replace(/<exotic(?= |\/>)/g, "<yellow");
+  text = lowerExoticMarkup(text);
   if (!text.includes("#{") && !text.includes(enhancedArrowMarkup)) return text;
   const lines = text.split("\n");
   let changed = false;
@@ -22007,14 +22034,17 @@ function mergedVariable(name2, defined) {
   }
   return void 0;
 }
-var enhancedArrowMarkup, legacyEnhancedArrow, variableReferencePattern, holderName, holderPattern, reservedNamePattern, reservedNameMessage, delimited;
+var enhancedArrowMarkup, legacyEnhancedArrow, exoticTagPattern, commentsOrCR, variableReferencePattern, holderName, holderPattern, reservedNamePattern, reservedNameMessage, delimited;
 var init_braces = __esm({
   "packages/core/src/markup/braces.ts"() {
     "use strict";
     init_elementTags();
+    init_comments();
     init_map();
     enhancedArrowMarkup = "<enhanced/>";
     legacyEnhancedArrow = "#e";
+    exoticTagPattern = /<exotic(?= |\/>)/g;
+    commentsOrCR = /\/\*|\/\/|\r/;
     variableReferencePattern = /#\{([a-zA-Z0-9]+)\}|#([a-zA-Z0-9]+)/g;
     holderName = (word) => `Zb${word.length}w${word}`;
     holderPattern = /^Zb(\d+)w([a-zA-Z0-9]+)$/;
@@ -30905,6 +30935,10 @@ var markupBracesCapability = "markupBraces";
 var prismaticTagsCapability = "prismaticTags";
 var arrowSymbolCapability = "arrowSymbol";
 var numberTokensCapability = "numberTokens";
+var exoticTagsCapability = "exoticTags";
+function hasExoticText(tooltip) {
+  return Object.values(tooltip.text).some((entry) => entry && hasExoticMarkup(entry.text));
+}
 function hasNumberTokens(tooltip) {
   return Object.values(tooltip.text).some((entry) => entry?.text.includes("#{="));
 }
@@ -30957,6 +30991,14 @@ function refuseReservedNames(tooltip) {
 function refuseUnlowerable(tooltip, pin, action, head) {
   const issue2 = validateNumberTooltip(tooltip, head)[0];
   if (issue2) throw new HttpError(422, `Tooltip ${tooltip.hash} (${issue2.lang}): ${issue2.message}`);
+  if (exporter.publisherEnabled() && hasExoticText(tooltip)) {
+    const capabilities = pin?.value?.capabilities;
+    if (!Array.isArray(capabilities) || !capabilities.includes(exoticTagsCapability))
+      throw new HttpError(
+        422,
+        `Tooltip ${tooltip.hash} contains <exotic \u2026 />, which can't be ${action}: the publisher installed in the data branch does not lower it yet (${publisherPinPath} lacks the "${exoticTagsCapability}" capability). Update the installed publisher first.`
+      );
+  }
   if (hasNumberTokens(tooltip)) {
     const capabilities = pin?.value?.capabilities;
     if (!exporter.publisherEnabled() || !Array.isArray(capabilities) || !capabilities.includes(numberTokensCapability))
