@@ -1032,6 +1032,18 @@ for (const width of [390, 1280])
       page.locator('[aria-label="Shape"] button:has-text("Text")').click(),
     );
     await shoot('text-shape');
+    // Diff vs live file with changes, on a real perk.
+    await page.goto(
+      `${appOrigin}/#/exports/sample?pick=${sampleHash}${narrow ? '&view=preview' : ''}`,
+    );
+    await ready(page, '[data-config-version]');
+    await sampleShown(page);
+    // Ticking category changes every perk's entry (the sample perk has no formatting).
+    await configThen(page, narrow, () => page.locator('label:has-text("category") input').click());
+    await page.locator('button:has-text("Diff vs live file")').click();
+    await sampleShown(page);
+    await ready(page, '[aria-label="Changes against the live file"]');
+    await shoot('diff-changed');
     await context.close();
   }
 

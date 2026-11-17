@@ -492,7 +492,7 @@ function DiffView({ live, after }: { live: SampleResult | null; after: string })
         : null;
   return (
     <div className={styles.diffPane}>
-      <p className={styles.meta}>{message}</p>
+      {message !== null && <p className={styles.meta}>{message}</p>}
       {before !== after && (
         <div
           className={`${styles.output} ${styles.outputDiff}`}

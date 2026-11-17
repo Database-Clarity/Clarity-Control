@@ -1370,20 +1370,32 @@ $row: 1.75rem;
 
 /* The diff against the live file, drawn in the Output box itself (no box inside a box). */
 .outputDiff {
+  // The word diff draws in this box: no frame or padding of its own (no box inside a box).
+  --diff-bg: transparent;
   padding: 0.375rem 0.625rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+
+  > div {
+    padding: 0;
+  }
 }
 
 // The diff's one-line message (UI font) above the diff box; the box takes the rest.
 .diffPane {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 0.25rem;
   min-height: 0;
 
   > p {
+    flex: none;
     margin: 0;
+  }
+
+  > div {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 }
 
