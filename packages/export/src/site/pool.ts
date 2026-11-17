@@ -36,6 +36,7 @@ export type BuiltOutput = {
   sha256: string;
   bytes: number;
   markers: string[];
+  languages: string[];
 };
 
 export type BuildResult =
@@ -99,6 +100,7 @@ export async function childMain() {
         if (!engine!.isLegacyFile(job.file)) engine!.validateV1(parsed as Engine.FormatV1File);
         return {
           path: url.path,
+          languages: url.languages,
           outPath: `${job.outPath}.${index}`,
           bytes,
           markers: engine!.markerSet(parsed, engine!.outputTokens(job.file)),

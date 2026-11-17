@@ -451,6 +451,33 @@ describe('pins and the legacy job', () => {
 });
 
 describe('build-site per-file outcomes', () => {
+  it('carried bytes keep the languages they hold in index.json (failed build and budget skip)', async () => {
+    harness = new Harness();
+    const file = style('main', 'alpha00001');
+    await harness.seed({ input: fixtureText(), projects: { alpha: project('alpha', [file]) } });
+    expectOk(harness.legacyRun());
+    expectOk(harness.siteRun());
+    const published = harness.served('alpha/v1/main.json');
+    file.data = { ...file.data, languages: ['de', 'en'] };
+    harness.commit('editor-data', {
+      'exports/projects/alpha.json': JSON.stringify(project('alpha', [file])),
+    });
+    const entry = () =>
+      harness.servedJson<{ files: { languages: string[]; status: string }[] }>('alpha/index.json')
+        .files[0];
+    for (const extra of [
+      ['--max-bytes', '20'],
+      ['--carry-after', '0'],
+    ]) {
+      expectOk(harness.siteRun({ extra }));
+      expect(harness.served('alpha/v1/main.json')).toEqual(published);
+      expect(entry()).toMatchObject({ languages: ['en'], status: 'stale' });
+      expect(readJson(harness.served('alpha/v1/main.json')).languages).toEqual(['en']);
+    }
+    expectOk(harness.siteRun());
+    expect(entry()).toMatchObject({ languages: ['en', 'de'], status: 'current' });
+  }, 180_000);
+
   it('a file split per language publishes one URL per language from one build; a retained one keeps its URL set', async () => {
     harness = new Harness();
     const split = (id: string, uid: string) => {

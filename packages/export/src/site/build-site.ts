@@ -57,6 +57,8 @@ export type ManifestFile = {
   retainUntil?: string;
   /** Vocabulary of the published bytes (spec section 5). */
   markers?: string[];
+  /** Languages the published bytes hold (index.json keeps them while the bytes are carried). */
+  languages?: string[];
   /** Retained entries: the vocabulary on the day the URL was retained. */
   baseline?: string[];
 };
@@ -114,6 +116,7 @@ const isManifestFile = (file: unknown) =>
   ['built', 'carried', 'frozen'].includes(file.outcome as string) &&
   (file.retainUntil === undefined || typeof file.retainUntil === 'string') &&
   (file.markers === undefined || isStrings(file.markers)) &&
+  (file.languages === undefined || isStrings(file.languages)) &&
   (file.baseline === undefined || isStrings(file.baseline));
 
 /** The whole manifest contract; anything else on a project with deployments stops the deploy. */
@@ -538,6 +541,7 @@ export async function buildSite(options: Record<string, string>) {
           outcome: record.outcome,
           ...(entry.until ? { retainUntil: entry.until } : {}),
           markers,
+          languages: entry.urls[0]!.languages,
           ...(baseline ? { baseline } : {}),
         },
       });
@@ -695,6 +699,7 @@ export async function buildSite(options: Record<string, string>) {
           outcome: 'built',
           ...(entry.until ? { retainUntil: entry.until } : {}),
           markers: output.markers,
+          languages: output.languages,
           ...(baseline ? { baseline } : {}),
         },
       });
@@ -744,6 +749,7 @@ export async function buildSite(options: Record<string, string>) {
           bytes: file.bytes,
           lastUpdate: file.lastUpdate,
           outcome: file.outcome,
+          languages: file.languages as Engine.ExportLanguage[] | undefined,
         };
     const index = engine.projectIndex(
       project,
