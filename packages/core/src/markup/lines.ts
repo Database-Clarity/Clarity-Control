@@ -15,7 +15,12 @@ import type { MarkupLine, MarkupSpan } from './types.js';
 import { weaponSectionHeadings } from './weaponHeadings.js';
 
 const inlineToken =
+  /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+/** Authoring ranges include Exotic; the resolver only reads its lowered yellow spelling. */
+const sourceInlineToken =
   /<(?:blue|green|purple|yellow|exotic|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+const parserColors = markupColors.filter((name) => name !== 'exotic');
+const parserLineClasses = markupLineClasses.filter((name) => name !== 'exotic');
 
 function lineClasses(line: string, allowed: string[], offsets?: number[]) {
   const classNames = allowed.filter((name) => line.includes(`<${name}/>`));
@@ -39,13 +44,13 @@ export function markupInlineRanges(line: string): { from: number; to: number }[]
   return [markupLineClasses, markupEmpty, []].flatMap((allowed) => {
     // Most lines need no class removal, so their match offsets already address the source.
     if (!allowed.some((name) => line.includes(`<${name}/>`)))
-      return [...line.matchAll(new RegExp(inlineToken, 'g'))].map((match) => ({
+      return [...line.matchAll(new RegExp(sourceInlineToken, 'g'))].map((match) => ({
         from: match.index,
         to: match.index + match[0].length,
       }));
     const offsets = Array.from({ length: line.length }, (_, index) => index);
     const { cleanLine } = lineClasses(line, allowed, offsets);
-    return [...cleanLine.matchAll(new RegExp(inlineToken, 'g'))].map((match) => ({
+    return [...cleanLine.matchAll(new RegExp(sourceInlineToken, 'g'))].map((match) => ({
       from: offsets[match.index],
       to: offsets[match.index + match[0].length - 1] + 1,
     }));
@@ -65,12 +70,18 @@ export function markupStrayTags(text: string): string[] {
       const tags = segment.match(/<\w+/g) ?? [];
       // A complete token holds one tag; a second `<word` inside it means a missing `/>`.
       const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
-      const wrapper = /^<(\w+) /.exec(segment)?.[1] ?? '';
+      const wrapper = /^<(\w+)(?: |\/>)/.exec(segment)?.[1] ?? '';
       const arrows =
-        isToken && [...markupColors, 'background'].includes(wrapper) && segment.endsWith(' />')
+        isToken && [...parserColors, 'background'].includes(wrapper) && segment.endsWith(' />')
           ? (segment.match(/<arrow\/>/g)?.length ?? 0)
           : 0;
       if (tags.length > (isToken ? 1 + arrows : 0)) stray.push(tags[0]!);
+      else if (
+        isToken &&
+        wrapper &&
+        ![...parserColors, ...markupIcons, ...markupEmpty, 'link', 'title'].includes(wrapper)
+      )
+        stray.push(tags[0]!);
     }
   }
   return stray;
@@ -178,7 +189,7 @@ function lineSpans(text: string, titles: Record<string, MarkupLine[]>): MarkupSp
   if (text === '🡅') return [{ text, classNames: ['enhancedArrow'] }];
   const wrapper = text.match(/<\w+/)?.[0].slice(1);
   if (wrapper === undefined) return [{ text }];
-  if ([...markupColors, 'background', 'bold'].includes(wrapper)) {
+  if ([...parserColors, 'background', 'bold'].includes(wrapper)) {
     const inner = text.replace(new RegExp(`^<${wrapper} | />$`, 'g'), '');
     if (inner.includes('<arrow/>'))
       return inner
@@ -258,7 +269,7 @@ export function parseLines(text: string, titles: Record<string, MarkupLine[]>): 
       ];
     }
     if (!block.trim()) return [{ classNames: ['spacer'] }];
-    const { classNames, cleanLine } = lineClasses(block, markupLineClasses);
+    const { classNames, cleanLine } = lineClasses(block, parserLineClasses);
     return [
       {
         classNames,

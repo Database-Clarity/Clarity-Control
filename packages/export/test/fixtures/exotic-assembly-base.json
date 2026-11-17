@@ -1,0 +1,886 @@
+{
+  "base": "4b73c450c929f7b546bef32195c873bf16e1de3b",
+  "expectations": "Assembled Exotic is unknown: base-equivalent rendered lines and 7 legacy/4 v1 bytes; warning only. Old and capable PIN /save both 200.",
+  "rows": [
+    {
+      "id": "whole:local",
+      "text": "var color = exotic\n<#color Gjallarhorn />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "8bdbc6b8cc989612ab5bdabca90624e8d15e9010a54cf8e155f56ecac92c247f",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "f5264f328c020cc68c31929a2eec15d85184848788d324c840e88fa662399958",
+        "v1:markdown": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:discord": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:plain": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a"
+      }
+    },
+    {
+      "id": "whole:global",
+      "text": "<#color Gjallarhorn />",
+      "globals": {
+        "variables": "var color = exotic",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "8bdbc6b8cc989612ab5bdabca90624e8d15e9010a54cf8e155f56ecac92c247f",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "f5264f328c020cc68c31929a2eec15d85184848788d324c840e88fa662399958",
+        "v1:markdown": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:discord": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:plain": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a"
+      }
+    },
+    {
+      "id": "whole:import",
+      "text": "import main from 124",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {
+          "124": "var color = exotic\n<#color Gjallarhorn />"
+        }
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "dim": "3c212fca89e74ce6075d9a15fdc488b23ccb33c0998a18a15425133fb7cbcf7c",
+        "crayon": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "foundry": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "lightGG": "66097549c692c85a3bb35f7064a77c8a185702626915f03e7356639a70efcaaf",
+        "braytech": "53da22340d665a433b8892b4d7889cef29df9e11216b2e711ee87e9feeefa8ce",
+        "vaultZero": "8cef735d497d8bdae2f2c07a4c26f2d8d7fac87cf70e28f19bc3bf14d0143c13",
+        "v1:structured": "02bd7124ad9e58ddb99b5eb76945daec2c75bd6701f79b777b49d3e44af7b07f",
+        "v1:markdown": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da",
+        "v1:discord": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da",
+        "v1:plain": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da"
+      }
+    },
+    {
+      "id": "whole:local-title",
+      "text": "title Assembly (\nvar color = exotic\n<#color Gjallarhorn />\n)\n<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": []
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "b78975876cb63650de44d81ecc1d92ba84b89c80fa544743c1c8aa3c0ca56518",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "ff9c4e24b5513f3e932ec8e2e5d3f0c36b619ec0cf551d7decec9f436fcf53a3",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "whole:global-title",
+      "text": "<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "title Assembly (\nvar color = exotic\n<#color Gjallarhorn />\n)",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": []
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "b78975876cb63650de44d81ecc1d92ba84b89c80fa544743c1c8aa3c0ca56518",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "ff9c4e24b5513f3e932ec8e2e5d3f0c36b619ec0cf551d7decec9f436fcf53a3",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "partial:local",
+      "text": "var end = tic\n<exo#end Gjallarhorn />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "8bdbc6b8cc989612ab5bdabca90624e8d15e9010a54cf8e155f56ecac92c247f",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "f5264f328c020cc68c31929a2eec15d85184848788d324c840e88fa662399958",
+        "v1:markdown": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:discord": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:plain": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a"
+      }
+    },
+    {
+      "id": "partial:global",
+      "text": "<exo#end Gjallarhorn />",
+      "globals": {
+        "variables": "var end = tic",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "8bdbc6b8cc989612ab5bdabca90624e8d15e9010a54cf8e155f56ecac92c247f",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "f5264f328c020cc68c31929a2eec15d85184848788d324c840e88fa662399958",
+        "v1:markdown": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:discord": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:plain": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a"
+      }
+    },
+    {
+      "id": "partial:import",
+      "text": "import main from 124",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {
+          "124": "var end = tic\n<exo#end Gjallarhorn />"
+        }
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "dim": "3c212fca89e74ce6075d9a15fdc488b23ccb33c0998a18a15425133fb7cbcf7c",
+        "crayon": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "foundry": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "lightGG": "66097549c692c85a3bb35f7064a77c8a185702626915f03e7356639a70efcaaf",
+        "braytech": "53da22340d665a433b8892b4d7889cef29df9e11216b2e711ee87e9feeefa8ce",
+        "vaultZero": "8cef735d497d8bdae2f2c07a4c26f2d8d7fac87cf70e28f19bc3bf14d0143c13",
+        "v1:structured": "02bd7124ad9e58ddb99b5eb76945daec2c75bd6701f79b777b49d3e44af7b07f",
+        "v1:markdown": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da",
+        "v1:discord": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da",
+        "v1:plain": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da"
+      }
+    },
+    {
+      "id": "partial:local-title",
+      "text": "title Assembly (\nvar end = tic\n<exo#end Gjallarhorn />\n)\n<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": []
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "b78975876cb63650de44d81ecc1d92ba84b89c80fa544743c1c8aa3c0ca56518",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "ff9c4e24b5513f3e932ec8e2e5d3f0c36b619ec0cf551d7decec9f436fcf53a3",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "partial:global-title",
+      "text": "<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "title Assembly (\nvar end = tic\n<exo#end Gjallarhorn />\n)",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": []
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "b78975876cb63650de44d81ecc1d92ba84b89c80fa544743c1c8aa3c0ca56518",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "ff9c4e24b5513f3e932ec8e2e5d3f0c36b619ec0cf551d7decec9f436fcf53a3",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "opener:local",
+      "text": "var open = <\n#{open}exotic Gjallarhorn />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "8bdbc6b8cc989612ab5bdabca90624e8d15e9010a54cf8e155f56ecac92c247f",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "f5264f328c020cc68c31929a2eec15d85184848788d324c840e88fa662399958",
+        "v1:markdown": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:discord": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:plain": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a"
+      }
+    },
+    {
+      "id": "opener:global",
+      "text": "#{open}exotic Gjallarhorn />",
+      "globals": {
+        "variables": "var open = <",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "8bdbc6b8cc989612ab5bdabca90624e8d15e9010a54cf8e155f56ecac92c247f",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "f5264f328c020cc68c31929a2eec15d85184848788d324c840e88fa662399958",
+        "v1:markdown": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:discord": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a",
+        "v1:plain": "d1ffd897043b676e9a39e23ee63c56fc5ac5a553e804faedb1e8b7b7ce56156a"
+      }
+    },
+    {
+      "id": "opener:import",
+      "text": "import main from 124",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {
+          "124": "var open = <\n#{open}exotic Gjallarhorn />"
+        }
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": []
+        }
+      ],
+      "expected": {
+        "clarity": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "dim": "3c212fca89e74ce6075d9a15fdc488b23ccb33c0998a18a15425133fb7cbcf7c",
+        "crayon": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "foundry": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "lightGG": "66097549c692c85a3bb35f7064a77c8a185702626915f03e7356639a70efcaaf",
+        "braytech": "53da22340d665a433b8892b4d7889cef29df9e11216b2e711ee87e9feeefa8ce",
+        "vaultZero": "8cef735d497d8bdae2f2c07a4c26f2d8d7fac87cf70e28f19bc3bf14d0143c13",
+        "v1:structured": "02bd7124ad9e58ddb99b5eb76945daec2c75bd6701f79b777b49d3e44af7b07f",
+        "v1:markdown": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da",
+        "v1:discord": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da",
+        "v1:plain": "d43de64de084ed2b6be45e1b419e26f1755a65694d6f1af39f26c0890d3ad3da"
+      }
+    },
+    {
+      "id": "opener:local-title",
+      "text": "title Assembly (\nvar open = <\n#{open}exotic Gjallarhorn />\n)\n<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": []
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "b78975876cb63650de44d81ecc1d92ba84b89c80fa544743c1c8aa3c0ca56518",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "ff9c4e24b5513f3e932ec8e2e5d3f0c36b619ec0cf551d7decec9f436fcf53a3",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "opener:global-title",
+      "text": "<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "title Assembly (\nvar open = <\n#{open}exotic Gjallarhorn />\n)",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": []
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "b78975876cb63650de44d81ecc1d92ba84b89c80fa544743c1c8aa3c0ca56518",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "ff9c4e24b5513f3e932ec8e2e5d3f0c36b619ec0cf551d7decec9f436fcf53a3",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "marker:local",
+      "text": "var color = exotic\n<#color/>Line",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "Line"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "7cbcf4068a463ecdc2bf3ccb921393b16465b4ba71ae4928d162bc95e7035a68",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "93de2e00be51cddc5c11e3f120979ccb681428a6255bbdf5945af2499c44573d",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "a2d2a8860f1d946771e720188907b5ecc4dad90d185f7bc8c08b075676f55ef5",
+        "v1:markdown": "f626601d7ce25962044ce2a3029cb16700fea1204929ee2e928b7995c2764ab9",
+        "v1:discord": "f626601d7ce25962044ce2a3029cb16700fea1204929ee2e928b7995c2764ab9",
+        "v1:plain": "f626601d7ce25962044ce2a3029cb16700fea1204929ee2e928b7995c2764ab9"
+      }
+    },
+    {
+      "id": "marker:global",
+      "text": "<#color/>Line",
+      "globals": {
+        "variables": "var color = exotic",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "Line"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "7cbcf4068a463ecdc2bf3ccb921393b16465b4ba71ae4928d162bc95e7035a68",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "93de2e00be51cddc5c11e3f120979ccb681428a6255bbdf5945af2499c44573d",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "a2d2a8860f1d946771e720188907b5ecc4dad90d185f7bc8c08b075676f55ef5",
+        "v1:markdown": "f626601d7ce25962044ce2a3029cb16700fea1204929ee2e928b7995c2764ab9",
+        "v1:discord": "f626601d7ce25962044ce2a3029cb16700fea1204929ee2e928b7995c2764ab9",
+        "v1:plain": "f626601d7ce25962044ce2a3029cb16700fea1204929ee2e928b7995c2764ab9"
+      }
+    },
+    {
+      "id": "marker:import",
+      "text": "import main from 124",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {
+          "124": "var color = exotic\n<#color/>Line"
+        }
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "Line"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "91cf50b2a8da2fe2f0061f46052a88055844cd6346ba618b8d7bcec7f78fb46e",
+        "dim": "3c212fca89e74ce6075d9a15fdc488b23ccb33c0998a18a15425133fb7cbcf7c",
+        "crayon": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "foundry": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "lightGG": "66097549c692c85a3bb35f7064a77c8a185702626915f03e7356639a70efcaaf",
+        "braytech": "73ca2e15405df8088827824f86ed4682fbef4a73bddbdc9a49bb564101f1d8f7",
+        "vaultZero": "8cef735d497d8bdae2f2c07a4c26f2d8d7fac87cf70e28f19bc3bf14d0143c13",
+        "v1:structured": "dc5da810fe91e29c93d4bb682ea9b9783e8697aaacc438120bf639074023105f",
+        "v1:markdown": "8ed2d367bd2aad049fd0aacf9bfd1cb521265ac49832454fe1cc24da51d58a03",
+        "v1:discord": "8ed2d367bd2aad049fd0aacf9bfd1cb521265ac49832454fe1cc24da51d58a03",
+        "v1:plain": "8ed2d367bd2aad049fd0aacf9bfd1cb521265ac49832454fe1cc24da51d58a03"
+      }
+    },
+    {
+      "id": "marker:local-title",
+      "text": "title Assembly (\nvar color = exotic\n<#color/>Line\n)\n<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": [
+                    {
+                      "text": "Line"
+                    }
+                  ]
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "210be63252e74ab8b5c043b62cc769ccac625967f6d34cf6c87d4ae5ffc3de0e",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "5ba79bc8f7f27e571486085bac1751f7829548c227405619081cb53029947ea0",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "marker:global-title",
+      "text": "<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "title Assembly (\nvar color = exotic\n<#color/>Line\n)",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": [
+                    {
+                      "text": "Line"
+                    }
+                  ]
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "210be63252e74ab8b5c043b62cc769ccac625967f6d34cf6c87d4ae5ffc3de0e",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "5ba79bc8f7f27e571486085bac1751f7829548c227405619081cb53029947ea0",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "arrow:local",
+      "text": "var color = exotic\n<#color a <arrow/> b />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": " b />"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "8bdbc6b8cc989612ab5bdabca90624e8d15e9010a54cf8e155f56ecac92c247f",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "a93b36934d39ad88113b534f6630c0f5ad76a64a8d6368b5d488bfbd15b5815f",
+        "v1:markdown": "9217ba61773e025a16676fa0b73b13fa0b7aa5bdcd8e72e3bcc8bcaf2c78d35d",
+        "v1:discord": "9217ba61773e025a16676fa0b73b13fa0b7aa5bdcd8e72e3bcc8bcaf2c78d35d",
+        "v1:plain": "9217ba61773e025a16676fa0b73b13fa0b7aa5bdcd8e72e3bcc8bcaf2c78d35d"
+      }
+    },
+    {
+      "id": "arrow:global",
+      "text": "<#color a <arrow/> b />",
+      "globals": {
+        "variables": "var color = exotic",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": " b />"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "8bdbc6b8cc989612ab5bdabca90624e8d15e9010a54cf8e155f56ecac92c247f",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "a93b36934d39ad88113b534f6630c0f5ad76a64a8d6368b5d488bfbd15b5815f",
+        "v1:markdown": "9217ba61773e025a16676fa0b73b13fa0b7aa5bdcd8e72e3bcc8bcaf2c78d35d",
+        "v1:discord": "9217ba61773e025a16676fa0b73b13fa0b7aa5bdcd8e72e3bcc8bcaf2c78d35d",
+        "v1:plain": "9217ba61773e025a16676fa0b73b13fa0b7aa5bdcd8e72e3bcc8bcaf2c78d35d"
+      }
+    },
+    {
+      "id": "arrow:import",
+      "text": "import main from 124",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {
+          "124": "var color = exotic\n<#color a <arrow/> b />"
+        }
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": " b />"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "dim": "3c212fca89e74ce6075d9a15fdc488b23ccb33c0998a18a15425133fb7cbcf7c",
+        "crayon": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "foundry": "47de5ad5c9d0992a1b70e36e0c29f166ffa89f590dddc62e6a4773d00572c03e",
+        "lightGG": "66097549c692c85a3bb35f7064a77c8a185702626915f03e7356639a70efcaaf",
+        "braytech": "53da22340d665a433b8892b4d7889cef29df9e11216b2e711ee87e9feeefa8ce",
+        "vaultZero": "8cef735d497d8bdae2f2c07a4c26f2d8d7fac87cf70e28f19bc3bf14d0143c13",
+        "v1:structured": "2dc81e75c1ccb226867624bfd34f31cd28ab6c54c48c946b728e249f85e32e2f",
+        "v1:markdown": "437cb44e3ad277e0d172fa24bfbcc050637d20d779aaa95428c270ec7f8645ae",
+        "v1:discord": "437cb44e3ad277e0d172fa24bfbcc050637d20d779aaa95428c270ec7f8645ae",
+        "v1:plain": "437cb44e3ad277e0d172fa24bfbcc050637d20d779aaa95428c270ec7f8645ae"
+      }
+    },
+    {
+      "id": "arrow:local-title",
+      "text": "title Assembly (\nvar color = exotic\n<#color a <arrow/> b />\n)\n<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": [
+                    {
+                      "text": " b />"
+                    }
+                  ]
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "b78975876cb63650de44d81ecc1d92ba84b89c80fa544743c1c8aa3c0ca56518",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "4419a7dc5683402beb9f4f2517af581236e3b676b5b7c1cf164e85593ee86419",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    },
+    {
+      "id": "arrow:global-title",
+      "text": "<title See [Assembly] />",
+      "globals": {
+        "variables": "",
+        "titles": "title Assembly (\nvar color = exotic\n<#color a <arrow/> b />\n)",
+        "imports": {}
+      },
+      "lines": [
+        {
+          "classNames": [],
+          "linesContent": [
+            {
+              "text": "See",
+              "title": [
+                {
+                  "classNames": [],
+                  "linesContent": [
+                    {
+                      "text": " b />"
+                    }
+                  ]
+                }
+              ],
+              "classNames": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "clarity": "b78975876cb63650de44d81ecc1d92ba84b89c80fa544743c1c8aa3c0ca56518",
+        "dim": "e581780d42916717dfe0740012a1940d1fdac4fc85c8a597a1aff74a43ceed2d",
+        "crayon": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "foundry": "289fa6b8941fae56159d0aab37b3111260cbfc294587bcffcaab5868f34830ee",
+        "lightGG": "0d6200b7940016a7832e5367891a9d0784a9d8703a2b83cf60c5b6c12b1657b5",
+        "braytech": "e05abfa6b53dc1add264be831605854168e657209c4ba24718090341c2ddc7b3",
+        "vaultZero": "ea5bdd17aea13b758b78ab67b785f9984897646ece4818a4cc6b7b3822a0c078",
+        "v1:structured": "4419a7dc5683402beb9f4f2517af581236e3b676b5b7c1cf164e85593ee86419",
+        "v1:markdown": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:discord": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f",
+        "v1:plain": "74fec07ca1f6aa845d2e60ac506a6b4e30a15aff1851b174f8826d85a12ce77f"
+      }
+    }
+  ]
+}

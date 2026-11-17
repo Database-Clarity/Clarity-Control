@@ -107,6 +107,8 @@ save, publish, and scheduled-proposal validation refuse Exotic text until the pu
 installed in the data branch declares this capability. Install the updated template
 before saving Exotic text or running the separate gated data rewrite. The deprecated
 `yellow` alias and the format v1 `yellow` configuration key retain compatibility.
+Exotic is literal-only authoring syntax. Variable-assembled tag names keep the base
+resolver's unknown-tag behavior, with a warning; assembled `yellow` remains supported.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.

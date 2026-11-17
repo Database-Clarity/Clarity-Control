@@ -138,8 +138,6 @@ const delimited = /#\{([a-zA-Z0-9]+)\}|<enhanced\/>/g;
  * so that word is held in two parts.
  */
 export function lowerDelimitedMarkup(text: string): string {
-  // Exotic is authoring syntax; consumer class names and bytes remain yellow.
-  text = lowerExoticMarkup(text);
   if (!text.includes('#{') && !text.includes(enhancedArrowMarkup)) return text;
   const lines = text.split('\n');
   let changed = false;
@@ -177,7 +175,7 @@ export function lowerDelimitedMarkup(text: string): string {
  * the legacy format. Exact and idempotent.
  */
 export function lowerConsumerMarkup(text: string, arrow?: 'legacy' | 'fallback'): string {
-  const lowered = lowerDelimitedMarkup(lowerElementTags(text));
+  const lowered = lowerDelimitedMarkup(lowerElementTags(lowerExoticMarkup(text)));
   // The shared intermediate keeps the symbol; only final legacy files lower it.
   return arrow ? lowered.replaceAll('<arrow/>', arrow === 'legacy' ? '🠚' : '→') : lowered;
 }

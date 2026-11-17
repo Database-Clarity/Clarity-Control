@@ -1,4 +1,4 @@
-import { lowerDelimitedMarkup, variableReferences } from './braces.js';
+import { lowerDelimitedMarkup, lowerExoticMarkup, variableReferences } from './braces.js';
 import { numberSlots, numberTargetRanges } from './numberSlots.js';
 import { numberVariables } from '../numbers/freeze.js';
 import { numberTokens, resolveNumberTokens } from '../numbers/map.js';
@@ -82,7 +82,7 @@ function parseOrdinary(text: string, globals: MarkupGlobals, indexed = false): P
   };
   const mark = (source: string) => {
     source = clean(source);
-    const marked = markElementTags(source);
+    const marked = markElementTags(lowerExoticMarkup(source));
     if (marked !== source) tagged = true;
     return lowerDelimitedMarkup(marked);
   };
@@ -91,7 +91,7 @@ function parseOrdinary(text: string, globals: MarkupGlobals, indexed = false): P
     ? parseWith(
         text,
         globals,
-        (source) => lowerDelimitedMarkup(lowerElementTags(clean(source))),
+        (source) => lowerDelimitedMarkup(lowerElementTags(lowerExoticMarkup(clean(source)))),
         numbered,
         indexed,
       )

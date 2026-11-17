@@ -1,4 +1,8 @@
-import { lowerConsumerMarkup, lowerDelimitedMarkup } from '@clarity/core/markup/braces';
+import {
+  lowerConsumerMarkup,
+  lowerDelimitedMarkup,
+  lowerExoticMarkup,
+} from '@clarity/core/markup/braces';
 import type { LegacyInput } from './legacy.js';
 
 /**
@@ -18,7 +22,7 @@ export function lowerInput<T extends LegacyInput>(
   elementTags = false,
 ): T {
   const lower = (text: string) =>
-    elementTags ? lowerDelimitedMarkup(text) : lowerConsumerMarkup(text, arrow);
+    elementTags ? lowerDelimitedMarkup(lowerExoticMarkup(text)) : lowerConsumerMarkup(text, arrow);
   let perks: LegacyInput['perks'] | undefined;
   for (const [hash, perk] of Object.entries(input.perks)) {
     if (!('editor' in perk) || !perk.editor) continue;

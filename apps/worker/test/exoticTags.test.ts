@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
+import { readFileSync } from 'node:fs';
 import publisherConfig from '../../../config/publisher.json';
 import { needsLowering } from '../src/elementTags.js';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
@@ -12,6 +13,18 @@ const oldPin = {
   capabilities: ['elementTags', 'markupBraces', 'prismaticTags', 'arrowSymbol'],
 };
 const capable = { ...oldPin, capabilities: [...oldPin.capabilities, 'exoticTags'] };
+const assemblyMatrix = JSON.parse(
+  readFileSync(
+    new URL('../../../packages/export/test/fixtures/exotic-assembly-base.json', import.meta.url),
+    'utf8',
+  ),
+) as {
+  rows: {
+    id: string;
+    text: string;
+    globals: { variables: string; titles: string; imports: Record<string, string> };
+  }[];
+};
 const german = (text: string, from = tooltip()): Tooltip => ({
   ...from,
   text: {
@@ -33,6 +46,30 @@ beforeEach(() => {
   publisherConfig.enabled = true;
   fixture = new Fixture(key);
 });
+
+it.each(assemblyMatrix.rows)(
+  'literal-only save matrix $id accepts base grammar on old and capable PINs',
+  async (row) => {
+    for (const pin of [oldPin, capable]) {
+      fixture = new Fixture(key);
+      fixture.moveData({
+        '.publisher/PIN': pin,
+        'tooltips/2.json': { ...tooltip(row.globals.variables), hash: 2 },
+        'tooltips/3.json': { ...tooltip(row.globals.titles), hash: 3 },
+        ...Object.fromEntries(
+          Object.entries(row.globals.imports).map(([hash, source]) => [
+            `tooltips/${hash}.json`,
+            { ...tooltip(source), hash: Number(hash) },
+          ]),
+        ),
+      });
+      const response = await save(tooltip(), tooltip(row.text));
+      expect(response.status).toBe(200);
+      expect(fixture.commits).toHaveLength(1);
+      expect((await response.json()).tooltips[0].text.en.text).toBe(row.text);
+    }
+  },
+);
 afterEach(() => {
   publisherConfig.enabled = false;
   vi.unstubAllGlobals();
@@ -46,8 +83,8 @@ it.each([
 ])('refuses %s with an old or absent installed publisher PIN', async (text) => {
   const next = tooltip(text);
   expect(needsLowering(next)).toBe(true);
-    for (const pin of [undefined, oldPin]) {
-      if (pin) fixture.moveData({ '.publisher/PIN': pin });
+  for (const pin of [undefined, oldPin]) {
+    if (pin) fixture.moveData({ '.publisher/PIN': pin });
     const response = await save(tooltip(), next);
     expect(response.status).toBe(422);
     expect((await response.json()).error).toContain('exoticTags');
