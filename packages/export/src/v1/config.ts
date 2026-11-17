@@ -9,6 +9,8 @@ import {
   configSchemaVersion,
   exportLanguages,
   filePath,
+  fileUrls,
+  isPerLanguage,
   isLegacyFile,
   isValidId,
   itemKeys,
@@ -146,14 +148,38 @@ export type LegacyFile = z.infer<typeof legacyFile>;
 export type ExportFile = StyleFile | LegacyFile;
 
 /** Server-owned list of old URLs kept after a format switch, rename, or removal (spec section 5). */
-export const retainedSchema = z.strictObject({
-  path: z.string().max(128),
-  uid: z.string().regex(/^[a-z0-9]{8,32}$/),
-  formatVersion: z.literal(1),
-  snapshot: fileSchema,
-  /** ISO date-time; the URL keeps updating until then. */
-  until: z.iso.datetime(),
-});
+export const retainedSchema = z
+  .strictObject({
+    /** Absent on the original format-switch, rename, and file-removal entries. */
+    reason: z.literal('language').optional(),
+    path: z.string().max(128),
+    uid: z.string().regex(/^[a-z0-9]{8,32}$/),
+    formatVersion: z.literal(1),
+    snapshot: fileSchema,
+    /** ISO date-time; the URL keeps updating until then. */
+    until: z.iso.datetime(),
+  })
+  .superRefine((entry, ctx) => {
+    if (entry.reason === 'language' && !isPerLanguage(entry.snapshot))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['snapshot'],
+        message: 'Kept languages need a per-language file',
+      });
+  });
+
+/** Change to ['language', 'url'] when the owner approves the same rule for URL switches. */
+export const retainedDeletionReasons: readonly string[] = ['language'];
+export const deletesRetained = (entry: { reason?: 'language' }) =>
+  retainedDeletionReasons.includes(entry.reason ?? 'url');
+
+/** Typed 409 details; retry the same revision and config with confirmDelete = deletions. */
+export type RetainedConfirmation = {
+  kind: 'confirm-retained-deletion';
+  deletions: { path: string; until: string; urls: string[] }[];
+};
+export type RetainedConfirmationResponse = { error: string; details: RetainedConfirmation };
+export type ExportSaveConfirmation = { confirmDelete?: RetainedConfirmation['deletions'] };
 
 export const configSchema = z
   .strictObject({
@@ -186,9 +212,20 @@ export const configSchema = z
     // A retained entry is the old URL of one of this project's files: its path is the path its
     // snapshot had, and every URL (active or retained) belongs to exactly one entry.
     const paths = new Map<string, string>();
-    config.files.forEach((file, index) => paths.set(filePath(config.id, file), `files.${index}`));
+    const folders = new Map<string, string | undefined>();
+    config.files.forEach((file, index) => {
+      folders.set(filePath(config.id, file), file.uid);
+      for (const url of fileUrls(config.id, file)) paths.set(url.path, `files.${index}`);
+    });
     (config.retained ?? []).forEach((entry, index) => {
       const at = ['retained', index];
+      if (folders.has(entry.path) && folders.get(entry.path) !== entry.uid)
+        ctx.addIssue({
+          code: 'custom',
+          path: [...at, 'path'],
+          message: `The URL folder ${entry.path} belongs to another file`,
+        });
+      else folders.set(entry.path, entry.uid);
       const own = filePath(config.id, { ...entry.snapshot, formatVersion: entry.formatVersion });
       if (entry.path !== own)
         ctx.addIssue({
@@ -208,13 +245,15 @@ export const configSchema = z
           path: [...at, 'snapshot', 'uid'],
           message: 'Snapshot uid differs from the entry',
         });
-      if (paths.has(entry.path))
-        ctx.addIssue({
-          code: 'custom',
-          path: [...at, 'path'],
-          message: `URL already used by ${paths.get(entry.path)}`,
-        });
-      else paths.set(entry.path, `retained.${index}`);
+      for (const url of fileUrls(config.id, entry.snapshot)) {
+        if (paths.has(url.path))
+          ctx.addIssue({
+            code: 'custom',
+            path: [...at, 'path'],
+            message: `URL already used by ${paths.get(url.path)}`,
+          });
+        else paths.set(url.path, `retained.${index}`);
+      }
     });
     const perUid = new Map<string, number>();
     for (const entry of config.retained ?? [])
@@ -279,7 +318,7 @@ export function migrateConfig(
 export function immutableChanges(
   previous: ExportConfig,
   next: ExportConfig,
-  { maintainer = false }: { maintainer?: boolean } = {},
+  { maintainer = false, now }: { maintainer?: boolean; now?: Date } = {},
 ): string[] {
   const problems: string[] = [];
   if (next.id !== previous.id) problems.push('The project id cannot change');
@@ -287,18 +326,29 @@ export function immutableChanges(
   const retained = new Set((previous.retained ?? []).map((entry) => entry.uid));
   const owners = new Map<string, string>();
   for (const file of previous.files)
-    if (file.uid) owners.set(filePath(previous.id, file), file.uid);
-  for (const entry of previous.retained ?? []) owners.set(entry.path, entry.uid);
+    if (file.uid) {
+      owners.set(filePath(previous.id, file), file.uid);
+      for (const url of fileUrls(previous.id, file)) owners.set(url.path, file.uid);
+    }
+  for (const entry of previous.retained ?? [])
+    if (!(now && deletesRetained(entry) && Date.parse(entry.until) <= now.getTime())) {
+      owners.set(entry.path, entry.uid);
+      for (const url of fileUrls(previous.id, entry.snapshot)) owners.set(url.path, entry.uid);
+    }
   for (const file of next.files) {
     if (file.uid && !active.has(file.uid)) {
       if (!retained.has(file.uid))
         problems.push(`File ${file.id} has a uid the server did not assign`);
       else if (!maintainer) problems.push(`Only a maintainer can restore file ${file.id}`);
     }
-    const path = filePath(next.id, file);
-    const owner = owners.get(path);
-    if (owner !== undefined && owner !== file.uid)
-      problems.push(`The URL ${path} belongs to another file`);
+    for (const path of new Set([
+      filePath(next.id, file),
+      ...fileUrls(next.id, file).map((url) => url.path),
+    ])) {
+      const owner = owners.get(path);
+      if (owner !== undefined && owner !== file.uid)
+        problems.push(`The URL ${path} belongs to another file`);
+    }
   }
   const before = (previous.retained ?? []).map((entry) => JSON.stringify(entry));
   const after = (next.retained ?? []).map((entry) => JSON.stringify(entry));

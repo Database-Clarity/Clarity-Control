@@ -6,66 +6,40 @@ export const showcaseName = 'Feature showcase';
 
 /** One standalone document, shared by editor previews and opt-in consumer output. */
 export const showcaseText = `var e = 🡅
-var amount = 10
+var stacks = 3
 var optional = empty
 title Showcase (
-A title adds a definition on hover.
+This text is the note: apps show it on hover or tap.
 )
-<bold Bold text /> can cover part of a line.
-<bold/>This whole line is bold.
-<yellow Exotic names use yellow text. />
-<pve This text is PvE-only. />
-<pvp [This text is PvP-only.] />
-PvE and PvP values can share a line: <pve 10 /> <pvp [5] />
-10 <pvp [5] /> is a value with a PvP override.
-Values per Stack: <pve 10|20|30 />. Pipes separate each Stack's value.
-{{Base perks use this text.}{Enhanced perks replace the base text with this line.}}
-A variable supplies #amount; math doubles it to \${#amount * 2}.
-Braces end a variable's name, so letters can follow it: #{amount}px.
-An empty variable writes nothing here: #optional
-<title Hover for a definition [Showcase] />
-<link This text opens a web link [https://d2clarity.com] />
+<bold Bold /> marks key words and <yellow yellow /> marks Exotic names.
+<bold/>A bold line is bold from start to end.
+<pve 30% /> <pvp [15%] /> pairs a PvE value with its PvP value.
+Lasts 11 <pvp [7.5] /> seconds: the bracketed value applies in PvP.
+<pve 10|20|30 /> lists one value per stack.
+30%<arrow/>33% marks a value that changes.
+{{Base perks get this line; Enhanced perks get their own.}{Enhanced perks get this line; base perks get their own.}}
+Variables and math arrive worked out: #stacks stacks, \${#stacks * 10}%, #{stacks}x.#optional
+<title Notes [Showcase] /> carry extra text for a word.
+<link Links [https://d2clarity.com] /> open a web page.
 
-• A bullet starts each list line.
-• The blank line above this list adds a gap.
-<kinetic/>Kinetic damage icon.
-<arc/>Arc damage icon.
-<solar/>Solar damage icon.
-<void/>Void damage icon.
-<stasis/>Stasis damage icon.
-<strand/>Strand damage icon.
-<prismatic/>Prismatic subclass icon.
-30%<arrow/>33%: leads to or becomes.
-<primary/>Primary ammo icon.
-<special/>Special ammo icon.
-<heavy/>Heavy ammo icon.
-<barrier/>Barrier champion icon.
-<overload/>Overload champion icon.
-<unstoppable/>Unstoppable champion icon.
-<hunter/>Hunter class icon.
-<titan/>Titan class icon.
-<warlock/>Warlock class icon.
-<kinetic Kinetic-tagged text is tinted in the editor. />
-<arc Arc-tagged text is tinted in the editor. />
-<solar Solar-tagged text is tinted in the editor. />
-<void Void-tagged text is tinted in the editor. />
-<stasis Stasis-tagged text is tinted in the editor. />
-<strand Strand-tagged text is tinted in the editor. />
-<prismatic Prismatic-tagged text is tinted in the editor. />
-Exports apply the symbol settings without the text tint.
+export Showcase (
+• Bullets start list lines.
+• The gap above this list is a spacer line.
+)
+<kinetic/>Kinetic <arc/>Arc <solar/>Solar <void/>Void <stasis/>Stasis <strand/>Strand <prismatic/>Prismatic
+<primary/>Primary <special/>Special <heavy/>Heavy
+<barrier/>Barrier <overload/>Overload <unstoppable/>Unstoppable
+<hunter/>Hunter <titan/>Titan <warlock/>Warlock
+Element words come with their element, to draw as its icon or tint: <kinetic Kinetic />, <arc Jolt />, <solar Scorch />, <void Volatile />, <stasis Slow />, <strand Sever />, <prismatic Transcendence />.
 enhanced (
 var d = 5
-Only enhanced perks show this section.
-<enhanced/>\${10+#{d}} is the enhanced value: base 10 plus 5.
-)
-export Showcase (
-An export shares this text with other tooltips.
+<enhanced/>\${10+#{d}}% is an enhanced value: only Enhanced perks have this line.
 )
 export hidden Hidden (
-This hidden export is shared without being drawn here.
+A hidden export is shared with other tooltips and never drawn here.
 )
-// Comments are notes that do not render.
-/* Block comments do not render either. */`;
+// Comments and variables are for editors: no file contains them.
+/* A block comment. */`;
 
 /** No published globals or imported data can change this example. */
 export const showcaseGlobals: MarkupGlobals = {

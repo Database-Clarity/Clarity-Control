@@ -310,7 +310,7 @@ const icons = markupIcons.map((name) => `icon:${name}`);
 
 /** Where each row sits, group by group, in reading order. */
 export const helpLayout: Readonly<Record<string, readonly string[]>> = {
-  Values: ['pair', 'pve', 'pvp', 'pvp-override'],
+  Values: ['pair', 'pve', 'pvp'],
   Lists: ['list-dot'],
   Text: ['inline:bold', 'inline:yellow', 'line:bold'],
   Icons: ['icon-word', ...icons],
@@ -479,10 +479,7 @@ function rowInLine(line: string, column: number): string | null {
     const before = line.slice(0, match.index);
     if (name === 'pve')
       return /^<pve [^<>]*\/>\s*<pvp /.test(line.slice(match.index)) ? 'pair' : 'pve';
-    if (name === 'pvp') {
-      if (/<pve [^<>]*\/>\s*$/.test(before)) return 'pair';
-      return /[\w%] $/.test(before) ? 'pvp-override' : 'pvp';
-    }
+    if (name === 'pvp') return /<pve [^<>]*\/>\s*$/.test(before) ? 'pair' : 'pvp';
     if (name === 'bold') return match[0] === '<bold/>' ? 'line:bold' : 'inline:bold';
     if (name === 'yellow') return 'inline:yellow';
     if (name === 'link') return 'link';

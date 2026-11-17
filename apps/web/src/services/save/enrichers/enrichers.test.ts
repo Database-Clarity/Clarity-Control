@@ -81,6 +81,32 @@ describe('save enrichers', () => {
       expect(result.bungieSnapshot).toBe(snapshot);
     }
   });
+  it('a restored translation keeps the older English it translates (root 2026-11-16)', async () => {
+    vi.useFakeTimers().setSystemTime(new Date(now));
+    const older = '2025-06-01T00:00:00.000Z';
+    const restored = {
+      text: 'Old French',
+      updatedAt: older,
+      updatedBy: 'past',
+      sourceUpdatedAt: older,
+    };
+    const next = { ...before, text: { ...before.text, fr: restored } };
+    expect((await enrichTooltip({ before, next, user })).text.fr).toEqual({
+      text: 'Old French',
+      updatedAt: now,
+      updatedBy: 'current',
+      sourceUpdatedAt: older,
+    });
+    // A source newer than the English (never a real revision) is clamped to the English.
+    const ahead = { ...restored, sourceUpdatedAt: now };
+    expect(
+      (await enrichTooltip({ before, next: { ...before, text: { en, fr: ahead } }, user })).text.fr
+        ?.sourceUpdatedAt,
+    ).toBe(en.updatedAt);
+    // With English rewritten in the same save, the translation translates that new English.
+    const both = { ...before, text: { en: { ...en, text: 'New' }, fr: restored } };
+    expect((await enrichTooltip({ before, next: both, user })).text.fr?.sourceUpdatedAt).toBe(now);
+  });
   it('retains current author metadata when restoring identical text from history', async () => {
     const next = { ...before, text: { ...before.text, en: { ...en, updatedBy: 'older-author' } } };
     expect((await enrichTooltip({ before, next, user })).text.en).toBe(en);
@@ -243,7 +269,10 @@ describe('markup-only edits (delimited variables and the arrow symbol)', () => {
     const before = withEnglish('var d = 1\nLasts #dx.');
     const result = await enrichTooltip({
       before,
-      next: { ...before, text: { ...before.text, en: { ...before.text.en!, text: 'var d = 1\nLasts #{d}x.' } } },
+      next: {
+        ...before,
+        text: { ...before.text, en: { ...before.text.en!, text: 'var d = 1\nLasts #{d}x.' } },
+      },
       user,
     });
     expect(result.text.en?.updatedAt).toBe(now);

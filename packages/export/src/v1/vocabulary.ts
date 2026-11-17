@@ -113,8 +113,9 @@ type FileRef = Pick<ExportFile, 'id' | 'formatVersion'> & Partial<Pick<StyleFile
 
 /**
  * A file's URL key, relative to the site root: `<project>/v<format>/<file>.json`, or for one file
- * per language the folder `<project>/v<format>/<file>` that holds `<lang>.json`. URL ownership,
- * retained entries, and the URL slots count keys: one per file, whatever its languages.
+ * per language the folder `<project>/v<format>/<file>` that holds `<lang>.json`. Slot limits
+ * count active files and retained entries. Actual URLs from `fileUrls` are unique; a shared
+ * language folder still belongs to one uid.
  */
 export const filePath = (projectId: string, file: FileRef) =>
   `${projectId}/v${file.formatVersion}/${file.id}${file.data?.languageFiles === 'perLanguage' ? '' : '.json'}`;

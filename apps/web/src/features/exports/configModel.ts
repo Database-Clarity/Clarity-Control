@@ -2,6 +2,8 @@
 // The page edits the config itself (G-ROUNDTRIP: config -> page state -> config is identical), and
 // every edit keeps key and list order, so undoing an edit by hand gives back the saved bytes.
 import {
+  exportLanguages,
+  fileUrls,
   isLegacyFile,
   styles,
   symbolIds,
@@ -48,6 +50,27 @@ export const savedFile = (state: ProjectState, file: ExportFile) =>
   state.saved.files.find((candidate) =>
     file.uid ? candidate.uid === file.uid : !candidate.uid && candidate.id === file.id,
   );
+
+/** A style file's languages in the engine's order; none for a legacy file. */
+export const fileLanguages = (file: ExportFile): string[] =>
+  isLegacyFile(file)
+    ? []
+    : exportLanguages.filter((language) => file.data.languages.includes(language));
+
+/** The language the preview shows: the one picked while the file has it, else its first. */
+export const shownLanguage = (file: ExportFile, picked: string | null): string | null => {
+  const languages = fileLanguages(file);
+  return picked !== null && languages.includes(picked) ? picked : (languages[0] ?? null);
+};
+
+/** The URL of a file that holds `language` (the whole file, or that language's file). */
+export const urlFor = (projectId: string, file: ExportFile, language: string | null) => {
+  const urls = fileUrls(projectId, file);
+  return (
+    urls.find((url) => language !== null && (url.languages as string[]).includes(language)) ??
+    urls[0]!
+  ).path;
+};
 
 // Format rows ---------------------------------------------------------------------------------
 

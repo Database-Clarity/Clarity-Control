@@ -1,17 +1,18 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
 // The config column (spec section 8): the file (id, style, shape), Data (category tree with
-// Tooltips and Sandbox perks columns, languages, keys, aliases, Bungie-identical), and Format
+// Item hashes and Sandbox perk hashes columns, languages, files, keys, include flags), and Format
 // (one 28px row per symbol and rule; changed-from-preset markers and Reset per row and section).
-import { deployedLegacyPresets, legacyPresets, type Style } from '@clarity/export';
+import { deployedLegacyPresets, legacyPresets, styleShapes, type Style } from '@clarity/export';
 import {
   exportLanguages,
+  fileUrls,
   isLegacyFile,
   isValidId,
-  itemKeys,
   styles as styleNames,
   symbolIds,
   type ExportFile,
   type FileData,
+  type ItemKey,
   type StyleFile,
 } from '@clarity/export/config';
 import {
@@ -40,6 +41,7 @@ import {
   ruleForMode,
   rowChanged,
   rowValue,
+  savedFile,
   ruleRows,
   setData,
   setArrowFallback,
@@ -85,6 +87,7 @@ export function ConfigPanel({
         key={state.config.files.indexOf(file)}
         state={state}
         file={file}
+        projectId={projectId}
         fileKey={key}
         update={update}
         onRemoved={onRemoved}
@@ -97,7 +100,7 @@ export function ConfigPanel({
             <Section title="Format">
               <Flag
                 label="Use → instead of the arrow symbol"
-                title="Export the portable → character instead of the arrow drawing."
+                title="Exports the portable → character instead of the arrow drawing"
                 checked={file.arrowFallback ?? false}
                 onChange={(fallback) =>
                   update((current) => setArrowFallback(current, key, fallback))
@@ -108,7 +111,13 @@ export function ConfigPanel({
         </>
       ) : (
         <>
-          <DataSection file={file} fileKey={key} update={update} />
+          <DataSection
+            file={file}
+            saved={savedFile(state, file)}
+            fileKey={key}
+            projectId={projectId}
+            update={update}
+          />
           <FormatSection file={file} fileKey={key} update={update} />
         </>
       )}
@@ -125,10 +134,13 @@ export function ConfigPanel({
 function Section({
   title,
   aside,
+  about,
   children,
 }: {
   title: string;
   aside?: ReactNode;
+  /** What this section changes in the output, in one line. */
+  about?: string;
   children: ReactNode;
 }) {
   const id = useId();
@@ -140,6 +152,7 @@ function Section({
         </h2>
         {aside}
       </div>
+      {about && <p className={styles.about}>{about}</p>}
       {children}
     </section>
   );
@@ -150,6 +163,7 @@ function Section({
 function FileSection({
   state,
   file,
+  projectId,
   fileKey: key,
   update,
   onRemoved,
@@ -157,6 +171,7 @@ function FileSection({
 }: {
   state: ProjectState;
   file: ExportFile;
+  projectId: string;
   fileKey: string;
   update: Update;
   onRemoved(): void;
@@ -208,8 +223,12 @@ function FileSection({
               {idProblem}
             </span>
           ) : (
-            <span id={`file-id-help-${key}`} className={styles.meta}>
-              v{file.formatVersion}/{idValue}.json
+            <span id={`file-id-help-${key}`} className={styles.path}>
+              {projectId}/v{file.formatVersion}/{idValue}
+              {!isLegacyFile(file) && file.data.languageFiles === 'perLanguage'
+                ? '/<language>'
+                : ''}
+              .json
             </span>
           )}
         </div>
@@ -241,25 +260,40 @@ function FileSection({
             </optgroup>
           </select>
           {!isLegacyFile(file) && (
-            <Segmented
-              label="Shape"
-              value={file.shape}
-              options={[
-                { value: 'lines', label: 'Lines' },
-                { value: 'text', label: 'Text' },
-              ]}
-              onChange={(shape) => update((current) => setShape(current, key, shape))}
-            />
+            <span className={styles.hint}>
+              {/* The style's own line describes its default shape; another shape has its own line. */}
+              {file.shape === styleShapes[file.preset] && `${styleAbout[file.preset]} `}
+              Switching style resets the Format rows.
+            </span>
           )}
         </div>
+        {!isLegacyFile(file) && (
+          <>
+            <span className={styles.formLabel} id={`file-shape-${key}`}>
+              Shape
+            </span>
+            <div className={styles.formControl}>
+              <Segmented
+                label="Shape"
+                value={file.shape}
+                options={[
+                  { value: 'lines', label: 'Lines' },
+                  { value: 'text', label: 'Text' },
+                ]}
+                onChange={(shape) => update((current) => setShape(current, key, shape))}
+              />
+              <span className={styles.hint}>
+                {file.shape === 'lines'
+                  ? 'Each line is a list of parts (text, icon, link, note), so Keep can pass icons and styles to your app.'
+                  : 'One string per language. Nothing can be kept as an icon or style: drop it or replace it with text.'}
+              </span>
+            </div>
+          </>
+        )}
       </div>
       <div className={styles.fileFoot}>
         <span className={styles.meta}>
-          {isLegacyFile(file)
-            ? 'Legacy files keep their old shape.'
-            : file.shape === 'lines'
-              ? 'Lines: each line is a list of spans with class names.'
-              : 'Text: one string per language.'}
+          Renaming or removing a file keeps its old URL updating for 3 months.
         </span>
         <button
           type="button"
@@ -276,6 +310,13 @@ function FileSection({
     </Section>
   );
 }
+
+const styleAbout: Record<Style, string> = {
+  structured: 'Lines of parts: your app draws the icons, styles, notes, and links itself.',
+  markdown: 'One Markdown string: **bold**, icons as words like [Arc], links as [text](url).',
+  discord: 'One Markdown string without icons, for Discord messages.',
+  plain: 'One plain string: text only, with → for arrows.',
+};
 
 const styleLabel = (style: Style) =>
   ({
@@ -303,11 +344,16 @@ function LegacyNote({ preset }: { preset: ExportFile['preset'] }) {
 
 function DataSection({
   file,
+  saved,
   fileKey: key,
+  projectId,
   update,
 }: {
   file: StyleFile;
+  /** The file as last saved (none for a new file). */
+  saved: ExportFile | undefined;
   fileKey: string;
+  projectId: string;
   update: Update;
 }) {
   const categories = useDataStore((state) => state.data?.categories);
@@ -342,9 +388,18 @@ function DataSection({
     [update, key],
   );
   const chosen = file.data.categories.length;
+  const perLanguage = file.data.languageFiles === 'perLanguage';
+  const urls = fileUrls(projectId, file).map((url) => url.path);
+  const has = (itemKey: ItemKey) => file.data.keys.includes(itemKey);
+  // Language URLs the saved file has that this edit removes.
+  const ending =
+    perLanguage && saved && !isLegacyFile(saved) && saved.data.languageFiles === 'perLanguage'
+      ? fileUrls(projectId, saved).filter((url) => !file.data.languages.includes(url.languages[0]!))
+      : [];
   return (
     <Section
       title="Data"
+      about="Which perks the file holds, and what each one carries. A category added later stays out until you tick it."
       aside={
         <span className={styles.meta}>
           {chosen} {chosen === 1 ? 'category' : 'categories'}, {file.data.sandboxPerks.length} with
@@ -358,10 +413,10 @@ function DataSection({
             <tr>
               <th scope="col">Category</th>
               <th scope="col" className={styles.checkCol}>
-                Tooltips
+                Item hashes
               </th>
               <th scope="col" className={styles.checkCol}>
-                <span className={styles.longLabel}>Sandbox perks</span>
+                <span className={styles.longLabel}>Sandbox perk hashes</span>
                 <span className={styles.shortLabel} aria-hidden="true">
                   Sandbox
                 </span>
@@ -381,60 +436,114 @@ function DataSection({
           ))}
         </table>
       </SkeletonBoundary>
+      <p className={styles.about}>
+        Item hashes: the category’s perks, each under its item hash. Sandbox perk hashes: the same
+        descriptions again under their sandbox perk hashes, for apps that look perks up that way.
+      </p>
 
       <div className={styles.dataRows}>
         <div className={styles.dataRow}>
           <span className={styles.formLabel} id={`languages-${key}`}>
             Languages
           </span>
-          <div className={styles.chips} role="group" aria-labelledby={`languages-${key}`}>
-            {exportLanguages.map((language) => {
-              const on = file.data.languages.includes(language);
-              return (
-                <button
-                  key={language}
-                  type="button"
-                  className={styles.chip}
-                  aria-pressed={on}
-                  title={languageLabel(language)}
-                  disabled={on && file.data.languages.length === 1}
-                  onClick={() =>
-                    update((current) => toggleData(current, key, 'languages', [language], !on))
-                  }
-                >
-                  {language}
-                </button>
-              );
-            })}
+          <div className={styles.formControl}>
+            <div className={styles.chips} role="group" aria-labelledby={`languages-${key}`}>
+              {exportLanguages.map((language) => {
+                const on = file.data.languages.includes(language);
+                return (
+                  <button
+                    key={language}
+                    type="button"
+                    className={styles.chip}
+                    aria-pressed={on}
+                    title={languageLabel(language)}
+                    disabled={on && file.data.languages.length === 1}
+                    onClick={() =>
+                      update((current) => toggleData(current, key, 'languages', [language], !on))
+                    }
+                  >
+                    {language}
+                  </button>
+                );
+              })}
+            </div>
+            <span className={styles.hint}>Which languages the file carries.</span>
+            {ending.map((url) => (
+              <span key={url.path} className={styles.warnText} role="status">
+                Removing {languageLabel(url.languages[0]!)} keeps{' '}
+                <span className={styles.path}>{url.path}</span> updating for 3 months after you
+                save, then deletes it.
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className={styles.dataRow}>
+          <span className={styles.formLabel} id={`language-files-${key}`}>
+            Files
+          </span>
+          <div className={styles.formControl}>
+            <Segmented
+              label="Language files"
+              value={file.data.languageFiles}
+              options={[
+                { value: 'combined', label: 'Combined' },
+                { value: 'perLanguage', label: 'Per language' },
+              ]}
+              onChange={(mode) => update((current) => setData(current, key, 'languageFiles', mode))}
+            />
+            <span className={styles.hint}>
+              {perLanguage ? (
+                <>
+                  One URL per language:{' '}
+                  {urls.map((path, index) => (
+                    <span key={path}>
+                      {index > 0 && ', '}
+                      <span className={styles.path}>
+                        {index ? `…/${path.split('/').at(-1)}` : path}
+                      </span>
+                    </span>
+                  ))}
+                  . Each file is complete: a perk without a translation carries the English text.
+                </>
+              ) : (
+                <>
+                  One URL holds every chosen language:{' '}
+                  <span className={styles.path}>{urls[0]}</span>. A perk without a translation
+                  leaves that language out, so apps fall back to its English text.
+                </>
+              )}{' '}
+              Switching keeps the old URLs updating for 3 months.
+            </span>
           </div>
         </div>
         <div className={styles.dataRow}>
           <span className={styles.formLabel} id={`keys-${key}`}>
             Keys
           </span>
-          <div className={styles.checks} role="group" aria-labelledby={`keys-${key}`}>
-            {itemKeys.map((itemKey) => (
-              <label key={itemKey} className={styles.check}>
+          <div className={styles.options} role="group" aria-labelledby={`keys-${key}`}>
+            {keyRows.map((entry) => (
+              <label key={entry.key} className={styles.option}>
                 <input
                   type="checkbox"
-                  checked={file.data.keys.includes(itemKey)}
+                  checked={has(entry.key)}
                   onChange={(event) =>
                     update((current) =>
-                      toggleData(current, key, 'keys', [itemKey], event.target.checked),
+                      toggleData(current, key, 'keys', [entry.key], event.target.checked),
                     )
                   }
                 />
-                {itemKey}
+                <span className={styles.optionName}>{entry.name}</span>
+                <span className={styles.optionAbout}>{entry.about}</span>
               </label>
             ))}
           </div>
         </div>
         <div className={styles.dataRow}>
           <span className={styles.formLabel}>Include</span>
-          <div className={styles.checks}>
+          <div className={styles.options}>
             <Flag
               label="Frame aliases"
-              title="Frames shared by several weapons, each under its own hash"
+              title="Weapon frames that several weapons share, each under its own hash"
               checked={file.data.frameAliases}
               onChange={(value) =>
                 update((current) => setData(current, key, 'frameAliases', value))
@@ -442,7 +551,7 @@ function DataSection({
             />
             <Flag
               label="Bungie-identical"
-              title="Tooltips whose English text equals Bungie's own description"
+              title="Perks whose text equals Bungie’s own description"
               checked={file.data.bungieIdentical}
               onChange={(value) =>
                 update((current) => setData(current, key, 'bungieIdentical', value))
@@ -450,7 +559,7 @@ function DataSection({
             />
             <Flag
               label="Feature showcase"
-              title="Add the built-in formatting example under reserved id -1"
+              title="The built-in example as perk -1, so your app can test its rendering"
               checked={file.data.includeShowcase ?? false}
               onChange={(value) =>
                 update((current) => setData(current, key, 'includeShowcase', value))
@@ -462,6 +571,29 @@ function DataSection({
     </Section>
   );
 }
+
+/** The per-perk keys in the order the page lists them (defaults first), with what each holds. */
+const keyRows: readonly { key: ItemKey; name: string; about: string }[] = [
+  { key: 'name', name: 'name', about: 'The perk’s name, in English' },
+  {
+    key: 'edited',
+    name: 'edited.<lang>.at',
+    about: 'When each language’s text was last edited (ISO time)',
+  },
+  { key: 'editedBy', name: 'edited.<lang>.by', about: 'Who made that edit' },
+  { key: 'itemHash', name: 'itemHash', about: 'Hash of the weapon or armor the perk belongs to' },
+  { key: 'itemName', name: 'itemName', about: 'That item’s name' },
+  {
+    key: 'category',
+    name: 'category',
+    about: 'The perk’s category id, such as weapon-trait-exotic',
+  },
+  {
+    key: 'references',
+    name: 'references',
+    about: 'Hashes of the perks this one refers to, when they are in this file',
+  },
+];
 
 function Flag({
   label,
@@ -475,13 +607,14 @@ function Flag({
   onChange(value: boolean): void;
 }) {
   return (
-    <label className={styles.check} title={title}>
+    <label className={styles.option}>
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
-      {label}
+      <span className={styles.optionName}>{label}</span>
+      <span className={styles.optionAbout}>{title}</span>
     </label>
   );
 }
@@ -531,7 +664,7 @@ const CategoryGroup = memo(function CategoryGroup({
             <td key={field} className={styles.checkCol}>
               <input
                 type="checkbox"
-                aria-label={`${field === 'categories' ? 'Tooltips' : 'Sandbox perks'}: all of ${name}`}
+                aria-label={`${field === 'categories' ? 'Item hashes' : 'Sandbox perk hashes'}: all of ${name}`}
                 checked={all(list)}
                 ref={(input) => {
                   if (input) input.indeterminate = !all(list) && some(list);
@@ -554,7 +687,7 @@ const CategoryGroup = memo(function CategoryGroup({
                 <td key={field} className={styles.checkCol}>
                   <input
                     type="checkbox"
-                    aria-label={`${field === 'categories' ? 'Tooltips' : 'Sandbox perks'}: ${labels[index]}`}
+                    aria-label={`${field === 'categories' ? 'Item hashes' : 'Sandbox perk hashes'}: ${labels[index]}`}
                     checked={list.includes(id)}
                     onChange={(event) => onToggle(field, [id], event.target.checked)}
                   />
@@ -593,7 +726,7 @@ const symbolLabels: Record<string, string> = {
   pve: 'PvE',
   pvp: 'PvP',
   elementText: 'Element text',
-  titles: 'Titles',
+  titles: 'Notes',
   links: 'Links',
   elementTags: 'Element tags',
   spacer: 'Spacer lines',
@@ -607,7 +740,7 @@ function Glyph({ row }: { row: FormatRow }) {
   if ((ruleRows as readonly string[]).includes(row))
     return (
       <span className={styles.glyphText} aria-hidden="true">
-        {{ titles: 'T', links: '↗', elementTags: '‹›', spacer: '¶' }[row as RuleRow]}
+        {{ titles: 'N', links: '↗', elementTags: '‹›', spacer: '¶' }[row as RuleRow]}
       </span>
     );
   return <span className={classNames([row])} />;
@@ -623,6 +756,8 @@ function FormatSection({
   update: Update;
 }) {
   const symbolsChanged = changedRows(file, symbolIds);
+  const iconsChanged = changedRows(file, iconRows);
+  const textChanged = changedRows(file, textRows);
   const rulesChanged = changedRows(file, ruleRows);
   const onSet = useCallback(
     (row: FormatRow, mode: string) =>
@@ -656,6 +791,7 @@ function FormatSection({
   return (
     <Section
       title="Format"
+      about="How each kind of formatting reaches the file. The Feature showcase has a line for every row."
       aside={
         <span className={styles.sectionAside}>
           <span className={styles.meta}>
@@ -671,27 +807,47 @@ function FormatSection({
       }
     >
       <div className={styles.symbolTable} role="table" aria-label="Symbols and rules">
-        <div className={styles.symbolGroup} role="rowgroup">
-          <div className={styles.groupHeading} role="row">
-            <span role="columnheader">Symbols</span>
-            <span className={styles.groupActions}>{reset(symbolsChanged)}</span>
+        {(
+          [
+            {
+              title: 'Icons',
+              rows: iconRows,
+              changed: iconsChanged,
+              about:
+                'Keep: a part with the icon’s name, {"icon":"arc"}. Drop: nothing. Replace: your text in its place.',
+            },
+            {
+              title: 'Text styles',
+              rows: textRows,
+              changed: textChanged,
+              about:
+                'Keep: the part lists the style, "style":["bold"] (Element text: "element":"arc"). Drop: plain text. Replace: your text before and after it.',
+            },
+          ] as const
+        ).map((group) => (
+          <div key={group.title} className={styles.symbolGroup} role="rowgroup">
+            <div className={styles.groupHeading} role="row">
+              <span role="columnheader">{group.title}</span>
+              <span className={styles.groupAbout}>{group.about}</span>
+              <span className={styles.groupActions}>{reset(group.changed)}</span>
+            </div>
+            {group.rows.map((row) => (
+              <FormatRowView
+                key={row}
+                row={row}
+                rule={rowValue(file.format, row, file.shape)}
+                shape={file.shape}
+                changed={rowChanged(file, row)}
+                onSet={onSet}
+                onValue={onValue}
+                onReset={onReset}
+              />
+            ))}
           </div>
-          {symbolIds.map((row) => (
-            <FormatRowView
-              key={row}
-              row={row}
-              rule={rowValue(file.format, row, file.shape)}
-              shape={file.shape}
-              changed={rowChanged(file, row)}
-              onSet={onSet}
-              onValue={onValue}
-              onReset={onReset}
-            />
-          ))}
-        </div>
+        ))}
         <div className={styles.symbolGroup} role="rowgroup">
           <div className={styles.groupHeading} role="row">
-            <span role="columnheader">Titles, links, and lines</span>
+            <span role="columnheader">Notes, links, and lines</span>
             <span className={styles.groupActions}>{reset(rulesChanged)}</span>
           </div>
           {ruleRows.map((row) => (
@@ -711,6 +867,31 @@ function FormatSection({
     </Section>
   );
 }
+
+const textRows = ['bold', 'yellow', 'pve', 'pvp', 'elementText'] as const;
+const iconRows = symbolIds.filter((row) => !(textRows as readonly string[]).includes(row));
+
+/** What a rule row does to the output in its current mode. */
+const ruleAbout: Record<RuleRow, Record<string, string>> = {
+  titles: {
+    keep: 'The term’s part carries its hover text as note lines.',
+    drop: 'The term stays as text; its hover text goes.',
+    inline: 'The hover text follows the term, wrapped in your text.',
+  },
+  links: {
+    keep: 'The part carries the address as link.',
+    drop: 'The text stays; the address goes.',
+    replace: 'Text and address wrapped in your text, such as [text](url).',
+  },
+  elementTags: {
+    off: 'Words tagged with an element export as its icon and plain text.',
+    on: 'Words tagged with an element export as its icon, then text with "element":"arc" (see Element text above).',
+  },
+  spacer: {
+    keep: 'A blank line between paragraphs stays, as a spacer line.',
+    drop: 'Blank lines between paragraphs go.',
+  },
+};
 
 type ModeOption = { value: string; label: string; disabled?: boolean };
 
@@ -824,6 +1005,11 @@ const FormatRowView = memo(function FormatRowView({
           </button>
         ) : null}
       </span>
+      {(ruleRows as readonly string[]).includes(row) && ruleAbout[row as RuleRow][mode] && (
+        <span className={styles.rowAbout} role="cell">
+          {ruleAbout[row as RuleRow][mode]}
+        </span>
+      )}
       {fields.length > 0 && (
         <span className={styles.rowFields} role="cell">
           {fields.map((field) => (
@@ -919,7 +1105,9 @@ export function RetainedSection({
         {removedNow.map((file) => (
           <li key={file.uid}>
             <span className={styles.path}>
-              {projectId}/v{file.formatVersion}/{file.id}.json
+              {fileUrls(projectId, file)
+                .map((url) => url.path)
+                .join(', ')}
             </span>
             <span className={styles.meta}>kept for 3 months after you save</span>
           </li>

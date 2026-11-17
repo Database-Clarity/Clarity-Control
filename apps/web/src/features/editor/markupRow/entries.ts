@@ -231,16 +231,6 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
       usage: pvp.usage,
       about: pvp.about,
     }),
-    viaTemplate(snippetById('pvp-override'), {
-      id: 'pvp-override',
-      group: 'Values',
-      label: 'Value with PvP override',
-      markup: 'value <pvp [value] />',
-      keys: snippetById('pvp-override').keywords,
-      glyph: { kind: 'mono', text: 'v <pvp>' },
-      usage: snippetById('pvp-override').usage,
-      about: snippetById('pvp-override').about,
-    }),
     ...iconNames.map((symbol) =>
       viaOption(symbol.id, {
         group: 'Icons',
