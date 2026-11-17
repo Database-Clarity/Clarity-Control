@@ -97,8 +97,10 @@ import { compile, fileUrls } from '@clarity/export';
 const config = migrateConfig(storedJson); // older schemas are brought up to date, then checked
 const file = config.files[0];
 const plan = compile(input, file, { catalog, identical });
-// One URL, or one per language (`fileUrls` lists them in the order of `plan.outputs`).
-fileUrls(config.id, file).forEach((url, i) => write(url.path, plan.outputs[i].bytes));
+// One URL, or one per language (`fileUrls` lists them in the order of `plan.outputs`; a legacy
+// preset has no `outputs`, only `bytes`).
+const outputs = plan.outputs ?? [{ bytes: plan.bytes }];
+fileUrls(config.id, file).forEach((url, i) => write(url.path, outputs[i].bytes));
 ```
 
 - **`configSchema`** refuses unknown keys everywhere, ids that are not path-safe (2 to 32 of
@@ -195,9 +197,11 @@ const perks = decodeV1(await (await fetch(url)).json());
 
 Apps can poll `/<project>/index.json` (`projectIndex`), about 1 KB, which lists one entry per URL:
 `id`, `format`, `path`, `languages`, `sha256`, `bytes`, `updatedAt`, `status` (`current`;
-`stale`: the last build failed and the previous bytes stay; `frozen`), and `updatesUntil` on a
-retained old URL. An app finds its entry by file id and language and downloads only when that
-URL's sha256 changes. Legacy files list all 13 languages.
+`stale`: the last build failed and the previous bytes stay; `frozen`: a retained URL that stopped
+updating), and `updatesUntil` on a retained old URL. An app finds its entry by file id and
+language, taking the one without `updatesUntil` (after a switch between one combined file and one
+file per language, the retained old URLs keep the same id and languages), and downloads only when
+that URL's sha256 changes. Legacy files list all 13 languages.
 
 ## Building the site and the old URLs
 
@@ -226,6 +230,7 @@ Custom style files may set `data.includeShowcase: true` to add one built-in
 formatting example under the reserved item id `-1` (outside Bungie's unsigned
 item-hash space). The optional field defaults to off when absent; legacy presets
 never accept it. The example is English in every selected language, uses the
-file's chosen keys and formatting rules, and does not depend on editor-data.
+file's formatting rules, carries only `name` among the keys (when chosen; it has
+no item, category, or edit history), and does not depend on editor-data.
 The Exports preview starts with this example; its inclusion in downloaded files
 is a separate opt-in. Engine changes reach production through export pins.
