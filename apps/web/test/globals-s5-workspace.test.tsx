@@ -133,6 +133,15 @@ it('keeps an unsaved definition across a remount (reload) and marks it stale aft
   expect(stored.size).toBe(0);
 });
 
+it('typing back to the saved text leaves no stored draft', async () => {
+  await mount('/globals/g_damage0001', service());
+  await act(async () => change('20%'));
+  expect(stored.size).toBe(1);
+  await act(async () => change('15%'));
+  expect(stored.size).toBe(0);
+  expect(host.textContent).toContain('Saved');
+});
+
 it('restores an older version into the draft; saving stays an ordinary edit', async () => {
   const older = structuredClone(globalFixtureSnapshot.entries[0]);
   older.definitions.en!.body = '10%';

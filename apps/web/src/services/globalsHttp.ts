@@ -141,13 +141,18 @@ async function call<T>(
     return { kind: 'retry', message: `Sync pending: ${errorMessage(error)}` };
   }
   if (response.status === 401) return { kind: 'forbidden', message: signIn };
+  // A write that answered 2xx may have landed even when its reply is unreadable: say so.
+  const unreadable = (message: string): GlobalResult<T> =>
+    init?.method === 'POST' && response.ok
+      ? { kind: 'retry', message: 'Sync pending: the save could not be confirmed; refresh first.' }
+      : { kind: 'invalid', message };
   let text: string | undefined;
   try {
     text = await boundedText(response, globalsResponseBytes);
   } catch {
-    return { kind: 'invalid', message: 'The globals response was not valid text.' };
+    return unreadable('The globals response was not valid text.');
   }
-  if (text === undefined) return { kind: 'invalid', message: 'The globals response is too large.' };
+  if (text === undefined) return unreadable('The globals response is too large.');
   let parsed: z.infer<typeof envelope> | undefined;
   try {
     parsed = envelope.parse(JSON.parse(text));
@@ -157,7 +162,7 @@ async function call<T>(
   if (!parsed)
     return response.status >= 500
       ? { kind: 'retry', message: `Sync pending: the server answered HTTP ${response.status}.` }
-      : { kind: 'invalid', message: `Unexpected globals response (HTTP ${response.status}).` };
+      : unreadable(`Unexpected globals response (HTTP ${response.status}).`);
   if (parsed.kind !== 'ok') {
     const message =
       parsed.kind === 'retry' ? (parsed.message ?? 'Sync pending') : (parsed.message ?? '');
@@ -167,7 +172,7 @@ async function call<T>(
   const value = schema.safeParse(parsed.value);
   return value.success
     ? { kind: 'ok', value: value.data }
-    : { kind: 'invalid', message: 'The globals response did not match the expected shape.' };
+    : unreadable('The globals response did not match the expected shape.');
 }
 
 const http = <
@@ -241,10 +246,15 @@ export function createGlobalsHttpTransport(): GlobalsHttpTransport {
       ),
     history: async (id, page) =>
       call(`/globals/${encodeURIComponent(id)}/history?page=${page}`, historyPage),
-    historyVersion: async (id, commit) =>
-      call(
+    historyVersion: async (id, commit) => {
+      const result = await call(
         `/globals/${encodeURIComponent(id)}/history?commit=${encodeURIComponent(commit)}`,
         historyVersion,
-      ),
+      );
+      return result.kind === 'ok' &&
+        (result.value.commit !== commit || result.value.entry.id !== id)
+        ? { kind: 'invalid', message: 'Global version names another entry or commit.' }
+        : result;
+    },
   };
 }

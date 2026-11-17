@@ -130,6 +130,28 @@ describe('authenticated globals transport', () => {
     );
   });
 
+  it('reads an unreadable 2xx write reply as Sync pending and checks history versions', async () => {
+    fetch.mockResolvedValueOnce(new Response('not json', { status: 200 }));
+    expect(
+      await (
+        await transport()
+      ).mutate({
+        expectedHead: fixtureHead(1),
+        mutation: { operation: 'edit', id: entry.id, revision: 'r1', lang: 'en', body: 'x' },
+      }),
+    ).toEqual({
+      kind: 'retry',
+      message: 'Sync pending: the save could not be confirmed; refresh first.',
+    });
+    const other = { ...entry, id: 'g_other00001' };
+    fetch.mockResolvedValueOnce(
+      reply({ kind: 'ok', value: { head: fixtureHead(1), commit: 'c'.repeat(40), entry: other } }),
+    );
+    expect((await (await transport()).historyVersion(entry.id, 'c'.repeat(40))).kind).toBe(
+      'invalid',
+    );
+  });
+
   it('refuses oversized, malformed, and signed-out responses before using them', async () => {
     fetch.mockResolvedValueOnce(
       new Response(`{"kind":"ok","value":"${'x'.repeat(70_000)}"}`, { status: 200 }),

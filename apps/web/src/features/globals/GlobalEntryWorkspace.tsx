@@ -184,9 +184,11 @@ function Workspace({
     draftKey in drafts ? drafts[draftKey] : readGlobalDraft(owner, draftKey);
   function setDraft(next: { key: string; body: string }) {
     const draftKey = next.key || key;
-    const value = next.key
-      ? { body: next.body, revision: draftOf(draftKey)?.revision ?? entry?.revision }
-      : null;
+    // Typing back to the saved text leaves no draft behind (no phantom stale draft later).
+    const value =
+      next.key && !(next.key === key && next.body === saved)
+        ? { body: next.body, revision: draftOf(draftKey)?.revision ?? entry?.revision }
+        : null;
     writeGlobalDraft(owner, draftKey, value);
     setDrafts((previous) => ({ ...previous, [draftKey]: value }));
   }
