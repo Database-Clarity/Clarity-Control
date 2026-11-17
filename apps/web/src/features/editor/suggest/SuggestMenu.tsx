@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type RefObject,
+  type UIEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { EditorView } from '@codemirror/view';
@@ -385,9 +387,91 @@ export function SuggestMenu({
   const above = rows[start]!;
   const note = snapshot.message ?? selected.unavailable;
   return createPortal(
+    <SuggestMenuView
+      surface={surface}
+      list={list}
+      style={style}
+      abovePlacement={placement.above}
+      short={short}
+      pairGlobals={pairGlobals}
+      snapshot={snapshot}
+      selected={selected}
+      last={last}
+      start={start}
+      end={end}
+      above={above}
+      drawn={drawn}
+      note={note}
+      previewText={previewText}
+      lang={lang}
+      globals={globals}
+      used={used}
+      onScroll={(event) => {
+        scrolled.current = event.currentTarget.scrollTop;
+        show(scrolled.current);
+      }}
+      onMove={(index) => {
+        byPointer.current = true;
+        moveSuggest(view, index, true);
+      }}
+      onAccept={(index) => acceptSuggestion(view, index)}
+      onClose={() => closeSuggest(view)}
+    />,
+    document.body,
+  );
+}
+
+export function SuggestMenuView({
+  surface,
+  list,
+  style,
+  abovePlacement,
+  short,
+  pairGlobals,
+  snapshot,
+  selected,
+  last,
+  start,
+  end,
+  above,
+  drawn,
+  note,
+  previewText,
+  lang,
+  globals,
+  used,
+  onScroll,
+  onMove,
+  onAccept,
+  onClose,
+}: {
+  surface?: RefObject<HTMLDivElement>;
+  list?: RefObject<HTMLDivElement>;
+  style?: CSSProperties;
+  abovePlacement?: boolean;
+  short?: boolean;
+  pairGlobals: { base: MarkupGlobals; enhanced: MarkupGlobals } | null;
+  snapshot: SuggestSnapshot;
+  selected: SuggestItem;
+  last: Row;
+  start: number;
+  end: number;
+  above: Row;
+  drawn: Row[];
+  note?: string | null;
+  previewText: string | null;
+  lang: Lang;
+  globals: MarkupGlobals;
+  used?: number;
+  onScroll?(event: UIEvent<HTMLDivElement>): void;
+  onMove(index: number): void;
+  onAccept(index: number): void;
+  onClose(): void;
+}) {
+  return (
     <div
       ref={surface}
-      className={`${styles.menu} ${placement.above ? styles.above : ''}`}
+      className={`${styles.menu} ${abovePlacement ? styles.above : ''}`}
       style={style}
       data-suggest-menu
       data-short={short || undefined}
@@ -401,10 +485,7 @@ export function SuggestMenu({
         role="listbox"
         id="editor-suggest-list"
         aria-label="Markup suggestions"
-        onScroll={(event) => {
-          scrolled.current = event.currentTarget.scrollTop;
-          show(scrolled.current);
-        }}
+        onScroll={onScroll}
       >
         <div
           className={styles.rows}
@@ -451,10 +532,9 @@ export function SuggestMenu({
                 title={item.unavailable}
                 onMouseMove={() => {
                   if (row.index === snapshot.index) return;
-                  byPointer.current = true;
-                  moveSuggest(view, row.index, true);
+                  onMove(row.index);
                 }}
-                onClick={() => acceptSuggestion(view, row.index)}
+                onClick={() => onAccept(row.index)}
               >
                 <span className={styles.label}>{item.label}</span>
                 {item.hint && (
@@ -472,7 +552,7 @@ export function SuggestMenu({
           <span className={styles.title}>{selected.label}</span>
           <span className={styles.kind}>{selected.category}</span>
           {/* Touch has no Esc: an explicitly opened menu needs a way out. */}
-          <button type="button" className={styles.close} onClick={() => closeSuggest(view)}>
+          <button type="button" className={styles.close} onClick={onClose}>
             Close
           </button>
         </div>
@@ -524,7 +604,6 @@ export function SuggestMenu({
         )}
         <p className={styles.keys}>↑↓ choose · Enter or Tab inserts · Esc closes</p>
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

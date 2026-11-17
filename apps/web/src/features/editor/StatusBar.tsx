@@ -151,26 +151,7 @@ function useFit(bar: RefObject<HTMLDivElement | null>, content: string) {
  * changes height, and the panels it opens (issues, character warnings, markup help) draw upward
  * over the text instead of resizing the editor, so the text above never moves.
  */
-export function StatusBar({
-  readOnlyReason,
-  issues,
-  validating = false,
-  glyphCount,
-  retiredCount = 0,
-  parityCount = 0,
-  terms,
-  numbers,
-  line,
-  column,
-  preview,
-  conflicts,
-  changes,
-  panel,
-  onPanel,
-  onSuggest,
-  rawView,
-  onRawView,
-}: {
+export type StatusBarProps = {
   readOnlyReason: string | null;
   issues: readonly ValidationIssue[];
   validating?: boolean;
@@ -201,21 +182,70 @@ export function StatusBar({
   /** Whether symbols show as raw markup; undefined when this editor draws no symbols. */
   rawView?: boolean;
   onRawView?(): void;
-}) {
-  const liveWarnings = usePreviewWarnings(preview?.review);
-  const unpreviewed = preview?.review ? liveWarnings : (preview?.unpreviewed ?? 0);
-  const errors = issues.filter((issue) => issue.severity === 'error').length;
-  const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
+};
+
+export function StatusBar(props: StatusBarProps) {
+  const liveWarnings = usePreviewWarnings(props.preview?.review);
+  const unpreviewed = props.preview?.review ? liveWarnings : (props.preview?.unpreviewed ?? 0);
+  const { numbers, issues, panel, onPanel } = props;
   const toggleNumbers = useCallback(
     () => onPanel(panel === 'numbers' ? null : 'numbers'),
     [onPanel, panel],
   );
+  const numberStatus = numbers ? (
+    <NumberStatus
+      store={numbers}
+      warning={issues.some(
+        (issue) => issue.message.includes('formula needs') || issue.code === 'glued-number',
+      )}
+      className={styles.item}
+      open={panel === 'numbers'}
+      onOpen={toggleNumbers}
+    />
+  ) : null;
+  return (
+    <StatusBarView
+      {...props}
+      numberStatus={numberStatus}
+      unpreviewed={unpreviewed}
+      reserveKey={String(props.preview?.review?.canonical ?? '')}
+    />
+  );
+}
+
+export function StatusBarView({
+  readOnlyReason,
+  issues,
+  validating = false,
+  glyphCount,
+  retiredCount = 0,
+  parityCount = 0,
+  terms,
+  numberStatus,
+  unpreviewed,
+  reserveKey,
+  line,
+  column,
+  preview,
+  conflicts,
+  changes,
+  panel,
+  onPanel,
+  onSuggest,
+  rawView,
+  onRawView,
+}: Omit<StatusBarProps, 'numbers'> & {
+  numberStatus?: ReactNode;
+  unpreviewed: number;
+  reserveKey: string;
+}) {
+  const errors = issues.filter((issue) => issue.severity === 'error').length;
+  const toggle = (next: StatusPanel) => onPanel(panel === next ? null : next);
   const root = useRef<HTMLDivElement>(null);
   const showsPreview = preview ? unpreviewed > 0 || preview.collapsed : undefined;
   // The idle preview item gives its room to the labels until it first shows for this text; from
   // then on it keeps that room while idle, so a slow render while typing changes the labels at
   // most once instead of on every render (see .preview[data-reserved]).
-  const reserveKey = String(preview?.review?.canonical ?? '');
   const reserve = useRef({ key: reserveKey, on: false });
   if (reserve.current.key !== reserveKey) reserve.current = { key: reserveKey, on: false };
   if (showsPreview) reserve.current.on = true;
@@ -313,17 +343,7 @@ export function StatusBar({
         <span className={styles.long}>Markup help</span>
         <span className={styles.short}>Help</span>
       </button>
-      {numbers && (
-        <NumberStatus
-          store={numbers}
-          warning={issues.some(
-            (issue) => issue.message.includes('formula needs') || issue.code === 'glued-number',
-          )}
-          className={styles.item}
-          open={panel === 'numbers'}
-          onOpen={toggleNumbers}
-        />
-      )}
+      {numberStatus}
       {terms && (
         // Always drawn while translating (disabled while there is nothing to list), so a
         // tooltip with terms after one without moves nothing in the bar.
