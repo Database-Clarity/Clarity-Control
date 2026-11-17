@@ -2,7 +2,7 @@ import { SkeletonBoundary } from '../../ui/Skeleton';
 // The config column (spec section 8): the file (id, style, shape), Data (category tree with
 // Item hashes and Sandbox perk hashes columns, languages, files, keys, include flags), and Format
 // (one 28px row per symbol and rule; changed-from-preset markers and Reset per row and section).
-import { deployedLegacyPresets, legacyPresets, type Style } from '@clarity/export';
+import { deployedLegacyPresets, legacyPresets, styleShapes, type Style } from '@clarity/export';
 import {
   exportLanguages,
   fileUrls,
@@ -261,7 +261,9 @@ function FileSection({
           </select>
           {!isLegacyFile(file) && (
             <span className={styles.hint}>
-              {styleAbout[file.preset]} Switching style resets the Format rows.
+              {/* The style's own line describes its default shape; another shape has its own line. */}
+              {file.shape === styleShapes[file.preset] && `${styleAbout[file.preset]} `}
+              Switching style resets the Format rows.
             </span>
           )}
         </div>
@@ -819,7 +821,7 @@ function FormatSection({
               rows: textRows,
               changed: textChanged,
               about:
-                'Keep: the part lists the style, "style":["bold"]. Drop: plain text. Replace: your text before and after it.',
+                'Keep: the part lists the style, "style":["bold"] (Element text: "element":"arc"). Drop: plain text. Replace: your text before and after it.',
             },
           ] as const
         ).map((group) => (
@@ -883,7 +885,7 @@ const ruleAbout: Record<RuleRow, Record<string, string>> = {
   },
   elementTags: {
     off: 'Words tagged with an element export as its icon and plain text.',
-    on: 'Words tagged with an element export as text with "element":"arc" (see Element text above).',
+    on: 'Words tagged with an element export as its icon, then text with "element":"arc" (see Element text above).',
   },
   spacer: {
     keep: 'A blank line between paragraphs stays, as a spacer line.',

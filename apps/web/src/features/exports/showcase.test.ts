@@ -83,8 +83,8 @@ test('standalone showcase parses with no diagnostics in base and enhanced previe
     const rendered = JSON.stringify(result.lines);
     expect(rendered).toContain(
       type === 'Weapon Trait Enhanced'
-        ? 'Enhanced perks get this line instead.'
-        : 'Base perks get this line.',
+        ? 'Enhanced perks get this line; base perks get their own.'
+        : 'Base perks get this line; Enhanced perks get their own.',
     );
     expect(showcaseText).not.toContain('PvP override');
   }
