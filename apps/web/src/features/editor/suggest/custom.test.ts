@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import type { Lang, MarkupGlobals } from '@clarity/core';
 import { requestItems, suggestContext, suggestItems } from './source';
 import {
@@ -8,7 +9,16 @@ import {
   loadSnippetCatalogue,
   snippetCatalogue,
   snippetLang,
+  closeSaveSnippet,
+  useSaveSnippet,
 } from './custom';
+import {
+  acceptSuggestion,
+  openSuggest,
+  suggestConfiguration,
+  suggestExtension,
+  suggestState,
+} from './state';
 
 const services = vi.hoisted(() => ({
   loadEditorSnippets: vi.fn(),
@@ -93,12 +103,98 @@ describe('custom snippets in the menus', () => {
     expect(custom[0]!.insert).toBe('<title reloads [G_refill] />');
   });
 
-  test('ties after score and recency: Mine, then Team, then built-in', () => {
-    // The options this spot calls for (a mid-line declaration waits in the full list, as built-ins do).
-    const items = requested('x ').filter((item) => item.category === 'Snippets' && item.pinned);
-    const sources = items.map((item) => item.source ?? 'built-in');
-    expect(sources.indexOf('built-in')).toBeGreaterThan(sources.lastIndexOf('team'));
-    expect(sources.lastIndexOf('mine')).toBeLessThan(sources.indexOf('team'));
+  test('empty queries keep built-in order, with custom snippets after them and recent picks first', async () => {
+    const at = state('x ');
+    const context = suggestContext(at, true)!;
+    const snippets = (recent: string[] = []) =>
+      requestItems(context, at, enhanced, recent).filter(
+        (item) => item.category === 'Snippets' && item.pinned,
+      );
+    const withCustom = snippets();
+    expect(withCustom.filter((item) => item.source).map((item) => item.id)).toEqual([
+      'snippet:me:a',
+      'snippet:me:b',
+      'snippet:team:r',
+    ]);
+    const firstCustom = withCustom.findIndex((item) => item.source);
+    expect(withCustom.slice(0, firstCustom).every((item) => !item.source)).toBe(true);
+    expect(withCustom.slice(firstCustom).every((item) => item.source)).toBe(true);
+    const recent = ['snippet:team:r', withCustom[1]!.id, 'snippet:me:a'];
+    expect(
+      snippets(recent)
+        .slice(0, 3)
+        .map((item) => item.id),
+    ).toEqual(recent);
+    services.loadEditorSnippets.mockResolvedValue({ builtIn: [], mine: [], team: [] });
+    await loadSnippetCatalogue('empty-order:editor', 'en');
+    expect(withCustom.filter((item) => !item.source).map((item) => item.id)).toEqual(
+      snippets().map((item) => item.id),
+    );
+  });
+
+  test('typed score ties stay Mine, Team, then built-in, regardless of recent picks', async () => {
+    const label = 'PvE and PvP values';
+    services.loadEditorSnippets.mockResolvedValue({
+      builtIn: [],
+      mine: [{ id: 'me:tie', label, template: 'x' }],
+      team: [{ id: 'team:tie', label, template: 'x' }],
+    });
+    await loadSnippetCatalogue('typed-order:editor', 'en');
+    const at = state('PvE');
+    const context = suggestContext(at, true)!;
+    const recent = ['snippet:pair', 'snippet:team:tie', 'snippet:me:tie'];
+    for (const items of [
+      requestItems(context, at, enhanced, recent),
+      suggestItems(context, at, enhanced, recent),
+    ]) {
+      expect(items.filter((item) => item.label === label).map((item) => item.id)).toEqual([
+        'snippet:me:tie',
+        'snippet:team:tie',
+        'snippet:pair',
+      ]);
+    }
+    // Clearing the query restores recency rather than retaining the typed source order.
+    expect(
+      requestItems({ ...context, query: '' }, at, enhanced, recent)
+        .filter((item) => item.category === 'Snippets')
+        .slice(0, 3)
+        .map((item) => item.id),
+    ).toEqual(recent);
+  });
+
+  test('invalid selections explain how to fix markup, while corrected selections open the form', () => {
+    closeSaveSnippet();
+    const text = '<unknown text />';
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: text,
+        selection: { anchor: 0, head: text.length },
+        extensions: [suggestExtension(), suggestConfiguration({ globals: enhanced }, 'en')],
+      }),
+    });
+    try {
+      openSuggest(view);
+      const index = suggestState(view.state)!.items.findIndex((item) => item.saveSnippet);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(acceptSuggestion(view, index)).toBe('unavailable');
+      expect(suggestState(view.state)?.message).toBe(
+        'Fix the markup in the editor before saving it as a snippet.',
+      );
+      expect(view.state.doc.toString()).toBe(text);
+      expect(useSaveSnippet.getState().text).toBeNull();
+      view.dispatch({
+        changes: { from: 0, to: text.length, insert: 'Corrected text' },
+        selection: { anchor: 0, head: 14 },
+      });
+      openSuggest(view);
+      const corrected = suggestState(view.state)!.items.findIndex((item) => item.saveSnippet);
+      expect(acceptSuggestion(view, corrected)).toBe('inserted');
+      expect(useSaveSnippet.getState().text).toBe('Corrected text');
+      expect(suggestState(view.state)).toBeNull();
+    } finally {
+      closeSaveSnippet();
+      view.destroy();
+    }
   });
 
   test('line-start and enhanced rules apply as for built-ins', () => {
