@@ -22,6 +22,9 @@ it.each([
   ['<title {{1:refills}} [G_refill] />', '<title {{1:Text}} [G_other] />'],
   ['<link {{1:rank}} [#CombatantClassifications] />', '<link {{1:Rang}} [#Other] />'],
   ['#{damage}', '#{schaden}'],
+  ['Rank # 1', 'Rang #a 1'],
+  ['Note (\nText\n)', 'catalyst (\nText\n)'],
+  ['Note (\nText\n)', 'exotic perk (\nText\n)'],
   ['var {{1:name}} = {{2:value}}', 'var {{1:Name}} = {{2:Wert}}'],
   ['import {{1:main}} from {{2:hash}}', 'import {{1:other}} from {{2:hash}}'],
   ['title Name (\nText\n)', 'title Other (\nText\n)'],
@@ -39,6 +42,12 @@ it('hashes the exact English source and applies cheap pathological bounds', asyn
     'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
   );
   expect(await snippetEnglishHash('abc\n')).not.toBe(await snippetEnglishHash('abc'));
-  for (const input of ['<'.repeat(2000), ' '.repeat(2000), '#{x}'.repeat(400), 'x'.repeat(2001)])
+  for (const input of [
+    '${'.repeat(1000),
+    '<'.repeat(2000),
+    ' '.repeat(2000),
+    '#{x}'.repeat(400),
+    'x'.repeat(2001),
+  ])
     expect(() => validateSnippetTranslation('words', input)).toThrow(SnippetSkeletonError);
 });

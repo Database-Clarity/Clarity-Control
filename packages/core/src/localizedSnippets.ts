@@ -18,17 +18,26 @@ export const snippetTranslationSchema = z
   })
   .strict();
 export type SnippetTranslation = z.infer<typeof snippetTranslationSchema>;
+/** Keep retired catalogue entries readable and removable across Worker/Pages rollouts. */
+export const storedLocalizedSnippetIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,79}$/)
+  .refine((id) => !['constructor', 'prototype'].includes(id));
 export const snippetTranslationsSchema = z.record(
-  localizedSnippetIdSchema,
+  storedLocalizedSnippetIdSchema,
   snippetTranslationSchema,
 );
 export const snippetTranslationChangeSchema = z
   .object({
-    id: localizedSnippetIdSchema,
+    id: storedLocalizedSnippetIdSchema,
     base: snippetTranslationSchema.nullable(),
     next: snippetTranslationSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (change) => !change.next || localizedSnippetIdSchema.safeParse(change.id).success,
+    'Only current built-in and team snippet ids may receive translations',
+  );
 export type SnippetTranslationChange = z.infer<typeof snippetTranslationChangeSchema>;
 
 export class SnippetSkeletonError extends Error {
@@ -56,9 +65,10 @@ function skeleton(template: string): string {
   // eslint-disable-next-line no-control-regex -- Internal stop delimiters, rejected in user input.
   protect(/<(?:\w+|\u0001[^\u0003]*\u0003)/g);
   protect(/#\{[^}\r\n]*\}/g);
+  protect(/#[A-Za-z0-9]+/g);
   protect(/\$\{(?:#\{[^}]*\}|[^}])*\}/g);
   protect(
-    /^[\t ]*(?:var[\t ]+[^\r\n=]+[\t ]*=|(?:title|export)[\t ]+[^\r\n(]+[\t ]*\(|import[\t ]+[^\r\n]+|enhanced[\t ]*\()/gm,
+    /^[\t ]*(?:var[\t ]+[^\r\n=]+[\t ]*=|(?:title|export)[\t ]+[^\r\n(]+[\t ]*\(|import[\t ]+[^\r\n]+|(?:enhanced|catalyst|exotic perk)[\t ]*\()/gm,
   );
   protect(/\[[^\]\r\n]*\]/g, (at) => {
     const start = text.lastIndexOf('<', at);
@@ -83,6 +93,7 @@ export function validateSnippetTranslation(english: string, translated: string):
     translated.length > 2000 ||
     (translated.match(/</g)?.length ?? 0) > 100 ||
     (translated.match(/#\{/g)?.length ?? 0) > 100 ||
+    (translated.match(/\$\{/g)?.length ?? 0) > 100 ||
     /\s{41}/.test(translated)
   )
     throw new SnippetSkeletonError('Translated template exceeds snippet bounds');
@@ -103,7 +114,7 @@ export async function snippetEnglishHash(template: string): Promise<string> {
 export const effectiveSnippetsResponseSchema = z.object({
   snippets: z.array(
     z.object({
-      id: localizedSnippetIdSchema,
+      id: storedLocalizedSnippetIdSchema,
       label: z.string(),
       keywords: z.string(),
       template: z.string(),
@@ -113,7 +124,7 @@ export const effectiveSnippetsResponseSchema = z.object({
       outdated: z.boolean(),
     }),
   ),
-  outdated: z.array(localizedSnippetIdSchema),
+  outdated: z.array(storedLocalizedSnippetIdSchema),
   canManage: z.boolean(),
 });
 export type EffectiveSnippetsResponse = z.infer<typeof effectiveSnippetsResponseSchema>;

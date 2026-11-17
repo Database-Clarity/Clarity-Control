@@ -200,3 +200,14 @@ it('checks destinations, languages, oversized requests, and authentication', asy
   fixture.env.DATA_BRANCH = 'main';
   expect((await save()).status).toBe(503);
 });
+it('retains retired built-in ids without blocking reads, unrelated writes, or orphan deletion', async () => {
+  fixture.moveData({ 'snippets/de.json': { 'wrap:green': translation } });
+  expect((await getLocalizedSnippets('de')).snippets.some((s) => s.id === 'wrap:green')).toBe(
+    false,
+  );
+  expect((await getSnippetTranslations('de')).translations['wrap:green']).toEqual(translation);
+  expect((await save()).status).toBe(200);
+  expect((await save(6, null, translation, 'wrap:green')).status).toBe(200);
+  expect((await getSnippetTranslations('de')).translations['wrap:green']).toBeUndefined();
+  expect((await save(6, translation, null, 'wrap:green')).status).toBe(400);
+});
