@@ -53,6 +53,7 @@ export function SnippetFields({
   onChange,
   disabled = false,
   textReadOnly = false,
+  autoFocus = false,
   english,
 }: {
   draft: SnippetDraft;
@@ -61,6 +62,8 @@ export function SnippetFields({
   disabled?: boolean;
   /** Save as snippet: the selected text is shown, not edited here. */
   textReadOnly?: boolean;
+  /** Focus the label field when the form appears (Edit, New, the save dialog). */
+  autoFocus?: boolean;
   /** Translating: the English beside each field. */
   english?: SnippetDraft;
 }) {
@@ -72,7 +75,9 @@ export function SnippetFields({
     hint?: string,
   ) => (
     <div className={styles.field}>
-      <label htmlFor={`${id}-${name}`}>{label}</label>
+      <label id={`${id}-${name}-name`} htmlFor={`${id}-${name}`}>
+        {label}
+      </label>
       {english && <code className={styles.english}>{english[name] || '—'}</code>}
       {control}
       {errors[name] ? (
@@ -98,6 +103,7 @@ export function SnippetFields({
           value={draft.label}
           maxLength={40}
           disabled={disabled}
+          autoFocus={autoFocus}
           autoComplete="off"
           {...described('label')}
           onChange={(event) => onChange({ ...draft, label: event.target.value })}
@@ -120,17 +126,23 @@ export function SnippetFields({
       {field(
         'template',
         'Text',
-        <textarea
-          id={`${id}-template`}
-          className={styles.template}
-          value={draft.template}
-          maxLength={2000}
-          disabled={disabled}
-          readOnly={textReadOnly}
-          spellCheck={false}
-          {...described('template')}
-          onChange={(event) => onChange({ ...draft, template: event.target.value })}
-        />,
+        textReadOnly ? (
+          // The selected text, shown as it will be saved (it is edited later in Settings).
+          <pre className={styles.selected} aria-labelledby={`${id}-template-name`}>
+            {draft.template}
+          </pre>
+        ) : (
+          <textarea
+            id={`${id}-template`}
+            className={styles.template}
+            value={draft.template}
+            maxLength={2000}
+            disabled={disabled}
+            spellCheck={false}
+            {...described('template')}
+            onChange={(event) => onChange({ ...draft, template: event.target.value })}
+          />
+        ),
         textReadOnly
           ? undefined
           : `${draft.template.length.toLocaleString()} of 2,000 characters. Fields: {{1:default}}, caret end: {{0}}.`,

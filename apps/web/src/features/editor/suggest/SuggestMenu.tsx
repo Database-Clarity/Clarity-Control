@@ -530,7 +530,7 @@ export function SuggestMenuView({
                 data-category={item.category}
                 data-pinned={item.pinned ? '' : undefined}
                 // Mine, Team, and EN say where an option comes from: never cut by a long label.
-                data-source={item.source || item.saveSnippet || item.hint === 'EN' ? '' : undefined}
+                data-source={item.source || item.hint === 'EN' ? '' : undefined}
                 title={item.unavailable}
                 onMouseMove={() => {
                   if (row.index === snapshot.index) return;

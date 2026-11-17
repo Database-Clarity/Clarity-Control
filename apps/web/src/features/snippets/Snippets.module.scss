@@ -34,17 +34,17 @@
   gap: 0.5rem;
 }
 
-// "Copy from my snippets": the picker takes the room left, its button stays beside it.
+// "Copy from my snippets": the picker as wide as its labels (up to 16rem), its button beside it.
 .copy {
   display: flex;
-  flex: 1 1 18rem;
+  flex: 0 1 auto;
   gap: 0.5rem;
   min-width: 0;
 
   select {
-    flex: 1 1 auto;
-    width: 0;
+    flex: 0 1 auto;
     min-width: 0;
+    max-width: 16rem;
   }
 }
 
@@ -72,22 +72,23 @@
   border-bottom: 1px solid var(--line);
 }
 
+// Label and markup in two shared columns, so every row's markup starts at the same edge; the
+// row's actions stay on its line.
 .summary {
-  display: flex;
-  flex: 1 1 14rem;
+  display: grid;
+  flex: 1 1 0;
+  grid-template-columns: minmax(0, 16rem) minmax(0, 1fr);
   align-items: baseline;
   gap: 0.5rem;
   min-width: 0;
 }
 
 .label {
-  flex: none;
-  max-width: 50%;
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .text {
-  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--text2);
@@ -98,7 +99,9 @@
 
 .rowActions {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.25rem;
   margin-inline-start: auto;
 }
@@ -145,6 +148,21 @@
   resize: vertical;
   font-family: ui-monospace, monospace;
   font-variant-ligatures: none;
+}
+
+// "Save as snippet": the selected text as it will be saved, not an editable field.
+.selected {
+  max-height: 8rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.25rem 0.5rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+  font-variant-ligatures: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--col);
+  border-inline-start: 2px solid var(--line);
 }
 
 .english {
@@ -211,6 +229,14 @@
 
 .state[data-state='outdated'] {
   color: var(--warn);
+}
+
+@include theme.mobile {
+  // Phones: the markup goes under its label.
+  .summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
 }
 
 @include theme.mobile-or-coarse {

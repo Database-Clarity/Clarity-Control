@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Dialog } from '../../ui/Dialog';
 import { savePersonalSnippet } from '../../services/snippets';
@@ -31,6 +31,9 @@ export function SaveSnippetDialog({
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const form = useRef<HTMLFormElement>(null);
+  // After the dialog opens (showModal moves focus to its first control): start on Label.
+  useEffect(() => form.current?.querySelector<HTMLInputElement>('input')?.focus(), []);
 
   async function save(event?: React.FormEvent) {
     event?.preventDefault();
@@ -80,6 +83,7 @@ export function SaveSnippetDialog({
       }
     >
       <form
+        ref={form}
         id="save-snippet"
         className={styles.form}
         onSubmit={(event) => void save(event)}
@@ -90,6 +94,7 @@ export function SaveSnippetDialog({
           errors={errors}
           disabled={busy}
           textReadOnly
+
           onChange={(next) => {
             setDraft(next);
             if (checked) setErrors(snippetErrors(next, existingLabels));

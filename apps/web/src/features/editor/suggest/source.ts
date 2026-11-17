@@ -604,7 +604,6 @@ function build(
         id: 'save-snippet',
         category: 'Snippets',
         label: 'Save as snippet',
-        hint: 'Mine',
         about: 'Saves the selected text as one of your snippets.',
         insert: '',
         preview: null,
@@ -845,6 +844,8 @@ function rank(
       .filter((entry) => entry.item.category === category)
       .sort(
         (a, b) =>
+          // Over a selection, "Save as snippet" leads the Snippets: it is an action, not a snippet.
+          Number(!!b.item.saveSnippet) - Number(!!a.item.saveSnippet) ||
           b.score - a.score ||
           Number(!!b.item.wrap) - Number(!!a.item.wrap) ||
           (context.query ? 0 : a.recency - b.recency) ||

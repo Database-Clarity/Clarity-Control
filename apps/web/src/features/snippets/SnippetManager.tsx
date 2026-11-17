@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { CustomSnippet } from '../../../../../packages/core/src/customSnippets';
 import { SnippetConflictError } from '../../services/snippets';
 import {
@@ -62,6 +62,19 @@ export function SnippetManager({
   } | null>(null);
   const list = snippets ?? [];
   const full = list.length >= limit;
+  // Where keyboard focus goes after an action (Edit/New focus Label through SnippetFields).
+  const root = useRef<HTMLDivElement>(null);
+  const [focus, setFocus] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!focus) return;
+    const target = root.current?.querySelector<HTMLElement>(focus);
+    // A control disabled while saving takes focus once the save settles.
+    if (!target || (target as HTMLButtonElement).disabled) return;
+    target.focus();
+    setFocus(null);
+  }, [focus, busy]);
+  const back = (target: CustomSnippet | 'new' | null) =>
+    setFocus(target && target !== 'new' ? `[data-edit="${target.id}"]` : '[data-new]');
 
   const others = (except: CustomSnippet | 'new' | null) =>
     list.filter((snippet) => except === 'new' || snippet.id !== except?.id).map((s) => s.label);
@@ -111,12 +124,18 @@ export function SnippetManager({
       () => save(editing === 'new' ? null : editing, next),
       editing === 'new' ? `Saved “${next.label}”.` : `Updated “${next.label}”.`,
     );
-    if (ok) setEditing(null);
+    if (ok) {
+      setEditing(null);
+      setFocus(`[data-edit="${next.id}"]`);
+    }
   }
 
   async function remove(snippet: CustomSnippet) {
     const ok = await run(() => save(snippet, null), `Deleted “${snippet.label}”.`);
-    if (ok) setDeleting(null);
+    if (ok) {
+      setDeleting(null);
+      setFocus('[data-new]');
+    }
   }
 
   const form = editing && (
@@ -125,6 +144,7 @@ export function SnippetManager({
         draft={draft}
         errors={errors}
         disabled={busy}
+        autoFocus
         onChange={(next) => {
           setDraft(next);
           // Once a save was refused, the messages follow the edits.
@@ -135,7 +155,14 @@ export function SnippetManager({
         <button type="submit" data-primary disabled={busy}>
           {busy ? 'Saving…' : editing === 'new' ? 'Save snippet' : 'Save changes'}
         </button>
-        <button type="button" disabled={busy} onClick={() => setEditing(null)}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            back(editing);
+            setEditing(null);
+          }}
+        >
           Cancel
         </button>
       </div>
@@ -143,11 +170,14 @@ export function SnippetManager({
   );
 
   return (
-    <div className={styles.manager}>
+    <div ref={root} className={styles.manager}>
       <div className={styles.toolbar}>
-        <span className={styles.count}>{snippets ? `${list.length} of ${limit}` : ''}</span>
+        <span className={styles.count}>
+          {snippets ? `${list.length} of ${limit}${full ? ' · limit reached' : ''}` : ''}
+        </span>
         <button
           type="button"
+          data-new
           disabled={busy || full || !snippets || editing === 'new'}
           title={full ? `The limit is ${limit} snippets` : undefined}
           onClick={() => start('new')}
@@ -206,10 +236,23 @@ export function SnippetManager({
                   </div>
                   {deleting?.id === snippet.id ? (
                     <div className={styles.rowActions} role="group" aria-label="Confirm delete">
-                      <button type="button" disabled={busy} onClick={() => void remove(snippet)}>
-                        Delete “{snippet.label}”
+                      <button
+                        type="button"
+                        data-confirm
+                        aria-label={`Delete “${snippet.label}”`}
+                        disabled={busy}
+                        onClick={() => void remove(snippet)}
+                      >
+                        Delete
                       </button>
-                      <button type="button" disabled={busy} onClick={() => setDeleting(null)}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setDeleting(null);
+                          setFocus(`[data-delete="${snippet.id}"]`);
+                        }}
+                      >
                         Keep
                       </button>
                     </div>
@@ -218,6 +261,7 @@ export function SnippetManager({
                       {rowActions?.(snippet, busy)}
                       <button
                         type="button"
+                        data-edit={snippet.id}
                         aria-label={`Edit ${snippet.label}`}
                         disabled={busy}
                         onClick={() => start(snippet)}
@@ -226,10 +270,12 @@ export function SnippetManager({
                       </button>
                       <button
                         type="button"
+                        data-delete={snippet.id}
                         aria-label={`Delete ${snippet.label}`}
                         disabled={busy}
                         onClick={() => {
                           setDeleting(snippet);
+                          setFocus('[data-confirm]');
                           setNotice(null);
                         }}
                       >

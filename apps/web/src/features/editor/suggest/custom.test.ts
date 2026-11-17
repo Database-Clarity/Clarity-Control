@@ -119,12 +119,11 @@ describe('custom snippets in the menus', () => {
     );
   });
 
-  test('a selection offers Save as snippet', () => {
+  test('a selection offers Save as snippet first among the Snippets, without a hint', () => {
     const items = requested('Grants Bonus damage', 'en', 7, 19);
-    expect(items.find((item) => item.id === 'save-snippet')).toMatchObject({
-      saveSnippet: true,
-      hint: 'Mine',
-    });
+    const snippets = items.filter((item) => item.category === 'Snippets');
+    expect(snippets[0]).toMatchObject({ id: 'save-snippet', saveSnippet: true });
+    expect(snippets[0]!.hint).toBeUndefined();
   });
 
   test('a failed load leaves built-ins only', async () => {
