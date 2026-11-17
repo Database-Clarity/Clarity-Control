@@ -7,9 +7,17 @@ import { acceptSaved } from '../../services/save/drafts';
 import { useNames } from '../review/batches/names';
 import styles from './History.module.scss';
 
-/** Whether a commit is an upload (a /save by a person) that changed `lang` (its trailer). */
+/**
+ * Whether a commit is an upload (a /save by a person) that changed `lang`: its Worker-written
+ * final trailer paragraph only, so the person's message can neither forge nor hide it.
+ */
 export function uploadChanged(message: string, lang: Lang): boolean {
-  const line = message.split(/\r?\n/).find((value) => value.startsWith('Clarity-Changed: '));
+  const line = message
+    .trimEnd()
+    .split(/\r?\n\r?\n/)
+    .at(-1)
+    ?.split(/\r?\n/)
+    .find((value) => value.startsWith('Clarity-Changed: '));
   return !!line
     ?.slice('Clarity-Changed: '.length)
     .split(';')

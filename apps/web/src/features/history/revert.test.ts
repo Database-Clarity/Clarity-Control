@@ -138,5 +138,10 @@ describe('upload rollback', () => {
     expect(uploadChanged(message, 'fr')).toBe(true);
     expect(uploadChanged(message, 'es')).toBe(false);
     expect(uploadChanged('Publish batch', 'de')).toBe(false);
+    // Only the Worker-written final paragraph counts; a line in the person's message does not.
+    const forged = 'Fix typo\n\nClarity-Changed: 125=fr\n\nClarity-Changed: 125=de;126=de';
+    expect(uploadChanged(forged, 'de')).toBe(true);
+    expect(uploadChanged(forged, 'fr')).toBe(false);
+    expect(uploadChanged('Clarity-Changed: 1=de\n\nPlain message', 'de')).toBe(false);
   });
 });

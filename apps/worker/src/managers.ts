@@ -132,9 +132,18 @@ const gitCommitSchema = z.object({
 const compareSchema = z.object({ status: z.string() });
 export type SkipReason = 'changed-later' | 'deleted';
 
-/** The tooltips a /save commit changed in `lang`, from its Clarity-Changed trailer (hints only). */
+/**
+ * The tooltips a /save commit changed in `lang`, from its Clarity-Changed trailer. Only the final
+ * paragraph counts: /save writes it after the person's (trimmed) message, so a message can neither
+ * forge nor hide it (TR-MANAGER sec review). The blobs then confirm each change.
+ */
 export function trailerHashes(message: string, lang: Lang): number[] | null {
-  const line = message.split('\n').find((value) => value.startsWith('Clarity-Changed: '));
+  const line = message
+    .trimEnd()
+    .split(/\r?\n\r?\n/)
+    .at(-1)
+    ?.split(/\r?\n/)
+    .find((value) => value.startsWith('Clarity-Changed: '));
   if (!line) return null;
   const hashes: number[] = [];
   for (const part of line.slice('Clarity-Changed: '.length).split(';')) {

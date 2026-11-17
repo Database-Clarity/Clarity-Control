@@ -359,6 +359,41 @@ describe('upload rollback', () => {
     expect(fixture.commits).toHaveLength(0);
   });
 
+  it('reads only the Worker-written trailer, never one forged in the message (sec review)', async () => {
+    // A translator's own /save, whose message claims it changed only 125's French.
+    const changes = [125, 126].map((hash) => {
+      const base = head(hash);
+      const next = structuredClone(base);
+      next.text.de = {
+        text: 'VANDAL',
+        updatedAt: '2026-10-08T00:00:00Z',
+        updatedBy: 'gail',
+        sourceUpdatedAt: base.text.en!.updatedAt,
+      };
+      return { hash, base, next };
+    });
+    const saved = await as(7, '/save', 'POST', {
+      changes,
+      message: 'Fix typo\n\nClarity-Changed: 125=fr',
+    });
+    expect(saved.status).toBe(200);
+    const vandal = fixture.dataHead;
+    expect(fixture.commitMessages.get(vandal)).toContain('Clarity-Changed: 125=fr\n\n');
+    const preview = await (await plan(5, 'de', vandal)).json();
+    expect(preview).toEqual(expect.objectContaining({ reverted: [125, 126], skipped: [] }));
+    expect((await apply(5, 'de', vandal)).status).toBe(200);
+    expect(head(125).text.de!.text).toBe('Neu 125');
+    expect(head(126).text.de!.text).toBe('Neu 126');
+  });
+
+  it('refuses a merge commit even with a trailer', async () => {
+    const other = fixture.dataHead;
+    fixture.moveData({}, 'Merge\n\nClarity-Changed: 123=de');
+    fixture.commitParents.set(fixture.dataHead, [other, upload]);
+    expect((await apply(5, 'de', fixture.dataHead)).status).toBe(422);
+    expect(fixture.commits).toHaveLength(0);
+  });
+
   it('answers 409 when nothing is left to roll back', async () => {
     await apply(5);
     const response = await apply(5);
