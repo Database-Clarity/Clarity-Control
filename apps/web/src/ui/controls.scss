@@ -51,13 +51,17 @@
     font-size: var(--ctl-text);
   }
 
-  &:hover:not(:disabled) {
-    background: var(--ctl-hover);
-    border-color: var(--ctl-hover-edge);
-  }
+  // Touch browsers retain :hover, and briefly :active, after a tap. Neither
+  // should obscure the newly selected state in the first painted frame.
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      background: var(--ctl-hover);
+      border-color: var(--ctl-hover-edge);
+    }
 
-  &:active:not(:disabled) {
-    background: var(--ctl-pressed);
+    &:active:not(:disabled) {
+      background: var(--ctl-pressed);
+    }
   }
 
   &:focus-visible {

@@ -203,10 +203,12 @@
   background: transparent;
   border-color: transparent;
 
-  &:hover {
-    color: var(--text);
-    background: var(--hover);
-    border-color: var(--ghost-edge);
+  @media (hover: hover) {
+    &:hover {
+      color: var(--text);
+      background: var(--hover);
+      border-color: var(--ghost-edge);
+    }
   }
 
   &[data-severity='warning'] {
