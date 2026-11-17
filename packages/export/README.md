@@ -128,9 +128,18 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, outputs[i].bytes))
   `<project>/v1/<file>/<lang>.json`. A per-language file is complete: a perk without text in that
   language, or whose translation is more than 90 days behind its English text, carries the
   English text under that language and `edited.en` instead of `edited.<lang>`. A file counts
-  once toward the 3 files and the 6 URL slots, whatever its languages. Pending: removing a
-  language from a per-language file ends that URL at the next build; keeping its last copy for 3
-  months like other URL changes is decided (owner 2026-11-16) but not built yet.
+  once toward the 3 files and the 6 URL slots, whatever its languages. Removing languages keeps
+  their URLs updating from data for three calendar months, then deletes them. Each removal save
+  creates one retained entry, counting toward the two retained entries per file and six slots per
+  project. Re-adding a language before expiry reclaims its URL. At a limit, the Worker returns
+  HTTP 409 with typed `RetainedConfirmation` details naming the oldest eligible kept entries'
+  URLs. Retry the same revision and config with `confirmDelete: details.deletions` to delete
+  those URLs and save; cancellation writes nothing. Format-switch, rename, and file-removal
+  entries keep their existing freeze and maintainer-deletion rules and cannot be confirm-evicted.
+  A shared language folder belongs to one file uid; its active and retained subsets have distinct URLs.
+  If that uid reclaims only some URLs from a protected format-switch, rename, or removal entry,
+  the remaining URLs keep their original update deadline and then stay frozen until maintainer
+  deletion. Reclaiming one URL never ends another URL as a side effect.
 - **Shape**: `lines` (parts with icons, styles, links, and notes) or `text` (one string per
   language).
 - **Symbols**: each of the 16 icons, the enhanced arrow, bold, yellow, PvE, PvP, and element
@@ -200,8 +209,11 @@ Apps can poll `/<project>/index.json` (`projectIndex`), about 1 KB, which lists 
 `stale`: the last build failed and the previous bytes stay; `frozen`: a retained URL that stopped
 updating), and `updatesUntil` on a retained old URL. An app finds its entry by file id and
 language, taking the one without `updatesUntil` (after a switch between one combined file and one
-file per language, the retained old URLs keep the same id and languages), and downloads only when
-that URL's sha256 changes. Legacy files list all 13 languages.
+file per language, the retained old URLs keep the same id and languages). A removed language has
+only its retained entry with `updatesUntil` until it expires. The app downloads only when
+that URL's sha256 changes. Languages describe the served bytes, including carried files. Kept
+language entries have `updatesUntil` while updating and disappear after expiry or confirmed
+deletion. Legacy files list all 13 languages.
 
 ## Building the site and the old URLs
 
@@ -225,6 +237,12 @@ Two Node scripts, bundled into `dist/` and installed as `.exports/` on the `conv
 
 `test/site/` runs every case through these scripts against local bare repositories and a
 simulated Pages project (no network).
+
+Deploy kept-language support in this order: install the matching `.exports/` engine and scripts,
+run the legacy job successfully so its publish pin advances to that engine, and only then deploy
+the Worker that can save kept-language entries. An older pinned config schema cannot read those
+entries; that project's URLs would be carried without updating until the pin advances. See the
+[kept-language rollout precondition](INSTALL.md#kept-language-rollout-precondition).
 
 Custom style files may set `data.includeShowcase: true` to add one built-in
 formatting example under the reserved item id `-1` (outside Bungie's unsigned
