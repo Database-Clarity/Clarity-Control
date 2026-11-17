@@ -32023,9 +32023,15 @@ var SchedulePreparer = class {
           }
           if (!pinnedGlobals) continue;
         }
-        const checked = verifiedRequest(this.pub, tree, path);
         recheckedReady = true;
+        let request;
+        let intent;
+        let checked;
         try {
+          request = scheduleRequestSchema.parse(this.pub.read(tree, path));
+          intent = scheduleIntentSchema.parse(JSON.parse(request.envelope.payload));
+          checked = verifiedRequest(this.pub, tree, path);
+          if (checked.intent.batchId !== batch.id) reject("Ready request belongs to another batch");
           const raw = this.pub.read(tree, paths2(batch.opId).request);
           const payload = await this.pub.verifyRequest(
             this.pub.writeBlob(json2(raw)),
@@ -32035,19 +32041,21 @@ var SchedulePreparer = class {
           if (payload.kind !== "batch") reject("Scheduled publication identity mismatch");
           await this.validatePublication(tree, payload, head);
         } catch (error62) {
+          if (!request || !intent || request.requestId !== batch.preparedRequestId || request.batchId !== batch.id || intent.requestId !== request.requestId || intent.batchId !== batch.id)
+            continue;
           const pending = batchSchema.parse({
             ...batch,
             status: "preparing",
             preparedRequestId: null,
             preparation: {
-              requestId: checked.request.requestId,
-              kind: checked.intent.kind,
+              requestId: request.requestId,
+              kind: intent.kind,
               returnStatus: "scheduled",
-              requestedAt: checked.intent.createdAt,
-              attempt: checked.request.attempt
+              requestedAt: intent.createdAt,
+              attempt: request.attempt
             }
           });
-          await this.failure(tree, pending, checked.request, error62, checked);
+          await this.failure(tree, pending, request, error62, checked);
         }
       }
       if (readyOnly && !recheckedReady) return;
