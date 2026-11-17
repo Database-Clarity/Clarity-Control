@@ -27,7 +27,7 @@ import {
 import publisherConfig from '../../../config/publisher.json';
 import scheduledConfig from '../../../config/scheduled.json';
 import worker from '../src/index.js';
-import { eventArchivePath, newUlid } from '../src/schedule/store.js';
+import { eventArchivePath, newUlid, switches } from '../src/schedule/store.js';
 import { scheduleTick } from '../src/schedule/lifecycle.js';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 
@@ -120,6 +120,7 @@ beforeAll(async () => {
   appKey = await makePrivateKey();
 });
 beforeEach(() => {
+  vi.spyOn(switches, 'preparation').mockReturnValue(false);
   scheduledConfig.enabled = true;
   publisherConfig.enabled = true;
   f = new Fixture(appKey);
@@ -147,6 +148,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   scheduledConfig.enabled = false;
   publisherConfig.enabled = false;
   vi.useRealTimers();
