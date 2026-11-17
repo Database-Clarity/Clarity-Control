@@ -3,6 +3,41 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { makePlan, git, main, digest } from './cli.mjs';
+import { sameDocumentMetadata, uniqueProposals } from './selection.mjs';
+
+test('edit history does not exclude identical text, while document facts still conflict', () => {
+  const a = {
+    hash: 42,
+    text: {},
+    associated: [],
+    legacy: {
+      inLiveDatabase: true,
+      updateTracker: { descriptions: { en: { lastUpdate: 1, updatedBy: 'a' } } },
+    },
+  };
+  const b = structuredClone(a);
+  b.hash = 43;
+  b.legacy.updateTracker.descriptions.en = { lastUpdate: 2, updatedBy: 'b' };
+  assert.equal(sameDocumentMetadata(a, b), false);
+  assert.equal(sameDocumentMetadata(a, b, true), true);
+  b.legacy.inLiveDatabase = false;
+  assert.equal(sameDocumentMetadata(a, b, true), false);
+  b.legacy.inLiveDatabase = true;
+  b.associated.push(99);
+  assert.equal(sameDocumentMetadata(a, b, true), false);
+  assert.equal(sameDocumentMetadata({ hash: 42, text: {}, legacy: { updateTracker: {} } },
+    { hash: 43, text: {} }, true), true);
+});
+
+test('duplicate proposals produce one review row per membership, preferring supported S', () => {
+  const proposals = [
+    { kind: 'S', canonical: 42, members: [42, 43] },
+    { kind: 'S', canonical: 43, members: [43, 42] },
+    { kind: 'X', canonical: 42, members: [42, 43] },
+  ];
+  assert.deepEqual(uniqueProposals(proposals), [proposals[0]]);
+  assert.deepEqual(uniqueProposals([proposals[2], proposals[0]]), [proposals[0]]);
+});
 
 const at = '2026-11-17T12:00:00.000Z';
 function fixture() {

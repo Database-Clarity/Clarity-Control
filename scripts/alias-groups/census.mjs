@@ -4,6 +4,7 @@
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validator, snapshot, git, frozen, digest } from './cli.mjs';
+import { membershipKey, sameDocumentMetadata, uniqueProposals } from './selection.mjs';
 
 const [data, inputs, armourPath, out, actorId, actorLogin, generatorHead] = process.argv.slice(2);
 if (!/^[0-9a-f]{40}$/.test(generatorHead))
@@ -46,10 +47,11 @@ const armour = read(armourPath).filter(
 );
 if (armour.length !== 102)
   throw new Error(`Expected exactly 102 approved armour pairs, got ${armour.length}`);
-const pairKey = (members) => [...members].sort((a, b) => a - b).join(',');
+const pairKey = membershipKey;
 const approved = new Map(armour.map((g) => [pairKey(g.members.map((m) => m.hash)), g]));
 const seenArmour = new Set();
-const proposals = engine.readAliasProposals(read(join(inputs, 'aliasProposals.json')), tooltips);
+const proposalInput = read(join(inputs, 'aliasProposals.json'));
+const proposals = uniqueProposals(engine.readAliasProposals(proposalInput, tooltips));
 const reviews = [],
   groups = [];
 for (const proposal of proposals) {
@@ -112,11 +114,7 @@ for (const proposal of proposals) {
         if (text !== selected?.text[lang]?.text && text.trim() !== `import main from ${canonical}`)
           reasons.push(`${lang}: Clarity equivalence requires review`);
       }
-      if (
-        t &&
-        JSON.stringify({ ...t, hash: 0, text: {} }) !==
-          JSON.stringify(selected && { ...selected, hash: 0, text: {} })
-      )
+      if (t && !sameDocumentMetadata(t, selected, true))
         reasons.push('Clarity document metadata conflict');
     }
   }
@@ -126,7 +124,14 @@ for (const proposal of proposals) {
     // Acknowledgement is explicit for approved armour, and for equivalent import
     // wrappers that S2 intentionally treats as a stored-document conflict.
     ...(approvedPair ||
-    proposal.members.some((h) => tooltips[h]?.text.en?.text !== tooltips[canonical]?.text.en?.text)
+    proposal.members.some(
+      (h) =>
+        tooltips[h] &&
+        (!sameDocumentMetadata(tooltips[h], tooltips[canonical]) ||
+          Object.entries(tooltips[h].text).some(
+            ([lang, entry]) => entry.text !== tooltips[canonical]?.text[lang]?.text,
+          )),
+    )
       ? { acknowledgeConflicts: true }
       : {}),
   };
@@ -136,7 +141,16 @@ for (const proposal of proposals) {
     set: reasons.length ? 'B' : 'A',
     reasons: [...new Set(reasons)],
     armour: Boolean(approvedPair),
-    proposedCanonical: proposal.canonical,
+    readerProposedCanonical: proposal.canonical,
+    generatorProposedCanonicals: [
+      ...new Set(
+        proposalInput.proposals
+          .filter(
+            (p) => p.kind === proposal.kind && pairKey(p.members) === pairKey(proposal.members),
+          )
+          .map((p) => p.canonical),
+      ),
+    ],
     ...(approvedPair
       ? { costs: approvedPair.members.map(({ hash, cost }) => ({ hash, cost })) }
       : {}),
@@ -150,6 +164,67 @@ const permissions = JSON.parse(before['config/permissions.json']);
 const maintainer = permissions.users[actorId];
 if (maintainer?.role !== 'maintainer' || maintainer.login !== actorLogin)
   throw new Error('Explicit planned actor must match a pinned maintainer');
+const at = new Date().toISOString();
+const config = before['config/alias-groups.json']
+  ? JSON.parse(before['config/alias-groups.json'])
+  : engine.emptyAliasGroups();
+const picks = before['config/sandbox-pointers.json']
+  ? JSON.parse(before['config/sandbox-pointers.json'])
+  : undefined;
+// Text equality cannot waive S1 dependencies. Check the complete proposed set,
+// then repeat after exclusions because removing a base can disable its enhanced group.
+let excluded;
+do {
+  const candidate = structuredClone(config);
+  for (const row of reviews.filter((r) => r.set === 'A')) {
+    const item = facts.items[row.canonical];
+    const proposal = proposals.find((p) => pairKey(p.members) === pairKey(row.members));
+    candidate.groups[row.canonical] = {
+      members: row.members,
+      kind: 'S',
+      basis: {
+        name: item.name,
+        categoryId: item.categoryId,
+        ...(proposal.basis.exoticFrameOwner === undefined
+          ? {}
+          : { exoticFrameOwner: proposal.basis.exoticFrameOwner }),
+      },
+      by: { id: actorId, login: actorLogin },
+      at,
+    };
+  }
+  const composed = engine.composeAliases(
+    facts.aliases,
+    candidate,
+    facts.items,
+    facts.sandboxConflicts,
+    picks,
+  );
+  excluded = false;
+  for (const issue of composed.issues) {
+    const row = reviews.find((r) => r.set === 'A' && r.canonical === issue.canonical);
+    if (!row) continue;
+    row.set = 'B';
+    row.reasons.push(
+      issue.reason.includes('Enhanced member no longer shares')
+        ? "S1 dependency: the bases' group must be accepted first; it remains in B"
+        : `S1 composition: ${issue.reason}`,
+    );
+    excluded = true;
+  }
+} while (excluded);
+groups.length = 0;
+for (const row of reviews.filter((r) => r.set === 'A'))
+  groups.push({
+    canonical: row.canonical,
+    members: row.members,
+    ...(row.acknowledgeConflicts ? { acknowledgeConflicts: true } : {}),
+  });
+const enhanced = (group) => {
+  const item = facts.items[group.canonical];
+  return Number(item.isEnhanced ?? item.categoryId.includes('-enhanced'));
+};
+groups.sort((a, b) => enhanced(a) - enhanced(b));
 mkdirSync(out, { recursive: true });
 save('review.json', {
   head,
@@ -165,7 +240,7 @@ save('review.json', {
 save('selection.json', {
   head,
   generatorHead,
-  at: new Date().toISOString(),
+  at,
   actor: { id: Number(actorId), login: actorLogin },
   facts,
   groups,
