@@ -221,7 +221,11 @@ function expandReleaseDependencies(
         (rows.get(key(row))?.causes ?? []).map((cause) => [stableStringify(cause), cause]),
       );
       const reads = [
-        row.consumer.hash,
+        // An alias's shared source can release even when this particular render context
+        // never reads the changed global. Membership is canonical on both sides; review
+        // identity stays on the alias row, including across alias-map changes.
+        resolveAlias(row.consumer.hash, before.aliases),
+        resolveAlias(row.consumer.hash, after.aliases),
         ...[...(row.before?.reads.imports ?? []), ...(row.after?.reads.imports ?? [])].map(
           (read) => read.hash,
         ),
