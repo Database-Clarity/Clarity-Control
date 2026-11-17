@@ -15,6 +15,8 @@ import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { canonicalHash } from '../navigation/catalog';
 import { useAuthStore } from '../../stores/auth';
+import { managesLanguage } from '../auth/permissions';
+import { TranslatorsButton } from './TranslatorsPanel';
 import { useDataStore } from '../../stores/data';
 import {
   SkeletonRegion,
@@ -239,6 +241,8 @@ export interface UpcomingPageProps {
   /** The language picker (or the fixed language), as the Current queue shows it. */
   languageControl: ReactNode;
   sourceSwitch: ReactNode;
+  /** A translation manager's Translators button for the shown language. */
+  managersControl: ReactNode;
   /** The filter field, with the view's own Enter handler. */
   filterField(onKeyDown: (event: KeyboardEvent) => void): ReactNode;
   onClickCapture(): void;
@@ -575,6 +579,10 @@ export function TranslationsPage() {
       )}
     </>
   );
+  const managersControl =
+    user && language && managesLanguage(user, language) ? (
+      <TranslatorsButton lang={language} selfId={user.id} />
+    ) : null;
   const sourceSwitch = batchesAllowed ? (
     <SourceSwitch source={source} onSource={chooseSource} />
   ) : null;
@@ -611,6 +619,7 @@ export function TranslationsPage() {
           setCoverageOpen={setCoverageOpen}
           languageControl={languageControl}
           sourceSwitch={sourceSwitch}
+          managersControl={managersControl}
           filterField={renderFilter}
           onClickCapture={onClickCapture}
           onKeyDown={onFrameKeyDown}
@@ -714,6 +723,7 @@ export function TranslationsPage() {
                 Coverage
               </button>
             )}
+            {managersControl}
             {!phone && countLine}
           </>
         )

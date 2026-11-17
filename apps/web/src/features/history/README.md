@@ -10,7 +10,16 @@ Revert requires confirmation and only loads a local draft through the normal
 save service. It never directly saves or publishes. Existing local edits are replaced
 only after confirmation; normal validation, metadata enrichment, merge handling and
 persistent draft storage still apply. Translators restore only assigned languages
-and cannot replace associations or other tooltip fields.
+and cannot replace associations or other tooltip fields. A restored translation
+keeps the English revision it was written against (its own source, else that
+revision's English), so the save stamps it as revised now but never current
+against newer English.
+
+Translation managers (in their languages) and maintainers (in any but English) also
+get "Roll back this upload" on a /save commit (`Clarity-Changed` trailer) that
+changed the shown language. Checking reads only; the confirm names the tooltips
+that revert and those a later save changed (skipped: restore those per tooltip).
+The Worker commits it as a new save; the outcome shows above the list.
 
 `services/history.ts` is the worker client shared with review and translations:
 `getHistory(hash, page?, signal?)`, `getVersion(hash, commit, signal?)`,
@@ -32,7 +41,6 @@ language faces cover only their Unicode ranges so Latin markup keeps its metrics
 Comparisons activate one language per painted frame, with `aria-busy` until all
 languages are active. ResizeObserver positions the surface without re-rendering
 the diff or synchronously reading its new height.
-
 
 An explicit Worker 404 saying the tooltip did not exist at an immutable commit is
 cached as an absent revision. Deletions show the previous text removed; restorations

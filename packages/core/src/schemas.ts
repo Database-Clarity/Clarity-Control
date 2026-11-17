@@ -102,8 +102,21 @@ export const permissionsSchema = z
           login: z.string().min(1),
           role: z.enum(['maintainer', 'editor', 'trial', 'translator']),
           languages: z.array(langSchema).optional(),
+          /**
+           * Translation manager (PRODUCT "Translation managers"): the languages this translator
+           * manages (adds/removes translators, rolls back uploads). Only translators, and only
+           * languages they translate, never English; maintainers assign it.
+           */
+          manages: z.array(langSchema).min(1).optional(),
         })
-        .strict(),
+        .strict()
+        .refine(
+          (access) =>
+            !access.manages ||
+            (access.role === 'translator' &&
+              access.manages.every((lang) => lang !== 'en' && access.languages?.includes(lang))),
+          'Only translators manage languages, and only non-English languages they translate',
+        ),
     ),
     /**
      * Export partners (spec section 4): numeric GitHub id -> the export projects that account may

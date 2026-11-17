@@ -261,19 +261,19 @@ export function listedItem(item: Item, data: EditorData): ListedItem {
 }
 
 /**
- * The armour piece(s) an exotic armour perk belongs to, written once for the editor's headings;
- * nothing when the perk is already named after its piece (Blastwave Striders).
+ * The armour piece(s) an exotic armour perk belongs to, written once for the editor's headings.
+ * A perk named after its piece (Blastwave Striders) still gets the piece: every surface shows
+ * "Piece · Perk" the same way, so the perk name never goes missing.
  */
 export function exoticPiece(item: Item): string | undefined {
   if (item.categoryId !== exoticArmourCategory) return undefined;
   const names = exoticPieceNames(item);
-  const piece = names.length ? joinPieceNames(names) : undefined;
-  return piece === item.name.trim() ? undefined : piece;
+  return names.length ? joinPieceNames(names) : undefined;
 }
 
 /**
- * The preview header's piece row: exotic armour always has one (empty when the perk is named after
- * its piece), so stepping through the category never moves the version tabs under the header.
+ * The preview header's piece row: exotic armour always has one (empty when the data names no
+ * piece), so stepping through the category never moves the version tabs under the header.
  */
 export function previewPiece(item: Item): string | undefined {
   return exoticPiece(item) ?? (item.categoryId === exoticArmourCategory ? '' : undefined);

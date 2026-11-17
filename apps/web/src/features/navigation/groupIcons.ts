@@ -34,7 +34,7 @@ export function exoticPieceIcon(item: Item): string | undefined {
 
 /**
  * The preview header's piece icon, beside the piece row: only when that row names a piece (a perk
- * named after its piece has an empty row and no piece icon).
+ * whose piece the data does not name has an empty row and no piece icon).
  */
 export function previewPieceIcon(item: Item): string | undefined {
   return exoticPiece(item) ? exoticPieceIcon(item) : undefined;

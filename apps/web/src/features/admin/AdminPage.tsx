@@ -15,7 +15,7 @@ import {
   type LoadedPermissions,
 } from '../../services/permissions';
 import { useAuthStore } from '../../stores/auth';
-import { changeAccess, maintainerCount, roles, type Access } from './permissions';
+import { changeAccess, maintainerCount, roles, translatorAccess, type Access } from './permissions';
 import styles from './Admin.module.scss';
 import { MarkTypes } from '../marks/MarkTypes';
 
@@ -248,14 +248,17 @@ export function AdminPage() {
                                       aria-label={`${access.login}: ${languageLabel(lang)}`}
                                       checked={access.languages?.includes(lang) ?? false}
                                       onChange={(event) =>
-                                        update(id, {
-                                          ...access,
-                                          languages: event.target.checked
-                                            ? [...(access.languages ?? []), lang]
-                                            : (access.languages?.filter(
-                                                (value) => value !== lang,
-                                              ) ?? []),
-                                        })
+                                        update(
+                                          id,
+                                          translatorAccess(
+                                            access,
+                                            event.target.checked
+                                              ? [...(access.languages ?? []), lang]
+                                              : (access.languages?.filter(
+                                                  (value) => value !== lang,
+                                                ) ?? []),
+                                          ),
+                                        )
                                       }
                                     />{' '}
                                     {languageLabel(lang)}
@@ -268,6 +271,44 @@ export function AdminPage() {
                             ) : (
                               'All languages'
                             )}
+                            {access.role === 'translator' &&
+                              access.languages?.some((lang) => lang !== 'en') && (
+                                <div
+                                  className={styles.manages}
+                                  role="group"
+                                  aria-label={`${access.login}: manages`}
+                                >
+                                  <span>Manages</span>
+                                  <div className={styles.languages}>
+                                    {access.languages
+                                      .filter((lang) => lang !== 'en')
+                                      .map((lang) => (
+                                        <label key={lang}>
+                                          <input
+                                            type="checkbox"
+                                            aria-label={`${access.login} manages ${languageLabel(lang)}`}
+                                            checked={access.manages?.includes(lang) ?? false}
+                                            onChange={(event) =>
+                                              update(
+                                                id,
+                                                translatorAccess(
+                                                  access,
+                                                  access.languages ?? [],
+                                                  event.target.checked
+                                                    ? [...(access.manages ?? []), lang]
+                                                    : (access.manages?.filter(
+                                                        (value) => value !== lang,
+                                                      ) ?? []),
+                                                ),
+                                              )
+                                            }
+                                          />{' '}
+                                          {languageLabel(lang)}
+                                        </label>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
                           </td>
                           <td className={styles.rowActions}>
                             <button

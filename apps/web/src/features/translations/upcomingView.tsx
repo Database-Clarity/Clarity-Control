@@ -162,6 +162,7 @@ export default function UpcomingTranslations({
   setCoverageOpen,
   languageControl,
   sourceSwitch,
+  managersControl,
   filterField,
   onClickCapture,
   onKeyDown,
@@ -415,6 +416,7 @@ export default function UpcomingTranslations({
                 Coverage
               </button>
             )}
+            {managersControl}
             {!phone && countLine}
           </>
         )

@@ -18,6 +18,7 @@ import { errorMessage } from '../../services/http';
 import { CommitAuthor } from './CommitAuthor';
 import { projectHistory, type HistoryScope } from './scope';
 import { TooltipDiff } from './TooltipDiff';
+import { UploadRollback, uploadChanged } from './UploadRollback';
 import type { RevisionCache, RevisionDiffSource } from './revisions';
 import { innerPopupOwnsEscape } from '../../ui/Popover';
 import popover from '../../ui/Popover.module.scss';
@@ -71,6 +72,10 @@ export interface HistoryEntryProps {
   legacy?: boolean;
   /** Replaces the local draft with this revision; throws a readable error when not allowed. */
   onRestore(version: Tooltip): void;
+  /** The language this user may roll back whole uploads in (managers, maintainers), if any. */
+  rollbackLang?: Lang;
+  /** Receives the outcome of an upload rollback (the history list remounts after it). */
+  onRolledBack?(message: string): void;
 }
 
 /**
@@ -366,6 +371,8 @@ function RevisionPopover({
   onRestore,
   legacy,
   scope,
+  rollbackLang,
+  onRolledBack,
 }: HistoryEntryProps & {
   surface: RefObject<HTMLDivElement>;
   id: string;
@@ -705,6 +712,9 @@ function RevisionPopover({
               </>
             )}
           </div>
+        )}
+        {source && rollbackLang && !legacy && uploadChanged(entry.message, rollbackLang) && (
+          <UploadRollback commit={entry.commit} lang={rollbackLang} onDone={onRolledBack} />
         )}
       </div>
     </div>

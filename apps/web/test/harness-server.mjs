@@ -10,7 +10,12 @@ import { build, createServer, preview } from 'vite';
 // harnesses); HARNESS_SERVER=dev serves the sources through the dev server instead.
 
 /** Every synthetic page a browser harness opens. */
-export const harnessPages = ['shell.html', 'history-hover.html', 'reference-hover.html'];
+export const harnessPages = [
+  'shell.html',
+  'history-hover.html',
+  'reference-hover.html',
+  'managers.html',
+];
 
 /** Builds the test pages into `outDir` (a new temporary directory when omitted). */
 export async function buildHarnessPages(web, outDir) {
