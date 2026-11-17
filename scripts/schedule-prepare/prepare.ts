@@ -17,7 +17,9 @@ import {
   scheduleIndexSchema,
   scheduleLimits,
   type Batch,
+  type ScheduleIntent,
   type ScheduleRequest,
+  scheduleIntentSchema,
   scheduleRequestSchema,
 } from '@clarity/core/schedule';
 import {
@@ -615,11 +617,17 @@ export class SchedulePreparer {
           }
           if (!pinnedGlobals) continue;
         }
-        const checked = verifiedRequest(this.pub, tree, path);
         // The signed source remains authoritative if the entire current namespace
         // disappears. Legacy no-globals schedules retain their existing behavior.
         recheckedReady = true;
+        let request: ScheduleRequest | undefined;
+        let intent: ScheduleIntent | undefined;
+        let checked: ReturnType<typeof verifiedRequest> | undefined;
         try {
+          request = scheduleRequestSchema.parse(this.pub.read(tree, path));
+          intent = scheduleIntentSchema.parse(JSON.parse(request.envelope.payload));
+          checked = verifiedRequest(this.pub, tree, path);
+          if (checked.intent.batchId !== batch.id) reject('Ready request belongs to another batch');
           const raw = this.pub.read<PreparedPublication>(tree, paths(batch.opId!).request);
           const payload = await this.pub.verifyRequest(
             this.pub.writeBlob(json(raw)),
@@ -629,19 +637,32 @@ export class SchedulePreparer {
           if (payload.kind !== 'batch') reject('Scheduled publication identity mismatch');
           await this.validatePublication(tree, payload, head);
         } catch (error) {
+          // Preserve malformed/foreign evidence for the existing claim-time refusal.
+          // Never invent a request or overwrite another batch's audit to report failure.
+          if (
+            !request ||
+            !intent ||
+            request.requestId !== batch.preparedRequestId ||
+            request.batchId !== batch.id ||
+            intent.requestId !== request.requestId ||
+            intent.batchId !== batch.id
+          )
+            continue;
           const pending = batchSchema.parse({
             ...batch,
             status: 'preparing',
             preparedRequestId: null,
             preparation: {
-              requestId: checked.request.requestId,
-              kind: checked.intent.kind,
+              requestId: request.requestId,
+              kind: intent.kind,
               returnStatus: 'scheduled',
-              requestedAt: checked.intent.createdAt,
-              attempt: checked.request.attempt,
+              requestedAt: intent.createdAt,
+              attempt: request.attempt,
             },
           });
-          await this.failure(tree, pending, checked.request, error, checked);
+          // A failed verification never supplies `checked`, so it cannot authorize
+          // keep_scheduled restoration. These parsed fields identify failed evidence only.
+          await this.failure(tree, pending, request, error, checked);
         }
       }
       if (readyOnly && !recheckedReady) return;

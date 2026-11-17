@@ -28,7 +28,8 @@ import { Publisher, paths, type Options } from './publisher.js';
 import { json } from './batch.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { runPipeline } from './pipeline.js';
-import { withIndexEntry } from '../../apps/worker/src/schedule/store.js';
+import { newUlid, withIndexEntry } from '../../apps/worker/src/schedule/store.js';
+import { createRequest } from './request.js';
 
 const D = 'refs/heads/editor-data',
   L = 'refs/heads/converter-v2-test';
@@ -334,7 +335,21 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
     git.cas(D, h, git.commit(h, tree, 'fixture raw body'));
     return req;
   }
-  return { git, pub, prep, options, read, change, batch, request, admit, base, proposed, clock };
+  return {
+    git,
+    pub,
+    prep,
+    options,
+    read,
+    change,
+    batch,
+    request,
+    admit,
+    base,
+    proposed,
+    clock,
+    keys,
+  };
 }
 
 async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alpha', titles = '') {
@@ -413,6 +428,64 @@ async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alph
 }
 
 describe('scheduled global closure', () => {
+  it.each([
+    'missing body',
+    'mismatched body',
+    'key rotation',
+    'missing record',
+    'malformed record',
+  ])('isolates %s in one ready batch and still publishes unrelated work', async (fault) => {
+    const f = await fixture();
+    await withGlobals(f);
+    f.admit('schedule', undefined, user, '2030-03-17T18:30:00.000Z');
+    await f.prep.drain();
+    let keys = f.keys;
+    if (fault === 'key rotation') {
+      keys = generateKeyPairSync('ed25519');
+      f.options.publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+      f.options.keyFingerprint = createHash('sha256')
+        .update(keys.publicKey.export({ type: 'spki', format: 'der' }))
+        .digest('hex');
+    } else if (fault === 'missing body') f.change({}, [scheduleIntentPaths.body(R)]);
+    else if (fault === 'mismatched body')
+      f.change({ [scheduleIntentPaths.body(R)]: { tampered: true } });
+    else if (fault === 'missing record') f.change({}, [scheduleIntentPaths.request(R)]);
+    else f.change({ [scheduleIntentPaths.request(R)]: { malformed: true } });
+    const manual = { ...tip('unrelated manual publication'), hash: 124 };
+    f.change({ 'tooltips/124.json': manual });
+    const opId = newUlid(NOW);
+    await createRequest(
+      f.git,
+      {
+        kind: 'push',
+        opId,
+        repo: f.options.repo,
+        dataBranch: f.options.dataBranch,
+        liveBranch: f.options.liveBranch,
+        requester: user,
+        hashes: [124],
+        expected: { 124: await publishableHash(manual) },
+      },
+      () => NOW,
+      (payload) => sign(null, Buffer.from(payload), keys.privateKey).toString('base64'),
+    );
+    await expect(f.pub.run()).resolves.toBeUndefined();
+    expect(f.read(paths(opId).log)).toMatchObject({
+      result: { status: expect.stringMatching(/done|unchanged/) },
+    });
+    expect(f.read('live/tooltips/124.json')).toEqual(manual);
+    expect(f.batch().claim).toBeNull();
+    if (fault === 'missing record' || fault === 'malformed record') {
+      expect(f.batch().status).toBe('scheduled');
+      expect(f.read(scheduleIntentPaths.request(R))).toEqual(
+        fault === 'missing record' ? undefined : { malformed: true },
+      );
+    } else {
+      expect(f.batch().status).toBe('needs_attention');
+      expect(f.batch().preparedRequestId).toBeNull();
+      expect(f.request().reasons?.[0].reason).toMatch(/signature|bytes/);
+    }
+  });
   it.each([null, {}, { generatorSha: 'not-a-commit' }])(
     'refuses missing or malformed immutable generator provenance: %j',
     async (config) => {
