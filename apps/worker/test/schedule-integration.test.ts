@@ -339,7 +339,7 @@ afterEach(() => {
 describe('Worker → signed intent → Action → publisher → web', () => {
   it('leaves an inactive installation with zero intents byte-identical', async () => {
     vi.mocked(switches.preparation).mockReturnValue(false);
-    // The production advisory index is already consistent; avoid treating its repair as work.
+    // Assumes an already consistent index; Sched inert covers the 1116j reorder.
     const tree = git.tree(f.dataHead);
     prep.refreshIndex(tree);
     git.cas(D, f.dataHead, git.commit(f.dataHead, tree));
@@ -362,6 +362,50 @@ describe('Worker → signed intent → Action → publisher → web', () => {
     clock = Date.parse(batch().notBefore!) + 1;
     await pub.run();
     expect(receipt(id)).toBeDefined();
+  });
+  it('cancels a preparing batch through the legacy route after rollback', async () => {
+    const id = await schedule();
+    vi.mocked(switches.preparation).mockReturnValue(false);
+    const response = await f.request(
+      `/batches/${B}/cancel`,
+      'POST',
+      { revision: batch().revision },
+      1,
+    );
+    expect(response.status).toBe(200);
+    expect(batch().status).toBe('cancelled');
+    expect(request(id).status).toBe('cancelled');
+    await prep.drain();
+    clock = Date.parse(target()) + 60 * 60_000;
+    await pub.run();
+    expect(receipt(id)).toBeUndefined();
+  });
+  it('unschedules a prepared batch through the legacy route after rollback', async () => {
+    const id = await preparedSchedule();
+    vi.mocked(switches.preparation).mockReturnValue(false);
+    const response = await f.request(
+      `/batches/${B}/unschedule`,
+      'POST',
+      { revision: batch().revision },
+      1,
+    );
+    expect(response.status).toBe(200);
+    expect(batch().status).toBe('draft');
+    expect(f.current()['schedule/due.json']).toEqual({ entries: [] });
+    clock = Date.parse(target()) + 60 * 60_000;
+    await pub.run();
+    expect(receipt(id)).toBeUndefined();
+  });
+  it('refuses Retry of a pending intent while the Worker gate is rolled back', async () => {
+    const id = await schedule();
+    vi.mocked(switches.preparation).mockReturnValue(false);
+    const response = await f.request(
+      `/batches/${B}/retry`,
+      'POST',
+      { revision: batch().revision, requestId: id },
+      1,
+    );
+    expect(response.status).toBe(503);
   });
   it('confirms durable admission before preparation, publishes only the ready version once due', async () => {
     const liveParent = git.head(L)!;
