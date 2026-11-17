@@ -69,6 +69,10 @@ export function openTitlePopover(
         ? rect.left - width
         : Math.max(EDGE, Math.min(rect.left, viewW - width - EDGE));
   box.style.left = `${left}px`;
+  // A plain box (nothing to click, nothing to scroll) never takes the pointer: one still in its
+  // close grace over another anchor (the next row's finder marker) lets that anchor's hover through.
+  const interactive = box.scrollHeight > box.clientHeight + 1 || !!box.querySelector('a[href]');
+  box.style.pointerEvents = interactive ? '' : 'none';
   box.style.top = `${placeAbove ? rect.top - GAP - height : rect.bottom + belowGap}px`;
 }
 

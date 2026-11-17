@@ -141,4 +141,20 @@ describe('title popover pointer clearance', () => {
     expect(first.popover.hasAttribute('data-open')).toBe(false);
     expect(second.popover.hasAttribute('data-open')).toBe(true);
   });
+
+  it('lets the pointer through a plain box, so an anchor under it still gets its hover', () => {
+    const plain = setup(rect(100, 100, 12, 12), { width: 200, height: 40 });
+    openTitlePopover(plain.anchor, plain.popover);
+    expect(plain.popover.style.pointerEvents).toBe('none');
+    // A link to click, or a body to scroll, keeps the box reachable across its gap.
+    const linked = setup(rect(100, 130, 12, 12), { width: 200, height: 40 });
+    linked.popover.innerHTML = '<a href="https://example.com">More</a>';
+    openTitlePopover(linked.anchor, linked.popover);
+    expect(linked.popover.style.pointerEvents).toBe('');
+    const tall = setup(rect(100, 300, 12, 12), { width: 200, height: 40 });
+    Object.defineProperty(tall.popover, 'scrollHeight', { value: 400, configurable: true });
+    Object.defineProperty(tall.popover, 'clientHeight', { value: 200, configurable: true });
+    openTitlePopover(tall.anchor, tall.popover);
+    expect(tall.popover.style.pointerEvents).toBe('');
+  });
 });
