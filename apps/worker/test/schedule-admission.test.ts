@@ -658,6 +658,91 @@ describe('preparation cancellation, retry, and claim fences', () => {
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
     expect(f.dataHead).toBe(head);
   });
+  it('refuses aggregate global members once globals exist, before any write', async () => {
+    const aggregate = { ...tooltip(), hash: 2 };
+    const body = { ...saveBody(), changes: [{ hash: 2, base: aggregate, next: aggregate }] };
+    f.moveData({ 'globals/sync.json': { version: 1 } });
+    const head = f.dataHead;
+    const refused = await call('save', body);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe(
+      'Use global entry mutations; Sync pending protection is required',
+    );
+    expect(f.dataHead).toBe(head);
+    f.moveData({ 'globals/sync.json': undefined });
+    expect((await call('save', body)).status).toBe(202);
+  });
+  it.each([true, false])(
+    'refuses scheduling ordinary consumers once globals exist (preparation %s)',
+    async (preparation) => {
+      vi.mocked(switches.preparation).mockReturnValue(preparation);
+      // Partial bootstrap: any globals metadata fails closed.
+      f.moveData({ 'globals/sync.json': { version: 1 } });
+      const head = f.dataHead;
+      // The synchronous routes take the same bodies without a requestId.
+      const strip = <T extends { requestId: string }>({ requestId, ...rest }: T) =>
+        preparation ? { requestId, ...rest } : rest;
+      const refused = await call('schedule', strip(scheduleBody()));
+      expect(refused.status).toBe(409);
+      expect(refused.body.error).toBe('Scheduling is not available while global entries exist');
+      expect(f.dataHead).toBe(head);
+      // Draft edits stay available.
+      // A sync save merges against the member's proposal, so base it on that proposal.
+      const edit = {
+        hash: 123,
+        base: tooltip('upcoming'),
+        next: tooltip('again', '2026-10-02T00:00:00Z'),
+      };
+      const draft = await call('save', strip({ ...saveBody(), changes: [edit] }));
+      expect([draft.status, draft.body.error]).toEqual([preparation ? 202 : 200, undefined]);
+    },
+  );
+  it('refuses a synchronous save into a scheduled batch once globals exist', async () => {
+    vi.mocked(switches.preparation).mockReturnValue(false);
+    scheduled();
+    f.moveData({ 'globals/sync.json': { version: 1 } });
+    const body: Record<string, unknown> = { ...saveBody(), revision: 2 };
+    delete body.requestId;
+    const refused = await call('save', body);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe('Scheduling is not available while global entries exist');
+  });
+  it('refuses a scheduling Retry once globals exist, pending or needing attention', async () => {
+    expect((await call('schedule', scheduleBody())).status).toBe(202);
+    f.moveData({ 'globals/sync.json': { version: 1 } });
+    const pending = await call('retry', { revision: 3, requestId: RID });
+    expect([pending.status, pending.body.error]).toEqual([
+      409,
+      'Scheduling is not available while global entries exist',
+    ]);
+    expect(f.kicks.size).toBe(0);
+    f.moveData({
+      [path]: { ...storedBatch(), status: 'needs_attention' },
+      [scheduleIntentPaths.request(RID)]: {
+        ...record(),
+        status: 'needs_attention',
+        retryable: true,
+      },
+      'schedule/due.json': { entries: [] },
+    });
+    const head = f.dataHead;
+    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(409);
+    expect(f.dataHead).toBe(head);
+    expect(f.current()['schedule/due.json']).toEqual({ entries: [] });
+  });
+  it('kicks the existing pipeline once per minute on Retry of a still-pending request', async () => {
+    expect((await call('save', saveBody())).status).toBe(202);
+    const head = f.dataHead;
+    expect((await call('retry', { revision: 3, requestId: RID }, 3)).status).toBe(403);
+    expect((await call('retry', { revision: 3, requestId: RID }, 4)).status).toBe(403);
+    expect(f.kicks.size).toBe(0);
+    expect((await call('retry', { revision: 3, requestId: RID }, 2)).status).toBe(202);
+    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
+    expect([...f.kicks]).toHaveLength(1);
+    expect([...f.kicks][0]).toMatch(new RegExp(`/contents/publish/kicks/batch-${ID}-\\d+\\.json$`));
+    expect(record().status).toBe('pending');
+    expect(f.dataHead).toBe(head);
+  });
   it('blocks semantic retries and current role loss, and permits editing via return to draft', async () => {
     await call('save', saveBody());
     f.moveData({

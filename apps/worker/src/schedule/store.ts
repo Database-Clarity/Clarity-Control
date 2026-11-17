@@ -32,6 +32,18 @@ export const switches = {
   preparation: (): boolean => false,
 };
 
+/**
+ * Contract v1: scheduling with global entries is unsupported. Once the data branch carries any
+ * global metadata (including a partial bootstrap), scheduling and scheduled saves fail closed;
+ * draft edits, unschedule, cancel, and member removal stay available.
+ */
+export function refuseGlobalScheduling(listing: TreeNode[] | null): void {
+  if (listing !== null)
+    throw new HttpError(409, 'Scheduling is not available while global entries exist');
+}
+/** Names-only `globals` listing read in the same snapshot as the state (no extra subrequest). */
+export const globalsListing = { path: 'globals', depth: 1 };
+
 /** PIN capability of a publisher build that drains, claims, and records `batch` requests (I6). */
 export const scheduledBatchesCapability = 'scheduledBatches';
 export function pinSchedulesBatches(pin: unknown): boolean {
@@ -228,14 +240,18 @@ export function withIndexEntry(index: ScheduleIndex, entry: IndexEntry): Schedul
   const batches = [...index.batches.filter(({ id }) => id !== entry.id), entry];
   const terminal = batches
     .filter(({ status }) => !isOpenStatus(status))
-    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+    .sort(
+      (a, b) =>
+        (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0) ||
+        a.id.localeCompare(b.id),
+    );
   const dropped = new Set(terminal.slice(scheduleLimits.indexTerminal).map(({ id }) => id));
   const kept = batches.filter(({ id }) => !dropped.has(id));
   if (new Set(kept.map(({ id }) => id)).size !== kept.length)
     throw new HttpError(502, 'Duplicate batch in index.json');
   if (kept.filter(({ status }) => isOpenStatus(status)).length > scheduleLimits.openBatches)
     throw new HttpError(409, `At most ${scheduleLimits.openBatches} open batches`);
-  return { batches: kept };
+  return { batches: kept.sort((a, b) => a.id.localeCompare(b.id)) };
 }
 
 /** Open batches other than `except`, by the index (a storage bound, not a publication guard). */

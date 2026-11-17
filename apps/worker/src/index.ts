@@ -16,9 +16,17 @@ import { inactiveMovesRoute } from './inactiveMoves.js';
 import { marksRoute } from './marks.js';
 import { aliasGroupsRoute } from './aliasGroups.js';
 import { save } from './save.js';
+import {
+  globalPublicationRead,
+  globalsRoute,
+  globalsSwitch,
+  isGlobalsPath,
+  refuseGlobalsWhenOff,
+} from './globalsRoute.js';
 import { reports, purgeReports } from './reports.js';
 import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
 import { minuteCron, scheduleTick } from './schedule/lifecycle.js';
+import { switches } from './schedule/store.js';
 import { userWorklists } from './worklists.js';
 import { userSettings } from './settings.js';
 import type { Context, Env } from './types.js';
@@ -34,6 +42,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     throw new HttpError(503, 'Publisher is not enabled');
   if (request.method === 'GET' && path === '/publish/key') return publishKey(env);
   if (isBatchPath(path)) refuseWhenOff();
+  if (isGlobalsPath(path)) refuseGlobalsWhenOff();
   const user = await identity(request, env);
   const github = new GitHub(env);
   if (['GET', 'POST'].includes(request.method) && path === '/alias-groups')
@@ -42,7 +51,15 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (glossary && ['GET', 'POST'].includes(request.method))
     return glossaryRoute(request, github, user, glossary[1]);
   if (isBatchPath(path)) return batchesRoute(request, path, github, user);
-  if (request.method === 'POST' && path === '/publish') return publish(request, github, user);
+  if (isGlobalsPath(path)) return globalsRoute(request, github, user);
+  // Off: no proof reader, so a repository with global metadata refuses publication.
+  if (request.method === 'POST' && path === '/publish')
+    return publish(
+      request,
+      github,
+      user,
+      globalsSwitch.enabled() ? globalPublicationRead(github) : undefined,
+    );
   if (request.method === 'GET' && path === '/publish/status')
     return publishStatus(request, github, user);
   if (request.method === 'POST' && path === '/publish/kick')
@@ -62,6 +79,7 @@ async function route(request: Request, env: Env): Promise<Response> {
       id: user.id,
       login: user.login,
       role: roleOf(config, user),
+      schedulePreparation: switches.preparation(),
       languages: config.users[String(user.id)]?.languages ?? [],
       ...(projects.length ? { projects } : {}),
     });

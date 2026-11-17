@@ -27,9 +27,17 @@ rewrite a published commit or infer author credits from an unsigned receipt fiel
 Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precondition](README.md#arrow-symbol-rollout-precondition).
 For a `numberTokens` PIN, also satisfy the [Number tokens rollout precondition](README.md#number-tokens-rollout-precondition).
 While `config/inactive.json` is non-empty, never roll back to a PIN without `inactiveMoves`.
+For `schedulePreparationV1`, install the verified runtime and serialized workflow first,
+reconcile legacy in-flight operations, and retain every installed capability floor. Only then
+deploy compatible Worker and web builds and enable asynchronous admission with owner approval.
+Never downgrade the preparation reader or claim fence while requests or claims remain.
+The Action prepares intents before Globals, bundles, and drains publication in the same run.
+Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the manual fallback
+when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
+No installation, activation, or external data write is authorized by generating this template.
 
-Template source PIN: `cb6d0f7a8e4091cf2acc0958368cd54f656f67d0`.
-Expected publisher.mjs SHA-256: `edd9179ea082ca05393cc7e827bb025699ccd271205dd67ff41bed1c9c2236fb`.
+Template source PIN: `4bf6ea4650b5373cfc21192110c1b96324142523`.
+Expected publisher.mjs SHA-256: `f608778e27a1bebd6d4d806b8ec5fcbdd1bf022a6aa1baefc40c8da0ca84e248`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires

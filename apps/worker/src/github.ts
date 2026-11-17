@@ -60,6 +60,81 @@ function onlyMissingFiles(
   });
 }
 
+/** Exact Git blob bytes and the OID of that same Blob object (globals S5 R4). */
+export interface RawBlob {
+  sha: string;
+  bytes: Uint8Array;
+}
+// A raw read selects ONLY these fields from one Blob object: bytes and oid cannot diverge.
+const rawBlobFields = z
+  .object({
+    oid: z.string().regex(refPattern),
+    byteSize: z.number().int().nonnegative(),
+    isBinary: z.boolean().nullable(),
+    isTruncated: z.boolean(),
+    text: z.string().nullable(),
+  })
+  .strict();
+/** Raw global transport refuses with ONE fixed message: no upstream text is reflected (R3). */
+export const rawReadFailure = () =>
+  new HttpError(503, 'Sync pending: global storage is unavailable');
+/** Paths that only the global entry Action may write once globals/ exists. */
+export const globalAggregatePath = /(?:^|\/)tooltips\/[23]\.json$/;
+
+async function rawBlob(entry: unknown, maxFileBytes: number): Promise<RawBlob> {
+  const parsed = rawBlobFields.safeParse(entry);
+  if (
+    !parsed.success ||
+    parsed.data.isBinary !== false ||
+    parsed.data.isTruncated ||
+    parsed.data.text === null ||
+    parsed.data.byteSize > maxFileBytes
+  )
+    throw rawReadFailure();
+  const bytes = new TextEncoder().encode(parsed.data.text);
+  // GraphQL text is decoded UTF-8. Equal length (R8) plus the Git blob SHA-1 of exactly these
+  // bytes proves they ARE the Blob named by oid: nothing was replaced or dropped (R4).
+  if (
+    bytes.byteLength !== parsed.data.byteSize ||
+    (await blobSha(parsed.data.text)) !== parsed.data.oid
+  )
+    throw rawReadFailure();
+  return { sha: parsed.data.oid, bytes };
+}
+
+/** Reads a response body under a byte cap BEFORE any JSON.parse (R8). */
+async function cappedJson(response: Response, maxBytes: number): Promise<unknown> {
+  const declared = Number(response.headers.get('Content-Length') ?? '0');
+  if (!response.body || !(declared <= maxBytes)) {
+    await response.body?.cancel();
+    throw rawReadFailure();
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw rawReadFailure();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
+  } catch {
+    throw rawReadFailure();
+  }
+}
+
 export interface RepoFile {
   sha: string;
   value: unknown;
@@ -372,6 +447,8 @@ export class GitHub {
     query: string,
     variables: Record<string, string>,
     fileAliases: ReadonlySet<string> = new Set(),
+    /** Raw global reads: cap the response bytes before parsing, with fixed refusals. */
+    maxResponseBytes?: number,
   ): Promise<unknown> {
     const headers = this.headers(await this.installationToken());
     this.spend();
@@ -386,8 +463,15 @@ export class GitHub {
         'GitHub refused the request (App permissions or rate limit); try again later',
       );
     }
-    if (!response.ok) throw new HttpError(502, `GitHub batch read failed (${response.status})`);
-    const result = graphqlSchema.parse(await response.json());
+    if (!response.ok) {
+      if (maxResponseBytes !== undefined) throw rawReadFailure();
+      throw new HttpError(502, `GitHub batch read failed (${response.status})`);
+    }
+    const result = graphqlSchema.parse(
+      maxResponseBytes === undefined
+        ? await response.json()
+        : await cappedJson(response, maxResponseBytes),
+    );
     const repository = result.data?.repository;
     if (
       !repository ||
@@ -448,6 +532,192 @@ export class GitHub {
       }
     }
     return result;
+  }
+
+  /**
+   * Raw bytes of global metadata files at `head`, one subrequest, NO contents-API fallback.
+   * Each result's bytes and OID come from the same Blob object; binary, truncated, non-blob,
+   * mismatched-size, over-file-cap, and over-batch-cap files refuse the whole read (R4/R8).
+   * Callers pin their maxima; these hard ceilings bound any caller.
+   */
+  async globalBlobs(
+    paths: readonly string[],
+    head: string,
+    maxFileBytes: number,
+    maxTotalBytes: number,
+  ): Promise<(RawBlob | null)[]> {
+    if (
+      !refPattern.test(head) ||
+      paths.length > 100 ||
+      !Number.isInteger(maxFileBytes) ||
+      !Number.isInteger(maxTotalBytes) ||
+      maxFileBytes < 1 ||
+      maxFileBytes > 65_536 ||
+      maxTotalBytes > 1_048_576 ||
+      paths.some((path) => !pathPattern.test(path) || path.includes('..') || path.includes('//'))
+    )
+      throw rawReadFailure();
+    if (!paths.length) return [];
+    const declarations = paths.map((_, index) => `$e${index}:String!`).join(',');
+    const selections = paths
+      .map((_, index) => `o${index}:object(expression:$e${index}){...R}`)
+      .join(' ');
+    const variables: Record<string, string> = {
+      owner: this.env.GITHUB_OWNER,
+      name: this.env.GITHUB_REPO,
+    };
+    paths.forEach((path, index) => (variables[`e${index}`] = `${head}:${path}`));
+    // Escaped JSON text is at most 6x its bytes; the remainder bounds field names per alias.
+    const repository = z
+      .record(z.string(), z.unknown())
+      .safeParse(
+        await this.graphql(
+          `query($owner:String!,$name:String!,${declarations}){repository(owner:$owner,name:$name){${selections}}} ` +
+            'fragment R on Blob{oid byteSize isBinary isTruncated text}',
+          variables,
+          new Set(),
+          maxTotalBytes * 6 + paths.length * 256 + 4096,
+        ),
+      );
+    if (!repository.success) throw rawReadFailure();
+    let total = 0;
+    const result: (RawBlob | null)[] = [];
+    for (const [index] of paths.entries()) {
+      const entry = repository.data[`o${index}`];
+      if (entry === null) {
+        result.push(null);
+        continue;
+      }
+      const blob = await rawBlob(entry, maxFileBytes);
+      total += blob.bytes.byteLength;
+      if (total > maxTotalBytes) throw rawReadFailure();
+      result.push(blob);
+    }
+    return result;
+  }
+
+  /**
+   * ONE authenticated read of the current data head for global source identities (contract
+   * v1): tree and blob entry OIDs with their actual Git type, small raw blobs, and the
+   * destination branch commit. A missing path is null.
+   */
+  async globalObservation(
+    trees: readonly string[],
+    blobs: readonly string[],
+    texts: readonly string[],
+    maxTextBytes: number,
+  ): Promise<{
+    head: string;
+    trees: (string | null)[];
+    blobs: (string | null)[];
+    texts: (RawBlob | null)[];
+    live: string | null;
+  }> {
+    const all = [...trees, ...blobs, ...texts];
+    if (
+      all.length > 24 ||
+      maxTextBytes > 1_048_576 ||
+      all.some((path) => !pathPattern.test(path) || path.includes('..') || path.includes('//'))
+    )
+      throw rawReadFailure();
+    const names = [
+      ...trees.map((_, i) => `t${i}`),
+      ...blobs.map((_, i) => `b${i}`),
+      ...texts.map((_, i) => `x${i}`),
+    ];
+    const selections = names
+      .map((name) =>
+        name.startsWith('x')
+          ? `${name}:file(path:$${name}){object{... on Blob{oid byteSize isBinary isTruncated text}}}`
+          : `${name}:file(path:$${name}){type oid}`,
+      )
+      .join(' ');
+    const variables: Record<string, string> = {
+      owner: this.env.GITHUB_OWNER,
+      name: this.env.GITHUB_REPO,
+      branch: `refs/heads/${this.env.DATA_BRANCH}`,
+      live: `refs/heads/${this.env.LIVE_BRANCH}`,
+    };
+    names.forEach((name, i) => (variables[name] = all[i]!));
+    const declarations = names.map((name) => `$${name}:String!`).join(',');
+    const repository = z
+      .object({
+        ref: z.object({
+          target: z.object({ oid: z.string().regex(refPattern) }).passthrough(),
+        }),
+        live: z.object({ target: z.object({ oid: z.string().regex(refPattern) }) }).nullable(),
+      })
+      .safeParse(
+        await this.graphql(
+          `query GlobalsObserve($owner:String!,$name:String!,$branch:String!,$live:String!,${declarations}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid ${selections}}}} live:ref(qualifiedName:$live){target{oid}}}}`,
+          variables,
+          new Set(names),
+          texts.length * maxTextBytes * 6 + 16_384,
+        ),
+      );
+    if (!repository.success) throw rawReadFailure();
+    const target = repository.data.ref.target as Record<string, unknown>;
+    const entry = (name: string, type: 'tree' | 'blob') => {
+      const value = target[name];
+      if (value === null || value === undefined) return null;
+      const parsed = z
+        .object({ type: z.string(), oid: z.string().regex(refPattern) })
+        .strict()
+        .safeParse(value);
+      if (!parsed.success || parsed.data.type !== type) throw rawReadFailure();
+      return parsed.data.oid;
+    };
+    const raw: (RawBlob | null)[] = [];
+    for (const [i] of texts.entries()) {
+      const value = target[`x${i}`];
+      if (value === null || value === undefined) {
+        raw.push(null);
+        continue;
+      }
+      const object = z.object({ object: z.unknown() }).strict().safeParse(value);
+      if (!object.success) throw rawReadFailure();
+      raw.push(await rawBlob(object.data.object, maxTextBytes));
+    }
+    return {
+      head: repository.data.ref.target.oid,
+      trees: trees.map((_, i) => entry(`t${i}`, 'tree')),
+      blobs: blobs.map((_, i) => entry(`b${i}`, 'blob')),
+      texts: raw,
+      live: repository.data.live?.target.oid ?? null,
+    };
+  }
+
+  /** One exact Blob by OID (content-addressed), under a pinned cap; no fallback. */
+  async globalBlobByOid(oid: string, maxBytes: number): Promise<RawBlob> {
+    if (!refPattern.test(oid) || maxBytes > 8_388_608) throw rawReadFailure();
+    const repository = z
+      .object({ object: z.unknown() })
+      .safeParse(
+        await this.graphql(
+          'query($owner:String!,$name:String!,$oid:GitObjectID!){repository(owner:$owner,name:$name){object(oid:$oid){... on Blob{oid byteSize isBinary isTruncated text}}}}',
+          { owner: this.env.GITHUB_OWNER, name: this.env.GITHUB_REPO, oid },
+          new Set(),
+          maxBytes * 6 + 4096,
+        ),
+      );
+    if (!repository.success) throw rawReadFailure();
+    const blob = await rawBlob(repository.data.object, maxBytes);
+    if (blob.sha !== oid) throw rawReadFailure();
+    return blob;
+  }
+
+  /** Whether `head` carries any global entry metadata (the globals/ namespace). */
+  async globalsBootstrapped(head: string): Promise<boolean> {
+    if (!refPattern.test(head)) throw new HttpError(400, 'Invalid repository file reference');
+    const repository = z
+      .object({ object: z.object({ oid: z.string() }).passthrough().nullable() })
+      .parse(
+        await this.graphql(
+          'query($owner:String!,$name:String!,$e:String!){repository(owner:$owner,name:$name){object(expression:$e){oid}}}',
+          { owner: this.env.GITHUB_OWNER, name: this.env.GITHUB_REPO, e: `${head}:globals` },
+        ),
+      );
+    return repository.object !== null;
   }
 
   /** Several files at one commit; see `blobs`. */
@@ -767,6 +1037,19 @@ export class GitHub {
       blobRefs?: Record<string, string>;
     } = {},
   ): Promise<string> {
+    // Generic writers cannot write the compatibility aggregates (or batch members of them)
+    // once global entries exist: only the global entry Action regenerates them (S5).
+    if (
+      branch === this.env.DATA_BRANCH &&
+      head &&
+      ([...Object.keys(files), ...Object.keys(rawFiles), ...Object.keys(blobRefs)].some((path) =>
+        globalAggregatePath.test(path),
+      ) ||
+        // Removing an aggregate member from a batch stays allowed; deleting the library does not.
+        deletions.some((path) => /^tooltips\/[23]\.json$/.test(path))) &&
+      (await this.globalsBootstrapped(head))
+    )
+      throw new HttpError(409, 'Use global entry mutations; Sync pending protection is required');
     for (const [path, sha] of Object.entries(blobRefs)) {
       if (
         !pathPattern.test(path) ||

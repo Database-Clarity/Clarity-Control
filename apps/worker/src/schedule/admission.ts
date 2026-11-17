@@ -16,7 +16,7 @@ import {
 import { RefRace, type GitHub } from '../github.js';
 import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
-import { cancelledLog, endSchedule } from './lifecycle.js';
+import { batchKickPath, cancelledLog, createKick, endSchedule } from './lifecycle.js';
 import type { Identity } from '../types.js';
 import {
   by,
@@ -29,6 +29,8 @@ import {
   readRoles,
   readAdmissionState as readState,
   refuseClaimed,
+  globalsListing,
+  refuseGlobalScheduling,
   refuseRevision,
   requireBatch,
   saveChangeCap,
@@ -230,7 +232,7 @@ export async function admitBatchRequest(
       batchId,
       extra: [scheduleIntentPaths.request(id), ...operationPaths],
       oidOnly: operationPaths,
-      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
+      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
     const batch = requireBatch(state, batchId);
@@ -260,6 +262,15 @@ export async function admitBatchRequest(
     if (hashes.length > memberCap)
       throw new HttpError(422, `A batch holds at most ${memberCap} tooltips`);
     returnStatus = kind === 'schedule' || batch.status === 'scheduled' ? 'scheduled' : 'draft';
+    if (returnStatus === 'scheduled') refuseGlobalScheduling(state.trees[1] ?? null);
+    // Draft saves stay available, but aggregate members fail closed once globals/ exists.
+    else if (
+      state.trees[1] &&
+      [...hashes, ...('changes' in input ? input.changes.map(({ hash }) => hash) : [])].some(
+        (hash) => hash === 2 || hash === 3,
+      )
+    )
+      throw new HttpError(409, 'Use global entry mutations; Sync pending protection is required');
     if ('changes' in input) {
       if (state.access.role === 'translator' && input.changes.some(({ base }) => base === null))
         throw new HttpError(403, 'Translators may change only existing tooltips');
@@ -439,7 +450,7 @@ export async function retryBatchRequest(
     const state = await readState(github, user, readRoles, {
       batchId,
       extra: [scheduleIntentPaths.request(input.requestId)],
-      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }],
+      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
     const batch = requireBatch(state, batchId);
@@ -452,7 +463,20 @@ export async function retryBatchRequest(
       (record.requesterId !== user.id || batch.preparation.kind !== 'save')
     )
       throw new HttpError(403, 'Permission denied');
-    if (record.status === 'pending' && batch.status === 'preparing') return reply(state, record);
+    // A Retry kicks or re-arms scheduling: refuse it once globals exist, like admission.
+    if (batch.preparation.returnStatus === 'scheduled')
+      refuseGlobalScheduling(state.trees[1] ?? null);
+    if (record.status === 'pending' && batch.status === 'preparing') {
+      // ROOT RULING 2026-11-16: Retry on a still-pending request re-triggers preparation with
+      // the existing /kick pipeline trigger (same name scheme, so at most one kick per minute).
+      await signingKey(github.env); // kicks stay disabled until the enable-time secret exists
+      await createKick(github, batchKickPath(batchId, Date.now()), {
+        batchId,
+        requestId: input.requestId,
+        by: by(user),
+      });
+      return reply(state, record);
+    }
     refuseRevision(batch, input.revision);
     if (
       batch.claim ||

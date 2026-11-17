@@ -60,6 +60,8 @@ import {
   saveChangeCap,
   scheduledSaveChangeCap,
   refuseClaimed,
+  globalsListing,
+  refuseGlobalScheduling,
   refuseOpenCap,
   refuseRevision,
   requireBatch,
@@ -295,7 +297,7 @@ export async function saveBatch(
     const state = await readState(github, user, [...scheduleRoles, 'translator'], {
       batchId,
       extra: [sandboxPointersPath, aliasGroupsPath],
-      trees: [{ path: batchDir(batchId), depth: 2 }],
+      trees: [{ path: batchDir(batchId), depth: 2 }, globalsListing],
     });
     const batch = requireBatch(state, batchId);
     refuseClaimed(batch);
@@ -305,6 +307,7 @@ export async function saveBatch(
         422,
         `A scheduled batch takes at most ${scheduledSaveChangeCap} changes per save`,
       );
+    if (batch.status !== 'draft') refuseGlobalScheduling(state.trees[1] ?? null);
     const access = state.access;
     const ownDir = state.trees[0];
     const own = new Set(memberHashes(child(ownDir, 'tooltips')));

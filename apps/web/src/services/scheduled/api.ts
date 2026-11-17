@@ -27,6 +27,7 @@ import { apiRequest, failure } from '../apiAuth';
 import { preparationEnabled, scheduledEnabled } from './flag';
 import { newOpId } from '../publisher/ulid';
 import { parseMemberTexts, type MemberParse } from './api.parse';
+import { assertNoGlobalAggregates } from '../globalsFlag';
 
 /** editor-data lives in this repository; a head SHA pins every read to one commit. */
 const rawSource = 'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database';
@@ -439,6 +440,7 @@ export async function saveToBatch(
   proceed: () => boolean = () => true,
 ): Promise<BatchSaveResult> {
   batchIdSchema.parse(batchId);
+  assertNoGlobalAggregates(changes.map(({ hash }) => hash));
   let expected = revision;
   let size: number = status === 'draft' ? saveChunk.draft : saveChunk.scheduled;
   const saved: BatchSaveResult = { batch: null, members: [], commits: [], accepted: [] };
@@ -578,6 +580,7 @@ export function queueBatchSave(
   requestId: string = newOpId(),
 ) {
   batchIdSchema.parse(batchId);
+  assertNoGlobalAggregates(changes.map(({ hash }) => hash));
   return post(
     `/batches/${batchId}/save`,
     { requestId, revision, changes, message },

@@ -1,5 +1,6 @@
 import {
   memo,
+  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
@@ -10,6 +11,7 @@ import {
 } from 'react';
 import type { CompendiumCell } from '@clarity/core';
 import { preparedLines } from './compendiumDiffCache';
+import { POINTER_CLEARANCE } from '../../ui/anchorPlacement';
 import { lineAlign, type DiffLine, type StyleNote } from './compendiumDiffProjection';
 import { Multiline, RichCell } from './RichCell';
 import { SheetCell } from './sheetSurface';
@@ -105,8 +107,11 @@ function StylePopover({ id, note }: { id: string; note: StyleNote }) {
           (Math.max(low, Math.min(left, high - width)) - (floating ? 0 : left)) / zoom,
         ),
         maxHeight: floating ? (window.innerHeight - 16) / zoom : undefined,
+        // Below, clear of the pointer (anchorPlacement.ts); above when that does not fit.
         top: floating
-          ? Math.max(8, Math.min(anchorBox.bottom, window.innerHeight - box.height - 8)) / zoom
+          ? (anchorBox.bottom + POINTER_CLEARANCE + box.height <= window.innerHeight - 8
+              ? anchorBox.bottom + POINTER_CLEARANCE
+              : Math.max(8, anchorBox.top - 4 - box.height)) / zoom
           : undefined,
         width: constrainedWidth,
       };
@@ -195,12 +200,28 @@ const StyleMark = memo(function StyleMark({ note }: { note: StyleNote }) {
   const [mark, setMark] = useOwnedState(note, markClosed);
   const visible = mark.open || mark.hovered || mark.focused;
   const id = useId();
+  const leaving = useRef<ReturnType<typeof setTimeout>>();
+  // The delayed leave applies to the state as it is then: a blur, Escape, click, focus, or new
+  // owner during the grace is kept, never undone by the state at the time of leaving.
+  const latest = useRef({ mark, setMark });
+  latest.current = { mark, setMark };
+  useEffect(() => () => clearTimeout(leaving.current), []);
   return (
     <span
       className={styles.styleChange}
       data-open={visible}
-      onMouseEnter={() => setMark({ ...mark, hovered: true })}
-      onMouseLeave={() => setMark({ ...mark, hovered: false })}
+      onMouseEnter={() => {
+        clearTimeout(leaving.current);
+        if (!mark.hovered) setMark({ ...mark, hovered: true });
+      }}
+      // A short grace lets the pointer cross the gap below the marker into the detail.
+      onMouseLeave={() => {
+        clearTimeout(leaving.current);
+        leaving.current = setTimeout(() => {
+          const { mark, setMark } = latest.current;
+          if (mark.hovered) setMark({ ...mark, hovered: false });
+        }, 150);
+      }}
       onFocus={() => setMark({ ...mark, focused: true })}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setMark(markClosed);
