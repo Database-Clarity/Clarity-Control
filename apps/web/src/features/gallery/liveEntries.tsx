@@ -49,7 +49,14 @@ const cell = (plain: string) => ({ plain, runs: [{ text: plain }] });
 const state = (label: string, View: () => React.JSX.Element) => ({
   label,
   View: () => (
-    <div className={styles.liveFixture}>
+    <div
+      className={styles.liveFixture}
+      onClickCapture={(event) => {
+        // Fixture links demonstrate the real control without leaving the isolated gallery frame.
+        if (event.target instanceof Element && event.target.closest('a[href]'))
+          event.preventDefault();
+      }}
+    >
       <View />
     </div>
   ),
@@ -291,13 +298,70 @@ function SuggestDemo({ kind }: { kind: string }) {
     keys: label,
     unavailable: kind === 'Unavailable' && i === 0 ? 'Cannot go inside this markup.' : undefined,
   }));
-  const rows = items.map((item, i) => ({
-    kind: 'option' as const,
-    text: item.label,
-    index: i,
-    options: i,
-    headings: 0,
-  }));
+  if (kind === 'Grouped') {
+    items[0] = { ...items[0], pinned: true, hint: '<arc/>' };
+    items[1] = { ...items[1], hint: '<solar/>' };
+    items[2] = {
+      ...items[2],
+      category: 'Tags',
+      label: 'Bold',
+      hint: '<bold … />',
+      insert: '<bold Damage />',
+      preview: '<bold Damage />',
+    };
+  }
+  if (kind === 'Paired preview')
+    items[0] = {
+      ...items[0],
+      id: 'snippet:base-enhanced-pair',
+      category: 'Snippets',
+      label: 'Base / Enhanced text',
+      hint: '{{20%}{25%}}',
+      insert: 'Damage increased by {{20%}{25%}}.',
+      preview: 'Damage increased by {{20%}{25%}}.',
+    };
+  const rows: ComponentProps<typeof SuggestMenuView>['drawn'] =
+    kind === 'Grouped'
+      ? [
+          {
+            kind: 'heading',
+            text: 'Symbols',
+            part: 'Fits here',
+            index: -1,
+            options: 0,
+            headings: 0,
+          },
+          { kind: 'option', text: 'Arc', index: 0, options: 0, headings: 1 },
+          {
+            kind: 'divider',
+            text: 'Symbols',
+            part: 'Other options',
+            index: -1,
+            options: 1,
+            headings: 1,
+          },
+          { kind: 'option', text: 'Solar', index: 1, options: 1, headings: 2 },
+          { kind: 'heading', text: 'Tags', index: -1, options: 2, headings: 2 },
+          { kind: 'option', text: 'Bold', index: 2, options: 2, headings: 3 },
+        ]
+      : kind === 'Paired preview'
+        ? [
+            { kind: 'heading', text: 'Snippets', index: -1, options: 0, headings: 0 },
+            { kind: 'option', text: items[0].label, index: 0, options: 0, headings: 1 },
+            { kind: 'heading', text: 'Symbols', index: -1, options: 1, headings: 1 },
+            { kind: 'option', text: 'Solar', index: 1, options: 1, headings: 2 },
+            { kind: 'option', text: 'Void', index: 2, options: 2, headings: 2 },
+          ]
+        : [
+            { kind: 'heading', text: 'Symbols', index: -1, options: 0, headings: 0 },
+            ...items.map((item, i) => ({
+              kind: 'option' as const,
+              text: item.label,
+              index: i,
+              options: i,
+              headings: 1,
+            })),
+          ];
   if (closed)
     return (
       <button type="button" onClick={() => close(false)}>
@@ -336,12 +400,16 @@ function SuggestDemo({ kind }: { kind: string }) {
       }}
       selected={items[index]}
       drawn={rows}
-      last={rows[2]}
+      last={rows[rows.length - 1]}
       above={rows[0]}
       start={0}
-      end={3}
+      end={rows.length}
       short={kind === 'Short'}
-      pairGlobals={null}
+      pairGlobals={
+        items[index].id === 'snippet:base-enhanced-pair'
+          ? { base: globals, enhanced: variantGlobals(globals, true) }
+          : null
+      }
       note={kind === 'Rejected' ? 'Cannot insert here.' : items[index].unavailable}
       previewText={kind === 'No preview' ? null : items[index].preview}
       lang="en"
@@ -383,8 +451,14 @@ function WorklistDemo({ kind }: { kind: string }) {
   );
 }
 
-function WorkspaceDemo({ role }: { role: MenuUser['role'] | 'viewer' }) {
-  const user = { role: role === 'viewer' ? null : role };
+function WorkspaceDemo({
+  role,
+  projects,
+}: {
+  role: MenuUser['role'] | 'viewer';
+  projects?: MenuUser['projects'];
+}) {
+  const user = { role: role === 'viewer' ? null : role, projects };
   const menu = useWorkspaceItems(user);
   const phone = useMedia(phoneQuery);
   const [reportOpen, setReportOpen] = useState(false);
@@ -431,6 +505,7 @@ function WorkspaceDemo({ role }: { role: MenuUser['role'] | 'viewer' }) {
       reports={
         role === 'viewer' ? undefined : (
           <ReportsEntryView
+            key="reports"
             {...reports}
             className={workspace.tab}
             badgeClassName={workspace.badge}
@@ -558,9 +633,11 @@ export const liveEntries: GalleryEntry[] = [
     title: 'Workspace tabs',
     from: 'features/navigation/WorkspaceTabs (WorkspaceTabsView)',
     note: 'Role and responsive menu choices are supplied by the host; More retains keyboard navigation.',
-    states: (['maintainer', 'editor', 'translator', 'viewer'] as const).map((role) =>
-      state(role[0].toUpperCase() + role.slice(1), () => <WorkspaceDemo role={role} />),
-    ),
+    states: (['maintainer', 'editor', 'trial', 'translator', 'viewer'] as const)
+      .map((role) =>
+        state(role[0].toUpperCase() + role.slice(1), () => <WorkspaceDemo role={role} />),
+      )
+      .concat([state('Export partner', () => <WorkspaceDemo role="viewer" projects={['dim']} />)]),
   },
   {
     id: 'suggest-chip',
@@ -578,6 +655,8 @@ export const liveEntries: GalleryEntry[] = [
     note: 'Prepared virtual rows and preview; choose, accept, and close emit events.',
     states: [
       'Default',
+      'Grouped',
+      'Paired preview',
       'Unavailable',
       'Rejected',
       'Aside',
