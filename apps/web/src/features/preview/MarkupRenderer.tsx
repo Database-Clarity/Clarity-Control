@@ -28,10 +28,12 @@ export function TitleAnchor({
   const id = suppliedId ?? generatedId;
   const box = useRef<HTMLSpanElement>(null);
   const anchor = useRef<HTMLSpanElement>(null);
+  const leaving = useRef<ReturnType<typeof setTimeout>>();
   // One stable function: it is also the scroll listener, since scrolling anything while the popover
   // is open would leave a fixed box behind its anchor.
   const hide = useMemo(() => {
     const close = () => {
+      clearTimeout(leaving.current);
       window.removeEventListener('scroll', close, true);
       if (box.current) closeTitlePopover(box.current);
     };
@@ -50,9 +52,16 @@ export function TitleAnchor({
       tabIndex={0}
       aria-describedby={id}
       onPointerEnter={(event) => {
+        clearTimeout(leaving.current);
+        // Back from the gap into the open box (a child): it stays where it is.
+        if (box.current?.matches(':popover-open, [data-open]')) return;
         if (event.pointerType !== 'touch') open({ x: event.clientX, y: event.clientY });
       }}
-      onPointerLeave={hide}
+      // A short grace lets the pointer cross the gap below the anchor into the box.
+      onPointerLeave={() => {
+        clearTimeout(leaving.current);
+        leaving.current = setTimeout(hide, 150);
+      }}
       onFocus={() => open()}
       onClick={() => open()}
       onBlur={hide}
