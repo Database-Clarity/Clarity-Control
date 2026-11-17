@@ -355,6 +355,7 @@ textarea.input {
 
 .liveWide {
   width: min(50rem, calc(100vw - 3rem));
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -363,9 +364,4 @@ textarea.input {
   width: min(34rem, calc(100vw - 3rem));
   max-width: 100%;
   min-width: 0;
-  overflow-x: auto;
-}
-
-.liveWide {
-  max-width: 100%;
 }

@@ -29,3 +29,7 @@ wrappers retain subscriptions, data preparation, editor commands, and persistenc
 `liveEntries.tsx` supplies fixtures and local callbacks; opaque slots keep connected children at
 exactly their original DOM locations. Fixture hosts supply the bounded pane that an app host normally
 provides, including a local scroll area for workspace tabs wider than the available pane.
+
+Phone workspace fixtures use `WorkspaceListView`; the desktop and phone Reports slots use
+`ReportsEntryView` and `ReportsMenuRowView` with fixture rows and controlled open state. The live
+wrappers retain role gates, loaders, navigation, and their original open-state lifetime.

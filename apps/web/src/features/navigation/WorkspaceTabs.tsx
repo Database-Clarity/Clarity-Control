@@ -224,10 +224,51 @@ export function WorkspaceList({
   const count = useCompendiumCount(useLoadsLiveCompendium(user));
   const current = workspacePath(pathname);
   return (
+    <WorkspaceListView
+      links={[...primary, ...more]}
+      current={current}
+      routeFor={routeFor}
+      onNavigate={onNavigate}
+      warmup={<CompendiumWarmup />}
+      badge={<CompendiumBadge count={count} className={styles.badge} />}
+      reports={
+        <ReportsMenuRow
+          className={styles.row}
+          badgeClassName={styles.badge}
+          onNavigate={onNavigate}
+        />
+      }
+      account={
+        onSettings && onAccount && <AccountRows onSettings={onSettings} onAccount={onAccount} />
+      }
+    />
+  );
+}
+
+export function WorkspaceListView({
+  links,
+  current,
+  routeFor,
+  onNavigate,
+  warmup,
+  badge,
+  reports,
+  account,
+}: {
+  links: NavLink[];
+  current: string;
+  routeFor(to: string): string;
+  onNavigate(): void;
+  warmup?: ReactNode;
+  badge?: ReactNode;
+  reports?: ReactNode;
+  account?: ReactNode;
+}) {
+  return (
     <>
       <nav aria-label="Workspaces" className={styles.list}>
-        <CompendiumWarmup />
-        {[...primary, ...more].map(({ to, label }) => (
+        {warmup}
+        {links.map(({ to, label }) => (
           <Link
             key={to}
             to={routeFor(to)}
@@ -236,16 +277,12 @@ export function WorkspaceList({
             onClick={onNavigate}
           >
             {label}
-            {to === '/compendium' && <CompendiumBadge count={count} className={styles.badge} />}
+            {to === '/compendium' && badge}
           </Link>
         ))}
-        <ReportsMenuRow
-          className={styles.row}
-          badgeClassName={styles.badge}
-          onNavigate={onNavigate}
-        />
+        {reports}
       </nav>
-      {onSettings && onAccount && <AccountRows onSettings={onSettings} onAccount={onAccount} />}
+      {account}
     </>
   );
 }

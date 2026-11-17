@@ -5,6 +5,7 @@ import {
   renderedDiff,
   variantGlobals,
 } from '../history/renderedDiff';
+import { analyzeSourceOnly } from '../history/sourceOnlyChanges';
 import { RenderedWordDiffView } from '../history/RenderedWordDiff';
 import { StatusBarView, type StatusPanel } from '../editor/StatusBar';
 import { SuggestChipView } from '../editor/markupRow/SuggestChip';
@@ -13,8 +14,21 @@ import { FinderOptionView } from '../navigation/TooltipNavigation';
 import { FinderPickerView } from '../navigation/FinderPicker';
 import { FinderMarkersView, ScheduledMarkerView } from '../navigation/FinderMarkers';
 import { FinderIcon } from '../navigation/FinderIcon';
-import { WorkspaceTabsView } from '../navigation/WorkspaceTabs';
-import { workspaceMenu } from '../navigation/links';
+import {
+  WorkspaceTabsView,
+  WorkspaceListView,
+  useWorkspaceItems,
+} from '../navigation/WorkspaceTabs';
+import type { MenuUser } from '../navigation/links';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { CompendiumBadge } from '../compendium/CompendiumBadge';
+import { ReportsEntryView, ReportsMenuRowView } from '../reports/pane/ReportsEntry';
+import workspace from '../navigation/WorkspaceTabs.module.scss';
+import { statusChip, statusLabel, type IndexEntry } from '../review/batches/model';
+import { NumberStatus } from '../editor/numbers/NumberTools';
+import { createNumberStore } from '../editor/numbers/state';
+import { numberSource } from '../editor/numbers/model';
+import statusStyles from '../editor/StatusBar.module.scss';
 import { WorklistPickerView, DraftWorklistsView } from '../queue/WorklistsMenu';
 import { BatchRowView } from '../review/batches/BatchesPane';
 import { VersionSwitch } from '../preview/PreviewColumn';
@@ -26,6 +40,7 @@ import batches from '../review/batches/Batches.module.scss';
 import styles from './Gallery.module.scss';
 
 const noop = () => {};
+const perkIcon = '/common/destiny2_content/icons/9570c12a7c71062dd668f519c977fc22.png';
 const long = 'Änderungen an allen ausgewählten Übersetzungen speichern und veröffentlichen';
 const globals = { variables: '', titles: '' };
 const before = 'Final blows grant <arc +20% /> damage for 5 seconds.';
@@ -43,6 +58,14 @@ const state = (label: string, View: () => React.JSX.Element) => ({
 function StatusDemo({ kind }: { kind: string }) {
   const [panel, onPanel] = useState<StatusPanel | null>(null);
   const [rawView, raw] = useState(false);
+  const [numbers] = useState(() => {
+    const store = createNumberStore();
+    store.setState({
+      source: numberSource('Damage increased by 20% for 5 seconds.', undefined, 'en'),
+      used: new Set(),
+    });
+    return store;
+  });
   return (
     <StatusBarView
       readOnlyReason={kind === 'Read only' ? long : null}
@@ -56,11 +79,11 @@ function StatusDemo({ kind }: { kind: string }) {
       validating={kind === 'Validating'}
       glyphCount={kind === 'Warnings' ? 3 : 0}
       retiredCount={kind === 'Warnings' ? 2 : 0}
-      parityCount={kind === 'Warnings' ? 4 : 0}
+      parityCount={kind === 'Parity' ? 4 : 0}
       terms={
         kind === 'Terms loading'
           ? { count: 0, loading: true }
-          : kind === 'Warnings'
+          : kind === 'Terms'
             ? { count: 8, loading: false, missing: 2 }
             : undefined
       }
@@ -71,12 +94,18 @@ function StatusDemo({ kind }: { kind: string }) {
       onPanel={onPanel}
       unpreviewed={kind === 'Preview waiting' ? 3 : 0}
       reserveKey="fixture"
-      preview={
-        kind.startsWith('Preview')
-          ? { collapsed: kind === 'Preview hidden', onShow: noop }
-          : undefined
+      preview={{ collapsed: kind === 'Preview hidden', onShow: noop }}
+      conflicts={kind === 'Conflicts' ? { count: 2, onNext: noop } : undefined}
+      numberStatus={
+        kind === 'Numbers' ? (
+          <NumberStatus
+            store={numbers}
+            className={statusStyles.item}
+            open={panel === 'numbers'}
+            onOpen={() => onPanel(panel === 'numbers' ? null : 'numbers')}
+          />
+        ) : undefined
       }
-      conflicts={kind === 'Warnings' ? { count: 2, onNext: noop } : undefined}
       rawView={rawView}
       onRawView={() => raw(!rawView)}
       onSuggest={noop}
@@ -117,7 +146,7 @@ function FinderDemo({ kind }: { kind: string }) {
         tail="Raid · shared perk"
         onActive={() => highlight(true)}
         onCommit={() => select(!current)}
-        icon={<FinderIcon />}
+        icon={<FinderIcon icon={perkIcon} />}
         markers={
           <FinderMarkersView
             flags={kind === 'Markers' ? 3 : 0}
@@ -142,9 +171,9 @@ function FinderDemo({ kind }: { kind: string }) {
   );
 }
 function PickerDemo({ kind }: { kind: string }) {
-  const [value, change] = useState('arc');
+  const [value, change] = useState(kind === 'Long' ? 'solar' : 'arc');
   const options = [
-    { id: 'arc', label: 'Arc' },
+    { id: 'arc', label: 'Arc', icon: kind === 'Icons' ? perkIcon : undefined },
     { id: 'solar', label: kind === 'Long' ? long : 'Solar' },
     { id: 'void', label: 'Void' },
   ];
@@ -193,15 +222,17 @@ function DiffDemo({ kind }: { kind: string }) {
           ? Array(14).fill(before).join('\n')
           : before;
   const b =
-    kind === 'Enhanced'
-      ? 'Base damage.\nenhanced (\nEnhanced damage 25%.\n)'
-      : kind === 'Deletion'
-        ? ''
-        : kind === 'Unchanged'
-          ? a
-          : kind === 'Folded'
-            ? `${a}\n${after}`
-            : after;
+    kind === 'Source only'
+      ? `${a}\n// Source-only change`
+      : kind === 'Enhanced'
+        ? 'Base damage.\nenhanced (\nEnhanced damage 25%.\n)'
+        : kind === 'Deletion'
+          ? ''
+          : kind === 'Unchanged'
+            ? a
+            : kind === 'Folded'
+              ? `${a}\n${after}`
+              : after;
   const result = {
     ...presentDiff(renderedDiff(a, b, globals)),
     output: compareDiffOutput(a, b, globals),
@@ -220,7 +251,7 @@ function DiffDemo({ kind }: { kind: string }) {
       result={result}
       busy={kind === 'Loading'}
       sourceUnavailable={kind === 'Unavailable'}
-      sourceAnalysis={undefined}
+      sourceAnalysis={kind === 'Source only' ? analyzeSourceOnly(a, b, globals, result) : undefined}
     />
   );
 }
@@ -275,7 +306,14 @@ function SuggestDemo({ kind }: { kind: string }) {
     );
   return (
     <SuggestMenuView
-      style={{ position: 'relative', top: 0, left: 0, '--menu-max': '340px' } as CSSProperties}
+      style={
+        {
+          position: 'relative',
+          top: 0,
+          left: 0,
+          '--menu-max': kind === 'Short' ? '120px' : '340px',
+        } as CSSProperties
+      }
       snapshot={{
         items,
         index,
@@ -345,6 +383,91 @@ function WorklistDemo({ kind }: { kind: string }) {
   );
 }
 
+function WorkspaceDemo({ role }: { role: MenuUser['role'] | 'viewer' }) {
+  const user = { role: role === 'viewer' ? null : role };
+  const menu = useWorkspaceItems(user);
+  const phone = useMedia(phoneQuery);
+  const [reportOpen, setReportOpen] = useState(false);
+  const rows = [{ hash: 3640170453, lang: 'en' as const, n: 2, name: 'Chaos Reshaped' }];
+  const reports = {
+    rows,
+    loaded: true,
+    failed: false,
+    onOpen: noop,
+    onRetry: noop,
+    open: reportOpen,
+    onOpenChange: setReportOpen,
+    expanded: reportOpen,
+    onExpandedChange: setReportOpen,
+  };
+  const badge = (
+    <CompendiumBadge count={{ state: 'ready', count: 12 }} className={workspace.badge} />
+  );
+  return phone ? (
+    <WorkspaceListView
+      links={[...menu.primary, ...menu.more]}
+      current="/review"
+      routeFor={(to) => to}
+      onNavigate={noop}
+      badge={badge}
+      reports={
+        role === 'viewer' ? undefined : (
+          <ReportsMenuRowView
+            {...reports}
+            className={workspace.row}
+            badgeClassName={workspace.badge}
+            onNavigate={noop}
+          />
+        )
+      }
+    />
+  ) : (
+    <WorkspaceTabsView
+      {...menu}
+      current="/review"
+      pathname="/review"
+      routeFor={(to) => to}
+      badge={badge}
+      reports={
+        role === 'viewer' ? undefined : (
+          <ReportsEntryView
+            {...reports}
+            className={workspace.tab}
+            badgeClassName={workspace.badge}
+          />
+        )
+      }
+    />
+  );
+}
+
+function CompendiumDemo({ kind }: { kind: string }) {
+  const [mode, setMode] = useState<'changes' | 'before-after'>(
+    kind === 'Before and after' ? 'before-after' : 'changes',
+  );
+  return (
+    <CompendiumDiffView
+      before={cell(kind === 'Empty' ? '' : 'Damage increased by 20%.')}
+      after={
+        kind === 'Style'
+          ? {
+              plain: 'Damage increased by 20%.',
+              runs: [{ text: 'Damage increased by 20%.', bold: true }],
+            }
+          : cell(
+              kind === 'Empty'
+                ? ''
+                : kind === 'Unchanged'
+                  ? 'Damage increased by 20%.'
+                  : 'Damage increased by 25%.',
+            )
+      }
+      mode={mode}
+      onModeChange={setMode}
+    />
+  );
+}
+
 export const liveEntries: GalleryEntry[] = [
   {
     id: 'finder-row',
@@ -397,6 +520,10 @@ export const liveEntries: GalleryEntry[] = [
       'Validating',
       'Unsaved',
       'Terms loading',
+      'Terms',
+      'Parity',
+      'Conflicts',
+      'Numbers',
       'Preview waiting',
       'Preview hidden',
     ].map((kind) =>
@@ -420,6 +547,7 @@ export const liveEntries: GalleryEntry[] = [
       'Deletion',
       'Folded',
       'Enhanced',
+      'Source only',
       'Loading',
       'Unavailable',
     ].map((kind) => state(kind, () => <DiffDemo kind={kind} />)),
@@ -430,15 +558,8 @@ export const liveEntries: GalleryEntry[] = [
     title: 'Workspace tabs',
     from: 'features/navigation/WorkspaceTabs (WorkspaceTabsView)',
     note: 'Role and responsive menu choices are supplied by the host; More retains keyboard navigation.',
-    states: ['maintainer', 'editor', 'translator', 'viewer'].map((role) =>
-      state(role, () => (
-        <WorkspaceTabsView
-          {...workspaceMenu({ role: role as 'maintainer' })}
-          current="/review"
-          pathname="/review"
-          routeFor={(to) => to}
-        />
-      )),
+    states: (['maintainer', 'editor', 'translator', 'viewer'] as const).map((role) =>
+      state(role[0].toUpperCase() + role.slice(1), () => <WorkspaceDemo role={role} />),
     ),
   },
   {
@@ -478,29 +599,37 @@ export const liveEntries: GalleryEntry[] = [
     title: 'Batch row',
     from: 'features/review/batches/BatchesPane (BatchRowView)',
     note: 'Prepared status, counts, time, and destination; no batch subscription.',
-    states: [
-      'Open',
-      'Selected',
-      'Scheduled',
-      'Preparing',
-      'Needs attention',
-      'Published',
-      'Long',
-    ].map((kind, i) =>
-      state(kind, () => (
-        <ul className={batches.list}>
-          <BatchRowView
-            id={kind}
-            name={kind === 'Long' ? long : 'Sandbox weapon changes'}
-            selected={i === 1}
-            search="?view=batches"
-            chip={{ label: kind, tone: i === 4 ? 'bad' : 'neutral' }}
-            when={i === 0 ? 'No time set' : '17 Nov 2026, 12:00 CET'}
-            facts={['3 tooltips', '1 stale', '2 conflicts', 'translations 4/6']}
-          />
-        </ul>
-      )),
-    ),
+    states: (Object.keys(statusLabel) as IndexEntry['status'][])
+      .map((status, i) =>
+        state(statusLabel[status], () => (
+          <ul className={batches.rows}>
+            <BatchRowView
+              id={status}
+              name="Sandbox weapon changes"
+              selected={i === 0}
+              search="?view=batches"
+              chip={statusChip({ status, notBefore: null })}
+              when="No time set"
+              facts={['3 tooltips', '1 stale', '2 conflicts', 'translations 4/6']}
+            />
+          </ul>
+        )),
+      )
+      .concat([
+        state('Long name', () => (
+          <ul className={batches.rows}>
+            <BatchRowView
+              id="long"
+              name={long}
+              selected={false}
+              search="?view=batches"
+              chip={statusChip({ status: 'draft', notBefore: null })}
+              when="No time set"
+              facts={['3 tooltips']}
+            />
+          </ul>
+        )),
+      ]),
   },
   {
     id: 'worklists',
@@ -514,6 +643,20 @@ export const liveEntries: GalleryEntry[] = [
         state('Drafts loading', () => (
           <div className={worklists.content}>
             <DraftWorklistsView drafts={null} onOpen={noop} />
+          </div>
+        )),
+        state('Drafts populated', () => (
+          <div className={worklists.content}>
+            <DraftWorklistsView
+              drafts={[
+                {
+                  id: 'subclass-grenade',
+                  label: 'Grenades',
+                  items: [{ key: '1399216', hash: 1399216, name: 'Duskfield Grenade' }],
+                },
+              ]}
+              onOpen={noop}
+            />
           </div>
         )),
         state('Drafts empty', () => (
@@ -541,26 +684,7 @@ export const liveEntries: GalleryEntry[] = [
     from: 'features/compendium/CompendiumDiff (CompendiumDiffView)',
     note: 'Explicit mode and change callback; remembered device mode remains outside.',
     states: ['Changes', 'Before and after', 'Unchanged', 'Style', 'Empty'].map((kind) =>
-      state(kind, () => (
-        <CompendiumDiffView
-          before={cell(kind === 'Empty' ? '' : 'Damage increased by 20%.')}
-          after={
-            kind === 'Style'
-              ? {
-                  plain: 'Damage increased by 20%.',
-                  runs: [{ text: 'Damage increased by 20%.', bold: true }],
-                }
-              : cell(
-                  kind === 'Empty'
-                    ? ''
-                    : kind === 'Unchanged'
-                      ? 'Damage increased by 20%.'
-                      : 'Damage increased by 25%.',
-                )
-          }
-          mode={kind === 'Before and after' ? 'before-after' : 'changes'}
-        />
-      )),
+      state(kind, () => <CompendiumDemo kind={kind} />),
     ),
   },
 ];
