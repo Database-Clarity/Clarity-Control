@@ -430,8 +430,19 @@
   display: flex;
   align-items: center;
 }
-.option[data-two-line] > .markers {
-  grid-row: 1 / span 2;
+// A two-line row's context sits under its name, so there is no edge to keep: the markers take only
+// the width they draw, at the row's right edge, and the name gets the rest.
+.option[data-two-line] {
+  --finder-marker-width: auto;
+
+  > .markers {
+    grid-row: 1 / span 2;
+
+    > * {
+      width: auto;
+      flex-basis: auto;
+    }
+  }
 }
 
 // The whole text of a truncated highlighted row, under it (above it near the list's end).
