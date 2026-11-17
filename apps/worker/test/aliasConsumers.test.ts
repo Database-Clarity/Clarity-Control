@@ -1,3 +1,4 @@
+import { switches } from '../src/schedule/store.js';
 import { generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
@@ -59,6 +60,7 @@ beforeAll(async () => {
   key = await makePrivateKey();
 });
 beforeEach(() => {
+  vi.spyOn(switches, 'preparation').mockReturnValue(false);
   publisherConfig.enabled = true;
   scheduledConfig.enabled = true;
   vi.useFakeTimers({ toFake: ['Date'], now: time });
@@ -124,6 +126,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   publisherConfig.enabled = false;
   scheduledConfig.enabled = false;
   vi.useRealTimers();

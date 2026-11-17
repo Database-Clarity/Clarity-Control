@@ -29,7 +29,7 @@ export const switches = {
   scheduled: (): boolean => scheduledConfig.enabled,
   publisher: (): boolean => publisherConfig.enabled,
   /** Owner-gated: enable only after the preparer and claim fence have been installed. */
-  preparation: (): boolean => false,
+  preparation: (): boolean => true,
 };
 
 /**
