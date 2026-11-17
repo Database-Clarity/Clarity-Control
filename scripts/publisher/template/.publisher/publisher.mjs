@@ -21983,7 +21983,6 @@ function reservedNames(text) {
   return found.sort((a, b) => a.from - b.from);
 }
 function lowerDelimitedMarkup(text) {
-  text = lowerExoticMarkup(text);
   if (!text.includes("#{") && !text.includes(enhancedArrowMarkup)) return text;
   const lines = text.split("\n");
   let changed = false;
@@ -22015,7 +22014,7 @@ function lowerDelimitedMarkup(text) {
   return changed ? lines.join("\n") : text;
 }
 function lowerConsumerMarkup(text, arrow) {
-  const lowered = lowerDelimitedMarkup(lowerElementTags(text));
+  const lowered = lowerDelimitedMarkup(lowerElementTags(lowerExoticMarkup(text)));
   return arrow ? lowered.replaceAll("<arrow/>", arrow === "legacy" ? "\u{1F81A}" : "\u2192") : lowered;
 }
 function isMarkupOnly(before, after, values, afterValues = values) {
@@ -22113,13 +22112,13 @@ function markupInlineRanges(line) {
   if (!line.includes("<")) return [];
   return [markupLineClasses, markupEmpty, []].flatMap((allowed2) => {
     if (!allowed2.some((name2) => line.includes(`<${name2}/>`)))
-      return [...line.matchAll(new RegExp(inlineToken, "g"))].map((match) => ({
+      return [...line.matchAll(new RegExp(sourceInlineToken, "g"))].map((match) => ({
         from: match.index,
         to: match.index + match[0].length
       }));
     const offsets = Array.from({ length: line.length }, (_, index) => index);
     const { cleanLine } = lineClasses(line, allowed2, offsets);
-    return [...cleanLine.matchAll(new RegExp(inlineToken, "g"))].map((match) => ({
+    return [...cleanLine.matchAll(new RegExp(sourceInlineToken, "g"))].map((match) => ({
       from: offsets[match.index],
       to: offsets[match.index + match[0].length - 1] + 1
     }));
@@ -22132,9 +22131,11 @@ function markupStrayTags(text) {
     for (const segment of line.split(new RegExp(`(${inlineToken.source})`, "g"))) {
       const tags = segment.match(/<\w+/g) ?? [];
       const isToken = new RegExp(`^${inlineToken.source}$`).test(segment);
-      const wrapper2 = /^<(\w+) /.exec(segment)?.[1] ?? "";
-      const arrows = isToken && [...markupColors, "background"].includes(wrapper2) && segment.endsWith(" />") ? segment.match(/<arrow\/>/g)?.length ?? 0 : 0;
+      const wrapper2 = /^<(\w+)(?: |\/>)/.exec(segment)?.[1] ?? "";
+      const arrows = isToken && [...parserColors, "background"].includes(wrapper2) && segment.endsWith(" />") ? segment.match(/<arrow\/>/g)?.length ?? 0 : 0;
       if (tags.length > (isToken ? 1 + arrows : 0)) stray.push(tags[0]);
+      else if (isToken && wrapper2 && ![...parserColors, ...markupIcons, ...markupEmpty, "link", "title"].includes(wrapper2))
+        stray.push(tags[0]);
     }
   }
   return stray;
@@ -22211,7 +22212,7 @@ function lineSpans(text, titles) {
   if (text === "\u{1F845}") return [{ text, classNames: ["enhancedArrow"] }];
   const wrapper2 = text.match(/<\w+/)?.[0].slice(1);
   if (wrapper2 === void 0) return [{ text }];
-  if ([...markupColors, "background", "bold"].includes(wrapper2)) {
+  if ([...parserColors, "background", "bold"].includes(wrapper2)) {
     const inner = text.replace(new RegExp(`^<${wrapper2} | />$`, "g"), "");
     if (inner.includes("<arrow/>"))
       return inner.split(/(<arrow\/>)/).filter(Boolean).map(
@@ -22275,7 +22276,7 @@ function parseLines(text, titles) {
       ];
     }
     if (!block.trim()) return [{ classNames: ["spacer"] }];
-    const { classNames, cleanLine } = lineClasses(block, markupLineClasses);
+    const { classNames, cleanLine } = lineClasses(block, parserLineClasses);
     return [
       {
         classNames,
@@ -22284,14 +22285,17 @@ function parseLines(text, titles) {
     ];
   });
 }
-var inlineToken, elements, markedPart;
+var inlineToken, sourceInlineToken, parserColors, parserLineClasses, elements, markedPart;
 var init_lines = __esm({
   "packages/core/src/markup/lines.ts"() {
     "use strict";
     init_elementTags();
     init_syntax();
     init_weaponHeadings();
-    inlineToken = /<(?:blue|green|purple|yellow|exotic|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+    inlineToken = /<(?:blue|green|purple|yellow|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+    sourceInlineToken = /<(?:blue|green|purple|yellow|exotic|center|bold|pve|pvp|background) (?:(?:<arrow\/>)|[^<>])*? \/>|<.+?\/>/;
+    parserColors = markupColors.filter((name2) => name2 !== "exotic");
+    parserLineClasses = markupLineClasses.filter((name2) => name2 !== "exotic");
     elements = new Set(elementTagNames);
     markedPart = new RegExp(`(${inlineToken.source}|\u{1F845}|[\uE000\uE001])`, "g");
   }
@@ -25090,7 +25094,7 @@ function parseOrdinary(text, globals, indexed = false) {
   };
   const mark = (source) => {
     source = clean(source);
-    const marked2 = markElementTags(source);
+    const marked2 = markElementTags(lowerExoticMarkup(source));
     if (marked2 !== source) tagged = true;
     return lowerDelimitedMarkup(marked2);
   };
@@ -25098,7 +25102,7 @@ function parseOrdinary(text, globals, indexed = false) {
   const parsed = tagged ? parseWith(
     text,
     globals,
-    (source) => lowerDelimitedMarkup(lowerElementTags(clean(source))),
+    (source) => lowerDelimitedMarkup(lowerElementTags(lowerExoticMarkup(clean(source)))),
     numbered2,
     indexed
   ) : tinted;
@@ -25522,7 +25526,7 @@ var databaseConverter = (converterType, database, identical) => {
 // packages/export/src/elementTags.ts
 init_braces();
 function lowerInput(input2, arrow, elementTags = false) {
-  const lower2 = (text) => elementTags ? lowerDelimitedMarkup(text) : lowerConsumerMarkup(text, arrow);
+  const lower2 = (text) => elementTags ? lowerDelimitedMarkup(lowerExoticMarkup(text)) : lowerConsumerMarkup(text, arrow);
   let perks;
   for (const [hash2, perk] of Object.entries(input2.perks)) {
     if (!("editor" in perk) || !perk.editor) continue;
