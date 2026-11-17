@@ -253,6 +253,12 @@ function Workspace({
       : undefined;
   const projectedScope = dirty && !!projectionSource;
   const scope = projectedScope ? 'projected' : 'saved';
+  // One stable switcher: every view keeps its place and the open one reads as selected.
+  const paneViews: [string, string][] = [
+    ['usages', scope === 'projected' ? 'Projected impact' : 'Usages'],
+    ['translations', 'Translations'],
+    ...(history ? [['history', 'History'] as [string, string]] : []),
+  ];
   const consumers = projectedScope ? (projection ?? []) : savedImpacts;
   function reviewState(row: GlobalConsumerView) {
     return projectedScope ? 'projected' : globalReviewState(row as GlobalConsumer);
@@ -589,7 +595,11 @@ function Workspace({
             disabled={disabled}
             onClick={() => setPhone(view)}
           >
-            {view === 'usages' ? 'Usages' : view === 'editor' ? 'Editor' : 'Preview'}
+            {view === 'usages'
+              ? paneViews.find(([value]) => value === shownTab)![1]
+              : view === 'editor'
+                ? 'Editor'
+                : 'Preview'}
           </button>
         ))}
       </nav>
@@ -701,31 +711,17 @@ function Workspace({
             <RightPane
               label="Global usages and translations"
               header={
-                <div className={styles.paneHeader}>
-                  <h2>
-                    {tab === 'translations'
-                      ? 'Translations'
-                      : tab === 'history' && history
-                        ? 'History'
-                        : scope === 'projected'
-                          ? 'Projected impact'
-                          : 'Saved impact'}
-                  </h2>
-                  {(['usages', 'translations', ...(history ? ['history'] : [])] as const)
-                    .filter((value) => value !== shownTab)
-                    .map((value) => (
-                      <button
-                        key={value}
-                        disabled={disabled}
-                        onClick={() => update({ tab: value })}
-                      >
-                        {value === 'usages'
-                          ? 'Usages'
-                          : value === 'translations'
-                            ? 'Translations'
-                            : 'History'}
-                      </button>
-                    ))}
+                <div className={styles.paneTabs} role="group" aria-label="Pane view">
+                  {paneViews.map(([value, label]) => (
+                    <button
+                      key={value}
+                      aria-pressed={shownTab === value}
+                      disabled={disabled}
+                      onClick={() => update({ tab: value })}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               }
             >

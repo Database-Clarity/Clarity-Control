@@ -176,6 +176,8 @@ it('shows saved impact, not a projection panel, while a draft is open', async ()
   await mount('/globals/g_damage0001', service());
   await act(async () => change('20%'));
   expect(host.textContent).not.toContain('Calculate projected impact');
-  expect(host.textContent).toContain('Saved impact');
+  expect(host.querySelector('[aria-label="Pane view"] [aria-pressed="true"]')!.textContent).toBe(
+    'Usages',
+  );
   expect(host.querySelectorAll('[data-global-consumer]').length).toBe(2);
 });

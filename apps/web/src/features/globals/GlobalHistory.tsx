@@ -90,7 +90,13 @@ export function GlobalHistory({
               {commit.login || commit.author ? `, ${commit.login ?? commit.author}` : ''}
               {commit.date && (
                 <>
-                  , <time dateTime={commit.date}>{new Date(commit.date).toLocaleString()}</time>
+                  ,{' '}
+                  <time dateTime={commit.date}>
+                    {new Date(commit.date).toLocaleString(undefined, {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    })}
+                  </time>
                 </>
               )}
             </span>
@@ -99,15 +105,20 @@ export function GlobalHistory({
               trigger="Compare"
               triggerLabel={`Compare version ${commit.commit.slice(0, 8)}`}
             >
-              <HistoryVersion
-                reader={reader}
-                id={entry.id}
-                commit={commit.commit}
-                lang={lang}
-                saved={saved}
-                canRestore={canRestore}
-                onRestore={onRestore}
-              />
+              {(close) => (
+                <HistoryVersion
+                  reader={reader}
+                  id={entry.id}
+                  commit={commit.commit}
+                  lang={lang}
+                  saved={saved}
+                  canRestore={canRestore}
+                  onRestore={(body) => {
+                    onRestore(body);
+                    close(false);
+                  }}
+                />
+              )}
             </Popover>
           </li>
         ))}
@@ -159,7 +170,10 @@ function HistoryVersion({
       {body === saved ? (
         <p>Same as the saved definition.</p>
       ) : (
-        <WordDiff before={body} after={saved} />
+        <>
+          <p className={styles.versionCaption}>From this version to the saved definition</p>
+          <WordDiff before={body} after={saved} />
+        </>
       )}
       <button
         type="button"
