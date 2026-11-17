@@ -536,7 +536,7 @@ describe('retained URLs and URL ownership', () => {
     expect(stored()!.retained).toBeUndefined();
   });
 
-  it('does not evict protected URL-switch entries to make space for a language removal', async () => {
+  it('confirms eviction of the oldest URL-switch entry to make space for a language removal', async () => {
     const file = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
     const split = {
       ...file,
@@ -562,11 +562,23 @@ describe('retained URLs and URL ownership', () => {
     const next = structuredClone(previous);
     if ('data' in next.files[0]!) next.files[0].data.languages = ['en'];
     const response = await put('dim', next);
-    expect(response.status).toBe(400);
-    expect((await body(response)).error).toContain(
-      'a maintainer can delete one after its window ends',
-    );
+    expect(response.status).toBe(409);
+    const details = (await body(response)).details as {
+      deletions: { path: string; urls: string[] }[];
+    };
+    expect(details.deletions).toMatchObject([
+      { path: 'dim/v1/older.json', urls: ['dim/v1/older.json'] },
+    ]);
     expect(stored()).toEqual(previous);
+    const confirmed = await fixture.request(
+      '/exports/projects/dim',
+      'PUT',
+      { revision: revisionOf(), config: next, confirmDelete: details.deletions },
+      PARTNER,
+    );
+    expect(confirmed.status).toBe(200);
+    expect(stored()!.retained).toHaveLength(2);
+    expect(stored()!.retained!.some((entry) => entry.path === 'dim/v1/older.json')).toBe(false);
   });
 
   it('requires confirmation at six project slots, and rechecks a confirmed save after a CAS race', async () => {
@@ -767,10 +779,21 @@ describe('retained URLs and URL ownership', () => {
     const next = structuredClone(stored()!);
     next.files[0]!.id = 'fourth';
     const refused = await put('dim', next);
-    expect(refused.status).toBe(400);
-    expect((await body(refused)).error).toBe(
-      'File fourth can keep at most 2 old URLs (dim/v1/descriptions.json until 2027-02-11, dim/v1/second.json until 2027-02-11, dim/v1/third.json until 2027-02-11); a maintainer can delete one after its window ends',
+    expect(refused.status).toBe(409);
+    const details = (await body(refused)).details as {
+      deletions: { path: string; urls: string[] }[];
+    };
+    expect(details.deletions).toMatchObject([
+      { path: 'dim/v1/descriptions.json', urls: ['dim/v1/descriptions.json'] },
+    ]);
+    const confirmed = await fixture.request(
+      '/exports/projects/dim',
+      'PUT',
+      { revision: revisionOf(), config: next, confirmDelete: details.deletions },
+      PARTNER,
     );
+    expect(confirmed.status).toBe(200);
+    expect(stored()!.retained).toHaveLength(2);
   });
 
   it('never shortens a window: maintainers delete an entry only after it ends', async () => {

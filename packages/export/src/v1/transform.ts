@@ -37,7 +37,11 @@ function ruleFor(name: string, format: FileFormat, notes: TransformNotes): Symbo
 /** Class names once each, in order: the parser can list one twice (`<bold/>` is both a line
  * style and an empty marker), which must not apply a replacement twice. */
 const unique = (names: readonly (string | undefined)[] | undefined): string[] => [
-  ...new Set((names ?? []).filter((name): name is string => typeof name === 'string')),
+  ...new Set(
+    (names ?? [])
+      .filter((name): name is string => typeof name === 'string')
+      .map((name) => (name === 'yellow' ? 'exotic' : name)),
+  ),
 ];
 
 type Context = { format: FileFormat; shape: Shape; notes: TransformNotes };
@@ -204,7 +208,7 @@ export function renderText(input: readonly OutLine[], separator = '\n'): string 
 /**
  * One part of a line in format v1 (spec section 7): an `icon` (the 16 icons, `arrow`, and
  * `enhancedArrow`, which keeps its glyph as `text`), or `text` with an optional `style` (bold,
- * yellow, pve, pvp), `element` (tagged element text), `link`, or `note` (the hover explanation).
+ * exotic, pve, pvp), `element` (tagged element text), `link`, or `note` (the hover explanation).
  */
 export type Part = {
   icon?: string;

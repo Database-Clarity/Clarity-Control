@@ -293,7 +293,7 @@ function FileSection({
       </div>
       <div className={styles.fileFoot}>
         <span className={styles.meta}>
-          Renaming or removing a file keeps its old URL updating for 3 months.
+          Renaming or removing a file keeps its old URL updating for 3 months, then deletes it.
         </span>
         <button
           type="button"
@@ -512,7 +512,7 @@ function DataSection({
                   leaves that language out, so apps fall back to its English text.
                 </>
               )}{' '}
-              Switching keeps the old URLs updating for 3 months.
+              Switching keeps the old URLs updating for 3 months, then deletes them.
             </span>
           </div>
         </div>
@@ -722,7 +722,7 @@ const symbolLabels: Record<string, string> = {
   arrow: 'Arrow',
   enhancedArrow: 'Enhanced arrow',
   bold: 'Bold',
-  yellow: 'Exotic',
+  exotic: 'Exotic',
   pve: 'PvE',
   pvp: 'PvP',
   elementText: 'Element text',
@@ -734,8 +734,8 @@ const symbolLabels: Record<string, string> = {
 
 function Glyph({ row }: { row: FormatRow }) {
   if (row === 'enhancedArrow') return <EnhancedArrow size="0.75rem" />;
-  if (row === 'bold' || row === 'yellow' || row === 'pve' || row === 'pvp')
-    return <span className={classNames([row])}>Aa</span>;
+  if (row === 'bold' || row === 'exotic' || row === 'pve' || row === 'pvp')
+    return <span className={classNames([row === 'exotic' ? 'yellow' : row])}>Aa</span>;
   if (row === 'elementText') return <span className={styles.glyphText}>Arc</span>;
   if ((ruleRows as readonly string[]).includes(row))
     return (
@@ -868,7 +868,7 @@ function FormatSection({
   );
 }
 
-const textRows = ['bold', 'yellow', 'pve', 'pvp', 'elementText'] as const;
+const textRows = ['bold', 'exotic', 'pve', 'pvp', 'elementText'] as const;
 const iconRows = symbolIds.filter((row) => !(textRows as readonly string[]).includes(row));
 
 /** What a rule row does to the output in its current mode. */
@@ -1099,7 +1099,7 @@ export function RetainedSection({
     <Section title="Old URLs">
       <p className={styles.note}>
         A renamed, removed, or switched file keeps its old URL updating for 3 months, then it is
-        frozen. Partners cannot drop these; maintainers can delete one after its window ends.
+        deleted. At the limit, saving asks you to confirm deletion of the oldest kept URLs.
       </p>
       <ul className={styles.retained}>
         {removedNow.map((file) => (
@@ -1118,7 +1118,7 @@ export function RetainedSection({
             <li key={entry.path}>
               <span className={styles.path}>{entry.path}</span>
               <span className={ended ? styles.warnText : styles.meta}>
-                {ended ? 'frozen since ' : 'updates until '}
+                {ended ? 'expired since ' : 'updates until '}
                 <When value={entry.until} nowrap />
               </span>
               {maintainer && ended && (

@@ -135,14 +135,13 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, outputs[i].bytes))
   HTTP 409 with typed `RetainedConfirmation` details naming the oldest eligible kept entries'
   URLs. Retry the same revision and config with `confirmDelete: details.deletions` to delete
   those URLs and save; cancellation writes nothing. Format-switch, rename, and file-removal
-  entries keep their existing freeze and maintainer-deletion rules and cannot be confirm-evicted.
+  entries follow the same update, expiry-deletion, and confirmed-eviction rule.
   A shared language folder belongs to one file uid; its active and retained subsets have distinct URLs.
-  If that uid reclaims only some URLs from a protected format-switch, rename, or removal entry,
-  the remaining URLs keep their original update deadline and then stay frozen until maintainer
-  deletion. Reclaiming one URL never ends another URL as a side effect.
+  If that uid reclaims only some URLs from a format-switch, rename, or removal entry,
+  the remaining URLs keep their original update deadline and are then deleted. Reclaiming one URL never ends another URL as a side effect.
 - **Shape**: `lines` (parts with icons, styles, links, and notes) or `text` (one string per
   language).
-- **Symbols**: each of the 16 icons, the enhanced arrow, bold, yellow, PvE, PvP, and element
+- **Symbols**: each of the 16 icons, the enhanced arrow, bold, Exotic, PvE, PvP, and element
   text is kept (lines only), dropped (its text stays), or replaced with text before and after.
   A symbol the file does not name is dropped and listed in a notice, so a symbol added later
   never appears in a file until its owner chooses it. Titles are kept, dropped, or written
@@ -194,7 +193,7 @@ An alias, a sandbox perk, or any tooltip with the same text shares that one entr
 shape a description is a list of lines; a line is `{ "spacer": true }` or `{ "parts": [...] }`
 with an optional `style`. A part is one of: `{ "icon": "heavy" }` (the 16 icons, `arrow`, and
 `enhancedArrow`, which keeps its glyph as `text`), or `{ "text": "..." }` with an optional
-`style` (`bold`, `yellow`, `pve`, `pvp`), `element` (`"solar"`, tagged element text), `link`
+`style` (`bold`, `exotic`, `pve`, `pvp`), `element` (`"solar"`, tagged element text), `link`
 (a URL), or `note` (the hover explanation, itself a list of lines). To get the older per-hash
 shape (`{ "123": { "hash": 123, "name": "Perk", "descriptions": { ... } } }`), copy
 `decoder/decode-v1.mjs` (about 25 lines, plain JavaScript) into your app:
@@ -211,8 +210,8 @@ updating), and `updatesUntil` on a retained old URL. An app finds its entry by f
 language, taking the one without `updatesUntil` (after a switch between one combined file and one
 file per language, the retained old URLs keep the same id and languages). A removed language has
 only its retained entry with `updatesUntil` until it expires. The app downloads only when
-that URL's sha256 changes. Languages describe the served bytes, including carried files. Kept
-language entries have `updatesUntil` while updating and disappear after expiry or confirmed
+that URL's sha256 changes. Languages describe the served bytes, including carried files. All kept
+URL entries have `updatesUntil` while updating and disappear after expiry or confirmed
 deletion. Legacy files list all 13 languages.
 
 ## Building the site and the old URLs
