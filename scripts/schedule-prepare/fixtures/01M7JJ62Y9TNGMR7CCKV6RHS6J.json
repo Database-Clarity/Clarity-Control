@@ -1,0 +1,53 @@
+{
+  "id": "01M7JJ62Y9TNGMR7CCKV6RHS6J",
+  "name": "P5 scheduled English copy check 3993379141",
+  "createdBy": {
+    "id": 117818418,
+    "login": "StardustD2"
+  },
+  "createdAt": "2026-11-16T16:14:02.360Z",
+  "revision": 3,
+  "contentRevision": 1,
+  "status": "cancelled",
+  "notBefore": null,
+  "zone": null,
+  "opId": null,
+  "scheduledContentRevision": null,
+  "claim": null,
+  "result": null,
+  "events": [
+    {
+      "at": "2026-11-16T16:14:02.360Z",
+      "by": {
+        "id": 117818418,
+        "login": "StardustD2"
+      },
+      "action": "create",
+      "revision": 1,
+      "contentRevision": 0
+    },
+    {
+      "at": "2026-11-16T16:17:00.563Z",
+      "by": {
+        "id": 117818418,
+        "login": "StardustD2"
+      },
+      "action": "save",
+      "revision": 2,
+      "contentRevision": 1,
+      "hashes": [
+        3993379141
+      ]
+    },
+    {
+      "at": "2026-11-16T16:20:58.034Z",
+      "by": {
+        "id": 117818418,
+        "login": "StardustD2"
+      },
+      "action": "cancel",
+      "revision": 3,
+      "contentRevision": 1
+    }
+  ]
+}

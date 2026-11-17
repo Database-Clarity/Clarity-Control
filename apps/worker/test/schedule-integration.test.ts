@@ -127,6 +127,7 @@ let appKey: string;
 let f: Fixture, git: ActionRepository, pub: Publisher, prep: SchedulePreparer;
 // Resolve web modules at runtime: the Worker typecheck has no JSX/DOM build configuration.
 const webApiPath = '../../web/src/services/scheduled/api';
+const webAuthPath = '../../web/src/stores/auth';
 const webModelPath = '../../web/src/features/review/batches/model';
 interface Admission {
   requestId: string;
@@ -322,10 +323,12 @@ beforeEach(async () => {
   });
   vi.stubEnv('VITE_API_URL', 'https://integration.example');
   vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
-  vi.stubEnv('VITE_SCHEDULE_PREPARATION', '1');
   for (const name of ['localStorage', 'sessionStorage'])
     vi.stubGlobal(name, { getItem: () => null, setItem() {}, removeItem() {} });
   api = await import(webApiPath);
+  const { useAuthStore } = await import(webAuthPath);
+  await useAuthStore.getState().load();
+  expect(useAuthStore.getState().user?.schedulePreparation).toBe(true);
   api.setRawFetch(undefined);
 });
 afterEach(() => {

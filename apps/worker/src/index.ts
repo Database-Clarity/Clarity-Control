@@ -26,6 +26,7 @@ import {
 import { reports, purgeReports } from './reports.js';
 import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
 import { minuteCron, scheduleTick } from './schedule/lifecycle.js';
+import { switches } from './schedule/store.js';
 import { userWorklists } from './worklists.js';
 import { personalSnippetsRoute, teamSnippetsRoute } from './snippets.js';
 import { userSettings } from './settings.js';
@@ -79,6 +80,7 @@ async function route(request: Request, env: Env): Promise<Response> {
       id: user.id,
       login: user.login,
       role: roleOf(config, user),
+      schedulePreparation: switches.preparation(),
       languages: config.users[String(user.id)]?.languages ?? [],
       ...(projects.length ? { projects } : {}),
     });
