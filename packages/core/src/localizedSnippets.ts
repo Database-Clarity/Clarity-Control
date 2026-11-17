@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { markupSnippets, markupTags } from './markup/snippets.js';
+import { expandTemplate, markupSnippets, markupTags } from './markup/snippets.js';
 import { teamSnippetIdSchema } from './customSnippets.js';
 import { langSchema } from './languages.js';
 
@@ -68,7 +68,7 @@ function skeleton(template: string): string {
   protect(/#[A-Za-z0-9]+/g);
   protect(/\$\{(?:#\{[^}]*\}|[^}])*\}/g);
   protect(
-    /^[\t ]*(?:var[\t ]+[^\r\n=]+[\t ]*=|(?:title|export)[\t ]+[^\r\n(]+[\t ]*\(|import[\t ]+[^\r\n]+|(?:enhanced|catalyst|exotic perk)[\t ]*\()/gm,
+    /^[\t ]*(?:var[\t ]+[^\r\n=]+[\t ]*=(?:[\t ]+empty[\t ]*\r?$)?|(?:title|export)[\t ]+[^\r\n(]+[\t ]*\(|import[\t ]+[^\r\n]+|(?:enhanced|catalyst|exotic perk)[\t ]*\()/gm,
   );
   protect(/\[[^\]\r\n]*\]/g, (at) => {
     const start = text.lastIndexOf('<', at);
@@ -87,22 +87,33 @@ function skeleton(template: string): string {
   return result + words(text.slice(end));
 }
 
-export function validateSnippetTranslation(english: string, translated: string): void {
+function checkBounds(template: string): void {
   if (
-    english.length > 2000 ||
-    translated.length > 2000 ||
-    (translated.match(/</g)?.length ?? 0) > 100 ||
-    (translated.match(/#\{/g)?.length ?? 0) > 100 ||
-    (translated.match(/\$\{/g)?.length ?? 0) > 100 ||
-    /\s{41}/.test(translated)
+    template.length > 2000 ||
+    (template.match(/</g)?.length ?? 0) > 100 ||
+    (template.match(/#\{/g)?.length ?? 0) > 100 ||
+    (template.match(/\$\{/g)?.length ?? 0) > 100 ||
+    /\s{41}/.test(template)
   )
     throw new SnippetSkeletonError('Translated template exceeds snippet bounds');
+}
+
+export function validateSnippetTranslation(english: string, translated: string): void {
+  checkBounds(english);
+  checkBounds(translated);
   if (
     // eslint-disable-next-line no-control-regex -- Reject control characters, including internal stop delimiters.
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(translated) ||
     skeleton(english) !== skeleton(translated)
   )
     throw new SnippetSkeletonError();
+  // Defaults may supply a declaration head, a tag name, or part of a reference.
+  // Keep the marker comparison above for stops, and check their actual markup too.
+  const expandedEnglish = expandTemplate(english).text;
+  const expandedTranslation = expandTemplate(translated).text;
+  checkBounds(expandedEnglish);
+  checkBounds(expandedTranslation);
+  if (skeleton(expandedEnglish) !== skeleton(expandedTranslation)) throw new SnippetSkeletonError();
 }
 
 /** SHA-256 over the exact English template, including its line endings. */

@@ -216,3 +216,20 @@ it('treats an absent prototype-named id as missing when deleting', async () => {
   expect((await save(1, translation, null, 'toString')).status).toBe(400);
   expect(fixture.commits).toHaveLength(0);
 });
+it.each([
+  ['{{1:var foo = bar}}\nFoo #{foo}', '{{1:var baz = bar}}\nFoo #{foo}'],
+  ['var damage = empty\nDamage #{damage}', 'var damage = leer\nSchaden #{damage}'],
+])(
+  'rejects expanded syntax identity changes from %s through the real route',
+  async (english, translated) => {
+    fixture.moveData({ [snippetsPath]: { v: 1, snippets: [{ ...source, template: english }] } });
+    const response = await save(1, {
+      ...translation,
+      template: translated,
+      enHash: await snippetEnglishHash(english),
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).details).toEqual({ name: 'SnippetSkeletonError' });
+    expect(fixture.commits).toHaveLength(0);
+  },
+);
