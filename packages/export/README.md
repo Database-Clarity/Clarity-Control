@@ -126,7 +126,9 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, plan.outputs[i].by
   `<project>/v1/<file>/<lang>.json`. A per-language file is complete: a perk without text in that
   language, or whose translation is more than 90 days behind its English text, carries the
   English text under that language and `edited.en` instead of `edited.<lang>`. A file counts
-  once toward the 3 files and the 6 URL slots, whatever its languages.
+  once toward the 3 files and the 6 URL slots, whatever its languages. Pending: removing a
+  language from a per-language file ends that URL at the next build; keeping its last copy for 3
+  months like other URL changes is decided (owner 2026-11-16) but not built yet.
 - **Shape**: `lines` (parts with icons, styles, links, and notes) or `text` (one string per
   language).
 - **Symbols**: each of the 16 icons, the enhanced arrow, bold, yellow, PvE, PvP, and element
