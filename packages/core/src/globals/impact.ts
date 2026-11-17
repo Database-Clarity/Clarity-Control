@@ -43,27 +43,40 @@ function resolveSnapshot(
       if (resolveAlias(tooltip.hash, snapshot.aliases) !== tooltip.hash)
         throw new Error(`Alias ${key} has its own tooltip`);
     }
+    const contexts = Object.values(snapshot.tooltips).map((tooltip) => ({
+      tooltip,
+      hash: tooltip.hash,
+      // Match exportLegacy's exact custom-tooltip fallback, including reserved hash 0.
+      type: snapshot.types[tooltip.hash] ?? tooltip.custom?.categoryId,
+    }));
     for (const alias of Object.keys(snapshot.aliases)) {
       const canonical = resolveAlias(Number(alias), snapshot.aliases);
       const target = snapshot.tooltips[canonical];
       if (!target || (snapshot.mode === 'live' && isTextlessDescription(target))) continue;
-      if (!Object.hasOwn(snapshot.types, alias))
-        blockers.add(`Missing alias converter type provenance: ${snapshot.revision}/${alias}`);
-      else if (snapshot.types[alias] !== snapshot.types[canonical])
-        blockers.add(
-          `Alias-specific render context requires separate review: ${snapshot.revision}/${alias} -> ${canonical}`,
-        );
+      // A stub copies canonical text, but its own facts can change conditional rendering in
+      // legacy outputs. Factless stubs inherit the canonical type. Equal contexts are already
+      // covered by the canonical row; retain differing contexts as separate consumer rows.
+      const canonicalType = snapshot.types[canonical] ?? target.custom?.categoryId;
+      const type = snapshot.types[alias] ?? canonicalType;
+      if (type !== canonicalType) contexts.push({ tooltip: target, hash: Number(alias), type });
     }
-    for (const tooltip of Object.values(snapshot.tooltips)) {
+    const resolvedContexts = new Map<string, NonNullable<GlobalImpactRow['before']>>();
+    for (const { tooltip, hash, type } of contexts) {
       if (
         (tooltip.hash >= 1 && tooltip.hash <= 3) ||
         (snapshot.mode === 'live' && isTextlessDescription(tooltip))
       )
         continue;
-      if (!Object.hasOwn(snapshot.types, String(tooltip.hash)))
+      if (type === undefined)
         blockers.add(`Missing converter type provenance: ${snapshot.revision}/${tooltip.hash}`);
       for (const language of Object.keys(tooltip.text)) {
         const lang = language as Lang;
+        const context = JSON.stringify([tooltip.hash, type, lang]);
+        const existing = resolvedContexts.get(context);
+        if (existing) {
+          result.set(keyOf(hash, lang), { hash, lang, result: existing });
+          continue;
+        }
         // The converter executes imports even inside hidden exports, where the core parser
         // suppresses unresolved-import diagnostics. Conservatively block that unproven context;
         // do not reconstruct import expansion or symbol resolution here (triage 2).
@@ -99,7 +112,7 @@ function resolveSnapshot(
           variables: catalog[2] ?? '',
           titles: catalog[3] ?? '',
           imports: catalog,
-          type: snapshot.types[tooltip.hash],
+          type,
           lang: numberLanguage,
         };
         const validation = validateTextWithReads(
@@ -117,17 +130,19 @@ function resolveSnapshot(
           if (issue.severity === 'error')
             blockers.add(`${snapshot.revision}/${tooltip.hash}/${lang}: ${issue.message}`);
         }
-        result.set(keyOf(tooltip.hash, lang), {
-          hash: tooltip.hash,
-          lang,
-          result: {
-            rendered: JSON.stringify(parsed.lines),
-            reads: {
-              imports: [...validation.reads.imports].map(([key, hash]) => ({ key, hash })),
-              variables: [...validation.reads.variables],
-              conservativeTitles: true,
-            },
+        const rendered = {
+          rendered: JSON.stringify(parsed.lines),
+          reads: {
+            imports: [...validation.reads.imports].map(([key, hash]) => ({ key, hash })),
+            variables: [...validation.reads.variables],
+            conservativeTitles: true as const,
           },
+        };
+        resolvedContexts.set(context, rendered);
+        result.set(keyOf(hash, lang), {
+          hash,
+          lang,
+          result: rendered,
         });
       }
     }

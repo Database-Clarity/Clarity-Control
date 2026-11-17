@@ -47,6 +47,11 @@ export interface GlobalReleaseComponent {
   store: GlobalStore;
 }
 
+/** Alias identity selects the render context; its authored text always lives on the canonical. */
+function consumerDocument(snapshot: GlobalImpactSnapshot, hash: number): Tooltip | undefined {
+  return snapshot.tooltips[resolveAlias(hash, snapshot.aliases)];
+}
+
 function changes(
   input: GlobalReleaseInput,
   ids: string[],
@@ -216,7 +221,11 @@ function expandReleaseDependencies(
         (rows.get(key(row))?.causes ?? []).map((cause) => [stableStringify(cause), cause]),
       );
       const reads = [
-        row.consumer.hash,
+        // An alias's shared source can release even when this particular render context
+        // never reads the changed global. Membership is canonical on both sides; review
+        // identity stays on the alias row, including across alias-map changes.
+        resolveAlias(row.consumer.hash, before.aliases),
+        resolveAlias(row.consumer.hash, after.aliases),
         ...[...(row.before?.reads.imports ?? []), ...(row.after?.reads.imports ?? [])].map(
           (read) => read.hash,
         ),
@@ -300,7 +309,7 @@ export async function planGlobalRelease(
     for (const impact of contexts)
       for (const view of impact.rows) {
         const { hash, lang } = view.consumer;
-        const saved = input.authored.tooltips[hash] ?? input.live.tooltips[hash];
+        const saved = consumerDocument(input.authored, hash) ?? consumerDocument(input.live, hash);
         if (!saved) throw new Error('Deleted consumer dependency');
         const dependencies = new Set(
           [...(view.before?.reads.imports ?? []), ...(view.after?.reads.imports ?? [])].map(
@@ -320,14 +329,17 @@ export async function planGlobalRelease(
         // Both authored and actual prospective live contexts bind the one displayed review.
         const old = rows.get(id);
         const previous =
-          input.live.tooltips[hash] ??
-          input.priorAuthored?.find(({ snapshot }) => snapshot.tooltips[hash])?.snapshot.tooltips[
-            hash
-          ] ??
-          input.authored.tooltips[hash];
+          consumerDocument(input.live, hash) ??
+          input.priorAuthored
+            ?.map(({ snapshot }) => consumerDocument(snapshot, hash))
+            .find(Boolean) ??
+          consumerDocument(input.authored, hash);
         const beforeSource = previous
-          ? (globalSourceText(previous, lang, input.live.tooltips[hash] ? 'live' : 'authored') ??
-            '')
+          ? (globalSourceText(
+              previous,
+              lang,
+              consumerDocument(input.live, hash) ? 'live' : 'authored',
+            ) ?? '')
           : '';
         const afterSource = globalSourceText(saved, lang, 'live') ?? '';
         rows.set(id, {

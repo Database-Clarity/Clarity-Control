@@ -190,7 +190,7 @@ it('fails closed for cycles, missing import targets, aliases, and missing proven
   expect(impacted(type).blockers.join(' ')).toContain('Cyclic');
 });
 
-it('blocks unreviewable alias-specific conditional renders and missing alias type provenance', () => {
+it('covers distinct alias export contexts with the same resolver and inherits factless stub types', () => {
   const before = snapshot([
     tooltip(2, 'var damage = 10'),
     tooltip(3, ''),
@@ -204,12 +204,19 @@ it('blocks unreviewable alias-specific conditional renders and missing alias typ
   expect(JSON.stringify(liveRender(before, 101, 'en'))).toContain('10');
   expect(JSON.stringify(liveRender(after, 101, 'en'))).toContain('20');
   const result = impacted(before, after);
-  expect(result.complete).toBe(false);
-  expect(result.blockers.join(' ')).toContain('Alias-specific render context');
-  expect(result.rows.find((row) => row.consumer.hash === 100)!.reason).toBe('unproven');
+  expect(result.complete).toBe(true);
+  expect(result.rows.find((row) => row.consumer.hash === 101)!.before!.rendered).toContain('10');
+  expect(result.rows.find((row) => row.consumer.hash === 101)!.after!.rendered).toContain('20');
+  expect(result.rows.find((row) => row.consumer.hash === 100)).toBeUndefined();
   before.types = { ...before.types };
   Reflect.deleteProperty(before.types, '101');
-  expect(impacted(before).blockers.join(' ')).toContain('Missing alias converter type provenance');
+  expect(impacted(before).complete).toBe(true);
+  expect(impacted(before).rows).toEqual([]);
+  expect(exportLegacy(Object.values(before.tooltips), 0, undefined, before.aliases)[101]).toEqual({
+    hash: 101,
+    aliasOf: 100,
+    aliasKind: 'frame',
+  });
 });
 
 it('fails closed for hidden import contexts while retaining the visible missing-import control', () => {
@@ -227,6 +234,17 @@ it('fails closed for hidden import contexts while retaining the visible missing-
     tooltip(100, 'import Shared from 999\nPlain'),
   ]);
   expect(impacted(visible).blockers.join(' ')).toContain('Unresolved import');
+});
+
+it('uses exportLegacy custom type provenance for hash 0 and factless aliases', () => {
+  const before = snapshot([tooltip(2, 'var damage = 10'), tooltip(3, ''), tooltip(0, '#damage')]);
+  before.tooltips[0].custom = { name: 'Default perk', categoryId: 'none' };
+  before.types = {};
+  before.aliases = { 101: { to: 0, kind: 'sandbox' } };
+  const result = impacted(before);
+  expect(result.complete).toBe(true);
+  expect(result.rows[0].before!.rendered).toContain('10');
+  expect(exportLegacy(Object.values(before.tooltips), 0)[0]).toMatchObject({ type: 'none' });
 });
 
 it('matches actual converter decimals for fallback, identical translations, and different translated inputs', () => {

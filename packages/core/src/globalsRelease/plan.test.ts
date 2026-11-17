@@ -6,6 +6,167 @@ import { inventoryGlobals, projectGlobals } from '../globals/projection.js';
 import type { GlobalImpactSnapshot } from '../globals/impactModel.js';
 import type { Tooltip } from '../schemas.js';
 import { composeGlobalRelease, planGlobalRelease } from './index.js';
+import { descriptionConverter } from '../../../export/src/converter/descriptionConverter.js';
+import { expandAliases } from '../../../export/src/converter/converterFunctions/expandAliases.js';
+import type { IntermediatePerks } from '../../../export/src/converter/types.js';
+
+it('reviews an alias context whose shared source releases without an alias global read', async () => {
+  const tooltip = (hash: number, text: string): Tooltip => ({
+    hash,
+    associated: [],
+    text: { en: { text, updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'alice' } },
+  });
+  const baseline = [
+    tooltip(2, 'var Damage = 10'),
+    tooltip(3, ''),
+    tooltip(40, 'enhanced (\n#Damage\n)\nOld shared text'),
+  ];
+  const published = inventoryGlobals(
+    baseline.slice(0, 2),
+    {
+      repository: 'fixture',
+      revision: 'r1',
+      locate: (hash, lang) => ({ path: `${hash}.json`, selector: ['text', lang, 'text'] }),
+    },
+    () => 'g_aliasclosure1',
+  );
+  const saved = structuredClone(published);
+  saved.entries[0].revision = 'r2';
+  saved.entries[0].definitions.en!.body = '20';
+  const current = structuredClone(baseline);
+  current[0].text.en!.text = 'var Damage = 20';
+  current[2].text.en!.text = 'enhanced (\n#Damage\n)\nNew shared text';
+  const aliases = { 41: { to: 40, kind: 'sandbox' as const } };
+  const types = { 2: 'none', 3: 'none', 40: 'Weapon Trait Enhanced', 41: 'Weapon Perk Sandbox' };
+  const facts = Object.fromEntries(
+    Object.entries(types).map(([hash, type]) => [hash, { name: hash, type }]),
+  );
+  const snapshot = (docs: Tooltip[], mode: 'authored' | 'live'): GlobalImpactSnapshot => ({
+    repository: 'fixture',
+    revision: 'r1',
+    mode,
+    aliases,
+    types,
+    tooltips: Object.fromEntries(docs.map((doc) => [doc.hash, doc])),
+  });
+  const plans = await planGlobalRelease({
+    saved,
+    published,
+    authored: snapshot(current, 'authored'),
+    live: snapshot(baseline, 'live'),
+    causes: [],
+    destination: 'test',
+  });
+  const alias = plans[0].rows.find((row) => row.view.consumer.hash === 41)!;
+  expect(alias).toBeDefined();
+  expect(alias.view.before!.reads.variables).not.toContain('Damage');
+  expect(alias.view.after!.reads.variables).not.toContain('Damage');
+  expect(plans[0].hashes).toEqual([2, 3, 40]);
+  const rendered = (docs: Tooltip[]) => {
+    const database = expandAliases(
+      exportLegacy(docs, 0, facts, aliases) as unknown as IntermediatePerks,
+    );
+    return JSON.parse(
+      JSON.stringify(
+        descriptionConverter({
+          database,
+          descriptionString: database[41].editor.en!.main,
+          editorType: 'main',
+          language: 'en',
+          hash: 41,
+        }),
+      ),
+    );
+  };
+  expect(JSON.parse(alias.view.before!.rendered)).toEqual(rendered(baseline));
+  expect(JSON.parse(alias.view.after!.rendered)).toEqual(rendered(current));
+  expect(alias.view.before!.rendered).toContain('Old shared text');
+  expect(alias.view.after!.rendered).toContain('New shared text');
+});
+
+it('uses canonical sources for distinct alias contexts across authored, live, and prior snapshots', async () => {
+  const tooltip = (hash: number, text: string): Tooltip => ({
+    hash,
+    associated: [],
+    text: { en: { text, updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'alice' } },
+  });
+  const docs = [
+    tooltip(2, 'var Damage = 10'),
+    tooltip(3, ''),
+    tooltip(40, 'enhanced (\n#Damage\n)\nBase'),
+    { ...tooltip(0, '#Damage'), custom: { name: 'Default perk', categoryId: 'none' } },
+  ];
+  let counter = 0;
+  const published = inventoryGlobals(
+    docs.slice(0, 2),
+    {
+      repository: 'fixture',
+      revision: 'r1',
+      locate: (hash, lang) => ({ path: `${hash}.json`, selector: ['text', lang, 'text'] }),
+    },
+    () => `g_aliasfixture${++counter}`,
+  );
+  const saved = structuredClone(published);
+  saved.entries[0].definitions.en!.body = '20';
+  saved.entries[0].revision = 'r2';
+  const snapshot: GlobalImpactSnapshot = {
+    repository: 'fixture',
+    revision: 'r1',
+    mode: 'authored',
+    aliases: { 41: { to: 40, kind: 'frame' } },
+    types: { 2: 'Test', 3: 'Test', 40: 'Weapon Trait', 41: 'Weapon Trait Enhanced' },
+    tooltips: Object.fromEntries(docs.map((doc) => [doc.hash, doc])),
+  };
+  const input = {
+    saved,
+    published,
+    authored: snapshot,
+    live: { ...snapshot, mode: 'live' as const },
+    priorAuthored: [
+      {
+        snapshot: structuredClone(snapshot),
+        published: { ...snapshot, mode: 'live' as const },
+        names: {},
+      },
+    ],
+    causes: [],
+    destination: 'test',
+  };
+  const plans = await planGlobalRelease(input);
+  const alias = plans[0].rows.find((row) => row.view.consumer.hash === 41)!;
+  expect(alias.beforeSource).toBe(docs[2].text.en!.text);
+  expect(alias.afterSource).toBe(docs[2].text.en!.text);
+  expect(alias.view.before!.rendered).toContain('10');
+  expect(alias.view.after!.rendered).toContain('20');
+  expect(plans[0].hashes).toContain(40);
+  expect(plans[0].hashes).not.toContain(41);
+  expect(plans[0].rows.find((row) => row.view.consumer.hash === 0)!.view.after!.rendered).toContain(
+    '20',
+  );
+  const noAliases = structuredClone(input);
+  noAliases.authored.aliases = {};
+  noAliases.live.aliases = {};
+  for (const prior of noAliases.priorAuthored) {
+    prior.snapshot.aliases = {};
+    prior.published.aliases = {};
+  }
+  const canonical = await planGlobalRelease(noAliases);
+  // Changing the alias map necessarily changes the dependency digest. Every other part of
+  // the non-alias review remains identical; exact old/new planner parity is checked separately.
+  const content = (rows: (typeof plans)[number]['rows']) =>
+    rows.map(({ dependencyDigest: _digest, ...row }) => {
+      void _digest;
+      return row;
+    });
+  expect(
+    content(plans.flatMap((plan) => plan.rows.filter((row) => row.view.consumer.hash !== 41))),
+  ).toEqual(content(canonical.flatMap((plan) => plan.rows)));
+  // Both current snapshots must lose the canonical; the prior snapshot still proves it.
+  input.authored.tooltips = input.live.tooltips = Object.fromEntries(
+    Object.entries(input.authored.tooltips).filter(([hash]) => hash !== '40'),
+  );
+  await expect(planGlobalRelease(input)).rejects.toThrow('Deleted consumer dependency');
+});
 
 it('preserves the real immutable corpus and resolves its release closure through S1', async () => {
   const raw = database('live');
