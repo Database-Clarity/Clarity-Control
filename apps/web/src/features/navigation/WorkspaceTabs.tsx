@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { MenuUser } from './links';
 import { driftTabQuery, laptopQuery, managementTabQuery, useMedia } from '../../ui/useMedia';
@@ -73,6 +73,39 @@ export function WorkspaceTabs({
   const { primary, more } = useWorkspaceItems(user);
   const count = useCompendiumCount(useLoadsLiveCompendium(user));
   const current = workspacePath(pathname);
+  return (
+    <WorkspaceTabsView
+      primary={primary}
+      more={more}
+      current={current}
+      pathname={pathname}
+      routeFor={routeFor}
+      warmup={<CompendiumWarmup />}
+      badge={<CompendiumBadge count={count} className={styles.badge} />}
+      reports={<ReportsEntry key="reports" className={styles.tab} badgeClassName={styles.badge} />}
+    />
+  );
+}
+
+export function WorkspaceTabsView({
+  primary,
+  more,
+  current,
+  pathname,
+  routeFor,
+  warmup,
+  badge,
+  reports,
+}: {
+  primary: NavLink[];
+  more: NavLink[];
+  current: string;
+  pathname: string;
+  routeFor(to: string): string;
+  warmup?: ReactNode;
+  badge?: ReactNode;
+  reports?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const moreButton = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -101,7 +134,7 @@ export function WorkspaceTabs({
         aria-current={current === to ? 'page' : undefined}
       >
         {label}
-        {to === '/compendium' && <CompendiumBadge count={count} className={styles.badge} />}
+        {to === '/compendium' && badge}
       </Link>
     </li>
   );
@@ -111,16 +144,9 @@ export function WorkspaceTabs({
     : primary.at(-1)?.to;
   return (
     <nav aria-label="Workspaces" className={styles.tabs}>
-      <CompendiumWarmup />
+      {warmup}
       <ul>
-        {primary.map((link) =>
-          link.to === reportsAfter
-            ? [
-                tab(link),
-                <ReportsEntry key="reports" className={styles.tab} badgeClassName={styles.badge} />,
-              ]
-            : tab(link),
-        )}
+        {primary.map((link) => (link.to === reportsAfter ? [tab(link), reports] : tab(link)))}
         {more.length > 0 && (
           <li>
             <button

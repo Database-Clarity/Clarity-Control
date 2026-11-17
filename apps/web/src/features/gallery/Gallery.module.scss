@@ -352,3 +352,20 @@ textarea.input {
   min-width: 8rem;
   border: 1px solid var(--line);
 }
+
+.liveWide {
+  width: min(50rem, calc(100vw - 3rem));
+  min-width: 0;
+}
+
+// Fixture hosts supply the bounded pane that these app components normally live in.
+.liveFixture {
+  width: min(34rem, calc(100vw - 3rem));
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.liveWide {
+  max-width: 100%;
+}

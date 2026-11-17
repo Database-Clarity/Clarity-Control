@@ -368,7 +368,30 @@ export function CompendiumDiff({
   scale?: number;
 }) {
   const [remembered, setRemembered] = useCompendiumDiffMode();
-  const mode = given ?? remembered;
+  return (
+    <CompendiumDiffView
+      before={before}
+      after={after}
+      mode={given ?? remembered}
+      scale={scale}
+      onModeChange={given === undefined ? setRemembered : undefined}
+    />
+  );
+}
+
+export function CompendiumDiffView({
+  before,
+  after,
+  mode,
+  scale,
+  onModeChange,
+}: {
+  before: CompendiumCell;
+  after: CompendiumCell;
+  mode: CompendiumDiffMode;
+  scale?: number;
+  onModeChange?(mode: CompendiumDiffMode): void;
+}) {
   const sideBySide = mode === 'before-after';
   // Links store no background; both sides sit on the row's current one.
   const background = after.background ?? before.background;
@@ -382,9 +405,9 @@ export function CompendiumDiff({
       prepared.lines.some((line) => line.kind !== 'equal' || line.style !== undefined));
   return (
     <section aria-label="Styled Compendium diff">
-      {given === undefined && (
+      {onModeChange && (
         <div className={styles.diffModes}>
-          <CompendiumDiffModeToggle mode={mode} onChange={setRemembered} />
+          <CompendiumDiffModeToggle mode={mode} onChange={onModeChange} />
         </div>
       )}
       {!prepared ? (

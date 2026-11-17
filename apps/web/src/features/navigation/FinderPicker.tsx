@@ -48,7 +48,24 @@ export const overlayPartAttribute = 'data-overlay-part';
  * is no text field, so an iPhone never zooms. The list hangs from the trigger like every popover
  * (below it, or above when that has more room) and reports only a change of value.
  */
-export const FinderPicker = memo(function FinderPicker({
+type FinderPickerProps = Parameters<typeof FinderPickerView>[0];
+
+export const FinderPicker = memo(function FinderPicker(
+  props: Omit<FinderPickerProps, 'renderMarkers'>,
+) {
+  return (
+    <FinderPickerView
+      {...props}
+      renderMarkers={(option) =>
+        option.markerHashes && (
+          <FinderMarkers hashes={option.markerHashes} flags={option.markerFlags} />
+        )
+      }
+    />
+  );
+});
+
+export function FinderPickerView({
   label,
   sections,
   value,
@@ -58,7 +75,9 @@ export const FinderPicker = memo(function FinderPicker({
   icons = false,
   empty,
   columns = false,
+  renderMarkers,
 }: {
+  renderMarkers?(option: PickerOption): ReactNode;
   label: string;
   sections: PickerSection[];
   value: string;
@@ -276,9 +295,7 @@ export const FinderPicker = memo(function FinderPicker({
       >
         {icons && <FinderIcon icon={option.icon} />}
         <span className={styles.label}>{option.label}</span>
-        {option.markerHashes && (
-          <FinderMarkers hashes={option.markerHashes} flags={option.markerFlags} />
-        )}
+        {renderMarkers?.(option)}
       </li>
     );
   };
@@ -350,4 +367,4 @@ export const FinderPicker = memo(function FinderPicker({
         )}
     </>
   );
-});
+}

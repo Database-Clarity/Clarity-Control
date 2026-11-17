@@ -1,3 +1,4 @@
+import { liveEntries } from './liveEntries';
 import { lazy, useState, type ComponentType, type ReactNode } from 'react';
 import type { MarkupGlobals } from '@clarity/core';
 import { Dialog } from '../../ui/Dialog';
@@ -397,6 +398,7 @@ function ScaleDemo() {
 // ---- Entries ----------------------------------------------------------------------------------
 
 export const entries: readonly GalleryEntry[] = [
+  ...liveEntries,
   // Controls
   {
     id: 'button',

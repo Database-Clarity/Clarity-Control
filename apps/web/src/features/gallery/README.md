@@ -20,3 +20,12 @@ How it works: `GalleryPage` (the toolbar) loads `GalleryFrame` in an iframe at
 (390/768/1280) drives the phone and tablet layouts, and the theme, UI scale, and touch size apply
 to it alone (never saved). Reduced motion turns off the frame's animations and transitions; the
 OS setting itself cannot be switched from a page. Both are lazy chunks, never preloaded.
+
+The store-connected feature pieces use props-only views in their existing modules: `FinderOptionView`,
+`FinderPickerView`, `FinderMarkersView`, `ScheduledMarkerView`, `StatusBarView`, `RenderedWordDiffView`,
+`WorkspaceTabsView`, `SuggestChipView`, `SuggestMenuView`, `BatchRowView`, `WorklistPickerView`,
+`DraftWorklistsView`, and `CompendiumDiffView`. `VersionSwitch` already takes props only. Their live
+wrappers retain subscriptions, data preparation, editor commands, and persistence. The gallery's
+`liveEntries.tsx` supplies fixtures and local callbacks; opaque slots keep connected children at
+exactly their original DOM locations. Fixture hosts supply the bounded pane that an app host normally
+provides, including a local scroll area for workspace tabs wider than the available pane.

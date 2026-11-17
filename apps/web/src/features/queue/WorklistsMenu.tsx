@@ -100,9 +100,58 @@ export function WorklistPicker({
     }
   };
   return (
+    <WorklistPickerView
+      itemCount={items.length}
+      lists={lists.map((list) => ({
+        id: list.id,
+        name: list.name,
+        count: loaded.includes(list.id) ? list.items.length : (index[list.id]?.count ?? 0),
+        saving: saving.some((save) => save.id === list.id),
+      }))}
+      creating={creating}
+      name={name}
+      error={error}
+      busy={busy}
+      onCancel={onCancel}
+      onCreate={() => setCreating(true)}
+      onName={setName}
+      onSave={(id) => void save(id)}
+      saveStatus={
+        <WorklistSaveStatus show={(save) => save.op.type === 'add' || save.op.type === 'create'} />
+      }
+    />
+  );
+}
+
+export function WorklistPickerView({
+  itemCount,
+  lists,
+  creating,
+  name,
+  error,
+  busy,
+  onCancel,
+  onCreate,
+  onName,
+  onSave,
+  saveStatus,
+}: {
+  itemCount: number;
+  lists: { id: string; name: string; count: number; saving: boolean }[];
+  creating: boolean;
+  name: string;
+  error: string;
+  busy: boolean;
+  saveStatus?: ReactNode;
+  onCancel?(): void;
+  onCreate(): void;
+  onName(name: string): void;
+  onSave(id: string | null): void;
+}) {
+  return (
     <div className={styles.content}>
       <p>
-        Add {items.length} {items.length === 1 ? 'entry' : 'entries'} to:
+        Add {itemCount} {itemCount === 1 ? 'entry' : 'entries'} to:
       </p>
       {lists.map((list) => (
         <button
@@ -110,18 +159,18 @@ export function WorklistPicker({
           type="button"
           className={styles.choice}
           disabled={busy}
-          onClick={() => void save(list.id)}
+          onClick={() => onSave(list.id)}
         >
           <span>
             {list.name}
-            {saving.some((save) => save.id === list.id) ? ' · Saving…' : ''}
+            {list.saving ? ' · Saving…' : ''}
           </span>
-          <span>{loaded.includes(list.id) ? list.items.length : (index[list.id]?.count ?? 0)}</span>
+          <span>{list.count}</span>
         </button>
       ))}
       {!creating ? (
         <div className={styles.row}>
-          <button type="button" onClick={() => setCreating(true)}>
+          <button type="button" onClick={() => onCreate()}>
             New worklist…
           </button>
           {onCancel && (
@@ -135,7 +184,7 @@ export function WorklistPicker({
           className={styles.row}
           onSubmit={(event) => {
             event.preventDefault();
-            void save(null);
+            onSave(null);
           }}
         >
           <input
@@ -144,7 +193,7 @@ export function WorklistPicker({
             placeholder="Worklist name"
             maxLength={80}
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => onName(event.target.value)}
           />
           <button type="submit" disabled={busy || !name.trim()}>
             {busy ? 'Saving…' : 'Create'}
@@ -156,7 +205,7 @@ export function WorklistPicker({
           )}
         </form>
       )}
-      <WorklistSaveStatus show={(save) => save.op.type === 'add' || save.op.type === 'create'} />
+      {saveStatus}
       {error && <p role="alert">{error}</p>}
     </div>
   );
@@ -367,6 +416,18 @@ export function DraftWorklists({
       live = false;
     };
   }, [data]);
+  return <DraftWorklistsView drafts={drafts} onOpen={onOpen} disabled={disabled} />;
+}
+
+export function DraftWorklistsView({
+  drafts,
+  onOpen,
+  disabled = false,
+}: {
+  drafts: DraftGroup[] | null;
+  onOpen(group: DraftGroup): void;
+  disabled?: boolean;
+}) {
   return (
     <>
       {!drafts?.length ? (
