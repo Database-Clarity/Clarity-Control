@@ -40,7 +40,7 @@ test('custom files keep the drawing or emit the configured text fallback', () =>
   expect(JSON.stringify(transform(lines, file.format, 'lines', emptyNotes()))).toContain('"arrow"');
   file.format.symbols.arrow = { mode: 'replace', before: '→', after: '' };
   expect(transform(lines, file.format, 'lines', emptyNotes())).toEqual([
-    { linesContent: [{ text: '30%→33%' }] },
+    { parts: [{ text: '30%→33%' }] },
   ]);
   expect(transform(lines, newStyleFile('arrow-text', 'plain').format, 'text', emptyNotes())).toBe(
     '30%→33%',

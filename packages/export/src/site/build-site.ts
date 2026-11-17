@@ -57,6 +57,8 @@ export type ManifestFile = {
   retainUntil?: string;
   /** Vocabulary of the published bytes (spec section 5). */
   markers?: string[];
+  /** Languages the published bytes hold (index.json keeps them while the bytes are carried). */
+  languages?: string[];
   /** Retained entries: the vocabulary on the day the URL was retained. */
   baseline?: string[];
 };
@@ -114,6 +116,7 @@ const isManifestFile = (file: unknown) =>
   ['built', 'carried', 'frozen'].includes(file.outcome as string) &&
   (file.retainUntil === undefined || typeof file.retainUntil === 'string') &&
   (file.markers === undefined || isStrings(file.markers)) &&
+  (file.languages === undefined || isStrings(file.languages)) &&
   (file.baseline === undefined || isStrings(file.baseline));
 
 /** The whole manifest contract; anything else on a project with deployments stops the deploy. */
@@ -181,7 +184,10 @@ async function locate(options: Record<string, string>) {
 
 type Entry = {
   project: string;
+  /** The file's URL key (engine filePath): its URL, or its language folder. */
   path: string;
+  /** The URLs it publishes: one, or one per language. */
+  urls: { path: string; languages: string[] }[];
   fileId: string;
   file: ExportFile;
   kind: 'active' | 'retained' | 'expired';
@@ -373,6 +379,7 @@ export async function buildSite(options: Record<string, string>) {
       entries.push({
         project: project.id,
         path: engine.filePath(project.id, file),
+        urls: engine.fileUrls(project.id, file),
         fileId: file.id,
         file,
         kind: 'active',
@@ -382,6 +389,7 @@ export async function buildSite(options: Record<string, string>) {
       entries.push({
         project: project.id,
         path: entry.path,
+        urls: engine.fileUrls(project.id, entry.snapshot),
         fileId: entry.snapshot.id,
         file: entry.snapshot,
         kind: expired ? 'expired' : 'retained',
@@ -398,8 +406,9 @@ export async function buildSite(options: Record<string, string>) {
     }
   }
   for (const entry of entries)
-    if (!safeSitePath(entry.path) || !entry.path.startsWith(`${entry.project}/`))
-      throw new Error(`Path ${entry.path} is outside project ${entry.project}`);
+    for (const path of [entry.path, ...entry.urls.map((url) => url.path)])
+      if (!safeSitePath(path) || !path.startsWith(`${entry.project}/`))
+        throw new Error(`Path ${path} is outside project ${entry.project}`);
 
   const outcomes = new Map<string, Outcome>();
   const legacyByName = new Map(pin.files.map((file) => [file.name, file]));
@@ -443,6 +452,16 @@ export async function buildSite(options: Record<string, string>) {
       });
     }
   };
+  /** carryOrDrop for every URL of a file. */
+  const carryOrDropAll = async (
+    entry: Entry,
+    kind: SiteNotice['kind'],
+    reason: string,
+    frozen = false,
+  ) => {
+    for (const url of entry.urls)
+      await carryOrDrop({ ...entry, path: url.path }, kind, reason, frozen);
+  };
 
   // 5a. Broken projects keep every URL they had.
   for (const project of brokenProjects)
@@ -452,10 +471,8 @@ export async function buildSite(options: Record<string, string>) {
       await carryOrDrop(
         {
           project,
-          fileId: path
-            .split('/')
-            .pop()!
-            .replace(/\.json$/, ''),
+          // `<project>/v<n>/<file>.json`, `<project>/v<n>/<file>/<lang>.json`, or index.json.
+          fileId: (path.split('/')[2] ?? path.split('/').pop()!).replace(/\.json$/, ''),
           path,
         },
         'carried-forward',
@@ -466,7 +483,7 @@ export async function buildSite(options: Record<string, string>) {
   const builds: Entry[] = [];
   for (const entry of entries) {
     if (entry.kind === 'expired') {
-      await carryOrDrop(entry, 'frozen', `Retained until ${entry.until}: frozen`, true);
+      await carryOrDropAll(entry, 'frozen', `Retained until ${entry.until}: frozen`, true);
       continue;
     }
     if (engine.isLegacyFile(entry.file) && deployed.has(entry.file.preset)) {
@@ -524,6 +541,7 @@ export async function buildSite(options: Record<string, string>) {
           outcome: record.outcome,
           ...(entry.until ? { retainUntil: entry.until } : {}),
           markers,
+          languages: entry.urls[0]!.languages,
           ...(baseline ? { baseline } : {}),
         },
       });
@@ -542,13 +560,14 @@ export async function buildSite(options: Record<string, string>) {
 
   // 5c. Everything else builds in the pool, least recently built first, within the budget:
   //     nothing new starts after `carryAfterMs`, and at `budgetMs` running builds are killed.
-  //     The order is the last attempt, whatever its outcome (never attempted first).
-  const lastAttempt = (path: string) =>
-    previous?.attempts?.[path] ?? previous?.files[path]?.lastBuilt ?? '';
+  //     The order is the last attempt, whatever its outcome (never attempted first). Attempts are
+  //     per file (its URL key); a file split per language builds all its URLs in one job.
+  const lastAttempt = (entry: Entry) =>
+    previous?.attempts?.[entry.path] ?? previous?.files[entry.urls[0]!.path]?.lastBuilt ?? '';
   const attempts: Record<string, string> = {};
   builds.sort((a, b) => {
-    const at = lastAttempt(a.path);
-    const bt = lastAttempt(b.path);
+    const at = lastAttempt(a);
+    const bt = lastAttempt(b);
     return at === bt ? a.path.localeCompare(b.path) : at < bt ? -1 : 1;
   });
   const pool = new BuildPool(
@@ -563,7 +582,7 @@ export async function buildSite(options: Record<string, string>) {
     limits.fileTimeoutMs,
   );
   const results = new Map<string, BuildResult>();
-  const outPaths = new Map<string, string>();
+  let jobs = 0;
   const skipped: Entry[] = [];
   const queue = [...builds];
   const running = new Map<string, Promise<string>>();
@@ -574,14 +593,12 @@ export async function buildSite(options: Record<string, string>) {
       while (queue.length && running.size < limits.pool && elapsed() < limits.carryAfterMs) {
         const entry = queue.shift()!;
         attempts[entry.path] = nowIso;
-        const outPath = join(work, `out-${outPaths.size}.json`);
-        outPaths.set(entry.path, outPath);
         const job: BuildJob = {
           key: entry.path,
           projectId: entry.project,
-          path: entry.path,
+          urls: entry.urls,
           file: entry.file,
-          outPath,
+          outPath: join(work, `out-${jobs++}`),
           maxBytes: limits.maxBytes,
         };
         running.set(
@@ -622,17 +639,19 @@ export async function buildSite(options: Record<string, string>) {
   for (const entry of skipped) {
     results.delete(entry.path);
     // Killed at the budget or never started: it keeps its old place (it goes first next run).
-    const before = lastAttempt(entry.path);
+    const before = lastAttempt(entry);
     if (before) attempts[entry.path] = before;
     else delete attempts[entry.path];
-    await carryOrDrop(
+    await carryOrDropAll(
       entry,
       'budget',
       "Not built within this run's time budget (it builds first next run)",
     );
-    const kept = outcomes.get(entry.path);
-    // Keep its old build time so the next run starts with it (no starvation).
-    if (kept) kept.file = { ...kept.file, lastBuilt: previous?.files[entry.path]?.lastBuilt };
+    for (const { path } of entry.urls) {
+      const kept = outcomes.get(path);
+      // Keep its old build time so the next run starts with it (no starvation).
+      if (kept) kept.file = { ...kept.file, lastBuilt: previous?.files[path]?.lastBuilt };
+    }
   }
   for (const entry of builds) {
     const result = results.get(entry.path);
@@ -646,45 +665,56 @@ export async function buildSite(options: Record<string, string>) {
             : result.reason === 'crashed'
               ? 'Build process crashed'
               : 'Build failed';
-      await carryOrDrop(entry, 'build-failed', `${label}: ${result.error}`);
+      await carryOrDropAll(entry, 'build-failed', `${label}: ${result.error}`);
       continue;
     }
-    const old = previous?.files[entry.path];
-    // A retained URL freezes when its vocabulary changes (spec section 5); its baseline is the
-    // vocabulary it had on the day it was retained.
-    let baseline: string[] | undefined;
-    if (entry.kind === 'retained') {
-      baseline = old?.baseline ?? old?.markers ?? result.markers;
-      const change = engine.markerChange(baseline, result.markers);
-      if (change) {
-        await carryOrDrop(entry, 'frozen', breakingMessage(change), true);
-        const kept = outcomes.get(entry.path);
-        if (kept) kept.file = { ...kept.file, baseline };
-        continue;
+    let published = false;
+    for (const output of result.outputs) {
+      const old = previous?.files[output.path];
+      // A retained URL freezes when its vocabulary changes (spec section 5); its baseline is the
+      // vocabulary it had on the day it was retained.
+      let baseline: string[] | undefined;
+      if (entry.kind === 'retained') {
+        baseline = old?.baseline ?? old?.markers ?? output.markers;
+        const change = engine.markerChange(baseline, output.markers);
+        if (change) {
+          await carryOrDrop(
+            { ...entry, path: output.path },
+            'frozen',
+            breakingMessage(change),
+            true,
+          );
+          const kept = outcomes.get(output.path);
+          if (kept) kept.file = { ...kept.file, baseline };
+          continue;
+        }
       }
-    }
-    for (const notice of result.notices as Record<string, unknown>[])
-      notices.push({
-        project: entry.project,
-        file: entry.fileId,
-        path: entry.path,
-        kind: 'compile',
-        message: JSON.stringify(notice).slice(0, 300),
-        detail: notice,
+      outcomes.set(output.path, {
+        from: output.outPath,
+        file: {
+          sha256: output.sha256,
+          bytes: output.bytes,
+          lastUpdate: old?.sha256 === output.sha256 ? old.lastUpdate : nowIso,
+          lastBuilt: nowIso,
+          outcome: 'built',
+          ...(entry.until ? { retainUntil: entry.until } : {}),
+          markers: output.markers,
+          languages: output.languages,
+          ...(baseline ? { baseline } : {}),
+        },
       });
-    outcomes.set(entry.path, {
-      from: outPaths.get(entry.path),
-      file: {
-        sha256: result.sha256,
-        bytes: result.bytes,
-        lastUpdate: old?.sha256 === result.sha256 ? old.lastUpdate : nowIso,
-        lastBuilt: nowIso,
-        outcome: 'built',
-        ...(entry.until ? { retainUntil: entry.until } : {}),
-        markers: result.markers,
-        ...(baseline ? { baseline } : {}),
-      },
-    });
+      published = true;
+    }
+    if (published)
+      for (const notice of result.notices as Record<string, unknown>[])
+        notices.push({
+          project: entry.project,
+          file: entry.fileId,
+          path: entry.path,
+          kind: 'compile',
+          message: JSON.stringify(notice).slice(0, 300),
+          detail: notice,
+        });
   }
 
   // 6. Write the site: files, per-project index.json, changelog, snapshot, status, manifest.
@@ -711,10 +741,7 @@ export async function buildSite(options: Record<string, string>) {
   const projectNotices = (project: string) =>
     notices.filter((notice) => notice.project === project && notice.file !== undefined);
   for (const project of configs) {
-    const built: Record<
-      string,
-      Omit<Engine.IndexFile, 'id' | 'formatVersion' | 'path' | 'until'>
-    > = {};
+    const built: Record<string, Engine.BuiltUrl> = {};
     for (const [path, file] of Object.entries(files))
       if (path.startsWith(`${project.id}/`))
         built[path] = {
@@ -722,6 +749,7 @@ export async function buildSite(options: Record<string, string>) {
           bytes: file.bytes,
           lastUpdate: file.lastUpdate,
           outcome: file.outcome,
+          languages: file.languages as Engine.ExportLanguage[] | undefined,
         };
     const index = engine.projectIndex(
       project,

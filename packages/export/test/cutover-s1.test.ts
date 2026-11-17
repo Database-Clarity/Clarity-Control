@@ -33,7 +33,7 @@ const catalog = {
 };
 const custom = (style: (typeof styles)[number]) => newStyleFile('test', style, {
   categories: ['trait'], sandboxPerks: ['trait'], languages: ['en'], keys: ['name'],
-  frameAliases: true, bungieIdentical: true,
+  frameAliases: true, languageFiles: 'combined', bungieIdentical: true,
 });
 
 describe('S1 native consumer output in importer context', () => {
@@ -264,7 +264,7 @@ describe('CUTOVER-PRISMATIC', () => {
     file.format.elementTags = true;
     const tagged = compile(input, file, { catalog });
     const text = JSON.stringify(tagged.expanded);
-    expect(text).toContain('"text":"Facet","classNames":["elementText","prismatic"]');
+    expect(text).toContain('"text":"Facet","element":"prismatic"');
     expect(text).toContain('Transcendence');
     expect(text).not.toMatch(/[\uE000\uE001]/);
     expect(input.perks[200]).toEqual(perk(200, 'Before <prismatic Facet /> after'));
@@ -278,7 +278,7 @@ describe('CUTOVER-PRISMATIC', () => {
     const tagged = compile(input, file, { catalog });
     if (style === 'structured') {
       const lines = tagged.expanded![100].descriptions.en;
-      expect(JSON.stringify(lines)).toContain('"classNames":["elementText","prismatic"]');
+      expect(JSON.stringify(lines)).toContain('"text":"Facet","element":"prismatic"');
     } else expect(tagged.bytes).toEqual(normal.bytes);
     if (style === 'markdown')
       expect(tagged.expanded![100].descriptions.en).toBe('Before [Prismatic]Facet after');
