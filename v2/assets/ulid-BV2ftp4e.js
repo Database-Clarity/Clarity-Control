@@ -1,0 +1,1 @@
+const r="0123456789ABCDEFGHJKMNPQRSTVWXYZ";function c(a=Date.now(),l=t=>crypto.getRandomValues(t)){let t="",n=a;for(let e=0;e<10;e++)t=r[n%32]+t,n=Math.floor(n/32);const s=l(new Uint8Array(16));let o="";for(const e of s)o+=r[e%32];return t+o}export{c as n};
