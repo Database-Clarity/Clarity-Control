@@ -61,8 +61,10 @@
     border-radius: 0;
     cursor: pointer;
     white-space: nowrap;
-    &:hover {
-      color: var(--text);
+    @media (hover: hover) {
+      &:hover {
+        color: var(--text);
+      }
     }
     &[aria-selected='true'] {
       color: var(--text);
