@@ -373,17 +373,24 @@ export function acceptSave(
           remaining.filter((other) => other.uid === entry.uid).length >
           configLimits.retainedPerFile,
       );
-    for (const entry of candidates) {
-      if (!over()) break;
-      const ownOver =
-        remaining.filter((other) => other.uid === entry.uid).length > configLimits.retainedPerFile;
-      if (!ownOver && next.files.length + remaining.length <= configLimits.urlSlots) continue;
+    const evict = (entry: Retained) => {
       remaining = remaining.filter((other) => other !== entry);
       deletions.push({
         path: entry.path,
         until: entry.until,
         urls: fileUrls(next.id, entry.snapshot).map((url) => url.path),
       });
+    };
+    // A necessary per-file eviction also frees a project slot. Resolve those first so an
+    // unrelated file never loses a URL merely because its entry is older globally.
+    for (const entry of candidates)
+      if (
+        remaining.filter((other) => other.uid === entry.uid).length > configLimits.retainedPerFile
+      )
+        evict(entry);
+    for (const entry of candidates) {
+      if (next.files.length + remaining.length <= configLimits.urlSlots) break;
+      if (remaining.includes(entry)) evict(entry);
     }
     if (over()) throw new HttpError(400, plan.problems[0]!, plan.problems);
     const details: RetainedConfirmation = { kind: 'confirm-retained-deletion', deletions };

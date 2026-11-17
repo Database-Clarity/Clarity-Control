@@ -454,6 +454,45 @@ describe('pins and the legacy job', () => {
 });
 
 describe('build-site per-file outcomes', () => {
+  it('upgraded scripts keep serving protected entries from a pin with the previous config API', async () => {
+    harness = new Harness();
+    const retained = [
+      {
+        path: 'alpha/v1/old.json',
+        uid: 'alpha00009',
+        formatVersion: 1,
+        snapshot: legacyFile('old', 'alpha00009', 'dim'),
+        until: '2030-01-01T00:00:00.000Z',
+      },
+    ];
+    await harness.seed({
+      input: fixtureText(),
+      projects: { alpha: project('alpha', [legacyFile('main', 'alpha00001', 'dim')], retained) },
+    });
+    const currentConfig = readFileSync(join(harness.exports, 'config.mjs'));
+    // Use the previous namespace API through the real pin/checkout/import paths.
+    const pinned = harness.commit('converter', {
+      '.exports/full-config.mjs': currentConfig,
+      '.exports/config.mjs':
+        "export { migrateConfig, unknownCategories } from './full-config.mjs';\n",
+    });
+    expectOk(harness.legacyRun());
+    const pin = readJson(harness.show('export-pins', 'pins/latest.json'));
+    expect(pin.converterSha).toBe(pinned);
+    harness.commit('converter', { '.exports/config.mjs': currentConfig });
+    expectOk(harness.siteRun({ extra: ['--now', '2029-12-01T00:00:00.000Z'] }));
+    const published = harness.served('alpha/v1/old.json');
+    expect(published).toBeDefined();
+    expectOk(harness.siteRun({ extra: ['--now', '2030-02-01T00:00:00.000Z'] }));
+    expect(harness.served('alpha/v1/old.json')).toEqual(published);
+    expect(
+      harness
+        .servedJson<{ files: { path: string; status: string }[] }>('alpha/index.json')
+        .files.find((file) => file.path.endsWith('/old.json'))?.status,
+    ).toBe('frozen');
+    expect(readJson(harness.show('export-pins', 'pins/latest.json'))).toEqual(pin);
+  }, 180_000);
+
   it('carried bytes keep the languages they hold in index.json (failed build and budget skip)', async () => {
     harness = new Harness();
     const file = style('main', 'alpha00001');
@@ -589,6 +628,16 @@ describe('build-site per-file outcomes', () => {
           status: 'current',
           updatesUntil: '2027-02-17T00:00:00.000Z',
         }),
+      ]),
+    );
+    const retainedNotices = harness
+      .servedJson<{ notices: { kind: string; message: string }[] }>('alpha/index.json')
+      .notices.filter((notice) => notice.kind === 'retained-ends');
+    expect(retainedNotices).toHaveLength(2);
+    expect(retainedNotices.map((notice) => notice.message)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('alpha/v1/main/de.json'),
+        expect.stringContaining('alpha/v1/main/fr.json'),
       ]),
     );
     const reclaimed = structuredClone(config);

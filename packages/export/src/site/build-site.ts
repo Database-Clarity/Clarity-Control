@@ -299,6 +299,9 @@ export async function buildSite(options: Record<string, string>) {
   const config = (await import(
     pathToFileURL(join(engineDir, 'config.mjs')).href
   )) as typeof ConfigModule;
+  // Older pins have only protected entries and no deletion-policy export. Script upgrades
+  // must keep working with those pins during config-only builds and failed manifest updates.
+  const deletesRetained = config.deletesRetained ?? (() => false);
 
   if (existsSync(out) && readdirSync(out).length) throw new Error(`${out} is not empty`);
   mkdirSync(out, { recursive: true });
@@ -388,7 +391,7 @@ export async function buildSite(options: Record<string, string>) {
       });
     for (const entry of project.retained ?? []) {
       const expired = Date.parse(entry.until) <= now.getTime();
-      if (expired && config.deletesRetained(entry)) continue;
+      if (expired && deletesRetained(entry)) continue;
       entries.push({
         project: project.id,
         path: entry.path,
@@ -404,7 +407,12 @@ export async function buildSite(options: Record<string, string>) {
           file: entry.snapshot.id,
           path: entry.path,
           kind: 'retained-ends',
-          message: `Keeps updating until ${entry.until}${config.deletesRetained(entry) ? ', then deleted' : ''}`,
+          message: `${engine
+            .fileUrls(project.id, entry.snapshot)
+            .map((url) => url.path)
+            .join(
+              ', ',
+            )}: keeps updating until ${entry.until}${deletesRetained(entry) ? ', then deleted' : ''}`,
         });
     }
   }

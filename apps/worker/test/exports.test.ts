@@ -408,6 +408,77 @@ describe('PUT /exports/projects/:id', () => {
 });
 
 describe('retained URLs and URL ownership', () => {
+  it('evicts only the necessary own entry when per-file and project limits overlap', async () => {
+    const make = (
+      id: string,
+      uid: string,
+      languages: ('en' | 'de' | 'fr' | 'es')[],
+    ): ExportConfig['files'][number] => {
+      const file = styleFile(id);
+      return { ...file, uid, data: { ...file.data, languageFiles: 'perLanguage', languages } };
+    };
+    const f = make('file-f', 'ffffffff', ['en', 'es']);
+    const g = make('file-g', 'gggggggg', ['en']);
+    const h = make('file-h', 'hhhhhhhh', ['en']);
+    const kept = (file: typeof f, languages: ('de' | 'fr')[], days: number) => ({
+      reason: 'language' as const,
+      path: `dim/v1/${file.id}`,
+      uid: file.uid!,
+      formatVersion: 1 as const,
+      snapshot: make(file.id, file.uid!, languages),
+      until: new Date(Date.now() + days * 86_400_000).toISOString(),
+    });
+    const previous: ExportConfig = {
+      ...dimConfig(),
+      files: [f, g, h],
+      retained: [kept(g, ['de'], 88), kept(f, ['de'], 89), kept(f, ['fr'], 90)],
+    };
+    fixture.moveData({ 'exports/projects/dim.json': previous });
+    later();
+    const next = structuredClone(previous);
+    if ('data' in next.files[0]!) next.files[0].data.languages = ['en'];
+    const response = await put('dim', next);
+    expect(response.status).toBe(409);
+    const details = (await body(response)).details as { deletions: unknown[] };
+    expect(details.deletions).toEqual([
+      expect.objectContaining({ urls: ['dim/v1/file-f/de.json'] }),
+    ]);
+    expect(
+      (
+        await fixture.request(
+          '/exports/projects/dim',
+          'PUT',
+          { revision: revisionOf(), config: next, confirmDelete: details.deletions },
+          PARTNER,
+        )
+      ).status,
+    ).toBe(200);
+    expect(stored()!.retained).toContainEqual(previous.retained![0]);
+  });
+
+  it('does not let a different uid take a protected language folder through an unused language', async () => {
+    const file = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
+    const split = {
+      ...file,
+      data: {
+        ...file.data,
+        languageFiles: 'perLanguage' as const,
+        languages: ['en' as const, 'fr' as const],
+      },
+    };
+    fixture.moveData({ 'exports/projects/dim.json': { ...dimConfig(), files: [split] } });
+    later();
+    expect((await put('dim', { ...stored()!, files: [] })).status).toBe(200);
+    later();
+    const fresh = { ...split, uid: undefined };
+    const next = {
+      ...stored()!,
+      files: [{ ...fresh, data: { ...fresh.data, languages: ['de' as const] } }],
+    };
+    const response = await put('dim', next);
+    expect(response.status).toBe(400);
+    expect((await body(response)).error).toContain('The URL dim/v1/texts belongs to another file');
+  });
   it('keeps removed languages, reclaims them, and confirms the oldest language entry at the limit', async () => {
     const file = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
     const split: ExportConfig['files'][number] = {

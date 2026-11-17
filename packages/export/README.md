@@ -132,10 +132,11 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, outputs[i].bytes))
   their URLs updating from data for three calendar months, then deletes them. Each removal save
   creates one retained entry, counting toward the two retained entries per file and six slots per
   project. Re-adding a language before expiry reclaims its URL. At a limit, the Worker returns
-  HTTP 409 with typed `RetainedConfirmation` details naming the oldest eligible kept entry's
+  HTTP 409 with typed `RetainedConfirmation` details naming the oldest eligible kept entries'
   URLs. Retry the same revision and config with `confirmDelete: details.deletions` to delete
   those URLs and save; cancellation writes nothing. Format-switch, rename, and file-removal
   entries keep their existing freeze and maintainer-deletion rules and cannot be confirm-evicted.
+  A shared language folder belongs to one file uid; its active and retained subsets have distinct URLs.
 - **Shape**: `lines` (parts with icons, styles, links, and notes) or `text` (one string per
   language).
 - **Symbols**: each of the 16 icons, the enhanced arrow, bold, yellow, PvE, PvP, and element
@@ -205,7 +206,8 @@ Apps can poll `/<project>/index.json` (`projectIndex`), about 1 KB, which lists 
 `stale`: the last build failed and the previous bytes stay; `frozen`: a retained URL that stopped
 updating), and `updatesUntil` on a retained old URL. An app finds its entry by file id and
 language, taking the one without `updatesUntil` (after a switch between one combined file and one
-file per language, the retained old URLs keep the same id and languages), and downloads only when
+file per language, the retained old URLs keep the same id and languages). A removed language has
+only its retained entry with `updatesUntil` until it expires. The app downloads only when
 that URL's sha256 changes. Languages describe the served bytes, including carried files. Kept
 language entries have `updatesUntil` while updating and disappear after expiry or confirmed
 deletion. Legacy files list all 13 languages.
