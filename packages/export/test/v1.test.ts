@@ -16,6 +16,7 @@ import {
   legacyPresets,
   newStyleFile,
   projectIndex,
+  standsInEnglish,
   styleFormats,
   styles,
   symbolIds,
@@ -451,7 +452,11 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
       validateV1({ ...header, descriptions: [], perks: { 1: { description: 0 } } }),
     ).toThrow(/missing description/);
     expect(() =>
-      validateV1({ ...header, descriptions: [{}], perks: { 1: { description: 0, references: [2] } } }),
+      validateV1({
+        ...header,
+        descriptions: [{}],
+        perks: { 1: { description: 0, references: [2] } },
+      }),
     ).toThrow(/not in the file/);
   });
 });
@@ -518,7 +523,10 @@ describe('format v1 keys, header, and language files', () => {
 
   test('edited and editedBy are independent: either one alone validates and decodes', () => {
     const time = build({ keys: ['edited'] });
-    expect(json(time.bytes).perks[100]).toEqual({ edited: { en: { at: at(day) } }, description: 0 });
+    expect(json(time.bytes).perks[100]).toEqual({
+      edited: { en: { at: at(day) } },
+      description: 0,
+    });
     // editedBy without edited (owner 2026-11-16): `edited.<lang>` holds only `by`.
     const name = build({ keys: ['editedBy'] });
     const parsed = json(name.bytes);
@@ -563,6 +571,16 @@ describe('format v1 keys, header, and language files', () => {
     const ja = build({ languages: ['ja'], languageFiles: 'perLanguage' });
     expect(Object.keys(ja.file!.perks)).toEqual(['100', '102']);
     expect(ja.file!.languages).toEqual(['ja']);
+  });
+
+  test('the stand-in rule is exported: no own text or the English fallback means English', () => {
+    const perk = {
+      editor: { de: { main: 'x' }, fr: { main: 'x', englishFallback: true as const } },
+    };
+    expect(standsInEnglish(perk, 'de', true)).toBe(false);
+    expect(standsInEnglish(perk, 'de', false)).toBe(true);
+    expect(standsInEnglish(perk, 'fr', true)).toBe(true);
+    expect(standsInEnglish(perk, 'ja', false)).toBe(true);
   });
 
   test('URLs: one per file, or one per language in a folder; legacy files hold every language', () => {

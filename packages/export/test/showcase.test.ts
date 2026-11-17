@@ -6,6 +6,7 @@ import {
   deployedLegacyPresets,
   legacyPresets,
   newStyleFile,
+  showcaseText as engineShowcaseText,
   styles,
   type LegacyInput,
 } from '../src/index.js';
@@ -80,6 +81,11 @@ for (const style of styles) {
     );
   });
 }
+
+test('the engine exports the showcase markup source it compiles', () => {
+  expect(engineShowcaseText).toBe(showcaseText);
+  expect(engineShowcaseText.length).toBeGreaterThan(0);
+});
 
 test('the seven frozen legacy file configs cannot opt in', () => {
   expect(deployedLegacyPresets).toHaveLength(7);

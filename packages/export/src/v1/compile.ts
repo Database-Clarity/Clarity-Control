@@ -146,6 +146,18 @@ export function compile(input: LegacyInput, file: ExportFile, options: CompileOp
   return compileStyle(input, file, options);
 }
 
+/**
+ * The stand-in rule of a per-language file: a perk's text in `language` is English when it has no
+ * visible text of its own there (`hasOwnText` false: no text, or nothing after resolving), or when
+ * its translation falls back to English (more than 90 days behind, `englishFallback`). Such text
+ * is written under `language` and carries `edited.en` instead of `edited.<language>`.
+ */
+export const standsInEnglish = (
+  perk: { editor: Partial<Record<ExportLanguage, { main: string; englishFallback?: true }>> },
+  language: ExportLanguage,
+  hasOwnText: boolean,
+) => !hasOwnText || perk.editor[language]?.englishFallback === true;
+
 /** Globals of one language, built as the editor preview builds them (tooltipImports, variants.ts). */
 function globalsOf(lookup: ExpandedPerks, language: ExportLanguage) {
   const imports: Record<string, string> = Object.create(null);
@@ -301,8 +313,8 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
         const own = rows[language] !== undefined;
         if (!own && !perLanguage) continue;
         descriptions[language] = textOf(hash, own ? language : 'en');
-        const english = !own || lookup[hash].editor[language]?.englishFallback === true;
-        const source = perLanguage && english ? 'en' : language;
+        const source =
+          perLanguage && standsInEnglish(lookup[hash], language, own) ? 'en' : language;
         const edit = editedOf(hash, source);
         if (edit) edited[source] = edit;
       }
