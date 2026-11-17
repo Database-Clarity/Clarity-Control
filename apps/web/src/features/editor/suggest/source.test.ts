@@ -126,7 +126,7 @@ describe('options', () => {
     // Not numeric, so there is no transform; the pair snippet still takes it as its first value.
     expect(found.items.some((item) => item.category === 'Transforms')).toBe(false);
     expect(found.items.find((item) => item.id === 'snippet:pair')!.insert).toBe(
-      '<pve [XX [YY]] /> <pvp [?] />',
+      '<pve XX [YY] /> <pvp [?] />',
     );
   });
 

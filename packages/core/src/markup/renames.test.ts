@@ -49,7 +49,7 @@ test('the built-in catalogue follows the owner decisions', () => {
   const expand = (id: string) =>
     expandSnippet(markupSnippets.find((snippet) => snippet.id === id)!);
   const pair = expand('pair');
-  expect(pair.text).toBe('<pve [?] /> <pvp [?] />');
+  expect(pair.text).toBe('<pve ? /> <pvp [?] />');
   expect(pair.stops.map(({ from, to }) => pair.text.slice(from, to))).toEqual(['?', '?']);
   expect(expand('enhanced-block').text).toBe('enhanced (\n<enhanced/> \n)');
   expect(expand('icon-word').text).toBe('<solar Solar />');

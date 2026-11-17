@@ -221,7 +221,7 @@ describe('the markup row catalogue', () => {
   it('offers separate PvE and PvP tags next to the pair preset, and no tables anywhere', () => {
     const entries = markupEntries(globals);
     const markup = (id: string) => entries.find((entry) => entry.id === id)?.markup;
-    expect(markup('pair')).toBe('<pve [?] /> <pvp [?] />');
+    expect(markup('pair')).toBe('<pve ? /> <pvp [?] />');
     expect(markup('pve')).toBe('<pve value />');
     expect(markup('pvp')).toBe('<pvp [value] />');
     for (const entry of entries) {
@@ -290,7 +290,7 @@ describe('the markup row', () => {
   it('writes the pair preset and the separate PvE and PvP tags', () => {
     const view = mount('x ');
     click(entryButton('pair'));
-    expect(view.state.doc.toString()).toBe('x <pve [?] /> <pvp [?] />');
+    expect(view.state.doc.toString()).toBe('x <pve ? /> <pvp [?] />');
     const second = mount('y ');
     click(entryButton('pvp'));
     expect(second.state.doc.toString()).toBe('y <pvp [value] />');
@@ -335,7 +335,7 @@ describe('the markup row', () => {
   it('shows the markup on hover and the number key for the first nine', () => {
     mount('x');
     expect(entryButton('enhanced-arrow').title).toContain('key 1');
-    expect(entryButton('pair').title).toContain('<pve [?] /> <pvp [?] />');
+    expect(entryButton('pair').title).toContain('<pve ? /> <pvp [?] />');
     expect(entryButton('inline:bold').title).not.toContain('key');
     expect(entryButton('inline:exotic').title).toContain('Exotic');
   });

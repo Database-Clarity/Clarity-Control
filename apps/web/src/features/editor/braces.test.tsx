@@ -72,10 +72,10 @@ describe('the global e is the arrow, never a variable (visual review MUST-1/2)',
     ]) {
       const ids = items.map((item) => item.id);
       expect(ids).not.toContain('var:e');
-      expect(ids.includes('snippet:enhanced-arrow')).toBe(allowed);
+      expect(ids.includes('icon:enhanced-arrow')).toBe(allowed);
       expect(ids.includes('snippet:enhanced-formula')).toBe(allowed);
       if (allowed)
-        expect(items.find((item) => item.id === 'snippet:enhanced-arrow')?.insert).toBe(
+        expect(items.find((item) => item.id === 'icon:enhanced-arrow')?.insert).toBe(
           '<enhanced/>',
         );
     }

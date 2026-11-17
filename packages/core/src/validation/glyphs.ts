@@ -25,7 +25,7 @@ export function canReplaceGlyph(text: string, warning: GlyphWarning): boolean {
   const prefix = text.slice(text.lastIndexOf('\n', warning.from - 1) + 1, warning.from);
   if (
     warning.replacement === '<arrow/>' &&
-    /<(?:pve|pvp|bold|yellow|blue|green|purple|center) [^<>]*$/.test(prefix)
+    /<(?:pve|pvp|bold|yellow|exotic|blue|green|purple|center) [^<>]*$/.test(prefix)
   )
     return /^(?:[^<>]|<arrow\/>)* \/>/.test(text.slice(warning.to).split('\n')[0]);
   return prefix.lastIndexOf('<') <= prefix.lastIndexOf('>');

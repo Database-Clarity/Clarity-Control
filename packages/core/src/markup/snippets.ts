@@ -123,7 +123,7 @@ export const markupSnippets: readonly Snippet[] = [
     id: 'pair',
     label: 'PvE and PvP values',
     group: 'Values',
-    template: '<pve [{{1:?}}] /> <pvp [{{2:?}}] />',
+    template: '<pve {{1:?}} /> <pvp [{{2:?}}] />',
     keywords: 'pve pvp pair both numbers values',
     usage: /<pve [^<>]*\/>\s*<pvp /,
     fromSelection: true,
