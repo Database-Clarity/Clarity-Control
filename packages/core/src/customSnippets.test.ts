@@ -19,7 +19,20 @@ it('validates seeds and context-dependent references using the real validator', 
     expect(snippetTemplateIssue(template), template).toBeUndefined();
 });
 it('names invalid templates and label clashes', () => {
-  for (const template of ['<unknown/>', '<bold broken', '#name', '#{name', '{{1:broken', '{{bad}}', 'title Name (\nmissing close', 'enhanced (\nmissing close', 'import wrong', '${#{name}'])
+  for (const template of [
+    '<unknown/>',
+    '<bold broken',
+    '#name',
+    '#{name',
+    '{{1:broken',
+    '{{1}}',
+    '{{0:default}}',
+    '{{bad}}',
+    'title Name (\nmissing close',
+    'enhanced (\nmissing close',
+    'import wrong',
+    '${#{name}',
+  ])
     expect(snippetTemplateIssue(template), template).toBeTruthy();
   for (const value of [
     { label: 'LINK', template: 'ok' },

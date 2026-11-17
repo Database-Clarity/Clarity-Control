@@ -13,7 +13,9 @@ vi.mock('./apiAuth', () => ({
   },
 }));
 const call = vi.mocked(apiRequest);
-beforeEach(() => { call.mockReset(); });
+beforeEach(() => {
+  call.mockReset();
+});
 it('falls back to built-ins only for HTTP, network, or malformed custom data failures', async () => {
   for (const response of [
     new Response('{}', { status: 503 }),

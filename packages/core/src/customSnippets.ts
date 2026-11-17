@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { expandTemplate, markupSnippets, markupTags } from './markup/snippets.js';
 import { validateText } from './validation/index.js';
-import { variableReferences } from './markup/braces.js';
+import { variableReferences, enhancedArrowMarkup } from './markup/braces.js';
 import { markupColors, markupEmpty, markupIcons, markupLineClasses } from './markup/syntax.js';
 import { removeMarkupComments, markupImports, markupConditionMatches } from './markup/prepare.js';
 import { extractBlocks } from './markup/syntax.js';
@@ -11,6 +11,8 @@ export const snippetsPath = 'config/snippets.json';
 export const personalSnippetIdSchema = z.string().regex(/^me:[a-zA-Z0-9-]{1,64}$/);
 export const teamSnippetIdSchema = z.string().regex(/^team:[a-zA-Z0-9-]{1,64}$/);
 const builtInLabels = new Set([...markupSnippets, ...markupTags].map((s) => s.label.toLowerCase()));
+// This built-in is currently declared by the editor beside the core catalogue.
+builtInLabels.add(enhancedArrowMarkup);
 
 /** Save-time structural validation allows unresolved globals, titles, imports, and variables.
  * Editor roles (maintainer, editor, trial, and translator) have personal snippets; partners do not.
@@ -18,21 +20,27 @@ const builtInLabels = new Set([...markupSnippets, ...markupTags].map((s) => s.la
  * Expansion and markup parsing reuse the built-in template expander and editor parser.
  */
 export function snippetTemplateIssue(template: string): string | undefined {
+  if (/\{\{(?:[1-9]\d*\}\}|0:)/.test(template)) return 'Template fields use {{n:default}} or {{0}}';
   const text = expandTemplate(template).text;
   const source = removeMarkupComments(text);
   if (/#\{(?![a-zA-Z0-9]+\})/.test(source)) return 'Malformed variable: write #{name}';
   for (const line of source.split('\n')) {
-    if (/^import\b/.test(line) && !markupImports(line).includes(line)) return 'Malformed import declaration';
+    if (/^import\b/.test(line) && !markupImports(line).includes(line))
+      return 'Malformed import declaration';
   }
   for (const kind of ['title', 'export'] as const) {
     const count = [...source.matchAll(new RegExp(`^${kind} .+ \\(`, 'gm'))].length;
-    if (count !== Object.keys(extractBlocks(source, kind)).length) return `Unbalanced or duplicate ${kind} block`;
+    if (count !== Object.keys(extractBlocks(source, kind)).length)
+      return `Unbalanced or duplicate ${kind} block`;
   }
-  if ([...source.matchAll(/^enhanced \(/gm)].length !== markupConditionMatches(source, 'enhanced').length)
+  if (
+    [...source.matchAll(/^enhanced \(/gm)].length !==
+    markupConditionMatches(source, 'enhanced').length
+  )
     return 'Unbalanced enhanced block';
   // The built-in math grammar allows braced variable references inside its outer braces.
   for (const math of source.matchAll(/\$\{/g)) {
-    if (!/^\$\{(?:#\{[a-zA-Z0-9]+\}|[^}\n])+\}/.test(source.slice(math.index)))
+    if (!/^\$\{(?:#\{[a-zA-Z0-9]+\}|[^{}\n])+\}/.test(source.slice(math.index)))
       return 'Unbalanced math expression';
   }
   const knownTags = new Set([
@@ -57,17 +65,14 @@ export function snippetTemplateIssue(template: string): string | undefined {
     if (source.slice(ref.from, ref.to).startsWith('#{')) continue;
     return 'Write variables as #{name}, rather than #name';
   }
-  const issue = validateText(
-    text,
-    'en',
-    { variables: '', titles: '', type: enhancedMarkupType },
-    false,
-  ).find(
-    (issue) =>
-      !issue.message.startsWith('Unknown variable ') &&
-      !issue.message.startsWith('Unknown title ') &&
-      !issue.message.startsWith('Unresolved import '),
-  );
+  const issue = [undefined, enhancedMarkupType]
+    .flatMap((type) => validateText(text, 'en', { variables: '', titles: '', type }, false))
+    .find(
+      (issue) =>
+        !issue.message.startsWith('Unknown variable ') &&
+        !issue.message.startsWith('Unknown title ') &&
+        !issue.message.startsWith('Unresolved import '),
+    );
   return issue?.message;
 }
 
@@ -102,13 +107,17 @@ export const teamSnippetSchema = customSnippetSchema.extend({ id: teamSnippetIdS
  * Avoid reparsing up to 200,000 characters on every unrelated team write, and retain
  * old entries if a built-in label is renamed later. Requests still validate new templates.
  */
-export const storedSnippetSchema = z.object({
-  id: z.union([personalSnippetIdSchema, teamSnippetIdSchema]),
-  label: z.string().min(1).max(40),
-  template: z.string().min(1).max(2000),
-  keywords: z.string().max(2000).optional(),
-}).strict();
-export const storedPersonalSnippetSchema = storedSnippetSchema.extend({ id: personalSnippetIdSchema });
+export const storedSnippetSchema = z
+  .object({
+    id: z.union([personalSnippetIdSchema, teamSnippetIdSchema]),
+    label: z.string().min(1).max(40),
+    template: z.string().min(1).max(2000),
+    keywords: z.string().max(2000).optional(),
+  })
+  .strict();
+export const storedPersonalSnippetSchema = storedSnippetSchema.extend({
+  id: personalSnippetIdSchema,
+});
 export const storedTeamSnippetSchema = storedSnippetSchema.extend({ id: teamSnippetIdSchema });
 export type CustomSnippet = z.infer<typeof customSnippetSchema>;
 export type SnippetContent = z.infer<typeof snippetContentSchema>;

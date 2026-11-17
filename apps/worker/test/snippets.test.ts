@@ -165,10 +165,19 @@ it('enforces the team cap, ids, and validation', async () => {
   );
 });
 it('denies anonymous and partner-only accounts', async () => {
-  fixture.moveData({ 'config/permissions.json': { users: {}, partners: { '5': { login: 'partner', projects: ['project'] } } } });
+  fixture.moveData({
+    'config/permissions.json': {
+      users: {},
+      partners: { '5': { login: 'partner', projects: ['project'] } },
+    },
+  });
   for (const path of ['/snippets/mine', '/snippets/mine/me:one', '/snippets/team']) {
     expect((await fixture.request(path, 'GET', undefined, 5)).status).toBe(403);
-    const response = await worker.fetch(new Request(`https://api.example${path}`, { headers: { Origin: fixture.env.SITE_ORIGIN } }), fixture.env, { waitUntil: () => undefined });
+    const response = await worker.fetch(
+      new Request(`https://api.example${path}`, { headers: { Origin: fixture.env.SITE_ORIGIN } }),
+      fixture.env,
+      { waitUntil: () => undefined },
+    );
     expect(response.status).toBe(401);
   }
 });
@@ -178,8 +187,14 @@ it('rejects ciphertext moved between accounts or ids', async () => {
   await ok(await put(snippet, null, 2));
   const rows = db.prepare('SELECT * FROM user_snippets ORDER BY account_id, id').all();
   const target = rows[0];
-  for (const row of rows.slice(1)) db.prepare('UPDATE user_snippets SET iv = ?, ct = ?, revision = ? WHERE account_id = ? AND id = ?').run(target.iv, target.ct, target.revision, row.account_id, row.id);
-  const results = await Promise.all([fixture.request('/snippets/mine', 'GET'), fixture.request('/snippets/mine', 'GET', undefined, 2)]);
+  for (const row of rows.slice(1))
+    db.prepare(
+      'UPDATE user_snippets SET iv = ?, ct = ?, revision = ? WHERE account_id = ? AND id = ?',
+    ).run(target.iv, target.ct, target.revision, row.account_id, row.id);
+  const results = await Promise.all([
+    fixture.request('/snippets/mine', 'GET'),
+    fixture.request('/snippets/mine', 'GET', undefined, 2),
+  ]);
   expect(results.some((r) => r.status === 503)).toBe(true);
 });
 it('retries unrelated team changes, refuses same-entry races, and rechecks revoked permissions', async () => {
