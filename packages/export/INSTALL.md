@@ -31,6 +31,24 @@ Nothing here is installed by this repository. Each step is a production change t
   `editor-data`), and a run from any other ref must be refused by the environment. This could not
   be run before the install (it needs the workflows in the repository).
 
+## Kept-language rollout precondition
+
+Deploy the kept-language feature in this order (root ruling, 2026-11-17):
+
+1. Install `.exports/` built from `02e745048a233b99c700a34eec75670bcdfbd222`
+   or a descendant containing kept-language support.
+2. Run the legacy publishing job successfully and verify that the effective publish pin names
+   that installed engine and its converter commit. A failed manifest fetch does not advance the
+   pin, so an installation alone does not satisfy this step.
+3. Deploy the Worker containing the kept-language save and confirmation routes.
+
+An older pin's strict config schema rejects kept-language entries (`reason: "language"` and
+active/retained subsets sharing a folder). If the Worker saves one before the pin advances,
+build-site marks that project invalid and carries all of its previous URLs without updating
+them until a compatible pin is effective. The compatibility fallback for older pins preserves
+their protected entries; it does not teach their schema the new config shape. Installs, pin
+advances, and Worker deployment remain owner-gated.
+
 ## The publish pipeline's downstream job
 
 Its `converter` push uses `github.token`, which starts no workflow, so once the pipeline writes to

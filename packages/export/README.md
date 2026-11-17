@@ -137,6 +137,9 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, outputs[i].bytes))
   those URLs and save; cancellation writes nothing. Format-switch, rename, and file-removal
   entries keep their existing freeze and maintainer-deletion rules and cannot be confirm-evicted.
   A shared language folder belongs to one file uid; its active and retained subsets have distinct URLs.
+  If that uid reclaims only some URLs from a protected format-switch, rename, or removal entry,
+  the remaining URLs keep their original update deadline and then stay frozen until maintainer
+  deletion. Reclaiming one URL never ends another URL as a side effect.
 - **Shape**: `lines` (parts with icons, styles, links, and notes) or `text` (one string per
   language).
 - **Symbols**: each of the 16 icons, the enhanced arrow, bold, yellow, PvE, PvP, and element
@@ -234,6 +237,12 @@ Two Node scripts, bundled into `dist/` and installed as `.exports/` on the `conv
 
 `test/site/` runs every case through these scripts against local bare repositories and a
 simulated Pages project (no network).
+
+Deploy kept-language support in this order: install the matching `.exports/` engine and scripts,
+run the legacy job successfully so its publish pin advances to that engine, and only then deploy
+the Worker that can save kept-language entries. An older pinned config schema cannot read those
+entries; that project's URLs would be carried without updating until the pin advances. See the
+[kept-language rollout precondition](INSTALL.md#kept-language-rollout-precondition).
 
 Custom style files may set `data.includeShowcase: true` to add one built-in
 formatting example under the reserved item id `-1` (outside Bungie's unsigned
