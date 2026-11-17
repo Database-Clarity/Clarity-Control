@@ -27,6 +27,7 @@ import { reports, purgeReports } from './reports.js';
 import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
 import { minuteCron, scheduleTick } from './schedule/lifecycle.js';
 import { userWorklists } from './worklists.js';
+import { personalSnippetsRoute, teamSnippetsRoute } from './snippets.js';
 import { userSettings } from './settings.js';
 import type { Context, Env } from './types.js';
 
@@ -89,6 +90,13 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'POST' && path === '/save') return save(request, github, user);
   if (request.method === 'POST' && path === '/push-live') return pushLive(request, github, user);
   const worklist = /^\/worklists\/([^/]+)$/.exec(path);
+  const personalSnippet = /^\/snippets\/mine\/([^/]+)$/.exec(path);
+  if ((path === '/snippets/mine' || personalSnippet) && ['GET', 'PUT'].includes(request.method))
+    return personalSnippetsRoute(request, github, user, personalSnippet?.[1]);
+  if (path === '/snippets/team' && ['GET', 'PUT'].includes(request.method))
+    return teamSnippetsRoute(request, github, user);
+  if (path === '/snippets/team/copy' && request.method === 'POST')
+    return teamSnippetsRoute(request, github, user, true);
   if ((path === '/worklists' || worklist) && ['GET', 'PUT', 'DELETE'].includes(request.method)) {
     return userWorklists(request, github, user, worklist?.[1]);
   }
