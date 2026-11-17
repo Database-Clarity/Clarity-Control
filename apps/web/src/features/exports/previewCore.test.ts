@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
-import { parseMarkup } from '@clarity/core';
+import { parseMarkup, showcaseText } from '@clarity/core';
 import { deployedLegacyPresets, legacyPresets, newStyleFile, styles } from '@clarity/export';
 import type { ExportFile } from '@clarity/export/config';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -116,21 +116,18 @@ const siteBuild = (file: ExportFile) =>
   sha(nodeEngine.compile(input as never, file, { catalog, identical }).bytes);
 
 describe('G-PREVIEW', () => {
-  it('showcase samples match whole-file output, with explicit off and old-pin states', async () => {
+  it('the showcase is always previewed and matches whole-file output, with an old-pin state', async () => {
     const snapshot = await loadSnapshot(io(), site, status);
     const preview = new Preview(io(), snapshot, { site, liveRaw });
     for (const style of styles) {
       const file = newStyleFile('showcase', style);
-      expect(await preview.sample(file, '-1', null)).toEqual({
-        kind: 'absent',
-        reason: 'Feature showcase is off',
-      });
+      // Not in the file: still built for the preview, as the file would carry it.
+      const off = await preview.sample(file, '-1', null);
       file.data.includeShowcase = true;
       const plan = nodeEngine.compile(snapshot.input, file, { catalog, identical });
-      expect(await preview.sample(file, '-1', null)).toEqual({
-        kind: 'entry',
-        entry: plan.expanded!['-1'],
-      });
+      const expected = { kind: 'entry', entry: plan.expanded!['-1'], source: showcaseText };
+      expect(off).toEqual(expected);
+      expect(await preview.sample(file, '-1', null)).toEqual(expected);
     }
     const old = new Preview(
       io(),
@@ -179,9 +176,45 @@ describe('G-PREVIEW', () => {
       for (const hash of picked) {
         const sample = await preview.sample(file, hash, null);
         const entry = plan.expanded?.[hash];
-        if (entry) expect(sample, `${file.id} ${hash}`).toEqual({ kind: 'entry', entry });
+        if (entry) expect(sample, `${file.id} ${hash}`).toMatchObject({ kind: 'entry', entry });
         else expect(sample.kind, `${file.id} ${hash}`).toBe('absent');
       }
+    }
+  }, 300_000);
+
+  it('a file split per language samples the shown language’s URL and flags English stand-ins', async () => {
+    const snapshot = await loadSnapshot(io(), site, status);
+    const categories = catalog.categories.map((category) => category.id);
+    const file = newStyleFile('split', 'structured', {
+      ...newStyleFile('x1', 'structured').data,
+      categories,
+      languages: ['en', 'de'],
+      languageFiles: 'perLanguage',
+    });
+    // The fixture is English only: give one perk of the file its own German text.
+    type Perks = Record<string, { editor?: Record<string, { main: string; secondary: string }> }>;
+    const english = nodeEngine.compile(snapshot.input, file, { catalog, identical });
+    const [own, standIn] = Object.keys(english.outputs![1]!.expanded).filter(
+      (hash) => hash !== '-1' && (snapshot.input.perks as Perks)[hash]?.editor,
+    );
+    const perks = structuredClone(snapshot.input.perks) as Perks;
+    perks[own!]!.editor!.de = { main: 'Eigener deutscher Text.', secondary: '' };
+    const translated = { ...snapshot.input, perks } as typeof snapshot.input;
+    const preview = new Preview(io(), { ...snapshot, input: translated }, { site, liveRaw });
+    const plan = nodeEngine.compile(translated, file, { catalog, identical });
+    const output = (language: string) =>
+      plan.outputs!.find((candidate) => (candidate.languages as string[]).includes(language))!;
+    for (const [hash, language, flagged] of [
+      [own!, 'de', false],
+      [standIn!, 'de', true],
+      [own!, 'en', false],
+    ] as const) {
+      const sample = await preview.sample(file, hash, null, language);
+      expect(sample, `${hash} ${language}`).toMatchObject({
+        kind: 'entry',
+        entry: output(language).expanded[hash],
+      });
+      expect(sample.kind === 'entry' && !!sample.standIn, `${hash} ${language}`).toBe(flagged);
     }
   }, 300_000);
 

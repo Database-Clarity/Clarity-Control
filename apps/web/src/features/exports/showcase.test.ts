@@ -78,12 +78,14 @@ test('standalone showcase parses with no diagnostics in base and enhanced previe
   for (const type of ['Weapon Trait', 'Weapon Trait Enhanced']) {
     const result = parseMarkup(showcaseText, { ...showcaseGlobals, type });
     expect(result.diagnostics).toEqual([]);
-    expect(result.lines.length).toBeGreaterThan(30);
+    // Compact: one line per feature, the icons in four lines (owner 2026-11-16).
+    expect(result.lines.length).toBeLessThanOrEqual(20);
     const rendered = JSON.stringify(result.lines);
     expect(rendered).toContain(
       type === 'Weapon Trait Enhanced'
-        ? 'Enhanced perks replace the base text with this line.'
-        : 'Base perks use this text.',
+        ? 'Enhanced perks get this line instead.'
+        : 'Base perks get this line.',
     );
+    expect(showcaseText).not.toContain('PvP override');
   }
 });

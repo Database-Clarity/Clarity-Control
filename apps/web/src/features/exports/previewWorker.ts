@@ -23,8 +23,10 @@ export type PreviewRequest =
       hash: string;
       live: LiveRef | null;
       withLive: boolean;
+      /** The language shown: a file split per language samples that language's URL. */
+      language: string | null;
     }
-  | { type: 'numbers'; id: number; file: ExportFile; live: LiveRef | null }
+  | { type: 'numbers'; id: number; file: ExportFile; live: LiveRef | null; language: string | null }
   | { type: 'bytes'; id: number; file: ExportFile }
   | { type: 'published'; id: number; language: string };
 
@@ -84,7 +86,7 @@ async function drainSamples() {
       latestSample = null;
       const ready = await preview!;
       await answer(request.id, async () => ({
-        preview: await ready.sample(request.file, request.hash, request.live),
+        preview: await ready.sample(request.file, request.hash, request.live, request.language),
         live:
           request.withLive && request.live
             ? await ready.liveSample(request.live, request.hash)
@@ -124,7 +126,9 @@ scope.onmessage = (event: MessageEvent<PreviewRequest>) => {
   }
   const ready = preview;
   if (request.type === 'numbers')
-    void answer(request.id, async () => (await ready).numbers(request.file, request.live));
+    void answer(request.id, async () =>
+      (await ready).numbers(request.file, request.live, request.language),
+    );
   else if (request.type === 'bytes')
     void answer(request.id, async () => {
       const bytes = await (await ready).bytes(request.file);

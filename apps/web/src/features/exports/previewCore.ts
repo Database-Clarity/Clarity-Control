@@ -2,15 +2,26 @@
 // Node: load the snapshot `/_build/status.json` names, verify every file's sha256, import the
 // snapshot's own engine (never the app's build), then build samples and whole files with it.
 // previewWorker.ts runs this in a Web Worker; full builds only ever run there.
-import { showcaseId } from '@clarity/core';
+import { showcaseId, showcaseText } from '@clarity/core';
 import type * as EngineModule from '@clarity/export';
-import type { Catalog, ExportFile, LegacyInput } from '@clarity/export';
+import type { Catalog, ExportFile, LegacyInput, Plan } from '@clarity/export';
 import { snapshotNames, type BuildStatus } from './site';
 
 export type Engine = Pick<
   typeof EngineModule,
   'compile' | 'decodeV1' | 'isLegacyFile' | 'deployedLegacyPresets' | 'legacyFileName'
->;
+> & {
+  /** The showcase markup the engine builds perk -1 from (engines that export it). */
+  showcaseText?: string;
+  /** Whether English stands in for a language of a per-language file (engines that export it). */
+  standsIn?: (typeof EngineModule)['standsIn'];
+};
+
+/** The output of a plan that holds `language` (one per language, or the whole file). */
+const outputFor = (plan: Plan, language: string | null) =>
+  plan.outputs?.find(
+    (output) => language !== null && (output.languages as string[]).includes(language),
+  ) ?? plan.outputs?.[0];
 
 export interface PreviewIo {
   fetch(url: string, init?: RequestInit): Promise<Response>;
@@ -99,7 +110,14 @@ export function entriesOf(engine: Engine, bytes: Uint8Array): Entries {
 }
 
 export type SampleResult =
-  | { kind: 'entry'; entry: unknown }
+  | {
+      kind: 'entry';
+      entry: unknown;
+      /** The markup the editors wrote (the shown language's, else English). */
+      source?: string;
+      /** One file per language: the shown language has no text of its own, English stands in. */
+      standIn?: boolean;
+    }
   | { kind: 'absent'; reason: string }
   | { kind: 'error'; message: string };
 
@@ -160,7 +178,7 @@ const engineIsLegacy = (snapshot: Snapshot, file: ExportFile) => snapshot.engine
  */
 export class Preview {
   private live = new Map<string, Promise<{ bytes: Uint8Array; entries: Entries }>>();
-  private builds = new Map<string, Promise<{ bytes: Uint8Array; notices: unknown[] }>>();
+  private builds = new Map<string, Promise<Plan>>();
   private parsed = new Map<string, Entries>();
 
   constructor(
@@ -203,29 +221,33 @@ export class Preview {
   }
 
   /** A whole-file build, cached by config (the last four). */
-  build(file: ExportFile): Promise<{ bytes: Uint8Array; notices: unknown[] }> {
+  build(file: ExportFile): Promise<Plan> {
     const key = JSON.stringify(file);
     let build = this.builds.get(key);
     if (!build) {
       const { engine, input, catalog, identical } = this.snapshot;
-      build = Promise.resolve().then(() => {
-        const plan = engine.compile(input, file, { catalog, identical });
-        return { bytes: plan.bytes, notices: plan.notices };
-      });
+      build = Promise.resolve().then(() => engine.compile(input, file, { catalog, identical }));
       build.catch(() => this.builds.delete(key));
       this.builds.set(key, build);
       if (this.builds.size > 4) {
         const oldest = this.builds.keys().next().value!;
         this.builds.delete(oldest);
-        this.parsed.delete(oldest);
+        for (const parsed of this.parsed.keys())
+          if (parsed.startsWith(`${oldest}\n`)) this.parsed.delete(parsed);
       }
     }
     return build;
   }
 
-  private async builtEntries(file: ExportFile): Promise<Entries> {
-    const key = JSON.stringify(file);
-    const { bytes } = await this.build(file);
+  /** The bytes of the URL that holds `language` (one per language, or the whole file). */
+  private async builtBytes(file: ExportFile, language: string | null): Promise<Uint8Array> {
+    const plan = await this.build(file);
+    return outputFor(plan, language)?.bytes ?? plan.bytes;
+  }
+
+  private async builtEntries(file: ExportFile, language: string | null): Promise<Entries> {
+    const bytes = await this.builtBytes(file, language);
+    const key = `${JSON.stringify(file)}\n${language}`;
     let entries = this.parsed.get(key);
     if (!entries) {
       entries = entriesOf(this.snapshot.engine, bytes);
@@ -235,13 +257,20 @@ export class Preview {
   }
 
   /**
-   * One entry exactly as the file has it. A style file compiles with a catalog reduced to the
-   * sample's owner and its associations' owners: every other row is skipped before it is
-   * resolved, so a sample costs one row, while resolution (imports, globals) still reads the
-   * whole input. The entry equals the whole-file build's (tested). Legacy presets show the live
-   * file (deployed presets) or a whole build (clarityV2).
+   * One entry exactly as the file has it, from the URL that holds `language` when the file is
+   * split per language. A style file compiles with a catalog reduced to the sample's owner and
+   * its references' owners: every other row is skipped before it is resolved, so a sample costs
+   * one row, while resolution (imports, globals) still reads the whole input. The entry equals
+   * the whole-file build's (tested). Legacy presets show the live file (deployed presets) or a
+   * whole build (clarityV2). The showcase is always built (the include flag only decides whether
+   * the published file carries it), so every setting can be tried on it.
    */
-  async sample(file: ExportFile, hash: string, liveRef: LiveRef | null): Promise<SampleResult> {
+  async sample(
+    file: ExportFile,
+    hash: string,
+    liveRef: LiveRef | null,
+    language: string | null = null,
+  ): Promise<SampleResult> {
     const { engine, input, catalog, identical } = this.snapshot;
     try {
       if (showsLiveFile(engine, file)) {
@@ -252,18 +281,20 @@ export class Preview {
           : { kind: 'absent', reason: absentReason(this.snapshot, file, hash) };
       }
       if (engine.isLegacyFile(file)) {
-        const entries = await this.builtEntries(file);
+        const entries = await this.builtEntries(file, null);
         return hash in entries
           ? { kind: 'entry', entry: entries[hash] }
           : { kind: 'absent', reason: absentReason(this.snapshot, file, hash) };
       }
       if (hash === showcaseId) {
-        if (!('data' in file) || !file.data.includeShowcase)
-          return { kind: 'absent', reason: 'Feature showcase is off' };
-        const plan = engine.compile(input, file, { catalog: { items: {}, categories: [] } });
-        const entry = plan.expanded?.[hash];
+        const plan = engine.compile(
+          input,
+          { ...file, data: { ...file.data, includeShowcase: true } },
+          { catalog: { items: {}, categories: [] } },
+        );
+        const entry = (outputFor(plan, language)?.expanded ?? plan.expanded)?.[hash];
         return entry
-          ? { kind: 'entry', entry }
+          ? { kind: 'entry', entry, source: engine.showcaseText ?? showcaseText }
           : {
               kind: 'absent',
               reason: 'The pinned engine does not include the feature showcase yet',
@@ -274,10 +305,9 @@ export class Preview {
       const own = ownerOf(input, hash);
       items[own] = catalog.items[own];
       const perk = input.perks[hash]!;
-      const canonical = 'aliasOf' in perk ? input.perks[String(perk.aliasOf)] : perk;
-      const associated =
-        canonical && !('aliasOf' in canonical) ? (canonical.associated ?? []) : ([] as number[]);
-      for (const target of associated) {
+      const raw = 'aliasOf' in perk ? input.perks[String(perk.aliasOf)] : perk;
+      const canonical = raw && !('aliasOf' in raw) ? raw : undefined;
+      for (const target of canonical?.associated ?? []) {
         const owner = ownerOf(input, String(target));
         items[owner] = catalog.items[owner];
       }
@@ -285,10 +315,28 @@ export class Preview {
         catalog: { items, categories: catalog.categories },
         identical,
       });
-      const entry = plan.expanded?.[hash];
-      return entry
-        ? { kind: 'entry', entry }
-        : { kind: 'absent', reason: absentReason(this.snapshot, file, hash) };
+      const entry = (outputFor(plan, language)?.expanded ?? plan.expanded)?.[hash];
+      if (!entry) return { kind: 'absent', reason: absentReason(this.snapshot, file, hash) };
+      const editor = canonical?.editor as Record<string, { main: string } | undefined> | undefined;
+      const text = language ? editor?.[language] : undefined;
+      // The pinned engine's own rule (no text of its own, or the 90-day English fallback); the
+      // preview does not resolve markup, so non-blank markup counts as text of its own. An engine
+      // without the rule predates per-language files, so it has no stand-ins to flag.
+      const standIn =
+        !!canonical &&
+        file.data.languageFiles === 'perLanguage' &&
+        language !== null &&
+        language !== 'en' &&
+        (engine.standsIn?.(canonical, language as never, {
+          [language]: text?.main.trim() ? true : undefined,
+        }) ??
+          false);
+      return {
+        kind: 'entry',
+        entry,
+        source: text?.main.trim() && !standIn ? text.main : editor?.en?.main,
+        ...(standIn ? { standIn } : {}),
+      };
     } catch (error) {
       return { kind: 'error', message: error instanceof Error ? error.message : String(error) };
     }
@@ -306,8 +354,15 @@ export class Preview {
     }
   }
 
-  /** Whole-file numbers from an on-demand full build (spec section 8, the strip). */
-  async numbers(file: ExportFile, liveRef: LiveRef | null): Promise<FileNumbers> {
+  /**
+   * Whole-file numbers from an on-demand full build (spec section 8, the strip); for a file
+   * split per language, the numbers of the URL that holds `language`.
+   */
+  async numbers(
+    file: ExportFile,
+    liveRef: LiveRef | null,
+    language: string | null = null,
+  ): Promise<FileNumbers> {
     const { engine } = this.snapshot;
     let bytes: Uint8Array;
     let notices: unknown[] = [];
@@ -316,8 +371,9 @@ export class Preview {
       if (liveRef?.kind !== 'legacy') throw new Error('No live file named');
       ({ bytes, entries } = await this.liveFile(liveRef));
     } else {
-      ({ bytes, notices } = await this.build(file));
-      entries = await this.builtEntries(file);
+      notices = (await this.build(file)).notices;
+      bytes = await this.builtBytes(file, language);
+      entries = await this.builtEntries(file, language);
     }
     let changed: number | null = null;
     if (liveRef) {

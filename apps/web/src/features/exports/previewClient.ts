@@ -56,7 +56,13 @@ class Channel {
   }
 
   /** The newest sample wins: an older one still waiting resolves to null. */
-  sample(file: ExportFile, hash: string, live: LiveRef | null, withLive: boolean) {
+  sample(
+    file: ExportFile,
+    hash: string,
+    live: LiveRef | null,
+    withLive: boolean,
+    language: string | null,
+  ) {
     this.latestSample?.resolve(null);
     const id = this.next++;
     return new Promise<SamplePair | null>((resolve, reject) => {
@@ -68,7 +74,7 @@ class Channel {
         },
         reject,
       });
-      this.post({ type: 'sample', id, file, hash, live, withLive });
+      this.post({ type: 'sample', id, file, hash, live, withLive, language });
     });
   }
 
@@ -90,16 +96,22 @@ export class PreviewClient {
     this.ready = this.samples.ready;
   }
 
-  sample(file: ExportFile, hash: string, live: LiveRef | null, withLive = false) {
-    return this.samples.sample(file, hash, live, withLive);
+  sample(
+    file: ExportFile,
+    hash: string,
+    live: LiveRef | null,
+    withLive = false,
+    language: string | null = null,
+  ) {
+    return this.samples.sample(file, hash, live, withLive, language);
   }
 
-  /** Whole-file numbers; the build worker starts on first use. */
-  numbers(file: ExportFile, live: LiveRef | null): Promise<FileNumbers> {
+  /** Whole-file numbers (of the shown language's URL); the build worker starts on first use. */
+  numbers(file: ExportFile, live: LiveRef | null, language: string | null = null) {
     this.builds ??= new Channel(this.status);
     const builds = this.builds;
     return builds.ready.then(() =>
-      builds.request<FileNumbers>((id) => ({ type: 'numbers', id, file, live })),
+      builds.request<FileNumbers>((id) => ({ type: 'numbers', id, file, live, language })),
     );
   }
 

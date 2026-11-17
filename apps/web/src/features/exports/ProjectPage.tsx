@@ -3,7 +3,7 @@ import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 // config on the left and the preview on the right; one column with Config | Preview tabs on
 // phones and at 768. The URL holds the file tab (`file`), the preview pick (`pick`), and the
 // narrow view (`view`), so Back walks through them.
-import { configLimits, configSchema } from '@clarity/export/config';
+import { configLimits, configSchema, fileUrls } from '@clarity/export/config';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../services/http';
@@ -14,9 +14,18 @@ import { useMedia } from '../../ui/useMedia';
 import { ExportsError, loadProject, saveProject, type SaveOutcome } from './api';
 import { FileBuildStatus } from './BuildStatus';
 import { ConfigPanel, RetainedSection } from './ConfigPanel';
-import { addFile, fileKey, fromConfig, isDirty, rebase, type ProjectState } from './configModel';
-import { PreviewPanel } from './PreviewPanel';
-import { fileUrl } from './site';
+import {
+  addFile,
+  fileKey,
+  fromConfig,
+  isDirty,
+  rebase,
+  shownLanguage,
+  urlFor,
+  type ProjectState,
+} from './configModel';
+import { PreviewPanel, type LastOutput } from './PreviewPanel';
+import { fileUrl, isFailure } from './site';
 import { useSiteRefresh, useSiteStore } from './useSite';
 import styles from './Exports.module.scss';
 
@@ -98,6 +107,10 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
     [scope],
   );
   const [save, setSave] = useState<SaveState>({ kind: 'idle' });
+  // The preview's language and its last output live here: the header names the shown language's
+  // URL, and the phone's Preview tab marks what changed while Config was open.
+  const [language, setLanguage] = useState<string | null>(null);
+  const lastOutput = useRef<LastOutput | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   // Completions land only on this page instance, and only from the latest load.
@@ -249,7 +262,7 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
     min: 360,
     max: 760,
     reserve: 360,
-    defaultWidth: (width) => Math.round(Math.min(680, Math.max(520, width * 0.5))),
+    defaultWidth: (width) => Math.round(Math.min(680, Math.max(520, width * 0.42))),
     persist: !narrow,
     // The columns mount once the project has loaded (and only on wide screens): measuring
     // resumes then, so the default width follows the real container instead of its minimum.
@@ -297,7 +310,17 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
     return <LoadingSkeleton label="Loading project…" shape="page" visible={loadingSkeleton} />;
 
   const cooling = save.kind === 'cooldown' ? Math.max(0, Math.ceil((save.until - now) / 1000)) : 0;
-  const path = file ? `${id}/v${file.formatVersion}/${file.id}.json` : null;
+  const shownLang = file ? shownLanguage(file, language) : null;
+  const perLanguage = !!file && 'data' in file && file.data.languageFiles === 'perLanguage';
+  const path = file ? urlFor(id, file, shownLang) : null;
+  // A file split per language: how many of its other URLs failed to build.
+  const otherFailures = file
+    ? fileUrls(id, file).filter(
+        (url) =>
+          url.path !== path &&
+          notices.some((notice) => notice.path === url.path && isFailure(notice)),
+      ).length
+    : 0;
   const saveLabel = save.kind === 'saving' ? 'Saving…' : cooling ? `Save in ${cooling} s` : 'Save';
 
   const header = (
@@ -355,6 +378,8 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
             notices={notices}
             path={path}
             formatVersion={file.formatVersion}
+            language={perLanguage ? shownLang : null}
+            otherFailures={otherFailures}
           />
         )}
         {path && <CopyUrl url={fileUrl(path)} />}
@@ -434,6 +459,9 @@ function ProjectView({ id, scope }: { id: string; scope: string }) {
         file={file}
         pick={params.get('pick')}
         onPick={(hash) => setParam('pick', hash)}
+        language={language}
+        onLanguage={setLanguage}
+        lastOutput={lastOutput}
       />
     ) : null;
 

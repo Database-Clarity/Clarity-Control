@@ -214,11 +214,11 @@ describe('ranking', () => {
 
   test('recently used options come first when nothing is typed', () => {
     const fresh = menu('', true)!.items.filter((item) => item.category === 'Snippets');
-    const pinned = menu('', true, undefined, undefined, ['snippet:pvp-override'])!.items.filter(
+    const pinned = menu('', true, undefined, undefined, ['snippet:enhanced-block'])!.items.filter(
       (item) => item.category === 'Snippets',
     );
-    expect(fresh[0]!.id).not.toBe('snippet:pvp-override');
-    expect(pinned[0]!.id).toBe('snippet:pvp-override');
+    expect(fresh[0]!.id).not.toBe('snippet:enhanced-block');
+    expect(pinned[0]!.id).toBe('snippet:enhanced-block');
   });
 
   test('the category holding the best match leads when something is typed', () => {

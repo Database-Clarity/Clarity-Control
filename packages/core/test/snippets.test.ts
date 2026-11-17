@@ -52,7 +52,8 @@ describe('the catalogue', () => {
   });
   test('has separate PvE and PvP tags next to the pair preset, and no tables', () => {
     const ids = markupSnippets.map((snippet) => snippet.id);
-    expect(ids).toEqual(expect.arrayContaining(['pve', 'pvp', 'pair', 'pvp-override']));
+    expect(ids).toEqual(expect.arrayContaining(['pve', 'pvp', 'pair']));
+    expect(ids).not.toContain('pvp-override');
     for (const text of [
       ...markupSnippets.flatMap((snippet) => [snippet.id, snippet.label, snippet.template]),
       ...markupTags.flatMap((tag) => [tag.id, tag.label, tag.template]),

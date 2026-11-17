@@ -391,6 +391,20 @@ function attributeChanges(events) {
 }
 
 if (perfOnly) {
+  // Page open: from navigation start to the first sample on screen (config and preview ready),
+  // six fresh contexts, alternating the default pick (showcase) and a real perk.
+  const openMs = [];
+  for (let round = 0; round < 6; round++) {
+    const opened = await open({
+      who: MAINTAINER,
+      path: round % 2 ? `/exports/sample?pick=${sampleHash}` : '/exports/sample',
+    });
+    await ready(opened.page, '[aria-label="Bold mode"]');
+    await sampleShown(opened.page);
+    // The first open warms the browser's HTTP cache and is not counted.
+    if (round) openMs.push(Math.round(await opened.page.evaluate(() => performance.now())));
+    await opened.context.close();
+  }
   // AC3: sample repaint after an option change, and long tasks on the main thread (1x).
   const { page, context } = await open({
     who: MAINTAINER,
@@ -433,7 +447,9 @@ if (perfOnly) {
       'blink.user_timing',
     ],
   });
-  const rows = ['Bold', 'Arc', 'Solar', 'Void', 'Titles', 'Links', 'Spacer lines', 'PvE'];
+  // The hover-text row is "Notes" since the Exports redesign ("Titles" before it).
+  const notes = (await page.locator('[aria-label="Notes mode"]').count()) ? 'Notes' : 'Titles';
+  const rows = ['Bold', 'Arc', 'Solar', 'Void', notes, 'Links', 'Spacer lines', 'PvE'];
   for (let round = 0; round < 3; round++)
     for (const row of rows) {
       const group = page.locator(`[aria-label="${row} mode"]`);
@@ -476,6 +492,7 @@ if (perfOnly) {
   const sorted = [...repaint].sort((a, b) => a - b);
   console.log(
     JSON.stringify({
+      openMs,
       repaintMs: repaint,
       commitMs: commit,
       windows,
@@ -706,7 +723,8 @@ if (!process.argv.includes('--skip-preview')) {
   assert.equal(label, 'Preview build');
   await page.locator('button:has-text("Diff vs live file")').click();
   await sampleShown(page);
-  await page.waitForSelector('[aria-label^="Word diff"]');
+  // The fixture's live file was built from this config: the perk is unchanged.
+  await ready(page, 'text=Same as the live file.');
   await page.locator('button:has-text("Build whole file")').click();
   await ready(page, 'text=changed vs live', 120_000);
   await page.screenshot({ path: join(shots, 'project-diff-numbers-1280-dark.png') });
@@ -770,7 +788,8 @@ if (!process.argv.includes('--skip-preview')) {
   await page.goto(`${appOrigin}/#/exports/dim?pick=${sampleHash}`);
   await sampleShown(page);
   assert.equal(await page.locator('[data-kind]').first().textContent(), 'Live file');
-  assert.equal(await page.locator('button:has-text("Diff vs live file")').isDisabled(), true);
+  // The page already shows the live file: nothing to diff against.
+  assert.equal(await page.locator('button:has-text("Diff vs live file")').count(), 0);
   await page.screenshot({ path: join(shots, 'state-live-legacy-1280-dark.png') });
   assert.deepEqual(errors, [], `maintainer page errors: ${errors}`);
   await context.close();
@@ -810,6 +829,18 @@ const overflow = (page) =>
         return el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
       })
       .map((el) => `${el.tagName} ${el.textContent.trim().slice(0, 30)}`),
+    // Controls stay inside their bar (a squeezed bar once let a button hang over its border).
+    escaped: [
+      ...document.querySelectorAll('[class*="previewBar"], [class*="paneHeading"]'),
+    ].flatMap((bar) => {
+      const box = bar.getBoundingClientRect();
+      return [...bar.querySelectorAll('button, select')]
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.height && (r.bottom > box.bottom + 1 || r.top < box.top - 1);
+        })
+        .map((el) => el.textContent.trim().slice(0, 30));
+    }),
     // Stacked page parts never overlap (the project header above the view tabs or columns).
     overlap: [...document.querySelectorAll('[class*="projectHeader"], [class*="banner"]')]
       .filter((el) => {
@@ -875,9 +906,16 @@ const overflow = (page) =>
 const matrix = [];
 for (const width of [390, 768, 1280])
   for (const theme of ['dark', 'light'])
-    for (const scale of [100, 150]) {
+    // Phones: judged at 100, checked at 120, and at 150 for breakage.
+    for (const scale of width < 700 ? [100, 120, 150] : [100, 150]) {
       const views = [
         { name: 'list', who: MAINTAINER, path: '/exports', wait: 'table >> text=sample' },
+        {
+          name: 'showcase',
+          who: MAINTAINER,
+          path: `/exports/sample${width < 900 ? '?view=preview' : ''}`,
+          wait: '[data-config-version]',
+        },
         {
           name: 'project',
           who: MAINTAINER,
@@ -908,16 +946,16 @@ for (const width of [390, 768, 1280])
         });
         await ready(page, view.wait);
         if (view.name.startsWith('project')) await page.waitForTimeout(300);
-        if (view.name === 'project-preview') await sampleShown(page);
+        if (view.name === 'project-preview' || view.name === 'showcase') await sampleShown(page);
         const found = await overflow(page);
         const shot = `${view.name}-${width}-${theme}-${scale}.png`;
         await page.screenshot({ path: join(shots, shot) });
-        // The config column starts at its default width, not its minimum (desktop, UI 100).
+        // The config column starts at its default width (42%, at least 520px), not its minimum.
         if (view.name === 'project' && width === 1280 && scale === 100) {
           const configWidth = await page
             .locator('[class*="configColumn"]')
             .evaluate((el) => el.getBoundingClientRect().width);
-          if (configWidth < 600) found.wide.push(`config column ${Math.round(configWidth)}px`);
+          if (configWidth < 519) found.wide.push(`config column ${Math.round(configWidth)}px`);
         }
         matrix.push({ shot, ...found, errors });
         if (view.name === 'project') {
@@ -933,10 +971,67 @@ for (const width of [390, 768, 1280])
         await context.close();
       }
     }
+// Interaction states on the showcase (spec section 2): the last edit's marks (on narrow screens
+// changed on the Config tab, then seen on Preview), one file per language, the text shape, and
+// the markup source.
+const configThen = async (page, narrow, change) => {
+  if (narrow) await page.locator('[role="tab"]:has-text("Config")').click();
+  await change();
+  if (narrow) await page.locator('[role="tab"]:has-text("Preview")').click();
+  await sampleShown(page);
+  await page.waitForTimeout(200);
+};
+for (const width of [390, 1280])
+  for (const theme of ['dark', 'light']) {
+    const narrow = width < 900;
+    const { page, context, errors } = await open({
+      who: MAINTAINER,
+      width,
+      theme,
+      path: `/exports/sample${narrow ? '?view=preview' : ''}`,
+    });
+    await ready(page, '[data-config-version]');
+    await sampleShown(page);
+    const shoot = async (name) => {
+      const shot = `state-${name}-${width}-${theme}.png`;
+      await page.screenshot({ path: join(shots, shot) });
+      matrix.push({ shot, ...(await overflow(page)), errors });
+    };
+    await configThen(page, narrow, () =>
+      page
+        .locator('[aria-label="Arc mode"] button:not([aria-pressed="true"]):not([disabled])')
+        .first()
+        .click(),
+    );
+    const status = await page.locator('[class*="lastEdit"]').textContent();
+    assert.match(status, /changed by your last edit|removed by your last edit/, status);
+    assert.ok(await page.locator('[data-changed]').count(), 'changed rows are marked');
+    await shoot('last-edit');
+    // Structured lines: Rendered draws the parts (icons, styles, notes, links) from the output.
+    await configThen(page, narrow, () =>
+      page.getByLabel('Style', { exact: true }).selectOption('structured'),
+    );
+    assert.match(await page.locator('[aria-label="Rendered"] h3').textContent(), /drawn from/);
+    await shoot('structured-lines');
+    await configThen(page, narrow, () =>
+      page.locator('[aria-label="Language files"] button:has-text("Per language")').click(),
+    );
+    await shoot('per-language');
+    await page.locator('button:has-text("Markup source")').click();
+    await shoot('markup-source');
+    await page.locator('button:has-text("Markup source")').click();
+    await configThen(page, narrow, () =>
+      page.locator('[aria-label="Shape"] button:has-text("Text")').click(),
+    );
+    await shoot('text-shape');
+    await context.close();
+  }
+
 results.renderQa = matrix;
 const failures = matrix.filter(
   (row) =>
     row.page > 0 ||
+    row.escaped.length ||
     row.wide.length ||
     row.clipped.length ||
     row.overlap.length ||

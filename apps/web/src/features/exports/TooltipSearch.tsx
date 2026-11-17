@@ -1,7 +1,14 @@
 // Tooltip search for the export preview and the partner Tooltips view: the editor finder's search
 // (navigationGroups) as one combobox, plus recent picks. Typing a hash also offers that hash, so
 // aliases and sandbox perks can be picked by number.
-import { useDeferredValue, useId, useMemo, useState, type KeyboardEvent } from 'react';
+import {
+  useDeferredValue,
+  useId,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { useDataStore } from '../../stores/data';
 import { navigationGroups } from '../navigation/catalog';
 import styles from './Exports.module.scss';
@@ -17,11 +24,17 @@ const limit = 40;
 export function TooltipSearch({
   onPick,
   recent,
-  label = 'Find a tooltip',
+  label = 'Find a perk',
+  current,
+  lead,
 }: {
   onPick(pick: Pick): void;
   recent: readonly Pick[];
   label?: string;
+  /** The hash on show: its pick reads as pressed. */
+  current?: string | null;
+  /** A fixed first pick (the feature showcase). */
+  lead?: ReactNode;
 }) {
   const data = useDataStore((state) => state.data);
   const [query, setQuery] = useState('');
@@ -81,7 +94,7 @@ export function TooltipSearch({
         aria-controls={`${id}-list`}
         aria-autocomplete="list"
         aria-activedescendant={showList ? `${id}-${active}` : undefined}
-        placeholder={data ? 'Find a tooltip by name or hash' : 'Loading tooltips…'}
+        placeholder={data ? 'Find a perk by name or hash' : 'Loading tooltips…'}
         disabled={!data}
         value={query}
         onChange={(event) => {
@@ -114,13 +127,15 @@ export function TooltipSearch({
           ))}
         </ul>
       )}
-      {recent.length > 0 && (
+      {(recent.length > 0 || lead) && (
         <div className={styles.recent} role="group" aria-label="Recent picks">
+          {lead}
           {recent.map((pick) => (
             <button
               key={pick.hash}
               type="button"
               className={styles.recentPick}
+              aria-pressed={current === undefined ? undefined : pick.hash === current}
               title={`${pick.name} (${pick.hash})`}
               onClick={() => onPick(pick)}
             >
