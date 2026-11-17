@@ -469,8 +469,8 @@ function DataSection({
             {ending.map((url) => (
               <span key={url.path} className={styles.warnText} role="status">
                 Removing {languageLabel(url.languages[0]!)} keeps{' '}
-                <span className={styles.path}>{url.path}</span> at its last copy for 3 months after
-                you save, then it ends.
+                <span className={styles.path}>{url.path}</span> updating for 3 months after you
+                save, then deletes it.
               </span>
             ))}
           </div>
