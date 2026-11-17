@@ -94,7 +94,9 @@ export async function localizedSnippetsRoute(
       } satisfies import('../../../packages/core/src/localizedSnippets.js').EffectiveSnippetsResponse);
     }
     change ??= await body(request, snippetTranslationChangeSchema, 32_000);
-    const current: SnippetTranslation | null = translations[change.id] ?? null;
+    const current: SnippetTranslation | null = Object.hasOwn(translations, change.id)
+      ? translations[change.id]!
+      : null;
     if (stableStringify(current) !== stableStringify(change.base))
       return json(
         { error: 'Snippet translation changed; reload and retry', id: change.id, head: current },

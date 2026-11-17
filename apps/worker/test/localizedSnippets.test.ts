@@ -211,3 +211,8 @@ it('retains retired built-in ids without blocking reads, unrelated writes, or or
   expect((await getSnippetTranslations('de')).translations['wrap:green']).toBeUndefined();
   expect((await save(6, translation, null, 'wrap:green')).status).toBe(400);
 });
+it('treats an absent prototype-named id as missing when deleting', async () => {
+  expect((await save(1, null, null, 'toString')).status).toBe(200);
+  expect((await save(1, translation, null, 'toString')).status).toBe(400);
+  expect(fixture.commits).toHaveLength(0);
+});
