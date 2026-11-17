@@ -145,10 +145,13 @@ it('plans, stages, independently verifies, and restores only the exact offline c
     repo: 'owner/data',
     dataBranch: 'editor-data',
     liveBranch: 'converter-v2-test',
-    aliases: {},
+    aliases: { 41: { to: 40, kind: 'frame' as const } },
     generatorSha: 'a'.repeat(40),
     facts: Object.fromEntries(
-      Object.values(docs).map((doc) => [doc.hash, { name: String(doc.hash), type: 'Test' }]),
+      [...Object.values(docs), tooltip(41, 'Old frame text')].map((doc) => [
+        doc.hash,
+        { name: String(doc.hash), type: 'Test' },
+      ]),
     ),
   };
   write('.publisher/config.json', json(config));
@@ -156,7 +159,8 @@ it('plans, stages, independently verifies, and restores only the exact offline c
   write('.publisher/PIN', json({ sourceSha: 'b'.repeat(40), sha256: sha256('// fixture\n') }));
   write('live/tooltips/40.json', json(docs[40]));
   const legacy = exportLegacy(Object.values(docs), 0, config.facts);
-  legacy[41] = { hash: 41, aliasOf: 40, aliasKind: 'sandbox' };
+  legacy[41] = exportLegacy([tooltip(41, 'Old frame text')], 0, config.facts)[41];
+  legacy[42] = { hash: 42, aliasOf: 40, aliasKind: 'sandbox' };
   for (const hash of [2, 3])
     (legacy[hash] as { editor: { en: { secondary: string } } }).editor.en.secondary = '';
   write(
@@ -188,9 +192,18 @@ it('plans, stages, independently verifies, and restores only the exact offline c
     'live/tooltips/1.json',
     'live/tooltips/2.json',
     'live/tooltips/3.json',
+    'live/tooltips/41.json',
+  ]);
+  expect(plan.historicalPublishedAliases).toEqual([
+    expect.objectContaining({
+      hash: 41,
+      target: 40,
+      classification: 'historical published baseline, now a frame alias in config',
+      differsFromPublishedCanonical: true,
+    }),
   ]);
   expect(plan.files['live/tooltips/40.json']).toBeUndefined();
-  expect(plan.files['live/tooltips/41.json']).toBeUndefined();
+  expect(plan.files['live/tooltips/42.json']).toBeUndefined();
   const command = (operation: string, digest = sha256(planBytes)) =>
     main([operation, '--repo', repo, '--out', out, '--expect-plan', digest]);
   await expect(command('apply', '0'.repeat(64))).rejects.toThrow('SHA mismatch');

@@ -45,6 +45,7 @@ const planSchema = z
     compatibilityRequired: z.array(z.string()),
     reviewDifferences: z.array(globalIdSchema),
     publishedSnapshots: z.unknown(),
+    historicalPublishedAliases: z.unknown(),
     secondaryDifferences: z.unknown(),
     identityEvidence: z.unknown(),
     inventories: z.unknown(),
@@ -179,6 +180,7 @@ export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, st
     ids,
   );
   const publishedSnapshots = [];
+  const historicalPublishedAliases = [];
   for (const document of Object.values(live.tooltips)) {
     const path = `live/tooltips/${document.hash}.json`;
     if (paths.includes(path)) continue;
@@ -194,6 +196,27 @@ export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, st
         selector: ['perks', String(document.hash)],
       },
     });
+    if (aliases[document.hash]?.kind === 'frame') {
+      const target = resolveAlias(document.hash, aliases);
+      const text = (tooltip: Tooltip | undefined) =>
+        Object.fromEntries(
+          Object.entries(tooltip?.text ?? {}).map(([lang, cell]) => [lang, cell.text]),
+        );
+      historicalPublishedAliases.push({
+        hash: document.hash,
+        target,
+        path,
+        classification: 'historical published baseline, now a frame alias in config',
+        differsFromPublishedCanonical:
+          stableStringify(text(document)) !== stableStringify(text(live.tooltips[target])),
+        targetSource: {
+          repository: config.repo,
+          revision: inputs.live,
+          path: 'liveDescriptions.json',
+          selector: ['perks', String(target)],
+        },
+      });
+    }
   }
   const types = Object.fromEntries(
     Object.entries(config.facts).map(([hash, value]) => [hash, value.type]),
@@ -301,6 +324,7 @@ export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, st
     liveInput,
     compatibilityRequired,
     publishedSnapshots,
+    historicalPublishedAliases,
     secondaryDifferences,
   };
 }
@@ -495,6 +519,7 @@ export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
       compatibilityRequired: prepared.compatibilityRequired,
       reviewDifferences: prepared.reviewDifferences,
       publishedSnapshots: prepared.publishedSnapshots,
+      historicalPublishedAliases: prepared.historicalPublishedAliases,
       secondaryDifferences: prepared.secondaryDifferences,
     };
     writeFileSync(join(out, 'plan.json'), json(plan));
@@ -528,6 +553,8 @@ export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
       stableStringify(plan.compatibilityRequired) ||
     stableStringify(prepared.reviewDifferences) !== stableStringify(plan.reviewDifferences) ||
     stableStringify(prepared.publishedSnapshots) !== stableStringify(plan.publishedSnapshots) ||
+    stableStringify(prepared.historicalPublishedAliases) !==
+      stableStringify(plan.historicalPublishedAliases) ||
     stableStringify(prepared.secondaryDifferences) !== stableStringify(plan.secondaryDifferences) ||
     plannedTree(git, out, plan.inputs.head, plan.files) !== plan.targetTree
   )
