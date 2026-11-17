@@ -59,7 +59,7 @@ export type CompileOptions = {
 };
 
 export type Descriptions = Partial<Record<ExportLanguage, Line[] | string>>;
-/** When a perk's text in a language was last edited (`at`, ISO) and by whom (`by`, opt-in). */
+/** Known edit time (`at`, ISO) and editor (`by`, opt-in); `{ en: {} }` can mark English stand-in text. */
 export type Edited = Partial<Record<ExportLanguage, { at?: string; by?: string }>>;
 /** The chosen keys of one perk, in output order (spec section 7). */
 export type PerkKeys = {
@@ -264,7 +264,8 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
     const tracker = lookup[hash].updateTracker?.descriptions[source];
     if (!tracker) return undefined;
     const edit: { at?: string; by?: string } = {};
-    if (keys.has('edited')) edit.at = new Date(tracker.lastUpdate).toISOString();
+    if (keys.has('edited') && tracker.lastUpdate)
+      edit.at = new Date(tracker.lastUpdate).toISOString();
     if (keys.has('editedBy') && tracker.updatedBy) edit.by = tracker.updatedBy;
     return Object.keys(edit).length ? edit : undefined;
   };
@@ -313,9 +314,12 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
         const own = rows[language] !== undefined;
         if (!own && !perLanguage) continue;
         descriptions[language] = textOf(hash, own ? language : 'en');
-        const source = perLanguage && standsIn(lookup[hash], language, rows) ? 'en' : language;
+        const englishStandIn =
+          perLanguage && language !== 'en' && standsIn(lookup[hash], language, rows);
+        const source = englishStandIn ? 'en' : language;
         const edit = editedOf(hash, source);
         if (edit) edited[source] = edit;
+        else if (englishStandIn) edited.en = {};
       }
       const { references, ...item } = picked.get(hash)!;
       expanded[hash] = {
