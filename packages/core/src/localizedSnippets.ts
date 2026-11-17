@@ -47,10 +47,11 @@ function skeleton(template: string): string {
     /\{\{(\d+)(?::((?:[^{}]|\{(?!\{))*?))?\}\}/g,
     (_match, n: string, value: string | undefined) => `\u0001${n}\u0002${value ?? ''}\u0003`,
   );
-  const protectedChars = new Uint8Array(text.length);
+  const ranges: { from: number; to: number }[] = [];
   const protect = (pattern: RegExp, accept: (at: number) => boolean = () => true) => {
     for (const match of text.matchAll(pattern))
-      if (accept(match.index)) protectedChars.fill(1, match.index, match.index + match[0].length);
+      if (accept(match.index))
+        ranges.push({ from: match.index, to: match.index + match[0].length });
   };
   // eslint-disable-next-line no-control-regex -- Internal stop delimiters, rejected in user input.
   protect(/<(?:\w+|\u0001[^\u0003]*\u0003)/g);
@@ -63,15 +64,17 @@ function skeleton(template: string): string {
     const start = text.lastIndexOf('<', at);
     return start > text.lastIndexOf('>', at) && /^<(?:title|link)\b/.test(text.slice(start));
   });
+  ranges.sort((a, b) => a.from - b.from);
+  const words = (part: string) => part.replace(/[\p{L}\p{M}\t ]+/gu, '');
   let result = '';
-  for (let start = 0; start < text.length;) {
-    let end = start + 1;
-    while (end < text.length && protectedChars[end] === protectedChars[start]) end++;
-    const part = text.slice(start, end);
-    result += protectedChars[start] ? part : part.replace(/[\p{L}\p{M}\t ]+/gu, '');
-    start = end;
+  let end = 0;
+  for (const range of ranges) {
+    if (range.to <= end) continue;
+    if (range.from > end) result += words(text.slice(end, range.from));
+    result += text.slice(Math.max(end, range.from), range.to);
+    end = range.to;
   }
-  return result;
+  return result + words(text.slice(end));
 }
 
 export function validateSnippetTranslation(english: string, translated: string): void {
