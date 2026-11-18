@@ -140,6 +140,21 @@ describe('pins and the legacy job', () => {
       expect(Object.keys(file.perks).length).toBeGreaterThan(1);
     }
     expect(harness.served('reference/index.html')!.toString()).toContain('id="kit"');
+    const manifest = harness.servedJson<{ files: Record<string, { sha256: string }> }>(
+      '_build/manifest.json',
+    );
+    for (const path of Object.keys(manifest.files).filter((path) => path.endsWith('.html'))) {
+      const markup = harness.served(path)!.toString();
+      const icons = [...markup.matchAll(/<link rel="icon"[^>]+>/g)];
+      expect(icons).toHaveLength(2);
+      for (const theme of ['light', 'dark']) {
+        const target = `reference/kit/brand/mark-${theme}.svg`;
+        expect(markup).toContain(
+          `<link rel="icon" type="image/svg+xml" href="kit/brand/mark-${theme}.svg" media="(prefers-color-scheme: ${theme})">`,
+        );
+        expect(manifest.files[target]!.sha256).toBe(sha256(harness.served(target)!));
+      }
+    }
     expect(harness.served('reference/partner-kit.zip')).toBeDefined();
     const index = harness.servedJson<{ files: { path: string; sha256: string }[] }>(
       'alpha/index.json',
