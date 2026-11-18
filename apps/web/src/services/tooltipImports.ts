@@ -205,3 +205,13 @@ export function tooltipImports(
   );
   return proxy;
 }
+
+/** Shared variables, titles, and the import catalogue of one language, drafts over saved text. */
+export function importGlobals(
+  data: { bundle: { tooltips: Record<string, Tooltip> }; aliases: Aliases } | null,
+  source: Drafts,
+  lang: Lang,
+): MarkupGlobals {
+  const imports = tooltipImports(data?.bundle.tooltips ?? {}, source, lang, data?.aliases ?? {});
+  return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
+}

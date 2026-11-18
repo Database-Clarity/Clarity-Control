@@ -8,6 +8,7 @@ import type { GlobalHistoryReader } from '../src/features/globals/GlobalHistory'
 import type { GlobalSnapshot, GlobalsService } from '../src/services/globals';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 import { useGlobalDraftStorage } from '../src/features/globals/globalDrafts';
+import { useDataStore, type EditorData } from '../src/stores/data';
 
 let change: (value: string) => void;
 vi.mock('../src/features/editor/ClarityEditor', () => ({
@@ -38,6 +39,7 @@ beforeEach(() => {
   });
 });
 afterEach(async () => {
+  useDataStore.setState({ data: null, status: 'idle' });
   vi.unstubAllGlobals();
   await act(async () => root?.unmount());
   root = undefined;
@@ -99,6 +101,7 @@ async function mount(at: string, globals: GlobalsService, history?: GlobalHistor
         <Routes>
           <Route path="/globals" element={element()} />
           <Route path="/globals/:id" element={<Routed />} />
+          <Route path="/t/:hash" element={<Where />} />
         </Routes>
       </MemoryRouter>,
     ),
@@ -309,4 +312,64 @@ it('shows saved impact, not a projection panel, while a draft is open', async ()
     'Usages',
   );
   expect(host.querySelectorAll('[data-global-consumer]').length).toBe(2);
+});
+
+it('lists the tooltips an unedited global is used by, once per alias group, and opens them', async () => {
+  const text = (hash: number, value: string) => ({
+    hash,
+    text: { en: { text: value } },
+    associated: [],
+  });
+  const item = (hash: number, name: string) => ({ hash, name, icon: '', categoryId: 'perk' });
+  useDataStore.setState({
+    status: 'ready',
+    data: {
+      categories: [],
+      items: { 30: item(30, 'Rampage'), 31: item(31, 'Rampage copy'), 32: item(32, 'Outlaw') },
+      aliases: { 31: { to: 30, kind: 'sandbox' } },
+      bundle: {
+        tooltips: {
+          2: text(2, 'var Damage = 10%'),
+          30: text(30, 'Deals #Damage more.'),
+          32: text(32, 'Reloads #{Damage}x faster.'),
+        },
+      },
+    } as unknown as EditorData,
+  });
+  const catalogue = structuredClone(globalFixtureSnapshot);
+  catalogue.impacts = { g_damage0001: [], g_title00001: [] };
+  await mount('/globals/g_damage0001', service(catalogue));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  // One Usages place: the pane tab carries the count; the left column has no Usages row.
+  expect(host.querySelector('[aria-label="Show usages"]')).toBeNull();
+  expect(host.textContent).not.toContain('Usages:');
+  const tab = host.querySelector('[aria-label="Global pane"] [aria-selected="true"]')!;
+  expect(tab.textContent).toBe('Usages 2');
+  const rows = [...host.querySelectorAll('[data-global-usage]')];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    'OutlawOther: perk · English · Direct',
+    'RampageOther: perk · English · Direct · 2 items',
+  ]);
+  // Enter (a link's activation) opens the tooltip in the editor.
+  const link = rows[1].querySelector('a')!;
+  expect(link.getAttribute('href')).toBe('/t/30?lang=en&variant=30&line=1');
+  await act(async () => link.click());
+  expect(path).toBe('/t/30?lang=en&variant=30&line=1');
+});
+
+it('says when a global is not used by any tooltip', async () => {
+  useDataStore.setState({
+    status: 'ready',
+    data: {
+      categories: [],
+      items: {},
+      aliases: {},
+      bundle: { tooltips: { 2: { hash: 2, text: { en: { text: '' } }, associated: [] } } },
+    } as unknown as EditorData,
+  });
+  const catalogue = structuredClone(globalFixtureSnapshot);
+  catalogue.impacts = { g_damage0001: [], g_title00001: [] };
+  await mount('/globals/g_title00001', service(catalogue));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(host.textContent).toContain('Not used by any tooltip.');
 });
