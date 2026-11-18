@@ -14,11 +14,10 @@ import { referenceSite } from '../../src/site/reference/site.js';
 import { safeSitePath } from '../../src/site/build-site.js';
 import { behaviorSource } from '../../src/site/reference/behaviors.js';
 
-// Evaluate the exact downloadable module in the browser realm, retaining its public API.
-const source = rendererSource.replace(/export (const|function) /g, '$1 ');
-const renderer = new Function(
-  source + '\nreturn {decode,details,renderDom,renderDetails,renderText};',
-)();
+// Import the exact downloadable ES module, including its unchanged exports.
+const renderer = await import(
+  `data:text/javascript;base64,${Buffer.from(rendererSource).toString('base64')}`
+);
 const input = JSON.parse(readFileSync('packages/export/test/fixtures/legacy-input.json', 'utf8'));
 const file = referenceProject.files[0];
 const plan = compile(input, file, { catalog: { items: {}, categories: [] } });
@@ -139,10 +138,10 @@ test('inline notes contain no block rows, and expansion bodies follow the intact
   expect(expand.lastElementChild.hidden).toBe(false);
 });
 
-test('a sheet shows only the tapped detail and offers an explicit link action', () => {
-  const { sheetDetails } = new Function(
-    behaviorSource.replace(/export function /g, 'function ') + '\nreturn {sheetDetails};',
-  )();
+test('a sheet shows only the tapped detail and offers an explicit link action', async () => {
+  const { sheetDetails } = await import(
+    `data:text/javascript;base64,${Buffer.from(behaviorSource).toString('base64')}`
+  );
   const content = [
     {
       parts: [
