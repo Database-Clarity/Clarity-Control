@@ -69,6 +69,12 @@
     border-bottom-color: var(--warn-edge);
   }
 }
+// Refresh and Retry move to a new line together, never one without the other.
+.noticeActions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+}
 .toolbar,
 .consumerHeading,
 .reviewHeader {

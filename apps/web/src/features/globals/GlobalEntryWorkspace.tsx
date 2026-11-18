@@ -618,27 +618,29 @@ function Workspace({
             {blockedDestinations.length > 0 &&
               `Publishing to ${blockedDestinations.join(' and ')} is blocked until sync finishes.`}
           </span>
-          <button
-            type="button"
-            className={page.ghost}
-            disabled={pending}
-            aria-label="Refresh sync"
-            onClick={() => void refreshSync()}
-          >
-            Refresh
-          </button>
-          {sync.status === 'sync-failed' && (
+          <span className={styles.noticeActions}>
             <button
               type="button"
               className={page.ghost}
-              disabled={pending || !actor || !ownCauses.length}
-              title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
-              aria-label="Retry sync"
-              onClick={() => void refreshSync(true)}
+              disabled={pending}
+              aria-label="Refresh sync"
+              onClick={() => void refreshSync()}
             >
-              Retry
+              Refresh
             </button>
-          )}
+            {sync.status === 'sync-failed' && (
+              <button
+                type="button"
+                className={page.ghost}
+                disabled={pending || !actor || !ownCauses.length}
+                title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
+                aria-label="Retry sync"
+                onClick={() => void refreshSync(true)}
+              >
+                Retry
+              </button>
+            )}
+          </span>
         </div>
       )}
       {(error || projectionError || staleDraft) && (
