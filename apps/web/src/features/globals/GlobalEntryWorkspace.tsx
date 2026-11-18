@@ -1260,6 +1260,9 @@ function usageRows(
       category: (item && data && classifiedCategory(item, data)?.label) || '',
     };
   };
+  // `import Perk from 42` reads as the tooltip's name, as in the finder.
+  const named = (via: string) =>
+    via.replace(/ from (\d+)$/, (_, hash: string) => ` from ${describe(Number(hash)).name}`);
   const languageOf = (langs: readonly Lang[]) => (langs.includes(lang) ? lang : langs[0]);
   const ordered = (langs: readonly Lang[]) => languages.filter((value) => langs.includes(value));
   const rows: UsageRow[] = uses.tooltips.map((use) => ({
@@ -1268,7 +1271,7 @@ function usageRows(
     hash: use.hash,
     langs: ordered(use.langs),
     direct: use.direct,
-    via: use.via,
+    via: use.via.map(named),
     members: use.members,
     to: `/t/${use.hash}?lang=${languageOf(use.langs)}&variant=${use.variant}${use.line ? `&line=${use.line}` : ''}`,
     impacts: byHash.get(use.hash) ?? [],
@@ -1295,7 +1298,7 @@ function usageRows(
       category: `Global ${kindLabel(entry.kind).toLowerCase()}`,
       langs: ordered(use.langs),
       direct: use.direct,
-      via: use.via,
+      via: use.via.map(named),
       members: 1,
       to: `/globals/${use.id}?lang=${languageOf(use.langs)}`,
       impacts: [],

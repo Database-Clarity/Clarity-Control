@@ -325,13 +325,19 @@ it('lists the tooltips an unedited global is used by, once per alias group, and 
     status: 'ready',
     data: {
       categories: [],
-      items: { 30: item(30, 'Rampage'), 31: item(31, 'Rampage copy'), 32: item(32, 'Outlaw') },
+      items: {
+        30: item(30, 'Rampage'),
+        31: item(31, 'Rampage copy'),
+        32: item(32, 'Outlaw'),
+        34: item(34, 'Kill Clip'),
+      },
       aliases: { 31: { to: 30, kind: 'sandbox' } },
       bundle: {
         tooltips: {
           2: text(2, 'var Damage = 10%'),
           30: text(30, 'Deals #Damage more.'),
           32: text(32, 'Reloads #{Damage}x faster.'),
+          34: text(34, 'Intro\nimport main from 31'),
         },
       },
     } as unknown as EditorData,
@@ -344,14 +350,15 @@ it('lists the tooltips an unedited global is used by, once per alias group, and 
   expect(host.querySelector('[aria-label="Show usages"]')).toBeNull();
   expect(host.textContent).not.toContain('Usages:');
   const tab = host.querySelector('[aria-label="Global pane"] [aria-selected="true"]')!;
-  expect(tab.textContent).toBe('Usages 2');
+  expect(tab.textContent).toBe('Usages 3');
   const rows = [...host.querySelectorAll('[data-global-usage]')];
   expect(rows.map((row) => row.textContent)).toEqual([
+    'Kill ClipOther: perk · English · Through import main from Rampage copy',
     'OutlawOther: perk · English · Direct',
     'RampageOther: perk · English · Direct · 2 items',
   ]);
   // Enter (a link's activation) opens the tooltip in the editor.
-  const link = rows[1].querySelector('a')!;
+  const link = rows[2].querySelector('a')!;
   expect(link.getAttribute('href')).toBe('/t/30?lang=en&variant=30&line=1');
   await act(async () => link.click());
   expect(path).toBe('/t/30?lang=en&variant=30&line=1');
