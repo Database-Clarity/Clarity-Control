@@ -12,6 +12,7 @@ import { rendererSource } from '../../src/site/reference/renderer.js';
 import { features, featureTable } from '../../src/site/reference/features.js';
 import { referenceSite } from '../../src/site/reference/site.js';
 import { safeSitePath } from '../../src/site/build-site.js';
+import { behaviorSource } from '../../src/site/reference/behaviors.js';
 
 // Evaluate the exact downloadable module in the browser realm, retaining its public API.
 const source = rendererSource.replace(/export (const|function) /g, '$1 ');
@@ -103,6 +104,60 @@ test('nested notes render inline, strings pass through, and icon overrides work'
   });
   expect(override.querySelector('svg')).not.toBeNull();
   expect(override.querySelector('img')).toBeNull();
+});
+
+test('inline notes contain no block rows, and expansion bodies follow the intact source line', () => {
+  const content = [
+    {
+      parts: [
+        { text: 'This ' },
+        { text: 'refills', note: [{ parts: [{ text: 'From reserves.' }] }] },
+        { text: ' the magazine.' },
+      ],
+    },
+  ];
+  const inline = renderer.renderDom(content, { notes: 'inline' });
+  expect(inline.textContent).toBe('This refills (From reserves.) the magazine.');
+  expect(inline.querySelector('.clarity-line .clarity-line')?.tagName).toBe('SPAN');
+  const expand = renderer.renderDom(content, { notes: 'expand' });
+  const button = expand.querySelector('button');
+  button.click();
+  expect(expand.firstElementChild.textContent).toBe('This refills the magazine.');
+  expect(expand.lastElementChild.classList.contains('clarity-expansion')).toBe(true);
+  expect(expand.lastElementChild.hidden).toBe(false);
+});
+
+test('a sheet shows only the tapped detail and offers an explicit link action', () => {
+  const { sheetDetails } = new Function(
+    behaviorSource.replace(/export function /g, 'function ') + '\nreturn {sheetDetails};',
+  )();
+  const content = [
+    {
+      parts: [
+        { text: 'refills', note: [{ parts: [{ text: 'From reserves.' }] }] },
+        { text: 'Clarity', link: 'https://d2clarity.com' },
+      ],
+    },
+  ];
+  const host = renderer.renderDom(content, { notes: 'expand' });
+  const panel = renderer.renderDetails(content);
+  const dialog = document.createElement('dialog');
+  dialog.innerHTML = '<h3>Details</h3><div data-body></div>';
+  dialog.showModal = () => {
+    dialog.open = true;
+  };
+  document.body.append(host, dialog);
+  const cleanup = sheetDetails(host, panel, dialog);
+  host.querySelector('button').click();
+  expect(dialog.querySelector('[data-body]')!.textContent).toBe('From reserves.');
+  expect(dialog.querySelector('h3')!.textContent).toBe('refills');
+  expect(dialog.querySelector('.sheet-open-link')).toBeNull();
+  host.querySelector('a').click();
+  expect(dialog.querySelector('[data-body]')!.textContent).not.toContain('From reserves.');
+  expect(dialog.querySelector('.sheet-open-link')?.textContent).toBe('Open link');
+  cleanup();
+  host.remove();
+  dialog.remove();
 });
 
 let preview: ComponentType<{ lines: MarkupLine[] }>;

@@ -21,8 +21,21 @@ export function sheetDetails(host, panel, dialog) {
     const term = event.target.closest('.clarity-note,.clarity-link');
     if (!term) return;
     event.preventDefault(); event.stopPropagation(); opener = term;
-    dialog.querySelector('[data-body]').replaceChildren(panel.cloneNode(true));
-    dialog.querySelector('[data-body]').firstChild.hidden = false;
+    const detail = panel.querySelector('[data-clarity-detail="' + term.dataset.clarityDetail + '"]');
+    if (!detail) return;
+    const content = detail.cloneNode(true);
+    content.querySelector('strong')?.remove();
+    dialog.querySelector('h3').textContent = term.textContent;
+    const body = dialog.querySelector('[data-body]');
+    body.replaceChildren(...content.childNodes);
+    if (term.matches('a')) {
+      const address = body.querySelector('a');
+      address.textContent = term.href;
+      const open = document.createElement('a');
+      open.className = 'sheet-open-link'; open.textContent = 'Open link';
+      open.href = term.href; open.target = '_blank'; open.rel = 'noreferrer';
+      body.append(document.createElement('br'), open);
+    }
     dialog.showModal();
   }, { capture: true, signal: abort.signal });
   dialog.addEventListener('close', () => opener?.focus(), { signal: abort.signal });
@@ -62,6 +75,7 @@ export const pageSource = String.raw`
 import { decode, renderDom, renderDetails } from './clarity-tooltip.js';
 import { holdDetails, sheetDetails, tapAgain, longPress } from './display-examples.js';
 const $ = id => document.getElementById(id);
+document.documentElement.classList.add('js');
 const showcase = JSON.parse($('showcase-data').textContent);
 let perks = decode(showcase), selected = '-1', cleanups = [], request;
 const concepts = [
@@ -73,10 +87,11 @@ const concepts = [
 function draw() {
   cleanups.forEach(cleanup => cleanup()); cleanups = [];
   const perk = perks[selected] || perks['-1'];
-  const lines = perk.descriptions[$('language').value] || perk.descriptions.en || '';
+  const language = Object.hasOwn(perk.descriptions, $('language').value) ? $('language').value : 'en';
+  const lines = perk.descriptions[language] || '';
   $('selected-name').textContent = perk.name || selected;
   $('live-summary').replaceChildren(renderDom(lines, { notes: 'popover' }));
-  $('live-json').textContent = JSON.stringify({ ...perk, descriptions: { [$('language').value]: lines } }, null, 2);
+  $('live-json').textContent = JSON.stringify({ ...perk, descriptions: { [language]: lines } }, null, 2);
   for (const [id, notes, interactive] of concepts) {
     const host = $(id), output = host.querySelector('[data-render]');
     const tip = document.createElement('div'); tip.className = 'tip';
@@ -98,7 +113,8 @@ function choices() {
   const query = $('query').value.trim().toLowerCase();
   const matches = Object.entries(perks).filter(([hash, perk]) => hash === '-1' || (hash + ' ' + (perk.name || '')).toLowerCase().includes(query));
   const real = matches.filter(([hash]) => hash !== '-1');
-  $('match-count').textContent = query ? real.length + ' matching perks; showcase always available.' : real.length + ' perks and the feature showcase.';
+  const count = real.length + (real.length === 1 ? ' perk' : ' perks');
+  $('match-count').textContent = query ? real.length + (real.length === 1 ? ' matching perk' : ' matching perks') + '; showcase always available.' : count + ' and the feature showcase.';
   $('picker').replaceChildren(...matches.sort(([a], [b]) => a === '-1' ? -1 : b === '-1' ? 1 : 0).map(([hash, perk]) => {
     const option = document.createElement('option'); option.value = hash; option.textContent = hash === '-1' ? 'Feature showcase' : (perk.name || 'Perk') + ' (' + hash + ')'; return option;
   }));
@@ -126,7 +142,8 @@ async function load() {
     $('load-state').textContent = 'Published file loaded.'; choices();
   } catch (error) {
     if (signal.aborted) return;
-    $('load-state').textContent = 'Could not load the published file. The feature showcase is still available. ' + error.message;
+    perks = decode(showcase); selected = '-1';
+    $('load-state').textContent = 'Could not load the published file. Showing the English feature showcase. Retry to load this language.';
     $('retry').hidden = false; choices();
   }
 }

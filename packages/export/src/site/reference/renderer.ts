@@ -75,9 +75,10 @@ export function renderText(lines, options = {}) {
 /** Return content, not a tooltip window. icon(id) may replace bundled artwork. */
 export function renderDom(lines, options = {}) {
   const opts = { notes: 'popover', interactive: true, ...options };
-  const root = node('div', null, 'clarity-tooltip');
+  const root = node(opts.nested ? 'span' : 'div', null, 'clarity-tooltip');
   if (typeof lines === 'string') { root.textContent = lines; return root; }
   const entries = details(lines);
+  let expansions = [];
   const draw = part => {
     const entry = entries.find(d => key(d) === key(part));
     let result = node('span', part.text || '');
@@ -101,11 +102,14 @@ export function renderDom(lines, options = {}) {
       } else if (opts.interactive && opts.notes !== 'numbered') {
         const wrapper = node('span', null, 'clarity-term');
         result = node('button', part.text || '', 'clarity-note'); result.type = 'button';
-        const body = node('span', null, 'clarity-note-body');
+        const body = node(opts.notes === 'expand' ? 'div' : 'span', null, 'clarity-note-body');
         body.id = 'clarity-note-' + (++serial); body.hidden = true;
         body.append(renderDom(part.note, { ...opts, notes: 'inline', nested: true, interactive: false }));
         result.setAttribute('aria-controls', body.id);
+        result.dataset.clarityDetail = String(entry.n);
         if (opts.notes === 'expand') {
+          body.classList.add('clarity-expansion');
+          expansions.push(body);
           result.setAttribute('aria-expanded', 'false');
           result.onclick = () => { body.hidden = !body.hidden; result.setAttribute('aria-expanded', String(!body.hidden)); };
         } else {
@@ -125,18 +129,23 @@ export function renderDom(lines, options = {}) {
           result.onclick = () => { if (body.hidden) show(); else hide(); };
           result.onkeydown = event => { if (event.key === 'Escape') { event.stopPropagation(); hide(); } };
         }
-        wrapper.append(result, body); decorate(wrapper, part); return wrapper;
+        wrapper.append(result);
+        if (opts.notes !== 'expand') wrapper.append(body);
+        decorate(wrapper, part); return wrapper;
       }
     } else if (part.link) {
       const url = safeUrl(part.link);
-      result = node(opts.interactive && url ? 'a' : 'span', part.text || '', 'clarity-link');
+      result = node(opts.interactive && url ? 'a' : 'span', part.text || '', opts.interactive && url ? 'clarity-link' : '');
       if (opts.interactive && url) { result.href = url; result.rel = 'noreferrer'; }
     }
+    if (entry) result.dataset.clarityDetail = String(entry.n);
     if (entry && opts.notes === 'numbered') result.append(node('sup', '[' + entry.n + ']'));
     decorate(result, part); return result;
   };
   for (const line of lines || []) {
-    const row = node('div', null, line.spacer ? 'clarity-line clarity-spacer' : 'clarity-line');
+    expansions = [];
+    if (opts.nested && root.childNodes.length) root.append(document.createTextNode(' '));
+    const row = node(opts.nested ? 'span' : 'div', null, line.spacer ? 'clarity-line clarity-spacer' : 'clarity-line');
     decorate(row, line);
     const parts = line.parts || [];
     for (let i = 0; i < parts.length; i++) {
@@ -151,13 +160,14 @@ export function renderDom(lines, options = {}) {
       } else row.append(draw(part));
     }
     root.append(row);
+    root.append(...expansions);
   }
   return root;
 }
 export function renderDetails(lines, options = {}) {
   const list = node('ol', null, 'clarity-details');
   for (const entry of details(lines)) {
-    const item = node('li'); item.value = entry.n;
+    const item = node('li'); item.value = entry.n; item.dataset.clarityDetail = String(entry.n);
     item.append(node('strong', entry.label + ': '));
     if (entry.note) item.append(renderDom(entry.note, { ...options, notes: 'inline', nested: true }));
     else {
