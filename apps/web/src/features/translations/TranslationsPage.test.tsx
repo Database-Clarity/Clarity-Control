@@ -119,6 +119,26 @@ afterEach(async () => {
 });
 
 describe('TranslationsPage queue', () => {
+  it('offers snippet translations only to maintainers and the chosen language manager', async () => {
+    const manager = (lang: 'de' | 'fr') => ({
+      ...person('translator', ['de', 'fr']),
+      manages: [lang],
+    });
+    for (const [user, visible] of [
+      [person('maintainer'), true],
+      [manager('de'), true],
+      [manager('fr'), false],
+      [person('translator', ['de']), false],
+      [person('editor'), false],
+      [null, false],
+    ] as const) {
+      await mount('/translations?lang=de', user);
+      expect(
+        [...host.querySelectorAll('button')].some((button) => button.textContent === 'Snippets'),
+      ).toBe(visible);
+    }
+  });
+
   it('returns keyboard focus to the row link when retry replaces an unavailable size', async () => {
     const queued = translationIndex(small).queue('de').slice(0, 1);
     const render = (value: ChangeSize): void =>

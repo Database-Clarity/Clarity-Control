@@ -41,10 +41,7 @@ function translationErrors(english: EnglishSnippet, draft: SnippetDraft): Snippe
     try {
       validateSnippetTranslation(english.template, draft.template);
     } catch (error) {
-      errors.template =
-        error instanceof Error
-          ? `${error.message}: change only the words, keep every tag, field, reference, and line break.`
-          : String(error);
+      errors.template = error instanceof Error ? error.message : String(error);
     }
   return errors;
 }
@@ -90,6 +87,7 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
 
   // Where keyboard focus goes after an action, so it never drops out of the dialog.
   const root = useRef<HTMLDivElement>(null);
+  const loadVersion = useRef(0);
   const [focus, setFocus] = useState<string | null>(null);
   useLayoutEffect(() => {
     if (!focus) return;
@@ -97,14 +95,19 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
     if (!target || (target as HTMLButtonElement).disabled) return;
     target.focus();
     setFocus(null);
-  }, [focus, busy]);
+  }, [focus, busy, english, loadError]);
 
   const reload = useCallback(() => {
+    const version = ++loadVersion.current;
     setLoadError(null);
+    setNotice(null);
+    setRemoving(null);
+    setFocus('[data-edit]');
     setEnglish(null);
     setEditing(null);
     Promise.all([getTeamSnippets(), getSnippetTranslations(lang), getLocalizedSnippets(lang)])
       .then(([team, stored, effective]) => {
+        if (version !== loadVersion.current) return;
         setEnglish([
           ...localizableBuiltIns.map((snippet) => ({
             id: snippet.id,
@@ -124,11 +127,21 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
         setTranslations(stored.translations);
         setOutdated(new Set(effective.outdated));
       })
-      .catch((error: unknown) =>
-        setLoadError(`Snippet translations could not load: ${saveError(error)}`),
-      );
+      .catch((error: unknown) => {
+        if (version === loadVersion.current) {
+          setLoadError(`Snippet translations could not load: ${saveError(error)}`);
+          setFocus('[data-retry]');
+        }
+      });
   }, [lang]);
-  useEffect(reload, [reload]);
+  useEffect(() => {
+    reload();
+    return () => {
+      // This is a request generation, not a DOM ref: invalidate the latest reload on cleanup.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      loadVersion.current++;
+    };
+  }, [reload]);
 
   function start(snippet: EnglishSnippet) {
     const current = translations[snippet.id];
@@ -200,6 +213,9 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
   const stateOf = (id: string) =>
     outdated.has(id) ? 'outdated' : translations[id] ? 'translated' : 'missing';
   const stale = (english ?? []).filter((snippet) => outdated.has(snippet.id));
+  const ordered = [...(english ?? [])].sort(
+    (a, b) => Number(outdated.has(b.id)) - Number(outdated.has(a.id)),
+  );
 
   return (
     <Dialog title={`Snippet translations · ${languageLabel(lang)}`} busy={busy} onClose={onClose}>
@@ -225,7 +241,7 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
         {loadError ? (
           <p className={styles.error} role="alert">
             {loadError}{' '}
-            <button type="button" onClick={reload}>
+            <button type="button" data-retry onClick={reload}>
               Retry
             </button>
           </p>
@@ -241,24 +257,10 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                   Outdated ({stale.length}): the English changed after these were translated. The
                   menus show English until each is saved again.
                 </p>
-                <ul className={styles.list}>
-                  {stale.map((snippet) => (
-                    <li key={snippet.id} className={styles.row}>
-                      <span className={styles.summary}>
-                        <span className={styles.label}>{snippet.label}</span>
-                      </span>
-                      <span className={styles.rowActions}>
-                        <button type="button" disabled={busy} onClick={() => start(snippet)}>
-                          Update
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
               </div>
             )}
             <ul className={styles.list} aria-label={`${languageLabel(lang)} snippet words`}>
-              {english.map((snippet) => {
+              {ordered.map((snippet) => {
                 const state = stateOf(snippet.id);
                 const current = translations[snippet.id];
                 return (
@@ -315,8 +317,8 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                           {state === 'outdated'
                             ? 'Outdated'
                             : state === 'translated'
-                              ? 'Translated'
-                              : 'English'}
+                              ? 'Current'
+                              : 'Missing'}
                         </span>
                         <span className={styles.rowActions}>
                           <button
