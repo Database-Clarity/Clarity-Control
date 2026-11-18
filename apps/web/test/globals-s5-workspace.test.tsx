@@ -7,6 +7,7 @@ import { GlobalEntryWorkspace } from '../src/features/globals/GlobalEntryWorkspa
 import type { GlobalHistoryReader } from '../src/features/globals/GlobalHistory';
 import type { GlobalSnapshot, GlobalsService } from '../src/services/globals';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
+import { useGlobalDraftStorage } from '../src/features/globals/globalDrafts';
 
 let change: (value: string) => void;
 vi.mock('../src/features/editor/ClarityEditor', () => ({
@@ -21,6 +22,7 @@ let host: HTMLDivElement;
 let path = '';
 const stored = new Map<string, string>();
 beforeEach(() => {
+  useGlobalDraftStorage.setState({ failed: false });
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -156,11 +158,11 @@ it('keeps edits in memory and warns when device draft storage fails, then clears
   });
   await act(async () => change('20%'));
   expect(host.querySelector('textarea')!.value).toBe('20%');
-  expect(host.textContent).toContain('Could not update the draft on this device');
+  expect(useGlobalDraftStorage.getState().failed).toBe(true);
   expect(button('Save definition').disabled).toBe(false);
   write.mockRestore();
   await act(async () => change('25%'));
-  expect(host.textContent).not.toContain('Could not update the draft on this device');
+  expect(useGlobalDraftStorage.getState().failed).toBe(false);
   expect(stored.size).toBe(1);
 });
 

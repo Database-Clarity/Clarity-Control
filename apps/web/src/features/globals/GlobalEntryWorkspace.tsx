@@ -180,7 +180,6 @@ function Workspace({
   // account and stable ID); a draft keeps the revision it started from, so staleness survives too.
   const owner = useAuthStore((state) => state.user?.login) ?? 'signed-out';
   const [drafts, setDrafts] = useState<Record<string, GlobalDraft | null>>({});
-  const [draftStorageFailed, setDraftStorageFailed] = useState(false);
   const draftOf = (draftKey: string) =>
     draftKey in drafts ? drafts[draftKey] : readGlobalDraft(owner, draftKey);
   function setDraft(next: { key: string; body: string }) {
@@ -190,7 +189,7 @@ function Workspace({
       next.key && !(next.key === key && next.body === saved)
         ? { body: next.body, revision: draftOf(draftKey)?.revision ?? entry?.revision }
         : null;
-    setDraftStorageFailed(!writeGlobalDraft(owner, draftKey, value));
+    writeGlobalDraft(owner, draftKey, value);
     setDrafts((previous) => ({ ...previous, [draftKey]: value }));
   }
   const body = draftOf(key)?.body ?? saved;
@@ -695,12 +694,6 @@ function Workspace({
                 setReviewed(undefined);
               }}
             />
-            {draftStorageFailed && (
-              <p role="alert" className={styles.warning}>
-                Could not update the draft on this device. Keep this page open, and save or copy
-                your changes before leaving.
-              </p>
-            )}
             {!editable && (
               <p>
                 {actor

@@ -7,6 +7,7 @@ import type { Tooltip } from '@clarity/core';
 import { useConflictStore } from '../../stores/conflicts';
 import { useDraftStore } from '../../stores/drafts';
 import { useShellNotices } from './useShellNotices';
+import { useGlobalDraftStorage } from '../globals/globalDrafts';
 
 const entry = (text: string) => ({
   text,
@@ -48,6 +49,7 @@ const render = () =>
   act(() => root.render(createElement(MemoryRouter, null, createElement(Probe))));
 
 beforeEach(() => {
+  useGlobalDraftStorage.setState({ failed: false });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   renders = 0;
   useDraftStore.setState({ drafts: {}, hydrated: true, external: false, error: null, pending: 0 });
@@ -65,6 +67,14 @@ afterEach(() => {
 });
 
 describe('conflict notices', () => {
+  it('shows failed globals draft storage in the shell until recovery', () => {
+    render();
+    act(() => useGlobalDraftStorage.setState({ failed: true }));
+    expect(ids()).toEqual(['global-draft-storage']);
+    expect(host.textContent).toContain('Could not update the draft on this device');
+    act(() => useGlobalDraftStorage.setState({ failed: false }));
+    expect(ids()).toEqual([]);
+  });
   it('keeps brief draft writes out of shell renders and preserves slow-write and error notices', () => {
     vi.useFakeTimers();
     render();

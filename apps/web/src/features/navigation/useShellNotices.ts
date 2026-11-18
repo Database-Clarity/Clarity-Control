@@ -9,6 +9,7 @@ import { useSaveNotice } from '../../services/save/notice';
 import { useSettingsNotices } from '../settings/SettingsChoice';
 import { useSettingsPanel } from '../settings/panel';
 import { count, type ShellNotice } from './notices';
+import { useGlobalDraftStorage } from '../globals/globalDrafts';
 
 /** Brief storage writes never mount an invisible notice or update the shell. */
 function useSlowDraftSaving() {
@@ -72,6 +73,7 @@ export function useShellNotices(): ShellNotice[] {
     })),
   );
   const savingDrafts = useSlowDraftSaving();
+  const globalDraftStorageFailed = useGlobalDraftStorage((state) => state.failed);
   const [adoptNote, setAdoptNote] = useState<string | null>(null);
   const saveNotice = useSaveNotice((state) => state.notice);
   const dismissSaveNotice = useSaveNotice((state) => state.dismiss);
@@ -122,6 +124,13 @@ export function useShellNotices(): ShellNotice[] {
       actions: [
         { label: 'Retry draft storage', onClick: () => (hydrated ? retry() : void hydrate()) },
       ],
+    });
+  if (globalDraftStorageFailed)
+    notices.push({
+      id: 'global-draft-storage',
+      level: 'alert',
+      text: 'Could not update the draft on this device. Keep this page open, and save or copy your changes before leaving.',
+      dismissible: false,
     });
   if (previousAccountError)
     notices.push({

@@ -3,6 +3,10 @@
  * Back/Forward, and reload never lose one. `revision` is the entry revision the draft started
  * from: a later saved revision marks it stale instead of silently rebasing it.
  */
+import { create } from 'zustand';
+
+export const useGlobalDraftStorage = create<{ failed: boolean }>(() => ({ failed: false }));
+
 export interface GlobalDraft {
   body: string;
   revision?: string;
@@ -34,9 +38,11 @@ export function writeGlobalDraft(owner: string, key: string, draft: GlobalDraft 
   try {
     if (draft) localStorage.setItem(storageKey(owner, key), JSON.stringify(draft));
     else localStorage.removeItem(storageKey(owner, key));
+    useGlobalDraftStorage.setState({ failed: false });
     return true;
   } catch {
     // Quota or privacy mode: the session keeps the draft; reload cannot restore it.
+    useGlobalDraftStorage.setState({ failed: true });
     return false;
   }
 }
