@@ -845,9 +845,11 @@ function Workspace({
                   )}
                   {projectedScope && (
                     <p>
-                      {sync.status === 'current'
-                        ? `Saved impact: ${savedImpacts.length} consumers.`
-                        : 'Saved usages will update when sync finishes.'}
+                      {reviewsMissing
+                        ? 'Saved impact: Loading…'
+                        : sync.status === 'current'
+                          ? `Saved impact: ${savedImpacts.length} consumers.`
+                          : 'Saved usages will update when sync finishes.'}
                     </p>
                   )}
                   <label className={styles.search}>

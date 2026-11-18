@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useGlobalIdentities } from '../../stores/globalIdentities';
 import type { EditorData } from '../../stores/data';
 import { picker, pickOption } from './finderPicker.testUtils';
+import { loadGlobalIdentities } from '../../stores/globalEntries';
 
 vi.mock('../../services/globalsFlag', () => ({ globalsEnabled: true }));
 vi.mock('../../stores/globalEntries', () => ({ loadGlobalIdentities: vi.fn() }));
@@ -87,6 +88,16 @@ it('shows progressive globals without aggregate fallback and keeps an empty cate
     );
     const row = host.querySelector<HTMLElement>('[role="option"]')!;
     expect(row.textContent).toContain('Reload');
+    await act(async () =>
+      useGlobalIdentities.setState({ status: 'failed', error: 'Catalogue page failed' }),
+    );
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Catalogue page failed');
+    await act(async () =>
+      Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Retry globals')!
+        .click(),
+    );
+    expect(loadGlobalIdentities).toHaveBeenCalledWith(true);
     await act(async () => row.click());
     expect(host.querySelector('output')?.textContent).toBe('/globals/g_title00001');
   } finally {

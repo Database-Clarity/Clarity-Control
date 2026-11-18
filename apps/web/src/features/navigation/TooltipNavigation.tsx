@@ -704,6 +704,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     (globalsEnabled && globalEntryPath.test(finderLocation.pathname));
   const aggregateDefinitions = useGlobalCatalog(data, catalogActive);
   const identitiesStatus = useGlobalIdentities((state) => (globalsEnabled ? state.status : 'idle'));
+  const identitiesError = useGlobalIdentities((state) => (globalsEnabled ? state.error : ''));
   useEffect(() => {
     // Globals on: the finder lists authoritative entries, so load their catalogue when it is needed.
     if (
@@ -1539,6 +1540,21 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         <p role="status" className={styles.empty}>
           Loading globals…
         </p>
+      )}
+      {identitiesStatus === 'failed' && (
+        <div role="alert" className={styles.empty}>
+          {identitiesError}{' '}
+          <button
+            type="button"
+            onClick={() =>
+              void import('../../stores/globalEntries').then((module) =>
+                module.loadGlobalIdentities(true),
+              )
+            }
+          >
+            Retry globals
+          </button>
+        </div>
       )}
       {!rows.length && (
         <p className={styles.empty}>

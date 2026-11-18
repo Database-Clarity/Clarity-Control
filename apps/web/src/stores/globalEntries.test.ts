@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { useAuthStore } from './auth';
 import { useGlobalIdentities } from './globalIdentities';
-import { loadGlobalIdentities } from './globalEntries';
+import { loadGlobalIdentities, globalsSession } from './globalEntries';
 import { globalFixtureSnapshot } from '../../test/globals-entries-fixture';
 
 const list = vi.hoisted(() => vi.fn());
@@ -182,4 +182,85 @@ it('does not reuse a catalogue across sign-out and sign-in with the same token',
   expect(Object.keys(useGlobalIdentities.getState().identities)).toEqual([
     globalFixtureSnapshot.entries[1].id,
   ]);
+});
+
+it('retains a complete catalogue if a workspace refresh fails, and exposes retry recovery', async () => {
+  useAuthStore.setState({ user, token: 'refresh-failure', loading: false });
+  list.mockResolvedValueOnce({
+    kind: 'ok',
+    value: { ...header, entries: globalFixtureSnapshot.entries, nextCursor: null },
+  });
+  await loadGlobalIdentities();
+  const previous = useGlobalIdentities.getState().identities;
+  let finish!: (value: unknown) => void;
+  list
+    .mockResolvedValueOnce({
+      kind: 'ok',
+      value: { ...header, entries: [globalFixtureSnapshot.entries[0]], nextCursor: 'p1' },
+    })
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+  const refresh = globalsSession().service.read();
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+  expect(useGlobalIdentities.getState()).toMatchObject({ status: 'ready', identities: previous });
+  finish({ kind: 'retry', message: 'Catalogue page failed' });
+  await refresh;
+  expect(useGlobalIdentities.getState()).toMatchObject({
+    status: 'failed',
+    error: 'Catalogue page failed',
+    identities: previous,
+  });
+  list.mockResolvedValueOnce({
+    kind: 'ok',
+    value: { ...header, entries: [globalFixtureSnapshot.entries[1]], nextCursor: null },
+  });
+  await loadGlobalIdentities(true);
+  expect(useGlobalIdentities.getState().status).toBe('ready');
+  expect(Object.keys(useGlobalIdentities.getState().identities)).toEqual([
+    globalFixtureSnapshot.entries[1].id,
+  ]);
+});
+
+it('turns a failed progressive first load into an explicit failed state', async () => {
+  useAuthStore.setState({ user, token: 'partial-failure', loading: false });
+  list
+    .mockResolvedValueOnce({
+      kind: 'ok',
+      value: { ...header, entries: [globalFixtureSnapshot.entries[0]], nextCursor: 'p1' },
+    })
+    .mockResolvedValueOnce({ kind: 'retry', message: 'Next page failed' });
+  await loadGlobalIdentities();
+  expect(useGlobalIdentities.getState()).toMatchObject({
+    status: 'failed',
+    error: 'Next page failed',
+  });
+  expect(Object.keys(useGlobalIdentities.getState().identities)).toHaveLength(1);
+});
+
+it('does not replace a newer successful catalogue with a superseded refresh error', async () => {
+  useAuthStore.setState({ user, token: 'refresh-race', loading: false });
+  list.mockResolvedValueOnce({
+    kind: 'ok',
+    value: { ...header, entries: globalFixtureSnapshot.entries, nextCursor: null },
+  });
+  await loadGlobalIdentities();
+  let finish!: (value: unknown) => void;
+  list.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const service = globalsSession().service;
+  const old = service.read();
+  list.mockResolvedValueOnce({
+    kind: 'ok',
+    value: { ...header, entries: globalFixtureSnapshot.entries, nextCursor: null },
+  });
+  await service.read();
+  finish({ kind: 'retry', message: 'Superseded error' });
+  await old;
+  expect(useGlobalIdentities.getState()).toMatchObject({ status: 'ready', error: '' });
 });

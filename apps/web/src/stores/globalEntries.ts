@@ -1,4 +1,9 @@
-import { createGlobalsService, type GlobalEntry } from '../services/globals';
+import {
+  createGlobalsService,
+  type GlobalEntry,
+  type GlobalResult,
+  type GlobalSnapshot,
+} from '../services/globals';
 import { createGlobalsHttpTransport, type GlobalsHttpTransport } from '../services/globalsHttp';
 import { useAuthStore } from './auth';
 import { useGlobalIdentities } from './globalIdentities';
@@ -22,20 +27,49 @@ export function globalsSession() {
   const generation = authGeneration;
   if (session?.token !== token || session?.role !== role) {
     const transport = createGlobalsHttpTransport();
+    let completeCatalogue = false;
+    let catalogueRequest = 0;
+    const current = () =>
+      authGeneration === generation &&
+      useAuthStore.getState().token === token &&
+      useAuthStore.getState().user?.role === role;
+    const service = createGlobalsService(transport, {
+      destinations: ['live'],
+      lazyReviews: true,
+      onCatalogPage(entries, complete) {
+        if (!current()) return;
+        if (complete || !completeCatalogue)
+          rememberGlobalIdentities(entries, complete ? 'ready' : 'loading');
+        if (complete) completeCatalogue = true;
+      },
+    });
+    const catalogueResult = async (
+      pending: Promise<GlobalResult<GlobalSnapshot>>,
+      request: number,
+    ) => {
+      let result: GlobalResult<GlobalSnapshot>;
+      try {
+        result = await pending;
+      } catch (reason) {
+        result = {
+          kind: 'retry',
+          message: reason instanceof Error ? reason.message : 'Could not load globals.',
+        };
+      }
+      if (current() && request === catalogueRequest && result.kind !== 'ok')
+        useGlobalIdentities.setState({ status: 'failed', error: result.message });
+      return result;
+    };
     session = {
       token,
       role,
       transport,
       // One configured publication destination (S4 contract v1); its sync header is the repository's.
-      service: createGlobalsService(transport, {
-        destinations: ['live'],
-        lazyReviews: true,
-        onCatalogPage(entries, complete) {
-          const auth = useAuthStore.getState();
-          if (authGeneration === generation && auth.token === token && auth.user?.role === role)
-            rememberGlobalIdentities(entries, complete ? 'ready' : 'loading');
-        },
-      }),
+      service: {
+        ...service,
+        read: () => catalogueResult(service.read(), ++catalogueRequest),
+        readCatalog: () => catalogueResult(service.readCatalog!(), ++catalogueRequest),
+      },
     };
   }
   return session;
