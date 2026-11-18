@@ -172,6 +172,34 @@ it('renders the definition while only the opened entry reviews wait, fail, and r
   expect(readEntry).toHaveBeenCalledTimes(2);
 });
 
+it('recovers reviews after the head moved past the catalogue: Retry reads a fresh snapshot', async () => {
+  const catalogue = structuredClone(globalFixtureSnapshot);
+  catalogue.impacts = {};
+  const moved = structuredClone(catalogue);
+  moved.head = fixtureHead(7);
+  const globals = service(catalogue);
+  globals.read.mockResolvedValueOnce({ kind: 'ok', value: catalogue });
+  globals.read.mockResolvedValueOnce({ kind: 'ok', value: moved });
+  const loaded = structuredClone(globalFixtureSnapshot);
+  loaded.head = fixtureHead(7);
+  const readEntry = vi
+    .fn()
+    .mockResolvedValueOnce({
+      kind: 'conflict',
+      message: 'Globals changed. Refresh to load the current snapshot.',
+    })
+    .mockResolvedValueOnce({ kind: 'ok', value: loaded });
+  await mount('/globals/g_damage0001', { ...globals, readEntry });
+  await act(async () => change('KEPT DRAFT'));
+  expect(host.textContent).toContain('Globals changed.');
+  await act(async () => button('Retry reviews').click());
+  expect(globals.read).toHaveBeenCalledTimes(2);
+  expect(readEntry).toHaveBeenCalledTimes(2);
+  expect(host.textContent).not.toContain('Globals changed.');
+  expect(host.querySelectorAll('[data-global-consumer]').length).toBe(2);
+  expect(host.querySelector('textarea')!.value).toBe('KEPT DRAFT');
+});
+
 it('keeps an unsaved definition across a remount (reload) and marks it stale after a new revision', async () => {
   await mount('/globals/g_damage0001', service());
   await act(async () => change('LOCAL 20%'));

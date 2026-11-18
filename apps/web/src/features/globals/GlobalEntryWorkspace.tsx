@@ -829,7 +829,15 @@ function Workspace({
               (reviewError ? (
                 <div role="alert">
                   <p>{reviewError}</p>
-                  <button onClick={() => setReviewReload((value) => value + 1)}>
+                  <button
+                    disabled={pending}
+                    onClick={async () => {
+                      // The reviews may have failed because the head moved after the catalogue
+                      // loaded: read a fresh snapshot first (drafts stay), then load them again.
+                      await refreshSync();
+                      setReviewReload((value) => value + 1);
+                    }}
+                  >
                     Retry reviews
                   </button>
                 </div>
