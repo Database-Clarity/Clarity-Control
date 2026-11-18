@@ -103,7 +103,7 @@ const loadGlobalsPage = workspacePage(() =>
   import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalsPage })),
 );
 const GlobalsPage = () => <AppLazyPage load={loadGlobalsPage} />;
-// Per-entry globals (stable IDs) replace the aggregate list and the /t/2–/t/3 editors only when
+// Per-entry globals (stable IDs) replace the aggregate list and the /t/1–/t/3 editors only when
 // the build turns the switch on; off, these routes and their chunk do not exist.
 const loadGlobalEntryRoute = () =>
   import('./features/globals/GlobalEntryRoute').then((module) => ({
@@ -119,10 +119,14 @@ const loadGlobalHandOff = () =>
   import('./features/globals/GlobalEntryRoute').then((module) => ({
     default: module.GlobalAggregateHandOff,
   }));
-/** With globals on, the variables and titles aggregates hand off to their per-entry editor. */
+/** With globals on, the exports, variables, and titles hand off to their per-entry editor. */
 function TooltipRoute() {
   const { hash } = useParams<'hash'>();
-  return hash === '2' || hash === '3' ? <AppLazyPage load={loadGlobalHandOff} /> : <TooltipPage />;
+  return hash === '1' || hash === '2' || hash === '3' ? (
+    <AppLazyPage load={loadGlobalHandOff} />
+  ) : (
+    <TooltipPage />
+  );
 }
 // Inline (not the shared constant) so the bundler folds it and drops the off branch's imports.
 const globalRoutes: RouteObject[] =

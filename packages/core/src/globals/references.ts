@@ -32,17 +32,26 @@ export function globalReferenceSpans(
     to: url.index + url[0].length,
   }));
   const refs =
-    kind === 'variables'
-      ? variableReferences(text)
-      : tags
-          .filter(
-            (tag) =>
-              tag[1] === 'title' && !bracketedLabel(tag[2]) && validGlobalName('titles', tag[3]),
-          )
-          .map((tag) => {
-            const [from, to] = tag.indices![3];
-            return { name: tag[3], from, to };
-          });
+    kind === 'exports'
+      ? [...text.matchAll(/^import ([A-z0-9 ]+?) from (?:global|0*1) *\r?$/dgm)]
+          .filter((match) => validGlobalName('exports', match[1].trim()))
+          .map((match) => {
+            const [start] = match.indices![1];
+            const name = match[1].trim();
+            const from = start + match[1].length - match[1].trimStart().length;
+            return { name, from, to: from + name.length };
+          })
+      : kind === 'variables'
+        ? variableReferences(text)
+        : tags
+            .filter(
+              (tag) =>
+                tag[1] === 'title' && !bracketedLabel(tag[2]) && validGlobalName('titles', tag[3]),
+            )
+            .map((tag) => {
+              const [from, to] = tag.indices![3];
+              return { name: tag[3], from, to };
+            });
   return refs.filter(
     (ref) =>
       ![...comments, ...labels, ...literalLinks, ...urls].some(
@@ -65,7 +74,8 @@ export function rewriteGlobalReferences(
   const edits = globalReferenceSpans(text, kind).filter((ref) => ref.name === beforeName);
   let next = text;
   for (const ref of [...edits].reverse()) {
-    const value = kind === 'titles' ? afterName : ref.braced ? `#{${afterName}}` : `#${afterName}`;
+    const value =
+      kind !== 'variables' ? afterName : ref.braced ? `#{${afterName}}` : `#${afterName}`;
     next = next.slice(0, ref.from) + value + next.slice(ref.to);
   }
   return { text: next, edits };

@@ -17,6 +17,7 @@ index. Unprepared batches cannot be claimed. A rejected translator save restores
 exact accepted schedule authorized by its signed owner policy; other failures need attention
 and remove the due entry. Infrastructure Retry uses the existing authenticated pipeline kick.
 The `scheduledGlobalsV1` capability permits asynchronous schedules with Globals metadata.
+The `globalsExportsV1` capability adds per-entry exports and the ordered hash-1 projection.
 The original signed schedule source pins the globals used by the batch's composed roots,
 including nested imports and conservative title preparation, through the real resolver.
 Preparation rechecks ready batches before their due time; changed pins or owed global reviews

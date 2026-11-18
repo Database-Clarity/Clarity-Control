@@ -117,6 +117,35 @@ it('opens the entry named by the stable-ID path and keeps selection in the path'
   expect(host.querySelector('h1')!.textContent).toBe('Damage');
 });
 
+it('opens an export body at hash 1 and preserves its draft through typing and discard', async () => {
+  const snapshot = structuredClone(globalFixtureSnapshot);
+  const entry = snapshot.entries[0];
+  entry.kind = 'exports';
+  entry.name = 'anti_barrier';
+  entry.definitions.en!.body = 'Disrupts Barrier Champions.';
+  for (const definition of Object.values(entry.definitions)) {
+    definition.provenance!.hash = 1;
+    definition.provenance!.path = 'tooltips/1.json';
+  }
+  await mount(`/globals/${entry.id}`, service(snapshot));
+  expect(host.querySelector('h1')!.textContent).toBe('anti_barrier');
+  expect(host.textContent).toContain('Export');
+  expect(host.querySelector('textarea')!.value).toBe(entry.definitions.en!.body);
+  await act(async () => change('New export body'));
+  expect(host.textContent).toContain('Unsaved');
+  await act(async () => button('Discard draft').click());
+  expect(host.querySelector('textarea')!.value).toBe(entry.definitions.en!.body);
+  await act(async () => button('Actions').click());
+  await act(async () => button('Create global').click());
+  expect(
+    [...document.querySelectorAll('option')].some(
+      (option) => option.value === 'exports' && option.textContent === 'Export',
+    ),
+  ).toBe(true);
+  await act(async () => button('Cancel').click());
+  expect(host.querySelector('textarea')!.value).toBe(entry.definitions.en!.body);
+});
+
 it('renders the definition while only the opened entry reviews wait, fail, and retry', async () => {
   const catalogue = structuredClone(globalFixtureSnapshot);
   catalogue.impacts = {};

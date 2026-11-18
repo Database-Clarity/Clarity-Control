@@ -8,13 +8,25 @@ import { extractBlocks } from '../markup/syntax.js';
 export const globalIdSchema = z.string().regex(/^g_[a-zA-Z0-9_-]{8,80}$/);
 export const globalRevisionSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 export const globalDigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
-export const globalKindSchema = z.enum(['variables', 'titles']);
+export const globalKindSchema = z.enum(['variables', 'titles', 'exports']);
 
-export function validGlobalName(kind: 'variables' | 'titles', name: string): boolean {
+export function globalAggregateHash(kind: GlobalRecord['kind']): 1 | 2 | 3 {
+  return kind === 'exports' ? 1 : kind === 'variables' ? 2 : 3;
+}
+
+export function globalAggregateKind(hash: number): GlobalRecord['kind'] {
+  if (hash === 1) return 'exports';
+  if (hash === 2) return 'variables';
+  if (hash === 3) return 'titles';
+  throw new Error('Expected aggregate 1, 2, or 3');
+}
+
+export function validGlobalName(kind: GlobalRecord['kind'], name: string): boolean {
   if (kind === 'variables') return /^[a-zA-Z0-9]+$/.test(name);
+  const declaration = kind === 'exports' ? 'export' : 'title';
   return (
     /^[A-Za-z0-9_]+(?: [A-Za-z0-9_]+)*$/.test(name) &&
-    Object.hasOwn(extractBlocks(`title ${name} (\nbody\n)`, 'title'), name)
+    Object.hasOwn(extractBlocks(`${declaration} ${name} (\nbody\n)`, declaration), name)
   );
 }
 
@@ -26,7 +38,7 @@ const sourceSchema = z
     /** JSON keys selecting the original decoded string; spans index its UTF-16 code units. */
     selector: z.array(z.string()).min(1),
     spanConvention: z.literal('decoded-utf16'),
-    hash: z.union([z.literal(2), z.literal(3)]),
+    hash: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     lang: langSchema,
     from: z.number().int().nonnegative(),
     to: z.number().int().positive(),
@@ -79,13 +91,13 @@ export const globalRecordSchema = z
       if (
         definition.provenance &&
         (definition.provenance.lang !== lang ||
-          definition.provenance.hash !== (record.kind === 'variables' ? 2 : 3))
+          definition.provenance.hash !== globalAggregateHash(record.kind))
       )
         ctx.addIssue({ code: 'custom', message: 'Definition provenance kind/language mismatch' });
       if (record.kind === 'variables' && /[\r\n]/.test(definition.body))
         ctx.addIssue({ code: 'custom', message: 'Variables must fit on one line' });
-      if (record.kind === 'titles' && !definition.body.trim())
-        ctx.addIssue({ code: 'custom', message: 'Title bodies must not be empty' });
+      if (record.kind !== 'variables' && !definition.body.trim())
+        ctx.addIssue({ code: 'custom', message: 'Title and export bodies must not be empty' });
     }
   });
 
@@ -136,8 +148,10 @@ export const globalStoreSchema = z
     }
     for (const aggregate of store.aggregates) {
       const hash = aggregate.document.hash;
-      if ((hash !== 2 && hash !== 3) || hashes.has(hash))
-        ctx.addIssue({ code: 'custom', message: 'Expected unique aggregate hashes 2 and 3' });
+      if (![1, 2, 3].includes(hash) || hashes.has(hash)) {
+        ctx.addIssue({ code: 'custom', message: 'Expected unique aggregate hashes 1, 2, and 3' });
+        continue;
+      }
       hashes.add(hash);
       for (const [lang, layout] of Object.entries(aggregate.languages)) {
         const seen = new Set<string>();
@@ -147,7 +161,7 @@ export const globalStoreSchema = z
           if (
             !entry ||
             entry.tombstone ||
-            entry.kind !== (hash === 2 ? 'variables' : 'titles') ||
+            entry.kind !== globalAggregateKind(hash) ||
             !entry.definitions[lang as keyof typeof entry.definitions] ||
             seen.has(segment.entryId)
           )
@@ -157,7 +171,7 @@ export const globalStoreSchema = z
         for (const entry of store.entries) {
           if (
             !entry.tombstone &&
-            entry.kind === (hash === 2 ? 'variables' : 'titles') &&
+            entry.kind === globalAggregateKind(hash) &&
             entry.definitions[lang as keyof typeof entry.definitions] &&
             !seen.has(entry.id)
           )
@@ -171,7 +185,7 @@ export const globalStoreSchema = z
         if (
           !store.aggregates.some(
             (a) =>
-              a.document.hash === (entry.kind === 'variables' ? 2 : 3) &&
+              a.document.hash === globalAggregateHash(entry.kind) &&
               Object.hasOwn(a.languages, lang),
           )
         )

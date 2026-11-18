@@ -266,6 +266,7 @@ export async function publish(
         if (
           !Array.isArray(capabilities) ||
           !capabilities.includes('globalsRelease') ||
+          !capabilities.includes('globalsExportsV1') ||
           !globalPublication
         )
           throw new HttpError(409, 'Sync pending: dependency-safe publisher proof required');

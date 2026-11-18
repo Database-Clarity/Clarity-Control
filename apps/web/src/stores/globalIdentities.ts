@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Lang } from '@clarity/core';
+import { globalAggregateHash, type GlobalKind, type Lang } from '@clarity/core';
 import type { GlobalDefinition } from '../features/globals/model';
 import { useAuthStore } from './auth';
 
@@ -8,7 +8,7 @@ import { useAuthStore } from './auth';
  * the globals service (a lazy chunk) so the finder can map routes without loading it.
  */
 export interface GlobalIdentity {
-  kind: 'variables' | 'titles';
+  kind: GlobalKind;
   name: string;
   /** Saved bodies by language, for finder hovers. */
   definitions: Partial<Record<Lang, string>>;
@@ -56,7 +56,7 @@ export function identityDefinitions(
   return Object.values(identities)
     .map(({ kind, name, definitions }) => ({
       kind,
-      hash: kind === 'variables' ? 2 : 3,
+      hash: globalAggregateHash(kind),
       name,
       definitions,
       lines: {},
@@ -78,5 +78,5 @@ export function aggregateGlobalRoute(
   if (!identity) return undefined;
   const params = new URLSearchParams(search);
   params.set('global', identity.name);
-  return { hash: identity.kind === 'variables' ? 2 : 3, search: `?${params}` };
+  return { hash: globalAggregateHash(identity.kind), search: `?${params}` };
 }

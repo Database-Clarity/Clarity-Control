@@ -54,7 +54,7 @@ function bootstrap() {
     '.publisher/PIN': {
       sourceSha: pinSource,
       sha256: 'f'.repeat(64),
-      capabilities: ['globalsRelease'],
+      capabilities: ['globalsRelease', 'globalsExportsV1'],
     },
     '.publisher/config.json': { generatorSha, facts: {} },
     '.publisher/installed.json': {

@@ -25,7 +25,10 @@ export const globalLayoutSchema = z
   .strict()
   .refine(
     (layout) =>
-      layout.aggregates.length === 2 &&
+      (layout.aggregates.length === 2 || layout.aggregates.length === 3) &&
+      new Set(layout.aggregates.map((aggregate) => aggregate.document.hash)).size ===
+        layout.aggregates.length &&
+      layout.aggregates.every((aggregate) => [1, 2, 3].includes(aggregate.document.hash)) &&
       [2, 3].every((hash) =>
         layout.aggregates.some((aggregate) => aggregate.document.hash === hash),
       ),
@@ -40,7 +43,7 @@ export const globalPublishedSchema = z
   .strict()
   .refine(
     (published) =>
-      published.store.aggregates.length === 2 &&
+      (published.store.aggregates.length === 2 || published.store.aggregates.length === 3) &&
       [2, 3].every((hash) =>
         published.store.aggregates.some((aggregate) => aggregate.document.hash === hash),
       ),

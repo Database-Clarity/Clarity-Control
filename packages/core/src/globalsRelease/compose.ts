@@ -1,6 +1,11 @@
 import { languages } from '../languages.js';
 import { stableStringify } from '../contentHash.js';
-import { globalStoreSchema, type GlobalRecord, type GlobalStore } from '../globals/model.js';
+import {
+  globalAggregateKind,
+  globalStoreSchema,
+  type GlobalRecord,
+  type GlobalStore,
+} from '../globals/model.js';
 import { projectGlobals } from '../globals/projection.js';
 
 /** Retain all existing literal bytes and recipes; add only newly introduced declarations.
@@ -13,7 +18,7 @@ export function reconcileGlobalStore(
 ): GlobalStore {
   const aggregates = structuredClone(layout);
   for (const aggregate of aggregates) {
-    const kind = aggregate.document.hash === 2 ? 'variables' : 'titles';
+    const kind = globalAggregateKind(aggregate.document.hash);
     for (const lang of languages) {
       const definitions = entries.filter(
         (entry) => !entry.tombstone && entry.kind === kind && entry.definitions[lang],
@@ -59,7 +64,7 @@ export function reconcileGlobalStore(
           { literal: '\n' },
           {
             entryId: entry.id,
-            beforeName: kind === 'variables' ? 'var ' : 'title ',
+            beforeName: kind === 'variables' ? 'var ' : kind === 'exports' ? 'export ' : 'title ',
             afterName: kind === 'variables' ? ' = ' : ' (\n',
             afterBody: kind === 'variables' ? '' : '\n)',
           },

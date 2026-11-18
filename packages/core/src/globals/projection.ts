@@ -5,6 +5,8 @@ import { extractBlocks, extractVariables } from '../markup/syntax.js';
 import { tooltipSchema, type Tooltip } from '../schemas.js';
 import {
   globalRevisionSchema,
+  globalAggregateKind,
+  globalAggregateHash,
   globalStoreSchema,
   validGlobalName,
   type GlobalRecord,
@@ -34,7 +36,12 @@ function declarations(raw: string, kind: GlobalRecord['kind']): Declaration[] {
   }
   const boundary = (index: number) => (index === text.length ? raw.length : offsets[index]);
   const pattern =
-    kind === 'variables' ? /^var ([a-zA-Z0-9]+) = (.+)$/gm : /^title ([A-z0-9 ]+) \(\n[^]*?\n\)$/gm;
+    kind === 'variables'
+      ? /^var ([a-zA-Z0-9]+) = (.+)$/gm
+      : new RegExp(
+          `^${kind === 'exports' ? 'export (?:hidden )?' : 'title '}([A-z0-9 ]+) \\(\\n[^]*?\\n\\)$`,
+          'gm',
+        );
   const found: Declaration[] = [];
   const comments = markupCommentContext(raw).comments;
   let last = 0;
@@ -51,7 +58,7 @@ function declarations(raw: string, kind: GlobalRecord['kind']): Declaration[] {
       comments.some((comment) => from >= comment.from && from < comment.to)
     )
       throw new Error('Aggregate needs manual mapping: prose or commented declaration');
-    const nameFrom = from + (kind === 'variables' ? 4 : 6);
+    const nameFrom = from + (kind === 'variables' ? 4 : match[0].indexOf('\n') - 2 - name.length);
     const nameTo = nameFrom + name.length;
     let bodyFrom: number, bodyTo: number;
     if (kind === 'variables') {
@@ -84,7 +91,7 @@ export interface GlobalInventorySource {
   repository: string;
   revision: string;
   /** Actual repository file and decoded JSON field, supplied by the reader, never inferred. */
-  locate(hash: 2 | 3, lang: Lang): { path: string; selector: string[] };
+  locate(hash: 1 | 2 | 3, lang: Lang): { path: string; selector: string[] };
 }
 
 /** Pure dry run. The caller supplies fresh opaque IDs; this function never reads or writes files. */
@@ -99,8 +106,7 @@ export function inventoryGlobals(
   const layouts: GlobalStore['aggregates'] = [];
   for (const input of aggregates) {
     const { text, ...document } = tooltipSchema.parse(input);
-    if (document.hash !== 2 && document.hash !== 3) throw new Error('Expected aggregate 2 or 3');
-    const kind = document.hash === 2 ? 'variables' : 'titles';
+    const kind = globalAggregateKind(document.hash);
     const layout: GlobalStore['aggregates'][number] = { document, languages: {} };
     for (const [language, cell] of Object.entries(text)) {
       const lang = language as Lang;
@@ -128,9 +134,9 @@ export function inventoryGlobals(
           provenance: {
             repository: source.repository,
             revision: source.revision,
-            ...source.locate(document.hash, lang),
+            ...source.locate(document.hash as 1 | 2 | 3, lang),
             spanConvention: 'decoded-utf16',
-            hash: document.hash,
+            hash: globalAggregateHash(kind),
             lang,
             from: declaration.from,
             to: declaration.to,
@@ -160,14 +166,14 @@ export function inventoryGlobals(
   return store;
 }
 
-/** The ordered, read-only hash 2/3 compatibility view. Missing recipes fail closed. */
+/** The ordered, read-only compatibility view. Missing recipes fail closed. */
 export function projectGlobals(input: GlobalStore): Record<string, Tooltip> {
   const store = globalStoreSchema.parse(input);
   const entries = new Map(store.entries.map((entry) => [entry.id, entry]));
   const result: Record<string, Tooltip> = {};
   for (const aggregate of store.aggregates) {
     const text: Tooltip['text'] = {};
-    const kind = aggregate.document.hash === 2 ? 'variables' : 'titles';
+    const kind = globalAggregateKind(aggregate.document.hash);
     for (const [language, layout] of Object.entries(aggregate.languages)) {
       const lang = language as Lang;
       const expected: { name: string; body: string }[] = [];
@@ -190,7 +196,7 @@ export function projectGlobals(input: GlobalStore): Record<string, Tooltip> {
       const resolved =
         kind === 'variables'
           ? extractVariables(raw.replace(/\r/g, ''))
-          : extractBlocks(raw.replace(/\r/g, ''), 'title');
+          : extractBlocks(raw.replace(/\r/g, ''), kind === 'exports' ? 'export' : 'title');
       for (const { name, body } of expected) {
         if (resolved[name] !== body.replace(/\r/g, ''))
           throw new Error(`Projection changes resolver semantics for ${name}`);

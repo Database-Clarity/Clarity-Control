@@ -141,7 +141,7 @@ afterEach(() => {
 });
 
 describe('durable asynchronous admission', () => {
-  it.each(['scheduledGlobalsV1', 'globalsRelease', 'schedulePreparationV1'])(
+  it.each(['scheduledGlobalsV1', 'globalsRelease', 'globalsExportsV1', 'schedulePreparationV1'])(
     'requires the %s floor when globals exist',
     async (missing) => {
       f.moveData({
@@ -151,6 +151,7 @@ describe('durable asynchronous admission', () => {
             'scheduledBatches',
             'schedulePreparationV1',
             'globalsRelease',
+            'globalsExportsV1',
             'scheduledGlobalsV1',
           ].filter((capability) => capability !== missing),
         },
@@ -161,7 +162,12 @@ describe('durable asynchronous admission', () => {
     },
   );
   it('admits globals schedules and Retry with all installed capabilities', async () => {
-    const capabilities = [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'];
+    const capabilities = [
+      ...pin.capabilities,
+      'globalsRelease',
+      'globalsExportsV1',
+      'scheduledGlobalsV1',
+    ];
     f.moveData({ 'globals/sync.json': { version: 1 }, '.publisher/PIN': { capabilities } });
     expect((await call('schedule', scheduleBody())).status).toBe(202);
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
@@ -170,7 +176,12 @@ describe('durable asynchronous admission', () => {
   it('requires the globals capability for draft and scheduled saves', async () => {
     f.moveData({ 'globals/sync.json': { version: 1 } });
     expect((await call('save', saveBody())).status).toBe(422);
-    const capabilities = [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'];
+    const capabilities = [
+      ...pin.capabilities,
+      'globalsRelease',
+      'globalsExportsV1',
+      'scheduledGlobalsV1',
+    ];
     f.moveData({ '.publisher/PIN': { capabilities } });
     scheduled();
     expect((await call('save', saveBody())).status).toBe(202);
@@ -692,25 +703,33 @@ describe('preparation cancellation, retry, and claim fences', () => {
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
     expect(f.dataHead).toBe(head);
   });
-  it('refuses aggregate global members once globals exist, before any write', async () => {
-    const aggregate = { ...tooltip(), hash: 2 };
-    const body = { ...saveBody(), changes: [{ hash: 2, base: aggregate, next: aggregate }] };
-    f.moveData({ 'globals/sync.json': { version: 1 } });
-    f.moveData({
-      '.publisher/PIN': {
-        capabilities: [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'],
-      },
-    });
-    const head = f.dataHead;
-    const refused = await call('save', body);
-    expect(refused.status).toBe(409);
-    expect(refused.body.error).toBe(
-      'Use global entry mutations; Sync pending protection is required',
-    );
-    expect(f.dataHead).toBe(head);
-    f.moveData({ 'globals/sync.json': undefined });
-    expect((await call('save', body)).status).toBe(202);
-  });
+  it.each([1, 2, 3])(
+    'refuses aggregate %i members once globals exist, before any write',
+    async (hash) => {
+      const aggregate = { ...tooltip(), hash };
+      const body = { ...saveBody(), changes: [{ hash, base: aggregate, next: aggregate }] };
+      f.moveData({ 'globals/sync.json': { version: 1 } });
+      f.moveData({
+        '.publisher/PIN': {
+          capabilities: [
+            ...pin.capabilities,
+            'globalsRelease',
+            'globalsExportsV1',
+            'scheduledGlobalsV1',
+          ],
+        },
+      });
+      const head = f.dataHead;
+      const refused = await call('save', body);
+      expect(refused.status).toBe(409);
+      expect(refused.body.error).toBe(
+        'Use global entry mutations; Sync pending protection is required',
+      );
+      expect(f.dataHead).toBe(head);
+      f.moveData({ 'globals/sync.json': undefined });
+      expect((await call('save', body)).status).toBe(202);
+    },
+  );
   it.each([true, false])(
     'refuses scheduling ordinary consumers once globals exist (preparation %s)',
     async (preparation) => {
@@ -733,7 +752,12 @@ describe('preparation cancellation, retry, and claim fences', () => {
       if (preparation)
         f.moveData({
           '.publisher/PIN': {
-            capabilities: [...pin.capabilities, 'globalsRelease', 'scheduledGlobalsV1'],
+            capabilities: [
+              ...pin.capabilities,
+              'globalsRelease',
+              'globalsExportsV1',
+              'scheduledGlobalsV1',
+            ],
           },
         });
       // A sync save merges against the member's proposal, so base it on that proposal.

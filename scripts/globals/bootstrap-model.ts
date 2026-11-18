@@ -37,11 +37,26 @@ export function bootstrapFiles(
   live: Inventory,
   destination: string,
   ids: Record<string, string> = {},
+  existing?: { saved: GlobalStore; published: GlobalStore },
 ) {
   const allocated = { ...ids };
-  const inventory = ({ documents, source }: Inventory): GlobalStore => {
+  const inventory = ({ documents, source }: Inventory, prior?: GlobalStore): GlobalStore => {
     if (!documents[2] || !documents[3]) throw new Error('Both libraries 2 and 3 are required');
-    const store = inventoryGlobals([documents[2], documents[3]], source, () => `g_${randomUUID()}`);
+    if (prior) {
+      globalStoreSchema.parse(prior);
+      if (prior.aggregates.length !== 2 || prior.entries.some((entry) => entry.kind === 'exports'))
+        throw new Error('Expected installed variables/titles; exports must not already exist');
+      const projected = projectGlobals(prior);
+      for (const hash of [2, 3])
+        if (stableStringify(projected[hash]) !== stableStringify(documents[hash]))
+          throw new Error('Existing global identity/projection would change');
+      if (!documents[1]) throw new Error('Export library 1 is required');
+    }
+    const store = inventoryGlobals(
+      prior ? [documents[1]] : [documents[2], documents[3]],
+      source,
+      () => `g_${randomUUID()}`,
+    );
     const remap = new Map<string, string>();
     for (const entry of store.entries) {
       const key = identityKey(entry.kind, entry.name);
@@ -56,15 +71,19 @@ export function bootstrapFiles(
       for (const layout of Object.values(aggregate.languages))
         for (const segment of layout.segments)
           if ('entryId' in segment) segment.entryId = remap.get(segment.entryId)!;
+    if (prior) {
+      store.entries.unshift(...structuredClone(prior.entries));
+      store.aggregates.unshift(...structuredClone(prior.aggregates));
+    }
     globalStoreSchema.parse(store);
     const projected = projectGlobals(store);
-    for (const hash of [2, 3])
+    for (const hash of prior ? [1, 2, 3] : [2, 3])
       if (stableStringify(projected[hash]) !== stableStringify(documents[hash]))
         throw new Error(`Aggregate round-trip differs: ${source.revision}/${hash}`);
     return store;
   };
-  const savedStore = inventory(saved),
-    liveStore = inventory(live);
+  const savedStore = inventory(saved, existing?.saved),
+    liveStore = inventory(live, existing?.published);
   const inventories = { saved: structuredClone(savedStore), published: structuredClone(liveStore) };
   const equalityBody = (entry: GlobalStore['entries'][number]) =>
     Object.fromEntries(
@@ -82,7 +101,8 @@ export function bootstrapFiles(
     const shared =
       current !== undefined &&
       stableStringify(equalityBody(current)) === stableStringify(equalityBody(entry));
-    if (shared) liveStore.entries[i] = structuredClone(current);
+    if (shared && (!existing || entry.kind === 'exports'))
+      liveStore.entries[i] = structuredClone(current);
     return {
       id: entry.id,
       kind: entry.kind,
@@ -142,6 +162,7 @@ export function bootstrapFiles(
     })
     .strict();
   for (const entry of savedStore.entries) {
+    if (existing && entry.kind !== 'exports') continue;
     add(`globals/entries/${entry.id}.json`, entrySchema.parse(entry), limits.entryBytes);
     const key = sha256(`${entry.kind}:${entry.name}`);
     add(
@@ -167,6 +188,19 @@ export function bootstrapFiles(
       }),
       limits.metadataBytes,
     );
+  if (existing) {
+    delete files['globals/sync.json'];
+    for (const [prior, next] of [
+      [existing.saved, savedStore],
+      [existing.published, liveStore],
+    ])
+      for (const entry of prior.entries)
+        if (
+          stableStringify(next.entries.find((candidate) => candidate.id === entry.id)) !==
+          stableStringify(entry)
+        )
+          throw new Error('Existing global identity would change');
+  }
   return {
     files,
     ids: allocated,

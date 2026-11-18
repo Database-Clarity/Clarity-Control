@@ -112,19 +112,21 @@ class Memory implements Repository {
   }
 }
 
-async function fixture(titleSource = '') {
+async function fixture(titleSource = '', exports = false) {
   const git = new Memory();
   const docs = [
-    tooltip(1, ''),
+    tooltip(1, exports ? 'export Barrier (\nOld\n)' : ''),
     tooltip(2, '// ordered\nvar Alpha = 10\n\nvar Beta = 20\n'),
     tooltip(3, titleSource),
-    tooltip(40, '#Alpha'),
+    tooltip(40, exports ? 'import Barrier from global' : '#Alpha'),
     tooltip(41, '#Beta'),
     tooltip(42, 'unrelated'),
   ];
   let id = 0;
   const published = inventoryGlobals(
-    docs.filter((document) => document.hash === 2 || document.hash === 3),
+    docs.filter(
+      (document) => (exports && document.hash === 1) || document.hash === 2 || document.hash === 3,
+    ),
     {
       repository: 'owner/data',
       revision: 'initial',
@@ -189,7 +191,7 @@ async function fixture(titleSource = '') {
   write('.publisher/PIN', {
     sourceSha: options.publisherSha,
     sha256: options.publisherDigest,
-    capabilities: ['globalsRelease'],
+    capabilities: ['globalsRelease', ...(exports ? ['globalsExportsV1'] : [])],
   });
   write('.publisher/config.json', {
     generatorSha: options.generatorSha,
@@ -318,6 +320,35 @@ async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 describe('dependency-safe global release', () => {
+  it('releases hash 1 from reviewed exports and refuses a missing export capability', async () => {
+    const f = await fixture('', true);
+    await f.globals.drain();
+    await expect(
+      f.globals.release(f.current(), f.git.head(D)!, [40], f.git.head(L)!),
+    ).rejects.toThrow('review required');
+    f.approve(40);
+    await f.globals.drain();
+    const release = (await f.globals.release(f.current(), f.git.head(D)!, [1], f.git.head(L)!))!;
+    expect(release.documents.find((document) => document.hash === 1)?.text.en?.text).toBe(
+      'export Barrier (\nOld0\n)',
+    );
+    expect(release.documents.find((document) => document.hash === 2)?.text.en?.text).toContain(
+      'var Beta = 20',
+    );
+    expect(release.documents.find((document) => document.hash === 2)?.text.en?.text).not.toContain(
+      'var Beta = 200',
+    );
+    f.change({
+      '.publisher/PIN': {
+        sourceSha: f.options.publisherSha,
+        sha256: f.options.publisherDigest,
+        capabilities: ['globalsRelease'],
+      },
+    });
+    await expect(f.globals.sources(f.current(), f.git.head(L)!)).rejects.toThrow(
+      'globalsExportsV1',
+    );
+  });
   it.each([false, true])(
     'repairs only never-published historical bad globals (published=%s)',
     async (published) => {

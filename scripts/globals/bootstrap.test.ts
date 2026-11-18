@@ -33,11 +33,37 @@ const inventory = (docs = documents(), revision = 'saved') => ({
   source: {
     repository: 'owner/data',
     revision,
-    locate: (hash: 2 | 3, lang: string) => ({
+    locate: (hash: 1 | 2 | 3, lang: string) => ({
       path: `tooltips/${hash}.json`,
       selector: ['text', lang, 'text'],
     }),
   },
+});
+
+it('adds only exports to installed stores and refuses existing identity/projection drift', () => {
+  const docs = documents();
+  docs[1].text.en!.text =
+    'export anti_barrier (\nBarrier\n)\nexport overload (\nOverload\n)\nexport unstoppable (\nUnstoppable\n)';
+  const saved = inventory(docs),
+    live = inventory(structuredClone(docs), 'published');
+  const original = bootstrapFiles(saved, live, 'test');
+  const existing = { saved: original.savedStore, published: original.liveStore };
+  const result = bootstrapFiles(saved, live, 'test', {}, existing);
+  expect(result.savedStore.entries.slice(0, existing.saved.entries.length)).toEqual(
+    existing.saved.entries,
+  );
+  expect(result.liveStore.entries.slice(0, existing.published.entries.length)).toEqual(
+    existing.published.entries,
+  );
+  expect(result.savedStore.entries.filter((entry) => entry.kind === 'exports')).toHaveLength(3);
+  expect(projectGlobals(result.savedStore)).toEqual({ 1: docs[1], 2: docs[2], 3: docs[3] });
+  expect(changedGlobalIds(result.liveStore, result.savedStore)).toEqual([]);
+  expect(result.files['globals/sync.json']).toBeUndefined();
+  for (const entry of existing.saved.entries)
+    expect(result.files[`globals/entries/${entry.id}.json`]).toBeUndefined();
+  const drift = { ...saved, documents: structuredClone(saved.documents) };
+  drift.documents[2].text.en!.text += '\nvar Added = 1';
+  expect(() => bootstrapFiles(drift, live, 'test', {}, existing)).toThrow('identity/projection');
 });
 
 it('preserves recipes, absence, empty values, #e, and stable IDs across independent inventories', async () => {
@@ -225,4 +251,52 @@ it('plans, stages, independently verifies, and restores only the exact offline c
   await command('apply');
   git('commit', '-m', 'Post-bootstrap mutation');
   await expect(command('restore')).rejects.toThrow('HEAD changed');
+  // Split exports on an already-installed tree. Existing records and arbitrary
+  // review/proof bytes survive both apply and restore without reserialization.
+  write('globals/reviews/preserved.json', '{ "preserved": true }\n');
+  write('globals/proofs/preserved.json', '{ "proof": true }\n');
+  git('add', '.');
+  git('commit', '-m', 'Preserve installed metadata');
+  const installedHead = git('rev-parse', 'HEAD');
+  const conversionOut = join(root, 'exports-plan');
+  await main([
+    'plan',
+    '--repo',
+    repo,
+    '--out',
+    conversionOut,
+    '--head',
+    installedHead,
+    '--live',
+    head,
+    '--converter',
+    head,
+  ]);
+  const conversionBytes = readFileSync(join(conversionOut, 'plan.json'));
+  const conversion = JSON.parse(conversionBytes.toString());
+  expect(
+    Object.keys(conversion.files).some(
+      (path) => path.startsWith('globals/reviews/') || path.startsWith('globals/proofs/'),
+    ),
+  ).toBe(false);
+  const convert = (operation: string) =>
+    main([
+      operation,
+      '--repo',
+      repo,
+      '--out',
+      conversionOut,
+      '--expect-plan',
+      sha256(conversionBytes),
+    ]);
+  const priorGlobals = git('rev-parse', 'HEAD:globals');
+  await convert('apply');
+  await convert('verify');
+  expect(readFileSync(join(repo, 'globals/reviews/preserved.json'), 'utf8')).toBe(
+    '{ "preserved": true }\n',
+  );
+  await convert('restore');
+  expect(git('write-tree')).toBe(conversion.baseTree);
+  expect(git('rev-parse', `${git('write-tree')}:globals`)).toBe(priorGlobals);
+  expect(git('status', '--porcelain')).toBe('');
 }, 120_000);

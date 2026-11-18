@@ -33,7 +33,7 @@ reconcile legacy in-flight operations, and retain every installed capability flo
 deploy compatible Worker and web builds and enable asynchronous admission with owner approval.
 Never downgrade the preparation reader or claim fence while requests or claims remain.
 Before accepting globals schedules, scheduled saves, or Retry, install a verified
-`scheduledGlobalsV1` runtime retaining `globalsRelease`, `schedulePreparationV1`, and every
+`scheduledGlobalsV1` runtime retaining `globalsRelease`, `globalsExportsV1`, `schedulePreparationV1`, and every
 existing capability. Root performs this installation in the authorized globals go-live
 sequence. Pinned global edits and owed reviews move affected batches to Needs attention;
 return them to draft and schedule again after review. Never rewrite their signed source

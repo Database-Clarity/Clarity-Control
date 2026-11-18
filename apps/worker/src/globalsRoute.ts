@@ -102,6 +102,8 @@ export async function observeGlobals(
   const pin = pinFile ? pinSchema.safeParse(parseRaw(pinFile.bytes)) : undefined;
   if (!pin?.success || !pin.data.capabilities.includes('globalsRelease'))
     throw new HttpError(503, 'Sync pending: installed publisher lacks globalsRelease');
+  if (!pin.data.capabilities.includes('globalsExportsV1'))
+    throw new HttpError(503, 'Sync pending: installed publisher lacks globalsExportsV1');
   // The installer writes this small binding alongside the exact config bytes. Observe
   // both at this head: changing config without reinstalling must fail closed. Avoid
   // downloading and parsing the multi-megabyte config on each fresh Worker isolate.

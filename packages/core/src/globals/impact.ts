@@ -12,7 +12,7 @@ import {
   type GlobalImpactRow,
   type GlobalImpactSnapshot,
 } from './impactModel.js';
-import { globalCauseSchema, validGlobalName } from './model.js';
+import { globalAggregateHash, globalCauseSchema, validGlobalName } from './model.js';
 import { globalSourceLanguage, globalSourceText } from './source.js';
 
 const keyOf = (hash: number, lang: Lang) => `${hash}:${lang}`;
@@ -162,7 +162,7 @@ function languageAffected(
   if (!change.languages) return true;
   // English revisions also change the source meaning that translated consumers must review.
   if (change.languages.includes('en')) return true;
-  const aggregate = snapshot.tooltips[change.kind === 'variables' ? 2 : 3];
+  const aggregate = snapshot.tooltips[globalAggregateHash(change.kind)];
   const source = aggregate ? globalSourceLanguage(aggregate, lang, snapshot.mode) : lang;
   return change.languages.includes(source);
 }
@@ -201,9 +201,7 @@ export function calculateGlobalImpact(
       ] as const) {
         if (!cell || !languageAffected(snapshot, change, lang)) continue;
         if (
-          cell.result.reads.imports.some(
-            (read) => read.hash === (change.kind === 'variables' ? 2 : 3),
-          )
+          cell.result.reads.imports.some((read) => read.hash === globalAggregateHash(change.kind))
         ) {
           affected = true;
           reason = 'aggregate-import';
@@ -211,6 +209,7 @@ export function calculateGlobalImpact(
           affected = true;
           reason = 'title-preparation';
         } else if (
+          change.kind === 'variables' &&
           cell.result.reads.variables.some(
             (name) => name === change.beforeName || name === change.afterName,
           )

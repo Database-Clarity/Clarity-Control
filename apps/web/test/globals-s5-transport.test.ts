@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGlobalsService, type GlobalsTransport } from '../src/services/globals';
 import { assertNoGlobalAggregates, globalAggregateRefusal } from '../src/services/globalsFlag';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
+import {
+  aggregateGlobalRoute,
+  identityDefinitions,
+  globalIdOf,
+} from '../src/stores/globalIdentities';
 
 const entry = globalFixtureSnapshot.entries[0];
 const row = globalFixtureSnapshot.impacts.g_damage0001[0];
@@ -220,10 +225,29 @@ describe('stale rename intents', () => {
 });
 
 describe('raw aggregate save refusal', () => {
-  it('refuses hashes 2 and 3 only with globals on', () => {
+  it('maps export catalogue identities and routes without confusing cross-kind names', () => {
+    const identities = {
+      g_export0001: {
+        kind: 'exports' as const,
+        name: 'Shared',
+        definitions: { en: 'Export body' },
+      },
+      g_title00001: { kind: 'titles' as const, name: 'Shared', definitions: { en: 'Title body' } },
+    };
+    expect(identityDefinitions(identities).find((entry) => entry.kind === 'exports')).toMatchObject(
+      { hash: 1, name: 'Shared' },
+    );
+    expect(globalIdOf(identities, 'exports', 'Shared')).toBe('g_export0001');
+    expect(aggregateGlobalRoute('/globals/g_export0001', '?lang=de', identities)).toEqual({
+      hash: 1,
+      search: '?lang=de&global=Shared',
+    });
+  });
+  it('refuses hashes 1, 2, and 3 only with globals on', () => {
     expect(() => assertNoGlobalAggregates([1, 2], true)).toThrow(globalAggregateRefusal);
     expect(() => assertNoGlobalAggregates([3], true)).toThrow(globalAggregateRefusal);
-    expect(() => assertNoGlobalAggregates([1, 10], true)).not.toThrow();
-    expect(() => assertNoGlobalAggregates([2, 3], false)).not.toThrow();
+    expect(() => assertNoGlobalAggregates([1], true)).toThrow(globalAggregateRefusal);
+    expect(() => assertNoGlobalAggregates([10], true)).not.toThrow();
+    expect(() => assertNoGlobalAggregates([1, 2, 3], false)).not.toThrow();
   });
 });

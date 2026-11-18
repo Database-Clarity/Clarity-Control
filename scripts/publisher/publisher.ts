@@ -1356,7 +1356,7 @@ export class Publisher {
         const pin = this.read<{ capabilities: string[] }>(tree, '.publisher/PIN');
         if (!pin?.capabilities.includes('scheduledGlobalsV1'))
           throw new Error('The installed publisher does not support scheduled globals yet');
-        if (members.some((member) => member.hash === 2 || member.hash === 3))
+        if (members.some((member) => member.hash === 1 || member.hash === 2 || member.hash === 3))
           throw new Error('Use global entry mutations instead of scheduled aggregate edits');
         const envelope = prepared;
         if (!envelope?.sourceIntent)

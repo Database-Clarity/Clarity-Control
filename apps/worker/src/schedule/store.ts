@@ -46,8 +46,8 @@ export function requireScheduledGlobals(listing: TreeNode[] | null, pin: unknown
   const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
   if (
     !Array.isArray(capabilities) ||
-    !['scheduledGlobalsV1', 'globalsRelease', 'schedulePreparationV1'].every((capability) =>
-      capabilities.includes(capability),
+    !['scheduledGlobalsV1', 'globalsRelease', 'globalsExportsV1', 'schedulePreparationV1'].every(
+      (capability) => capabilities.includes(capability),
     )
   )
     throw new HttpError(422, 'The installed publisher does not support scheduled globals yet');

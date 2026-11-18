@@ -119,6 +119,8 @@
 .definitionHeader {
   > span {
     color: var(--meta);
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }
 .paneBody {

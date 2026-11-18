@@ -45,6 +45,7 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
       'numberTokens',
       'aliasGroups',
       'globalsRelease',
+      'globalsExportsV1',
       'scheduledGlobalsV1',
       'schedulePreparationV1',
       'exoticTags',

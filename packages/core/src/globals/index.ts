@@ -9,7 +9,7 @@ export * from './references.js';
 export * from './transition.js';
 export * from './impact.js';
 
-export type GlobalKind = 'variables' | 'titles';
+export type GlobalKind = 'variables' | 'titles' | 'exports';
 export interface GlobalUsage {
   hash: number;
   lang: Lang;

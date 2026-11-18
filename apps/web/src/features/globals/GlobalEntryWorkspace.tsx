@@ -6,7 +6,7 @@ import {
   useNavigationType,
   useSearchParams,
 } from 'react-router-dom';
-import { languages, type Lang, type MarkupGlobals } from '@clarity/core';
+import { globalAggregateHash, languages, type Lang, type MarkupGlobals } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { ClarityEditor } from '../editor/ClarityEditor';
 import { Popover } from '../../ui/Popover';
@@ -476,7 +476,15 @@ function Workspace({
     <article className={styles.workspace} aria-busy={pending}>
       <header className={styles.header}>
         <h1>{entry?.name ?? 'Globals'}</h1>
-        {entry && <span>{entry.kind === 'variables' ? 'Variable' : 'Title'}</span>}
+        {entry && (
+          <span>
+            {entry.kind === 'variables'
+              ? 'Variable'
+              : entry.kind === 'exports'
+                ? 'Export'
+                : 'Title'}
+          </span>
+        )}
         {actor && actor.role !== 'translator' && (
           <GlobalActions
             open={actionsOpen}
@@ -670,7 +678,7 @@ function Workspace({
                 before=""
                 after={body}
                 lang={lang}
-                hash={entry.kind === 'variables' ? 2 : 3}
+                hash={globalAggregateHash(entry.kind)}
               />
             </Popover>
           </aside>
@@ -791,7 +799,7 @@ function Workspace({
                             before={snapshot.sourceBodies![entry.id][lang]!}
                             after={entry.definitions.en?.body ?? ''}
                             lang="en"
-                            hash={entry.kind === 'variables' ? 2 : 3}
+                            hash={globalAggregateHash(entry.kind)}
                           />
                         )}
                       </Popover>
@@ -1062,7 +1070,7 @@ function GlobalActions({
     if (action) cancel.current?.focus();
   }, [action]);
   const [name, setName] = useState('');
-  const [kind, setKind] = useState<'variables' | 'titles'>('variables');
+  const [kind, setKind] = useState<GlobalEntry['kind']>('variables');
   const [body, setBody] = useState('');
   const removing = action === 'remove' || action === 'remove-language';
   const label = !action
@@ -1155,10 +1163,11 @@ function GlobalActions({
                   <select
                     disabled={pending}
                     value={kind}
-                    onChange={(e) => setKind(e.target.value as 'variables' | 'titles')}
+                    onChange={(e) => setKind(e.target.value as GlobalEntry['kind'])}
                   >
                     <option value="variables">Variable</option>
                     <option value="titles">Title</option>
+                    <option value="exports">Export</option>
                   </select>
                 </label>
                 <label>

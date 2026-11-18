@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
-import { languages, type Lang } from '@clarity/core';
+import { globalAggregateKind, languages, type GlobalKind, type Lang } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
 import {
   globalsSession,
@@ -61,10 +61,10 @@ function entrySearch(search: string): string {
 
 /**
  * Resolves a name to its stable ID once the catalogue loads, then replaces the route, so Back
- * never lands on the name form again. Used by `/globals/:kind/:name` and the `/t/2`–`/t/3`
- * hand-off; no aggregate editor ever mounts for variables or titles.
+ * never lands on the name form again. Used by `/globals/:kind/:name` and the `/t/1`–`/t/3`
+ * hand-off; no aggregate editor ever mounts for exports, variables, or titles.
  */
-function GlobalResolver({ kind, name }: { kind: 'variables' | 'titles'; name: string | null }) {
+function GlobalResolver({ kind, name }: { kind: GlobalKind; name: string | null }) {
   const { search } = useLocation();
   const actor = useActor();
   const authLoading = useAuthStore((state) => state.loading);
@@ -110,17 +110,18 @@ function GlobalResolver({ kind, name }: { kind: 'variables' | 'titles'; name: st
 
 export function GlobalNameRoute() {
   const { kind, name } = useParams<'kind' | 'name'>();
-  if (kind !== 'variables' && kind !== 'titles') return <Navigate to="/globals" replace />;
+  if (kind !== 'variables' && kind !== 'titles' && kind !== 'exports')
+    return <Navigate to="/globals" replace />;
   return <GlobalResolver kind={kind} name={name ?? null} />;
 }
 
-/** `/t/2` and `/t/3` with globals on: the aggregates are projections, edited per entry. */
+/** `/t/1`–`/t/3` with globals on: the aggregates are projections, edited per entry. */
 export function GlobalAggregateHandOff() {
   const { hash } = useParams<'hash'>();
   const { search } = useLocation();
   return (
     <GlobalResolver
-      kind={hash === '2' ? 'variables' : 'titles'}
+      kind={globalAggregateKind(Number(hash))}
       name={new URLSearchParams(search).get('global')}
     />
   );

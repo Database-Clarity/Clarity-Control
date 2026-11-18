@@ -14,7 +14,12 @@ import {
   type GlobalSources,
   type GlobalReleaseComponent,
 } from '../../packages/core/src/globalsRelease/index.js';
-import { type GlobalCause, type GlobalStore } from '../../packages/core/src/globals/model.js';
+import {
+  globalAggregateHash,
+  type GlobalCause,
+  type GlobalRecord,
+  type GlobalStore,
+} from '../../packages/core/src/globals/model.js';
 import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js';
 import { projectGlobals } from '../../packages/core/src/globals/projection.js';
 import { assertGlobalTransition } from '../../packages/core/src/globals/transition.js';
@@ -165,6 +170,12 @@ export class GlobalsPublisher {
       !pin.capabilities.includes('globalsRelease')
     )
       throw new Error('Installed publisher lacks globalsRelease');
+    if (
+      !historical &&
+      this.store(tree).aggregates.some((aggregate) => aggregate.document.hash === 1) &&
+      !pin.capabilities.includes('globalsExportsV1')
+    )
+      throw new Error('Installed publisher lacks globalsExportsV1');
     const modes = this.git.treeModes?.(head ?? this.publisher.head(this.options.dataBranch)) ?? {};
     return observeGlobalSources({
       authored: globalTreeOid(tree, 'tooltips', modes),
@@ -480,12 +491,15 @@ export class GlobalsPublisher {
     const activeSelection = selected.filter(
       (hash) => !isMovedInactive(hash, this.publisher.movesAt(tree)),
     );
-    const aggregate = selected.includes(2) || selected.includes(3);
+    const aggregateHashes = captured.saved.aggregates.map(({ document }) => document.hash);
+    const aggregate = selected.some((hash) => aggregateHashes.includes(hash));
     const relevant = components.filter(
       (component) =>
         aggregate ||
         component.rows.some((row) => activeSelection.includes(row.view.consumer.hash)) ||
-        component.hashes.some((hash) => hash !== 2 && hash !== 3 && activeSelection.includes(hash)),
+        component.hashes.some(
+          (hash) => !aggregateHashes.includes(hash) && activeSelection.includes(hash),
+        ),
     );
     const ready = relevant.filter(
       (component) =>
@@ -512,7 +526,7 @@ export class GlobalsPublisher {
           !ready.includes(component) &&
           (component.rows.some((row) => activeSelection.includes(row.view.consumer.hash)) ||
             component.hashes.some(
-              (hash) => hash !== 2 && hash !== 3 && activeSelection.includes(hash),
+              (hash) => !aggregateHashes.includes(hash) && activeSelection.includes(hash),
             )),
       )
     )
@@ -540,7 +554,7 @@ export class GlobalsPublisher {
       }
     }
     const globals = projectGlobals(store);
-    if (batch) for (const hash of [2, 3]) if (!hashes.includes(hash)) hashes.push(hash);
+    if (batch) for (const hash of aggregateHashes) if (!hashes.includes(hash)) hashes.push(hash);
     hashes.sort((a, b) => a - b);
     const documents = hashes.map((hash) => {
       const document =
@@ -594,7 +608,7 @@ export class GlobalsPublisher {
       const pinnedDocuments = this.canonicalDocuments(sourceTree, 'live/tooltips', sourceAliases);
       for (const document of documents)
         if (selected.includes(document.hash)) pinnedDocuments[document.hash] = document;
-        else if (document.hash !== 2 && document.hash !== 3) {
+        else if (!aggregateHashes.includes(document.hash)) {
           const original = this.read(sourceTree, `tooltips/${document.hash}.json`);
           if (!original) throw new Error('Scheduled imported dependency was deleted');
           pinnedDocuments[document.hash] = tooltipSchema.parse(original);
@@ -637,8 +651,10 @@ export class GlobalsPublisher {
           entry.kind === 'titles' ||
           reads.some(
             (read) =>
-              read.variables.includes(entry.name) ||
-              read.imports.some((dependency) => dependency.hash === 2),
+              (entry.kind === 'variables' && read.variables.includes(entry.name)) ||
+              read.imports.some(
+                (dependency) => dependency.hash === globalAggregateHash(entry.kind),
+              ),
           ),
       );
       for (const entry of used) {
@@ -655,7 +671,14 @@ export class GlobalsPublisher {
       // Removing or renaming a used definition must not turn it into an unobserved absence.
       for (const entry of pinned.entries)
         if (
-          (entry.kind === 'titles' || reads.some((read) => read.variables.includes(entry.name))) &&
+          (entry.kind === 'titles' ||
+            reads.some(
+              (read) =>
+                (entry.kind === 'variables' && read.variables.includes(entry.name)) ||
+                read.imports.some(
+                  (dependency) => dependency.hash === globalAggregateHash(entry.kind),
+                ),
+            )) &&
           !used.some((candidate) => candidate.id === entry.id)
         )
           throw new Error(
@@ -980,7 +1003,8 @@ export class GlobalsPublisher {
         }
       const documents = this.documents(tree, 'tooltips');
       for (const document of Object.values(documents)) {
-        if (document.hash === 2 || document.hash === 3) continue;
+        if (before.aggregates.some((aggregate) => aggregate.document.hash === document.hash))
+          continue;
         for (const cell of Object.values(document.text))
           cell.text = rewriteGlobalReferences(cell.text, entry.kind, entry.name, intent.name).text;
       }
@@ -1044,12 +1068,15 @@ export class GlobalsPublisher {
           const localSources =
             document.hash === 2
               ? []
-              : document.hash === 3
-                ? Object.values(extractBlocks(source, 'title'))
+              : document.hash === 3 || document.hash === 1
+                ? Object.values(extractBlocks(source, document.hash === 1 ? 'export' : 'title'))
                 : [source];
-          for (const text of localSources)
+          for (const text of localSources) {
+            for (const name of Object.keys(extractBlocks(text, 'export')))
+              localNames.add(`export:${name}`);
             for (const definition of markupDefinitions(text))
               localNames.add(`${definition.kind}:${definition.name}`);
+          }
         }
     return localNames;
   }
@@ -1069,7 +1096,9 @@ export class GlobalsPublisher {
       );
       if (
         other ||
-        localNames.has(`${entry.kind === 'variables' ? 'variable' : 'title'}:${entry.name}`)
+        localNames.has(
+          `${entry.kind === 'variables' ? 'variable' : entry.kind === 'exports' ? 'export' : 'title'}:${entry.name}`,
+        )
       ) {
         delete tree[path];
         continue;
@@ -1100,7 +1129,7 @@ export class GlobalsPublisher {
     components: GlobalReleaseComponent[],
   ) {
     const captured = this.capture(tree, head, live),
-      requested = new Map<string, { kind: 'variables' | 'titles'; name: string }>();
+      requested = new Map<string, { kind: GlobalRecord['kind']; name: string }>();
     for (const entry of captured.saved.entries)
       if (!entry.tombstone) requested.set(`${entry.kind}:${entry.name}`, entry);
     for (const path of Object.keys(tree).filter((path) => path.startsWith('globals/retries/'))) {
@@ -1147,8 +1176,9 @@ export class GlobalsPublisher {
           ? []
           : components.filter(
               (component) =>
-                document.hash === 2 ||
-                document.hash === 3 ||
+                captured.saved.aggregates.some(
+                  (aggregate) => aggregate.document.hash === document.hash,
+                ) ||
                 component.rows.some(
                   (row) =>
                     row.view.consumer.hash === document.hash && row.view.consumer.lang === lang,
@@ -1158,7 +1188,7 @@ export class GlobalsPublisher {
           component.rows.every((row) => this.approved(tree, row)),
         );
         if (
-          document.hash === 2 || document.hash === 3
+          captured.saved.aggregates.some((aggregate) => aggregate.document.hash === document.hash)
             ? relevant.length > 0 && ready.length === 0
             : ready.length !== relevant.length
         )
@@ -1185,7 +1215,7 @@ export class GlobalsPublisher {
       );
       const occupied = owners[0];
       const localClash = localNames.has(
-        `${request.kind === 'variables' ? 'variable' : 'title'}:${request.name}`,
+        `${request.kind === 'variables' ? 'variable' : request.kind === 'exports' ? 'export' : 'title'}:${request.name}`,
       );
       const path = (await namePaths(request.kind, request.name)).proof;
       if (localClash || new Set(owners.map((entry) => entry.id)).size > 1) {

@@ -17,7 +17,12 @@ import { tooltipSchema, type Tooltip } from '../../packages/core/src/schemas.js'
 import { stableStringify } from '../../packages/core/src/contentHash.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
 import { projectGlobals } from '../../packages/core/src/globals/projection.js';
-import { globalIdSchema } from '../../packages/core/src/globals/model.js';
+import { globalIdSchema, type GlobalRecord } from '../../packages/core/src/globals/model.js';
+import {
+  globalLayoutSchema,
+  globalPublishedSchema,
+} from '../../packages/core/src/globalsRelease/model.js';
+import { catalogSchema, entrySchema, pageSchema } from '../../apps/worker/src/globals/model.js';
 import { Publisher, type Options } from '../publisher/publisher.js';
 import { globalsCensus, legacySnapshot } from './census.js';
 import { bootstrapFiles, json, sha256 } from './bootstrap-model.js';
@@ -37,6 +42,7 @@ const planSchema = z
     destination: z.string(),
     ids: z.record(z.string(), globalIdSchema),
     files: z.record(z.string(), z.string()),
+    baseFiles: z.record(z.string(), z.string().nullable()).optional(),
     pins: z.record(z.string(), z.string().nullable()),
     backupSha256: z.string(),
     diffSha256: z.string(),
@@ -113,13 +119,17 @@ export class OfflineGit {
   }
 }
 
-export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, string>) {
-  if (git.head() !== inputs.head) throw new Error('Expected data HEAD changed');
+export function prepare(
+  git: OfflineGit,
+  inputs: Inputs,
+  ids?: Record<string, string>,
+  inspect = false,
+) {
+  if (!inspect && git.head() !== inputs.head) throw new Error('Expected data HEAD changed');
   for (const ref of [inputs.head, inputs.live, inputs.converter])
     if (git.text('rev-parse', `${ref}^{commit}`) !== ref) throw new Error('Unpinned input commit');
   const paths = git.paths(inputs.head);
-  if (paths.some((path) => path.startsWith('globals/')))
-    throw new Error('Globals already exist (partial bootstrap included)');
+  const installed = paths.some((path) => path.startsWith('globals/'));
   const config = git.read(inputs.head, '.publisher/config.json') as Options;
   if (
     config.dataBranch !== 'editor-data' ||
@@ -154,7 +164,7 @@ export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, st
   const savedSource = {
     repository: config.repo,
     revision: inputs.head,
-    locate: (hash: 2 | 3, lang: string) => ({
+    locate: (hash: 1 | 2 | 3, lang: string) => ({
       path: `tooltips/${hash}.json`,
       selector: ['text', lang, 'text'],
     }),
@@ -162,7 +172,7 @@ export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, st
   const publishedSource = {
     repository: config.repo,
     revision: inputs.live,
-    locate: (hash: 2 | 3, lang: string) => ({
+    locate: (hash: 1 | 2 | 3, lang: string) => ({
       path: 'liveDescriptions.json',
       selector: ['perks', String(hash), 'editor', lang, 'main'],
     }),
@@ -173,17 +183,68 @@ export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, st
     revision: inputs.live,
     path: 'liveDescriptions.json',
   });
+  const existing = installed
+    ? (() => {
+        const layout = globalLayoutSchema.parse(git.read(inputs.head, 'globals/layout.json'));
+        const published = globalPublishedSchema.parse(
+          git.read(inputs.head, `globals/live/${config.liveBranch}.json`),
+        );
+        if (published.destination !== config.liveBranch)
+          throw new Error('Published destination mismatch');
+        const catalog = catalogSchema.parse(git.read(inputs.head, 'globals/catalog.json'));
+        const entries: GlobalRecord[] = [];
+        for (let i = 0; i <= catalog.lastPage; i++) {
+          const page = pageSchema.parse(git.read(inputs.head, `globals/pages/p${i}.json`));
+          if (page.nextCursor !== (i < catalog.lastPage ? `p${i + 1}` : null))
+            throw new Error('Incomplete installed catalogue');
+          for (const id of page.ids) {
+            const entry = entrySchema.parse(git.read(inputs.head, `globals/entries/${id}.json`));
+            if (entry.id !== id || entries.some((previous) => previous.id === id))
+              throw new Error('Installed identity mismatch');
+            entries.push(entry);
+          }
+        }
+        if (
+          entries.length !==
+          paths.filter((path) => /^globals\/entries\/[^/]+\.json$/.test(path)).length
+        )
+          throw new Error('Installed catalogue omits an identity');
+        return {
+          saved: { version: 1 as const, entries, aggregates: layout.aggregates },
+          published: published.store,
+        };
+      })()
+    : undefined;
   const proposal = bootstrapFiles(
     { documents, source: savedSource },
     { documents: live.tooltips, source: publishedSource },
     config.liveBranch,
     ids,
+    existing,
   );
+  // Unchanged metadata keeps its original bytes; old entries, reviews, proofs, and
+  // pending work are never rewritten by the export conversion.
+  if (existing)
+    for (const [path, bytes] of Object.entries(proposal.files)) {
+      if (
+        paths.includes(path) &&
+        stableStringify(git.read(inputs.head, path)) === stableStringify(JSON.parse(bytes))
+      )
+        delete proposal.files[path];
+      else if (
+        paths.includes(path) &&
+        !/^(globals\/layout\.json|globals\/live\/[^/]+\.json|globals\/catalog\.json|globals\/pages\/p\d+\.json)$/.test(
+          path,
+        )
+      )
+        throw new Error(`Existing metadata would change: ${path}`);
+    }
   const publishedSnapshots = [];
   const historicalPublishedAliases = [];
   for (const document of Object.values(live.tooltips)) {
     const path = `live/tooltips/${document.hash}.json`;
     if (paths.includes(path)) continue;
+    if (existing) throw new Error(`Installed published snapshot is missing: ${path}`);
     const bytes = json(tooltipSchema.parse(document));
     proposal.files[path] = bytes;
     publishedSnapshots.push({
@@ -230,8 +291,8 @@ export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, st
     mode: 'authored' as const,
   };
   const censuses = {
-    saved: globalsCensus(saved, savedSource.locate),
-    live: globalsCensus(live, publishedSource.locate),
+    saved: globalsCensus(saved, savedSource.locate, installed),
+    live: globalsCensus(live, publishedSource.locate, installed),
   };
   for (const [key, census] of Object.entries(censuses))
     if (
@@ -280,7 +341,7 @@ export function prepare(git: OfflineGit, inputs: Inputs, ids?: Record<string, st
         return [lang, authored];
       }),
     );
-  for (const hash of [2, 3]) {
+  for (const hash of installed ? [1, 2, 3] : [2, 3]) {
     const actual = raw.perks[hash]?.editor as Record<string, { main: string; secondary: string }>;
     const comparable = Object.fromEntries(
       Object.entries(actual).map(([lang, cell]) => {
@@ -429,13 +490,41 @@ function restorable(git: OfflineGit, plan: Plan) {
   );
   for (const [path, bytes] of Object.entries(plan.files)) {
     const target = safeFile(git.repo, path);
-    if (existsSync(target) && !readFileSync(target).equals(Buffer.from(bytes)))
+    const base = plan.baseFiles?.[path] ?? null;
+    if (
+      existsSync(target) &&
+      !readFileSync(target).equals(Buffer.from(bytes)) &&
+      (base === null || !readFileSync(target).equals(Buffer.from(base)))
+    )
       throw new Error(`Working file differs from receipt: ${path}`);
     const staged = stages.get(path);
     const expectedBlob = blobOid(bytes);
-    if (staged && staged !== `100644 ${expectedBlob} 0\t${path}`)
+    if (
+      staged &&
+      staged !== `100644 ${expectedBlob} 0\t${path}` &&
+      (base === null || staged !== `100644 ${blobOid(base)} 0\t${path}`)
+    )
       throw new Error(`Staged file differs from receipt: ${path}`);
   }
+}
+
+/** Restore original bytes for replacements, and remove only newly created paths. */
+function restoreFiles(git: OfflineGit, plan: Plan, paths = Object.keys(plan.files)) {
+  const restored: Record<string, string> = {},
+    removed: Record<string, string> = {};
+  for (const path of paths) {
+    const original = plan.baseFiles?.[path] ?? null;
+    const target = safeFile(git.repo, path);
+    if (original === null) {
+      if (existsSync(target)) unlinkSync(target);
+      removed[path] = plan.files[path];
+    } else {
+      writeFileSync(target, original);
+      restored[path] = original;
+    }
+  }
+  stageFiles(git, removed, true);
+  stageFiles(git, restored);
 }
 
 export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
@@ -454,20 +543,20 @@ export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
   const command = positionals[0];
   if (
     positionals.length !== 1 ||
-    !['plan', 'apply', 'verify', 'restore'].includes(command) ||
+    !['inspect', 'plan', 'apply', 'verify', 'restore'].includes(command) ||
     !values.repo ||
     !values.out
   )
     throw new Error(
-      'Usage: bootstrap.mjs plan|apply|verify|restore --repo private-clone --out evidence-dir (plan: --head SHA --live SHA --converter SHA; others: --expect-plan SHA256)',
+      'Usage: bootstrap.mjs inspect|plan|apply|verify|restore --repo private-clone --out evidence-dir (inspect/plan: --head SHA --live SHA --converter SHA; others: --expect-plan SHA256)',
     );
   const git = new OfflineGit(resolve(values.repo)),
     out = resolve(values.out);
   const rel = relative(git.repo, out);
-  if (!rel.startsWith('..') && !isAbsolute(rel))
+  if (command !== 'inspect' && !rel.startsWith('..') && !isAbsolute(rel))
     throw new Error('Evidence directory must be outside the data repository');
-  if (command === 'plan') {
-    git.clean();
+  if (command === 'plan' || command === 'inspect') {
+    if (command === 'plan') git.clean();
     if (existsSync(out))
       throw new Error('Plan output already exists; preserve it and choose a fresh directory');
     const inputs = inputsSchema.parse({
@@ -476,8 +565,23 @@ export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
       live: values.live,
       converter: values.converter,
     });
-    const prepared = prepare(git, inputs);
+    const prepared = prepare(git, inputs, undefined, command === 'inspect');
     mkdirSync(out, { recursive: true });
+    if (command === 'inspect') {
+      writeFileSync(
+        join(out, 'proposal.json'),
+        json({ inputs, ...prepared, writesEnabled: false }),
+      );
+      process.stdout.write(
+        json({
+          inputs,
+          writesEnabled: false,
+          files: Object.keys(prepared.files).length,
+          reviewDifferences: prepared.reviewDifferences,
+        }),
+      );
+      return;
+    }
     const targetTree = plannedTree(git, out, inputs.head, prepared.files);
     const diff = git.run([
       'diff-tree',
@@ -509,6 +613,14 @@ export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
       destination: prepared.config.liveBranch,
       ids: prepared.ids,
       files: prepared.files,
+      baseFiles: Object.fromEntries(
+        Object.keys(prepared.files).map((path) => [
+          path,
+          git.text('ls-tree', inputs.head, '--', path)
+            ? git.run(['show', `${inputs.head}:${path}`]).toString('utf8')
+            : null,
+        ]),
+      ),
       pins: prepared.pins,
       backupSha256: sha256(readFileSync(backup)),
       diffSha256: sha256(diff),
@@ -545,6 +657,18 @@ export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
   const prepared = prepare(git, plan.inputs, plan.ids);
   if (
     stableStringify(prepared.files) !== stableStringify(plan.files) ||
+    (plan.baseFiles !== undefined &&
+      stableStringify(plan.baseFiles) !==
+        stableStringify(
+          Object.fromEntries(
+            Object.keys(prepared.files).map((path) => [
+              path,
+              git.text('ls-tree', plan.inputs.head, '--', path)
+                ? git.run(['show', `${plan.inputs.head}:${path}`]).toString('utf8')
+                : null,
+            ]),
+          ),
+        )) ||
     stableStringify(prepared.pins) !== stableStringify(plan.pins) ||
     stableStringify(JSON.parse(json(prepared.identityEvidence))) !==
       stableStringify(plan.identityEvidence) ||
@@ -563,33 +687,37 @@ export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
     verify(git, plan);
   } else if (command === 'restore') {
     restorable(git, plan);
-    for (const path of Object.keys(plan.files)) {
-      const target = safeFile(git.repo, path);
-      if (existsSync(target)) unlinkSync(target);
-    }
-    stageFiles(git, plan.files, true);
+    restoreFiles(git, plan);
     git.clean();
     if (git.text('write-tree') !== plan.baseTree)
       throw new Error('Restored tree differs from backup');
   } else {
     git.clean();
-    for (const path of Object.keys(plan.files))
-      if (existsSync(safeFile(git.repo, path))) throw new Error('Bootstrap path already exists');
+    for (const path of Object.keys(plan.files)) {
+      const target = safeFile(git.repo, path),
+        original = plan.baseFiles?.[path] ?? null;
+      if (
+        original === null
+          ? existsSync(target)
+          : !existsSync(target) || !readFileSync(target).equals(Buffer.from(original))
+      )
+        throw new Error('Bootstrap path differs from its expected original');
+    }
     const written: string[] = [];
     try {
       for (const [path, bytes] of Object.entries(plan.files)) {
         const target = safeFile(git.repo, path);
         mkdirSync(dirname(target), { recursive: true });
-        writeFileSync(target, bytes, { flag: 'wx' });
+        writeFileSync(target, bytes, {
+          flag:
+            plan.baseFiles?.[path] === null || plan.baseFiles?.[path] === undefined ? 'wx' : 'w',
+        });
         written.push(path);
       }
       stageFiles(git, plan.files);
       verify(git, plan);
     } catch (error) {
-      for (const path of written.reverse()) {
-        unlinkSync(safeFile(git.repo, path));
-      }
-      stageFiles(git, Object.fromEntries(written.map((path) => [path, plan.files[path]])), true);
+      restoreFiles(git, plan, written.reverse());
       throw error;
     }
   }

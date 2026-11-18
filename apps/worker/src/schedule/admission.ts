@@ -267,7 +267,7 @@ export async function admitBatchRequest(
     if (
       state.trees[1] &&
       [...hashes, ...('changes' in input ? input.changes.map(({ hash }) => hash) : [])].some(
-        (hash) => hash === 2 || hash === 3,
+        (hash) => hash === 1 || hash === 2 || hash === 3,
       )
     )
       throw new HttpError(409, 'Use global entry mutations; Sync pending protection is required');

@@ -167,13 +167,14 @@ function validName(kind: GlobalRecord['kind'], name: string) {
 }
 
 function declaration(kind: GlobalRecord['kind'], name: string, value: string): string {
+  const block = kind === 'exports' ? 'export' : 'title';
   const text =
-    kind === 'variables' ? `var ${name} = ${value || 'empty'}` : `title ${name} (\n${value}\n)`;
-  const parsed = kind === 'variables' ? extractVariables(text) : extractBlocks(text, 'title');
+    kind === 'variables' ? `var ${name} = ${value || 'empty'}` : `${block} ${name} (\n${value}\n)`;
+  const parsed = kind === 'variables' ? extractVariables(text) : extractBlocks(text, block);
   if (
     /[\r]/.test(value) ||
     (kind === 'variables' && /\n/.test(value)) ||
-    (kind === 'titles' && !value.trim()) ||
+    (kind !== 'variables' && !value.trim()) ||
     parsed[name] !== value ||
     // Comment delimiters would change the declaration after resolver preparation.
     /\/\*|\*\/|(^|\s)\/\//.test(value)

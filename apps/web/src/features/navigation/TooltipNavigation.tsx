@@ -689,10 +689,9 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     };
   /** A declaration's route: by stable ID once the globals catalogue knows it (globals on). */
   const declarationPath = (definition: GlobalDefinition, search: string) => {
-    const id =
-      globalsEnabled && definition.kind !== 'exports'
-        ? globalIdOf(globalIdentities, definition.kind, definition.name)
-        : undefined;
+    const id = globalsEnabled
+      ? globalIdOf(globalIdentities, definition.kind, definition.name)
+      : undefined;
     const lang = new URLSearchParams(search).get('lang');
     return id
       ? `/globals/${id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`
@@ -716,17 +715,13 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     )
       void import('../../stores/globalEntries').then((module) => module.loadGlobalIdentities());
   }, [catalogActive, authLoading, globalRole]);
-  // Variables and titles from the entries once known (renames and new entries included);
-  // exports stay aggregate declarations.
+  // Authoritative entries include new and renamed definitions of every global kind.
   const globalDefinitions = useMemo(
     () =>
       globalsEnabled && !globalRole
-        ? aggregateDefinitions.filter((definition) => definition.kind === 'exports')
+        ? []
         : globalsEnabled
-          ? [
-              ...aggregateDefinitions.filter((definition) => definition.kind === 'exports'),
-              ...identityDefinitions(globalIdentities),
-            ].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))
+          ? identityDefinitions(globalIdentities)
           : aggregateDefinitions,
     [aggregateDefinitions, globalIdentities, globalRole],
   );
@@ -787,8 +782,8 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       (category) =>
         category.id ===
         (markedRouteCategory(hash, routeSearch, sections) ??
-          (globalsEnabled && (hash === 2 || hash === 3)
-            ? `globals-${hash === 2 ? 'variables' : 'titles'}`
+          (globalsEnabled && (hash === 1 || hash === 2 || hash === 3)
+            ? `globals-${hash === 1 ? 'exports' : hash === 2 ? 'variables' : 'titles'}`
             : selectedGlobal
               ? `globals-${selectedGlobal.kind}`
               : finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? ''))),
@@ -1653,8 +1648,14 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         const grouping = next && groupedSection(next, data);
         const first = grouping ? grouping.all[0] : next?.items[0];
         if (!first) {
-          if (globalsEnabled && (id === 'globals-variables' || id === 'globals-titles')) {
-            chooseRef.current(id === 'globals-variables' ? 2 : 3, null);
+          if (
+            globalsEnabled &&
+            ['globals-variables', 'globals-titles', 'globals-exports'].includes(id)
+          ) {
+            chooseRef.current(
+              id === 'globals-exports' ? 1 : id === 'globals-variables' ? 2 : 3,
+              null,
+            );
             keepGlobalCategoryOpen.current = true;
             setOpen(true);
           }
@@ -1662,7 +1663,10 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         }
         const scope = grouping ? scopeValue(first as Entry, true, grouping.firstGroup) : null;
         chooseRef.current(first.hash, scope, next?.items[0]?.global);
-        if (globalsEnabled && (id === 'globals-variables' || id === 'globals-titles')) {
+        if (
+          globalsEnabled &&
+          ['globals-variables', 'globals-titles', 'globals-exports'].includes(id)
+        ) {
           keepGlobalCategoryOpen.current = true;
           setOpen(true);
         }

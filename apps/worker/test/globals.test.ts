@@ -169,6 +169,35 @@ async function fixture() {
 }
 
 describe('bounded global admission and durable Sync pending', () => {
+  it('admits export edits through the same roles, proofs, causes, and atomic commit as variables', async () => {
+    const f = await fixture();
+    const exported: GlobalRecord = {
+      ...structuredClone(entry),
+      kind: 'exports',
+      name: 'anti_barrier',
+    };
+    exported.definitions.en!.provenance!.hash = 1;
+    exported.definitions.en!.provenance!.path = 'tooltips/1.json';
+    f.files.set(paths.entry(id), exported);
+    await f.admit(exported.name, id, 'exports');
+    const result = await f.call({ ...edit, body: 'Disrupts Barrier Champions.' });
+    expect(result.status).toBe(200);
+    expect(f.ctx.storage.commit).toHaveBeenCalledTimes(1);
+    expect(f.files.get(paths.entry(id))).toMatchObject({
+      kind: 'exports',
+      definitions: { en: { body: 'Disrupts Barrier Champions.' } },
+    });
+    expect(f.files.get(`globals/causes/${result.data.value.causeIds[0]}.json`)).toMatchObject({
+      globalId: id,
+      operation: 'edit',
+    });
+    const denied = await fixture();
+    denied.files.set(paths.entry(id), exported);
+    denied.ctx.access = { role: 'translator', login: 'translator', languages: ['de'] };
+    expect((await denied.call(edit)).status).toBe(403);
+    expect((await denied.call({ operation: 'remove', id, revision: 'r1' })).status).toBe(403);
+    expect(() => assertNoRawGlobalMutation([1])).toThrow('Use global entry mutations');
+  });
   it('pins the observed blob ID instead of guessing the original file serialization', async () => {
     const f = await fixture(),
       actualRead = vi.mocked(f.ctx.storage.readFiles).getMockImplementation()!;

@@ -45,7 +45,10 @@ it.each([
 });
 it('requires the capability and an exact current certificate for each selected consumer', async () => {
   const { f, value } = await fixture();
-  f.moveData({ 'globals/sync.json': {}, '.publisher/PIN': { capabilities: ['globalsRelease'] } });
+  f.moveData({
+    'globals/sync.json': {},
+    '.publisher/PIN': { capabilities: ['globalsRelease', 'globalsExportsV1'] },
+  });
   const sources = {
     authored: 'a'.repeat(40),
     definitions: 'b'.repeat(40),
@@ -93,7 +96,7 @@ it('admits an explicitly reviewed inactive removal without publishing a global b
   const { f, value } = await fixture();
   f.moveData({
     'globals/sync.json': {},
-    '.publisher/PIN': { capabilities: ['globalsRelease', 'inactiveMoves'] },
+    '.publisher/PIN': { capabilities: ['globalsRelease', 'globalsExportsV1', 'inactiveMoves'] },
     'config/inactive.json': { 123: { by: 1, at: new Date(now).toISOString() } },
   });
   value.expected[123] = await inactiveRemovalHash(123);

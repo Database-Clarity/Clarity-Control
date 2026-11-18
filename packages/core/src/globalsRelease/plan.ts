@@ -129,7 +129,15 @@ function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
       // published baseline. Current/after inputs must still resolve completely.
       observedBefore = {
         ...before,
-        tooltips: { ...before.tooltips, 2: published.tooltips[2], 3: published.tooltips[3] },
+        tooltips: {
+          ...before.tooltips,
+          ...Object.fromEntries(
+            store.aggregates.map(({ document }) => [
+              document.hash,
+              published.tooltips[document.hash],
+            ]),
+          ),
+        },
       };
       result = calculateGlobalImpact(
         observedBefore,
@@ -170,7 +178,18 @@ function expandReleaseDependencies(
   // definition did not change. Compare real renders while holding consumers fixed.
   const globalOnly = calculateGlobalImpact(
     before,
-    { ...before, tooltips: { ...before.tooltips, 2: after.tooltips[2], 3: after.tooltips[3] } },
+    {
+      ...before,
+      tooltips: {
+        ...before.tooltips,
+        ...Object.fromEntries(
+          input.saved.aggregates.map(({ document }) => [
+            document.hash,
+            after.tooltips[document.hash],
+          ]),
+        ),
+      },
+    },
     probe,
     input.destination,
   );
@@ -195,6 +214,7 @@ function expandReleaseDependencies(
       if (
         hash === 2 ||
         hash === 3 ||
+        (hash === 1 && input.saved.aggregates.some((aggregate) => aggregate.document.hash === 1)) ||
         stableStringify(input.live.tooltips[hash] ?? null) ===
           stableStringify(after.tooltips[hash] ?? null)
       )
@@ -287,7 +307,7 @@ export async function planGlobalRelease(
   for (const store of [input.saved, input.published])
     for (const entry of store.entries) {
       const reads = Object.values(entry.definitions).flatMap((cell) =>
-        (['variables', 'titles'] as const).flatMap((kind) =>
+        (['variables', 'titles', 'exports'] as const).flatMap((kind) =>
           globalReferenceSpans(cell.body, kind).map((span) => ({ kind, name: span.name })),
         ),
       );
@@ -318,10 +338,9 @@ export async function planGlobalRelease(
         );
         const dependencyDocuments: Record<string, Tooltip> = {};
         for (const dependency of dependencies) {
-          const document =
-            dependency === 2 || dependency === 3
-              ? projectGlobals(store)[dependency]
-              : (input.authored.tooltips[dependency] ?? input.live.tooltips[dependency]);
+          const document = Object.hasOwn(projectGlobals(store), dependency)
+            ? projectGlobals(store)[dependency]
+            : (input.authored.tooltips[dependency] ?? input.live.tooltips[dependency]);
           if (!document) throw new Error('Deleted imported dependency');
           dependencyDocuments[dependency] = document;
         }
@@ -385,9 +404,8 @@ export async function planGlobalRelease(
       ])
         hashes.add(resolveAlias(read.hash, input.authored.aliases));
     }
-    // Both reserved libraries are emitted from the candidate, never from saved aggregates.
-    hashes.add(2);
-    hashes.add(3);
+    // Reserved libraries are emitted from the candidate, never from saved aggregates.
+    for (const aggregate of store.aggregates) hashes.add(aggregate.document.hash);
     result.push({
       ids,
       rows: [...rows.values()],

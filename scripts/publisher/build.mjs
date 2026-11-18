@@ -70,6 +70,12 @@ for (const marker of [
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks schedule preparation (${marker}); refusing its PIN`);
+for (const marker of [
+  'Installed publisher lacks globalsExportsV1',
+  'Expected aggregate 1, 2, or 3',
+])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks globals exports (${marker}); refusing its PIN`);
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -101,6 +107,7 @@ writeFileSync(
         'numberTokens',
         'aliasGroups',
         'globalsRelease',
+        'globalsExportsV1',
         'scheduledGlobalsV1',
         'schedulePreparationV1',
         'exoticTags',

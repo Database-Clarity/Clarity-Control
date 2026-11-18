@@ -352,13 +352,22 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
   };
 }
 
-async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alpha', titles = '') {
+async function withGlobals(
+  f: Awaited<ReturnType<typeof fixture>>,
+  body = '#Alpha',
+  titles = '',
+  exports = '',
+) {
   const library = (hash: number, text: string) => ({ ...tip(text), hash });
-  const docs = [library(1, ''), library(2, 'var Alpha = 10\nvar Beta = 20'), library(3, titles)];
+  const docs = [
+    library(1, exports),
+    library(2, 'var Alpha = 10\nvar Beta = 20'),
+    library(3, titles),
+  ];
   for (const doc of docs) f.options.facts[doc.hash] = { name: String(doc.hash), type: 'perk' };
   let sequence = 0;
   const store = inventoryGlobals(
-    docs.slice(1),
+    exports ? docs : docs.slice(1),
     {
       repository: f.options.repo,
       revision: 'bootstrap',
@@ -384,6 +393,7 @@ async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alph
         'scheduledBatches',
         'schedulePreparationV1',
         'globalsRelease',
+        'globalsExportsV1',
         'scheduledGlobalsV1',
       ],
     },
@@ -428,6 +438,45 @@ async function withGlobals(f: Awaited<ReturnType<typeof fixture>>, body = '#Alph
 }
 
 describe('scheduled global closure', () => {
+  it('publishes scheduled consumers with the pinned export projection in the same receipt', async () => {
+    const f = await fixture();
+    const { store } = await withGlobals(
+      f,
+      'import Barrier from global',
+      '',
+      'export Barrier (\nStuns Champions.\n)',
+    );
+    f.admit('schedule');
+    await f.prep.drain();
+    expect(f.request().reasons).toEqual([]);
+    expect(f.batch().status).toBe('scheduled');
+    await f.pub.operation(R);
+    expect(f.batch().status).toBe('published');
+    const receipt = f.pub.receipt(f.pub.head('converter-v2-test'), R)!;
+    expect(receipt.entries.map((entry) => entry.hash)).toEqual([1, 2, 3, 123]);
+    expect(receipt.globals?.published.store).toEqual(store);
+  });
+  it('invalidates an export revision before the due minute without a partial publication', async () => {
+    const f = await fixture();
+    const { store } = await withGlobals(
+      f,
+      'import Barrier from global',
+      '',
+      'export Barrier (\nStuns Champions.\n)',
+    );
+    f.admit('schedule', undefined, user, '2030-03-17T18:30:00.000Z');
+    await f.prep.drain();
+    expect(f.batch().status).toBe('scheduled');
+    const live = f.pub.head('converter-v2-test');
+    const entry = structuredClone(store.entries.find((entry) => entry.kind === 'exports')!);
+    entry.revision = 'changed';
+    entry.definitions.en!.revision = 'changed';
+    f.change({ [`globals/entries/${entry.id}.json`]: entry });
+    await f.prep.drain(true);
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.pub.head('converter-v2-test')).toBe(live);
+    expect(f.batch().claim).toBeNull();
+  });
   it.each([
     'missing body',
     'mismatched body',

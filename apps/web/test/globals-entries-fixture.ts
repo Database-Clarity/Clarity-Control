@@ -1,4 +1,6 @@
 import {
+  globalAggregateHash,
+  globalAggregateKind,
   parseMarkup,
   validGlobalName,
   type GlobalDefinition,
@@ -39,7 +41,7 @@ export const fixtureDigest = (value: number) => value.toString(16).padStart(64, 
 function definition(
   body: string,
   lang: 'en' | 'fr',
-  hash: 2 | 3,
+  hash: 1 | 2 | 3,
   revision = 'r1',
 ): GlobalDefinition {
   return {
@@ -325,7 +327,7 @@ export function createGlobalsFixture(
           return { kind: 'invalid', message: 'Choose a valid, unique reference name.' };
       }
       if (mutation.operation === 'create') {
-        if (mutation.kind === 'titles' && !mutation.body.trim())
+        if (mutation.kind !== 'variables' && !mutation.body.trim())
           return { kind: 'invalid', message: 'Title body is required.' };
         snapshot.entries.push({
           version: 1,
@@ -338,20 +340,20 @@ export function createGlobalsFixture(
             [mutation.lang]: definition(
               mutation.body,
               mutation.lang as 'en' | 'fr',
-              mutation.kind === 'variables' ? 2 : 3,
+              globalAggregateHash(mutation.kind),
               `body${revision}`,
             ),
           },
         });
       } else if (mutation.operation === 'edit') {
         if (!canEditGlobal(actor, mutation.lang)) return forbidden();
-        if (entry!.kind === 'titles' && !mutation.body.trim())
+        if (entry!.kind !== 'variables' && !mutation.body.trim())
           return { kind: 'invalid', message: 'Title body is required.' };
         entry!.definitions[mutation.lang] = {
           ...definition(
             mutation.body,
             mutation.lang as 'en' | 'fr',
-            entry!.kind === 'variables' ? 2 : 3,
+            globalAggregateHash(entry!.kind),
             `body${++revision}`,
           ),
           provenance:
@@ -359,7 +361,7 @@ export function createGlobalsFixture(
             definition(
               mutation.body,
               mutation.lang as 'en' | 'fr',
-              entry!.kind === 'variables' ? 2 : 3,
+              globalAggregateHash(entry!.kind),
             ).provenance,
         };
         entry!.revision = `r${revision}`;
@@ -434,13 +436,11 @@ export function createGlobalsFixture(
   const projection: GlobalProjectionSource = {
     prepare(request) {
       const entry = snapshot.entries.find((item) => item.id === request.id)!;
-      const aggregate = (hash: 2 | 3, changed: boolean): Tooltip => {
+      const aggregate = (hash: 1 | 2 | 3, changed: boolean): Tooltip => {
         const text: Tooltip['text'] = {};
         for (const lang of ['en', 'fr'] as const) {
           const source = snapshot.entries
-            .filter(
-              (item) => !item.tombstone && item.kind === (hash === 2 ? 'variables' : 'titles'),
-            )
+            .filter((item) => !item.tombstone && item.kind === globalAggregateKind(hash))
             .flatMap((item) => {
               const body =
                 changed && item.id === request.id && lang === request.lang
@@ -449,7 +449,7 @@ export function createGlobalsFixture(
               if (body === undefined) return [];
               return hash === 2
                 ? [`var ${item.name} = ${body || 'empty'}`]
-                : [`title ${item.name} (\n${body}\n)`];
+                : [`${hash === 1 ? 'export' : 'title'} ${item.name} (\n${body}\n)`];
             })
             .join('\n');
           if (source) text[lang] = { text: source, updatedAt: stamp, updatedBy: 'fixture' };
@@ -492,6 +492,21 @@ export function createGlobalsFixture(
         types: Object.fromEntries(Object.keys(tooltips).map((hash) => [hash, 'perk'])),
         mode: 'authored',
       };
+      if (snapshot.entries.some((item) => item.kind === 'exports')) {
+        tooltips[1] = aggregate(1, false);
+        tooltips[30] = {
+          hash: 30,
+          associated: [],
+          text: {
+            en: {
+              text: `import ${snapshot.entries.find((item) => item.kind === 'exports')!.name} from global`,
+              updatedAt: stamp,
+              updatedBy: 'fixture',
+            },
+          },
+        };
+        before.types = { ...before.types, 30: 'perk' };
+      }
       return {
         before,
         after: {
@@ -499,10 +514,7 @@ export function createGlobalsFixture(
           revision: 'draft',
           tooltips: {
             ...tooltips,
-            [entry.kind === 'variables' ? 2 : 3]: aggregate(
-              entry.kind === 'variables' ? 2 : 3,
-              true,
-            ),
+            [globalAggregateHash(entry.kind)]: aggregate(globalAggregateHash(entry.kind), true),
           },
         },
         destination: 'saved',

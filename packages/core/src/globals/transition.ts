@@ -2,6 +2,7 @@ import { stableStringify } from '../contentHash.js';
 import { markupDefinitions } from '../markup/clashes.js';
 import { reservedNamePattern } from '../markup/braces.js';
 import { extractBlocks, extractVariables } from '../markup/syntax.js';
+import { removeMarkupComments } from '../markup/prepare.js';
 import { languages } from '../languages.js';
 import type { Tooltip } from '../schemas.js';
 import { globalStoreSchema, type GlobalStore } from './model.js';
@@ -77,23 +78,36 @@ export function assertGlobalTransition(
   // Check additions in both stored and exported inputs. Aggregate or consumer fallback can
   // introduce a clash in a language with no per-entry definition of its own.
   for (const mode of ['authored', 'live'] as const) {
-    for (const hash of [2, 3] as const) {
+    for (const hash of [1, 2, 3] as const) {
       for (const lang of languages) {
         const old = beforeAggregates[hash],
           next = afterAggregates[hash];
         const beforeText = old ? (globalSourceText(old, lang, mode) ?? '') : '';
         const afterText = next ? (globalSourceText(next, lang, mode) ?? '') : '';
         const names = (text: string) =>
-          hash === 2 ? extractVariables(text) : extractBlocks(text, 'title');
+          hash === 2
+            ? extractVariables(text)
+            : extractBlocks(text, hash === 1 ? 'export' : 'title');
         const oldNames = names(beforeText);
         const added = new Set(
           Object.keys(names(afterText)).filter((name) => !Object.hasOwn(oldNames, name)),
         );
         if (!added.size) continue;
         for (const tooltip of Object.values(tooltips)) {
-          if (tooltip.hash === 2 || tooltip.hash === 3) continue;
-          for (const local of markupDefinitions(globalSourceText(tooltip, lang, mode) ?? '')) {
-            if (local.kind === (hash === 2 ? 'variable' : 'title') && added.has(local.name))
+          if (tooltip.hash === hash) continue;
+          const source = globalSourceText(tooltip, lang, mode) ?? '';
+          const locals =
+            hash === 1
+              ? Object.keys(extractBlocks(removeMarkupComments(source), 'export')).map((name) => ({
+                  kind: 'export',
+                  name,
+                }))
+              : markupDefinitions(source);
+          for (const local of locals) {
+            if (
+              local.kind === (hash === 2 ? 'variable' : hash === 1 ? 'export' : 'title') &&
+              added.has(local.name)
+            )
               throw new Error(
                 `Local/global name clash: ${local.name}, tooltip ${tooltip.hash}, ${lang}`,
               );

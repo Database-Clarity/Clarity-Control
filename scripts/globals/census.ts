@@ -115,15 +115,18 @@ export function legacyGlobalsCensus(
 export function globalsCensus(
   snapshot: GlobalImpactSnapshot,
   locate: GlobalInventorySource['locate'],
+  includeExports = false,
 ) {
   let counter = 0;
   const store = inventoryGlobals(
-    Object.values(snapshot.tooltips).filter((v) => v.hash === 2 || v.hash === 3),
+    Object.values(snapshot.tooltips).filter(
+      (v) => (includeExports && v.hash === 1) || v.hash === 2 || v.hash === 3,
+    ),
     { repository: snapshot.repository, revision: snapshot.revision, locate },
     () => `g_proposal${String(++counter).padStart(8, '0')}`,
   );
   const projected = { ...snapshot.tooltips, ...projectGlobals(store) };
-  const aggregateParity = [2, 3]
+  const aggregateParity = (includeExports ? [1, 2, 3] : [2, 3])
     .filter((hash) => snapshot.tooltips[hash])
     .every((hash) => stableStringify(projected[hash]) === stableStringify(snapshot.tooltips[hash]));
   const beforeExport = exportLegacy(

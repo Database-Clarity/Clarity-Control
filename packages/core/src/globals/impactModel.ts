@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { aliasesSchema, type Aliases } from '../aliases.js';
 import { type Lang } from '../languages.js';
 import type { Tooltip } from '../schemas.js';
-import { globalCauseSchema, globalConsumerSchema, globalRevisionSchema } from './model.js';
+import {
+  globalCauseSchema,
+  globalConsumerSchema,
+  globalRevisionSchema,
+  type GlobalRecord,
+} from './model.js';
 
 /** Pin a complete snapshot, including archived records and the effective alias map. */
 export interface GlobalImpactSnapshot {
@@ -51,7 +56,7 @@ export type GlobalImpactRow = z.infer<typeof globalImpactRowSchema>;
 export type GlobalImpact = z.infer<typeof globalImpactSchema>;
 export interface GlobalImpactChange {
   cause: z.infer<typeof globalCauseSchema>;
-  kind: 'variables' | 'titles';
+  kind: GlobalRecord['kind'];
   beforeName?: string;
   afterName?: string;
   /** Omit for all languages. Both snapshots still decide fallback dependencies. */
