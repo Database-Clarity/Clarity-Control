@@ -642,45 +642,52 @@ export async function globalsHandler(
     destinationsSchema.parse(ctx.destinations);
     z.string().min(1).max(128).parse(ctx.user.login);
     permit(ctx, ['trial', 'translator', 'editor', 'maintainer']);
-    const sync = await read(ctx, paths.sync, syncSchema);
+    // The opened entry's reads overlap the sync read; every other route awaits sync first.
+    const syncRead = read(ctx, paths.sync, syncSchema);
+    syncRead.catch(() => undefined);
+    if (request.method === 'GET' && route[1]) {
+      if (route[2] === 'reviews') {
+        const cursor = url.searchParams.get('cursor') ?? 'p0';
+        if (!/^p\d{1,5}$/.test(cursor)) throw new HttpError(400, 'Invalid review page');
+        const [state, page] = await Promise.all([
+          syncRead,
+          read(ctx, `globals/review-pages/${route[1]}/${cursor}.json`, reviewPageSchema),
+        ]);
+        currentProof(page, ctx);
+        // One bounded read for the page's rows (at most limits.page), not one per row.
+        const rows = await readAll(ctx, page.ids.map(paths.row), rowSchema);
+        const consumers = [];
+        for (const [i, id] of page.ids.entries()) {
+          const row = rows[i]!;
+          currentProof(row, ctx);
+          if (row.id !== id || !row.review.causes.some((c) => c.globalId === route[1]))
+            throw new HttpError(503, 'Invalid global review page');
+          consumers.push({ ...row.view, id, review: row.review, impactDigest: row.impactDigest });
+        }
+        const value = {
+          ...snapshot(ctx, ctx.head, state, [], [route[1]]),
+          impacts: { [route[1]]: consumers },
+          nextCursor: page.nextCursor,
+        };
+        boundedResponse(value);
+        return json({ kind: 'ok', value });
+      }
+      if (!route[2]) {
+        const [state, entry] = await Promise.all([
+          syncRead,
+          read(ctx, paths.entry(route[1]), entrySchema),
+        ]);
+        if (entry.id !== route[1]) throw new HttpError(503, 'Invalid global identity');
+        const value = { ...snapshot(ctx, ctx.head, state, [entry]), entry };
+        boundedResponse(value);
+        return json({ kind: 'ok', value });
+      }
+    }
+    const sync = await syncRead;
     if (request.method === 'POST' && route[2] === 'retry') {
       const input = await body(request, retrySchema, limits.requestBytes);
       if (input.id !== route[1]) throw new HttpError(400, 'Route and retry identity do not match');
       return json({ kind: 'ok', value: await retry(ctx, input, sync) });
-    }
-    if (request.method === 'GET' && route[2] === 'reviews') {
-      const cursor = url.searchParams.get('cursor') ?? 'p0';
-      if (!/^p\d{1,5}$/.test(cursor)) throw new HttpError(400, 'Invalid review page');
-      const page = await read(
-        ctx,
-        `globals/review-pages/${route[1]}/${cursor}.json`,
-        reviewPageSchema,
-      );
-      currentProof(page, ctx);
-      // One bounded read for the page's rows (at most limits.page), not one per row.
-      const rows = await readAll(ctx, page.ids.map(paths.row), rowSchema);
-      const consumers = [];
-      for (const [i, id] of page.ids.entries()) {
-        const row = rows[i]!;
-        currentProof(row, ctx);
-        if (row.id !== id || !row.review.causes.some((c) => c.globalId === route[1]))
-          throw new HttpError(503, 'Invalid global review page');
-        consumers.push({ ...row.view, id, review: row.review, impactDigest: row.impactDigest });
-      }
-      const value = {
-        ...snapshot(ctx, ctx.head, sync, [], [route[1]]),
-        impacts: { [route[1]]: consumers },
-        nextCursor: page.nextCursor,
-      };
-      boundedResponse(value);
-      return json({ kind: 'ok', value });
-    }
-    if (request.method === 'GET' && route[1] && !route[2]) {
-      const entry = await read(ctx, paths.entry(route[1]), entrySchema);
-      if (entry.id !== route[1]) throw new HttpError(503, 'Invalid global identity');
-      const value = { ...snapshot(ctx, ctx.head, sync, [entry]), entry };
-      boundedResponse(value);
-      return json({ kind: 'ok', value });
     }
     if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
     const input = await mutationBody(request);
