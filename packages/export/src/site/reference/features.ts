@@ -99,7 +99,8 @@ const documentedSymbols: Record<string, string> = {
 };
 export function featureTable(symbols: readonly string[] = symbolIds) {
   for (const symbol of symbols)
-    if (!documentedSymbols[symbol]) throw new Error('Undocumented symbol: ' + symbol);
+    if (!Object.hasOwn(documentedSymbols, symbol))
+      throw new Error('Undocumented symbol: ' + symbol);
   return {
     format: 1,
     parts: features,

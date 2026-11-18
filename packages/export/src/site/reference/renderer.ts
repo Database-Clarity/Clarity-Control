@@ -23,6 +23,7 @@ export const rendererSource =
   String.raw`
 const styles = new Set(['bold', 'exotic', 'pve', 'pvp']);
 const elements = new Set(['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic']);
+const hasIcon = id => Object.hasOwn(artwork, id);
 const safeUrl = value => typeof value === 'string' && /^(https?:\/\/|mailto:)/i.test(value.trim()) ? value.trim() : null;
 const key = part => part.note ? 'note:' + JSON.stringify(part.note) : 'link:' + part.link;
 let serial = 0;
@@ -55,7 +56,7 @@ export function renderText(lines, options = {}) {
   const entries = details(lines);
   const draw = part => {
     let text = part.text || '';
-    if (part.icon && artwork[part.icon]) text = opts.icons === 'drop' ? '' : '[' + part.icon + ']';
+    if (part.icon && hasIcon(part.icon)) text = opts.icons === 'drop' ? '' : '[' + part.icon + ']';
     if (part.note) {
       if (opts.notes === 'inline') text += ' (' + renderText(part.note, { ...opts, notes: 'inline' }) + ')';
       else if (opts.notes === 'footnotes') text += '[' + entries.find(d => key(d) === key(part)).n + ']';
@@ -82,7 +83,7 @@ export function renderDom(lines, options = {}) {
   const draw = part => {
     const entry = entries.find(d => key(d) === key(part));
     let result = node('span', part.text || '');
-    if (part.icon && artwork[part.icon]) {
+    if (part.icon && hasIcon(part.icon)) {
       result = node('span', null, 'clarity-icon clarity-icon-' + part.icon);
       result.setAttribute('role', 'img'); result.setAttribute('aria-label', part.icon);
       const override = opts.icon?.(part.icon);
@@ -151,7 +152,7 @@ export function renderDom(lines, options = {}) {
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i], next = parts[i + 1];
       // Match the editor's icon/first-word glue while leaving later words free to wrap.
-      const word = part.icon && artwork[part.icon] && next && !next.note && !next.link && /^\S+/.exec(next.text || '');
+      const word = part.icon && hasIcon(part.icon) && next && !next.note && !next.link && /^\S+/.exec(next.text || '');
       if (word) {
         const glue = node('span', null, 'clarity-glue');
         glue.append(draw(part), draw({ ...next, text: word[0] })); row.append(glue);

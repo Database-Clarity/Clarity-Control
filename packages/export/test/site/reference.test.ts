@@ -39,6 +39,18 @@ test('the generated feature table covers vocabulary and rejects a new undocument
   expect(() => featureTable([...symbolIds, 'undocumented'])).toThrow('Undocumented symbol');
 });
 
+test.each(['constructor', 'toString', '__proto__'])(
+  'inherited name %s is not a documented symbol or a bundled icon',
+  (name) => {
+    expect(() => featureTable([name])).toThrow('Undocumented symbol');
+    const lines = [{ parts: [{ icon: name, text: 'FALLBACK' }, { text: ' next word' }] }];
+    const content = renderer.renderDom(lines);
+    expect(content.textContent).toBe('FALLBACK next word');
+    expect(content.querySelector('img,[role="img"]')).toBeNull();
+    expect(renderer.renderText(lines)).toBe('FALLBACK next word');
+  },
+);
+
 test('details reuse a reading-order number for repeated note bodies and link addresses', () => {
   const note = [{ parts: [{ text: 'From reserves.' }] }];
   const input = [
