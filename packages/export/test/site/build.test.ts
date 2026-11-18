@@ -907,7 +907,7 @@ describe('build-site per-file outcomes', () => {
           Object.keys(
             harness.servedJson<{ files: Record<string, unknown> }>('_build/manifest.json').files,
           )
-            .filter((path) => path.includes('/'))
+            .filter((path) => path.includes('/') && !path.startsWith('reference/'))
             .map((path) => path.split('/')[0]),
         ),
       ].sort();

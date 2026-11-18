@@ -11,6 +11,7 @@ import { referenceProject } from '../../src/site/reference/project.js';
 import { rendererSource } from '../../src/site/reference/renderer.js';
 import { features, featureTable } from '../../src/site/reference/features.js';
 import { referenceSite } from '../../src/site/reference/site.js';
+import { safeSitePath } from '../../src/site/build-site.js';
 
 // Evaluate the exact downloadable module in the browser realm, retaining its public API.
 const source = rendererSource.replace(/export (const|function) /g, '$1 ');
@@ -159,6 +160,7 @@ test('the showcase matches the editor preview text, styles, icon sequence, and n
 
 test('static docs, examples, machine files, and kit stay complete without scripts', () => {
   const outputs = referenceSite((path) => (path.includes('/lines/') ? plan.bytes : undefined));
+  for (const path of outputs.keys()) expect(safeSitePath(path), path).toBe(true);
   const page = document.createElement('div');
   page.innerHTML = Buffer.from(outputs.get('reference/index.html')!).toString();
   for (const id of [
@@ -182,7 +184,7 @@ test('static docs, examples, machine files, and kit stay complete without script
   expect(outputs.has('llms.txt')).toBe(true);
   const usage = JSON.parse(Buffer.from(outputs.get('reference/kit/usage.json')!).toString());
   expect(usage['symbols/dark/solar.svg']).toContain('Bungie');
-  expect(usage['brand/ClarityCut/ClarityCut[wght].woff2']).toContain('OFL');
+  expect(usage['brand/ClarityCut/ClarityCut-Variable.woff2']).toContain('OFL');
   const contents = JSON.parse(
     Buffer.from(outputs.get('reference/kit/contents.json')!).toString(),
   ) as string[];

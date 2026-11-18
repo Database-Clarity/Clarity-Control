@@ -757,6 +757,7 @@ export async function buildSite(options: Record<string, string>) {
   }
   const encoder = new TextEncoder();
   const record = (path: string, bytes: Uint8Array, outcome: ManifestFile['outcome'] = 'built') => {
+    if (!safeSitePath(path)) throw new Error(`Generated site path ${path} is not manifest-safe`);
     const old = previous?.files[path];
     const hash = sha256(bytes);
     put(path, bytes);

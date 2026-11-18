@@ -169,7 +169,8 @@ export function referenceSite(
     output.set(path, bytes(typeof value === 'string' ? value : json(value)));
   const kit = new Map<string, Uint8Array>();
   for (const [name, base64] of Object.entries(assets.files))
-    kit.set(name, Buffer.from(base64, 'base64'));
+    // Public manifest paths use plain path segments; preserve the variable font under a safe name.
+    kit.set(name.replace('ClarityCut[wght]', 'ClarityCut-Variable'), Buffer.from(base64, 'base64'));
   kit.set('clarity-tooltip.js', bytes(rendererSource));
   kit.set('clarity-tooltip.css', bytes(tooltipCss));
   kit.set(
@@ -209,7 +210,8 @@ export function referenceSite(
                 : 'Reference code and documentation, MIT. Keep LICENSE with copied code.',
     ]),
   );
-  usage['usage.json'] = 'Per-asset source, usage, and licence notes. Read before redistributing assets.';
+  usage['usage.json'] =
+    'Per-asset source, usage, and licence notes. Read before redistributing assets.';
   usage['contents.json'] = 'Complete list of files in partner-kit.zip.';
   kit.set('usage.json', bytes(json(usage)));
   kit.set('contents.json', bytes(json([...kit.keys(), 'contents.json'].sort())));
