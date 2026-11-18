@@ -33,6 +33,7 @@ it('gates both production jobs on a confirmed handoff and retains existing reusa
   const caller = readFileSync('scripts/publisher/template/production-job.yml', 'utf8');
   expect(caller).toContain("if: needs.pipeline.outputs.production_push == 'true'");
   expect(caller).toContain('publication: ${{ needs.pipeline.outputs.publication }}');
+  expect(caller).toContain('secrets: inherit');
   const workflow = readFileSync(
     'scripts/publisher/template/.github/workflows/build-outputs.yml',
     'utf8',

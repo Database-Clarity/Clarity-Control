@@ -7,3 +7,4 @@ outputs:
   with:
     legacy: true
     publication: ${{ needs.pipeline.outputs.publication }}
+  secrets: inherit
