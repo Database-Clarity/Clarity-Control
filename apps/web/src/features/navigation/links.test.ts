@@ -80,6 +80,8 @@ describe('workspacePath', () => {
     expect(workspacePath('/t/12')).toBe('/');
     expect(workspacePath('/')).toBe('/');
     expect(workspacePath('/compendium/review')).toBe('/compendium');
-    expect(workspacePath('/globals/variable/damage')).toBe('/globals');
+    expect(workspacePath('/globals/variable/damage')).toBe('/');
+    expect(workspacePath('/globals/g_damage0001')).toBe('/');
+    expect(workspacePath('/globals')).toBe('/');
   });
 });

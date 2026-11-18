@@ -140,13 +140,13 @@ describe('More (phone tool row)', () => {
     await click(button('Markup bar'));
     expect(spies.toggle).toHaveBeenCalledTimes(1);
     // Discard asks first, in place; Cancel puts the row back with nothing discarded.
-    await click(button('Discard this tooltip'));
+    await click(button('Discard this draft'));
     expect(spies.onDiscard).not.toHaveBeenCalled();
     expect(document.activeElement?.textContent).toBe('Cancel');
     await click(button('Cancel'));
     expect(spies.onDiscard).not.toHaveBeenCalled();
-    expect(document.activeElement?.getAttribute('aria-label')).toBe("Discard this tooltip's draft");
-    await click(button('Discard this tooltip'));
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Discard this draft');
+    await click(button('Discard this draft'));
     await click(
       [...document.querySelectorAll<HTMLElement>('[role="dialog"] button')].find(
         (element) => element.textContent === 'Discard',
@@ -187,7 +187,7 @@ describe('More (phone tool row)', () => {
     await mount(handlers());
     expect(q('button[aria-label="More editor tools"]')).toBeNull();
     expect(button('Markup tools')).toBeDefined();
-    expect(button('Discard this tooltip')).toBeDefined();
+    expect(button('Discard this draft')).toBeDefined();
     expect(button('Edit override')).toBeDefined();
   });
 });
@@ -264,11 +264,11 @@ describe('inline tools (phone tool row)', () => {
     await click(button('Edit override'));
     expect(spies.onEditOverride).toHaveBeenCalledWith(5);
     // Inline Discard still asks first; Cancel discards nothing.
-    await click(button('Discard this tooltip'));
+    await click(button('Discard this draft'));
     expect(spies.onDiscard).not.toHaveBeenCalled();
     await click(button('Cancel'));
     expect(spies.onDiscard).not.toHaveBeenCalled();
-    await click(button('Discard this tooltip'));
+    await click(button('Discard this draft'));
     await click(
       [...document.querySelectorAll<HTMLElement>('[role="dialog"] button')].find(
         (element) => element.textContent === 'Discard',
@@ -291,7 +291,7 @@ describe('inline tools (phone tool row)', () => {
     room = 2 * 60 + 6 + 60 + 6;
     await act(async () => callback?.());
     expect(button('Markup bar')).toBeDefined();
-    expect(button('Discard this tooltip')).toBeDefined();
+    expect(button('Discard this draft')).toBeDefined();
     await openMore();
     expect(
       [...document.querySelectorAll('[role="dialog"] li > button, [role="dialog"] li > a')].map(

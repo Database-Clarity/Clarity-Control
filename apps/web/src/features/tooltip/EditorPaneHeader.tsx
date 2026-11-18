@@ -177,7 +177,7 @@ export function EditorPaneHeader({
             type="button"
             className={styles.ghost}
             disabled={saving}
-            aria-label="Discard this tooltip's draft"
+            aria-label="Discard this draft"
             onClick={onDiscard}
           >
             Discard

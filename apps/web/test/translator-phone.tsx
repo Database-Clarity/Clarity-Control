@@ -126,7 +126,7 @@ async function run() {
     throw new Error('Translator alias did not retain the French editor');
   }
   size('tooltip language', language, measurements);
-  size('discard draft', button("Discard this tooltip's draft"), measurements);
+  size('discard draft', button('Discard this draft'), measurements);
   button('Source').click();
   await waitFor(
     () => document.querySelector('main [aria-label="Show English changes"]') !== null,

@@ -70,9 +70,12 @@ export function visibleLinks(user: MenuUser | null | undefined): NavLink[] {
   return [...primary, ...more];
 }
 
-/** The workspace a pathname belongs to ('/' for tooltip pages); used for tabs and remembered routes. */
+/**
+ * The workspace a pathname belongs to ('/' for tooltip pages and global entries, which open on the
+ * same editor page); used for tabs and remembered routes.
+ */
 export function workspacePath(pathname: string): string {
-  if (pathname.startsWith('/t/')) return '/';
+  if (pathname.startsWith('/t/') || /^\/globals(\/|$)/.test(pathname)) return '/';
   if (pathname.startsWith('/compendium')) return '/compendium';
   if (pathname === '/') return '/';
   return `/${pathname.split('/')[1]}`;

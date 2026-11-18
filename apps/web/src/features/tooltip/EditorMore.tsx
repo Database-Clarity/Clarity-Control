@@ -193,7 +193,7 @@ function DiscardRow({
           type="button"
           data-danger
           disabled={saving}
-          aria-label="Discard this tooltip's draft"
+          aria-label="Discard this draft"
           onClick={() => setAsking(true)}
         >
           Discard draft
@@ -201,7 +201,7 @@ function DiscardRow({
       </li>
     );
   return (
-    <li className={styles.confirm} role="group" aria-label="Discard this tooltip's draft?">
+    <li className={styles.confirm} role="group" aria-label="Discard this draft?">
       <span>Discard this draft? Its unsaved changes are lost.</span>
       <span className={styles.confirmActions}>
         <button type="button" data-danger disabled={saving} onClick={onDiscard}>
@@ -427,7 +427,7 @@ function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
         className={`${styles.tool} ${styles.danger}`}
         flush
         contain
-        triggerLabel="Discard this tooltip's draft"
+        triggerLabel="Discard this draft"
         trigger={tool.label}
       >
         {(close) => (

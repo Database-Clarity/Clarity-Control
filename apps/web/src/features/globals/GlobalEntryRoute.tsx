@@ -13,11 +13,12 @@ import { GlobalEntryWorkspace } from './GlobalEntryWorkspace';
 import styles from './GlobalEntryWorkspace.module.scss';
 import { IdentityStatus } from '../auth/AuthStatus';
 
+/** Signed out: the account's own sign-in line; signed in without a role: why there is nothing. */
 function EditingRoleRequired() {
+  const signedIn = useAuthStore((state) => !!state.user);
   return (
     <section className={styles.workspace}>
-      <p>Global entries need an editing role.</p>
-      <IdentityStatus />
+      {signedIn ? <p>Global entries need an editing role.</p> : <IdentityStatus />}
     </section>
   );
 }

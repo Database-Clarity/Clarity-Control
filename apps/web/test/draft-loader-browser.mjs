@@ -154,7 +154,7 @@ try {
     assert.match(await editorText(page), /^Final blows with this weapon/, 'loaded into the editor');
     assert.equal(await trigger(page).count(), 0, 'hidden once loaded');
     assert.equal(
-      await page.getByRole('button', { name: "Discard this tooltip's draft" }).count(),
+      await page.getByRole('button', { name: 'Discard this draft' }).count(),
       1,
       'an unsaved draft (Discard offered)',
     );
@@ -164,14 +164,14 @@ try {
     assert.equal(await editorText(page), '', 'undo empties the editor');
     await trigger(page).waitFor({ timeout: 3000 });
     assert.equal(
-      await page.getByRole('button', { name: "Discard this tooltip's draft" }).count(),
+      await page.getByRole('button', { name: 'Discard this draft' }).count(),
       0,
       'no draft after undo',
     );
     // Redo brings it back; Discard removes it.
     await page.keyboard.press('Control+y');
     assert.match(await editorText(page), /^Final blows/, 'redo restores the draft');
-    await page.getByRole('button', { name: "Discard this tooltip's draft" }).click();
+    await page.getByRole('button', { name: 'Discard this draft' }).click();
     await trigger(page).waitFor({ timeout: 3000 });
     assert.equal(await editorText(page), '', 'discard empties the editor');
     // Typed text hides it; deleting it again offers it again. No draft request while typing.

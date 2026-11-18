@@ -485,13 +485,24 @@ function Workspace({
       if (mounted.current && generation === projectionGeneration.current) setProjecting(false);
     }
   }
+  const paneBody = useRef<HTMLDivElement>(null);
+  const focusTab = useRef(false);
+  useLayoutEffect(() => {
+    if (!focusTab.current) return;
+    focusTab.current = false;
+    paneBody.current?.previousElementSibling
+      ?.querySelector<HTMLElement>('[data-pane-tab][aria-selected="true"]')
+      ?.focus();
+  }, [shownTab]);
   const paneTabs = useMemo<RightPaneTabs>(
     () => ({
       label: 'Global pane',
       tabs: paneViews.map(([id, label]) => ({ id, label })),
       active: shownTab,
       onSelect: (id) => {
-        if (!disabled) update({ tab: id });
+        if (disabled) return;
+        focusTab.current = true;
+        update({ tab: id });
       },
     }),
     // `update` reads the latest params; the labels and the open tab decide the strip.
@@ -536,42 +547,6 @@ function Workspace({
       : conflict || staleDraft
         ? 'Reload and discard the draft first.'
         : undefined;
-  const syncBadge = sync.status !== 'current' && (
-    <span
-      className={page.badge}
-      role="status"
-      title={
-        sync.status === 'sync-failed'
-          ? (sync.lastFailure ?? 'Failure details unavailable.')
-          : undefined
-      }
-    >
-      <span className={page.ell}>
-        {sync.status === 'sync-pending' ? 'Sync pending' : 'Sync failed'}
-      </span>
-      <button
-        type="button"
-        className={page.ghost}
-        disabled={disabled}
-        aria-label="Refresh sync"
-        onClick={() => void refreshSync()}
-      >
-        Refresh
-      </button>
-      {sync.status === 'sync-failed' && (
-        <button
-          type="button"
-          className={page.ghost}
-          disabled={disabled || !actor || !ownCauses.length}
-          title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
-          aria-label="Retry sync"
-          onClick={() => void refreshSync(true)}
-        >
-          Retry
-        </button>
-      )}
-    </span>
-  );
   const header = (
     <EditorPaneHeader
       lang={lang}
@@ -588,8 +563,7 @@ function Workspace({
       activeOverride={undefined}
       onEditOverride={() => {}}
       onBack={() => {}}
-      markup={disabled ? undefined : markupRow}
-      destination={syncBadge}
+      markup={markupRow}
       draftLoader={
         <button
           type="button"
@@ -612,6 +586,9 @@ function Workspace({
       worklistControl={actions || undefined}
     />
   );
+  const blockedDestinations = Object.entries(snapshot.destinationSync)
+    .filter(([, state]) => state.status !== 'current')
+    .map(([destination]) => destinationLabel(destination));
   const notices = (
     <>
       {snapshot.renameIntents?.[entry.id]?.renameCompleted === false &&
@@ -625,15 +602,44 @@ function Workspace({
             Rename queued; not complete.
           </p>
         ))}
-      {Object.values(snapshot.destinationSync).some((state) => state.status !== 'current') && (
-        <p role="status" className={styles.notice}>
-          Publishing to{' '}
-          {Object.entries(snapshot.destinationSync)
-            .filter(([, state]) => state.status !== 'current')
-            .map(([destination]) => destinationLabel(destination))
-            .join(' and ')}{' '}
-          is blocked until sync finishes.
-        </p>
+      {(sync.status !== 'current' || blockedDestinations.length > 0) && (
+        <div
+          className={styles.notice}
+          data-tone={sync.status === 'sync-failed' ? 'warn' : undefined}
+        >
+          <span role="status">
+            {sync.status === 'sync-failed'
+              ? /^sync failed/i.test(sync.lastFailure ?? '')
+                ? sync.lastFailure
+                : `Sync failed. ${sync.lastFailure ?? 'Failure details unavailable.'}`
+              : sync.status === 'sync-pending'
+                ? 'Sync pending.'
+                : null}{' '}
+            {blockedDestinations.length > 0 &&
+              `Publishing to ${blockedDestinations.join(' and ')} is blocked until sync finishes.`}
+          </span>
+          <button
+            type="button"
+            className={page.ghost}
+            disabled={pending}
+            aria-label="Refresh sync"
+            onClick={() => void refreshSync()}
+          >
+            Refresh
+          </button>
+          {sync.status === 'sync-failed' && (
+            <button
+              type="button"
+              className={page.ghost}
+              disabled={pending || !actor || !ownCauses.length}
+              title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
+              aria-label="Retry sync"
+              onClick={() => void refreshSync(true)}
+            >
+              Retry
+            </button>
+          )}
+        </div>
       )}
       {(error || projectionError || staleDraft) && (
         <div role="alert" className={styles.notice} data-tone="warn">
@@ -671,8 +677,10 @@ function Workspace({
           lang={lang}
           globals={globalsByLanguage?.[lang] ?? globals}
           markupRow={markupRow.open}
-          readOnly={disabled}
-          readOnlyReason={disabled ? 'Finish the current action first.' : null}
+          readOnly={pending}
+          paused={pending}
+          readOnlyReason={pending ? 'Saving…' : null}
+          preview={column ? { collapsed: column.collapsed, onShow: column.show } : undefined}
           onChange={(value) => {
             setDraft(value);
             setReviewed(undefined);
@@ -731,6 +739,7 @@ function Workspace({
   const pane = (
     <RightPaneTabsContext.Provider value={paneTabs}>
       <RightPane
+        bodyRef={paneBody}
         label="Global usages and translations"
         header={
           <RightPaneHeader title={paneViews.find(([id]) => id === shownTab)![1]}>
@@ -1017,7 +1026,7 @@ function Workspace({
         editor={editor}
         preview={column ? null : <div className={page.inlinePreview}>{left}</div>}
         compendium={pane}
-        compendiumLabel={paneViews.find(([id]) => id === shownTab)![1]}
+        compendiumLabel="Details"
       />
       {column && (
         <ShellSlot name="left">
