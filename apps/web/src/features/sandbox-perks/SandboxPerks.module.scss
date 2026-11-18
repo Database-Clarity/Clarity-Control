@@ -13,10 +13,8 @@
   flex-direction: column;
   gap: 0.5rem;
   overflow: hidden;
+  font-size: 0.8125rem;
 
-  > h1 {
-    margin: 0;
-  }
   > p {
     margin: 0;
   }
@@ -30,7 +28,24 @@
   }
 }
 
+// The title line (also the heading of the access and setup notices): the heading and its one-line
+// summary on a shared baseline, as on the other list pages.
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+}
+.page > h1,
+.head h1 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+}
+
 .intro {
+  margin: 0;
   color: var(--text2);
 }
 
@@ -313,10 +328,6 @@
 }
 
 @include theme.mobile {
-  .page > h1 {
-    font-size: 1.125rem;
-    line-height: 1.2;
-  }
   // The header already names the page; the rows and save bar carry the flow.
   .intro {
     display: none;

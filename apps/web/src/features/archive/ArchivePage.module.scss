@@ -1,20 +1,13 @@
-@use '../drift/Status.module.scss';
 @use '../../data/variables' as theme;
 @use '../../ui/controls';
+
+// The app's dense list-page look (Management, Translations): one title line, page text at the
+// list size, and the shared controls. The rules reach only the Archive's own parts, never the
+// read-only editor shown under a selected tooltip, which keeps its own sizes.
 .page {
   max-width: 70rem;
   overflow-wrap: anywhere;
-  label {
-    display: block;
-    margin: 0.5rem 0;
-  }
-  // Not inside a work-through queue control: it keeps the editor header's own sizes.
-  :is(button, input, select):where(:not([data-queue] *)) {
-    min-height: var(--tap, max(44px, 2.75rem));
-    min-width: var(--tap, max(44px, 2.75rem));
-    max-width: 100%;
-    font: inherit;
-  }
+  color: var(--text);
   ul {
     list-style: none;
     padding: 0;
@@ -24,32 +17,143 @@
     overflow-wrap: anywhere;
   }
 }
+.page > :is(p, details, h1),
+.list,
+.detailBar,
+.status,
+.actions,
+.picker {
+  font-size: 0.8125rem;
+  p {
+    margin: 0.25rem 0;
+  }
+}
+// Long item names wrap inside their button; actions stay on one line.
+.list,
+.picker {
+  button {
+    @include controls.button;
+    max-width: 100%;
+    text-align: left;
+  }
+  select,
+  input:not([type='checkbox']) {
+    @include controls.field;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+.page > p button,
+.detailBar > button,
+.actions button {
+  @include controls.button;
+  white-space: nowrap;
+}
+
+// The title line: the heading and its one-line summary on a shared baseline.
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+  margin-bottom: 0.25rem;
+  p {
+    margin: 0;
+    color: var(--text2);
+  }
+}
+.page > h1,
+.head h1 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.75rem;
+}
+
+// Labels and their fields on one line, the field a gap after the label text.
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0 0;
+  label {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  input {
+    width: 16rem;
+  }
+}
+// A search field above its results (the association picker).
+.field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  input {
+    width: 20rem;
+  }
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  cursor: pointer;
+  input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+  }
+}
 .card {
   border: 1px solid var(--box-edge);
-  padding: 1rem;
-  margin: 1rem 0;
+  border-radius: 0.25rem;
+  background: var(--box-bg);
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
 }
 // The selection box sits on the title's line.
 .cardHead {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  // The title button's own top margin moves to the row, so the box centres on the button.
-  margin-top: 0.75rem;
+  gap: 0.375rem;
   > button {
-    margin: 0;
-  }
-  // After `.page label` (block, margins) in this file, at the same specificity: this one wins.
-  > label {
-    display: inline-flex;
-    margin: 0;
+    font-weight: 600;
   }
 }
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin: 1rem 0;
+  margin: 0.75rem 0;
+}
+.picker {
+  ul {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0.5rem 0;
+  }
+  h2 {
+    margin: 0.75rem 0 0.25rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  h3,
+  h4 {
+    margin: 0.75rem 0 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  > button {
+    margin: 0.5rem 0.5rem 0 0;
+  }
 }
 .comparison {
   display: grid;
@@ -73,55 +177,21 @@
   padding: 0.25rem 0.75rem;
   margin: 0.75rem 0;
 }
-.consequence {
+.page .consequence {
   margin: 0.25rem 0 0;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  color: var(--text2);
   max-width: 28rem;
 }
 
-// Phones and touch: fields and buttons read --ctl-text (after this file's font: inherit); 16px
-// stays on iOS only.
-@include theme.mobile-or-coarse {
-  .page {
-    button,
-    input,
-    select {
-      font-size: var(--ctl-text);
-    }
-    input,
-    select {
-      @include controls.ios-field-text;
-    }
-    // A field after its label text on the same line keeps a gap from it ("View [Removed]").
-    label > select {
-      margin-inline-start: 0.5rem;
-    }
-  }
-}
-
-// The detail's top row: the way back, and a work-through queue's control on the right.
+// The detail's top row: the way back, or a work-through queue's control, which keeps the editor
+// header's own sizes (the list rules above skip it).
 .detailBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  // A work-through queue's control, left where "Back to Archive" was.
   > [data-queue] {
     margin-left: 0;
-  }
-}
-// The imported list rules (Status.module.scss `.page button`: font, padding) must not reach the
-// queue control: it keeps the editor header's sizes, one height and one type size. Phones use the
-// stepper, whose segments already match those rules.
-@media (min-width: 701px) {
-  .detailBar [data-queue] {
-    font-size: 0.75rem;
-    button {
-      padding: 0 0.25rem;
-    }
-    button[aria-label='Finish the queue'] {
-      padding: 0;
-      font-size: 1rem;
-    }
   }
 }
