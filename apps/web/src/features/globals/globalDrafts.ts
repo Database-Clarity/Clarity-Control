@@ -30,11 +30,13 @@ export function readGlobalDraft(owner: string, key: string): GlobalDraft | null 
 }
 
 /** `null` removes the draft. A failed write keeps the in-memory draft for this session. */
-export function writeGlobalDraft(owner: string, key: string, draft: GlobalDraft | null): void {
+export function writeGlobalDraft(owner: string, key: string, draft: GlobalDraft | null): boolean {
   try {
     if (draft) localStorage.setItem(storageKey(owner, key), JSON.stringify(draft));
     else localStorage.removeItem(storageKey(owner, key));
+    return true;
   } catch {
     // Quota or privacy mode: the session keeps the draft; reload cannot restore it.
+    return false;
   }
 }

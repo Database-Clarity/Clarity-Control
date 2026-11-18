@@ -11,7 +11,7 @@ let session: {
 
 /**
  * One authenticated service per session token, so its cache never outlives a sign-out. Called
- * while rendering, so it never updates a store; the identity index is repository data and stays.
+ * while rendering, so it never updates a store; the identity index follows auth separately.
  */
 export function globalsSession() {
   const token = useAuthStore.getState().token;
@@ -49,11 +49,22 @@ export function rememberGlobalIdentities(entries: readonly GlobalEntry[]): void 
   });
 }
 
-let loading: Promise<void> | undefined;
+let loading:
+  | {
+      token: string | null;
+      user: ReturnType<typeof useAuthStore.getState>['user'];
+      promise: Promise<void>;
+    }
+  | undefined;
 /** Catalogue pages only (no review pages): enough to resolve names to stable IDs. */
 export function loadGlobalIdentities(force = false): Promise<void> {
+  const { token, user } = useAuthStore.getState();
+  if (!user?.role) return Promise.resolve();
   if (!force && useGlobalIdentities.getState().status === 'ready') return Promise.resolve();
-  loading ??= (async () => {
+  if (loading?.token === token && loading.user === user) return loading.promise;
+  const current = () =>
+    useAuthStore.getState().token === token && useAuthStore.getState().user === user;
+  const promise = (async () => {
     const { transport } = globalsSession();
     useGlobalIdentities.setState({ status: 'loading', error: '' });
     const entries: GlobalEntry[] = [];
@@ -69,6 +80,7 @@ export function loadGlobalIdentities(force = false): Promise<void> {
       }
       seen.add(cursor);
       const page = await transport.list(cursor);
+      if (!current()) return;
       if (page.kind !== 'ok') {
         useGlobalIdentities.setState({ status: 'failed', error: page.message });
         return;
@@ -78,7 +90,8 @@ export function loadGlobalIdentities(force = false): Promise<void> {
     }
     rememberGlobalIdentities(entries);
   })().finally(() => {
-    loading = undefined;
+    if (loading?.promise === promise) loading = undefined;
   });
-  return loading;
+  loading = { token, user, promise };
+  return promise;
 }

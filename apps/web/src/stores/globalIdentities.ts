@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Lang } from '@clarity/core';
 import type { GlobalDefinition } from '../features/globals/model';
+import { useAuthStore } from './auth';
 
 /**
  * Stable identity of a live global entry: its ID never changes, its name can. Kept apart from
@@ -25,6 +26,12 @@ export const useGlobalIdentities = create<GlobalIdentitiesState>(() => ({
   status: 'idle',
   error: '',
 }));
+
+// Invalidate even during an in-flight read; the loader also rejects old-session replies.
+useAuthStore.subscribe((state, previous) => {
+  if (state.token !== previous.token || state.user?.role !== previous.user?.role)
+    useGlobalIdentities.setState({ identities: {}, status: 'idle', error: '' });
+});
 
 export const globalEntryPath = /^\/globals\/(g_[A-Za-z0-9_-]{8,80})$/;
 

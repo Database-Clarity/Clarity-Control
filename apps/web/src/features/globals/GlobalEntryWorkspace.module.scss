@@ -58,12 +58,16 @@
   gap: 0.5rem;
 }
 .header {
+  flex-wrap: wrap;
   margin-bottom: 0.5rem;
   h1 {
+    flex: 1 1 12rem;
     overflow-wrap: anywhere;
     min-width: 0;
   }
   > span {
+    flex-shrink: 0;
+    white-space: nowrap;
     color: var(--meta);
   }
   > button {
@@ -357,19 +361,30 @@
   margin: 0 0 0.5rem;
   padding: 0;
   li {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: start;
     gap: 0.5rem;
     padding: 0.25rem 0;
     border-bottom: 1px solid var(--ctl-edge);
+    > button {
+      margin-left: auto;
+    }
   }
 }
 .historyMeta {
+  flex: 1 1 12rem;
+  padding-top: 0.4375rem;
   min-width: 0;
   font-size: 0.8125rem;
   color: var(--meta);
   overflow-wrap: break-word;
+}
+.warning {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-edge);
+  padding: 0.5rem;
 }
 .versionCaption {
   margin: 0 0 0.25rem;

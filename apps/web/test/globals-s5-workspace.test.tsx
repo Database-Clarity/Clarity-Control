@@ -21,6 +21,13 @@ let host: HTMLDivElement;
 let path = '';
 const stored = new Map<string, string>();
 beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   stored.clear();
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => stored.get(key) ?? null,
@@ -140,6 +147,21 @@ it('typing back to the saved text leaves no stored draft', async () => {
   await act(async () => change('15%'));
   expect(stored.size).toBe(0);
   expect(host.textContent).toContain('Saved');
+});
+
+it('keeps edits in memory and warns when device draft storage fails, then clears the warning on recovery', async () => {
+  await mount('/globals/g_damage0001', service());
+  const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+    throw new Error('Quota exceeded');
+  });
+  await act(async () => change('20%'));
+  expect(host.querySelector('textarea')!.value).toBe('20%');
+  expect(host.textContent).toContain('Could not update the draft on this device');
+  expect(button('Save definition').disabled).toBe(false);
+  write.mockRestore();
+  await act(async () => change('25%'));
+  expect(host.textContent).not.toContain('Could not update the draft on this device');
+  expect(stored.size).toBe(1);
 });
 
 it('restores an older version into the draft; saving stays an ordinary edit', async () => {

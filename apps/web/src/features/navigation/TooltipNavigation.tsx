@@ -675,8 +675,10 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const listId = `${base}-list`;
   const optionId = (row: Row) => `${base}-o${row.key}`;
   const finderLocation = useLocation();
+  const globalRole = useAuthStore((state) => state.user?.role);
+  const authLoading = useAuthStore((state) => state.loading);
   const globalIdentities = useGlobalIdentities((state) =>
-    globalsEnabled ? state.identities : noIdentities,
+    globalsEnabled && globalRole ? state.identities : noIdentities,
   );
   /** The route in aggregate terms: `/globals/:id` reads as `/t/2?global=Name` (or 3). */
   const finderRoute = (path: string, search: string) =>
@@ -707,22 +709,26 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     // Globals on: the finder lists authoritative entries, so load their catalogue when it is needed.
     if (
       import.meta.env.VITE_GLOBALS_ENABLED === '1' &&
+      !authLoading &&
+      globalRole &&
       catalogActive &&
       useGlobalIdentities.getState().status === 'idle'
     )
       void import('../../stores/globalEntries').then((module) => module.loadGlobalIdentities());
-  }, [catalogActive]);
+  }, [catalogActive, authLoading, globalRole]);
   // Variables and titles from the entries once known (renames and new entries included);
   // exports stay aggregate declarations.
   const globalDefinitions = useMemo(
     () =>
-      identitiesReady
+      globalsEnabled && !globalRole
+        ? aggregateDefinitions.filter((definition) => definition.kind === 'exports')
+        : identitiesReady
         ? [
             ...aggregateDefinitions.filter((definition) => definition.kind === 'exports'),
             ...identityDefinitions(globalIdentities),
           ].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))
         : aggregateDefinitions,
-    [identitiesReady, aggregateDefinitions, globalIdentities],
+    [identitiesReady, aggregateDefinitions, globalIdentities, globalRole],
   );
   const baseGroups = useMemo(
     () => navigationGroups(data, '', globalDefinitions),

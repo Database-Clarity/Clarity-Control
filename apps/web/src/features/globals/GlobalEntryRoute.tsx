@@ -11,6 +11,16 @@ import { globalIdOf, useGlobalIdentities } from '../../stores/globalIdentities';
 import type { GlobalActor } from '../../services/globals';
 import { GlobalEntryWorkspace } from './GlobalEntryWorkspace';
 import styles from './GlobalEntryWorkspace.module.scss';
+import { IdentityStatus } from '../auth/AuthStatus';
+
+function EditingRoleRequired() {
+  return (
+    <section className={styles.workspace}>
+      <p>Sign in with an editing role to open global entries.</p>
+      <IdentityStatus />
+    </section>
+  );
+}
 
 function useActor(): GlobalActor {
   const user = useAuthStore((state) => state.user);
@@ -30,12 +40,7 @@ export function GlobalEntryRoute() {
         <p>Loading globals…</p>
       </section>
     );
-  if (!actor)
-    return (
-      <section className={styles.workspace}>
-        <p>Sign in with an editing role to open global entries.</p>
-      </section>
-    );
+  if (!actor) return <EditingRoleRequired />;
   const session = globalsSession();
   return (
     <GlobalEntryWorkspace
@@ -70,12 +75,7 @@ function GlobalResolver({ kind, name }: { kind: 'variables' | 'titles'; name: st
     if (!authLoading && role && useGlobalIdentities.getState().status === 'idle')
       void loadGlobalIdentities();
   }, [authLoading, role]);
-  if (!authLoading && !actor)
-    return (
-      <section className={styles.workspace}>
-        <p>Sign in with an editing role to open global entries.</p>
-      </section>
-    );
+  if (!authLoading && !actor) return <EditingRoleRequired />;
   if (status === 'ready') {
     const id =
       name === null

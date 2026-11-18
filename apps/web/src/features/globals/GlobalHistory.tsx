@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
@@ -38,6 +38,17 @@ export function GlobalHistory({
   canRestore: boolean;
   onRestore(body: string): void;
 }) {
+  const list = useRef<HTMLUListElement>(null);
+  const [compareWidth, setCompareWidth] = useState(280);
+  useEffect(() => {
+    const element = list.current;
+    if (!element) return;
+    const measure = () => setCompareWidth(element.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   // A new revision (a save here or elsewhere) starts the list again from its newest page.
   const key = `${entry.id}:${entry.revision}`;
   const [pages, setPages] = useState({ key, count: 1 });
@@ -83,7 +94,7 @@ export function GlobalHistory({
     <div className={styles.paneBody}>
       {state?.error && <p role="alert">{state.error}</p>}
       {!commits.length && !state?.loading && !state?.error && <p>No saved versions.</p>}
-      <ul className={styles.history}>
+      <ul ref={list} className={styles.history}>
         {commits.map((commit) => (
           <li key={commit.commit}>
             <span className={styles.historyMeta}>
@@ -99,6 +110,7 @@ export function GlobalHistory({
               label="Version of this definition"
               trigger="Compare"
               triggerLabel={`Compare version ${commit.commit.slice(0, 8)}`}
+              width={compareWidth}
             >
               {(close) => (
                 <HistoryVersion
