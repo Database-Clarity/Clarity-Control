@@ -573,6 +573,75 @@ describe('format v1 keys, header, and language files', () => {
     expect(ja.file!.languages).toEqual(['ja']);
   });
 
+  test.each([0, undefined])(
+    'unknown time %s is omitted, while known editor names remain independent',
+    (lastUpdate) => {
+      const input = structuredClone(translated) as Loose;
+      input.perks[100].updateTracker.descriptions.en = { lastUpdate, updatedBy: 'Ann' };
+      input.perks[102].updateTracker.descriptions.en = { lastUpdate, updatedBy: '' };
+      for (const languageFiles of ['combined', 'perLanguage'] as const) {
+        const plan = compile(
+          input,
+          file({
+            categories: ['armor-trait-exotic', 'verbs'],
+            sandboxPerks: [],
+            keys: ['edited', 'editedBy'],
+            languages: ['en', 'de', 'fr'],
+            languageFiles,
+          }),
+          { catalog },
+        );
+        const first = plan.outputs![0].file;
+        expect(first.perks[100].edited?.en).toEqual({ by: 'Ann' });
+        expect(first.perks[102]).not.toHaveProperty('edited');
+        if (languageFiles === 'perLanguage') {
+          const [, de, fr] = plan.outputs!;
+          expect(de.file.perks[102].edited).toEqual({ en: {} });
+          expect(de.file.perks[100].edited).toEqual({ de: { at: at(day + 1000), by: 'Ben' } });
+          expect(fr.file.perks[100].edited).toEqual({ en: { by: 'Ann' } });
+        }
+        for (const output of plan.outputs!) {
+          expect(() => validateV1(output.file)).not.toThrow();
+          expect(decodeV1(json(output.bytes))).toEqual(output.expanded);
+        }
+      }
+    },
+  );
+
+  test.each(
+    ([['edited'], ['editedBy'], ['name'], []] satisfies StyleFile['data']['keys'][]).map((keys) => [
+      keys,
+    ]),
+  )('English stand-ins respect metadata selection with keys %j and no tracker', (keys) => {
+    const input = structuredClone(translated) as Loose;
+    delete input.perks[100].updateTracker;
+    delete input.perks[102].updateTracker;
+    const plan = compile(
+      input,
+      file({
+        categories: ['armor-trait-exotic', 'verbs'],
+        sandboxPerks: [],
+        keys,
+        languages: ['en', 'de', 'fr'],
+        languageFiles: 'perLanguage',
+      }),
+      { catalog },
+    );
+    const [en, de, fr] = plan.outputs!;
+    expect(en.file.perks[102]).not.toHaveProperty('edited');
+    expect(de.file.perks[100]).not.toHaveProperty('edited');
+    if (keys.some((key) => key === 'edited' || key === 'editedBy')) {
+      expect(de.file.perks[102].edited).toEqual({ en: {} });
+      expect(fr.file.perks[100].edited).toEqual({ en: {} });
+    } else {
+      for (const output of plan.outputs!)
+        for (const perk of Object.values(output.file.perks))
+          expect(perk).not.toHaveProperty('edited');
+    }
+    for (const output of plan.outputs!)
+      expect(decodeV1(json(output.bytes))).toEqual(output.expanded);
+  });
+
   test('the stand-in rule is exported: no own text or the English fallback means English', () => {
     const perk = {
       editor: { de: { main: 'x' }, fr: { main: 'x', englishFallback: true as const } },
