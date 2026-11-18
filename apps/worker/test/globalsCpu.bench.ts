@@ -71,6 +71,13 @@ export async function fetch(input, init) {
   if (url.pathname.endsWith('/access_tokens') && method === 'POST')
     return respond('token', () => ({ token: 'synthetic', expires_at: '2999-01-01T00:00:00Z' }));
   if (url.pathname === '/graphql' && method === 'POST') return respond(init.body, () => graphql(init.body));
+  if (url.pathname.includes('/git/blobs/') && method === 'GET') {
+    const oid = url.pathname.split('/git/blobs/')[1];
+    for (const [path, value] of globalThis.__globalsCpu.files) {
+      if ((await raw(path, value)).oid === oid) return new Response(pretty(value));
+    }
+    return new Response(null, { status: 404 });
+  }
   if (url.pathname.includes('/git/ref/heads/') && method === 'GET')
     return respond('head', () => ({ object: { sha: 'a'.repeat(40) } }));
   if (url.pathname.includes('/contents/') && method === 'GET') {

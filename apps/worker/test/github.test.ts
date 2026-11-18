@@ -95,6 +95,39 @@ it('rejects invalid or conflicting blob writes before any request', async () => 
   expect(request).not.toHaveBeenCalled();
 });
 
+it('bounds and verifies raw global blobs by OID before parsing, without fallback', async () => {
+  const fixture = new Fixture(key);
+  const github = new GitHub(fixture.env, { contents: 'read' });
+  const text = '{"generatorSha":"' + 'a'.repeat(40) + '","value":"Café"}\r\n';
+  const oid = await blobSha(text);
+  const bytes = new TextEncoder().encode(text);
+  const upstream = globalThis.fetch;
+  let response = () => new Response(bytes);
+  const reads = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith('/access_tokens')) return upstream(input, init);
+    expect(String(input)).toBe(`https://api.github.com${github.root}/git/blobs/${oid}`);
+    expect(new Headers(init?.headers).get('Accept')).toBe('application/vnd.github.raw+json');
+    return response();
+  });
+  vi.stubGlobal('fetch', reads);
+  expect(await github.globalBlobByOid(oid, bytes.length)).toEqual({ sha: oid, bytes });
+  const bad = { status: 503, message: 'Sync pending: global storage is unavailable' };
+  for (const invalid of [0, -1, 1.5, 8_388_609, NaN]) {
+    reads.mockClear();
+    await expect(github.globalBlobByOid(oid, invalid)).rejects.toMatchObject(bad);
+    expect(reads).not.toHaveBeenCalled();
+  }
+  await expect(github.globalBlobByOid(oid, bytes.length - 1)).rejects.toMatchObject(bad);
+  response = () => new Response(bytes, { headers: { 'Content-Length': String(bytes.length + 1) } });
+  await expect(github.globalBlobByOid(oid, bytes.length)).rejects.toMatchObject(bad);
+  response = () => new Response(text.replace('Café', 'Cafe'));
+  await expect(github.globalBlobByOid(oid, bytes.length)).rejects.toMatchObject(bad);
+  for (const status of [403, 404, 429, 500]) {
+    response = () => new Response('private upstream detail', { status });
+    await expect(github.globalBlobByOid(oid, bytes.length)).rejects.toMatchObject(bad);
+  }
+});
+
 it('isolates immutable files by head, path, repository, and size mode, and returns private copies', async () => {
   const fixture = new Fixture(key);
   const github = new GitHub(fixture.env);

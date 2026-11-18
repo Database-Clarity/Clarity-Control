@@ -102,8 +102,8 @@ async function rawBlob(entry: unknown, maxFileBytes: number): Promise<RawBlob> {
   return { sha: parsed.data.oid, bytes };
 }
 
-/** Reads a response body under a byte cap BEFORE any JSON.parse (R8). */
-async function cappedJson(response: Response, maxBytes: number): Promise<unknown> {
+/** Reads a response body under a byte cap BEFORE decoding or parsing (R8). */
+async function cappedBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
   const declared = Number(response.headers.get('Content-Length') ?? '0');
   if (!response.body || !(declared <= maxBytes)) {
     await response.body?.cancel();
@@ -128,6 +128,11 @@ async function cappedJson(response: Response, maxBytes: number): Promise<unknown
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return bytes;
+}
+
+async function cappedJson(response: Response, maxBytes: number): Promise<unknown> {
+  const bytes = await cappedBytes(response, maxBytes);
   try {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
   } catch {
@@ -213,7 +218,10 @@ export const blobContent = (value: unknown) => `${JSON.stringify(value, null, 2)
 
 /** Git's blob SHA-1 of `text` (what GitHub reports as a file's sha), computed without a request. */
 export async function blobSha(text: string): Promise<string> {
-  const body = new TextEncoder().encode(text);
+  return blobBytesSha(new TextEncoder().encode(text));
+}
+
+async function blobBytesSha(body: Uint8Array): Promise<string> {
   const header = new TextEncoder().encode(`blob ${body.byteLength}\0`);
   const bytes = new Uint8Array(header.byteLength + body.byteLength);
   bytes.set(header);
@@ -689,21 +697,19 @@ export class GitHub {
 
   /** One exact Blob by OID (content-addressed), under a pinned cap; no fallback. */
   async globalBlobByOid(oid: string, maxBytes: number): Promise<RawBlob> {
-    if (!refPattern.test(oid) || maxBytes > 8_388_608) throw rawReadFailure();
-    const repository = z
-      .object({ object: z.unknown() })
-      .safeParse(
-        await this.graphql(
-          'query($owner:String!,$name:String!,$oid:GitObjectID!){repository(owner:$owner,name:$name){object(oid:$oid){... on Blob{oid byteSize isBinary isTruncated text}}}}',
-          { owner: this.env.GITHUB_OWNER, name: this.env.GITHUB_REPO, oid },
-          new Set(),
-          maxBytes * 6 + 4096,
-        ),
-      );
-    if (!repository.success) throw rawReadFailure();
-    const blob = await rawBlob(repository.data.object, maxBytes);
-    if (blob.sha !== oid) throw rawReadFailure();
-    return blob;
+    if (!refPattern.test(oid) || !Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 8_388_608)
+      throw rawReadFailure();
+    // GraphQL truncates the real installed config (>2 MiB). Read the exact Git blob's raw
+    // bytes directly instead: one authenticated request, no base64 or GraphQL text limit.
+    const headers = this.headers(await this.installationToken());
+    this.spend();
+    const response = await fetch(`https://api.github.com${this.root}/git/blobs/${oid}`, {
+      headers: { ...headers, Accept: 'application/vnd.github.raw+json' },
+    });
+    if (!response.ok) throw rawReadFailure();
+    const bytes = await cappedBytes(response, maxBytes);
+    if ((await blobBytesSha(bytes)) !== oid) throw rawReadFailure();
+    return { sha: oid, bytes };
   }
 
   /** Whether `head` carries any global entry metadata (the globals/ namespace). */

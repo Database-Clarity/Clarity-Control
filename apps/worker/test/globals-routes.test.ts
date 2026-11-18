@@ -159,6 +159,36 @@ describe('global entry routes (S5 integration)', () => {
     expect(cause?.[1]).toMatchObject({ operation: 'edit', beforeSources: before });
   });
 
+  it('reads the real-head shape with a 2.37 MB installed config beyond GraphQL text', async () => {
+    bootstrap();
+    const installed = { generatorSha, facts: { padding: 'x'.repeat(2_371_000) } };
+    const snapshots = Object.fromEntries(
+      Array.from({ length: 2614 }, (_, n) => [`live/tooltips/${n}.json`, { hash: n }]),
+    );
+    f.moveData({ '.publisher/config.json': installed, ...snapshots });
+    f.rawOverrides.set('.publisher/config.json', { isTruncated: true, text: null });
+    const upstream = globalThis.fetch;
+    const rawReads: string[] = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/git/blobs/')) {
+        expect(new Headers(init?.headers).get('Accept')).toBe('application/vnd.github.raw+json');
+        rawReads.push(String(input));
+      }
+      return upstream(input, init);
+    });
+    for (const path of ['/globals', `/globals/${id}`, '/globals']) {
+      const start = f.subrequests;
+      expect((await read(path)).status).toBe(200);
+      expect(f.subrequests - start).toBeLessThan(10);
+    }
+    expect(rawReads).toHaveLength(1);
+    // Moving the immutable config OID forces a new verified read instead of a stale generator.
+    f.moveData({ '.publisher/config.json': { ...installed, generatorSha: 'c'.repeat(40) } });
+    expect((await observeGlobals(new GitHub(f.env))).sources.generator).toBe('c'.repeat(40));
+    expect(rawReads).toHaveLength(2);
+    expect(f.writes).toEqual([]);
+  });
+
   it('refuses a proof made stale by a generic tooltip save', async () => {
     bootstrap();
     await admitName((await observeGlobals(new GitHub(f.env))).sources);

@@ -505,6 +505,14 @@ export class Fixture {
     }
     if (path.startsWith('/git/blobs/')) {
       this.blobReads++;
+      if (new Headers(init?.headers).get('Accept') === 'application/vnd.github.raw+json') {
+        const oid = path.slice('/git/blobs/'.length);
+        const files = this.current();
+        const name = Object.keys(files).find((name) => blobOid(files[name]) === oid);
+        return name
+          ? new Response(`${JSON.stringify(files[name], null, 2)}\n`)
+          : new Response(null, { status: 404 });
+      }
       return this.response({
         sha: this.liveFileSha,
         encoding: 'base64',
