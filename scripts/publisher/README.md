@@ -25,6 +25,9 @@ its baseline before enabling the production plan. Existing callers that supply o
 retain their current behavior. Pinned callers check out the exact converter and RECORD commits,
 verify the receipt/input/engine/generator identities before building, and refuse a different
 site pin rather than building a newer head. `verify-publication.mjs` installs with .publisher.
+The site reads current `exports/` after acquiring its shared deployment slot; the pinned
+RECORD proof uses a separate checkout. Publication and failed-job retries therefore preserve
+newer config-only deployments while retaining immutable data, engine, and generator inputs.
 
 Retry reconciles receipts, RECORDs, and export pins. A crash after RECORD but before job output,
 or a failed legacy build, re-emits the same handoff until the output pin confirms its input,

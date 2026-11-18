@@ -42,7 +42,7 @@ it('gates both production jobs on a confirmed handoff and retains existing reusa
   expect(workflow).toContain("ref: ${{ needs.handoff.outputs.record || 'editor-data' }}");
   expect(workflow).toContain("ref: ${{ needs.handoff.outputs.generator || 'v2' }}");
   expect(workflow).toContain(
-    'run: node editor-data/.publisher/verify-publication.mjs converter editor-data pins live',
+    'run: node producer/.publisher/verify-publication.mjs converter producer pins live',
   );
   expect(workflow).toContain("(inputs.publication == '' || needs.legacy.result == 'success')");
 });

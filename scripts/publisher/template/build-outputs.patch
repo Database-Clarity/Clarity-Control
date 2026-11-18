@@ -1,8 +1,8 @@
 diff --git a/.github/workflows/build-outputs.yml b/.github/workflows/build-outputs.yml
-index 7151030e..c5ab8c12 100644
+index 7151030e..4d9c9500 100644
 --- a/.github/workflows/build-outputs.yml
 +++ b/.github/workflows/build-outputs.yml
-@@ -1,166 +1,215 @@
+@@ -1,166 +1,225 @@
 -# Reusable build of every consumer output (spec section 3). Installed on the `converter` branch of
 -# Database-Clarity/Live-Clarity-Database and called as
 -#   Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter
@@ -336,10 +336,20 @@ index 7151030e..c5ab8c12 100644
 +        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 +        with:
 +          repository: Database-Clarity/Live-Clarity-Database
-+          ref: ${{ needs.handoff.outputs.record || 'editor-data' }}
++          ref: editor-data
 +          path: editor-data
++          sparse-checkout: exports
++          persist-credentials: false
++      # Config-only deployments share this job's data-site slot. Read current
++      # configs after taking it; keep the immutable publication proof separate.
++      - name: Check out the publication proof (immutable RECORD)
++        if: inputs.publication != ''
++        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
++        with:
++          repository: Database-Clarity/Live-Clarity-Database
++          ref: ${{ needs.handoff.outputs.record }}
++          path: producer
 +          sparse-checkout: |
-+            exports
 +            .publisher
 +            publish/log
 +          persist-credentials: false
@@ -359,7 +369,7 @@ index 7151030e..c5ab8c12 100644
 +        if: inputs.publication != ''
 +        env:
 +          PUBLICATION: ${{ inputs.publication }}
-+        run: node editor-data/.publisher/verify-publication.mjs converter editor-data pins live
++        run: node producer/.publisher/verify-publication.mjs converter producer pins live
 +      - name: Find the served deployment (Pages API; zero deployments = bootstrap)
 +        env:
 +          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

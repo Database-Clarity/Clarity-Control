@@ -109,6 +109,8 @@ holds closed until the independently reviewed S1-compatible release candidate is
    It checks out the publication's immutable converter, RECORD, and generator commits and
    verifies receipt/input/engine identities before either output build. It refuses a displaced
    site pin. Test publication never calls it.
+   Site configs are read from current editor-data under the data-site deployment slot; the
+   immutable RECORD proof is checked out separately. Retry retains newer config saves.
 3. G4/G5 operator gate, not execution here: pause intake, drain running pipeline jobs, and
    reconcile pending requests, candidate refs, receipts, RECORDs, and export pins. Verify
    effective no-rewind/no-delete protection on converter and live; the existing publisher
