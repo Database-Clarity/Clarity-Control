@@ -132,8 +132,13 @@ it('keeps a conflicting draft, reloads the latest base, and restores keyboard fo
   await click('Edit');
   await text('// {{1:Kommentar}}');
   await click('Save translation');
+  // Web Crypto hashing completes outside React's act() work queue.
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(api.saveSnippetTranslation).toHaveBeenCalledWith('de', expect.objectContaining({ base })),
+    );
+  });
   expect(host.querySelector('textarea')?.value).toBe('// {{1:Kommentar}}');
-  expect(api.saveSnippetTranslation).toHaveBeenCalledWith('de', expect.objectContaining({ base }));
   expect(document.activeElement).toBe(host.querySelector('[data-save]'));
   const latest = { ...base, label: 'Aktuell' };
   vi.mocked(api.getSnippetTranslations).mockResolvedValue({
@@ -148,6 +153,9 @@ it('keeps a conflicting draft, reloads the latest base, and restores keyboard fo
     translations: { [source.id]: latest },
   });
   await click('Save translation');
+  await act(async () => {
+    await vi.waitFor(() => expect(host.querySelector('[role=status]')?.textContent).toContain('Saved'));
+  });
   expect(api.saveSnippetTranslation).toHaveBeenLastCalledWith(
     'de',
     expect.objectContaining({ base: latest }),
