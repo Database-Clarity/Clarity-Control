@@ -156,15 +156,24 @@ if (plan === 'production') {
 }
 if (mode === '--plan') {
   const scratch = mkdtempSync(join(tmpdir(), 'publisher-install-plan-'));
+  const headFiles = new Map(
+    git(
+      'ls-tree',
+      '-r',
+      '--format=%(path)%x09%(objectname)',
+      'HEAD',
+      '--',
+      '.publisher',
+      '.github/workflows',
+    )
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => line.split('\t')),
+  );
   try {
     for (const side of ['a', 'b']) mkdirSync(join(scratch, side));
     for (const [file, bytes] of files) {
-      let oid;
-      try {
-        oid = git('rev-parse', '--verify', `HEAD:${file}`);
-      } catch {
-        /* New managed file. */
-      }
+      const oid = headFiles.get(file);
       if (oid) {
         mkdirSync(dirname(join(scratch, 'a', file)), { recursive: true });
         writeFileSync(
