@@ -583,8 +583,14 @@ export async function main(args: string[], toolSha256 = 'test-only-unbundled') {
       return;
     }
     const targetTree = plannedTree(git, out, inputs.head, prepared.files);
-    const diff = git.run([
+    // The checkout index can make Git reuse CRLF worktree bytes for an LF blob.
+    // Changed entries in the planned index have no worktree stat cache.
+    const diff = new OfflineGit(git.repo, join(out, 'tree.index')).run([
+      '-c',
+      'core.autocrlf=false',
       'diff-tree',
+      '--no-textconv',
+      '--no-ext-diff',
       '--no-commit-id',
       '--binary',
       '--full-index',
