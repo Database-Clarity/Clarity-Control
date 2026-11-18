@@ -27011,6 +27011,7 @@ function globalAggregateKind(hash2) {
 }
 function validGlobalName(kind, name2) {
   if (kind === "variables") return /^[a-zA-Z0-9]+$/.test(name2);
+  if (kind === "exports" && (name2 === "main" || name2 === "secondary")) return false;
   const declaration = kind === "exports" ? "export" : "title";
   return /^[A-Za-z0-9_]+(?: [A-Za-z0-9_]+)*$/.test(name2) && Object.hasOwn(extractBlocks(`${declaration} ${name2} (
 body

@@ -107,8 +107,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `0958533d875be59f294120bc678ec162ec86b8e8` (v2).
-Runtime SHA-256: `52e5ff51aeb57528650948c33e3524da6e46a13446c122f27923144f704aa828`.
+Current template source: `e4a7427efbb94ebddc206f0b948962dc646f97f8` (v2).
+Runtime SHA-256: `7fbf18abb145d92caa3b626a3a1b2fb4d01649b9924347579d4f06d5e1b97de1`.
 
 The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
 `yellow` consumer style, including comment-split keywords. While publishing is enabled,
