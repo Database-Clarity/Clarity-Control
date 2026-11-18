@@ -305,3 +305,19 @@
     text-decoration: underline;
   }
 }
+// The usages list takes the pane's remaining height and scrolls on its own (Back restores it).
+.usagePane {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  > * {
+    flex: none;
+  }
+  > .consumers {
+    flex: 1 1 auto;
+    min-height: 8rem;
+    max-height: none;
+  }
+}

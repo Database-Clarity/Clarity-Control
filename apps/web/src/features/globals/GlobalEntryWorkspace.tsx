@@ -944,7 +944,7 @@ function Workspace({
             </ul>
           </div>
         ) : (
-          <div className={styles.paneBody}>
+          <div className={`${styles.paneBody} ${styles.usagePane}`}>
             {scope === 'projected' && (
               <p className={styles.impactHeading}>Projected impact — unsaved</p>
             )}
