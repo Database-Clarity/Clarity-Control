@@ -1,4 +1,42 @@
-# Publisher (publish writes disabled)
+# Publisher
+
+## Cutover handoff plans (G4/G5 preparation only)
+
+`node scripts/publisher/install.mjs <checkout> <config.json> --plan --target=test`
+prints the exact local installation patch. Test is the default, and its config must name
+`converter-v2-test`. Production requires `--target=production` and a config naming `converter`.
+Unknown plans, disagreeing config, implicit rollback from production to the default test plan,
+and capability downgrades are refused. `--apply-local` writes the same planned bytes, without
+committing or pushing. Apply displayed patches with `git -c core.autocrlf=false apply` to retain
+the PIN's exact LF bytes on Windows.
+
+The serialized pipeline exposes `production_push` and `publication` from its `publish` step.
+`result.json` retains each confirmed LIVE/RECORD pair, its receipt and request blob OIDs,
+source/record/converter commits, input OID and SHA-256, engine PIN and SHA-256, generator SHA,
+publisher source SHA, and runtime digest. The test branch has no installed consumer engine;
+its absent engine identity is explicitly null, and it never starts legacy or site jobs.
+Production refuses a missing engine. The final catch-up must succeed before job outputs appear.
+
+The downstream caller passes this immutable publication to `build-outputs.yml@converter`.
+The prepared replacement is `template/.github/workflows/build-outputs.yml`, and its exact
+production-baseline diff is `template/build-outputs.patch`. Neither is installed by the
+editor-data installer: G5 separately installs the reusable workflow on converter and verifies
+its baseline before enabling the production plan. Existing callers that supply only `legacy`
+retain their current behavior. Pinned callers check out the exact converter and RECORD commits,
+verify the receipt/input/engine/generator identities before building, and refuse a different
+site pin rather than building a newer head. `verify-publication.mjs` installs with .publisher.
+
+Retry reconciles receipts, RECORDs, and export pins. A crash after RECORD but before job output,
+or a failed legacy build, re-emits the same handoff until the output pin confirms its input,
+engine, and generator. An already-built input, including a receipt-only no-op, skips the call.
+After a site failure, use Actions **Re-run failed jobs** to retain the original successful
+pipeline outputs and immutable handoff; do not substitute a latest-head build.
+
+G4/G5 remain owner gates: no installation, workflow activation, Worker target switch, native
+or set-bonus hold release, production refresh, deploy, held-ref change, or main merge is granted
+by preparing these files. Retain every installed capability floor, including numberTokens,
+inactiveMoves, and arrowSymbol. Confirm effective converter/live protections before G5; the
+observed publisher ruleset covers editor-data and converter-v2-test only.
 
 `npm run build:publisher` builds the plain Node 24 CLI and integrity PIN in `dist/`.
 `node scripts/publisher/dist/publisher.mjs --dry-run <local repository> <config.json> <artifact directory>`

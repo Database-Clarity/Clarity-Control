@@ -25,6 +25,9 @@ jobs:
     if: github.repository == 'Database-Clarity/Live-Clarity-Database' && github.ref == 'refs/heads/editor-data'
     runs-on: ${{ inputs.runner || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
+    outputs:
+      production_push: ${{ steps.publish.outputs.production_push }}
+      publication: ${{ steps.publish.outputs.publication }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -37,6 +40,7 @@ jobs:
       # runtime also needs its baked build switch ON (config/publisher.json at the PIN source), so
       # a dry-run install of an enabled build, or an enabled config on a dry-run build, never writes.
       - name: Bundle live data and publish (or simulate)
+        id: publish
         env:
           ARTIFACT_DIR: ${{ runner.temp }}/publisher-dry-run
           GITHUB_TOKEN: ${{ github.token }}
@@ -64,6 +68,16 @@ jobs:
           if [ -f "$ARTIFACT_DIR/summary.md" ]; then
             cat "$ARTIFACT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # GITHUB_TOKEN pushes do not trigger converter/main.yml. Test, dry-run,
+  # rejected, no-op, and failed drains never start either production job.
+  outputs:
+    needs: pipeline
+    if: needs.pipeline.outputs.production_push == 'true'
+    uses: Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter
+    with:
+      legacy: true
+      publication: ${{ needs.pipeline.outputs.publication }}
 
   # Replaces bundle.yml's report-catalog step with the same inputs (generator v2, editor 0acd005c).
   # It rebuilds report-items.json and report-items.worker.json for the bundle the pipeline job just

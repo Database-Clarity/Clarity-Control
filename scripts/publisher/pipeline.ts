@@ -7,7 +7,7 @@ import { maxBuffer } from './childProcess.mjs';
 import { LocalRepository } from './git.js';
 import { RemoteRepository } from './remote.js';
 import publisherConfig from '../../config/publisher.json';
-import { Publisher, type Options } from './publisher.js';
+import { Publisher, paths, type Receipt, type Options } from './publisher.js';
 import { GlobalsPublisher } from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 
@@ -23,6 +23,85 @@ const gitAt = (cwd: string, args: string[]) =>
     timeout: 120_000,
     maxBuffer,
   });
+
+/** All identities come from the confirmed commit's tree, never a later branch head. */
+export function publicationIdentity(
+  repo: LocalRepository,
+  landed: Publisher['publications'][number],
+  publisherDigest: string,
+  requireEngine = true,
+) {
+  const tree = repo.tree(landed.commit);
+  const receiptPath = paths(landed.opId).receipt;
+  const receiptBlob = tree[receiptPath];
+  const receipt = JSON.parse(repo.blob(receiptBlob)) as Receipt;
+  const enginePin = tree['.exports/PIN'] ? repo.blob(tree['.exports/PIN']).trim() : null;
+  if (
+    receipt.opId !== landed.opId ||
+    (requireEngine &&
+      (!enginePin || !/^[a-f0-9]{40}$/.test(enginePin) || !tree['.exports/engine.mjs'])) ||
+    !/^[a-f0-9]{40}$/.test(receipt.generatorSha) ||
+    !/^[a-f0-9]{64}$/.test(publisherDigest)
+  )
+    throw new Error('Invalid immutable publication identity');
+  const hash = (bytes: string) => createHash('sha256').update(bytes).digest('hex');
+  return {
+    ...landed,
+    receiptPath,
+    receiptBlob,
+    sourceCommit: receipt.sourceCommit,
+    requestBlob: receipt.requestBlob,
+    inputBlob: tree['liveDescriptions.json'],
+    inputSha256: hash(repo.blob(tree['liveDescriptions.json'])),
+    enginePin,
+    engineSha256: tree['.exports/engine.mjs'] ? hash(repo.blob(tree['.exports/engine.mjs'])) : null,
+    generatorSha: receipt.generatorSha,
+    publisherSha: receipt.publisherSha,
+    publisherDigest,
+    outcome: receipt.outcome,
+  };
+}
+
+/** Recover a missed downstream job from durable receipts/RECORDs and export pins.
+ * A successful RECORD must survive a workflow crash before its job outputs exist. */
+export function pendingProductionHandoff(repo: LocalRepository) {
+  const head = repo.head('refs/heads/converter')!;
+  const added = repo.additions(head, '.publish/receipts').at(-1);
+  if (!added) return;
+  if (added.commit !== head)
+    throw new Error('Production target moved beyond its publication receipt');
+  const receipt = JSON.parse(repo.blob(repo.tree(head)[added.path])) as Receipt;
+  const data = repo.head('refs/heads/editor-data')!;
+  const record = repo.additions(data, paths(receipt.opId).log).at(-1);
+  if (!record) throw new Error('Production receipt has no confirmed RECORD');
+  const tree = repo.tree(record.commit);
+  const log = JSON.parse(repo.blob(tree[paths(receipt.opId).log]));
+  if (log.candidateCommit !== head || !['done', 'unchanged'].includes(log.result?.status))
+    throw new Error('Production RECORD differs from receipt');
+  const digest = createHash('sha256')
+    .update(repo.blob(tree['.publisher/publisher.mjs']))
+    .digest('hex');
+  const identity = publicationIdentity(
+    repo,
+    { opId: receipt.opId, commit: head, recordCommit: record.commit },
+    digest,
+  );
+  // Read the snapshot's export-pins without granting RemoteRepository write scope to it.
+  const refs = repo
+    .git(['for-each-ref', '--format=%(objectname)', 'refs/heads/export-pins'])
+    .trim();
+  const pinTree = refs ? repo.tree(refs) : {};
+  const pin = pinTree['pins/latest.json']
+    ? JSON.parse(repo.blob(pinTree['pins/latest.json']))
+    : undefined;
+  if (
+    pin?.inputSha256 === identity.inputSha256 &&
+    pin?.engine === identity.enginePin &&
+    pin?.generatorSha === identity.generatorSha
+  )
+    return;
+  return identity;
+}
 
 export function simulationArtifact(repo: LocalRepository, out: string, bases: string[]) {
   const revisions = ['--branches', '--not', ...bases];
@@ -49,9 +128,9 @@ export async function runPipeline(
   if (
     config.repo !== 'Database-Clarity/Live-Clarity-Database' ||
     config.dataBranch !== 'editor-data' ||
-    config.liveBranch !== 'converter-v2-test'
+    !['converter-v2-test', 'converter'].includes(config.liveBranch)
   )
-    throw new Error('Pipeline target is not the held test target');
+    throw new Error('Pipeline target is not an allowlisted publication target');
   const enabled = remoteMode && publisherConfig.enabled && config.publishWritesEnabled === true;
   if (remoteMode && !enabled) throw new Error('Remote publishing disabled by config');
   if (enabled && !process.env.GITHUB_TOKEN) throw new Error('GITHUB_TOKEN required');
@@ -61,6 +140,8 @@ export async function runPipeline(
   const temp = mkdtempSync(join(tmpdir(), 'publisher-pipeline-'));
   let failure: unknown;
   const reports: unknown[] = [];
+  const publications: ReturnType<typeof publicationIdentity>[] = [];
+  let handoff: ReturnType<typeof pendingProductionHandoff>;
   function snapshot(label: string) {
     // Always latest heads after acquiring the workflow slot, never the event checkout.
     gitAt(cwd, ['fetch', '--prune', '--no-tags', 'origin', '+refs/heads/*:refs/remotes/origin/*']);
@@ -88,7 +169,11 @@ export async function runPipeline(
       .split('\n'))
       if (ref && !remoteNames.has(ref)) command(['update-ref', '-d', ref]);
     return enabled
-      ? new RemoteRepository(repo, { repo: config.repo, token: process.env.GITHUB_TOKEN })
+      ? new RemoteRepository(repo, {
+          repo: config.repo,
+          token: process.env.GITHUB_TOKEN,
+          liveBranch: config.liveBranch as 'converter-v2-test' | 'converter',
+        })
       : new LocalRepository(repo);
   }
   function publishBundle(repo: LocalRepository, options: Options) {
@@ -122,6 +207,15 @@ export async function runPipeline(
   const options: Options = { ...config, publicKey: '', now: Date.now };
   try {
     const initial = snapshot('initial');
+    if (config.liveBranch === 'converter') {
+      const tree = initial.tree(initial.head('refs/heads/converter')!);
+      if (
+        !tree['.exports/PIN'] ||
+        !/^[a-f0-9]{40}$/.test(initial.blob(tree['.exports/PIN']).trim()) ||
+        !tree['.exports/engine.mjs']
+      )
+        throw new Error('Production target requires a pinned installed engine');
+    }
     // In write mode, commit the coalesced materialization before the first public
     // bundle. Dry-run materialization remains in the disposable simulator below.
     if (!enabled) publishBundle(initial, options);
@@ -158,6 +252,21 @@ export async function runPipeline(
       await new GlobalsPublisher(publisher).drain();
       if (enabled) publishBundle(initial, options);
       await publisher.run(false);
+      if (enabled && publisher.publications.length) {
+        // Do not hand off a candidate displaced by another writer during the drain.
+        const last = publisher.publications.at(-1)!;
+        if (initial.head(`refs/heads/${config.liveBranch}`) !== last.commit)
+          throw new Error('Publication target moved before handoff');
+        for (const landed of publisher.publications)
+          publications.push(
+            publicationIdentity(
+              initial,
+              landed,
+              config.publisherDigest ?? '',
+              config.liveBranch === 'converter',
+            ),
+          );
+      }
     } catch (e) {
       failure = e;
     }
@@ -167,7 +276,10 @@ export async function runPipeline(
   } finally {
     try {
       // Bounded catch-up bundle from real data, never simulated RECORDs.
-      publishBundle(snapshot('catch-up'), options);
+      const latest = snapshot('catch-up');
+      publishBundle(latest, options);
+      if (enabled && config.liveBranch === 'converter' && !failure)
+        handoff = pendingProductionHandoff(latest);
     } catch (e) {
       failure ??= e;
     }
@@ -178,6 +290,8 @@ export async function runPipeline(
           dryRun: !enabled,
           publishWritesEnabled: enabled,
           reports,
+          publications,
+          handoff: handoff ?? null,
           error: failure ? String(failure) : null,
         },
         null,
@@ -196,6 +310,15 @@ export async function runPipeline(
     rmSync(temp, { recursive: true, force: true });
   }
   if (failure) throw failure;
+  // Emit only after LIVE, RECORD, and catch-up all succeeded. Failed/partial runs
+  // retain diagnostics but cannot authorize downstream production jobs.
+  const productionPush = handoff !== undefined;
+  if (process.env.GITHUB_OUTPUT)
+    writeFileSync(
+      process.env.GITHUB_OUTPUT,
+      `production_push=${productionPush}\npublication=${productionPush ? JSON.stringify(handoff) : ''}\n`,
+      { flag: 'a' },
+    );
 }
 
 export function verifyRuntime(root: string) {

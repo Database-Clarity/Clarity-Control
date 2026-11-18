@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod';
 import { langSchema } from '../../packages/core/src/languages.js';
 import { verifyRuntime } from './pipeline.js';
+import { maxBuffer } from './childProcess.mjs';
 
 it('ignores exports, glossary, snippets, and entry marks on editor-data pushes', () => {
   const workflow = readFileSync(
@@ -26,6 +27,24 @@ it('ignores exports, glossary, snippets, and entry marks on editor-data pushes',
   expect(workflow).toContain(
     "paths-ignore: ['exports/**', 'glossary/**', 'snippets/**', 'config/marks.json']",
   );
+});
+
+it('gates both production jobs on a confirmed handoff and retains existing reusable callers', () => {
+  const caller = readFileSync('scripts/publisher/template/.github/workflows/pipeline.yml', 'utf8');
+  expect(caller).toContain("if: needs.pipeline.outputs.production_push == 'true'");
+  expect(caller).toContain('publication: ${{ needs.pipeline.outputs.publication }}');
+  const workflow = readFileSync(
+    'scripts/publisher/template/.github/workflows/build-outputs.yml',
+    'utf8',
+  );
+  expect(workflow).toContain("default: ''");
+  expect(workflow).toContain("ref: ${{ needs.handoff.outputs.converter || 'converter' }}");
+  expect(workflow).toContain("ref: ${{ needs.handoff.outputs.record || 'editor-data' }}");
+  expect(workflow).toContain("ref: ${{ needs.handoff.outputs.generator || 'v2' }}");
+  expect(workflow).toContain(
+    'run: node editor-data/.publisher/verify-publication.mjs converter editor-data pins live',
+  );
+  expect(workflow).toContain("(inputs.publication == '' || needs.legacy.result == 'success')");
 });
 
 it('ships the reviewed v2 template with a matching integrity pin and documentation', () => {
@@ -400,6 +419,9 @@ describe('install.mjs', () => {
     publishWritesEnabled: unknown,
     mode = '--plan',
     capabilities?: string[],
+    targetArg?: string,
+    liveBranch = 'converter-v2-test',
+    previousBranch?: string,
   ) {
     const pin = JSON.parse(
       readFileSync(join(cwd, 'scripts/publisher/template/.publisher/PIN'), 'utf8'),
@@ -409,6 +431,7 @@ describe('install.mjs', () => {
     );
     const config = {
       ...example,
+      liveBranch,
       publishWritesEnabled,
       keyEndpoint: 'https://worker.invalid/publish/key',
       keyFingerprint: 'a'.repeat(64),
@@ -421,12 +444,27 @@ describe('install.mjs', () => {
     roots.push(dir);
     writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
     const target = checkout(capabilities);
+    if (previousBranch) {
+      mkdirSync(join(target, '.publisher'), { recursive: true });
+      writeFileSync(
+        join(target, '.publisher/config.json'),
+        JSON.stringify({ liveBranch: previousBranch }),
+      );
+      execFileSync('git', [...identity, '-C', target, 'add', '.publisher/config.json']);
+      execFileSync('git', [...identity, '-C', target, 'commit', '-q', '-m', 'Previous target']);
+    }
     const result = spawnSync(
       process.execPath,
-      ['scripts/publisher/install.mjs', target, join(dir, 'config.json'), mode],
-      { cwd, encoding: 'utf8' },
+      [
+        'scripts/publisher/install.mjs',
+        target,
+        join(dir, 'config.json'),
+        mode,
+        ...(targetArg ? [targetArg] : []),
+      ],
+      { cwd, encoding: 'utf8', maxBuffer },
     );
-    return { ...result, target };
+    return { ...result, target, configPath: join(dir, 'config.json') };
   }
 
   it('installs publish writes from the enable build, byte-exact and LF', () => {
@@ -467,6 +505,74 @@ describe('install.mjs', () => {
     const loose = install('.', 'true');
     expect(loose.status).not.toBe(0);
     expect(loose.stderr).toContain('publishWritesEnabled must be true or false');
+  });
+  it.each(['test', 'production'])(
+    'prints the exact applicable %s installation diff without changing the checkout',
+    (plan) => {
+      const live = plan === 'test' ? 'converter-v2-test' : 'converter';
+      const result = install('.', true, '--plan', undefined, `--target=${plan}`, live);
+      expect(result.status, result.stderr).toBe(0);
+      const patch = result.stdout.slice(result.stdout.indexOf('diff --git '));
+      expect(patch).toContain('diff --git ');
+      expect(
+        execFileSync('git', ['-C', result.target, 'status', '--porcelain'], { encoding: 'utf8' }),
+      ).toBe('');
+      execFileSync(
+        'git',
+        ['-c', 'core.autocrlf=false', '-C', result.target, 'apply', '--check', '-'],
+        { input: patch },
+      );
+      execFileSync('git', ['-c', 'core.autocrlf=false', '-C', result.target, 'apply', '-'], {
+        input: patch,
+      });
+      const patched = readFileSync(join(result.target, '.publisher/config.json'));
+      expect(JSON.parse(patched.toString()).liveBranch).toBe(live);
+      const applied = install('.', true, '--apply-local', undefined, `--target=${plan}`, live);
+      expect(applied.status, applied.stderr).toBe(0);
+      for (const file of [
+        '.publisher/config.json',
+        '.publisher/installed.json',
+        '.publisher/PIN',
+        '.publisher/publisher.mjs',
+        '.github/workflows/pipeline.yml',
+      ])
+        expect(readFileSync(join(result.target, file))).toEqual(
+          readFileSync(join(applied.target, file)),
+        );
+      expect(existsSync(join(result.target, '.github/workflows/bundle.yml'))).toBe(false);
+    },
+  );
+  it('refuses unknown plans, config disagreements, and implicit target rollback', () => {
+    for (const [flag, live] of [
+      [undefined, 'converter'],
+      ['--target=live', 'live'],
+      ['--target=test', 'converter'],
+      ['production', 'converter'],
+    ]) {
+      const result = install('.', false, '--plan', undefined, flag, live);
+      expect(result.status).not.toBe(0);
+    }
+    const implicit = install(
+      '.',
+      false,
+      '--plan',
+      undefined,
+      undefined,
+      'converter-v2-test',
+      'converter',
+    );
+    expect(implicit.status).not.toBe(0);
+    expect(implicit.stderr).toContain('Target switch requires an explicit --target plan');
+    const rollback = install(
+      '.',
+      false,
+      '--plan',
+      undefined,
+      '--target=test',
+      'converter-v2-test',
+      'converter',
+    );
+    expect(rollback.status, rollback.stderr).toBe(0);
   });
   it('preserves installed capability floors and refuses downgrading an unknown capability', () => {
     const compatible = install('.', false, '--plan', ['schedulePreparationV1', 'globalsRelease']);

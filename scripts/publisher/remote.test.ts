@@ -23,6 +23,31 @@ afterEach(async () => {
 });
 const data = 'refs/heads/editor-data';
 const candidate = 'refs/heads/publish-candidate/01K95H00000000000000000001';
+it('allowlisted publication plans grant only their selected target, including atomic writes', () => {
+  for (const liveBranch of ['converter-v2-test', 'converter'] as const) {
+    const repo = new RemoteRepository(bare(), { fileUrl: pathToFileURL(bare()).href, liveBranch });
+    const live = `refs/heads/${liveBranch}`;
+    const other = `refs/heads/${liveBranch === 'converter' ? 'converter-v2-test' : 'converter'}`;
+    expect(() => repo.head(other)).toThrow('outside publisher scope');
+    expect(() => repo.head('refs/heads/live')).toThrow('outside publisher scope');
+    const a = repo.commit(undefined, { input: repo.writeBlob('old') }, 'Base');
+    const b = repo.commit(a, { input: repo.writeBlob('new') }, 'Advance');
+    repo.cas(data, undefined, a);
+    repo.cas(live, undefined, a);
+    repo.casMany([
+      { ref: data, old: a, next: b },
+      { ref: live, old: a, next: b },
+    ]);
+    expect(repo.head(data)).toBe(b);
+    expect(repo.head(live)).toBe(b);
+    expect(() =>
+      repo.casMany([
+        { ref: data, old: b, next: a },
+        { ref: live, old: b, next: a },
+      ]),
+    ).toThrow('advance both branches');
+  }
+});
 it('simulator and real file:// Git implement the same publication CAS contract', () => {
   const run = (repo: Repository) => {
     const blob = repo.writeBlob('exact bytes\n');

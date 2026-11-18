@@ -13,7 +13,7 @@ dry-run workflows continue to simulate publication; changing the shared switch a
 The built runtime bakes config/publisher.json in at build time (the enable build's publisher.mjs
 carries `enabled: true`). Enabling remote writes therefore needed a new template build and PIN from a
 commit whose config says `enabled: true`, reviewed and CI-gated on that exact tree, then a
-re-install of .publisher with `publishWritesEnabled: true` (`install.mjs --pipeline-publish`).
+re-install of .publisher with `publishWritesEnabled: true` (`install.mjs --apply-local`).
 With an older (enabled: false) build, `publishWritesEnabled: true` in the installed
 config throws "Remote publishing disabled by config", and a hand-edited publisher.mjs fails its PIN.
 
@@ -88,6 +88,51 @@ installation history safely. Record resulting heads and retain dry-run artifacts
 Rollback future switch release: first stop/drain any future write-capable publisher, confirm no
 unrecorded candidate/receipt, restore enabled:false and rebuild/release BOTH Worker and web from
 one commit before allowing legacy writes. Never overlap two writers. No rollback is executed here.
+
+## Production handoff rehearsal and G5 installation order
+
+Preparation does not authorize production installation or publishing. Keep native/set-bonus
+holds closed until the independently reviewed S1-compatible release candidate is approved.
+
+1. From a private pristine editor-data clone, retain its HEAD, installed config/PIN, and refs.
+   Copy the public config, retain its generator/facts/aliases/key identities, and set publisherSha
+   to this template's source PIN. For test, keep liveBranch=converter-v2-test. For production,
+   explicitly set liveBranch=converter. Run `install.mjs <clone> <config> --plan --target=test`
+   and `install.mjs <clone> <production-config> --plan --target=production`, saving both patches.
+   Neither plan contacts GitHub or changes the clone. Check both patches locally with
+   `git -c core.autocrlf=false apply --check <patch>`; use --apply-local only in a disposable
+   clone to compare the planned bytes. Never run --pipeline-dry-run as an offline rehearsal:
+   that mode deliberately pushes the real editor-data-bundle branch.
+2. Save the current converter build-outputs.yml blob identity. Review the exact prepared
+   `template/build-outputs.patch` against that baseline; any drift requires a refreshed diff
+   and review. The new publication input is optional, so existing legacy:boolean callers work.
+   It checks out the publication's immutable converter, RECORD, and generator commits and
+   verifies receipt/input/engine identities before either output build. It refuses a displaced
+   site pin. Test publication never calls it.
+3. G4/G5 operator gate, not execution here: pause intake, drain running pipeline jobs, and
+   reconcile pending requests, candidate refs, receipts, RECORDs, and export pins. Verify
+   effective no-rewind/no-delete protection on converter and live; the existing publisher
+   ruleset does not cover those branches. Install the approved compatible .exports engine
+   before any hold release. Retain backups and every installed capability floor.
+4. Only after the owner's exact G5 approval, install the reviewed reusable-workflow diff on
+   converter, then the reviewed production plan on editor-data, while intake stays paused.
+   The editor-data installer never installs build-outputs.yml on converter. Coordinate Worker
+   LIVE_BRANCH=converter with installed .publisher config, verify target/PIN agreement, and
+   admit only the reviewed production request. A test-signed request is never retargeted.
+5. Inspect result.json and the `publish` step's production_push/publication outputs. They bind
+   the confirmed converter commit, receipt and request blobs, source/RECORD commits, input
+   OID/SHA-256, engine PIN/SHA-256, generator SHA, and publisher source/runtime digest.
+   Rejected or unresolved publication exposes no production handoff. A failed downstream
+   legacy build can be retried from the durable receipt/RECORD until its export pin matches.
+   For a failed site job, use Actions **Re-run failed jobs**, retaining the original handoff.
+   Confirm all seven outputs, versions, export pin, and site against that immutable identity.
+
+Stop/recover (G8): stop intake and drain/reconcile before restoring approved artifacts.
+Keep receipts, request credits, and append-only export pins. Forward-revert data and workflow
+changes; never reset, force-push, overwrite held refs, or downgrade capability floors. A target
+rollback requires a deliberate `--target=test` plan, matching Worker/config changes, and
+reconciliation of every production-signed request first. Reverting config alone cannot undo
+already-published consumer output; restore it with an owner-approved forward publication.
 
 ## CPU preview gate (synthetic, no repository I/O)
 

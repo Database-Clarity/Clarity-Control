@@ -219,6 +219,8 @@ export class TextlessConsumerOutput extends ProposalOutputRejected {
   }
 }
 export class Publisher {
+  /** Confirmed LIVE + RECORD pairs from this drain, including crash recovery. */
+  readonly publications: { opId: string; commit: string; recordCommit: string }[] = [];
   private readonly checkedOutputs = new Set<string>();
   constructor(
     readonly git: Repository,
@@ -843,6 +845,8 @@ export class Publisher {
             },
           ]);
         else this.git.cas(dataRef(this.options.dataBranch), h, c);
+        if (receipt && candidate)
+          this.publications.push({ opId, commit: candidate, recordCommit: c });
         return;
       } catch (e) {
         if (!(e instanceof RefRace)) throw e;
