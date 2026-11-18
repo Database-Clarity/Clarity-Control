@@ -25,6 +25,10 @@ const credit =
   'Credit Clarity as the external source, link https://d2clarity.com, and link https://d2clarity.com/discord for tooltip feedback. Clearly label your changes to the data, and keep cached copies updated. See https://www.d2clarity.com/partnerships for the full requirements.';
 const creditHtml =
   '<p>Credit <a href="https://d2clarity.com">Clarity</a> as the external source, and include <a href="https://d2clarity.com/discord">Discord for tooltip feedback</a>. Label changes you make, and keep local copies current. <a href="https://www.d2clarity.com/partnerships">Full data usage requirements</a>.</p>';
+const bungiePolicy = 'https://www.bungie.net/7/en/Legal/IntellectualPropertyTrademarks';
+const bungieCredit =
+  'Destiny symbols (the symbol SVGs and DestinySymbols font) are (c) Bungie, Inc. and used under Bungie\'s fan content policy';
+const bungieCreditNote = `${bungieCredit}: ${bungiePolicy}.`;
 function compactExample(value: unknown) {
   const line = value as { parts?: unknown[]; style?: string[] };
   if (!line.parts) return JSON.stringify(value);
@@ -237,7 +241,7 @@ export function referenceSite(
     'brand/colours.json',
     bytes(json({ green: '#24EC54', cyan: '#1CDCFC', themes: themeTokens })),
   );
-  kit.set('CREDITS.txt', bytes(credit + '\n'));
+  kit.set('CREDITS.txt', bytes(credit + '\n\n' + bungieCreditNote + '\n'));
   const usage = Object.fromEntries(
     [...kit.keys()].map((path) => [
       path,
@@ -262,6 +266,9 @@ export function referenceSite(
                 : 'Reference code and documentation, MIT. Keep LICENSE with copied code.',
     ]),
   );
+  for (const path of kit.keys())
+    if (path.startsWith('symbols/') && /\.(svg|woff2)$/.test(path))
+      usage[path] += ' ' + bungieCreditNote;
   usage['usage.json'] =
     'Per-asset source, usage, and licence notes. Read before redistributing assets.';
   usage['contents.json'] = 'Complete list of files in partner-kit.zip.';
@@ -395,7 +402,7 @@ renderText(lines, { notes: 'footnotes', links: 'address', icons: 'names', bold: 
     [
       'kit',
       'Partner kit',
-      `<p><a href="partner-kit.zip" download>Download the complete partner kit</a>. <a href="kit/contents.json">Contents list</a> and <a href="kit/usage.json">asset usage notes and provenance</a>.</p><p>The kit includes every symbol as light and dark SVG, DestinySymbols with its complete glyph map, the approved k75 lockups and marks, Clarity Cut variable and static TTF/WOFF2 fonts with OFL.txt and FONTLOG.md, brand colours, theme tokens, reference code, and credit rules.</p><p>Clarity Cut is the renamed Orbitron derivative under SIL OFL 1.1. Keep its licence and font log beside it. The Bungie-derived symbols and owner-provided brand artwork are included with source notes; redistribution terms have not been verified. The code's MIT licence does not grant rights to that artwork.</p>${creditHtml}<details><summary>Individual downloads (${kit.size} files)</summary>${assetDownloads(kit)}</details>`,
+      `<p><a href="partner-kit.zip" download>Download the complete partner kit</a>. <a href="kit/contents.json">Contents list</a> and <a href="kit/usage.json">asset usage notes and provenance</a>.</p><p>The kit includes every symbol as light and dark SVG, DestinySymbols with its complete glyph map, the approved k75 lockups and marks, Clarity Cut variable and static TTF/WOFF2 fonts with OFL.txt and FONTLOG.md, brand colours, theme tokens, reference code, and credit rules.</p><p>Clarity Cut is the renamed Orbitron derivative under SIL OFL 1.1. Keep its licence and font log beside it. The Bungie-derived symbols and owner-provided brand artwork are included with source notes; redistribution terms have not been verified. The code's MIT licence does not grant rights to that artwork.</p><p>${bungieCredit}: <a href="${bungiePolicy}">Bungie's fan content policy</a>.</p>${creditHtml}<details><summary>Individual downloads (${kit.size} files)</summary>${assetDownloads(kit)}</details>`,
     ],
   ];
   const title = 'Clarity data reference';
