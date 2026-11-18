@@ -164,6 +164,15 @@ it('keeps edits in memory and warns when device draft storage fails, then clears
   await act(async () => change('25%'));
   expect(useGlobalDraftStorage.getState().failed).toBe(false);
   expect(stored.size).toBe(1);
+  const failAgain = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+    throw new Error('Quota exceeded');
+  });
+  await act(async () => change('30%'));
+  expect(useGlobalDraftStorage.getState().failed).toBe(true);
+  await act(async () => root!.unmount());
+  root = undefined;
+  expect(useGlobalDraftStorage.getState().failed).toBe(false);
+  failAgain.mockRestore();
 });
 
 it('restores an older version into the draft; saving stays an ordinary edit', async () => {

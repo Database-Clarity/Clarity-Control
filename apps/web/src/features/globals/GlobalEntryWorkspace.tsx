@@ -33,7 +33,12 @@ import {
   type GlobalsService,
 } from '../../services/globals';
 import styles from './GlobalEntryWorkspace.module.scss';
-import { readGlobalDraft, writeGlobalDraft, type GlobalDraft } from './globalDrafts';
+import {
+  readGlobalDraft,
+  writeGlobalDraft,
+  useGlobalDraftStorage,
+  type GlobalDraft,
+} from './globalDrafts';
 import { GlobalHistory, type GlobalHistoryReader } from './GlobalHistory';
 import { useAuthStore } from '../../stores/auth';
 import { GlobalImpactComparison, validGlobalImpact } from './GlobalImpactComparison';
@@ -202,6 +207,7 @@ function Workspace({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      useGlobalDraftStorage.setState({ failed: false });
     };
   }, []);
   const [error, setError] = useState('');
