@@ -64,3 +64,37 @@ it('allows a new account to load while the previous account read is pending', as
   expect(useGlobalIdentities.getState().status).toBe('ready');
   expect(list).toHaveBeenCalledTimes(2);
 });
+
+it('finishes the existing catalogue read when account languages refresh with the same token and role', async () => {
+  useAuthStore.setState({ user, token: 'alice', loading: false });
+  let resolve!: (value: unknown) => void;
+  list.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const pending = loadGlobalIdentities();
+  useAuthStore.setState({ user: { ...user, languages: ['fr'] } });
+  expect(loadGlobalIdentities()).toBe(pending);
+  resolve({ kind: 'ok', value: { entries: globalFixtureSnapshot.entries, nextCursor: null } });
+  await pending;
+  expect(useGlobalIdentities.getState().status).toBe('ready');
+  expect(list).toHaveBeenCalledTimes(1);
+});
+
+it('clears a pending catalogue when a role is removed without changing the token', async () => {
+  useAuthStore.setState({ user, token: 'alice', loading: false });
+  let resolve!: (value: unknown) => void;
+  list.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const pending = loadGlobalIdentities();
+  useAuthStore.setState({ user: { ...user, role: null } });
+  resolve({ kind: 'ok', value: { entries: globalFixtureSnapshot.entries, nextCursor: null } });
+  await pending;
+  await loadGlobalIdentities();
+  expect(useGlobalIdentities.getState()).toMatchObject({ status: 'idle', identities: {} });
+  expect(list).toHaveBeenCalledTimes(1);
+});

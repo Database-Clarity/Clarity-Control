@@ -52,7 +52,7 @@ export function rememberGlobalIdentities(entries: readonly GlobalEntry[]): void 
 let loading:
   | {
       token: string | null;
-      user: ReturnType<typeof useAuthStore.getState>['user'];
+      role: NonNullable<ReturnType<typeof useAuthStore.getState>['user']>['role'];
       promise: Promise<void>;
     }
   | undefined;
@@ -60,10 +60,11 @@ let loading:
 export function loadGlobalIdentities(force = false): Promise<void> {
   const { token, user } = useAuthStore.getState();
   if (!user?.role) return Promise.resolve();
+  const role = user.role;
   if (!force && useGlobalIdentities.getState().status === 'ready') return Promise.resolve();
-  if (loading?.token === token && loading.user === user) return loading.promise;
+  if (loading?.token === token && loading.role === role) return loading.promise;
   const current = () =>
-    useAuthStore.getState().token === token && useAuthStore.getState().user === user;
+    useAuthStore.getState().token === token && useAuthStore.getState().user?.role === role;
   const promise = (async () => {
     const { transport } = globalsSession();
     useGlobalIdentities.setState({ status: 'loading', error: '' });
@@ -92,6 +93,6 @@ export function loadGlobalIdentities(force = false): Promise<void> {
   })().finally(() => {
     if (loading?.promise === promise) loading = undefined;
   });
-  loading = { token, user, promise };
+  loading = { token, role, promise };
   return promise;
 }
