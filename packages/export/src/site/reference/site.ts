@@ -338,7 +338,7 @@ document.querySelector('#tooltip').replaceChildren(content);`;
     [
       'file',
       'The file',
-      `<p><code>format: 1</code> identifies this contract; <code>shape</code> is lines or text; <code>languages</code> lists the file's language ids. <code>descriptions</code> stores each distinct description once. Each hash in <code>perks</code> points to it by a zero-based <code>description</code> index.</p><p>Perk keys are optional and chosen by the project's file settings: <code>name</code>, <code>itemHash</code>, <code>itemName</code>, <code>category</code>, <code>edited</code>, and <code>references</code>. <code>edited.&lt;lang&gt;.at</code> is an ISO timestamp, and <code>.by</code> is the editor's name. Time and name are independent choices. Unknown edit times are omitted; <code>edited</code> may be absent. <code>references</code> contains target perk hashes in the same file.</p><p>The sample below is a shortened view of the actual file; indexes are those of the full download. <a href="v1/lines/en.json">Download the complete lines file</a>.</p>${code(linesFile ? json({ ...linesFile, descriptions: linesFile.descriptions.slice(0, 1), perks: Object.fromEntries(Object.entries(linesFile.perks).slice(0, 2)) }) : 'Awaiting the first reference build.', 'file-json')}`,
+      `<p><code>format: 1</code> identifies this contract; <code>shape</code> is lines or text; <code>languages</code> lists the file's language ids. <code>descriptions</code> stores each distinct description once. Each hash in <code>perks</code> points to it by a zero-based <code>description</code> index.</p><p>Perk keys are optional and chosen by the project's file settings: <code>name</code>, <code>itemHash</code>, <code>itemName</code>, <code>category</code>, <code>edited</code>, and <code>references</code>. <code>edited.&lt;lang&gt;.at</code> is an ISO timestamp, and <code>.by</code> is the editor's name. Time and name are independent choices. <code>.at</code> and <code>.by</code> are omitted when unknown, and <code>edited</code> may be absent. In a per-language file, an English stand-in carries <code>edited.en</code> whenever the file selects <code>edited</code> or <code>editedBy</code>; it may be <code>{}</code> when both values are unknown. With neither selected, there is no <code>edited</code> and no stand-in marker. <code>references</code> contains target perk hashes in the same file.</p><p>The sample below is a shortened view of the actual file; indexes are those of the full download. <a href="v1/lines/en.json">Download the complete lines file</a>.</p>${code(linesFile ? json({ ...linesFile, descriptions: linesFile.descriptions.slice(0, 1), perks: Object.fromEntries(Object.entries(linesFile.perks).slice(0, 2)) }) : 'Awaiting the first reference build.', 'file-json')}`,
     ],
     [
       'lines',
@@ -358,7 +358,7 @@ document.querySelector('#tooltip').replaceChildren(content);`;
     [
       'languages',
       'Languages',
-      `<p>The 13 ids are <code>${exportLanguages.join(', ')}</code>. A project may choose one combined file (<code>&lt;project&gt;/v1/&lt;file&gt;.json</code>) or one complete file per language (<code>&lt;project&gt;/v1/&lt;file&gt;/&lt;lang&gt;.json</code>).</p><p>Missing translations and translations at least 90 days behind English use English text in per-language files. <code>edited.en</code> identifies an English stand-in when edit metadata is known and selected. Unknown edit metadata is omitted, so absence alone cannot identify the text's original language.</p>`,
+      `<p>The 13 ids are <code>${exportLanguages.join(', ')}</code>. A project may choose one combined file (<code>&lt;project&gt;/v1/&lt;file&gt;.json</code>) or one complete file per language (<code>&lt;project&gt;/v1/&lt;file&gt;/&lt;lang&gt;.json</code>).</p><p>Missing translations and translations at least 90 days behind English use English text in per-language files. When the file selects <code>edited</code> or <code>editedBy</code>, an English stand-in carries <code>edited.en</code>. Its <code>.at</code> and <code>.by</code> fields are omitted when unknown, so the marker can be <code>{"edited":{"en":{}}}</code>. With neither selected, the file exports no <code>edited</code> and no stand-in marker.</p>`,
     ],
     [
       'updates',
@@ -450,7 +450,7 @@ renderText(lines, { notes: 'footnotes', links: 'address', icons: 'names', bold: 
       'Header: format, shape, languages. Perks index shared descriptions.',
       'Shapes: lines (parts and spacers), text (one string per language).',
       'Unknown keys and styles are ignored; unknown icons retain their text.',
-      'edited is optional. Unknown edit timestamps are omitted.',
+      'edited is optional; unknown .at/.by are omitted. In per-language files, English stand-ins carry edited.en (possibly {}) when edited or editedBy is selected; neither selected means no edited and no stand-in marker.',
       'Poll index.json by file id and language; fetch when sha256 changes.',
       'Statuses: current, stale, frozen. Kept URLs have updatesUntil.',
       'Code is MIT. Fonts and artwork have separate terms; see kit/usage.json.',
