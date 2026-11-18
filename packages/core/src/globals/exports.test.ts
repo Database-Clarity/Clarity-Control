@@ -65,6 +65,16 @@ it('projects ordered exports byte-for-byte, with comments, CRLF, metadata, and l
   expect(projectGlobals(inventory([hidden]))).toEqual({ 1: hidden });
 });
 
+it.each(['main', 'secondary'])('refuses the whole-library import name %s for exports', (name) => {
+  const entry = inventory([tooltip(1, 'export Barrier (\nBody\n)')]).entries[0];
+  expect(validGlobalName('exports', name)).toBe(false);
+  expect(globalRecordSchema.safeParse({ ...entry, name }).success).toBe(false);
+  const source = `import ${name} from global\nimport ${name} from 1`;
+  expect(() => rewriteGlobalReferences(source, 'exports', name, 'Renamed')).toThrow(
+    'Invalid global reference name',
+  );
+});
+
 it('rewrites only hash-1 import names, preserving comments, CRLF, local sources, and labels', () => {
   const source =
     '// import anti_barrier from global\r\n/*\r\nimport anti_barrier from 1\r\n*/\r\nimport anti_barrier from global\r\nimport anti_barrier from 1\r\nimport anti_barrier from 01\r\nimport anti_barrier from 40\r\nimport main from global\r\n<title anti_barrier [anti_barrier] />';

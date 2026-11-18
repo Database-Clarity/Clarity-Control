@@ -290,40 +290,48 @@ describe('global entry routes (S5 integration)', () => {
     expect((await read(`/globals/${id}/history`, 99)).body.kind).toBe('forbidden');
   });
 
-  it('refuses deleting a compatibility library, but not removing a batch member', async () => {
-    const user = { id: 1, login: 'alice' };
-    const batchMember = 'schedule/batches/B/tooltips/2.json';
-    bootstrap();
-    f.moveData({ 'tooltips/2.json': { ...tooltip(), hash: 2 }, [batchMember]: {} });
-    const github = new GitHub(f.env);
-    await expect(
-      github.commit(f.dataHead, {}, 'Delete', user, { deletions: ['tooltips/2.json'] }),
-    ).rejects.toMatchObject({ status: 409 });
-    expect(f.current()['tooltips/2.json']).toBeDefined();
-    await github.commit(f.dataHead, {}, 'Remove member', user, { deletions: [batchMember] });
-    expect(f.current()[batchMember]).toBeUndefined();
-  });
+  it.each([1, 2, 3])(
+    'refuses deleting compatibility library %i, but not removing a batch member',
+    async (hash) => {
+      const user = { id: 1, login: 'alice' };
+      const path = `tooltips/${hash}.json`;
+      const batchMember = `schedule/batches/B/${path}`;
+      bootstrap();
+      f.moveData({ [path]: { ...tooltip(), hash }, [batchMember]: {} });
+      const github = new GitHub(f.env);
+      await expect(
+        github.commit(f.dataHead, {}, 'Delete', user, { deletions: [path] }),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(f.current()[path]).toBeDefined();
+      await github.commit(f.dataHead, {}, 'Remove member', user, { deletions: [batchMember] });
+      expect(f.current()[batchMember]).toBeUndefined();
+    },
+  );
 
-  it('refuses raw aggregate saves once globals exist, but keeps legacy saves', async () => {
-    const aggregate = { ...tooltip(), hash: 2 };
-    f.moveData({ 'tooltips/2.json': aggregate });
-    const change = { hash: 2, base: aggregate, next: { ...tooltip('legacy edit'), hash: 2 } };
-    const legacy = await read('/save', 1, 'POST', { changes: [change], message: 'Legacy' });
-    expect(legacy.status).toBe(200);
-    bootstrap();
-    const next = f.current()['tooltips/2.json'];
-    const refused = await read('/save', 1, 'POST', {
-      changes: [
-        { hash: 2, base: next, next: { ...tooltip('raw edit', '2026-10-02T00:00:00Z'), hash: 2 } },
-      ],
-      message: 'Raw',
-    });
-    expect(refused).toEqual({
-      status: 409,
-      body: { error: 'Use global entry mutations; Sync pending protection is required' },
-    });
-    expect(f.current()['tooltips/2.json']).toEqual(next);
-  });
+  it.each([1, 2, 3])(
+    'refuses raw aggregate %i saves once globals exist, but keeps legacy saves',
+    async (hash) => {
+      const path = `tooltips/${hash}.json`;
+      const aggregate = { ...tooltip(), hash };
+      f.moveData({ [path]: aggregate });
+      const change = { hash, base: aggregate, next: { ...tooltip('legacy edit'), hash } };
+      const legacy = await read('/save', 1, 'POST', { changes: [change], message: 'Legacy' });
+      expect(legacy.status).toBe(200);
+      bootstrap();
+      const next = f.current()[path];
+      const refused = await read('/save', 1, 'POST', {
+        changes: [
+          { hash, base: next, next: { ...tooltip('raw edit', '2026-10-02T00:00:00Z'), hash } },
+        ],
+        message: 'Raw',
+      });
+      expect(refused).toEqual({
+        status: 409,
+        body: { error: 'Use global entry mutations; Sync pending protection is required' },
+      });
+      expect(f.current()[path]).toEqual(next);
+    },
+  );
 
   it('reads one publication certificate per consumer, in order, at the same head', async () => {
     bootstrap();

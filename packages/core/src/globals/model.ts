@@ -23,6 +23,7 @@ export function globalAggregateKind(hash: number): GlobalRecord['kind'] {
 
 export function validGlobalName(kind: GlobalRecord['kind'], name: string): boolean {
   if (kind === 'variables') return /^[a-zA-Z0-9]+$/.test(name);
+  if (kind === 'exports' && (name === 'main' || name === 'secondary')) return false;
   const declaration = kind === 'exports' ? 'export' : 'title';
   return (
     /^[A-Za-z0-9_]+(?: [A-Za-z0-9_]+)*$/.test(name) &&

@@ -79,7 +79,7 @@ const rawBlobFields = z
 export const rawReadFailure = () =>
   new HttpError(503, 'Sync pending: global storage is unavailable');
 /** Paths that only the global entry Action may write once globals/ exists. */
-export const globalAggregatePath = /(?:^|\/)tooltips\/[23]\.json$/;
+export const globalAggregatePath = /(?:^|\/)tooltips\/[123]\.json$/;
 
 async function rawBlob(entry: unknown, maxFileBytes: number): Promise<RawBlob> {
   const parsed = rawBlobFields.safeParse(entry);
@@ -1052,7 +1052,7 @@ export class GitHub {
         globalAggregatePath.test(path),
       ) ||
         // Removing an aggregate member from a batch stays allowed; deleting the library does not.
-        deletions.some((path) => /^tooltips\/[23]\.json$/.test(path))) &&
+        deletions.some((path) => /^tooltips\/[123]\.json$/.test(path))) &&
       (await this.globalsBootstrapped(head))
     )
       throw new HttpError(409, 'Use global entry mutations; Sync pending protection is required');
