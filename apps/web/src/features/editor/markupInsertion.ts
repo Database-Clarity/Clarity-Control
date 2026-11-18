@@ -24,6 +24,8 @@ export interface MarkupOption {
   group: string;
   kind: MarkupKind;
   name: string;
+  /** Target-language words for an empty selection; syntax and references stay fixed. */
+  placeholderText?: string;
 }
 
 export const markupOptions: MarkupOption[] = [
@@ -435,7 +437,7 @@ function createMarkupTransaction(
         : option.kind === 'title'
           ? ' [Name] />'
           : ' />';
-    const content = selected || 'Text';
+    const content = selected || option.placeholderText || 'Text';
     const insert = content
       .split('\n')
       .map((line) => `${prefix}${line}${suffix}`)

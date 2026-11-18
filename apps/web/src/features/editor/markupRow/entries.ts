@@ -11,6 +11,7 @@ import {
   elementTagNames,
   enhancedArrowMarkup,
   expandSnippet,
+  expandTemplate,
   extractVariables,
   writeVariable,
   markupSnippets,
@@ -97,7 +98,25 @@ function viaOption(id: string, rest: Omit<MarkupEntry, 'id' | 'run'>): MarkupEnt
     ...rest,
     run(view, globals) {
       const option = optionFor(id);
-      return option ? insertMarkup(view, option, globals) : 'read-only';
+      if (!option) return 'read-only';
+      const lang = view.state.facet(snippetLang);
+      const tag = markupTags.find((entry) => entry.id === `tag:${option.name}`);
+      const words =
+        tag && lang && lang !== 'en' ? snippetCatalogue(lang).local.get(tag.id) : undefined;
+      if (words && !words.english) {
+        const expanded = expandTemplate(words.template);
+        const first = expanded.stops[0];
+        if (first)
+          return insertMarkup(
+            view,
+            {
+              ...option,
+              placeholderText: expanded.text.slice(first.from, first.to),
+            },
+            globals,
+          );
+      }
+      return insertMarkup(view, option, globals);
     },
   };
 }
@@ -358,21 +377,21 @@ export function markupEntries(globals: ScopedMarkupGlobals, documentText = ''): 
         help: { example: `<${symbol.name}/>In PvP only:` },
       }),
     ),
-    ...(
-      ['decl-var', 'decl-title', 'decl-export', 'decl-import', 'editor-note'] as const
-    ).map((id) => {
-      const snippet = snippetById(id);
-      return viaTemplate(snippet, {
-        id,
-        group: 'Declarations',
-        label: snippet.label,
-        markup: snippet.template.replace(/\{\{\d+:([^}]*)\}\}/g, '$1'),
-        keys: snippet.keywords,
-        glyph: { kind: 'mono', text: snippet.label },
-        usage: snippet.usage,
-        about: snippet.about,
-      });
-    }),
+    ...(['decl-var', 'decl-title', 'decl-export', 'decl-import', 'editor-note'] as const).map(
+      (id) => {
+        const snippet = snippetById(id);
+        return viaTemplate(snippet, {
+          id,
+          group: 'Declarations',
+          label: snippet.label,
+          markup: snippet.template.replace(/\{\{\d+:([^}]*)\}\}/g, '$1'),
+          keys: snippet.keywords,
+          glyph: { kind: 'mono', text: snippet.label },
+          usage: snippet.usage,
+          about: snippet.about,
+        });
+      },
+    ),
   ];
   const documentVariables = extractVariables(documentText);
   const variables = { ...documentVariables, ...extractVariables(globals.variables) };
