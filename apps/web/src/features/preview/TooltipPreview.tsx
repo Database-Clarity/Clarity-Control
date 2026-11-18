@@ -156,7 +156,10 @@ function bungieUrl(icon: string | undefined): string | undefined {
 
 function PreviewHeader(props: PreviewIdentity & { live: boolean; lang: Lang }) {
   const identity = useContext(LivePreviewIdentity);
-  const target = useSteppingActivity((state) => (props.live ? state.target : undefined));
+  // Only tooltip targets carry a hash; a global entry (`/globals/<id>`) keeps its own header.
+  const target = useSteppingActivity((state) =>
+    props.live && state.target?.startsWith('/t/') ? state.target : undefined,
+  );
   const data = useDataStore((state) => (target ? state.data : null));
   const urgent = useMemo(
     () =>

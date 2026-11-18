@@ -502,6 +502,9 @@ export function createGlobalsService(
       const next = structuredClone(cached);
       mergeEntry(next, entry.value.entry);
       applyState(next, entry.value);
+      // Same head as the catalogue: a lazy fill, not a new read. Rename reports advance only on
+      // reads (or a "not applied" would clear before the page ever shows it).
+      next.renameIntents = structuredClone(cached.renameIntents ?? {});
       if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
         const rows = await readReviews(id, entry.value, token);
         if (rows.kind !== 'ok') return rows;

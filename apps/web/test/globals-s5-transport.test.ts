@@ -219,6 +219,11 @@ describe('stale rename intents', () => {
       name: 'Harm',
       status: 'not-applied',
     });
+    // The page's lazy per-entry read (same head) keeps the report on screen.
+    const lazy = await service.readEntry(entry.id);
+    expect(lazy.kind === 'ok' && lazy.value.renameIntents?.[entry.id]).toMatchObject({
+      status: 'not-applied',
+    });
     const later = await service.read();
     expect(later.kind === 'ok' && later.value.renameIntents).toEqual({});
   });
