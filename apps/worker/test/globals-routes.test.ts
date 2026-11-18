@@ -12,6 +12,7 @@ import {
 import { blobOid, Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 
 const id = 'g_abcdefgh';
+const entryPath = `/globals/${id}`;
 const live = 'converter-v2-test';
 const generatorSha = 'd'.repeat(40);
 const pinSource = 'e'.repeat(40);
@@ -101,20 +102,20 @@ const read = async (path: string, user = 1, method = 'GET', value?: unknown) => 
 describe('global entry routes (S5 integration)', () => {
   it('stays off before authentication by default', async () => {
     vi.mocked(globalsSwitch.enabled).mockReturnValue(false);
-    const result = await read('/globals');
+    const result = await read(entryPath);
     expect(result).toEqual({ status: 503, body: { error: 'Global entries are not enabled' } });
     expect(f.graphqlCalls).toBe(0);
   });
 
   it('authorizes before revealing bootstrap state, and fails closed when partial', async () => {
-    expect((await read('/globals', 99)).body.kind).toBe('forbidden');
-    expect(await read('/globals')).toEqual({
+    expect((await read(entryPath, 99)).body.kind).toBe('forbidden');
+    expect(await read(entryPath)).toEqual({
       status: 503,
       body: { kind: 'retry', message: 'Sync pending: global metadata is incomplete' },
     });
     bootstrap();
     f.moveData({ [`globals/live/${live}.json`]: undefined });
-    expect((await read('/globals')).body.message).toBe(
+    expect((await read(entryPath)).body.message).toBe(
       'Sync pending: global metadata is incomplete',
     );
   });
@@ -145,14 +146,17 @@ describe('global entry routes (S5 integration)', () => {
   it('serves bounded reads and commits a body edit with the observed sources', async () => {
     bootstrap();
     await admitName((await observeGlobals(new GitHub(f.env))).sources);
-    const list = await read('/globals');
-    expect(list.status).toBe(200);
-    expect(list.body.value).toMatchObject({
-      head: f.dataHead,
-      entries: [entry],
-      status: 'current',
+    // The catalogue ships in the editor-data bundle: no paged Worker read, and no GitHub call.
+    const calls = f.graphqlCalls;
+    expect(await read('/globals')).toEqual({
+      status: 405,
+      body: { kind: 'invalid', message: 'Method not allowed' },
     });
-    expect((await read(`/globals/${id}`)).body.value?.entry).toEqual(entry);
+    expect((await read('/globals?cursor=p0')).status).toBe(405);
+    expect(f.graphqlCalls).toBe(calls);
+    const opened = await read(entryPath);
+    expect(opened.status).toBe(200);
+    expect(opened.body.value).toMatchObject({ head: f.dataHead, entry, status: 'current' });
     const before = (await observeGlobals(new GitHub(f.env))).sources;
     const saved = await read(`/globals/${id}/body`, 2, 'POST', {
       expectedHead: f.dataHead,
@@ -185,7 +189,7 @@ describe('global entry routes (S5 integration)', () => {
       }
       return upstream(input, init);
     });
-    for (const path of ['/globals', `/globals/${id}`, '/globals']) {
+    for (const path of [entryPath, entryPath, entryPath]) {
       const start = f.subrequests;
       expect((await read(path)).status).toBe(200);
       expect(f.subrequests - start).toBeLessThan(10);
@@ -194,7 +198,7 @@ describe('global entry routes (S5 integration)', () => {
     // Changing config alone refuses, even after a successful read of the old binding.
     const next = { ...installed, generatorSha: 'c'.repeat(40) };
     f.moveData({ '.publisher/config.json': next });
-    expect((await read('/globals')).status).toBe(503);
+    expect((await read(entryPath)).status).toBe(503);
     f.moveData({
       '.publisher/installed.json': {
         version: 1,
@@ -219,7 +223,7 @@ describe('global entry routes (S5 integration)', () => {
   ])('refuses missing, malformed, or mismatched installed metadata: %j', async (metadata) => {
     bootstrap();
     f.moveData({ '.publisher/installed.json': metadata });
-    expect(await read('/globals')).toEqual({
+    expect(await read(entryPath)).toEqual({
       status: 503,
       body: { kind: 'retry', message: 'Sync pending: global metadata is incomplete' },
     });
@@ -234,7 +238,7 @@ describe('global entry routes (S5 integration)', () => {
   ])('refuses corrupted installed-metadata transport: %j', async (override) => {
     bootstrap();
     f.rawOverrides.set('.publisher/installed.json', override);
-    expect(await read('/globals')).toEqual({ status: 503, body: fixed });
+    expect(await read(entryPath)).toEqual({ status: 503, body: fixed });
     expect(f.writes).toEqual([]);
   });
 
@@ -269,7 +273,7 @@ describe('global entry routes (S5 integration)', () => {
   it('refuses a binary PIN and a non-blob metadata path', async () => {
     bootstrap();
     f.rawOverrides.set('.publisher/PIN', { isBinary: true });
-    expect(await read('/globals')).toEqual({ status: 503, body: fixed });
+    expect(await read(entryPath)).toEqual({ status: 503, body: fixed });
     f.rawOverrides.clear();
     f.moveData({
       [`globals/entries/${id}.json`]: undefined,

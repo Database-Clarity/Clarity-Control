@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { blobContent, blobSha, RefRace } from '../src/github.js';
-import { globalsHandler, namePaths, type GlobalsContext } from '../src/globals/handlers.js';
+import {
+  globalsHandler,
+  namePaths,
+  publicGlobalSync,
+  type GlobalsContext,
+} from '../src/globals/handlers.js';
 import { assertGlobalsPublication, assertNoRawGlobalMutation } from '../src/globals/guards.js';
-import { limits, paths, type Mutation, type Sources } from '../src/globals/model.js';
+import { limits, paths, syncSchema, type Mutation, type Sources } from '../src/globals/model.js';
 import type { GlobalRecord } from '../../../packages/core/src/globals/model.js';
 import { readGlobalFiles, type GlobalsStorage } from '../src/globals/storage.js';
 import { globalFileBytes, nameProofRequestSchema } from '../src/globals/model.js';
@@ -562,9 +567,13 @@ describe('bounded global admission and durable Sync pending', () => {
       nameHistory: Array.from({ length: 10000 }, () => ({})),
     });
     expect((await f.call()).status).toBe(503);
-    f.files.set(paths.page('p0'), { version: 1, ids: Array(4).fill(id), nextCursor: null });
-    const response = await globalsHandler(new Request('https://local/globals'), async () => f.ctx);
-    expect(response.status).toBe(503);
+    // The catalogue is the bundle's: the bare route reads nothing for anything but a create.
+    const load = vi.fn(async () => f.ctx);
+    for (const method of ['GET', 'HEAD', 'PUT'])
+      expect(
+        (await globalsHandler(new Request('https://local/globals', { method }), load)).status,
+      ).toBe(405);
+    expect(load).not.toHaveBeenCalled();
     expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 });
@@ -630,11 +639,20 @@ describe('authoritative saved review acknowledgement and read', () => {
 
   it('returns bounded entry/review pages, conservative path metadata, and browser-only projection rejection', async () => {
     const f = await fixture();
-    for (const path of ['/globals', `/globals/${id}`, `/globals/${id}/reviews`]) {
+    f.files.set(paths.row('review2'), { ...f.row(), id: 'review2' });
+    f.files.set(`globals/review-pages/${id}/p0.json`, {
+      ...(f.files.get(`globals/review-pages/${id}/p0.json`) as object),
+      ids: ['review1', 'review2'],
+    });
+    for (const path of [`/globals/${id}`, `/globals/${id}/reviews`]) {
+      vi.mocked(f.ctx.storage.readFiles).mockClear();
       const response = await globalsHandler(new Request(`https://local${path}`), async () => f.ctx);
+      // Sync, then the entry; or sync, the review page, and all its rows in ONE read.
+      expect(f.ctx.storage.readFiles).toHaveBeenCalledTimes(path.endsWith('reviews') ? 3 : 2);
       expect(response.status).toBe(200);
       const result = await response.json();
       expect(result.value.status).toBe('current');
+      if (path.endsWith('reviews')) expect(result.value.impacts[id]).toHaveLength(2);
       if (path.endsWith('reviews'))
         expect(result.value.impacts[id][0]).toMatchObject({
           line: null,
@@ -724,7 +742,7 @@ describe('raw file bounds and acknowledgement capacity regressions', () => {
           ? await f.call()
           : {
               status: (
-                await globalsHandler(new Request('https://local/globals'), async () => f.ctx)
+                await globalsHandler(new Request(`https://local/globals/${id}`), async () => f.ctx)
               ).status,
             };
         expect(response.status).toBe(503);
@@ -818,7 +836,10 @@ describe('S3 snapshot and explicit durable-cause retry contract', () => {
     const state = f.files.get(paths.sync) as Record<string, unknown>;
     const secret = 'private tooltip text and token=not-for-the-client';
     f.files.set(paths.sync, { ...state, status: 'sync-failed', lastFailure: secret });
-    const response = await globalsHandler(new Request('https://local/globals'), async () => f.ctx);
+    const response = await globalsHandler(
+      new Request(`https://local/globals/${id}`),
+      async () => f.ctx,
+    );
     const result = await response.json();
     expect(result.kind).toBe('ok');
     expect(result.value.sync[id]).toEqual({
@@ -829,6 +850,15 @@ describe('S3 snapshot and explicit durable-cause retry contract', () => {
     expect(result.value.destinationSync.live).toEqual(result.value.sync[id]);
     expect(result.value.destinationSync.upcoming).toEqual(result.value.sync[id]);
     expect(JSON.stringify(result)).not.toContain(secret);
+    // The bundle's copy (publisher) uses the same filter: same view, no producer details.
+    const bundled = publicGlobalSync(syncSchema.parse(f.files.get(paths.sync)));
+    expect(bundled).toEqual({
+      status: 'sync-failed',
+      causeIds: f.causeIds,
+      lastFailure: 'Sync failed. Retry sync.',
+      causeEntries: Object.fromEntries(f.causeIds.map((cause) => [cause, id])),
+    });
+    expect(JSON.stringify(bundled)).not.toContain(secret);
     expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 
@@ -902,7 +932,10 @@ describe('S3 snapshot and explicit durable-cause retry contract', () => {
       causeEntries: { other: 'g_other123' },
       lastFailure: null,
     });
-    const response = await globalsHandler(new Request('https://local/globals'), async () => f.ctx);
+    const response = await globalsHandler(
+      new Request(`https://local/globals/${id}`),
+      async () => f.ctx,
+    );
     const result = await response.json();
     expect(result.value.sync[id]).toEqual({ status: 'current', causeIds: [] });
     expect(result.value.destinationSync.live).toEqual({
@@ -1044,7 +1077,7 @@ describe('root rulings N1(a), R5, and R7', () => {
     expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 
-  it('returns invalid for a permanently oversized response from bounded valid records', async () => {
+  it('fits the largest valid entry read in one bounded response (the paged list could not)', async () => {
     const f = await fixture();
     const ids = ['a', 'b', 'c'].map((letter) => `g_${letter.repeat(80)}`);
     for (const entryId of ids) {
@@ -1067,12 +1100,12 @@ describe('root rulings N1(a), R5, and R7', () => {
       lastFailure: 'failed',
     });
     f.ctx.destinations = Array.from({ length: 4 }, (_, i) => String(i).padEnd(80, 'd'));
-    const response = await globalsHandler(new Request('https://local/globals'), async () => f.ctx);
-    expect(response.status).toBe(413);
-    expect(await response.json()).toMatchObject({
-      kind: 'invalid',
-      message: 'Global response exceeds its byte limit',
-    });
+    const response = await globalsHandler(
+      new Request(`https://local/globals/${ids[0]}`),
+      async () => f.ctx,
+    );
+    expect(response.status).toBe(200);
+    expect((await response.text()).length).toBeLessThan(limits.fileBytes);
     expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 

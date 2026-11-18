@@ -161,14 +161,14 @@ describe('authenticated globals transport', () => {
     fetch.mockResolvedValueOnce(
       new Response(`{"kind":"ok","value":"${'x'.repeat(70_000)}"}`, { status: 200 }),
     );
-    expect(await (await transport()).list('p0')).toEqual({
+    expect(await (await transport()).entry(entry.id)).toEqual({
       kind: 'invalid',
       message: 'The globals response is too large.',
     });
-    fetch.mockResolvedValueOnce(reply({ kind: 'ok', value: { ...header(), entries: [{}] } }));
-    expect((await (await transport()).list('p0')).kind).toBe('invalid');
+    fetch.mockResolvedValueOnce(reply({ kind: 'ok', value: { ...header(), entry: {} } }));
+    expect((await (await transport()).entry(entry.id)).kind).toBe('invalid');
     fetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
-    expect((await (await transport()).list('p0')).kind).toBe('forbidden');
+    expect((await (await transport()).entry(entry.id)).kind).toBe('forbidden');
   });
 });
 
@@ -181,11 +181,9 @@ describe('stale rename intents', () => {
         ...header(status, status === 'current' ? [] : ['c1']),
         version: 1 as const,
         entries: [entry],
-        nextCursor: null,
       },
     });
     const transport: GlobalsTransport = {
-      list: async () => page(),
       entry: async () => ({ kind: 'ok', value: { ...page().value, entry } }),
       reviews: async () => ({
         kind: 'ok',
@@ -203,7 +201,10 @@ describe('stale rename intents', () => {
       }),
       retrySync: async () => ({ kind: 'invalid', message: 'unused' }),
     };
-    const service = createGlobalsService(transport, { destinations: ['live'] });
+    const service = createGlobalsService(transport, {
+      destinations: ['live'],
+      catalog: async () => page(),
+    });
     expect((await service.read()).kind).toBe('ok');
     const queued = await service.mutate({
       expectedHead: fixtureHead(1),

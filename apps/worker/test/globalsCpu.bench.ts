@@ -14,7 +14,7 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
 const out = resolve('.agents/s5/cpu');
 const mode = process.argv[2];
-export const cases = ['off', 'me', 'list', 'entry', 'reviews', 'history', 'edit'];
+export const cases = ['off', 'me', 'entry', 'reviews', 'history', 'edit'];
 
 const upstream = `
 const cache = new Map();
@@ -226,7 +226,6 @@ function fixtures() {
   const specs = {
     off: { path: '/globals', method: 'GET', status: 503 },
     me: { path: '/me', method: 'GET', status: 200 },
-    list: { path: '/globals', method: 'GET', status: 200 },
     entry: { path: `/globals/${id}`, method: 'GET', status: 200 },
     reviews: { path: `/globals/${id}/reviews`, method: 'GET', status: 200 },
     history: { path: `/globals/${id}/history`, method: 'GET', status: 200 },
