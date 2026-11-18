@@ -54,6 +54,90 @@ describe('real htmlview golden fixtures', () => {
   });
 });
 
+describe('chunked htmlview grids', () => {
+  it('reads all three real Weapon Perks chunks with byte-identical single-table output', () => {
+    const html = fixture('weapon-chunked');
+    const chunks = [...html.matchAll(/<tbody>([\s\S]*?)<\/tbody>/g)];
+    expect(chunks).toHaveLength(3);
+    const single =
+      html.slice(0, html.indexOf('<div class="ritz grid-container">')) +
+      `<div class="ritz grid-container">${html.match(/<table[^>]*>/)![0]}<tbody>${chunks.map((chunk) => chunk[1]).join('')}</tbody></table></div>`;
+    const sheet = parseCompendiumSheet(html, '1662574278');
+    expect(JSON.stringify(sheet)).toBe(JSON.stringify(parseCompendiumSheet(single, '1662574278')));
+    expect(sheet.rows.map(({ rowIndex }) => rowIndex)).toEqual([
+      6, 7, 8, 201, 202, 203, 204, 422, 423, 424,
+    ]);
+    expect(sheet.rows.find(({ rowIndex }) => rowIndex === 203)).toMatchObject({
+      name: 'Slideways',
+      anchor: { row: 203, col: 0 },
+    });
+    expect(sheet.rows.find(({ rowIndex }) => rowIndex === 423)?.name).toContain('Souldrinker');
+  });
+
+  it('shares row spans across chunks, retaining columns, formatting, and anchors', () => {
+    const heading = '<tr><th>1</th><td>Name</td><td>Description</td></tr>';
+    const first = '<tr><th>10</th><td rowspan="2">Test</td><td><b>First</b><br>line</td></tr>';
+    const next =
+      '<tr><th>11</th><td><i>Second</i> <a href="https://example.com/">link</a></td></tr>';
+    const last = '<tr><th>12</th><td>Other</td><td colspan="2">Last</td></tr>';
+    const table = (rows: string) => `<table class="waffle">${rows}</table>`;
+    const wrap = (body: string) =>
+      `<style>.ritz .waffle td {background-color:#123456;text-align:right;color:#abcdef}</style><div class="ritz grid-container">${body}</div>`;
+    const full = wrap(table(heading + first + next + last));
+    const chunked = wrap(
+      `${table(heading + first)}<div class="grid-chunk">${table(next + last)}</div>`,
+    );
+    const sheet = parseCompendiumSheet(chunked, '999');
+    expect(JSON.stringify(sheet)).toBe(JSON.stringify(parseCompendiumSheet(full, '999')));
+    expect(sheet.rows[0]).toMatchObject({
+      anchor: { row: 10, col: 0 },
+      cell: { plain: 'First\nline\nSecond link', background: '#123456' },
+    });
+    expect(sheet.rows[0].cell.runs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ bold: true, color: '#abcdef', textAlign: 'right' }),
+        expect.objectContaining({ italic: true }),
+        expect.objectContaining({ href: 'https://example.com/' }),
+      ]),
+    );
+    expect(sheet.grid).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ row: 10, col: 0, rowSpan: 2 }),
+        expect.objectContaining({ row: 12, col: 1, colSpan: 2 }),
+      ]),
+    );
+    const unrelated = table('<tr><td>Wrong</td><td>Wrong</td></tr>');
+    expect(
+      JSON.stringify(
+        parseCompendiumSheet(`${chunked}<div class="grid-container">${unrelated}</div>`, '999'),
+      ),
+    ).toBe(JSON.stringify(sheet));
+    expect(
+      JSON.stringify(
+        parseCompendiumSheet(
+          chunked.replace(
+            '<div class="grid-chunk">',
+            `${unrelated.replace('waffle', 'decoration')}<div class="grid-chunk">`,
+          ),
+          '999',
+        ),
+      ),
+    ).toBe(JSON.stringify(sheet));
+  });
+
+  it('keeps the first plain-table fallback inside and outside a grid container', () => {
+    const table =
+      '<table><tr><td>Name</td><td>Description</td></tr><tr><td>Test</td><td>Text</td></tr></table>';
+    const expected = JSON.stringify(parseCompendiumSheet(table, '999'));
+    expect(JSON.stringify(parseCompendiumSheet(table + table, '999'))).toBe(expected);
+    expect(
+      JSON.stringify(
+        parseCompendiumSheet(`<div class="grid-container">${table + table}</div>`, '999'),
+      ),
+    ).toBe(expected);
+  });
+});
+
 describe('grid, cascade, and normalized persistence', () => {
   it('resolves colspan/rowspan, inheritance, inline resets, entities, links and BR', () => {
     const html = `<style>.ritz .waffle .s1 {color:#6FA8DC;font-weight:700;font-size:10pt}

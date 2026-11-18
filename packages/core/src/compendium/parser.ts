@@ -85,9 +85,21 @@ export function parseCompendiumGrid(html: string): GridRow[] {
       attr(node, 'class').split(/\s+/).includes('waffle'),
     ) ?? descendants(document, 'table')[0];
   if (!table) throw new Error('Compendium response did not contain a sheet table');
+  // htmlview can split one grid into sibling tables inside grid-chunk wrappers.
+  // Keep one occupied-cell map so row spans and absolute coordinates survive chunks.
+  const container = table.parentNode;
+  const tables =
+    container &&
+    'tagName' in container &&
+    attr(container, 'class').split(/\s+/).includes('grid-container')
+      ? descendants(container, 'table').filter((node) =>
+          attr(node, 'class').split(/\s+/).includes('waffle'),
+        )
+      : [table];
+  if (!tables.length) tables.push(table);
   const result: GridRow[] = [];
   const occupied: (GridCell | undefined)[][] = [];
-  for (const element of descendants(table, 'tr')) {
+  for (const element of tables.flatMap((sheetTable) => descendants(sheetTable, 'tr'))) {
     const cells = elements(element).filter((node) => ['td', 'th'].includes(node.tagName));
     const data = cells.filter(
       (node) => node.tagName === 'td' && !attr(node, 'class').includes('freezebar'),
