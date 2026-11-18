@@ -28,7 +28,7 @@ import type { Identity } from './types.js';
  * activation. Off: every /globals route is 503 before authentication, and publish() gets
  * no proof reader, so a repository WITH global metadata refuses publication (fail closed).
  */
-export const globalsSwitch = { enabled: (): boolean => false };
+export const globalsSwitch = { enabled: (): boolean => true };
 export const isGlobalsPath = (path: string) => path === '/globals' || path.startsWith('/globals/');
 export function refuseGlobalsWhenOff(): void {
   if (!globalsSwitch.enabled()) throw new HttpError(503, 'Global entries are not enabled');
