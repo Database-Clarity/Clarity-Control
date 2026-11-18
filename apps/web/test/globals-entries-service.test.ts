@@ -73,6 +73,39 @@ it('shares a catalogue-only read and fetches reviews only for the opened entry',
   expect(reviews).toHaveBeenCalledTimes(1);
 });
 
+it.each(['sync-pending', 'sync-failed'] as const)(
+  'does not leave reviews unrequested during %s or repeatedly fetch unavailable rows',
+  async (status) => {
+    const seed = structuredClone(globalFixtureSnapshot);
+    for (const state of [...Object.values(seed.sync), ...Object.values(seed.destinationSync)]) {
+      state.status = status;
+      state.causeIds = ['waiting'];
+    }
+    const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, seed);
+    const reviews = vi.spyOn(fixture.transport, 'reviews');
+    const service = createGlobalsService(fixture.transport, {
+      destinations: ['live', 'saved'],
+      lazyReviews: true,
+    });
+    const result = await service.readCatalog!();
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.value.impacts.g_damage0001).toEqual([]);
+    const opened = await service.readEntry('g_damage0001');
+    expect(opened.kind).toBe('ok');
+    if (opened.kind !== 'ok') return;
+    expect(opened.value.impacts.g_damage0001).toEqual([]);
+    expect(reviews).not.toHaveBeenCalled();
+    fixture.controls.syncOutcome = 'current';
+    const current = await service.read();
+    expect(current.kind).toBe('ok');
+    if (current.kind !== 'ok') return;
+    expect(current.value.impacts.g_damage0001).toBeUndefined();
+    await service.readEntry('g_damage0001');
+    expect(reviews).toHaveBeenCalledWith('g_damage0001', 'p0');
+  },
+);
+
 it('refreshes three-record catalog and review pages and supports the single-entry endpoint', async () => {
   const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, pagedSeed());
   const list = vi.spyOn(fixture.transport, 'list');

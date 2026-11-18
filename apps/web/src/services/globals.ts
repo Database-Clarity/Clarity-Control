@@ -479,7 +479,7 @@ export function createGlobalsService(
             const reviews = await readReviews(entry.id, header, token);
             if (reviews.kind !== 'ok') return reviews;
             next.impacts[entry.id] = reviews.value;
-          } else if (!options.lazyReviews)
+          } else if (!options.lazyReviews || header.status !== 'current' || entry.tombstone)
             next.impacts[entry.id] = structuredClone(cached?.impacts[entry.id] ?? []);
         }
         cursor = page.value.nextCursor;
@@ -506,7 +506,7 @@ export function createGlobalsService(
         const rows = await readReviews(id, entry.value, token);
         if (rows.kind !== 'ok') return rows;
         next.impacts[id] = rows.value;
-      }
+      } else next.impacts[id] = structuredClone(cached.impacts[id] ?? []);
       return publish(next, token);
     },
     mutate: (request) => delta(request, false),
