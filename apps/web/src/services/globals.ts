@@ -177,6 +177,9 @@ export type GlobalResult<T> =
   | { kind: 'invalid' | 'forbidden'; message: string };
 export interface GlobalsService {
   read(): Promise<GlobalResult<GlobalSnapshot>>;
+  /** Catalogue-only reads can be shared by the finder and workspace. */
+  readCatalog?(): Promise<GlobalResult<GlobalSnapshot>>;
+  readEntry?(id: string): Promise<GlobalResult<GlobalSnapshot>>;
   mutate(request: {
     expectedHead: string;
     mutation: GlobalMutation;
@@ -243,10 +246,15 @@ export function createGlobalsService(
   options: {
     destinations: readonly string[];
     initialSnapshot?: GlobalSnapshot;
+    lazyReviews?: boolean;
+    onCatalogPage?(entries: readonly GlobalEntry[], complete: boolean): void;
   },
 ): GlobalsService & { readEntry(id: string): Promise<GlobalResult<GlobalSnapshot>> } {
   let cached = options.initialSnapshot && structuredClone(options.initialSnapshot);
   let generation = 0;
+  let catalogRead: Promise<GlobalResult<GlobalSnapshot>> | undefined;
+  let entryRead:
+    { id: string; generation: number; promise: Promise<GlobalResult<GlobalSnapshot>> } | undefined;
   const conflict = (): GlobalResult<GlobalSnapshot> => ({
     kind: 'conflict',
     message: 'Globals changed. Refresh to load the current snapshot.',
@@ -428,7 +436,9 @@ export function createGlobalsService(
     }
     return publish(base, token);
   }
-  return {
+  const service: GlobalsService & {
+    readEntry(id: string): Promise<GlobalResult<GlobalSnapshot>>;
+  } = {
     async read() {
       const token = ++generation;
       const next: GlobalSnapshot = {
@@ -465,13 +475,15 @@ export function createGlobalsService(
             next.sourceBodies
           )
             delete next.sourceBodies[entry.id];
-          if (header.status === 'current' && !entry.tombstone) {
+          if (!options.lazyReviews && header.status === 'current' && !entry.tombstone) {
             const reviews = await readReviews(entry.id, header, token);
             if (reviews.kind !== 'ok') return reviews;
             next.impacts[entry.id] = reviews.value;
-          } else next.impacts[entry.id] = structuredClone(cached?.impacts[entry.id] ?? []);
+          } else if (!options.lazyReviews)
+            next.impacts[entry.id] = structuredClone(cached?.impacts[entry.id] ?? []);
         }
         cursor = page.value.nextCursor;
+        options.onCatalogPage?.([...next.entries], cursor === null);
       }
       applyState(next, header!);
       return publish(next, token);
@@ -499,6 +511,26 @@ export function createGlobalsService(
     },
     mutate: (request) => delta(request, false),
     retrySync: (request) => delta(request, true),
+  };
+  return {
+    ...service,
+    readEntry(id) {
+      if (entryRead?.id === id && entryRead.generation === generation) return entryRead.promise;
+      const pending = service.readEntry(id).finally(() => {
+        if (entryRead?.promise === pending) entryRead = undefined;
+      });
+      entryRead = { id, generation, promise: pending };
+      return pending;
+    },
+    readCatalog() {
+      if (catalogRead) return catalogRead;
+      if (cached) return Promise.resolve({ kind: 'ok' as const, value: structuredClone(cached) });
+      const pending = service.read().finally(() => {
+        if (catalogRead === pending) catalogRead = undefined;
+      });
+      catalogRead = pending;
+      return pending;
+    },
   };
 }
 export function globalReviewState(row: GlobalConsumer): 'required' | 'acknowledged' | 'stale' {

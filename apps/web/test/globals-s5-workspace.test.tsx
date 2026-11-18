@@ -117,6 +117,31 @@ it('opens the entry named by the stable-ID path and keeps selection in the path'
   expect(host.querySelector('h1')!.textContent).toBe('Damage');
 });
 
+it('renders the definition while only the opened entry reviews wait, fail, and retry', async () => {
+  const catalogue = structuredClone(globalFixtureSnapshot);
+  catalogue.impacts = {};
+  const globals = service(catalogue);
+  let finish!: (value: unknown) => void;
+  const readEntry = vi.fn().mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const lazy = { ...globals, readEntry };
+  await mount('/globals/g_title00001', lazy);
+  expect(host.querySelector('h1')?.textContent).toBe('Reload');
+  expect(host.querySelector('textarea')?.value).toBe(catalogue.entries[1].definitions.en?.body);
+  expect(host.textContent).toContain('Loading reviews…');
+  expect(host.textContent).not.toContain('No affected consumers.');
+  expect(readEntry).toHaveBeenCalledExactlyOnceWith('g_title00001');
+  await act(async () => finish({ kind: 'retry', message: 'Review request failed' }));
+  expect(host.textContent).toContain('Review request failed');
+  readEntry.mockResolvedValueOnce({ kind: 'ok', value: globalFixtureSnapshot });
+  await act(async () => button('Retry reviews').click());
+  expect(host.textContent).not.toContain('Loading reviews…');
+  expect(readEntry).toHaveBeenCalledTimes(2);
+});
+
 it('keeps an unsaved definition across a remount (reload) and marks it stale after a new revision', async () => {
   await mount('/globals/g_damage0001', service());
   await act(async () => change('LOCAL 20%'));

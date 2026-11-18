@@ -10,6 +10,7 @@ vi.mock('../services/globalsHttp', () => ({
   createGlobalsHttpTransport: () => ({ list }),
 }));
 const user = { id: 1, login: 'alice', role: 'editor' as const };
+const header = { head: 'a'.repeat(40), status: 'current', causeIds: [], version: 1 };
 afterEach(() => {
   useAuthStore.setState({ user: null, token: null, loading: false });
   useGlobalIdentities.setState({ identities: {}, status: 'idle', error: '' });
@@ -38,7 +39,10 @@ it('clears saved bodies on sign-out and rejects a catalogue reply from that sess
   });
   useAuthStore.setState({ user: null, token: null });
   expect(useGlobalIdentities.getState()).toMatchObject({ identities: {}, status: 'idle' });
-  resolve({ kind: 'ok', value: { entries: globalFixtureSnapshot.entries, nextCursor: null } });
+  resolve({
+    kind: 'ok',
+    value: { ...header, entries: globalFixtureSnapshot.entries, nextCursor: null },
+  });
   await old;
   expect(useGlobalIdentities.getState()).toMatchObject({ identities: {}, status: 'idle' });
 });
@@ -55,7 +59,7 @@ it('allows a new account to load while the previous account read is pending', as
   useAuthStore.setState({ user: { ...user, id: 2, login: 'bob' }, token: 'bob' });
   list.mockResolvedValueOnce({
     kind: 'ok',
-    value: { entries: globalFixtureSnapshot.entries, nextCursor: null },
+    value: { ...header, entries: globalFixtureSnapshot.entries, nextCursor: null },
   });
   await loadGlobalIdentities();
   expect(useGlobalIdentities.getState().status).toBe('ready');
@@ -76,7 +80,10 @@ it('finishes the existing catalogue read when account languages refresh with the
   const pending = loadGlobalIdentities();
   useAuthStore.setState({ user: { ...user, languages: ['fr'] } });
   expect(loadGlobalIdentities()).toBe(pending);
-  resolve({ kind: 'ok', value: { entries: globalFixtureSnapshot.entries, nextCursor: null } });
+  resolve({
+    kind: 'ok',
+    value: { ...header, entries: globalFixtureSnapshot.entries, nextCursor: null },
+  });
   await pending;
   expect(useGlobalIdentities.getState().status).toBe('ready');
   expect(list).toHaveBeenCalledTimes(1);
@@ -92,9 +99,87 @@ it('clears a pending catalogue when a role is removed without changing the token
   );
   const pending = loadGlobalIdentities();
   useAuthStore.setState({ user: { ...user, role: null } });
-  resolve({ kind: 'ok', value: { entries: globalFixtureSnapshot.entries, nextCursor: null } });
+  resolve({
+    kind: 'ok',
+    value: { ...header, entries: globalFixtureSnapshot.entries, nextCursor: null },
+  });
   await pending;
   await loadGlobalIdentities();
   expect(useGlobalIdentities.getState()).toMatchObject({ status: 'idle', identities: {} });
   expect(list).toHaveBeenCalledTimes(1);
+});
+
+it.each(['maintainer', 'editor', 'translator', 'trial'] as const)(
+  'publishes catalogue pages before the next page resolves for %s, without reviews',
+  async (role) => {
+    useAuthStore.setState({ user: { ...user, role }, token: `progress-${role}`, loading: false });
+    let finish!: (value: unknown) => void;
+    const header = { head: 'a'.repeat(40), status: 'current', causeIds: [], version: 1 };
+    list
+      .mockResolvedValueOnce({
+        kind: 'ok',
+        value: {
+          ...header,
+          entries: [globalFixtureSnapshot.entries[0]],
+          nextCursor: 'p1',
+        },
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+    const pending = loadGlobalIdentities();
+    await vi.waitFor(() => expect(useGlobalIdentities.getState().status).toBe('loading'));
+    await vi.waitFor(() =>
+      expect(Object.keys(useGlobalIdentities.getState().identities)).toHaveLength(1),
+    );
+    expect(loadGlobalIdentities()).toBe(pending);
+    finish({
+      kind: 'ok',
+      value: {
+        ...header,
+        entries: [globalFixtureSnapshot.entries[1]],
+        nextCursor: null,
+      },
+    });
+    await pending;
+    expect(useGlobalIdentities.getState().status).toBe('ready');
+    expect(Object.keys(useGlobalIdentities.getState().identities)).toHaveLength(2);
+    expect(list).toHaveBeenCalledTimes(2);
+  },
+);
+
+it('does not reuse a catalogue across sign-out and sign-in with the same token', async () => {
+  useAuthStore.setState({ user, token: 'returning', loading: false });
+  let finish!: (value: unknown) => void;
+  list.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const old = loadGlobalIdentities();
+  useAuthStore.setState({ user: null, token: null });
+  useAuthStore.setState({ user, token: 'returning' });
+  list.mockResolvedValueOnce({
+    kind: 'ok',
+    value: {
+      ...header,
+      entries: [globalFixtureSnapshot.entries[1]],
+      nextCursor: null,
+    },
+  });
+  await loadGlobalIdentities();
+  finish({
+    kind: 'ok',
+    value: {
+      ...header,
+      entries: [globalFixtureSnapshot.entries[0]],
+      nextCursor: null,
+    },
+  });
+  await old;
+  expect(Object.keys(useGlobalIdentities.getState().identities)).toEqual([
+    globalFixtureSnapshot.entries[1].id,
+  ]);
 });

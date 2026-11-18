@@ -650,6 +650,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const closeSheet = useContext(FinderSheetCloseContext);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const keepGlobalCategoryOpen = useRef(false);
   const worklists = useFinderWorklists(open);
   const [active, setActive] = useState(0);
   const [draggingScrollbar, setDraggingScrollbar] = useState(false);
@@ -702,9 +703,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     new URLSearchParams(finderLocation.search).has('global') ||
     (globalsEnabled && globalEntryPath.test(finderLocation.pathname));
   const aggregateDefinitions = useGlobalCatalog(data, catalogActive);
-  const identitiesReady = useGlobalIdentities(
-    (state) => globalsEnabled && state.status === 'ready',
-  );
+  const identitiesStatus = useGlobalIdentities((state) => (globalsEnabled ? state.status : 'idle'));
   useEffect(() => {
     // Globals on: the finder lists authoritative entries, so load their catalogue when it is needed.
     if (
@@ -722,17 +721,17 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
     () =>
       globalsEnabled && !globalRole
         ? aggregateDefinitions.filter((definition) => definition.kind === 'exports')
-        : identitiesReady
-        ? [
-            ...aggregateDefinitions.filter((definition) => definition.kind === 'exports'),
-            ...identityDefinitions(globalIdentities),
-          ].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))
-        : aggregateDefinitions,
-    [identitiesReady, aggregateDefinitions, globalIdentities, globalRole],
+        : globalsEnabled
+          ? [
+              ...aggregateDefinitions.filter((definition) => definition.kind === 'exports'),
+              ...identityDefinitions(globalIdentities),
+            ].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))
+          : aggregateDefinitions,
+    [aggregateDefinitions, globalIdentities, globalRole],
   );
   const baseGroups = useMemo(
-    () => navigationGroups(data, '', globalDefinitions),
-    [data, globalDefinitions],
+    () => navigationGroups(data, '', globalDefinitions, globalsEnabled && !!globalRole),
+    [data, globalDefinitions, globalRole],
   );
   const baseFound = useMemo(
     () => (query.trim() ? navigationGroups(data, query, globalDefinitions) : baseGroups),
@@ -787,9 +786,11 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
       (category) =>
         category.id ===
         (markedRouteCategory(hash, routeSearch, sections) ??
-          (selectedGlobal
-            ? `globals-${selectedGlobal.kind}`
-            : finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? ''))),
+          (globalsEnabled && (hash === 2 || hash === 3)
+            ? `globals-${hash === 2 ? 'variables' : 'titles'}`
+            : selectedGlobal
+              ? `globals-${selectedGlobal.kind}`
+              : finderCategoryId(classifiedCategory(itemFor(hash, data), data)?.id ?? ''))),
     ) ?? sections[0];
   const items = selectedCategory?.items ?? noItems;
   const grouped = useMemo(
@@ -1167,6 +1168,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
 
   // A new route, or leaving the field, restores the current item and an empty query.
   const restore = () => {
+    keepGlobalCategoryOpen.current = false;
     setOpen(false);
     setQuery('');
     setAllCategories(false);
@@ -1177,7 +1179,9 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const keepListRef = useRef(false);
   keepListRef.current = variant === 'sheet' && sheetOpen;
   useEffect(() => {
-    if (!keepListRef.current) setOpen(false);
+    const globalRoute =
+      globalEntryPath.test(location.pathname) || /^\/t\/[23]$/.test(location.pathname);
+    if (!keepListRef.current && !(keepGlobalCategoryOpen.current && globalRoute)) setOpen(false);
     setQuery('');
     setAllCategories(false);
     setAllGroups(false);
@@ -1286,6 +1290,7 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   }, [stepping, wheelStepper]);
   /** True when the navigation went ahead (the guard did not refuse it). */
   function choose(target: number, scopeParam?: string | null, global?: GlobalDefinition): boolean {
+    keepGlobalCategoryOpen.current = false;
     stepping.commit();
     const path = global
       ? declarationPath(global, location.search)
@@ -1530,6 +1535,11 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
         />
       </ul>
       <FinderHint list={list} activeId={rows[active] ? optionId(rows[active]) : undefined} />
+      {identitiesStatus === 'loading' && (
+        <p role="status" className={styles.empty}>
+          Loading globals…
+        </p>
+      )}
       {!rows.length && (
         <p className={styles.empty}>
           No tooltips match “{trimmed}”{scopeName ? ` in ${scopeName}` : ''}.
@@ -1626,9 +1636,20 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           id === 'marked' ? loadMarkedSection() : sections.find((category) => category.id === id);
         const grouping = next && groupedSection(next, data);
         const first = grouping ? grouping.all[0] : next?.items[0];
-        if (!first) return;
+        if (!first) {
+          if (globalsEnabled && (id === 'globals-variables' || id === 'globals-titles')) {
+            chooseRef.current(id === 'globals-variables' ? 2 : 3, null);
+            keepGlobalCategoryOpen.current = true;
+            setOpen(true);
+          }
+          return;
+        }
         const scope = grouping ? scopeValue(first as Entry, true, grouping.firstGroup) : null;
         chooseRef.current(first.hash, scope, next?.items[0]?.global);
+        if (globalsEnabled && (id === 'globals-variables' || id === 'globals-titles')) {
+          keepGlobalCategoryOpen.current = true;
+          setOpen(true);
+        }
       }}
     />
   );

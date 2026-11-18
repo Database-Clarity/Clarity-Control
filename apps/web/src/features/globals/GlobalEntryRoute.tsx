@@ -76,20 +76,21 @@ function GlobalResolver({ kind, name }: { kind: 'variables' | 'titles'; name: st
       void loadGlobalIdentities();
   }, [authLoading, role]);
   if (!authLoading && !actor) return <EditingRoleRequired />;
-  if (status === 'ready') {
+  if (status === 'ready' || status === 'loading') {
     const id =
       name === null
         ? Object.entries(identities).find(([, identity]) => identity.kind === kind)?.[0]
         : globalIdOf(identities, kind, name);
     if (id) return <Navigate to={`/globals/${id}${entrySearch(search)}`} replace />;
-    return (
-      <section className={styles.workspace}>
-        <p>
-          {name === null ? `No ${kind} yet.` : `No live global named ${name}.`}{' '}
-          <Link to="/globals">Open globals</Link>
-        </p>
-      </section>
-    );
+    if (status === 'ready')
+      return (
+        <section className={styles.workspace}>
+          <p>
+            {name === null ? `No ${kind} yet.` : `No live global named ${name}.`}{' '}
+            <Link to="/globals">Open globals</Link>
+          </p>
+        </section>
+      );
   }
   if (status === 'failed')
     return (

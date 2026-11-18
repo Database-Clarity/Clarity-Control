@@ -539,6 +539,7 @@ export function navigationGroups(
   data: EditorData,
   query: string,
   definitions = globalDefinitions(data.bundle.tooltips),
+  includeEmptyGlobals = false,
 ): CategoryGroup[] {
   const search = query.trim().toLocaleLowerCase();
   let groups = search ? undefined : browseGroups.get(data);
@@ -568,7 +569,7 @@ export function navigationGroups(
             global: entry,
           })),
       }))
-      .filter((section) => section.items.length > 0),
+      .filter((section) => section.items.length > 0 || (includeEmptyGlobals && !search)),
   };
   if (!globals.sections.length) return [...groups];
   // An item category in a group named Globals keeps its place and gives way, as Map.set did.

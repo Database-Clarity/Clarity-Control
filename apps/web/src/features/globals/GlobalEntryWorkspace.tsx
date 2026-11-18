@@ -90,8 +90,7 @@ export function GlobalEntryWorkspace({
     let active = true;
     setLoading(true);
     setError('');
-    service
-      .read()
+    (service.readCatalog ? service.readCatalog() : service.read())
       .then((result) => {
         if (!active) return;
         if (result.kind === 'ok') setSnapshot(result.value);
@@ -253,6 +252,29 @@ function Workspace({
   // The Worker requeues only causes this entry owns; the repository-wide status still blocks.
   const ownCauses = sync.causeIds.filter((cause) => snapshot.causeEntries?.[cause] === entry?.id);
   const savedImpacts = entry ? (snapshot.impacts[entry.id] ?? []) : [];
+  const [reviewReload, setReviewReload] = useState(0);
+  const [reviewError, setReviewError] = useState('');
+  const reviewsMissing =
+    !!entry && service.readEntry !== undefined && snapshot.impacts[entry.id] === undefined;
+  useEffect(() => {
+    if (!reviewsMissing || !entry || !service.readEntry) return;
+    let active = true;
+    setReviewError('');
+    service
+      .readEntry(entry.id)
+      .then((result) => {
+        if (!active) return;
+        if (result.kind === 'ok') onSnapshot(result.value);
+        else setReviewError(result.message);
+      })
+      .catch((reason: unknown) => {
+        if (active)
+          setReviewError(reason instanceof Error ? reason.message : 'Could not load reviews.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [service, entry, reviewsMissing, snapshot.head, reviewReload, onSnapshot]);
   const projection =
     dirty &&
     projected?.key === key &&
@@ -458,7 +480,7 @@ function Workspace({
         {actor && actor.role !== 'translator' && (
           <GlobalActions
             open={actionsOpen}
-            disabled={pending || !!navigation || reviewOpen}
+            disabled={pending || !!navigation || reviewOpen || reviewsMissing}
             onOpenChange={setActionsOpen}
             pending={pending}
             blocked={dirty || !!navigation || reviewOpen}
@@ -630,7 +652,9 @@ function Workspace({
                 setPhone('usages');
               }}
             >
-              {sync.status === 'current' ? (
+              {reviewsMissing ? (
+                'Usages: Loading…'
+              ) : sync.status === 'current' ? (
                 <>
                   Usages: {new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips,{' '}
                   {new Set(savedImpacts.map((row) => row.consumer.lang)).size} languages
@@ -801,6 +825,18 @@ function Workspace({
                   {scope === 'projected' && (
                     <p className={styles.impactHeading}>Projected impact — unsaved</p>
                   )}
+                  {reviewsMissing &&
+                    !projectedScope &&
+                    (reviewError ? (
+                      <div role="alert">
+                        <p>{reviewError}</p>
+                        <button onClick={() => setReviewReload((value) => value + 1)}>
+                          Retry reviews
+                        </button>
+                      </div>
+                    ) : (
+                      <p role="status">Loading reviews…</p>
+                    ))}
                   {projectedScope && !projection && (
                     <p>
                       Calculate projected impact to inspect this draft. Saved reviews remain
@@ -858,7 +894,7 @@ function Workspace({
                       </label>
                     ))}
                   </div>
-                  {!shown.length && (
+                  {!shown.length && (!reviewsMissing || projectedScope) && (
                     <p>
                       {query
                         ? 'No matching consumers. Clear the filter to restore them.'

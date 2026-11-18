@@ -1,5 +1,9 @@
 import { expect, it, vi } from 'vitest';
-import { canAcknowledgeGlobal, globalReviewState } from '../src/services/globals';
+import {
+  canAcknowledgeGlobal,
+  globalReviewState,
+  createGlobalsService,
+} from '../src/services/globals';
 import {
   createGlobalsFixture,
   fixtureHead,
@@ -34,6 +38,39 @@ const edit = (expectedHead = fixtureHead(1)) => ({
     lang: 'en' as const,
     body: '25%',
   },
+});
+
+it('shares a catalogue-only read and fetches reviews only for the opened entry', async () => {
+  const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, pagedSeed());
+  const list = vi.spyOn(fixture.transport, 'list');
+  const reviews = vi.spyOn(fixture.transport, 'reviews');
+  const pages = vi.fn();
+  const service = createGlobalsService(fixture.transport, {
+    destinations: ['live', 'saved'],
+    lazyReviews: true,
+    onCatalogPage: pages,
+  });
+  const first = service.readCatalog!();
+  expect(service.readCatalog!()).toBe(first);
+  const result = await first;
+  expect(result.kind).toBe('ok');
+  if (result.kind !== 'ok') return;
+  expect(result.value.entries).toHaveLength(7);
+  expect(result.value.impacts).toEqual({});
+  expect(reviews).not.toHaveBeenCalled();
+  expect(pages.mock.calls.map(([entries, complete]) => [entries.length, complete])).toEqual([
+    [3, false],
+    [6, false],
+    [7, true],
+  ]);
+  await service.readCatalog!();
+  expect(list).toHaveBeenCalledTimes(3);
+  const opening = service.readEntry('g_title00001');
+  expect(service.readEntry('g_title00001')).toBe(opening);
+  const opened = await opening;
+  expect(opened.kind).toBe('ok');
+  expect(reviews.mock.calls.every(([id]) => id === 'g_title00001')).toBe(true);
+  expect(reviews).toHaveBeenCalledTimes(1);
 });
 
 it('refreshes three-record catalog and review pages and supports the single-entry endpoint', async () => {
