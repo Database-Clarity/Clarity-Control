@@ -16,6 +16,9 @@ source/record/converter commits, input OID and SHA-256, engine PIN and SHA-256, 
 publisher source SHA, and runtime digest. The test branch has no installed consumer engine;
 its absent engine identity is explicitly null, and it never starts legacy or site jobs.
 Production refuses a missing engine. The final catch-up must succeed before job outputs appear.
+The test plan contains no downstream reusable-workflow call. Only the explicit production
+plan appends `template/production-job.yml`, so test installs remain independent of the
+G5-only reusable-workflow input upgrade.
 
 The downstream caller passes this immutable publication to `build-outputs.yml@converter`.
 The prepared replacement is `template/.github/workflows/build-outputs.yml`, and its exact

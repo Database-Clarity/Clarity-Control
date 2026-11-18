@@ -30,7 +30,7 @@ it('ignores exports, glossary, snippets, and entry marks on editor-data pushes',
 });
 
 it('gates both production jobs on a confirmed handoff and retains existing reusable callers', () => {
-  const caller = readFileSync('scripts/publisher/template/.github/workflows/pipeline.yml', 'utf8');
+  const caller = readFileSync('scripts/publisher/template/production-job.yml', 'utf8');
   expect(caller).toContain("if: needs.pipeline.outputs.production_push == 'true'");
   expect(caller).toContain('publication: ${{ needs.pipeline.outputs.publication }}');
   const workflow = readFileSync(
@@ -529,6 +529,14 @@ describe('install.mjs', () => {
       expect(JSON.parse(patched.toString()).liveBranch).toBe(live);
       const applied = install('.', true, '--apply-local', undefined, `--target=${plan}`, live);
       expect(applied.status, applied.stderr).toBe(0);
+      const workflow = readFileSync(join(applied.target, '.github/workflows/pipeline.yml'), 'utf8');
+      const call =
+        'uses: Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter';
+      if (plan === 'test') expect(workflow).not.toContain(call);
+      else {
+        expect(workflow).toContain(call);
+        expect(workflow).toContain('\n  outputs:\n    needs: pipeline\n');
+      }
       for (const file of [
         '.publisher/config.json',
         '.publisher/installed.json',

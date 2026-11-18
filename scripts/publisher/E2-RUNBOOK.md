@@ -111,6 +111,8 @@ holds closed until the independently reviewed S1-compatible release candidate is
    site pin. Test publication never calls it.
    Site configs are read from current editor-data under the data-site deployment slot; the
    immutable RECORD proof is checked out separately. Retry retains newer config saves.
+   Test installs contain no production reusable-workflow call; the explicit production plan
+   alone appends production-job.yml after the G5 workflow input upgrade is installed.
 3. G4/G5 operator gate, not execution here: pause intake, drain running pipeline jobs, and
    reconcile pending requests, candidate refs, receipts, RECORDs, and export pins. Verify
    effective no-rewind/no-delete protection on converter and live; the existing publisher

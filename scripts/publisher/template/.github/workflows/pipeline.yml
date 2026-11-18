@@ -69,16 +69,6 @@ jobs:
             cat "$ARTIFACT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # GITHUB_TOKEN pushes do not trigger converter/main.yml. Test, dry-run,
-  # rejected, no-op, and failed drains never start either production job.
-  outputs:
-    needs: pipeline
-    if: needs.pipeline.outputs.production_push == 'true'
-    uses: Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter
-    with:
-      legacy: true
-      publication: ${{ needs.pipeline.outputs.publication }}
-
   # Replaces bundle.yml's report-catalog step with the same inputs (generator v2, editor 0acd005c).
   # It rebuilds report-items.json and report-items.worker.json for the bundle the pipeline job just
   # published (the publisher carries both forward unchanged). Both jobs run in the same workflow

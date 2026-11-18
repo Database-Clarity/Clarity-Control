@@ -116,9 +116,19 @@ for (const file of readdirSync(join(template, '.publisher')))
     files.set(`.publisher/${file}`, readFileSync(join(template, '.publisher', file)));
 files.set('.publisher/config.json', configBytes);
 files.set('.publisher/installed.json', Buffer.from(JSON.stringify(installed, null, 2) + '\n'));
+const downstream =
+  plan === 'production'
+    ? '\n' +
+      readFileSync(join(template, 'production-job.yml'), 'utf8')
+        .trimEnd()
+        .split(/\r?\n/)
+        .map((line) => '  ' + line)
+        .join('\n') +
+      '\n'
+    : '';
 files.set(
   '.github/workflows/pipeline.yml',
-  readFileSync(join(template, '.github/workflows/pipeline.yml')),
+  Buffer.from(readFileSync(join(template, '.github/workflows/pipeline.yml'), 'utf8') + downstream),
 );
 files.set('.github/workflows/bundle.yml', null);
 if (mode === '--plan') {

@@ -1,0 +1,9 @@
+# Installed only by the explicit production plan, after the G5 reusable-workflow update.
+# GITHUB_TOKEN pushes do not trigger converter/main.yml.
+outputs:
+  needs: pipeline
+  if: needs.pipeline.outputs.production_push == 'true'
+  uses: Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter
+  with:
+    legacy: true
+    publication: ${{ needs.pipeline.outputs.publication }}
