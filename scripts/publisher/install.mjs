@@ -1,19 +1,32 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   readFileSync,
   writeFileSync,
   mkdirSync,
-  copyFileSync,
   existsSync,
   rmSync,
   readdirSync,
+  mkdtempSync,
 } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { maxBuffer } from './childProcess.mjs';
-const [checkoutArg, configArg, mode = '--plan'] = process.argv.slice(2);
-if (!checkoutArg || !configArg || !['--plan', '--apply-local'].includes(mode))
-  throw new Error('Usage: install.mjs <editor-data checkout> <config.json> [--plan|--apply-local]');
+const [checkoutArg, configArg, mode = '--plan', targetArg, ...extra] = process.argv.slice(2);
+const plans = { test: 'converter-v2-test', production: 'converter' };
+const plan = targetArg?.replace(/^--target=/, '') ?? 'test';
+if (
+  !checkoutArg ||
+  !configArg ||
+  !['--plan', '--apply-local'].includes(mode) ||
+  (targetArg !== undefined && targetArg !== `--target=${plan}`) ||
+  !Object.hasOwn(plans, plan) ||
+  extra.length
+)
+  throw new Error(
+    'Usage: install.mjs <editor-data checkout> <config.json> [--plan|--apply-local] [--target=test|--target=production]',
+  );
+const liveBranch = plans[plan];
 const checkout = resolve(checkoutArg);
 const git = (...args) =>
   execFileSync('git', ['-C', checkout, ...args], { encoding: 'utf8', maxBuffer }).trim();
@@ -43,6 +56,12 @@ if (existsSync(installedPinPath)) {
     throw new Error('Publisher install cannot drop installed capability floors');
 }
 const config = JSON.parse(readFileSync(resolve(configArg)));
+const installedConfig = join(checkout, '.publisher/config.json');
+if (existsSync(installedConfig)) {
+  const previous = JSON.parse(readFileSync(installedConfig, 'utf8'));
+  if (previous.liveBranch !== liveBranch && !targetArg)
+    throw new Error('Target switch requires an explicit --target plan');
+}
 // The installed pipeline publishes for real exactly when config.publishWritesEnabled is true
 // (pipeline.yml picks --pipeline-publish). Refuse that config for a build whose baked switch
 // (config/publisher.json at the PIN source) is OFF: it would throw on every run instead.
@@ -60,7 +79,7 @@ const writes = config.publishWritesEnabled;
 if (
   config.repo !== 'Database-Clarity/Live-Clarity-Database' ||
   config.dataBranch !== 'editor-data' ||
-  config.liveBranch !== 'converter-v2-test' ||
+  config.liveBranch !== liveBranch ||
   config.publisherSha !== pin.sourceSha ||
   !/^[a-f0-9]{40}$/.test(config.generatorSha) ||
   !/^[a-f0-9]{64}$/.test(config.keyFingerprint) ||
@@ -81,27 +100,117 @@ const installed = {
     .digest('hex'),
   generatorSha: config.generatorSha,
 };
-console.log(
+(mode === '--plan' ? console.error : console.log)(
   `Plan: retire bundle.yml; copy pipeline.yml and pinned .publisher; install public config and installed.json binding in the same commit. ${
     writes
-      ? 'PUBLISH WRITES ENABLED: the pipeline runs --pipeline-publish and writes converter-v2-test.'
+      ? `PUBLISH WRITES ENABLED: the pipeline runs --pipeline-publish and writes ${liveBranch}.`
       : 'Publish transport remains dry-run.'
   } No commit/push.`,
 );
-if (mode === '--apply-local') {
-  const dir = join(checkout, '.publisher');
-  mkdirSync(dir, { recursive: true });
-  for (const f of readdirSync(join(template, '.publisher')))
-    if (f !== 'config.example.json') copyFileSync(join(template, '.publisher', f), join(dir, f));
-  writeFileSync(join(dir, 'config.json'), configBytes);
-  writeFileSync(join(dir, 'installed.json'), JSON.stringify(installed, null, 2) + '\n');
-  mkdirSync(join(checkout, '.github/workflows'), { recursive: true });
-  copyFileSync(
-    join(template, '.github/workflows/pipeline.yml'),
-    join(checkout, '.github/workflows/pipeline.yml'),
+// Both modes use exactly these bytes. --plan prints an applicable patch without
+// changing the checkout, its index, its object store, or any remote ref.
+const files = new Map();
+for (const file of readdirSync(join(template, '.publisher')))
+  if (file !== 'config.example.json')
+    files.set(`.publisher/${file}`, readFileSync(join(template, '.publisher', file)));
+files.set('.publisher/config.json', configBytes);
+files.set('.publisher/installed.json', Buffer.from(JSON.stringify(installed, null, 2) + '\n'));
+const downstream =
+  plan === 'production'
+    ? '\n' +
+      readFileSync(join(template, 'production-job.yml'), 'utf8')
+        .trimEnd()
+        .split('\n')
+        .map((line) => '  ' + line)
+        .join('\n') +
+      '\n'
+    : '';
+files.set(
+  '.github/workflows/pipeline.yml',
+  Buffer.from(readFileSync(join(template, '.github/workflows/pipeline.yml'), 'utf8') + downstream),
+);
+files.set('.github/workflows/bundle.yml', null);
+for (const [file, bytes] of files)
+  if (bytes?.includes(13)) throw new Error(`Template must use LF bytes: ${file}`);
+if (plan === 'production') {
+  // actionlint 1.7.12 predates queue:max. Parse YAML with the existing project
+  // parser and validate the exact supported queue policy from GitHub's schema.
+  const reusable = readFileSync(join(template, '.github/workflows/build-outputs.yml'), 'utf8');
+  const { format } = await import('prettier');
+  for (const text of [reusable, files.get('.github/workflows/pipeline.yml').toString('utf8')])
+    await format(text, { parser: 'yaml' });
+  for (const [job, group] of [
+    ['legacy', 'legacy-outputs'],
+    ['site', 'data-site'],
+  ]) {
+    const body = reusable.split(`\n  ${job}:\n`)[1]?.split('\n    steps:')[0];
+    if (
+      !body?.includes(
+        `concurrency:\n      group: ${group}\n      cancel-in-progress: false\n      queue: max`,
+      )
+    )
+      throw new Error(
+        `Unsupported ${group} queue policy; require queue:max and cancel-in-progress:false`,
+      );
+  }
+}
+if (mode === '--plan') {
+  const scratch = mkdtempSync(join(tmpdir(), 'publisher-install-plan-'));
+  const headFiles = new Map(
+    git(
+      'ls-tree',
+      '-r',
+      '--format=%(path)%x09%(objectname)',
+      'HEAD',
+      '--',
+      '.publisher',
+      '.github/workflows',
+    )
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => line.split('\t')),
   );
-  const old = join(checkout, '.github/workflows/bundle.yml');
-  if (existsSync(old)) rmSync(old);
+  try {
+    for (const side of ['a', 'b']) mkdirSync(join(scratch, side));
+    for (const [file, bytes] of files) {
+      const oid = headFiles.get(file);
+      if (oid) {
+        mkdirSync(dirname(join(scratch, 'a', file)), { recursive: true });
+        writeFileSync(
+          join(scratch, 'a', file),
+          execFileSync('git', ['-C', checkout, 'cat-file', 'blob', oid], { maxBuffer }),
+        );
+      }
+      if (bytes !== null) {
+        mkdirSync(dirname(join(scratch, 'b', file)), { recursive: true });
+        writeFileSync(join(scratch, 'b', file), bytes);
+      }
+    }
+    const diff = spawnSync(
+      'git',
+      ['-c', 'core.autocrlf=false', 'diff', '--no-index', '--no-prefix', '--', 'a', 'b'],
+      {
+        cwd: scratch,
+        encoding: 'utf8',
+        maxBuffer,
+      },
+    );
+    if (![0, 1].includes(diff.status)) throw new Error('Cannot produce installation diff');
+    process.stdout.write(diff.stdout);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+if (mode === '--apply-local') {
+  for (const [file, bytes] of files) {
+    const path = join(checkout, file);
+    if (bytes === null) {
+      if (existsSync(path)) rmSync(path);
+    } else {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+    }
+  }
   console.log(
     'Local files prepared. Review git diff and run actionlint before an operator commits.',
   );

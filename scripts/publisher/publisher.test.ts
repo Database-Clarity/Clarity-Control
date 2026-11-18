@@ -895,7 +895,8 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     },
   );
 
-  async function setup() {
+  async function setup(liveBranch = 'converter-v2-test') {
+    const liveRef = `refs/heads/${liveBranch}`;
     const root = mkdtempSync(join(tmpdir(), 'publisher-fixture-'));
     roots.push(root);
     execFileSync('git', ['init', '--bare', root], { stdio: 'pipe' });
@@ -907,13 +908,16 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     const git =
       transport === 'simulator'
         ? new LocalRepository(root)
-        : new RemoteRepository(cache, { fileUrl: pathToFileURL(root).href });
+        : new RemoteRepository(cache, {
+            fileUrl: pathToFileURL(root).href,
+            liveBranch: liveBranch as 'converter' | 'converter-v2-test',
+          });
     const keys = generateKeyPairSync('ed25519');
     const publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
     const options: Options = {
       repo: 'test/local',
       dataBranch: 'editor-data',
-      liveBranch: 'converter-v2-test',
+      liveBranch,
       publicKey,
       keyFingerprint: createHash('sha256')
         .update(keys.publicKey.export({ type: 'spki', format: 'der' }))
@@ -941,7 +945,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       initial[p] = git.writeBlob(encode(v));
     git.cas(D, undefined, git.commit(undefined, initial, 'Seed data'));
     git.cas(
-      L,
+      liveRef,
       undefined,
       git.commit(
         undefined,
@@ -1041,6 +1045,219 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     f.assertDone();
   });
+  it.each(['test', 'production', 'rejected', 'partial', 'stale', 'record-retry', 'concurrent'])(
+    'cutover handoff: %s',
+    async (scenario) => {
+      const liveBranch = scenario === 'test' ? 'converter-v2-test' : 'converter';
+      const liveRef = `refs/heads/${liveBranch}`;
+      const f = await setup(liveBranch);
+      const engine = '// pinned fixture engine\n';
+      const runtime = '// pinned fixture publisher\n';
+      const digest = createHash('sha256').update(runtime).digest('hex');
+      const verifier = readFileSync(
+        'scripts/publisher/template/.publisher/verify-publication.mjs',
+        'utf8',
+      );
+      f.options.verifierDigest = createHash('sha256').update(verifier).digest('hex');
+      // Production installs its engine separately at G4, before enabling G5.
+      if (liveBranch === 'converter') {
+        const head = f.git.head(liveRef)!;
+        f.git.cas(
+          liveRef,
+          head,
+          f.git.commit(
+            head,
+            {
+              ...f.git.tree(head),
+              '.exports/PIN': f.git.writeBlob('c'.repeat(40) + '\n'),
+              '.exports/engine.mjs': f.git.writeBlob(engine),
+            },
+            'Install fixture engine',
+          ),
+        );
+      }
+      const config = {
+        ...f.options,
+        repo: 'Database-Clarity/Live-Clarity-Database',
+        keyEndpoint: 'https://worker.invalid/publish/key',
+        publishWritesEnabled: true,
+        publisherDigest: digest,
+      };
+      f.options.repo = config.repo;
+      const data = f.git.head(D)!;
+      f.git.cas(
+        D,
+        data,
+        f.git.commit(
+          data,
+          {
+            ...f.git.tree(data),
+            '.publisher/config.json': f.git.writeBlob(encode(config)),
+            '.publisher/publisher.mjs': f.git.writeBlob(runtime),
+            '.publisher/verify-publication.mjs': f.git.writeBlob(verifier),
+          },
+          'Install fixture publisher',
+        ),
+      );
+      await f.request(A, [123], scenario === 'rejected' ? { 123: '0'.repeat(64) } : undefined);
+      const root = mkdtempSync(join(tmpdir(), 'cutover-handoff-'));
+      roots.push(root);
+      const checkout = join(root, 'checkout');
+      execFileSync('git', ['clone', '--branch', 'editor-data', f.upstream, checkout], {
+        stdio: 'pipe',
+      });
+      const out = join(root, 'out');
+      const output = join(root, 'github-output');
+      vi.stubEnv('GITHUB_TOKEN', 'fixture-token');
+      vi.stubEnv('GITHUB_OUTPUT', output);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                algorithm: 'Ed25519',
+                publicKey: f.options.publicKey,
+                fingerprint: f.options.keyFingerprint,
+              }),
+            ),
+        ),
+      );
+      let inject = true;
+      const remoteGit = RemoteRepository.prototype.remoteGit;
+      const transport = vi
+        .spyOn(RemoteRepository.prototype, 'remoteGit')
+        .mockImplementation(function (this: RemoteRepository, args) {
+          const publish = args[0] === 'push' && args.at(-1)?.endsWith(`:${liveRef}`);
+          const record = args[0] === 'push' && args.at(-1)?.endsWith(`:${D}`);
+          if (inject && scenario === 'partial' && publish) throw new Error('Rejected push');
+          if (inject && scenario === 'record-retry' && record)
+            throw new Error('RECORD unavailable');
+          if (inject && scenario === 'concurrent' && publish) {
+            inject = false;
+            f.change(liveRef, { 'concurrent.json': { retained: true } });
+          }
+          const result = remoteGit.call(
+            this,
+            args.map((arg) =>
+              arg === 'https://github.com/Database-Clarity/Live-Clarity-Database.git'
+                ? pathToFileURL(f.upstream).href
+                : arg,
+            ),
+          );
+          if (inject && scenario === 'stale' && record) {
+            inject = false;
+            f.change(liveRef, { 'later.json': { retained: true } });
+          }
+          return result;
+        });
+      publisherConfig.enabled = true;
+      try {
+        const task = runPipeline(checkout, config, out, true);
+        if (['partial', 'record-retry'].includes(scenario)) {
+          await expect(task).rejects.toThrow();
+          expect(existsSync(output)).toBe(false);
+          if (scenario !== 'record-retry') return;
+          const landed = f.git.head(liveRef);
+          inject = false;
+          await runPipeline(checkout, config, out, true);
+          expect(f.git.head(liveRef)).toBe(landed);
+        } else await task;
+        const lines = readFileSync(output, 'utf8');
+        const production = liveBranch === 'converter' && !['rejected', 'stale'].includes(scenario);
+        expect(lines).toContain(`production_push=${production}\n`);
+        const result = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
+        if (['rejected', 'stale'].includes(scenario)) {
+          expect(result.publications).toEqual([]);
+          return;
+        }
+        expect(result.publications).toHaveLength(1);
+        const identity = result.publications[0];
+        expect(identity).toMatchObject({
+          commit: f.git.head(liveRef),
+          opId: A,
+          generatorSha: config.generatorSha,
+          publisherSha: config.publisherSha,
+          publisherDigest: digest,
+          enginePin: liveBranch === 'converter' ? 'c'.repeat(40) : null,
+        });
+        expect(identity.inputBlob).toBe(f.git.tree(identity.commit)['liveDescriptions.json']);
+        if (scenario === 'concurrent')
+          expect(f.git.tree(identity.commit)['concurrent.json']).toBeDefined();
+        if (production) {
+          execFileSync('git', ['-C', checkout, 'fetch', 'origin'], { stdio: 'pipe' });
+          const producer = join(root, 'producer');
+          const converter = join(root, 'converter');
+          for (const [dir, commit] of [
+            [producer, identity.recordCommit],
+            [converter, identity.commit],
+          ]) {
+            execFileSync('git', ['clone', '--no-checkout', f.upstream, dir], { stdio: 'pipe' });
+            execFileSync('git', ['-c', 'core.autocrlf=false', '-C', dir, 'checkout', commit], {
+              stdio: 'pipe',
+            });
+          }
+          const verify = (value: unknown) =>
+            execFileSync(
+              process.execPath,
+              ['scripts/publisher/template/.publisher/verify-publication.mjs', converter, producer],
+              { env: { ...process.env, PUBLICATION: JSON.stringify(value) }, stdio: 'pipe' },
+            );
+          expect(() => verify(identity)).not.toThrow();
+          for (const key of [
+            'commit',
+            'receiptBlob',
+            'inputBlob',
+            'inputSha256',
+            'enginePin',
+            'engineSha256',
+            'generatorSha',
+            'publisherDigest',
+            'verifierSha256',
+          ])
+            expect(() =>
+              verify({ ...identity, [key]: '0'.repeat(identity[key].length) }),
+            ).toThrow();
+        }
+        // A crash after RECORD or a failed downstream job leaves no pending request.
+        // Until an export pin confirms these inputs, a queue-less Retry re-emits them.
+        writeFileSync(output, '');
+        await runPipeline(checkout, config, out, true);
+        expect(readFileSync(output, 'utf8')).toContain(`production_push=${production}\n`);
+        if (production) {
+          const pins = new LocalRepository(f.upstream);
+          const ref = 'refs/heads/export-pins';
+          pins.cas(
+            ref,
+            undefined,
+            pins.commit(
+              undefined,
+              {
+                'pins/latest.json': pins.writeBlob(
+                  encode({
+                    converterSha: identity.commit,
+                    inputSha256: identity.inputSha256,
+                    engine: identity.enginePin,
+                    generatorSha: identity.generatorSha,
+                  }),
+                ),
+              },
+              'Confirm output fixture',
+            ),
+          );
+          // Byte-identical publication has a receipt but reuses the existing output pin.
+          await f.request(B);
+        }
+        writeFileSync(output, '');
+        await runPipeline(checkout, config, out, true);
+        expect(readFileSync(output, 'utf8')).toContain('production_push=false\n');
+      } finally {
+        transport.mockRestore();
+        publisherConfig.enabled = false;
+        vi.unstubAllEnvs();
+      }
+    },
+  );
   it('rejects native pairs hidden by stale translations and continues the publish queue', async () => {
     const f = await setup();
     const current: Tooltip = {

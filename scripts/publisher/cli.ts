@@ -18,7 +18,7 @@ async function main() {
       throw new Error('Config requires the publisher source PIN and full generator commit');
     await runPipeline(
       source,
-      { ...options, publisherDigest: pin.sha256 },
+      { ...options, publisherDigest: pin.sha256, verifierDigest: pin.verifierSha256 },
       output,
       flag === '--pipeline-publish',
     );
@@ -47,6 +47,7 @@ async function main() {
     const publisher = new Publisher(git, {
       ...options,
       publisherDigest: pin.sha256,
+      verifierDigest: pin.verifierSha256,
       now: Date.now,
     });
     let failure: unknown;

@@ -32801,6 +32801,7 @@ var Publisher = class _Publisher {
           now: checked.now,
           publisherSha: this.options.publisherSha,
           generatorSha: this.options.generatorSha,
+          ...this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {},
           outcome: "published",
           entries,
           exported: checked.exported,
@@ -33219,6 +33220,7 @@ var Publisher = class _Publisher {
       now: plan.now,
       publisherSha: this.options.publisherSha,
       generatorSha: this.options.generatorSha,
+      ...this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {},
       outcome: "published",
       entries: plan.entries,
       exported: plan.exported,
@@ -33516,6 +33518,8 @@ var RemoteRepository = class extends LocalRepository {
   constructor(cache, options) {
     super(cache);
     this.options = options;
+    if (options.liveBranch !== void 0 && !["converter-v2-test", "converter"].includes(options.liveBranch))
+      throw new Error("Remote publication target is not allowlisted");
     this.requireCredits = !options.fileUrl;
     this.commandTimeout = options.timeout ?? 12e4;
     if (options.fileUrl) {
@@ -33549,7 +33553,7 @@ var RemoteRepository = class extends LocalRepository {
     }
   }
   validate(ref) {
-    if (!/^refs\/heads\/(editor-data|converter-v2-test|editor-data-bundle|publish-candidate\/[0-7][0-9A-HJKMNP-TV-Z]{25})$/.test(
+    if (ref !== `refs/heads/${this.options.liveBranch ?? "converter-v2-test"}` && !/^refs\/heads\/(editor-data|editor-data-bundle|publish-candidate\/[0-7][0-9A-HJKMNP-TV-Z]{25})$/.test(
       ref
     ))
       throw new Error("Remote ref outside publisher scope");
@@ -33594,7 +33598,9 @@ var RemoteRepository = class extends LocalRepository {
     this.git(next ? ["update-ref", ref, next] : ["update-ref", "-d", ref]);
   }
   casMany(updates) {
-    if (updates.length !== 2 || !updates.some(({ ref }) => ref === "refs/heads/editor-data") || !updates.some(({ ref }) => ref === "refs/heads/converter-v2-test"))
+    if (updates.length !== 2 || !updates.some(({ ref }) => ref === "refs/heads/editor-data") || !updates.some(
+      ({ ref }) => ref === `refs/heads/${this.options.liveBranch ?? "converter-v2-test"}`
+    ))
       throw new Error("Atomic publication outside held scope");
     for (const { ref, old, next } of updates) {
       this.validate(ref);
@@ -33633,6 +33639,54 @@ var gitAt = (cwd, args) => execFileSync2("git", ["-C", cwd, ...args], {
   timeout: 12e4,
   maxBuffer
 });
+function publicationIdentity(repo, branch = "converter") {
+  const commit2 = repo.head("refs/heads/" + branch);
+  const added = repo.additions(commit2, ".publish/receipts").at(-1);
+  if (!added) return;
+  if (added.commit !== commit2) {
+    console.log("Output handoff: non-publisher descendant; no publication handoff needed");
+    return;
+  }
+  const tree = repo.tree(commit2);
+  const receipt = JSON.parse(repo.blob(tree[added.path]));
+  const receiptPath = paths2(receipt.opId).receipt;
+  if (added.path !== receiptPath) throw new Error("Publication receipt path mismatch");
+  const data = repo.head("refs/heads/editor-data");
+  const record2 = repo.additions(data, paths2(receipt.opId).log).at(-1);
+  if (!record2) throw new Error("Publication receipt has no confirmed RECORD");
+  const recordTree = repo.tree(record2.commit);
+  const log = JSON.parse(repo.blob(recordTree[paths2(receipt.opId).log]));
+  if (log.candidateCommit !== commit2 || !["done", "unchanged"].includes(log.result?.status))
+    throw new Error("Publication RECORD differs from receipt");
+  const hash2 = (bytes) => createHash4("sha256").update(bytes).digest("hex");
+  const enginePin = tree[".exports/PIN"] ? repo.blob(tree[".exports/PIN"]).trim() : null;
+  if (!/^[a-f0-9]{40}$/.test(receipt.generatorSha) || branch === "converter" && (!enginePin || !/^[a-f0-9]{40}$/.test(enginePin) || !tree[".exports/engine.mjs"] || !receipt.verifierSha256 || !/^[a-f0-9]{64}$/.test(receipt.verifierSha256) || !recordTree[".publisher/verify-publication.mjs"] || hash2(repo.blob(recordTree[".publisher/verify-publication.mjs"])) !== receipt.verifierSha256))
+    throw new Error("Invalid immutable publication identity");
+  return {
+    opId: receipt.opId,
+    commit: commit2,
+    recordCommit: record2.commit,
+    receiptPath,
+    receiptBlob: tree[receiptPath],
+    sourceCommit: receipt.sourceCommit,
+    requestBlob: receipt.requestBlob,
+    inputBlob: tree["liveDescriptions.json"],
+    inputSha256: hash2(repo.blob(tree["liveDescriptions.json"])),
+    enginePin,
+    engineSha256: tree[".exports/engine.mjs"] ? hash2(repo.blob(tree[".exports/engine.mjs"])) : null,
+    generatorSha: receipt.generatorSha,
+    publisherSha: receipt.publisherSha,
+    publisherDigest: hash2(repo.blob(recordTree[".publisher/publisher.mjs"])),
+    verifierSha256: receipt.verifierSha256 ?? null,
+    outcome: receipt.outcome
+  };
+}
+function needsOutputs(repo, identity) {
+  const refs = repo.git(["for-each-ref", "--format=%(objectname)", "refs/heads/export-pins"]).trim();
+  const tree = refs ? repo.tree(refs) : {};
+  const pin = tree["pins/latest.json"] ? JSON.parse(repo.blob(tree["pins/latest.json"])) : void 0;
+  return pin?.inputSha256 !== identity.inputSha256 || pin?.engine !== identity.enginePin || pin?.generatorSha !== identity.generatorSha;
+}
 function simulationArtifact(repo, out, bases) {
   const revisions = ["--branches", "--not", ...bases];
   const count = Number(gitAt(repo.path, ["rev-list", "--count", ...revisions]).trim());
@@ -33648,8 +33702,8 @@ function simulationArtifact(repo, out, bases) {
   );
 }
 async function runPipeline(checkout, config2, output2, remoteMode = false) {
-  if (config2.repo !== "Database-Clarity/Live-Clarity-Database" || config2.dataBranch !== "editor-data" || config2.liveBranch !== "converter-v2-test")
-    throw new Error("Pipeline target is not the held test target");
+  if (config2.repo !== "Database-Clarity/Live-Clarity-Database" || config2.dataBranch !== "editor-data" || !["converter-v2-test", "converter"].includes(config2.liveBranch))
+    throw new Error("Pipeline target is not an allowlisted publication target");
   const enabled = remoteMode && publisher_default.enabled && config2.publishWritesEnabled === true;
   if (remoteMode && !enabled) throw new Error("Remote publishing disabled by config");
   if (enabled && !process.env.GITHUB_TOKEN) throw new Error("GITHUB_TOKEN required");
@@ -33658,6 +33712,8 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
   const temp = mkdtempSync2(join2(tmpdir2(), "publisher-pipeline-"));
   let failure2;
   const reports = [];
+  const publications = [];
+  let handoff2;
   function snapshot(label) {
     gitAt(cwd, ["fetch", "--prune", "--no-tags", "origin", "+refs/heads/*:refs/remotes/origin/*"]);
     const repo = join2(temp, label + ".git");
@@ -33680,7 +33736,11 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
     );
     for (const ref of command(["for-each-ref", "--format=%(refname)", "refs/heads/"]).trim().split("\n"))
       if (ref && !remoteNames.has(ref)) command(["update-ref", "-d", ref]);
-    return enabled ? new RemoteRepository(repo, { repo: config2.repo, token: process.env.GITHUB_TOKEN }) : new LocalRepository(repo);
+    return enabled ? new RemoteRepository(repo, {
+      repo: config2.repo,
+      token: process.env.GITHUB_TOKEN,
+      liveBranch: config2.liveBranch
+    }) : new LocalRepository(repo);
   }
   function publishBundle(repo, options2) {
     const pub = new Publisher(repo, options2), old = repo.head(bundleRef);
@@ -33708,6 +33768,11 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
   const options = { ...config2, publicKey: "", now: Date.now };
   try {
     const initial = snapshot("initial");
+    if (config2.liveBranch === "converter") {
+      const tree = initial.tree(initial.head("refs/heads/converter"));
+      if (!tree[".exports/PIN"] || !/^[a-f0-9]{40}$/.test(initial.blob(tree[".exports/PIN"]).trim()) || !tree[".exports/engine.mjs"])
+        throw new Error("Production target requires a pinned installed engine");
+    }
     if (!enabled) publishBundle(initial, options);
     const bases = gitAt(initial.path, ["for-each-ref", "--format=%(objectname)", "refs/heads/"]).trim().split("\n");
     try {
@@ -33736,7 +33801,16 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
     failure2 = e;
   } finally {
     try {
-      publishBundle(snapshot("catch-up"), options);
+      const latest = snapshot("catch-up");
+      publishBundle(latest, options);
+      if (enabled && !failure2) {
+        const identity = publicationIdentity(latest, config2.liveBranch);
+        if (identity) {
+          publications.push(identity);
+          if (config2.liveBranch === "converter" && needsOutputs(latest, identity))
+            handoff2 = identity;
+        }
+      }
     } catch (e) {
       failure2 ??= e;
     }
@@ -33747,6 +33821,8 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
           dryRun: !enabled,
           publishWritesEnabled: enabled,
           reports,
+          publications,
+          handoff: handoff2 ?? null,
           error: failure2 ? String(failure2) : null
         },
         null,
@@ -33767,10 +33843,19 @@ Pending requests stay durable. The client may kick once after 3 minutes; maintai
     rmSync2(temp, { recursive: true, force: true });
   }
   if (failure2) throw failure2;
+  const productionPush = handoff2 !== void 0;
+  if (process.env.GITHUB_OUTPUT)
+    writeFileSync(
+      process.env.GITHUB_OUTPUT,
+      `production_push=${productionPush}
+publication=${productionPush ? JSON.stringify(handoff2) : ""}
+`,
+      { flag: "a" }
+    );
 }
 function verifyRuntime(root) {
   const pin = JSON.parse(readFileSync(join2(root, "PIN"), "utf8"));
-  if (!/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash4("sha256").update(readFileSync(join2(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
+  if (!/^[0-9a-f]{64}$/.test(pin.verifierSha256) || createHash4("sha256").update(readFileSync(join2(root, "verify-publication.mjs"))).digest("hex") !== pin.verifierSha256 || !/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash4("sha256").update(readFileSync(join2(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
     throw new Error("Publisher PIN mismatch");
   return pin;
 }
@@ -33785,7 +33870,7 @@ async function main() {
       throw new Error("Config requires the publisher source PIN and full generator commit");
     await runPipeline(
       source,
-      { ...options, publisherDigest: pin.sha256 },
+      { ...options, publisherDigest: pin.sha256, verifierDigest: pin.verifierSha256 },
       output2,
       flag === "--pipeline-publish"
     );
@@ -33813,6 +33898,7 @@ async function main() {
     const publisher = new Publisher(git, {
       ...options,
       publisherDigest: pin.sha256,
+      verifierDigest: pin.verifierSha256,
       now: Date.now
     });
     let failure2;

@@ -11,12 +11,13 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod';
 import { langSchema } from '../../packages/core/src/languages.js';
 import { verifyRuntime } from './pipeline.js';
+import { maxBuffer } from './childProcess.mjs';
 
 it('ignores exports, glossary, snippets, and entry marks on editor-data pushes', () => {
   const workflow = readFileSync(
@@ -28,12 +29,32 @@ it('ignores exports, glossary, snippets, and entry marks on editor-data pushes',
   );
 });
 
+it('gates both production jobs on a confirmed handoff and retains existing reusable callers', () => {
+  const caller = readFileSync('scripts/publisher/template/production-job.yml', 'utf8');
+  expect(caller).toContain("if: needs.pipeline.outputs.production_push == 'true'");
+  expect(caller).toContain('publication: ${{ needs.pipeline.outputs.publication }}');
+  expect(caller).toContain('secrets: inherit');
+  const workflow = readFileSync(
+    'scripts/publisher/template/.github/workflows/build-outputs.yml',
+    'utf8',
+  );
+  expect(workflow).toContain("default: ''");
+  expect(workflow).toContain("ref: ${{ needs.handoff.outputs.converter || 'converter' }}");
+  expect(workflow).toContain("ref: ${{ needs.handoff.outputs.record || 'editor-data' }}");
+  expect(workflow).toContain("ref: ${{ needs.handoff.outputs.generator || 'v2' }}");
+  expect(workflow).toContain(
+    'node producer/.publisher/verify-publication.mjs converter producer pins live',
+  );
+  expect(workflow).toContain("(inputs.publication == '' || needs.legacy.result == 'success')");
+});
+
 it('ships the reviewed v2 template with a matching integrity pin and documentation', () => {
   const root = 'scripts/publisher/template/.publisher';
   const pin = verifyRuntime(root);
   expect(pin).toEqual({
-    sourceSha: 'bc4c5bfdcec4638c48df637c12c443e3a14dbb13',
-    sha256: '22775cb8996ecc216c1135c197ed5b9ca19fa0f7a3e3b9a9caca08144651346e',
+    sourceSha: '0dc6deb0b62be5ae52c6864d69d14c2beafe1a8e',
+    sha256: 'ffd26a97ee80d8c0a9fc3a37fb2ea621d92d0728409673e6be7ed264843f5ef2',
+    verifierSha256: 'd960337b7435cb3a8464f03aa8221476c3bc571da341d683ab4dc3e58a2a304f',
     capabilities: [
       'elementTags',
       'sandboxPointers',
@@ -400,6 +421,9 @@ describe('install.mjs', () => {
     publishWritesEnabled: unknown,
     mode = '--plan',
     capabilities?: string[],
+    targetArg?: string,
+    liveBranch = 'converter-v2-test',
+    previousBranch?: string,
   ) {
     const pin = JSON.parse(
       readFileSync(join(cwd, 'scripts/publisher/template/.publisher/PIN'), 'utf8'),
@@ -409,6 +433,7 @@ describe('install.mjs', () => {
     );
     const config = {
       ...example,
+      liveBranch,
       publishWritesEnabled,
       keyEndpoint: 'https://worker.invalid/publish/key',
       keyFingerprint: 'a'.repeat(64),
@@ -421,12 +446,27 @@ describe('install.mjs', () => {
     roots.push(dir);
     writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
     const target = checkout(capabilities);
+    if (previousBranch) {
+      mkdirSync(join(target, '.publisher'), { recursive: true });
+      writeFileSync(
+        join(target, '.publisher/config.json'),
+        JSON.stringify({ liveBranch: previousBranch }),
+      );
+      execFileSync('git', [...identity, '-C', target, 'add', '.publisher/config.json']);
+      execFileSync('git', [...identity, '-C', target, 'commit', '-q', '-m', 'Previous target']);
+    }
     const result = spawnSync(
       process.execPath,
-      ['scripts/publisher/install.mjs', target, join(dir, 'config.json'), mode],
-      { cwd, encoding: 'utf8' },
+      [
+        resolve('scripts/publisher/install.mjs'),
+        target,
+        join(dir, 'config.json'),
+        mode,
+        ...(targetArg ? [targetArg] : []),
+      ],
+      { cwd, encoding: 'utf8', maxBuffer },
     );
-    return { ...result, target };
+    return { ...result, target, configPath: join(dir, 'config.json') };
   }
 
   it('installs publish writes from the enable build, byte-exact and LF', () => {
@@ -462,11 +502,87 @@ describe('install.mjs', () => {
   it('keeps a dry-run install possible and refuses a non-boolean switch', () => {
     const dry = install('.', false);
     expect(dry.status, dry.stderr).toBe(0);
-    expect(dry.stdout).toContain('Publish transport remains dry-run');
+    expect(dry.stderr).toContain('Publish transport remains dry-run');
     expect(existsSync(join(dry.target, '.publisher/installed.json'))).toBe(false);
     const loose = install('.', 'true');
     expect(loose.status).not.toBe(0);
     expect(loose.stderr).toContain('publishWritesEnabled must be true or false');
+  });
+  it.each(['test', 'production'])(
+    'prints the exact applicable %s installation diff without changing the checkout',
+    (plan) => {
+      const live = plan === 'test' ? 'converter-v2-test' : 'converter';
+      const result = install('.', true, '--plan', undefined, `--target=${plan}`, live);
+      expect(result.status, result.stderr).toBe(0);
+      const patch = result.stdout.slice(result.stdout.indexOf('diff --git '));
+      expect(patch).toContain('diff --git ');
+      expect(
+        execFileSync('git', ['-C', result.target, 'status', '--porcelain'], { encoding: 'utf8' }),
+      ).toBe('');
+      execFileSync(
+        'git',
+        ['-c', 'core.autocrlf=false', '-C', result.target, 'apply', '--check', '-'],
+        { input: patch },
+      );
+      execFileSync('git', ['-c', 'core.autocrlf=false', '-C', result.target, 'apply', '-'], {
+        input: patch,
+      });
+      const patched = readFileSync(join(result.target, '.publisher/config.json'));
+      expect(JSON.parse(patched.toString()).liveBranch).toBe(live);
+      const applied = install('.', true, '--apply-local', undefined, `--target=${plan}`, live);
+      expect(applied.status, applied.stderr).toBe(0);
+      const workflow = readFileSync(join(applied.target, '.github/workflows/pipeline.yml'), 'utf8');
+      const call =
+        'uses: Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter';
+      if (plan === 'test') expect(workflow).not.toContain(call);
+      else {
+        expect(workflow).toContain(call);
+        expect(workflow).toContain('\n  outputs:\n    needs: pipeline\n');
+      }
+      for (const file of [
+        '.publisher/config.json',
+        '.publisher/installed.json',
+        '.publisher/PIN',
+        '.publisher/publisher.mjs',
+        '.github/workflows/pipeline.yml',
+      ])
+        expect(readFileSync(join(result.target, file))).toEqual(
+          readFileSync(join(applied.target, file)),
+        );
+      expect(existsSync(join(result.target, '.github/workflows/bundle.yml'))).toBe(false);
+    },
+  );
+  it('refuses unknown plans, config disagreements, and implicit target rollback', () => {
+    for (const [flag, live] of [
+      [undefined, 'converter'],
+      ['--target=live', 'live'],
+      ['--target=test', 'converter'],
+      ['production', 'converter'],
+    ]) {
+      const result = install('.', false, '--plan', undefined, flag, live);
+      expect(result.status).not.toBe(0);
+    }
+    const implicit = install(
+      '.',
+      false,
+      '--plan',
+      undefined,
+      undefined,
+      'converter-v2-test',
+      'converter',
+    );
+    expect(implicit.status).not.toBe(0);
+    expect(implicit.stderr).toContain('Target switch requires an explicit --target plan');
+    const rollback = install(
+      '.',
+      false,
+      '--plan',
+      undefined,
+      '--target=test',
+      'converter-v2-test',
+      'converter',
+    );
+    expect(rollback.status, rollback.stderr).toBe(0);
   });
   it('preserves installed capability floors and refuses downgrading an unknown capability', () => {
     const compatible = install('.', false, '--plan', ['schedulePreparationV1', 'globalsRelease']);
@@ -475,6 +591,52 @@ describe('install.mjs', () => {
     expect(downgrade.status).not.toBe(0);
     expect(downgrade.stderr).toContain('cannot drop installed capability floors');
   });
+  it('produces identical committed-tree plans from LF and CRLF working checkouts', () => {
+    const first = install('.', false, '--plan', ['globalsRelease']);
+    expect(first.status, first.stderr).toBe(0);
+    execFileSync('git', ['-C', first.target, 'config', 'core.autocrlf', 'true']);
+    writeFileSync(join(first.target, '.git/info/attributes'), '* text eol=crlf\n');
+    for (const file of ['README.md', '.github/workflows/bundle.yml'])
+      rmSync(join(first.target, file));
+    execFileSync('git', ['-C', first.target, 'checkout-index', '--all', '--force']);
+    execFileSync('git', ['-C', first.target, 'add', '--renormalize', '.']);
+    execFileSync('git', ['-C', first.target, 'diff', '--cached', '--exit-code']);
+    expect(readFileSync(join(first.target, 'README.md'), 'utf8')).toContain('\r\n');
+    const status = execFileSync('git', ['-C', first.target, 'status', '--porcelain'], {
+      encoding: 'utf8',
+    });
+    expect(status).toBe('');
+    const crlf = spawnSync(
+      process.execPath,
+      [resolve('scripts/publisher/install.mjs'), first.target, first.configPath, '--plan'],
+      { encoding: 'utf8', maxBuffer },
+    );
+    expect(crlf.status, crlf.stderr).toBe(0);
+    expect(crlf.stdout).toBe(first.stdout);
+    expect(crlf.stdout.startsWith('diff --git ')).toBe(true);
+  });
+  it.each(['queue: single', 'cancel-in-progress: true', 'queue: [invalid'])(
+    'refuses unsupported production workflow policy: %s',
+    (replacement) => {
+      const root = mkdtempSync(join(tmpdir(), 'install-policy-'));
+      roots.push(root);
+      cpSync('scripts/publisher/template', join(root, 'scripts/publisher/template'), {
+        recursive: true,
+      });
+      const workflow = join(root, 'scripts/publisher/template/.github/workflows/build-outputs.yml');
+      const original = readFileSync(workflow, 'utf8');
+      writeFileSync(
+        workflow,
+        original.replace(
+          replacement.startsWith('cancel') ? 'cancel-in-progress: false' : 'queue: max',
+          replacement,
+        ),
+      );
+      const result = install(root, false, '--plan', undefined, '--target=production', 'converter');
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).not.toContain('diff --git ');
+    },
+  );
 
   it('refuses publish writes for a build whose baked switch is OFF', () => {
     const root = mkdtempSync(join(tmpdir(), 'install-off-'));
