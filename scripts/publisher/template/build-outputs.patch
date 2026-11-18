@@ -1,8 +1,8 @@
 diff --git a/.github/workflows/build-outputs.yml b/.github/workflows/build-outputs.yml
-index 7151030ef8d38e0f954b445731b011f2a7d6fb42..b3fab3cbc45dae921c62d2e8c2014f471ea39cd2 100644
+index 7151030ef8d38e0f954b445731b011f2a7d6fb42..1e50393139790eb54458c538b4ba83d174967a47 100644
 --- a/.github/workflows/build-outputs.yml
 +++ b/.github/workflows/build-outputs.yml
-@@ -1,166 +1,260 @@
+@@ -1,166 +1,259 @@
 -# Reusable build of every consumer output (spec section 3). Installed on the `converter` branch of
 -# Database-Clarity/Live-Clarity-Database and called as
 -#   Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter
@@ -240,7 +240,7 @@ index 7151030ef8d38e0f954b445731b011f2a7d6fb42..b3fab3cbc45dae921c62d2e8c2014f47
 +    # No permissions block: the job keeps what the caller grants (contents: write from main.yml and
 +    # the pipeline; exports.yml grants read and never runs this job).
 +    steps:
-+      - name: Check out converter (current head; engine in .exports)
++      - name: Check out converter (pinned legacy input; engine in .exports)
 +        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 +        with:
 +          repository: Database-Clarity/Live-Clarity-Database
@@ -249,7 +249,7 @@ index 7151030ef8d38e0f954b445731b011f2a7d6fb42..b3fab3cbc45dae921c62d2e8c2014f47
 +          fetch-depth: 0
 +          filter: blob:none
 +          persist-credentials: false
-+      - name: Check out live (current head; the deploy pushes to it)
++      - name: Check out live (output CAS base; the deploy pushes to it)
 +        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 +        with:
 +          repository: Database-Clarity/Live-Clarity-Database
@@ -317,8 +317,7 @@ index 7151030ef8d38e0f954b445731b011f2a7d6fb42..b3fab3cbc45dae921c62d2e8c2014f47
 +    # secrets only through a job that names the environment.
 +    environment: data-site-deploy
 +    # Repo-wide and separate from legacy-outputs, so a config save never replaces a legacy build.
-+    # One run active, at most one pending (a newer pending run replaces an older one; every run
-+    # reads both branch heads at its start).
++    # One run active, up to 100 pending in waiting order; never replace pending work.
 +    concurrency:
 +      group: data-site
 +      cancel-in-progress: false
@@ -326,11 +325,11 @@ index 7151030ef8d38e0f954b445731b011f2a7d6fb42..b3fab3cbc45dae921c62d2e8c2014f47
 +    permissions:
 +      contents: read
 +    steps:
-+      - name: Check out converter (engine in .exports; the pinned input by SHA)
++      - name: Check out converter (publication input or current compatible site builder)
 +        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 +        with:
 +          repository: Database-Clarity/Live-Clarity-Database
-+          ref: ${{ needs.handoff.outputs.converter || 'converter' }}
++          ref: ${{ inputs.publication != '' && needs.handoff.outputs.converter || 'converter' }}
 +          path: converter
 +          fetch-depth: 0
 +          filter: blob:none

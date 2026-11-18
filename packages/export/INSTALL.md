@@ -5,19 +5,24 @@ Nothing here is installed by this repository. Each step is a production change t
 
 ## Files and where they go
 
-| Source in this repository                                                                             | Target branch | Target path                                                                            |
-| ----------------------------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------- |
-| output of `node packages/export/build.mjs --install <dir> --generator-sha <sha>`                      | `converter`   | `.exports/` (engine.mjs, config.mjs, build-site.mjs, legacy-job.mjs, config.json, PIN) |
-| `packages/export/workflows/converter/.github/workflows/build-outputs.yml`                             | `converter`   | `.github/workflows/build-outputs.yml`                                                  |
-| `packages/export/workflows/converter/.github/workflows/main.yml`                                      | `converter`   | `.github/workflows/main.yml` (replaces today's)                                        |
-| `packages/export/workflows/editor-data/.github/workflows/exports.yml`                                 | `editor-data` | `.github/workflows/exports.yml`                                                        |
-| `scripts/publisher/template/.github/workflows/pipeline.yml` (now with `paths-ignore: ['exports/**']`) | `editor-data` | `.github/workflows/pipeline.yml`, at publisher enable step E                           |
+| Source in this repository                                                                                 | Target branch | Target path                                                                            |
+| --------------------------------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------- |
+| output of `node packages/export/build.mjs --install <dir> --generator-sha <sha>`                          | `converter`   | `.exports/` (engine.mjs, config.mjs, build-site.mjs, legacy-job.mjs, config.json, PIN) |
+| `scripts/publisher/template/.github/workflows/build-outputs.yml`                                          | `converter`   | `.github/workflows/build-outputs.yml`                                                  |
+| `packages/export/workflows/converter/.github/workflows/main.yml`                                          | `converter`   | `.github/workflows/main.yml` (replaces today's)                                        |
+| `packages/export/workflows/editor-data/.github/workflows/exports.yml`                                     | `editor-data` | `.github/workflows/exports.yml`                                                        |
+| explicit output of `scripts/publisher/install.mjs` (`--target=test` or owner-gated `--target=production`) | `editor-data` | `.github/workflows/pipeline.yml`, at publisher enable step E                           |
 
 - `.exports/` is built from a committed tree (the script refuses uncommitted changes in
   packages/export) and `PIN` names that source SHA; the script prints each file's sha256 for the
   install commit message. `config.json` holds the generator SHA used until the first publish receipt
   on `converter` names one (`--generator-sha`: the generator commit the publisher config pins).
-- `.exports/` and `build-outputs.yml` go in one commit, before the new `main.yml` (which calls it).
+- `build-outputs.yml` has ONE canonical source: the S2 publisher template above. Do not
+  restore an older workflow during an engine-only or kept-language install. The engine build
+  script writes only `.exports/`; it never installs workflows. Workflow adoption follows the
+  separately approved G5 drain, hosted dry validation, and installation order in
+  `scripts/publisher/E2-RUNBOOK.md`. For an initial bootstrap, install the approved engine
+  and canonical reusable workflow before enabling `main.yml` (which calls it).
   The push of `main.yml` itself starts the first run: the legacy job deploys `live` and writes the
   first pin; the site job then finds zero Pages deployments and bootstraps.
 - `exports.yml` can follow at any time; before the first pin, a config save builds nothing.
@@ -51,23 +56,10 @@ advances, and Worker deployment remain owner-gated.
 
 ## The publish pipeline's downstream job
 
-Its `converter` push uses `github.token`, which starts no workflow, so once the pipeline writes to
-`converter` (not `converter-v2-test`), it calls the build itself after a successful push. The
-pipeline job must expose whether it pushed `converter`:
-
-```yaml
-jobs:
-  # ...the existing pipeline job, plus:
-  outputs:
-    needs: pipeline
-    if: needs.pipeline.outputs.converter-pushed == 'true'
-    permissions:
-      contents: write
-    uses: Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter
-    with:
-      legacy: true
-    secrets: inherit
-```
+The explicit production installer plan appends `scripts/publisher/template/production-job.yml`,
+which passes the immutable receipt/input/engine/generator identity. The test plan includes no
+production call. Use that canonical job rather than reconstructing a legacy:boolean-only caller.
+Install and rollback ordering, FIFO limits, and G8 recovery are in the publisher runbook.
 
 ## Behaviour that differs from today's main.yml
 

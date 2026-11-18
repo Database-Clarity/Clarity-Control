@@ -69,7 +69,7 @@ jobs:
     # No permissions block: the job keeps what the caller grants (contents: write from main.yml and
     # the pipeline; exports.yml grants read and never runs this job).
     steps:
-      - name: Check out converter (current head; engine in .exports)
+      - name: Check out converter (pinned legacy input; engine in .exports)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Database-Clarity/Live-Clarity-Database
@@ -78,7 +78,7 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-      - name: Check out live (current head; the deploy pushes to it)
+      - name: Check out live (output CAS base; the deploy pushes to it)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Database-Clarity/Live-Clarity-Database
@@ -146,8 +146,7 @@ jobs:
     # secrets only through a job that names the environment.
     environment: data-site-deploy
     # Repo-wide and separate from legacy-outputs, so a config save never replaces a legacy build.
-    # One run active, at most one pending (a newer pending run replaces an older one; every run
-    # reads both branch heads at its start).
+    # One run active, up to 100 pending in waiting order; never replace pending work.
     concurrency:
       group: data-site
       cancel-in-progress: false
@@ -155,11 +154,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Check out converter (engine in .exports; the pinned input by SHA)
+      - name: Check out converter (publication input or current compatible site builder)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Database-Clarity/Live-Clarity-Database
-          ref: ${{ needs.handoff.outputs.converter || 'converter' }}
+          ref: ${{ inputs.publication != '' && needs.handoff.outputs.converter || 'converter' }}
           path: converter
           fetch-depth: 0
           filter: blob:none
