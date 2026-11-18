@@ -49,6 +49,7 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'numberTokens',
     'aliasGroups',
     'globalsRelease',
+    'globalsExportsV1',
     'scheduledGlobalsV1',
     'schedulePreparationV1',
     'exoticTags',
