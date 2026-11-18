@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -18,7 +19,10 @@ import { langSchema } from '../../packages/core/src/languages.js';
 import { verifyRuntime } from './pipeline.js';
 
 it('ignores exports, glossary, snippets, and entry marks on editor-data pushes', () => {
-  const workflow = readFileSync('scripts/publisher/template/.github/workflows/pipeline.yml', 'utf8');
+  const workflow = readFileSync(
+    'scripts/publisher/template/.github/workflows/pipeline.yml',
+    'utf8',
+  );
   expect(workflow).toContain(
     "paths-ignore: ['exports/**', 'glossary/**', 'snippets/**', 'config/marks.json']",
   );
@@ -410,7 +414,7 @@ describe('install.mjs', () => {
       keyFingerprint: 'a'.repeat(64),
       publisherSha: pin.sourceSha,
       generatorSha: 'b'.repeat(40),
-      facts: { 1: { name: 'Perk', type: 'Trait' } },
+      facts: { 1: { name: 'Perk é🡅', type: 'Trait' } },
       runUrl: 'https://github.com/Database-Clarity/Live-Clarity-Database/actions',
     };
     const dir = mkdtempSync(join(tmpdir(), 'install-config-'));
@@ -441,12 +445,25 @@ describe('install.mjs', () => {
       JSON.parse(readFileSync(join(result.target, '.publisher/config.json'), 'utf8'))
         .publishWritesEnabled,
     ).toBe(true);
+    const config = readFileSync(join(result.target, '.publisher/config.json'));
+    const metadata = readFileSync(join(result.target, '.publisher/installed.json'));
+    expect(metadata.includes('\r')).toBe(false);
+    expect(metadata.byteLength).toBeLessThan(1024);
+    expect(JSON.parse(metadata.toString('utf8'))).toEqual({
+      version: 1,
+      configOid: execFileSync('git', ['-C', result.target, 'hash-object', '--stdin'], {
+        input: config,
+        encoding: 'utf8',
+      }).trim(),
+      generatorSha: JSON.parse(config.toString('utf8')).generatorSha,
+    });
   });
 
   it('keeps a dry-run install possible and refuses a non-boolean switch', () => {
     const dry = install('.', false);
     expect(dry.status, dry.stderr).toBe(0);
     expect(dry.stdout).toContain('Publish transport remains dry-run');
+    expect(existsSync(join(dry.target, '.publisher/installed.json'))).toBe(false);
     const loose = install('.', 'true');
     expect(loose.status).not.toBe(0);
     expect(loose.stderr).toContain('publishWritesEnabled must be true or false');

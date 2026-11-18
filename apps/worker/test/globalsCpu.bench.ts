@@ -6,7 +6,7 @@
 // observation, raw transport, schemas, handler) plus runtime/harness work. The 'off' case (503
 // before authentication) is the harness floor. Not hosted invocation CPU.
 import { execFileSync } from 'node:child_process';
-import { createHmac, generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { build } from 'esbuild';
@@ -240,6 +240,20 @@ function fixtures() {
       },
     },
   };
+  const configBytes = Buffer.from(
+    JSON.stringify(files.find(([path]) => path === '.publisher/config.json')![1], null, 2) + '\n',
+  );
+  files.push([
+    '.publisher/installed.json',
+    {
+      version: 1,
+      configOid: createHash('sha1')
+        .update(`blob ${configBytes.byteLength}\0`)
+        .update(configBytes)
+        .digest('hex'),
+      generatorSha: 'd'.repeat(40),
+    },
+  ]);
   return { id, files, commits, rows, specs };
 }
 

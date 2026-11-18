@@ -70,8 +70,19 @@ if (
   JSON.stringify(config).includes('PRIVATE KEY')
 )
   throw new Error('Complete verified public config required');
+// Compute the Git blob identity from the SAME canonical bytes written below. The
+// Worker observes it at the same head as this small installed-generator binding.
+const configBytes = Buffer.from(JSON.stringify(config, null, 2) + '\n', 'utf8');
+const installed = {
+  version: 1,
+  configOid: createHash('sha1')
+    .update(`blob ${configBytes.byteLength}\0`)
+    .update(configBytes)
+    .digest('hex'),
+  generatorSha: config.generatorSha,
+};
 console.log(
-  `Plan: retire bundle.yml; copy pipeline.yml and pinned .publisher; install public config. ${
+  `Plan: retire bundle.yml; copy pipeline.yml and pinned .publisher; install public config and installed.json binding in the same commit. ${
     writes
       ? 'PUBLISH WRITES ENABLED: the pipeline runs --pipeline-publish and writes converter-v2-test.'
       : 'Publish transport remains dry-run.'
@@ -82,7 +93,8 @@ if (mode === '--apply-local') {
   mkdirSync(dir, { recursive: true });
   for (const f of readdirSync(join(template, '.publisher')))
     if (f !== 'config.example.json') copyFileSync(join(template, '.publisher', f), join(dir, f));
-  writeFileSync(join(dir, 'config.json'), JSON.stringify(config, null, 2) + '\n');
+  writeFileSync(join(dir, 'config.json'), configBytes);
+  writeFileSync(join(dir, 'installed.json'), JSON.stringify(installed, null, 2) + '\n');
   mkdirSync(join(checkout, '.github/workflows'), { recursive: true });
   copyFileSync(
     join(template, '.github/workflows/pipeline.yml'),
