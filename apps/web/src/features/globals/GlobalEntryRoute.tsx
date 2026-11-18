@@ -16,7 +16,7 @@ import { IdentityStatus } from '../auth/AuthStatus';
 function EditingRoleRequired() {
   return (
     <section className={styles.workspace}>
-      <p>Sign in with an editing role to open global entries.</p>
+      <p>Global entries need an editing role.</p>
       <IdentityStatus />
     </section>
   );

@@ -683,12 +683,6 @@ function Workspace({
             {entry.definitions[lang] === undefined && (
               <p>No definition in this language. Saving adds it.</p>
             )}
-            {draftStorageFailed && (
-              <p role="alert" className={styles.warning}>
-                Could not update the draft on this device. Keep this page open, and save or copy
-                your changes before leaving.
-              </p>
-            )}
             <ClarityEditor
               key={key}
               value={body}
@@ -701,6 +695,12 @@ function Workspace({
                 setReviewed(undefined);
               }}
             />
+            {draftStorageFailed && (
+              <p role="alert" className={styles.warning}>
+                Could not update the draft on this device. Keep this page open, and save or copy
+                your changes before leaving.
+              </p>
+            )}
             {!editable && (
               <p>
                 {actor
