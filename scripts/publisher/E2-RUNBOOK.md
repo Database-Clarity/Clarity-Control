@@ -65,6 +65,9 @@ Its bundle pushes carry the report catalogs forward; the pipeline's report-items
    but fails simulation with a visible artifact. Do not claim a successful rehearsal in that case.
 3. `node scripts/publisher/install.mjs <checkout> <public-config.json> --plan`
 4. `node scripts/publisher/install.mjs <checkout> <public-config.json> --apply-local`
+   This also writes `.publisher/installed.json` (version, configOid, and generatorSha).
+   Commit it with the exact `.publisher/config.json` bytes from that same installer run;
+   missing or stale metadata makes globals reads refuse until the installation is complete.
    This only changes local files: retire bundle.yml, add pipeline.yml and .publisher together.
    Inspect `git -C <checkout> diff`, run actionlint on the installed workflow and inspect PIN.
    The operator then commits and normally pushes ONLY editor-data after review. Neither script

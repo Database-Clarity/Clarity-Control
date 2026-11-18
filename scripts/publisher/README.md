@@ -151,6 +151,11 @@ in the SAME commit and copy .publisher. Fill config.json from config.example.jso
 trusted Worker /publish/key URL and independently verified SPKI fingerprint, PIN.sourceSha,
 verified generator commit and its facts/aliases. Empty example facts are not production inputs.
 Set runUrl to the installed workflow run URL when preparing config. No private key belongs here.
+Use `install.mjs` to write `config.json` and `.publisher/installed.json` together, and commit
+both in the same installation commit. The small version-1 metadata binds `generatorSha`
+to the Git blob OID of the exact installed config bytes. Globals reads verify that binding
+at the current data head, and fail closed if it is missing, malformed, or stale. Re-run
+the installer whenever changing the installed config; hand-editing only config invalidates it.
 Verify Actions permissions and branch rules before enabling publish writes in a later release:
 data/live must deny force-push/deletion, candidate refs must permit create/CAS/delete. Trusted
 writers control workflows and .publisher; the neighboring PIN detects corruption, not a hostile writer.

@@ -9,7 +9,7 @@ import {
   maxPublicationConsumers,
   observeGlobals,
 } from '../src/globalsRoute.js';
-import { Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
+import { blobOid, Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 
 const id = 'g_abcdefgh';
 const live = 'converter-v2-test';
@@ -57,6 +57,11 @@ function bootstrap() {
       capabilities: ['globalsRelease'],
     },
     '.publisher/config.json': { generatorSha, facts: {} },
+    '.publisher/installed.json': {
+      version: 1,
+      configOid: blobOid({ generatorSha, facts: {} }),
+      generatorSha,
+    },
     'globals/layout.json': { version: 1, aggregates: [] },
     [`globals/live/${live}.json`]: { version: 1, destination: live, store: {} },
     'globals/sync.json': current,
@@ -165,7 +170,11 @@ describe('global entry routes (S5 integration)', () => {
     const snapshots = Object.fromEntries(
       Array.from({ length: 2614 }, (_, n) => [`live/tooltips/${n}.json`, { hash: n }]),
     );
-    f.moveData({ '.publisher/config.json': installed, ...snapshots });
+    f.moveData({
+      '.publisher/config.json': installed,
+      '.publisher/installed.json': { version: 1, configOid: blobOid(installed), generatorSha },
+      ...snapshots,
+    });
     f.rawOverrides.set('.publisher/config.json', { isTruncated: true, text: null });
     const upstream = globalThis.fetch;
     const rawReads: string[] = [];
@@ -181,11 +190,51 @@ describe('global entry routes (S5 integration)', () => {
       expect((await read(path)).status).toBe(200);
       expect(f.subrequests - start).toBeLessThan(10);
     }
-    expect(rawReads).toHaveLength(1);
-    // Moving the immutable config OID forces a new verified read instead of a stale generator.
-    f.moveData({ '.publisher/config.json': { ...installed, generatorSha: 'c'.repeat(40) } });
+    expect(rawReads).toHaveLength(0);
+    // Changing config alone refuses, even after a successful read of the old binding.
+    const next = { ...installed, generatorSha: 'c'.repeat(40) };
+    f.moveData({ '.publisher/config.json': next });
+    expect((await read('/globals')).status).toBe(503);
+    f.moveData({
+      '.publisher/installed.json': {
+        version: 1,
+        configOid: blobOid(next),
+        generatorSha: next.generatorSha,
+      },
+    });
     expect((await observeGlobals(new GitHub(f.env))).sources.generator).toBe('c'.repeat(40));
-    expect(rawReads).toHaveLength(2);
+    expect(rawReads).toHaveLength(0);
+    expect(f.writes).toEqual([]);
+  });
+
+  it.each([
+    undefined,
+    null,
+    'x'.repeat(1024),
+    {},
+    { version: 2, configOid: 'a'.repeat(40), generatorSha },
+    { version: 1, configOid: 'a'.repeat(40), generatorSha },
+    { version: 1, configOid: blobOid({ generatorSha, facts: {} }), generatorSha: 'invalid' },
+    { version: 1, configOid: blobOid({ generatorSha, facts: {} }), generatorSha, extra: true },
+  ])('refuses missing, malformed, or mismatched installed metadata: %j', async (metadata) => {
+    bootstrap();
+    f.moveData({ '.publisher/installed.json': metadata });
+    expect(await read('/globals')).toEqual({
+      status: 503,
+      body: { kind: 'retry', message: 'Sync pending: global metadata is incomplete' },
+    });
+    expect(f.writes).toEqual([]);
+  });
+
+  it.each([
+    { oid: 'f'.repeat(40) },
+    { isTruncated: true, text: null },
+    { byteSize: 1 },
+    { isBinary: true },
+  ])('refuses corrupted installed-metadata transport: %j', async (override) => {
+    bootstrap();
+    f.rawOverrides.set('.publisher/installed.json', override);
+    expect(await read('/globals')).toEqual({ status: 503, body: fixed });
     expect(f.writes).toEqual([]);
   });
 

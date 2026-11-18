@@ -41,7 +41,9 @@ export const globalDestinations = (github: GitHub) => [github.env.LIVE_BRANCH];
 
 const oid = z.string().regex(/^[a-f0-9]{40}$/);
 const pinSchema = z.object({ sourceSha: oid, capabilities: z.array(z.string()) }).passthrough();
-const installedConfigSchema = z.object({ generatorSha: oid }).passthrough();
+const installedMetadataSchema = z
+  .object({ version: z.literal(1), configOid: oid, generatorSha: oid })
+  .strict();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const incomplete = () => new HttpError(503, 'Sync pending: global metadata is incomplete');
 
@@ -51,19 +53,6 @@ function parseRaw(bytes: Uint8Array): unknown {
   } catch {
     throw rawReadFailure();
   }
-}
-
-/** Blob OIDs are content addresses, so an installed config's generator is cached by OID. */
-const generators = new Map<string, string>();
-async function installedGenerator(github: GitHub, configOid: string): Promise<string> {
-  const known = generators.get(configOid);
-  if (known) return known;
-  const blob = await github.globalBlobByOid(configOid, 4 * 1024 * 1024);
-  const parsed = installedConfigSchema.safeParse(parseRaw(blob.bytes));
-  if (!parsed.success) throw incomplete();
-  if (generators.size >= 8) generators.delete(generators.keys().next().value!);
-  generators.set(configOid, parsed.data.generatorSha);
-  return parsed.data.generatorSha;
 }
 
 /**
@@ -94,7 +83,7 @@ export async function observeGlobals(
         globalSourcePaths.sandboxPointers,
         '.publisher/config.json',
       ],
-      ['config/permissions.json', '.publisher/PIN'],
+      ['config/permissions.json', '.publisher/PIN', '.publisher/installed.json'],
       262_144,
     );
   } catch (error) {
@@ -103,7 +92,7 @@ export async function observeGlobals(
   }
   const [authored, definitions, projections, config, upcoming] = observed.trees;
   const [layout, published, aliasGroups, sandboxPointers, installed] = observed.blobs;
-  const [permissionsFile, pinFile] = observed.texts;
+  const [permissionsFile, pinFile, installedFile] = observed.texts;
   if (!permissionsFile) throw new HttpError(502, 'Required repository file is missing');
   const permissions: Permissions = permissionsSchema.parse(parseRaw(permissionsFile.bytes));
   // Authorize at THIS head before revealing anything about global metadata.
@@ -113,13 +102,12 @@ export async function observeGlobals(
   const pin = pinFile ? pinSchema.safeParse(parseRaw(pinFile.bytes)) : undefined;
   if (!pin?.success || !pin.data.capabilities.includes('globalsRelease'))
     throw new HttpError(503, 'Sync pending: installed publisher lacks globalsRelease');
-  let generator: string;
-  try {
-    generator = await installedGenerator(github, installed);
-  } catch (error) {
-    if (error instanceof HttpError && error.status === 503) throw error;
-    throw rawReadFailure();
-  }
+  // The installer writes this small binding alongside the exact config bytes. Observe
+  // both at this head: changing config without reinstalling must fail closed. Avoid
+  // downloading and parsing the multi-megabyte config on each fresh Worker isolate.
+  if (!installedFile || installedFile.bytes.byteLength > 1024) throw incomplete();
+  const metadata = installedMetadataSchema.safeParse(parseRaw(installedFile.bytes));
+  if (!metadata.success || metadata.data.configOid !== installed) throw incomplete();
   const sources = await observeGlobalSources({
     authored,
     definitions: definitions ?? emptyGitTree,
@@ -131,7 +119,7 @@ export async function observeGlobals(
     upcoming: upcoming ?? emptyGitTree,
     aliasGroups,
     sandboxPointers,
-    generator,
+    generator: metadata.data.generatorSha,
     resolverRevision: pin.data.sourceSha,
   });
   return { head: observed.head, sources, access };
