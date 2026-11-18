@@ -1,10 +1,10 @@
-import { expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, utimesSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { bootstrapFiles, json, sha256 } from './bootstrap-model.js';
 import { legacyGlobalsCensus, legacySnapshot } from './census.js';
-import { main } from './bootstrap.js';
+import { main, OfflineGit } from './bootstrap.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
 import {
   changedGlobalIds,
@@ -147,6 +147,104 @@ it('accepts live alias stubs, retains conditional contexts, and refuses malforme
     true;
   expect(() => legacySnapshot(fallback, source)).toThrow('English-fallback provenance');
 });
+
+it('plans a blob-exact patch despite cached CRLF working copies', async () => {
+  mkdirSync('.agents/globals-bootstrap/tests', { recursive: true });
+  const root = mkdtempSync(resolve('.agents/globals-bootstrap/tests/crlf-'));
+  const repo = join(root, 'data');
+  mkdirSync(repo);
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', windowsHide: true }).trim();
+  const write = (path: string, bytes: string) => {
+    mkdirSync(join(repo, path, '..'), { recursive: true });
+    writeFileSync(join(repo, path), bytes);
+  };
+  git('init');
+  git('config', 'user.name', 'Fixture');
+  git('config', 'user.email', 'fixture@example.invalid');
+  git('config', 'core.autocrlf', 'false');
+  const docs = documents();
+  const config = {
+    repo: 'owner/data',
+    dataBranch: 'editor-data',
+    liveBranch: 'converter-v2-test',
+    generatorSha: 'a'.repeat(40),
+    aliases: {},
+    facts: Object.fromEntries(
+      Object.values(docs).map((doc) => [doc.hash, { name: String(doc.hash), type: 'Test' }]),
+    ),
+  };
+  const liveInput = {
+    perks: exportLegacy(Object.values(docs), 0, config.facts),
+    databaseSettings: { folders: {}, enhancedPerks: {} },
+  };
+  const liveDocs = legacySnapshot(liveInput, {
+    repository: config.repo,
+    revision: 'published',
+    path: 'liveDescriptions.json',
+  }).tooltips;
+  const prior = bootstrapFiles(
+    inventory(docs),
+    inventory(liveDocs, 'published'),
+    'converter-v2-test',
+  );
+  for (const [path, bytes] of Object.entries(prior.files)) write(path, bytes);
+  for (const doc of Object.values(docs)) write(`tooltips/${doc.hash}.json`, json(doc));
+  for (const doc of Object.values(liveDocs)) write(`live/tooltips/${doc.hash}.json`, json(doc));
+  write('.publisher/config.json', json(config));
+  write('.publisher/publisher.mjs', '// fixture\n');
+  write('.publisher/PIN', json({ sourceSha: 'b'.repeat(40), sha256: sha256('// fixture\n') }));
+  write('.exports/engine.mjs', '// fixture\n');
+  write('.exports/PIN', 'a'.repeat(40) + '\n');
+  write('liveDescriptions.json', json(liveInput));
+  git('add', '.');
+  git('commit', '-m', 'LF blob fixture');
+  const head = git('rev-parse', 'HEAD');
+  const paths = ['globals/layout.json', 'globals/live/converter-v2-test.json'];
+  git('config', 'core.autocrlf', 'true');
+  for (const path of paths)
+    write(path, readFileSync(join(repo, path), 'utf8').replaceAll('\n', '\r\n'));
+  git('add', '--', ...paths); // Cache the CRLF file stats while retaining the LF blobs.
+  expect(git('diff', '--cached')).toBe('');
+  expect(git('status', '--porcelain')).toBe('');
+  const out = join(root, 'plan');
+  const clean = OfflineGit.prototype.clean;
+  // Retain the verified CRLF stat cache when conversion settings change.
+  const check = vi.spyOn(OfflineGit.prototype, 'clean').mockImplementationOnce(function () {
+    clean.call(this);
+    // Avoid Git's same-tick content recheck; exercise its cached-file reuse.
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(join(repo, '.git/index'), later, later);
+    git('config', 'core.autocrlf', 'false');
+  });
+  try {
+    await main([
+      'plan',
+      '--repo',
+      repo,
+      '--out',
+      out,
+      '--head',
+      head,
+      '--live',
+      head,
+      '--converter',
+      head,
+    ]);
+  } finally {
+    check.mockRestore();
+  }
+  const plan = JSON.parse(readFileSync(join(out, 'plan.json'), 'utf8'));
+  const patch = readFileSync(join(out, 'staged.diff'));
+  expect(patch.includes(Buffer.from('\r\n'))).toBe(false);
+  for (const path of paths) write(path, git('show', `HEAD:${path}`) + '\n');
+  git('add', '--', ...paths);
+  git('apply', '--index', join(out, 'staged.diff'));
+  expect(git('write-tree')).toBe(plan.targetTree);
+  git('apply', '--reverse', '--index', join(out, 'staged.diff'));
+  expect(git('write-tree')).toBe(plan.baseTree);
+  expect(git('status', '--porcelain')).toBe('');
+}, 120_000);
 
 it('plans, stages, independently verifies, and restores only the exact offline contract tree', async () => {
   mkdirSync('.agents/globals-bootstrap/tests', { recursive: true });
