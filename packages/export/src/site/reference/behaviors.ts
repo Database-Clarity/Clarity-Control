@@ -42,7 +42,7 @@ export function sheetDetails(host, panel, dialog) {
   return () => abort.abort();
 }
 export function tapAgain(trigger, panel) {
-  // The app has already selected the perk and opened its tooltip. The next tap toggles details.
+  // With the tooltip open, the next tap shows or hides details.
   panel.hidden = true; trigger.setAttribute('aria-expanded', 'false');
   const toggle = () => { panel.hidden = !panel.hidden; trigger.setAttribute('aria-expanded', String(!panel.hidden)); };
   trigger.addEventListener('click', toggle);
@@ -114,16 +114,16 @@ function choices() {
   const matches = Object.entries(perks).filter(([hash, perk]) => hash === '-1' || (hash + ' ' + (perk.name || '')).toLowerCase().includes(query));
   const real = matches.filter(([hash]) => hash !== '-1');
   const count = real.length + (real.length === 1 ? ' perk' : ' perks');
-  $('match-count').textContent = query ? real.length + (real.length === 1 ? ' matching perk' : ' matching perks') + '; showcase always available.' : count + ' and the feature showcase.';
+  $('match-count').textContent = query ? real.length + (real.length === 1 ? ' matching perk' : ' matching perks') + '. The example tooltip is always available.' : count + ' and the example tooltip.';
   $('picker').replaceChildren(...matches.sort(([a], [b]) => a === '-1' ? -1 : b === '-1' ? 1 : 0).map(([hash, perk]) => {
-    const option = document.createElement('option'); option.value = hash; option.textContent = hash === '-1' ? 'Feature showcase' : (perk.name || 'Perk') + ' (' + hash + ')'; return option;
+    const option = document.createElement('option'); option.value = hash; option.textContent = hash === '-1' ? 'Example tooltip' : (perk.name || 'Perk') + ' (' + hash + ')'; return option;
   }));
   if (!matches.some(([hash]) => hash === selected)) selected = '-1';
   $('picker').value = selected; draw();
 }
 async function load() {
   request?.abort(); request = new AbortController(); const signal = request.signal;
-  $('load-state').textContent = 'Loading the published file…'; $('retry').hidden = true;
+  $('load-state').textContent = 'Loading the published file...'; $('retry').hidden = true;
   try {
     const response = await fetch('./v1/lines/' + $('language').value + '.json', { signal });
     if (!response.ok) throw new Error('HTTP ' + response.status);
@@ -143,7 +143,7 @@ async function load() {
   } catch (error) {
     if (signal.aborted) return;
     perks = decode(showcase); selected = '-1';
-    $('load-state').textContent = 'Could not load the published file. Showing the English feature showcase. Retry to load this language.';
+    $('load-state').textContent = 'Could not load this language. The English example tooltip is shown below. Select Retry to load the language again.';
     $('retry').hidden = false; choices();
   }
 }
