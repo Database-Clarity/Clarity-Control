@@ -1054,6 +1054,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       const engine = '// pinned fixture engine\n';
       const runtime = '// pinned fixture publisher\n';
       const digest = createHash('sha256').update(runtime).digest('hex');
+      const verifier = readFileSync(
+        'scripts/publisher/template/.publisher/verify-publication.mjs',
+        'utf8',
+      );
+      f.options.verifierDigest = createHash('sha256').update(verifier).digest('hex');
       // Production installs its engine separately at G4, before enabling G5.
       if (liveBranch === 'converter') {
         const head = f.git.head(liveRef)!;
@@ -1089,6 +1094,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
             ...f.git.tree(data),
             '.publisher/config.json': f.git.writeBlob(encode(config)),
             '.publisher/publisher.mjs': f.git.writeBlob(runtime),
+            '.publisher/verify-publication.mjs': f.git.writeBlob(verifier),
           },
           'Install fixture publisher',
         ),
@@ -1148,7 +1154,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       publisherConfig.enabled = true;
       try {
         const task = runPipeline(checkout, config, out, true);
-        if (['partial', 'stale', 'record-retry'].includes(scenario)) {
+        if (['partial', 'record-retry'].includes(scenario)) {
           await expect(task).rejects.toThrow();
           expect(existsSync(output)).toBe(false);
           if (scenario !== 'record-retry') return;
@@ -1158,10 +1164,10 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
           expect(f.git.head(liveRef)).toBe(landed);
         } else await task;
         const lines = readFileSync(output, 'utf8');
-        const production = liveBranch === 'converter' && scenario !== 'rejected';
+        const production = liveBranch === 'converter' && !['rejected', 'stale'].includes(scenario);
         expect(lines).toContain(`production_push=${production}\n`);
         const result = JSON.parse(readFileSync(join(out, 'result.json'), 'utf8'));
-        if (scenario === 'rejected') {
+        if (['rejected', 'stale'].includes(scenario)) {
           expect(result.publications).toEqual([]);
           return;
         }
@@ -1207,6 +1213,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
             'engineSha256',
             'generatorSha',
             'publisherDigest',
+            'verifierSha256',
           ])
             expect(() =>
               verify({ ...identity, [key]: '0'.repeat(identity[key].length) }),

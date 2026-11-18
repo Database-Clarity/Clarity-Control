@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, appendFileSync } from 'node:fs';
 
 const p = JSON.parse(process.env.PUBLICATION);
 const [converter, producer, pins, live] = process.argv.slice(2);
@@ -25,7 +25,7 @@ for (const key of [
   'publisherSha',
 ])
   assert.match(p[key], /^[a-f0-9]{40}$/);
-for (const key of ['inputSha256', 'engineSha256', 'publisherDigest'])
+for (const key of ['inputSha256', 'engineSha256', 'publisherDigest', 'verifierSha256'])
   assert.match(p[key], /^[a-f0-9]{64}$/);
 assert.match(p.opId, /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
 assert.match(
@@ -56,6 +56,7 @@ for (const key of [
   'generatorSha',
   'publisherSha',
   'outcome',
+  'verifierSha256',
 ])
   assert.equal(receipt[key], p[key]);
 assert.ok(['published', 'unchanged'].includes(p.outcome));
@@ -68,32 +69,27 @@ assert.equal(config.liveBranch, 'converter');
 assert.equal(config.publisherSha, p.publisherSha);
 assert.equal(config.generatorSha, p.generatorSha);
 assert.equal(hash(readFileSync(`${producer}/.publisher/publisher.mjs`)), p.publisherDigest);
-// The legacy engine selects the newest receipt by time in the last receipt month.
-const paths = text(converter, 'ls-tree', '-r', '--name-only', p.commit, '--', '.publish/receipts')
-  .split('\n')
-  .filter((path) => path.endsWith('.json'))
-  .sort();
-const month = paths.at(-1).split('/').slice(0, -1).join('/');
-const newest = paths
-  .filter((path) => path.startsWith(`${month}/`))
-  .map((path) => JSON.parse(git(converter, 'show', `${p.commit}:${path}`)))
-  .reduce((best, receipt) => (receipt.now > best.now ? receipt : best));
-assert.equal(
-  newest.generatorSha,
-  p.generatorSha,
-  'Legacy generator selection differs from publication',
-);
 if (pins) {
   const pin = JSON.parse(readFileSync(`${pins}/pins/latest.json`));
+  const history = text(live, 'log', '--first-parent', '-n', '500', '--format=%H%x00%B%x1e', 'HEAD');
+  const deploy = history.split('\x1e').find((message) => /^Export-Converter: /m.test(message));
+  assert.equal(/^Export-Converter: ([a-f0-9]{40})$/m.exec(deploy)?.[1], pin.converterSha);
+  assert.equal(/^Export-Pin: (\S+)$/m.exec(deploy)?.[1], pin.pinId);
+  assert.equal(deploy.trim().split('\0')[0], pin.liveCommit);
+  assert.deepEqual(JSON.parse(readFileSync(`${pins}/pins/${pin.liveCommit}.json`)), pin);
+  if (pin.converterSha !== p.commit && /^[a-f0-9]{40}$/.test(pin.converterSha)) {
+    try {
+      git(converter, 'merge-base', '--is-ancestor', p.commit, pin.converterSha);
+      console.log('Site output: newer input already built; older pinned input is a green no-op');
+      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'build=false\n');
+      process.exit(0);
+    } catch {
+      /* A missing, older, or unrelated pin is not eligible. */
+    }
+  }
   assert.equal(pin.converterSha, p.commit, 'Site pin differs from publication');
   assert.equal(pin.inputSha256, p.inputSha256);
   assert.equal(pin.engine, p.enginePin);
   assert.equal(pin.generatorSha, p.generatorSha);
-  // A later deployment may not silently replace the pin used by the site builder.
-  const log = text(live, 'log', '--first-parent', '-n', '500', '--format=%H%x00%B%x1e', 'HEAD');
-  const deploy = log.split('\x1e').find((message) => /^Export-Converter: /m.test(message));
-  assert.equal(/^Export-Converter: ([a-f0-9]{40})$/m.exec(deploy)?.[1], p.commit);
-  assert.equal(/^Export-Pin: (\S+)$/m.exec(deploy)?.[1], pin.pinId);
-  assert.equal(deploy.trim().split('\0')[0], pin.liveCommit);
-  assert.deepEqual(JSON.parse(readFileSync(`${pins}/pins/${pin.liveCommit}.json`)), pin);
 }
+if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'build=true\n');

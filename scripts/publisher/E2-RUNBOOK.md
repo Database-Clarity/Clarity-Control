@@ -99,7 +99,9 @@ holds closed until the independently reviewed S1-compatible release candidate is
    to this template's source PIN. For test, keep liveBranch=converter-v2-test. For production,
    explicitly set liveBranch=converter. Run `install.mjs <clone> <config> --plan --target=test`
    and `install.mjs <clone> <production-config> --plan --target=production`, saving both patches.
-   Neither plan contacts GitHub or changes the clone. Check both patches locally with
+   Stdout is only the exact committed-HEAD patch; the status line goes to stderr. Baselines
+   come from Git blobs, independent of working-tree line endings. Template attributes force LF.
+   Neither plan contacts GitHub or changes the clone. Check both patches in a pristine LF checkout with
    `git -c core.autocrlf=false apply --check <patch>`; use --apply-local only in a disposable
    clone to compare the planned bytes. Never run --pipeline-dry-run as an offline rehearsal:
    that mode deliberately pushes the real editor-data-bundle branch.
@@ -107,12 +109,15 @@ holds closed until the independently reviewed S1-compatible release candidate is
    `template/build-outputs.patch` against that baseline; any drift requires a refreshed diff
    and review. The new publication input is optional, so existing legacy:boolean callers work.
    It checks out the publication's immutable converter, RECORD, and generator commits and
-   verifies receipt/input/engine identities before either output build. It refuses a displaced
-   site pin. Test publication never calls it.
+   verifies receipt/input/engine identities before either output build. Each receipt freezes
+   the verifier SHA-256; the privileged job's inline loader checks that digest before execution.
+   Ordinary non-publisher descendants need no publisher handoff. Test publication never calls it.
    Site configs are read from current editor-data under the data-site deployment slot; the
    immutable RECORD proof is checked out separately. Retry retains newer config saves.
    Test installs contain no production reusable-workflow call; the explicit production plan
    alone appends production-job.yml after the G5 workflow input upgrade is installed.
+   The exact reusable patch intentionally converts the baseline workflow's CRLF bytes to LF;
+   retain the original blob alongside the semantic review diff so this conversion is explicit.
 3. G4/G5 operator gate, not execution here: pause intake, drain running pipeline jobs, and
    reconcile pending requests, candidate refs, receipts, RECORDs, and export pins. Verify
    effective no-rewind/no-delete protection on converter and live; the existing publisher
@@ -123,6 +128,12 @@ holds closed until the independently reviewed S1-compatible release candidate is
    The editor-data installer never installs build-outputs.yml on converter. Coordinate Worker
    LIVE_BRANCH=converter with installed .publisher config, verify target/PIN agreement, and
    admit only the reviewed production request. A test-signed request is never retargeted.
+   BEFORE the real installation, obtain owner approval for a hosted dry validation on a
+   non-production branch: a no-op workflow_dispatch exercising queue:max (without publishing
+   or deployment), or GitHub's own workflow validation. All callers adopt the reviewed
+   reusable workflow only after the old groups are drained. This step is not authorized here.
+   actionlint 1.7.12 rejects concurrency.queue. Production plans instead parse YAML and enforce
+   queue:max/cancel-in-progress:false for both groups, refusing unsupported syntax or policy.
 5. Inspect result.json and the `publish` step's production_push/publication outputs. They bind
    the confirmed converter commit, receipt and request blobs, source/RECORD commits, input
    OID/SHA-256, engine PIN/SHA-256, generator SHA, and publisher source/runtime digest.
@@ -131,12 +142,28 @@ holds closed until the independently reviewed S1-compatible release candidate is
    For a failed site job, use Actions **Re-run failed jobs**, retaining the original handoff.
    Confirm all seven outputs, versions, export pin, and site against that immutable identity.
 
+Both legacy-outputs and data-site use GitHub's FIFO waiting queue, capped at 100 pending jobs.
+Human-push legacy callers pin the converter event SHA; publisher callers pin the receipt commit.
+The existing forward-only live CAS and stale-input guard prevent an older input from replacing
+newer output. An old legacy/site arrival logs a green no-op. No custom queue, catch-up dispatch,
+or latest-head substitution is used. FIFO is waiting order, not source-commit order.
+
+G8 queue audit, after each controlled publish batch and whenever cancellation is reported:
+fetch every page of Actions runs for the complete reviewed time window (GitHub API
+`actions/runs?created=...&per_page=100`, `gh api --paginate --slurp`), save the JSON, and run
+`node .publisher/check-queue.mjs <runs.json>`. Incomplete capture or any cancelled run exits
+nonzero with a G8 signal. The 101st pending job can be cancelled: reconcile its original event
+SHA/publication artifact and current output pin, then manually retry that exact input when the
+queue has space. Do not silently rely on another push, and never substitute the current head.
+
 Stop/recover (G8): stop intake and drain/reconcile before restoring approved artifacts.
 Keep receipts, request credits, and append-only export pins. Forward-revert data and workflow
 changes; never reset, force-push, overwrite held refs, or downgrade capability floors. A target
 rollback requires a deliberate `--target=test` plan, matching Worker/config changes, and
 reconciliation of every production-signed request first. Reverting config alone cannot undo
 already-published consumer output; restore it with an owner-approved forward publication.
+When rolling back workflow support, restore the test editor-data plan FIRST (it has no new
+callee inputs), reconcile/drain its output jobs, and only then revert the converter workflow.
 
 ## CPU preview gate (synthetic, no repository I/O)
 

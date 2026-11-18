@@ -3,7 +3,6 @@ import {
   readFileSync,
   writeFileSync,
   mkdirSync,
-  copyFileSync,
   existsSync,
   rmSync,
   readdirSync,
@@ -101,7 +100,7 @@ const installed = {
     .digest('hex'),
   generatorSha: config.generatorSha,
 };
-console.log(
+(mode === '--plan' ? console.error : console.log)(
   `Plan: retire bundle.yml; copy pipeline.yml and pinned .publisher; install public config and installed.json binding in the same commit. ${
     writes
       ? `PUBLISH WRITES ENABLED: the pipeline runs --pipeline-publish and writes ${liveBranch}.`
@@ -121,7 +120,7 @@ const downstream =
     ? '\n' +
       readFileSync(join(template, 'production-job.yml'), 'utf8')
         .trimEnd()
-        .split(/\r?\n/)
+        .split('\n')
         .map((line) => '  ' + line)
         .join('\n') +
       '\n'
@@ -131,15 +130,47 @@ files.set(
   Buffer.from(readFileSync(join(template, '.github/workflows/pipeline.yml'), 'utf8') + downstream),
 );
 files.set('.github/workflows/bundle.yml', null);
+for (const [file, bytes] of files)
+  if (bytes?.includes(13)) throw new Error(`Template must use LF bytes: ${file}`);
+if (plan === 'production') {
+  // actionlint 1.7.12 predates queue:max. Parse YAML with the existing project
+  // parser and validate the exact supported queue policy from GitHub's schema.
+  const reusable = readFileSync(join(template, '.github/workflows/build-outputs.yml'), 'utf8');
+  const { format } = await import('prettier');
+  for (const text of [reusable, files.get('.github/workflows/pipeline.yml').toString('utf8')])
+    await format(text, { parser: 'yaml' });
+  for (const [job, group] of [
+    ['legacy', 'legacy-outputs'],
+    ['site', 'data-site'],
+  ]) {
+    const body = reusable.split(`\n  ${job}:\n`)[1]?.split('\n    steps:')[0];
+    if (
+      !body?.includes(
+        `concurrency:\n      group: ${group}\n      cancel-in-progress: false\n      queue: max`,
+      )
+    )
+      throw new Error(
+        `Unsupported ${group} queue policy; require queue:max and cancel-in-progress:false`,
+      );
+  }
+}
 if (mode === '--plan') {
   const scratch = mkdtempSync(join(tmpdir(), 'publisher-install-plan-'));
   try {
     for (const side of ['a', 'b']) mkdirSync(join(scratch, side));
     for (const [file, bytes] of files) {
-      const current = join(checkout, file);
-      if (existsSync(current)) {
+      let oid;
+      try {
+        oid = git('rev-parse', '--verify', `HEAD:${file}`);
+      } catch {
+        /* New managed file. */
+      }
+      if (oid) {
         mkdirSync(dirname(join(scratch, 'a', file)), { recursive: true });
-        copyFileSync(current, join(scratch, 'a', file));
+        writeFileSync(
+          join(scratch, 'a', file),
+          execFileSync('git', ['-C', checkout, 'cat-file', 'blob', oid], { maxBuffer }),
+        );
       }
       if (bytes !== null) {
         mkdirSync(dirname(join(scratch, 'b', file)), { recursive: true });

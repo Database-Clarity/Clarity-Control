@@ -3,17 +3,21 @@
 ## Cutover handoff plans (G4/G5 preparation only)
 
 `node scripts/publisher/install.mjs <checkout> <config.json> --plan --target=test`
-prints the exact local installation patch. Test is the default, and its config must name
+prints the exact committed-tree installation patch on stdout (status goes to stderr).
+Its baseline is Git HEAD, so LF and CRLF working checkouts produce the same patch.
+Test is the default, and its config must name
 `converter-v2-test`. Production requires `--target=production` and a config naming `converter`.
 Unknown plans, disagreeing config, implicit rollback from production to the default test plan,
 and capability downgrades are refused. `--apply-local` writes the same planned bytes, without
-committing or pushing. Apply displayed patches with `git -c core.autocrlf=false apply` to retain
-the PIN's exact LF bytes on Windows.
+committing or pushing. Review/apply the patch against an LF checkout of that HEAD; use
+--apply-local to prepare files in a Windows checkout. Template attributes require LF bytes.
 
 The serialized pipeline exposes `production_push` and `publication` from its `publish` step.
-`result.json` retains each confirmed LIVE/RECORD pair, its receipt and request blob OIDs,
+One receipt/RECORD identity path handles publication and recovery. `result.json` retains the
+latest confirmed pair, its receipt and request blob OIDs,
 source/record/converter commits, input OID and SHA-256, engine PIN and SHA-256, generator SHA,
-publisher source SHA, and runtime digest. The test branch has no installed consumer engine;
+publisher source SHA, runtime digest, and receipt-bound verifier digest. Jobs check that
+digest before executing the verifier with write/deploy privileges. The test branch has no installed consumer engine;
 its absent engine identity is explicitly null, and it never starts legacy or site jobs.
 Production refuses a missing engine. The final catch-up must succeed before job outputs appear.
 The test plan contains no downstream reusable-workflow call. Only the explicit production
@@ -25,9 +29,12 @@ The prepared replacement is `template/.github/workflows/build-outputs.yml`, and 
 production-baseline diff is `template/build-outputs.patch`. Neither is installed by the
 editor-data installer: G5 separately installs the reusable workflow on converter and verifies
 its baseline before enabling the production plan. Existing callers that supply only `legacy`
-retain their current behavior. Pinned callers check out the exact converter and RECORD commits,
-verify the receipt/input/engine/generator identities before building, and refuse a different
-site pin rather than building a newer head. `verify-publication.mjs` installs with .publisher.
+retain legacy:boolean compatibility. Human-push legacy jobs pin the converter event SHA;
+publisher jobs pin the confirmed receipt commit. Both output groups use queue:max with
+cancellation disabled. Each build uses its exact input; the existing forward-only live CAS
+and stale-deploy guard make older arrivals green no-ops. An older site's receipt also becomes
+a green no-op when a verified newer deployment exists. No latest-head substitution occurs.
+`verify-publication.mjs` installs with .publisher.
 The site reads current `exports/` after acquiring its shared deployment slot; the pinned
 RECORD proof uses a separate checkout. Publication and failed-job retries therefore preserve
 newer config-only deployments while retaining immutable data, engine, and generator inputs.
@@ -35,8 +42,17 @@ newer config-only deployments while retaining immutable data, engine, and genera
 Retry reconciles receipts, RECORDs, and export pins. A crash after RECORD but before job output,
 or a failed legacy build, re-emits the same handoff until the output pin confirms its input,
 engine, and generator. An already-built input, including a receipt-only no-op, skips the call.
+An ordinary human/engine descendant needs no publication handoff and is also a green no-op.
 After a site failure, use Actions **Re-run failed jobs** to retain the original successful
 pipeline outputs and immutable handoff; do not substitute a latest-head build.
+Queue capacity is 100 pending runs per group. G8's complete-window check-queue.mjs audit
+fails visibly for cancelled runs (including overflow); operators reconcile and retry their
+exact pinned inputs. No custom queue or catch-up dispatcher is installed.
+
+Production plans parse YAML and enforce the supported queue policy before producing a diff.
+actionlint 1.7.12 rejects the new queue key; it cannot certify this workflow. The G5 runbook
+requires owner-gated hosted dry validation before installation. The exact reusable patch
+explicitly converts the baseline's CRLF to LF; its full-file line-ending delta is intentional.
 
 G4/G5 remain owner gates: no installation, workflow activation, Worker target switch, native
 or set-bonus hold release, production refresh, deploy, held-ref change, or main merge is granted

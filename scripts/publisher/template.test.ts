@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod';
@@ -42,7 +42,7 @@ it('gates both production jobs on a confirmed handoff and retains existing reusa
   expect(workflow).toContain("ref: ${{ needs.handoff.outputs.record || 'editor-data' }}");
   expect(workflow).toContain("ref: ${{ needs.handoff.outputs.generator || 'v2' }}");
   expect(workflow).toContain(
-    'run: node producer/.publisher/verify-publication.mjs converter producer pins live',
+    'node producer/.publisher/verify-publication.mjs converter producer pins live',
   );
   expect(workflow).toContain("(inputs.publication == '' || needs.legacy.result == 'success')");
 });
@@ -53,6 +53,7 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
   expect(pin).toEqual({
     sourceSha: '7b814bb8fcfc3a0663ac468cf05b4791fed3031f',
     sha256: 'e11800c62321ae9766bd81eafb45b55217a7612d937130af600c8d28bdfc495e',
+    verifierSha256: '',
     capabilities: [
       'elementTags',
       'sandboxPointers',
@@ -456,7 +457,7 @@ describe('install.mjs', () => {
     const result = spawnSync(
       process.execPath,
       [
-        'scripts/publisher/install.mjs',
+        resolve('scripts/publisher/install.mjs'),
         target,
         join(dir, 'config.json'),
         mode,
@@ -500,7 +501,7 @@ describe('install.mjs', () => {
   it('keeps a dry-run install possible and refuses a non-boolean switch', () => {
     const dry = install('.', false);
     expect(dry.status, dry.stderr).toBe(0);
-    expect(dry.stdout).toContain('Publish transport remains dry-run');
+    expect(dry.stderr).toContain('Publish transport remains dry-run');
     expect(existsSync(join(dry.target, '.publisher/installed.json'))).toBe(false);
     const loose = install('.', 'true');
     expect(loose.status).not.toBe(0);
@@ -589,6 +590,52 @@ describe('install.mjs', () => {
     expect(downgrade.status).not.toBe(0);
     expect(downgrade.stderr).toContain('cannot drop installed capability floors');
   });
+  it('produces identical committed-tree plans from LF and CRLF working checkouts', () => {
+    const first = install('.', false, '--plan', ['globalsRelease']);
+    expect(first.status, first.stderr).toBe(0);
+    execFileSync('git', ['-C', first.target, 'config', 'core.autocrlf', 'true']);
+    writeFileSync(join(first.target, '.git/info/attributes'), '* text eol=crlf\n');
+    for (const file of ['README.md', '.github/workflows/bundle.yml'])
+      rmSync(join(first.target, file));
+    execFileSync('git', ['-C', first.target, 'checkout-index', '--all', '--force']);
+    execFileSync('git', ['-C', first.target, 'add', '--renormalize', '.']);
+    execFileSync('git', ['-C', first.target, 'diff', '--cached', '--exit-code']);
+    expect(readFileSync(join(first.target, 'README.md'), 'utf8')).toContain('\r\n');
+    const status = execFileSync('git', ['-C', first.target, 'status', '--porcelain'], {
+      encoding: 'utf8',
+    });
+    expect(status).toBe('');
+    const crlf = spawnSync(
+      process.execPath,
+      [resolve('scripts/publisher/install.mjs'), first.target, first.configPath, '--plan'],
+      { encoding: 'utf8', maxBuffer },
+    );
+    expect(crlf.status, crlf.stderr).toBe(0);
+    expect(crlf.stdout).toBe(first.stdout);
+    expect(crlf.stdout.startsWith('diff --git ')).toBe(true);
+  });
+  it.each(['queue: single', 'cancel-in-progress: true', 'queue: [invalid'])(
+    'refuses unsupported production workflow policy: %s',
+    (replacement) => {
+      const root = mkdtempSync(join(tmpdir(), 'install-policy-'));
+      roots.push(root);
+      cpSync('scripts/publisher/template', join(root, 'scripts/publisher/template'), {
+        recursive: true,
+      });
+      const workflow = join(root, 'scripts/publisher/template/.github/workflows/build-outputs.yml');
+      const original = readFileSync(workflow, 'utf8');
+      writeFileSync(
+        workflow,
+        original.replace(
+          replacement.startsWith('cancel') ? 'cancel-in-progress: false' : 'queue: max',
+          replacement,
+        ),
+      );
+      const result = install(root, false, '--plan', undefined, '--target=production', 'converter');
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).not.toContain('diff --git ');
+    },
+  );
 
   it('refuses publish writes for a build whose baked switch is OFF', () => {
     const root = mkdtempSync(join(tmpdir(), 'install-off-'));

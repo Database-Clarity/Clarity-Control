@@ -1,0 +1,4 @@
+* text eol=lf
+** text eol=lf
+# Exact baseline patches retain removed CRLF bytes; they are not installed code.
+*.patch -text

@@ -24,31 +24,47 @@ const gitAt = (cwd: string, args: string[]) =>
     maxBuffer,
   });
 
-/** All identities come from the confirmed commit's tree, never a later branch head. */
-export function publicationIdentity(
-  repo: LocalRepository,
-  landed: Publisher['publications'][number],
-  publisherDigest: string,
-  requireEngine = true,
-) {
-  const tree = repo.tree(landed.commit);
-  const receiptPath = paths(landed.opId).receipt;
-  const receiptBlob = tree[receiptPath];
-  const receipt = JSON.parse(repo.blob(receiptBlob)) as Receipt;
+/** One identity path for publication and crash recovery: confirmed Git receipts + RECORDs. */
+export function publicationIdentity(repo: LocalRepository, branch = 'converter') {
+  const commit = repo.head('refs/heads/' + branch)!;
+  const added = repo.additions(commit, '.publish/receipts').at(-1);
+  if (!added) return;
+  if (added.commit !== commit) {
+    console.log('Output handoff: non-publisher descendant; no publication handoff needed');
+    return;
+  }
+  const tree = repo.tree(commit);
+  const receipt = JSON.parse(repo.blob(tree[added.path])) as Receipt;
+  const receiptPath = paths(receipt.opId).receipt;
+  if (added.path !== receiptPath) throw new Error('Publication receipt path mismatch');
+  const data = repo.head('refs/heads/editor-data')!;
+  const record = repo.additions(data, paths(receipt.opId).log).at(-1);
+  if (!record) throw new Error('Publication receipt has no confirmed RECORD');
+  const recordTree = repo.tree(record.commit);
+  const log = JSON.parse(repo.blob(recordTree[paths(receipt.opId).log]));
+  if (log.candidateCommit !== commit || !['done', 'unchanged'].includes(log.result?.status))
+    throw new Error('Publication RECORD differs from receipt');
+  const hash = (bytes: string) => createHash('sha256').update(bytes).digest('hex');
   const enginePin = tree['.exports/PIN'] ? repo.blob(tree['.exports/PIN']).trim() : null;
   if (
-    receipt.opId !== landed.opId ||
-    (requireEngine &&
-      (!enginePin || !/^[a-f0-9]{40}$/.test(enginePin) || !tree['.exports/engine.mjs'])) ||
     !/^[a-f0-9]{40}$/.test(receipt.generatorSha) ||
-    !/^[a-f0-9]{64}$/.test(publisherDigest)
+    (branch === 'converter' &&
+      (!enginePin ||
+        !/^[a-f0-9]{40}$/.test(enginePin) ||
+        !tree['.exports/engine.mjs'] ||
+        !receipt.verifierSha256 ||
+        !/^[a-f0-9]{64}$/.test(receipt.verifierSha256) ||
+        !recordTree['.publisher/verify-publication.mjs'] ||
+        hash(repo.blob(recordTree['.publisher/verify-publication.mjs'])) !==
+          receipt.verifierSha256))
   )
     throw new Error('Invalid immutable publication identity');
-  const hash = (bytes: string) => createHash('sha256').update(bytes).digest('hex');
   return {
-    ...landed,
+    opId: receipt.opId,
+    commit,
+    recordCommit: record.commit,
     receiptPath,
-    receiptBlob,
+    receiptBlob: tree[receiptPath],
     sourceCommit: receipt.sourceCommit,
     requestBlob: receipt.requestBlob,
     inputBlob: tree['liveDescriptions.json'],
@@ -57,50 +73,34 @@ export function publicationIdentity(
     engineSha256: tree['.exports/engine.mjs'] ? hash(repo.blob(tree['.exports/engine.mjs'])) : null,
     generatorSha: receipt.generatorSha,
     publisherSha: receipt.publisherSha,
-    publisherDigest,
+    publisherDigest: hash(repo.blob(recordTree['.publisher/publisher.mjs'])),
+    verifierSha256: receipt.verifierSha256 ?? null,
     outcome: receipt.outcome,
   };
 }
 
-/** Recover a missed downstream job from durable receipts/RECORDs and export pins.
- * A successful RECORD must survive a workflow crash before its job outputs exist. */
-export function pendingProductionHandoff(repo: LocalRepository) {
-  const head = repo.head('refs/heads/converter')!;
-  const added = repo.additions(head, '.publish/receipts').at(-1);
-  if (!added) return;
-  if (added.commit !== head)
-    throw new Error('Production target moved beyond its publication receipt');
-  const receipt = JSON.parse(repo.blob(repo.tree(head)[added.path])) as Receipt;
-  const data = repo.head('refs/heads/editor-data')!;
-  const record = repo.additions(data, paths(receipt.opId).log).at(-1);
-  if (!record) throw new Error('Production receipt has no confirmed RECORD');
-  const tree = repo.tree(record.commit);
-  const log = JSON.parse(repo.blob(tree[paths(receipt.opId).log]));
-  if (log.candidateCommit !== head || !['done', 'unchanged'].includes(log.result?.status))
-    throw new Error('Production RECORD differs from receipt');
-  const digest = createHash('sha256')
-    .update(repo.blob(tree['.publisher/publisher.mjs']))
-    .digest('hex');
-  const identity = publicationIdentity(
-    repo,
-    { opId: receipt.opId, commit: head, recordCommit: record.commit },
-    digest,
-  );
-  // Read the snapshot's export-pins without granting RemoteRepository write scope to it.
+function needsOutputs(
+  repo: LocalRepository,
+  identity: NonNullable<ReturnType<typeof publicationIdentity>>,
+) {
+  // Read the snapshot's export pins without granting transport write scope to that branch.
   const refs = repo
     .git(['for-each-ref', '--format=%(objectname)', 'refs/heads/export-pins'])
     .trim();
-  const pinTree = refs ? repo.tree(refs) : {};
-  const pin = pinTree['pins/latest.json']
-    ? JSON.parse(repo.blob(pinTree['pins/latest.json']))
+  const tree = refs ? repo.tree(refs) : {};
+  const pin = tree['pins/latest.json']
+    ? JSON.parse(repo.blob(tree['pins/latest.json']))
     : undefined;
-  if (
-    pin?.inputSha256 === identity.inputSha256 &&
-    pin?.engine === identity.enginePin &&
-    pin?.generatorSha === identity.generatorSha
-  )
-    return;
-  return identity;
+  return (
+    pin?.inputSha256 !== identity.inputSha256 ||
+    pin?.engine !== identity.enginePin ||
+    pin?.generatorSha !== identity.generatorSha
+  );
+}
+
+export function pendingProductionHandoff(repo: LocalRepository) {
+  const identity = publicationIdentity(repo);
+  return identity && needsOutputs(repo, identity) ? identity : undefined;
 }
 
 export function simulationArtifact(repo: LocalRepository, out: string, bases: string[]) {
@@ -140,7 +140,7 @@ export async function runPipeline(
   const temp = mkdtempSync(join(tmpdir(), 'publisher-pipeline-'));
   let failure: unknown;
   const reports: unknown[] = [];
-  const publications: ReturnType<typeof publicationIdentity>[] = [];
+  const publications: NonNullable<ReturnType<typeof publicationIdentity>>[] = [];
   let handoff: ReturnType<typeof pendingProductionHandoff>;
   function snapshot(label: string) {
     // Always latest heads after acquiring the workflow slot, never the event checkout.
@@ -252,21 +252,6 @@ export async function runPipeline(
       await new GlobalsPublisher(publisher).drain();
       if (enabled) publishBundle(initial, options);
       await publisher.run(false);
-      if (enabled && publisher.publications.length) {
-        // Do not hand off a candidate displaced by another writer during the drain.
-        const last = publisher.publications.at(-1)!;
-        if (initial.head(`refs/heads/${config.liveBranch}`) !== last.commit)
-          throw new Error('Publication target moved before handoff');
-        for (const landed of publisher.publications)
-          publications.push(
-            publicationIdentity(
-              initial,
-              landed,
-              config.publisherDigest ?? '',
-              config.liveBranch === 'converter',
-            ),
-          );
-      }
     } catch (e) {
       failure = e;
     }
@@ -278,8 +263,14 @@ export async function runPipeline(
       // Bounded catch-up bundle from real data, never simulated RECORDs.
       const latest = snapshot('catch-up');
       publishBundle(latest, options);
-      if (enabled && config.liveBranch === 'converter' && !failure)
-        handoff = pendingProductionHandoff(latest);
+      if (enabled && !failure) {
+        const identity = publicationIdentity(latest, config.liveBranch);
+        if (identity) {
+          publications.push(identity);
+          if (config.liveBranch === 'converter' && needsOutputs(latest, identity))
+            handoff = identity;
+        }
+      }
     } catch (e) {
       failure ??= e;
     }
@@ -324,11 +315,20 @@ export async function runPipeline(
 export function verifyRuntime(root: string) {
   const pin = JSON.parse(readFileSync(join(root, 'PIN'), 'utf8'));
   if (
+    !/^[0-9a-f]{64}$/.test(pin.verifierSha256) ||
+    createHash('sha256')
+      .update(readFileSync(join(root, 'verify-publication.mjs')))
+      .digest('hex') !== pin.verifierSha256 ||
     !/^[0-9a-f]{40}$/.test(pin.sourceSha) ||
     createHash('sha256')
       .update(readFileSync(join(root, 'publisher.mjs')))
       .digest('hex') !== pin.sha256
   )
     throw new Error('Publisher PIN mismatch');
-  return pin as { sourceSha: string; sha256: string; capabilities?: string[] };
+  return pin as {
+    sourceSha: string;
+    sha256: string;
+    verifierSha256: string;
+    capabilities?: string[];
+  };
 }

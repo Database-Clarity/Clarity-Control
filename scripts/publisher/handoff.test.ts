@@ -25,6 +25,11 @@ function fixture() {
   const blob = (value: unknown) => repo.writeBlob(JSON.stringify(value));
   const opId = '01K95H00000000000000000001';
   const runtime = '// verified fixture runtime\n';
+  const verifier = readFileSync(
+    'scripts/publisher/template/.publisher/verify-publication.mjs',
+    'utf8',
+  );
+  const verifierSha256 = createHash('sha256').update(verifier).digest('hex');
   const publisherSha = 'a'.repeat(40),
     generatorSha = 'b'.repeat(40),
     engine = 'c'.repeat(40);
@@ -33,6 +38,7 @@ function fixture() {
     {
       '.publisher/config.json': blob({ liveBranch: 'converter', publisherSha, generatorSha }),
       '.publisher/publisher.mjs': repo.writeBlob(runtime),
+      '.publisher/verify-publication.mjs': repo.writeBlob(verifier),
     },
     'Install fixture',
   );
@@ -44,6 +50,7 @@ function fixture() {
     publisherSha,
     now: 1,
     outcome: 'published',
+    verifierSha256,
   };
   const commit = repo.commit(
     undefined,
@@ -98,7 +105,7 @@ it('reconciles a completed RECORD after a workflow crash and suppresses only mat
     'Forward restore',
   );
   f.repo.cas('refs/heads/converter', f.commit, later);
-  expect(() => pendingProductionHandoff(f.repo)).toThrow('moved beyond its publication receipt');
+  expect(pendingProductionHandoff(f.repo)).toBeUndefined();
 });
 
 it('verifies the exact site pin and rejects a concurrent deployment or altered promoted pin', () => {
@@ -150,6 +157,31 @@ it('verifies the exact site pin and rejects a concurrent deployment or altered p
       },
     );
   expect(verify).not.toThrow();
+  // Execute the actual workflow's trusted loader before any editor-data code.
+  const workflow = readFileSync(
+    'scripts/publisher/template/.github/workflows/build-outputs.yml',
+    'utf8',
+  );
+  const loader = workflow
+    .split("node --input-type=module <<'NODE'")[2]
+    .split('\n          NODE')[0]
+    .split('\n')
+    .map((line) => (line.startsWith('          ') ? line.slice(10) : line))
+    .join('\n');
+  const loaderFile = join(f.root, 'loader.mjs');
+  writeFileSync(loaderFile, loader);
+  const load = () =>
+    execFileSync(process.execPath, [loaderFile], {
+      cwd: f.root,
+      env: { ...process.env, PUBLICATION: JSON.stringify(identity), PROOF: producer },
+      stdio: 'pipe',
+    });
+  expect(load).not.toThrow();
+  const script = join(producer, '.publisher/verify-publication.mjs');
+  const original = readFileSync(script);
+  writeFileSync(script, '// tampered executable\n');
+  expect(load).toThrow();
+  writeFileSync(script, original);
   writeFileSync(
     join(pins, 'pins', liveCommit + '.json'),
     JSON.stringify({ ...pin, engine: 'd'.repeat(40) }),
@@ -186,6 +218,11 @@ it('publication and failed-job retry retain interleaved config additions, edits,
     const publisherSha = 'a'.repeat(40),
       enginePin = 'c'.repeat(40),
       runtime = '// runtime fixture\n';
+    const verifier = readFileSync(
+      'scripts/publisher/template/.publisher/verify-publication.mjs',
+      'utf8',
+    );
+    const verifierSha256 = hash(verifier);
     const sourceCommit = h.commit('editor-data', {
       '.publisher/config.json': JSON.stringify({
         liveBranch: 'converter',
@@ -193,6 +230,7 @@ it('publication and failed-job retry retain interleaved config additions, edits,
         generatorSha: h.generatorSha,
       }),
       '.publisher/publisher.mjs': runtime,
+      '.publisher/verify-publication.mjs': verifier,
     });
     const opId = '01K95H00000000000000000001',
       receiptPath = paths(opId).receipt;
@@ -204,6 +242,7 @@ it('publication and failed-job retry retain interleaved config additions, edits,
       publisherSha,
       now: 1,
       outcome: 'published',
+      verifierSha256,
     };
     const commit = h.commit('converter', {
       '.exports/PIN': enginePin + '\n',
@@ -237,7 +276,7 @@ it('publication and failed-job retry retain interleaved config additions, edits,
     expect(site).toMatch(/ref: editor-data\n {10}path: editor-data\n {10}sparse-checkout: exports/);
     expect(site).toContain('ref: ${{ needs.handoff.outputs.record }}');
     expect(site).toContain(
-      'run: node producer/.publisher/verify-publication.mjs converter producer pins live',
+      'node producer/.publisher/verify-publication.mjs converter producer pins live',
     );
     const changes: Record<string, string | null>[] = [
       { 'exports/projects/beta.json': JSON.stringify(project('beta')) },
@@ -270,6 +309,23 @@ it('publication and failed-job retry retain interleaved config additions, edits,
       expect(h.served('alpha/index.json')).toEqual(alpha);
       expect(git(producer, ['rev-parse', 'HEAD'])).toBe(recordCommit);
     }
+    // A newer data/config-only site job queued behind an old publication must
+    // survive the old job's green no-op (both groups retain pending jobs).
+    expect(site).toContain('group: data-site\n      cancel-in-progress: false\n      queue: max');
+    h.commit('converter', { 'liveDescriptions.json': h.show(commit, 'liveDescriptions.json')! });
+    expect(h.legacyRun().status).toBe(0);
+    h.commit('editor-data', { 'exports/projects/gamma.json': JSON.stringify(project('gamma')) });
+    const output = join(h.root, 'old-site-output');
+    const older = h.node(
+      resolve('scripts/publisher/template/.publisher/verify-publication.mjs'),
+      [converter, producer, h.checkout('export-pins'), h.checkout('live')],
+      { PUBLICATION: JSON.stringify(identity), GITHUB_OUTPUT: output },
+    );
+    expect(older.status, older.stderr).toBe(0);
+    expect(readFileSync(output, 'utf8')).toContain('build=false');
+    const pendingConfig = h.siteRun();
+    expect(pendingConfig.status, pendingConfig.stderr).toBe(0);
+    expect(h.served('gamma/index.json')).toBeDefined();
   } finally {
     h.cleanup();
     vi.unstubAllEnvs();

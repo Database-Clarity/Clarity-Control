@@ -141,6 +141,7 @@ export interface Receipt {
   now: number;
   publisherSha: string;
   generatorSha: string;
+  verifierSha256?: string;
   outcome: 'published' | 'unchanged';
   entries: Entry[];
   // Frozen rebase inputs: export output and changed set from S, never revalidated on recovery.
@@ -189,6 +190,7 @@ export interface Options {
   publisherSha: string;
   /** Verified running bundle digest, supplied by CLI rather than persisted config. */
   publisherDigest?: string;
+  verifierDigest?: string;
   generatorSha: string;
   aliases: Aliases;
   /**
@@ -219,8 +221,6 @@ export class TextlessConsumerOutput extends ProposalOutputRejected {
   }
 }
 export class Publisher {
-  /** Confirmed LIVE + RECORD pairs from this drain, including crash recovery. */
-  readonly publications: { opId: string; commit: string; recordCommit: string }[] = [];
   private readonly checkedOutputs = new Set<string>();
   constructor(
     readonly git: Repository,
@@ -845,8 +845,6 @@ export class Publisher {
             },
           ]);
         else this.git.cas(dataRef(this.options.dataBranch), h, c);
-        if (receipt && candidate)
-          this.publications.push({ opId, commit: candidate, recordCommit: c });
         return;
       } catch (e) {
         if (!(e instanceof RefRace)) throw e;
@@ -1070,6 +1068,7 @@ export class Publisher {
           now: checked.now,
           publisherSha: this.options.publisherSha,
           generatorSha: this.options.generatorSha,
+          ...(this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {}),
           outcome: 'published',
           entries,
           exported: checked.exported,
@@ -1570,6 +1569,7 @@ export class Publisher {
       now: plan.now,
       publisherSha: this.options.publisherSha,
       generatorSha: this.options.generatorSha,
+      ...(this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {}),
       outcome: 'published',
       entries: plan.entries,
       exported: plan.exported,
