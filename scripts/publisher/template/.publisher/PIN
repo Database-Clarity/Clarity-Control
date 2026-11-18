@@ -1,6 +1,6 @@
 {
-  "sourceSha": "0dc6deb0b62be5ae52c6864d69d14c2beafe1a8e",
-  "sha256": "ffd26a97ee80d8c0a9fc3a37fb2ea621d92d0728409673e6be7ed264843f5ef2",
+  "sourceSha": "bfd0b443c4c740a7259fe1d780c27ec4a711873a",
+  "sha256": "faec89320ff96d7a8ee7ec5f646f7a1865c83092d5efe9835e1c769af020d483",
   "verifierSha256": "d960337b7435cb3a8464f03aa8221476c3bc571da341d683ab4dc3e58a2a304f",
   "capabilities": [
     "elementTags",
@@ -13,6 +13,7 @@
     "numberTokens",
     "aliasGroups",
     "globalsRelease",
+    "globalsExportsV1",
     "scheduledGlobalsV1",
     "schedulePreparationV1",
     "exoticTags"
