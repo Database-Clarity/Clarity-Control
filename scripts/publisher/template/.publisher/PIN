@@ -1,6 +1,7 @@
 {
-  "sourceSha": "7b814bb8fcfc3a0663ac468cf05b4791fed3031f",
-  "sha256": "e11800c62321ae9766bd81eafb45b55217a7612d937130af600c8d28bdfc495e",
+  "sourceSha": "76b653107b86ddb3e7afc32602d821a926d02bcb",
+  "sha256": "ffd26a97ee80d8c0a9fc3a37fb2ea621d92d0728409673e6be7ed264843f5ef2",
+  "verifierSha256": "d960337b7435cb3a8464f03aa8221476c3bc571da341d683ab4dc3e58a2a304f",
   "capabilities": [
     "elementTags",
     "sandboxPointers",

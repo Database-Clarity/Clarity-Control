@@ -32140,8 +32140,6 @@ var Publisher = class _Publisher {
   }
   git;
   options;
-  /** Confirmed LIVE + RECORD pairs from this drain, including crash recovery. */
-  publications = [];
   checkedOutputs = /* @__PURE__ */ new Set();
   head(branch) {
     const h = this.git.head(dataRef(branch));
@@ -32599,8 +32597,6 @@ var Publisher = class _Publisher {
             }
           ]);
         else this.git.cas(dataRef(this.options.dataBranch), h, c);
-        if (receipt && candidate)
-          this.publications.push({ opId, commit: candidate, recordCommit: c });
         return;
       } catch (e) {
         if (!(e instanceof RefRace)) throw e;
@@ -32805,6 +32801,7 @@ var Publisher = class _Publisher {
           now: checked.now,
           publisherSha: this.options.publisherSha,
           generatorSha: this.options.generatorSha,
+          ...this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {},
           outcome: "published",
           entries,
           exported: checked.exported,
@@ -33223,6 +33220,7 @@ var Publisher = class _Publisher {
       now: plan.now,
       publisherSha: this.options.publisherSha,
       generatorSha: this.options.generatorSha,
+      ...this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {},
       outcome: "published",
       entries: plan.entries,
       exported: plan.exported,
@@ -33641,19 +33639,35 @@ var gitAt = (cwd, args) => execFileSync2("git", ["-C", cwd, ...args], {
   timeout: 12e4,
   maxBuffer
 });
-function publicationIdentity(repo, landed, publisherDigest, requireEngine = true) {
-  const tree = repo.tree(landed.commit);
-  const receiptPath = paths2(landed.opId).receipt;
-  const receiptBlob = tree[receiptPath];
-  const receipt = JSON.parse(repo.blob(receiptBlob));
-  const enginePin = tree[".exports/PIN"] ? repo.blob(tree[".exports/PIN"]).trim() : null;
-  if (receipt.opId !== landed.opId || requireEngine && (!enginePin || !/^[a-f0-9]{40}$/.test(enginePin) || !tree[".exports/engine.mjs"]) || !/^[a-f0-9]{40}$/.test(receipt.generatorSha) || !/^[a-f0-9]{64}$/.test(publisherDigest))
-    throw new Error("Invalid immutable publication identity");
+function publicationIdentity(repo, branch = "converter") {
+  const commit2 = repo.head("refs/heads/" + branch);
+  const added = repo.additions(commit2, ".publish/receipts").at(-1);
+  if (!added) return;
+  if (added.commit !== commit2) {
+    console.log("Output handoff: non-publisher descendant; no publication handoff needed");
+    return;
+  }
+  const tree = repo.tree(commit2);
+  const receipt = JSON.parse(repo.blob(tree[added.path]));
+  const receiptPath = paths2(receipt.opId).receipt;
+  if (added.path !== receiptPath) throw new Error("Publication receipt path mismatch");
+  const data = repo.head("refs/heads/editor-data");
+  const record2 = repo.additions(data, paths2(receipt.opId).log).at(-1);
+  if (!record2) throw new Error("Publication receipt has no confirmed RECORD");
+  const recordTree = repo.tree(record2.commit);
+  const log = JSON.parse(repo.blob(recordTree[paths2(receipt.opId).log]));
+  if (log.candidateCommit !== commit2 || !["done", "unchanged"].includes(log.result?.status))
+    throw new Error("Publication RECORD differs from receipt");
   const hash2 = (bytes) => createHash4("sha256").update(bytes).digest("hex");
+  const enginePin = tree[".exports/PIN"] ? repo.blob(tree[".exports/PIN"]).trim() : null;
+  if (!/^[a-f0-9]{40}$/.test(receipt.generatorSha) || branch === "converter" && (!enginePin || !/^[a-f0-9]{40}$/.test(enginePin) || !tree[".exports/engine.mjs"] || !receipt.verifierSha256 || !/^[a-f0-9]{64}$/.test(receipt.verifierSha256) || !recordTree[".publisher/verify-publication.mjs"] || hash2(repo.blob(recordTree[".publisher/verify-publication.mjs"])) !== receipt.verifierSha256))
+    throw new Error("Invalid immutable publication identity");
   return {
-    ...landed,
+    opId: receipt.opId,
+    commit: commit2,
+    recordCommit: record2.commit,
     receiptPath,
-    receiptBlob,
+    receiptBlob: tree[receiptPath],
     sourceCommit: receipt.sourceCommit,
     requestBlob: receipt.requestBlob,
     inputBlob: tree["liveDescriptions.json"],
@@ -33662,36 +33676,16 @@ function publicationIdentity(repo, landed, publisherDigest, requireEngine = true
     engineSha256: tree[".exports/engine.mjs"] ? hash2(repo.blob(tree[".exports/engine.mjs"])) : null,
     generatorSha: receipt.generatorSha,
     publisherSha: receipt.publisherSha,
-    publisherDigest,
+    publisherDigest: hash2(repo.blob(recordTree[".publisher/publisher.mjs"])),
+    verifierSha256: receipt.verifierSha256 ?? null,
     outcome: receipt.outcome
   };
 }
-function pendingProductionHandoff(repo) {
-  const head = repo.head("refs/heads/converter");
-  const added = repo.additions(head, ".publish/receipts").at(-1);
-  if (!added) return;
-  if (added.commit !== head)
-    throw new Error("Production target moved beyond its publication receipt");
-  const receipt = JSON.parse(repo.blob(repo.tree(head)[added.path]));
-  const data = repo.head("refs/heads/editor-data");
-  const record2 = repo.additions(data, paths2(receipt.opId).log).at(-1);
-  if (!record2) throw new Error("Production receipt has no confirmed RECORD");
-  const tree = repo.tree(record2.commit);
-  const log = JSON.parse(repo.blob(tree[paths2(receipt.opId).log]));
-  if (log.candidateCommit !== head || !["done", "unchanged"].includes(log.result?.status))
-    throw new Error("Production RECORD differs from receipt");
-  const digest5 = createHash4("sha256").update(repo.blob(tree[".publisher/publisher.mjs"])).digest("hex");
-  const identity = publicationIdentity(
-    repo,
-    { opId: receipt.opId, commit: head, recordCommit: record2.commit },
-    digest5
-  );
+function needsOutputs(repo, identity) {
   const refs = repo.git(["for-each-ref", "--format=%(objectname)", "refs/heads/export-pins"]).trim();
-  const pinTree = refs ? repo.tree(refs) : {};
-  const pin = pinTree["pins/latest.json"] ? JSON.parse(repo.blob(pinTree["pins/latest.json"])) : void 0;
-  if (pin?.inputSha256 === identity.inputSha256 && pin?.engine === identity.enginePin && pin?.generatorSha === identity.generatorSha)
-    return;
-  return identity;
+  const tree = refs ? repo.tree(refs) : {};
+  const pin = tree["pins/latest.json"] ? JSON.parse(repo.blob(tree["pins/latest.json"])) : void 0;
+  return pin?.inputSha256 !== identity.inputSha256 || pin?.engine !== identity.enginePin || pin?.generatorSha !== identity.generatorSha;
 }
 function simulationArtifact(repo, out, bases) {
   const revisions = ["--branches", "--not", ...bases];
@@ -33799,20 +33793,6 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
       await new GlobalsPublisher(publisher).drain();
       if (enabled) publishBundle(initial, options);
       await publisher.run(false);
-      if (enabled && publisher.publications.length) {
-        const last = publisher.publications.at(-1);
-        if (initial.head(`refs/heads/${config2.liveBranch}`) !== last.commit)
-          throw new Error("Publication target moved before handoff");
-        for (const landed of publisher.publications)
-          publications.push(
-            publicationIdentity(
-              initial,
-              landed,
-              config2.publisherDigest ?? "",
-              config2.liveBranch === "converter"
-            )
-          );
-      }
     } catch (e) {
       failure2 = e;
     }
@@ -33823,8 +33803,14 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
     try {
       const latest = snapshot("catch-up");
       publishBundle(latest, options);
-      if (enabled && config2.liveBranch === "converter" && !failure2)
-        handoff2 = pendingProductionHandoff(latest);
+      if (enabled && !failure2) {
+        const identity = publicationIdentity(latest, config2.liveBranch);
+        if (identity) {
+          publications.push(identity);
+          if (config2.liveBranch === "converter" && needsOutputs(latest, identity))
+            handoff2 = identity;
+        }
+      }
     } catch (e) {
       failure2 ??= e;
     }
@@ -33869,7 +33855,7 @@ publication=${productionPush ? JSON.stringify(handoff2) : ""}
 }
 function verifyRuntime(root) {
   const pin = JSON.parse(readFileSync(join2(root, "PIN"), "utf8"));
-  if (!/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash4("sha256").update(readFileSync(join2(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
+  if (!/^[0-9a-f]{64}$/.test(pin.verifierSha256) || createHash4("sha256").update(readFileSync(join2(root, "verify-publication.mjs"))).digest("hex") !== pin.verifierSha256 || !/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash4("sha256").update(readFileSync(join2(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
     throw new Error("Publisher PIN mismatch");
   return pin;
 }
@@ -33884,7 +33870,7 @@ async function main() {
       throw new Error("Config requires the publisher source PIN and full generator commit");
     await runPipeline(
       source,
-      { ...options, publisherDigest: pin.sha256 },
+      { ...options, publisherDigest: pin.sha256, verifierDigest: pin.verifierSha256 },
       output2,
       flag === "--pipeline-publish"
     );
@@ -33912,6 +33898,7 @@ async function main() {
     const publisher = new Publisher(git, {
       ...options,
       publisherDigest: pin.sha256,
+      verifierDigest: pin.verifierSha256,
       now: Date.now
     });
     let failure2;
