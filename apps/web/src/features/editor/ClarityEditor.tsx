@@ -204,8 +204,6 @@ export interface ClarityEditorProps {
   pending?: boolean;
   requireEnglish?: boolean;
   highlightLine?: number;
-  /** Declaration stepping keeps keyboard focus in the finder. */
-  focusHighlight?: boolean;
   /** Why the text cannot be edited, shown in the status bar. */
   readOnlyReason?: string | null;
   /** The preview column's state, for the status bar (desktop page only). */
@@ -306,7 +304,6 @@ export function ClarityEditor({
   pending = false,
   requireEnglish = true,
   highlightLine,
-  focusHighlight = true,
   readOnlyReason = null,
   preview,
   markupRow = false,
@@ -1038,8 +1035,8 @@ export function ClarityEditor({
       return;
     const line = editor.state.doc.line(highlightLine);
     editor.dispatch({ selection: { anchor: line.from, head: line.to }, scrollIntoView: true });
-    if (focusHighlight) editor.focus();
-  }, [highlightLine, tooltipHash, lang, focusHighlight]);
+    editor.focus();
+  }, [highlightLine, tooltipHash, lang]);
 
   const glyphCount = glyphs.reduce((sum, group) => sum + group.count, 0);
   const retiredCount = diagnostics.retired.length;

@@ -4,8 +4,6 @@ import { AddToWorklist, RemoveFromWorklist } from '../queue/WorklistsMenu';
 import { SkeletonBoundary, useSkeletonVisible } from '../../ui/Skeleton';
 import { loadingWorkspace } from './TooltipLoadingWorkspace';
 import type { ScopedMarkupGlobals } from '../editor/markupScope';
-import { useGlobalDefinition } from '../globals/useGlobals';
-import { GlobalUsages, GlobalUsageCount } from '../globals/GlobalsPage';
 import { archiveCategoryLabel, archivedItemFor } from '../archive/archive';
 import { AttachmentCategoryControl } from './AttachmentCategoryControl';
 import {
@@ -223,17 +221,7 @@ function TooltipPageContent({
       : (hashOverride ?? Number(route.parameter));
   // Keep the workspace context stable while its document is retained. The
   // header leaf subscribes to urgent targets without propagating through it.
-  const globalName = [1, 2, 3].includes(hash) ? route.search.get('global') : null;
-  const identity = useMemo(() => {
-    const identity = previewIdentityFor(hash, data, readOnly);
-    return globalName
-      ? {
-          ...identity,
-          name: globalName,
-          categoryLabel: hash === 2 ? 'Variables' : hash === 3 ? 'Titles' : 'Exports',
-        }
-      : identity;
-  }, [hash, data, readOnly, globalName]);
+  const identity = useMemo(() => previewIdentityFor(hash, data, readOnly), [hash, data, readOnly]);
   return (
     <LivePreviewIdentity.Provider value={identity}>
       <article
@@ -330,11 +318,7 @@ function TooltipWorkspace({
       setSearch(withLanguage(search, next), { state: routeState });
     else setSearch(withLanguage(search, next));
   }
-  const selectedGlobal = useGlobalDefinition(
-    hashOverride ?? Number(parameter),
-    [1, 2, 3].includes(hashOverride ?? Number(parameter)) ? search.get('global') : null,
-  );
-  const highlightLine = selectedGlobal ? selectedGlobal.lines[lang] : Number(search.get('line'));
+  const highlightLine = Number(search.get('line'));
   // Scheduled changes: Current / Upcoming for a member of an open batch (build switch OFF: a
   // constant; nothing renders or is requested).
   // The page edits a base and its versions, so a batch holding any of them counts (base first).
@@ -345,7 +329,7 @@ function TooltipWorkspace({
       : undefined;
   const upcoming = useUpcoming(
     data && !readOnly ? variantHashes(canonicalHash(upcomingTarget, data), data) : [upcomingTarget],
-    !readOnly && !selectedGlobal && upcomingTarget > 3,
+    !readOnly && upcomingTarget > 3,
     batchDestination,
   );
   const batchEditing = upcoming.editing;
@@ -659,7 +643,7 @@ function TooltipWorkspace({
     <PreviewColumn
       hash={hash}
       lang={lang}
-      name={selectedGlobal?.name ?? nameOf(hash)}
+      name={nameOf(hash)}
       piece={baseEntry && previewPiece(baseEntry)}
       pieceIcon={baseEntry && previewPieceIcon(baseEntry)}
       icon={baseEntry?.icon || undefined}
@@ -669,19 +653,7 @@ function TooltipWorkspace({
           : (baseCategory?.label ?? baseEntry?.categoryId)
       }
       archiveIcon={readOnly}
-      baseText={
-        selectedGlobal
-          ? selectedGlobal.definitions[lang] === undefined
-            ? ''
-            : selectedGlobal.kind === 'variables'
-              ? `#${selectedGlobal.name}`
-              : selectedGlobal.kind === 'titles'
-                ? `<title ${selectedGlobal.name} [${selectedGlobal.name}] />`
-                : `import ${selectedGlobal.name} from global`
-          : future
-            ? previewTextOf(hash, future)
-            : value
-      }
+      baseText={future ? previewTextOf(hash, future) : value}
       baseGlobals={globalsFor(hash, futureGlobals)}
       enhanced={previewViews}
       mode={shownMode}
@@ -750,9 +722,7 @@ function TooltipWorkspace({
       }
     : undefined;
   const translation = translationQueue([activeBase], [lang], data.aliases)[0];
-  const compendiumPane = selectedGlobal ? (
-    <GlobalUsages hash={selectedGlobal.hash} name={selectedGlobal.name} />
-  ) : batchEditing ? (
+  const compendiumPane = batchEditing ? (
     // Batch text must never reach Compendium actions that write to Current drafts.
     <SavedCompendiumPane base={activeBase} name={item?.name} />
   ) : readOnly ? null : user?.role !== 'translator' ? (
@@ -769,7 +739,6 @@ function TooltipWorkspace({
   // shares the right pane; it never takes a pane of its own).
   const reportsShown =
     !readOnly &&
-    !selectedGlobal &&
     hash > 3 &&
     seesReports(user) &&
     (reportLanguages(user)?.includes(lang) ?? true) &&
@@ -798,8 +767,7 @@ function TooltipWorkspace({
     <ClarityEditor
       key={batchDestination ? `batch:${batchDestination.batchId}` : 'current'}
       pending={loading}
-      stepping={suspended && !selectedGlobal}
-      focusHighlight={!selectedGlobal}
+      stepping={suspended}
       value={textOf(variant)}
       lang={lang}
       globals={globalsFor(variant, batchEditing ? futureGlobals : typedGlobals)}
@@ -844,7 +812,6 @@ function TooltipWorkspace({
   // An agent-written draft for an empty English tooltip: editors and maintainers only.
   const draftable =
     !readOnly &&
-    !selectedGlobal &&
     !suspended &&
     lang === 'en' &&
     access.reason === null &&
@@ -975,7 +942,6 @@ function TooltipWorkspace({
       )}
       <h1 className={styles.srOnly}>{heading}</h1>
       <VariantWorkspace
-        compendiumLabel={selectedGlobal ? 'Usages' : undefined}
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
         source={
@@ -1036,9 +1002,6 @@ function TooltipWorkspace({
           hosted ? null : (
             <div className={styles.inlinePreview} ref={previewHost}>
               {previews}
-              {selectedGlobal && (
-                <GlobalUsageCount hash={selectedGlobal.hash} name={selectedGlobal.name} />
-              )}
               {rows}
             </div>
           )
@@ -1049,15 +1012,8 @@ function TooltipWorkspace({
       {hosted && (
         <ShellSlot name="left">
           <div className={styles.leftStack}>
-            <div
-              ref={previewHost}
-              className={styles.previewBody}
-              data-global-preview={selectedGlobal ? true : undefined}
-            >
+            <div ref={previewHost} className={styles.previewBody}>
               {previews}
-              {selectedGlobal && (
-                <GlobalUsageCount hash={selectedGlobal.hash} name={selectedGlobal.name} />
-              )}
             </div>
             {rows}
           </div>

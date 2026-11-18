@@ -95,14 +95,6 @@ function WorkspaceRouteLayer() {
   }, [role, ready, loading]);
   return <Layout />;
 }
-const loadGlobalDetailPage = workspacePage(() =>
-  import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalDetailPage })),
-);
-const GlobalDetailPage = () => <AppLazyPage load={loadGlobalDetailPage} />;
-const loadGlobalsPage = workspacePage(() =>
-  import('./features/globals/GlobalsPage').then((module) => ({ default: module.GlobalsPage })),
-);
-const GlobalsPage = () => <AppLazyPage load={loadGlobalsPage} />;
 // Per-entry globals (stable IDs) replace the aggregate list and the /t/1–/t/3 editors only when
 // the build turns the switch on; off, these routes and their chunk do not exist.
 const loadGlobalEntryRoute = () =>
@@ -144,14 +136,7 @@ const globalRoutes: RouteObject[] =
         },
         { path: 'globals/:kind/:name', element: <GlobalNameRoute /> },
       ]
-    : [
-        { path: 'globals', element: <GlobalsPage />, handle: { preload: loadGlobalsPage } },
-        {
-          path: 'globals/:kind/:name',
-          element: <GlobalDetailPage />,
-          handle: { preload: loadGlobalDetailPage },
-        },
-      ];
+    : [];
 
 /**
  * Every route in one place, as plain objects: main.tsx hands them to createHashRouter (a data

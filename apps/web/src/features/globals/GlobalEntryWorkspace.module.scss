@@ -1,7 +1,8 @@
 @use '../../ui/controls';
-@use '../../ui/tabs';
 
+// Loading, sign-in, and empty states, which replace the editor page.
 .workspace,
+.paneBody,
 .action,
 .review,
 .actionMenu {
@@ -19,15 +20,15 @@
   padding: 0.5rem;
   color: var(--text);
   font-size: 0.8125rem;
-  h1,
+}
+.paneBody {
+  padding: 0.5rem;
+  color: var(--text);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
   h2 {
-    margin: 0;
-    font-size: 1rem;
-  }
-  button,
-  select,
-  input {
-    max-width: 100%;
+    margin: 0 0 0.25rem;
+    font-size: 0.8125rem;
   }
   button {
     white-space: nowrap;
@@ -38,97 +39,45 @@
     gap: 0.375rem;
     min-width: 0;
   }
+  button,
   select,
   input {
     min-width: 0;
+    max-width: 100%;
   }
   pre {
+    margin: 0 0 0.5rem;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
 }
-.header,
-.toolbar,
-.syncNotice,
-.consumerHeading,
-.reviewHeader,
-.definitionHeader {
+// One line above the definition (rename, publishing, errors): the editor's own notice style.
+.notice {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
-}
-.header {
-  flex-wrap: wrap;
-  margin-bottom: 0.5rem;
-  h1 {
-    flex: 1 1 12rem;
-    overflow-wrap: anywhere;
-    min-width: 0;
-  }
-  > span {
-    flex-shrink: 0;
-    white-space: nowrap;
-    color: var(--meta);
-  }
-  > button {
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-}
-.toolbar,
-.syncNotice,
-.definitionHeader {
-  flex-wrap: wrap;
-  margin-bottom: 0.5rem;
-}
-.syncNotice p {
-  flex-basis: 100%;
+  gap: 0.25rem 0.5rem;
   margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text2);
+  border-bottom: 1px solid var(--ctl-edge);
   overflow-wrap: anywhere;
+  &[data-tone='warn'] {
+    color: var(--warn);
+    background: var(--warn-bg);
+    border-bottom-color: var(--warn-edge);
+  }
 }
-.syncDestination {
-  margin: 0 0 0.5rem;
-  overflow-wrap: anywhere;
-}
-.selection {
+.toolbar,
+.consumerHeading,
+.reviewHeader {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-.columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 0.5rem;
-}
-.preview,
-.editor,
-.pane {
-  min-width: 0;
-}
-.preview {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
 }
-.editor {
-  overflow: hidden;
-}
-.definitionHeader {
-  > span {
-    color: var(--meta);
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-}
-.paneBody {
-  padding: 0.5rem 0;
-  overflow-wrap: anywhere;
-  h2 {
-    font-size: 0.8125rem;
-  }
+.toolbar {
+  flex-wrap: wrap;
 }
 .translations {
   list-style: none;
@@ -300,63 +249,6 @@
 .added {
   background: var(--ins-bg);
 }
-.phoneNav {
-  display: none;
-}
-@media (max-width: 700px) {
-  .actionMenu button {
-    min-height: max(2.25rem, var(--tap, 2.25rem));
-  }
-  .columns {
-    display: block;
-  }
-  .columns > [data-phone-visible='false'] {
-    display: none;
-  }
-  .workspace {
-    button,
-    select,
-    input {
-      min-height: max(2.25rem, var(--tap, 2.25rem));
-    }
-    .phoneNav {
-      @include tabs.strip;
-      margin-bottom: 0.5rem;
-      button {
-        @include tabs.tab('[aria-pressed="true"]');
-        flex: 1;
-        min-height: max(2.25rem, var(--tap, 2.25rem));
-        padding: 0.375rem;
-      }
-    }
-  }
-  .selection {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .selection label {
-    display: grid;
-    grid-template-columns: 4.5rem minmax(0, 1fr);
-  }
-  .selection select {
-    width: 100%;
-  }
-  .preview {
-    align-items: start;
-    flex-direction: column;
-  }
-}
-.paneTabs {
-  @include tabs.strip;
-  flex: 1;
-  min-width: 0;
-  button {
-    @include tabs.tab('[aria-pressed="true"]');
-    flex: 1;
-    min-width: 0;
-    padding: 0.375rem 0.5rem;
-  }
-}
 .history {
   @include controls.contain-focus-rings;
   list-style: none;
@@ -382,14 +274,16 @@
   color: var(--meta);
   overflow-wrap: break-word;
 }
-.warning {
-  color: var(--warn);
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-edge);
-  padding: 0.5rem;
-}
 .versionCaption {
   margin: 0 0 0.25rem;
   font-size: 0.8125rem;
   color: var(--meta);
+}
+@media (max-width: 700px) {
+  .actionMenu button,
+  .paneBody button,
+  .paneBody select,
+  .paneBody input {
+    min-height: max(2.25rem, var(--tap, 2.25rem));
+  }
 }

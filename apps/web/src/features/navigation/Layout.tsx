@@ -101,8 +101,10 @@ function LayoutContent() {
   const contextual = isCompendium || isReview;
   // The left column is the editor's preview, or the Compendium / Review queue list. A phone has
   // neither: the preview is a view of the page and the lists live in the Find sheet.
-  const hasColumn = !phone && (isEditor || contextual);
-  const previewColumn = hasColumn && isEditor;
+  // A global entry opens in the editor page's own frame: the same preview column and panes.
+  const editorPage = isEditor || isGlobalEntry;
+  const hasColumn = !phone && (editorPage || contextual);
+  const previewColumn = hasColumn && editorPage;
   const itemHash = isEditor ? Number(location.pathname.split('/')[2]) : null;
   const openItem = itemHash !== null && data?.items ? itemFor(itemHash, data) : undefined;
   const pageName =
@@ -153,7 +155,7 @@ function LayoutContent() {
   }, [phone]);
 
   const pane = usePaneDivider({
-    storeKey: isEditor ? 'editor:left' : isCompendium ? 'compendium:list' : 'review:list',
+    storeKey: editorPage ? 'editor:left' : isCompendium ? 'compendium:list' : 'review:list',
     sizes: 'start',
     min: COLUMN_MIN,
     max: COLUMN_MAX,
@@ -259,8 +261,8 @@ function LayoutContent() {
       <div
         id="shell-root"
         ref={layout}
-        data-fixed={!phone && (isEditor || isExportProject) ? '' : undefined}
-        className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview || isTranslations ? styles.reviewMode : ''} ${isEditor ? styles.editorMode : ''}`}
+        data-fixed={!phone && (editorPage || isExportProject) ? '' : undefined}
+        className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview || isTranslations ? styles.reviewMode : ''} ${editorPage ? styles.editorMode : ''}`}
       >
         <a
           className={styles.skipLink}

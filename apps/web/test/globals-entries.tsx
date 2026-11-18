@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { HashRouter } from 'react-router-dom';
+import { HashRouter, useLocation } from 'react-router-dom';
 import { GlobalEntryWorkspace } from '../src/features/globals/GlobalEntryWorkspace';
 import type { GlobalActor, GlobalSyncState } from '../src/services/globals';
 import { createGlobalsFixture, globalFixtureSnapshot } from './globals-entries-fixture';
@@ -60,12 +60,20 @@ const fixture = createGlobalsFixture(
 );
 if (new URLSearchParams(location.search).has('readFailure')) fixture.controls.next = 'retry';
 Object.assign(window, { globalsFixture: fixture.controls });
-createRoot(document.getElementById('root')!).render(
-  <HashRouter>
+/** `#/globals/<id>` picks the entry, as the app route does; any other path opens the first. */
+function Fixture() {
+  const id = /^\/globals\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? '';
+  return (
     <GlobalEntryWorkspace
       service={fixture.service}
       actor={actor}
       projectionSource={fixture.projection}
+      entryId={id}
     />
+  );
+}
+createRoot(document.getElementById('root')!).render(
+  <HashRouter>
+    <Fixture />
   </HashRouter>,
 );

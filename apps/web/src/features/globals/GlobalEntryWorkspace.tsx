@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   Link,
   useLocation,
@@ -9,12 +17,25 @@ import {
 import { globalAggregateHash, languages, type Lang, type MarkupGlobals } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { ClarityEditor } from '../editor/ClarityEditor';
+import { useMarkupRow } from '../editor/markupRow/useMarkupRow';
 import { Popover } from '../../ui/Popover';
-import { RightPane } from '../../ui/RightPane';
+import {
+  RightPane,
+  RightPaneHeader,
+  RightPaneTabsContext,
+  type RightPaneTabs,
+} from '../../ui/RightPane';
+import { PanelRow } from '../../ui/PanelRow';
 import { RenderedWordDiff } from '../history/RenderedWordDiff';
 import { RawDiffToggle } from '../history/RawDiffToggle';
 import { useRawDiff } from '../history/diffPreference';
 import { WordDiff } from '../../ui/diff/WordDiff';
+import { TooltipPreview } from '../preview/TooltipPreview';
+import { ShellSlot } from '../navigation/ShellSlots';
+import { useShellColumn } from '../navigation/ShellColumnContext';
+import { EditorPaneHeader } from '../tooltip/EditorPaneHeader';
+import { VariantWorkspace, useShowEditor } from '../tooltip/VariantWorkspace';
+import page from '../tooltip/TooltipPage.module.scss';
 import {
   canEditGlobal,
   canAcknowledgeGlobal,
@@ -53,10 +74,17 @@ const destinationLabel = (value: string) =>
       : value === 'upcoming'
         ? 'Upcoming'
         : value;
+const kindLabel = (kind: GlobalEntry['kind']) =>
+  kind === 'variables' ? 'Variable' : kind === 'exports' ? 'Export' : 'Title';
 
 /**
- * Mounted at `/globals/:id` (stable ID, `entryId`) behind the globals switch; without `entryId`
- * the selection lives in `?entry=`. No projection source is mounted yet: drafts show saved impact.
+ * `/globals/:id` (stable ID): a global opens in the tooltip editor's own slots. Header finder,
+ * left column preview, the definition in the main editor, and Usages / Translations / History in
+ * the right pane. `entryId` '' opens the first entry. No projection source is mounted yet: drafts
+ * show saved impact.
+ *
+ * Saving stays the global mutation API (one Save in the pane header) until cut-over, when global
+ * drafts are meant to move into the tooltip save pipeline; `run` below is the only write path.
  */
 export function GlobalEntryWorkspace({
   service,
@@ -73,8 +101,7 @@ export function GlobalEntryWorkspace({
   projectionSource?: GlobalProjectionSource;
   /** Saved versions of an entry; the History tab shows only when it is supplied. */
   history?: GlobalHistoryReader;
-  /** Routed mode: the entry comes from the path; '' or undefined opens the first entry. */
-  entryId?: string | null;
+  entryId: string;
   onSnapshot?(snapshot: GlobalSnapshot): void;
 }) {
   const [snapshot, setSnapshot] = useState<GlobalSnapshot>();
@@ -149,15 +176,16 @@ function Workspace({
   actor: GlobalActor;
   globalsByLanguage?: Partial<Record<Lang, MarkupGlobals>>;
   projectionSource?: GlobalProjectionSource;
-  entryId?: string | null;
+  entryId: string;
   history?: GlobalHistoryReader;
   onSnapshot(value: GlobalSnapshot): void;
 }) {
   const [params, setParams] = useSearchParams();
-  const routed = entryId !== undefined;
   const navigateTo = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
+  const column = useShellColumn();
+  const markupRow = useMarkupRow();
   const scrollPositions = useRef(new Map<string, number>());
   const usageList = useRef<HTMLUListElement>(null);
   useLayoutEffect(() => {
@@ -169,10 +197,8 @@ function Workspace({
       if (list) positions.set(location.key, list.scrollTop);
     };
   }, [location.key, navigationType]);
-  const selectedId = routed ? entryId || null : params.get('entry');
   const entries = snapshot.entries.filter((item) => !item.tombstone);
-  const entry =
-    entries.find((item) => item.id === selectedId) ?? (!selectedId ? entries[0] : undefined);
+  const entry = entries.find((item) => item.id === entryId) ?? (!entryId ? entries[0] : undefined);
   const lang = languages.includes(params.get('lang') as Lang)
     ? (params.get('lang') as Lang)
     : actor?.role === 'translator'
@@ -180,21 +206,22 @@ function Workspace({
       : 'en';
   const key = `${entry?.id}:${lang}`;
   const saved = entry?.definitions[lang]?.body ?? '';
-  // Keyed drafts survive Back/Forward, finder stepping between entries, and reload (stored per
-  // account and stable ID); a draft keeps the revision it started from, so staleness survives too.
+  // Keyed drafts survive Back/Forward, finder stepping between entries, language switches, and
+  // reload (stored per account and stable ID); a draft keeps the revision it started from, so
+  // staleness survives too.
   const owner = useAuthStore((state) => state.user?.login) ?? 'signed-out';
   const [drafts, setDrafts] = useState<Record<string, GlobalDraft | null>>({});
   const draftOf = (draftKey: string) =>
     draftKey in drafts ? drafts[draftKey] : readGlobalDraft(owner, draftKey);
-  function setDraft(next: { key: string; body: string }) {
-    const draftKey = next.key || key;
+  /** `null` removes this entry's draft in the open language. */
+  function setDraft(next: string | null) {
     // Typing back to the saved text leaves no draft behind (no phantom stale draft later).
     const value =
-      next.key && !(next.key === key && next.body === saved)
-        ? { body: next.body, revision: draftOf(draftKey)?.revision ?? entry?.revision }
+      next !== null && next !== saved
+        ? { body: next, revision: draftOf(key)?.revision ?? entry?.revision }
         : null;
-    writeGlobalDraft(owner, draftKey, value);
-    setDrafts((previous) => ({ ...previous, [draftKey]: value }));
+    writeGlobalDraft(owner, key, value);
+    setDrafts((previous) => ({ ...previous, [key]: value }));
   }
   const body = draftOf(key)?.body ?? saved;
   const dirty = body !== saved;
@@ -212,12 +239,6 @@ function Workspace({
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const navigationAnchor = useRef<HTMLElement>();
-  const [navigation, setNavigation] = useState<Record<string, string>>();
-  useLayoutEffect(() => {
-    // The select becomes focusable again after the confirmation closes.
-    if (!navigation) navigationAnchor.current?.focus();
-  }, [navigation]);
   const [projected, setProjected] = useState<{
     key: string;
     body: string;
@@ -243,7 +264,6 @@ function Workspace({
   const [reviewed, setReviewed] = useState<string>();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [raw] = useRawDiff();
-  const [phone, setPhone] = useState('editor');
   const query = params.get('q') ?? '';
   const tab = params.get('tab') ?? (actor?.role === 'translator' ? 'translations' : 'usages');
   const shownTab =
@@ -323,39 +343,32 @@ function Workspace({
       savedConsumer.review.dependencyDigest,
       savedConsumer.impactDigest,
     ]);
-  const disabled = pending || actionsOpen || !!navigation || reviewOpen;
+  const disabled = pending || actionsOpen || reviewOpen;
   const editable = canEditGlobal(actor, lang);
   const structural = actor?.role === 'editor' || actor?.role === 'maintainer';
+  /** Changes the view; `entry` moves to another stable-ID path ('' is the first entry). */
   function update(values: Record<string, string>, replace = false) {
-    if (routed && 'entry' in values) {
-      const { entry: id, ...rest } = values;
-      const next = new URLSearchParams(params);
-      for (const [name, value] of Object.entries(rest)) next.set(name, value);
-      const query = next.toString();
-      navigateTo(
-        { pathname: id ? `/globals/${id}` : '/globals', search: query ? `?${query}` : '' },
+    const { entry: id, ...rest } = values;
+    if (id === undefined) {
+      setParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          for (const [name, value] of Object.entries(rest)) next.set(name, value);
+          return next;
+        },
         { replace },
       );
       return;
     }
-    setParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        for (const [name, value] of Object.entries(values)) next.set(name, value);
-        return next;
-      },
+    const next = new URLSearchParams(params);
+    for (const [name, value] of Object.entries(rest)) next.set(name, value);
+    const search = next.toString();
+    navigateTo(
+      { pathname: id ? `/globals/${id}` : '/globals', search: search ? `?${search}` : '' },
       { replace },
     );
   }
-  function navigate(values: Record<string, string>, anchor: HTMLElement) {
-    navigationAnchor.current = anchor;
-    if (disabled) return;
-    if (dirty) setNavigation(values);
-    else {
-      setDraft({ key: '', body: '' });
-      update(values);
-    }
-  }
+  /** The only write path for global definitions (see the component's note). */
   async function run(mutation?: GlobalMutation) {
     if (busy.current) return false;
     busy.current = true;
@@ -368,7 +381,7 @@ function Workspace({
       if (!mounted.current) return false;
       if (result.kind === 'ok') {
         onSnapshot(result.value);
-        setDraft({ key: '', body: '' });
+        setDraft(null);
         setProjected(undefined);
         if (!mutation) setDrafts({});
         setReviewed(undefined);
@@ -472,74 +485,148 @@ function Workspace({
       if (mounted.current && generation === projectionGeneration.current) setProjecting(false);
     }
   }
-  return (
-    <article className={styles.workspace} aria-busy={pending}>
-      <header className={styles.header}>
-        <h1>{entry?.name ?? 'Globals'}</h1>
-        {entry && (
-          <span>
-            {entry.kind === 'variables'
-              ? 'Variable'
-              : entry.kind === 'exports'
-                ? 'Export'
-                : 'Title'}
-          </span>
-        )}
-        {actor && actor.role !== 'translator' && (
-          <GlobalActions
-            open={actionsOpen}
-            disabled={pending || !!navigation || reviewOpen || reviewsMissing}
-            onOpenChange={setActionsOpen}
-            pending={pending}
-            blocked={dirty || !!navigation || reviewOpen}
-            referenced={savedImpacts.length > 0}
-            structural={structural}
-            maintainer={actor.role === 'maintainer'}
-            entry={entry}
-            lang={lang}
-            onSubmit={run}
-          />
-        )}
-      </header>
-      <div className={styles.syncNotice}>
-        {entry && (
-          <strong role="status">
-            {sync.status === 'sync-pending'
-              ? 'Sync pending'
-              : sync.status === 'sync-failed'
-                ? 'Sync failed'
-                : 'Current'}
-          </strong>
-        )}
-        <button disabled={disabled} aria-label="Refresh sync" onClick={() => void refreshSync()}>
-          Refresh
+  const paneTabs = useMemo<RightPaneTabs>(
+    () => ({
+      label: 'Global pane',
+      tabs: paneViews.map(([id, label]) => ({ id, label })),
+      active: shownTab,
+      onSelect: (id) => {
+        if (!disabled) update({ tab: id });
+      },
+    }),
+    // `update` reads the latest params; the labels and the open tab decide the strip.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [paneViews.map(([, label]) => label).join('|'), shownTab, disabled, params],
+  );
+
+  const actions = actor && actor.role !== 'translator' && (
+    <GlobalActions
+      className={page.ghost}
+      open={actionsOpen}
+      disabled={pending || reviewOpen || reviewsMissing}
+      onOpenChange={setActionsOpen}
+      pending={pending}
+      blocked={dirty || reviewOpen}
+      referenced={savedImpacts.length > 0}
+      structural={structural}
+      maintainer={actor.role === 'maintainer'}
+      entry={entry}
+      lang={lang}
+      onSubmit={run}
+    />
+  );
+  if (!entry)
+    return (
+      <article className={`${page.page} ${styles.workspace}`}>
+        <h1 className={page.srOnly}>Globals</h1>
+        <p>
+          {entries.length
+            ? 'Global not found. Choose another entry in the finder.'
+            : 'No globals yet. Create a definition to begin.'}
+        </p>
+        {error && <p role="alert">{error}</p>}
+        {actions}
+      </article>
+    );
+
+  const saveReason = !actor
+    ? 'Sign in to save. Local drafts are available.'
+    : !editable
+      ? 'This language is read-only for your role. Local drafts are available.'
+      : conflict || staleDraft
+        ? 'Reload and discard the draft first.'
+        : undefined;
+  const syncBadge = sync.status !== 'current' && (
+    <span
+      className={page.badge}
+      role="status"
+      title={
+        sync.status === 'sync-failed'
+          ? (sync.lastFailure ?? 'Failure details unavailable.')
+          : undefined
+      }
+    >
+      <span className={page.ell}>
+        {sync.status === 'sync-pending' ? 'Sync pending' : 'Sync failed'}
+      </span>
+      <button
+        type="button"
+        className={page.ghost}
+        disabled={disabled}
+        aria-label="Refresh sync"
+        onClick={() => void refreshSync()}
+      >
+        Refresh
+      </button>
+      {sync.status === 'sync-failed' && (
+        <button
+          type="button"
+          className={page.ghost}
+          disabled={disabled || !actor || !ownCauses.length}
+          title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
+          aria-label="Retry sync"
+          onClick={() => void refreshSync(true)}
+        >
+          Retry
         </button>
-        {entry && sync.status === 'sync-failed' && (
-          <button
-            disabled={disabled || !actor || !ownCauses.length}
-            title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
-            aria-label="Retry sync"
-            onClick={() => void refreshSync(true)}
-          >
-            Retry
-          </button>
-        )}
-        {entry && sync.status === 'sync-failed' && (
-          <p role="alert">{sync.lastFailure ?? 'Failure details unavailable.'}</p>
-        )}
-      </div>
-      {entry &&
-        snapshot.renameIntents?.[entry.id]?.renameCompleted === false &&
+      )}
+    </span>
+  );
+  const header = (
+    <EditorPaneHeader
+      lang={lang}
+      onLanguage={(value) => update({ lang: value, consumer: '' })}
+      draft={dirty}
+      saving={pending}
+      onDiscard={() => {
+        setDraft(null);
+        setProjected(undefined);
+      }}
+      reason={null}
+      onSwitch={() => {}}
+      overrides={[]}
+      activeOverride={undefined}
+      onEditOverride={() => {}}
+      onBack={() => {}}
+      markup={disabled ? undefined : markupRow}
+      destination={syncBadge}
+      draftLoader={
+        <button
+          type="button"
+          className={page.ghost}
+          disabled={disabled || !dirty || !editable || conflict || staleDraft}
+          title={saveReason}
+          onClick={() =>
+            void run({
+              operation: 'edit',
+              id: entry.id,
+              revision: entry.revision,
+              lang,
+              body,
+            })
+          }
+        >
+          {pending ? 'Saving…' : 'Save'}
+        </button>
+      }
+      worklistControl={actions || undefined}
+    />
+  );
+  const notices = (
+    <>
+      {snapshot.renameIntents?.[entry.id]?.renameCompleted === false &&
         (snapshot.renameIntents[entry.id].status === 'not-applied' ? (
-          <p role="alert" className={styles.warning}>
+          <p role="alert" className={styles.notice} data-tone="warn">
             Rename to {snapshot.renameIntents[entry.id].name} not applied. Rename again if it is
             still needed.
           </p>
         ) : (
-          <p role="status">Rename queued; not complete.</p>
+          <p role="status" className={styles.notice}>
+            Rename queued; not complete.
+          </p>
         ))}
       {Object.values(snapshot.destinationSync).some((state) => state.status !== 'current') && (
-        <p role="status" className={styles.syncDestination}>
+        <p role="status" className={styles.notice}>
           Publishing to{' '}
           {Object.entries(snapshot.destinationSync)
             .filter(([, state]) => state.status !== 'current')
@@ -549,497 +636,414 @@ function Workspace({
         </p>
       )}
       {(error || projectionError || staleDraft) && (
-        <div role="alert">
+        <div role="alert" className={styles.notice} data-tone="warn">
           {error || projectionError || 'The saved revision changed while this draft was open.'}
           {(conflict || staleDraft) && (
-            <button disabled={pending} onClick={() => void run()}>
+            <button
+              type="button"
+              className={page.ghost}
+              disabled={pending}
+              onClick={() => void run()}
+            >
               Reload and discard draft
             </button>
           )}
         </div>
       )}
-      <div className={styles.selection}>
-        <label>
-          Entry{' '}
-          <select
-            aria-label="Global entry"
-            disabled={disabled}
-            value={entry?.id ?? ''}
-            onChange={(e) => navigate({ entry: e.target.value, consumer: '' }, e.currentTarget)}
+      {entry.definitions[lang] === undefined && (
+        <p className={styles.notice}>No definition in this language. Saving adds it.</p>
+      )}
+      {entry.kind === 'variables' && body === '' && (
+        <p className={styles.notice}>Explicit empty variable value.</p>
+      )}
+    </>
+  );
+  const editor = (
+    <section
+      aria-label={`${entry.name} editor (${languageLabel(lang)})`}
+      className={page.editorSection}
+    >
+      {notices}
+      <div className={page.editorSlot}>
+        <ClarityEditor
+          key={key}
+          value={body}
+          lang={lang}
+          globals={globalsByLanguage?.[lang] ?? globals}
+          markupRow={markupRow.open}
+          readOnly={disabled}
+          readOnlyReason={disabled ? 'Finish the current action first.' : null}
+          onChange={(value) => {
+            setDraft(value);
+            setReviewed(undefined);
+          }}
+        />
+      </div>
+    </section>
+  );
+  const usageCount = reviewsMissing
+    ? 'Usages: Loading…'
+    : sync.status === 'current'
+      ? `Usages: ${new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips, ${
+          new Set(savedImpacts.map((row) => row.consumer.lang)).size
+        } languages`
+      : sync.status === 'sync-pending'
+        ? 'Usages: Sync pending'
+        : 'Usages: Sync failed';
+  const left = (
+    <>
+      <div className={page.previewBody}>
+        <TooltipPreview
+          text={body}
+          lang={lang}
+          name={entry.name}
+          categoryLabel={kindLabel(entry.kind)}
+          globals={globalsByLanguage?.[lang] ?? globals}
+          fill
+        />
+      </div>
+      <div className={page.rows}>
+        <PanelRow
+          label={usageCount}
+          actions={
+            <button
+              type="button"
+              className={page.ghost}
+              disabled={disabled}
+              aria-label="Show usages"
+              onClick={() => update({ tab: 'usages' })}
+            >
+              Show
+            </button>
+          }
+        />
+        {consumer && (
+          <PanelRow
+            label="Consumer"
+            summary={`${consumer.name} (${languageLabel(consumer.consumer.lang)})`}
           >
-            {!entry && <option value="">Choose an entry</option>}
-            {entries.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} · {item.kind}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Language{' '}
-          <select
-            disabled={disabled}
-            value={lang}
-            onChange={(e) => navigate({ lang: e.target.value, consumer: '' }, e.currentTarget)}
-          >
-            {languages.map((value) => (
-              <option key={value} value={value}>
-                {languageLabel(value)}
-              </option>
-            ))}
-          </select>
-        </label>
-        {navigation && (
-          <Popover
-            label="Discard unsaved definition"
-            anchorElement={navigationAnchor.current}
-            contain
-            open={!!navigation}
-            onOpenChange={(open) => {
-              if (!open) setNavigation(undefined);
-            }}
-          >
-            {(close) => (
-              <>
-                <p>Discard the unsaved definition before changing selection?</p>
-                <button
-                  data-autofocus
-                  onClick={() => {
-                    setNavigation(undefined);
-                    close();
-                  }}
-                >
-                  Cancel
-                </button>{' '}
-                <button
-                  onClick={() => {
-                    if (navigation) {
-                      setDraft({ key: '', body: '' });
-                      update(navigation);
-                      setNavigation(undefined);
-                    }
-                    close();
-                  }}
-                >
-                  Discard and continue
-                </button>
-              </>
-            )}
-          </Popover>
+            <GlobalImpactComparison row={consumer} raw={raw} />
+          </PanelRow>
         )}
       </div>
-      <nav className={styles.phoneNav} aria-label="Global views">
-        {['preview', 'editor', 'usages'].map((view) => (
-          <button
-            key={view}
-            aria-pressed={phone === view}
-            disabled={disabled}
-            onClick={() => setPhone(view)}
-          >
-            {view === 'usages'
-              ? paneViews.find(([value]) => value === shownTab)![1]
-              : view === 'editor'
-                ? 'Editor'
-                : 'Preview'}
-          </button>
-        ))}
-      </nav>
-      {!entry ? (
-        <p>
-          {entries.length
-            ? 'Global not found. Choose another entry.'
-            : 'No globals yet. Create a definition to begin.'}
-        </p>
-      ) : (
-        <div className={styles.columns}>
-          <aside className={styles.preview} data-phone-visible={phone === 'preview'}>
-            <button
-              disabled={disabled}
-              onClick={() => {
-                update({ tab: 'usages' });
-                setPhone('usages');
-              }}
-            >
-              {reviewsMissing ? (
-                'Usages: Loading…'
-              ) : sync.status === 'current' ? (
-                <>
-                  Usages: {new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips,{' '}
-                  {new Set(savedImpacts.map((row) => row.consumer.lang)).size} languages
-                </>
-              ) : sync.status === 'sync-pending' ? (
-                'Usages: Sync pending'
-              ) : (
-                'Usages: Sync failed'
-              )}
-            </button>
-            <Popover label="Definition preview" trigger="Preview definition">
-              <RenderedWordDiff
-                before=""
-                after={body}
-                lang={lang}
-                hash={globalAggregateHash(entry.kind)}
-              />
-            </Popover>
-          </aside>
-          <section
-            className={styles.editor}
-            data-phone-visible={phone === 'editor'}
-            aria-label="Definition editor"
-          >
-            <div className={styles.definitionHeader}>
-              <strong>Definition body</strong>
-              <span>{dirty ? 'Unsaved' : 'Saved'}</span>
-              <span>Revision {entry.revision}</span>
-            </div>
-            <div className={styles.toolbar}>
+    </>
+  );
+  const pane = (
+    <RightPaneTabsContext.Provider value={paneTabs}>
+      <RightPane
+        label="Global usages and translations"
+        header={
+          <RightPaneHeader title={paneViews.find(([id]) => id === shownTab)![1]}>
+            {shownTab === 'usages' && dirty && projectionSource && (
               <button
-                disabled={disabled || !dirty || !editable || conflict || staleDraft}
-                onClick={() =>
-                  void run({
-                    operation: 'edit',
-                    id: entry.id,
-                    revision: entry.revision,
-                    lang,
-                    body,
-                  })
-                }
-              >
-                Save definition
-              </button>
-              <button
-                disabled={disabled || !dirty}
-                onClick={() => {
-                  setDraft({ key: '', body: '' });
-                  setProjected(undefined);
-                }}
-              >
-                Discard draft
-              </button>
-            </div>
-            {entry.definitions[lang] === undefined && (
-              <p>No definition in this language. Saving adds it.</p>
-            )}
-            <ClarityEditor
-              key={key}
-              value={body}
-              lang={lang}
-              globals={globalsByLanguage?.[lang] ?? globals}
-              readOnly={disabled}
-              readOnlyReason={disabled ? 'Finish the current action first.' : null}
-              onChange={(value) => {
-                setDraft({ key, body: value });
-                setReviewed(undefined);
-              }}
-            />
-            {!editable && (
-              <p>
-                {actor
-                  ? 'This language is read-only for your role. Local drafts are available.'
-                  : 'Sign in to save. Local drafts are available.'}
-              </p>
-            )}
-            {projecting && <p role="status">Calculating projected impact… You can keep editing.</p>}
-            {entry.kind === 'variables' && body === '' && <p>Explicit empty variable value.</p>}
-            {dirty && projectionSource && (
-              <button
+                type="button"
+                className={page.ghost}
                 disabled={disabled}
                 onClick={() => (projecting ? cancelProjection() : void project())}
               >
                 {projecting ? 'Cancel calculation' : 'Calculate projected impact'}
               </button>
             )}
-          </section>
-          <section className={styles.pane} data-phone-visible={phone === 'usages'}>
-            <RightPane
-              label="Global usages and translations"
-              header={
-                <div className={styles.paneTabs} role="group" aria-label="Pane view">
-                  {paneViews.map(([value, label]) => (
-                    <button
-                      key={value}
-                      aria-pressed={shownTab === value}
-                      disabled={disabled}
-                      onClick={() => update({ tab: value })}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              }
-            >
-              {tab === 'history' && history ? (
-                <GlobalHistory
-                  reader={history}
-                  entry={entry}
-                  lang={lang}
-                  saved={saved}
-                  canRestore={!disabled && editable && !conflict}
-                  onRestore={(value) => {
-                    setDraft({ key, body: value });
-                    setReviewed(undefined);
-                    setPhone('editor');
-                  }}
-                />
-              ) : tab === 'translations' ? (
-                <div className={styles.paneBody}>
-                  <h2>English source</h2>
-                  <pre>{entry.definitions.en?.body ?? 'No English definition.'}</pre>
-                  {lang !== 'en' &&
-                    (snapshot.sourceBodies?.[entry.id]?.[lang] !== undefined ? (
-                      <Popover label="English source changes" trigger="English source changes">
-                        <RawDiffToggle />
-                        {raw ? (
-                          <WordDiff
-                            before={snapshot.sourceBodies![entry.id][lang]!}
-                            after={entry.definitions.en?.body ?? ''}
-                          />
-                        ) : (
-                          <RenderedWordDiff
-                            before={snapshot.sourceBodies![entry.id][lang]!}
-                            after={entry.definitions.en?.body ?? ''}
-                            lang="en"
-                            hash={globalAggregateHash(entry.kind)}
-                          />
-                        )}
-                      </Popover>
-                    ) : (
-                      <p>Previous English source unavailable.</p>
-                    ))}
-                  <ul className={styles.translations}>
-                    {languages.map((value) => (
-                      <li key={value}>
-                        <button
-                          disabled={disabled}
-                          onClick={(e) => navigate({ lang: value }, e.currentTarget)}
-                        >
-                          {languageLabel(value)}
-                        </button>
-                        <span>
-                          {!entry.definitions[value]
-                            ? 'Missing'
-                            : value === 'en' ||
-                                entry.definitions[value]?.sourceRevision ===
-                                  entry.definitions.en?.revision
-                              ? 'Current'
-                              : 'Needs review'}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+          </RightPaneHeader>
+        }
+      >
+        {shownTab === 'history' && history ? (
+          <HistoryTab
+            reader={history}
+            entry={entry}
+            lang={lang}
+            saved={saved}
+            canRestore={!disabled && editable && !conflict}
+            onRestore={(value) => {
+              setDraft(value);
+              setReviewed(undefined);
+            }}
+          />
+        ) : shownTab === 'translations' ? (
+          <div className={styles.paneBody}>
+            <h2>English source</h2>
+            <pre>{entry.definitions.en?.body ?? 'No English definition.'}</pre>
+            {lang !== 'en' &&
+              (snapshot.sourceBodies?.[entry.id]?.[lang] !== undefined ? (
+                <Popover label="English source changes" trigger="English source changes">
+                  <RawDiffToggle />
+                  {raw ? (
+                    <WordDiff
+                      before={snapshot.sourceBodies![entry.id][lang]!}
+                      after={entry.definitions.en?.body ?? ''}
+                    />
+                  ) : (
+                    <RenderedWordDiff
+                      before={snapshot.sourceBodies![entry.id][lang]!}
+                      after={entry.definitions.en?.body ?? ''}
+                      lang="en"
+                      hash={globalAggregateHash(entry.kind)}
+                    />
+                  )}
+                </Popover>
+              ) : (
+                <p>Previous English source unavailable.</p>
+              ))}
+            <ul className={styles.translations}>
+              {languages.map((value) => (
+                <li key={value}>
+                  <button
+                    disabled={disabled}
+                    aria-current={value === lang || undefined}
+                    onClick={() => update({ lang: value })}
+                  >
+                    {languageLabel(value)}
+                  </button>
+                  <span>
+                    {!entry.definitions[value]
+                      ? 'Missing'
+                      : value === 'en' ||
+                          entry.definitions[value]?.sourceRevision ===
+                            entry.definitions.en?.revision
+                        ? 'Current'
+                        : 'Needs review'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <div className={styles.paneBody}>
+            {scope === 'projected' && (
+              <p className={styles.impactHeading}>Projected impact — unsaved</p>
+            )}
+            {projecting && <p role="status">Calculating projected impact… You can keep editing.</p>}
+            {reviewsMissing &&
+              !projectedScope &&
+              (reviewError ? (
+                <div role="alert">
+                  <p>{reviewError}</p>
+                  <button onClick={() => setReviewReload((value) => value + 1)}>
+                    Retry reviews
+                  </button>
                 </div>
               ) : (
-                <div className={styles.paneBody}>
-                  {scope === 'projected' && (
-                    <p className={styles.impactHeading}>Projected impact — unsaved</p>
-                  )}
-                  {reviewsMissing &&
-                    !projectedScope &&
-                    (reviewError ? (
-                      <div role="alert">
-                        <p>{reviewError}</p>
-                        <button onClick={() => setReviewReload((value) => value + 1)}>
-                          Retry reviews
-                        </button>
-                      </div>
-                    ) : (
-                      <p role="status">Loading reviews…</p>
+                <p role="status">Loading reviews…</p>
+              ))}
+            {projectedScope && !projection && (
+              <p>
+                Calculate projected impact to inspect this draft. Saved reviews remain separate.
+              </p>
+            )}
+            {projectedScope && (
+              <p>
+                {reviewsMissing
+                  ? 'Saved impact: Loading…'
+                  : sync.status === 'current'
+                    ? `Saved impact: ${savedImpacts.length} consumers.`
+                    : 'Saved usages will update when sync finishes.'}
+              </p>
+            )}
+            <label className={styles.search}>
+              Filter consumers{' '}
+              <input
+                type="search"
+                disabled={disabled}
+                value={query}
+                onChange={(e) => update({ q: e.target.value }, true)}
+              />
+            </label>
+            <div className={styles.filters}>
+              {[
+                {
+                  key: 'category',
+                  label: 'Category',
+                  values: [...new Set(consumers.map((row) => row.category))],
+                },
+                {
+                  key: 'usageLang',
+                  label: 'Language',
+                  values: [...new Set(consumers.map((row) => row.consumer.lang))],
+                },
+                {
+                  key: 'review',
+                  label: 'Review',
+                  values: ['required', 'acknowledged', 'stale'],
+                },
+              ].map((filter) => (
+                <label key={filter.key}>
+                  {filter.label}
+                  <select
+                    disabled={disabled}
+                    value={params.get(filter.key) ?? ''}
+                    onChange={(e) => update({ [filter.key]: e.target.value })}
+                  >
+                    <option value="">All</option>
+                    {filter.values.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
                     ))}
-                  {projectedScope && !projection && (
-                    <p>
-                      Calculate projected impact to inspect this draft. Saved reviews remain
-                      separate.
-                    </p>
-                  )}
-                  {projectedScope && (
-                    <p>
-                      {reviewsMissing
-                        ? 'Saved impact: Loading…'
-                        : sync.status === 'current'
-                          ? `Saved impact: ${savedImpacts.length} consumers.`
-                          : 'Saved usages will update when sync finishes.'}
-                    </p>
-                  )}
-                  <label className={styles.search}>
-                    Filter consumers{' '}
-                    <input
-                      type="search"
+                  </select>
+                </label>
+              ))}
+            </div>
+            {!shown.length && (!reviewsMissing || projectedScope) && (
+              <p>
+                {query
+                  ? 'No matching consumers. Clear the filter to restore them.'
+                  : projectedScope && !projection
+                    ? 'Projected usages have not been calculated.'
+                    : !projectedScope && sync.status !== 'current'
+                      ? 'Saved usages will update when sync finishes.'
+                      : 'No affected consumers.'}
+              </p>
+            )}
+            <ul ref={usageList} className={styles.consumers}>
+              {shown.map((row) => (
+                <li
+                  key={row.id}
+                  data-global-consumer={row.id}
+                  data-selected={consumer?.id === row.id}
+                >
+                  <div className={styles.consumerHeading}>
+                    <button
+                      className={styles.consumerSelect}
                       disabled={disabled}
-                      value={query}
-                      onChange={(e) => update({ q: e.target.value }, true)}
-                    />
-                  </label>
-                  <div className={styles.filters}>
-                    {[
-                      {
-                        key: 'category',
-                        label: 'Category',
-                        values: [...new Set(consumers.map((row) => row.category))],
-                      },
-                      {
-                        key: 'usageLang',
-                        label: 'Language',
-                        values: [...new Set(consumers.map((row) => row.consumer.lang))],
-                      },
-                      {
-                        key: 'review',
-                        label: 'Review',
-                        values: ['required', 'acknowledged', 'stale'],
-                      },
-                    ].map((filter) => (
-                      <label key={filter.key}>
-                        {filter.label}
-                        <select
-                          disabled={disabled}
-                          value={params.get(filter.key) ?? ''}
-                          onChange={(e) => update({ [filter.key]: e.target.value })}
+                      aria-pressed={consumer?.id === row.id}
+                      onClick={() => update({ consumer: row.id })}
+                    >
+                      {row.name} ({languageLabel(row.consumer.lang)})
+                    </button>
+                    <Popover
+                      label="Review consumer impact"
+                      trigger="Review"
+                      triggerLabel={`Review ${row.name}`}
+                      contain
+                      open={reviewOpen && consumer?.id === row.id}
+                      onOpenChange={(open) => {
+                        if (pending || actionsOpen) return;
+                        if (open) update({ consumer: row.id }, true);
+                        setReviewOpen(open);
+                        setReviewed(undefined);
+                      }}
+                    >
+                      <div className={styles.review}>
+                        <div className={styles.reviewHeader}>
+                          <strong>
+                            {row.name} ({destinationLabel(row.consumer.destination)})
+                          </strong>
+                          <RawDiffToggle />
+                        </div>
+                        <GlobalImpactComparison row={row} raw={raw} />
+                        <label>
+                          <input
+                            type="checkbox"
+                            disabled={!canAcknowledge || pending || raw}
+                            checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
+                            onChange={(e) => setReviewed(e.target.checked ? reviewKey : undefined)}
+                          />
+                          I reviewed both renders; no tooltip change needed.
+                        </label>
+                        <button
+                          disabled={
+                            dirty ||
+                            pending ||
+                            actionsOpen ||
+                            conflict ||
+                            raw ||
+                            reviewed !== reviewKey ||
+                            !canReviewGlobal(actor, row.consumer.lang) ||
+                            !canAcknowledge
+                          }
+                          onClick={() =>
+                            savedConsumer &&
+                            canAcknowledge &&
+                            void run({
+                              operation: 'acknowledge',
+                              id: entry.id,
+                              consumerId: row.id,
+                              contentDigest: savedConsumer.review.contentDigest,
+                              impactDigest: savedConsumer.impactDigest,
+                              dependencyDigest: savedConsumer.review.dependencyDigest,
+                              decision: 'no-text-change',
+                            })
+                          }
                         >
-                          <option value="">All</option>
-                          {filter.values.map((value) => (
-                            <option key={value} value={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ))}
+                          Acknowledge review
+                        </button>
+                        {dirty ? (
+                          <p>Save this definition before acknowledging impact.</p>
+                        ) : (
+                          !canAcknowledge && (
+                            <p>
+                              Only current, fully synced reviews can be acknowledged. Refresh after
+                              sync finishes.
+                            </p>
+                          )
+                        )}
+                      </div>
+                    </Popover>
                   </div>
-                  {!shown.length && (!reviewsMissing || projectedScope) && (
-                    <p>
-                      {query
-                        ? 'No matching consumers. Clear the filter to restore them.'
-                        : projectedScope && !projection
-                          ? 'Projected usages have not been calculated.'
-                          : !projectedScope && sync.status !== 'current'
-                            ? 'Saved usages will update when sync finishes.'
-                            : 'No affected consumers.'}
-                    </p>
-                  )}
-                  <ul ref={usageList} className={styles.consumers}>
-                    {shown.map((row) => (
-                      <li
-                        key={row.id}
-                        data-global-consumer={row.id}
-                        data-selected={consumer?.id === row.id}
-                      >
-                        <div className={styles.consumerHeading}>
-                          <button
-                            className={styles.consumerSelect}
-                            disabled={disabled}
-                            aria-pressed={consumer?.id === row.id}
-                            onClick={() => update({ consumer: row.id })}
-                          >
-                            {row.name} ({languageLabel(row.consumer.lang)})
-                          </button>
-                          <Popover
-                            label="Review consumer impact"
-                            trigger="Review"
-                            triggerLabel={`Review ${row.name}`}
-                            contain
-                            open={reviewOpen && consumer?.id === row.id}
-                            onOpenChange={(open) => {
-                              if (pending || actionsOpen || navigation) return;
-                              if (open) update({ consumer: row.id }, true);
-                              setReviewOpen(open);
-                              setReviewed(undefined);
-                            }}
-                          >
-                            <div className={styles.review}>
-                              <div className={styles.reviewHeader}>
-                                <strong>
-                                  {row.name} ({destinationLabel(row.consumer.destination)})
-                                </strong>
-                                <RawDiffToggle />
-                              </div>
-                              <GlobalImpactComparison row={row} raw={raw} />
-                              <label>
-                                <input
-                                  type="checkbox"
-                                  disabled={!canAcknowledge || pending || raw}
-                                  checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
-                                  onChange={(e) =>
-                                    setReviewed(e.target.checked ? reviewKey : undefined)
-                                  }
-                                />
-                                I reviewed both renders; no tooltip change needed.
-                              </label>
-                              <button
-                                disabled={
-                                  dirty ||
-                                  pending ||
-                                  actionsOpen ||
-                                  !!navigation ||
-                                  conflict ||
-                                  raw ||
-                                  reviewed !== reviewKey ||
-                                  !canReviewGlobal(actor, row.consumer.lang) ||
-                                  !canAcknowledge
-                                }
-                                onClick={() =>
-                                  savedConsumer &&
-                                  canAcknowledge &&
-                                  void run({
-                                    operation: 'acknowledge',
-                                    id: entry.id,
-                                    consumerId: row.id,
-                                    contentDigest: savedConsumer.review.contentDigest,
-                                    impactDigest: savedConsumer.impactDigest,
-                                    dependencyDigest: savedConsumer.review.dependencyDigest,
-                                    decision: 'no-text-change',
-                                  })
-                                }
-                              >
-                                Acknowledge review
-                              </button>
-                              {dirty ? (
-                                <p>Save this definition before acknowledging impact.</p>
-                              ) : (
-                                !canAcknowledge && (
-                                  <p>
-                                    Only current, fully synced reviews can be acknowledged. Refresh
-                                    after sync finishes.
-                                  </p>
-                                )
-                              )}
-                            </div>
-                          </Popover>
-                        </div>
-                        <div className={styles.consumerMeta}>
-                          <span>
-                            {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
-                            {reviewState(row)}, {destinationLabel(row.consumer.destination)}
-                            {row.archived ? ', archived' : ''}
-                          </span>
-                          <span>
-                            {row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}
-                          </span>
-                          <span>
-                            {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
-                          </span>
-                          <Link
-                            tabIndex={disabled ? -1 : undefined}
-                            onClick={(e) => {
-                              if (disabled || dirty) e.preventDefault();
-                            }}
-                            to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
-                          >
-                            {row.line === null ? 'Open consumer' : `Open line ${row.line}`}
-                          </Link>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </RightPane>
-          </section>
-        </div>
+                  <div className={styles.consumerMeta}>
+                    <span>
+                      {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
+                      {reviewState(row)}, {destinationLabel(row.consumer.destination)}
+                      {row.archived ? ', archived' : ''}
+                    </span>
+                    <span>{row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}</span>
+                    <span>
+                      {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
+                    </span>
+                    <Link
+                      tabIndex={disabled ? -1 : undefined}
+                      onClick={(e) => {
+                        if (disabled || dirty) e.preventDefault();
+                      }}
+                      to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
+                    >
+                      {row.line === null ? 'Open consumer' : `Open line ${row.line}`}
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </RightPane>
+    </RightPaneTabsContext.Provider>
+  );
+
+  return (
+    <article className={page.page} aria-busy={pending || undefined}>
+      <h1 className={page.srOnly}>{entry.name}</h1>
+      <VariantWorkspace
+        header={header}
+        editor={editor}
+        preview={column ? null : <div className={page.inlinePreview}>{left}</div>}
+        compendium={pane}
+        compendiumLabel={paneViews.find(([id]) => id === shownTab)![1]}
+      />
+      {column && (
+        <ShellSlot name="left">
+          <div className={page.leftStack}>{left}</div>
+        </ShellSlot>
       )}
     </article>
   );
 }
 
+/** History in the right pane; a restore shows the editor where it is a separate view (phones). */
+function HistoryTab(props: Parameters<typeof GlobalHistory>[0]) {
+  const showEditor = useShowEditor();
+  return (
+    <GlobalHistory
+      {...props}
+      onRestore={(value) => {
+        props.onRestore(value);
+        showEditor();
+      }}
+    />
+  );
+}
+
 function GlobalActions({
+  className,
   open,
   disabled,
   onOpenChange,
@@ -1052,6 +1056,7 @@ function GlobalActions({
   lang,
   onSubmit,
 }: {
+  className?: string;
   open: boolean;
   disabled: boolean;
   onOpenChange(value: boolean): void;
@@ -1063,7 +1068,7 @@ function GlobalActions({
   entry?: GlobalEntry;
   lang: Lang;
   onSubmit(mutation: GlobalMutation): Promise<boolean>;
-}) {
+}): ReactNode {
   const [action, setAction] = useState<Action>();
   const cancel = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
@@ -1086,6 +1091,7 @@ function GlobalActions({
     <Popover
       label={label}
       trigger="Actions"
+      className={className}
       contain
       width={360}
       open={open}

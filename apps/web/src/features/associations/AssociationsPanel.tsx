@@ -8,7 +8,6 @@ import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { canEditTooltipFields } from '../auth/permissions';
 import { canonicalHash, itemFor, tooltipFor } from '../navigation/catalog';
-import { GlobalUsageSummary } from '../globals/GlobalsPage';
 import { associationCandidates, moveAssociation } from './associations';
 import { PanelRow } from '../../ui/PanelRow';
 import styles from './AssociationsPanel.module.scss';
@@ -81,7 +80,6 @@ export function AssociationsPanel({
           )
         }
       >
-        {(hash === 2 || hash === 3) && <GlobalUsageSummary hash={hash} />}
         <p className={styles.hint}>Shown in this order as expandable entries in the preview.</p>
         {!tooltip.associated.length && <p>No associated tooltips.</p>}
         <ol className={styles.selected}>

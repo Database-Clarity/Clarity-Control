@@ -108,13 +108,14 @@ async function mount(at: string, globals: GlobalsService, history?: GlobalHistor
 it('opens the entry named by the stable-ID path and keeps selection in the path', async () => {
   await mount('/globals/g_title00001', service());
   expect(host.querySelector('h1')!.textContent).toBe('Reload');
-  const select = host.querySelector<HTMLSelectElement>('select[aria-label="Global entry"]')!;
+  // The finder picks entries; the pane header's language select keeps the entry in the path.
+  const select = host.querySelector<HTMLSelectElement>('select[aria-label="Language"]')!;
   await act(async () => {
-    select.value = 'g_damage0001';
+    select.value = 'de';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  expect(path).toBe('/globals/g_damage0001?consumer=');
-  expect(host.querySelector('h1')!.textContent).toBe('Damage');
+  expect(path).toBe('/globals/g_title00001?lang=de&consumer=');
+  expect(host.querySelector('h1')!.textContent).toBe('Reload');
 });
 
 it('opens an export body at hash 1 and preserves its draft through typing and discard', async () => {
@@ -132,8 +133,8 @@ it('opens an export body at hash 1 and preserves its draft through typing and di
   expect(host.textContent).toContain('Export');
   expect(host.querySelector('textarea')!.value).toBe(entry.definitions.en!.body);
   await act(async () => change('New export body'));
-  expect(host.textContent).toContain('Unsaved');
-  await act(async () => button('Discard draft').click());
+  expect(host.querySelector('[aria-label="Unsaved draft"]')).not.toBeNull();
+  await act(async () => button('Discard').click());
   expect(host.querySelector('textarea')!.value).toBe(entry.definitions.en!.body);
   await act(async () => button('Actions').click());
   await act(async () => button('Create global').click());
@@ -174,13 +175,13 @@ it('renders the definition while only the opened entry reviews wait, fail, and r
 it('keeps an unsaved definition across a remount (reload) and marks it stale after a new revision', async () => {
   await mount('/globals/g_damage0001', service());
   await act(async () => change('LOCAL 20%'));
-  expect(host.textContent).toContain('Unsaved');
+  expect(host.querySelector('[aria-label="Unsaved draft"]')).not.toBeNull();
   await act(async () => root!.unmount());
   host.remove();
   await mount('/globals/g_damage0001', service());
   expect(host.querySelector('textarea')!.value).toBe('LOCAL 20%');
-  expect(host.textContent).toContain('Unsaved');
-  expect(button('Save definition').disabled).toBe(false);
+  expect(host.querySelector('[aria-label="Unsaved draft"]')).not.toBeNull();
+  expect(button('Save').disabled).toBe(false);
 
   await act(async () => root!.unmount());
   host.remove();
@@ -190,8 +191,8 @@ it('keeps an unsaved definition across a remount (reload) and marks it stale aft
   await mount('/globals/g_damage0001', service(moved));
   expect(host.querySelector('textarea')!.value).toBe('LOCAL 20%');
   expect(host.textContent).toContain('saved revision changed');
-  expect(button('Save definition').disabled).toBe(true);
-  await act(async () => button('Discard draft').click());
+  expect(button('Save').disabled).toBe(true);
+  await act(async () => button('Discard').click());
   expect(host.querySelector('textarea')!.value).toBe('15%');
   expect(stored.size).toBe(0);
 });
@@ -202,7 +203,7 @@ it('typing back to the saved text leaves no stored draft', async () => {
   expect(stored.size).toBe(1);
   await act(async () => change('15%'));
   expect(stored.size).toBe(0);
-  expect(host.textContent).toContain('Saved');
+  expect(host.querySelector('[aria-label="Unsaved draft"]')).toBeNull();
 });
 
 it('keeps edits in memory and warns when device draft storage fails, then clears the warning on recovery', async () => {
@@ -213,7 +214,7 @@ it('keeps edits in memory and warns when device draft storage fails, then clears
   await act(async () => change('20%'));
   expect(host.querySelector('textarea')!.value).toBe('20%');
   expect(useGlobalDraftStorage.getState().failed).toBe(true);
-  expect(button('Save definition').disabled).toBe(false);
+  expect(button('Save').disabled).toBe(false);
   write.mockRestore();
   await act(async () => change('25%'));
   expect(useGlobalDraftStorage.getState().failed).toBe(false);
@@ -260,11 +261,15 @@ it('restores an older version into the draft; saving stays an ordinary edit', as
   expect(reader.history).toHaveBeenCalledWith('g_damage0001', 1);
   expect(host.textContent).toContain('Save global entry with Sync pending cause, someone');
   expect(host.textContent).not.toContain('Older versions');
-  await act(async () => button('Compare').click());
+  // The preview column has its own (disabled) Compare view; this is the history entry's.
+  const compare = [
+    ...document.querySelectorAll('[aria-label="Global usages and translations"] button'),
+  ].find((node) => node.textContent === 'Compare') as HTMLButtonElement;
+  await act(async () => compare.click());
   expect(reader.historyVersion).toHaveBeenCalledWith('g_damage0001', 'c'.repeat(40));
   await act(async () => button('Restore into draft').click());
   expect(host.querySelector('textarea')!.value).toBe('10%');
-  expect(host.textContent).toContain('Unsaved');
+  expect(host.querySelector('[aria-label="Unsaved draft"]')).not.toBeNull();
   expect(globals.mutate).not.toHaveBeenCalled();
 });
 
@@ -272,7 +277,7 @@ it('shows saved impact, not a projection panel, while a draft is open', async ()
   await mount('/globals/g_damage0001', service());
   await act(async () => change('20%'));
   expect(host.textContent).not.toContain('Calculate projected impact');
-  expect(host.querySelector('[aria-label="Pane view"] [aria-pressed="true"]')!.textContent).toBe(
+  expect(host.querySelector('[aria-label="Global pane"] [aria-selected="true"]')!.textContent).toBe(
     'Usages',
   );
   expect(host.querySelectorAll('[data-global-consumer]').length).toBe(2);

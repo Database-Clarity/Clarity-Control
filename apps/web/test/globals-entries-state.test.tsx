@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { parseMarkup } from '@clarity/core';
 import { GlobalEntryWorkspace } from '../src/features/globals/GlobalEntryWorkspace';
 import {
@@ -24,7 +24,17 @@ vi.mock('../src/features/editor/ClarityEditor', () => ({
 
 let root: Root | undefined;
 let host: HTMLDivElement;
+const stored = new Map<string, string>();
+beforeEach(() => {
+  stored.clear();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
+});
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await act(async () => root?.unmount());
   root = undefined;
   host?.remove();
@@ -57,13 +67,17 @@ async function mount(service: GlobalsService) {
   await act(async () =>
     root!.render(
       <MemoryRouter>
-        <GlobalEntryWorkspace service={service} actor={{ role: 'maintainer', languages: [] }} />
+        <GlobalEntryWorkspace
+          service={service}
+          actor={{ role: 'maintainer', languages: [] }}
+          entryId=""
+        />
       </MemoryRouter>,
     ),
   );
 }
 
-it.each(['Discard draft', 'Reload and discard draft'])(
+it.each(['Discard', 'Reload and discard draft'])(
   'keeps further typing on a stale draft blocked until explicit %s',
   async (resolution) => {
     const first = structuredClone(globalFixtureSnapshot);
@@ -74,25 +88,28 @@ it.each(['Discard draft', 'Reload and discard draft'])(
     const service = mockService(first, latest);
     await mount(service);
     await act(async () => change('LOCAL DRAFT'));
-    await act(async () => button('Refresh').click());
+    // Reopening the page reads the newer revision; the kept draft is now stale.
+    await act(async () => root!.unmount());
+    host.remove();
+    await mount(service);
     await act(async () => change('LOCAL DRAFT plus one key'));
     expect(host.querySelector('textarea')!.value).toBe('LOCAL DRAFT plus one key');
     expect(host.textContent).toContain('saved revision changed');
-    expect(button('Save definition').disabled).toBe(true);
-    await act(async () => button('Save definition').click());
+    expect(button('Save').disabled).toBe(true);
+    await act(async () => button('Save').click());
     expect(service.mutate).not.toHaveBeenCalled();
 
     await act(async () => button(resolution).click());
     expect(host.querySelector('textarea')!.value).toBe('REMOTE BODY');
     expect(host.textContent).not.toContain('saved revision changed');
     await act(async () => change('FRESH LOCAL'));
-    expect(button('Save definition').disabled).toBe(false);
+    expect(button('Save').disabled).toBe(false);
     const committed = structuredClone(latest);
     committed.head = 'b'.repeat(40);
     committed.entries[0].revision = 'r3';
     committed.entries[0].definitions.en!.body = 'FRESH LOCAL';
     service.mutate.mockResolvedValueOnce({ kind: 'ok', value: committed });
-    await act(async () => button('Save definition').click());
+    await act(async () => button('Save').click());
     expect(service.mutate).toHaveBeenLastCalledWith({
       expectedHead: latest.head,
       mutation: {
@@ -104,8 +121,8 @@ it.each(['Discard draft', 'Reload and discard draft'])(
       },
     });
     await act(async () => change('FRESH LOCAL plus one key'));
-    expect(button('Save definition').disabled).toBe(false);
-    await act(async () => button('Save definition').click());
+    expect(button('Save').disabled).toBe(false);
+    await act(async () => button('Save').click());
     expect(service.mutate).toHaveBeenLastCalledWith({
       expectedHead: committed.head,
       mutation: {
