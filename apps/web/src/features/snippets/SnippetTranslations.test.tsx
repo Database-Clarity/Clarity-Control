@@ -81,7 +81,7 @@ it('orders outdated entries first without changing catalogue order within each s
 });
 it('shows the exact shared validator message inline and never submits an invalid skeleton', async () => {
   await mount();
-  await click('Update');
+  await click('Edit');
   await text(source.template + '\n');
   await click('Save translation');
   let message = '';
@@ -129,7 +129,7 @@ it.each([
 it('keeps a conflicting draft, reloads the latest base, and restores keyboard focus', async () => {
   vi.mocked(api.saveSnippetTranslation).mockRejectedValueOnce(new api.SnippetConflictError(null));
   await mount();
-  await click('Update');
+  await click('Edit');
   await text('// {{1:Kommentar}}');
   await click('Save translation');
   expect(host.querySelector('textarea')?.value).toBe('// {{1:Kommentar}}');
@@ -142,7 +142,7 @@ it('keeps a conflicting draft, reloads the latest base, and restores keyboard fo
   await click('Reload');
   expect(host.querySelector('[role=alert]')).toBeNull();
   expect(document.activeElement).toBe(host.querySelector('[data-edit]'));
-  await click('Update');
+  await click('Edit');
   expect(host.querySelector('input')?.value).toBe('Aktuell');
   vi.mocked(api.saveSnippetTranslation).mockResolvedValue({
     translations: { [source.id]: latest },
@@ -159,7 +159,7 @@ it('retries a failed load, cancels editing, and confirms removal with the stored
   await mount();
   expect(host.querySelector('[role=alert]')?.textContent).toContain('Offline');
   await click('Retry');
-  await click('Update');
+  await click('Edit');
   await click('Cancel');
   expect(document.activeElement).toBe(host.querySelector(`[data-edit="${source.id}"]`));
   await click('Remove');
@@ -191,6 +191,16 @@ it('ignores an old language read that completes after a newer read', async () =>
   });
   await act(async () => root.render(<SnippetTranslations lang="fr" onClose={() => {}} />));
   await act(async () => complete({ translations: { [source.id]: base } }));
-  await click('Update');
+  await click('Edit');
   expect(host.querySelector('input')?.value).toBe('Français');
+});
+
+it('keeps keyboard focus on Retry when a second load also fails', async () => {
+  vi.mocked(api.getSnippetTranslations)
+    .mockRejectedValueOnce(new Error('Offline'))
+    .mockRejectedValueOnce(new Error('Still offline'));
+  await mount();
+  await click('Retry');
+  expect(host.querySelector('[role=alert]')?.textContent).toContain('Still offline');
+  expect(document.activeElement).toBe(host.querySelector('[data-retry]'));
 });

@@ -95,7 +95,7 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
     if (!target || (target as HTMLButtonElement).disabled) return;
     target.focus();
     setFocus(null);
-  }, [focus, busy, english]);
+  }, [focus, busy, english, loadError]);
 
   const reload = useCallback(() => {
     const version = ++loadVersion.current;
@@ -128,8 +128,10 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
         setOutdated(new Set(effective.outdated));
       })
       .catch((error: unknown) => {
-        if (version === loadVersion.current)
+        if (version === loadVersion.current) {
           setLoadError(`Snippet translations could not load: ${saveError(error)}`);
+          setFocus('[data-retry]');
+        }
       });
   }, [lang]);
   useEffect(() => {
@@ -239,7 +241,7 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
         {loadError ? (
           <p className={styles.error} role="alert">
             {loadError}{' '}
-            <button type="button" onClick={reload}>
+            <button type="button" data-retry onClick={reload}>
               Retry
             </button>
           </p>
@@ -255,20 +257,6 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
                   Outdated ({stale.length}): the English changed after these were translated. The
                   menus show English until each is saved again.
                 </p>
-                <ul className={styles.list}>
-                  {stale.map((snippet) => (
-                    <li key={snippet.id} className={styles.row}>
-                      <span className={styles.summary}>
-                        <span className={styles.label}>{snippet.label}</span>
-                      </span>
-                      <span className={styles.rowActions}>
-                        <button type="button" disabled={busy} onClick={() => start(snippet)}>
-                          Update
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
               </div>
             )}
             <ul className={styles.list} aria-label={`${languageLabel(lang)} snippet words`}>
