@@ -19,7 +19,10 @@ const job = (name: string) => {
 
 describe('prepared workflows', () => {
   it('keeps one canonical reusable workflow and documents only that install source', () => {
-    const files = readdirSync(new URL('../../workflows/', import.meta.url), { recursive: true });
+    const files = readdirSync(new URL('../../workflows/', import.meta.url), {
+      recursive: true,
+      encoding: 'utf8',
+    });
     expect(files.filter((file) => file.endsWith('build-outputs.yml'))).toEqual([]);
     const guide = read('INSTALL.md');
     expect(guide).toContain('scripts/publisher/template/.github/workflows/build-outputs.yml');
