@@ -6,6 +6,7 @@ export interface RemoteOptions {
   fileUrl?: string;
   token?: string;
   timeout?: number;
+  liveBranch?: 'converter-v2-test' | 'converter';
 }
 
 /** Objects are built in a disposable bare cache; every ref read/write goes to receive-pack. */
@@ -18,6 +19,11 @@ export class RemoteRepository extends LocalRepository {
     private readonly options: RemoteOptions,
   ) {
     super(cache);
+    if (
+      options.liveBranch !== undefined &&
+      !['converter-v2-test', 'converter'].includes(options.liveBranch)
+    )
+      throw new Error('Remote publication target is not allowlisted');
     this.requireCredits = !options.fileUrl;
     this.commandTimeout = options.timeout ?? 120_000;
     if (options.fileUrl) {
@@ -51,7 +57,8 @@ export class RemoteRepository extends LocalRepository {
   }
   private validate(ref: string) {
     if (
-      !/^refs\/heads\/(editor-data|converter-v2-test|editor-data-bundle|publish-candidate\/[0-7][0-9A-HJKMNP-TV-Z]{25})$/.test(
+      ref !== `refs/heads/${this.options.liveBranch ?? 'converter-v2-test'}` &&
+      !/^refs\/heads\/(editor-data|editor-data-bundle|publish-candidate\/[0-7][0-9A-HJKMNP-TV-Z]{25})$/.test(
         ref,
       )
     )
@@ -103,7 +110,9 @@ export class RemoteRepository extends LocalRepository {
     if (
       updates.length !== 2 ||
       !updates.some(({ ref }) => ref === 'refs/heads/editor-data') ||
-      !updates.some(({ ref }) => ref === 'refs/heads/converter-v2-test')
+      !updates.some(
+        ({ ref }) => ref === `refs/heads/${this.options.liveBranch ?? 'converter-v2-test'}`,
+      )
     )
       throw new Error('Atomic publication outside held scope');
     for (const { ref, old, next } of updates) {

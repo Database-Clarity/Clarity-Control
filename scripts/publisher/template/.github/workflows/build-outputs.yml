@@ -17,30 +17,68 @@ on:
         description: Build the seven legacy files to `live` first (data publishes only).
         type: boolean
         required: true
+      publication:
+        description: Immutable publisher handoff (G5 callers only; empty preserves existing callers).
+        type: string
+        required: false
+        default: ''
 
 jobs:
+  handoff:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      converter: ${{ steps.identity.outputs.converter }}
+      record: ${{ steps.identity.outputs.record }}
+      generator: ${{ steps.identity.outputs.generator }}
+    steps:
+      - name: Validate handoff refs
+        id: identity
+        env:
+          PUBLICATION: ${{ inputs.publication }}
+          LEGACY: ${{ inputs.legacy }}
+          EVENT_INPUT: ${{ github.ref == 'refs/heads/converter' && github.sha || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          if (process.env.PUBLICATION) {
+            if (process.env.LEGACY !== 'true') throw new Error('Publication requires legacy build');
+            const p = JSON.parse(process.env.PUBLICATION);
+            for (const key of ['commit', 'recordCommit', 'generatorSha']) {
+              if (typeof p[key] !== 'string' || !/^[a-f0-9]{40}$/.test(p[key])) throw new Error('Invalid publication ref');
+            }
+            appendFileSync(process.env.GITHUB_OUTPUT, `converter=${p.commit}\nrecord=${p.recordCommit}\ngenerator=${p.generatorSha}\n`);
+          } else if (process.env.LEGACY === 'true') {
+            if (!/^[a-f0-9]{40}$/.test(process.env.EVENT_INPUT)) throw new Error('Legacy caller requires a pinned converter event');
+            appendFileSync(process.env.GITHUB_OUTPUT, 'converter=' + process.env.EVENT_INPUT + '\n');
+          }
+          NODE
+
   legacy:
+    needs: handoff
     if: inputs.legacy
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Repo-wide, never cancelled while running. A newer pending run replaces an older pending one,
-    # which loses nothing: the run that executes checks out the CURRENT converter and live heads.
+    # FIFO waiting queue (100 pending max), with exact inputs and the engine
+    # monotonic live-write guard. An older input is a green no-op, never an overwrite.
     concurrency:
       group: legacy-outputs
       cancel-in-progress: false
+      queue: max
     # No permissions block: the job keeps what the caller grants (contents: write from main.yml and
     # the pipeline; exports.yml grants read and never runs this job).
     steps:
-      - name: Check out converter (current head; engine in .exports)
+      - name: Check out converter (pinned legacy input; engine in .exports)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Database-Clarity/Live-Clarity-Database
-          ref: converter
+          ref: ${{ needs.handoff.outputs.converter || 'converter' }}
           path: converter
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-      - name: Check out live (current head; the deploy pushes to it)
+      - name: Check out live (output CAS base; the deploy pushes to it)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Database-Clarity/Live-Clarity-Database
@@ -58,13 +96,34 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Database-Clarity/Live-Clarity-Database
-          ref: editor-data
+          ref: ${{ needs.handoff.outputs.record || 'editor-data' }}
           path: editor-data
-          sparse-checkout: exports
+          sparse-checkout: |
+            exports
+            .publisher
+            publish/log
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
+      - name: Verify immutable legacy input
+        if: inputs.publication != ''
+        env:
+          PUBLICATION: ${{ inputs.publication }}
+          PROOF: editor-data
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          const p = JSON.parse(process.env.PUBLICATION);
+          if (!/^[a-f0-9]{40}$/.test(p.commit) || !/^\.publish\/receipts\/\d{4}-\d{2}\/[0-7][0-9A-HJKMNP-TV-Z]{25}\.json$/.test(p.receiptPath)) throw new Error('Invalid receipt identity');
+          const r = JSON.parse(execFileSync('git', ['-C', 'converter', 'show', p.commit + ':' + p.receiptPath], { maxBuffer: 128 << 20 }));
+          const actual = createHash('sha256').update(readFileSync(process.env.PROOF + '/.publisher/verify-publication.mjs')).digest('hex');
+          if (!/^[a-f0-9]{64}$/.test(p.verifierSha256) || r.verifierSha256 !== p.verifierSha256 || actual !== r.verifierSha256) throw new Error('Receipt verifier digest mismatch');
+          NODE
+          node editor-data/.publisher/verify-publication.mjs converter editor-data
       - name: Build the legacy files, deploy them to live, and write the publish pin
         env:
           RUN_ID: ${{ github.run_id }}
@@ -76,10 +135,10 @@ jobs:
           --run-id "$RUN_ID" --attempt "$RUN_ATTEMPT"
 
   site:
-    needs: legacy
+    needs: [handoff, legacy]
     # After the legacy job, or when it was skipped (config saves) or failed: the site then builds
     # from the latest pin, consistent and one publish behind.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.handoff.result == 'success' && (inputs.publication == '' || needs.legacy.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The deploy token is a secret of this environment only; its deployment branches are
@@ -87,19 +146,19 @@ jobs:
     # secrets only through a job that names the environment.
     environment: data-site-deploy
     # Repo-wide and separate from legacy-outputs, so a config save never replaces a legacy build.
-    # One run active, at most one pending (a newer pending run replaces an older one; every run
-    # reads both branch heads at its start).
+    # One run active, up to 100 pending in waiting order; never replace pending work.
     concurrency:
       group: data-site
       cancel-in-progress: false
+      queue: max
     permissions:
       contents: read
     steps:
-      - name: Check out converter (engine in .exports; the pinned input by SHA)
+      - name: Check out converter (publication input or current compatible site builder)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Database-Clarity/Live-Clarity-Database
-          ref: converter
+          ref: ${{ inputs.publication != '' && needs.handoff.outputs.converter || 'converter' }}
           path: converter
           fetch-depth: 0
           filter: blob:none
@@ -128,11 +187,24 @@ jobs:
           path: editor-data
           sparse-checkout: exports
           persist-credentials: false
+      # Config-only deployments share this job's data-site slot. Read current
+      # configs after taking it; keep the immutable publication proof separate.
+      - name: Check out the publication proof (immutable RECORD)
+        if: inputs.publication != ''
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Database-Clarity/Live-Clarity-Database
+          ref: ${{ needs.handoff.outputs.record }}
+          path: producer
+          sparse-checkout: |
+            .publisher
+            publish/log
+          persist-credentials: false
       - name: Check out the generator catalog (the pin's generatorSha by SHA)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Database-Clarity/Description-data-generator
-          ref: v2
+          ref: ${{ needs.handoff.outputs.generator || 'v2' }}
           path: generator
           fetch-depth: 0
           filter: blob:none
@@ -140,13 +212,34 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
+      - name: Verify immutable site input
+        id: verify
+        if: inputs.publication != ''
+        env:
+          PUBLICATION: ${{ inputs.publication }}
+          PROOF: producer
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          const p = JSON.parse(process.env.PUBLICATION);
+          if (!/^[a-f0-9]{40}$/.test(p.commit) || !/^\.publish\/receipts\/\d{4}-\d{2}\/[0-7][0-9A-HJKMNP-TV-Z]{25}\.json$/.test(p.receiptPath)) throw new Error('Invalid receipt identity');
+          const r = JSON.parse(execFileSync('git', ['-C', 'converter', 'show', p.commit + ':' + p.receiptPath], { maxBuffer: 128 << 20 }));
+          const actual = createHash('sha256').update(readFileSync(process.env.PROOF + '/.publisher/verify-publication.mjs')).digest('hex');
+          if (!/^[a-f0-9]{64}$/.test(p.verifierSha256) || r.verifierSha256 !== p.verifierSha256 || actual !== r.verifierSha256) throw new Error('Receipt verifier digest mismatch');
+          NODE
+          node producer/.publisher/verify-publication.mjs converter producer pins live
       - name: Find the served deployment (Pages API; zero deployments = bootstrap)
+        if: inputs.publication == '' || steps.verify.outputs.build == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           PAGES_PROJECT: ${{ vars.PAGES_PROJECT }}
         run: node converter/.exports/build-site.mjs locate --pages-project "$PAGES_PROJECT" --out "$RUNNER_TEMP/site-state.json"
       - name: Build the site (no secrets in this step)
+        if: inputs.publication == '' || steps.verify.outputs.build == 'true'
         id: build
         run: >-
           node converter/.exports/build-site.mjs build

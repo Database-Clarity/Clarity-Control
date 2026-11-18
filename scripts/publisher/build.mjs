@@ -14,6 +14,10 @@ await build({
   target: 'node24',
 });
 const runtime = readFileSync(`${dist}/publisher.mjs`, 'utf8');
+copyFileSync(
+  'scripts/publisher/template/.publisher/verify-publication.mjs',
+  `${dist}/verify-publication.mjs`,
+);
 // R16: a PIN declares `scheduledBatches` only for a runtime that really drains batch requests
 // (the claim, the batch RECORD, and the P1 batch request schema), so the Worker's schedule
 // admission (apps/worker/src/schedule) can never trust a build that would leave them pending.
@@ -83,6 +87,9 @@ writeFileSync(
       sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', maxBuffer }).trim(),
       sha256: createHash('sha256')
         .update(readFileSync(`${dist}/publisher.mjs`))
+        .digest('hex'),
+      verifierSha256: createHash('sha256')
+        .update(readFileSync(`${dist}/verify-publication.mjs`))
         .digest('hex'),
       // What this build can do; the Worker reads it at the data head (apps/worker/src/elementTags.ts):
       // elementTags = exportLegacy lowers element-tagged text to today's `<solar/>Scorch`;

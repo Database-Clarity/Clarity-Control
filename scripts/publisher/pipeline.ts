@@ -7,7 +7,7 @@ import { maxBuffer } from './childProcess.mjs';
 import { LocalRepository } from './git.js';
 import { RemoteRepository } from './remote.js';
 import publisherConfig from '../../config/publisher.json';
-import { Publisher, type Options } from './publisher.js';
+import { Publisher, paths, type Receipt, type Options } from './publisher.js';
 import { GlobalsPublisher } from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 
@@ -23,6 +23,85 @@ const gitAt = (cwd: string, args: string[]) =>
     timeout: 120_000,
     maxBuffer,
   });
+
+/** One identity path for publication and crash recovery: confirmed Git receipts + RECORDs. */
+export function publicationIdentity(repo: LocalRepository, branch = 'converter') {
+  const commit = repo.head('refs/heads/' + branch)!;
+  const added = repo.additions(commit, '.publish/receipts').at(-1);
+  if (!added) return;
+  if (added.commit !== commit) {
+    console.log('Output handoff: non-publisher descendant; no publication handoff needed');
+    return;
+  }
+  const tree = repo.tree(commit);
+  const receipt = JSON.parse(repo.blob(tree[added.path])) as Receipt;
+  const receiptPath = paths(receipt.opId).receipt;
+  if (added.path !== receiptPath) throw new Error('Publication receipt path mismatch');
+  const data = repo.head('refs/heads/editor-data')!;
+  const record = repo.additions(data, paths(receipt.opId).log).at(-1);
+  if (!record) throw new Error('Publication receipt has no confirmed RECORD');
+  const recordTree = repo.tree(record.commit);
+  const log = JSON.parse(repo.blob(recordTree[paths(receipt.opId).log]));
+  if (log.candidateCommit !== commit || !['done', 'unchanged'].includes(log.result?.status))
+    throw new Error('Publication RECORD differs from receipt');
+  const hash = (bytes: string) => createHash('sha256').update(bytes).digest('hex');
+  const enginePin = tree['.exports/PIN'] ? repo.blob(tree['.exports/PIN']).trim() : null;
+  if (
+    !/^[a-f0-9]{40}$/.test(receipt.generatorSha) ||
+    (branch === 'converter' &&
+      (!enginePin ||
+        !/^[a-f0-9]{40}$/.test(enginePin) ||
+        !tree['.exports/engine.mjs'] ||
+        !receipt.verifierSha256 ||
+        !/^[a-f0-9]{64}$/.test(receipt.verifierSha256) ||
+        !recordTree['.publisher/verify-publication.mjs'] ||
+        hash(repo.blob(recordTree['.publisher/verify-publication.mjs'])) !==
+          receipt.verifierSha256))
+  )
+    throw new Error('Invalid immutable publication identity');
+  return {
+    opId: receipt.opId,
+    commit,
+    recordCommit: record.commit,
+    receiptPath,
+    receiptBlob: tree[receiptPath],
+    sourceCommit: receipt.sourceCommit,
+    requestBlob: receipt.requestBlob,
+    inputBlob: tree['liveDescriptions.json'],
+    inputSha256: hash(repo.blob(tree['liveDescriptions.json'])),
+    enginePin,
+    engineSha256: tree['.exports/engine.mjs'] ? hash(repo.blob(tree['.exports/engine.mjs'])) : null,
+    generatorSha: receipt.generatorSha,
+    publisherSha: receipt.publisherSha,
+    publisherDigest: hash(repo.blob(recordTree['.publisher/publisher.mjs'])),
+    verifierSha256: receipt.verifierSha256 ?? null,
+    outcome: receipt.outcome,
+  };
+}
+
+function needsOutputs(
+  repo: LocalRepository,
+  identity: NonNullable<ReturnType<typeof publicationIdentity>>,
+) {
+  // Read the snapshot's export pins without granting transport write scope to that branch.
+  const refs = repo
+    .git(['for-each-ref', '--format=%(objectname)', 'refs/heads/export-pins'])
+    .trim();
+  const tree = refs ? repo.tree(refs) : {};
+  const pin = tree['pins/latest.json']
+    ? JSON.parse(repo.blob(tree['pins/latest.json']))
+    : undefined;
+  return (
+    pin?.inputSha256 !== identity.inputSha256 ||
+    pin?.engine !== identity.enginePin ||
+    pin?.generatorSha !== identity.generatorSha
+  );
+}
+
+export function pendingProductionHandoff(repo: LocalRepository) {
+  const identity = publicationIdentity(repo);
+  return identity && needsOutputs(repo, identity) ? identity : undefined;
+}
 
 export function simulationArtifact(repo: LocalRepository, out: string, bases: string[]) {
   const revisions = ['--branches', '--not', ...bases];
@@ -49,9 +128,9 @@ export async function runPipeline(
   if (
     config.repo !== 'Database-Clarity/Live-Clarity-Database' ||
     config.dataBranch !== 'editor-data' ||
-    config.liveBranch !== 'converter-v2-test'
+    !['converter-v2-test', 'converter'].includes(config.liveBranch)
   )
-    throw new Error('Pipeline target is not the held test target');
+    throw new Error('Pipeline target is not an allowlisted publication target');
   const enabled = remoteMode && publisherConfig.enabled && config.publishWritesEnabled === true;
   if (remoteMode && !enabled) throw new Error('Remote publishing disabled by config');
   if (enabled && !process.env.GITHUB_TOKEN) throw new Error('GITHUB_TOKEN required');
@@ -61,6 +140,8 @@ export async function runPipeline(
   const temp = mkdtempSync(join(tmpdir(), 'publisher-pipeline-'));
   let failure: unknown;
   const reports: unknown[] = [];
+  const publications: NonNullable<ReturnType<typeof publicationIdentity>>[] = [];
+  let handoff: ReturnType<typeof pendingProductionHandoff>;
   function snapshot(label: string) {
     // Always latest heads after acquiring the workflow slot, never the event checkout.
     gitAt(cwd, ['fetch', '--prune', '--no-tags', 'origin', '+refs/heads/*:refs/remotes/origin/*']);
@@ -88,7 +169,11 @@ export async function runPipeline(
       .split('\n'))
       if (ref && !remoteNames.has(ref)) command(['update-ref', '-d', ref]);
     return enabled
-      ? new RemoteRepository(repo, { repo: config.repo, token: process.env.GITHUB_TOKEN })
+      ? new RemoteRepository(repo, {
+          repo: config.repo,
+          token: process.env.GITHUB_TOKEN,
+          liveBranch: config.liveBranch as 'converter-v2-test' | 'converter',
+        })
       : new LocalRepository(repo);
   }
   function publishBundle(repo: LocalRepository, options: Options) {
@@ -122,6 +207,15 @@ export async function runPipeline(
   const options: Options = { ...config, publicKey: '', now: Date.now };
   try {
     const initial = snapshot('initial');
+    if (config.liveBranch === 'converter') {
+      const tree = initial.tree(initial.head('refs/heads/converter')!);
+      if (
+        !tree['.exports/PIN'] ||
+        !/^[a-f0-9]{40}$/.test(initial.blob(tree['.exports/PIN']).trim()) ||
+        !tree['.exports/engine.mjs']
+      )
+        throw new Error('Production target requires a pinned installed engine');
+    }
     // In write mode, commit the coalesced materialization before the first public
     // bundle. Dry-run materialization remains in the disposable simulator below.
     if (!enabled) publishBundle(initial, options);
@@ -167,7 +261,16 @@ export async function runPipeline(
   } finally {
     try {
       // Bounded catch-up bundle from real data, never simulated RECORDs.
-      publishBundle(snapshot('catch-up'), options);
+      const latest = snapshot('catch-up');
+      publishBundle(latest, options);
+      if (enabled && !failure) {
+        const identity = publicationIdentity(latest, config.liveBranch);
+        if (identity) {
+          publications.push(identity);
+          if (config.liveBranch === 'converter' && needsOutputs(latest, identity))
+            handoff = identity;
+        }
+      }
     } catch (e) {
       failure ??= e;
     }
@@ -178,6 +281,8 @@ export async function runPipeline(
           dryRun: !enabled,
           publishWritesEnabled: enabled,
           reports,
+          publications,
+          handoff: handoff ?? null,
           error: failure ? String(failure) : null,
         },
         null,
@@ -196,16 +301,34 @@ export async function runPipeline(
     rmSync(temp, { recursive: true, force: true });
   }
   if (failure) throw failure;
+  // Emit only after LIVE, RECORD, and catch-up all succeeded. Failed/partial runs
+  // retain diagnostics but cannot authorize downstream production jobs.
+  const productionPush = handoff !== undefined;
+  if (process.env.GITHUB_OUTPUT)
+    writeFileSync(
+      process.env.GITHUB_OUTPUT,
+      `production_push=${productionPush}\npublication=${productionPush ? JSON.stringify(handoff) : ''}\n`,
+      { flag: 'a' },
+    );
 }
 
 export function verifyRuntime(root: string) {
   const pin = JSON.parse(readFileSync(join(root, 'PIN'), 'utf8'));
   if (
+    !/^[0-9a-f]{64}$/.test(pin.verifierSha256) ||
+    createHash('sha256')
+      .update(readFileSync(join(root, 'verify-publication.mjs')))
+      .digest('hex') !== pin.verifierSha256 ||
     !/^[0-9a-f]{40}$/.test(pin.sourceSha) ||
     createHash('sha256')
       .update(readFileSync(join(root, 'publisher.mjs')))
       .digest('hex') !== pin.sha256
   )
     throw new Error('Publisher PIN mismatch');
-  return pin as { sourceSha: string; sha256: string; capabilities?: string[] };
+  return pin as {
+    sourceSha: string;
+    sha256: string;
+    verifierSha256: string;
+    capabilities?: string[];
+  };
 }
