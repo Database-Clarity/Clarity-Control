@@ -196,6 +196,13 @@ it('retains baseline, owner-sample, and source-evidence gates', () => {
   );
   expect(f.decide()?.confidence).not.toBe('high');
   delete f.record.references![102];
+  // A real source edit withdraws that sample's own link but still demonstrates its tab.
   f.source.tabs[2].rows[0].cell = { plain: 'Changed source', runs: [{ text: 'Changed source' }] };
+  expect(f.decide()).toMatchObject({
+    confidence: 'high',
+    ruleId: 'exact-name-in-sibling-element-tab',
+  });
+  // The owner's own sample evidence changed: the tab is no longer demonstrated.
+  f.categories[0].entries.find((entry) => entry.hash === 103)!.sampleEvidence += 'changed';
   expect(f.decide()).toMatchObject({ confidence: 'medium', ruleId: 'uncovered-element-tab' });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normaliseEvidenceText } from './evidenceText.js';
 
 export const compendiumStyleSchema = z
   .object({
@@ -195,4 +196,17 @@ export function evidenceCell(cell: CompendiumCell): CompendiumCell {
   // turning every copy into a slow dictionary-mode object.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   return normaliseRuns(cell.runs.map(({ textAlign, ...copy }) => copy));
+}
+
+/**
+ * Change detection only: the evidence cell with formatting-only text differences (whitespace,
+ * line breaks, zero-width characters, dashes, quotes) folded, keeping run styles and boundaries.
+ * `evidenceCell` and `sameCell` stay strict; only approval fingerprints use this.
+ */
+export function fingerprintCell(cell: CompendiumCell): CompendiumCell {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  return normaliseRuns(cell.runs.map(({ textAlign, ...copy }) => ({
+    ...copy,
+    text: normaliseEvidenceText(copy.text),
+  })));
 }

@@ -105,7 +105,14 @@ export function prepareMatchingPlan(
     false,
     source,
   );
-  const document = rebaselineGuidance(shipped, categories, source, baseline, input.scope).document;
+  const document = rebaselineGuidance(
+    shipped,
+    categories,
+    source,
+    baseline,
+    input.scope,
+    editor.aliases,
+  ).document;
   const local = input.local;
   if (local && local.scope !== input.scope)
     throw new Error('Stored guidance belongs to another dataset.');
@@ -126,7 +133,16 @@ export function prepareMatchingPlan(
         ]),
     ),
   };
-  return { fingerprint, baseline, evidence, categories, document, overrides, scope: input.scope };
+  return {
+    fingerprint,
+    baseline,
+    evidence,
+    categories,
+    document,
+    overrides,
+    scope: input.scope,
+    aliases: editor.aliases,
+  };
 }
 
 export function* matchingPlanSteps(
@@ -135,7 +151,7 @@ export function* matchingPlanSteps(
   proposals: Map<number, ReviewProposal>,
   onlyHash?: number,
 ) {
-  const { categories, document, overrides, baseline, scope } = plan;
+  const { categories, document, overrides, baseline, scope, aliases } = plan;
   const decisionsByHash = new Map<number, GuidedDecision>();
   for (const guidance of [document, overrides]) {
     if (!guidance) continue;
@@ -148,6 +164,8 @@ export function* matchingPlanSteps(
       scope,
       onlyHash,
       plan.fingerprint,
+      undefined,
+      aliases,
     );
     for (const group of groups)
       for (const decision of group.entries) decisionsByHash.set(decision.hash, decision);

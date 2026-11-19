@@ -1,16 +1,18 @@
-import type { CompendiumData } from '@clarity/core';
+import { resolveAlias, type Aliases, type CompendiumData } from '@clarity/core';
 import { guidanceSchema, type GuidanceDocument } from './guidanceSchema';
 import type { ReviewCategory } from './reviewCategories';
 import { referenceCurrent } from './sampleReferences';
 
 // Renew commit-only changes. Evidence includes editor English/link, catalog identity,
 // grouped manifest descriptions and the source-tab fingerprint. Never rewrite evidence.
+// An alias-group member's reference renews against its group canonical (the surviving tooltip).
 export function rebaselineGuidance(
   input: GuidanceDocument,
   categories: ReviewCategory[],
   source: CompendiumData,
   baseline: string,
   scope: string,
+  aliases?: Aliases,
 ) {
   const document = guidanceSchema.parse(structuredClone(input));
   if (document.scope !== scope) throw new Error('Cannot renew guidance from another dataset.');
@@ -20,13 +22,15 @@ export function rebaselineGuidance(
   for (const record of Object.values(document.categories)) {
     const entries = new Map(current.get(record.id)?.entries.map((entry) => [entry.hash, entry]));
     for (const reference of Object.values(record.references ?? {})) {
-      const entry = entries.get(reference.hash);
+      const entry =
+        entries.get(reference.hash) ??
+        (aliases ? entries.get(resolveAlias(reference.hash, aliases)) : undefined);
       // The old baseline is deliberately used only for this comparison. Every other
       // validity condition (including the selected source cells) remains mandatory.
       if (
         record.hashes.includes(reference.hash) &&
         entry &&
-        referenceCurrent(reference, entry, reference.baseline, source)
+        referenceCurrent(reference, entry, reference.baseline, source, aliases)
       ) {
         reference.baseline = baseline;
         reference.evidence = entry.sampleEvidence;

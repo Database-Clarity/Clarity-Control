@@ -8,3 +8,4 @@ export * from './cells.js';
 export * from './guidance.js';
 export * from './setBonus.js';
 export * from './englishEvidence.js';
+export * from './evidenceText.js';

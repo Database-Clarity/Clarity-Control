@@ -534,6 +534,7 @@ async function process(data: Request) {
                 undefined,
                 lastDisplay.fingerprint,
                 categoryId,
+                editor.aliases,
               ),
             )
           ).filter((g) => g.id === categoryId)

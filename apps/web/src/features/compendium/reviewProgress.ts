@@ -1,4 +1,4 @@
-import { evidenceCell, type CompendiumCell } from '@clarity/core';
+import { evidenceCell, fingerprintCell } from '@clarity/core';
 import { z } from 'zod';
 
 const decisionSchema = z.object({
@@ -35,14 +35,25 @@ export function readProgress(storage: Pick<Storage, 'getItem'>, key: string): Re
 }
 // Change detection only, not an identity or security hash. Fetch timestamps are excluded.
 export function sourceFingerprint(value: unknown): string {
-  return rawFingerprint(value, true);
+  return fingerprintJson(value, fingerprintCell);
 }
-// Only for validating a previously stored proof before migrating it.
+// Only for validating a previously stored proof before migrating it: the older evidence cell
+// (style-only normalisation, strict text), or its raw serialisation.
 export function rawFingerprint(value: unknown, normalize = false): string {
+  return fingerprintJson(value, normalize ? evidenceCell : undefined);
+}
+// The evidence cell normalisation that wrote earlier source proofs.
+export function evidenceFingerprint(value: unknown): string {
+  return fingerprintJson(value, evidenceCell);
+}
+function fingerprintJson<Cell>(
+  value: unknown,
+  normalise: ((cell: Cell) => Cell) | undefined,
+): string {
   // Schema parsing can reorder run properties without changing their content.
   const text = JSON.stringify(value, (_key, entry: unknown) => {
-    if (normalize && entry && typeof entry === 'object' && 'plain' in entry && 'runs' in entry)
-      entry = evidenceCell(entry as CompendiumCell);
+    if (normalise && entry && typeof entry === 'object' && 'plain' in entry && 'runs' in entry)
+      entry = normalise(entry as Cell);
     return entry && typeof entry === 'object' && !Array.isArray(entry)
       ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
       : entry;
@@ -54,4 +65,11 @@ export function rawFingerprint(value: unknown, normalize = false): string {
 export function localDecision(progress: ReviewProgress, hash: number, fingerprint: string) {
   const decision = progress.decisions[hash];
   return decision?.fingerprint === fingerprint ? decision.kind : 'open';
+}
+/** A stored change-detector proof may predate the shared formatting equivalence. */
+export function fingerprintMatches(stored: string | undefined, value: unknown) {
+  return (
+    !!stored &&
+    [sourceFingerprint(value), evidenceFingerprint(value), rawFingerprint(value)].includes(stored)
+  );
 }

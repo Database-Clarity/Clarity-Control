@@ -1,5 +1,5 @@
 import hints from './research-hints.json';
-import { sourceFingerprint } from './reviewProgress';
+import { fingerprintMatches } from './reviewProgress';
 import { categorySuggestions, type CompendiumSuggestion } from './suggestions';
 import type { CompendiumData } from '@clarity/core';
 interface Place {
@@ -32,15 +32,13 @@ export function researchSuggestions(
     const tab = data.tabs.find((tab) => tab.gid === place.gid);
     const anchors = tab?.grid?.filter((c) => c.cell.plain.trim() === place.rowKey?.trim()) ?? [];
     const anchor = anchors.length === 1 ? anchors[0] : undefined;
-    const fingerprint =
+    const window =
       anchor &&
-      sourceFingerprint(
-        tab!
-          .grid!.filter((c) => Math.abs(c.row - anchor.row) <= 8)
-          .map((c) => ({ dRow: c.row - anchor.row, col: c.col, cell: c.cell })),
-      );
+      tab!
+        .grid!.filter((c) => Math.abs(c.row - anchor.row) <= 8)
+        .map((c) => ({ dRow: c.row - anchor.row, col: c.col, cell: c.cell }));
     const stale =
-      !!place.rowKey && (!anchor || !place.fingerprint || fingerprint !== place.fingerprint);
+      !!place.rowKey && (!anchor || !place.fingerprint || !fingerprintMatches(place.fingerprint, window));
     const section = anchor
       ? tab?.rows.find((row) => row.anchor?.row === anchor.row && row.anchor?.col === anchor.col)
           ?.section

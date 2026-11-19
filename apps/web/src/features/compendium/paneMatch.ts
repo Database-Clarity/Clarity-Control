@@ -53,7 +53,18 @@ export function paneMatch(
             ]),
           ),
         };
-  const decision = guidedDecisions(input, categories, proposals, source, baseline, scope, base.hash)
+  const decision = guidedDecisions(
+    input,
+    categories,
+    proposals,
+    source,
+    baseline,
+    scope,
+    base.hash,
+    undefined,
+    undefined,
+    editor.aliases,
+  )
     .find((group) => group.id === category.id)
     ?.entries.find((entry) => entry.hash === base.hash);
   if (decision?.confidence !== 'high' || decision.action !== 'link' || !decision.link) return;

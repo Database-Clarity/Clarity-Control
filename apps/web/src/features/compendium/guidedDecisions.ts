@@ -11,8 +11,10 @@ import {
   compendiumNameVariants,
   compendiumPreferredTabs,
   compendiumCategoryTabs,
+  resolveAlias,
   sameCell,
   normaliseCompendiumName,
+  type Aliases,
   type CompendiumData,
   type CompendiumLink,
 } from '@clarity/core';
@@ -21,8 +23,13 @@ import { confirmCompendiumSelection } from './selection';
 import type { GuidanceDocument, GuidanceReference } from './guidanceSchema';
 import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
-import { referenceCurrent, currentReferenceLink } from './sampleReferences';
-import { sourceFingerprint } from './reviewProgress';
+import {
+  referenceCurrent,
+  currentReferenceLink,
+  referenceEvidenceCurrent,
+  referenceSourceTab,
+} from './sampleReferences';
+import { fingerprintMatches, sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
 import { artifactParents, artifactSections, notCurrentArtifact } from './artifactIdentity';
 import { tentativeOwnerDecision, reviewedOwnerDecision } from './ownerReviewed';
@@ -164,7 +171,14 @@ export function* guidedDecisionSteps(
   onlyHash?: number,
   sheetFingerprint = sourceFingerprint(source.tabs),
   onlyCategory?: string,
+  aliases?: Aliases,
 ): Generator<void, GuidedCategory[]> {
+  // A reference may be keyed by an alias-group member; its evidence belongs to the group
+  // canonical, whose surviving tooltip carries the approval.
+  const entryFor = (
+    entries: Map<number, ReviewSample>,
+    hash: number,
+  ) => entries.get(hash) ?? (aliases ? entries.get(resolveAlias(hash, aliases)) : undefined);
   const current = new Map(categories.map((category) => [category.id, category]));
   const globalUsable = new Map<number, GuidanceReference>();
   if (document.scope === scope && document.baseline === baseline) {
@@ -172,14 +186,15 @@ export function* guidedDecisionSteps(
       if (!record.active) continue;
       const category = current.get(record.id);
       for (const ref of Object.values(record.references ?? {})) {
-        const entry = category?.entries.find((candidate) => candidate.hash === ref.hash);
+        const entry =
+          category && entryFor(new Map(category.entries.map((item) => [item.hash, item])), ref.hash);
         if (
           entry &&
           record.hashes.includes(ref.hash) &&
           ref.decision === 'no-equivalent' &&
-          referenceCurrent(ref, entry, baseline, source)
+          referenceCurrent(ref, entry, baseline, source, aliases)
         )
-          globalUsable.set(ref.hash, ref);
+          globalUsable.set(entry.hash, ref);
       }
     }
   }
@@ -201,17 +216,31 @@ export function* guidedDecisionSteps(
     if (!category) issues.push('Recorded category is absent from the current review queue.');
     const references = Object.values(record.references ?? {});
     const usable = new Map<number, GuidanceReference>();
+    // Owner samples also say where a category's sources live. A reference whose selected cells
+    // changed still demonstrates its tab while its entry evidence is current: the link itself
+    // is never inferred from it, only the tab it was picked in.
+    const demonstrated = new Map<number, GuidanceReference>();
     for (const reference of references) {
-      const entry = entries.get(reference.hash);
-      if (
-        !record.hashes.includes(reference.hash) ||
-        !entry ||
-        !compatible ||
-        !referenceCurrent(reference, entry, baseline, source)
-      ) {
+      const entry = entryFor(entries, reference.hash);
+      if (!record.hashes.includes(reference.hash) || !entry || !compatible) {
         issues.push(`Reference ${reference.hash}: stale, missing or outside recorded membership.`);
-      } else if (reference.decision && reference.decision !== 'skipped') {
-        usable.set(reference.hash, reference);
+        continue;
+      }
+      if (referenceCurrent(reference, entry, baseline, source, aliases)) {
+        if (reference.decision && reference.decision !== 'skipped')
+          usable.set(entry.hash, reference);
+        demonstrated.set(entry.hash, reference);
+      } else if (
+        reference.link &&
+        // The sample's own recorded baseline, as renewal uses: the sheet moved on, its owner
+        // evidence did not.
+        referenceEvidenceCurrent(reference, entry, reference.baseline, aliases) &&
+        referenceSourceTab(reference, source)
+      ) {
+        demonstrated.set(entry.hash, reference);
+        issues.push(`Reference ${reference.hash}: source cells changed; tab evidence only.`);
+      } else {
+        issues.push(`Reference ${reference.hash}: stale, missing or outside recorded membership.`);
       }
     }
     const extra = category?.entries.filter((entry) => !record.hashes.includes(entry.hash)) ?? [];
@@ -223,7 +252,7 @@ export function* guidedDecisionSteps(
     // Only current, exact-name, whole-row approvals teach a sibling element convention.
     // A picked rename or selected-cell example still teaches its own tab, not this rule.
     const exactElementTabs = new Set(
-      [...usable.values()].flatMap((reference) => {
+      [...demonstrated.values()].flatMap((reference) => {
         const link = reference.link;
         if (
           !link ||
@@ -337,7 +366,7 @@ export function* guidedDecisionSteps(
               (row) => row.nameNorm === normaliseCompendiumName(previous.rowKey),
             );
             const selected = combineCompendiumMatches(matches.map((row) => ({ tab, row })));
-            return selected && sourceFingerprint(selected.row.cell) === previous.snapshotEvidence;
+            return selected && fingerprintMatches(previous.snapshotEvidence, selected.row.cell);
           }))
       )
         return {
@@ -547,9 +576,10 @@ export function* guidedDecisionSteps(
           };
       }
 
-      // Learn the tab from every current positive sample, including picked renames.
+      // Learn the tab from every owner sample whose evidence is still current, including picked
+      // renames and samples whose edited source cells changed but stayed in their tab.
       // Section labels are layout headings, not category boundaries (e.g. Armor Mods slots).
-      const positive = [...usable.values()].filter((ref) => ref.link);
+      const positive = [...demonstrated.values()].filter((ref) => ref.link);
       const tabs = new Set(positive.map((ref) => ref.link!.gid));
       const support = positive.map((ref) => ref.hash);
       const norm = normaliseCompendiumName(entry.name);

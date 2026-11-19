@@ -1,4 +1,4 @@
-import type { CompendiumCell } from '@clarity/core';
+import { normaliseEvidenceText, type CompendiumCell } from '@clarity/core';
 
 /** The review fingerprint's exact canonical JSON, normalized once per repeated cell. */
 export function matchingSessionFingerprint(value: unknown) {
@@ -8,7 +8,8 @@ export function matchingSessionFingerprint(value: unknown) {
     const runs: CompendiumCell['runs'] = [];
     let previousStyle: string | undefined;
     for (const run of cell.runs) {
-      if (!run.text) continue;
+      const text = normaliseEvidenceText(run.text);
+      if (!text) continue;
       const entries = Object.entries(run).filter(([key]) => key !== 'text' && key !== 'textAlign');
       const signature = JSON.stringify(entries);
       let style = styles.get(signature);
@@ -16,12 +17,12 @@ export function matchingSessionFingerprint(value: unknown) {
         style = JSON.stringify(entries.sort(([a], [b]) => a.localeCompare(b)));
         styles.set(signature, style);
       }
-      // Match evidenceCell's adjacent-run normalization. Cache style comparison
+      // Match fingerprintCell's adjacent-run normalization. Cache style comparison
       // across the sheet instead of sorting both neighboring styles per run.
       const last = runs.at(-1);
-      if (last && style === previousStyle) last.text += run.text;
+      if (last && style === previousStyle) last.text += text;
       else {
-        const copy = { ...run };
+        const copy = { ...run, text };
         delete copy.textAlign;
         runs.push(copy);
       }

@@ -118,6 +118,9 @@ export function reviewCategories(
           : {}),
       }))
       .sort((a, b) => a.hash - b.hash);
+    // Identity evidence is this entry's own item: alias-group members are duplicates, and
+    // grouping them in or out must not rewrite an approval's fingerprint.
+    const ownManifest = evidenceManifest.filter((item) => item.hash === entry.hash);
     const sample: ReviewSample = {
       evidenceManifest,
       ...entry,
@@ -144,7 +147,7 @@ export function reviewCategories(
         ...(entry.next.custom?.categoryId === 'attachment-effect'
           ? [entry.next.custom.categoryId]
           : []),
-        evidenceManifest,
+        ownManifest.length ? ownManifest : evidenceManifest,
       ]),
     };
     if (source && id === 'catalog:armor-mod-seasonal')

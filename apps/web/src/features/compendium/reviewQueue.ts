@@ -2,6 +2,7 @@ import { isSetSelector } from './itemClassification';
 import {
   isMovedInactive,
   normaliseCompendiumEnglish,
+  normaliseEvidenceText,
   resolveAlias,
   resolveCompendiumLink,
   type CompendiumData,
@@ -39,7 +40,10 @@ export function reviewEvidence(
         fingerprint,
         item?.name,
         item?.categoryId,
-        base.text.en && { ...base.text.en, text: normaliseCompendiumEnglish(base.text.en.text) },
+        base.text.en && {
+          ...base.text.en,
+          text: normaliseEvidenceText(normaliseCompendiumEnglish(base.text.en.text)),
+        },
         base.compendium,
       ]);
       return [

@@ -28,9 +28,10 @@ export function displayMatches(
   const categories = reviewCategories(entries, editor, proposals, false, false, source);
   // The shipped approval is immutable. Renew only evidence that the existing validator accepts.
   const shipped = guidanceSchema.parse(approvedInput);
-  const document = rebaselineGuidance(shipped, categories, source, baseline, scope).document;
+  const document = rebaselineGuidance(shipped, categories, source, baseline, scope, editor.aliases)
+    .document;
   const decisionsByHash = new Map(
-    guidedDecisions(document, categories, proposals, source, baseline, scope)
+    guidedDecisions(document, categories, proposals, source, baseline, scope, undefined, undefined, undefined, editor.aliases)
       .flatMap((group) => group.entries)
       .map((decision) => [decision.hash, decision]),
   );
@@ -56,6 +57,10 @@ export function displayMatches(
       source,
       baseline,
       scope,
+      undefined,
+      undefined,
+      undefined,
+      editor.aliases,
     ).flatMap((group) => group.entries);
     for (const decision of localDecisions) decisionsByHash.set(decision.hash, decision);
   }

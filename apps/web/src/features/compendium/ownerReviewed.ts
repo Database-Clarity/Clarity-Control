@@ -6,7 +6,12 @@ import {
 } from '@clarity/core';
 import records from './owner-reviewed.json';
 import { confirmCompendiumSelection } from './selection';
-import { emptyProgress, localDecision, sourceFingerprint } from './reviewProgress';
+import {
+  emptyProgress,
+  fingerprintMatches,
+  localDecision,
+  sourceFingerprint,
+} from './reviewProgress';
 import type { ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
 import type { GuidedDecision } from './guidedDecisions';
@@ -51,11 +56,11 @@ export function reviewedOwnerDecision(
     const tab = source.tabs.find((tab) => tab.gid === renewed.gid);
     const rows =
       tab?.rows.filter(
-        (row) => row.name === renewed.name && sourceFingerprint(row.cell) === renewed.cellEvidence,
+        (row) => row.name === renewed.name && fingerprintMatches(renewed.cellEvidence, row.cell),
       ) ?? [];
     // Keep the named card identity, and pin the explicit duplicate-card selection.
     const bodies =
-      tab?.grid?.filter((cell) => sourceFingerprint(cell.cell) === renewed.cellEvidence) ?? [];
+      tab?.grid?.filter((cell) => fingerprintMatches(renewed.cellEvidence, cell.cell)) ?? [];
     const body = bodies[0];
     const link =
       entry.name === renewed.name &&
@@ -137,7 +142,7 @@ export function reviewedOwnerDecision(
     actual.length !== expected.length ||
     actual.some((row) => {
       const index = remaining.findIndex(
-        (proof) => row.name === proof.name && sourceFingerprint(row.cell) === proof.cellEvidence,
+        (proof) => row.name === proof.name && fingerprintMatches(proof.cellEvidence, row.cell),
       );
       if (index < 0) return true;
       remaining.splice(index, 1);
