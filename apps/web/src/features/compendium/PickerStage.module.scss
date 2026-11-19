@@ -52,6 +52,11 @@
     @include controls.button;
     box-sizing: border-box;
     max-width: 100%;
+    // A cell button holds a label and the cell's lines: they wrap as a left-aligned block.
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    column-gap: 0.25rem;
+    padding-block: 0.25rem;
     text-align: left;
     white-space: normal;
     overflow-wrap: anywhere;
@@ -98,12 +103,21 @@
   > section > h3:first-child {
     margin-top: 0.25rem;
   }
-  // A result row: its range, then its buttons side by side with a gap; a note takes its own line.
+  // Result lists start on the dialog's text edge, with no extra gap above.
+  ul {
+    margin: 0.25rem 0;
+  }
+  // A result row: its range (body size), then its buttons side by side; a note takes its own line.
   ul > li {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.25rem 0.5rem;
+    padding: 0.25rem 0;
+    > small {
+      margin: 0;
+      font-size: inherit;
+    }
     > p {
       flex-basis: 100%;
       margin: 0;
@@ -112,6 +126,10 @@
   }
 }
 @media (max-width: 700px) {
+  // Phones: a row's buttons stack at one full width.
+  .content ul > li > button {
+    flex: 1 1 100%;
+  }
   .stage {
     width: 100%;
     height: var(--app-h);

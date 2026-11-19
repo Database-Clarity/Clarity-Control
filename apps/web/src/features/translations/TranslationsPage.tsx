@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
   type ReactElement,
   type ReactNode,
+  type Ref,
 } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Lang } from '@clarity/core';
@@ -303,18 +304,24 @@ function Coverage({
       }}
     >
       {maintainer && (
-        <div className={styles.coverageMode} role="group" aria-label="Coverage view">
-          <button
-            ref={languagesButton}
-            type="button"
-            aria-pressed={!table}
-            onClick={() => setTable(false)}
-          >
-            Languages
-          </button>
-          <button type="button" aria-pressed={table} onClick={() => setTable(true)}>
-            Categories × languages
-          </button>
+        <div className={styles.coverageMode}>
+          <Segmented
+            label="Coverage view"
+            value={table ? 'table' : 'languages'}
+            onChange={(mode) => setTable(mode === 'table')}
+            options={[
+              {
+                value: 'languages',
+                label: 'Languages',
+                // Escape from the table returns focus here.
+                wrap: (button) =>
+                  cloneElement(button as ReactElement<{ ref?: Ref<HTMLButtonElement> }>, {
+                    ref: languagesButton,
+                  }),
+              },
+              { value: 'table', label: 'Categories × languages' },
+            ]}
+          />
         </div>
       )}
       {table ? (
