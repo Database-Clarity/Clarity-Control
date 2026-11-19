@@ -130,3 +130,44 @@ it('reuses one index per data and catalogue content, so reopening a global never
   );
   expect(globalUsageIndex(data, renamed)).not.toBe(first);
 });
+
+describe('global usages the resolver reaches through math and nested imports', () => {
+  const n = entry('g_number0001', 'variables', 'N', '10');
+  const nested = [
+    n,
+    entry('g_wrapped001', 'exports', 'Wrapped', 'import Payload from 42'),
+    entry('g_detail0001', 'titles', 'Detail', 'import Payload from 42'),
+  ];
+  const german = tooltip(63, 'Plain');
+  german.text.de = { text: 'Mit #N', updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'fixture' };
+  const nestedData = {
+    categories: [],
+    items: Object.fromEntries([42, 60, 61, 62, 63].map((hash) => [hash, item(hash)])),
+    aliases: {},
+    bundle: {
+      tooltips: {
+        42: tooltip(42, 'export Payload (\n#N\n)'),
+        60: tooltip(60, 'Math: ${#N*2}'),
+        61: tooltip(61, 'import Wrapped from global'),
+        62: tooltip(62, '<title Details [Detail] />'),
+        63: german,
+      },
+    },
+  } as unknown as EditorData;
+
+  it('counts math, an export or title body that imports, and a translation-only use', async () => {
+    const index = await buildGlobalUsageIndex(nestedData, nested);
+    const uses = index.of(n.id).tooltips;
+    const row = (hash: number) => uses.find((use) => use.hash === hash);
+    expect(hashes(uses)).toEqual([42, 60, 61, 62, 63]);
+    expect(row(60)).toMatchObject({ direct: true, open: { line: 1 } });
+    expect(row(61)).toMatchObject({ direct: false, via: ['import Wrapped from global'] });
+    expect(row(62)).toMatchObject({ direct: false, via: ['[Detail]'] });
+    // Used only in German: German is the language listed, and the row opens there.
+    expect(row(63)).toMatchObject({ langs: ['de'], direct: true, open: { lang: 'de', line: 1 } });
+    expect(index.of(n.id).globals.map((use) => [use.id, use.direct, use.via])).toEqual([
+      ['g_wrapped001', false, ['import Payload from 42']],
+      ['g_detail0001', false, ['import Payload from 42']],
+    ]);
+  });
+});

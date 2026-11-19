@@ -15,7 +15,10 @@ const data = {
   aliases: {},
   bundle: {
     tooltips: {
-      1: tooltip(1, 'export anti_barrier (\nA\n)\n\nexport overload (\nB\nC\n)'),
+      1: tooltip(
+        1,
+        'export anti_barrier (\nA\n)\n\nexport overload (\nB\nC\n)\n\nexport unstoppable (\nD\n)',
+      ),
       2: tooltip(2, '// note\nvar e = x\n\nvar Damage = 10%\nvar Range = 5'),
       3: tooltip(3, 'title G_refill (\nR\n)\n\ntitle G_conegrowth (\nC\n)'),
       42: tooltip(42, 'Text'),
@@ -32,7 +35,9 @@ describe('definitionPath', () => {
         g_damage0001: { kind: 'variables', name: 'Damage', definitions: {} },
         g_range00001: { kind: 'variables', name: 'Range', definitions: {} },
         g_cone000001: { kind: 'titles', name: 'G_conegrowth', definitions: {} },
+        g_barrier001: { kind: 'exports', name: 'anti_barrier', definitions: {} },
         g_overload01: { kind: 'exports', name: 'overload', definitions: {} },
+        g_unstop0001: { kind: 'exports', name: 'unstoppable', definitions: {} },
       },
       status: 'ready',
     });
@@ -43,6 +48,10 @@ describe('definitionPath', () => {
     expect(at(3, 5)).toBe('/globals/g_cone000001?lang=en');
     // Find results can land inside a block: the enclosing declaration opens.
     expect(at(1, 7)).toBe('/globals/g_overload01?lang=en');
+    // Each of the three split exports opens its own entry.
+    expect(at(1, 1)).toBe('/globals/g_barrier001?lang=en');
+    expect(at(1, 5)).toBe('/globals/g_overload01?lang=en');
+    expect(at(1, 10)).toBe('/globals/g_unstop0001?lang=en');
   });
 
   it('resolves by name before the catalogue loads, and leaves tooltip targets alone', () => {

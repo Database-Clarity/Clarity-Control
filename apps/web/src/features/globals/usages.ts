@@ -19,11 +19,12 @@ import { referenceInLine } from '../editor/references';
 
 /**
  * Which tooltips and globals use a global, observed from the real resolver over the loaded
- * data: every document is parsed (`parseMarkup`, under each condition type) with each global's
- * definition prefixed by its own marker, and a global is used where its marker reaches the
- * output. Imports, export and title bodies, variable values, conditions, the five-pass import
- * limit, comments, and link labels all count exactly as they render. Authored tokens only
- * decide whether a use is written in the text itself (Direct) or comes through something else.
+ * data, without changing what it prepares. Each document is rendered once (`parseMarkup`, under
+ * each condition type) with core's own observers: variable lookups (`onVariable`), import
+ * catalogue reads, and rendered title spans name the candidates. Each candidate is then
+ * confirmed by rendering with only that declaration removed: it is used where the output
+ * changes. Authored tokens only decide whether a use is written in the text itself (Direct) or
+ * comes through something else.
  */
 
 /** Condition types the resolver keeps blocks for (core's `markupConditions`), and none. */
@@ -35,10 +36,6 @@ const conditionTypes = [
 ] as const;
 type Key = `${GlobalKind}:${string}`;
 const keyOf = (kind: GlobalKind, name: string): Key => `${kind}:${name}`;
-/** Letters only, between brackets no name can hold: nothing merges with or formats them. */
-const markerOf = (index: number) =>
-  `⦃${[...index.toString(26)].map((digit) => String.fromCharCode(97 + parseInt(digit, 26))).join('')}⦄`;
-const markerPattern = /⦃[a-z]+⦄/g;
 
 export interface GlobalUse {
   langs: Lang[];
@@ -124,29 +121,32 @@ export async function buildGlobalUsageIndex(
 ): Promise<GlobalUsageIndex> {
   const live = entries.filter((entry) => !entry.tombstone);
   const ids = new Map(live.map((entry) => [keyOf(entry.kind, entry.name), entry.id]));
-  const keys = new Map(
-    live.map((entry, index) => [markerOf(index), keyOf(entry.kind, entry.name)]),
-  );
   const bodyOf = (entry: GlobalRecord, lang: Lang) =>
     (entry.definitions[lang] ?? entry.definitions.en)?.body;
 
-  // Marked globals per language: each definition starts with its marker, the rest unchanged.
-  const marked = new Map<Lang, MarkupGlobals>();
-  const globalsFor = (lang: Lang) => {
-    let globals = marked.get(lang);
+  // The globals of one language as the resolver reads them, optionally without one declaration.
+  const declared = new Map<string, MarkupGlobals>();
+  const globalsFor = (lang: Lang, without?: GlobalRecord): MarkupGlobals => {
+    const cacheKey = `${lang}:${without?.id ?? ''}`;
+    let globals = declared.get(cacheKey);
     if (globals) return globals;
-    const declared = (kind: GlobalKind, write: (name: string, body: string) => string) =>
+    const write = (kind: GlobalKind, declare: (name: string, body: string) => string) =>
       live
-        .map((entry, index) => ({ entry, body: bodyOf(entry, lang), marker: markerOf(index) }))
-        .filter(({ entry, body }) => entry.kind === kind && body !== undefined)
-        .map(({ entry, body, marker }) => write(entry.name, marker + body))
+        .filter((entry) => entry !== without && entry.kind === kind)
+        .flatMap((entry) => {
+          const body = bodyOf(entry, lang);
+          return body === undefined ? [] : [declare(entry.name, body)];
+        })
         .join(kind === 'variables' ? '\n' : '\n\n');
-    const exports = declared('exports', (name, body) => `export ${name} (\n${body}\n)`);
+    const exports = write('exports', (name, body) => `export ${name} (\n${body}\n)`);
     const catalogue = importGlobals(data, {}, lang).imports ?? {};
     globals = {
-      variables: declared('variables', (name, body) => `var ${name} = ${body}`),
-      titles: declared('titles', (name, body) => `title ${name} (\n${body}\n)`),
-      // The global exports are the marked ones; every tooltip is the editor's own catalogue.
+      variables: write(
+        'variables',
+        (name, body) => `var ${name} = ${body === '' ? 'empty' : body}`,
+      ),
+      titles: write('titles', (name, body) => `title ${name} (\n${body}\n)`),
+      // The global exports come from the entries; every tooltip is the editor's own catalogue.
       imports: new Proxy<Record<string, string>>(
         {},
         {
@@ -159,15 +159,43 @@ export async function buildGlobalUsageIndex(
         },
       ),
     };
-    marked.set(lang, globals);
+    declared.set(cacheKey, globals);
     return globals;
   };
-  /** Globals that reach the rendered output of `text`, under any condition type. */
-  const usedBy = (text: string, lang: Lang): Set<Key> => {
+  const render = (text: string, globals: MarkupGlobals) =>
+    conditionTypes.map((type) => JSON.stringify(parseMarkup(text, { ...globals, type }).lines));
+  /** Globals the rendered output of `text` depends on, under any condition type. */
+  const usedBy = (text: string, lang: Lang, self?: GlobalRecord): Set<Key> => {
+    const globals = globalsFor(lang);
+    const variables = new Set<string>();
+    const reads = new Set<string>();
+    const baseline = render(text, {
+      ...globals,
+      onVariable: (name) => variables.add(name),
+      imports: new Proxy<Record<string, string>>(
+        {},
+        {
+          get: (_target, key) => {
+            if (typeof key === 'string') reads.add(key);
+            return globals.imports![key as string];
+          },
+        },
+      ),
+    });
+    const titled = baseline.some((rendered) => rendered.includes('"title":'));
     const used = new Set<Key>();
-    for (const type of conditionTypes) {
-      const rendered = JSON.stringify(parseMarkup(text, { ...globalsFor(lang), type }).lines);
-      for (const [marker] of rendered.matchAll(markerPattern)) used.add(keys.get(marker)!);
+    for (const entry of live) {
+      if (entry === self) continue;
+      const candidate =
+        entry.kind === 'variables'
+          ? variables.has(entry.name)
+          : entry.kind === 'exports'
+            ? reads.has('1') || reads.has('global')
+            : titled;
+      if (!candidate) continue;
+      const without = render(text, globalsFor(lang, entry));
+      if (without.some((rendered, type) => rendered !== baseline[type]))
+        used.add(keyOf(entry.kind, entry.name));
     }
     return used;
   };
@@ -192,8 +220,7 @@ export async function buildGlobalUsageIndex(
   await sliced(
     bodies,
     ({ entry, lang, text }) => {
-      const used = usedBy(text, lang);
-      used.delete(keyOf(entry.kind, entry.name));
+      const used = usedBy(text, lang, entry);
       usedByEntry.set(`${entry.id}:${lang}`, used);
     },
     signal,
