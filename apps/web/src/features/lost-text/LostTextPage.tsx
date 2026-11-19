@@ -131,8 +131,8 @@ export function LostTextPage() {
     return <LoadingSkeleton label="Loading checker data…" shape="rows" visible={loadingSkeleton} />;
   if (!parsed.success)
     return (
-      <article>
-        <h1>Lost-tooltip checker</h1>
+      <article className={styles.page}>
+        <h1 className={styles.title}>Lost text</h1>
         <p role="alert">Checker data is missing or invalid; regenerate lost-text.json.</p>
       </article>
     );
@@ -177,11 +177,13 @@ export function LostTextPage() {
   }
   return (
     <article ref={pageRef} className={styles.page}>
-      <h1>Lost-tooltip checker</h1>
-      <p>
-        Blank saved tooltips with earlier text. Classification is evidence, not a judgment about why
-        text was cleared.
-      </p>
+      <header className={styles.head}>
+        <h1 className={styles.title}>Lost text</h1>
+        <p>
+          Blank saved tooltips with earlier text. Classification is evidence, not a judgment about
+          why text was cleared.
+        </p>
+      </header>
       {result.sourceCommit !== data.bundle.sourceCommit && (
         <p role="status">
           Checker data is from {result.sourceCommit.slice(0, 12)}; regenerate. Historical records
@@ -203,11 +205,11 @@ export function LostTextPage() {
             scrollPositions.current.set(location.key, lastScroll.current);
           }}
         >
-          <label>
+          <label className={styles.field}>
             Filter by name or hash
             <input value={query} onChange={(e) => setQuery(e.target.value)} />
           </label>
-          <label>
+          <label className={styles.field}>
             Authorship class
             <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
               <option value="">Possibly authored — human and unclear</option>
@@ -232,7 +234,7 @@ export function LostTextPage() {
             />
             Show dismissed
           </label>
-          <p role="status">
+          <p role="status" className={styles.count}>
             {rows.length} of {result.records.length} records shown
           </p>
           <div ref={barAnchor}>
@@ -299,7 +301,7 @@ export function LostTextPage() {
                   }}
                 >
                   <strong>{name}</strong>
-                  <span>
+                  <span className={styles.meta}>
                     {r.lang} · {r.classification} · {r.hash}
                   </span>
                 </button>
@@ -314,7 +316,7 @@ export function LostTextPage() {
             aria-label="Historical text detail"
             tabIndex={-1}
           >
-            <button type="button" onClick={() => setParams({})}>
+            <button type="button" className={styles.back} onClick={() => setParams({})}>
               Back to list
             </button>
             <h2>
@@ -386,7 +388,9 @@ export function LostTextPage() {
                   </button>
                 </>
               )}
-              <Link to={`/t/${selected.hash}?lang=${selected.lang}`}>Open in editor</Link>
+              <Link className={styles.link} to={`/t/${selected.hash}?lang=${selected.lang}`}>
+                Open in editor
+              </Link>
             </div>
           </section>
         )}

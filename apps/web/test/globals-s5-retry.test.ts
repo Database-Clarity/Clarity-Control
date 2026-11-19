@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { globalsHandler } from '../../worker/src/globals/handlers';
-import { paths } from '../../worker/src/globals/model';
+import { globalsHandler, publicGlobalSync } from '../../worker/src/globals/handlers';
+import { paths, syncSchema } from '../../worker/src/globals/model';
 import { createGlobalsService } from '../src/services/globals';
 import { globalFixtureSnapshot } from './globals-entries-fixture';
 
@@ -94,7 +94,13 @@ afterEach(() => {
 it('retries only the selected entry’s own failed causes', async () => {
   vi.resetModules();
   const { createGlobalsHttpTransport } = await import('../src/services/globalsHttp');
-  const service = createGlobalsService(createGlobalsHttpTransport(), { destinations: ['live'] });
+  // The catalogue as the publisher writes it into bundle.json: the Worker's own sync filter.
+  const sync = publicGlobalSync(syncSchema.parse(files.get(paths.sync)));
+  expect(sync.lastFailure).toBe('Sync failed. Retry sync.');
+  const service = createGlobalsService(createGlobalsHttpTransport(), {
+    destinations: ['live'],
+    catalog: async () => ({ kind: 'ok', value: { ...sync, version: 1, head, entries } }),
+  });
   const read = await service.read();
   if (read.kind !== 'ok') throw new Error(read.message);
   expect(read.value.causeEntries).toEqual({ causeA: entries[0].id, causeB: entries[1].id });

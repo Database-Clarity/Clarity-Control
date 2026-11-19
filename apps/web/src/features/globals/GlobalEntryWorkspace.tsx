@@ -63,6 +63,13 @@ import {
 import { GlobalHistory, type GlobalHistoryReader } from './GlobalHistory';
 import { useAuthStore } from '../../stores/auth';
 import { GlobalImpactComparison, validGlobalImpact } from './GlobalImpactComparison';
+import { useDataStore, type EditorData } from '../../stores/data';
+import { importGlobals } from '../../services/tooltipImports';
+import { tooltipTextSources } from '../editor/references';
+import { definitionPath } from '../editor/definitionPath';
+import { canonicalHash, classifiedCategory, itemFor, listName } from '../navigation/catalog';
+import { FinderIcon } from '../navigation/FinderIcon';
+import { globalUsageIndex, type GlobalUsageIndex, type GlobalUsages } from './usages';
 
 const globals = { variables: '', titles: '' };
 type Action = 'create' | 'rename' | 'remove' | 'remove-language';
@@ -271,7 +278,28 @@ function Workspace({
   const sync = globalSyncState(snapshot, entry?.id ?? '');
   // The Worker requeues only causes this entry owns; the repository-wide status still blocks.
   const ownCauses = sync.causeIds.filter((cause) => snapshot.causeEntries?.[cause] === entry?.id);
-  const savedImpacts = entry ? (snapshot.impacts[entry.id] ?? []) : [];
+  const openId = entry?.id;
+  const savedImpacts = (openId && snapshot.impacts[openId]) || noImpacts;
+  // The loaded tooltips (the same data the tooltip editor uses) give previews, references, and
+  // usages; the definition being edited still comes from the globals catalogue.
+  const data = useDataStore((state) => state.data);
+  const sharedGlobals = useMemo(
+    () => globalsByLanguage?.[lang] ?? (data ? importGlobals(data, {}, lang) : globals),
+    [globalsByLanguage, data, lang],
+  );
+  const referenceSources = useMemo(
+    () => (data ? tooltipTextSources(data.bundle.tooltips, {}, data.aliases) : undefined),
+    [data],
+  );
+  const usageIndex = useGlobalUsageIndex(data, snapshot.entries, shownTab === 'usages');
+  const uses = useMemo(
+    () => (openId && usageIndex.index ? usageIndex.index.of(openId) : undefined),
+    [usageIndex.index, openId],
+  );
+  const allRows = useMemo(
+    () => usageRows(uses ?? noUses, savedImpacts, data, snapshot.entries, lang),
+    [uses, savedImpacts, data, snapshot.entries, lang],
+  );
   const [reviewReload, setReviewReload] = useState(0);
   const [reviewError, setReviewError] = useState('');
   const reviewsMissing =
@@ -307,7 +335,14 @@ function Workspace({
   const scope = projectedScope ? 'projected' : 'saved';
   // One stable switcher: every view keeps its place and the open one reads as selected.
   const paneViews: [string, string][] = [
-    ['usages', scope === 'projected' ? 'Projected impact' : 'Usages'],
+    [
+      'usages',
+      scope === 'projected'
+        ? 'Projected impact'
+        : uses
+          ? `Usages ${allRows.filter((row) => row.direct || row.via.length).length}`
+          : 'Usages',
+    ],
     ['translations', 'Translations'],
     ...(history ? [['history', 'History'] as [string, string]] : []),
   ];
@@ -315,15 +350,38 @@ function Workspace({
   function reviewState(row: GlobalConsumerView) {
     return projectedScope ? 'projected' : globalReviewState(row as GlobalConsumer);
   }
-  const shown = consumers.filter(
-    (row) =>
-      `${row.name} ${row.consumer.hash} ${row.consumer.lang} ${row.category}`
-        .toLowerCase()
-        .includes(query.toLowerCase()) &&
-      (!params.get('category') || params.get('category') === row.category) &&
-      (!params.get('usageLang') || params.get('usageLang') === row.consumer.lang) &&
-      (!params.get('review') || params.get('review') === reviewState(row)),
-  );
+  const matches = (text: string) => text.toLowerCase().includes(query.toLowerCase());
+  // Language and Review filter the saved impacts under each row too (and so the selection); a
+  // row stays while it uses the global in that language or still has a matching impact.
+  const usageLang = params.get('usageLang') as Lang | null;
+  const review = params.get('review');
+  const shownRows = allRows
+    .map((row) => ({
+      ...row,
+      impacts: row.impacts.filter(
+        (impact) =>
+          (!usageLang || impact.consumer.lang === usageLang) &&
+          (!review || review === reviewState(impact)),
+      ),
+    }))
+    .filter(
+      (row) =>
+        matches(`${row.name} ${row.hash ?? ''} ${row.category}`) &&
+        (!params.get('category') || params.get('category') === row.category) &&
+        (review
+          ? row.impacts.length > 0
+          : !usageLang || row.langs.includes(usageLang) || row.impacts.length > 0),
+    );
+  // Saved: the impacts of the rows shown. Projected: the calculated rows, filtered as before.
+  const shown = projectedScope
+    ? consumers.filter(
+        (row) =>
+          matches(`${row.name} ${row.consumer.hash} ${row.consumer.lang} ${row.category}`) &&
+          (!params.get('category') || params.get('category') === row.category) &&
+          (!params.get('usageLang') || params.get('usageLang') === row.consumer.lang) &&
+          (!params.get('review') || params.get('review') === reviewState(row)),
+      )
+    : shownRows.flatMap((row) => row.impacts);
   const consumer = shown.find((row) => row.id === params.get('consumer')) ?? shown[0];
   const savedConsumer =
     !dirty && consumer ? savedImpacts.find((row) => row.id === consumer.id) : undefined;
@@ -518,7 +576,7 @@ function Workspace({
       onOpenChange={setActionsOpen}
       pending={pending}
       blocked={dirty || reviewOpen}
-      referenced={savedImpacts.length > 0}
+      referenced={savedImpacts.length > 0 || allRows.some((row) => row.direct || row.via.length)}
       structural={structural}
       maintainer={actor.role === 'maintainer'}
       entry={entry}
@@ -677,7 +735,9 @@ function Workspace({
           key={key}
           value={body}
           lang={lang}
-          globals={globalsByLanguage?.[lang] ?? globals}
+          globals={sharedGlobals}
+          referenceSources={referenceSources}
+          onOpenTooltip={(target) => navigateTo(definitionPath(target, data))}
           markupRow={markupRow.open}
           readOnly={pending}
           paused={pending}
@@ -691,15 +751,6 @@ function Workspace({
       </div>
     </section>
   );
-  const usageCount = reviewsMissing
-    ? 'Usages: Loading…'
-    : sync.status === 'current'
-      ? `Usages: ${new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips, ${
-          new Set(savedImpacts.map((row) => row.consumer.lang)).size
-        } languages`
-      : sync.status === 'sync-pending'
-        ? 'Usages: Sync pending'
-        : 'Usages: Sync failed';
   const left = (
     <>
       <div className={page.previewBody}>
@@ -708,36 +759,121 @@ function Workspace({
           lang={lang}
           name={entry.name}
           categoryLabel={kindLabel(entry.kind)}
-          globals={globalsByLanguage?.[lang] ?? globals}
+          globals={sharedGlobals}
           fill
         />
       </div>
-      <div className={page.rows}>
-        <PanelRow
-          label={usageCount}
-          actions={
-            <button
-              type="button"
-              className={page.ghost}
-              disabled={disabled}
-              aria-label="Show usages"
-              onClick={() => update({ tab: 'usages' })}
-            >
-              Show
-            </button>
-          }
-        />
-        {consumer && (
+      {consumer && (
+        <div className={page.rows}>
           <PanelRow
-            label="Consumer"
+            label="Tooltip impact"
             summary={`${consumer.name} (${languageLabel(consumer.consumer.lang)})`}
           >
             <GlobalImpactComparison row={consumer} raw={raw} />
           </PanelRow>
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
+  /** Plain words for a saved review; a sync that has not finished outranks it. */
+  const reviewLabel = (state: string) =>
+    !projectedScope && sync.status === 'sync-pending'
+      ? 'Sync pending'
+      : !projectedScope && sync.status === 'sync-failed'
+        ? 'Sync failed'
+        : state === 'required'
+          ? 'Needs review'
+          : state === 'acknowledged'
+            ? 'Acknowledged'
+            : state === 'stale'
+              ? 'Review out of date'
+              : state;
+  const reviewPopover = (row: GlobalConsumerView) => (
+    <Popover
+      label="Review tooltip impact"
+      trigger="Review"
+      triggerLabel={`Review ${row.name}`}
+      contain
+      open={reviewOpen && consumer?.id === row.id}
+      onOpenChange={(open) => {
+        if (pending || actionsOpen) return;
+        if (open) update({ consumer: row.id }, true);
+        setReviewOpen(open);
+        setReviewed(undefined);
+      }}
+    >
+      <div className={styles.review}>
+        <div className={styles.reviewHeader}>
+          <strong>
+            {row.name} ({destinationLabel(row.consumer.destination)})
+          </strong>
+          <RawDiffToggle />
+        </div>
+        <GlobalImpactComparison row={row} raw={raw} />
+        <label>
+          <input
+            type="checkbox"
+            disabled={!canAcknowledge || pending || raw}
+            checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
+            onChange={(e) => setReviewed(e.target.checked ? reviewKey : undefined)}
+          />
+          I reviewed both renders; no tooltip change needed.
+        </label>
+        <button
+          disabled={
+            dirty ||
+            pending ||
+            actionsOpen ||
+            conflict ||
+            raw ||
+            reviewed !== reviewKey ||
+            !canReviewGlobal(actor, row.consumer.lang) ||
+            !canAcknowledge
+          }
+          onClick={() =>
+            savedConsumer &&
+            canAcknowledge &&
+            void run({
+              operation: 'acknowledge',
+              id: entry.id,
+              consumerId: row.id,
+              contentDigest: savedConsumer.review.contentDigest,
+              impactDigest: savedConsumer.impactDigest,
+              dependencyDigest: savedConsumer.review.dependencyDigest,
+              decision: 'no-text-change',
+            })
+          }
+        >
+          Acknowledge review
+        </button>
+        {dirty ? (
+          <p>Save this definition before acknowledging impact.</p>
+        ) : (
+          !canAcknowledge && (
+            <p>
+              Only current, fully synced reviews can be acknowledged. Refresh after sync finishes.
+            </p>
+          )
+        )}
+      </div>
+    </Popover>
+  );
+  const filterValues = projectedScope
+    ? {
+        category: [...new Set(consumers.map((row) => row.category))],
+        usageLang: [...new Set(consumers.map((row) => row.consumer.lang))],
+      }
+    : {
+        category: [...new Set(allRows.map((row) => row.category).filter(Boolean))],
+        usageLang: [
+          ...new Set(
+            allRows.flatMap((row) => [
+              ...row.langs,
+              ...row.impacts.map((impact) => impact.consumer.lang),
+            ]),
+          ),
+        ],
+      };
   const pane = (
     <RightPaneTabsContext.Provider value={paneTabs}>
       <RightPane
@@ -819,7 +955,7 @@ function Workspace({
             </ul>
           </div>
         ) : (
-          <div className={styles.paneBody}>
+          <div className={`${styles.paneBody} ${styles.usagePane}`}>
             {scope === 'projected' && (
               <p className={styles.impactHeading}>Projected impact — unsaved</p>
             )}
@@ -854,12 +990,12 @@ function Workspace({
                 {reviewsMissing
                   ? 'Saved impact: Loading…'
                   : sync.status === 'current'
-                    ? `Saved impact: ${savedImpacts.length} consumers.`
+                    ? `Saved impact: ${new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips.`
                     : 'Saved usages will update when sync finishes.'}
               </p>
             )}
             <label className={styles.search}>
-              Filter consumers{' '}
+              Filter usages{' '}
               <input
                 type="search"
                 disabled={disabled}
@@ -869,16 +1005,8 @@ function Workspace({
             </label>
             <div className={styles.filters}>
               {[
-                {
-                  key: 'category',
-                  label: 'Category',
-                  values: [...new Set(consumers.map((row) => row.category))],
-                },
-                {
-                  key: 'usageLang',
-                  label: 'Language',
-                  values: [...new Set(consumers.map((row) => row.consumer.lang))],
-                },
+                { key: 'category', label: 'Category', values: filterValues.category },
+                { key: 'usageLang', label: 'Language', values: filterValues.usageLang },
                 {
                   key: 'review',
                   label: 'Review',
@@ -895,132 +1023,134 @@ function Workspace({
                     <option value="">All</option>
                     {filter.values.map((value) => (
                       <option key={value} value={value}>
-                        {value}
+                        {filter.key === 'usageLang' ? languageLabel(value as Lang) : value}
                       </option>
                     ))}
                   </select>
                 </label>
               ))}
             </div>
-            {!shown.length && (!reviewsMissing || projectedScope) && (
-              <p>
-                {query
-                  ? 'No matching consumers. Clear the filter to restore them.'
-                  : projectedScope && !projection
-                    ? 'Projected usages have not been calculated.'
-                    : !projectedScope && sync.status !== 'current'
-                      ? 'Saved usages will update when sync finishes.'
-                      : 'No affected consumers.'}
+            {projectedScope ? (
+              !shown.length && (
+                <p>
+                  {query
+                    ? 'No matching tooltips. Clear the filter to restore them.'
+                    : !projection
+                      ? 'Projected usages have not been calculated.'
+                      : 'No affected tooltips.'}
+                </p>
+              )
+            ) : !uses ? (
+              <p role="status">
+                {usageIndex.error ||
+                  (data ? 'Finding usages…' : 'Usages show once the tooltips load.')}
               </p>
+            ) : (
+              !shownRows.length && (
+                <p>
+                  {query ||
+                  params.get('category') ||
+                  params.get('usageLang') ||
+                  params.get('review')
+                    ? 'No matching usages. Clear the filters to restore them.'
+                    : 'Not used by any tooltip.'}
+                </p>
+              )
             )}
             <ul ref={usageList} className={styles.consumers}>
-              {shown.map((row) => (
-                <li
-                  key={row.id}
-                  data-global-consumer={row.id}
-                  data-selected={consumer?.id === row.id}
-                >
-                  <div className={styles.consumerHeading}>
-                    <button
-                      className={styles.consumerSelect}
-                      disabled={disabled}
-                      aria-pressed={consumer?.id === row.id}
-                      onClick={() => update({ consumer: row.id })}
+              {projectedScope
+                ? shown.map((row) => (
+                    <li
+                      key={row.id}
+                      data-global-consumer={row.id}
+                      data-selected={consumer?.id === row.id}
                     >
-                      {row.name} ({languageLabel(row.consumer.lang)})
-                    </button>
-                    <Popover
-                      label="Review consumer impact"
-                      trigger="Review"
-                      triggerLabel={`Review ${row.name}`}
-                      contain
-                      open={reviewOpen && consumer?.id === row.id}
-                      onOpenChange={(open) => {
-                        if (pending || actionsOpen) return;
-                        if (open) update({ consumer: row.id }, true);
-                        setReviewOpen(open);
-                        setReviewed(undefined);
-                      }}
-                    >
-                      <div className={styles.review}>
-                        <div className={styles.reviewHeader}>
-                          <strong>
-                            {row.name} ({destinationLabel(row.consumer.destination)})
-                          </strong>
-                          <RawDiffToggle />
-                        </div>
-                        <GlobalImpactComparison row={row} raw={raw} />
-                        <label>
-                          <input
-                            type="checkbox"
-                            disabled={!canAcknowledge || pending || raw}
-                            checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
-                            onChange={(e) => setReviewed(e.target.checked ? reviewKey : undefined)}
-                          />
-                          I reviewed both renders; no tooltip change needed.
-                        </label>
+                      <div className={styles.consumerHeading}>
                         <button
-                          disabled={
-                            dirty ||
-                            pending ||
-                            actionsOpen ||
-                            conflict ||
-                            raw ||
-                            reviewed !== reviewKey ||
-                            !canReviewGlobal(actor, row.consumer.lang) ||
-                            !canAcknowledge
-                          }
-                          onClick={() =>
-                            savedConsumer &&
-                            canAcknowledge &&
-                            void run({
-                              operation: 'acknowledge',
-                              id: entry.id,
-                              consumerId: row.id,
-                              contentDigest: savedConsumer.review.contentDigest,
-                              impactDigest: savedConsumer.impactDigest,
-                              dependencyDigest: savedConsumer.review.dependencyDigest,
-                              decision: 'no-text-change',
-                            })
-                          }
+                          className={styles.consumerSelect}
+                          disabled={disabled}
+                          aria-pressed={consumer?.id === row.id}
+                          onClick={() => update({ consumer: row.id })}
                         >
-                          Acknowledge review
+                          {row.name} ({languageLabel(row.consumer.lang)})
                         </button>
-                        {dirty ? (
-                          <p>Save this definition before acknowledging impact.</p>
-                        ) : (
-                          !canAcknowledge && (
-                            <p>
-                              Only current, fully synced reviews can be acknowledged. Refresh after
-                              sync finishes.
-                            </p>
-                          )
-                        )}
+                        {reviewPopover(row)}
                       </div>
-                    </Popover>
-                  </div>
-                  <div className={styles.consumerMeta}>
-                    <span>
-                      {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
-                      {reviewState(row)}, {destinationLabel(row.consumer.destination)}
-                      {row.archived ? ', archived' : ''}
-                    </span>
-                    <span>{row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}</span>
-                    <span>
-                      {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
-                    </span>
-                    <Link
-                      tabIndex={disabled ? -1 : undefined}
-                      onClick={(e) => {
-                        if (disabled || dirty) e.preventDefault();
-                      }}
-                      to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
-                    >
-                      {row.line === null ? 'Open consumer' : `Open line ${row.line}`}
-                    </Link>
-                  </div>
-                </li>
-              ))}
+                      <div className={styles.consumerMeta}>
+                        <span>
+                          {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
+                          {reviewState(row)}, {destinationLabel(row.consumer.destination)}
+                          {row.archived ? ', archived' : ''}
+                        </span>
+                        <span>{row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}</span>
+                        <span>
+                          {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
+                        </span>
+                        <Link
+                          tabIndex={disabled ? -1 : undefined}
+                          onClick={(e) => {
+                            if (disabled) e.preventDefault();
+                          }}
+                          to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
+                        >
+                          {row.line === null ? 'Open tooltip' : `Open line ${row.line}`}
+                        </Link>
+                      </div>
+                    </li>
+                  ))
+                : shownRows.map((row) => (
+                    <li key={row.key} data-global-usage={row.key}>
+                      <Link
+                        className={styles.usageLink}
+                        tabIndex={disabled ? -1 : undefined}
+                        onClick={(e) => {
+                          if (disabled) e.preventDefault();
+                        }}
+                        to={row.to}
+                      >
+                        {row.hash !== undefined && <FinderIcon icon={row.icon} />}
+                        {row.name}
+                      </Link>
+                      <div className={styles.consumerMeta}>
+                        <span>
+                          {[
+                            row.category,
+                            row.langs.map(languageLabel).join(', '),
+                            row.direct
+                              ? 'Direct'
+                              : row.via.length
+                                ? `Through ${row.via.join(', ')}`
+                                : 'No current use',
+                            row.members > 1 && `${row.members} items`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      </div>
+                      {row.impacts.map((impact) => (
+                        <div
+                          key={impact.id}
+                          className={styles.consumerHeading}
+                          data-global-consumer={impact.id}
+                          data-selected={consumer?.id === impact.id}
+                        >
+                          <button
+                            className={styles.consumerSelect}
+                            disabled={disabled}
+                            aria-pressed={consumer?.id === impact.id}
+                            onClick={() => update({ consumer: impact.id })}
+                          >
+                            <span>
+                              {languageLabel(impact.consumer.lang)}:{' '}
+                              {reviewLabel(reviewState(impact))},{' '}
+                              {destinationLabel(impact.consumer.destination)}
+                            </span>
+                          </button>
+                          {reviewPopover(impact)}
+                        </div>
+                      ))}
+                    </li>
+                  ))}
             </ul>
           </div>
         )}
@@ -1045,6 +1175,148 @@ function Workspace({
       )}
     </article>
   );
+}
+
+const noImpacts: GlobalConsumer[] = [];
+const noUses: GlobalUsages = { tooltips: [], globals: [] };
+
+/**
+ * The usage index, built once per loaded data and catalogue: at once when the Usages tab is
+ * open, otherwise when the browser is idle (so the tab count fills in). The previous index stays
+ * shown while a newer one builds.
+ */
+function useGlobalUsageIndex(
+  data: EditorData | null,
+  entries: readonly GlobalEntry[],
+  wanted: boolean,
+): { index?: GlobalUsageIndex; error: string } {
+  const [built, setBuilt] = useState<{
+    data: EditorData;
+    entries: readonly GlobalEntry[];
+    index: GlobalUsageIndex;
+  }>();
+  const [error, setError] = useState('');
+  const current = built?.data === data && built?.entries === entries;
+  useEffect(() => {
+    if (!data || current) return;
+    const controller = new AbortController();
+    const start = () =>
+      void globalUsageIndex(data, entries).then(
+        (index) => {
+          if (controller.signal.aborted) return;
+          setError('');
+          setBuilt({ data, entries, index });
+        },
+        (reason: unknown) => {
+          if (!controller.signal.aborted)
+            setError(reason instanceof Error ? reason.message : 'Could not find usages.');
+        },
+      );
+    let cancel = () => {};
+    if (wanted) start();
+    else if (typeof requestIdleCallback === 'function') {
+      const idle = requestIdleCallback(start, { timeout: 2000 });
+      cancel = () => cancelIdleCallback(idle);
+    } else {
+      const timer = setTimeout(start, 500);
+      cancel = () => clearTimeout(timer);
+    }
+    return () => {
+      cancel();
+      controller.abort();
+    };
+  }, [data, entries, wanted, current]);
+  return { index: built?.index, error };
+}
+
+interface UsageRow {
+  key: string;
+  name: string;
+  icon?: string;
+  category: string;
+  /** Canonical tooltip hash; absent for a global. */
+  hash?: number;
+  langs: Lang[];
+  direct: boolean;
+  via: string[];
+  members: number;
+  to: string;
+  /** Saved review obligations for this tooltip (any language or destination). */
+  impacts: GlobalConsumer[];
+}
+
+/**
+ * One row per tooltip (an alias group or base/enhanced pair once, under its canonical hash) and
+ * per global that uses the entry, with any saved impacts attached. A saved impact without a
+ * current use (the reference was removed since) keeps its own row so it can still be reviewed.
+ */
+function usageRows(
+  uses: GlobalUsages,
+  impacts: readonly GlobalConsumer[],
+  data: EditorData | null,
+  entries: readonly GlobalEntry[],
+  lang: Lang,
+): UsageRow[] {
+  const canonical = (hash: number) => (data ? canonicalHash(hash, data) : hash);
+  const byHash = new Map<number, GlobalConsumer[]>();
+  for (const impact of impacts) {
+    const hash = canonical(impact.consumer.hash);
+    byHash.set(hash, [...(byHash.get(hash) ?? []), impact]);
+  }
+  const describe = (hash: number) => {
+    const item = data ? itemFor(hash, data) : undefined;
+    return {
+      name: item && data ? listName(item, data) : `Tooltip ${hash}`,
+      icon: item?.icon,
+      category: (item && data && classifiedCategory(item, data)?.label) || '',
+    };
+  };
+  // `import Perk from 42` reads as the tooltip's name, as in the finder.
+  const named = (via: string) =>
+    via.replace(/ from (\d+)$/, (_, hash: string) => ` from ${describe(Number(hash)).name}`);
+  const languageOf = (langs: readonly Lang[]) => (langs.includes(lang) ? lang : langs[0]);
+  const ordered = (langs: readonly Lang[]) => languages.filter((value) => langs.includes(value));
+  const rows: UsageRow[] = uses.tooltips.map((use) => ({
+    key: `t:${use.hash}`,
+    ...describe(use.hash),
+    hash: use.hash,
+    langs: ordered(use.langs),
+    direct: use.direct,
+    via: use.via.map(named),
+    members: use.members,
+    // Member, language, and line of the same use, so the line exists where the editor opens.
+    to: `/t/${use.hash}?lang=${use.open.lang}&variant=${use.open.variant}${use.open.line ? `&line=${use.open.line}` : ''}`,
+    impacts: byHash.get(use.hash) ?? [],
+  }));
+  for (const [hash, list] of byHash)
+    if (!uses.tooltips.some((use) => use.hash === hash))
+      rows.push({
+        key: `t:${hash}`,
+        ...describe(hash),
+        hash,
+        langs: [],
+        direct: false,
+        via: [],
+        members: 1,
+        to: `/t/${hash}?lang=${list[0].consumer.lang}&variant=${list[0].variant}`,
+        impacts: list,
+      });
+  for (const use of uses.globals) {
+    const entry = entries.find((item) => item.id === use.id);
+    if (!entry) continue;
+    rows.push({
+      key: `g:${use.id}`,
+      name: entry.name,
+      category: `Global ${kindLabel(entry.kind).toLowerCase()}`,
+      langs: ordered(use.langs),
+      direct: use.direct,
+      via: use.via.map(named),
+      members: 1,
+      to: `/globals/${use.id}?lang=${languageOf(use.langs)}`,
+      impacts: [],
+    });
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** History in the right pane; a restore shows the editor where it is a separate view (phones). */

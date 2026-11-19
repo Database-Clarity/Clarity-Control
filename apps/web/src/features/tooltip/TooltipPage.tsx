@@ -29,7 +29,7 @@ import { EditorView } from '@codemirror/view';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
-import { previewNumberGlobals, tooltipImports } from '../../services/tooltipImports';
+import { importGlobals, previewNumberGlobals } from '../../services/tooltipImports';
 import { useDataStore, type EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { useDraftStore } from '../../stores/drafts';
@@ -59,6 +59,7 @@ import { useMarkupRow } from '../editor/markupRow/useMarkupRow';
 import { tooltipTextSources } from '../editor/references';
 import { corpusUsage } from '../editor/suggest/usage';
 import type { TooltipTarget } from '../editor/referenceActions';
+import { definitionPath } from '../editor/definitionPath';
 import { PreviewColumn, type EnhancedView } from '../preview';
 import { effectiveMode, previewedHashes, type PreviewMode } from '../preview/previewMode';
 import { useAcknowledgePreview } from '../navigation/useAcknowledgePreview';
@@ -390,8 +391,7 @@ function TooltipWorkspace({
   const previewHost = useRef<HTMLDivElement>(null);
   function openDefinition(target: TooltipTarget) {
     // Ordinary navigation (a pushed history entry), the same route a Globals page link takes.
-    const canonical = data ? canonicalHash(target.hash, data) : target.hash;
-    navigate(`/t/${canonical}?lang=${target.lang}&line=${target.line}&variant=${target.hash}`);
+    navigate(definitionPath(target, data));
   }
   // With a left column beside the page (desktop shell) the preview, associations and history are
   // shown there; without one (a phone, or the page on its own) they stay inline in the page.
@@ -1028,11 +1028,6 @@ function withFuture(data: EditorData, future: Drafts): EditorData {
   const tooltips = { ...data.bundle.tooltips };
   for (const [hash, entry] of Object.entries(future)) tooltips[Number(hash)] = entry.next;
   return { ...data, bundle: { ...data.bundle, tooltips } };
-}
-
-function importGlobals(data: EditorData | null, source: Drafts, lang: Lang): MarkupGlobals {
-  const imports = tooltipImports(data?.bundle.tooltips ?? {}, source, lang, data?.aliases ?? {});
-  return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
 }
 
 /** One globals object per type, so renders that share a type share the object (and its parse). */

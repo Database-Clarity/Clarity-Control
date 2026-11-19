@@ -1,14 +1,73 @@
 import {
   createGlobalsService,
+  type GlobalCatalog,
   type GlobalEntry,
   type GlobalResult,
   type GlobalSnapshot,
 } from '../services/globals';
 import { createGlobalsHttpTransport, type GlobalsHttpTransport } from '../services/globalsHttp';
+import type { Bundle } from '../services/bundle';
 import { useAuthStore } from './auth';
+import { useDataStore } from './data';
 import { useGlobalIdentities } from './globalIdentities';
+import { applySavedGlobals, rememberSavedGlobal } from './savedOverlay';
 
 let authGeneration = 0;
+
+/** The editor data the tooltips load (one bundle fetch per tab); starts it if nothing has. */
+function editorBundle(): Promise<Bundle | string> {
+  const state = useDataStore.getState();
+  if (state.data) return Promise.resolve(state.data.bundle);
+  if (state.status !== 'loading') void state.load();
+  return new Promise((resolve) => {
+    const stop = useDataStore.subscribe((next) => {
+      if (next.data) resolve(next.data.bundle);
+      else if (next.status === 'error') resolve(next.error ?? 'Could not load editor data.');
+      else return;
+      stop();
+    });
+  });
+}
+
+/** Reloads the editor data in the background (the data loader's own refresh); its bundle after. */
+async function reloadedBundle(): Promise<Bundle | string> {
+  const { status, refreshing, load } = useDataStore.getState();
+  // Nothing in flight (ready, or a failed earlier reload): reload; the loader decides how.
+  if (status !== 'loading' && !refreshing) await load({ background: true });
+  else
+    await new Promise<void>((resolve) => {
+      const stop = useDataStore.subscribe((next) => {
+        if (next.refreshing || next.status === 'loading') return;
+        stop();
+        resolve();
+      });
+    });
+  const { data, error } = useDataStore.getState();
+  return data?.bundle ?? error ?? 'Could not load editor data.';
+}
+
+/** Bundles already found without a usable catalogue: a Retry reloads instead of rereading. */
+const unusable = new WeakSet<Bundle>();
+
+/** The globals catalogue from the editor-data bundle, with this tab's saves on top. */
+async function bundleCatalog(): Promise<GlobalResult<GlobalCatalog>> {
+  let bundle = await editorBundle();
+  if (typeof bundle !== 'string' && unusable.has(bundle)) bundle = await reloadedBundle();
+  if (typeof bundle === 'string') return { kind: 'retry', message: bundle };
+  if (!bundle.globals) {
+    unusable.add(bundle);
+    return { kind: 'retry', message: 'Sync pending: global metadata is incomplete' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...bundle.globals.sync,
+      version: 1,
+      head: bundle.sourceCommit,
+      entries: applySavedGlobals(bundle, bundle.globals.entries),
+    },
+  };
+}
 
 let session: {
   token: string | null;
@@ -27,7 +86,6 @@ export function globalsSession() {
   const generation = authGeneration;
   if (session?.token !== token || session?.role !== role) {
     const transport = createGlobalsHttpTransport();
-    let completeCatalogue = false;
     let catalogueRequest = 0;
     const current = () =>
       authGeneration === generation &&
@@ -35,13 +93,11 @@ export function globalsSession() {
       useAuthStore.getState().user?.role === role;
     const service = createGlobalsService(transport, {
       destinations: ['live'],
-      lazyReviews: true,
-      onCatalogPage(entries, complete) {
-        if (!current()) return;
-        if (complete || !completeCatalogue)
-          rememberGlobalIdentities(entries, complete ? 'ready' : 'loading');
-        if (complete) completeCatalogue = true;
+      catalog: bundleCatalog,
+      onCatalog(entries) {
+        if (current()) rememberGlobalIdentities(entries);
       },
+      onEntrySaved: (entry, head) => rememberSavedGlobal(entry, head),
     });
     const catalogueResult = async (
       pending: Promise<GlobalResult<GlobalSnapshot>>,

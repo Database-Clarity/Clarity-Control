@@ -1960,6 +1960,65 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     }
   });
 
+  it('bundle.json carries the globals catalogue at its head, in page order, with public sync', async () => {
+    const f = await setup();
+    const bundle = () =>
+      f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'bundle.json',
+      )!;
+    f.pub.bundle();
+    expect(bundle()).not.toHaveProperty('globals');
+    const record = (id: string, name: string) => ({
+      version: 1,
+      id,
+      kind: 'variables',
+      name,
+      revision: 'r1',
+      nameHistory: [],
+      definitions: {
+        en: { body: name, revision: 'r1', updatedAt: '2026-11-18T00:00:00Z', updatedBy: 'a' },
+      },
+    });
+    const [b, a, c] = [
+      record('g_bbbbbbbb', 'Beta'),
+      record('g_aaaaaaaa', 'Alpha'),
+      record('g_cccccccc', 'Gamma'),
+    ];
+    const secret = 'producer detail: token=not-public';
+    f.change(D, {
+      'globals/catalog.json': { version: 1, lastPage: 1 },
+      'globals/pages/p0.json': { version: 1, ids: [b.id, a.id], nextCursor: 'p1' },
+      'globals/pages/p1.json': { version: 1, ids: [c.id], nextCursor: null },
+      ...Object.fromEntries([a, b, c].map((entry) => [`globals/entries/${entry.id}.json`, entry])),
+      'globals/sync.json': {
+        version: 1,
+        status: 'sync-failed',
+        causeIds: ['cause1'],
+        causeEntries: { cause1: b.id },
+        lastFailure: secret,
+      },
+    });
+    f.pub.bundle();
+    expect(bundle().sourceCommit).toBe(f.git.head(D));
+    expect(bundle().globals).toEqual({
+      entries: [b, a, c],
+      sync: {
+        status: 'sync-failed',
+        causeIds: ['cause1'],
+        lastFailure: 'Sync failed. Retry sync.',
+        causeEntries: { cause1: b.id },
+      },
+    });
+    expect(JSON.stringify(bundle())).not.toContain(secret);
+    // A broken catalogue is unavailable (null), never a partial list; tooltips still update.
+    f.change(D, { [`globals/entries/${c.id}.json`]: { ...c, id: 'g_dddddddd' } });
+    f.pub.bundle();
+    expect(bundle().sourceCommit).toBe(f.git.head(D));
+    expect(bundle().globals).toBeNull();
+    expect(Object.keys(bundle().tooltips as object).length).toBeGreaterThan(0);
+  });
+
   it('bundle.json carries maintainer sandbox picks only while the file holds some', async () => {
     const f = await setup();
     const bundle = () =>

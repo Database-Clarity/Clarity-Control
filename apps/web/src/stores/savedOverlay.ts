@@ -1,4 +1,4 @@
-import { stableStringify, type Tooltip } from '@clarity/core';
+import { stableStringify, type GlobalRecord, type Tooltip } from '@clarity/core';
 import type { Bundle } from '../services/bundle';
 
 /**
@@ -43,9 +43,63 @@ export function rememberSaved(
   version++;
 }
 
+/** Global entries this tab saved, with the data head each save produced. */
+type GlobalEntry = { at: number; head: string; entry: GlobalRecord };
+const globals = new Map<string, GlobalEntry>();
+
+export function rememberSavedGlobal(entry: GlobalRecord, head: string, now = Date.now()): void {
+  globals.set(entry.id, { at: now, head, entry });
+}
+
 export function clearSavedOverlay(): void {
   entries.clear();
+  globals.clear();
   version++;
+}
+
+/** The fetched bundle has caught up, or is demonstrably newer than the save, or the save is old. */
+function retired(
+  entry: { at: number; serverAt?: number },
+  generatedAt: number,
+  caughtUp: boolean,
+  now: number,
+) {
+  const newer =
+    generatedAt >
+    (entry.serverAt === undefined
+      ? entry.at + overlayClockSkewMs
+      : entry.serverAt + overlayServerSkewMs);
+  return caughtUp || newer || now - entry.at > overlayTtlMs;
+}
+
+/**
+ * The bundle's globals catalogue with this tab's saved entries on top, until the bundle is built
+ * from the saved head (or a later save of the same record shows), by the tooltip rule above.
+ */
+export function applySavedGlobals(
+  bundle: Pick<Bundle, 'sourceCommit' | 'generatedAt'>,
+  fetched: readonly GlobalRecord[],
+  now = Date.now(),
+): GlobalRecord[] {
+  const generatedAt = Date.parse(bundle.generatedAt);
+  const result = [...fetched];
+  for (const [id, saved] of [...globals]) {
+    const index = result.findIndex((entry) => entry.id === id);
+    const current = index >= 0 ? result[index] : undefined;
+    // Built from the saved head, holding the saved record, or a later rename of it.
+    const caughtUp =
+      bundle.sourceCommit === saved.head ||
+      (current !== undefined &&
+        (stableStringify(current) === stableStringify(saved.entry) ||
+          current.nameHistory.some((old) => old.revision === saved.entry.revision)));
+    if (retired(saved, generatedAt, caughtUp, now)) {
+      globals.delete(id);
+      continue;
+    }
+    if (index >= 0) result[index] = saved.entry;
+    else result.push(saved.entry);
+  }
+  return result;
 }
 
 export function applySavedOverlay(bundle: Bundle, now = Date.now()): Bundle {
@@ -56,12 +110,7 @@ export function applySavedOverlay(bundle: Bundle, now = Date.now()): Bundle {
     const caughtUp = entry.tooltip
       ? fetched !== undefined && stableStringify(fetched) === stableStringify(entry.tooltip)
       : fetched === undefined;
-    const newer =
-      generatedAt >
-      (entry.serverAt === undefined
-        ? entry.at + overlayClockSkewMs
-        : entry.serverAt + overlayServerSkewMs);
-    if (caughtUp || newer || now - entry.at > overlayTtlMs) {
+    if (retired(entry, generatedAt, caughtUp, now)) {
       entries.delete(hash);
       continue;
     }

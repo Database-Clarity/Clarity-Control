@@ -5,6 +5,8 @@ import {
   inactiveMovesSchema,
   tooltipSchema,
   aliasGroupsSchema,
+  globalIdSchema,
+  globalRecordSchema,
 } from '@clarity/core';
 import { z } from 'zod';
 
@@ -28,6 +30,24 @@ export const bundleSchema = z.object({
     .optional()
     // A malformed file must not make the bundle unloadable; the Worker fails closed on it anyway.
     .catch(undefined),
+  /**
+   * The globals catalogue at sourceCommit (publisher bundleGlobals): every entry in catalogue
+   * order and the public sync header. Null or absent (malformed, or an older publisher) means
+   * unavailable; it never makes the tooltips unloadable.
+   */
+  globals: z
+    .object({
+      entries: z.array(globalRecordSchema),
+      sync: z.object({
+        status: z.enum(['sync-pending', 'sync-failed', 'current']),
+        causeIds: z.array(z.string().max(128)).max(32),
+        lastFailure: z.string().max(512).nullable(),
+        causeEntries: z.record(z.string().max(128), globalIdSchema),
+      }),
+    })
+    .nullable()
+    .optional()
+    .catch(null),
   /** Publish requests waiting in the Worker's queue (written by the publisher pipeline; absent until it runs). */
   publishQueue: z
     .array(

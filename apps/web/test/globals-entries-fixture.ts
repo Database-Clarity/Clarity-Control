@@ -19,6 +19,7 @@ import {
   canReviewGlobal,
   type GlobalActor,
   type GlobalConsumer,
+  type GlobalCatalog,
   type GlobalResult,
   type GlobalSnapshot,
 } from '../src/services/globals';
@@ -198,9 +199,10 @@ export function createGlobalsFixture(
     for (const destination of Object.keys(snapshot.destinationSync))
       snapshot.destinationSync[destination] = { status, causeIds: [...causeIds], lastFailure };
   }
-  const transport: GlobalsTransport = {
-    async list(cursor) {
-      const failed = await failure<import('../src/services/globals').GlobalEntryPage>();
+  /** The whole catalogue at the fixture's head (the bundle, built up to date here). */
+  const catalog = async (): Promise<GlobalResult<GlobalCatalog>> => {
+    {
+      const failed = await failure<GlobalCatalog>();
       if (failed) return failed;
       if (controls.syncOutcome) {
         const status = controls.syncOutcome;
@@ -243,17 +245,13 @@ export function createGlobalsFixture(
         }
         snapshot.head = fixtureHead(++revision);
       }
-      const offset = Number(cursor.slice(1)) * 3;
       return {
         kind: 'ok',
-        value: {
-          ...header(),
-          entries: structuredClone(snapshot.entries.slice(offset, offset + 3)),
-          nextCursor:
-            offset + 3 < snapshot.entries.length ? `p${Number(cursor.slice(1)) + 1}` : null,
-        },
+        value: { ...header(), entries: structuredClone(snapshot.entries) },
       };
-    },
+    }
+  };
+  const transport: GlobalsTransport = {
     async entry(id) {
       const entry = snapshot.entries.find((item) => item.id === id);
       return entry
@@ -553,7 +551,8 @@ export function createGlobalsFixture(
   };
   const service = createGlobalsService(transport, {
     destinations: ['live', 'saved'],
+    catalog,
     initialSnapshot: seed,
   });
-  return { service, transport, controls, projection };
+  return { service, transport, catalog, controls, projection };
 }
