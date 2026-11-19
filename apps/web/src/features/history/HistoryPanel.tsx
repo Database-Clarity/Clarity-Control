@@ -32,6 +32,8 @@ import {
   viewScope,
   type HistoryScope,
 } from './scope';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 /**
  * One collapsed row: "Edited <date> by <author>, n revisions". Expanding it shows the commit list
@@ -318,12 +320,9 @@ function HistoryContent({
   return (
     <section aria-label={`History for ${hash}`} className={styles.historySection}>
       {error && (
-        <p role="alert">
-          {error}{' '}
-          <button type="button" onClick={() => setAttempt((value) => value + 1)}>
-            Retry history
-          </button>
-        </p>
+        <InlineAlert onRetry={() => setAttempt((value) => value + 1)} retryLabel="Retry history">
+          {plainError(error)}
+        </InlineAlert>
       )}
       {notice && <p role="status">{notice}</p>}
       {hidden > 0 && (

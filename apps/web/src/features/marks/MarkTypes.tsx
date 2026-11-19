@@ -3,6 +3,8 @@ import { markColours, type MarkAction, type MarkType } from '@clarity/core/marks
 import { useAuthStore } from '../../stores/auth';
 import { useMarksStore } from './store';
 import styles from './marks.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 export function MarkTypes() {
   const user = useAuthStore((state) => state.user);
@@ -51,7 +53,7 @@ export function MarkTypes() {
     <section className={`${styles.panel} ${styles.management}`} aria-label="Mark types">
       <h2>Mark types</h2>
       <p>Editors and maintainers can mark entries. Maintainers manage the available types.</p>
-      {error && <p role="alert">{error}</p>}
+      {error && <InlineAlert>{plainError(error)}</InlineAlert>}
       <div>
         <button
           type="button"

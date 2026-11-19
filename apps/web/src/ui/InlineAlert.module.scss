@@ -19,7 +19,8 @@
   background: var(--alert-bg);
   border: 1px solid var(--alert-edge);
   border-radius: 0.25rem;
-  button {
+  // [role] keeps this over a host's own button rules (the notice looks the same everywhere).
+  &[role='alert'] > button {
     @include controls.button;
     flex: none;
     min-height: 1.375rem;

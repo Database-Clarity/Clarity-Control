@@ -32,6 +32,8 @@ import {
   viewportWidth,
   visibleArea,
 } from '../../ui/anchorPlacement';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 const HOVER_DELAY = 120;
 const LEAVE_DELAY = 160;
@@ -612,12 +614,9 @@ function RevisionPopover({
           </button>
         </div>
         {error && (
-          <p role="alert">
-            {error}{' '}
-            <button type="button" onClick={() => setAttempt((value) => value + 1)}>
-              Retry
-            </button>
-          </p>
+          <InlineAlert onRetry={() => setAttempt((value) => value + 1)}>
+            {plainError(error)}
+          </InlineAlert>
         )}
 
         <SkeletonBoundary

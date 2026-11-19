@@ -346,7 +346,7 @@ function BoundaryDemo({ error = false }) {
       </button>
       <SkeletonBoundary pending={pending} error={error} label="Loading history…" shape="rows">
         {error ? (
-          <p role="alert">Couldn't load history. Check your connection and try again.</p>
+          <InlineAlert>Couldn't load history. Check your connection and try again.</InlineAlert>
         ) : (
           <p className={styles.plain}>Loaded content.</p>
         )}
