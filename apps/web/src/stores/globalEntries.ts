@@ -32,7 +32,8 @@ function editorBundle(): Promise<Bundle | string> {
 /** Reloads the editor data in the background (the data loader's own refresh); its bundle after. */
 async function reloadedBundle(): Promise<Bundle | string> {
   const { status, refreshing, load } = useDataStore.getState();
-  if (status === 'ready' && !refreshing) await load({ background: true });
+  // Nothing in flight (ready, or a failed earlier reload): reload; the loader decides how.
+  if (status !== 'loading' && !refreshing) await load({ background: true });
   else
     await new Promise<void>((resolve) => {
       const stop = useDataStore.subscribe((next) => {

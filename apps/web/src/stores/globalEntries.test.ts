@@ -154,6 +154,23 @@ it('says the catalogue is unavailable when the bundle has none, keeps the last l
   expect(ids()).toEqual([title.id]);
 });
 
+it('reloads again on Retry after a failed background reload instead of waiting', async () => {
+  useAuthStore.setState({ user, token: 'reload-failed', loading: false });
+  ready(null);
+  await loadGlobalIdentities();
+  // The data loader's reload fails: it keeps its data and reports an error.
+  load.mockImplementationOnce(async () =>
+    useDataStore.setState({ status: 'error', error: 'Bundle request failed' }),
+  );
+  await loadGlobalIdentities(true);
+  expect(useGlobalIdentities.getState().status).toBe('failed');
+  load.mockImplementationOnce(async () => ready([title]));
+  await loadGlobalIdentities(true);
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(useGlobalIdentities.getState().status).toBe('ready');
+  expect(ids()).toEqual([title.id]);
+});
+
 it('keeps saying unavailable when the reloaded bundle still has no catalogue', async () => {
   useAuthStore.setState({ user, token: 'still-unavailable', loading: false });
   ready(null);
