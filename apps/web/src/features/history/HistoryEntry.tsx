@@ -689,7 +689,7 @@ function RevisionPopover({
                 details are shown for comparison.
               </p>
             )}
-            {restoreError && <p role="alert">{restoreError}</p>}
+            {restoreError && <InlineAlert>{plainError(restoreError)}</InlineAlert>}
             {!confirm ? (
               <button ref={restoreButton} type="button" onClick={() => setConfirm(true)}>
                 Restore this revision

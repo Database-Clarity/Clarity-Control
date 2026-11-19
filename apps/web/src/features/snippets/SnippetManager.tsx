@@ -188,26 +188,27 @@ export function SnippetManager({
         </button>
         {actions}
       </div>
-      {notice && (
-        <p
-          className={notice.kind === 'done' ? styles.notice : styles.conflict}
-          role={notice.kind === 'done' ? 'status' : 'alert'}
-        >
-          {notice.text}{' '}
-          {notice.kind === 'conflict' && (
-            <button
-              type="button"
-              onClick={() => {
-                setNotice(null);
-                setEditing(null);
-                onReload();
-              }}
-            >
-              Reload
-            </button>
-          )}
-        </p>
-      )}
+      {notice &&
+        (notice.kind === 'done' ? (
+          <p className={styles.notice} role="status">
+            {notice.text}
+          </p>
+        ) : (
+          <InlineAlert
+            retryLabel="Reload"
+            onRetry={
+              notice.kind === 'conflict'
+                ? () => {
+                    setNotice(null);
+                    setEditing(null);
+                    onReload();
+                  }
+                : undefined
+            }
+          >
+            {plainError(notice.text)}
+          </InlineAlert>
+        ))}
       {editing === 'new' && form}
       {status.loading && !snippets ? (
         <p className={styles.muted} role="status">

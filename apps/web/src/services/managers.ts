@@ -2,20 +2,14 @@ import { z } from 'zod';
 import { languages, type Lang } from '../../../../packages/core/src/languageCodes';
 import { tooltipSchema } from '../../../../packages/core/src/schemas';
 import { apiRequest } from './apiAuth';
+import { requestError } from './httpError';
 
 /** Translation managers (PRODUCT "Translation managers"): the Worker's /translators and /rollback. */
 
 async function result<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
-  if (!response.ok) {
-    const text = await response.text();
-    let message = text;
-    try {
-      message = z.object({ error: z.string() }).parse(JSON.parse(text)).error;
-    } catch {
-      // Not a Worker error body: keep the raw text.
-    }
-    throw new Error(message || `HTTP ${response.status}`);
-  }
+  // The Worker's error sentence, or the status; never an HTML or JSON body (kept on `cause`).
+  if (!response.ok)
+    throw requestError('Translation managers request', response.status, await response.text());
   return schema.parse(await response.json());
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { plainError, requestError, serverError } from './httpError';
 
 describe('request errors people can read', () => {
@@ -32,6 +33,29 @@ describe('request errors people can read', () => {
     );
     expect(plainError('Snippets could not load: Snippets are unavailable')).toBe(
       'Snippets could not load: Snippets are unavailable',
+    );
+  });
+
+  it('drops an HTML page or JSON that a message carries, keeping its own words', () => {
+    expect(plainError('<html><body>Bad gateway</body></html>')).toBe(
+      'The server sent a reply this page cannot read. Retry, or reload the page.',
+    );
+    expect(plainError('Cannot load Compendium: <!DOCTYPE html><p>oops</p>')).toBe(
+      'Cannot load Compendium: the server sent a reply this page cannot read.',
+    );
+    expect(plainError('Save failed: {"issues":[1]}')).toBe(
+      'Save failed: the server sent a reply this page cannot read.',
+    );
+    // Markup in a sentence (not a page) and braces in a field reference stay.
+    expect(plainError('Unknown markup tag <shiny>')).toBe('Unknown markup tag <shiny>');
+    expect(plainError('Fill {1:text} first')).toBe('Fill {1:text} first');
+  });
+
+  it('turns a schema check failure into a plain message', () => {
+    const failed = z.object({ permissions: z.object({}) }).safeParse({ permissions: null });
+    expect(failed.success).toBe(false);
+    expect(plainError(failed.error)).toBe(
+      'The server sent data in an unexpected shape. Retry, or reload the page.',
     );
   });
 });

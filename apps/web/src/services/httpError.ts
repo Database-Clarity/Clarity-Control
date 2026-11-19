@@ -35,14 +35,30 @@ export function requestError(what: string, status: number, body: string): Error 
 
 const raw = /^(.*?):?\s*HTTP (\d{3}):?\s*([\s\S]*)$/;
 
+// Where a message turns into a response body: an HTML page, or JSON (an object or a list).
+const bodyStart = /<(?:!doctype|html|head|body|title|div|pre|h1|p)\b|[[{]\s*["[{]/i;
+
+/** A message with a raw body in it keeps its own words and drops the body. */
+function withoutBody(message: string): string {
+  const at = message.search(bodyStart);
+  if (at < 0) return message;
+  const lead = message.slice(0, at).replace(/[\s:;,.(]+$/, '');
+  return lead
+    ? `${lead}: the server sent a reply this page cannot read.`
+    : 'The server sent a reply this page cannot read. Retry, or reload the page.';
+}
+
 /**
  * An error as a page shows it. Messages in the older "<what> HTTP <status>: <body>" form (kept
  * where callers still read them) become plain: the server's sentence, or the status alone.
  */
 export function plainError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
+  // A schema check of a server reply (zod): its message is the JSON list of issues.
+  if (error instanceof Error && error.name === 'ZodError')
+    return 'The server sent data in an unexpected shape. Retry, or reload the page.';
   const match = raw.exec(message);
-  if (!match) return message;
+  if (!match) return withoutBody(message);
   const [, lead, status, body] = match;
   const detail = readable(body);
   const what = lead.trim() === 'API' ? '' : lead.trim();

@@ -20,6 +20,8 @@ import { invalidateSnippetCatalogue } from '../editor/suggest/custom';
 import { SnippetFields, saveError, type SnippetDraft, type SnippetErrors } from './SnippetFields';
 import { conflictMessage } from './SnippetManager';
 import styles from './Snippets.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 interface EnglishSnippet {
   id: string;
@@ -225,26 +227,21 @@ export function SnippetTranslations({ lang, onClose }: { lang: Lang; onClose(): 
           words; snippets without a current translation show in English, marked EN. Change only the
           words: tags, fields, references, names, and line breaks stay as in English.
         </p>
-        {notice && (
-          <p
-            className={notice.kind === 'done' ? styles.notice : styles.conflict}
-            role={notice.kind === 'done' ? 'status' : 'alert'}
-          >
-            {notice.text}{' '}
-            {notice.kind === 'conflict' && (
-              <button type="button" onClick={reload}>
-                Reload
-              </button>
-            )}
-          </p>
-        )}
+        {notice &&
+          (notice.kind === 'done' ? (
+            <p className={styles.notice} role="status">
+              {notice.text}
+            </p>
+          ) : (
+            <InlineAlert
+              retryLabel="Reload"
+              onRetry={notice.kind === 'conflict' ? reload : undefined}
+            >
+              {plainError(notice.text)}
+            </InlineAlert>
+          ))}
         {loadError ? (
-          <p className={styles.error} role="alert">
-            {loadError}{' '}
-            <button type="button" data-retry onClick={reload}>
-              Retry
-            </button>
-          </p>
+          <InlineAlert onRetry={reload}>{plainError(loadError)}</InlineAlert>
         ) : !english ? (
           <p className={styles.muted} role="status">
             Loading snippet translations…
