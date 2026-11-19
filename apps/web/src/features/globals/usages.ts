@@ -162,14 +162,26 @@ export async function buildGlobalUsageIndex(
     declared.set(cacheKey, globals);
     return globals;
   };
-  const render = (text: string, globals: MarkupGlobals) =>
-    conditionTypes.map((type) => JSON.stringify(parseMarkup(text, { ...globals, type }).lines));
+  // One parse is the unit of work: the build yields between parses once a slice reaches 8 ms.
+  let slice = performance.now();
+  const render = async (text: string, globals: MarkupGlobals) => {
+    const rendered: string[] = [];
+    for (const type of conditionTypes) {
+      if (performance.now() - slice > 8) {
+        await yieldToPaint();
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        slice = performance.now();
+      }
+      rendered.push(JSON.stringify(parseMarkup(text, { ...globals, type }).lines));
+    }
+    return rendered;
+  };
   /** Globals the rendered output of `text` depends on, under any condition type. */
-  const usedBy = (text: string, lang: Lang, self?: GlobalRecord): Set<Key> => {
+  const usedBy = async (text: string, lang: Lang, self?: GlobalRecord): Promise<Set<Key>> => {
     const globals = globalsFor(lang);
     const variables = new Set<string>();
     const reads = new Set<string>();
-    const baseline = render(text, {
+    const baseline = await render(text, {
       ...globals,
       onVariable: (name) => variables.add(name),
       imports: new Proxy<Record<string, string>>(
@@ -193,7 +205,7 @@ export async function buildGlobalUsageIndex(
             ? reads.has('1') || reads.has('global')
             : titled;
       if (!candidate) continue;
-      const without = render(text, globalsFor(lang, entry));
+      const without = await render(text, globalsFor(lang, entry));
       if (without.some((rendered, type) => rendered !== baseline[type]))
         used.add(keyOf(entry.kind, entry.name));
     }
@@ -208,7 +220,7 @@ export async function buildGlobalUsageIndex(
       if (text) docs.push({ hash: tooltip.hash, lang, text });
     }
   }
-  await sliced(docs, (doc) => (doc.used = usedBy(doc.text, doc.lang)), signal);
+  for (const doc of docs) doc.used = await usedBy(doc.text, doc.lang);
   const usedByDoc = new Map(docs.map((doc) => [`${doc.hash}:${doc.lang}`, doc.used!]));
   // A global's own body, rendered as its editor previews it.
   const bodies = live.flatMap((entry) =>
@@ -217,14 +229,8 @@ export async function buildGlobalUsageIndex(
       .map((lang) => ({ entry, lang, text: entry.definitions[lang]!.body })),
   );
   const usedByEntry = new Map<string, Set<Key>>();
-  await sliced(
-    bodies,
-    ({ entry, lang, text }) => {
-      const used = usedBy(text, lang, entry);
-      usedByEntry.set(`${entry.id}:${lang}`, used);
-    },
-    signal,
-  );
+  for (const { entry, lang, text } of bodies)
+    usedByEntry.set(`${entry.id}:${lang}`, await usedBy(text, lang, entry));
   const members = new Map<number, number>();
   await sliced(
     Object.keys(data.items),
