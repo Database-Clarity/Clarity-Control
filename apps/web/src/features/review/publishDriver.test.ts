@@ -644,6 +644,29 @@ it('only blames the clock for the creation-window rejection; 413 and 403 say wha
   expect(ops()[2]!.error).toMatch(/may still run; check live status/);
 });
 
+it("shows the Worker's 409 reason; the old sentence is the fallback without one", async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const reasons: Array<[message: string, fromWorker: boolean]> = [
+    ['opId already names another publish intent', true],
+    ['Tooltip 20 changed since review; refresh saved changes', true],
+    ['Sync pending: complete publication proof required', true],
+    ['<html>Bad gateway</html>', false],
+  ];
+  for (const [i, [message, fromWorker]] of reasons.entries()) {
+    h.api.post.mockRejectedValueOnce(new PublishHttpError(409, message, fromWorker));
+    await driver.create([{ hash: i + 1, digest: digest(i + 1), previous: undefined }]);
+    await settle();
+  }
+  expect(ops().map((entry) => entry.error)).toEqual([
+    'opId already names another publish intent',
+    'Tooltip 20 changed since review; refresh saved changes',
+    'Sync pending: complete publication proof required',
+    'This publish id was already used with different contents. Publish again.',
+  ]);
+});
+
 it('never kicks an operation a pass just found finished', async () => {
   const h = harness();
   const driver = h.make();

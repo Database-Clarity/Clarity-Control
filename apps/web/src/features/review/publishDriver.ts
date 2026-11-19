@@ -602,6 +602,9 @@ export class PublishDriver {
     const generation = this.generation;
     const status = reason instanceof PublishHttpError ? reason.status : 0;
     const message = reason instanceof Error ? reason.message : 'Unknown error';
+    // Only the Worker's own JSON sentence; an edge page's body is not a message to show.
+    const workerMessage =
+      reason instanceof PublishHttpError && reason.fromWorker ? reason.message.trim() : '';
     if (status === 401) {
       this.paused.add(op.opId);
       this.note(op.opId, 'Sign in again to continue; nothing is lost.');
@@ -616,9 +619,13 @@ export class PublishDriver {
       return;
     }
     if (status === 409) {
+      // 409 covers an opId conflict, tooltips that changed since review, and a missing sync proof:
+      // the Worker's sentence is the only thing that tells them apart.
       await this.settle(op.opId, {
         status: 'failed',
-        error: 'This publish id was already used with different contents. Publish again.',
+        error:
+          workerMessage ||
+          'This publish id was already used with different contents. Publish again.',
       });
       return;
     }
