@@ -59,8 +59,11 @@ import {
   sameSources,
   sourcesSchema,
   syncSchema,
+  catalogSchema,
+  pageSchema,
+  paths as entryPaths,
 } from '../../apps/worker/src/globals/model.js';
-import { namePaths } from '../../apps/worker/src/globals/handlers.js';
+import { namePaths, publicGlobalSync } from '../../apps/worker/src/globals/handlers.js';
 import { appCredits, RefRace, type Tree } from './git.js';
 import { Publisher, type Options } from './publisher.js';
 
@@ -74,6 +77,33 @@ const currentSync = {
 };
 export const hasGlobals = (tree: Tree) =>
   Object.keys(tree).some((path) => path.startsWith('globals/'));
+
+/**
+ * The editor's catalogue (bundle.json `globals`): every entry in catalogue page order and the
+ * public sync header, both at this tree. The Worker serves only the opened entry, its reviews,
+ * and writes. Throws on any malformed or inconsistent catalogue file.
+ */
+export function bundleGlobals(tree: Tree, read: (tree: Tree, path: string) => unknown) {
+  const catalog = catalogSchema.parse(read(tree, 'globals/catalog.json'));
+  const entries: GlobalRecord[] = [];
+  const cursors = new Set<string>();
+  const ids = new Set<string>();
+  for (let cursor: string | null = 'p0'; cursor !== null;) {
+    if (!/^p\d{1,5}$/.test(cursor) || cursors.has(cursor) || cursors.size > catalog.lastPage)
+      throw new Error('Invalid global catalog pages');
+    cursors.add(cursor);
+    const page = pageSchema.parse(read(tree, entryPaths.page(cursor)));
+    for (const id of page.ids) {
+      const entry = entrySchema.parse(read(tree, entryPaths.entry(id)));
+      if (entry.id !== id || ids.has(id)) throw new Error('Invalid global catalog identity');
+      ids.add(id);
+      entries.push(entry);
+    }
+    cursor = page.nextCursor;
+  }
+  if (cursors.size !== catalog.lastPage + 1) throw new Error('Invalid global catalog tail');
+  return { entries, sync: publicGlobalSync(syncSchema.parse(read(tree, entryPaths.sync))) };
+}
 export interface GlobalReleaseReceipt {
   version: 1;
   roots: number[];

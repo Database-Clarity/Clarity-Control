@@ -187,26 +187,30 @@ function ArchiveContents() {
   }
   return (
     <article className={styles.page}>
-      <div ref={listRef} hidden={Boolean(selectedHash)}>
-        <h1>Archive</h1>
-        <p>
-          Removed tooltips appear immediately. Confirmation and reuse use local drafts and normal
-          save review.
-        </p>
-        <label>
-          Filter by name or hash
-          <input value={query} onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <label>
-          View
-          <select
-            value={returned ? 'returned' : 'removed'}
-            onChange={(event) => setReturned(event.target.value === 'returned')}
-          >
-            <option value="removed">Removed</option>
-            <option value="returned">Returned</option>
-          </select>
-        </label>
+      <div ref={listRef} className={styles.list} hidden={Boolean(selectedHash)}>
+        <header className={styles.head}>
+          <h1>Archive</h1>
+          <p>
+            Removed tooltips appear immediately. Confirmation and reuse use local drafts and normal
+            save review.
+          </p>
+        </header>
+        <div className={styles.filters}>
+          <label>
+            Filter by name or hash
+            <input value={query} onChange={(event) => setQuery(event.target.value)} />
+          </label>
+          <label>
+            View
+            <select
+              value={returned ? 'returned' : 'removed'}
+              onChange={(event) => setReturned(event.target.value === 'returned')}
+            >
+              <option value="removed">Removed</option>
+              <option value="returned">Returned</option>
+            </select>
+          </label>
+        </div>
         <div ref={barAnchor}>
           <WorkThroughBar
             source="archive"
@@ -412,7 +416,7 @@ function ArchiveContents() {
                     Name matches are hints only. Choose the destination and review every language
                     before creating drafts.
                   </p>
-                  <label>
+                  <label className={styles.field}>
                     Search items
                     <input
                       value={targetQuery}
@@ -455,7 +459,7 @@ function ArchiveContents() {
                         .filter((lang) => current.text[lang]?.text.trim())
                         .map((lang) => (
                           <section key={lang}>
-                            <label>
+                            <label className={styles.check}>
                               <input
                                 type="checkbox"
                                 checked={selected.includes(lang)}
@@ -512,7 +516,7 @@ function ArchiveContents() {
                           </section>
                         ))}
                       {targetDraft && (
-                        <label>
+                        <label className={styles.check}>
                           <input
                             type="checkbox"
                             checked={replaceDraft}

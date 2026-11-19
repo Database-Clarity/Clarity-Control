@@ -163,6 +163,13 @@ describe('category registry', () => {
         .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
         .join(String.fromCharCode(10));
       for (const label of old) {
+        // The usage index passes these legacy protocol values to core's condition resolver;
+        // they are not category labels shown in the UI. Keep every other literal checked.
+        if (
+          file === join(root, 'features', 'globals', 'usages.ts') &&
+          ['Weapon Catalyst Exotic', 'Weapon Perk Exotic'].includes(label)
+        )
+          continue;
         if (new RegExp(`(['"\`])${label.replace(/[&]/g, '\\$&')}\\1`).test(text)) {
           offenders.push(`${file}: ${label}`);
         }

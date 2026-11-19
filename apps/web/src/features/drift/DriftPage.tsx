@@ -78,8 +78,10 @@ export function DriftPage() {
 
   return (
     <article className={styles.page}>
-      <h1>Bungie drift</h1>
-      <p>{result.changed.length} changed in-game descriptions.</p>
+      <header className={styles.head}>
+        <h1>Bungie drift</h1>
+        <p>{result.changed.length} changed in-game descriptions.</p>
+      </header>
       <p className={styles.muted}>
         Saved manifest tooltips without a snapshot: {result.missingSnapshots} (not listed). English
         edits create snapshots for future comparisons. This view uses saved tooltips, not local

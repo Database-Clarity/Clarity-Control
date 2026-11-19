@@ -81,7 +81,12 @@ import {
   withEvent,
 } from './batch.js';
 import { setTimeout } from 'node:timers/promises';
-import { GlobalsPublisher, hasGlobals, type GlobalReleaseReceipt } from './globals.js';
+import {
+  bundleGlobals,
+  GlobalsPublisher,
+  hasGlobals,
+  type GlobalReleaseReceipt,
+} from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import {
   verifiedSource,
@@ -1871,6 +1876,19 @@ export class Publisher {
         : {}),
       publishQueue,
       ...(scheduledQueue.length ? { scheduledQueue } : {}),
+      // The globals catalogue at this same head; null (never a partial list) when malformed,
+      // so the editor says it is unavailable without stopping the bundle or the queue.
+      ...(hasGlobals(t)
+        ? {
+            globals: (() => {
+              try {
+                return bundleGlobals(t, (tree, path) => this.read<unknown>(tree, path));
+              } catch {
+                return null;
+              }
+            })(),
+          }
+        : {}),
     };
     // The publisher owns only bundle.json: every other file on the bundle branch (the report
     // catalogs report-items*.json, rebuilt by the pipeline's report-items job) is carried

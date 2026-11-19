@@ -167,8 +167,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `bfd0b443c4c740a7259fe1d780c27ec4a711873a` (v2).
-Runtime SHA-256: `faec89320ff96d7a8ee7ec5f646f7a1865c83092d5efe9835e1c769af020d483`.
+Current template source: `5f9e708d4d0a7fa789cb2e89f0310490f42a0308` (v2).
+Runtime SHA-256: `58918d5f0ac0f508ea7bdabf1de80bd724410997064c2344422397927ab7ab2b`.
 
 The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
 `yellow` consumer style, including comment-split keywords. While publishing is enabled,
@@ -189,6 +189,10 @@ Prismatic joined the element tags later: this build also declares `prismaticTags
 additionally requires for `<prismatic Text />` (an older `elementTags` build would drop its text).
 The current core barrel also includes unused report-schema initialization in this runtime.
 This rebuild also carries the previous bundle's other files (the report catalogs) forward.
+bundle.json `globals` holds the globals catalogue at the bundle's sourceCommit: every entry in
+catalogue page order plus the public sync header (the Worker's publicGlobalSync), or null when
+the catalogue files are malformed. The editor reads its finder lists from it; the Worker serves
+only the opened entry, its reviews, and writes. Install this build before deploying that editor.
 It merges maintainer sandbox picks (config/sandbox-pointers.json, core mergeSandboxPointers with
 the config's generator `sandboxConflicts`) into the aliases it digests and exports, carries the
 picks in bundle.json, and its PIN declares `sandboxPointers`, which the Worker's

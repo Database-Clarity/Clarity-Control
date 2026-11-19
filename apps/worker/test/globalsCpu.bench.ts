@@ -14,7 +14,7 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
 const out = resolve('.agents/s5/cpu');
 const mode = process.argv[2];
-export const cases = ['off', 'me', 'list', 'entry', 'reviews', 'history', 'edit'];
+export const cases = ['off', 'me', 'entry', 'reviews', 'history', 'edit'];
 
 const upstream = `
 const cache = new Map();
@@ -196,7 +196,10 @@ function fixtures() {
     ['config/permissions.json', { users }],
     ['config/scheduled.json', { enabled: true }],
     ['tooltips/1000.json', { hash: 1000, text: {}, associated: [] }],
-    ['.publisher/PIN', { sourceSha: 'e'.repeat(40), capabilities: ['globalsRelease'] }],
+    [
+      '.publisher/PIN',
+      { sourceSha: 'e'.repeat(40), capabilities: ['globalsRelease', 'globalsExportsV1'] },
+    ],
     ['.publisher/config.json', { generatorSha: 'd'.repeat(40), facts: {}, aliases: {} }],
     ['globals/layout.json', { version: 1, aggregates: [] }],
     ['globals/live/cpu-live.json', { version: 1, destination: 'cpu-live', store: {} }],
@@ -226,7 +229,6 @@ function fixtures() {
   const specs = {
     off: { path: '/globals', method: 'GET', status: 503 },
     me: { path: '/me', method: 'GET', status: 200 },
-    list: { path: '/globals', method: 'GET', status: 200 },
     entry: { path: `/globals/${id}`, method: 'GET', status: 200 },
     reviews: { path: `/globals/${id}/reviews`, method: 'GET', status: 200 },
     history: { path: `/globals/${id}/history`, method: 'GET', status: 200 },
@@ -367,6 +369,52 @@ async function measure() {
   }
 }
 
+/** First request in each of five fresh isolates per route: workerd process CPU (max of 5). */
+async function cold() {
+  const { readFileSync } = await import('node:fs');
+  const ps = (cmd: string) =>
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], {
+      encoding: 'utf8',
+      windowsHide: true,
+    }).trim();
+  const rows = [];
+  for (const name of ['off', 'entry', 'reviews']) {
+    const samples = [];
+    for (let run = 0; run < 5; run++) {
+      const mf = new Miniflare(
+        convertV4MiniflareOptions({
+          modules: true,
+          scriptPath: `${out}/worker.mjs`,
+          compatibilityDate: '2025-11-01',
+          bindings: JSON.parse(readFileSync(`${out}/env.json`, 'utf8')),
+          port: 0,
+        }),
+      );
+      try {
+        await mf.ready;
+        const [pid, ...extra] = ps(
+          `Get-CimInstance Win32_Process -Filter "ParentProcessId = ${process.pid}" | Where-Object Name -eq 'workerd.exe' | Select-Object -ExpandProperty ProcessId`,
+        ).split(/\s+/);
+        if (!pid || extra.length) throw Error('Expected one workerd child');
+        const cpu = () =>
+          Number(ps(`(Get-Process -Id ${pid}).TotalProcessorTime.TotalMilliseconds`));
+        const start = cpu();
+        const r = await mf.dispatchFetch('http://localhost/' + name);
+        const text = await r.text();
+        if (r.status !== 200) throw Error(text);
+        samples.push(+(cpu() - start).toFixed(3));
+      } finally {
+        await mf.dispose();
+      }
+    }
+    const row = { name, samples, maxColdWorkerdCpuMs: Math.max(...samples) };
+    rows.push(row);
+    console.log(JSON.stringify(row));
+  }
+  writeFileSync(`${out}/cold.json`, JSON.stringify(rows, null, 2));
+}
+
 if (mode === 'prepare') await prepare();
 else if (mode === 'smoke' || mode === 'measure') await measure();
-else throw Error('Expected prepare, smoke, or measure');
+else if (mode === 'cold') await cold();
+else throw Error('Expected prepare, smoke, measure, or cold');

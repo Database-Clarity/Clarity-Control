@@ -210,9 +210,9 @@ export interface GlobalHttpState extends GlobalSyncState {
   sources?: GlobalSourcePins;
   causeEntries?: Record<string, string>;
 }
-export interface GlobalEntryPage extends GlobalHttpState {
+/** The whole catalogue at one head: the editor-data bundle's globals at its sourceCommit. */
+export interface GlobalCatalog extends GlobalHttpState {
   entries: GlobalEntry[];
-  nextCursor: string | null;
 }
 export interface GlobalReviewPage extends GlobalHttpState {
   consumers: GlobalConsumer[];
@@ -229,7 +229,6 @@ export interface GlobalAuditDelta extends GlobalHttpState {
 }
 /** Bounded HTTP responses, not whole UI snapshots. S5 supplies authenticated transport. */
 export interface GlobalsTransport {
-  list(cursor: string): Promise<GlobalResult<GlobalEntryPage>>;
   entry(id: string): Promise<GlobalResult<GlobalEntryDelta>>;
   reviews(id: string, cursor: string): Promise<GlobalResult<GlobalReviewPage>>;
   mutate(
@@ -240,14 +239,20 @@ export interface GlobalsTransport {
   ): Promise<GlobalResult<GlobalEntryDelta>>;
 }
 
-/** Compose only complete reads, or merge a bounded CAS receipt into the known client snapshot. */
+/**
+ * The catalogue comes whole from `catalog` (the editor-data bundle, at its own head); the opened
+ * entry, its reviews, and the head every write expects come from the Worker (readEntry), so a
+ * catalogue older than the data head never reaches a save or an acknowledgement.
+ */
 export function createGlobalsService(
   transport: GlobalsTransport,
   options: {
     destinations: readonly string[];
+    catalog(): Promise<GlobalResult<GlobalCatalog>>;
     initialSnapshot?: GlobalSnapshot;
-    lazyReviews?: boolean;
-    onCatalogPage?(entries: readonly GlobalEntry[], complete: boolean): void;
+    onCatalog?(entries: readonly GlobalEntry[]): void;
+    /** A write receipt's entry and head (the saved overlay keeps it until the bundle catches up). */
+    onEntrySaved?(entry: GlobalEntry, head: string): void;
   },
 ): GlobalsService & { readEntry(id: string): Promise<GlobalResult<GlobalSnapshot>> } {
   let cached = options.initialSnapshot && structuredClone(options.initialSnapshot);
@@ -285,7 +290,11 @@ export function createGlobalsService(
     a.lastFailure === b.lastFailure &&
     JSON.stringify(a.causeIds) === JSON.stringify(b.causeIds) &&
     sourceKey(a.sources) === sourceKey(b.sources);
-  function applyState(next: GlobalSnapshot, header: GlobalHttpState) {
+  /**
+   * `intents`: the one entry whose queued rename this header may settle, from that entry's
+   * own current Worker record; 'none' for the bundle (it may lag) and acknowledgements.
+   */
+  function applyState(next: GlobalSnapshot, header: GlobalHttpState, intents: 'none' | string) {
     next.head = header.head;
     next.sources = header.sources;
     // Cause ownership never changes, so receipts only add to it; current sync has no causes.
@@ -295,9 +304,10 @@ export function createGlobalsService(
     next.destinationSync = Object.fromEntries(
       options.destinations.map((destination) => [destination, state(header)]),
     );
-    if (header.status === 'current')
+    if (header.status === 'current' && intents !== 'none')
       next.renameIntents = Object.fromEntries(
         Object.entries(next.renameIntents ?? {}).flatMap(([id, intent]) => {
+          if (id !== intents) return [[id, intent]];
           const entry = next.entries.find((item) => item.id === id);
           // Reported once already, or applied (or no requested name to compare): cleared.
           if (
@@ -329,6 +339,7 @@ export function createGlobalsService(
     id: string,
     header: GlobalHttpState,
     token: number,
+    first?: Promise<GlobalResult<GlobalReviewPage>>,
   ): Promise<GlobalResult<GlobalConsumer[]>> {
     const consumers: GlobalConsumer[] = [],
       cursors = new Set<string>(),
@@ -338,7 +349,9 @@ export function createGlobalsService(
       if (!/^p\d{1,5}$/.test(cursor) || cursors.has(cursor))
         return { kind: 'invalid', message: 'Invalid global review cursor.' };
       cursors.add(cursor);
-      const page = await transport.reviews(id, cursor);
+      const page: GlobalResult<GlobalReviewPage> = await (cursor === 'p0' && first
+        ? first
+        : transport.reviews(id, cursor));
       if (token !== generation)
         return { kind: 'conflict', message: 'A newer globals request replaced this read.' };
       if (page.kind !== 'ok') return page;
@@ -395,7 +408,10 @@ export function createGlobalsService(
       )
         return invalid('Queued rename changed the name before completion.');
       mergeEntry(base, value.entry);
-      applyState(base, value);
+      applyState(base, value, value.entry.id);
+      // A queued rename's receipt carries the unchanged entry; the publisher writes the result.
+      if (mutation && value.renameCompleted !== false)
+        options.onEntrySaved?.(value.entry, value.head);
       if (value.renameCompleted === false && value.intentId)
         base.renameIntents = {
           ...base.renameIntents,
@@ -432,7 +448,7 @@ export function createGlobalsService(
             found = true;
           }
       if (!found) return conflict();
-      applyState(base, value);
+      applyState(base, value, 'none');
     }
     return publish(base, token);
   }
@@ -450,63 +466,46 @@ export function createGlobalsService(
         sourceBodies: structuredClone(cached?.sourceBodies ?? {}),
         renameIntents: structuredClone(cached?.renameIntents ?? {}),
       };
-      const cursors = new Set<string>(),
-        ids = new Set<string>();
-      let header: GlobalHttpState | undefined,
-        cursor: string | null = 'p0';
-      while (cursor !== null) {
-        if (!/^p\d{1,5}$/.test(cursor) || cursors.has(cursor))
-          return invalid('Invalid global catalog cursor.');
-        cursors.add(cursor);
-        const page = await transport.list(cursor);
-        if (page.kind !== 'ok') return page;
-        if (token !== generation) return conflict();
-        if (header && !sameHeader(header, page.value)) return conflict();
-        header ??= page.value;
-        next.causeEntries = { ...next.causeEntries, ...page.value.causeEntries };
-        if (page.value.entries.length > 3)
-          return invalid('Global catalog page exceeds three records.');
-        for (const entry of page.value.entries) {
-          if (ids.has(entry.id)) return invalid('Duplicate global identity in catalog.');
-          ids.add(entry.id);
-          next.entries.push(entry);
-          if (
-            cached?.entries.find((old) => old.id === entry.id)?.revision !== entry.revision &&
-            next.sourceBodies
-          )
-            delete next.sourceBodies[entry.id];
-          if (!options.lazyReviews && header.status === 'current' && !entry.tombstone) {
-            const reviews = await readReviews(entry.id, header, token);
-            if (reviews.kind !== 'ok') return reviews;
-            next.impacts[entry.id] = reviews.value;
-          } else if (!options.lazyReviews || header.status !== 'current' || entry.tombstone)
-            next.impacts[entry.id] = structuredClone(cached?.impacts[entry.id] ?? []);
-        }
-        cursor = page.value.nextCursor;
-        options.onCatalogPage?.([...next.entries], cursor === null);
+      const catalog = await options.catalog();
+      if (catalog.kind !== 'ok') return catalog;
+      if (token !== generation) return conflict();
+      const ids = new Set<string>();
+      for (const entry of catalog.value.entries) {
+        if (ids.has(entry.id)) return invalid('Duplicate global identity in catalog.');
+        ids.add(entry.id);
+        next.entries.push(structuredClone(entry));
+        if (
+          cached?.entries.find((old) => old.id === entry.id)?.revision !== entry.revision &&
+          next.sourceBodies
+        )
+          delete next.sourceBodies[entry.id];
       }
-      applyState(next, header!);
+      // No impacts: opening any entry reads it, its reviews, and the current head (readEntry).
+      next.causeEntries = { ...catalog.value.causeEntries };
+      // The bundle may predate a queued rename's outcome: never settle renames from it.
+      applyState(next, catalog.value, 'none');
+      options.onCatalog?.([...next.entries]);
       return publish(next, token);
     },
     async readEntry(id) {
       const token = ++generation;
       if (!cached) return conflict();
+      // While sync looks current, the first review page loads alongside the entry; it is used
+      // only if the entry is current too, and only at the entry's head (readReviews checks).
+      const firstReviews =
+        cached.sync[id]?.status === 'current' ? transport.reviews(id, 'p0') : undefined;
       const entry = await transport.entry(id);
       if (entry.kind !== 'ok') return entry;
-      if (
-        entry.value.head !== cached.head ||
-        entry.value.entry.id !== id ||
-        sourceKey(entry.value.sources) !== sourceKey(cached.sources)
-      )
-        return conflict();
+      if (entry.value.entry.id !== id) return invalid('Global entry read names another entry.');
       const next = structuredClone(cached);
+      // A newer head than the catalogue's: reviews read at the older head are no longer current.
+      if (entry.value.head !== cached.head) next.impacts = {};
       mergeEntry(next, entry.value.entry);
-      applyState(next, entry.value);
-      // Same head as the catalogue: a lazy fill, not a new read. Rename reports advance only on
-      // reads (or a "not applied" would clear before the page ever shows it).
-      next.renameIntents = structuredClone(cached.renameIntents ?? {});
+      // The Worker's current state settles this entry's queued rename (one step per read, so
+      // a "not applied" report shows until the next Refresh).
+      applyState(next, entry.value, id);
       if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
-        const rows = await readReviews(id, entry.value, token);
+        const rows = await readReviews(id, entry.value, token, firstReviews);
         if (rows.kind !== 'ok') return rows;
         next.impacts[id] = rows.value;
       } else next.impacts[id] = structuredClone(cached.impacts[id] ?? []);

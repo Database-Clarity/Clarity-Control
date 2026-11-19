@@ -10,7 +10,6 @@ import { errorMessage } from './http';
 import type {
   GlobalAuditDelta,
   GlobalEntryDelta,
-  GlobalEntryPage,
   GlobalResult,
   GlobalReviewPage,
   GlobalsService,
@@ -30,11 +29,6 @@ const header = {
     .record(globalIdSchema, z.object({ causeIds: z.array(z.string().max(128)).max(32) }))
     .optional(),
 };
-const entryPage = z.object({
-  ...header,
-  entries: z.array(globalRecordSchema).max(3),
-  nextCursor: z.string().nullable(),
-});
 const entryDelta = z.object({ ...header, entry: globalRecordSchema });
 const consumer = globalImpactRowSchema.extend({
   id: z.string().max(128),
@@ -211,10 +205,6 @@ export interface GlobalsHttpTransport extends GlobalsTransport {
 /** Authenticated, bounded HTTP for the S3 GlobalsTransport contract (S2B handler shapes). */
 export function createGlobalsHttpTransport(): GlobalsHttpTransport {
   return {
-    list: async (cursor) =>
-      map(await call(`/globals${cursorQuery(cursor)}`, entryPage), (value): GlobalEntryPage =>
-        http(value),
-      ),
     entry: async (id) =>
       map(await call(`/globals/${encodeURIComponent(id)}`, entryDelta), (value): GlobalEntryDelta =>
         http(value),

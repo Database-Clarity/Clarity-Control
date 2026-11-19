@@ -97,6 +97,22 @@ function syncView(sync: SyncState, causeIds = sync.causeIds) {
   };
 }
 
+/**
+ * The repository's sync header as readers may see it: this Worker's responses and the
+ * editor-data bundle the publisher writes. Cause ownership follows the visible causes.
+ */
+export function publicGlobalSync(sync: SyncState) {
+  const state = syncView(sync);
+  return {
+    status: state.status,
+    causeIds: state.causeIds,
+    lastFailure: state.lastFailure ?? null,
+    causeEntries: Object.fromEntries(
+      state.causeIds.map((cause) => [cause, sync.causeEntries[cause]!]),
+    ),
+  };
+}
+
 function snapshot(
   ctx: GlobalsContext,
   head: string,
@@ -128,18 +144,28 @@ function snapshot(
   };
 }
 
-async function readFile<T>(ctx: GlobalsContext, path: string, schema: z.ZodType<T>) {
-  const maximum =
+/** Required files of one kind (one size class) at head, in one bounded read. */
+async function readFiles<T>(ctx: GlobalsContext, list: string[], schema: z.ZodType<T>) {
+  const large = (path: string) =>
     path === paths.sync ||
     path.startsWith('globals/entries/') ||
-    path.startsWith('globals/reviews/')
-      ? limits.entryBytes
-      : limits.metadataBytes;
-  const [file] = await readGlobalFiles(ctx.storage, [path], ctx.head, maximum);
-  if (!file) throw new HttpError(503, 'Sync pending: required metadata is unavailable');
-  const result = schema.safeParse(file.value);
-  if (!result.success) throw new HttpError(503, 'Sync pending: invalid metadata');
-  return { value: result.data, sha: file.sha };
+    path.startsWith('globals/reviews/');
+  const maximum = list.every(large) ? limits.entryBytes : limits.metadataBytes;
+  const files = await readGlobalFiles(ctx.storage, list, ctx.head, maximum);
+  return files.map((file) => {
+    if (!file) throw new HttpError(503, 'Sync pending: required metadata is unavailable');
+    const result = schema.safeParse(file.value);
+    if (!result.success) throw new HttpError(503, 'Sync pending: invalid metadata');
+    return { value: result.data, sha: file.sha };
+  });
+}
+
+async function readFile<T>(ctx: GlobalsContext, path: string, schema: z.ZodType<T>) {
+  return (await readFiles(ctx, [path], schema))[0]!;
+}
+
+async function readAll<T>(ctx: GlobalsContext, list: string[], schema: z.ZodType<T>) {
+  return (await readFiles(ctx, list, schema)).map((file) => file.value);
 }
 
 async function read<T>(ctx: GlobalsContext, path: string, schema: z.ZodType<T>): Promise<T> {
@@ -608,70 +634,60 @@ export async function globalsHandler(
         url.pathname,
       );
     if (!route) throw new HttpError(404, 'Global route not found');
+    // The catalogue ships in the editor-data bundle; only POST (create) uses the bare route.
+    if (!route[1] && request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
     const ctx = await load();
     oid.parse(ctx.head);
     sourcesSchema.parse(ctx.sources);
     destinationsSchema.parse(ctx.destinations);
     z.string().min(1).max(128).parse(ctx.user.login);
     permit(ctx, ['trial', 'translator', 'editor', 'maintainer']);
-    const sync = await read(ctx, paths.sync, syncSchema);
+    // The opened entry's reads overlap the sync read; every other route awaits sync first.
+    const syncRead = read(ctx, paths.sync, syncSchema);
+    syncRead.catch(() => undefined);
+    if (request.method === 'GET' && route[1]) {
+      if (route[2] === 'reviews') {
+        const cursor = url.searchParams.get('cursor') ?? 'p0';
+        if (!/^p\d{1,5}$/.test(cursor)) throw new HttpError(400, 'Invalid review page');
+        const [state, page] = await Promise.all([
+          syncRead,
+          read(ctx, `globals/review-pages/${route[1]}/${cursor}.json`, reviewPageSchema),
+        ]);
+        currentProof(page, ctx);
+        // One bounded read for the page's rows (at most limits.page), not one per row.
+        const rows = await readAll(ctx, page.ids.map(paths.row), rowSchema);
+        const consumers = [];
+        for (const [i, id] of page.ids.entries()) {
+          const row = rows[i]!;
+          currentProof(row, ctx);
+          if (row.id !== id || !row.review.causes.some((c) => c.globalId === route[1]))
+            throw new HttpError(503, 'Invalid global review page');
+          consumers.push({ ...row.view, id, review: row.review, impactDigest: row.impactDigest });
+        }
+        const value = {
+          ...snapshot(ctx, ctx.head, state, [], [route[1]]),
+          impacts: { [route[1]]: consumers },
+          nextCursor: page.nextCursor,
+        };
+        boundedResponse(value);
+        return json({ kind: 'ok', value });
+      }
+      if (!route[2]) {
+        const [state, entry] = await Promise.all([
+          syncRead,
+          read(ctx, paths.entry(route[1]), entrySchema),
+        ]);
+        if (entry.id !== route[1]) throw new HttpError(503, 'Invalid global identity');
+        const value = { ...snapshot(ctx, ctx.head, state, [entry]), entry };
+        boundedResponse(value);
+        return json({ kind: 'ok', value });
+      }
+    }
+    const sync = await syncRead;
     if (request.method === 'POST' && route[2] === 'retry') {
       const input = await body(request, retrySchema, limits.requestBytes);
       if (input.id !== route[1]) throw new HttpError(400, 'Route and retry identity do not match');
       return json({ kind: 'ok', value: await retry(ctx, input, sync) });
-    }
-    if (request.method === 'GET' && route[2] === 'reviews') {
-      const cursor = url.searchParams.get('cursor') ?? 'p0';
-      if (!/^p\d{1,5}$/.test(cursor)) throw new HttpError(400, 'Invalid review page');
-      const page = await read(
-        ctx,
-        `globals/review-pages/${route[1]}/${cursor}.json`,
-        reviewPageSchema,
-      );
-      currentProof(page, ctx);
-      const consumers = [];
-      for (const id of page.ids) {
-        const row = await read(ctx, paths.row(id), rowSchema);
-        currentProof(row, ctx);
-        if (row.id !== id || !row.review.causes.some((c) => c.globalId === route[1]))
-          throw new HttpError(503, 'Invalid global review page');
-        consumers.push({ ...row.view, id, review: row.review, impactDigest: row.impactDigest });
-      }
-      const value = {
-        ...snapshot(ctx, ctx.head, sync, [], [route[1]]),
-        impacts: { [route[1]]: consumers },
-        nextCursor: page.nextCursor,
-      };
-      boundedResponse(value);
-      return json({ kind: 'ok', value });
-    }
-    if (request.method === 'GET' && !route[2]) {
-      if (route[1]) {
-        const entry = await read(ctx, paths.entry(route[1]), entrySchema);
-        if (entry.id !== route[1]) throw new HttpError(503, 'Invalid global identity');
-        const value = { ...snapshot(ctx, ctx.head, sync, [entry]), entry };
-        boundedResponse(value);
-        return json({ kind: 'ok', value });
-      }
-      const cursor = url.searchParams.get('cursor') ?? 'p0';
-      if (!/^p\d{1,5}$/.test(cursor)) throw new HttpError(400, 'Invalid global page');
-      const page = await read(ctx, paths.page(cursor), pageSchema);
-      const files = await readGlobalFiles(
-        ctx.storage,
-        page.ids.map(paths.entry),
-        ctx.head,
-        limits.entryBytes,
-      );
-      const entries = files.map((file, i) => {
-        if (!file) throw new HttpError(503, 'Global page entry is missing');
-        bounded(file.value, limits.entryBytes);
-        const entry = entrySchema.parse(file.value);
-        if (entry.id !== page.ids[i]) throw new HttpError(503, 'Invalid global identity');
-        return entry;
-      });
-      const value = { ...snapshot(ctx, ctx.head, sync, entries), nextCursor: page.nextCursor };
-      boundedResponse(value);
-      return json({ kind: 'ok', value });
     }
     if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
     const input = await mutationBody(request);
