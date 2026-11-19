@@ -103,7 +103,9 @@
     width: 20rem;
   }
 }
+// The whole label is the target (control height); the visible box stays small.
 .check {
+  @include controls.control-size;
   display: flex;
   align-items: center;
   gap: 0.5rem;

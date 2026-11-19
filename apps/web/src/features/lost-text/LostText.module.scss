@@ -141,13 +141,17 @@
   border-left: 2px solid transparent;
   border-radius: 0;
   @media (hover: hover) {
-    &:hover:not(:disabled) {
+    // The selected row keeps its background and rail under the pointer.
+    &:hover:not(:disabled):not([aria-pressed='true']) {
       background: var(--hover, var(--ctl-hover));
       border-color: transparent;
     }
   }
-  &[aria-pressed='true'] {
+  // Under the pointer too (the shared button's own hover rule is more specific than this one).
+  &[aria-pressed='true'],
+  &[aria-pressed='true']:hover {
     background: var(--sel);
+    border-color: transparent;
     border-left-color: var(--accent-ink);
   }
 }
