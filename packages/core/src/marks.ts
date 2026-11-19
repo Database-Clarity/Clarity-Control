@@ -3,9 +3,10 @@ import { hashSchema } from './legacy.js';
 import { inactiveHashKey } from './inactiveMoves.js';
 
 export const marksPath = 'config/marks.json';
-export const maxMarksBytes = 256_000;
-export const maxMarkedEntries = 1000;
-export const maxEntryMarks = 1000;
+export const maxMarksBytes = 768_000;
+export const maxMarkedEntries = 2000;
+export const maxEntryMarks = 2000;
+export const maxMarkNoteChars = 2000;
 export const markColours = ['neutral', 'blue', 'green', 'amber', 'red', 'purple'] as const;
 export const markIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
 const stamp = { by: z.number().int().positive(), at: z.string().datetime({ offset: true }) };
@@ -20,7 +21,7 @@ export const markTypeSchema = z
 export const entryMarkSchema = z
   .object({
     type: markIdSchema,
-    note: z.string().trim().max(500).optional(),
+    note: z.string().trim().max(maxMarkNoteChars).optional(),
     ...stamp,
   })
   .strict();
@@ -65,7 +66,7 @@ export const markActionSchema = z.discriminatedUnion('action', [
       action: z.literal('mark'),
       hash: hashSchema,
       type: markIdSchema,
-      note: z.string().trim().max(500).optional(),
+      note: z.string().trim().max(maxMarkNoteChars).optional(),
     })
     .strict(),
   z.object({ action: z.literal('unmark'), hash: hashSchema, type: markIdSchema }).strict(),
