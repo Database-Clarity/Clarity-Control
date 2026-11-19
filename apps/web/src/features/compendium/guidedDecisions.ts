@@ -220,7 +220,9 @@ export function* guidedDecisionSteps(
       ) {
         issues.push(`Reference ${reference.hash}: stale, missing or outside recorded membership.`);
       } else if (reference.decision && reference.decision !== 'skipped') {
-        usable.set(entry.hash, reference);
+        // The canonical's own reference outranks a carried member reference.
+        if (!usable.has(entry.hash) || reference.hash === entry.hash)
+          usable.set(entry.hash, reference);
       }
     }
     const extra = category?.entries.filter((entry) => !record.hashes.includes(entry.hash)) ?? [];

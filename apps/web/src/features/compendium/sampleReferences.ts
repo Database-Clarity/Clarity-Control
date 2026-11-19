@@ -97,7 +97,10 @@ export function referenceCurrent(
  * (root brief MATCHER-EVIDENCE, 2026-11-19; alias-group adoption 2026-11-17/18).
  *
  * A member's own sample evidence cannot be replayed once the group is adopted, so the saved
- * source proof is what must still hold. Only positive references carry a source at all.
+ * source proof is what must still hold. The per-reference baseline gate `referenceCurrent`
+ * applies cannot hold either: the member's entry no longer exists at the new baseline, and
+ * the document-level baseline gate (`compatible`) already covers the dataset. Only positive
+ * references carry a source at all.
  */
 export function groupReferenceCurrent(
   reference: GuidanceReference | undefined,
