@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GlobalRecord, Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
-import { buildGlobalUsageIndex } from './usages';
+import { buildGlobalUsageIndex, globalUsageIndex } from './usages';
 
 const tooltip = (hash: number, text: string): Tooltip => ({
   hash,
@@ -18,65 +18,115 @@ const entry = (id: string, kind: GlobalRecord['kind'], name: string, body: strin
     definitions: { en: { body } },
     nameHistory: [],
   }) as unknown as GlobalRecord;
-const item = (hash: number) => ({ hash, name: `Item ${hash}`, icon: '', categoryId: 'perk' });
+const item = (hash: number, extra = {}) => ({
+  hash,
+  name: `Item ${hash}`,
+  icon: '',
+  categoryId: 'perk',
+  ...extra,
+});
 
 const entries = [
   entry('g_damage0001', 'variables', 'Damage', '10%'),
   entry('g_arrow00001', 'variables', 'e', '🡅'),
+  entry('g_nativeA001', 'variables', 'A', '{{#B}{other}}'),
+  entry('g_nativeB001', 'variables', 'B', 'bee'),
   entry('g_title00001', 'titles', 'Reload', 'Reloads by #Damage.'),
   entry('g_export0001', 'exports', 'anti_barrier', 'Pierces shields.'),
 ];
+const chain = Object.fromEntries(
+  [30, 31, 32, 33, 34, 35].map((hash) => [hash, tooltip(hash, `import main from ${hash + 1}`)]),
+);
 const data = {
   categories: [],
-  items: Object.fromEntries([10, 11, 12, 13, 14, 15, 20].map((hash) => [hash, item(hash)])),
+  items: {
+    ...Object.fromEntries([10, 11, 12, 13, 14, 15, 16, 17, 20, 40, 51].map((h) => [h, item(h)])),
+    50: item(50, { baseHash: 51 }),
+  },
   aliases: { 20: { to: 10, kind: 'sandbox' } },
   bundle: {
     tooltips: {
-      2: tooltip(2, 'var Damage = 10%\nvar e = 🡅'),
       10: tooltip(10, 'Deals #Damage more.'),
       11: tooltip(11, 'Intro\nimport Perk from 12'),
       12: tooltip(12, 'export Perk (\nSee <title Reload [Reload] />.\n)'),
       13: tooltip(13, '// #Damage is only a comment\n/* [Reload] */ Plain'),
       14: tooltip(14, '<enhanced/> Better\nimport anti_barrier from global'),
       15: tooltip(15, 'Uses #{Damage}x and #Damage'),
+      16: tooltip(16, '<link #Damage [https://example.com] />'),
+      17: tooltip(17, '#A'),
+      ...chain,
+      36: tooltip(36, '#Damage'),
+      40: tooltip(40, '/*\nimport main from 10\n*/ Text'),
+      // An override (50) listed under its base (51); only the base writes the reference.
+      50: tooltip(50, 'import main from 51\nvar pve = 410\nmore'),
+      51: tooltip(51, 'One\nTwo\n#Damage'),
     },
   },
 } as unknown as EditorData;
+const hashes = (uses: { hash: number }[]) => uses.map((use) => use.hash).sort((a, b) => a - b);
 
-describe('global usages', () => {
-  it('lists the tooltips an unedited global is used by, from the loaded data', async () => {
+describe('global usages, observed from the resolver', () => {
+  it('lists the tooltips an unedited global is used by, direct and through what renders it', async () => {
     const index = await buildGlobalUsageIndex(data, entries);
-    const damage = index.of('g_damage0001');
-    // Direct (10, 15), through an import of 12's export that uses the title (11), and through
-    // the title's body (12); the commented reference in 13 is not a use.
-    expect(damage.tooltips.map((use) => [use.hash, use.direct, use.via]).sort()).toEqual([
-      [10, true, []],
-      [11, false, ['import Perk from 12']],
-      [12, false, ['[Reload]']],
-      [15, true, []],
+    const damage = index.of('g_damage0001').tooltips;
+    const row = (hash: number) => damage.find((use) => use.hash === hash);
+    // 13 only mentions it in comments; 40's import is inside a block comment; 30 needs six
+    // import passes (the resolver stops at five) while 31 needs five.
+    expect(hashes(damage)).toEqual([10, 11, 12, 15, 16, 31, 32, 33, 34, 35, 36, 51]);
+    expect(row(10)).toMatchObject({ direct: true, via: [] });
+    // A link label renders the value: it is written there.
+    expect(row(16)).toMatchObject({ direct: true });
+    expect(row(12)).toMatchObject({ direct: false, via: ['[Reload]'] });
+    expect(row(11)).toMatchObject({ direct: false, via: ['import Perk from 12'] });
+    expect(index.of('g_damage0001').globals).toEqual([
+      { id: 'g_title00001', langs: ['en'], direct: true, via: [] },
     ]);
-    expect(damage.globals).toEqual([
-      { id: 'g_title00001', langs: ['en'], direct: true, via: [], line: 1 },
-    ]);
-    expect(
-      index
-        .of('g_title00001')
-        .tooltips.map((use) => use.hash)
-        .sort(),
-    ).toEqual([11, 12]);
+    expect(hashes(index.of('g_title00001').tooltips)).toEqual([11, 12]);
   });
 
-  it('shows an alias group once under its canonical tooltip, with the member count', async () => {
+  it('follows a variable whose value is a native pair into the variable it renders', async () => {
     const index = await buildGlobalUsageIndex(data, entries);
-    const rows = index.of('g_damage0001').tooltips.filter((use) => use.hash === 10);
-    expect(rows).toEqual([
-      { hash: 10, variant: 10, members: 2, langs: ['en'], direct: true, via: [], line: 1 },
+    expect(index.of('g_nativeB001').tooltips).toMatchObject([
+      { hash: 17, direct: false, via: ['#A'] },
     ]);
+    expect(index.of('g_nativeB001').globals).toMatchObject([{ id: 'g_nativeA001', direct: true }]);
+  });
+
+  it('shows an alias group once, and opens the member and line of the written use', async () => {
+    const index = await buildGlobalUsageIndex(data, entries);
+    const damage = index.of('g_damage0001').tooltips;
+    expect(damage.filter((use) => use.hash === 10)).toEqual([
+      {
+        hash: 10,
+        open: { variant: 10, lang: 'en', line: 1 },
+        members: 2,
+        langs: ['en'],
+        direct: true,
+        via: [],
+      },
+    ]);
+    // The override (50) is met first and only imports; the row still opens the base's line 3.
+    expect(damage.find((use) => use.hash === 51)).toMatchObject({
+      open: { variant: 51, lang: 'en', line: 3 },
+      members: 2,
+      direct: true,
+    });
   });
 
   it('reads the arrow symbol as the global e and global imports as export uses', async () => {
     const index = await buildGlobalUsageIndex(data, entries);
-    expect(index.of('g_arrow00001').tooltips.map((use) => use.hash)).toEqual([14]);
-    expect(index.of('g_export0001').tooltips.map((use) => [use.hash, use.line])).toEqual([[14, 2]]);
+    expect(hashes(index.of('g_arrow00001').tooltips)).toEqual([14]);
+    expect(index.of('g_export0001').tooltips).toMatchObject([
+      { hash: 14, direct: true, open: { line: 2 } },
+    ]);
   });
+});
+
+it('reuses one index per data and catalogue content, so reopening a global never rebuilds it', () => {
+  const first = globalUsageIndex(data, entries);
+  expect(globalUsageIndex(data, structuredClone(entries))).toBe(first);
+  const renamed = entries.map((item) =>
+    item.id === 'g_damage0001' ? { ...item, name: 'Harm' } : item,
+  );
+  expect(globalUsageIndex(data, renamed)).not.toBe(first);
 });

@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest';
 import {
   enhancedMarkupType,
   globalReferenceSpans,
+  languages,
   parseMarkup,
+  type GlobalKind,
   type GlobalRecord,
   type Lang,
   type MarkupGlobals,
@@ -26,11 +28,22 @@ import { buildGlobalUsageIndex } from './usages';
 /**
  * Real-data census (local only): CLARITY_CENSUS_DIR holds bundle.json (editor-data-bundle),
  * items.json, aliases.json, categories.json, and sandboxConflicts.json (generator v2 templates).
- * (a) the usage index against the real parser, which renders each tooltip with every global
- * replaced by a marker, under every condition type; (b) every reference's go-to-definition.
+ * (a) the usage index against a removal oracle: a tooltip uses a global when deleting that one
+ * declaration from the published aggregate changes what the real parser renders, in any
+ * language and condition type (independent of the index's markers); (b) every authored
+ * reference's go-to-definition through the editor's resolver.
  */
 const dir = process.env.CLARITY_CENSUS_DIR;
 const read = (name: string) => JSON.parse(readFileSync(join(dir!, name), 'utf8'));
+const aggregates = [
+  [2, 'variables'],
+  [3, 'titles'],
+  [1, 'exports'],
+] as const;
+const locate = (text: string, kind: GlobalKind) =>
+  kind === 'variables'
+    ? locateVariables(text)
+    : locateBlocks(text, kind === 'titles' ? 'title' : 'export');
 
 function load() {
   const bundle = read('bundle.json');
@@ -45,117 +58,93 @@ function load() {
     bundle.sandboxPointers,
     read('sandboxConflicts.json'),
   );
-  // Entries as the catalogue holds them, from the published aggregates.
-  const entries: GlobalRecord[] = [];
-  for (const [hash, kind] of [
-    [2, 'variables'],
-    [3, 'titles'],
-    [1, 'exports'],
-  ] as const) {
-    const text = (data.bundle.tooltips[hash]?.text.en?.text ?? '').replace(/\r/g, '');
-    const found =
-      kind === 'variables'
-        ? locateVariables(text)
-        : locateBlocks(text, kind === 'titles' ? 'title' : 'export');
-    for (const located of found.values())
-      entries.push({
-        version: 1,
-        id: `g_${kind}_${located.name.replace(/[^A-Za-z0-9_-]/g, '-')}`.padEnd(10, '_'),
-        kind,
-        name: located.name,
-        revision: 'r',
-        definitions: { en: { body: located.value } },
-        nameHistory: [],
-      } as unknown as GlobalRecord);
-  }
-  return { data, entries };
+  // Entries as the catalogue holds them, from the published aggregates, in every language.
+  const entries = new Map<string, GlobalRecord>();
+  for (const [hash, kind] of aggregates)
+    for (const lang of languages) {
+      const text = (data.bundle.tooltips[hash]?.text[lang]?.text ?? '').replace(/\r/g, '');
+      for (const located of locate(text, kind).values()) {
+        const key = `${kind}:${located.name}`;
+        const entry =
+          entries.get(key) ??
+          ({
+            version: 1,
+            id: `g_${kind}_${located.name.replace(/[^A-Za-z0-9_-]/g, '-')}`,
+            kind,
+            name: located.name,
+            revision: 'r',
+            definitions: {},
+            nameHistory: [],
+          } as unknown as GlobalRecord);
+        (entry.definitions as Record<string, { body: string }>)[lang] = { body: located.value };
+        entries.set(key, entry);
+      }
+    }
+  return { data, entries: [...entries.values()] };
 }
 
-const letters = (index: number) =>
-  index
-    .toString(26)
-    .split('')
-    .map((digit) => String.fromCharCode(97 + parseInt(digit, 26)))
-    .join('');
+const conditionTypes = [
+  undefined,
+  enhancedMarkupType,
+  'Weapon Catalyst Exotic',
+  'Weapon Perk Exotic',
+];
 
 describe.skipIf(!dir)('globals census on real data', () => {
-  it('(a) usages equal what the resolver renders, (b) definitions open the right entry', async () => {
+  it('(a) usages equal the removal oracle, (b) definitions open the right entry', async () => {
     const { data, entries } = load();
     const started = performance.now();
     const index = await buildGlobalUsageIndex(data, entries);
     const buildMs = performance.now() - started;
-    const lang: Lang = 'en';
-    // Marked globals: every declaration renders a unique marker where the resolver uses it.
-    const markers = new Map<string, GlobalRecord>();
-    const mark = (entry: GlobalRecord) => {
-      const marker = `⦃${letters(markers.size)}⦄`;
-      markers.set(marker, entry);
-      return marker;
-    };
-    const body = (entry: GlobalRecord) => entry.definitions.en?.body ?? '';
-    const marked = {
-      variables: entries
-        .filter((entry) => entry.kind === 'variables')
-        .map((entry) => `var ${entry.name} = ${mark(entry)}`)
-        .join('\n'),
-      titles: entries
-        .filter((entry) => entry.kind === 'titles')
-        .map((entry) => `title ${entry.name} (\n${mark(entry)} ${body(entry)}\n)`)
-        .join('\n\n'),
-      exports: entries
-        .filter((entry) => entry.kind === 'exports')
-        .map((entry) => `export ${entry.name} (\n${mark(entry)} ${body(entry)}\n)`)
-        .join('\n\n'),
-    };
-    const real = importGlobals(data, {}, lang);
-    const imports = new Proxy<Record<string, string>>(
-      {},
-      {
-        get: (_target, key) =>
-          key === '1' || key === 'global' ? marked.exports : real.imports?.[key as string],
-      },
-    );
-    const globals: MarkupGlobals = {
-      variables: marked.variables,
-      titles: marked.titles,
-      imports,
-    };
-    const resolver = new Map<string, Set<number>>();
-    for (const tooltip of Object.values(data.bundle.tooltips)) {
-      const text = tooltip.text[lang]?.text;
-      if (!text || (tooltip.hash >= 1 && tooltip.hash <= 3)) continue;
-      const canonical = canonicalHash(tooltip.hash, data);
-      for (const type of [
-        undefined,
-        enhancedMarkupType,
-        'Weapon Catalyst Exotic',
-        'Weapon Perk Exotic',
-      ]) {
-        const rendered = JSON.stringify(parseMarkup(text, { ...globals, type }).lines);
-        for (const match of rendered.matchAll(/⦃[a-z]+⦄/g)) {
-          const id = markers.get(match[0])!.id;
-          if (!resolver.has(id)) resolver.set(id, new Set());
-          resolver.get(id)!.add(canonical);
-        }
-      }
-    }
-    const summary = {
-      buildMs: Math.round(buildMs),
-      globals: entries.length,
-      unused: [] as string[],
+    const docs = Object.values(data.bundle.tooltips)
+      .filter((tooltip) => tooltip.hash > 3)
+      .flatMap((tooltip) =>
+        languages
+          .filter((lang) => tooltip.text[lang]?.text)
+          .map((lang) => ({ hash: tooltip.hash, lang, text: tooltip.text[lang]!.text })),
+      );
+    const docLanguages = [...new Set(docs.map((doc) => doc.lang))];
+    const real = new Map(docLanguages.map((lang) => [lang, importGlobals(data, {}, lang)]));
+    const render = (text: string, globals: MarkupGlobals) =>
+      conditionTypes.map((type) => JSON.stringify(parseMarkup(text, { ...globals, type }).lines));
+    const baseline = docs.map((doc) => render(doc.text, real.get(doc.lang)!));
+    /** The real globals of `lang` without one declaration. */
+    const without = (entry: GlobalRecord, lang: Lang): MarkupGlobals => {
+      const globals = real.get(lang)!;
+      const hash = aggregates.find(([, kind]) => kind === entry.kind)![0];
+      const text = (globals.imports?.[String(hash)] ?? '').replace(/\r/g, '');
+      const raw = locate(text, entry.kind).get(entry.name)?.raw;
+      const removed = raw === undefined ? text : text.replace(raw, '');
+      if (entry.kind === 'variables') return { ...globals, variables: removed };
+      if (entry.kind === 'titles') return { ...globals, titles: removed };
+      const imports = new Proxy<Record<string, string>>(
+        {},
+        {
+          get: (_target, key) =>
+            key === '1' || key === 'global' ? removed : globals.imports?.[key as string],
+        },
+      );
+      return { ...globals, imports };
     };
     const mismatches: string[] = [];
+    const unused: string[] = [];
     let total = 0;
     for (const entry of entries) {
+      const expected = new Set<number>();
+      const changed = new Map(docLanguages.map((lang) => [lang, without(entry, lang)]));
+      docs.forEach((doc, at) => {
+        const after = render(doc.text, changed.get(doc.lang)!);
+        if (after.some((value, type) => value !== baseline[at][type]))
+          expected.add(canonicalHash(doc.hash, data));
+      });
       const found = new Set(index.of(entry.id).tooltips.map((use) => use.hash));
-      const expected = resolver.get(entry.id) ?? new Set();
       total += found.size;
-      if (!found.size) summary.unused.push(`${entry.kind}:${entry.name}`);
+      if (!found.size) unused.push(`${entry.kind}:${entry.name}`);
       const extra = [...found].filter((hash) => !expected.has(hash));
       const missing = [...expected].filter((hash) => !found.has(hash));
       if (extra.length || missing.length)
         mismatches.push(
-          `${entry.kind}:${entry.name} index ${found.size} resolver ${expected.size} extra [${extra.join(',')}] missing [${missing.join(',')}]`,
+          `${entry.kind}:${entry.name} index ${found.size} oracle ${expected.size} extra [${extra.join(',')}] missing [${missing.join(',')}]`,
         );
     }
     const spot = Object.fromEntries(
@@ -164,7 +153,13 @@ describe.skipIf(!dir)('globals census on real data', () => {
         {
           tooltips: index
             .of(entry.id)
-            .tooltips.map((use) => [use.hash, use.members, use.direct, use.via.join('; ')]),
+            .tooltips.map((use) => [
+              use.hash,
+              use.members,
+              use.direct,
+              use.via.join('; '),
+              `${use.open.variant}:${use.open.lang}:${use.open.line ?? ''}`,
+            ]),
           globals: index.of(entry.id).globals.length,
         },
       ]),
@@ -173,10 +168,7 @@ describe.skipIf(!dir)('globals census on real data', () => {
     // (b) Every authored global reference, through the editor's own resolver and navigation.
     useGlobalIdentities.setState({
       identities: Object.fromEntries(
-        entries.map((entry) => [
-          entry.id,
-          { kind: entry.kind, name: entry.name, definitions: { en: body(entry) } },
-        ]),
+        entries.map((entry) => [entry.id, { kind: entry.kind, name: entry.name, definitions: {} }]),
       ),
       status: 'ready',
     });
@@ -185,12 +177,16 @@ describe.skipIf(!dir)('globals census on real data', () => {
     const wrong: string[] = [];
     let references = 0;
     const documents = [
-      ...Object.values(data.bundle.tooltips)
-        .filter((tooltip) => tooltip.hash > 3)
-        .map((tooltip) => ({ id: String(tooltip.hash), text: tooltip.text[lang]?.text ?? '' })),
-      ...entries.map((entry) => ({ id: entry.id, text: body(entry) })),
+      ...docs.map((doc) => ({ id: String(doc.hash), lang: doc.lang, text: doc.text })),
+      ...entries.flatMap((entry) =>
+        Object.entries(entry.definitions).map(([lang, definition]) => ({
+          id: entry.id,
+          lang: lang as Lang,
+          text: definition!.body,
+        })),
+      ),
     ];
-    for (const { id, text: raw } of documents) {
+    for (const { id, lang, text: raw } of documents) {
       const text = raw.replace(/\r/g, '');
       for (const kind of ['variables', 'titles', 'exports'] as const)
         for (const span of globalReferenceSpans(text, kind)) {
@@ -202,12 +198,18 @@ describe.skipIf(!dir)('globals census on real data', () => {
           const line = text.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
           const ref = referenceInLine(line, span.from - lineStart);
           const resolved =
-            ref && resolveReference(ref, { doc: text, lang, globals: real, sources });
+            ref &&
+            resolveReference(ref, {
+              doc: text,
+              lang,
+              globals: real.get(lang) ?? importGlobals(data, {}, lang),
+              sources,
+            });
           const path =
             resolved?.target?.type === 'tooltip' ? definitionPath(resolved.target, data, true) : '';
-          if (path !== `/globals/${target}?lang=en`)
+          if (!path.startsWith(`/globals/${target}?`))
             wrong.push(
-              `${id} ${kind}:${span.name} -> ${path || resolved?.status || 'no reference'}`,
+              `${id}/${lang} ${kind}:${span.name} -> ${path || resolved?.status || 'none'}`,
             );
         }
     }
@@ -215,7 +217,18 @@ describe.skipIf(!dir)('globals census on real data', () => {
     writeFileSync(
       join(dir!, 'census.json'),
       JSON.stringify(
-        { ...summary, tooltipUses: total, mismatches, references, wrongDefinitions: wrong, spot },
+        {
+          buildMs: Math.round(buildMs),
+          globals: entries.length,
+          languages: docLanguages,
+          documents: docs.length,
+          unused,
+          tooltipUses: total,
+          mismatches,
+          references,
+          wrongDefinitions: wrong,
+          spot,
+        },
         null,
         1,
       ),

@@ -69,7 +69,7 @@ import { tooltipTextSources } from '../editor/references';
 import { definitionPath } from '../editor/definitionPath';
 import { canonicalHash, classifiedCategory, itemFor, listName } from '../navigation/catalog';
 import { FinderIcon } from '../navigation/FinderIcon';
-import { buildGlobalUsageIndex, type GlobalUsageIndex, type GlobalUsages } from './usages';
+import { globalUsageIndex, type GlobalUsageIndex, type GlobalUsages } from './usages';
 
 const globals = { variables: '', titles: '' };
 type Action = 'create' | 'rename' | 'remove' | 'remove-language';
@@ -351,16 +351,27 @@ function Workspace({
     return projectedScope ? 'projected' : globalReviewState(row as GlobalConsumer);
   }
   const matches = (text: string) => text.toLowerCase().includes(query.toLowerCase());
-  const shownRows = allRows.filter(
-    (row) =>
-      matches(`${row.name} ${row.hash ?? ''} ${row.category}`) &&
-      (!params.get('category') || params.get('category') === row.category) &&
-      (!params.get('usageLang') ||
-        row.langs.includes(params.get('usageLang') as Lang) ||
-        row.impacts.some((impact) => impact.consumer.lang === params.get('usageLang'))) &&
-      (!params.get('review') ||
-        row.impacts.some((impact) => params.get('review') === reviewState(impact))),
-  );
+  // Language and Review filter the saved impacts under each row too (and so the selection); a
+  // row stays while it uses the global in that language or still has a matching impact.
+  const usageLang = params.get('usageLang') as Lang | null;
+  const review = params.get('review');
+  const shownRows = allRows
+    .map((row) => ({
+      ...row,
+      impacts: row.impacts.filter(
+        (impact) =>
+          (!usageLang || impact.consumer.lang === usageLang) &&
+          (!review || review === reviewState(impact)),
+      ),
+    }))
+    .filter(
+      (row) =>
+        matches(`${row.name} ${row.hash ?? ''} ${row.category}`) &&
+        (!params.get('category') || params.get('category') === row.category) &&
+        (review
+          ? row.impacts.length > 0
+          : !usageLang || row.langs.includes(usageLang) || row.impacts.length > 0),
+    );
   // Saved: the impacts of the rows shown. Projected: the calculated rows, filtered as before.
   const shown = projectedScope
     ? consumers.filter(
@@ -1190,7 +1201,7 @@ function useGlobalUsageIndex(
     if (!data || current) return;
     const controller = new AbortController();
     const start = () =>
-      void buildGlobalUsageIndex(data, entries, controller.signal).then(
+      void globalUsageIndex(data, entries).then(
         (index) => {
           if (controller.signal.aborted) return;
           setError('');
@@ -1273,7 +1284,8 @@ function usageRows(
     direct: use.direct,
     via: use.via.map(named),
     members: use.members,
-    to: `/t/${use.hash}?lang=${languageOf(use.langs)}&variant=${use.variant}${use.line ? `&line=${use.line}` : ''}`,
+    // Member, language, and line of the same use, so the line exists where the editor opens.
+    to: `/t/${use.hash}?lang=${use.open.lang}&variant=${use.open.variant}${use.open.line ? `&line=${use.open.line}` : ''}`,
     impacts: byHash.get(use.hash) ?? [],
   }));
   for (const [hash, list] of byHash)

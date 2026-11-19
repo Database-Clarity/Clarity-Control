@@ -380,3 +380,23 @@ it('says when a global is not used by any tooltip', async () => {
   await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
   expect(host.textContent).toContain('Not used by any tooltip.');
 });
+
+it('filters the saved impacts under a row, and the selection, by language', async () => {
+  const catalogue = structuredClone(globalFixtureSnapshot);
+  const english = catalogue.impacts.g_damage0001[0];
+  const french = structuredClone(english);
+  french.id = 'review_10_fr_live';
+  french.consumer = { ...french.consumer, lang: 'fr' };
+  french.review = { ...french.review, consumer: french.consumer };
+  catalogue.impacts = { g_damage0001: [english, french], g_title00001: [] };
+  await mount('/globals/g_damage0001?usageLang=fr', service(catalogue));
+  // One tooltip row; only its French obligation shows and is selected for the comparison.
+  expect(host.querySelectorAll('[data-global-usage]').length).toBe(1);
+  expect(
+    [...host.querySelectorAll('[data-global-consumer]')].map((row) =>
+      row.getAttribute('data-global-consumer'),
+    ),
+  ).toEqual(['review_10_fr_live']);
+  expect(host.textContent).toContain('Focused Fury (French)');
+  expect(host.textContent).not.toContain('Focused Fury (English)');
+});
