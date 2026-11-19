@@ -252,11 +252,13 @@ export function SandboxPerksPage() {
 
   return (
     <article className={styles.page} data-layout={layout}>
-      <h1>Sandbox perks</h1>
-      <p className={styles.intro}>
-        Bungie effects shared by items with different tooltips: pick the tooltip each one shows, or
-        “no tooltip”. Nothing applies until you save.
-      </p>
+      <header className={styles.head}>
+        <h1>Sandbox perks</h1>
+        <p className={styles.intro}>
+          Bungie effects shared by items with different tooltips: pick the tooltip each one shows,
+          or “no tooltip”. Nothing applies until you save.
+        </p>
+      </header>
       {error && (
         <p role="alert" className={styles.alert}>
           {error}{' '}
