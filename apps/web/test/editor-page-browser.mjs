@@ -100,6 +100,79 @@ try {
   for (const theme of ['dark', 'light']) {
     const out = (name) => `${shots}/${theme}-${name}.png`;
 
+    // The desktop tool line keeps one row (site fix 8): a maintainer's first keystroke on an entry
+    // with an override adds Discard, and the spare tools go to More instead of wrapping the line
+    // and moving the text; a translator's read-only badge with "Switch to …" never clips the
+    // line's last button. Interface scale 100 and 150, at 768 and 1280.
+    for (const [width, scale] of [
+      [768, 100],
+      [768, 150],
+      [1280, 100],
+      [1280, 150],
+    ]) {
+      const label = `${theme} ${width} UI ${scale} tool line`;
+      const line = (page) =>
+        page.evaluate(() => {
+          // The line is the Language select's row (found the same way with or without the fit).
+          const header = document.querySelector('select[aria-label="Language"]')?.parentElement;
+          if (!header) return { missing: true };
+          const last = [...header.children]
+            .filter((el) => el.getBoundingClientRect().width > 0)
+            .at(-1)
+            .getBoundingClientRect().right;
+          return {
+            height: Math.round(header.getBoundingClientRect().height),
+            overflow: header.scrollWidth - header.clientWidth,
+            clipped: Math.max(0, Math.round(last - header.getBoundingClientRect().right)),
+            wrap: Boolean(header.querySelector(':scope > [data-wrap]')),
+          };
+        });
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      await context.addInitScript((uiScale) => {
+        localStorage.setItem('clarity-settings:device:v1', JSON.stringify({ uiScale }));
+      }, scale);
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', collectPageErrors(errors));
+      await page.goto(url);
+      await page.locator('header').first().waitFor();
+      await page.evaluate(() => {
+        window.shellFixture.role('maintainer');
+        window.shellFixture.variants();
+        window.location.hash = '#/t/1001?lang=en';
+      });
+      await page.locator('.cm-content').first().waitFor();
+      const before = await line(page);
+      assert.ok(!before.missing, `${label}: no measured tool line`);
+      const top = await firstLine(page);
+      await page.locator('.cm-content').first().click();
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type('x');
+      await page.getByRole('button', { name: 'Discard this draft' }).waitFor();
+      const after = await line(page);
+      assert.equal(after.height, before.height, `${label}: first keystroke grew the line`);
+      assert.deepEqual(await firstLine(page), top, `${label}: first keystroke moved the text`);
+      assert.ok(
+        !after.wrap && after.overflow <= 0 && !after.clipped,
+        `${label}: ${JSON.stringify(after)}`,
+      );
+      await page.evaluate(() => window.shellFixture.role('translator'));
+      await page.evaluate(() => {
+        window.location.hash = '#/t/1001?lang=es';
+      });
+      await page.getByRole('button', { name: /^Switch to / }).waitFor();
+      const translator = await line(page);
+      assert.ok(
+        translator.overflow <= 0 && !translator.clipped,
+        `${label}: translator badge clips the line (${JSON.stringify(translator)})`,
+      );
+      assert.deepEqual(errors, [], `${label}: no page errors`);
+      await context.close();
+    }
+
     for (const [width, height, phone] of [
       [1440, 900, false],
       [1280, 800, false],
@@ -252,77 +325,6 @@ try {
       await page.screenshot({ path: out('grouped-1280') });
       await page.keyboard.press('Escape');
       await grouped.waitFor({ state: 'hidden' });
-      assert.deepEqual(errors, [], `${label}: no page errors`);
-      await context.close();
-    }
-
-    // The desktop tool line keeps one row (site fix 8): a maintainer's first keystroke on an entry
-    // with an override adds Discard, and the spare tools go to More instead of wrapping the line
-    // and moving the text; a translator's read-only badge with "Switch to …" never clips the
-    // line's last button. Interface scale 100 and 150, at 768 and 1280.
-    for (const [width, scale] of [
-      [768, 100],
-      [768, 150],
-      [1280, 100],
-      [1280, 150],
-    ]) {
-      const label = `${theme} ${width} UI ${scale} tool line`;
-      const line = (page) =>
-        page.evaluate(() => {
-          const right = document.querySelector('[data-fit]');
-          const header = right.parentElement;
-          const last = [...header.children]
-            .filter((el) => el.getBoundingClientRect().width > 0)
-            .at(-1)
-            .getBoundingClientRect().right;
-          return {
-            height: Math.round(header.getBoundingClientRect().height),
-            overflow: header.scrollWidth - header.clientWidth,
-            clipped: Math.max(0, Math.round(last - header.getBoundingClientRect().right)),
-            wrap: right.hasAttribute('data-wrap'),
-          };
-        });
-      const context = await browser.newContext({
-        viewport: { width, height: 900 },
-        colorScheme: theme,
-      });
-      await context.addInitScript((uiScale) => {
-        localStorage.setItem('clarity-settings:device:v1', JSON.stringify({ uiScale }));
-      }, scale);
-      const page = await context.newPage();
-      const errors = [];
-      page.on('pageerror', collectPageErrors(errors));
-      await page.goto(url);
-      await page.locator('header').first().waitFor();
-      await page.evaluate(() => {
-        window.shellFixture.role('maintainer');
-        window.shellFixture.variants();
-        window.location.hash = '#/t/1001?lang=en';
-      });
-      await page.locator('.cm-content').first().waitFor();
-      const before = await line(page);
-      const top = await firstLine(page);
-      await page.locator('.cm-content').first().click();
-      await page.keyboard.press('Control+End');
-      await page.keyboard.type('x');
-      await page.getByRole('button', { name: 'Discard this draft' }).waitFor();
-      const after = await line(page);
-      assert.equal(after.height, before.height, `${label}: first keystroke grew the line`);
-      assert.deepEqual(await firstLine(page), top, `${label}: first keystroke moved the text`);
-      assert.ok(
-        !after.wrap && after.overflow <= 0 && !after.clipped,
-        `${label}: ${JSON.stringify(after)}`,
-      );
-      await page.evaluate(() => window.shellFixture.role('translator'));
-      await page.evaluate(() => {
-        window.location.hash = '#/t/1001?lang=es';
-      });
-      await page.getByRole('button', { name: /^Switch to / }).waitFor();
-      const translator = await line(page);
-      assert.ok(
-        translator.overflow <= 0 && !translator.clipped,
-        `${label}: translator badge clips the line (${JSON.stringify(translator)})`,
-      );
       assert.deepEqual(errors, [], `${label}: no page errors`);
       await context.close();
     }

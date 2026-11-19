@@ -401,7 +401,7 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
   display: inline-flex;
 }
 // More, last on the line: outlined like the line's other buttons.
-.paneRight[data-fit^='spill'] > button:last-child {
+.paneRight[data-tool-fit='spill'] > button:last-child {
   background: transparent;
   border-color: var(--ghost-edge);
 }

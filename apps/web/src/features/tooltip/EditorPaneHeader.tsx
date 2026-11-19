@@ -452,7 +452,7 @@ function DesktopToolRow({
       <span
         ref={right}
         className={styles.paneRight}
-        data-fit={fit.moved ? 'spill' : 'full'}
+        data-tool-fit={fit.moved ? 'spill' : 'full'}
         data-wrap={fit.wrap || undefined}
       >
         {worklistControl && !inMore.has('worklist') && (
