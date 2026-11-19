@@ -240,6 +240,25 @@ it('carries a relocated row only when its identical cell text exists exactly onc
   expect(currentReferenceLink(owner, structuredClone(f.source))).toBeUndefined();
 });
 
+it('never relocates a real content change at the recorded row', () => {
+  const f = fixture();
+  const before = f.build(f.editor);
+  const owner = reference(before, 100, f);
+  const rows = f.source.tabs[0].rows;
+  // The recorded row keeps its place but its text changes for real; the old text now
+  // exists exactly once elsewhere. A content change is never a relocation.
+  rows[0].cell = { plain: 'Mechanics 0 changed', runs: [{ text: 'Mechanics 0 changed' }] };
+  rows.push({
+    rowIndex: 40,
+    name: 'Other Sample',
+    nameNorm: 'other sample',
+    cell: { plain: 'Mechanics 0', runs: [{ text: 'Mechanics 0' }] },
+  });
+  expect(currentReferenceLink(owner, f.source)).toBeUndefined();
+  const entry = before.categories[0].entries.find((candidate) => candidate.hash === 100)!;
+  expect(referenceCurrent(owner, entry, f.baseline, f.source)).toBe(false);
+});
+
 
 
 

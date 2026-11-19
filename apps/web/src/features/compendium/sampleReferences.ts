@@ -177,6 +177,10 @@ export function currentReferenceLink(reference: GuidanceReference, source: Compe
     const held = matchingReferenceLink(old, link, source);
     if (held) return held;
   }
+  // The recorded source still exists and its text changed for real. That is a content
+  // change, never a relocation: the approval stays unresolved (root brief
+  // MATCHER-EVIDENCE, 2026-11-19: real wording changes stay unconfident).
+  if (resolved && 'row' in resolved && !sameFormattingCell(resolved.row.cell, old.snapshot)) return;
   return relocatedReferenceLink(old, source);
 }
 
