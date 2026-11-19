@@ -21,7 +21,13 @@ import { confirmCompendiumSelection } from './selection';
 import type { GuidanceDocument, GuidanceReference } from './guidanceSchema';
 import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
-import { referenceCurrent, currentReferenceLink, groupReferenceCurrent } from './sampleReferences';
+import {
+  referenceCurrent,
+  currentReferenceLink,
+  groupReferenceCurrent,
+  referenceEvidenceCurrent,
+  referenceSourceTab,
+} from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
 import { artifactParents, artifactSections, notCurrentArtifact } from './artifactIdentity';
@@ -201,6 +207,11 @@ export function* guidedDecisionSteps(
     if (!category) issues.push('Recorded category is absent from the current review queue.');
     const references = Object.values(record.references ?? {});
     const usable = new Map<number, GuidanceReference>();
+    // Owner samples also say where a category's sources live. A reference whose selected cells
+    // changed still demonstrates its tab while its own owner evidence is current: the link is
+    // never inferred from it, only the tab it was picked in (root brief MATCHER-EVIDENCE-2,
+    // 2026-11-19).
+    const demonstrated = new Map<number, GuidanceReference>();
     // Owner evidence recorded against an alias-group member belongs to the group: the
     // member's tooltip and source moved to the canonical (root brief MATCHER-EVIDENCE,
     // 2026-11-19). Group references are validated by their saved source proof.
@@ -210,20 +221,36 @@ export function* guidedDecisionSteps(
     for (const reference of references) {
       const owner = groupOwner.get(reference.hash);
       const entry = entries.get(owner ?? reference.hash);
-      if (
-        !record.hashes.includes(reference.hash) ||
-        !entry ||
-        !compatible ||
-        (owner === undefined
-          ? !referenceCurrent(reference, entry, baseline, source)
-          : !groupReferenceCurrent(reference, entry, source))
-      ) {
+      if (!record.hashes.includes(reference.hash) || !entry || !compatible) {
         issues.push(`Reference ${reference.hash}: stale, missing or outside recorded membership.`);
-      } else if (reference.decision && reference.decision !== 'skipped') {
-        // The canonical's own reference outranks a carried member reference.
-        if (!usable.has(entry.hash) || reference.hash === entry.hash)
-          usable.set(entry.hash, reference);
+        continue;
       }
+      // The canonical's own reference outranks a carried member reference.
+      const prefer = (map: Map<number, GuidanceReference>) =>
+        !map.has(entry.hash) || reference.hash === entry.hash;
+      if (
+        owner === undefined
+          ? referenceCurrent(reference, entry, baseline, source)
+          : groupReferenceCurrent(reference, entry, source)
+      ) {
+        if (prefer(usable) && reference.decision && reference.decision !== 'skipped')
+          usable.set(entry.hash, reference);
+        if (prefer(demonstrated)) demonstrated.set(entry.hash, reference);
+        continue;
+      }
+      // A sample whose source cells changed keeps teaching its tab at its own recorded
+      // baseline, while its own entry evidence is current.
+      if (
+        owner === undefined &&
+        reference.link &&
+        referenceEvidenceCurrent(reference, entry, reference.baseline) &&
+        referenceSourceTab(reference, source)
+      ) {
+        if (prefer(demonstrated)) demonstrated.set(entry.hash, reference);
+        issues.push(`Reference ${reference.hash}: source cells changed; tab evidence only.`);
+        continue;
+      }
+      issues.push(`Reference ${reference.hash}: stale, missing or outside recorded membership.`);
     }
     const extra = category?.entries.filter((entry) => !record.hashes.includes(entry.hash)) ?? [];
     if (extra.length) issues.push(`${extra.length} new entries excluded from recorded scope.`);
@@ -234,7 +261,7 @@ export function* guidedDecisionSteps(
     // Only current, exact-name, whole-row approvals teach a sibling element convention.
     // A picked rename or selected-cell example still teaches its own tab, not this rule.
     const exactElementTabs = new Set(
-      [...usable.values()].flatMap((reference) => {
+      [...demonstrated.values()].flatMap((reference) => {
         const link = reference.link;
         if (
           !link ||
@@ -561,9 +588,10 @@ export function* guidedDecisionSteps(
           };
       }
 
-      // Learn the tab from every current positive sample, including picked renames.
+      // Learn the tab from every owner sample whose evidence is still current, including picked
+      // renames and samples whose edited source cells changed but stayed in their tab.
       // Section labels are layout headings, not category boundaries (e.g. Armor Mods slots).
-      const positive = [...usable.values()].filter((ref) => ref.link);
+      const positive = [...demonstrated.values()].filter((ref) => ref.link);
       const tabs = new Set(positive.map((ref) => ref.link!.gid));
       const support = positive.map((ref) => ref.hash);
       const norm = normaliseCompendiumName(entry.name);

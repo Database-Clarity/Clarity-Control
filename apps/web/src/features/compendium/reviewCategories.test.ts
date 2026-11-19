@@ -181,8 +181,10 @@ it('fingerprints displayed manifest and alias evidence independently of the auth
       .flatMap((category) => category.entries)
       .find((entry) => entry.hash === 15)!.sampleEvidence;
   const original = evidence();
+  // A member's manifest facts are not the entry's identity evidence: grouping or ungrouping
+  // duplicates must not rewrite an approval's fingerprint.
   editor.items[16].inGameDescription = 'Changed alias mechanics';
-  expect(evidence()).not.toBe(original);
+  expect(evidence()).toBe(original);
   const changed = evidence();
   editor.items[15].owners = [100, 101];
   expect(evidence()).not.toBe(changed);

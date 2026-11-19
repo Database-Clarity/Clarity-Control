@@ -3,6 +3,65 @@ import { guidedFixture } from '../../../test/guided-fixture';
 import { guidedDecisions, guidedRevision } from './guidedDecisions';
 import { proposalFor } from './rapidReview';
 import { loadManifestFacts } from './manifestFacts';
+import { emptyProgress } from './reviewProgress';
+import { reviewCategories } from './reviewCategories';
+import { reviewQueue } from './reviewQueue';
+
+it('learns a tab from a sample whose source cells changed, but not from changed owner evidence', () => {
+  const f = guidedFixture();
+  const record = f.document.categories[f.categories[0].id];
+  const fingerprint = sourceFingerprint(f.source.tabs);
+  const categories = () =>
+    reviewCategories(
+      reviewQueue(f.editor, f.source, {}, emptyProgress(), fingerprint),
+      f.editor,
+      f.proposals,
+      false,
+    );
+  // Owner text exists before the sample is recorded, so rewriting it is a real change.
+  f.editor.bundle.tooltips[100] = {
+    hash: 100,
+    text: { en: { text: 'Mechanics 0', updatedAt: '2026-11-01T00:00:00Z' } },
+    associated: [],
+  } as never;
+  const entry = (hash: number) =>
+    categories()
+      .flatMap((group) => group.entries)
+      .find((entry) => entry.hash === hash)!;
+  record.references = {
+    100: sampleReference(entry(100), record.id, `synthetic|${fingerprint}`, '', 'accepted', {
+      tab: f.source.tabs[0],
+      row: f.source.tabs[0].rows[0],
+    }, f.source),
+  };
+  const decide = (hash: number) =>
+    guidedDecisions(
+      f.document,
+      categories(),
+      f.proposals,
+      f.source,
+      `synthetic|${fingerprint}`,
+      f.scope,
+    )
+      .flatMap((group) => group.entries)
+      .find((entry) => entry.hash === hash);
+  expect(decide(102)).toMatchObject({ action: 'link', confidence: 'high' });
+  // A real source edit withdraws that sample's link but still demonstrates its tab.
+  f.source.tabs[0].rows[0].cell = { plain: 'Mechanics 0 now', runs: [{ text: 'Mechanics 0 now' }] };
+  expect(decide(100)).toMatchObject({ action: 'owner' });
+  expect(decide(102)).toMatchObject({
+    action: 'link',
+    confidence: 'high',
+    ruleId: 'unique-name-in-learned-tab',
+  });
+  // The owner's own text changed: the sample no longer says where its sources live.
+  f.editor.bundle.tooltips[100] = {
+    hash: 100,
+    text: { en: { text: 'Rewritten owner text', updatedAt: '2026-11-02T00:00:00Z' } },
+    associated: [],
+  } as never;
+  expect(decide(102)).toMatchObject({ action: 'owner' });
+});
 
 it('chooses an artifact section using manifest membership when names repeat', () => {
   const f = guidedFixture(),

@@ -124,6 +124,10 @@ export function reviewCategories(
           : {}),
       }))
       .sort((a, b) => a.hash - b.hash);
+    // Identity evidence is this entry's own item: members are duplicates, and grouping them in
+    // or out must not rewrite an approval's fingerprint (root brief MATCHER-EVIDENCE-2,
+    // 2026-11-19, porting the second run's self-identity rule).
+    const ownManifest = evidenceManifest.filter((item) => item.hash === entry.hash);
     // Accepted name groups only: those members' tooltips and catalog facts live here now.
     const groupMembers = incomingAliases(entry.hash, editor.aliases)
       .filter(([, kind]) => kind === 'name')
@@ -155,7 +159,7 @@ export function reviewCategories(
         ...(entry.next.custom?.categoryId === 'attachment-effect'
           ? [entry.next.custom.categoryId]
           : []),
-        evidenceManifest,
+        ownManifest.length ? ownManifest : evidenceManifest,
       ]),
     };
     if (source && id === 'catalog:armor-mod-seasonal')

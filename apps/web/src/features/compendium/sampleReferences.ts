@@ -77,22 +77,38 @@ export function sampleReference(
   return reference;
 }
 
+/** The owner/catalog evidence a reference recorded, against current data only (no source cells). */
+export function referenceEvidenceCurrent(
+  reference: GuidanceReference | undefined,
+  entry: ReviewSample,
+  baseline: string,
+) {
+  return !!(
+    reference &&
+    reference.hash === entry.hash &&
+    reference.categoryId === categoryId(entry.category) &&
+    (reference.evidence === entry.sampleEvidence || legacyEntryCurrent(reference, entry)) &&
+    reference.baseline === baseline
+  );
+}
+
 export function referenceCurrent(
   reference: GuidanceReference | undefined,
   entry: ReviewSample,
   baseline: string,
   source: CompendiumData,
 ) {
-  if (
-    !reference ||
-    reference.hash !== entry.hash ||
-    reference.categoryId !== categoryId(entry.category) ||
-    !(reference.evidence === entry.sampleEvidence || legacyEntryCurrent(reference, entry)) ||
-    reference.baseline !== baseline
-  )
-    return false;
-  if (!reference.link) return true;
+  if (!referenceEvidenceCurrent(reference, entry, baseline)) return false;
+  if (!reference?.link) return true;
   return !!currentReferenceLink(reference, source);
+}
+
+/** The saved tab a positive reference still demonstrates, though its cells may have changed. */
+export function referenceSourceTab(reference: GuidanceReference, source: CompendiumData) {
+  if (!reference.link) return;
+  const resolved = resolveCompendiumLink(reference.link, source);
+  if (!('row' in resolved) || resolved.tab.gid !== reference.link.gid) return;
+  return resolved.tab.gid;
 }
 
 /**
@@ -119,6 +135,7 @@ export function groupReferenceCurrent(
 // selections may ignore unrelated sheet edits, and their saved styled source must replay.
 function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
   if (!reference.link || entry.evidenceManifest === undefined) return false;
+  const manifest = referenceManifest(entry, reference.hash);
   if (
     entry.sampleEvidence !==
     sourceFingerprint([
@@ -127,7 +144,7 @@ function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
       ...(entry.next.custom?.categoryId === 'attachment-effect'
         ? [entry.next.custom.categoryId]
         : []),
-      entry.evidenceManifest,
+      manifest,
     ])
   )
     return false;
@@ -142,22 +159,35 @@ function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
       : undefined;
   // Replay historical nested proofs and newer raw-English approvals against current
   // editor/catalog data. Selected source evidence is still validated below.
+  const manifests = [entry.evidenceManifest, manifest];
   return [rawFingerprint, sourceFingerprint].some((hash) =>
-    [english, normalized, formatting].some((text) => {
-      const evidence = hash([sheet, entry.name, entry.category, text, entry.base.compendium]);
-      return (
-        reference.evidence ===
-        hash([
-          entry.hash,
-          evidence,
-          ...(entry.next.custom?.categoryId === 'attachment-effect'
-            ? [entry.next.custom.categoryId]
-            : []),
-          entry.evidenceManifest,
-        ])
-      );
-    }),
+    [english, normalized, formatting].some((text) =>
+      manifests.some((items) => {
+        const evidence = hash([sheet, entry.name, entry.category, text, entry.base.compendium]);
+        return (
+          reference.evidence ===
+          hash([
+            entry.hash,
+            evidence,
+            ...(entry.next.custom?.categoryId === 'attachment-effect'
+              ? [entry.next.custom.categoryId]
+              : []),
+            items,
+          ])
+        );
+      }),
+    ),
   );
+}
+
+/** The manifest facts recorded for one identity; duplicate members are not its content. */
+function referenceManifest(entry: ReviewSample, hash: number) {
+  const manifest = entry.evidenceManifest;
+  if (!Array.isArray(manifest)) return manifest;
+  const own = manifest.filter(
+    (item) => item && typeof item === 'object' && (item as { hash?: number }).hash === hash,
+  );
+  return own.length ? own : manifest;
 }
 
 // A formatter-only change must not invalidate an approval of unchanged source
