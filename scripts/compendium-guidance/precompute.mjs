@@ -34,7 +34,23 @@ try {
   if (!response.ok) throw new Error(`Compendium HTTP ${response.status}`);
   const source = core.compendiumDataSchema.parse(await response.json());
   source.tabs = source.tabs.filter((tab) => core.isTrackedCompendiumTab(tab.name));
-  const editor = { ...(await generator.loadGenerator()), bundle: await bundles.loadBundle() };
+  // Same editor as the app loads: accepted alias groups and sandbox picks are composed
+  // here too, so the shipped cache key and its matches agree with the runtime matcher.
+  const catalog = await generator.loadGenerator();
+  const bundle = await bundles.loadBundle();
+  const conflicts =
+    bundle.aliasGroups || core.hasSandboxTargets(bundle.sandboxPointers)
+      ? await generator.loadSandboxConflicts()
+      : undefined;
+  const { aliases } = core.composeAliases(
+    catalog.aliases,
+    bundle.aliasGroups,
+    catalog.items,
+    conflicts ?? {},
+    bundle.sandboxPointers,
+  );
+  const editor = { ...catalog, generatorAliases: catalog.aliases, aliases, bundle };
+
   const proposals = new Map(
     queue
       .reviewEvidence(editor, source, {}, '')
