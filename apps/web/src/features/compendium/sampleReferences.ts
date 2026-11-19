@@ -1,16 +1,37 @@
 import {
+  evidenceCell,
   normaliseCompendiumEnglish,
-  resolveCompendiumLink,
+  normaliseEvidenceFormatting,
   normaliseCompendiumName,
   normaliseRuns,
+  resolveCompendiumLink,
   sameCell,
+  styleKey,
+  type CompendiumCell,
   type CompendiumData,
   type CompendiumMatch,
+  type CompendiumRow,
+  type CompendiumSheet,
 } from '@clarity/core';
 import type { GuidanceReference } from './guidanceSchema';
 import { categoryId, type ReviewSample } from './reviewCategories';
 import { rawFingerprint, sourceFingerprint } from './reviewProgress';
 import { confirmCompendiumSelection } from './selection';
+
+/**
+ * Same cell under presentation-only text folding. Run styles stay strict, so a colour,
+ * bold or alignment change is never accepted as formatting churn.
+ */
+function sameFormattingCell(left: CompendiumCell, right: CompendiumCell) {
+  if (normaliseEvidenceFormatting(left.plain) !== normaliseEvidenceFormatting(right.plain))
+    return false;
+  const a = evidenceCell(left);
+  const b = evidenceCell(right);
+  return (
+    a.runs.length === b.runs.length &&
+    a.runs.every((run, index) => styleKey(run) === styleKey(b.runs[index]))
+  );
+}
 
 export function sampleReference(
   entry: ReviewSample,
@@ -70,6 +91,23 @@ export function referenceCurrent(
   return !!currentReferenceLink(reference, source);
 }
 
+/**
+ * Owner evidence recorded against an alias-group member belongs to the group: the member's
+ * tooltip and source moved to the canonical, so the canonical entry inherits the reference
+ * (root brief MATCHER-EVIDENCE, 2026-11-19; alias-group adoption 2026-11-17/18).
+ *
+ * A member's own sample evidence cannot be replayed once the group is adopted, so the saved
+ * source proof is what must still hold. Only positive references carry a source at all.
+ */
+export function groupReferenceCurrent(
+  reference: GuidanceReference | undefined,
+  entry: ReviewSample,
+  source: CompendiumData,
+) {
+  if (!reference?.link || reference.categoryId !== categoryId(entry.category)) return false;
+  return !!currentReferenceLink(reference, source);
+}
+
 // Reconstruct the old nested evidence from CURRENT editor/catalog data. Only positive
 // selections may ignore unrelated sheet edits, and their saved styled source must replay.
 function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
@@ -89,10 +127,16 @@ function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
   const sheet = reference.baseline.slice(reference.baseline.lastIndexOf('|') + 1);
   const english = entry.base.text.en;
   const normalized = english && { ...english, text: normaliseCompendiumEnglish(english.text) };
-  // Replay both historical nested proofs and newer raw-English approvals against
-  // current editor/catalog data. Selected source evidence is still validated below.
+  // Presentation-only churn (parser markup forms, dashes, quotes, line breaks) replays as
+  // its consumer-lowered text. Wording, numbers and symbols still differ.
+  const formatting =
+    english && english.text !== normaliseEvidenceFormatting(english.text)
+      ? { ...english, text: normaliseEvidenceFormatting(english.text) }
+      : undefined;
+  // Replay historical nested proofs and newer raw-English approvals against current
+  // editor/catalog data. Selected source evidence is still validated below.
   return [rawFingerprint, sourceFingerprint].some((hash) =>
-    [english, normalized].some((text) => {
+    [english, normalized, formatting].some((text) => {
       const evidence = hash([sheet, entry.name, entry.category, text, entry.base.compendium]);
       return (
         reference.evidence ===
@@ -114,11 +158,43 @@ function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
 // require BOTH the old source hash and exact styled snapshot to agree.
 export function currentReferenceLink(reference: GuidanceReference, source: CompendiumData) {
   if (!reference.link) return;
-  const resolved = resolveCompendiumLink(reference.link, source);
-  if (!('row' in resolved)) return;
-  const confirmed = confirmCompendiumSelection(resolved, source);
-  if (!confirmed) return;
-  const link = { ...confirmed, snapshotAt: reference.link.snapshotAt };
+  const old = reference.link;
+  // Validate the saved proof itself first; relocation never bypasses it.
+  const proven =
+    sourceFingerprint([old.gid, old.rowKey, old.section, old.cells, old.snapshot]) ===
+      reference.sourceHash ||
+    rawFingerprint([old.gid, old.rowKey, old.section, old.cells, old.snapshot]) ===
+      reference.sourceHash;
+  if (!proven) return;
+  const resolved = resolveCompendiumLink(old, source);
+  const confirmed =
+    resolved && 'row' in resolved ? confirmCompendiumSelection(resolved, source) : undefined;
+  const link = confirmed && { ...confirmed, snapshotAt: old.snapshotAt };
+  if (link) {
+    const held = matchingReferenceLink(old, link, source);
+    if (held) return held;
+  }
+  return relocatedReferenceLink(old, source);
+}
+
+function structuralLinkEqual(
+  old: NonNullable<GuidanceReference['link']>,
+  link: NonNullable<GuidanceReference['link']>,
+) {
+  return (
+    old.gid === link.gid &&
+    old.rowKey === link.rowKey &&
+    old.section === link.section &&
+    JSON.stringify(old.cells) === JSON.stringify(link.cells) &&
+    old.setBonusPieces === link.setBonusPieces
+  );
+}
+
+function matchingReferenceLink(
+  old: NonNullable<GuidanceReference['link']>,
+  link: NonNullable<GuidanceReference['link']>,
+  source: CompendiumData,
+) {
   const fingerprint = (candidate: typeof link, legacy = false) =>
     (legacy ? rawFingerprint : sourceFingerprint)([
       candidate.gid,
@@ -127,13 +203,10 @@ export function currentReferenceLink(reference: GuidanceReference, source: Compe
       candidate.cells,
       candidate.snapshot,
     ]);
-  const old = reference.link;
   if (old.setBonusPieces !== link.setBonusPieces) return;
-  // Validate the saved proof itself, then compare normalized current content and structure.
-  const proven =
-    fingerprint(old) === reference.sourceHash || fingerprint(old, true) === reference.sourceHash;
-  if (!proven) return;
   if (fingerprint(link) === fingerprint(old)) return link;
+  // Presentation-only text churn keeps the same selected source.
+  if (structuralLinkEqual(old, link) && sameFormattingCell(link.snapshot, old.snapshot)) return link;
   if (old.cells || !old.parts?.length) return;
   const rows = source.tabs
     .filter((tab) => tab.gid === old.gid)
@@ -148,5 +221,51 @@ export function currentReferenceLink(reference: GuidanceReference, source: Compe
       ...row.cell.runs,
     ]),
   );
-  return sameCell(replay, old.snapshot) ? link : undefined;
+  return sameCell(replay, old.snapshot) || sameFormattingCell(replay, old.snapshot)
+    ? link
+    : undefined;
 }
+
+/**
+ * A relocated row keeps its approval only when the identical cell text exists exactly once
+ * in the current Compendium (root brief MATCHER-EVIDENCE, 2026-11-19). Zero or several
+ * candidates stay unresolved for review.
+ */
+function relocatedReferenceLink(
+  old: NonNullable<GuidanceReference['link']>,
+  source: CompendiumData,
+) {
+  if (old.parts?.length) return;
+  const recorded = normaliseEvidenceFormatting(old.snapshot.plain);
+  const candidates = relocationRows(source).get(recorded) ?? [];
+  if (candidates.length !== 1) return;
+  const [{ tab, row }] = candidates;
+  if (!sameFormattingCell(row.cell, old.snapshot)) return;
+  const link = confirmCompendiumSelection(
+    { tab, row, cells: old.cells, setBonusPieces: old.setBonusPieces },
+    source,
+  );
+  return link && { ...link, snapshotAt: old.snapshotAt };
+}
+
+// Formatting-folded cell text to its rows, built once per source and only on demand.
+const relocationIndexes = new WeakMap<
+  CompendiumData,
+  Map<string, { tab: CompendiumSheet; row: CompendiumRow }[]>
+>();
+function relocationRows(source: CompendiumData) {
+  const cached = relocationIndexes.get(source);
+  if (cached) return cached;
+  const rows = new Map<string, { tab: CompendiumSheet; row: CompendiumRow }[]>();
+  for (const tab of source.tabs)
+    for (const row of tab.rows) {
+      const plain = normaliseEvidenceFormatting(row.cell.plain);
+      const list = rows.get(plain);
+      if (list) list.push({ tab, row });
+      else rows.set(plain, [{ tab, row }]);
+    }
+  relocationIndexes.set(source, rows);
+  return rows;
+}
+
+

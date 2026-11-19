@@ -21,7 +21,7 @@ import { confirmCompendiumSelection } from './selection';
 import type { GuidanceDocument, GuidanceReference } from './guidanceSchema';
 import type { ReviewCategory, ReviewSample } from './reviewCategories';
 import type { ReviewProposal } from './rapidReview';
-import { referenceCurrent, currentReferenceLink } from './sampleReferences';
+import { referenceCurrent, currentReferenceLink, groupReferenceCurrent } from './sampleReferences';
 import { sourceFingerprint } from './reviewProgress';
 import { manifestRule } from './manifestRule';
 import { artifactParents, artifactSections, notCurrentArtifact } from './artifactIdentity';
@@ -201,17 +201,26 @@ export function* guidedDecisionSteps(
     if (!category) issues.push('Recorded category is absent from the current review queue.');
     const references = Object.values(record.references ?? {});
     const usable = new Map<number, GuidanceReference>();
+    // Owner evidence recorded against an alias-group member belongs to the group: the
+    // member's tooltip and source moved to the canonical (root brief MATCHER-EVIDENCE,
+    // 2026-11-19). Group references are validated by their saved source proof.
+    const groupOwner = new Map<number, number>();
+    for (const entry of category?.entries ?? [])
+      for (const member of entry.groupMembers ?? []) groupOwner.set(member, entry.hash);
     for (const reference of references) {
-      const entry = entries.get(reference.hash);
+      const owner = groupOwner.get(reference.hash);
+      const entry = entries.get(owner ?? reference.hash);
       if (
         !record.hashes.includes(reference.hash) ||
         !entry ||
         !compatible ||
-        !referenceCurrent(reference, entry, baseline, source)
+        (owner === undefined
+          ? !referenceCurrent(reference, entry, baseline, source)
+          : !groupReferenceCurrent(reference, entry, source))
       ) {
         issues.push(`Reference ${reference.hash}: stale, missing or outside recorded membership.`);
       } else if (reference.decision && reference.decision !== 'skipped') {
-        usable.set(reference.hash, reference);
+        usable.set(entry.hash, reference);
       }
     }
     const extra = category?.entries.filter((entry) => !record.hashes.includes(entry.hash)) ?? [];
@@ -308,10 +317,13 @@ export function* guidedDecisionSteps(
           ...result,
           action: reference.link ? 'link' : 'no-equivalent',
           confidence: 'high',
-          ruleId: 'explicit-owner',
+          ruleId: reference.hash === hash ? 'explicit-owner' : 'alias-group-owner',
           link: reference.link ? currentReferenceLink(reference, source) : undefined,
           references: [hash],
-          reason: 'Current explicit owner reference; applies to this entry only.',
+          reason:
+            reference.hash === hash
+              ? 'Current explicit owner reference; applies to this entry only.'
+              : `Owner reference ${reference.hash} belongs to this entry's alias group; its saved source carries to the group.`,
         };
       // These four saved baseline selections changed real text in the Nov 3
       // parser refresh. Only a fresh explicit owner reference above may renew them.
