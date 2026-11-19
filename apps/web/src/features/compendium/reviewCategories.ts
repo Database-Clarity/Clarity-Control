@@ -1,8 +1,8 @@
 import { classifyItem, type ItemClassification } from './itemClassification';
-import type { CompendiumData } from '@clarity/core';
+import { groupManifestItems } from './manifestItems';
+import { incomingAliases, type CompendiumData } from '@clarity/core';
 import { notCurrentArtifact } from './artifactIdentity';
 import type { EditorData } from '../../stores/data';
-import { groupManifestItems } from './manifestItems';
 import type { ReviewProposal } from './rapidReview';
 import type { applyReviewProgress } from './reviewQueue';
 import { sourceFingerprint } from './reviewProgress';
@@ -14,6 +14,8 @@ export type ReviewEntry = ReturnType<typeof applyReviewProgress>[number];
 export type ReviewSample = ReviewEntry & {
   sampleEvidence: string;
   evidenceManifest?: unknown;
+  /** Accepted alias-group members whose tooltip and catalog facts now live on this entry. */
+  groupMembers?: number[];
   classification?: ItemClassification;
   exoticParentNames?: string[];
   scopeRestored?: boolean;
@@ -53,6 +55,10 @@ export function reviewCategories(
   source?: CompendiumData,
 ): ReviewCategory[] {
   const manifest = groupManifestItems(editor.items, editor.aliases);
+  // Owner evidence records catalog identity, never an editor alias-group decision: grouping
+  // accepted groups would otherwise rewrite every canonical's sample evidence and drop its
+  // recorded owner sample (root brief MATCHER-EVIDENCE, 2026-11-19).
+  const evidenceGroups = groupManifestItems(editor.items, editor.generatorAliases ?? editor.aliases);
   const facts = catalogFacts;
   const groups = new Map<string, ReviewCategory>();
   for (const entry of entries) {
@@ -105,7 +111,7 @@ export function reviewCategories(
           (!item.inGameDescription.trim() ||
             item.inGameDescription === fact.inventory!.description),
       );
-    const evidenceManifest = (manifest.get(entry.hash) ?? [])
+    const evidenceManifest = (evidenceGroups.get(entry.hash) ?? [])
       .map((item) => ({
         hash: item.hash,
         name: item.name,
@@ -118,9 +124,14 @@ export function reviewCategories(
           : {}),
       }))
       .sort((a, b) => a.hash - b.hash);
+    // Accepted name groups only: those members' tooltips and catalog facts live here now.
+    const groupMembers = incomingAliases(entry.hash, editor.aliases)
+      .filter(([, kind]) => kind === 'name')
+      .map(([hash]) => hash);
     const sample: ReviewSample = {
       evidenceManifest,
       ...entry,
+      ...(groupMembers.length ? { groupMembers } : {}),
       ...(items.length === 1 &&
       items[0].categoryId === 'armor-set-bonus' &&
       items[0].setName &&

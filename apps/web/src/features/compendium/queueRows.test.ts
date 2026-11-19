@@ -114,7 +114,7 @@ describe('show filter', () => {
   });
 });
 
-describe('shipped precomputed census (628 to review, 1,951 matched, 293 not needed; 2026-11-12 refresh)', () => {
+describe('shipped precomputed census (723 to review, 1,544 matched, 282 not needed; 2026-11-19 refresh)', () => {
   it('reproduces the design counts', () => {
     const file = new URL('./precomputed.v1.json', import.meta.url);
     const { nodes, root } = JSON.parse(readFileSync(file, 'utf8')) as {
@@ -136,15 +136,15 @@ describe('shipped precomputed census (628 to review, 1,951 matched, 293 not need
       proposals: new Map(value.proposals),
       restored: new Set(),
     });
-    expect(rows).toHaveLength(2872);
+    expect(rows).toHaveLength(2549);
     const counts = queueCounts(rows);
-    expect(counts).toMatchObject({ open: 628, matched: 1951, notNeeded: 293, decided: 0 });
+    expect(counts).toMatchObject({ open: 723, matched: 1544, notNeeded: 282, decided: 0 });
     const byKind = Object.fromEntries(
       [...new Set(rows.map((row) => row.kind))].map((kind) => [
         kind,
         rows.filter((row) => row.kind === kind).length,
       ]),
     );
-    expect(byKind).toMatchObject({ proposal: 270, candidates: 16, none: 342 });
+    expect(byKind).toMatchObject({ proposal: 439, candidates: 21, none: 263 });
   });
 });
