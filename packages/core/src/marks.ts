@@ -37,8 +37,6 @@ export const marksSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n').length > maxMarksBytes)
-      ctx.addIssue({ code: 'custom', message: `Marks file exceeds ${maxMarksBytes} bytes` });
     const ids = new Set(value.types.map((type) => type.id));
     if (ids.size !== value.types.length)
       ctx.addIssue({ code: 'custom', message: 'Duplicate mark type IDs' });
@@ -56,6 +54,15 @@ export const marksSchema = z
     if (count > maxEntryMarks)
       ctx.addIssue({ code: 'custom', message: `Too many entry marks (maximum ${maxEntryMarks})` });
   });
+/**
+ * The structural checks alone: a writer validates the stored file once, then checks the byte cap
+ * on the single string it commits. Readers use `marksFileSchema`, which adds the byte cap.
+ */
+export const marksStructureSchema = marksSchema;
+export const marksFileSchema = marksSchema.superRefine((value, ctx) => {
+  if (new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n').length > maxMarksBytes)
+    ctx.addIssue({ code: 'custom', message: `Marks file exceeds ${maxMarksBytes} bytes` });
+});
 export type Marks = z.infer<typeof marksSchema>;
 export type MarkType = z.infer<typeof markTypeSchema>;
 export type EntryMark = z.infer<typeof entryMarkSchema>;

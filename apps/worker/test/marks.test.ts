@@ -187,17 +187,53 @@ it('accepts a note at the character limit and still refuses the file byte cap at
   ).toBe(400);
   expect(fixture.commits).toHaveLength(1);
 });
-it('fails closed on malformed storage and unknown or duplicate mark types', async () => {
-  for (const value of [
+it('fails closed on malformed storage for writes, and on non-marks shapes for reads', async () => {
+  const malformed: unknown[] = [
     [],
     {},
     { ...base, entries: { 123: [{ type: 'missing', by: 1, at }] } },
     { ...base, types: [base.types[0], base.types[0]] },
-  ]) {
+  ];
+  // Every write still validates the whole stored document before touching it.
+  for (const value of malformed) {
     fixture.moveData({ [marksPath]: value });
-    expect((await get()).status).toBe(502);
     expect((await put(mark, blobOid(value))).status).toBe(502);
   }
+  // A read hands the stored file to the store, which validates it (marksFileSchema): only a
+  // value that is not marks-shaped at all fails closed here.
+  for (const value of [[], {}, { ...base, types: 'x' }]) {
+    fixture.moveData({ [marksPath]: value });
+    expect((await get()).status).toBe(502);
+  }
+  for (const value of malformed.slice(2)) {
+    fixture.moveData({ [marksPath]: value });
+    expect((await get()).status).toBe(200);
+  }
+  expect(fixture.commits).toHaveLength(0);
+});
+it('still refuses duplicate types, the marked-entry cap, and an unknown stored type', async () => {
+  expect(
+    (await put({ action: 'create-type', id: 'retest', label: 'Again', colour: 'red' }, seed()))
+      .status,
+  ).toBe(409);
+  expect(
+    (
+      await put(
+        { action: 'create-type', id: 'again', label: 'needs RETESTING', colour: 'red' },
+        seed(),
+      )
+    ).status,
+  ).toBe(400);
+  const full = {
+    ...base,
+    entries: Object.fromEntries(
+      Array.from({ length: 2000 }, (_, hash) => [hash, [{ type: 'retest', by: 1, at }]]),
+    ),
+  };
+  expect((await put({ ...mark, hash: 999999 }, seed(full))).status).toBe(400);
+  expect(
+    (await put(mark, seed({ ...base, entries: { 123: [{ type: 'missing', by: 1, at }] } }))).status,
+  ).toBe(502);
   expect(fixture.commits).toHaveLength(0);
 });
 it('bounds the total number of marks even when entries carry several types', async () => {

@@ -7,19 +7,21 @@ import { config } from './fixture.js';
 
 afterEach(() => vi.restoreAllMocks());
 it('records a local CPU proxy for empty, typical, and byte-cap mark documents', async () => {
-  // The caps allow 768,000 bytes: 1,500 marks carry about 375-character notes, 1,100 marks
-  // about 350 (520 KB), and 359 full-length 2,000-character notes fill the file.
-  const cases = [
-    { name: 'empty', entries: 0, note: 30 },
-    { name: 'typical', entries: 100, note: 30 },
-    { name: '256k', entries: 390, note: 500 },
-    { name: 'cap-1500', entries: 1500, note: 375 },
-    { name: '520k', entries: 1100, note: 348 },
-    { name: 'cap-max-notes', entries: 359, note: 2000 },
-    { name: 'types', entries: 32, note: 30, everyType: true },
+  // Fixed-seed fixtures: `note(index)` gives each mark's note length. The caps allow 768,000
+  // bytes, so 1,050 marks with every tenth note at 2,000 characters is the 640 KB audit size,
+  // 1,250 such marks is the byte cap, and 359 full-length notes fill the file too.
+  const cases: { name: string; count: number; note: (index: number) => number; everyType?: boolean }[] = [
+    { name: 'empty', count: 0, note: () => 30 },
+    { name: 'typical', count: 100, note: () => 30 },
+    { name: '256k', count: 390, note: () => 500 },
+    { name: 'real-640k', count: 1050, note: (index) => (index % 10 === 0 ? 2000 : 304) },
+    { name: 'cap-768k', count: 1250, note: (index) => (index % 10 === 0 ? 2000 : 308) },
+    { name: 'cap-max-notes', count: 359, note: () => 2000 },
+    { name: 'types', count: 32, note: () => 30, everyType: true },
   ];
   const rows = [];
-  for (const { name, entries, note, everyType } of cases) {
+  for (const { name, count: entries, note, everyType } of cases) {
+    const notes = Array.from({ length: entries }, (_, index) => note(index));
     const marks: Marks = {
       types: [
         {
@@ -31,14 +33,14 @@ it('records a local CPU proxy for empty, typical, and byte-cap mark documents', 
         },
       ],
       entries: Object.fromEntries(
-        Array.from({ length: entries }, (_, index) => [
+        notes.map((length, index) => [
           index,
           [
             {
               type: 'retest',
               by: 1,
               at: '2026-11-15T00:00:00Z',
-              note: 'x'.repeat(note),
+              note: 'x'.repeat(length),
             },
           ],
         ]),
@@ -99,7 +101,7 @@ it('records a local CPU proxy for empty, typical, and byte-cap mark documents', 
       rows.push({
         name,
         entries,
-        note,
+        maxNote: notes.length ? Math.max(...notes) : 0,
         bytes: Buffer.byteLength(stored),
         method,
         cpuProxyMs: (elapsed.user + elapsed.system) / 100000,
