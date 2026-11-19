@@ -1,32 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import { nextFit } from './EditorPaneHeader';
 
-// The desktop tool line: 513px of room (1280 window, maintainer), More 30px with its gap, the
-// tools it takes (Add to worklist, Move to Inactive, Grouped) 180px.
+// The desktop tool line: 513px of room (1280 window, maintainer). The spare tools in spill order,
+// each with its gap: Grouped 54, Move to Inactive 40, Add to worklist 102. More: 30 with its gap.
+const tools = [54, 40, 102];
+const more = 30;
+const fit = (moved: number, wrap = false) => ({ moved, wrap });
+
 describe('desktop tool line fit', () => {
   it('keeps every tool inline while the line fits', () => {
-    expect(nextFit('full', 500, 513, 180, 30)).toBe('full');
+    expect(nextFit(500, 513, tools, 0, more)).toEqual(fit(0));
   });
-  it('moves the spare tools to More when the line does not fit (a draft adds Discard)', () => {
-    expect(nextFit('full', 575, 513, 180, 30)).toBe('spill');
+  it('moves only as many tools as the line needs, the rarest first', () => {
+    // 20px over: Grouped alone (54 out, More 30 in) is enough.
+    expect(nextFit(533, 513, tools, 0, more)).toEqual(fit(1));
+    // 60px over: Grouped and Move to Inactive (94 out, More 30 in).
+    expect(nextFit(573, 513, tools, 0, more)).toEqual(fit(2));
+    // 150px over: all three.
+    expect(nextFit(663, 513, tools, 0, more)).toEqual(fit(3));
   });
-  it('wraps only when even the line without them does not fit', () => {
-    expect(nextFit('full', 900, 513, 180, 30)).toBe('spill-wrap');
-    expect(nextFit('spill', 720, 513, 180, 30)).toBe('spill-wrap');
+  it('wraps only when even every tool in More does not fit', () => {
+    expect(nextFit(900, 513, tools, 0, more)).toEqual(fit(3, true));
   });
   it('wraps a line with nothing to move instead of clipping it', () => {
-    expect(nextFit('full', 600, 513, 0, 30)).toBe('wrap');
+    expect(nextFit(600, 513, [], 0, more)).toEqual(fit(0, true));
   });
-  it('brings the tools back once the whole line fits again, and not before', () => {
-    // Spilled: the line is 425px now; inline it would be 425 - 30 + 180 = 575.
-    expect(nextFit('spill', 425, 513, 180, 30)).toBe('spill');
-    expect(nextFit('spill', 425, 580, 180, 30)).toBe('full');
+  it('brings tools back one at a time as room comes back', () => {
+    // Two in More: the line is 573 - 94 + 30 = 509 now.
+    expect(nextFit(509, 513, tools, 2, more)).toEqual(fit(2));
+    expect(nextFit(509, 560, tools, 2, more)).toEqual(fit(1));
+    expect(nextFit(509, 580, tools, 2, more)).toEqual(fit(0));
   });
   it('is stable: an answer never flips on the measurement it produces', () => {
-    const room = 513;
-    const inline = 560;
-    const spilled = inline - 180 + 30;
-    expect(nextFit('full', inline, room, 180, 30)).toBe('spill');
-    expect(nextFit('spill', spilled, room, 180, 30)).toBe('spill');
+    for (const inline of [520, 560, 620, 700]) {
+      const first = nextFit(inline, 513, tools, 0, more);
+      const moved = tools.slice(0, first.moved).reduce((sum, width) => sum + width, 0);
+      const now = inline - moved + (first.moved ? more : 0);
+      expect(nextFit(now, 513, tools, first.moved, more)).toEqual(first);
+    }
   });
 });

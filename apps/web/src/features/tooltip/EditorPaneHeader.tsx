@@ -141,21 +141,35 @@ export function EditorPaneHeader({
   );
 }
 
+/** The desktop tools More can take, in the order they go there (the rarest first). */
+export const spillOrder = ['grouped', 'inactive', 'worklist'] as const;
+export type SpillTool = (typeof spillOrder)[number];
+/** How many of the line's spare tools sit in More, and whether the line still wraps. */
+export interface RowFit {
+  moved: number;
+  wrap: boolean;
+}
+
 /**
  * How the desktop tool line holds its tools, from widths that do not depend on the answer:
- * `need` is the line as laid out now (shrinkable text at its minimum), `spill` the inline width of
- * the tools More can take (0: none), `more` More's own width with its gap. Everything inline while
- * it fits ('full'); else those tools go to More ('spill'); a line that still does not fit (or has
- * nothing to move) wraps as a last resort, so every action stays reachable.
+ * `need` is the line as laid out now (shrinkable text at its minimum) with `moved` tools in More,
+ * `widths` each spare tool's inline width with its gap (in spill order), `more` More's own width
+ * with its gap. As few tools go to More as the line needs, one at a time in spill order; a line
+ * that still does not fit wraps as a last resort, so every action stays reachable.
  */
-export type RowFit = 'full' | 'spill' | 'spill-wrap' | 'wrap';
-export function nextFit(current: RowFit, need: number, room: number, spill: number, more: number) {
-  const spilled = current === 'spill' || current === 'spill-wrap';
-  const full = spilled ? need - more + spill : need;
-  if (full <= room + 0.5) return 'full';
-  if (!spill) return 'wrap';
-  const compact = spilled ? need : need - spill + more;
-  return compact <= room + 0.5 ? 'spill' : 'spill-wrap';
+export function nextFit(
+  need: number,
+  room: number,
+  widths: readonly number[],
+  moved: number,
+  more: number,
+): RowFit {
+  const sum = (count: number) => widths.slice(0, count).reduce((total, width) => total + width, 0);
+  // The line with every tool inline: what is in More now comes back, More itself goes.
+  const all = need + sum(moved) - (moved ? more : 0);
+  for (let count = 0; count <= widths.length; count++)
+    if (all - sum(count) + (count ? more : 0) <= room + 0.5) return { moved: count, wrap: false };
+  return { moved: widths.length, wrap: true };
 }
 
 /**
@@ -187,11 +201,18 @@ function lineNeed(header: HTMLElement, right: HTMLElement) {
  * (a draft's Discard, the batch badge), and after a change of what the line holds; never per
  * keystroke. The width of the tools in More is remembered from the last time they were inline.
  */
-function useRowFit(right: React.RefObject<HTMLSpanElement>, key: string) {
-  const [fit, setFit] = useState<RowFit>('full');
+function useRowFit(
+  right: React.RefObject<HTMLSpanElement>,
+  tools: readonly SpillTool[],
+  key: string,
+) {
+  const [fit, setFit] = useState<RowFit>({ moved: 0, wrap: false });
   const fitRef = useRef(fit);
   fitRef.current = fit;
-  const spill = useRef(0);
+  const toolsRef = useRef(tools);
+  toolsRef.current = tools;
+  // Kept in rem, so a new interface scale does not leave a stale width.
+  const widths = useRef<Partial<Record<SpillTool, number>>>({});
   const more = useRef(0);
   const measure = useRef(() => {});
   measure.current = () => {
@@ -200,26 +221,24 @@ function useRowFit(right: React.RefObject<HTMLSpanElement>, key: string) {
     if (!element || !header) return;
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const gap = parseFloat(getComputedStyle(element).columnGap) || 0;
-    const tools = element.querySelectorAll<HTMLElement>(':scope > [data-spill]');
-    // Kept in rem, so a new interface scale does not leave a stale width.
-    if (tools.length)
-      spill.current =
-        [...tools].reduce((sum, tool) => sum + tool.getBoundingClientRect().width + gap, 0) / rem;
-    else if (fitRef.current === 'full') spill.current = 0;
-    const trigger =
-      fitRef.current === 'full' ? null : (element.lastElementChild as HTMLElement | null);
+    for (const tool of element.querySelectorAll<HTMLElement>(':scope > [data-spill]'))
+      widths.current[tool.dataset.spill as SpillTool] =
+        (tool.getBoundingClientRect().width + gap) / rem;
+    const { moved } = fitRef.current;
+    const trigger = moved ? (element.lastElementChild as HTMLElement | null) : null;
     if (trigger) more.current = (trigger.getBoundingClientRect().width + gap) / rem;
     const box = getComputedStyle(header);
     const room =
       header.clientWidth - (parseFloat(box.paddingLeft) || 0) - (parseFloat(box.paddingRight) || 0);
     const next = nextFit(
-      fitRef.current,
       lineNeed(header, element),
       room,
-      spill.current * rem,
+      // A tool never seen inline yet (none: every tool starts inline) counts as nothing.
+      toolsRef.current.map((tool) => (widths.current[tool] ?? 0) * rem),
+      Math.min(moved, toolsRef.current.length),
       (more.current || 1.5 + gap / rem) * rem,
     );
-    if (next !== fitRef.current) {
+    if (next.moved !== fitRef.current.moved || next.wrap !== fitRef.current.wrap) {
       fitRef.current = next;
       setFit(next);
     }
@@ -277,8 +296,12 @@ function DesktopToolRow({
   reserveDraft = false,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   const right = useRef<HTMLSpanElement>(null);
+  const tools = spillOrder.filter((tool) =>
+    tool === 'grouped' ? !!grouped : tool === 'inactive' ? !!inactiveControl : !!worklistControl,
+  );
   const fit = useRowFit(
     right,
+    tools,
     [
       draft,
       reserveDraft,
@@ -295,7 +318,7 @@ function DesktopToolRow({
       Boolean(inactiveControl),
     ].join('|'),
   );
-  const spilled = fit === 'spill' || fit === 'spill-wrap';
+  const inMore = new Set(tools.slice(0, fit.moved));
   const groupedControl = grouped && (
     <Popover
       label="Grouped manifest perks"
@@ -399,11 +422,22 @@ function DesktopToolRow({
       )}
       {markupTools}
       {queue}
-      <span ref={right} className={styles.paneRight} data-fit={fit}>
-        {!spilled && worklistControl && <span data-spill>{worklistControl}</span>}
+      <span
+        ref={right}
+        className={styles.paneRight}
+        data-fit={fit.moved ? 'spill' : 'full'}
+        data-wrap={fit.wrap || undefined}
+      >
+        {worklistControl && !inMore.has('worklist') && (
+          <span data-spill="worklist">{worklistControl}</span>
+        )}
         {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} />}
-        {!spilled && inactiveControl && <span data-spill>{inactiveControl}</span>}
-        {!spilled && groupedControl && <span data-spill>{groupedControl}</span>}
+        {inactiveControl && !inMore.has('inactive') && (
+          <span data-spill="inactive">{inactiveControl}</span>
+        )}
+        {groupedControl && !inMore.has('grouped') && (
+          <span data-spill="grouped">{groupedControl}</span>
+        )}
         {activeOverride ? (
           <button type="button" className={styles.ghost} onClick={onBack}>
             Back to base
@@ -420,7 +454,7 @@ function DesktopToolRow({
             </button>
           ))
         )}
-        {spilled && (
+        {inMore.size > 0 && (
           // The tools that did not fit, in the phone's More (same rows, same handlers).
           <EditorMore
             draft={false}
@@ -430,12 +464,12 @@ function DesktopToolRow({
             overrides={[]}
             onEditOverride={onEditOverride}
             renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
-            rows={spillRows}
+            rows={inMore.has('grouped') ? groupedRow : noRows}
             extra={
-              worklistControl || inactiveControl ? (
+              inMore.has('worklist') || inMore.has('inactive') ? (
                 <>
-                  {worklistControl}
-                  {inactiveControl && (inactiveMenuControl || inactiveControl)}
+                  {inMore.has('worklist') && worklistControl}
+                  {inMore.has('inactive') && (inactiveMenuControl || inactiveControl)}
                 </>
               ) : undefined
             }
@@ -446,7 +480,8 @@ function DesktopToolRow({
   );
 }
 
-const spillRows: ReadonlySet<ToolId> = new Set(['grouped']);
+const groupedRow: ReadonlySet<ToolId> = new Set(['grouped']);
+const noRows: ReadonlySet<ToolId> = new Set();
 
 function LanguageSelect({ lang, onLanguage }: { lang: Lang; onLanguage(lang: Lang): void }) {
   return (

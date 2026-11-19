@@ -403,7 +403,7 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
   background: transparent;
   border-color: var(--ghost-edge);
 }
-.paneHeader:has(> .paneRight[data-fit$='wrap']) {
+.paneHeader:has(> .paneRight[data-wrap]) {
   flex-wrap: wrap;
   row-gap: 2px;
   > .paneRight {
