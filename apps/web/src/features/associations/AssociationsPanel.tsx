@@ -81,7 +81,7 @@ export function AssociationsPanel({
         }
       >
         <p className={styles.hint}>Shown in this order as expandable entries in the preview.</p>
-        {!tooltip.associated.length && <p>No associated tooltips.</p>}
+        {!tooltip.associated.length && <p className={styles.hint}>No associated tooltips.</p>}
         <ol className={styles.selected}>
           {tooltip.associated.map((associated, index) => {
             const target = resolveAlias(associated, data.aliases);
@@ -127,28 +127,38 @@ export function AssociationsPanel({
         </ol>
         {editable
           ? adding && (
-              <div>
-                <label>
-                  Search name or hash{' '}
-                  <input
-                    type="search"
-                    autoFocus
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                  />
-                </label>
-                <p>
+              <div className={styles.add}>
+                <input
+                  type="search"
+                  aria-label="Search name or hash"
+                  placeholder="Search name or hash"
+                  autoFocus
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <p className={styles.hint}>
                   {candidates.length} matches
                   {candidates.length > 30 && ' (showing the first 30; narrow your search)'}
                 </p>
                 <ul className={styles.results}>
-                  {candidates.slice(0, 30).map((target) => (
-                    <li key={target}>
-                      <button type="button" onClick={() => change([...tooltip.associated, target])}>
-                        Add {itemFor(target, data)?.name ?? `Tooltip ${target}`} ({target})
-                      </button>
-                    </li>
-                  ))}
+                  {candidates.slice(0, 30).map((target) => {
+                    const name = itemFor(target, data)?.name ?? `Tooltip ${target}`;
+                    return (
+                      <li key={target}>
+                        <button
+                          type="button"
+                          aria-label={`Add ${name} (${target})`}
+                          onClick={() => change([...tooltip.associated, target])}
+                        >
+                          <span className={styles.plus} aria-hidden="true">
+                            +
+                          </span>
+                          <span className={styles.name}>{name}</span>
+                          <span className={styles.hash}>{target}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )

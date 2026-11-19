@@ -1,6 +1,7 @@
 import { sandboxPointersSchema, type SandboxPick, type SandboxPointers } from '@clarity/core';
 import { z } from 'zod';
 import { apiRequest } from './api';
+import { requestError } from './httpError';
 
 /** The maintainer picks with the revision they were read at; a save sends the revision back. */
 export interface LoadedSandboxPointers {
@@ -24,17 +25,7 @@ export const sandboxPointersChangedMessage =
 
 async function checked(response: Response): Promise<unknown> {
   if (response.ok) return response.json();
-  const text = await response.text();
-  let detail = text;
-  try {
-    const body = JSON.parse(text) as { error?: string; details?: unknown };
-    detail = [body.error, ...(Array.isArray(body.details) ? body.details : [])]
-      .filter(Boolean)
-      .join('; ');
-  } catch {
-    /* plain text */
-  }
-  throw new Error(`Sandbox picks HTTP ${response.status}: ${detail}`);
+  throw requestError('Sandbox picks request', response.status, await response.text());
 }
 
 export async function getSandboxPointers(signal?: AbortSignal): Promise<LoadedSandboxPointers> {
@@ -57,13 +48,7 @@ export async function putSandboxPointers(
     // one for this message); the publisher gate explains itself.
     if (/changed since they were loaded|reload sandbox picks/.test(text))
       throw new Error(sandboxPointersChangedMessage);
-    let detail = text;
-    try {
-      detail = (JSON.parse(text) as { error?: string }).error ?? text;
-    } catch {
-      /* plain text */
-    }
-    throw new Error(`Sandbox picks HTTP 409: ${detail}`);
+    throw requestError('Sandbox picks request', response.status, text);
   }
   return loadedSchema.parse(await checked(response));
 }

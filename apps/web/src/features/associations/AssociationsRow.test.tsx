@@ -108,7 +108,7 @@ it('scans candidates only while the add picker is visible, including after draft
     host.querySelector<HTMLButtonElement>('[aria-label="Add associated tooltip"]')!.click(),
   );
   expect(associationCandidates).toHaveBeenCalledTimes(1);
-  expect(host.textContent).toContain('Add Gamma');
+  expect(host.querySelector('[aria-label^="Add Gamma ("]')).not.toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
   vi.mocked(associationCandidates).mockClear();
   await act(async () =>
@@ -116,7 +116,7 @@ it('scans candidates only while the add picker is visible, including after draft
   );
   expect(associationCandidates).not.toHaveBeenCalled();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-  expect(host.textContent).toContain('Add Beta');
+  expect(host.querySelector('[aria-label^="Add Beta ("]')).not.toBeNull();
   expect(associationCandidates).toHaveBeenCalledTimes(1);
 });
 
@@ -131,8 +131,8 @@ it('pauses an open picker during stepping and filters only the landed tooltip', 
   expect(associationCandidates).not.toHaveBeenCalled();
   await render(21, false);
   expect(associationCandidates).toHaveBeenCalledOnce();
-  expect(host.textContent).toContain('Add Alpha');
-  expect(host.textContent).toContain('Add Beta');
+  expect(host.querySelector('[aria-label^="Add Alpha ("]')).not.toBeNull();
+  expect(host.querySelector('[aria-label^="Add Beta ("]')).not.toBeNull();
 });
 
 it('keeps open picker results through text edits and refreshes changed membership', async () => {
@@ -152,5 +152,5 @@ it('keeps open picker results through text edits and refreshes changed membershi
     useDraftStore.setState({ drafts: { 10: { base, next: { ...next, associated: [20] } } } }),
   );
   expect(associationCandidates).toHaveBeenCalledTimes(1);
-  expect(host.textContent).toContain('Add Gamma');
+  expect(host.querySelector('[aria-label^="Add Gamma ("]')).not.toBeNull();
 });

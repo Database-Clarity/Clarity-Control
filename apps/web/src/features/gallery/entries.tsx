@@ -1,6 +1,8 @@
-import { lazy, useState, type ComponentType, type ReactNode } from 'react';
+import { lazy, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react';
 import type { MarkupGlobals } from '@clarity/core';
 import { Dialog } from '../../ui/Dialog';
+import { InlineAlert } from '../../ui/InlineAlert';
+import { plainError } from '../../services/httpError';
 import { EnhancedArrow, WithArrows, ENHANCED_ARROW_CHAR } from '../../ui/EnhancedArrow';
 import { PaneDivider } from '../../ui/PaneDivider';
 import { usePaneDivider } from '../../ui/usePaneDivider';
@@ -248,6 +250,21 @@ function SegmentedDemo({ disabled = false, isLong = false }) {
   );
 }
 
+function SourceDemo() {
+  const [value, setValue] = useState<'current' | 'upcoming'>('upcoming');
+  return (
+    <Segmented<'current' | 'upcoming'>
+      label="Preview source"
+      value={value}
+      onChange={setValue}
+      options={[
+        { value: 'current', label: 'Current' },
+        { value: 'upcoming', label: 'Upcoming', tone: 'future' },
+      ]}
+    />
+  );
+}
+
 function DividerDemo() {
   const handle = usePaneDivider({
     storeKey: 'gallery:demo',
@@ -329,7 +346,7 @@ function BoundaryDemo({ error = false }) {
       </button>
       <SkeletonBoundary pending={pending} error={error} label="Loading history…" shape="rows">
         {error ? (
-          <p role="alert">Couldn't load history. Check your connection and try again.</p>
+          <InlineAlert>Couldn't load history. Check your connection and try again.</InlineAlert>
         ) : (
           <p className={styles.plain}>Loaded content.</p>
         )}
@@ -552,10 +569,11 @@ export const entries: readonly GalleryEntry[] = [
     group: 'Controls',
     title: 'Segmented',
     from: 'ui/RightPane (Segmented)',
-    note: 'Two to four exclusive choices shown at once (aria-pressed buttons).',
+    note: 'Every two-to-four-way switch: Base / Enhanced / Compare, Current / Upcoming, view modes. The chosen one is filled with an underline; Upcoming takes the cyan future mark.',
     covers: ['Segmented'],
     states: [
       s('Default', () => <SegmentedDemo />),
+      s('Current / Upcoming', () => <SourceDemo />),
       s('Disabled', () => <SegmentedDemo disabled />),
       s('Long localized text', () => <SegmentedDemo isLong />),
     ],
@@ -913,16 +931,29 @@ export const entries: readonly GalleryEntry[] = [
     id: 'inline-alert',
     group: 'Feedback',
     title: 'Inline alert and status',
-    from: 'plain <p role="alert|status"> in the page',
-    note: 'Errors say what happened and how to fix it; status lines confirm in the past tense.',
+    from: 'ui/InlineAlert (status: plain <p role="status">)',
+    note: 'The one error notice: what happened in plain words, then Retry when trying again can help. Request errors go through plainError (services/httpError), so no HTTP body or JSON shows. Status lines confirm in the past tense.',
+    covers: ['InlineAlert'],
     states: [
       s('Alert with retry', () => (
-        <p role="alert" className={styles.plain}>
-          Couldn't load page. Check your connection and{' '}
-          <button type="button" className={styles.button}>
-            Retry
-          </button>
-        </p>
+        <InlineAlert onRetry={() => undefined}>
+          Couldn't load the page. Check your connection and retry.
+        </InlineAlert>
+      )),
+      s('Alert, no retry', () => (
+        <InlineAlert>Maintainer access is required to manage permissions.</InlineAlert>
+      )),
+      s('Request error, made plain', () => (
+        <InlineAlert onRetry={() => undefined}>
+          {plainError('Permissions HTTP 404: {"error":"Endpoint not found"}')}
+        </InlineAlert>
+      )),
+      s('Long localized text', () => (
+        <div className={styles.wide}>
+          <InlineAlert onRetry={() => undefined} retryLabel="Erneut versuchen">
+            {long.de}
+          </InlineAlert>
+        </div>
       )),
       s('Status', () => (
         <p role="status" className={styles.plain}>
@@ -1111,17 +1142,31 @@ export const entries: readonly GalleryEntry[] = [
     from: 'features/snippets/SnippetManager (SnippetFields for the form)',
     note: 'Settings → Snippets and Management → Team snippets: rows of label and markup, the form opens in place. Saves here stay local.',
     states: [
-      s('Default', () => <SnippetListDemo />),
-      s('Empty', () => <SnippetListDemo start={[]} />),
-      s('Loading', () => <SnippetListDemo loading />),
+      // The manager fills its pane: each state gets a pane-width box, or its rows shrink to
+      // min-content and wrap one letter per line.
+      s('Default', () => <WideSnippets />),
+      s('Empty', () => <WideSnippets start={[]} />),
+      s('Loading', () => <WideSnippets loading />),
       s('Load error', () => (
-        <SnippetListDemo error="Snippets could not load: Snippets are unavailable" />
+        <WideSnippets error="Snippets could not load: Snippets are unavailable" />
       )),
-      s('Conflict on save', () => <SnippetListDemo conflict />),
-      s('Validation messages', () => <SnippetErrorsDemo />),
+      s('Conflict on save', () => <WideSnippets conflict />),
+      s('Validation messages', () => (
+        <div className={styles.wide}>
+          <SnippetErrorsDemo />
+        </div>
+      )),
     ],
   },
 ];
+
+function WideSnippets(props: ComponentProps<typeof SnippetListDemo>) {
+  return (
+    <div className={styles.wide}>
+      <SnippetListDemo {...props} />
+    </div>
+  );
+}
 
 /** Exported ui components that deliberately have no entry, each with its reason. */
 export const excluded: Readonly<Record<string, string>> = {};

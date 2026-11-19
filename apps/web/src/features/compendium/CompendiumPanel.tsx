@@ -58,6 +58,8 @@ import { usePaneStatus } from './paneStatus';
 import { createPaneDecodeGuard } from './paneDecodeActivity';
 import { useSteppingActivity } from '../navigation/steppingActivity';
 import { openDraftSaveReview } from '../../services/save/openReview';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 /**
  * Below this pane width (design pixels at 100 % interface scale; scaledPx() follows the scale) the
@@ -678,14 +680,7 @@ const PaneContents = memo(function PaneContents({
           </InlineLinkPicker>
         )}
         {loading && <p role="status">Loading Compendium...</p>}
-        {error && (
-          <p role="alert">
-            {error}{' '}
-            <button type="button" onClick={() => void load(true)}>
-              Retry
-            </button>
-          </p>
-        )}
+        {error && <InlineAlert onRetry={() => void load(true)}>{plainError(error)}</InlineAlert>}
         {!link && (
           <p
             role={matching && !matched ? 'status' : undefined}
@@ -719,7 +714,7 @@ const PaneContents = memo(function PaneContents({
             ) : null}
           </p>
         )}
-        {!link && matchError && <p role="alert">{matchError}</p>}
+        {!link && matchError && <InlineAlert>{plainError(matchError)}</InlineAlert>}
         {!link && matched && (
           <>
             <p className={approvalChanged ? styles.warning : undefined}>

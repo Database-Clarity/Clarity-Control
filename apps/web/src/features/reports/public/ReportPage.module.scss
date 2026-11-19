@@ -213,18 +213,9 @@
   color: var(--danger);
 }
 
-.notice {
-  padding: 0.375rem 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1.4;
-  color: var(--text);
-  background: var(--alert-bg);
-  border: 1px solid var(--alert-edge);
-  border-radius: 0.25rem;
-
-  button {
-    margin-top: 0.375rem;
-  }
+// One upload result per line inside the shared InlineAlert.
+.alertLine {
+  display: block;
 }
 
 .heading {

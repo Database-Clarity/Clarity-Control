@@ -11,6 +11,8 @@ import {
   type SnippetErrors,
 } from './SnippetFields';
 import styles from './Snippets.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 /**
  * "Save as snippet" (Ctrl+Space with text selected): the selection becomes one of your snippets
@@ -108,11 +110,7 @@ export function SaveSnippetDialog({
         <p className={styles.hintText}>
           Shown in Ctrl+Space marked Mine. Edit or delete it in Settings → Snippets.
         </p>
-        {failure && (
-          <p className={styles.error} role="alert">
-            {failure}
-          </p>
-        )}
+        {failure && <InlineAlert>{plainError(failure)}</InlineAlert>}
       </form>
     </Dialog>,
     document.body,

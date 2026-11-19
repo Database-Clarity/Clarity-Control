@@ -12,6 +12,8 @@ import { useCompendiumStore } from './store';
 import { CompendiumFreshness } from './CompendiumFreshness';
 import styles from './Compendium.module.scss';
 import { nonEmptyCategories } from '../../services/categoryLabels';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 export function CompendiumPage() {
   const editor = useDataStore((state) => state.data);
@@ -69,7 +71,7 @@ export function CompendiumPage() {
       </p>
       <CompendiumFreshness />
       <p>Newest snapshots first.</p>
-      {error && <p role="alert">{error}</p>}
+      {error && <InlineAlert>{plainError(error)}</InlineAlert>}
       <div className={styles.actions}>
         <button type="button" disabled={loading} onClick={() => void load(true)}>
           Reload published data

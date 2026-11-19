@@ -26,6 +26,7 @@ const spanOf = (cell: { row: number; col: number; rowSpan?: number; colSpan?: nu
 const cellAddress = (cell: Parameters<typeof spanOf>[0]) => regionRange(spanOf(cell));
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './Compendium.module.scss';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 export const CellPicker = memo(function CellPicker({
   tab,
@@ -245,11 +246,11 @@ export const CellPicker = memo(function CellPicker({
             </div>
           )}
           {selection && !accepted && (
-            <p role="alert">
+            <InlineAlert>
               This anchor cannot uniquely identify the selected cells. Duplicate anchor text is
               ambiguous; choose a nearby unique anchor using the search, then select the description
               cells again.
-            </p>
+            </InlineAlert>
           )}
           <button type="button" onClick={() => setOffsets([])}>
             Clear selection

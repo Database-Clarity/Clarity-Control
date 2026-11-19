@@ -7,6 +7,8 @@ import { Link } from 'react-router-dom';
 import { languages, type Permissions } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 import {
   getPermissions,
   putPermissions,
@@ -68,14 +70,14 @@ export function AdminPage() {
     return (
       <article className={styles.page}>
         <Heading />
-        <p role="alert">Maintainer access is required to manage permissions.</p>
+        <InlineAlert>Maintainer access is required to manage permissions.</InlineAlert>
       </article>
     );
   if (!apiUrl)
     return (
       <article className={styles.page}>
         <Heading />
-        <p role="alert">The API is not configured. Permissions cannot be edited.</p>
+        <InlineAlert>The API is not configured. Permissions cannot be edited.</InlineAlert>
       </article>
     );
 
@@ -138,30 +140,17 @@ export function AdminPage() {
       </details>
 
       {error && (
-        <p role="alert">
-          {error}{' '}
-          {!config && (
-            <button
-              type="button"
-              className={styles.button}
-              onClick={() => setReload((value) => value + 1)}
-            >
-              Retry
-            </button>
-          )}
-        </p>
+        <InlineAlert onRetry={config ? undefined : () => setReload((value) => value + 1)}>
+          {plainError(error)}
+        </InlineAlert>
       )}
       {stale && (
-        <p role="alert">
-          {permissionsChangedMessage}{' '}
-          <button
-            type="button"
-            className={styles.button}
-            onClick={() => setReload((value) => value + 1)}
-          >
-            Reload permissions
-          </button>
-        </p>
+        <InlineAlert
+          onRetry={() => setReload((value) => value + 1)}
+          retryLabel="Reload permissions"
+        >
+          {permissionsChangedMessage}
+        </InlineAlert>
       )}
       {notice && <p role="status">{notice}</p>}
       <SkeletonBoundary

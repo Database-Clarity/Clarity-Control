@@ -22,7 +22,7 @@ describe('saving sandbox picks', () => {
   it('passes the publisher gate 409 through as it is', async () => {
     conflict('The installed publisher lacks the "sandboxPointers" capability');
     await expect(putSandboxPointers({}, null)).rejects.toThrow(
-      'Sandbox picks HTTP 409: The installed publisher lacks the "sandboxPointers" capability',
+      'Sandbox picks request: The installed publisher lacks the "sandboxPointers" capability',
     );
   });
 });

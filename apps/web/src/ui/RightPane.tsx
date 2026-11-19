@@ -1,9 +1,11 @@
 import {
+  Fragment,
   createContext,
   useContext,
   useLayoutEffect,
   useState,
   type KeyboardEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
   type RefObject,
@@ -153,33 +155,62 @@ function PaneTabs({ label, tabs, active, onSelect }: RightPaneTabs) {
   );
 }
 
-/** Two or more exclusive choices as one segmented control (aria-pressed buttons). */
+export interface SegmentedOption<T extends string> {
+  value: T;
+  label: string;
+  /** Dims this choice alone (the whole control has `disabled`). */
+  disabled?: boolean;
+  /** Native hint on the button. */
+  title?: string;
+  /** `future`: when chosen, marked in the cyan "upcoming" family instead of the brand underline. */
+  tone?: 'future';
+  /** Wraps the button, e.g. in a hint anchor for a dimmed choice. Keep the button the only child. */
+  wrap?(button: ReactElement): ReactNode;
+}
+
+/**
+ * Two to four exclusive choices as one joined control (aria-pressed buttons): the one look for
+ * every such switch (Base / Enhanced / Compare, Current / Upcoming, view modes). Hosts set its
+ * height with `--segmented-h` (24px default, var(--tap) on touch) and may stretch it via
+ * `className`.
+ */
 export function Segmented<T extends string>({
   label,
   value,
   options,
   onChange,
   disabled,
+  className,
 }: {
   label: string;
   value: T;
-  options: readonly { value: T; label: string }[];
+  options: readonly SegmentedOption<T>[];
   onChange(value: T): void;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
-    <span className={styles.segmented} role="group" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          disabled={disabled || undefined}
-          aria-pressed={value === option.value}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
+    <span
+      className={className ? `${styles.segmented} ${className}` : styles.segmented}
+      role="group"
+      aria-label={label}
+    >
+      {options.map((option) => {
+        const button = (
+          <button
+            key={option.value}
+            type="button"
+            disabled={disabled || option.disabled || undefined}
+            aria-pressed={value === option.value}
+            data-tone={option.tone}
+            title={option.title}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        );
+        return option.wrap ? <Fragment key={option.value}>{option.wrap(button)}</Fragment> : button;
+      })}
     </span>
   );
 }

@@ -6,6 +6,8 @@ import { applyRollback, getRollbackPlan, type RollbackPlan } from '../../service
 import { acceptSaved } from '../../services/save/drafts';
 import { useNames } from '../review/batches/names';
 import styles from './History.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 /**
  * Whether a commit is an upload (a /save by a person) that changed `lang`: its Worker-written
@@ -97,7 +99,7 @@ export function UploadRollback({
   const skipped = plan?.skipped.map(({ hash }) => names(hash)) ?? [];
   return (
     <div className={styles.revisionActions}>
-      {error && <p role="alert">{error}</p>}
+      {error && <InlineAlert>{plainError(error)}</InlineAlert>}
       {done && <p role="status">{done}</p>}
       {state === 'idle' || state === 'checking' ? (
         <button

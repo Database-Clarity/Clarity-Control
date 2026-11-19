@@ -6,6 +6,8 @@ import { WordDiff } from '../../ui/diff';
 import { findTranslationSource, type TranslationSource } from './source';
 import { MarkupOnlyEnglish } from './MarkupOnlyEnglish';
 import styles from '../drift/Status.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 export function EnglishDiff({
   hash,
@@ -60,12 +62,9 @@ export function EnglishDiffContent({
     <section aria-label="English source changes">
       {!source && !error && <p role="status">Finding the English source in history...</p>}
       {error && (
-        <p role="alert">
-          History unavailable: {error} Showing current English instead.{' '}
-          <button type="button" onClick={() => setRetry((value) => value + 1)}>
-            Retry history
-          </button>
-        </p>
+        <InlineAlert onRetry={() => setRetry((value) => value + 1)} retryLabel="Retry history">
+          History unavailable: {plainError(error)} Showing current English instead.
+        </InlineAlert>
       )}
       {source?.kind === 'found' && source.text === current ? (
         <p>The English has not changed since this translation.</p>

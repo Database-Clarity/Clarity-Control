@@ -3,6 +3,8 @@ import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
 import { useCompendiumStore } from './store';
 import { When } from '../../ui/When';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 export function CompendiumFreshness({ staleOnly = false }: { staleOnly?: boolean }) {
   const { data, error, refreshing, refreshMessage, load, refresh } = useCompendiumStore();
@@ -23,7 +25,7 @@ export function CompendiumFreshness({ staleOnly = false }: { staleOnly?: boolean
           ). Unchanged successful refreshes keep this timestamp.
         </p>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && <InlineAlert>{plainError(error)}</InlineAlert>}
       {!!apiUrl && user?.role && ['editor', 'maintainer'].includes(user.role) && (
         <button type="button" disabled={refreshing} onClick={() => void refresh()}>
           {refreshing ? 'Refreshing Compendium...' : 'Refresh Compendium'}

@@ -14,6 +14,7 @@ import {
   type GallerySettings,
 } from './settings';
 import styles from './Gallery.module.scss';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 /**
  * The UI gallery (maintainers only; it shows no data): a toolbar over a frame that renders every
@@ -68,7 +69,7 @@ export function GalleryPage() {
   }, [hash]);
   if (loading) return <LoadingSkeleton label="Checking maintainer access…" shape="page" />;
   if (role !== 'maintainer')
-    return <p role="alert">Maintainer access is required to open the UI gallery.</p>;
+    return <InlineAlert>Maintainer access is required to open the UI gallery.</InlineAlert>;
   const set = (patch: Partial<GallerySettings>) =>
     setSettings((current) => ({ ...current, ...patch }));
   return (
@@ -143,9 +144,9 @@ export function GalleryPage() {
       </div>
       <div className={styles.stage}>
         {frameFailed && (
-          <p role="alert">
+          <InlineAlert>
             Preview could not load. Reload the page or open the gallery on the main site.
-          </p>
+          </InlineAlert>
         )}
         <iframe
           ref={frame}

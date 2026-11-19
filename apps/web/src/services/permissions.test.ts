@@ -61,7 +61,7 @@ it('rejects last-maintainer deletion locally and surfaces server errors', async 
   await expect(putPermissions({ users: {} }, revision)).rejects.toThrow('maintainer');
   expect(apiRequest).not.toHaveBeenCalled();
   vi.mocked(apiRequest).mockResolvedValue(new Response('Permission denied', { status: 403 }));
-  await expect(getPermissions()).rejects.toThrow('403: Permission denied');
+  await expect(getPermissions()).rejects.toThrow('Permissions request: Permission denied');
 });
 
 it('resolves the canonical GitHub login/id without forwarding editor authorization', async () => {
@@ -84,4 +84,13 @@ it('does not silently accept GitHub errors or malformed account responses', asyn
   vi.stubGlobal('fetch', fetch);
   await expect(resolveGitHubLogin('missing')).rejects.toThrow('HTTP 404');
   await expect(resolveGitHubLogin('who')).rejects.toThrow();
+});
+
+it('shows a failed request as a plain message and keeps the 409 conflict path', async () => {
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ error: 'not mocked' }, { status: 404 }),
+  );
+  await expect(getPermissions()).rejects.toThrow(new Error('Permissions request: not mocked'));
+  vi.mocked(apiRequest).mockResolvedValueOnce(new Response('{"error":"stale"}', { status: 409 }));
+  await expect(putPermissions(config, revision)).rejects.toThrow(permissionsChangedMessage);
 });
