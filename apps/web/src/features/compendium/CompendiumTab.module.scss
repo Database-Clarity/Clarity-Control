@@ -53,15 +53,6 @@
   }
 }
 
-.alert {
-  margin: 0 0 0.5rem;
-  padding: 0.25rem 0.5rem;
-  color: var(--danger2);
-  background: var(--alert-bg);
-  border: 1px solid var(--alert-edge);
-  border-radius: 0.1875rem;
-}
-
 .loading {
   display: grid;
   gap: 0.75rem;
@@ -358,6 +349,13 @@ p.muted {
     display: block;
     margin-top: 0.25rem;
     color: var(--text3);
+  }
+
+  // Each nearby cell sits on its sheet surface (SheetCell), like the matched cell above, so the
+  // sheet's own colours stay legible in the light theme; tighter than the matched cell.
+  [data-surface] {
+    margin-top: 0.125rem;
+    padding: 0.375rem 0.5rem;
   }
 }
 

@@ -2,6 +2,7 @@ import { compendiumDataSchema, isTrackedCompendiumTab, type CompendiumData } fro
 import { z } from 'zod';
 import { fetchJson } from './http';
 import { apiRequest } from './api';
+import { requestError } from './httpError';
 import {
   bindSourceWorker,
   createWorkerBridge,
@@ -88,13 +89,13 @@ const refreshStatusSchema = z.object({
 export async function requestCompendiumRefresh() {
   const response = await apiRequest('/compendium/refresh', { method: 'POST' });
   if (!response.ok)
-    throw new Error(`Compendium refresh HTTP ${response.status}: ${await response.text()}`);
+    throw requestError('Compendium refresh', response.status, await response.text());
   return refreshRequestSchema.parse(await response.json());
 }
 export async function compendiumRefreshStatus() {
   const response = await apiRequest('/compendium/refresh/status');
   if (!response.ok)
-    throw new Error(`Compendium status HTTP ${response.status}: ${await response.text()}`);
+    throw requestError('Compendium refresh status', response.status, await response.text());
   return refreshStatusSchema.parse(await response.json()).run;
 }
 export function isRequestedRun(

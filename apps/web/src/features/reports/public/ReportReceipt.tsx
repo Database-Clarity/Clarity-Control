@@ -16,6 +16,8 @@ import { rememberSecret, storedSecret } from './draft';
 import type { ReceiptState } from './ReportForm';
 import { reportCatalog } from './tooltipRender';
 import styles from './ReportPage.module.scss';
+import { plainError } from '../../../services/httpError';
+import { InlineAlert } from '../../../ui/InlineAlert';
 
 export const statusText: Record<string, string> = {
   open: 'Editors see it the next time they work on this tooltip.',
@@ -162,17 +164,15 @@ export function ReportReceipt() {
           </p>
         )}
       </SkeletonBoundary>
-      {problem && (
-        <p role="alert" className={styles.notice}>
-          {problem}
-        </p>
-      )}
+      {problem && <InlineAlert>{plainError(problem)}</InlineAlert>}
       {sent && sent.uploads.length > 0 && (
-        <div role="alert" className={styles.notice}>
+        <InlineAlert>
           {sent.uploads.map((line) => (
-            <p key={line}>{line}</p>
+            <span key={line} className={styles.alertLine}>
+              {line}
+            </span>
           ))}
-        </div>
+        </InlineAlert>
       )}
       {link && (
         <>

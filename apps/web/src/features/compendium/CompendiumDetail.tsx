@@ -78,7 +78,9 @@ function Nearby({ block, source }: { block: CandidateBlock; source: CompendiumDa
               show="range"
             />
           </small>
-          <RichCell cell={cell.cell} />
+          <SheetCell background={cell.cell.background}>
+            <RichCell cell={cell.cell} />
+          </SheetCell>
         </div>
       ))}
       {open && !cells?.length && <p>No grid context available.</p>}

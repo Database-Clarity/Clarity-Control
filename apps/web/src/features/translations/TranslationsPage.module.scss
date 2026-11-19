@@ -639,27 +639,57 @@
 }
 
 .coverage[data-table] {
-  position: absolute;
-  inset: 0 0 auto;
+  // Wide pages: the table takes the top of the body in flow and the list keeps the rest below it,
+  // so it never covers rows. Its own box scrolls both ways (scrollbars at its edges), with the
+  // header row and the category column pinned.
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
   width: auto;
-  max-height: 100%;
-  z-index: 3;
+  max-height: 60%;
+  overflow: hidden;
   padding: 0;
-  background: var(--raised);
-  border: 0;
-  box-shadow: var(--shadow);
+  border-inline-end: 0;
+  border-bottom: 1px solid var(--hair);
   @container (max-width: 53.99rem) {
+    // Narrow pages show coverage on request, over the queue (as the language list does).
+    display: none;
+    max-height: 100%;
     padding: 0.25rem 0.5rem;
+    background: var(--raised);
     border: 1px solid var(--ctl-hover-edge);
+    &[data-open] {
+      display: flex;
+    }
   }
 }
+.body:has(> .coverage[data-table]) {
+  flex-direction: column;
+  gap: 0.5rem;
+}
 
+$cue: color-mix(in srgb, var(--text) 22%, transparent);
 .tableScroll {
+  --cover: var(--page);
+  flex: 1 1 auto;
+  min-height: 0;
   max-width: 100%;
   overflow: auto;
   overscroll-behavior: contain;
+  // Scroll cue: a soft shade on an edge that has more columns past it. The cover layers scroll
+  // with the content and hide the shade once that edge is reached.
+  background:
+    linear-gradient(to right, var(--cover) 40%, transparent) left / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--cover) 40%, transparent) right / 2.5rem 100% no-repeat local,
+    linear-gradient(to right, $cue, transparent) left / 0.75rem 100% no-repeat scroll,
+    linear-gradient(to left, $cue, transparent) right / 0.75rem 100% no-repeat scroll;
+  &:focus-visible {
+    @include controls.focus-ring;
+    outline-offset: -2px;
+  }
   table {
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     width: max-content;
     min-width: 100%;
   }
@@ -678,6 +708,12 @@
   }
   th {
     font-weight: 500;
+    background: var(--cover);
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
   }
   [data-zero] {
     color: var(--text3);
@@ -686,7 +722,12 @@
     text-align: start;
     position: sticky;
     left: 0;
-    background: var(--raised);
+  }
+  thead th:first-child {
+    z-index: 2;
+  }
+  @container (max-width: 53.99rem) {
+    --cover: var(--raised);
   }
 }
 
@@ -698,49 +739,19 @@
 // Current | Upcoming (scheduled changes, switch-ON builds only): a joined pair beside the heading,
 // the same height as the pickers; on phones its own full-width line above them, like the editor's
 // preview switch. Upcoming, when chosen, carries the editor's cyan "future" mark.
-.sourceSwitch {
-  display: flex;
-  flex: none;
-
+.sourceSwitch[role='group'] {
+  // The shared Segmented, at the pickers' height (28px; var(--tap) on touch).
+  --segmented-h: 1.75rem;
   button {
-    @include controls.button;
     padding: 0 0.625rem;
-    color: var(--text2);
-    border-radius: 0;
-
-    & + button {
-      margin-left: -1px;
-    }
-
-    &:first-child {
-      border-radius: 0.25rem 0 0 0.25rem;
-    }
-
-    &:last-child {
-      border-radius: 0 0.25rem 0.25rem 0;
-    }
-
-    &[aria-pressed='true'] {
-      position: relative;
-      font-weight: 600;
-      color: var(--text);
-      background: var(--sel);
-      border-color: var(--accent-ink);
-    }
-
-    &:last-child[aria-pressed='true'] {
-      color: var(--link);
-      border-color: var(--cyan-edge);
-    }
   }
-
+  @include theme.mobile-or-coarse {
+    --segmented-h: var(--tap);
+  }
   @include theme.mobile {
     flex: 0 0 100%;
-
     button {
       flex: 1 1 0;
-      min-width: 0;
-      height: var(--tap);
     }
   }
 }

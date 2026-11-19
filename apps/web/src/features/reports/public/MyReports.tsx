@@ -10,6 +10,8 @@ import { statusLabel } from './ReportReceipt';
 import { reportCatalog } from './tooltipRender';
 import { changedSince, markSeen } from './seen';
 import styles from './ReportPage.module.scss';
+import { plainError } from '../../../services/httpError';
+import { InlineAlert } from '../../../ui/InlineAlert';
 
 /** #/report/mine: the signed-in account's reports, newest first; changed ones carry a dot. */
 export function MyReports() {
@@ -83,11 +85,7 @@ export function MyReports() {
           Report an issue
         </Link>
       </div>
-      {problem && (
-        <p role="alert" className={styles.notice}>
-          {problem}
-        </p>
-      )}
+      {problem && <InlineAlert>{plainError(problem)}</InlineAlert>}
       <SkeletonBoundary
         pending={!rows}
         error={!!problem}

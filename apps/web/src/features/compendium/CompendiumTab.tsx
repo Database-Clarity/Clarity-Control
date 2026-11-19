@@ -57,6 +57,8 @@ import { useProposals } from './useProposals';
 import { useReviewProgress } from './useReviewProgress';
 import { groupManifestItems } from './manifestItems';
 import styles from './CompendiumTab.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 const number = new Intl.NumberFormat('en');
 const noHints: CompendiumSuggestion[] = [];
@@ -135,19 +137,8 @@ export function CompendiumTab() {
           </Link>
         </header>
       )}
-      {error && (
-        <p role="alert" className={styles.alert}>
-          {error}{' '}
-          <button type="button" onClick={() => void load(true)}>
-            Retry
-          </button>
-        </p>
-      )}
-      {display.error && (
-        <p role="alert" className={styles.alert}>
-          {display.error}
-        </p>
-      )}
+      {error && <InlineAlert onRetry={() => void load(true)}>{plainError(error)}</InlineAlert>}
+      {display.error && <InlineAlert>{plainError(display.error)}</InlineAlert>}
       {linked && editor && data && <CompendiumPage />}
       {editor && data && (ready || early) && !showSkeleton ? (
         <Workspace
@@ -802,9 +793,7 @@ function Workspace({
         </button>
       </header>
       {(progressError || scope.error) && (
-        <p role="alert" className={styles.alert}>
-          {progressError || scope.error}
-        </p>
+        <InlineAlert>{plainError(progressError || scope.error)}</InlineAlert>
       )}
       {/* Sign-in, not the queue, decides it: shown with the early entry too, so it never pushes it
           down; never before drafts hydrate (an editor would see it flash). */}

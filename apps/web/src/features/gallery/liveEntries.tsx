@@ -750,7 +750,7 @@ export const liveEntries: GalleryEntry[] = [
     group: 'Preview',
     title: 'Version switch',
     from: 'features/preview/PreviewColumn (VersionSwitch)',
-    note: 'Already props-only; the app and gallery share this exact control.',
+    note: 'The shared Segmented with a hint on the dimmed choices; phones show it as text tabs.',
     states: [
       state('Base, Enhanced, Compare', () => <VersionDemo />),
       state('No enhanced version', () => <VersionDemo enhanced={false} />),

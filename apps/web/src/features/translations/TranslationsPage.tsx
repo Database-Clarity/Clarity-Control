@@ -1,4 +1,5 @@
 import {
+  cloneElement,
   lazy,
   Suspense,
   useCallback,
@@ -8,6 +9,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactElement,
   type ReactNode,
 } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -44,6 +46,7 @@ import { translationItem } from '../queue/translationRows';
 import { returnedState } from '../queue/WorkThroughBar';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import styles from './TranslationsPage.module.scss';
+import { Segmented, type SegmentedOption } from '../../ui/RightPane';
 import { useLeftQueue } from '../queue/useQueue';
 import { useSizeOrder, useChangeSizes, type ChangeSize } from './useChangeSizes';
 import { SkeletonBlock } from '../../ui/Skeleton';
@@ -198,26 +201,34 @@ function SourceSwitch({
   onSource(source: TranslationsSource): void;
 }) {
   return (
-    <div className={styles.sourceSwitch} role="group" aria-label="Translations to show">
-      {(['current', 'upcoming'] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          data-perf-navigation="true"
-          aria-pressed={source === value}
-          title={
-            value === 'current'
-              ? 'Translations of the saved English'
-              : 'Translations of English that open scheduled batches change'
-          }
-          onClick={() => onSource(value)}
-        >
-          {value === 'current' ? 'Current' : 'Upcoming'}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      className={styles.sourceSwitch}
+      label="Translations to show"
+      value={source}
+      onChange={onSource}
+      options={sourceOptions}
+    />
   );
 }
+
+// The perf harness treats these as navigation (data-perf-navigation).
+const asNavigation = (button: ReactElement) =>
+  cloneElement(button as ReactElement<Record<string, unknown>>, { 'data-perf-navigation': 'true' });
+const sourceOptions = [
+  {
+    value: 'current',
+    label: 'Current',
+    title: 'Translations of the saved English',
+    wrap: asNavigation,
+  },
+  {
+    value: 'upcoming',
+    label: 'Upcoming',
+    title: 'Translations of English that open scheduled batches change',
+    tone: 'future',
+    wrap: asNavigation,
+  },
+] as const satisfies readonly SegmentedOption<TranslationsSource>[];
 
 /** What the Upcoming view gets from the page: the URL state, the shared controls, and actions. */
 export interface UpcomingPageProps {

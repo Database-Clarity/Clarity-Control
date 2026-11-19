@@ -45,3 +45,23 @@ describe('loadCompendium', () => {
     expect(fetchJson).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('Compendium refresh errors', () => {
+  it('reads as a plain message, with the raw body kept as the cause', async () => {
+    const { apiRequest } = await import('./api');
+    const { requestCompendiumRefresh, compendiumRefreshStatus } = await import('./compendium');
+    vi.mocked(apiRequest).mockResolvedValueOnce(
+      Response.json({ error: 'Refresh already running' }, { status: 409 }),
+    );
+    await expect(requestCompendiumRefresh()).rejects.toThrow(
+      new Error('Compendium refresh: Refresh already running'),
+    );
+    vi.mocked(apiRequest).mockResolvedValueOnce(new Response('<html>oops</html>', { status: 502 }));
+    const failed = await compendiumRefreshStatus().catch((error: Error) => error);
+    expect(failed).toBeInstanceOf(Error);
+    expect((failed as Error).message).toBe(
+      'Compendium refresh status failed (the server answered 502).',
+    );
+    expect((failed as Error).cause).toBe('<html>oops</html>');
+  });
+});

@@ -15,6 +15,8 @@ import type { Published } from './previewCore';
 import { recentPicks, rememberPick, TooltipSearch, type Pick } from './TooltipSearch';
 import { usePreview, useSiteRefresh, useSiteStore } from './useSite';
 import styles from './Exports.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 export function TooltipsPage() {
   useSiteRefresh();
@@ -119,14 +121,12 @@ export function TooltipsPage() {
             </p>
           )}
           {siteError && !client && (
-            <p role="alert" className={styles.badText}>
-              The data site cannot be read: {siteError}
-            </p>
+            <InlineAlert>The data site cannot be read: {plainError(siteError)}</InlineAlert>
           )}
           {preview.state.kind === 'error' && (
-            <p role="alert" className={styles.badText}>
-              The published data cannot load: {preview.state.message}
-            </p>
+            <InlineAlert>
+              The published data cannot load: {plainError(preview.state.message)}
+            </InlineAlert>
           )}
 
           <SkeletonBoundary

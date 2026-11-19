@@ -9,6 +9,8 @@ import {
   type SnippetErrors,
 } from './SnippetFields';
 import styles from './Snippets.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 const blank: SnippetDraft = { label: '', keywords: '', template: '' };
 const draftOf = (snippet: CustomSnippet): SnippetDraft => ({
@@ -212,12 +214,7 @@ export function SnippetManager({
           Loading snippets…
         </p>
       ) : status.error ? (
-        <p className={styles.error} role="alert">
-          {status.error}{' '}
-          <button type="button" onClick={onReload}>
-            Retry
-          </button>
-        </p>
+        <InlineAlert onRetry={onReload}>{plainError(status.error)}</InlineAlert>
       ) : !list.length ? (
         editing !== 'new' && (
           <p className={styles.muted}>No snippets yet. Add one with New snippet.</p>

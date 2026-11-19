@@ -117,33 +117,75 @@
   padding-top: 0.125rem;
 }
 
+// Segmented: one bordered group, separators between choices, the chosen one filled (--sel) with
+// the brand underline (or the cyan one for a "future" choice). Text never changes weight, so
+// choosing never moves a neighbour.
 .segmented {
   display: inline-flex;
+  flex: none;
+  box-sizing: border-box;
+  height: var(--segmented-h, 1.5rem);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  background: var(--ctl);
+  border: 1px solid var(--ctl-edge);
+  border-radius: 0.25rem;
+  @include theme.mobile-or-coarse {
+    height: var(--segmented-h, var(--tap));
+  }
+  > :not(:first-child) {
+    border-left: 1px solid var(--ctl-edge);
+  }
+  // A choice wrapped in a hint anchor.
+  > span {
+    display: flex;
+    min-width: 0;
+  }
   button {
-    @include controls.button;
-    min-height: 1.5rem;
-    padding: 0 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    margin: 0;
+    padding: 0 0.5rem;
+    overflow: hidden;
+    font: inherit;
     font-size: 0.75rem;
-    border-radius: 0;
     white-space: nowrap;
-    position: relative;
-    &:first-child {
-      border-radius: 0.25rem 0 0 0.25rem;
+    text-overflow: ellipsis;
+    color: var(--text2);
+    background: transparent;
+    // The separator rule above (> :not(:first-child)) is more specific, so it still draws.
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    cursor: pointer;
+    @include theme.mobile-or-coarse {
+      font-size: var(--ctl-text);
     }
-    &:last-child {
-      border-radius: 0 0.25rem 0.25rem 0;
-    }
-    & + button {
-      margin-left: -1px;
+    @media (hover: hover) {
+      &:hover:not(:disabled) {
+        color: var(--text);
+        background: var(--ctl-hover);
+      }
     }
     &[aria-pressed='true'] {
-      z-index: 1;
-      border-color: var(--accent-ink);
-      background: var(--ctl-pressed);
-      color: var(--accent-ink);
+      color: var(--text);
+      background: var(--sel);
+      box-shadow: inset 0 -2px 0 var(--accent-ink);
     }
-    @include theme.mobile-or-coarse {
-      min-height: var(--tap);
+    &[aria-pressed='true'][data-tone='future'] {
+      color: var(--link);
+      box-shadow: inset 0 -2px 0 var(--cyan-edge);
+    }
+    &:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+    &:focus-visible {
+      outline: 2px solid var(--accent-ink);
+      outline-offset: -2px;
     }
   }
 }

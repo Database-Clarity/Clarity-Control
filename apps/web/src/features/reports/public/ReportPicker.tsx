@@ -8,6 +8,8 @@ import { browserLang, recentItems } from './draft';
 import { iconUrl } from './ItemIdentity';
 import { reportCatalog } from './tooltipRender';
 import styles from './ReportPage.module.scss';
+import { plainError } from '../../../services/httpError';
+import { InlineAlert } from '../../../ui/InlineAlert';
 
 interface Entry {
   hash: number;
@@ -157,11 +159,7 @@ export function ReportPicker() {
               : 'Loading items…'}
         </span>
       </div>
-      {failed && (
-        <p role="alert" className={styles.notice}>
-          The item list could not load: {failed}
-        </p>
-      )}
+      {failed && <InlineAlert>The item list could not load: {plainError(failed)}</InlineAlert>}
       {results.length > 0 && (
         <ul id={listId} role="listbox" aria-label="Items" className={styles.results}>
           {results.map((entry, index) => (

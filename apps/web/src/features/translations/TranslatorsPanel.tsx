@@ -12,6 +12,8 @@ import { Popover } from '../../ui/Popover';
 import { scaledPx } from '../../ui/scale';
 import { LoadingSkeleton, useSkeletonVisible } from '../../ui/Skeleton';
 import styles from './TranslatorsPanel.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 /**
  * Translation managers (PRODUCT "Translation managers"): the translators of one managed language,
@@ -133,14 +135,9 @@ function TranslatorsPanel({ lang, selfId }: { lang: Lang; selfId: number }) {
       </form>
       {/* Outcomes by the field the person typed in. */}
       {error && (
-        <p role="alert" className={styles.error}>
-          {error}
-          {!list && (
-            <button type="button" onClick={() => setAttempt((value) => value + 1)}>
-              Retry
-            </button>
-          )}
-        </p>
+        <InlineAlert onRetry={list ? undefined : () => setAttempt((value) => value + 1)}>
+          {plainError(error)}
+        </InlineAlert>
       )}
       {notice && (
         <p role="status" className={styles.notice}>

@@ -3,10 +3,11 @@ import type { Permissions } from '@clarity/core';
 import { z } from 'zod';
 import { apiRequest } from './api';
 import { fetchJson } from './http';
+import { requestError } from './httpError';
 
 async function checked(response: Response): Promise<unknown> {
   if (!response.ok)
-    throw new Error(`Permissions HTTP ${response.status}: ${await response.text()}`);
+    throw requestError('Permissions request', response.status, await response.text());
   return response.json();
 }
 

@@ -6,14 +6,12 @@ interface PlaceholderPageProps {
   children: ReactNode;
 }
 
+/** Not-found and not-yet-built pages: the app's compact title row and one plain line. */
 export function PlaceholderPage({ title, children }: PlaceholderPageProps) {
   return (
     <section className={styles.page}>
-      <p className={styles.eyebrow}>Clarity editor</p>
       <h1>{title}</h1>
-      <div className={styles.panel}>
-        <p>{children}</p>
-      </div>
+      <p>{children}</p>
     </section>
   );
 }

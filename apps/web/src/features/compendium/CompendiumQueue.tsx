@@ -22,6 +22,8 @@ import {
 } from './queueRows';
 import type { QueueItem } from './queueView';
 import styles from './CompendiumQueue.module.scss';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 const headerRem = 1.5;
 const itemKey = (item: QueueItem) => item.key;
@@ -232,9 +234,7 @@ export function CompendiumQueue() {
         </select>
       </div>
       {error ? (
-        <p role="alert" className={styles.note}>
-          {error}
-        </p>
+        <InlineAlert>{plainError(error)}</InlineAlert>
       ) : rows === null && !showSkeleton ? (
         <div className={styles.skeleton} />
       ) : rows === null || showSkeleton ? (

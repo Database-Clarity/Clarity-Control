@@ -24,6 +24,8 @@ import { useAuthStore } from '../../stores/auth';
 import { useSaveState } from '../../services/save/state';
 import { apiUrl } from '../../services/api';
 import { pickerRowDetail, pickerRows } from './pickerRows';
+import { plainError } from '../../services/httpError';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 /** Tabs in the order the picker searches them for the item's own name: preferred tabs first. */
 function searchOrder(data: CompendiumData, category: string, name: string) {
@@ -391,7 +393,7 @@ export function LinkPicker({
           ? 'Choosing a source records a local reference only; no tooltip draft or save.'
           : 'Linking creates a local draft; save it normally.'}
       </p>
-      {error && <p role="alert">{error}</p>}
+      {error && <InlineAlert>{plainError(error)}</InlineAlert>}
       <ul className={styles.rows}>
         {tab &&
           rows

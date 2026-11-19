@@ -54,6 +54,8 @@ import {
   type ReportRender,
 } from './tooltipRender';
 import styles from './ReportPage.module.scss';
+import { plainError } from '../../../services/httpError';
+import { InlineAlert } from '../../../ui/InlineAlert';
 
 type SendClient = typeof import('./sendClient');
 let sendClient: SendClient | undefined;
@@ -802,25 +804,18 @@ export function ReportForm() {
     if (load.kind === 'failed')
       return (
         <div className={styles.page}>
-          <div role="alert" className={styles.notice}>
-            <p>The tooltip could not load: {load.message}</p>
-            <button
-              type="button"
-              className={styles.button}
-              onClick={() => setAttempt((value) => value + 1)}
-            >
-              Retry
-            </button>
-          </div>
+          <InlineAlert onRetry={() => setAttempt((value) => value + 1)}>
+            The tooltip could not load: {plainError(load.message)}
+          </InlineAlert>
         </div>
       );
     if (load.kind === 'unknown')
       return (
         <div className={styles.page}>
-          <p role="alert" className={styles.notice}>
+          <InlineAlert>
             Item {hash} has no Clarity tooltip to report.{' '}
             <Link to="/report">Search for it by name</Link>.
-          </p>
+          </InlineAlert>
         </div>
       );
     const r = load.render;
@@ -879,11 +874,7 @@ export function ReportForm() {
                 </label>
               </span>
             </div>
-            {refreshed && (
-              <p className={styles.notice} role="alert">
-                {notice}
-              </p>
-            )}
+            {refreshed && <InlineAlert>{notice}</InlineAlert>}
             {r.fallback && (
               <p className={styles.fallback}>
                 No {languageLabel(r.seenLang)} text yet; shown in English. Report a missing
@@ -1107,11 +1098,7 @@ export function ReportForm() {
               <div className={styles.checkRow} data-visible={interactive || undefined}>
                 <div ref={checkBox} />
               </div>
-              {sendNotice && (
-                <p className={styles.notice} role="alert">
-                  {sendNotice}
-                </p>
-              )}
+              {sendNotice && <InlineAlert>{plainError(sendNotice)}</InlineAlert>}
               <div className={styles.bar}>
                 <span className={styles.barStatus} role="status">
                   {status}

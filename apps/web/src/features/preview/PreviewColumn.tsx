@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ReactElement,
   type ReactNode,
 } from 'react';
 import { parseMarkup, type Lang, type MarkupGlobals, type MarkupSpan } from '@clarity/core';
@@ -14,6 +15,7 @@ import { classNames, Lines, PreviewSpan, TooltipPreview } from './TooltipPreview
 import styles from './PreviewColumn.module.scss';
 import previewStyles from './TooltipPreview.module.scss';
 import { TitleAnchor } from './MarkupRenderer';
+import { Segmented } from '../../ui/RightPane';
 
 import type { PreviewMode } from './previewMode';
 
@@ -270,34 +272,28 @@ export function VersionSwitch({
   onChange(mode: PreviewMode): void;
 }) {
   return (
-    <div className={styles.segmented} role="group" aria-label={label}>
-      {(['base', 'enhanced', 'compare'] as const).map((mode) => {
-        const missing = !hasEnhanced && mode !== 'base';
-        const button = (
-          <button
-            key={mode}
-            type="button"
-            aria-pressed={value === mode}
-            disabled={missing}
-            onClick={() => onChange(mode)}
-          >
-            {labels[mode]}
-          </button>
-        );
-        return missing ? (
-          <TitleAnchor
-            key={mode}
-            part={{ title: [{ linesContent: [{ text: 'This item has no enhanced version' }] }] }}
-          >
-            {button}
-          </TitleAnchor>
-        ) : (
-          button
-        );
-      })}
-    </div>
+    <Segmented
+      className={styles.segmented}
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={modes.map((mode) =>
+        !hasEnhanced && mode !== 'base'
+          ? { value: mode, label: labels[mode], disabled: true, wrap: noEnhancedHint }
+          : { value: mode, label: labels[mode] },
+      )}
+    />
   );
 }
+
+const modes = ['base', 'enhanced', 'compare'] as const;
+const noEnhancedHint = (button: ReactElement) => (
+  <TitleAnchor
+    part={{ title: [{ linesContent: [{ text: 'This item has no enhanced version' }] }] }}
+  >
+    {button}
+  </TitleAnchor>
+);
 
 /** The Compare rows of a comparison (compare.ts), as the preview column draws them. */
 export function CompareLines({ comparison }: { comparison: Comparison }) {

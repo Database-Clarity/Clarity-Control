@@ -40,6 +40,7 @@ import { newQueueId, visitState } from '../queue/model';
 import { returnedState } from '../queue/WorkThroughBar';
 import type { TranslationsRestore } from '../queue/sources';
 import { startUpcomingQueue, upcomingItem } from '../queue/startUpcoming';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 const noRows: readonly UpcomingRow[] = [];
 
@@ -444,27 +445,20 @@ export default function UpcomingTranslations({
             </p>
           )}
           {listFailed && head === null && (
-            <p className={styles.empty} role="alert">
+            <InlineAlert onRetry={() => void refreshBatches()}>
               Scheduled batches did not load.
-              <button type="button" onClick={() => void refreshBatches()}>
-                Retry
-              </button>
-            </p>
+            </InlineAlert>
           )}
           {failed.length > 0 && (
-            <p className={styles.empty} role="alert">
+            <InlineAlert
+              onRetry={() => {
+                for (const batch of failed) ensureBatch(batch.id);
+              }}
+            >
               {failed.length === 1
                 ? `"${failed[0]!.name}" did not load.`
                 : `${failed.length} batches did not load.`}
-              <button
-                type="button"
-                onClick={() => {
-                  for (const batch of failed) ensureBatch(batch.id);
-                }}
-              >
-                Retry
-              </button>
-            </p>
+            </InlineAlert>
           )}
           {!language ? (
             <p className={styles.empty}>

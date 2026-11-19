@@ -15,6 +15,7 @@ import { zonedNotBefore } from '../../services/format/date';
 import { useAuthStore } from '../../stores/auth';
 import { upcomingStore, type OpenBatch, type PreviewSource } from './UpcomingSwitch.store';
 import styles from './UpcomingSwitch.module.scss';
+import { Segmented } from '../../ui/RightPane';
 import { useBatchEditing, type BatchDestination, type BatchEditing } from './batchDestination';
 
 export interface UpcomingView {
@@ -80,22 +81,25 @@ function UpcomingControl({
     .join(' · ');
   return (
     <div className={styles.upcoming} data-upcoming={shown}>
-      <div className={styles.switch} role="group" aria-label="Preview source">
-        {(['current', 'upcoming'] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={shown === value}
-            onClick={() => onSource(value)}
-            title={
-              value === 'current'
-                ? 'The saved tooltip, with your unsaved drafts'
-                : `What this tooltip becomes when "${batch.name}" publishes (read-only)`
-            }
-          >
-            {value === 'current' ? 'Current' : 'Upcoming'}
-          </button>
-        ))}
+      <div className={styles.switch}>
+        <Segmented
+          label="Preview source"
+          value={shown}
+          onChange={onSource}
+          options={[
+            {
+              value: 'current',
+              label: 'Current',
+              title: 'The saved tooltip, with your unsaved drafts',
+            },
+            {
+              value: 'upcoming',
+              label: 'Upcoming',
+              title: `What this tooltip becomes when "${batch.name}" publishes (read-only)`,
+              tone: 'future',
+            },
+          ]}
+        />
       </div>
       <p className={styles.line} title={failed ? `${summary}\n${failed}` : summary}>
         {failed ? (

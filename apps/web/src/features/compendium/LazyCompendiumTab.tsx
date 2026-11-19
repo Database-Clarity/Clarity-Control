@@ -1,5 +1,6 @@
 import { SkeletonSuspense, type LoadingShape } from '../../ui/Skeleton';
 import { Component, lazy, useState, type ComponentType, type ReactNode } from 'react';
+import { InlineAlert } from '../../ui/InlineAlert';
 
 type Loader = () => Promise<{ default: ComponentType }>;
 const loadPage: Loader = () =>
@@ -31,13 +32,9 @@ class LoadBoundary extends Component<{ children: ReactNode; retry(): void }, { f
   }
   render() {
     return this.state.failed ? (
-      <p role="alert">
-        Couldn't load the Compendium tab. Check your connection and{' '}
-        <button type="button" onClick={this.props.retry}>
-          Retry
-        </button>
-        .
-      </p>
+      <InlineAlert onRetry={this.props.retry}>
+        Couldn't load the Compendium tab. Check your connection and retry.
+      </InlineAlert>
     ) : (
       this.props.children
     );
