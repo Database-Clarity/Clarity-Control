@@ -132,7 +132,7 @@ it('redirects translators away from a direct checker URL', () => {
     user: { id: 3, login: 'translator', role: 'translator', languages: ['de'] },
   });
   render();
-  expect(container.textContent).not.toContain('Lost-tooltip checker');
+  expect(container.textContent).not.toContain('Blank saved tooltips with earlier text');
 });
 
 it('explains classes, action consequences and dates before taking an action', () => {
