@@ -8,6 +8,8 @@ import {
   overlayServerSkewMs,
   overlayTtlMs,
   rememberSaved,
+  rememberSavedGlobal,
+  applySavedGlobals,
 } from './savedOverlay';
 const at = Date.parse('2026-11-01T00:00:00Z');
 const tooltip = (text: string): Tooltip => ({
@@ -142,4 +144,47 @@ it.each([0, -10, 10])('keeps delayed pre-save builds with a %i minute browser sk
     expect(result.tooltips[10]).toEqual(tooltip('mine'));
     expect(result.tooltips[11]).toBeUndefined();
   }
+});
+
+it('keeps a saved global until the bundle is built from its head, holds it, or renamed it', () => {
+  const saved = {
+    version: 1 as const,
+    id: 'g_damage0001',
+    kind: 'variables' as const,
+    name: 'Damage',
+    revision: 'r2',
+    nameHistory: [],
+    definitions: {
+      en: { body: '25%', revision: 'r2', updatedAt: '2026-11-01T00:00:00Z', updatedBy: 'user' },
+    },
+  };
+  const older = {
+    ...saved,
+    revision: 'r1',
+    definitions: { en: { ...saved.definitions.en, body: '15%', revision: 'r1' } },
+  };
+  const meta = (sourceCommit: string) => ({
+    sourceCommit,
+    generatedAt: new Date(at).toISOString(),
+  });
+  rememberSavedGlobal(saved, 'b'.repeat(40), at);
+  // Lagging bundle: the saved record shows, and a create the bundle lacks is added.
+  expect(applySavedGlobals(meta('a'.repeat(40)), [older], at + 100)).toEqual([saved]);
+  expect(applySavedGlobals(meta('a'.repeat(40)), [], at + 100)).toEqual([saved]);
+  // The publisher completed a later rename of the saved revision: its record wins and retires.
+  const renamed = {
+    ...saved,
+    name: 'Harm',
+    revision: 'r3',
+    nameHistory: [{ name: 'Damage', revision: 'r2', at: '2026-11-01T00:01:00Z', by: 'user' }],
+  };
+  expect(applySavedGlobals(meta('c'.repeat(40)), [renamed], at + 100)).toEqual([renamed]);
+  expect(applySavedGlobals(meta('a'.repeat(40)), [older], at + 100)).toEqual([older]);
+  // Built from the saved head: the bundle's own record shows, whatever it holds.
+  rememberSavedGlobal(saved, 'b'.repeat(40), at);
+  expect(applySavedGlobals(meta('b'.repeat(40)), [older], at + 100)).toEqual([older]);
+  expect(applySavedGlobals(meta('a'.repeat(40)), [older], at + 100)).toEqual([older]);
+  // Past the TTL the save no longer overrides.
+  rememberSavedGlobal(saved, 'b'.repeat(40), at);
+  expect(applySavedGlobals(meta('a'.repeat(40)), [older], at + overlayTtlMs + 1)).toEqual([older]);
 });

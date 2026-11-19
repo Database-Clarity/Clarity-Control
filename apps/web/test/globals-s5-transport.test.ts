@@ -173,6 +173,77 @@ describe('authenticated globals transport', () => {
 });
 
 describe('stale rename intents', () => {
+  it('settles a queued rename only from the Worker, never from a lagging bundle', async () => {
+    // The bundle lags: it keeps saying "current" with the old name throughout.
+    const bundle = {
+      kind: 'ok' as const,
+      value: { ...header('current'), version: 1 as const, entries: [entry] },
+    };
+    let status: 'sync-pending' | 'current' = 'sync-pending';
+    let name = entry.name;
+    const worker = () => ({
+      ...header(status, status === 'current' ? [] : ['c1']),
+      version: 1 as const,
+    });
+    const saved = vi.fn();
+    const transport: GlobalsTransport = {
+      entry: async () => ({ kind: 'ok', value: { ...worker(), entry: { ...entry, name } } }),
+      reviews: async () => ({
+        kind: 'ok',
+        value: { ...worker(), consumers: [], nextCursor: null },
+      }),
+      mutate: async () => ({
+        kind: 'ok',
+        value: {
+          ...header('sync-pending', ['c1']),
+          version: 1,
+          entry,
+          renameCompleted: false,
+          intentId: 'intent1',
+        },
+      }),
+      retrySync: async () => ({ kind: 'invalid', message: 'unused' }),
+    };
+    const service = createGlobalsService(transport, {
+      destinations: ['live'],
+      catalog: async () => structuredClone(bundle),
+      onEntrySaved: saved,
+    });
+    const intent = (result: Awaited<ReturnType<typeof service.read>>) =>
+      result.kind === 'ok' ? result.value.renameIntents?.[entry.id] : 'failed';
+    expect((await service.read()).kind).toBe('ok');
+    const rename = {
+      expectedHead: fixtureHead(1),
+      mutation: {
+        operation: 'rename' as const,
+        id: entry.id,
+        revision: entry.revision,
+        name: 'Harm',
+      },
+    };
+    expect(intent(await service.mutate(rename))).toMatchObject({ name: 'Harm', status: 'queued' });
+    // The receipt's entry is unchanged: nothing for the saved overlay to keep.
+    expect(saved).not.toHaveBeenCalled();
+    // Refresh while the Worker is still pending: the bundle's "current" settles nothing.
+    expect(intent(await service.read())).toMatchObject({ status: 'queued' });
+    expect(intent(await service.readEntry(entry.id))).toMatchObject({ status: 'queued' });
+    // Refused: the Worker is current and kept the old name. Reported until the next read.
+    status = 'current';
+    expect(intent(await service.read())).toMatchObject({ status: 'queued' });
+    expect(intent(await service.readEntry(entry.id))).toMatchObject({ status: 'not-applied' });
+    expect(intent(await service.read())).toMatchObject({ status: 'not-applied' });
+    expect(intent(await service.readEntry(entry.id))).toBeUndefined();
+    // Accepted: the Worker shows the new name; the intent clears without a report.
+    status = 'sync-pending';
+    expect(intent(await service.mutate(rename))).toMatchObject({ status: 'queued' });
+    status = 'current';
+    name = 'Harm';
+    expect(intent(await service.read())).toMatchObject({ status: 'queued' });
+    const accepted = await service.readEntry(entry.id);
+    expect(intent(accepted)).toBeUndefined();
+    expect(accepted.kind === 'ok' && accepted.value.entries[0].name).toBe('Harm');
+  });
+
   it('reads "not applied" after a current refresh that kept the old name, then clears', async () => {
     let status: 'sync-pending' | 'current' = 'current';
     const page = () => ({
@@ -215,17 +286,15 @@ describe('stale rename intents', () => {
       status: 'queued',
     });
     status = 'current';
-    const refused = await service.read();
+    // A Refresh is a catalogue read then the opened entry's Worker read, which settles it.
+    await service.read();
+    const refused = await service.readEntry(entry.id);
     expect(refused.kind === 'ok' && refused.value.renameIntents?.[entry.id]).toMatchObject({
       name: 'Harm',
       status: 'not-applied',
     });
-    // The page's lazy per-entry read (same head) keeps the report on screen.
-    const lazy = await service.readEntry(entry.id);
-    expect(lazy.kind === 'ok' && lazy.value.renameIntents?.[entry.id]).toMatchObject({
-      status: 'not-applied',
-    });
-    const later = await service.read();
+    await service.read();
+    const later = await service.readEntry(entry.id);
     expect(later.kind === 'ok' && later.value.renameIntents).toEqual({});
   });
 });

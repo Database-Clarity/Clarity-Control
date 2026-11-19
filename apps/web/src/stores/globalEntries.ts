@@ -29,12 +29,34 @@ function editorBundle(): Promise<Bundle | string> {
   });
 }
 
+/** Reloads the editor data in the background (the data loader's own refresh); its bundle after. */
+async function reloadedBundle(): Promise<Bundle | string> {
+  const { status, refreshing, load } = useDataStore.getState();
+  if (status === 'ready' && !refreshing) await load({ background: true });
+  else
+    await new Promise<void>((resolve) => {
+      const stop = useDataStore.subscribe((next) => {
+        if (next.refreshing || next.status === 'loading') return;
+        stop();
+        resolve();
+      });
+    });
+  const { data, error } = useDataStore.getState();
+  return data?.bundle ?? error ?? 'Could not load editor data.';
+}
+
+/** Bundles already found without a usable catalogue: a Retry reloads instead of rereading. */
+const unusable = new WeakSet<Bundle>();
+
 /** The globals catalogue from the editor-data bundle, with this tab's saves on top. */
 async function bundleCatalog(): Promise<GlobalResult<GlobalCatalog>> {
-  const bundle = await editorBundle();
+  let bundle = await editorBundle();
+  if (typeof bundle !== 'string' && unusable.has(bundle)) bundle = await reloadedBundle();
   if (typeof bundle === 'string') return { kind: 'retry', message: bundle };
-  if (!bundle.globals)
+  if (!bundle.globals) {
+    unusable.add(bundle);
     return { kind: 'retry', message: 'Sync pending: global metadata is incomplete' };
+  }
   return {
     kind: 'ok',
     value: {

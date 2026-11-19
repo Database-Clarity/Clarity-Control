@@ -290,7 +290,15 @@ export function createGlobalsService(
     a.lastFailure === b.lastFailure &&
     JSON.stringify(a.causeIds) === JSON.stringify(b.causeIds) &&
     sourceKey(a.sources) === sourceKey(b.sources);
-  function applyState(next: GlobalSnapshot, header: GlobalHttpState) {
+  /**
+   * `intents`: which queued renames this header may settle. Only Worker headers are current
+   * evidence (a receipt: all; an opened entry: its own); the bundle's catalogue may lag.
+   */
+  function applyState(
+    next: GlobalSnapshot,
+    header: GlobalHttpState,
+    intents: 'all' | 'none' | string = 'all',
+  ) {
     next.head = header.head;
     next.sources = header.sources;
     // Cause ownership never changes, so receipts only add to it; current sync has no causes.
@@ -300,9 +308,10 @@ export function createGlobalsService(
     next.destinationSync = Object.fromEntries(
       options.destinations.map((destination) => [destination, state(header)]),
     );
-    if (header.status === 'current')
+    if (header.status === 'current' && intents !== 'none')
       next.renameIntents = Object.fromEntries(
         Object.entries(next.renameIntents ?? {}).flatMap(([id, intent]) => {
+          if (intents !== 'all' && id !== intents) return [[id, intent]];
           const entry = next.entries.find((item) => item.id === id);
           // Reported once already, or applied (or no requested name to compare): cleared.
           if (
@@ -404,7 +413,9 @@ export function createGlobalsService(
         return invalid('Queued rename changed the name before completion.');
       mergeEntry(base, value.entry);
       applyState(base, value);
-      if (mutation) options.onEntrySaved?.(value.entry, value.head);
+      // A queued rename's receipt carries the unchanged entry; the publisher writes the result.
+      if (mutation && value.renameCompleted !== false)
+        options.onEntrySaved?.(value.entry, value.head);
       if (value.renameCompleted === false && value.intentId)
         base.renameIntents = {
           ...base.renameIntents,
@@ -475,7 +486,8 @@ export function createGlobalsService(
       }
       // No impacts: opening any entry reads it, its reviews, and the current head (readEntry).
       next.causeEntries = { ...catalog.value.causeEntries };
-      applyState(next, catalog.value);
+      // The bundle may predate a queued rename's outcome: never settle renames from it.
+      applyState(next, catalog.value, 'none');
       options.onCatalog?.([...next.entries]);
       return publish(next, token);
     },
@@ -493,10 +505,9 @@ export function createGlobalsService(
       // A newer head than the catalogue's: reviews read at the older head are no longer current.
       if (entry.value.head !== cached.head) next.impacts = {};
       mergeEntry(next, entry.value.entry);
-      applyState(next, entry.value);
-      // Rename reports advance only on full reads (or a "not applied" would clear before the
-      // page ever shows it).
-      next.renameIntents = structuredClone(cached.renameIntents ?? {});
+      // The Worker's current state settles this entry's queued rename (one step per read, so
+      // a "not applied" report shows until the next Refresh).
+      applyState(next, entry.value, id);
       if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
         const rows = await readReviews(id, entry.value, token, firstReviews);
         if (rows.kind !== 'ok') return rows;

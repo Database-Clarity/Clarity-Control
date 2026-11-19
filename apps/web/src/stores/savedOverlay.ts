@@ -85,9 +85,13 @@ export function applySavedGlobals(
   const result = [...fetched];
   for (const [id, saved] of [...globals]) {
     const index = result.findIndex((entry) => entry.id === id);
+    const current = index >= 0 ? result[index] : undefined;
+    // Built from the saved head, holding the saved record, or a later rename of it.
     const caughtUp =
       bundle.sourceCommit === saved.head ||
-      (index >= 0 && stableStringify(result[index]) === stableStringify(saved.entry));
+      (current !== undefined &&
+        (stableStringify(current) === stableStringify(saved.entry) ||
+          current.nameHistory.some((old) => old.revision === saved.entry.revision)));
     if (retired(saved, generatedAt, caughtUp, now)) {
       globals.delete(id);
       continue;

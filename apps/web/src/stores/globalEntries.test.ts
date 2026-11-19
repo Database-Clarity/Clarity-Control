@@ -146,10 +146,27 @@ it('says the catalogue is unavailable when the bundle has none, keeps the last l
     error: 'Sync pending: global metadata is incomplete',
     identities: previous,
   });
-  ready([title]);
+  // Retry: the same bundle is never reread; the data loader's background refresh fetches anew.
+  load.mockImplementation(async () => ready([title]));
   await loadGlobalIdentities(true);
+  expect(load).toHaveBeenCalledWith({ background: true });
   expect(useGlobalIdentities.getState().status).toBe('ready');
   expect(ids()).toEqual([title.id]);
+});
+
+it('keeps saying unavailable when the reloaded bundle still has no catalogue', async () => {
+  useAuthStore.setState({ user, token: 'still-unavailable', loading: false });
+  ready(null);
+  await loadGlobalIdentities();
+  expect(useGlobalIdentities.getState().status).toBe('failed');
+  load.mockImplementation(async () => ready(null));
+  await loadGlobalIdentities(true);
+  await loadGlobalIdentities(true);
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(useGlobalIdentities.getState()).toMatchObject({
+    status: 'failed',
+    error: 'Sync pending: global metadata is incomplete',
+  });
 });
 
 it('turns a failed editor data load into an explicit failed state', async () => {
