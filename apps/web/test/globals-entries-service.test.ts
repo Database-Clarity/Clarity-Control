@@ -333,3 +333,45 @@ it('propagates transport refusals and refuses foreign entry receipts', async () 
   mutate.mockResolvedValueOnce(entry);
   expect((await fixture.service.mutate(edit())).kind).toBe('invalid');
 });
+
+it('an acknowledgement for B cannot refuse an accepted but unread rename of A', async () => {
+  const seed = structuredClone(globalFixtureSnapshot);
+  const [a, b] = seed.entries;
+  const row = structuredClone(seed.impacts[a.id][0]);
+  row.id = 'review_b';
+  row.causes = [{ globalId: b.id, beforeRevision: 'r0', afterRevision: 'r1' }];
+  row.review.causes = structuredClone(row.causes);
+  seed.impacts[b.id] = [row];
+  const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, seed);
+  const queued = await fixture.service.mutate({
+    expectedHead: seed.head,
+    mutation: { operation: 'rename', id: a.id, revision: a.revision, name: 'Harm' },
+  });
+  expect(queued.kind).toBe('ok');
+  // The publisher accepts A's rename; this tab has not read A since.
+  fixture.controls.syncOutcome = 'current';
+  const authoritative = await fixture.catalog();
+  expect(authoritative.kind === 'ok' && authoritative.value.entries[0].name).toBe('Harm');
+  const opened = await fixture.service.readEntry(b.id);
+  if (opened.kind !== 'ok') throw new Error(opened.message);
+  expect(opened.value.renameIntents?.[a.id].status).toBe('queued');
+  const current = opened.value.impacts[b.id][0];
+  const acknowledged = await fixture.service.mutate({
+    expectedHead: opened.value.head,
+    mutation: {
+      operation: 'acknowledge',
+      id: b.id,
+      consumerId: current.id,
+      contentDigest: current.review.contentDigest,
+      dependencyDigest: current.review.dependencyDigest,
+      impactDigest: current.impactDigest,
+      decision: 'no-text-change',
+    },
+  });
+  if (acknowledged.kind !== 'ok') throw new Error(acknowledged.message);
+  expect(acknowledged.value.renameIntents?.[a.id].status).toBe('queued');
+  // A's own Worker read settles it: accepted, so the intent clears without a report.
+  const settled = await fixture.service.readEntry(a.id);
+  if (settled.kind !== 'ok') throw new Error(settled.message);
+  expect(settled.value.renameIntents?.[a.id]).toBeUndefined();
+});

@@ -291,14 +291,10 @@ export function createGlobalsService(
     JSON.stringify(a.causeIds) === JSON.stringify(b.causeIds) &&
     sourceKey(a.sources) === sourceKey(b.sources);
   /**
-   * `intents`: which queued renames this header may settle. Only Worker headers are current
-   * evidence (a receipt: all; an opened entry: its own); the bundle's catalogue may lag.
+   * `intents`: the one entry whose queued rename this header may settle, from that entry's
+   * own current Worker record; 'none' for the bundle (it may lag) and acknowledgements.
    */
-  function applyState(
-    next: GlobalSnapshot,
-    header: GlobalHttpState,
-    intents: 'all' | 'none' | string = 'all',
-  ) {
+  function applyState(next: GlobalSnapshot, header: GlobalHttpState, intents: 'none' | string) {
     next.head = header.head;
     next.sources = header.sources;
     // Cause ownership never changes, so receipts only add to it; current sync has no causes.
@@ -311,7 +307,7 @@ export function createGlobalsService(
     if (header.status === 'current' && intents !== 'none')
       next.renameIntents = Object.fromEntries(
         Object.entries(next.renameIntents ?? {}).flatMap(([id, intent]) => {
-          if (intents !== 'all' && id !== intents) return [[id, intent]];
+          if (id !== intents) return [[id, intent]];
           const entry = next.entries.find((item) => item.id === id);
           // Reported once already, or applied (or no requested name to compare): cleared.
           if (
@@ -412,7 +408,7 @@ export function createGlobalsService(
       )
         return invalid('Queued rename changed the name before completion.');
       mergeEntry(base, value.entry);
-      applyState(base, value);
+      applyState(base, value, value.entry.id);
       // A queued rename's receipt carries the unchanged entry; the publisher writes the result.
       if (mutation && value.renameCompleted !== false)
         options.onEntrySaved?.(value.entry, value.head);
@@ -452,7 +448,7 @@ export function createGlobalsService(
             found = true;
           }
       if (!found) return conflict();
-      applyState(base, value);
+      applyState(base, value, 'none');
     }
     return publish(base, token);
   }
