@@ -29,7 +29,11 @@ function sameFormattingCell(left: CompendiumCell, right: CompendiumCell) {
   const b = evidenceCell(right);
   return (
     a.runs.length === b.runs.length &&
-    a.runs.every((run, index) => styleKey(run) === styleKey(b.runs[index]))
+    a.runs.every(
+      (run, index) =>
+        styleKey(run) === styleKey(b.runs[index]) &&
+        normaliseEvidenceFormatting(run.text) === normaliseEvidenceFormatting(b.runs[index].text),
+    )
   );
 }
 

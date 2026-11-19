@@ -259,6 +259,47 @@ it('never relocates a real content change at the recorded row', () => {
   expect(referenceCurrent(owner, entry, f.baseline, f.source)).toBe(false);
 });
 
+it('rejects changed styled text boundaries even when the style sequence is unchanged', () => {
+  const f = fixture();
+  const row = f.source.tabs[0].rows[0];
+  row.cell = {
+    plain: 'Mechanics 0',
+    runs: [{ text: 'Mechanics', bold: true }, { text: ' 0' }],
+  };
+  const owner = reference(f.build(f.editor), 100, f);
+  const changed = structuredClone(f.source);
+  changed.tabs[0].rows[0].cell = {
+    plain: 'Mechanics 0',
+    runs: [{ text: 'Mechanics ', bold: true }, { text: '0' }],
+  };
+  // Moving whitespace alone is formatting churn.
+  expect(currentReferenceLink(owner, changed)).toBeDefined();
+  changed.tabs[0].rows[0].cell.runs = [
+    { text: 'Mech', bold: true }, { text: 'anics 0' },
+  ];
+  expect(currentReferenceLink(owner, changed)).toBeUndefined();
+});
+
+it('never relocates a selected-cell reference to a different projected cell', () => {
+  const f = fixture();
+  const owner = reference(f.build(f.editor), 100, f);
+  const old = owner.link!;
+  old.cells = [{ dRow: 0, dCol: 2 }];
+  old.sourceAnchor = { row: 10, col: 1 };
+  owner.sourceHash = sourceFingerprint([old.gid, old.rowKey, old.section, old.cells, old.snapshot]);
+  const changed = structuredClone(f.source);
+  const row = changed.tabs[0].rows[0];
+  row.name = 'Moved sample';
+  row.nameNorm = 'moved sample';
+  row.anchor = { row: 40, col: 1 };
+  row.rowIndex = 40;
+  changed.tabs[0].grid = [
+    { row: 40, col: 1, cell: { plain: 'Moved sample', runs: [{ text: 'Moved sample' }] } },
+    { row: 40, col: 3, cell: { plain: 'Unrelated mechanics', runs: [{ text: 'Unrelated mechanics' }] } },
+  ];
+  expect(currentReferenceLink(owner, changed)).toBeUndefined();
+});
+
 
 
 
