@@ -184,7 +184,8 @@
 }
 .paneRight {
   display: inline-flex;
-  flex: 0 1 auto;
+  // Never squeezed: the text items ellipsise, and tools that do not fit go to More.
+  flex: none;
   align-items: center;
   gap: 0.375rem;
   min-width: 0;
@@ -396,6 +397,7 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
   flex: none;
 }
 .paneRight > [data-spill] {
+  gap: 0.375rem;
   display: inline-flex;
 }
 // More, last on the line: outlined like the line's other buttons.

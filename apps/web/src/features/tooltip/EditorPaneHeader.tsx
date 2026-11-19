@@ -142,7 +142,7 @@ export function EditorPaneHeader({
 }
 
 /** The desktop tools More can take, in the order they go there (the rarest first). */
-export const spillOrder = ['grouped', 'inactive', 'worklist'] as const;
+export const spillOrder = ['grouped', 'inactive', 'worklist', 'overrides'] as const;
 export type SpillTool = (typeof spillOrder)[number];
 /** How many of the line's spare tools sit in More, and whether the line still wraps. */
 export interface RowFit {
@@ -173,6 +173,28 @@ export function nextFit(
 }
 
 /**
+ * What a shrinkable item asks of the line: its min-width, except an item holding a button (the
+ * read-only badge with "Switch to …"), which asks its whole width. Its short label ("Read-only")
+ * outranks the spare tools, which go to More before it would ellipsise; it ellipsises only
+ * once they are all there.
+ */
+function shrunkWidth(item: HTMLElement, style: CSSStyleDeclaration) {
+  const min = parseFloat(style.minWidth) || 0;
+  if (!item.querySelector('button')) return min;
+  let width =
+    (parseFloat(style.paddingLeft) || 0) +
+    (parseFloat(style.paddingRight) || 0) +
+    (parseFloat(style.borderLeftWidth) || 0) +
+    (parseFloat(style.borderRightWidth) || 0) -
+    (parseFloat(style.columnGap) || 0);
+  for (const part of item.children)
+    width +=
+      Math.max(part.getBoundingClientRect().width, part.scrollWidth) +
+      (parseFloat(style.columnGap) || 0);
+  return Math.max(min, width);
+}
+
+/**
  * The line's width as laid out now: each item at its width, shrinkable text (the batch badge, the
  * override tag, the read-only badge) at its minimum, the right-hand group at its content width.
  */
@@ -186,7 +208,7 @@ function lineNeed(header: HTMLElement, right: HTMLElement) {
     if (child === right) width = Math.max(child.getBoundingClientRect().width, child.scrollWidth);
     // Counted even while hidden (the batch badge hides itself when it cannot fit), so the answer
     // never feeds back into the next measurement.
-    else if (parseFloat(style.flexShrink) > 0) width = parseFloat(style.minWidth) || 0;
+    else if (parseFloat(style.flexShrink) > 0) width = shrunkWidth(child, style);
     else {
       width = style.display === 'none' ? 0 : child.getBoundingClientRect().width;
       if (!width) continue;
@@ -296,9 +318,14 @@ function DesktopToolRow({
   reserveDraft = false,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   const right = useRef<HTMLSpanElement>(null);
-  const tools = spillOrder.filter((tool) =>
-    tool === 'grouped' ? !!grouped : tool === 'inactive' ? !!inactiveControl : !!worklistControl,
-  );
+  const present: Record<SpillTool, boolean> = {
+    grouped: !!grouped,
+    inactive: !!inactiveControl,
+    worklist: !!worklistControl,
+    // Edit override goes last; an open override's Back to base always stays on the line.
+    overrides: !activeOverride && overrides.length > 0,
+  };
+  const tools = spillOrder.filter((tool) => present[tool]);
   const fit = useRowFit(
     right,
     tools,
@@ -443,16 +470,21 @@ function DesktopToolRow({
             Back to base
           </button>
         ) : (
-          overrides.map((target) => (
-            <button
-              key={target.hash}
-              type="button"
-              className={styles.ghost}
-              onClick={() => onEditOverride(target.hash)}
-            >
-              Edit override{overrides.length > 1 ? `: ${target.name}` : ''}
-            </button>
-          ))
+          overrides.length > 0 &&
+          !inMore.has('overrides') && (
+            <span data-spill="overrides">
+              {overrides.map((target) => (
+                <button
+                  key={target.hash}
+                  type="button"
+                  className={styles.ghost}
+                  onClick={() => onEditOverride(target.hash)}
+                >
+                  Edit override{overrides.length > 1 ? `: ${target.name}` : ''}
+                </button>
+              ))}
+            </span>
+          )
         )}
         {inMore.size > 0 && (
           // The tools that did not fit, in the phone's More (same rows, same handlers).
@@ -461,10 +493,17 @@ function DesktopToolRow({
             saving={saving}
             onDiscard={onDiscard}
             grouped={grouped}
-            overrides={[]}
+            overrides={inMore.has('overrides') ? overrides : []}
             onEditOverride={onEditOverride}
             renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
-            rows={inMore.has('grouped') ? groupedRow : noRows}
+            rows={
+              new Set<ToolId>([
+                ...(inMore.has('grouped') ? (['grouped'] as const) : []),
+                ...(inMore.has('overrides')
+                  ? overrides.map((target) => `override:${target.hash}` as const)
+                  : []),
+              ])
+            }
             extra={
               inMore.has('worklist') || inMore.has('inactive') ? (
                 <>
@@ -479,9 +518,6 @@ function DesktopToolRow({
     </>
   );
 }
-
-const groupedRow: ReadonlySet<ToolId> = new Set(['grouped']);
-const noRows: ReadonlySet<ToolId> = new Set();
 
 function LanguageSelect({ lang, onLanguage }: { lang: Lang; onLanguage(lang: Lang): void }) {
   return (
