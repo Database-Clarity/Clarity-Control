@@ -57,6 +57,8 @@
     min-width: 0;
   }
   input {
+    // Its own line under the label when the row is narrow, then as wide as the line.
+    flex: 1 1 12rem;
     width: 16rem;
   }
 }

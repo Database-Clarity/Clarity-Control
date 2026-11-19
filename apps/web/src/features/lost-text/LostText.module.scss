@@ -181,13 +181,12 @@
     border: 1px solid var(--hair);
     border-radius: 0.25rem;
   }
+  // Control height through line-height, so the disclosure marker stays.
   summary {
-    display: flex;
-    align-items: center;
-    min-height: 1.75rem;
+    line-height: 1.75rem;
     cursor: pointer;
     @include theme.mobile-or-coarse {
-      min-height: var(--tap);
+      line-height: var(--tap);
     }
   }
   details {
