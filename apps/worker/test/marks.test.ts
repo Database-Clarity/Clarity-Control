@@ -147,7 +147,7 @@ it('enforces the type count and total file byte limits before committing', async
   const full = {
     ...base,
     entries: Object.fromEntries(
-      Array.from({ length: 1207 }, (_, hash) => [
+      Array.from({ length: 1100 }, (_, hash) => [
         hash,
         [{ type: 'retest', note: 'x'.repeat(500), by: 1, at }],
       ]),
@@ -175,7 +175,7 @@ it('accepts a note at the character limit and still refuses the file byte cap at
   const full = {
     ...base,
     entries: Object.fromEntries(
-      Array.from({ length: 359 }, (_, hash) => [
+      Array.from({ length: 327 }, (_, hash) => [
         hash,
         [{ type: 'retest', note: 'x'.repeat(maxMarkNoteChars), by: 1, at }],
       ]),
@@ -227,7 +227,7 @@ it('still refuses duplicate types, the marked-entry cap, and an unknown stored t
   const full = {
     ...base,
     entries: Object.fromEntries(
-      Array.from({ length: 2000 }, (_, hash) => [hash, [{ type: 'retest', by: 1, at }]]),
+      Array.from({ length: 1500 }, (_, hash) => [hash, [{ type: 'retest', by: 1, at }]]),
     ),
   };
   expect((await put({ ...mark, hash: 999999 }, seed(full))).status).toBe(400);
@@ -243,12 +243,12 @@ it('bounds the total number of marks even when entries carry several types', asy
     label: `Type ${index}`,
   }));
   const entries = Object.fromEntries(
-    Array.from({ length: 62 }, (_, hash) => [
+    Array.from({ length: 46 }, (_, hash) => [
       hash,
       types.map((type) => ({ type: type.id, by: 1, at })),
     ]),
   );
-  entries[62] = types.slice(0, 16).map((type) => ({ type: type.id, by: 1, at }));
+  entries[46] = types.slice(0, 28).map((type) => ({ type: type.id, by: 1, at }));
   const revision = seed({ types, entries });
   expect((await put({ ...mark, hash: 99999, type: 'type-0' }, revision)).status).toBe(400);
   expect(fixture.commits).toHaveLength(0);

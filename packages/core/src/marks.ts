@@ -3,9 +3,9 @@ import { hashSchema } from './legacy.js';
 import { inactiveHashKey } from './inactiveMoves.js';
 
 export const marksPath = 'config/marks.json';
-export const maxMarksBytes = 768_000;
-export const maxMarkedEntries = 2000;
-export const maxEntryMarks = 2000;
+export const maxMarksBytes = 700_000;
+export const maxMarkedEntries = 1500;
+export const maxEntryMarks = 1500;
 export const maxMarkNoteChars = 2000;
 export const markColours = ['neutral', 'blue', 'green', 'amber', 'red', 'purple'] as const;
 export const markIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);

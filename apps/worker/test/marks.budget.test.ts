@@ -7,16 +7,16 @@ import { config } from './fixture.js';
 
 afterEach(() => vi.restoreAllMocks());
 it('records a local CPU proxy for empty, typical, and byte-cap mark documents', async () => {
-  // Fixed-seed fixtures: `note(index)` gives each mark's note length. The caps allow 768,000
+  // Fixed-seed fixtures: `note(index)` gives each mark's note length. The caps allow 700,000
   // bytes, so 1,050 marks with every tenth note at 2,000 characters is the 640 KB audit size,
-  // 1,250 such marks is the byte cap, and 359 full-length notes fill the file too.
+  // 1,152 such marks is the byte cap, and 327 full-length notes fill the file too.
   const cases: { name: string; count: number; note: (index: number) => number; everyType?: boolean }[] = [
     { name: 'empty', count: 0, note: () => 30 },
     { name: 'typical', count: 100, note: () => 30 },
     { name: '256k', count: 390, note: () => 500 },
     { name: 'real-640k', count: 1050, note: (index) => (index % 10 === 0 ? 2000 : 304) },
-    { name: 'cap-768k', count: 1250, note: (index) => (index % 10 === 0 ? 2000 : 308) },
-    { name: 'cap-max-notes', count: 359, note: () => 2000 },
+    { name: 'cap-700k', count: 1152, note: (index) => (index % 10 === 0 ? 2000 : 300) },
+    { name: 'cap-max-notes', count: 327, note: () => 2000 },
     { name: 'types', count: 32, note: () => 30, everyType: true },
   ];
   const rows = [];
