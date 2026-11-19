@@ -387,9 +387,23 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
 .inactiveControl {
   flex: none;
 }
-// At the narrowest desktop panes even the shortened override row needs a second line.
-// Keep every action reachable instead of clipping the final controls.
-.paneHeader:has(.inactiveControl) {
+// The desktop line keeps one row: tools that do not fit go to More (EditorPaneHeader useRowFit).
+// Only a line that still does not fit (the narrowest panes, a large interface scale) takes a
+// second row, so every action stays reachable instead of being clipped.
+// The buttons never shrink (a squeezed "Marks" would clip): a line that does not fit hands its
+// tools to More instead.
+.paneRight > * {
+  flex: none;
+}
+.paneRight > [data-spill] {
+  display: inline-flex;
+}
+// More, last on the line: outlined like the line's other buttons.
+.paneRight[data-fit^='spill'] > button:last-child {
+  background: transparent;
+  border-color: var(--ghost-edge);
+}
+.paneHeader:has(> .paneRight[data-fit$='wrap']) {
   flex-wrap: wrap;
   row-gap: 2px;
   > .paneRight {
@@ -615,6 +629,30 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
 
 .divider {
   display: none;
+}
+
+// Phones: the page fills the screen's height (Layout .editorMode .main), and the open panel takes
+// what the pane switch and tool row leave, so a short or empty text's editor still reaches the
+// bottom and its status bar sits on the docked bar instead of mid-screen.
+@include theme.mobile {
+  .page:has(> .workspace[data-mode='phone']) {
+    display: flex;
+    flex: 1 0 auto;
+    flex-direction: column;
+  }
+  .workspace[data-mode='phone'] {
+    flex: 1 0 auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    > .tabs {
+      grid-row: 1;
+    }
+    > .paneHeader {
+      grid-row: 2;
+    }
+    .panel {
+      grid-row: 3;
+    }
+  }
 }
 
 // The look (hit zone, line, pill) belongs to the shared PaneDivider.

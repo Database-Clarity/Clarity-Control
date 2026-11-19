@@ -34,6 +34,10 @@
   padding: 0 0.5rem;
   border-top: 1px solid var(--hair);
   background: var(--col);
+  // Only the editor and a global's page have a finder: elsewhere the band would be an empty strip.
+  &:not(:has(> :not([data-shell-slot]))):not(:has([data-shell-slot] > *)) {
+    display: none;
+  }
 }
 
 .end {

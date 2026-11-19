@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
@@ -6,7 +6,7 @@ import { InactiveMoveControl } from './InactiveMoveControl';
 import { applyInactiveMoves, useDataStore } from '../../stores/data';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
-import { PhoneTools, type QueueBack } from './EditorMore';
+import { EditorMore, PhoneTools, type QueueBack, type ToolId } from './EditorMore';
 import {
   loadSandboxPerkText,
   sandboxPerkName,
@@ -51,6 +51,7 @@ export function EditorPaneHeader({
   destination,
   worklistControl,
   inactiveControl,
+  inactiveMenuControl,
   inactiveHash,
   markHash,
   reserveDraft = false,
@@ -83,6 +84,8 @@ export function EditorPaneHeader({
   destination?: React.ReactNode;
   /** Maintainer-only inactive move, with its own deliberate confirmation. */
   inactiveControl?: React.ReactNode;
+  /** The same action with its words, for More when the desktop line has no room for it. */
+  inactiveMenuControl?: React.ReactNode;
   worklistControl?: React.ReactNode;
   /** Undefined on batch visits, where global move actions are unavailable. */
   inactiveHash?: number;
@@ -113,6 +116,203 @@ export function EditorPaneHeader({
         }}
       />
     );
+  return (
+    <DesktopToolRow
+      {...{ lang, onLanguage, draft, saving, onDiscard, reason, switchTo, onSwitch }}
+      {...{
+        overrides,
+        activeOverride,
+        onEditOverride,
+        onBack,
+        grouped,
+        markup,
+        queue,
+        queueBack,
+        draftLoader,
+        destination,
+        worklistControl,
+        inactiveControl,
+        inactiveMenuControl,
+        inactiveHash,
+        markHash,
+        reserveDraft,
+      }}
+    />
+  );
+}
+
+/**
+ * How the desktop tool line holds its tools, from widths that do not depend on the answer:
+ * `need` is the line as laid out now (shrinkable text at its minimum), `spill` the inline width of
+ * the tools More can take (0: none), `more` More's own width with its gap. Everything inline while
+ * it fits ('full'); else those tools go to More ('spill'); a line that still does not fit (or has
+ * nothing to move) wraps as a last resort, so every action stays reachable.
+ */
+export type RowFit = 'full' | 'spill' | 'spill-wrap' | 'wrap';
+export function nextFit(current: RowFit, need: number, room: number, spill: number, more: number) {
+  const spilled = current === 'spill' || current === 'spill-wrap';
+  const full = spilled ? need - more + spill : need;
+  if (full <= room + 0.5) return 'full';
+  if (!spill) return 'wrap';
+  const compact = spilled ? need : need - spill + more;
+  return compact <= room + 0.5 ? 'spill' : 'spill-wrap';
+}
+
+/**
+ * The line's width as laid out now: each item at its width, shrinkable text (the batch badge, the
+ * override tag, the read-only badge) at its minimum, the right-hand group at its content width.
+ */
+function lineNeed(header: HTMLElement, right: HTMLElement) {
+  const gap = parseFloat(getComputedStyle(header).columnGap) || 0;
+  let need = -gap;
+  for (const child of header.children as HTMLCollectionOf<HTMLElement>) {
+    const style = getComputedStyle(child);
+    if (style.position === 'absolute') continue;
+    let width: number;
+    if (child === right) width = Math.max(child.getBoundingClientRect().width, child.scrollWidth);
+    // Counted even while hidden (the batch badge hides itself when it cannot fit), so the answer
+    // never feeds back into the next measurement.
+    else if (parseFloat(style.flexShrink) > 0) width = parseFloat(style.minWidth) || 0;
+    else {
+      width = style.display === 'none' ? 0 : child.getBoundingClientRect().width;
+      if (!width) continue;
+    }
+    need += width + gap;
+  }
+  return need;
+}
+
+/**
+ * The desktop line's fit. Measured when the line or any item in it resizes, when items come or go
+ * (a draft's Discard, the batch badge), and after a change of what the line holds; never per
+ * keystroke. The width of the tools in More is remembered from the last time they were inline.
+ */
+function useRowFit(right: React.RefObject<HTMLSpanElement>, key: string) {
+  const [fit, setFit] = useState<RowFit>('full');
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+  const spill = useRef(0);
+  const more = useRef(0);
+  const measure = useRef(() => {});
+  measure.current = () => {
+    const element = right.current;
+    const header = element?.parentElement;
+    if (!element || !header) return;
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const gap = parseFloat(getComputedStyle(element).columnGap) || 0;
+    const tools = element.querySelectorAll<HTMLElement>(':scope > [data-spill]');
+    // Kept in rem, so a new interface scale does not leave a stale width.
+    if (tools.length)
+      spill.current =
+        [...tools].reduce((sum, tool) => sum + tool.getBoundingClientRect().width + gap, 0) / rem;
+    else if (fitRef.current === 'full') spill.current = 0;
+    const trigger =
+      fitRef.current === 'full' ? null : (element.lastElementChild as HTMLElement | null);
+    if (trigger) more.current = (trigger.getBoundingClientRect().width + gap) / rem;
+    const box = getComputedStyle(header);
+    const room =
+      header.clientWidth - (parseFloat(box.paddingLeft) || 0) - (parseFloat(box.paddingRight) || 0);
+    const next = nextFit(
+      fitRef.current,
+      lineNeed(header, element),
+      room,
+      spill.current * rem,
+      (more.current || 1.5 + gap / rem) * rem,
+    );
+    if (next !== fitRef.current) {
+      fitRef.current = next;
+      setFit(next);
+    }
+  };
+  // What the line holds changed: measure before paint, so it never shows a clipped frame.
+  useLayoutEffect(() => measure.current(), [key]);
+  useLayoutEffect(() => {
+    const header = right.current?.parentElement;
+    if (!header || typeof ResizeObserver !== 'function') return;
+    const sizes = new ResizeObserver(() => measure.current());
+    const observe = () => {
+      sizes.disconnect();
+      sizes.observe(header);
+      for (const child of header.children) sizes.observe(child);
+      for (const tool of right.current?.children ?? []) sizes.observe(tool);
+    };
+    observe();
+    const items = new MutationObserver(() => {
+      observe();
+      measure.current();
+    });
+    items.observe(header, { childList: true });
+    if (right.current) items.observe(right.current, { childList: true });
+    return () => {
+      sizes.disconnect();
+      items.disconnect();
+    };
+  }, [right]);
+  return fit;
+}
+
+function DesktopToolRow({
+  lang,
+  onLanguage,
+  draft,
+  saving,
+  onDiscard,
+  reason,
+  switchTo,
+  onSwitch,
+  overrides,
+  activeOverride,
+  onEditOverride,
+  onBack,
+  grouped,
+  markup,
+  queue,
+  draftLoader,
+  destination,
+  worklistControl,
+  inactiveControl,
+  inactiveMenuControl,
+  inactiveHash,
+  markHash,
+  reserveDraft = false,
+}: Parameters<typeof EditorPaneHeader>[0]) {
+  const right = useRef<HTMLSpanElement>(null);
+  const fit = useRowFit(
+    right,
+    [
+      draft,
+      reserveDraft,
+      lang,
+      reason,
+      switchTo,
+      activeOverride?.hash,
+      overrides.length,
+      grouped?.length,
+      Boolean(queue),
+      Boolean(draftLoader),
+      Boolean(markup),
+      Boolean(worklistControl),
+      Boolean(inactiveControl),
+    ].join('|'),
+  );
+  const spilled = fit === 'spill' || fit === 'spill-wrap';
+  const groupedControl = grouped && (
+    <Popover
+      label="Grouped manifest perks"
+      triggerLabel="Grouped manifest perks"
+      className={styles.ghost}
+      trigger={
+        <>
+          <span className={styles.groupedIcon} aria-hidden="true" />
+          <span className={styles.groupedWord}>Grouped </span>
+          {grouped.length}
+        </>
+      }
+      triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
+    >
+      <GroupedPerks perks={grouped} currentHash={inactiveHash} />
+    </Popover>
+  );
   const markupTools = markup && (
     <button
       type="button"
@@ -199,27 +399,11 @@ export function EditorPaneHeader({
       )}
       {markupTools}
       {queue}
-      <span className={styles.paneRight}>
-        {worklistControl}
+      <span ref={right} className={styles.paneRight} data-fit={fit}>
+        {!spilled && worklistControl && <span data-spill>{worklistControl}</span>}
         {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} />}
-        {inactiveControl}
-        {grouped && (
-          <Popover
-            label="Grouped manifest perks"
-            triggerLabel="Grouped manifest perks"
-            className={styles.ghost}
-            trigger={
-              <>
-                <span className={styles.groupedIcon} aria-hidden="true" />
-                <span className={styles.groupedWord}>Grouped </span>
-                {grouped.length}
-              </>
-            }
-            triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
-          >
-            <GroupedPerks perks={grouped} currentHash={inactiveHash} />
-          </Popover>
-        )}
+        {!spilled && inactiveControl && <span data-spill>{inactiveControl}</span>}
+        {!spilled && groupedControl && <span data-spill>{groupedControl}</span>}
         {activeOverride ? (
           <button type="button" className={styles.ghost} onClick={onBack}>
             Back to base
@@ -236,10 +420,33 @@ export function EditorPaneHeader({
             </button>
           ))
         )}
+        {spilled && (
+          // The tools that did not fit, in the phone's More (same rows, same handlers).
+          <EditorMore
+            draft={false}
+            saving={saving}
+            onDiscard={onDiscard}
+            grouped={grouped}
+            overrides={[]}
+            onEditOverride={onEditOverride}
+            renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
+            rows={spillRows}
+            extra={
+              worklistControl || inactiveControl ? (
+                <>
+                  {worklistControl}
+                  {inactiveControl && (inactiveMenuControl || inactiveControl)}
+                </>
+              ) : undefined
+            }
+          />
+        )}
       </span>
     </>
   );
 }
+
+const spillRows: ReadonlySet<ToolId> = new Set(['grouped']);
 
 function LanguageSelect({ lang, onLanguage }: { lang: Lang; onLanguage(lang: Lang): void }) {
   return (

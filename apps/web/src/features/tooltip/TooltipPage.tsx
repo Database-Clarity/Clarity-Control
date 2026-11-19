@@ -893,6 +893,16 @@ function TooltipWorkspace({
               />
             )
           }
+          inactiveMenuControl={
+            !phone && (
+              <InactiveHeaderControl
+                hash={activeHash}
+                name={nameOf(activeHash)}
+                className={styles.ghost}
+                compact={false}
+              />
+            )
+          }
           inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
           markHash={hash}
           draftLoader={

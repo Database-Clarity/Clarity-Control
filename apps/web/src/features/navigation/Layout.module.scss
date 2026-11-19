@@ -244,7 +244,12 @@
   }
 
   // The editor's pane switch sits right under the header.
+  // The editor's pane switch sits right under the header, and the page fills the screen's height
+  // so a short text's editor reaches the bottom (TooltipPage .page and .workspace carry it on).
   .editorMode .main {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
     padding-top: 0;
   }
 

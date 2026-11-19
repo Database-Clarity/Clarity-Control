@@ -70,14 +70,15 @@
   }
 }
 
-// The More trigger: boxed like the stepper beside it, a var(--tap) square.
+// The More trigger: boxed like the stepper beside it, a var(--tap) square (1.5rem on desktop, like
+// the tool line's buttons).
 .trigger {
   @include controls.button;
   flex: none;
-  width: var(--tap);
-  min-width: var(--tap);
-  height: var(--tap);
-  min-height: var(--tap);
+  width: var(--tap, 1.5rem);
+  min-width: var(--tap, 1.5rem);
+  height: var(--tap, 1.5rem);
+  min-height: var(--tap, 1.5rem);
   padding: 0;
 }
 
@@ -93,7 +94,7 @@
 }
 
 .sheet {
-  font-size: var(--ctl-text);
+  font-size: var(--ctl-text, 0.8125rem);
 }
 
 .head {
@@ -101,16 +102,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  min-height: var(--bar);
-  padding: 0 var(--page-x);
+  min-height: var(--bar, 2rem);
+  padding: 0 var(--page-x, 0.5rem);
   border-bottom: 1px solid var(--line);
 }
 
 .close {
   @include controls.button;
-  width: var(--tap);
-  min-width: var(--tap);
-  height: var(--tap);
+  width: var(--tap, 1.5rem);
+  min-width: var(--tap, 1.5rem);
+  height: var(--tap, 1.5rem);
   padding: 0;
   font-size: 1.125rem;
   line-height: 1;
@@ -133,10 +134,10 @@
     gap: 0.5rem;
     box-sizing: border-box;
     width: 100%;
-    min-height: var(--tap);
-    padding: 0 var(--page-x);
+    min-height: var(--tap, 1.75rem);
+    padding: 0 var(--page-x, 0.5rem);
     font: inherit;
-    font-size: var(--ctl-text);
+    font-size: var(--ctl-text, 0.8125rem);
     color: var(--text);
     text-align: left;
     text-decoration: none;
@@ -183,7 +184,7 @@
 }
 
 .nested {
-  padding: 0 var(--page-x) 0.5rem;
+  padding: 0 var(--page-x, 0.5rem) 0.5rem;
   font-size: 0.8125rem;
 }
 
@@ -194,7 +195,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.375rem 0.5rem;
-  padding: 0.375rem var(--page-x);
+  padding: 0.375rem var(--page-x, 0.5rem);
 
   > span:first-child {
     flex: 1 1 10rem;
@@ -208,8 +209,8 @@
 
   button {
     @include controls.button;
-    min-height: var(--tap);
-    font-size: var(--ctl-text);
+    min-height: var(--tap, 1.5rem);
+    font-size: var(--ctl-text, 0.8125rem);
 
     &[data-danger] {
       color: var(--danger);
