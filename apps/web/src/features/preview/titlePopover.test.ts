@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { POINTER_CLEARANCE } from '../../ui/anchorPlacement';
-import { closeTitlePopover, openTitlePopover } from './titlePopover';
+import { POINTER_CLEARANCE, POINTER_OFFSET } from '../../ui/anchorPlacement';
+import { closeTitlePopover, isTitlePopoverOpen, openTitlePopover } from './titlePopover';
 
 const rect = (left: number, top: number, width: number, height: number) =>
   ({
@@ -83,24 +83,42 @@ describe('title popover placement', () => {
     // 600 - 316 - 22 - 8 below, 300 - 4 - 8 above: above is larger, so it goes up with that much room.
     expect(popover.style.maxHeight).toBe('288px');
   });
+});
 
-  it('uses the wrapped line the pointer is on', () => {
-    const { anchor, popover } = setup(rect(10, 100, 60, 16), { width: 120, height: 40 });
-    anchor.getClientRects = () =>
-      [rect(500, 100, 200, 16), rect(10, 120, 80, 16)] as unknown as DOMRectList;
-    openTitlePopover(anchor, popover, { x: 30, y: 128 });
-    expect([popover.style.left, popover.style.top]).toEqual(['90px', '158px']);
+describe('title popover open state', () => {
+  it('reads the fallback mark where :popover-open is not supported', () => {
+    const { popover } = setup(rect(100, 100, 12, 12), { width: 200, height: 40 });
+    popover.matches = () => {
+      throw new SyntaxError("':popover-open' is not a valid selector");
+    };
+    expect(isTitlePopoverOpen(popover)).toBe(false);
+    popover.dataset.open = '';
+    expect(isTitlePopoverOpen(popover)).toBe(true);
   });
 });
 
-describe('title popover pointer clearance', () => {
-  // The drawn pointer: down and right of its hotspot, at most POINTER_CLEARANCE tall.
+describe('title popover at the pointer', () => {
+  // The drawn pointer: down and right of its hotspot, POINTER_OFFSET.y tall.
   const covers = (box: DOMRect, x: number, y: number) =>
-    x + 16 > box.left && x - 6 < box.right && y + POINTER_CLEARANCE > box.top && y < box.bottom;
+    x + 12 > box.left && x < box.right && y + POINTER_OFFSET.y > box.top && y < box.bottom;
   const placed = (popover: HTMLElement, width: number, height: number) =>
     new DOMRect(parseFloat(popover.style.left), parseFloat(popover.style.top), width, height);
 
-  it('never sits under the pointer or its trigger, below, flipped above, or at the edges', () => {
+  it('opens just below-right of the pointer, wherever it is on the anchor', () => {
+    // The owner's case: a 28px tall greyed Compare tab, the pointer on its upper half.
+    const { anchor, popover } = setup(rect(300, 40, 80, 28), { width: 220, height: 30 });
+    openTitlePopover(anchor, popover, { x: 330, y: 48 });
+    expect([popover.style.left, popover.style.top]).toEqual(['334px', '72px']);
+  });
+
+  it('goes left of the pointer at the right edge, above it at the bottom edge', () => {
+    const { anchor, popover } = setup(rect(700, 560, 90, 16), { width: 200, height: 60 });
+    openTitlePopover(anchor, popover, { x: 760, y: 568 });
+    // 760 - 4 - 200 = 556 left; bottom 8px over the hotspot: 568 - 8 - 60 = 500 top.
+    expect([popover.style.left, popover.style.top]).toEqual(['556px', '500px']);
+  });
+
+  it('never sits under the pointer, below, flipped above, or at the edges', () => {
     const cases = [
       rect(100, 100, 12, 12), // a finder marker glyph
       rect(400, 300, 120, 16), // a term in running text
@@ -114,23 +132,23 @@ describe('title popover pointer clearance', () => {
         for (const fy of [0, 0.5, 1]) {
           const x = trigger.left + trigger.width * fx;
           const y = trigger.top + trigger.height * fy;
+          closeTitlePopover(popover);
           openTitlePopover(anchor, popover, { x, y });
           const box = placed(popover, 240, 48);
           expect(covers(box, x, y), `${trigger.left},${trigger.top} @ ${x},${y}`).toBe(false);
-          expect(box.top >= trigger.bottom || box.bottom <= trigger.top).toBe(true);
-          // Off the trigger's column: the next row's marker below stays reachable.
-          expect(box.right <= trigger.left || box.left >= trigger.right).toBe(true);
+          expect(box.left >= 8 && box.right <= 792 && box.top >= 8 && box.bottom <= 592).toBe(true);
         }
       document.body.innerHTML = '';
     }
   });
 
-  it('opens in the same place from keyboard focus as from hover', () => {
+  it('keeps the anchor placement for keyboard focus (no pointer)', () => {
     const { anchor, popover } = setup(rect(100, 100, 12, 12), { width: 200, height: 40 });
-    openTitlePopover(anchor, popover, { x: 106, y: 111 });
-    const hovered = [popover.style.left, popover.style.top];
     openTitlePopover(anchor, popover);
-    expect([popover.style.left, popover.style.top]).toEqual(hovered);
+    expect([popover.style.left, popover.style.top]).toEqual([
+      '112px',
+      `${112 + POINTER_CLEARANCE}px`,
+    ]);
   });
 
   it('shows one at a time: the next box closes one still in its close grace', () => {

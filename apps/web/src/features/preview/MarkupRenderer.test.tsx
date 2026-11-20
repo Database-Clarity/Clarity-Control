@@ -198,3 +198,39 @@ it('keeps a hovered title open while the pointer crosses the gap into it', async
     host.remove();
   }
 });
+
+it('keeps a hovered title at the pointer when the anchor is then pressed or focused', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  document.body.append(host);
+  try {
+    await act(async () =>
+      root.render(
+        <TitleAnchor part={{ text: 'Term', title: [{ linesContent: [{ text: 'Body' }] }] }} />,
+      ),
+    );
+    const anchor = host.querySelector<HTMLElement>('[aria-describedby]')!;
+    const box = host.querySelector<HTMLElement>('[role="tooltip"]')!;
+    await act(async () => {
+      anchor.dispatchEvent(
+        new MouseEvent('pointerover', {
+          bubbles: true,
+          relatedTarget: document.body,
+          clientX: 50,
+          clientY: 60,
+        }),
+      );
+    });
+    expect(box.style.left).toBe('54px');
+    await act(async () => {
+      anchor.focus();
+      anchor.click();
+    });
+    expect(box.hasAttribute('data-open')).toBe(true);
+    expect(box.style.left).toBe('54px');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

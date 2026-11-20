@@ -14,6 +14,7 @@ import {
   isPhone,
   naturalHeight,
   placeAnchored,
+  placeAtPointer,
   visibleArea,
 } from './anchorPlacement';
 import { useWorkspaceShortcutOwner } from './interaction';
@@ -113,9 +114,15 @@ export function Popover({
   const hoverClose = useRef<ReturnType<typeof setTimeout>>();
   const restoringFocus = useRef(false);
   const returnFocus = useRef(false);
+  // A hover popup opened by the mouse sits at the pointer: where it entered, relative to the
+  // trigger, so it moves with the trigger on scroll. None for keyboard focus or a tap.
+  const pointer = useRef<{ x: number; y: number }>();
   const reveal = (fromFocus = false) => {
     clearTimeout(hoverClose.current);
-    if (fromFocus) returnFocus.current = true;
+    if (fromFocus) {
+      returnFocus.current = true;
+      if (!open) pointer.current = undefined;
+    }
     if (openOnHover) {
       if (controlledOpen === undefined) setOpen(true);
       onOpenChange?.(true);
@@ -135,6 +142,7 @@ export function Popover({
   const close = useCallback((restoreFocus: boolean) => {
     clearTimeout(hoverClose.current);
     returnFocus.current = false;
+    pointer.current = undefined;
     if (external.current.controlledOpen === undefined) setOpen(false);
     external.current.onOpenChange?.(false);
     if (restoreFocus) {
@@ -175,7 +183,15 @@ export function Popover({
       const below = placeAnchored(input);
       applyPlacement(element, below);
       const height = naturalHeight(element, element.firstElementChild as HTMLElement | null);
-      if (height > below.maxHeight) applyPlacement(element, placeAnchored({ ...input, height }));
+      const at = openOnHover && !anchorElement ? pointer.current : undefined;
+      if (at) {
+        const spot = { x: rect.left + at.x, y: rect.top + at.y };
+        applyPlacement(
+          element,
+          placeAtPointer({ pointer: spot, area, width: below.width, height }),
+        );
+      } else if (height > below.maxHeight)
+        applyPlacement(element, placeAnchored({ ...input, height }));
     };
     place();
     return followPlacement(() => surface.current, place);
@@ -308,7 +324,12 @@ export function Popover({
           onPointerEnter={
             openOnHover
               ? (event) => {
-                  if (event.pointerType !== 'touch') reveal();
+                  if (event.pointerType === 'touch') return;
+                  if (!open) {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    pointer.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+                  }
+                  reveal();
                 }
               : undefined
           }

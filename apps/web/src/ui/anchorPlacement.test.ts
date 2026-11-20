@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   placeAnchored,
+  placeAtPointer,
   POINTER_CLEARANCE,
+  POINTER_OFFSET,
   viewportWidth,
   visibleArea,
   type PlacementArea,
@@ -14,6 +16,52 @@ const rect = (top: number, height = 36, left = 340, width = 36) => ({
   bottom: top + height,
   left,
   right: left + width,
+});
+
+describe('placeAtPointer', () => {
+  const desk: PlacementArea = { top: 8, bottom: 792, width: 1265, layoutHeight: 800, edge: 8 };
+  // The drawn pointer: down and right of the hotspot, POINTER_OFFSET.y tall.
+  const underPointer = (p: ReturnType<typeof placeAtPointer>, x: number, y: number, h: number) => {
+    const top = p.top === 'auto' ? desk.layoutHeight - (p.bottom as number) - h : p.top;
+    return x + 12 > p.left && x < p.left + p.width && y + POINTER_OFFSET.y > top && y < top + h;
+  };
+
+  it('puts its top-left just below-right of the pointer', () => {
+    const p = placeAtPointer({ pointer: { x: 300, y: 200 }, area: desk, width: 240, height: 40 });
+    expect([p.side, p.left, p.top]).toEqual(['below', 304, 224]);
+    expect(p.maxHeight).toBe(792 - 224);
+  });
+
+  it('goes left of the pointer at the right edge, above it at the bottom edge', () => {
+    const right = placeAtPointer({ pointer: { x: 1200, y: 200 }, area: desk, width: 240 });
+    expect(right.left).toBe(1200 - 4 - 240);
+    const low = placeAtPointer({ pointer: { x: 300, y: 770 }, area: desk, width: 240, height: 60 });
+    expect([low.side, low.bottom]).toEqual(['above', 800 - 762]);
+  });
+
+  it('clamps inside the edges when neither side fits, and caps the larger side', () => {
+    const phone = placeAtPointer({ pointer: { x: 200, y: 300 }, area, width: Infinity });
+    expect([phone.left, phone.width]).toEqual([8, 374]);
+    const tall = placeAtPointer({
+      pointer: { x: 300, y: 500 },
+      area: desk,
+      width: 200,
+      height: 2000,
+    });
+    expect([tall.side, tall.maxHeight]).toEqual(['above', 492 - 8]);
+  });
+
+  it('never sits under the pointer, anywhere on the screen', () => {
+    for (const x of [8, 300, 1100, 1257])
+      for (const y of [8, 400, 760, 792])
+        for (const h of [24, 120]) {
+          const p = placeAtPointer({ pointer: { x, y }, area: desk, width: 240, height: h });
+          const shown = Math.min(h, p.maxHeight);
+          expect(underPointer(p, x, y, shown), `${x},${y} h${h}`).toBe(false);
+          expect(p.left).toBeGreaterThanOrEqual(8);
+          expect(p.left + p.width).toBeLessThanOrEqual(1265 - 8);
+        }
+  });
 });
 
 describe('placeAnchored', () => {

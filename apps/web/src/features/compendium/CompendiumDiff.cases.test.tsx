@@ -312,3 +312,59 @@ it('a dismissal during the leave grace stays dismissed', async () => {
   await grace();
   expect(expanded()).toBe('false');
 });
+
+it('opens a hovered scaled cell style detail at the pointer, a focused one at the marker', async () => {
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'showPopover');
+  Object.defineProperty(HTMLElement.prototype, 'showPopover', {
+    configurable: true,
+    value: vi.fn(),
+  });
+  Object.defineProperty(document.documentElement, 'clientWidth', {
+    configurable: true,
+    value: 1000,
+  });
+  // The cell and its scrollport are wide; everything else (the marker, the detail) is a point.
+  const rects = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: HTMLElement) {
+      const wide =
+        this.hasAttribute('data-surface') || !!this.querySelector(':scope > [data-cell-scale]');
+      return new DOMRect(0, 0, wide ? 1000 : 0, wide ? 800 : 0);
+    });
+  try {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    roots.push(root);
+    await act(async () =>
+      root.render(
+        createElement(CompendiumDiff, {
+          before: text('Short style-only cell'),
+          after: cell({ text: 'Short style-only cell', bold: true }),
+          mode: 'changes',
+          scale: 150,
+        }),
+      ),
+    );
+    const marker = host.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    const at = { bubbles: true, relatedTarget: document.body, clientX: 100, clientY: 50 };
+    await act(async () => {
+      marker.dispatchEvent(new MouseEvent('pointerover', at));
+      marker.dispatchEvent(new MouseEvent('mouseover', at));
+    });
+    const detail = () => host.querySelector<HTMLElement>('[role=tooltip]')!;
+    // POINTER_OFFSET: 4px right of the hotspot, 24px below it.
+    expect([detail().style.left, detail().style.top]).toEqual(['104px', '74px']);
+    // Pressed after the hover: it stays at the pointer.
+    await act(async () => marker.focus());
+    expect([detail().style.left, detail().style.top]).toEqual(['104px', '74px']);
+    await act(async () => marker.blur());
+    await act(async () => marker.focus());
+    expect(detail().style.top).toBe('22px');
+  } finally {
+    rects.mockRestore();
+    Reflect.deleteProperty(document.documentElement, 'clientWidth');
+    if (original) Object.defineProperty(HTMLElement.prototype, 'showPopover', original);
+    else Reflect.deleteProperty(HTMLElement.prototype, 'showPopover');
+  }
+});
