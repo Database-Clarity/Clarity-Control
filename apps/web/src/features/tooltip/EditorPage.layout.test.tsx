@@ -652,8 +652,31 @@ describe('editor page composition', () => {
     useDraftStore.setState({ drafts: { 10: { base: data.bundle.tooltips[10], next: draft } } });
     await render();
     expect(host.querySelector('[aria-label="Unsaved draft"]')).not.toBeNull();
-    await act(async () => button('Discard')!.click());
+    // Discard asks first, next to the button; Esc and an outside click cancel.
+    const confirm = () =>
+      document.querySelector('[role="group"][aria-label="Discard this draft?"]');
+    await act(async () => button('Discard this draft')!.click());
+    expect(confirm()).not.toBeNull();
+    await act(async () => {
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+    });
+    expect(confirm()).toBeNull();
+    await act(async () => button('Discard this draft')!.click());
+    await act(async () => {
+      document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    expect(confirm()).toBeNull();
+    expect(useDraftStore.getState().discard).not.toHaveBeenCalled();
+    await act(async () => button('Discard this draft')!.click());
+    const yes = [...confirm()!.querySelectorAll('button')].find((b) => b.textContent === 'Discard');
+    await act(async () => yes!.click());
     expect(useDraftStore.getState().discard).toHaveBeenCalledWith(10);
+    // While saving, Discard is disabled and asks nothing.
+    await act(async () => useSaveState.setState({ locked: true }));
+    expect(button('Discard this draft')!.disabled).toBe(true);
+    expect(button('Discard this draft')!.hasAttribute('aria-haspopup')).toBe(false);
   });
 
   it('on a phone: Editor / Preview / Compendium / Reports views, panels mounted, one at a time', async () => {

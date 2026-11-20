@@ -1,4 +1,4 @@
-/* global document, window, getComputedStyle */
+/* global document, window, getComputedStyle, PointerEvent, requestAnimationFrame */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -110,7 +110,8 @@ const requests = (page) => page.evaluate(() => [...window.draftFixture.requests]
 
 try {
   // Render matrix.
-  for (const theme of ['dark', 'light'])
+  const full = !process.env.STEP_ONLY;
+  for (const theme of full ? ['dark', 'light'] : [])
     for (const [width, height, phone] of [
       [1280, 800, false],
       [768, 900, false],
@@ -140,7 +141,7 @@ try {
       }
 
   // State sweep (desktop, dark).
-  {
+  if (full) {
     const { context, page, errors } = await open('dark', 1280, 800);
     await trigger(page).waitFor({ timeout: 5000 });
     assert.deepEqual(
@@ -168,10 +169,30 @@ try {
       0,
       'no draft after undo',
     );
-    // Redo brings it back; Discard removes it.
+    // Redo brings it back; Discard asks first (Esc and an outside click cancel), then removes it.
     await page.keyboard.press('Control+y');
     assert.match(await editorText(page), /^Final blows/, 'redo restores the draft');
-    await page.getByRole('button', { name: 'Discard this draft' }).click();
+    const discardButton = page.getByRole('button', { name: 'Discard this draft' });
+    const ask = page.getByRole('group', { name: 'Discard this draft?' });
+    await discardButton.click();
+    await ask.waitFor();
+    const [askBox, buttonBox] = [await ask.boundingBox(), await discardButton.boundingBox()];
+    assert.ok(
+      Math.abs(askBox.y - (buttonBox.y + buttonBox.height)) < 40,
+      'the question opens next to Discard',
+    );
+    await page.screenshot({ path: `${shots}/flow-discard-confirm.png` });
+    await page.keyboard.press('Escape');
+    assert.equal(await ask.count(), 0, 'Esc cancels');
+    await discardButton.click();
+    await ask.waitFor();
+    await page.evaluate(() =>
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })),
+    );
+    assert.equal(await ask.count(), 0, 'an outside click cancels');
+    assert.match(await editorText(page), /^Final blows/, 'cancel keeps the draft');
+    await discardButton.click();
+    await ask.getByRole('button', { name: 'Discard', exact: true }).click();
     await trigger(page).waitFor({ timeout: 3000 });
     assert.equal(await editorText(page), '', 'discard empties the editor');
     // Typed text hides it; deleting it again offers it again. No draft request while typing.
@@ -204,12 +225,141 @@ try {
     await context.close();
   }
 
-  // Roles: trial editors and translators never see it; editors do.
-  for (const [role, shown] of [
-    ['editor', true],
-    ['trial', false],
-    ['translator', false],
+  // Phone: Discard (inline at 100%, in More at 150%) asks first; the editor then has focus.
+  for (const scale of full ? [100, 150] : []) {
+    const { context, page, errors } = await open('dark', 390, 844, { phone: true, scale });
+    await trigger(page).click();
+    await page.getByRole('button', { name: 'Load draft', exact: true }).click();
+    const inline = page.getByRole('button', { name: 'Discard this draft' });
+    if (!(await inline.count()))
+      await page.getByRole('button', { name: 'More editor tools' }).click();
+    await page.getByRole('button', { name: 'Discard this draft' }).click();
+    const ask = page.getByRole('group', { name: 'Discard this draft?' });
+    await ask.getByRole('button', { name: 'Discard', exact: true }).click();
+    assert.equal(await editorText(page), '', `phone s${scale}: discarded`);
+    assert.ok(
+      await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor'))),
+      `phone s${scale}: the editor has focus after the confirm`,
+    );
+    assert.deepEqual(errors, [], `phone s${scale}: no page errors`);
+    await context.close();
+  }
+
+  // Stepping: nothing in the editor pane header moves after an entry's first frame, with and
+  // without a draft (header item boxes at the first frame vs settled, and layout-shift entries
+  // whose sources sit in the header). BASELINE=1 reports without asserting.
+  for (const [width, height, phone] of [
+    [1280, 800, false],
+    [390, 844, true],
   ]) {
+    // Opened on an undrafted empty tooltip, so the session's index arrives while it is open.
+    const { context, page, errors } = await open('dark', width, height, {
+      phone,
+      hash: '#/t/3002?lang=en',
+    });
+    await page.waitForTimeout(2000);
+    await page.evaluate(() => {
+      window.headerShifts = [];
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries())
+          for (const source of entry.sources ?? [])
+            if (source.node?.closest?.('[role="group"][aria-label="Editor tools"]'))
+              window.headerShifts.push({
+                value: entry.value,
+                at: Math.round(entry.startTime),
+                node: `${source.node.tagName} ${source.node.textContent.trim().slice(0, 20)}`,
+                from: `${Math.round(source.previousRect.x)},${Math.round(source.previousRect.y)},${Math.round(source.previousRect.width)}`,
+                to: `${Math.round(source.currentRect.x)},${Math.round(source.currentRect.y)},${Math.round(source.currentRect.width)}`,
+              });
+      }).observe({ type: 'layout-shift' });
+    });
+    const steps = [3000, 3002, 3000, 3001, 3000];
+    const report = [];
+    for (const [index, hash] of steps.entries()) {
+      // The header's item boxes in the first frame that shows the entry.
+      const { boxes: first, painted } = await page.evaluate(async (target) => {
+        const boxes = () =>
+          [
+            ...document.querySelectorAll(
+              '[role="group"][aria-label="Editor tools"] button, [role="group"][aria-label="Editor tools"] select',
+            ),
+          ].map((el) => {
+            const r = el.getBoundingClientRect();
+            return `${el.textContent.trim() || el.getAttribute('aria-label')}@${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}`;
+          });
+        window.location.hash = `#/t/${target}?lang=en`;
+        for (let i = 0; i < 120; i++) {
+          await new Promise((done) => requestAnimationFrame(done));
+          // This frame shows the entry: read after it paints (its ResizeObserver pass included).
+          if (document.querySelector('.cm-editor')?.dataset.tooltipHash === String(target)) {
+            await new Promise((done) => setTimeout(done, 0));
+            return { boxes: boxes(), painted: performance.now() };
+          }
+        }
+        throw new Error(`entry ${target} never painted`);
+      }, hash);
+      const shot = `${shots}/step-${width}-${index + 1}-${hash}`;
+      await page.screenshot({ path: `${shot}-first.png` });
+      await page.waitForTimeout(1500);
+      await page.screenshot({ path: `${shot}-settled.png` });
+      const settled = await page.evaluate(() =>
+        [
+          ...document.querySelectorAll(
+            '[role="group"][aria-label="Editor tools"] button, [role="group"][aria-label="Editor tools"] select',
+          ),
+        ].map((el) => {
+          const r = el.getBoundingClientRect();
+          return `${el.textContent.trim() || el.getAttribute('aria-label')}@${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}`;
+        }),
+      );
+      report.push({
+        hash,
+        painted,
+        left: await page.evaluate(() => performance.now()),
+        moved: JSON.stringify(first) !== JSON.stringify(settled),
+        first,
+        settled,
+      });
+    }
+    const shifts = await page.evaluate(() => window.headerShifts);
+    // After an entry's first frame (draft availability resolving) vs in the step's own frame
+    // (one entry's header differs from the last one's: reported, not a jump).
+    const late = shifts.filter((entry) =>
+      report.some((step) => entry.at >= step.painted && entry.at <= step.left),
+    );
+    const sum = (list) => list.reduce((total, entry) => total + entry.value, 0);
+    const total = sum(late);
+    for (const entry of shifts)
+      console.log(`  shift ${late.includes(entry) ? 'LATE' : 'step'} ${JSON.stringify(entry)}`);
+    console.log(
+      `stepping ${width}: header layout shift after first paint ${total.toFixed(4)} (${late.length} entries), ` +
+        `in step frames ${sum(shifts).toFixed(4)}; ` +
+        report.map((step) => `${step.hash}:${step.moved ? 'MOVED' : 'still'}`).join(' '),
+    );
+    for (const step of report.filter((entry) => entry.moved))
+      console.log(
+        `  ${step.hash} first ${step.first.join(' | ')}\n  ${step.hash} settled ${step.settled.join(' | ')}`,
+      );
+    if (!process.env.BASELINE) {
+      assert.equal(total, 0, `${width}: no layout shift in the header`);
+      assert.deepEqual(
+        report.filter((step) => step.moved).map((step) => step.hash),
+        [],
+        `${width}: header items keep their first-frame boxes`,
+      );
+      assert.deepEqual(errors, [], `stepping ${width}: no page errors`);
+    }
+    await context.close();
+  }
+
+  // Roles: trial editors and translators never see it; editors do.
+  for (const [role, shown] of full
+    ? [
+        ['editor', true],
+        ['trial', false],
+        ['translator', false],
+      ]
+    : []) {
     const { context, page } = await open('dark', 1280, 800, { role });
     await page.waitForTimeout(2000);
     assert.equal(

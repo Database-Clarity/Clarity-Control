@@ -100,6 +100,14 @@ it.each(['Discard', 'Reload and discard draft'])(
     expect(service.mutate).not.toHaveBeenCalled();
 
     await act(async () => button(resolution).click());
+    if (resolution === 'Discard') {
+      // The header's Discard asks first, in place.
+      const confirm = document.querySelector('[role="group"][aria-label="Discard this draft?"]');
+      expect(host.querySelector('textarea')!.value).toBe('LOCAL DRAFT plus one key');
+      await act(async () =>
+        [...confirm!.querySelectorAll('button')].find((b) => b.textContent === 'Discard')!.click(),
+      );
+    }
     expect(host.querySelector('textarea')!.value).toBe('REMOTE BODY');
     expect(host.textContent).not.toContain('saved revision changed');
     await act(async () => change('FRESH LOCAL'));

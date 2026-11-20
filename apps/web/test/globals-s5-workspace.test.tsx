@@ -51,6 +51,14 @@ const button = (text: string) => {
   if (!value) throw new Error(`Missing button: ${text}`);
   return value;
 };
+/** The header's Discard asks first, in place; this answers Discard. */
+async function discard() {
+  await act(async () => button('Discard').click());
+  const confirm = document.querySelector('[role="group"][aria-label="Discard this draft?"]')!;
+  await act(async () =>
+    [...confirm.querySelectorAll('button')].find((b) => b.textContent === 'Discard')!.click(),
+  );
+}
 function Where() {
   const location = useLocation();
   path = `${location.pathname}${location.search}`;
@@ -137,7 +145,7 @@ it('opens an export body at hash 1 and preserves its draft through typing and di
   expect(host.querySelector('textarea')!.value).toBe(entry.definitions.en!.body);
   await act(async () => change('New export body'));
   expect(host.querySelector('[aria-label="Unsaved draft"]')).not.toBeNull();
-  await act(async () => button('Discard').click());
+  await discard();
   expect(host.querySelector('textarea')!.value).toBe(entry.definitions.en!.body);
   await act(async () => button('Actions').click());
   await act(async () => button('Create global').click());
@@ -223,7 +231,7 @@ it('keeps an unsaved definition across a remount (reload) and marks it stale aft
   expect(host.querySelector('textarea')!.value).toBe('LOCAL 20%');
   expect(host.textContent).toContain('saved revision changed');
   expect(button('Save').disabled).toBe(true);
-  await act(async () => button('Discard').click());
+  await discard();
   expect(host.querySelector('textarea')!.value).toBe('15%');
   expect(stored.size).toBe(0);
 });

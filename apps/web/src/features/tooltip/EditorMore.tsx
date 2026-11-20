@@ -103,8 +103,9 @@ export function EditorMore({
               <DiscardRow
                 saving={saving}
                 onDiscard={() => {
+                  // Focus goes to the editor (undo), not back to More.
+                  close(false);
                   onDiscard();
-                  close();
                 }}
               />
             )}
@@ -217,6 +218,52 @@ function DiscardRow({
         </button>
       </span>
     </li>
+  );
+}
+
+/**
+ * An inline Discard (the phone tool row and the desktop header): opens the same in-place question
+ * next to the button; Esc, an outside click, or Cancel closes it.
+ */
+export function DiscardConfirm({
+  className,
+  saving,
+  onDiscard,
+}: {
+  className?: string;
+  saving: boolean;
+  onDiscard(): void;
+}) {
+  // While saving, the same button, disabled (nothing to ask).
+  if (saving)
+    return (
+      <button type="button" className={className} disabled aria-label="Discard this draft">
+        Discard
+      </button>
+    );
+  return (
+    <Popover
+      label="Discard draft"
+      className={className}
+      flush
+      contain
+      triggerLabel="Discard this draft"
+      trigger="Discard"
+    >
+      {(close) => (
+        <ul className={styles.rows}>
+          <DiscardRow
+            saving={saving}
+            asked
+            onCancel={() => close()}
+            onDiscard={() => {
+              close(false);
+              onDiscard();
+            }}
+          />
+        </ul>
+      )}
+    </Popover>
   );
 }
 
@@ -422,28 +469,11 @@ function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
     );
   if (tool.id === 'discard')
     return (
-      <Popover
-        label="Discard draft"
+      <DiscardConfirm
         className={`${styles.tool} ${styles.danger}`}
-        flush
-        contain
-        triggerLabel="Discard this draft"
-        trigger={tool.label}
-      >
-        {(close) => (
-          <ul className={styles.rows}>
-            <DiscardRow
-              saving={saving}
-              asked
-              onCancel={() => close()}
-              onDiscard={() => {
-                onDiscard();
-                close(false);
-              }}
-            />
-          </ul>
-        )}
-      </Popover>
+        saving={saving}
+        onDiscard={onDiscard}
+      />
     );
   if (tool.id === 'grouped' && grouped)
     return (

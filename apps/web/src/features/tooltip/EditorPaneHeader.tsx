@@ -6,7 +6,7 @@ import { InactiveMoveControl } from './InactiveMoveControl';
 import { applyInactiveMoves, useDataStore } from '../../stores/data';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
-import { EditorMore, PhoneTools, type QueueBack, type ToolId } from './EditorMore';
+import { DiscardConfirm, EditorMore, PhoneTools, type QueueBack, type ToolId } from './EditorMore';
 import {
   loadSandboxPerkText,
   sandboxPerkName,
@@ -423,15 +423,7 @@ function DesktopToolRow({
             aria-label="Unsaved draft"
             title="Unsaved draft"
           />
-          <button
-            type="button"
-            className={styles.ghost}
-            disabled={saving}
-            aria-label="Discard this draft"
-            onClick={onDiscard}
-          >
-            Discard
-          </button>
+          <DiscardConfirm className={styles.ghost} saving={saving} onDiscard={onDiscard} />
         </>
       )}
       {draftLoader}

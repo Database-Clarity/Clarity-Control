@@ -128,13 +128,17 @@ async function mount(path: string) {
   const root = createRoot(host);
   await act(async () => root.render(<RouterProvider router={router} />));
   const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(2000)));
-  const trigger = () =>
-    [...host.querySelectorAll('button')].find((node) => node.textContent === 'Load draft…');
+  const loadButtons = () =>
+    [...host.querySelectorAll('button')].filter((node) => node.textContent === 'Load draft…');
+  const trigger = () => loadButtons().find((node) => !node.hasAttribute('aria-hidden'));
+  /** The hidden stand-in that keeps the header still until the index answers. */
+  const slot = () => loadButtons().find((node) => node.hasAttribute('aria-hidden'));
   return {
     host,
     router,
     settle,
     trigger,
+    slot,
     async open() {
       await act(async () => trigger()!.click());
       return document.querySelector<HTMLElement>('[role="dialog"]')!;
@@ -148,10 +152,16 @@ async function mount(path: string) {
 
 it('offers the draft for an empty tooltip and loads it as an ordinary local edit', async () => {
   const page = await mount('/t/10');
+  // The index is not known yet: a hidden slot holds the button's room, so its answer moves nothing.
   expect(page.trigger()).toBeUndefined();
+  const slot = page.slot()!;
+  expect(slot.style.visibility).toBe('hidden');
+  const before = slot.previousElementSibling;
   expect(requests).toEqual([]);
   await page.settle();
   expect(requests).toEqual(['index.json', 'drafts/10.json']);
+  expect(page.slot()).toBeUndefined();
+  expect(page.trigger()!.previousElementSibling).toBe(before);
   const dialog = await page.open();
   expect(dialog.querySelector('[data-draft-preview]')?.textContent).toBe('Drafted text 10');
   expect(dialog.textContent).toContain('Weapon Perks');
@@ -171,6 +181,31 @@ it('offers the draft for an empty tooltip and loads it as an ordinary local edit
   await page.settle();
   expect(page.trigger()).toBeDefined();
   expect(requests).toEqual(['index.json', 'drafts/10.json']);
+  await page.unmount();
+});
+
+it('decides the header from the known index before it paints, so stepping moves nothing', async () => {
+  const page = await mount('/t/12');
+  await page.settle();
+  // Opened before the index arrived, an undrafted tooltip keeps its hidden slot.
+  expect(page.slot()).toBeDefined();
+  expect(page.trigger()).toBeUndefined();
+  for (const [path, offered] of [
+    ['/t/10', true],
+    ['/t/12', false],
+    ['/t/10', true],
+  ] as const) {
+    // Checked on the first commit of each tooltip, before any timer or request runs.
+    await act(async () => void page.router.navigate(path));
+    expect(Boolean(page.trigger()), path).toBe(offered);
+    expect(page.slot(), path).toBeUndefined();
+    await page.settle();
+    expect(Boolean(page.trigger()), path).toBe(offered);
+  }
+  // Back on a drafted tooltip, its button opens the draft.
+  await act(async () => void page.router.navigate('/t/12'));
+  await act(async () => void page.router.navigate('/t/10'));
+  expect((await page.open()).textContent).toContain('Drafted text 10');
   await page.unmount();
 });
 

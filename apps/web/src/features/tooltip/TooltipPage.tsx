@@ -72,7 +72,7 @@ import { PanelRow } from '../../ui/PanelRow';
 import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
 import { canEditLanguage, canPushLive } from '../auth/permissions';
-import { DraftLoader, StartEnglishLoader, WithEditorDraft } from './DraftLoader';
+import { DraftLoader, DraftSlot, StartEnglishLoader, WithEditorDraft } from './DraftLoader';
 import { defaultLanguage, withLanguage } from './language';
 import { useRememberedWorkspaceLanguage } from './WorkspaceLanguage';
 import { requireEnglish } from './requireEnglish';
@@ -812,19 +812,27 @@ function TooltipWorkspace({
   // An agent-written draft for an empty English tooltip: editors and maintainers only.
   const draftable =
     !readOnly &&
-    !suspended &&
     lang === 'en' &&
     access.reason === null &&
     canPushLive(user) &&
     activeHash > 3 &&
     !/\S/.test(activeBase.text.en?.text ?? '') &&
     !/\S/.test(textOf(activeHash));
-  /** Loading is a typed-in edit: one undo step in the editor, then the normal draft and save flow. */
-  const loadDraft = (text: string) => {
+  const activeEditor = () => {
     const root = document.querySelector<HTMLElement>(
       `.cm-editor[data-tooltip-hash="${activeHash}"]`,
     );
-    const editor = root && EditorView.findFromDOM(root);
+    return root && EditorView.findFromDOM(root);
+  };
+  /** After the confirm, the editor takes focus (the confirm closes without taking it back). */
+  const discardDraft = () => {
+    discard(activeHash);
+    const editor = activeEditor();
+    if (editor && !editor.state.readOnly) editor.focus();
+  };
+  /** Loading is a typed-in edit: one undo step in the editor, then the normal draft and save flow. */
+  const loadDraft = (text: string) => {
+    const editor = activeEditor();
     if (editor && !editor.state.readOnly) {
       editor.dispatch({
         changes: { from: 0, to: editor.state.doc.length, insert: text },
@@ -837,15 +845,15 @@ function TooltipWorkspace({
   };
 
   const header = (
-    <WithEditorDraft hash={activeHash} enabled={draftable}>
-      {(draft) => (
+    <WithEditorDraft hash={activeHash} enabled={draftable} settled={!suspended}>
+      {(offer) => (
         <EditorPaneHeader
           lang={lang}
           onLanguage={changeLanguage}
           draft={!readOnly && Boolean(drafts[activeHash])}
           reserveDraft={!!batchEditing && !!batchAllowed}
           saving={saving}
-          onDiscard={() => discard(activeHash)}
+          onDiscard={discardDraft}
           reason={pausedOnPhone ? null : access.reason}
           switchTo={access.switchTo}
           onSwitch={changeLanguage}
@@ -906,14 +914,17 @@ function TooltipWorkspace({
           inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
           markHash={hash}
           draftLoader={
-            draft && (
+            // A listed draft whose file failed keeps the button's room, hidden.
+            offer.slot === 'draft' && offer.draft !== null ? (
               <DraftLoader
-                draft={draft}
+                draft={offer.draft}
                 name={nameOf(activeHash)}
                 categoryLabel={baseCategory?.label}
                 globals={globalsFor(activeHash)}
                 onLoad={loadDraft}
               />
+            ) : (
+              offer.slot !== 'none' && <DraftSlot />
             )
           }
           queue={
