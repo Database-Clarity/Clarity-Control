@@ -26,15 +26,15 @@ describe('placeAtPointer', () => {
     return x + 12 > p.left && x < p.left + p.width && y + POINTER_OFFSET.y > top && y < top + h;
   };
 
-  it('puts its top-left just below-right of the pointer', () => {
+  it('puts its top-left at the hotspot x, just below the arrow', () => {
     const p = placeAtPointer({ pointer: { x: 300, y: 200 }, area: desk, width: 240, height: 40 });
-    expect([p.side, p.left, p.top]).toEqual(['below', 304, 224]);
-    expect(p.maxHeight).toBe(792 - 224);
+    expect([p.side, p.left, p.top]).toEqual(['below', 300, 220]);
+    expect(p.maxHeight).toBe(792 - 220);
   });
 
   it('goes left of the pointer at the right edge, above it at the bottom edge', () => {
     const right = placeAtPointer({ pointer: { x: 1200, y: 200 }, area: desk, width: 240 });
-    expect(right.left).toBe(1200 - 4 - 240);
+    expect(right.left).toBe(1200 - 240);
     const low = placeAtPointer({ pointer: { x: 300, y: 770 }, area: desk, width: 240, height: 60 });
     expect([low.side, low.bottom]).toEqual(['above', 800 - 762]);
   });

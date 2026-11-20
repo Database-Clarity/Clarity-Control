@@ -5,12 +5,14 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
   applyPlacement,
   followPlacement,
+  HOVER_REST,
   isPhone,
   naturalHeight,
   placeAnchored,
@@ -114,15 +116,27 @@ export function Popover({
   const hoverClose = useRef<ReturnType<typeof setTimeout>>();
   const restoringFocus = useRef(false);
   const returnFocus = useRef(false);
-  // A hover popup opened by the mouse sits at the pointer: where it entered, relative to the
-  // trigger, so it moves with the trigger on scroll. None for keyboard focus or a tap.
+  // A hover popup opened by the mouse sits at the pointer: where it rested HOVER_REST ms,
+  // relative to the trigger, so it moves with the trigger on scroll. None for keyboard focus or a
+  // tap; a press during the rest opens it at the pointer.
   const pointer = useRef<{ x: number; y: number }>();
+  const resting = useRef<ReturnType<typeof setTimeout>>();
+  const rest = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === 'touch') return;
+    if (open) return reveal();
+    const rect = event.currentTarget.getBoundingClientRect();
+    pointer.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    clearTimeout(resting.current);
+    resting.current = setTimeout(() => reveal(), HOVER_REST);
+  };
   const reveal = (fromFocus = false) => {
     clearTimeout(hoverClose.current);
     if (fromFocus) {
       returnFocus.current = true;
-      if (!open) pointer.current = undefined;
+      if (!open && resting.current === undefined) pointer.current = undefined;
     }
+    clearTimeout(resting.current);
+    resting.current = undefined;
     if (openOnHover) {
       if (controlledOpen === undefined) setOpen(true);
       onOpenChange?.(true);
@@ -130,6 +144,8 @@ export function Popover({
   };
   const leave = () => {
     clearTimeout(hoverClose.current);
+    clearTimeout(resting.current);
+    resting.current = undefined;
     if (openOnHover)
       hoverClose.current = setTimeout(() => {
         const active = document.activeElement;
@@ -137,7 +153,13 @@ export function Popover({
         close(false);
       }, 150);
   };
-  useEffect(() => () => clearTimeout(hoverClose.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(hoverClose.current);
+      clearTimeout(resting.current);
+    },
+    [],
+  );
   useWorkspaceShortcutOwner(surface, open && contain);
   const close = useCallback((restoreFocus: boolean) => {
     clearTimeout(hoverClose.current);
@@ -321,18 +343,8 @@ export function Popover({
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? id : undefined}
-          onPointerEnter={
-            openOnHover
-              ? (event) => {
-                  if (event.pointerType === 'touch') return;
-                  if (!open) {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    pointer.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-                  }
-                  reveal();
-                }
-              : undefined
-          }
+          onPointerEnter={openOnHover ? rest : undefined}
+          onPointerMove={openOnHover ? rest : undefined}
           onPointerLeave={openOnHover ? leave : undefined}
           onFocus={
             openOnHover

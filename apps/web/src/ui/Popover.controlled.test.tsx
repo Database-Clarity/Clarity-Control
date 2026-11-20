@@ -55,6 +55,9 @@ it('dismisses a hover-only popover without moving focus from the editor', async 
   const { trigger, editor } = await hoverHarness();
   await act(async () => editor.focus());
   await act(async () => pointer(trigger, 'pointerover'));
+  // It opens once the pointer has rested (HOVER_REST).
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await act(() => new Promise((resolve) => setTimeout(resolve, 160)));
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
   expect(document.activeElement).toBe(editor);
   await act(async () =>
@@ -98,6 +101,7 @@ it.each(['trigger', 'content'])(
     const { trigger, editor } = await hoverHarness();
     vi.useFakeTimers();
     await act(async () => pointer(trigger, 'pointerover'));
+    await act(async () => vi.advanceTimersByTime(160));
     const field = document.querySelector<HTMLInputElement>('[aria-label="Popover field"]')!;
     const focused = owner === 'trigger' ? trigger : field;
     await act(async () => focused.focus());
@@ -122,6 +126,7 @@ it('closes a mouse-hover popover after pointer leave when neither surface owns f
   vi.useFakeTimers();
   await act(async () => editor.focus());
   await act(async () => pointer(trigger, 'pointerover'));
+  await act(async () => vi.advanceTimersByTime(160));
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
   await act(async () => pointer(trigger, 'pointerout'));
   await act(async () => vi.advanceTimersByTime(151));

@@ -181,6 +181,7 @@ it('keeps a hovered title open while the pointer crosses the gap into it', async
         target.dispatchEvent(new MouseEvent(type, { bubbles: true, relatedTarget: related }));
       });
     await pointer('pointerover', anchor, document.body);
+    await wait(160);
     expect(box.hasAttribute('data-open')).toBe(true);
     // Out of the anchor into the gap, then into the box (its child) within the grace.
     await pointer('pointerout', anchor, document.body);
@@ -222,13 +223,66 @@ it('keeps a hovered title at the pointer when the anchor is then pressed or focu
         }),
       );
     });
-    expect(box.style.left).toBe('54px');
+    await act(() => new Promise((resolve) => setTimeout(resolve, 160)));
+    expect(box.style.left).toBe('50px');
     await act(async () => {
       anchor.focus();
       anchor.click();
     });
     expect(box.hasAttribute('data-open')).toBe(true);
-    expect(box.style.left).toBe('54px');
+    expect(box.style.left).toBe('50px');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it('opens a hovered title once the pointer rests, at its latest point; Escape keeps it shut', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  document.body.append(host);
+  const wait = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+  const at = (type: string, target: Element, x: number, y: number) =>
+    act(async () => {
+      target.dispatchEvent(
+        new MouseEvent(type, {
+          bubbles: true,
+          relatedTarget: document.body,
+          clientX: x,
+          clientY: y,
+        }),
+      );
+    });
+  try {
+    await act(async () =>
+      root.render(
+        <TitleAnchor part={{ text: 'Term', title: [{ linesContent: [{ text: 'Body' }] }] }} />,
+      ),
+    );
+    const anchor = host.querySelector<HTMLElement>('[aria-describedby]')!;
+    const box = host.querySelector<HTMLElement>('[role="tooltip"]')!;
+    // Enters at the trigger's edge, moves on before the rest ends: it opens where it stopped.
+    await at('pointerover', anchor, 40, 90);
+    await wait(100);
+    await at('pointermove', anchor, 70, 60);
+    await wait(100);
+    expect(box.hasAttribute('data-open')).toBe(false);
+    await wait(80);
+    expect(box.hasAttribute('data-open')).toBe(true);
+    expect(box.style.left).toBe('70px');
+    // Once open it stays put, like a native title.
+    await at('pointermove', anchor, 90, 60);
+    await wait(200);
+    expect(box.style.left).toBe('70px');
+    // Escape closes it; moving on over the anchor does not bring it back until the pointer leaves.
+    await act(async () => {
+      anchor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(box.hasAttribute('data-open')).toBe(false);
+    await at('pointermove', anchor, 95, 60);
+    await wait(200);
+    expect(box.hasAttribute('data-open')).toBe(false);
   } finally {
     await act(async () => root.unmount());
     host.remove();

@@ -104,18 +104,18 @@ describe('title popover at the pointer', () => {
   const placed = (popover: HTMLElement, width: number, height: number) =>
     new DOMRect(parseFloat(popover.style.left), parseFloat(popover.style.top), width, height);
 
-  it('opens just below-right of the pointer, wherever it is on the anchor', () => {
+  it('opens just below the pointer, left edge at the hotspot, wherever it is on the anchor', () => {
     // The owner's case: a 28px tall greyed Compare tab, the pointer on its upper half.
     const { anchor, popover } = setup(rect(300, 40, 80, 28), { width: 220, height: 30 });
     openTitlePopover(anchor, popover, { x: 330, y: 48 });
-    expect([popover.style.left, popover.style.top]).toEqual(['334px', '72px']);
+    expect([popover.style.left, popover.style.top]).toEqual(['330px', '68px']);
   });
 
   it('goes left of the pointer at the right edge, above it at the bottom edge', () => {
     const { anchor, popover } = setup(rect(700, 560, 90, 16), { width: 200, height: 60 });
     openTitlePopover(anchor, popover, { x: 760, y: 568 });
-    // 760 - 4 - 200 = 556 left; bottom 8px over the hotspot: 568 - 8 - 60 = 500 top.
-    expect([popover.style.left, popover.style.top]).toEqual(['556px', '500px']);
+    // Right edge at the hotspot: 760 - 200 = 560 left; bottom 8px over it: 568 - 8 - 60 = 500 top.
+    expect([popover.style.left, popover.style.top]).toEqual(['560px', '500px']);
   });
 
   it('never sits under the pointer, below, flipped above, or at the edges', () => {
