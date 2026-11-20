@@ -288,3 +288,40 @@ it('opens a hovered title once the pointer rests, at its latest point; Escape ke
     host.remove();
   }
 });
+
+it('hovers open again after Escape closed a keyboard-opened title', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  document.body.append(host);
+  try {
+    await act(async () =>
+      root.render(
+        <TitleAnchor part={{ text: 'Term', title: [{ linesContent: [{ text: 'Body' }] }] }} />,
+      ),
+    );
+    const anchor = host.querySelector<HTMLElement>('[aria-describedby]')!;
+    const box = host.querySelector<HTMLElement>('[role="tooltip"]')!;
+    await act(async () => anchor.focus());
+    await act(async () => {
+      anchor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await act(async () => anchor.blur());
+    expect(box.hasAttribute('data-open')).toBe(false);
+    await act(async () => {
+      anchor.dispatchEvent(
+        new MouseEvent('pointerover', {
+          bubbles: true,
+          relatedTarget: document.body,
+          clientX: 70,
+          clientY: 60,
+        }),
+      );
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 160)));
+    expect(box.hasAttribute('data-open')).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

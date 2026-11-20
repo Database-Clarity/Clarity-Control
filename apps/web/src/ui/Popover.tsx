@@ -121,9 +121,13 @@ export function Popover({
   // tap; a press during the rest opens it at the pointer.
   const pointer = useRef<{ x: number; y: number }>();
   const resting = useRef<ReturnType<typeof setTimeout>>();
+  // Escape keeps a hover popup shut while the pointer stays on its trigger.
+  const dismissed = useRef(false);
   const rest = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType === 'touch') return;
-    if (open) return reveal();
+    if (event.pointerType === 'touch' || dismissed.current) return;
+    // A quick re-entry: the close pending from the last leave must not drop this point.
+    clearTimeout(hoverClose.current);
+    if (open) return;
     const rect = event.currentTarget.getBoundingClientRect();
     pointer.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     clearTimeout(resting.current);
@@ -288,6 +292,7 @@ export function Popover({
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || innerPopupOwnsEscape(event.target, surface.current)) return;
       event.stopPropagation();
+      if (openOnHover) dismissed.current = true;
       close(!openOnHover || returnFocus.current);
     };
     const back = () => close(true);
@@ -343,9 +348,23 @@ export function Popover({
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? id : undefined}
-          onPointerEnter={openOnHover ? rest : undefined}
+          onPointerEnter={
+            openOnHover
+              ? (event) => {
+                  dismissed.current = false;
+                  rest(event);
+                }
+              : undefined
+          }
           onPointerMove={openOnHover ? rest : undefined}
-          onPointerLeave={openOnHover ? leave : undefined}
+          onPointerLeave={
+            openOnHover
+              ? () => {
+                  dismissed.current = false;
+                  leave();
+                }
+              : undefined
+          }
           onFocus={
             openOnHover
               ? () => {

@@ -80,6 +80,8 @@ export function TitleAnchor({
       aria-describedby={id}
       onPointerEnter={(event) => {
         clearTimeout(leaving.current);
+        // A new entry may open again (Escape on a keyboard-opened box set this with no leave).
+        dismissed.current = false;
         // Back from the gap into the open box (a child) keeps it where it is.
         rest(event);
       }}

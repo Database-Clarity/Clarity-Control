@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Popover } from './Popover';
 
 let cleanup: () => Promise<void>;
@@ -257,4 +257,41 @@ it('anchors a controlled portal without moving input focus, and closes on Escape
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(input);
   }
+});
+
+describe('hover popover at the rested pointer', () => {
+  const at = (target: HTMLElement, type: string, x = 40, y = 20) => {
+    const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y });
+    Object.defineProperties(event, {
+      pointerType: { value: 'mouse' },
+      relatedTarget: { value: document.body },
+    });
+    target.dispatchEvent(event);
+  };
+  const wait = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+
+  it('keeps the point of a quick re-entry', async () => {
+    const { trigger } = await hoverHarness();
+    await act(async () => at(trigger, 'pointerover'));
+    await act(async () => at(trigger, 'pointerout'));
+    await wait(50);
+    await act(async () => at(trigger, 'pointerover', 60));
+    await wait(160);
+    expect(dialog()?.style.left).toBe('60px');
+  });
+
+  it('stays shut after Escape while the pointer moves on its trigger', async () => {
+    const { trigger } = await hoverHarness();
+    await act(async () => at(trigger, 'pointerover'));
+    await wait(160);
+    expect(dialog()).not.toBeNull();
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(dialog()).toBeNull();
+    await act(async () => at(trigger, 'pointermove', 50));
+    await wait(200);
+    expect(dialog()).toBeNull();
+  });
 });
