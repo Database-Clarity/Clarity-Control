@@ -832,7 +832,9 @@ function TooltipWorkspace({
     else if (!batchEditing)
       useDraftStore
         .getState()
-        .updateDraftsAt([{ key: String(key), base: to.base, update: () => structuredClone(to.next) }]);
+        .updateDraftsAt([
+          { key: String(key), base: to.base, update: () => structuredClone(to.next) },
+        ]);
     // A batch draft comes back through its edits, one language at a time.
     else
       for (const [language, entry] of Object.entries(to.next.text))
