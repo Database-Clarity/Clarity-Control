@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Popover } from '../../ui/Popover';
+import { scaledPx } from '../../ui/scale';
 import type { GroupedPerk } from './grouping';
 import type { OverrideTarget } from './EditorPaneHeader';
 import styles from './EditorMore.module.scss';
@@ -247,6 +248,8 @@ export function DiscardConfirm({
       className={className}
       flush
       contain
+      // A short question on one line, its buttons below: no wide bar beside the header.
+      width={scaledPx(320)}
       triggerLabel="Discard this draft"
       trigger="Discard"
     >
