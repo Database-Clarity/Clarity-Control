@@ -1,4 +1,4 @@
-/* global document, window, getComputedStyle */
+/* global document, window, getComputedStyle, PointerEvent, requestAnimationFrame */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
