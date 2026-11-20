@@ -119,3 +119,54 @@ it('discards as one editor step: undo restores the text and the draft, redo disc
   await act(async () => root.unmount());
   router.dispose();
 });
+
+it('undo restores the whole draft: other languages, fields, and an unchanged open language', async () => {
+  const saved = tooltip(11, 'Saved text');
+  const whole = {
+    ...saved,
+    associated: [42],
+    text: {
+      en: { text: 'English edit', updatedAt: stamp, updatedBy: 'pat' },
+      de: { text: 'Deutsch Entwurf', updatedAt: stamp, updatedBy: 'pat' },
+    },
+  } as Tooltip;
+  for (const next of [whole, { ...whole, text: { ...whole.text, en: saved.text.en } }]) {
+    useDraftStore.setState({ drafts: { 11: { base: saved, next } } });
+    const router = createMemoryRouter([{ path: '/t/:hash', element: <TooltipPage /> }], {
+      initialEntries: ['/t/11'],
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(2000)));
+    const view = EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-editor')!)!;
+    const shown = next.text.en!.text;
+    expect(view.state.doc.toString()).toBe(shown);
+    const discard = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Discard this draft',
+    )!;
+    await act(async () => discard.click());
+    const confirm = document.querySelector('[role="group"][aria-label="Discard this draft?"]')!;
+    await act(async () =>
+      [...confirm.querySelectorAll('button')].find((b) => b.textContent === 'Discard')!.click(),
+    );
+    expect(useDraftStore.getState().drafts[11]).toBeUndefined();
+    expect(view.state.doc.toString()).toBe('Saved text');
+    // The editor has focus: Ctrl+Z goes straight to it.
+    expect(view.hasFocus).toBe(true);
+    await act(async () => void undo(view));
+    expect(view.state.doc.toString()).toBe(shown);
+    const back = useDraftStore.getState().drafts[11]!;
+    expect(back.base).toEqual(saved);
+    expect(back.next.associated).toEqual([42]);
+    expect(back.next.text.de).toEqual(next.text.de);
+    expect(back.next.text.en?.text).toBe(shown);
+    await act(async () => void redo(view));
+    expect(useDraftStore.getState().drafts[11]).toBeUndefined();
+    expect(view.state.doc.toString()).toBe('Saved text');
+    await act(async () => root.unmount());
+    router.dispose();
+    document.body.innerHTML = '';
+  }
+});

@@ -673,6 +673,10 @@ describe('editor page composition', () => {
     const yes = [...confirm()!.querySelectorAll('button')].find((b) => b.textContent === 'Discard');
     await act(async () => yes!.click());
     expect(useDraftStore.getState().discard).toHaveBeenCalledWith(10);
+    // While saving, Discard is disabled and asks nothing.
+    await act(async () => useSaveState.setState({ locked: true }));
+    expect(button('Discard this draft')!.disabled).toBe(true);
+    expect(button('Discard this draft')!.hasAttribute('aria-haspopup')).toBe(false);
   });
 
   it('on a phone: Editor / Preview / Compendium / Reports views, panels mounted, one at a time', async () => {

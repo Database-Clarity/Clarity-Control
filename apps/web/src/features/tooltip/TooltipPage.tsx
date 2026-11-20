@@ -73,6 +73,7 @@ import { languageLabel } from '../../languageLabels';
 import { editorAccess } from './access';
 import { canEditLanguage, canPushLive } from '../auth/permissions';
 import { DraftLoader, DraftSlot, StartEnglishLoader, WithEditorDraft } from './DraftLoader';
+import { discardInEditor, type DraftSwap } from './discardUndo';
 import { defaultLanguage, withLanguage } from './language';
 import { useRememberedWorkspaceLanguage } from './WorkspaceLanguage';
 import { requireEnglish } from './requireEnglish';
@@ -300,6 +301,7 @@ function TooltipWorkspace({
     [hashOverride, parameter],
   );
   const phone = useMedia(phoneQuery);
+  const draftSwap = useRef<(change: DraftSwap) => void>(() => {});
   const markupRow = useMarkupRow();
   const user = useAuthStore((state) => state.user);
   const lang = defaultLanguage(user, search, remembered);
@@ -824,22 +826,33 @@ function TooltipWorkspace({
     );
     return root && EditorView.findFromDOM(root);
   };
+  // Undo and redo of a Discard (see discardUndo): the current drafts, or the batch's.
+  draftSwap.current = ({ hash: key, to }) => {
+    if (!to) discard(key);
+    else if (!batchEditing)
+      useDraftStore
+        .getState()
+        .updateDraftsAt([{ key: String(key), base: to.base, update: () => structuredClone(to.next) }]);
+    // A batch draft comes back through its edits, one language at a time.
+    else
+      for (const [language, entry] of Object.entries(to.next.text))
+        if (entry && entry.text !== (to.base.text[language as Lang]?.text ?? ''))
+          batchEditing.edit(to.base, language as Lang, entry.text, user?.login ?? 'local draft');
+  };
   /**
-   * Discard first puts the saved text back as one editor step, so undo restores the discarded
-   * text (and with it the draft) and redo discards again; then the draft goes as before. The
-   * editor already shows the saved text, so the store change does not reset its history.
+   * Discard is one editor step that puts the saved text back and carries the whole draft, so
+   * undo restores the draft (every language and field) and redo discards it again; then the draft
+   * goes as before. The editor already shows the saved text, so its history is kept.
    */
   const discardDraft = () => {
     const editor = activeEditor();
-    const saved = activeBase.text[lang]?.text ?? '';
-    if (editor && !editor.state.readOnly && editor.state.doc.toString() !== saved) {
-      editor.dispatch({
-        changes: { from: 0, to: editor.state.doc.length, insert: saved },
-        selection: { anchor: 0 },
-        annotations: [isolateHistory.of('full'), Transaction.userEvent.of('delete')],
-        scrollIntoView: true,
-      });
-      if (!phone) editor.focus();
+    const draft = drafts[activeHash];
+    if (editor && !editor.state.readOnly && draft) {
+      discardInEditor(editor, activeHash, draft, activeBase.text[lang]?.text ?? '', (change) =>
+        draftSwap.current(change),
+      );
+      // Ctrl+Z works at once (the confirm closes without taking focus back).
+      editor.focus();
     }
     discard(activeHash);
   };

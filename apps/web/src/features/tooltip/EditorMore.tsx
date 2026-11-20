@@ -103,8 +103,9 @@ export function EditorMore({
               <DiscardRow
                 saving={saving}
                 onDiscard={() => {
+                  // Focus goes to the editor (undo), not back to More.
+                  close(false);
                   onDiscard();
-                  close();
                 }}
               />
             )}
@@ -233,6 +234,13 @@ export function DiscardConfirm({
   saving: boolean;
   onDiscard(): void;
 }) {
+  // While saving, the same button, disabled (nothing to ask).
+  if (saving)
+    return (
+      <button type="button" className={className} disabled aria-label="Discard this draft">
+        Discard
+      </button>
+    );
   return (
     <Popover
       label="Discard draft"

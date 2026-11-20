@@ -232,6 +232,26 @@ try {
     await context.close();
   }
 
+  // Phone: Discard (inline at 100%, in More at 150%) asks first, then Ctrl+Z undoes it at once.
+  for (const scale of full ? [100, 150] : []) {
+    const { context, page, errors } = await open('dark', 390, 844, { phone: true, scale });
+    await trigger(page).click();
+    await page.getByRole('button', { name: 'Load draft', exact: true }).click();
+    const inline = page.getByRole('button', { name: 'Discard this draft' });
+    if (!(await inline.count()))
+      await page.getByRole('button', { name: 'More editor tools' }).click();
+    await page.getByRole('button', { name: 'Discard this draft' }).click();
+    const ask = page.getByRole('group', { name: 'Discard this draft?' });
+    await ask.getByRole('button', { name: 'Discard', exact: true }).click();
+    assert.equal(await editorText(page), '', `phone s${scale}: discarded`);
+    await page.keyboard.press('Control+z');
+    assert.match(await editorText(page), /^Final blows/, `phone s${scale}: undo restores`);
+    await page.keyboard.press('Control+y');
+    assert.equal(await editorText(page), '', `phone s${scale}: redo discards again`);
+    assert.deepEqual(errors, [], `phone s${scale}: no page errors`);
+    await context.close();
+  }
+
   // Stepping: nothing in the editor pane header moves after an entry's first frame, with and
   // without a draft (header item boxes at the first frame vs settled, and layout-shift entries
   // whose sources sit in the header). BASELINE=1 reports without asserting.
