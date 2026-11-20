@@ -353,11 +353,11 @@ it('opens a hovered scaled cell style detail at the pointer, a focused one at th
       marker.dispatchEvent(new MouseEvent('mouseover', at));
     });
     const detail = () => host.querySelector<HTMLElement>('[role=tooltip]')!;
-    // POINTER_OFFSET: 4px right of the hotspot, 24px below it.
-    expect([detail().style.left, detail().style.top]).toEqual(['104px', '74px']);
+    // POINTER_OFFSET: left edge at the hotspot, 20px below it.
+    expect([detail().style.left, detail().style.top]).toEqual(['100px', '70px']);
     // Pressed after the hover: it stays at the pointer.
     await act(async () => marker.focus());
-    expect([detail().style.left, detail().style.top]).toEqual(['104px', '74px']);
+    expect([detail().style.left, detail().style.top]).toEqual(['100px', '70px']);
     await act(async () => marker.blur());
     await act(async () => marker.focus());
     expect(detail().style.top).toBe('22px');

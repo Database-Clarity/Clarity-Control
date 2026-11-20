@@ -1,5 +1,15 @@
-import { Fragment, memo, useEffect, useId, useMemo, useRef, type ReactNode } from 'react';
+import {
+  Fragment,
+  memo,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import type { MarkupLine, MarkupSpan } from '@clarity/core';
+import { HOVER_REST } from '../../ui/anchorPlacement';
 import { closeTitlePopover, isTitlePopoverOpen, openTitlePopover } from './titlePopover';
 import styles from './TooltipPreview.module.scss';
 
@@ -29,22 +39,37 @@ export function TitleAnchor({
   const box = useRef<HTMLSpanElement>(null);
   const anchor = useRef<HTMLSpanElement>(null);
   const leaving = useRef<ReturnType<typeof setTimeout>>();
+  // The mouse over the anchor: its latest point, and the rest timer that opens the box there.
+  const hovered = useRef<{ x: number; y: number }>();
+  const resting = useRef<ReturnType<typeof setTimeout>>();
+  // Escape keeps it closed until the pointer leaves, as a native title does.
+  const dismissed = useRef(false);
   // One stable function: it is also the scroll listener, since scrolling anything while the popover
   // is open would leave a fixed box behind its anchor.
   const hide = useMemo(() => {
     const close = () => {
       clearTimeout(leaving.current);
+      clearTimeout(resting.current);
       window.removeEventListener('scroll', close, true);
       if (box.current) closeTitlePopover(box.current);
     };
     return close;
   }, []);
   const open = (pointer?: { x: number; y: number }) => {
+    clearTimeout(resting.current);
     if (!anchor.current || !box.current) return;
     // Open already (hovered, then pressed or focused): it stays where it is.
     if (isTitlePopoverOpen(box.current)) return;
     openTitlePopover(anchor.current, box.current, pointer);
     window.addEventListener('scroll', hide, { capture: true, passive: true });
+  };
+  // The box opens once the mouse has rested HOVER_REST ms, where it is then (like a native title).
+  const rest = (event: ReactPointerEvent) => {
+    if (event.pointerType === 'touch' || dismissed.current) return;
+    if (box.current && isTitlePopoverOpen(box.current)) return;
+    hovered.current = { x: event.clientX, y: event.clientY };
+    clearTimeout(resting.current);
+    resting.current = setTimeout(() => open(hovered.current), HOVER_REST);
   };
   useEffect(() => hide, [hide]);
   return (
@@ -55,22 +80,30 @@ export function TitleAnchor({
       aria-describedby={id}
       onPointerEnter={(event) => {
         clearTimeout(leaving.current);
-        // Back from the gap into the open box (a child) keeps it where it is (open()).
-        if (event.pointerType !== 'touch') open({ x: event.clientX, y: event.clientY });
+        // A new entry may open again (Escape on a keyboard-opened box set this with no leave).
+        dismissed.current = false;
+        // Back from the gap into the open box (a child) keeps it where it is.
+        rest(event);
       }}
+      onPointerMove={rest}
       // A short grace lets the pointer cross the gap below the anchor into the box.
       onPointerLeave={() => {
+        hovered.current = undefined;
+        dismissed.current = false;
+        clearTimeout(resting.current);
         clearTimeout(leaving.current);
         leaving.current = setTimeout(hide, 150);
       }}
-      onFocus={() => open()}
-      onClick={() => open()}
+      // Pressed before the rest ends: at the pointer; keyboard focus and taps: at the anchor.
+      onFocus={() => open(hovered.current)}
+      onClick={() => open(hovered.current)}
       onBlur={hide}
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || !box.current || !isTitlePopoverOpen(box.current)) return;
         // The term closes first; a host dialog would otherwise cancel on Escape's default action.
         event.preventDefault();
         event.stopPropagation();
+        dismissed.current = true;
         hide();
       }}
     >

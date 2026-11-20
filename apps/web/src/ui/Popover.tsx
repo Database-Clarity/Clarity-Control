@@ -5,12 +5,14 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
   applyPlacement,
   followPlacement,
+  HOVER_REST,
   isPhone,
   naturalHeight,
   placeAnchored,
@@ -114,15 +116,31 @@ export function Popover({
   const hoverClose = useRef<ReturnType<typeof setTimeout>>();
   const restoringFocus = useRef(false);
   const returnFocus = useRef(false);
-  // A hover popup opened by the mouse sits at the pointer: where it entered, relative to the
-  // trigger, so it moves with the trigger on scroll. None for keyboard focus or a tap.
+  // A hover popup opened by the mouse sits at the pointer: where it rested HOVER_REST ms,
+  // relative to the trigger, so it moves with the trigger on scroll. None for keyboard focus or a
+  // tap; a press during the rest opens it at the pointer.
   const pointer = useRef<{ x: number; y: number }>();
+  const resting = useRef<ReturnType<typeof setTimeout>>();
+  // Escape keeps a hover popup shut while the pointer stays on its trigger.
+  const dismissed = useRef(false);
+  const rest = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === 'touch' || dismissed.current) return;
+    // A quick re-entry: the close pending from the last leave must not drop this point.
+    clearTimeout(hoverClose.current);
+    if (open) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    pointer.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    clearTimeout(resting.current);
+    resting.current = setTimeout(() => reveal(), HOVER_REST);
+  };
   const reveal = (fromFocus = false) => {
     clearTimeout(hoverClose.current);
     if (fromFocus) {
       returnFocus.current = true;
-      if (!open) pointer.current = undefined;
+      if (!open && resting.current === undefined) pointer.current = undefined;
     }
+    clearTimeout(resting.current);
+    resting.current = undefined;
     if (openOnHover) {
       if (controlledOpen === undefined) setOpen(true);
       onOpenChange?.(true);
@@ -130,6 +148,8 @@ export function Popover({
   };
   const leave = () => {
     clearTimeout(hoverClose.current);
+    clearTimeout(resting.current);
+    resting.current = undefined;
     if (openOnHover)
       hoverClose.current = setTimeout(() => {
         const active = document.activeElement;
@@ -137,7 +157,13 @@ export function Popover({
         close(false);
       }, 150);
   };
-  useEffect(() => () => clearTimeout(hoverClose.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(hoverClose.current);
+      clearTimeout(resting.current);
+    },
+    [],
+  );
   useWorkspaceShortcutOwner(surface, open && contain);
   const close = useCallback((restoreFocus: boolean) => {
     clearTimeout(hoverClose.current);
@@ -266,6 +292,7 @@ export function Popover({
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || innerPopupOwnsEscape(event.target, surface.current)) return;
       event.stopPropagation();
+      if (openOnHover) dismissed.current = true;
       close(!openOnHover || returnFocus.current);
     };
     const back = () => close(true);
@@ -324,16 +351,20 @@ export function Popover({
           onPointerEnter={
             openOnHover
               ? (event) => {
-                  if (event.pointerType === 'touch') return;
-                  if (!open) {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    pointer.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-                  }
-                  reveal();
+                  dismissed.current = false;
+                  rest(event);
                 }
               : undefined
           }
-          onPointerLeave={openOnHover ? leave : undefined}
+          onPointerMove={openOnHover ? rest : undefined}
+          onPointerLeave={
+            openOnHover
+              ? () => {
+                  dismissed.current = false;
+                  leave();
+                }
+              : undefined
+          }
           onFocus={
             openOnHover
               ? () => {

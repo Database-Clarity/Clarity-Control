@@ -124,15 +124,17 @@ export function placeAnchored({
 }
 
 /**
- * Where a hover popup's corner sits from the pointer's hotspot: just past the drawn pointer, a
- * few px to its right. The Windows hand (links, buttons) reaches 23px below its hotspot and spans
- * both sides of it, the arrow 20px; 24px clears either wherever the box sits across.
+ * Where a hover popup's corner sits from the pointer's hotspot, as Chrome's native title tooltip
+ * on Windows: its left edge at the hotspot, its top just below the arrow (20px under the hotspot).
  */
-export const POINTER_OFFSET = { x: 4, y: 24 };
+export const POINTER_OFFSET = { x: 0, y: 20 };
+
+/** How long the pointer rests on a hover trigger before its popup opens, at the latest point. */
+export const HOVER_REST = 150;
 
 /**
- * A popup opened by the mouse, at the pointer: its top-left just below-right of the drawn pointer;
- * left of the pointer when the right has no room (clamped inside the area when neither side fits);
+ * A popup opened by the mouse, at the pointer: its top-left at POINTER_OFFSET from the hotspot;
+ * its right edge at the hotspot when the right has no room (clamped inside the area when neither side fits);
  * above the hotspot when below is too short and above has more room (nothing of the pointer is
  * drawn above its hotspot, so `gap` is enough there). Never under the pointer. The chosen side's
  * room is the max-height, as in `placeAnchored`.
@@ -153,7 +155,7 @@ export function placeAtPointer({
   const { edge } = area;
   const fit = Math.max(0, Math.min(width, area.width - edge * 2));
   const right = pointer.x + POINTER_OFFSET.x;
-  const leftOf = pointer.x - POINTER_OFFSET.x - fit;
+  const leftOf = pointer.x - fit;
   const left =
     right + fit <= area.width - edge
       ? right
