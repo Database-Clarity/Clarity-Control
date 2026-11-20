@@ -28,8 +28,8 @@ describe('placeAtPointer', () => {
 
   it('puts its top-left just below-right of the pointer', () => {
     const p = placeAtPointer({ pointer: { x: 300, y: 200 }, area: desk, width: 240, height: 40 });
-    expect([p.side, p.left, p.top]).toEqual(['below', 304, 220]);
-    expect(p.maxHeight).toBe(792 - 220);
+    expect([p.side, p.left, p.top]).toEqual(['below', 304, 224]);
+    expect(p.maxHeight).toBe(792 - 224);
   });
 
   it('goes left of the pointer at the right edge, above it at the bottom edge', () => {

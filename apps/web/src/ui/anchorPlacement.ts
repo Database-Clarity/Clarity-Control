@@ -124,10 +124,11 @@ export function placeAnchored({
 }
 
 /**
- * Where a hover popup's corner sits from the pointer's hotspot: just past the drawn pointer (an
- * arrow or a hand, about 20px tall below the hotspot), a few px to its right.
+ * Where a hover popup's corner sits from the pointer's hotspot: just past the drawn pointer, a
+ * few px to its right. The Windows hand (links, buttons) reaches 23px below its hotspot and spans
+ * both sides of it, the arrow 20px; 24px clears either wherever the box sits across.
  */
-export const POINTER_OFFSET = { x: 4, y: 20 };
+export const POINTER_OFFSET = { x: 4, y: 24 };
 
 /**
  * A popup opened by the mouse, at the pointer: its top-left just below-right of the drawn pointer;

@@ -11,7 +11,7 @@ import {
 } from 'react';
 import type { CompendiumCell } from '@clarity/core';
 import { preparedLines } from './compendiumDiffCache';
-import { POINTER_CLEARANCE } from '../../ui/anchorPlacement';
+import { placeAtPointer, POINTER_CLEARANCE } from '../../ui/anchorPlacement';
 import { lineAlign, type DiffLine, type StyleNote } from './compendiumDiffProjection';
 import { Multiline, RichCell } from './RichCell';
 import { SheetCell } from './sheetSurface';
@@ -57,7 +57,16 @@ export function CompendiumDiffModeToggle({
 }
 
 /** Mount positioning state and listeners only for the popup the user opens. */
-function StylePopover({ id, note }: { id: string; note: StyleNote }) {
+function StylePopover({
+  id,
+  note,
+  pointer,
+}: {
+  id: string;
+  note: StyleNote;
+  /** Where the mouse entered the marker, relative to it; none for focus or a tap. */
+  pointer: { current: { x: number; y: number } | undefined };
+}) {
   const [place, setPlace] = useState<{
     offset: number;
     width?: number;
@@ -101,18 +110,41 @@ function StylePopover({ id, note }: { id: string; note: StyleNote }) {
       const box = floating ? element.getBoundingClientRect() : intrinsic;
       if (floating) element.style.width = previousWidth;
       const anchorBox = anchor.getBoundingClientRect();
-      const left = anchorBox.left;
+      // Opened by the mouse: at the pointer (the shared hover rule), inside the same cell and
+      // window limits; it moves with the marker on scroll.
+      const at = floating ? pointer.current : undefined;
+      const placed =
+        at &&
+        placeAtPointer({
+          pointer: { x: anchorBox.left + at.x - low, y: anchorBox.top + at.y },
+          area: {
+            top: 8,
+            bottom: window.innerHeight - 8,
+            width: high - low,
+            layoutHeight: window.innerHeight,
+            edge: 0,
+          },
+          width,
+          height: box.height,
+        });
+      const left = placed ? placed.left + low : anchorBox.left;
       const next = {
         offset: Math.round(
           (Math.max(low, Math.min(left, high - width)) - (floating ? 0 : left)) / zoom,
         ),
-        maxHeight: floating ? (window.innerHeight - 16) / zoom : undefined,
+        maxHeight: floating ? (placed?.maxHeight ?? window.innerHeight - 16) / zoom : undefined,
         // Below, clear of the pointer (anchorPlacement.ts); above when that does not fit.
-        top: floating
-          ? (anchorBox.bottom + POINTER_CLEARANCE + box.height <= window.innerHeight - 8
-              ? anchorBox.bottom + POINTER_CLEARANCE
-              : Math.max(8, anchorBox.top - 4 - box.height)) / zoom
-          : undefined,
+        top: placed
+          ? (placed.top === 'auto'
+              ? window.innerHeight -
+                (placed.bottom as number) -
+                Math.min(box.height, placed.maxHeight)
+              : placed.top) / zoom
+          : floating
+            ? (anchorBox.bottom + POINTER_CLEARANCE + box.height <= window.innerHeight - 8
+                ? anchorBox.bottom + POINTER_CLEARANCE
+                : Math.max(8, anchorBox.top - 4 - box.height)) / zoom
+            : undefined,
         width: constrainedWidth,
       };
       setPlace((current) =>
@@ -137,7 +169,7 @@ function StylePopover({ id, note }: { id: string; note: StyleNote }) {
       window.removeEventListener('resize', position);
       window.removeEventListener('scroll', onScroll, true);
     };
-  }, [note]);
+  }, [note, pointer]);
   return (
     <span
       ref={popover}
@@ -203,6 +235,7 @@ const StyleMark = memo(function StyleMark({ note }: { note: StyleNote }) {
   const leaving = useRef<ReturnType<typeof setTimeout>>();
   // The delayed leave applies to the state as it is then: a blur, Escape, click, focus, or new
   // owner during the grace is kept, never undone by the state at the time of leaving.
+  const pointer = useRef<{ x: number; y: number }>();
   const latest = useRef({ mark, setMark });
   latest.current = { mark, setMark };
   useEffect(() => () => clearTimeout(leaving.current), []);
@@ -210,6 +243,14 @@ const StyleMark = memo(function StyleMark({ note }: { note: StyleNote }) {
     <span
       className={styles.styleChange}
       data-open={visible}
+      onPointerEnter={(event) => {
+        if (visible) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        pointer.current =
+          event.pointerType === 'touch'
+            ? undefined
+            : { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      }}
       onMouseEnter={() => {
         clearTimeout(leaving.current);
         if (!mark.hovered) setMark({ ...mark, hovered: true });
@@ -222,7 +263,10 @@ const StyleMark = memo(function StyleMark({ note }: { note: StyleNote }) {
           if (mark.hovered) setMark({ ...mark, hovered: false });
         }, 150);
       }}
-      onFocus={() => setMark({ ...mark, focused: true })}
+      onFocus={() => {
+        if (!visible) pointer.current = undefined;
+        setMark({ ...mark, focused: true });
+      }}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setMark(markClosed);
       }}
@@ -247,7 +291,7 @@ const StyleMark = memo(function StyleMark({ note }: { note: StyleNote }) {
         Aa
       </button>
       {visible ? (
-        <StylePopover id={id} note={note} />
+        <StylePopover id={id} note={note} pointer={pointer} />
       ) : (
         <span id={id} className={styles.stylePopover} role="tooltip">
           {/* Retain the full accessible description while the popup is hidden. */}

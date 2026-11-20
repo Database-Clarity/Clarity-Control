@@ -96,7 +96,7 @@ describe('title popover at the pointer', () => {
     // The owner's case: a 28px tall greyed Compare tab, the pointer on its upper half.
     const { anchor, popover } = setup(rect(300, 40, 80, 28), { width: 220, height: 30 });
     openTitlePopover(anchor, popover, { x: 330, y: 48 });
-    expect([popover.style.left, popover.style.top]).toEqual(['334px', '68px']);
+    expect([popover.style.left, popover.style.top]).toEqual(['334px', '72px']);
   });
 
   it('goes left of the pointer at the right edge, above it at the bottom edge', () => {
