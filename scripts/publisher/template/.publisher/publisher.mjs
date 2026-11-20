@@ -29238,6 +29238,7 @@ init_types();
 init_types();
 
 // packages/core/src/compendium/englishEvidence.ts
+init_braces();
 init_prepare();
 
 // packages/core/src/compendium/reviewed.ts
