@@ -220,6 +220,45 @@ function DiscardRow({
   );
 }
 
+/**
+ * An inline Discard (the phone tool row and the desktop header): opens the same in-place question
+ * next to the button; Esc, an outside click, or Cancel closes it.
+ */
+export function DiscardConfirm({
+  className,
+  saving,
+  onDiscard,
+}: {
+  className?: string;
+  saving: boolean;
+  onDiscard(): void;
+}) {
+  return (
+    <Popover
+      label="Discard draft"
+      className={className}
+      flush
+      contain
+      triggerLabel="Discard this draft"
+      trigger="Discard"
+    >
+      {(close) => (
+        <ul className={styles.rows}>
+          <DiscardRow
+            saving={saving}
+            asked
+            onCancel={() => close()}
+            onDiscard={() => {
+              close(false);
+              onDiscard();
+            }}
+          />
+        </ul>
+      )}
+    </Popover>
+  );
+}
+
 /** One tool of the phone tool row, inline or in More. */
 export type ToolId = 'markup' | 'discard' | 'grouped' | `override:${number}`;
 
@@ -422,28 +461,11 @@ function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
     );
   if (tool.id === 'discard')
     return (
-      <Popover
-        label="Discard draft"
+      <DiscardConfirm
         className={`${styles.tool} ${styles.danger}`}
-        flush
-        contain
-        triggerLabel="Discard this draft"
-        trigger={tool.label}
-      >
-        {(close) => (
-          <ul className={styles.rows}>
-            <DiscardRow
-              saving={saving}
-              asked
-              onCancel={() => close()}
-              onDiscard={() => {
-                onDiscard();
-                close(false);
-              }}
-            />
-          </ul>
-        )}
-      </Popover>
+        saving={saving}
+        onDiscard={onDiscard}
+      />
     );
   if (tool.id === 'grouped' && grouped)
     return (

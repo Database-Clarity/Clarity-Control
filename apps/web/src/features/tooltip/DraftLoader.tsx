@@ -41,14 +41,30 @@ const indexDelay = 1500;
 const draftDelay = 250;
 
 /**
- * Whether this tooltip has an agent-written draft, read only while `enabled` (an empty English
- * tooltip an editor or maintainer can edit) and not stepping. Asks for the session's index once,
- * then only for the draft of a tooltip that stays open.
+ * What the header shows for this tooltip's agent-written draft while `enabled` (an empty English
+ * tooltip an editor or maintainer can edit): "Load draft…" when the session's index lists it, a
+ * hidden slot of the same size when the index was not known yet as the tooltip opened (so its
+ * answer moves nothing), else nothing. The slot is decided before the header paints, never after.
  */
-export function useEditorDraft(hash: number, enabled: boolean) {
+export type DraftOffer =
+  { slot: 'none' } | { slot: 'reserve' } | { slot: 'draft'; draft: EditorDraft | null | undefined };
+
+/**
+ * Asks for the session's index once, then, only while `settled` (not stepping), for the draft of a
+ * tooltip that stays open. `draft` is undefined until it arrives and null when it failed.
+ */
+export function useEditorDraft(hash: number, enabled: boolean, settled = true): DraftOffer {
   const [found, setFound] = useState<{ hash: number; draft: EditorDraft | null }>();
+  // Whether the index was in memory when this tooltip opened (a render-time reset per tooltip).
+  const [opened, setOpened] = useState({ hash, knew: knownDraftIndex() !== undefined });
+  let knew = opened.knew;
+  if (opened.hash !== hash) {
+    knew = knownDraftIndex() !== undefined;
+    setOpened({ hash, knew });
+  }
+  const fetching = enabled && settled;
   useEffect(() => {
-    if (!enabled) return;
+    if (!fetching) return;
     let live = true;
     const index = knownDraftIndex();
     if (index && !index.has(hash)) return;
@@ -65,22 +81,43 @@ export function useEditorDraft(hash: number, enabled: boolean) {
       live = false;
       clearTimeout(timer);
     };
-  }, [hash, enabled]);
-  return enabled && found?.hash === hash ? found.draft : null;
+  }, [hash, fetching]);
+  if (!enabled) return { slot: 'none' };
+  if (knownDraftIndex()?.has(hash))
+    return { slot: 'draft', draft: found?.hash === hash ? found.draft : undefined };
+  return knew ? { slot: 'none' } : { slot: 'reserve' };
 }
 
-/** Renders `children` with this tooltip's draft (null: none, or not `enabled`); adds no element. */
+/** Renders `children` with this tooltip's draft offer; adds no element. */
 export function WithEditorDraft({
   hash,
   enabled,
+  settled,
   children,
 }: {
   hash: number;
-  /** An empty English tooltip that an editor or maintainer can edit, and not stepping. */
+  /** An empty English tooltip that an editor or maintainer can edit. */
   enabled: boolean;
-  children(draft: EditorDraft | null): ReactNode;
+  /** Not stepping: only then is the draft itself requested. */
+  settled: boolean;
+  children(offer: DraftOffer): ReactNode;
 }) {
-  return children(useEditorDraft(hash, enabled));
+  return children(useEditorDraft(hash, enabled, settled));
+}
+
+/** The hidden stand-in for "Load draft…": the same button, so it takes exactly its room. */
+export function DraftSlot() {
+  return (
+    <button
+      type="button"
+      className={pageStyles.ghost}
+      style={{ visibility: 'hidden' }}
+      aria-hidden="true"
+      tabIndex={-1}
+    >
+      Load draft…
+    </button>
+  );
 }
 
 /**
@@ -95,7 +132,8 @@ export function DraftLoader({
   globals,
   onLoad,
 }: {
-  draft: EditorDraft;
+  /** Undefined while it loads. */
+  draft: EditorDraft | undefined;
   name: string;
   categoryLabel?: string;
   globals: MarkupGlobals;
@@ -108,18 +146,24 @@ export function DraftLoader({
       trigger="Load draft…"
       triggerTitle="Preview the draft written from this tooltip's Compendium entry, then load it into the editor"
     >
-      {(close) => (
-        <DraftSummary
-          draft={draft}
-          name={name}
-          categoryLabel={categoryLabel}
-          globals={globals}
-          onLoad={() => {
-            close(false);
-            onLoad(draft.english);
-          }}
-        />
-      )}
+      {(close) =>
+        !draft ? (
+          <p className={styles.note} role="status">
+            Loading the draft…
+          </p>
+        ) : (
+          <DraftSummary
+            draft={draft}
+            name={name}
+            categoryLabel={categoryLabel}
+            globals={globals}
+            onLoad={() => {
+              close(false);
+              onLoad(draft.english);
+            }}
+          />
+        )
+      }
     </Popover>
   );
 }

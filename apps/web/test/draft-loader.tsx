@@ -25,6 +25,8 @@ const stamp = '2026-11-11T00:00:00Z';
 for (const [hash, name] of [
   [3000, 'Bolt Harvest'],
   [3001, 'Unravelling Rounds'],
+  // Empty and not in the index: offers nothing.
+  [3002, 'Rampage Spec'],
 ] as const) {
   data.items[hash] = { hash, name, icon: '', categoryId: 'weapons', inGameDescription: '' };
   data.bundle.tooltips[hash] = { hash, associated: [], text: {} };
