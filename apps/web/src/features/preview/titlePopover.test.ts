@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { POINTER_CLEARANCE, POINTER_OFFSET } from '../../ui/anchorPlacement';
-import { closeTitlePopover, openTitlePopover } from './titlePopover';
+import { closeTitlePopover, isTitlePopoverOpen, openTitlePopover } from './titlePopover';
 
 const rect = (left: number, top: number, width: number, height: number) =>
   ({
@@ -82,6 +82,18 @@ describe('title popover placement', () => {
     openTitlePopover(anchor, popover);
     // 600 - 316 - 22 - 8 below, 300 - 4 - 8 above: above is larger, so it goes up with that much room.
     expect(popover.style.maxHeight).toBe('288px');
+  });
+});
+
+describe('title popover open state', () => {
+  it('reads the fallback mark where :popover-open is not supported', () => {
+    const { popover } = setup(rect(100, 100, 12, 12), { width: 200, height: 40 });
+    popover.matches = () => {
+      throw new SyntaxError("':popover-open' is not a valid selector");
+    };
+    expect(isTitlePopoverOpen(popover)).toBe(false);
+    popover.dataset.open = '';
+    expect(isTitlePopoverOpen(popover)).toBe(true);
   });
 });
 

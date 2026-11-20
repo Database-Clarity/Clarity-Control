@@ -77,6 +77,15 @@ export function openTitlePopover(
   box.style.top = `${top}px`;
 }
 
+/** Whether the box is open; without :popover-open support, the fallback marks it data-open. */
+export function isTitlePopoverOpen(box: HTMLElement): boolean {
+  try {
+    return box.matches(':popover-open, [data-open]');
+  } catch {
+    return box.hasAttribute('data-open');
+  }
+}
+
 export function closeTitlePopover(box: HTMLElement) {
   if (shown === box) shown = null;
   const popover = box as PopoverElement;
