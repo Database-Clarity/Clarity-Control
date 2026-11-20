@@ -54,12 +54,21 @@ it('learns a tab from a sample whose source cells changed, but not from changed 
     confidence: 'high',
     ruleId: 'unique-name-in-learned-tab',
   });
+  const sample = record.references[100];
+  record.references[100] = { ...sample, sourceHash: 'invalid' };
+  expect(decide(102)).toMatchObject({ action: 'owner' });
+  record.references[100] = sample;
   // The owner's own text changed: the sample no longer says where its sources live.
+  const owner = f.editor.bundle.tooltips[100];
   f.editor.bundle.tooltips[100] = {
     hash: 100,
     text: { en: { text: 'Rewritten owner text', updatedAt: '2026-11-02T00:00:00Z' } },
     associated: [],
   } as never;
+  expect(decide(102)).toMatchObject({ action: 'owner' });
+  f.editor.bundle.tooltips[100] = owner;
+  const [moved] = f.source.tabs[0].rows.splice(0, 1);
+  f.source.tabs.push({ gid: 'another-tab', name: 'Other', rows: [moved] });
   expect(decide(102)).toMatchObject({ action: 'owner' });
 });
 

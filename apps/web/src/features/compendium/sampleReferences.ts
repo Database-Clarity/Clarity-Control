@@ -78,17 +78,11 @@ export function sampleReference(
 }
 
 /** The owner/catalog evidence a reference recorded, against current data only (no source cells). */
-export function referenceEvidenceCurrent(
-  reference: GuidanceReference | undefined,
-  entry: ReviewSample,
-  baseline: string,
-) {
-  return !!(
-    reference &&
+export function referenceEvidenceCurrent(reference: GuidanceReference, entry: ReviewSample) {
+  return (
     reference.hash === entry.hash &&
     reference.categoryId === categoryId(entry.category) &&
-    (reference.evidence === entry.sampleEvidence || legacyEntryCurrent(reference, entry)) &&
-    reference.baseline === baseline
+    (reference.evidence === entry.sampleEvidence || legacyEntryCurrent(reference, entry))
   );
 }
 
@@ -98,16 +92,18 @@ export function referenceCurrent(
   baseline: string,
   source: CompendiumData,
 ) {
-  if (!referenceEvidenceCurrent(reference, entry, baseline)) return false;
-  if (!reference?.link) return true;
+  if (!reference || reference.baseline !== baseline || !referenceEvidenceCurrent(reference, entry))
+    return false;
+  if (!reference.link) return true;
   return !!currentReferenceLink(reference, source);
 }
 
 /** The saved tab a positive reference still demonstrates, though its cells may have changed. */
 export function referenceSourceTab(reference: GuidanceReference, source: CompendiumData) {
-  if (!reference.link) return;
-  const resolved = resolveCompendiumLink(reference.link, source);
-  if (!('row' in resolved) || resolved.tab.gid !== reference.link.gid) return;
+  const link = provenSourceLink(reference);
+  if (!link) return;
+  const resolved = resolveCompendiumLink(link, source);
+  if (!('row' in resolved) || resolved.tab.gid !== link.gid) return;
   return resolved.tab.gid;
 }
 
@@ -134,20 +130,20 @@ export function groupReferenceCurrent(
 // Reconstruct the old nested evidence from CURRENT editor/catalog data. Only positive
 // selections may ignore unrelated sheet edits, and their saved styled source must replay.
 function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
-  if (!reference.link || entry.evidenceManifest === undefined) return false;
+  if (entry.evidenceManifest === undefined) return false;
   const manifest = referenceManifest(entry, reference.hash);
-  if (
-    entry.sampleEvidence !==
-    sourceFingerprint([
-      entry.hash,
-      entry.evidence,
-      ...(entry.next.custom?.categoryId === 'attachment-effect'
-        ? [entry.next.custom.categoryId]
-        : []),
-      manifest,
-    ])
-  )
-    return false;
+  const prefix = (evidence: string) => [
+    entry.hash,
+    evidence,
+    ...(entry.next.custom?.categoryId === 'attachment-effect'
+      ? [entry.next.custom.categoryId]
+      : []),
+  ];
+  const current = prefix(entry.evidence);
+  if (entry.sampleEvidence !== sourceFingerprint([...current, manifest])) return false;
+  // Negative and note-only records can replay the exact old grouped proof.
+  if (reference.evidence === sourceFingerprint([...current, entry.evidenceManifest])) return true;
+  if (!reference.link) return false;
   const sheet = reference.baseline.slice(reference.baseline.lastIndexOf('|') + 1);
   const english = entry.base.text.en;
   const normalized = english && { ...english, text: normaliseCompendiumEnglish(english.text) };
@@ -164,17 +160,7 @@ function legacyEntryCurrent(reference: GuidanceReference, entry: ReviewSample) {
     [english, normalized, formatting].some((text) =>
       manifests.some((items) => {
         const evidence = hash([sheet, entry.name, entry.category, text, entry.base.compendium]);
-        return (
-          reference.evidence ===
-          hash([
-            entry.hash,
-            evidence,
-            ...(entry.next.custom?.categoryId === 'attachment-effect'
-              ? [entry.next.custom.categoryId]
-              : []),
-            items,
-          ])
-        );
+        return reference.evidence === hash([...prefix(evidence), items]);
       }),
     ),
   );
@@ -190,19 +176,23 @@ function referenceManifest(entry: ReviewSample, hash: number) {
   return own.length ? own : manifest;
 }
 
-// A formatter-only change must not invalidate an approval of unchanged source
-// bodies. Replay the previously saved labels against current complete rows, and
-// require BOTH the old source hash and exact styled snapshot to agree.
-export function currentReferenceLink(reference: GuidanceReference, source: CompendiumData) {
-  if (!reference.link) return;
+function provenSourceLink(reference: GuidanceReference) {
   const old = reference.link;
-  // Validate the saved proof itself first; relocation never bypasses it.
+  if (!old) return;
   const proven =
     sourceFingerprint([old.gid, old.rowKey, old.section, old.cells, old.snapshot]) ===
       reference.sourceHash ||
     rawFingerprint([old.gid, old.rowKey, old.section, old.cells, old.snapshot]) ===
       reference.sourceHash;
-  if (!proven) return;
+  if (proven) return old;
+}
+
+// A formatter-only change must not invalidate an approval of unchanged source
+// bodies. Replay the previously saved labels against current complete rows, and
+// require BOTH the old source hash and exact styled snapshot to agree.
+export function currentReferenceLink(reference: GuidanceReference, source: CompendiumData) {
+  const old = provenSourceLink(reference);
+  if (!old) return;
   const resolved = resolveCompendiumLink(old, source);
   const confirmed =
     resolved && 'row' in resolved ? confirmCompendiumSelection(resolved, source) : undefined;

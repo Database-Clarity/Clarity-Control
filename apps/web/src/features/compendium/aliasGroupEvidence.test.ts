@@ -140,8 +140,14 @@ it('keeps owner evidence when an accepted alias group adopts the member', () => 
 
   // The member's evidence no longer replays, but its saved source proof still carries.
   expect(groupReferenceCurrent(member, canonical, f.source)).toBe(true);
+  const skipped = sampleReference(canonical, grouped.categories[0].id, f.baseline, '', 'skipped');
   const categories = guidedDecisions(
-    documentFor(grouped.categories[0].id, [100, 101, 102, 103, 104, 105], { 101: member }, f.baseline),
+    documentFor(
+      grouped.categories[0].id,
+      [100, 101, 102, 103, 104, 105],
+      { 100: skipped, 101: member },
+      f.baseline,
+    ),
     grouped.categories,
     grouped.proposals,
     f.source,
@@ -151,6 +157,11 @@ it('keeps owner evidence when an accepted alias group adopts the member', () => 
   const decision = categories[0].entries.find((candidate) => candidate.hash === 100)!;
   expect(decision).toMatchObject({ ruleId: 'alias-group-owner', action: 'link', confidence: 'high' });
   expect(decision.link).toEqual(currentReferenceLink(member, f.source));
+  expect(categories[0].entries.find((candidate) => candidate.hash === 102)).toMatchObject({
+    ruleId: 'unique-name-in-learned-tab',
+    action: 'link',
+    confidence: 'high',
+  });
 
   // Another category or a changed source does not carry the member's proof.
   expect(groupReferenceCurrent(member, { ...canonical, category: 'other' }, f.source)).toBe(false);
@@ -158,6 +169,19 @@ it('keeps owner evidence when an accepted alias group adopts the member', () => 
   changed.tabs[0].rows[1].cell = { plain: 'Changed', runs: [{ text: 'Changed' }] };
   expect(groupReferenceCurrent(member, canonical, changed)).toBe(false);
   expect(referenceCurrent(member, entry, f.baseline, f.source)).toBe(true);
+});
+
+it('replays an exact grouped fingerprint for a saved no-equivalent reference', () => {
+  const f = fixture();
+  f.editor.aliases = { 101: { to: 100, kind: 'name' } };
+  f.editor.generatorAliases = f.editor.aliases;
+  const category = f.build(f.editor).categories[0];
+  const entry = category.entries.find((candidate) => candidate.hash === 100)!;
+  const saved = sampleReference(entry, category.id, f.baseline, '', 'no-equivalent');
+  saved.evidence = sourceFingerprint([entry.hash, entry.evidence, entry.evidenceManifest]);
+  expect(saved.evidence).not.toBe(entry.sampleEvidence);
+  expect(referenceCurrent(saved, entry, f.baseline, f.source)).toBe(true);
+  expect(referenceCurrent(saved, entry, 'other baseline', f.source)).toBe(false);
 });
 
 it('groups owner evidence by the generator aliases, not adopted name groups', () => {
