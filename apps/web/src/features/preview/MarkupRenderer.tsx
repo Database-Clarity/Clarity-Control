@@ -41,6 +41,8 @@ export function TitleAnchor({
   }, []);
   const open = (pointer?: { x: number; y: number }) => {
     if (!anchor.current || !box.current) return;
+    // Open already (hovered, then pressed or focused): it stays where it is.
+    if (box.current.matches(':popover-open, [data-open]')) return;
     openTitlePopover(anchor.current, box.current, pointer);
     window.addEventListener('scroll', hide, { capture: true, passive: true });
   };
@@ -53,8 +55,7 @@ export function TitleAnchor({
       aria-describedby={id}
       onPointerEnter={(event) => {
         clearTimeout(leaving.current);
-        // Back from the gap into the open box (a child): it stays where it is.
-        if (box.current?.matches(':popover-open, [data-open]')) return;
+        // Back from the gap into the open box (a child) keeps it where it is (open()).
         if (event.pointerType !== 'touch') open({ x: event.clientX, y: event.clientY });
       }}
       // A short grace lets the pointer cross the gap below the anchor into the box.

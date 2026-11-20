@@ -123,6 +123,59 @@ export function placeAnchored({
   };
 }
 
+/**
+ * Where a hover popup's corner sits from the pointer's hotspot: just past the drawn pointer (an
+ * arrow or a hand, about 20px tall below the hotspot), a few px to its right.
+ */
+export const POINTER_OFFSET = { x: 4, y: 20 };
+
+/**
+ * A popup opened by the mouse, at the pointer: its top-left just below-right of the drawn pointer;
+ * left of the pointer when the right has no room (clamped inside the area when neither side fits);
+ * above the hotspot when below is too short and above has more room (nothing of the pointer is
+ * drawn above its hotspot, so `gap` is enough there). Never under the pointer. The chosen side's
+ * room is the max-height, as in `placeAnchored`.
+ */
+export function placeAtPointer({
+  pointer,
+  area,
+  width,
+  height = 0,
+  gap = 8,
+}: {
+  pointer: { x: number; y: number };
+  area: PlacementArea;
+  width: number;
+  height?: number;
+  gap?: number;
+}): Placement {
+  const { edge } = area;
+  const fit = Math.max(0, Math.min(width, area.width - edge * 2));
+  const right = pointer.x + POINTER_OFFSET.x;
+  const leftOf = pointer.x - POINTER_OFFSET.x - fit;
+  const left =
+    right + fit <= area.width - edge
+      ? right
+      : leftOf >= edge
+        ? leftOf
+        : Math.max(edge, Math.min(right, area.width - fit - edge));
+  const belowTop = Math.max(area.top, Math.min(pointer.y + POINTER_OFFSET.y, area.bottom));
+  const aboveBottom = Math.max(area.top, Math.min(pointer.y - gap, area.bottom));
+  const below = area.bottom - belowTop;
+  const above = aboveBottom - area.top;
+  if (height <= below || below >= above) {
+    return { side: 'below', left, width: fit, maxHeight: below, top: belowTop, bottom: 'auto' };
+  }
+  return {
+    side: 'above',
+    left,
+    width: fit,
+    maxHeight: above,
+    top: 'auto',
+    bottom: area.layoutHeight - aboveBottom,
+  };
+}
+
 /** Whether popovers use the phone rules (the page edge inset, the full page width). */
 export function isPhone(win: Window = window): boolean {
   return win.matchMedia?.(phoneQuery).matches ?? false;
