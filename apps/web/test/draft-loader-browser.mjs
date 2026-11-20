@@ -251,14 +251,20 @@ try {
         for (const entry of list.getEntries())
           for (const source of entry.sources ?? [])
             if (source.node?.closest?.('[role="group"][aria-label="Editor tools"]'))
-              window.headerShifts.push({ value: entry.value, at: Math.round(entry.startTime) });
+              window.headerShifts.push({
+                value: entry.value,
+                at: Math.round(entry.startTime),
+                node: `${source.node.tagName} ${source.node.textContent.trim().slice(0, 20)}`,
+                from: `${Math.round(source.previousRect.x)},${Math.round(source.previousRect.y)},${Math.round(source.previousRect.width)}`,
+                to: `${Math.round(source.currentRect.x)},${Math.round(source.currentRect.y)},${Math.round(source.currentRect.width)}`,
+              });
       }).observe({ type: 'layout-shift' });
     });
     const steps = [3000, 3002, 3000, 3001, 3000];
     const report = [];
     for (const [index, hash] of steps.entries()) {
       // The header's item boxes in the first frame that shows the entry.
-      const first = await page.evaluate(async (target) => {
+      const { boxes: first, painted } = await page.evaluate(async (target) => {
         const boxes = () =>
           [
             ...document.querySelectorAll(
@@ -271,8 +277,11 @@ try {
         window.location.hash = `#/t/${target}?lang=en`;
         for (let i = 0; i < 120; i++) {
           await new Promise((done) => requestAnimationFrame(done));
-          if (document.querySelector('.cm-editor')?.dataset.tooltipHash === String(target))
-            return boxes();
+          // This frame shows the entry: read after it paints (its ResizeObserver pass included).
+          if (document.querySelector('.cm-editor')?.dataset.tooltipHash === String(target)) {
+            await new Promise((done) => setTimeout(done, 0));
+            return { boxes: boxes(), painted: performance.now() };
+          }
         }
         throw new Error(`entry ${target} never painted`);
       }, hash);
@@ -292,15 +301,26 @@ try {
       );
       report.push({
         hash,
+        painted,
+        left: await page.evaluate(() => performance.now()),
         moved: JSON.stringify(first) !== JSON.stringify(settled),
         first,
         settled,
       });
     }
     const shifts = await page.evaluate(() => window.headerShifts);
-    const total = shifts.reduce((sum, entry) => sum + entry.value, 0);
+    // After an entry's first frame (draft availability resolving) vs in the step's own frame
+    // (one entry's header differs from the last one's: reported, not a jump).
+    const late = shifts.filter((entry) =>
+      report.some((step) => entry.at >= step.painted && entry.at <= step.left),
+    );
+    const sum = (list) => list.reduce((total, entry) => total + entry.value, 0);
+    const total = sum(late);
+    for (const entry of shifts)
+      console.log(`  shift ${late.includes(entry) ? 'LATE' : 'step'} ${JSON.stringify(entry)}`);
     console.log(
-      `stepping ${width}: header layout shift ${total.toFixed(4)} (${shifts.length} entries); ` +
+      `stepping ${width}: header layout shift after first paint ${total.toFixed(4)} (${late.length} entries), ` +
+        `in step frames ${sum(shifts).toFixed(4)}; ` +
         report.map((step) => `${step.hash}:${step.moved ? 'MOVED' : 'still'}`).join(' '),
     );
     for (const step of report.filter((entry) => entry.moved))
