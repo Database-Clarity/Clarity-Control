@@ -3,9 +3,10 @@ import { hashSchema } from './legacy.js';
 import { inactiveHashKey } from './inactiveMoves.js';
 
 export const marksPath = 'config/marks.json';
-export const maxMarksBytes = 256_000;
-export const maxMarkedEntries = 1000;
-export const maxEntryMarks = 1000;
+export const maxMarksBytes = 700_000;
+export const maxMarkedEntries = 1500;
+export const maxEntryMarks = 1500;
+export const maxMarkNoteChars = 2000;
 export const markColours = ['neutral', 'blue', 'green', 'amber', 'red', 'purple'] as const;
 export const markIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
 const stamp = { by: z.number().int().positive(), at: z.string().datetime({ offset: true }) };
@@ -20,7 +21,7 @@ export const markTypeSchema = z
 export const entryMarkSchema = z
   .object({
     type: markIdSchema,
-    note: z.string().trim().max(500).optional(),
+    note: z.string().trim().max(maxMarkNoteChars).optional(),
     ...stamp,
   })
   .strict();
@@ -36,8 +37,6 @@ export const marksSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n').length > maxMarksBytes)
-      ctx.addIssue({ code: 'custom', message: `Marks file exceeds ${maxMarksBytes} bytes` });
     const ids = new Set(value.types.map((type) => type.id));
     if (ids.size !== value.types.length)
       ctx.addIssue({ code: 'custom', message: 'Duplicate mark type IDs' });
@@ -55,6 +54,15 @@ export const marksSchema = z
     if (count > maxEntryMarks)
       ctx.addIssue({ code: 'custom', message: `Too many entry marks (maximum ${maxEntryMarks})` });
   });
+/**
+ * The structural checks alone: a writer validates the stored file once, then checks the byte cap
+ * on the single string it commits. Readers use `marksFileSchema`, which adds the byte cap.
+ */
+export const marksStructureSchema = marksSchema;
+export const marksFileSchema = marksSchema.superRefine((value, ctx) => {
+  if (new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n').length > maxMarksBytes)
+    ctx.addIssue({ code: 'custom', message: `Marks file exceeds ${maxMarksBytes} bytes` });
+});
 export type Marks = z.infer<typeof marksSchema>;
 export type MarkType = z.infer<typeof markTypeSchema>;
 export type EntryMark = z.infer<typeof entryMarkSchema>;
@@ -65,7 +73,7 @@ export const markActionSchema = z.discriminatedUnion('action', [
       action: z.literal('mark'),
       hash: hashSchema,
       type: markIdSchema,
-      note: z.string().trim().max(500).optional(),
+      note: z.string().trim().max(maxMarkNoteChars).optional(),
     })
     .strict(),
   z.object({ action: z.literal('unmark'), hash: hashSchema, type: markIdSchema }).strict(),

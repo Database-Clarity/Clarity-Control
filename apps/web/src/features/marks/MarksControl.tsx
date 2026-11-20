@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { maxMarkNoteChars } from '@clarity/core/marks';
 import { apiUrl } from '../../services/api';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -149,7 +150,7 @@ export function MarksControl({
                   <label>
                     Optional note
                     <textarea
-                      maxLength={500}
+                      maxLength={maxMarkNoteChars}
                       rows={3}
                       value={note}
                       onChange={(event) => setNote(event.target.value)}

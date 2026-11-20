@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { marksPath, maxMarksBytes, type MarkAction, type Marks } from '@clarity/core/marks';
+import { marksPath, maxMarkNoteChars, maxMarksBytes, type MarkAction, type Marks } from '@clarity/core/marks';
 import { blobContent } from '../src/github.js';
 import { blobOid, Fixture, makePrivateKey } from './fixture.js';
 
@@ -147,43 +147,108 @@ it('enforces the type count and total file byte limits before committing', async
   const full = {
     ...base,
     entries: Object.fromEntries(
-      Array.from({ length: 402 }, (_, hash) => [
+      Array.from({ length: 1100 }, (_, hash) => [
         hash,
         [{ type: 'retest', note: 'x'.repeat(500), by: 1, at }],
       ]),
     ),
   };
   expect(Buffer.byteLength(blobContent(full))).toBeLessThanOrEqual(maxMarksBytes);
+  const overflow = {
+    ...full,
+    entries: { ...full.entries, 999999: [{ type: 'retest', note: 'x'.repeat(500), by: 1, at }] },
+  };
+  expect(Buffer.byteLength(blobContent(overflow))).toBeGreaterThan(maxMarksBytes);
   revision = seed(full);
   expect((await put({ ...mark, hash: 999999, note: 'x'.repeat(500) }, revision)).status).toBe(400);
   expect(fixture.commits).toHaveLength(0);
 });
-it('fails closed on malformed storage and unknown or duplicate mark types', async () => {
-  for (const value of [
+it('accepts a note at the character limit and still refuses the file byte cap at full-length notes', async () => {
+  const revision = seed();
+  const long = await put({ ...mark, note: 'x'.repeat(maxMarkNoteChars) }, revision);
+  expect(long.status).toBe(200);
+  const saved = await long.json();
+  expect(saved.marks.entries[123][0].note).toHaveLength(maxMarkNoteChars);
+  expect(
+    (await put({ ...mark, note: 'x'.repeat(maxMarkNoteChars + 1) }, saved.revision)).status,
+  ).toBe(400);
+  const full = {
+    ...base,
+    entries: Object.fromEntries(
+      Array.from({ length: 327 }, (_, hash) => [
+        hash,
+        [{ type: 'retest', note: 'x'.repeat(maxMarkNoteChars), by: 1, at }],
+      ]),
+    ),
+  };
+  expect(Buffer.byteLength(blobContent(full))).toBeLessThanOrEqual(maxMarksBytes);
+  expect(
+    (await put({ ...mark, hash: 999999, note: 'x'.repeat(maxMarkNoteChars) }, seed(full))).status,
+  ).toBe(400);
+  expect(fixture.commits).toHaveLength(1);
+});
+it('fails closed on malformed storage for writes, and on non-marks shapes for reads', async () => {
+  const malformed: unknown[] = [
     [],
     {},
     { ...base, entries: { 123: [{ type: 'missing', by: 1, at }] } },
     { ...base, types: [base.types[0], base.types[0]] },
-  ]) {
+  ];
+  // Every write still validates the whole stored document before touching it.
+  for (const value of malformed) {
+    fixture.moveData({ [marksPath]: value });
+    expect((await put(mark, blobOid(value))).status).toBe(502);
+  }
+  // A read hands the stored file to the store, which validates it (marksFileSchema): only a
+  // value that is not marks-shaped at all fails closed here.
+  for (const value of [[], {}, { ...base, types: 'x' }]) {
     fixture.moveData({ [marksPath]: value });
     expect((await get()).status).toBe(502);
-    expect((await put(mark, blobOid(value))).status).toBe(502);
+  }
+  for (const value of malformed.slice(2)) {
+    fixture.moveData({ [marksPath]: value });
+    expect((await get()).status).toBe(200);
   }
   expect(fixture.commits).toHaveLength(0);
 });
+it('still refuses duplicate types, the marked-entry cap, and an unknown stored type', async () => {
+  expect(
+    (await put({ action: 'create-type', id: 'retest', label: 'Again', colour: 'red' }, seed()))
+      .status,
+  ).toBe(409);
+  expect(
+    (
+      await put(
+        { action: 'create-type', id: 'again', label: 'needs RETESTING', colour: 'red' },
+        seed(),
+      )
+    ).status,
+  ).toBe(400);
+  const full = {
+    ...base,
+    entries: Object.fromEntries(
+      Array.from({ length: 1500 }, (_, hash) => [hash, [{ type: 'retest', by: 1, at }]]),
+    ),
+  };
+  expect((await put({ ...mark, hash: 999999 }, seed(full))).status).toBe(400);
+  expect(
+    (await put(mark, seed({ ...base, entries: { 123: [{ type: 'missing', by: 1, at }] } }))).status,
+  ).toBe(502);
+  expect(fixture.commits).toHaveLength(0);
+});
 it('bounds the total number of marks even when entries carry several types', async () => {
-  const types = Array.from({ length: 31 }, (_, index) => ({
+  const types = Array.from({ length: 32 }, (_, index) => ({
     ...base.types[0],
     id: `type-${index}`,
     label: `Type ${index}`,
   }));
   const entries = Object.fromEntries(
-    Array.from({ length: 32 }, (_, hash) => [
+    Array.from({ length: 46 }, (_, hash) => [
       hash,
       types.map((type) => ({ type: type.id, by: 1, at })),
     ]),
   );
-  entries[32] = types.slice(0, 8).map((type) => ({ type: type.id, by: 1, at }));
+  entries[46] = types.slice(0, 28).map((type) => ({ type: type.id, by: 1, at }));
   const revision = seed({ types, entries });
   expect((await put({ ...mark, hash: 99999, type: 'type-0' }, revision)).status).toBe(400);
   expect(fixture.commits).toHaveLength(0);
@@ -191,7 +256,7 @@ it('bounds the total number of marks even when entries carry several types', asy
 it('bounds input, rejects forged attribution, and prevents stale type writes', async () => {
   const revision = seed();
   for (const change of [
-    { ...mark, note: 'x'.repeat(501) },
+    { ...mark, note: 'x'.repeat(maxMarkNoteChars + 1) },
     { ...mark, by: 99 },
     { ...mark, hash: -1 },
     { ...mark, hash: 0x100000000 },

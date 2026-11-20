@@ -7,8 +7,21 @@ import { config } from './fixture.js';
 
 afterEach(() => vi.restoreAllMocks());
 it('records a local CPU proxy for empty, typical, and byte-cap mark documents', async () => {
+  // Fixed-seed fixtures: `note(index)` gives each mark's note length. The caps allow 700,000
+  // bytes, so 1,050 marks with every tenth note at 2,000 characters is the 640 KB audit size,
+  // 1,152 such marks is the byte cap, and 327 full-length notes fill the file too.
+  const cases: { name: string; count: number; note: (index: number) => number; everyType?: boolean }[] = [
+    { name: 'empty', count: 0, note: () => 30 },
+    { name: 'typical', count: 100, note: () => 30 },
+    { name: '256k', count: 390, note: () => 500 },
+    { name: 'real-640k', count: 1050, note: (index) => (index % 10 === 0 ? 2000 : 304) },
+    { name: 'cap-700k', count: 1152, note: (index) => (index % 10 === 0 ? 2000 : 300) },
+    { name: 'cap-max-notes', count: 327, note: () => 2000 },
+    { name: 'types', count: 32, note: () => 30, everyType: true },
+  ];
   const rows = [];
-  for (const size of [0, 100, 390, 1000, 32]) {
+  for (const { name, count: entries, note, everyType } of cases) {
+    const notes = Array.from({ length: entries }, (_, index) => note(index));
     const marks: Marks = {
       types: [
         {
@@ -20,20 +33,20 @@ it('records a local CPU proxy for empty, typical, and byte-cap mark documents', 
         },
       ],
       entries: Object.fromEntries(
-        Array.from({ length: size }, (_, index) => [
+        notes.map((length, index) => [
           index,
           [
             {
               type: 'retest',
               by: 1,
               at: '2026-11-15T00:00:00Z',
-              note: 'x'.repeat(size === 390 ? 500 : 30),
+              note: 'x'.repeat(length),
             },
           ],
         ]),
       ),
     };
-    if (size === 32) {
+    if (everyType) {
       marks.types = Array.from({ length: 31 }, (_, index) => ({
         ...marks.types[0],
         id: `type-${index}`,
@@ -67,7 +80,7 @@ it('records a local CPU proxy for empty, typical, and byte-cap mark documents', 
                     change: {
                       action: 'mark',
                       hash: 0,
-                      type: size === 32 ? 'type-0' : 'retest',
+                      type: everyType ? 'type-0' : 'retest',
                       note: 'Updated',
                     },
                   }),
@@ -86,7 +99,9 @@ it('records a local CPU proxy for empty, typical, and byte-cap mark documents', 
       for (let index = 0; index < 100; index++) await run();
       const elapsed = process.cpuUsage(cpu);
       rows.push({
-        size,
+        name,
+        entries,
+        maxNote: notes.length ? Math.max(...notes) : 0,
         bytes: Buffer.byteLength(stored),
         method,
         cpuProxyMs: (elapsed.user + elapsed.system) / 100000,

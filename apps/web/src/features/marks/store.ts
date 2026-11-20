@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { z } from 'zod';
 import {
   emptyMarks,
-  marksSchema,
+  marksFileSchema,
   marksRevisionSchema,
   type Marks,
   type MarkAction,
@@ -15,7 +15,7 @@ export type { MarkDisplay } from './finder';
 
 export const marksUrl =
   'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/editor-data/config/marks.json';
-const loadedSchema = z.object({ marks: marksSchema, revision: marksRevisionSchema });
+const loadedSchema = z.object({ marks: marksFileSchema, revision: marksRevisionSchema });
 export const noEntryMarks: readonly MarkDisplay[] = [];
 export function indexMarks(marks: Marks): ReadonlyMap<number, readonly MarkDisplay[]> {
   const types = new Map(marks.types.map((type) => [type.id, type]));
@@ -73,7 +73,7 @@ export const useMarksStore = create<MarksState>((set, get) => ({
     rawRequest ??= (async () => {
       const version = ++requestVersion;
       try {
-        const marks = await fetchOptionalJson(`${marksUrl}?at=${Date.now()}`, marksSchema, {
+        const marks = await fetchOptionalJson(`${marksUrl}?at=${Date.now()}`, marksFileSchema, {
           cache: 'no-store',
         });
         if (version === requestVersion) get().accept(marks ?? emptyMarks());
