@@ -132,15 +132,11 @@ export async function saveCurrent({
             },
           )
         : await save(chunk, message, noTranslationImpact).catch(async (error: unknown) => {
-            // A CPU-limited Worker reply reaches the browser as a network error or HTTP 5xx.
-            // Order-free metadata-only parts retry as two halves, so size never fails a save.
-            if (
-              chunk.length < 2 ||
-              !chunk.every(metadataOnly) ||
-              (error instanceof Error && /^API HTTP 4\d\d\b/.test(error.message))
-            )
+            // A CPU-limited Worker reply has no CORS headers, so it reaches the browser as a
+            // network error. Order-free metadata-only parts retry as two halves, so size never
+            // fails a save. The pending receipt stays: this part may have committed.
+            if (chunk.length < 2 || !chunk.every(metadataOnly) || !(error instanceof TypeError))
               throw error;
-            if (owner) await writeSaveReceipt(owner, receipt.id);
             const half = Math.ceil(chunk.length / 2);
             chunks.unshift(chunk.slice(0, half), chunk.slice(half));
             return null;

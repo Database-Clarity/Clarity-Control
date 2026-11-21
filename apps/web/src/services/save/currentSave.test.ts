@@ -6,6 +6,7 @@ import { Fixture, makePrivateKey } from '../../../../worker/test/fixture';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { clearSavedOverlay } from '../../stores/savedOverlay';
+import * as storage from '../draftStorage';
 import type { Change } from '../api';
 import { saveChunks } from './chunks';
 import { saveCurrent, saveRemainder } from './currentSave';
@@ -137,6 +138,43 @@ it('fits about 50 real-size Compendium links in one part and keeps text edits un
   expect(saveChangeCost(edit).work).toBe(
     editBytes + 512 + 2 * (JSON.stringify(text).length + JSON.stringify(`${text}!`).length),
   );
+});
+
+it('keeps the pending receipt of a split part that may have committed', async () => {
+  vi.stubGlobal('indexedDB', {});
+  const write = vi.spyOn(storage, 'writeSaveReceipt').mockResolvedValue(undefined);
+  const changes = realChanges(6);
+  const data = loaded();
+  useDataStore.setState({ data });
+  const submitted = Object.fromEntries(
+    changes.map(({ hash, base, next }) => [hash, { base: base!, next }]),
+  );
+  useDraftStore.setState({
+    owner: '1',
+    drafts: submitted,
+    external: false,
+    error: null,
+    retry: () => {},
+    flush: async () => {},
+  });
+  reviewSaveChanges(changes, submitted);
+  post
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockRejectedValueOnce(new Error('API HTTP 422: Tooltip rejected'));
+  const result = await saveCurrent({
+    prepared: changes,
+    data,
+    review: useSaveState.getState().review!,
+    message: 'Review Compendium links',
+    noTranslationImpact: false,
+    sameSession: () => true,
+    accountChanged: () => false,
+  });
+  expect(result.kind).toBe('failed');
+  expect(post.mock.calls.map(([chunk]) => (chunk as Change[]).length)).toEqual([6, 3]);
+  const [[, id, pending]] = write.mock.calls;
+  expect(pending?.tooltips.map(({ hash }) => hash)).toEqual(changes.map(({ hash }) => hash));
+  expect(write.mock.calls.filter((call) => call[1] === id && call.length === 2)).toEqual([]);
 });
 
 it('retries a metadata-only part that fails on Worker resources as two halves', async () => {
@@ -360,7 +398,7 @@ it('stops after a failed later request and resumes with only the unsaved drafts'
   });
   post
     .mockImplementationOnce(send)
-    .mockRejectedValueOnce(new Error('API HTTP 422: Tooltip rejected'))
+    .mockRejectedValueOnce(new Error('Offline'))
     .mockImplementation(send);
   const options = {
     message: 'Save',
