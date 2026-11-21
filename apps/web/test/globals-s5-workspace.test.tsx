@@ -10,15 +10,19 @@ import {
   type NavigateFunction,
 } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { createHash, webcrypto } from 'node:crypto';
 import { GlobalEntryWorkspace } from '../src/features/globals/GlobalEntryWorkspace';
 import type { GlobalHistoryReader } from '../src/features/globals/GlobalHistory';
-import type { TooltipUse } from '../src/features/globals/usages';
+import { globalUsagesUrl } from '../src/features/globals/usageArtifact';
+import { globalUsageStampInputs } from '../src/features/globals/usageStamp';
+import { bundleGlobalUsages } from '../src/features/globals/usages';
 import type { GlobalSnapshot, GlobalsService } from '../src/services/globals';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 import { useGlobalDraftStorage } from '../src/features/globals/globalDrafts';
 import { useDataStore, type EditorData } from '../src/stores/data';
 import { clearSavedOverlay } from '../src/stores/savedOverlay';
 import { applyHeadToData } from '../src/stores/conflicts';
+import { acceptSaved } from '../src/services/save/drafts';
 
 let change: (value: string) => void;
 vi.mock('../src/features/editor/ClarityEditor', () => ({
@@ -402,154 +406,168 @@ it('says when a global is not used by any tooltip', async () => {
   expect(host.textContent).toContain('Not used by any tooltip.');
 });
 
-it('rechecks the opened usage row after saves and adopts a refreshed bundle', async () => {
-  const snapshot = structuredClone(globalFixtureSnapshot);
-  const [damage, title] = snapshot.entries;
-  snapshot.impacts = { [damage.id]: [], [title.id]: [] };
-  const empty = { globals: [], tooltips: [] };
-  const row: TooltipUse = {
-    hash: 40,
-    open: { variant: 40, lang: 'en', line: 2 },
-    members: 1,
-    langs: ['en'],
-    direct: true,
-    via: [],
-  };
-  const data = {
-    items: {},
-    categories: [],
-    aliases: {},
-    bundle: {
-      sourceCommit: snapshot.head,
-      generatedAt: '2026-01-01T00:00:00Z',
-      tooltips: {
-        30: { hash: 30, text: { en: { text: '#Damage' } }, associated: [] },
-        // Recomputing the unchanged title would find this use. Its bundled row is empty.
-        31: {
-          hash: 31,
-          text: { en: { text: '<title Reload [Reload] />' } },
-          associated: [],
+it.each([true, false])(
+  'keeps viewed usages current across saves and refresh (artifact %s)',
+  async (withArtifact) => {
+    const snapshot = structuredClone(globalFixtureSnapshot);
+    const [damage, title] = snapshot.entries;
+    snapshot.impacts = { [damage.id]: [], [title.id]: [] };
+    const empty = { globals: [], tooltips: [] };
+    const data = {
+      items: {},
+      categories: [],
+      aliases: {},
+      bundle: {
+        sourceCommit: snapshot.head,
+        generatedAt: '2026-01-01T00:00:00Z',
+        tooltips: {
+          30: { hash: 30, text: { en: { text: '#Damage' } }, associated: [] },
+          31: {
+            hash: 31,
+            text: { en: { text: '<title Reload [Reload] />' } },
+            associated: [],
+          },
+        },
+        globals: {
+          entries: snapshot.entries,
         },
       },
-      globals: {
-        entries: snapshot.entries,
-        usages: { [damage.id]: { ...empty, tooltips: [row] }, [title.id]: empty },
-      },
-    },
-  } as unknown as EditorData;
-  data.bundledUsageInputs = { tooltips: data.bundle.tooltips, aliases: data.aliases };
-  useDataStore.setState({ status: 'ready', data });
-  const globals = service(snapshot);
-  const href = () => host.querySelector('[data-global-usage] a')?.getAttribute('href');
-  await mount(`/globals/${damage.id}`, globals);
-  expect(href()).toBe('/t/40?lang=en&variant=40&line=2');
+    } as unknown as EditorData;
+    const publish = (
+      value: EditorData,
+      rows = bundleGlobalUsages(value, value.bundle.globals!.entries),
+    ) => {
+      value.bundledUsageInputs = {
+        bundle: value.bundle,
+        aliases: value.aliases,
+        items: value.items,
+      };
+      const { items, aliases } = globalUsageStampInputs(value.items, value.aliases, undefined);
+      const digest = (text: string) => createHash('sha256').update(text).digest('hex');
+      return {
+        stamp: {
+          version: 1,
+          sourceCommit: value.bundle.sourceCommit,
+          itemsHash: digest(items),
+          aliasesHash: digest(aliases),
+        },
+        usages: rows,
+      };
+    };
+    let artifact = publish(data);
+    vi.stubGlobal('crypto', webcrypto);
+    const fetchArtifact = vi.fn(async (url: string) => {
+      expect(url).toBe(globalUsagesUrl);
+      return withArtifact ? Response.json(artifact) : new Response('', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchArtifact);
+    useDataStore.setState({ status: 'ready', data });
+    const globals = service(snapshot);
+    const href = () => host.querySelector('[data-global-usage] a')?.getAttribute('href');
+    await mount(`/globals/${damage.id}`, globals);
+    const expectHref = (expected: string | undefined) =>
+      vi.waitFor(async () => {
+        await act(async () => {});
+        expect(href()).toBe(expected);
+      });
+    await expectHref('/t/30?lang=en&variant=30&line=1');
+    expect(fetchArtifact).toHaveBeenCalledTimes(1);
 
-  let saved = snapshot;
-  for (const revision of ['r2', 'r3']) {
-    await act(() => change(`Saved ${revision}`));
-    const next = structuredClone(saved);
-    next.head = fixtureHead(next.head === snapshot.head ? 2 : 3);
-    const entry = next.entries[0];
-    entry.revision = revision;
-    entry.definitions.en!.body = `Saved ${revision}`;
-    globals.mutate.mockResolvedValueOnce({ kind: 'ok', value: next });
-    await act(async () => button('Save').click());
+    // A: add and remove a tooltip use while the bundled global catalogue still matches.
+    const added = { ...data.bundle.tooltips[30], hash: 32 };
+    await act(async () => acceptSaved({}, [added], fixtureHead(2)));
+    expect(host.querySelector('[data-global-usage="t:32"] a')?.getAttribute('href')).toBe(
+      '/t/32?lang=en&variant=32&line=1',
+    );
+    await act(async () => acceptSaved({}, [], fixtureHead(3), [32]));
+    expect(host.querySelector('[data-global-usage="t:32"]')).toBeNull();
+
+    // B: the Worker can already know a global the refreshed bundle does not contain.
+    const older = {
+      ...data,
+      bundle: { ...data.bundle, globals: { ...data.bundle.globals!, entries: [damage] } },
+    };
+    artifact = publish(older);
+    await act(async () => useDataStore.setState({ data: older }));
+    await act(async () => navigate(`/globals/${title.id}`));
+    await expectHref('/t/31?lang=en&variant=31&line=1');
+    artifact = publish(data);
+    await act(async () => useDataStore.setState({ data }));
+    await act(async () => navigate(`/globals/${damage.id}`));
+
+    let saved = snapshot;
+    for (const revision of ['r2', 'r3']) {
+      await act(() => change(`Saved ${revision}`));
+      const next = structuredClone(saved);
+      next.head = fixtureHead(next.head === snapshot.head ? 2 : 3);
+      const entry = next.entries[0];
+      entry.revision = revision;
+      entry.definitions.en!.body = `Saved ${revision}`;
+      globals.mutate.mockResolvedValueOnce({ kind: 'ok', value: next });
+      await act(async () => button('Save').click());
+      await vi.waitFor(async () => {
+        await act(async () => {});
+        expect(href()).toBe('/t/30?lang=en&variant=30&line=1');
+      });
+      saved = next;
+    }
+    await act(async () => navigate(`/globals/${title.id}`));
+    await expectHref('/t/31?lang=en&variant=31&line=1');
+    await act(async () => navigate(`/globals/${damage.id}`));
+
+    // The existing save overlay replaces tooltips independently of the globals catalogue.
+    await act(async () => applyHeadToData(30, null));
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(host.textContent).toContain('Not used by any tooltip.');
+      expect(href()).toBeUndefined();
+    });
+    await act(async () => applyHeadToData(30, data.bundle.tooltips[30]));
     await vi.waitFor(async () => {
       await act(async () => {});
       expect(href()).toBe('/t/30?lang=en&variant=30&line=1');
     });
-    saved = next;
-  }
-  await act(async () => navigate(`/globals/${title.id}`));
-  expect(href()).toBe('/t/31?lang=en&variant=31&line=1');
 
-  // A saved tooltip can introduce and remove a use without a global edit.
-  const added = { ...data.bundle.tooltips[31], hash: 32 };
-  await act(async () => applyHeadToData(32, added));
-  expect(host.querySelector('[data-global-usage="t:32"] a')?.getAttribute('href')).toBe(
-    '/t/32?lang=en&variant=32&line=1',
-  );
-  await act(async () => applyHeadToData(32, null));
-  expect(host.querySelector('[data-global-usage="t:32"]')).toBeNull();
-
-  await act(async () =>
-    useDataStore.setState({
-      data: { ...data, aliases: { 31: { to: 42, kind: 'sandbox' } } },
-    }),
-  );
-  expect(href()).toBe('/t/42?lang=en&variant=31&line=1');
-
-  // The Worker snapshot can know about an ID created after the bundle was built.
-  await act(async () => {
-    useDataStore.setState({
-      data: {
-        ...data,
-        bundle: {
-          ...data.bundle,
-          globals: {
-            ...data.bundle.globals!,
-            entries: [damage],
-            usages: { [damage.id]: { ...empty, tooltips: [row] } },
-          },
-        },
+    // A refresh catches up with the saves, with one tooltip now absent from editor-data.
+    const refreshed = {
+      ...data,
+      bundle: {
+        ...data.bundle,
+        sourceCommit: saved.head,
+        tooltips: { 31: data.bundle.tooltips[31] },
+        globals: { ...data.bundle.globals!, entries: saved.entries },
       },
+    };
+    artifact = publish(refreshed);
+    expect(artifact.usages[damage.id]).toEqual(empty);
+    const beforeRefresh = fetchArtifact.mock.calls.length;
+    await act(async () => useDataStore.setState({ data: refreshed }));
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(host.textContent).toContain('Not used by any tooltip.');
     });
-  });
-  expect(href()).toBe('/t/31?lang=en&variant=31&line=1');
-  await act(async () => navigate(`/globals/${damage.id}`));
+    expect(fetchArtifact).toHaveBeenCalledTimes(beforeRefresh + 1);
 
-  // The existing save overlay replaces tooltips independently of the globals catalogue.
-  await act(async () => applyHeadToData(30, null));
-  await vi.waitFor(async () => {
-    await act(async () => {});
-    expect(host.textContent).toContain('Not used by any tooltip.');
-    expect(href()).toBeUndefined();
-  });
-  await act(async () => applyHeadToData(30, data.bundle.tooltips[30]));
-  await vi.waitFor(async () => {
-    await act(async () => {});
-    expect(href()).toBe('/t/30?lang=en&variant=30&line=1');
-  });
-
-  // A background bundle refresh can arrive while the service still holds its old snapshot.
-  await act(async () => {
-    useDataStore.setState({
-      data: {
-        ...data,
-        bundle: {
-          ...data.bundle,
-          sourceCommit: saved.head,
-          globals: {
-            ...data.bundle.globals!,
-            entries: saved.entries,
-            usages: { [damage.id]: empty, [title.id]: empty },
-          },
-        },
-      },
+    // C: another global acquires a direct use and its tooltip acquires a transitive use.
+    await act(async () => navigate(`/globals/${title.id}`));
+    const changed = structuredClone(saved);
+    changed.head = fixtureHead(4);
+    changed.entries[1].revision = 'r2';
+    changed.entries[1].definitions.en!.body = 'Reloads with #Damage';
+    await act(() => change('Reloads with #Damage'));
+    globals.mutate.mockResolvedValueOnce({ kind: 'ok', value: changed });
+    await act(async () => button('Save').click());
+    await act(async () => navigate(`/globals/${damage.id}`));
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      const row = host.querySelector(`[data-global-usage="g:${title.id}"] a`);
+      expect(row?.getAttribute('href')).toBe(`/globals/${title.id}?lang=en`);
+      expect(host.querySelector('[data-global-usage="t:31"]')?.textContent).toContain(
+        'Through [Reload]',
+      );
     });
-  });
-  expect(host.textContent).toContain('Not used by any tooltip.');
-  expect(href()).toBeUndefined();
-
-  // Edit a different global to reference Damage. Damage's own revision is unchanged.
-  await act(async () => navigate(`/globals/${title.id}`));
-  const changed = structuredClone(saved);
-  changed.head = fixtureHead(4);
-  changed.entries[1].revision = 'r2';
-  changed.entries[1].definitions.en!.body = 'Reloads with #Damage';
-  await act(() => change('Reloads with #Damage'));
-  globals.mutate.mockResolvedValueOnce({ kind: 'ok', value: changed });
-  await act(async () => button('Save').click());
-  await act(async () => navigate(`/globals/${damage.id}`));
-  await vi.waitFor(async () => {
-    await act(async () => {});
-    const row = host.querySelector(`[data-global-usage="g:${title.id}"] a`);
-    expect(row?.getAttribute('href')).toBe(`/globals/${title.id}?lang=en`);
-    expect(host.querySelector('[data-global-usage="t:31"]')?.textContent).toContain(
-      'Through [Reload]',
-    );
-  });
-});
+  },
+);
 
 it('filters the saved impacts under a row, and the selection, by language', async () => {
   const catalogue = structuredClone(globalFixtureSnapshot);

@@ -69,7 +69,8 @@ import { tooltipTextSources } from '../editor/references';
 import { definitionPath } from '../editor/definitionPath';
 import { canonicalHash, classifiedCategory, itemFor, listName } from '../navigation/catalog';
 import { FinderIcon } from '../navigation/FinderIcon';
-import { globalUsageIndex, type GlobalUsageIndex, type GlobalUsages } from './usages';
+import { loadUsageArtifact } from './usageArtifact';
+import { globalUsageIndex, type GlobalUsages } from './usages';
 
 const globals = { variables: '', titles: '' };
 type Action = 'create' | 'rename' | 'remove' | 'remove-language';
@@ -1181,8 +1182,7 @@ const noImpacts: GlobalConsumer[] = [];
 const noUses: GlobalUsages = { tooltips: [], globals: [] };
 
 /**
- * The usage index, built once per loaded data and catalogue: at once when the Usages tab is
- * open, otherwise when the browser is idle (so the tab count fills in).
+ * The bundled rows or a lookup for the viewed ID, requested on Usages or during browser idle.
  */
 function useGlobalUsages(
   data: EditorData | null,
@@ -1190,9 +1190,8 @@ function useGlobalUsages(
   id: string | undefined,
   wanted: boolean,
 ) {
-  const catalog = data?.bundle.globals;
-  const saved = entries.find((entry) => entry.id === id);
-  const bundledEntries = catalog?.usages ? catalog.entries : undefined;
+  const bundledEntries = data?.bundle.globals?.entries;
+  const tombstone = entries.find((entry) => entry.id === id)?.tombstone;
   const sameCatalogue = useMemo(
     () =>
       bundledEntries?.length === entries.length &&
@@ -1208,51 +1207,41 @@ function useGlobalUsages(
       }),
     [bundledEntries, entries],
   );
-  const sameInputs =
-    data?.bundledUsageInputs?.tooltips === data?.bundle.tooltips &&
-    data?.bundledUsageInputs?.aliases === data?.aliases;
-  const precomputed = saved?.tombstone
-    ? noUses
-    : sameInputs && sameCatalogue && saved
-      ? catalog?.usages?.[saved.id]
-      : undefined;
   // A change to another declaration can add or remove a transitive use. Recheck only the
-  // opened ID against current inputs. Older bundles share a full pass.
-  const only = catalog?.usages ? id : undefined;
-  const hasId = id !== undefined;
+  // opened ID against current inputs whenever the catalogue or artifact no longer matches.
   const input = useMemo(
-    () => (data && hasId && !precomputed ? { data, entries, only } : undefined),
-    [data, entries, only, precomputed, hasId],
+    () => (data && id && !tombstone ? { data, entries, id, sameCatalogue } : undefined),
+    [data, entries, id, tombstone, sameCatalogue],
   );
   const [built, setBuilt] = useState<{
     input: NonNullable<typeof input>;
-    index?: GlobalUsageIndex;
+    uses?: GlobalUsages;
     error: string;
   }>();
   useEffect(() => {
     if (!input) return;
     let active = true;
-    const start = () =>
-      void globalUsageIndex(input.data, input.entries, input.only).then(
-        (index) => {
-          if (active) setBuilt({ input, index, error: '' });
-        },
-        (reason: unknown) => {
-          if (active)
-            setBuilt({
-              input,
-              error: reason instanceof Error ? reason.message : 'Could not find usages.',
-            });
-        },
-      );
+    const start = async () => {
+      try {
+        const rows = input.sameCatalogue ? await loadUsageArtifact(input.data) : undefined;
+        if (!active) return;
+        const uses =
+          rows?.[input.id] ??
+          (await globalUsageIndex(input.data, input.entries, input.id)).of(input.id);
+        if (active) setBuilt({ input, uses, error: '' });
+      } catch (reason) {
+        if (active)
+          setBuilt({
+            input,
+            error: reason instanceof Error ? reason.message : 'Could not find usages.',
+          });
+      }
+    };
     let cancel = () => {};
-    if (wanted) start();
+    if (wanted) void start();
     else if (typeof requestIdleCallback === 'function') {
-      const idle = requestIdleCallback(start, { timeout: 2000 });
+      const idle = requestIdleCallback(() => void start());
       cancel = () => cancelIdleCallback(idle);
-    } else {
-      const timer = setTimeout(start, 500);
-      cancel = () => clearTimeout(timer);
     }
     return () => {
       cancel();
@@ -1260,11 +1249,7 @@ function useGlobalUsages(
     };
   }, [input, wanted]);
   const current = built?.input === input ? built : undefined;
-  const uses = useMemo(
-    () => precomputed ?? (id && current?.index ? current.index.of(id) : undefined),
-    [precomputed, id, current?.index],
-  );
-  return { uses, error: current?.error ?? '' };
+  return { uses: tombstone ? noUses : current?.uses, error: current?.error ?? '' };
 }
 
 interface UsageRow {

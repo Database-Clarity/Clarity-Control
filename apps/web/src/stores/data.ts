@@ -17,8 +17,8 @@ import { useMarksStore } from '../features/marks/store';
 export type Catalog = Awaited<ReturnType<typeof loadGenerator>>;
 export interface EditorData extends Catalog {
   bundle: Bundle;
-  /** Inputs described by precomputed usages, before local saves and alias changes. */
-  bundledUsageInputs?: { tooltips: Bundle['tooltips']; aliases: Aliases };
+  /** The fetched usage inputs before local saves and alias changes. */
+  bundledUsageInputs?: { bundle: Bundle; aliases: Aliases; items: Catalog['items'] };
   /**
    * The generator's own aliases; `aliases` composes these, accepted groups, and sandbox picks,
    * exactly what push and publish digest and export with. Absent in
@@ -137,8 +137,8 @@ export const useDataStore = create<DataState>((set, get) => ({
           hasSandboxTargets(bundle.sandboxPointers) || bundle.aliasGroups
             ? withSandboxPicks(base, bundle.sandboxPointers, picks)
             : base;
-        if (bundle.globals?.usages)
-          data.bundledUsageInputs = { tooltips: bundle.tooltips, aliases: data.aliases };
+        if (bundle.globals)
+          data.bundledUsageInputs = { bundle, aliases: data.aliases, items: data.items };
         return data;
       };
       // Landing work is split into tasks so that none runs long: the responses' parsing above,

@@ -64,6 +64,10 @@ import {
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { bundleGlobalUsages } from '../../apps/web/src/features/globals/usages.js';
 import {
+  globalUsagesFile,
+  globalUsageStampInputs,
+} from '../../apps/web/src/features/globals/usageStamp.js';
+import {
   appCredits,
   requesterCredits,
   RefRace,
@@ -1895,7 +1899,8 @@ export class Publisher {
     const aliasFacts = this.options.aliasFacts;
     // Older installations did not pin the full generator items. They still publish a usable
     // catalogue, and the editor uses its compatibility calculation until the config is updated.
-    let usages: ReturnType<typeof bundleGlobalUsages> | undefined;
+    const nextTree: Tree = { ...oldTree, 'bundle.json': this.git.writeBlob(json(bundle)) };
+    delete nextTree[globalUsagesFile];
     if (catalog && aliasFacts?.generatorSha === this.options.generatorSha && aliasFacts.items) {
       try {
         const groups =
@@ -1909,26 +1914,33 @@ export class Publisher {
           this.options.sandboxConflicts,
           bundle.sandboxPointers,
         ).aliases;
-        usages = bundleGlobalUsages({ bundle, aliases, items: aliasFacts.items }, catalog.entries);
+        const { items, aliases: importAliases } = globalUsageStampInputs(
+          aliasFacts.items,
+          aliases,
+          groups,
+        );
+        nextTree[globalUsagesFile] = this.git.writeBlob(
+          json({
+            stamp: {
+              version: 1,
+              sourceCommit: h,
+              itemsHash: createHash('sha256').update(items).digest('hex'),
+              aliasesHash: createHash('sha256').update(importAliases).digest('hex'),
+            },
+            usages: bundleGlobalUsages(
+              { bundle, aliases, items: aliasFacts.items },
+              catalog.entries,
+            ),
+          }),
+        );
       } catch (error) {
         // Usages are derived. Failure here must not stop refreshed definitions or the queue.
         console.warn('Could not precompute global usages:', error);
       }
     }
-    // The publisher owns only bundle.json: every other file on the bundle branch (the report
-    // catalogs report-items*.json, rebuilt by the pipeline's report-items job) is carried
-    // forward byte-identical, so no bundle push can delete them.
-    const c = this.git.commit(
-      old,
-      {
-        ...oldTree,
-        'bundle.json': this.git.writeBlob(
-          json(usages ? { ...bundle, globals: { ...catalog, usages } } : bundle),
-        ),
-      },
-      `Bundle ${h}`,
-      appCredits,
-    );
+    // Publish the catalogue and usages in one tree. The rest of the tree, including the report
+    // catalogs rebuilt by the report-items job, is carried forward byte-identical.
+    const c = this.git.commit(old, nextTree, `Bundle ${h}`, appCredits);
     this.git.cas(ref, old, c);
   }
   async run(syncGlobals = true) {

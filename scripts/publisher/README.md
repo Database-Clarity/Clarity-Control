@@ -193,10 +193,12 @@ bundle.json `globals` holds the globals catalogue at the bundle's sourceCommit: 
 catalogue page order plus the public sync header (the Worker's publicGlobalSync), or null when
 the catalogue files are malformed. The editor reads its finder lists from it; the Worker serves
 only the opened entry, its reviews, and writes. Install this build before deploying that editor.
-The same bundle build computes `globals.usages` for every live ID, including entries with no
-uses. Its install config needs the full `aliasFacts.items` from the same pinned generator
-revision as `generatorSha`, `aliases`, and `sandboxConflicts`. Older configs and older bundle
-producers still serve the catalogue, with usages calculated by the editor on demand.
+The same bundle commit publishes `global-usages.json` with a row for every live ID, including
+entries with no uses. The editor loads it in the Globals workspace and checks its source commit,
+generator item pairing, and effective import aliases and groups. If verification fails or the
+artifact is unavailable, the editor computes usages for the viewed ID. The publisher config needs
+the full `aliasFacts.items` from the same pinned revision as `generatorSha`, `aliases`, and
+`sandboxConflicts` to produce the artifact.
 It merges maintainer sandbox picks (config/sandbox-pointers.json, core mergeSandboxPointers with
 the config's generator `sandboxConflicts`) into the aliases it digests and exports, carries the
 picks in bundle.json, and its PIN declares `sandboxPointers`, which the Worker's
@@ -246,7 +248,7 @@ bundle just published). would-be-commits.json lists prerequisite commits; when c
 no Git bundle is emitted. Otherwise fetch would-be-commits.bundle into a clone containing those
 prerequisites to inspect the simulated heads.
 
-The publisher owns only bundle.json on editor-data-bundle. Every bundle push, dry-run included,
+The publisher owns bundle.json and global-usages.json on editor-data-bundle. Every bundle push, dry-run included,
 carries every other file of the previous bundle forward byte-identical, so the report catalogs
 (report-items.json and report-items.worker.json, read by web Reports and the Worker's /reports)
 survive it. The same workflow run then rebuilds them in two jobs that replace bundle.yml's catalog

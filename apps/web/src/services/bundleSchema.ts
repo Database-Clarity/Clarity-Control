@@ -5,31 +5,10 @@ import {
   inactiveMovesSchema,
   tooltipSchema,
   aliasGroupsSchema,
-  globalIdSchema,
   globalRecordSchema,
-  langSchema,
+  globalIdSchema,
 } from '@clarity/core';
 import { z } from 'zod';
-
-const globalUseSchema = z.object({
-  langs: z.array(langSchema),
-  direct: z.boolean(),
-  via: z.array(z.string()),
-});
-const globalUsagesSchema = z.object({
-  tooltips: z.array(
-    globalUseSchema.extend({
-      hash: z.uint32(),
-      open: z.object({
-        variant: z.uint32(),
-        lang: langSchema,
-        line: z.int().positive().optional(),
-      }),
-      members: z.int().positive(),
-    }),
-  ),
-  globals: z.array(globalUseSchema.extend({ id: globalIdSchema })),
-});
 
 export const bundleSchema = z.object({
   sourceCommit: z.string().min(1),
@@ -65,15 +44,7 @@ export const bundleSchema = z.object({
         lastFailure: z.string().max(512).nullable(),
         causeEntries: z.record(z.string().max(128), globalIdSchema),
       }),
-      /** Missing on older bundles. A present row can explicitly contain no uses. */
-      usages: z.record(globalIdSchema, globalUsagesSchema).optional().catch(undefined),
     })
-    .transform((catalog) =>
-      catalog.usages &&
-      catalog.entries.some(({ id, tombstone }) => !tombstone && !catalog.usages?.[id])
-        ? { ...catalog, usages: undefined }
-        : catalog,
-    )
     .nullable()
     .optional()
     .catch(null),

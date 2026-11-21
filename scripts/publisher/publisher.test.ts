@@ -1967,8 +1967,14 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
         'bundle.json',
       )!;
+    const usages = () =>
+      f.pub.read<Record<string, unknown>>(
+        f.git.tree(f.git.head('refs/heads/editor-data-bundle')!),
+        'global-usages.json',
+      );
     f.pub.bundle();
     expect(bundle()).not.toHaveProperty('globals');
+    expect(usages()).toBeUndefined();
     const record = (id: string, name: string) => ({
       version: 1,
       id,
@@ -2019,7 +2025,14 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       },
     });
     f.pub.bundle();
-    expect(bundle().globals).toMatchObject({
+    expect(bundle().globals).not.toHaveProperty('usages');
+    expect(usages()).toMatchObject({
+      stamp: {
+        version: 1,
+        sourceCommit: f.git.head(D),
+        itemsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        aliasesHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
       usages: {
         [b.id]: { tooltips: [], globals: [] },
         [a.id]: {
@@ -2043,6 +2056,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.pub.bundle();
     expect(bundle().sourceCommit).toBe(f.git.head(D));
     expect(bundle().globals).toBeNull();
+    expect(usages()).toBeUndefined();
     expect(Object.keys(bundle().tooltips as object).length).toBeGreaterThan(0);
   });
 

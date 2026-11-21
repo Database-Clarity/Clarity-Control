@@ -40,7 +40,7 @@ it('treats an absent file as empty, and fails closed on malformed data or upstre
   await expect(loadBundle()).rejects.toThrow('502');
 });
 
-it('preserves computed empty usages and treats incomplete or malformed usage payloads as absent', () => {
+it('ignores legacy embedded usages while preserving the catalogue', () => {
   const id = 'g_aaaaaaaa';
   const globals = {
     entries: [
@@ -58,12 +58,7 @@ it('preserves computed empty usages and treats incomplete or malformed usage pay
     ],
     sync: { status: 'current', causeIds: [], lastFailure: null, causeEntries: {} },
   };
-  const parse = (usages?: unknown) =>
-    bundleSchema.parse({ ...bundle, globals: { ...globals, usages } }).globals;
-  expect(parse()).toMatchObject(globals);
-  expect(parse()?.usages).toBeUndefined();
-  expect(parse({})?.usages).toBeUndefined();
-  expect(parse({ [id]: { tooltips: null, globals: [] } })?.usages).toBeUndefined();
-  const empty = { [id]: { tooltips: [], globals: [] } };
-  expect(parse(empty)?.usages).toEqual(empty);
+  expect(
+    bundleSchema.parse({ ...bundle, globals: { ...globals, usages: { [id]: {} } } }).globals,
+  ).toEqual(globals);
 });
