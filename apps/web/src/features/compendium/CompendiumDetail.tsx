@@ -147,7 +147,7 @@ const Candidate = memo(function Candidate({
       {(!matched || block.origin !== 'proposal') && (
         <p className={styles.rule}>
           {block.origin === 'proposal'
-            ? 'Suggested match · confirm the source'
+            ? 'Suggested source'
             : block.origin === 'candidate'
               ? 'Alternative match'
               : block.rule}
