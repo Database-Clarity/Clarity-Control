@@ -4,7 +4,16 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { exportLegacy, publishableHash, stableStringify, type Tooltip } from '@clarity/core';
+import {
+  currentSavePartBytes,
+  currentSaveStagePaths as currentPaths,
+  currentSaveStageLifetime,
+  currentSaveStagingCapability,
+  exportLegacy,
+  publishableHash,
+  stableStringify,
+  type Tooltip,
+} from '@clarity/core';
 import {
   batchSchema,
   schedulePaths,
@@ -30,6 +39,7 @@ import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { runPipeline } from './pipeline.js';
 import { newUlid, withIndexEntry } from '../../apps/worker/src/schedule/store.js';
 import { createRequest } from './request.js';
+import { drainCurrentSaves } from './currentSave.js';
 
 const D = 'refs/heads/editor-data',
   L = 'refs/heads/converter-v2-test';
@@ -235,6 +245,7 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
     actor = user,
     notBefore = DUE,
     id = kind === 'schedule' ? R : S,
+    draftStaging?: { id: string; finish: boolean },
   ) {
     const sourceCommit = pub.head(options.dataBranch),
       sourceTree = git.tree(sourceCommit),
@@ -247,6 +258,7 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
             revision: before.revision,
             changes,
             message: 'Save reviewed translation',
+            ...(draftStaging ? { draftStaging } : {}),
           };
     const body = JSON.stringify(input);
     const common = {
@@ -271,6 +283,7 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
             ...common,
             kind,
             returnStatus: before.status as 'draft' | 'scheduled',
+            ...(draftStaging ? { draftStaging } : {}),
             onValidationFailure:
               actor.id === 2 && before.status === 'scheduled'
                 ? 'keep_scheduled'
@@ -294,6 +307,9 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
         requestedAt: AT,
         attempt: 1,
       },
+      ...(draftStaging
+        ? { draftStaging: { id: draftStaging.id, ownerId: actor.id, updatedAt: AT } }
+        : {}),
       ...(kind === 'schedule'
         ? { opId: id, notBefore, zone: 'UTC', scheduledContentRevision: null }
         : {}),
@@ -351,6 +367,125 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
     keys,
   };
 }
+
+async function stagedCurrentFixture(count = 2, correctDigest = true) {
+  const f = await fixture();
+  const text = ' Existing text.'.repeat(127);
+  const edits = Array.from({ length: count }, (_, index) => {
+    const hash = 123 + index;
+    const template = index ? 'import TOKEN from 123\n' : 'export TOKEN (\nValue\n)\n';
+    const base = { ...tip(template.replace('TOKEN', 'Old') + text), hash };
+    const next = { ...tip(template.replace('TOKEN', 'New') + text), hash };
+    next.text.en!.updatedAt = AT;
+    return { hash, base, next };
+  });
+  const bytes = Buffer.from(JSON.stringify({ changes: edits, message: 'Rename shared export' }));
+  const files: Record<string, unknown> = Object.fromEntries(
+    edits.map(({ hash, base }) => [`tooltips/${hash}.json`, base]),
+  );
+  let parts = 0;
+  for (let start = 0; start < bytes.length; start += currentSavePartBytes)
+    files[currentPaths.part(S, parts++)] = bytes
+      .subarray(start, start + currentSavePartBytes)
+      .toString('base64');
+  const staged = { requester: user, updatedAt: AT, parts, status: 'uploading' };
+  f.change({
+    ...files,
+    [currentPaths.record(S)]: staged,
+    '.publisher/PIN': {
+      sourceSha: f.options.publisherSha,
+      sha256: f.options.publisherDigest,
+      capabilities: [currentSaveStagingCapability],
+    },
+  });
+  const payload = stableStringify({
+    version: 1,
+    requestId: S,
+    requester: user,
+    repo: f.options.repo,
+    branch: f.options.dataBranch,
+    sourceCommit: f.pub.head(f.options.dataBranch),
+    parts,
+    digest: correctDigest ? createHash('sha256').update(bytes).digest('hex') : 'a'.repeat(64),
+  });
+  const envelope = {
+    payload,
+    sig: sign(null, Buffer.from(payload), f.keys.privateKey).toString('base64'),
+  };
+  f.change({ [currentPaths.record(S)]: { ...staged, status: 'queued', envelope } });
+  return { ...f, edits };
+}
+
+describe('offline staged Current saves', () => {
+  it('expires an abandoned Current upload and releases its account slot', async () => {
+    const f = await fixture();
+    const expired = NOW - currentSaveStageLifetime - 1;
+    f.change({
+      [currentPaths.record(S)]: {
+        requester: user,
+        status: 'uploading',
+        parts: 1,
+        updatedAt: new Date(expired).toISOString(),
+      },
+      [currentPaths.part(S, 0)]: 'YQ==',
+      [currentPaths.usage(user.id)]: { active: { requestId: S, parts: 1 }, starts: [expired] },
+    });
+    await drainCurrentSaves(f.pub);
+    expect(f.read(currentPaths.record(S))).toBeUndefined();
+    expect(f.read(currentPaths.part(S, 0))).toBeUndefined();
+    expect(f.read(currentPaths.usage(user.id))).toMatchObject({ active: null, starts: [expired] });
+  });
+
+  it('applies a 36-tooltip export rename and acknowledges its immutable commit through one CAS', async () => {
+    const f = await stagedCurrentFixture(36);
+    const update = vi.spyOn(f.git, 'cas');
+    await drainCurrentSaves(f.pub);
+    expect(update).toHaveBeenCalledTimes(1);
+    const result = f.read(currentPaths.record(S)) as { status: string; commit: string };
+    expect(result.status).toBe('saved');
+    const commit = f.git.tree(result.commit);
+    for (const { hash, next } of f.edits) {
+      expect(f.read(`tooltips/${hash}.json`)).toEqual(next);
+      expect(f.pub.read(commit, `tooltips/${hash}.json`)).toEqual(next);
+    }
+    expect(f.read(currentPaths.part(S, 0))).toBeUndefined();
+    update.mockClear();
+    await drainCurrentSaves(f.pub);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('keeps the whole closure unchanged on bad content or revoked permission', async () => {
+    for (const revoked of [false, true]) {
+      const f = await stagedCurrentFixture(2, revoked);
+      if (revoked) f.change({ 'config/permissions.json': { users: {} } });
+      await drainCurrentSaves(f.pub);
+      expect(f.read(currentPaths.record(S))).toMatchObject({ status: 'failed' });
+      for (const { hash, base } of f.edits) expect(f.read(`tooltips/${hash}.json`)).toEqual(base);
+      expect(f.read(currentPaths.part(S, 0))).toBeUndefined();
+    }
+  });
+
+  it('rechecks a concurrent owner save at CAS and records conflicts without applying any part', async () => {
+    const f = await stagedCurrentFixture();
+    const cas = f.git.cas.bind(f.git);
+    let raced = false;
+    const external = { ...tip('Concurrent edit'), hash: 124 };
+    vi.spyOn(f.git, 'cas').mockImplementation((ref, head, next) => {
+      if (!raced && ref === D) {
+        raced = true;
+        f.change({ 'tooltips/124.json': external });
+        throw new RefRace('A concurrent save won');
+      }
+      cas(ref, head, next);
+    });
+    await drainCurrentSaves(f.pub);
+    expect(raced).toBe(true);
+    expect(f.read('tooltips/123.json')).toEqual(f.edits[0]!.base);
+    expect(f.read('tooltips/124.json')).toEqual(external);
+    expect(f.read(currentPaths.record(S))).toMatchObject({ status: 'conflicts' });
+    expect(f.read(currentPaths.conflicts(S))).toMatchObject({ conflicts: [{ hash: 124 }] });
+  });
+});
 
 async function withGlobals(
   f: Awaited<ReturnType<typeof fixture>>,
@@ -805,6 +940,235 @@ describe('scheduled global closure', () => {
 });
 
 describe('offline schedule preparation', () => {
+  it('finishes a retried draft stage whose new member already landed', async () => {
+    const f = await fixture();
+    const next: Tooltip = {
+      ...f.proposed,
+      hash: 124,
+      text: {
+        ...f.proposed.text,
+        de: {
+          text: 'Langer Text. '.repeat(900),
+          updatedAt: AT,
+          updatedBy: user.login,
+          sourceUpdatedAt: f.proposed.text.en!.updatedAt,
+        },
+      },
+    };
+    const changes = [{ hash: next.hash, base: null, next }];
+    f.admit('save', changes, user, DUE, S, { id: S, finish: false });
+    await f.prep.drain();
+    expect(f.request(S).status).toBe('completed');
+    const memberPath = schedulePaths.member(B, next.hash);
+    const landed = f.read(memberPath);
+    expect(JSON.stringify(landed).length).toBeGreaterThan(8 * 1024);
+    expect(f.batch().draftStaging?.id).toBe(S);
+    const previousRevision = f.batch().contentRevision;
+    f.admit('save', changes, user, DUE, R, { id: S, finish: true });
+    await f.prep.drain();
+    expect(f.request(R).status).toBe('completed');
+    expect(f.batch().draftStaging).toBeUndefined();
+    expect(f.batch().contentRevision).toBe(previousRevision);
+    expect(f.read(memberPath)).toEqual(landed);
+  });
+
+  async function stagedSchedule() {
+    const f = await fixture();
+    f.change({
+      'tooltips/124.json': { ...f.base, hash: 124 },
+      'live/tooltips/124.json': { ...f.base, hash: 124 },
+      'live/pushed.json': {
+        123: await publishableHash(f.base),
+        124: await publishableHash({ ...f.base, hash: 124 }),
+      },
+      [schedulePaths.member(B, 124)]: {
+        hash: 124,
+        base: { ...f.base, hash: 124 },
+        baseCommit: 'd'.repeat(40),
+        proposed: { ...f.proposed, hash: 124 },
+        updatedAt: AT,
+        updatedBy: user.login,
+      },
+    });
+    const due = '2030-03-17T19:00:00.000Z';
+    f.admit('schedule', undefined, user, due);
+    await f.prep.drain();
+    const accepted = f.batch();
+    expect(accepted.status).toBe('scheduled');
+    const stage = {
+      id: S,
+      ownerId: user.id,
+      revision: accepted.revision,
+      parts: 2,
+      ready: false,
+      updatedAt: AT,
+    };
+    f.change({
+      [scheduleIntentPaths.stagedSave(B)]: stage,
+      ...Object.fromEntries(
+        [123, 124].map((hash, part) => {
+          const base = { ...f.proposed, hash };
+          const next = {
+            ...base,
+            text: {
+              ...base.text,
+              fr: {
+                text: 'Traduit',
+                updatedAt: AT,
+                updatedBy: user.login,
+                sourceUpdatedAt: base.text.en!.updatedAt,
+              },
+            },
+          };
+          return [
+            scheduleIntentPaths.stagedPart(B, S, part),
+            {
+              requestId: S,
+              revision: accepted.revision,
+              part,
+              message: 'Stage translations',
+              changes: [{ hash, base, next }],
+            },
+          ];
+        }),
+      ),
+    });
+    const sourceCommit = f.pub.head(f.options.dataBranch);
+    const body = JSON.stringify({ requestId: S, revision: accepted.revision, finish: true });
+    const intent: ScheduleIntent = {
+      version: 1,
+      kind: 'save',
+      requestId: S,
+      batchId: B,
+      repo: f.options.repo,
+      dataBranch: f.options.dataBranch,
+      liveBranch: f.options.liveBranch,
+      requester: user,
+      expectedRevision: accepted.revision,
+      contentRevision: accepted.contentRevision,
+      sourceCommit,
+      memberTreeOid: globalTreeOid(f.git.tree(sourceCommit), `schedule/batches/${B}/tooltips`),
+      createdAt: AT,
+      bodyDigest: createHash('sha256').update(body).digest('hex'),
+      returnStatus: 'scheduled',
+      onValidationFailure: 'keep_scheduled',
+      scheduledParts: 2,
+    };
+    const payload = stableStringify(intent);
+    const request: ScheduleRequest = {
+      envelope: {
+        payload,
+        sig: sign(null, Buffer.from(payload), f.keys.privateKey).toString('base64'),
+      },
+      requestId: S,
+      batchId: B,
+      requesterId: user.id,
+      admissionRevision: accepted.revision + 1,
+      bodyDigest: intent.bodyDigest,
+      status: 'pending',
+      attempt: 1,
+      updatedAt: AT,
+    };
+    f.change({
+      [scheduleIntentPaths.stagedSave(B)]: { ...stage, ready: true },
+      [scheduleIntentPaths.request(S)]: request,
+    });
+    const head = f.pub.head(f.options.dataBranch);
+    const tree = f.git.tree(head);
+    tree[scheduleIntentPaths.body(S)] = f.git.writeBlob(body);
+    f.git.cas(D, head, f.git.commit(head, tree, 'Confirm staged save'));
+    expect(f.batch()).toEqual(accepted);
+    return { ...f, accepted, due };
+  }
+
+  it('applies every staged edit together before the old version is claimed', async () => {
+    const f = await stagedSchedule();
+    await f.prep.drain();
+    expect(f.request(S)).toMatchObject({ status: 'completed' });
+    expect(f.batch()).toMatchObject({ status: 'scheduled', opId: R, preparedRequestId: S });
+    for (const hash of [123, 124])
+      expect(
+        f.read<{ proposed: Tooltip }>(schedulePaths.member(B, hash)).proposed.text.fr?.text,
+      ).toBe('Traduit');
+    expect(f.read(scheduleIntentPaths.stagedSave(B))).toBeUndefined();
+    expect(f.read(scheduleIntentPaths.stagedPart(B, S, 0))).toBeUndefined();
+    // The publisher still verifies the immutable source after the hot staging files are gone.
+    f.clock.now = Date.parse(f.due);
+    await f.pub.run();
+    expect(f.batch().status).toBe('published');
+    expect(f.read<Tooltip>('live/tooltips/124.json').text.fr?.text).toBe('Traduit');
+  });
+
+  it('lets a concurrent claim win the CAS without applying any staged edit', async () => {
+    const f = await stagedSchedule();
+    const cas = f.git.cas.bind(f.git);
+    let raced = false;
+    const spy = vi.spyOn(f.git, 'cas').mockImplementation((ref, head, next) => {
+      if (
+        !raced &&
+        ref === D &&
+        next &&
+        f.pub.read<ScheduleRequest>(f.git.tree(next), scheduleIntentPaths.request(S))?.status ===
+          'completed'
+      ) {
+        raced = true;
+        f.change({
+          [schedulePaths.batch(B)]: {
+            ...f.accepted,
+            revision: f.accepted.revision + 1,
+            status: 'publishing',
+            claim: { opId: R, claimedAt: AT },
+          },
+        });
+        throw new RefRace('Claim won the race');
+      }
+      cas(ref, head, next);
+    });
+    try {
+      await f.prep.drain();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(raced).toBe(true);
+    expect(f.batch().status).toBe('publishing');
+    expect(f.request(S)).toMatchObject({
+      status: 'failed',
+      reasons: [{ reason: 'Batch published before these edits landed' }],
+    });
+    expect(
+      f.read<{ proposed: Tooltip }>(schedulePaths.member(B, 123)).proposed.text.fr,
+    ).toBeUndefined();
+    expect(f.read(scheduleIntentPaths.stagedSave(B))).toBeUndefined();
+  });
+
+  it('publishes the old accepted batch when it comes due before staging can apply', async () => {
+    const f = await stagedSchedule();
+    f.clock.now = Date.parse(f.due);
+    await f.pub.run();
+    expect(f.batch().status).toBe('published');
+    expect(f.request(S)).toMatchObject({
+      status: 'failed',
+      reasons: [{ reason: 'Batch published before these edits landed' }],
+    });
+    expect(f.read<Tooltip>('live/tooltips/123.json').text.fr).toBeUndefined();
+    expect(f.read(scheduleIntentPaths.stagedPart(B, S, 1))).toBeUndefined();
+  });
+
+  it('retires staged edits after the accepted version has already published', async () => {
+    const f = await stagedSchedule();
+    f.clock.now = Date.parse(f.due);
+    await f.pub.operation(R);
+    expect(f.batch().status).toBe('published');
+    expect(f.request(S).status).toBe('pending');
+    await f.prep.drain();
+    expect(f.request(S)).toMatchObject({
+      status: 'failed',
+      reasons: [{ reason: 'Batch published before these edits landed' }],
+    });
+    expect(f.read<Tooltip>('live/tooltips/124.json').text.fr).toBeUndefined();
+    expect(f.read(scheduleIntentPaths.stagedSave(B))).toBeUndefined();
+  });
+
   it('prepares before publishing, and produces one receipt and real seven-file exporter parity', async () => {
     const f = await fixture();
     f.admit('schedule');

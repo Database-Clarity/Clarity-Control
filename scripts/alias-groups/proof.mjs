@@ -112,15 +112,15 @@ for (const style of engine.styles) {
     frameAliases: true,
   });
   const plans = [A, B].map((v) => engine.compile(v.input, file, { catalog: facts, identical }));
-  changed[`v1-${style}`] = diff(plans[0].expanded, plans[1].expanded);
-  outputs[`v1-${style}`] = {
-    engine: 'editor format v1 engine (not installed in publisher)',
+  changed[`v2-${style}`] = diff(plans[0].expanded, plans[1].expanded);
+  outputs[`v2-${style}`] = {
+    engine: 'editor format v2 engine (not installed in publisher)',
     before: digest(plans[0].bytes),
     after: digest(plans[1].bytes),
-    changed: changed[`v1-${style}`].length,
+    changed: changed[`v2-${style}`].length,
   };
   plans.forEach((p, i) =>
-    writeFileSync(join(out, `v1-${style}-${i ? 'after' : 'before'}.json`), p.bytes),
+    writeFileSync(join(out, `v2-${style}-${i ? 'after' : 'before'}.json`), p.bytes),
   );
 }
 const pushed = before['live/pushed.json']
@@ -158,7 +158,7 @@ save('proof.json', {
   installedRuntimeSha256: digest(runtime),
   instrumentationSha256: digest(instrumented),
   limitation:
-    'Publisher has no format v1 compiler; v1 proof uses the editor engine. G2 install remains gated.',
+    'The format v2 proof uses the separate editor export engine. G2 install remains gated.',
 });
 console.log(JSON.stringify({ outputs, lost }));
 if (lost) throw new Error(`STOP: ${lost} legacy rows lost`);

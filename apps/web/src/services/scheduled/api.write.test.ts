@@ -103,6 +103,7 @@ describe('scheduled batches client: writes and detail reads', () => {
   });
 
   it('stops at a refused chunk and names what was saved and what was not', async () => {
+    setup({ members: 15 });
     const api = await load();
     const { batch } = await api.createBatch('Capped');
     const changes = hashes(30).map((hash) => change(hash, `New ${hash}`));

@@ -4,8 +4,9 @@
 // makes a new route fail this test until it is added to the table.
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultSyncedSettings, type Permissions } from '@clarity/core';
+import { currentSaveStagingCapability, defaultSyncedSettings, type Permissions } from '@clarity/core';
 import type { ReportsDatabase } from '../src/reports.js';
+import { newUlid } from '../src/schedule/store.js';
 import { blobOid, config, Fixture, makePrivateKey, tooltip } from './fixture.js';
 
 const privateKey = await makePrivateKey();
@@ -47,6 +48,8 @@ function emptyDatabase(): ReportsDatabase {
 
 const R = 'r-aaaaaaaa';
 const W = 'b4d6ed22-4e98-4f25-a55f-11d529c9ae97';
+const testTime = Date.parse('2026-11-11T12:00:00Z');
+const stageRequestId = newUlid(testTime);
 type Route = { method: string; path: string; body?: unknown };
 /** Every route outside /exports. `public` routes need no session at all. */
 const routes: (Route & { public?: true })[] = [
@@ -67,6 +70,12 @@ const routes: (Route & { public?: true })[] = [
     method: 'POST',
     path: '/save',
     body: { changes: [{ hash: 123, base: tooltip(), next: tooltip('x') }], message: 'x' },
+  },
+  { method: 'GET', path: `/save/stage?requestId=${stageRequestId}` },
+  {
+    method: 'POST',
+    path: '/save/stage',
+    body: { requestId: stageRequestId, part: 0, content: 'e30=' },
   },
   { method: 'POST', path: '/push-live', body: { hashes: [123] } },
   { method: 'GET', path: '/worklists' },
@@ -150,7 +159,7 @@ const anyAccount = new Set(['GET /me', 'GET /reports/mine']);
 let fixture: Fixture;
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(Date.parse('2026-11-11T12:00:00Z'));
+  vi.setSystemTime(testTime);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -167,6 +176,7 @@ function setup(editorIsPartner = false) {
   fixture.accounts = { grace: { id: 77, login: 'grace', type: 'User' } };
   fixture.moveData({
     'config/permissions.json': permissions(editorIsPartner),
+    '.publisher/PIN': { capabilities: [currentSaveStagingCapability] },
     'exports/projects/dim.json': dim,
   });
   vi.setSystemTime(Date.now() + 3_600_000);

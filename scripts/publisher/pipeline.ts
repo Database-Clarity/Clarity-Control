@@ -10,6 +10,7 @@ import publisherConfig from '../../config/publisher.json';
 import { Publisher, paths, type Receipt, type Options } from './publisher.js';
 import { GlobalsPublisher } from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
+import { drainCurrentSaves } from './currentSave.js';
 
 export type PipelineConfig = Omit<Options, 'now' | 'backoff' | 'publicKey'> & {
   keyEndpoint: string;
@@ -248,6 +249,7 @@ export async function runPipeline(
       const publisher = new Publisher(initial, options);
       // GITHUB_TOKEN commits do not trigger another workflow: prepare, globals, bundle,
       // and publication all happen in this serialized run, after reading latest heads.
+      await drainCurrentSaves(publisher);
       await new SchedulePreparer(publisher).drain();
       await new GlobalsPublisher(publisher).drain();
       if (enabled) publishBundle(initial, options);

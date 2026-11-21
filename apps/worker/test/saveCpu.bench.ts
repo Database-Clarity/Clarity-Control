@@ -87,7 +87,7 @@ async function prepare() {
   let source = readFileSync('scripts/publisher/cpu/schedule.mjs', 'utf8');
   source = source.slice(0, source.indexOf("if (process.argv[2] === '--case')"));
   source +=
-    '\nexport {prepare,state,request,REAL,GLOBALS}; export function configure(aliases,lib,count=lib.memberCap){ ALIASES=aliases; MEMBERS=REAL.slice(0,count); }';
+    '\nexport {prepare,state,request,REAL,GLOBALS}; export function configure(aliases,lib,count=lib.saveChangeCap){ ALIASES=aliases; MEMBERS=REAL.slice(0,count); }';
   writeFileSync(`${root}/save-fixtures.mjs`, source);
   const f = await import(pathToFileURL(`${root}/save-fixtures.mjs`).href);
   await f.prepare();
@@ -110,9 +110,15 @@ async function prepare() {
   f.configure(aliases, lib);
   const fixtures: Record<string, Fixture> = {};
   for (const name of names) {
-    f.configure(aliases, lib, name.endsWith('-sched') ? lib.scheduledSaveChangeCap : lib.memberCap);
+    f.configure(
+      aliases,
+      lib,
+      name.endsWith('-sched') ? lib.scheduledSaveChangeCap : lib.saveChangeCap,
+    );
     const { files, members } = await f.state(
-      ['publish-baseline', 'save-edit', 'save-edit-sched', 'schedule'].includes(name) ? name : 'save-add',
+      ['publish-baseline', 'save-edit', 'save-edit-sched', 'schedule'].includes(name)
+        ? name
+        : 'save-add',
       real,
       lib,
     );

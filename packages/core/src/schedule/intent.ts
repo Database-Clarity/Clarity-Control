@@ -2,18 +2,48 @@ import { z } from 'zod';
 import { stableStringify } from '../contentHash.js';
 import { publishOpIdSchema } from '../publishRequest.js';
 import { timestampSchema } from '../schemas.js';
-import { notBeforeSchema } from './schemas.js';
+import { notBeforeSchema, type Batch } from './schemas.js';
 
 /** Installed only after the Action preparer AND publisher claim fence are present. */
 export const schedulePreparationCapability = 'schedulePreparationV1';
+export const draftBatchStagingCapability = 'draftBatchStagingV1';
+export const scheduledBatchStagingCapability = 'scheduledBatchStagingV1';
+export const batchRemoveChunkSize = 4;
+/** Bounded staging request, measured independently of the batch's membership. */
+export const preparedDraftSave = { changes: 100, bytes: 96 * 1024 } as const;
+export function activeDraftStaging(batch: Batch, now: number) {
+  const stage = batch.draftStaging;
+  return stage && now - Date.parse(stage.updatedAt) < 24 * 60 * 60_000 ? stage : undefined;
+}
+const stagedPartsPrefix = (batchId: string, id: string) =>
+  `schedule/batches/${batchId}/staged/${id}/`;
+export const draftStagingInputSchema = z
+  .object({ id: publishOpIdSchema, finish: z.boolean() })
+  .strict();
+export type DraftStagingInput = z.infer<typeof draftStagingInputSchema>;
 export const scheduleIntentPaths = {
   request: (id: string) => `schedule/requests/${id}.json`,
   body: (id: string) => `schedule/requests/${id}.body.json`,
   publication: (batchId: string) => `schedule/batches/${batchId}/publication.json`,
+  stagedSave: (batchId: string) => `schedule/batches/${batchId}/staged-save.json`,
+  stagedPartsPrefix,
+  stagedPart: (batchId: string, id: string, part: number) =>
+    `${stagedPartsPrefix(batchId, id)}${part}.json`,
 } as const;
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const oid = z.string().regex(/^[0-9a-f]{40}$/);
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
+export const scheduledStagingSchema = z
+  .object({
+    id: publishOpIdSchema,
+    ownerId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    revision,
+    parts: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    ready: z.boolean(),
+    updatedAt: timestampSchema,
+  })
+  .strict();
+export type ScheduledStaging = z.infer<typeof scheduledStagingSchema>;
 const common = {
   version: z.literal(1),
   requestId: publishOpIdSchema,
@@ -52,12 +82,23 @@ export const scheduleIntentSchema = z.discriminatedUnion('kind', [
       returnStatus: z.enum(['draft', 'scheduled']),
       /** Worker-derived owner policy; clients cannot select this field. */
       onValidationFailure: z.enum(['keep_scheduled', 'needs_attention']),
+      draftStaging: draftStagingInputSchema.optional(),
+      /** Each part is read from this intent's immutable sourceCommit. */
+      scheduledParts: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     })
     .strict()
     .refine(
       (intent) =>
         intent.onValidationFailure !== 'keep_scheduled' || intent.returnStatus === 'scheduled',
       'Only an existing schedule can survive a failed save',
+    )
+    .refine(
+      (intent) => !intent.draftStaging || intent.returnStatus === 'draft',
+      'Only a draft batch can have an unfinished save',
+    )
+    .refine(
+      (intent) => !intent.scheduledParts || intent.returnStatus === 'scheduled',
+      'Staged scheduled edits require an accepted schedule',
     ),
 ]);
 export type ScheduleIntent = z.infer<typeof scheduleIntentSchema>;

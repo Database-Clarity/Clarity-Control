@@ -2,7 +2,6 @@ import { useEffect, useMemo } from 'react';
 import { isOpenStatus, nonTranslationChanges } from '@clarity/core/schedule';
 import type { Change } from '../../../services/api';
 import { zonedNotBefore } from '../../../services/format/date';
-import { memberCap } from '../../../services/scheduled/api';
 import { draftsOfBatch, useBatchDraftStore } from '../../../services/scheduled/batchDrafts';
 import { fieldList, orderBatches, statusLabel } from './model';
 import { nameFor } from './names';
@@ -68,7 +67,6 @@ export function DestinationRow({
           .map((hash) => ({ hash, batch: entry.name })),
       );
   }, [entries, hashes, value]);
-  const total = value.kind === 'current' ? 0 : new Set([...(chosen?.hashes ?? []), ...hashes]).size;
   // A scheduled batch takes translation edits of its own tooltips only (I5): anything else is the
   // Worker's 409 "Unschedule to edit", so name it now and keep Save to batch off.
   const refused = useMemo(() => {
@@ -81,7 +79,7 @@ export function DestinationRow({
       return fields.length ? [`${label}: ${fieldList(fields)}`] : [];
     });
   }, [chosen, changes, data]);
-  const blockedBy = refused.length ? 'scheduled' : total > memberCap ? 'cap' : null;
+  const blockedBy = refused.length ? 'scheduled' : null;
   useEffect(() => onBlocked(blockedBy), [blockedBy, onBlocked]);
   useEffect(() => () => onBlocked(null), [onBlocked]);
   const pick = (kind: Destination['kind']) => {
@@ -160,12 +158,6 @@ export function DestinationRow({
         <p className={styles.destinationNote} role="alert" data-scheduled-refusal>
           A scheduled batch takes translation edits of its own tooltips only. Unschedule it first
           (Review → Batches), or save these to Current: {refused.join('; ')}.
-        </p>
-      )}
-      {total > memberCap && (
-        <p className={styles.destinationNote} role="alert" data-over-cap>
-          A batch holds at most {memberCap} tooltips; this save would make {total}. Save fewer
-          drafts, or save to Current.
         </p>
       )}
       {listError && value.kind !== 'current' && (

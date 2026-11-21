@@ -9,7 +9,6 @@ import { changedFields } from './fields.js';
 export const scheduleLimits = {
   /** Open = draft, scheduled, or publishing; checked at create and at every return to draft. */
   openBatches: 50,
-  membersPerBatch: 100,
   /** Terminal (published, cancelled) entries kept in index.json besides the open ones. */
   indexTerminal: 100,
   /** Inline events per batch.json; older ones move to events/<seq>.json in the same commit. */
@@ -45,14 +44,12 @@ const userSchema = z
     login: z.string().min(1).max(39),
   })
   .strict();
-const sortedUniqueHashes = (max: number) =>
-  z
-    .array(hashSchema)
-    .max(max)
-    .refine(
-      (list) => list.every((hash, index) => index === 0 || list[index - 1] < hash),
-      'Hashes must be sorted and unique',
-    );
+const sortedUniqueHashes = z
+  .array(hashSchema)
+  .refine(
+    (list) => list.every((hash, index) => index === 0 || list[index - 1] < hash),
+    'Hashes must be sorted and unique',
+  );
 
 /**
  * A UTC instant on a whole minute, in its one canonical form `YYYY-MM-DDTHH:MM:00.000Z`
@@ -124,7 +121,7 @@ export const batchEventSchema = z
     revision: revisionSchema,
     contentRevision: revisionSchema,
     notBefore: notBeforeSchema.optional(),
-    hashes: z.array(hashSchema).max(scheduleLimits.membersPerBatch).optional(),
+    hashes: z.array(hashSchema).optional(),
   })
   .strict();
 
@@ -141,10 +138,7 @@ export const batchResultSchema = z
     exportNow: timestampSchema.optional(),
     liveCommit: commitSchema.optional(),
     /** Per-hash outcomes as the publisher logs them (stale fields, missing, and so on). */
-    outcomes: z
-      .array(z.looseObject({ hash: hashSchema, status: z.string().min(1) }))
-      .max(scheduleLimits.membersPerBatch)
-      .optional(),
+    outcomes: z.array(z.looseObject({ hash: hashSchema, status: z.string().min(1) })).optional(),
     /** Reason for a rejected or superseded operation ("Last run failed: <reason>"). */
     error: z.string().max(2000).optional(),
   })
@@ -176,6 +170,16 @@ export const batchSchema = z
     /** +1 only when approvedDigest's input changes (see revisions.ts). */
     contentRevision: revisionSchema,
     status: batchStatusSchema,
+    /** Terminal membership, stored with the batch so the hot index only carries the count. */
+    memberHashes: sortedUniqueHashes.optional(),
+    draftStaging: z
+      .object({
+        id: publishOpIdSchema,
+        ownerId: userSchema.shape.id,
+        updatedAt: timestampSchema,
+      })
+      .strict()
+      .optional(),
     notBefore: notBeforeSchema.nullable(),
     /** IANA zone the time was chosen in; display only. */
     zone: z.string().min(1).max(64).nullable(),
@@ -215,6 +219,13 @@ export const batchSchema = z
   .superRefine((batch, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (batch.contentRevision > batch.revision) issue('contentRevision exceeds revision');
+    if (batch.memberHashes && isOpenStatus(batch.status))
+      issue('Only a closed batch stores historical membership');
+    if (
+      batch.draftStaging &&
+      !(batch.status === 'draft' || batch.preparation?.returnStatus === 'draft')
+    )
+      issue('An unfinished save belongs to a draft batch');
     // Scheduled batches take translation edits only, and nothing writes after the claim, so a
     // scheduled, publishing, or published batch still has the content it was signed for.
     if (
@@ -350,7 +361,8 @@ export const scheduleIndexSchema = z
             notBefore: notBeforeSchema.nullable(),
             opId: publishOpIdSchema.nullable(),
             revision: revisionSchema,
-            hashes: sortedUniqueHashes(scheduleLimits.membersPerBatch),
+            hashes: sortedUniqueHashes,
+            memberCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
             updatedAt: timestampSchema,
           })
           .strict(),
@@ -369,6 +381,24 @@ export const scheduleIndexSchema = z
       ctx.addIssue({ code: 'custom', message: 'Too many terminal batches' });
   });
 export type ScheduleIndex = z.infer<typeof scheduleIndexSchema>;
+
+export function scheduleIndexEntry(
+  batch: Batch,
+  hashes: readonly number[],
+  updatedAt: string,
+): ScheduleIndex['batches'][number] {
+  return scheduleIndexSchema.shape.batches.element.parse({
+    id: batch.id,
+    name: batch.name,
+    status: batch.status,
+    notBefore: batch.notBefore,
+    opId: batch.opId,
+    revision: batch.revision,
+    hashes: batch.memberHashes ? [] : [...hashes].sort((a, b) => a - b),
+    ...(batch.memberHashes ? { memberCount: batch.memberHashes.length } : {}),
+    updatedAt,
+  });
+}
 
 /**
  * schedule/activation-conflicts/<hash>.json: authoritative, never expires; only the resolve

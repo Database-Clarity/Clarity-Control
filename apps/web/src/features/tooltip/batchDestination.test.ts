@@ -225,10 +225,18 @@ it('a queued save keeps its drafts until the preparer lands it, and on failure',
   const settled = () =>
     new Promise((resolve) => setTimeout(resolve, 0)).then(() => refreshBatches());
   try {
+    let submittedMessage: string | undefined;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (request.method === 'POST' && new URL(request.url).pathname.endsWith('/save'))
+        submittedMessage = (await request.clone().json()).message;
+      return s.fixture.fetch(input, init);
+    });
     s.runtime.edit(s.batch.id, s.future, s.future, 'de', 'Queued German', 'm');
     expect(await s.runtime.saveBatchDrafts(s.batch.id)).toBe(
       'Save queued to December patch: 1 tooltip preparing. Drafts stay until the save lands.',
     );
+    expect(submittedMessage).toBe('Save batch edits');
     const [first] = [...s.fixture.requests.keys()];
     expect(s.fixture.batches.get(s.batch.id)?.status).toBe('preparing');
     expect(s.fixture.members.get(s.batch.id)?.get(123)?.proposed.text.de).toBeUndefined();

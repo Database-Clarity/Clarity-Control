@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { dependencyChunks } from '../../services/dependencyChunks';
 import type { RemoteStatus } from '../../services/publisher/api';
 import { PublishHttpError } from '../../services/publisher/api';
 import { isTerminal, type OpStore, type PublishOp } from '../../services/publisher/opStore';
@@ -89,32 +90,11 @@ export interface PublishInput {
 
 /** Keep each not-yet-emitted transitive closure together, including cycles. */
 export function publishChunks(inputs: readonly PublishInput[]): PublishInput[][] {
-  const byHash = new Map(inputs.map((input) => [input.hash, input]));
-  if (byHash.size !== inputs.length) throw new Error('Duplicate publish hash. Nothing was sent.');
-  const emitted = new Set<number>();
-  const chunks: PublishInput[][] = [];
-  let chunk: PublishInput[] = [];
-  for (const root of [...inputs].sort((a, b) => a.hash - b.hash)) {
-    const closure = new Map<number, PublishInput>();
-    const visit = (hash: number) => {
-      if (emitted.has(hash) || closure.has(hash)) return;
-      const input = byHash.get(hash);
-      if (!input)
-        throw new Error(`Select pending imported tooltip ${hash} as well. Nothing was sent.`);
-      closure.set(hash, input);
-      for (const dependency of input.dependencies ?? []) visit(dependency);
-    };
-    visit(root.hash);
-    if (!closure.size) continue;
-    if (chunk.length && chunk.length + closure.size > publishTiming.chunkHashes) {
-      chunks.push(chunk);
-      chunk = [];
-    }
-    chunk.push(...closure.values());
-    for (const hash of closure.keys()) emitted.add(hash);
-  }
-  if (chunk.length) chunks.push(chunk);
-  return chunks;
+  return dependencyChunks(inputs, {
+    fits: (items) => items.length <= publishTiming.chunkHashes,
+    missing: (hash) => `Select pending imported tooltip ${hash} as well. Nothing was sent.`,
+    duplicate: 'Duplicate publish hash. Nothing was sent.',
+  });
 }
 
 /** Hashes covered by an operation that is still queued or being sent. */

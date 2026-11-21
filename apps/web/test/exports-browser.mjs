@@ -142,22 +142,22 @@ deploy(
   'dim/v1/descriptions.json',
   compile({ id: 'descriptions', formatVersion: 1, preset: 'dim' }),
 );
-deploy('sample/v1/descriptions.json', compile(deployedSample));
-deploy('full/v1/a1.json', compile(projects[2].files[0]));
-deploy('full/v1/b1.json', compile(projects[2].files[1]), 'carried');
-deploy('full/v1/c1.json', compile(projects[2].files[2]), 'frozen');
+deploy('sample/v2/descriptions.json', compile(deployedSample));
+deploy('full/v2/a1.json', compile(projects[2].files[0]));
+deploy('full/v2/b1.json', compile(projects[2].files[1]), 'carried');
+deploy('full/v2/c1.json', compile(projects[2].files[2]), 'frozen');
 const notices = [
   {
     project: 'sample',
     file: 'lines',
-    path: 'sample/v1/lines.json',
+    path: 'sample/v2/lines.json',
     kind: 'not-published',
     message: 'Build failed: fixture failure; not published yet (404)',
   },
   {
     project: 'full',
     file: 'b1',
-    path: 'full/v1/b1.json',
+    path: 'full/v2/b1.json',
     kind: 'carried-forward',
     message: 'Carried forward',
   },
@@ -783,7 +783,7 @@ if (!process.argv.includes('--skip-preview')) {
   await ready(page, 'text=kept for 3 months after you save');
   await page.locator('button:has-text("Save")').click();
   await ready(page, 'text=Saved. The data site rebuilds');
-  await ready(page, 'text=sample/v1/lines.json');
+  await ready(page, 'text=sample/v2/lines.json');
   await page.screenshot({ path: join(shots, 'state-retained-1280-dark.png') });
 
   // Failed build status, empty project, 3-file cap.

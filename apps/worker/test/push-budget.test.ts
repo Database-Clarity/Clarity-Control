@@ -177,9 +177,9 @@ describe('batched reads elsewhere', () => {
     fixture.subrequests = 0;
     const response = await fixture.request('/save', 'POST', { changes, message: 'Bulk' });
     expect(response.status).toBe(200);
-    // token 1, head, permissions, aliases, one batch, commit 4
-    expect(fixture.subrequests).toBe(9);
-    expect(fixture.graphqlCalls).toBe(1);
+    // token 1, head+permissions+tree snapshot, aliases, tooltip blobs, commit 3
+    expect(fixture.subrequests).toBe(7);
+    expect(fixture.graphqlCalls).toBe(2);
   });
 
   it('rejects references that could name another ref or path', async () => {

@@ -22,6 +22,7 @@ import { lowerInput } from '../elementTags.js';
 import { buildLegacy, type LegacyInput } from '../legacy.js';
 import type { ExportFile, StyleFile } from './config.js';
 import {
+  configurableFormatVersion,
   exportLanguages,
   isLegacyFile,
   isPerLanguage,
@@ -76,11 +77,11 @@ export type PerkKeys = {
 export type ExpandedItem = { hash: number } & PerkKeys & { descriptions: Descriptions };
 
 /**
- * Format v1 file (spec section 7): a self-describing header, every distinct `descriptions` value
+ * Format v2 file (spec section 7): a self-describing header, every distinct `descriptions` value
  * stored once, and each perk naming its one by index (`description`).
  */
-export type FormatV1File = {
-  format: 1;
+export type FormatV2File = {
+  format: typeof configurableFormatVersion;
   shape: Shape;
   languages: ExportLanguage[];
   descriptions: Descriptions[];
@@ -93,7 +94,7 @@ export type PlanOutput = {
   /** The expanded form (what the reference decoder returns). */
   expanded: Record<string, ExpandedItem>;
   /** The encoded file before serialising. */
-  file: FormatV1File;
+  file: FormatV2File;
   bytes: Uint8Array;
 };
 
@@ -109,13 +110,13 @@ export type Plan = {
   /** Stages the file ran through; legacy presets skip select-keys, transform, and encode. */
   ran: CompileStage[];
   legacy: boolean;
-  /** v1 only: one output per URL (one, or one per language for `languageFiles: "perLanguage"`). */
+  /** Configurable files: one output per URL (one, or one per language). */
   outputs?: PlanOutput[];
-  /** v1 only: `outputs[0].expanded`. */
+  /** Configurable files: `outputs[0].expanded`. */
   expanded?: Record<string, ExpandedItem>;
-  /** v1 only: `outputs[0].file`. */
-  file?: FormatV1File;
-  /** The bytes of the file (v1: of `outputs[0]`). */
+  /** Configurable files: `outputs[0].file`. */
+  file?: FormatV2File;
+  /** The bytes of the file. For a configurable file, these are the first output's bytes. */
   bytes: Uint8Array;
   notices: Notice[];
 };
@@ -143,6 +144,8 @@ export function compile(input: LegacyInput, file: ExportFile, options: CompileOp
       notices: [],
     };
   }
+  if (file.formatVersion !== configurableFormatVersion)
+    throw new Error('Unsupported configurable file format');
   return compileStyle(input, file, options);
 }
 
@@ -272,7 +275,7 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   ran.push('select-keys');
 
   // 4 reference policy: a referenced id whose target is not in this file is dropped. Every
-  // selected row, canonical or alias, is its own item (no alias references in v1). Every
+  // selected row, canonical or alias, is its own item. Every
   // output holds every selected perk, so this holds for each of them.
   const inFile = new Set(selected.map(Number));
   for (const item of picked.values()) {
@@ -352,13 +355,13 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   // 6 encoding (section 7): header, shared descriptions, chosen keys only.
   const encoded = expandedOutputs.map((output) => ({
     ...output,
-    file: encodeV1(output.expanded, { shape, languages: output.languages }),
+    file: encodeV2(output.expanded, { shape, languages: output.languages }),
   }));
   ran.push('encode');
 
   // 7 serialise: minified JSON, UTF-8, after checking every description index and relation.
   const outputs: PlanOutput[] = encoded.map((output) => {
-    validateV1(output.file);
+    validateV2(output.file);
     return { ...output, bytes: encoder.encode(JSON.stringify(output.file)) };
   });
   ran.push('serialise');
@@ -377,17 +380,17 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
 }
 
 /**
- * Encodes the expanded form as format v1: the header, every distinct `descriptions` value stored
+ * Encodes the expanded form as format v2: the header, every distinct `descriptions` value stored
  * once (first use first), and each perk naming its one by index `description`. Perks keep their
  * keys minus `hash` (the object key) and `descriptions`.
  */
-export function encodeV1(
+export function encodeV2(
   expanded: Record<string, ExpandedItem>,
   header: { shape: Shape; languages: ExportLanguage[] },
-): FormatV1File {
+): FormatV2File {
   const descriptions: Descriptions[] = [];
   const index = new Map<string, number>();
-  const perks: FormatV1File['perks'] = {};
+  const perks: FormatV2File['perks'] = {};
   for (const [hash, item] of Object.entries(expanded)) {
     const { descriptions: own, ...keys } = item;
     delete (keys as Partial<typeof keys>).hash;
@@ -400,7 +403,7 @@ export function encodeV1(
     perks[hash] = { ...keys, description };
   }
   return {
-    format: 1,
+    format: configurableFormatVersion,
     shape: header.shape,
     languages: [...header.languages],
     descriptions,
@@ -409,10 +412,10 @@ export function encodeV1(
 }
 
 /** Checks the header, that every perk's `description` is stored, and that every referenced perk is
- * in the file (the v1 output validation, spec section 3). */
-export function validateV1(file: FormatV1File): void {
-  if (file.format !== 1 || !Array.isArray(file.descriptions) || !file.perks)
-    throw new Error('Not a format v1 file');
+ * in the file (spec section 3). */
+export function validateV2(file: FormatV2File): void {
+  if (file.format !== configurableFormatVersion || !Array.isArray(file.descriptions) || !file.perks)
+    throw new Error('Not a format v2 file');
   for (const [hash, perk] of Object.entries(file.perks)) {
     if (
       !Number.isInteger(perk.description) ||

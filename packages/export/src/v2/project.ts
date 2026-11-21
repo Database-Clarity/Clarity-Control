@@ -83,7 +83,6 @@ export function projectIndex(
     }
   };
   for (const file of config.files) add(file);
-  for (const entry of config.retained ?? [])
-    add({ ...entry.snapshot, formatVersion: entry.formatVersion }, entry.until);
+  for (const entry of config.retained ?? []) add(entry.snapshot, entry.until);
   return { project: config.id, name: config.name, files, notices: [...notices] };
 }

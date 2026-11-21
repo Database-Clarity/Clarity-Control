@@ -9,6 +9,8 @@ import {
   scheduleBodyDigest,
   scheduleIntentPaths,
   schedulePreparationCapability,
+  draftBatchStagingCapability,
+  scheduledBatchStagingCapability,
   scheduleRequestSchema,
   verifyScheduleRequest,
   type Batch,
@@ -141,6 +143,128 @@ afterEach(() => {
 });
 
 describe('durable asynchronous admission', () => {
+  it('keeps a draft staging fence after an admitted part settles', async () => {
+    const id = newUlid();
+    f.moveData({
+      '.publisher/PIN': { capabilities: [...pin.capabilities, draftBatchStagingCapability] },
+    });
+    const first = await call('save', { ...saveBody(), draftStaging: { id, finish: false } });
+    expect(first.status).toBe(202);
+    expect(first.body.batch.draftStaging).toMatchObject({ id, ownerId: alice.id });
+    const draft = { ...storedBatch(), status: 'draft', revision: 4, preparation: null };
+    f.moveData({ [path]: draft });
+    RID = newUlid();
+    const schedule = await call('schedule', { ...scheduleBody(), revision: 4 });
+    expect(schedule).toMatchObject({
+      status: 409,
+      body: { error: expect.stringMatching(/Finish saving/) },
+    });
+    const unrelated = await call('save', { ...saveBody(), revision: 4 });
+    expect(unrelated.status).toBe(409);
+    expect(
+      (await call('save', { ...saveBody(), revision: 4, draftStaging: { id, finish: true } }))
+        .status,
+    ).toBe(202);
+  });
+
+  it('abandons an expired draft sequence without touching its accepted members', async () => {
+    const previous = f.current()[member];
+    f.moveData({
+      '.publisher/PIN': { capabilities: [...pin.capabilities, draftBatchStagingCapability] },
+      [path]: {
+        ...storedBatch(),
+        draftStaging: {
+          id: newUlid(),
+          ownerId: 2,
+          updatedAt: new Date(Date.now() - 90_000_000).toISOString(),
+        },
+      },
+    });
+    expect((await call('schedule', scheduleBody())).status).toBe(202);
+    expect(storedBatch().draftStaging).toBeUndefined();
+    expect(f.current()[member]).toEqual(previous);
+  });
+
+  it('signs staged scheduled edits without changing the accepted schedule or its due operation', async () => {
+    scheduled();
+    f.moveData({
+      '.publisher/PIN': { capabilities: [...pin.capabilities, scheduledBatchStagingCapability] },
+    });
+    const batch = storedBatch();
+    const liveRequest = f.current()[`publish/requests/${OTHER}.json`];
+    const due = f.current()['schedule/due.json'];
+    const placed = await call('stage', { ...saveBody(), part: 0 });
+    expect(placed.status).toBe(200);
+    expect(storedBatch()).toEqual(batch);
+    const source = f.dataHead;
+    const finish = { requestId: RID, revision: 2, finish: true };
+    const finalized = await call('stage', finish);
+    expect(finalized.status).toBe(202);
+    const publicKey = await crypto.subtle.importKey(
+      'spki',
+      keypair.publicKey.export({ type: 'spki', format: 'der' }),
+      'Ed25519',
+      false,
+      ['verify'],
+    );
+    const { intent } = await verifyScheduleRequest(
+      record(),
+      new TextEncoder().encode(JSON.stringify(finish)),
+      publicKey,
+      { repo: 'test-org/scratch', dataBranch: f.env.DATA_BRANCH, liveBranch: f.env.LIVE_BRANCH },
+    );
+    expect(intent).toMatchObject({
+      sourceCommit: source,
+      kind: 'save',
+      scheduledParts: 1,
+      requestId: RID,
+    });
+    expect(storedBatch()).toEqual(batch);
+    expect(f.current()[`publish/requests/${OTHER}.json`]).toEqual(liveRequest);
+    expect(f.current()['schedule/due.json']).toEqual(due);
+  });
+
+  it('rejects staged upload and finalization after the accepted operation was claimed', async () => {
+    scheduled();
+    f.moveData({
+      '.publisher/PIN': { capabilities: [...pin.capabilities, scheduledBatchStagingCapability] },
+    });
+    expect((await call('stage', { ...saveBody(), part: 0 })).status).toBe(200);
+    f.moveData({
+      [path]: {
+        ...storedBatch(),
+        status: 'publishing',
+        claim: { opId: OTHER, claimedAt: new Date().toISOString() },
+      },
+    });
+    for (const request of [
+      { ...saveBody(), part: 1 },
+      { requestId: RID, revision: 2, finish: true },
+    ]) {
+      expect(await call('stage', request)).toMatchObject({
+        status: 409,
+        body: { error: 'Batch published before these edits landed' },
+      });
+    }
+    expect(f.current()[scheduleIntentPaths.request(RID)]).toBeUndefined();
+  });
+
+  it.each([100, 400, 1000])('admits a schedule with %i members as one request', async (count) => {
+    const value = f.current()[member];
+    f.moveData(
+      Object.fromEntries(
+        Array.from({ length: count - 1 }, (_, i) => [
+          `schedule/batches/${ID}/tooltips/${2000 + i}.json`,
+          value,
+        ]),
+      ),
+    );
+    const reply = await call('schedule', scheduleBody());
+    expect(reply.status).toBe(202);
+    expect(reply.body.request).toMatchObject({ batchId: ID, requestId: RID, status: 'pending' });
+    expect(f.commits).toHaveLength(1);
+    expect(f.subrequests).toBeLessThan(50);
+  });
   it.each(['scheduledGlobalsV1', 'globalsRelease', 'globalsExportsV1', 'schedulePreparationV1'])(
     'requires the %s floor when globals exist',
     async (missing) => {
@@ -470,6 +594,26 @@ describe('durable asynchronous admission', () => {
 });
 
 describe('preparation cancellation, retry, and claim fences', () => {
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'cancels with compact history only on a compatible PIN (pending=%s, capable=%s)',
+    async (pending, capable) => {
+      if (capable)
+        f.moveData({
+          '.publisher/PIN': {
+            capabilities: [...pin.capabilities, scheduledBatchStagingCapability],
+          },
+        });
+      if (pending) expect((await call('schedule', scheduleBody())).status).toBe(202);
+      expect((await call('cancel', { revision: storedBatch().revision })).status).toBe(200);
+      expect(storedBatch().memberHashes).toEqual(capable ? [123] : undefined);
+      if (!capable) expect(f.current()[path]).not.toHaveProperty('memberHashes');
+    },
+  );
   it.each(['unschedule', 'cancel'] as const)(
     'writes the withdrawn publication tombstone on %s of a scheduled save',
     async (action) => {

@@ -15,7 +15,7 @@ const categories = Array.from({ length: 60 }, (_, i) => ({ id: `category-${i}`, 
 const styleFile = (id: string, uid: string, cats: string[]) => ({
   id,
   uid,
-  formatVersion: 1,
+  formatVersion: 2,
   preset: 'markdown',
   shape: 'text',
   data: {
@@ -29,7 +29,7 @@ const styleFile = (id: string, uid: string, cats: string[]) => ({
   },
   format: {
     symbols: Object.fromEntries(
-      ['arc', 'solar', 'void', 'stasis', 'strand', 'kinetic', 'bold', 'yellow', 'pve', 'pvp'].map(
+      ['arc', 'solar', 'void', 'stasis', 'strand', 'kinetic', 'bold', 'exotic', 'pve', 'pvp'].map(
         (symbol) => [symbol, { mode: 'replace', before: `[${symbol}]`, after: '' }],
       ),
     ),

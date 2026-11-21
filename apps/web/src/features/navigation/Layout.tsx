@@ -10,7 +10,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { matchPath, Outlet, useLocation } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
@@ -96,6 +96,7 @@ function LayoutContent() {
   const isCompendium = location.pathname.startsWith('/compendium');
   const isReview = location.pathname === '/review';
   const isTranslations = location.pathname === '/translations';
+  const isTooltips = matchPath('/tooltips', location.pathname) !== null;
   // An export project page fills the window like the editor: its two columns scroll on their own.
   const isExportProject = /^\/exports\/[^/]+/.test(location.pathname);
   const contextual = isCompendium || isReview;
@@ -262,7 +263,7 @@ function LayoutContent() {
         id="shell-root"
         ref={layout}
         data-fixed={!phone && (editorPage || isExportProject) ? '' : undefined}
-        className={`${styles.layout} ${isCompendium ? styles.reviewMode : ''} ${isReview || isTranslations ? styles.reviewMode : ''} ${editorPage ? styles.editorMode : ''}`}
+        className={`${styles.layout} ${isCompendium || isReview || isTranslations || isTooltips ? styles.reviewMode : ''} ${editorPage ? styles.editorMode : ''}`}
       >
         <a
           className={styles.skipLink}

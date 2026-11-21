@@ -26,7 +26,7 @@ import { previewPieceIcon } from '../navigation/groupIcons';
 import { formatBytes } from './BuildStatus';
 import { fileKey, fileLanguages, savedFile, urlFor, type ProjectState } from './configModel';
 import {
-  isV1Lines,
+  isStructuredLines,
   lastEdit,
   outputRows,
   renderLine,
@@ -201,11 +201,13 @@ export function PreviewPanel({
       : (options[0] ?? 'en')
     : (lang ?? 'en');
 
-  // Rendered draws format v1 output only: legacy files keep their own shapes, and an engine
+  // Rendered draws format v2 output only: legacy files keep their own shapes, and an engine
   // older than this page (before its install) writes the old lines.
   const olderEngine =
     !legacy &&
-    Object.values(descriptions).some((text) => typeof text !== 'string' && !isV1Lines(text));
+    Object.values(descriptions).some(
+      (text) => typeof text !== 'string' && !isStructuredLines(text),
+    );
   const drawn = !legacy && !olderEngine;
   const rows = useMemo(() => (result?.kind === 'entry' ? outputRows(result.entry) : []), [result]);
   const edit = useMemo(
@@ -421,7 +423,7 @@ function RenderedLines({
   language: string;
   changed: ReadonlySet<number>;
 }) {
-  const lines = useMemo(() => (isV1Lines(text) ? text.map(renderLine) : []), [text]);
+  const lines = useMemo(() => (isStructuredLines(text) ? text.map(renderLine) : []), [text]);
   const marked = useMemo(
     () => new Set<MarkupLine>(lines.filter((_, index) => changed.has(index))),
     [lines, changed],

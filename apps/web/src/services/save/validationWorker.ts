@@ -3,6 +3,13 @@ import type { EditorData } from '../../stores/data';
 import type { Change } from '../api';
 import type { LiveFallback } from './fallback';
 
+type Reply = { id: number; issues?: TooltipValidationIssue[]; chunks?: Change[][]; error?: string };
+type Request = {
+  changes: Change[];
+  fallback?: LiveFallback;
+  plan?: { message: string; noTranslationImpact: boolean };
+};
+
 let worker: Worker | undefined;
 let sequence = 0;
 let revision = 0;
@@ -11,7 +18,7 @@ const results = new WeakMap<EditorData, Map<string, Promise<TooltipValidationIss
 const jobs = new Map<
   number,
   {
-    resolve(issues: TooltipValidationIssue[]): void;
+    resolve(reply: Reply): void;
     reject(error: Error): void;
   }
 >();
@@ -20,17 +27,11 @@ function getWorker(): Worker {
   if (worker) return worker;
   // Fail closed if workers cannot start; never do catalogue validation on the UI thread.
   worker = new Worker(new URL('./validation.worker.ts', import.meta.url), { type: 'module' });
-  worker.onmessage = (
-    event: MessageEvent<{
-      id: number;
-      issues?: TooltipValidationIssue[];
-      error?: string;
-    }>,
-  ) => {
+  worker.onmessage = (event: MessageEvent<Reply>) => {
     const job = jobs.get(event.data.id);
     if (!job) return;
     jobs.delete(event.data.id);
-    if (event.data.issues) job.resolve(event.data.issues);
+    if (event.data.issues || event.data.chunks) job.resolve(event.data);
     else job.reject(new Error(event.data.error ?? 'Save validation failed.'));
   };
   worker.onerror = () => {
@@ -42,6 +43,34 @@ function getWorker(): Worker {
     jobs.clear();
   };
   return worker;
+}
+
+function request(data: EditorData, input: Request): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const id = ++sequence;
+    try {
+      const target = getWorker();
+      const changed = postedData !== data;
+      if (changed) revision++;
+      jobs.set(id, { resolve, reject });
+      target.postMessage({ id, revision, ...input, ...(changed ? { data } : {}) });
+      postedData = data;
+    } catch (error) {
+      jobs.delete(id);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
+export async function requestSaveChunks(
+  changes: Change[],
+  data: EditorData,
+  message: string,
+  noTranslationImpact: boolean,
+): Promise<Change[][]> {
+  const { chunks } = await request(data, { changes, plan: { message, noTranslationImpact } });
+  if (!chunks) throw new Error('Save plan missing.');
+  return chunks;
 }
 
 /** Immutable EditorData identity covers all saved inputs, including conflict overlays.
@@ -63,26 +92,12 @@ export function requestSaveValidation(
     : JSON.stringify(changes);
   const cached = cache.get(key);
   if (cached) return cached;
-  const promise = new Promise<TooltipValidationIssue[]>((resolve, reject) => {
-    const id = ++sequence;
-    try {
-      const target = getWorker();
-      const changed = postedData !== data;
-      if (changed) revision++;
-      jobs.set(id, { resolve, reject });
-      target.postMessage({
-        id,
-        revision,
-        changes,
-        ...(live ? { fallback: live } : {}),
-        ...(changed ? { data } : {}),
-      });
-      postedData = data;
-    } catch (error) {
-      jobs.delete(id);
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
+  const promise = request(data, { changes, ...(live ? { fallback: live } : {}) }).then(
+    ({ issues }) => {
+      if (!issues) throw new Error('Save validation result missing.');
+      return issues;
+    },
+  );
   cache.set(key, promise);
   if (cache.size > 16) cache.delete(cache.keys().next().value!);
   // Failed jobs can be retried on reopening the review.

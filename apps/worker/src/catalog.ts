@@ -46,6 +46,8 @@ export function source(env: Env, revision = env.GENERATOR_BRANCH): string {
   );
 }
 
+const parsedAliases = new WeakMap<Env, { text: string; aliases: Aliases }>();
+
 /** `budget` counts the subrequest against the operation's limit (see GitHub.spend). */
 export async function loadAliases(
   env: Env,
@@ -53,9 +55,15 @@ export async function loadAliases(
   revision?: string,
 ): Promise<Aliases> {
   budget?.spend();
-  return fetch(`${source(env, revision)}/aliases.json`)
-    .then(upstreamJson)
-    .then((value) => aliasesSchema.parse(value));
+  const response = await fetch(`${source(env, revision)}/aliases.json`);
+  if (!response.ok) throw new HttpError(502, `Upstream request failed (${response.status})`);
+  const text = await response.text();
+  // Still fetch the moving generator ref. Reuse validation only for identical bytes.
+  const cached = parsedAliases.get(env);
+  if (cached?.text === text) return cached.aliases;
+  const aliases = aliasesSchema.parse(JSON.parse(text));
+  parsedAliases.set(env, { text, aliases });
+  return aliases;
 }
 
 export async function catalog(

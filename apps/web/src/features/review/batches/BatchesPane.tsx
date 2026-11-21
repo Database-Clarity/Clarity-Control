@@ -96,7 +96,7 @@ function BatchRow({
   const counts = useMemo(() => rowCounts(entry, load, data), [entry, load, data]);
   const chip = statusChip(entry);
   const facts = [
-    plural(entry.hashes.length, 'tooltip'),
+    plural(entry.memberCount ?? entry.hashes.length, 'tooltip'),
     counts?.stale ? `${counts.stale} stale` : '',
     counts?.conflicts ? plural(counts.conflicts, 'conflict') : '',
     counts?.coverage?.needed

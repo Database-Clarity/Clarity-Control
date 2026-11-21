@@ -52,6 +52,9 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'globalsExportsV1',
     'scheduledGlobalsV1',
     'schedulePreparationV1',
+    'draftBatchStagingV1',
+    'scheduledBatchStagingV1',
+    'currentSaveStagingV1',
     'exoticTags',
   ]);
 });

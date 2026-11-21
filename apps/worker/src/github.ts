@@ -1078,7 +1078,11 @@ export class GitHub {
             path,
             mode: '100644',
             type: 'blob',
-            content: Object.hasOwn(rawFiles, path) ? rawFiles[path] : blobContent(value),
+            content: Object.hasOwn(rawFiles, path)
+              ? rawFiles[path]
+              : path === 'schedule/index.json'
+                ? `${JSON.stringify(value)}\n`
+                : blobContent(value),
           })),
           // `sha: null` removes the path from the base tree.
           ...deletions.map((path) => ({ path, mode: '100644', type: 'blob', sha: null })),

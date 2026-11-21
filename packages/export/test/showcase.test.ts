@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 import { showcaseGlobals, showcaseId, showcaseText } from '@clarity/core/markup/showcase';
 import {
   compile,
-  decodeV1,
+  decodeV2,
   deployedLegacyPresets,
   legacyPresets,
   newStyleFile,
@@ -74,7 +74,7 @@ for (const style of styles) {
       { catalog },
     );
     expect(Object.keys(on.expanded!)).toEqual([showcaseId]);
-    expect(decodeV1(on.file!)).toEqual(on.expanded);
+    expect(decodeV2(on.file!)).toEqual(on.expanded);
     expect(Number(showcaseId)).toBeLessThan(0);
     await expect(new TextDecoder().decode(on.bytes)).toMatchFileSnapshot(
       `./fixtures/showcase-${style}.json`,

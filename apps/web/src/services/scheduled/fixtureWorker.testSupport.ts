@@ -9,8 +9,8 @@
  * one open batch per tooltip (Q2), merge3 against the stored proposal, "Unschedule to edit" for
  * non-translation edits of a scheduled batch, and "Publishing started" after `claim()`. P3a aligned
  * the bodies with the P2 Worker (apps/worker/src/schedule): refusals are `{error, details?}`, writes
- * answer `{commit, batch, ...}` (plus this fixture's `head`, the same SHA), the caps (15 members,
- * 15 changes per draft save, 10 per scheduled save), schedule admission (lead time, stale members),
+ * answer `{commit, batch, ...}` (plus this fixture's `head`, the same SHA), the per-request caps
+ * (15 draft changes, 10 scheduled changes), schedule admission (lead time, stale members),
  * kick, resolve, and raw reads of batch.json, event pages, and activation conflicts at any head it
  * made. `publish()`, `failRun()`, and `addConflict()` stand in for the publisher (P4).
  */
@@ -58,7 +58,7 @@ export interface FixtureOptions {
 
 /** The P2 Worker's caps (apps/worker/src/schedule/store.ts). */
 export const fixtureCaps: { members: number; draftSave: number; scheduledSave: number } = {
-  members: 15,
+  members: Infinity,
   draftSave: 15,
   scheduledSave: 10,
 };

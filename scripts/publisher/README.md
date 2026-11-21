@@ -69,6 +69,10 @@ Config supplies repo, dataBranch, liveBranch, publicKey (PEM from the independen
 endpoint), keyFingerprint (SHA-256 of SPKI DER, pinned independently), publisherSha, generatorSha,
 facts, aliases, and runUrl. Facts and aliases must come from the pinned generator commit.
 The standalone dry-run does not fetch keys or provide a write enable switch.
+The `currentSaveStagingV1` capability drains oversized Current saves in the existing pipeline.
+An authenticated Worker uploads bounded parts and signs the final manifest against their immutable
+source. The Action validates access and applies the complete save through one editor-data ref
+update. Install the matching pipeline workflow so only the final manifest kicks the Action.
 The `schedulePreparationV1` capability verifies Worker-signed save and schedule intents,
 their exact submitted bytes, and immutable member-tree identities. Preparation runs before
 the globals drain, bundle, and publisher in the same serialized pipeline. One CAS commits
@@ -167,15 +171,15 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `f3acd373a7218e2314e71753765e790f5742f3c6` (v2).
-Runtime SHA-256: `f0c46472805f37b27448671c5452a270575348d3c93f27d5e36b614da64724ac`.
+Current template source: `2f5d1da21cdc768dfa176d19c50eb91dd7601d84` (v2).
+Runtime SHA-256: `99f75194b05e3a21c97ecc14774964c42b89fcb0f32109c863d8eae0410d8f82`.
 
 The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
 `yellow` consumer style, including comment-split keywords. While publishing is enabled,
 save, publish, and scheduled-proposal validation refuse Exotic text until the publisher
 installed in the data branch declares this capability. Install the updated template
 before saving Exotic text or running the separate gated data rewrite. The deprecated
-`yellow` authoring alias retains compatibility. Format v1 uses `exotic` for its
+`yellow` authoring alias retains compatibility. Format v2 uses `exotic` for its
 style and configuration key; the seven legacy outputs still use `yellow`.
 Exotic is literal-only authoring syntax. Variable-assembled tag names keep the base
 resolver's unknown-tag behavior, with a warning; assembled `yellow` remains supported.

@@ -9,8 +9,12 @@ import { snapshotNames, type BuildStatus } from './site';
 
 export type Engine = Pick<
   typeof EngineModule,
-  'compile' | 'decodeV1' | 'isLegacyFile' | 'deployedLegacyPresets' | 'legacyFileName'
+  'compile' | 'isLegacyFile' | 'deployedLegacyPresets' | 'legacyFileName'
 > & {
+  decodeV2?: (typeof EngineModule)['decodeV2'];
+  /** Older pinned engines use the same decoder under this name. */
+  decodeV1?: (typeof EngineModule)['decodeV1'];
+  supportedFormatVersions?: readonly number[];
   /** The showcase markup the engine builds perk -1 from (engines that export it). */
   showcaseText?: string;
   /** Whether English stands in for a language of a per-language file (engines that export it). */
@@ -69,9 +73,11 @@ export async function loadSnapshot(
   );
   const text = Object.fromEntries(files) as Record<(typeof snapshotNames)[number], string>;
   const engine = await io.importEngine(text['engine.mjs']);
-  for (const name of ['compile', 'decodeV1', 'isLegacyFile', 'legacyFileName'] as const)
+  for (const name of ['compile', 'isLegacyFile', 'legacyFileName'] as const)
     if (typeof engine[name] !== 'function')
       throw new SnapshotMismatch(`The snapshot engine has no ${name}`);
+  if (typeof (engine.decodeV2 ?? engine.decodeV1) !== 'function')
+    throw new SnapshotMismatch('The snapshot engine has no export decoder');
   return {
     status,
     engine,
@@ -89,12 +95,12 @@ export const showsLiveFile = (engine: Engine, file: ExportFile) =>
 export type LiveRef =
   /** A deployed legacy file at the pin's `live` commit (exact-case name). */
   | { kind: 'legacy'; name: string }
-  /** A data-site path (`<project>/v1/<file>.json`), checked against the manifest. */
+  /** A data-site path, checked against the manifest. */
   | { kind: 'site'; path: string; sha256: string };
 
 export type Entries = Record<string, unknown>;
 
-/** A whole file as hash -> entry (v1 files decoded with the snapshot's reference decoder). */
+/** A whole file as hash -> entry, using the snapshot's decoder for configurable files. */
 export function entriesOf(engine: Engine, bytes: Uint8Array): Entries {
   const parsed = JSON.parse(decoder.decode(bytes)) as unknown;
   if (
@@ -102,11 +108,19 @@ export function entriesOf(engine: Engine, bytes: Uint8Array): Entries {
     typeof parsed === 'object' &&
     Array.isArray((parsed as { descriptions?: unknown }).descriptions) &&
     typeof (parsed as { perks?: unknown }).perks === 'object'
-  )
-    return engine.decodeV1(parsed as Parameters<Engine['decodeV1']>[0]);
+  ) {
+    const decode = engine.decodeV2 ?? engine.decodeV1;
+    if (!decode) throw new SnapshotMismatch('The snapshot engine has no export decoder');
+    return decode(parsed as Parameters<typeof decode>[0]);
+  }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new Error('The file is not a JSON object');
   return parsed as Entries;
+}
+
+function requireFormat(engine: Engine, file: ExportFile) {
+  if (!engine.isLegacyFile(file) && !engine.supportedFormatVersions?.includes(file.formatVersion))
+    throw new SnapshotMismatch(`Format v${file.formatVersion} needs a newer data build`);
 }
 
 export type SampleResult =
@@ -226,7 +240,10 @@ export class Preview {
     let build = this.builds.get(key);
     if (!build) {
       const { engine, input, catalog, identical } = this.snapshot;
-      build = Promise.resolve().then(() => engine.compile(input, file, { catalog, identical }));
+      build = Promise.resolve().then(() => {
+        requireFormat(engine, file);
+        return engine.compile(input, file, { catalog, identical });
+      });
       build.catch(() => this.builds.delete(key));
       this.builds.set(key, build);
       if (this.builds.size > 4) {
@@ -286,6 +303,7 @@ export class Preview {
           ? { kind: 'entry', entry: entries[hash] }
           : { kind: 'absent', reason: absentReason(this.snapshot, file, hash) };
       }
+      requireFormat(engine, file);
       if (hash === showcaseId) {
         const plan = engine.compile(
           input,

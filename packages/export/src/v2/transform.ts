@@ -7,9 +7,9 @@ import { elementTagNames } from '@clarity/core/markup/elementTags';
 import type { FileFormat, SymbolRule } from './config.js';
 import { iconSymbols, symbolIds, type Shape, type SymbolId } from './vocabulary.js';
 
-/** One span of the resolved lines (internal; toLines writes format v1). Keys only when set. */
+/** One span of the resolved lines (internal; toLines writes format v2). Keys only when set. */
 export type OutSpan = { text?: string; classNames?: string[]; link?: string; title?: OutLine[] };
-/** One resolved line (internal; toLines writes format v1). */
+/** One resolved line (internal; toLines writes format v2). */
 export type OutLine = { classNames?: string[]; linesContent?: OutSpan[] };
 
 /** What a transform noticed: symbols the file drops because it does not name them. */
@@ -23,7 +23,7 @@ export const emptyNotes = (): TransformNotes => ({
 const isSymbol = (name: string): name is SymbolId =>
   (symbolIds as readonly string[]).includes(name);
 
-/** The rule for a class name; undefined means drop it (unchosen or not a v1 symbol). */
+/** The rule for a class name; undefined means drop it (unchosen or not a format v2 symbol). */
 function ruleFor(name: string, format: FileFormat, notes: TransformNotes): SymbolRule | undefined {
   if (!isSymbol(name)) {
     notes.retired.add(name);
@@ -206,7 +206,7 @@ export function renderText(input: readonly OutLine[], separator = '\n'): string 
 }
 
 /**
- * One part of a line in format v1 (spec section 7): an `icon` (the 16 icons, `arrow`, and
+ * One part of a line in format v2 (spec section 7): an `icon` (the 16 icons, `arrow`, and
  * `enhancedArrow`, which keeps its glyph as `text`), or `text` with an optional `style` (bold,
  * exotic, pve, pvp), `element` (tagged element text), `link`, or `note` (the hover explanation).
  */
@@ -218,7 +218,7 @@ export type Part = {
   link?: string;
   note?: Line[];
 };
-/** One line of format v1: its parts and line-wide `style`, or a spacer. */
+/** One line of format v2: its parts and line-wide `style`, or a spacer. */
 export type Line = { spacer: true } | { style?: string[]; parts: Part[] };
 
 const iconNames = new Set<string>([...iconSymbols, 'arrow', 'enhancedArrow']);
@@ -244,7 +244,7 @@ function toPart(span: OutSpan): Part {
   };
 }
 
-/** The lines shape as format v1 writes it: `parts`, `style`, `icon`, `note`, and `spacer`. */
+/** The lines shape as format v2 writes it: `parts`, `style`, `icon`, `note`, and `spacer`. */
 export function toLines(input: readonly OutLine[]): Line[] {
   return input.map((line) =>
     line.classNames?.[0] === 'spacer' && !line.linesContent

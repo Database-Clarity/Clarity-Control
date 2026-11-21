@@ -9,7 +9,7 @@ export interface Change {
   base: Tooltip | null;
   next: Tooltip;
 }
-const conflictSchema = z.object({
+export const conflictSchema = z.object({
   hash: hashSchema,
   base: tooltipSchema.nullable(),
   head: tooltipSchema.nullable(),

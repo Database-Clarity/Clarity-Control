@@ -72,7 +72,7 @@ it('learns a tab from a sample whose source cells changed, but not from changed 
   expect(decide(102)).toMatchObject({ action: 'owner' });
 });
 
-it('chooses an artifact section using manifest membership when names repeat', () => {
+it('links a repeated artifact perk to every current section, even with differing cells and parents', () => {
   const f = guidedFixture(),
     category = f.categories[0],
     record = f.document.categories[category.id];
@@ -113,33 +113,158 @@ it('chooses an artifact section using manifest membership when names repeat', ()
   ];
   tab.rows[0].anchor = { row: 10, col: 2 };
   tab.rows[1].anchor = { row: 30, col: 2 };
-  tab.grid.push({ row: 31, col: 1, cell: tab.rows[1].cell });
-  const decision = guidedDecisions(
+  // Owner 2026-11-21: both sections are sources, exactly as the sheet lists them.
+  const parts = ['Other Artifact (Other)', 'Encrypted Data Disk (Reclamation)'];
+  const decide = () =>
+    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+      .entries[2];
+  // The fixture cells differ (`Mechanics 0` / `Mechanics 1`); the names still link both.
+  expect(decide()).toMatchObject({
+    action: 'link',
+    confidence: 'high',
+    ruleId: 'artifact-manifest-section',
+    link: { parts },
+  });
+  // Socket parents no longer choose a single section, and the old preview family is ignored.
+  entry.manifestFacts.item.artifactMemberships = [
+    { source: 'socket', artifactHash: 1, artifactName: 'Other Artifact', ownerHash: 2 },
+  ];
+  expect(decide()).toMatchObject({ action: 'link', link: { parts } });
+  // Sunset exclusions stay: a proven parent absent from every current section is excluded.
+  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Sunset Artifact';
+  expect(decide()).toMatchObject({ action: 'out-of-scope', ruleId: 'artifact-sunset' });
+});
+
+it('links a repeated artifact perk whose triage sample was only skipped', () => {
+  const f = guidedFixture(),
+    category = f.categories[0],
+    record = f.document.categories[category.id];
+  delete f.document.categories[category.id];
+  category.id = record.id = 'catalog:armor-mod-seasonal';
+  f.document.categories[record.id] = record;
+  const tab = f.source.tabs[0];
+  tab.gid = '473308249';
+  tab.name = 'Artifact Perks';
+  tab.grid = [
+    { row: 1, col: 3, cell: { plain: 'First Artifact (One)', runs: [{ text: 'First Artifact (One)' }] } },
+    { row: 20, col: 3, cell: { plain: 'Second Artifact (Two)', runs: [{ text: 'Second Artifact (Two)' }] } },
+  ];
+  tab.rows = [
+    { ...tab.rows[0], rowIndex: 10, name: 'Sample 104', nameNorm: 'sample 104', section: 'One' },
+    { ...tab.rows[1], rowIndex: 30, name: 'Sample 104', nameNorm: 'sample 104', section: 'Two' },
+  ];
+  tab.rows[0].anchor = { row: 10, col: 2 };
+  tab.rows[1].anchor = { row: 30, col: 2 };
+  const entry = category.entries.find((candidate) => candidate.hash === 104)!;
+  // A skipped sample leaves the entry open; it is not an owner no-equivalent decision.
+  expect(record.references?.[104]).toMatchObject({ decision: 'skipped' });
+  entry.classification = {
+    categoryId: 'armor-mod-seasonal',
+    ruleId: 'artifact-identity-unresolved',
+    reason: 'Recorded distinct mechanics.',
+    excluded: false,
+    origin: 'owner',
+  };
+  const [group] = guidedDecisions(
     f.document,
     f.categories,
     f.proposals,
     f.source,
     f.baseline,
     f.scope,
-  )[0].entries[2];
-  expect(decision).toMatchObject({
+  );
+  expect(group.entries.find((decision) => decision.hash === 104)).toMatchObject({
     action: 'link',
+    confidence: 'high',
     ruleId: 'artifact-manifest-section',
-    link: { section: 'Reclamation' },
+    link: { parts: ['First Artifact (One)', 'Second Artifact (Two)'] },
   });
-  // The old preview family falsely says Implement of Curiosity. Only socket parents count.
+});
+
+function artifactTwinFixture(name: string, hash = 102) {
+  const f = guidedFixture();
+  const category = f.categories[0];
+  const record = f.document.categories[category.id];
+  delete f.document.categories[category.id];
+  category.id = record.id = 'catalog:armor-mod-seasonal';
+  f.document.categories[record.id] = record;
+  const tab = f.source.tabs[0];
+  tab.gid = '473308249';
+  tab.name = 'Artifact Perks';
+  const heading = (row: number, plain: string) => ({
+    row,
+    col: 3,
+    cell: { plain, runs: [{ text: plain }] },
+  });
+  tab.grid = [heading(1, 'First Artifact (One)'), heading(20, 'Second Artifact (Two)')];
+  const nameNorm = name.toLowerCase();
+  tab.rows = [
+    {
+      ...tab.rows[0],
+      rowIndex: 10,
+      name,
+      nameNorm,
+      section: 'One',
+      anchor: { row: 10, col: 2 },
+    },
+    {
+      ...tab.rows[1],
+      rowIndex: 30,
+      name,
+      nameNorm,
+      section: 'Two',
+      anchor: { row: 30, col: 2 },
+    },
+  ];
+  const entry = category.entries.find((candidate) => candidate.hash === hash)!;
   const decide = () =>
     guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
-      .entries[2];
-  entry.manifestFacts.item.artifactMemberships = [
-    { source: 'socket', artifactHash: 1, artifactName: 'Sunset Artifact', ownerHash: 2 },
+      .entries.find((decision) => decision.hash === hash);
+  return { ...f, category, record, tab, entry, decide };
+}
+
+it('keeps manifest-backed identity for a single artifact row', () => {
+  const f = artifactTwinFixture('Armorsmith');
+  const facts = loadManifestFacts();
+  f.entry.name = 'Armorsmith';
+  f.entry.manifestFacts = { item: facts.items['2903198437'], version: facts.source.manifestVersion };
+  // One same-name row exists in First Artifact, but the socket parent is Second Artifact.
+  f.tab.rows = [f.tab.rows[0]];
+  f.entry.manifestFacts.item.artifactMemberships = [
+    { source: 'socket', artifactHash: 1, artifactName: 'Second Artifact', ownerHash: 2 },
   ];
-  expect(decide()).toMatchObject({ action: 'out-of-scope', ruleId: 'artifact-sunset' });
-  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Other Artifact';
-  tab.grid.push({ row: 11, col: 1, cell: tab.rows[0].cell });
-  expect(decide()).toMatchObject({ action: 'link', link: { section: 'Other' } });
-  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Unknown Artifact';
-  expect(decide().link).toBeUndefined();
+  expect(f.decide()).toMatchObject({
+    action: 'owner',
+    confidence: 'unresolved',
+    ruleId: 'owner-artifact-identity',
+  });
+  expect(f.decide()?.link).toBeUndefined();
+});
+
+it('keeps note-only samples and category comments on artifact twins', () => {
+  const note = artifactTwinFixture('Sample 105', 105);
+  // A note-only sample is not the skipped exception.
+  expect(note.record.references?.[105]?.decision).toBeUndefined();
+  expect(note.decide()).toMatchObject({ action: 'owner', confidence: 'unresolved' });
+  expect(note.decide()?.link).toBeUndefined();
+  const comment = artifactTwinFixture('Sample 102', 102);
+  comment.record.comment = 'Owner wants these reviewed together.';
+  expect(comment.decide()).toMatchObject({
+    action: 'owner',
+    confidence: 'unresolved',
+    reason: expect.stringContaining('comment'),
+  });
+  expect(comment.decide()?.link).toBeUndefined();
+});
+
+it('keeps stale skipped samples and perks with different names out of the twin rule', () => {
+  const stale = artifactTwinFixture('Sample 104', 104);
+  stale.record.references![104].baseline = 'stale';
+  expect(stale.decide()).toMatchObject({ action: 'owner', confidence: 'unresolved' });
+
+  const variant = artifactTwinFixture('Sample 102');
+  variant.tab.rows[1].name = 'Sample 102 (Enhanced)';
+  expect(variant.decide()).toMatchObject({ action: 'owner', confidence: 'unresolved' });
 });
 
 it('requires catalog parent and perk identity on the exotic card', () => {

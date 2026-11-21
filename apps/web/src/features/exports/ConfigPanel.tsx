@@ -244,7 +244,7 @@ function FileSection({
               update((current) => setPreset(current, key, event.target.value as Preset))
             }
           >
-            <optgroup label="Styles">
+            <optgroup label="Format v2 styles">
               {styleNames.map((style) => (
                 <option key={style} value={style}>
                   {styleLabel(style)}

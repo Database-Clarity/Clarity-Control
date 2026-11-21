@@ -25,12 +25,14 @@ import {
   PartialBatchSave,
   accountChanged,
   createBatch,
-  memberCap,
+  draftSaveParts,
   queueBatchSave,
+  queueStagedScheduledSave,
   readBatchMembers,
   readBatchStatus,
   saveChunk,
   saveToBatch,
+  waitForBatchSave,
   type BatchAdmission,
 } from '../../../services/scheduled/api';
 import {
@@ -40,6 +42,7 @@ import {
   useBatchDraftStore,
 } from '../../../services/scheduled/batchDrafts';
 import { useDraftStore } from '../../../stores/drafts';
+import { newOpId } from '../../../services/publisher/ulid';
 import { useDataStore } from '../../../stores/data';
 import { preparationEnabled } from '../../../services/scheduled/flag';
 import { fieldList, isPreparation } from './model';
@@ -48,6 +51,13 @@ import { refreshBatches, startBatches, useBatches } from './store';
 
 export type Destination =
   { kind: 'current' } | { kind: 'batch'; id: string } | { kind: 'new'; name: string };
+
+type BatchProgress = (
+  batchId: string,
+  confirmed: ReadonlySet<number>,
+  total: number,
+  uploading?: number,
+) => void;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -112,7 +122,9 @@ export async function saveReviewToBatch(
   /** The save review's enrichment and validation, for the batch's staged drafts. */
   prepare: (changes: Change[]) => Promise<Change[]>,
   onConfirmed?: (members: BatchMember[]) => void,
+  onProgress?: BatchProgress,
 ): Promise<string> {
+  message = message.trim() || 'Save batch edits';
   const data = useDataStore.getState().data;
   const name = (hash: number) => `${nameFor(data, hash)} (${hash})`;
   // Every write goes out as the account that began the save (code review round 1): checked before
@@ -120,20 +132,11 @@ export async function saveReviewToBatch(
   const sameAccountOr = (what: string) => {
     if (!sameAccount()) throw new Error(`${accountChanged}. ${what} Drafts stay as they are.`);
   };
-  // The Worker's member cap, checked before anything is written (it refuses the same).
-  const overCap = (label: string, held: readonly number[], sending: readonly Change[]) => {
-    const total = new Set([...held, ...sending.map(({ hash }) => hash)]).size;
-    if (total > memberCap)
-      throw new Error(
-        `A batch holds at most ${memberCap} tooltips; this save would bring ${label} to ${total}. Nothing was saved.`,
-      );
-  };
   let batch: Pick<Batch, 'id' | 'name' | 'revision' | 'status' | 'notBefore'>;
   let staged: Drafts = {};
   let stagedChanges: Change[] = [];
   const batchOwner = useBatchDraftStore.getState().owner;
   if (destination.kind === 'new') {
-    overCap(destination.name.trim(), [], changes);
     sameAccountOr('No batch was created.');
     try {
       batch = (await createBatch(destination.name.trim())).batch;
@@ -168,7 +171,6 @@ export async function saveReviewToBatch(
           Object.values(staged).map(({ base, next }) => ({ hash: next.hash, base, next })),
         )
       : [];
-    overCap(entry.name, entry.hashes, [...changes, ...stagedChanges]);
     sameAccountOr('Nothing was saved.');
     batch = entry;
   }
@@ -185,17 +187,23 @@ export async function saveReviewToBatch(
     onConfirmed,
   };
   if (preparationEnabled()) {
-    // One prepared request per batch at a time: the whole save is one request, so it fits one cap.
-    const cap = batch.status === 'draft' ? saveChunk.draft : saveChunk.scheduled;
     const nothing =
       destination.kind === 'new'
         ? `Created ${batch.name}, but nothing was queued to it.`
         : `Nothing was saved to ${batch.name}.`;
-    if (payload.length > cap)
-      throw new Error(
-        `${nothing} One queued save takes at most ${cap} tooltips into a ${batch.status} batch; this one has ${payload.length}. Save fewer at a time.`,
-      );
+    if (
+      batch.status === 'scheduled' &&
+      draftSaveParts(payload, message, saveChunk.scheduled).length > 1
+    )
+      return stageScheduledBatch(batch, payload, message, save, onProgress);
     sameAccountOr('Nothing was saved.');
+    if (batch.status === 'draft') {
+      const status = await readBatchStatus(batch.id);
+      sameAccountOr('Nothing was saved.');
+      const parts = draftSaveParts(payload, message);
+      if (status.batch.draftStaging || parts.length > 1)
+        return stageDraftBatch(status.batch, parts, message, save, onProgress);
+    }
     let admission: BatchAdmission;
     try {
       admission = await queueBatchSave(batch.id, batch.revision, payload, message);
@@ -273,6 +281,94 @@ export async function saveReviewToBatch(
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+async function stageDraftBatch(
+  batch: Batch,
+  parts: Change[][],
+  message: string,
+  save: SaveContext,
+  onProgress?: BatchProgress,
+): Promise<string> {
+  const id = batch.draftStaging?.id ?? newOpId();
+  const confirmed = new Set<number>();
+  const total = parts.reduce((count, chunk) => count + chunk.length, 0);
+  const notify = () => onProgress?.(batch.id, new Set(confirmed), total);
+  let revision = batch.revision;
+  notify();
+  try {
+    for (const [index, chunk] of parts.entries()) {
+      if (!save.sameAccount()) throw new Error(accountChanged);
+      const requestId = newOpId();
+      await queueBatchSave(batch.id, revision, chunk, message, requestId, {
+        id,
+        finish: index === parts.length - 1,
+      });
+      const saved = await waitForBatchSave(batch.id, requestId, save.sameAccount);
+      revision = saved.revision;
+      const accepted = await confirmStage(batch.id, chunk, save);
+      for (const hash of accepted) confirmed.add(hash);
+      notify();
+      if (useDraftStore.getState().error || useBatchDraftStore.getState().error)
+        throw new Error('The batch saved these changes, but local draft storage needs attention.');
+      if (accepted.length !== chunk.length)
+        throw new Error('The batch did not confirm every change. The remaining drafts were kept.');
+    }
+  } catch (error) {
+    void refreshBatches();
+    throw new Error(
+      `Saved ${confirmed.size} of ${total} to ${batch.name}. Remaining drafts were kept. ${refusalText(error)}`,
+    );
+  }
+  void refreshUpcoming();
+  return savedLine(batch, confirmed.size);
+}
+
+async function confirmStage(batchId: string, changes: readonly Change[], save: SaveContext) {
+  if (!save.sameAccount()) throw new Error(accountChanged);
+  await refreshBatches();
+  const { head } = useBatches.getState();
+  if (!head) throw new Error('The saved batch could not be read. Reload and retry.');
+  const members = await readBatchMembers(
+    head,
+    batchId,
+    changes.map(({ hash }) => hash),
+  );
+  if (!save.sameAccount()) throw new Error(accountChanged);
+  const shown = new Map(members.flatMap((member) => (member ? [[member.hash, member]] : [])));
+  const accepted = changes
+    .filter((change) => confirms(shown.get(change.hash), change))
+    .map(({ hash }) => hash);
+  reconcile(save, accepted, shown);
+  await Promise.all([useDraftStore.getState().flush(), useBatchDraftStore.getState().flush()]);
+  return accepted;
+}
+
+async function stageScheduledBatch(
+  batch: Pick<Batch, 'id' | 'name' | 'revision' | 'notBefore'>,
+  payload: Change[],
+  message: string,
+  save: SaveContext,
+  onProgress?: BatchProgress,
+): Promise<string> {
+  const none = new Set<number>();
+  const notify = (uploaded: number) => onProgress?.(batch.id, none, payload.length, uploaded);
+  notify(0);
+  const admission = await queueStagedScheduledSave(
+    batch.id,
+    batch.revision,
+    payload,
+    message,
+    save.sameAccount,
+    notify,
+  );
+  const saved = await waitForBatchSave(batch.id, admission.requestId, save.sameAccount);
+  const confirmed = new Set(await confirmStage(batch.id, payload, save));
+  onProgress?.(batch.id, confirmed, payload.length);
+  if (confirmed.size !== payload.length)
+    throw new Error('The batch did not confirm every change. The remaining drafts were kept.');
+  void refreshUpcoming();
+  return savedLine(saved, confirmed.size);
 }
 
 /** What a batch save needs to drop exactly the drafts the batch confirms. */

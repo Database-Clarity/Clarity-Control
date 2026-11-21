@@ -1,4 +1,4 @@
-import { tooltipSchema } from '@clarity/core';
+import { publishOpIdSchema, tooltipSchema } from '@clarity/core';
 import { z } from 'zod';
 
 export const draftsSchema = z
@@ -17,6 +17,73 @@ export const draftsSchema = z
     'Draft keys and tooltip hashes must match',
   );
 export type Drafts = z.infer<typeof draftsSchema>;
+
+const saveReceiptSchema = z.object({
+  id: z.string(),
+  at: z.number(),
+  submitted: draftsSchema,
+  tooltips: z.array(tooltipSchema),
+  savedAt: z.number().optional(),
+  stageId: publishOpIdSchema.optional(),
+  confirmed: z.boolean(),
+});
+export type SaveReceipt = z.infer<typeof saveReceiptSchema>;
+
+const receiptPrefix = (owner: string) => `save-receipt:user:${owner}:`;
+const receiptTtl = 24 * 60 * 60 * 1000;
+
+export async function readSaveReceipts(owner: string): Promise<SaveReceipt[]> {
+  const db = await openDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction('drafts', 'readwrite');
+      const prefix = receiptPrefix(owner);
+      const range = IDBKeyRange.bound(prefix, `${prefix}\uffff`);
+      const request = transaction.objectStore('drafts').openCursor(range);
+      const result: SaveReceipt[] = [];
+      const cutoff = Date.now() - receiptTtl;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const parsed = saveReceiptSchema.safeParse(cursor.value);
+        if (parsed.success && parsed.data.at > cutoff) result.push(parsed.data);
+        else cursor.delete();
+        cursor.continue();
+      };
+      transaction.oncomplete = () => resolve(result);
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Save receipt read aborted'));
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** A receipt is independent of current drafts and of another tab's save. */
+export async function writeSaveReceipt(
+  owner: string,
+  id: string,
+  receipt?: SaveReceipt,
+): Promise<void> {
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('drafts', 'readwrite');
+      const store = transaction.objectStore('drafts');
+      const key = `${receiptPrefix(owner)}${id}`;
+      if (receipt) store.put(receipt, key);
+      else store.delete(key);
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Save receipt write aborted'));
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
 export interface DraftStorage {
   read(): Promise<Drafts>;
   write(drafts: Drafts): Promise<void>;

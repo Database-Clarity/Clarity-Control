@@ -161,6 +161,9 @@
   .page p {
     margin-block: 0.25rem;
   }
+  .hint {
+    line-height: 1.4;
+  }
   // Phones: one block per setting, each value headed by its column name.
   .choice table,
   .choice tbody,

@@ -61,7 +61,7 @@ export const noTooltipYet =
  * (its real stamps), so text whose live form stays the same only blocks when it reads something
  * this save changes, by the usual rule.
  */
-function liveForm(tooltip: Tooltip, fallback: readonly Lang[] | undefined): Tooltip {
+export function liveForm(tooltip: Tooltip, fallback: readonly Lang[] | undefined): Tooltip {
   const english = tooltip.text.en;
   if (!fallback?.length || !english) return tooltip;
   const text = { ...tooltip.text };
