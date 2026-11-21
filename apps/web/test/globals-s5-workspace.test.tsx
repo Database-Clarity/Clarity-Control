@@ -22,6 +22,7 @@ import { useGlobalDraftStorage } from '../src/features/globals/globalDrafts';
 import { useDataStore, type EditorData } from '../src/stores/data';
 import { clearSavedOverlay } from '../src/stores/savedOverlay';
 import { applyHeadToData } from '../src/stores/conflicts';
+import { useDraftStore } from '../src/stores/drafts';
 import { acceptSaved } from '../src/services/save/drafts';
 
 let change: (value: string) => void;
@@ -37,6 +38,7 @@ let host: HTMLDivElement;
 let path = '';
 let navigate: NavigateFunction;
 const stored = new Map<string, string>();
+const retryDraftStorage = useDraftStore.getState().retry;
 beforeEach(() => {
   useGlobalDraftStorage.setState({ failed: false });
   vi.stubGlobal(
@@ -55,6 +57,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   clearSavedOverlay();
+  useDraftStore.setState({ retry: retryDraftStorage });
   useDataStore.setState({ data: null, status: 'idle' });
   vi.unstubAllGlobals();
   await act(async () => root?.unmount());
@@ -475,6 +478,7 @@ it.each([true, false])(
 
     // A: add and remove a tooltip use while the bundled global catalogue still matches.
     const added = { ...data.bundle.tooltips[30], hash: 32 };
+    useDraftStore.setState({ retry: vi.fn() });
     await act(async () => acceptSaved({}, [added], fixtureHead(2)));
     expect(host.querySelector('[data-global-usage="t:32"] a')?.getAttribute('href')).toBe(
       '/t/32?lang=en&variant=32&line=1',

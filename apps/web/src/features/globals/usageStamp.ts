@@ -16,7 +16,7 @@ export function globalUsageStampInputs(
         .map((key) => {
           const { hash, baseHash, name, categoryId, isEnhanced, exotic, plugCategoryHash } =
             items[key];
-          return [key, hash, baseHash, name, categoryId, isEnhanced, exotic, plugCategoryHash];
+          return { key, hash, baseHash, name, categoryId, isEnhanced, exotic, plugCategoryHash };
         }),
     ),
     aliases: stableStringify({ aliases, groups: groups?.groups ?? null }),
