@@ -30,6 +30,8 @@ const names = [
   'push-live-single',
   'push-live-largest',
   'push-live-real',
+  'save-links-50',
+  'save-links-100',
 ];
 const measuredNames = process.env.SAVE_CPU_CASES?.split(',') ?? names;
 type Spec = {
@@ -51,6 +53,11 @@ async function prepare() {
       `generator/${file}`,
       `https://raw.githubusercontent.com/Database-Clarity/Description-data-generator/8b8eeb67/templates/v2/${file}`,
     ]),
+    // Real Compendium links (editor-data afb40735) for link-confirmation saves.
+    [
+      'links-bundle.json',
+      'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/c64ee866cf909d5af0f5ea6bb0baf0233b72c530/bundle.json',
+    ],
   ];
   for (const [file, url] of inputs)
     if (!existsSync(`${root}/${file}`)) {
@@ -108,6 +115,11 @@ async function prepare() {
   const items = JSON.parse(generator['items.json']);
   const { env, token } = JSON.parse(readFileSync(`${root}/schedule/env.json`, 'utf8'));
   f.configure(aliases, lib);
+  const linked = (
+    Object.values(
+      JSON.parse(readFileSync(`${root}/links-bundle.json`, 'utf8')).tooltips,
+    ) as Tooltip[]
+  ).filter((t) => t.hash > 3 && t.compendium && !aliases[t.hash]);
   const fixtures: Record<string, Fixture> = {};
   for (const name of names) {
     f.configure(
@@ -170,6 +182,22 @@ async function prepare() {
       spec = { path: '/save', body: { changes: [{ base, next }] }, status: 200 };
       Object.assign(spec.body, { message: 'CPU probe' });
       Object.assign(spec.body.changes![0], { hash: base.hash });
+    } else if (name.startsWith('save-links-')) {
+      // A Compendium confirmation: the stored tooltip gains its real link, text unchanged.
+      const count = Number(name.split('-').at(-1));
+      if (linked.length < count) throw Error('Too few linked tooltips');
+      files.set(
+        '.publisher/PIN',
+        JSON.parse(readFileSync('scripts/publisher/template/.publisher/PIN', 'utf8')),
+      );
+      const changes = linked.slice(0, count).map((next) => {
+        const base: Tooltip = { ...next };
+        delete base.compendium;
+        files.set(`tooltips/${next.hash}.json`, base);
+        return { hash: next.hash, base, next };
+      });
+      spec = { path: '/save', body: { changes }, status: 200 };
+      Object.assign(spec.body, { message: 'CPU links' });
     } else if (name.startsWith('push-live')) {
       let selected = name.endsWith('single')
         ? current.filter((t) => t.hash === 1168162263)

@@ -5,7 +5,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { writeSaveReceipt } from '../draftStorage';
 import { newOpId } from '../publisher/ulid';
 import { acceptSaved } from './drafts';
-import { fitsSaveRequest, saveRequestLimits } from './requestSize';
+import { fitsSaveRequest, metadataOnly, saveRequestLimits } from './requestSize';
 import { stageCurrentSave } from './stagedCurrentSave';
 import { requestSaveChunks } from './validationWorker';
 import { useSaveState, type SaveReview } from './state';
@@ -80,7 +80,8 @@ export async function saveCurrent({
     const chunks = fitsSaveRequest(prepared, message, noTranslationImpact)
       ? [prepared]
       : await requestSaveChunks(prepared, data, message, noTranslationImpact);
-    for (const chunk of chunks) {
+    while (chunks.length) {
+      const chunk = chunks.shift()!;
       const stop = stopped();
       if (stop) return stop;
       const submitted = Object.fromEntries(
@@ -130,7 +131,19 @@ export async function saveCurrent({
               });
             },
           )
-        : await save(chunk, message, noTranslationImpact);
+        : await save(chunk, message, noTranslationImpact).catch((error: unknown) => {
+            // A CPU-limited Worker (Cloudflare error 1102) reaches the browser as a network
+            // error, or as a readable 503. Order-free metadata-only parts retry as two halves,
+            // so size never fails a save. The pending receipt stays: this part may have committed.
+            const resources =
+              error instanceof TypeError ||
+              (error instanceof Error && /^API HTTP 503\b[\s\S]*\b1102\b/.test(error.message));
+            if (chunk.length < 2 || !chunk.every(metadataOnly) || !resources) throw error;
+            const half = Math.ceil(chunk.length / 2);
+            chunks.unshift(chunk.slice(0, half), chunk.slice(half));
+            return null;
+          });
+      if (!result) continue;
       if (owner && result.kind !== 'saved')
         void writeSaveReceipt(owner, receipt.id).catch(() => {});
       if (accountChanged() && result.kind !== 'saved')
