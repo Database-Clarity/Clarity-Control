@@ -93,17 +93,21 @@ const Candidate = memo(function Candidate({
   index,
   checked,
   deferred,
+  matched,
   source,
   approved,
+  showDiagnostics,
   onPick,
 }: {
   block: CandidateBlock;
   index: number;
   checked: boolean;
   deferred: boolean;
+  matched: boolean;
   source: CompendiumData;
   /** Approval-time cell to diff against, for entries whose evidence changed. */
   approved?: CompendiumCell;
+  showDiagnostics?: boolean;
   onPick(index: number): void;
 }) {
   const { location, match } = block;
@@ -140,7 +144,21 @@ const Candidate = memo(function Candidate({
           <RichCell cell={cell} />
         </SheetCell>
       )}
-      {block.rule && <p className={styles.rule}>{block.rule}</p>}
+      {(!matched || block.origin !== 'proposal') && (
+        <p className={styles.rule}>
+          {block.origin === 'proposal'
+            ? 'Suggested match · confirm the source'
+            : block.origin === 'candidate'
+              ? 'Alternative match'
+              : block.rule}
+        </p>
+      )}
+      {showDiagnostics && block.origin !== 'hint' && block.rule && (
+        <details className={styles.nearby}>
+          <summary>Match diagnostics</summary>
+          <p>{block.rule}</p>
+        </details>
+      )}
       {block.rationale && (
         <details className={styles.nearby}>
           <summary>Why this location?</summary>
@@ -171,6 +189,7 @@ export interface DetailProps {
   manifest: readonly Item[];
   currentText?: string;
   blocks: readonly CandidateBlock[];
+  showDiagnostics?: boolean;
   highlight: number;
   onHighlight(index: number): void;
   source: CompendiumData;
@@ -194,6 +213,7 @@ export function CompendiumDetail({
   manifest,
   currentText,
   blocks,
+  showDiagnostics,
   highlight,
   onHighlight,
   source,
@@ -316,8 +336,10 @@ export function CompendiumDetail({
                       index={index}
                       checked={highlight === index}
                       deferred={index > 0}
+                      matched={row.kind === 'matched'}
                       source={source}
                       approved={index === 0 ? approved : undefined}
+                      showDiagnostics={showDiagnostics}
                       onPick={onHighlight}
                     />
                   ))}

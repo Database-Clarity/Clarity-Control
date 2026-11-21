@@ -78,10 +78,12 @@
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
-  overflow: hidden;
   color: var(--text2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+
+  a,
+  .count {
+    white-space: nowrap;
+  }
 
   a {
     color: inherit;
@@ -454,10 +456,6 @@ p.muted {
   color: var(--text2);
   font-size: 0.75rem;
   white-space: nowrap;
-
-  select {
-    height: 1.5rem;
-  }
 }
 
 .advanceLine {
@@ -548,10 +546,6 @@ p.muted {
   button {
     flex: none;
   }
-
-  .advanceSetting > span {
-    display: inline;
-  }
 }
 
 // The counts' placeholder: shimmer bars over an invisible line shaped like the counts, so it
@@ -578,13 +572,6 @@ p.muted {
 
 @container (max-width: 36rem) {
   @include compact-bar;
-}
-
-// Narrow main region (rem-based, so a larger interface scale behaves like a narrower window).
-@container (max-width: 58rem) {
-  .advanceSetting > span {
-    display: none;
-  }
 }
 
 @container (max-width: 40rem) {
@@ -655,16 +642,12 @@ p.muted {
 
   .summary {
     gap: 0.5rem;
-  }
-
-  .summary {
     flex-wrap: wrap;
   }
 
   .counts {
     flex: 1 1 100%;
     font-size: 0.75rem;
-    white-space: normal;
   }
 
   .linked {
@@ -817,6 +800,11 @@ p.muted {
   }
 
   @include compact-bar;
+
+  // Anchor above the full bar when the phone actions wrap onto two rows.
+  .more {
+    position: static;
+  }
 
   .actionBar {
     flex-wrap: wrap;
