@@ -42,6 +42,7 @@ export function PushConfirm({
           <button
             type="button"
             ref={confirm}
+            className={styles.primary}
             onKeyDown={(event) => {
               // A held Enter that opened this dialog would otherwise confirm it by auto-repeat.
               if (event.repeat) event.preventDefault();
