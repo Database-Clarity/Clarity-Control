@@ -410,7 +410,39 @@ function NoticeDemo() {
 
 function ScaleDemo() {
   const [value, setValue] = useState(100);
-  return <ScaleControl value={value} onCommit={setValue} />;
+  return (
+    <div className={styles.scaleDemo}>
+      <ScaleControl value={value} onCommit={setValue} />
+    </div>
+  );
+}
+
+function StepperDemo({ start }: { start: number }) {
+  const [position, setPosition] = useState(start);
+  const end = 138;
+  return (
+    <span className={styles.stepper}>
+      <button
+        type="button"
+        aria-label="Previous"
+        disabled={position === 1}
+        onClick={() => setPosition(position - 1)}
+      >
+        ‹
+      </button>
+      <span aria-live="polite">
+        {position} of {end}
+      </span>
+      <button
+        type="button"
+        aria-label="Next"
+        disabled={position === end}
+        onClick={() => setPosition(position + 1)}
+      >
+        ›
+      </button>
+    </span>
+  );
 }
 
 // ---- Entries ----------------------------------------------------------------------------------
@@ -593,28 +625,8 @@ export const entries: readonly GalleryEntry[] = [
     from: 'ui/stepper.scss (@include stepper.group / segment / arrow)',
     note: 'Touch: one joined group ‹ 58 of 138 › for the queue, the finder, and Review.',
     states: [
-      s('Default', () => (
-        <span className={styles.stepper}>
-          <button type="button" aria-label="Previous">
-            ‹
-          </button>
-          <span>58 of 138</span>
-          <button type="button" aria-label="Next">
-            ›
-          </button>
-        </span>
-      )),
-      s('At the end', () => (
-        <span className={styles.stepper}>
-          <button type="button" aria-label="Previous">
-            ‹
-          </button>
-          <span>138 of 138</span>
-          <button type="button" aria-label="Next" disabled>
-            ›
-          </button>
-        </span>
-      )),
+      s('Default', () => <StepperDemo start={58} />),
+      s('At the end', () => <StepperDemo start={138} />),
     ],
   },
   {
