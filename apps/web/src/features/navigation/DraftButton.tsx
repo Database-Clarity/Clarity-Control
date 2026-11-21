@@ -1,8 +1,8 @@
 import { ReadingTooltip } from '../preview/ReadingTooltip';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { resolveAlias, type Lang, type Tooltip } from '@clarity/core';
+import { resolveAlias, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { SavePanel } from '../../services/save/SavePanel';
 import { useSaveState } from '../../services/save/state';
@@ -10,8 +10,8 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useOpenConflicts } from '../../stores/conflicts';
 import { Dialog } from '../../ui/Dialog';
-import { When } from '../../ui/When';
 import { itemFor } from './catalog';
+import { DraftList, draftRows } from './DraftList';
 import { ShellOverlay } from './ShellOverlay';
 import { tooltipPath } from './stepping';
 import styles from './DraftButton.module.scss';
@@ -73,29 +73,11 @@ export function RecoveredDrafts({
   );
 }
 
-interface DraftPair {
-  base: Tooltip;
-  next: Tooltip;
-}
-
-function changedLanguages(draft: DraftPair) {
-  return Object.keys(draft.next.text).filter(
-    (language) =>
-      draft.next.text[language as Lang]?.text !== draft.base.text[language as Lang]?.text,
-  );
-}
-
-function latest(draft: DraftPair, languages: string[]) {
-  return languages
-    .map((language) => draft.next.text[language as Lang]?.updatedAt ?? '')
-    .sort()
-    .at(-1);
-}
-
 /**
- * The drafts popover (phone: sheet): the count and review action, the last save result, one row
- * per draft (tooltip, languages, time) with guarded open and a confirmed discard. It is only the
- * view: the save session itself lives in the always-mounted SaveController.
+ * The drafts popover (phone: the same popover at the page width): the pinned count and review
+ * action, the last save result, recovered-draft conflicts, then the drafts grouped by what they
+ * change in one virtualised list (a row opens its entry; Discard asks first). It is only the view:
+ * the save session itself lives in the always-mounted SaveController.
  */
 export function DraftsContent({ onClose }: { onClose(): void }) {
   const data = useDataStore((state) => state.data);
@@ -104,62 +86,45 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
   const openConflicts = useOpenConflicts();
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState<number | null>(null);
-  const rows = Object.entries(drafts)
-    .map(([hash, draft]) => {
-      const languages = changedLanguages(draft);
-      return { hash: Number(hash), draft, languages, time: latest(draft, languages) };
-    })
-    .sort((a, b) => (b.time ?? '').localeCompare(a.time ?? '') || a.hash - b.hash);
-  const stale = new Set(staleDraftHashes(drafts, data));
-  const name = (hash: number) =>
-    stale.has(String(hash))
-      ? `Recovered draft ${hash}`
-      : (data && itemFor(resolveAlias(hash, data.aliases), data)?.name) || `Tooltip ${hash}`;
-  const open = (hash: number) => {
-    // Close first, then go: the leave guard may answer with its own prompt, which then owns focus.
-    onClose();
-    navigate(tooltipPath(data ? resolveAlias(hash, data.aliases) : hash, ''));
-  };
+  const rows = useMemo(() => draftRows(drafts), [drafts]);
+  const stale = useMemo(() => new Set(staleDraftHashes(drafts, data)), [drafts, data]);
+  const name = useCallback(
+    (hash: number) =>
+      stale.has(String(hash))
+        ? `Recovered draft ${hash}`
+        : (data && itemFor(resolveAlias(hash, data.aliases), data)?.name) || `Tooltip ${hash}`,
+    [stale, data],
+  );
+  const conflictsOf = useCallback(
+    (hash: number) => openConflicts.find((conflict) => conflict.hash === hash)?.total ?? 0,
+    [openConflicts],
+  );
+  const isStale = useCallback((hash: number) => stale.has(String(hash)), [stale]);
+  const open = useCallback(
+    (hash: number) => {
+      // Close first, then go: the leave guard may answer with its own prompt, which then owns focus.
+      onClose();
+      navigate(tooltipPath(data ? resolveAlias(hash, data.aliases) : hash, ''));
+    },
+    [onClose, navigate, data],
+  );
   return (
     <div className={styles.drafts}>
       <SavePanel className={styles.summary} onReview={onClose} onResolve={open}>
-        {data && <RecoveredDrafts data={data} onOpen={open} />}
+        {data && stale.size > 0 && (
+          <div className={styles.recoveredBox}>
+            <RecoveredDrafts data={data} onOpen={open} />
+          </div>
+        )}
         {rows.length > 0 && (
-          <ul className={styles.list} aria-label="Local drafts">
-            {rows.map(({ hash, languages, time }) => (
-              <li key={hash}>
-                <button
-                  type="button"
-                  className={styles.open}
-                  disabled={stale.has(String(hash))}
-                  onClick={() => open(hash)}
-                >
-                  <span className={styles.name}>{name(hash)}</span> <small>{hash}</small>
-                </button>
-                <small className={styles.meta}>
-                  {languages.length ? languages.map(languageLabel).join(', ') : 'Other fields'}
-                  {(() => {
-                    const found = openConflicts.find((conflict) => conflict.hash === hash);
-                    return found ? ` · ${found.total} conflict${found.total === 1 ? '' : 's'}` : '';
-                  })()}
-                  {time && (
-                    <>
-                      {' · '}
-                      <When value={time} />
-                    </>
-                  )}
-                </small>
-                <button
-                  type="button"
-                  className={styles.discard}
-                  aria-label={`Discard draft ${name(hash)}`}
-                  onClick={() => setConfirm(hash)}
-                >
-                  Discard
-                </button>
-              </li>
-            ))}
-          </ul>
+          <DraftList
+            rows={rows}
+            nameOf={name}
+            conflictsOf={conflictsOf}
+            isStale={isStale}
+            onOpen={open}
+            onDiscard={setConfirm}
+          />
         )}
       </SavePanel>
       {confirm !== null && (
@@ -175,11 +140,14 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
                   const hash = confirm;
                   setConfirm(null);
                   discard(hash);
-                  // The row is gone with its button. Keep the list when drafts remain, else close
-                  // so focus lands on the drafts button in the header.
+                  // The row is gone. Keep the list (focus back on it, for the next Delete) when
+                  // drafts remain, else close so focus lands on the drafts button in the header.
                   setTimeout(() => {
                     if (Object.keys(useDraftStore.getState().drafts).length === 0) onClose();
-                    else document.querySelector<HTMLElement>('[data-drafts-review]')?.focus();
+                    else
+                      document
+                        .querySelector<HTMLElement>('[role="tree"][aria-label="Local drafts"]')
+                        ?.focus();
                   }, 0);
                 }}
               >
@@ -257,6 +225,7 @@ export function DraftButton({ iconOnly = false }: { iconOnly?: boolean }) {
         anchorRef={button}
         width={460}
         align="end"
+        className={styles.overlay}
         desktopClearance={toolbarDiscardRect}
       >
         <DraftsContent onClose={() => setOpen(false)} />

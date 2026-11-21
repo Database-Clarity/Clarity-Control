@@ -264,8 +264,9 @@ export function ShellOverlay({
     }
     if (event.key !== 'Tab' || !panel.current) return;
     if (document.querySelector('dialog[open]')) return;
+    // Tab stops only: a button taken out of the order (tabindex -1) is never a trap edge.
     const items = [...panel.current.querySelectorAll<HTMLElement>(focusable)].filter(
-      (element) => !element.closest('[hidden], [inert]'),
+      (element) => element.tabIndex >= 0 && !element.closest('[hidden], [inert]'),
     );
     const firstItem = items[0];
     const lastItem = items.at(-1);

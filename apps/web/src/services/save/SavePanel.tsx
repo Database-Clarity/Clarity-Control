@@ -94,13 +94,45 @@ export function SavePanel({
   const unpreviewed = usePreviewReviewStore(
     (state) => Object.values(state.entries).filter((entry) => entry.dirty > entry.reviewed).length,
   );
+  const action =
+    open > 0 ? (
+      // Saving waits until every conflict is resolved; this takes the user to the next one.
+      <button
+        type="button"
+        data-autofocus
+        data-drafts-resolve
+        onClick={() => {
+          onReview?.();
+          onResolve?.(conflicts[0]!.hash);
+        }}
+      >
+        {open === 1 ? 'Resolve 1 conflict' : `Resolve ${open} conflicts`}
+      </button>
+    ) : (
+      <button
+        type="button"
+        data-autofocus
+        data-drafts-review
+        disabled={!apiUrl || !user?.role || !count || Boolean(review) || paused}
+        onClick={() => {
+          dismiss();
+          onReview?.();
+          openDraftSaveReview();
+        }}
+      >
+        {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
+      </button>
+    );
+  // The count and the one primary action share the pinned head line, above any list, so the
+  // action is reachable without scrolling at any draft count.
   return (
     <section aria-label="Save drafts" className={className}>
-      <p data-summary>
-        {count === 0
-          ? 'No local drafts'
-          : `${count} local ${count === 1 ? 'draft' : 'drafts'} kept in this browser`}
-      </p>
+      <div className={styles.head}>
+        <p data-summary>
+          {count === 0 ? 'No local drafts' : `${count} local ${count === 1 ? 'draft' : 'drafts'}`}
+        </p>
+        {action}
+      </div>
       {unpreviewed > 0 && (
         <p data-unpreviewed>
           {unpreviewed === 1 ? '1 change' : `${unpreviewed} changes`} not previewed. You can still
@@ -109,34 +141,6 @@ export function SavePanel({
       )}
       {notice && <p role="status">{notice}</p>}
       {children}
-      {open > 0 ? (
-        // Saving waits until every conflict is resolved; this takes the user to the next one.
-        <button
-          type="button"
-          data-autofocus
-          data-drafts-resolve
-          onClick={() => {
-            onReview?.();
-            onResolve?.(conflicts[0]!.hash);
-          }}
-        >
-          {open === 1 ? 'Resolve 1 conflict' : `Resolve ${open} conflicts`}
-        </button>
-      ) : (
-        <button
-          type="button"
-          data-autofocus
-          data-drafts-review
-          disabled={!apiUrl || !user?.role || !count || Boolean(review) || paused}
-          onClick={() => {
-            dismiss();
-            onReview?.();
-            openDraftSaveReview();
-          }}
-        >
-          {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
-        </button>
-      )}
     </section>
   );
 }
@@ -155,6 +159,25 @@ export function conflictNotice(outcome: BeginResult, saved = 0): string {
   return open > 0
     ? `${changed} Resolve ${open === 1 ? '1 conflict' : `${open} conflicts`} in the editor, then review and save again.${merged}`
     : `${changed}${merged || ' Your edits were merged.'} Review and save again.`;
+}
+
+/**
+ * The chunked-save progress bar, in the pinned review footer above Save. The Save button names the
+ * step ("Saving 200 of 415", "Staging ...", "Retry") and the alert line carries a failure, so the
+ * bar is only the picture of how far a multi-part save has got.
+ */
+function SaveProgressBar() {
+  const progress = useSaveState((state) => state.progress);
+  if (progress.total < 2 || (progress.phase !== 'saving' && progress.phase !== 'staging'))
+    return null;
+  return (
+    <progress
+      className={styles.progress}
+      max={progress.total}
+      value={progress.done}
+      aria-hidden="true"
+    />
+  );
 }
 
 const accountChanged = (generation: number) => useDraftStore.getState().generation !== generation;
@@ -400,10 +423,12 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   return (
     <Dialog
       title="Review save"
+      className={styles.review}
       busy={pending}
       onClose={close}
       footer={
         <>
+          <SaveProgressBar />
           <button
             type="button"
             disabled={pending || blocked || !data || reloadRequired || needsAcknowledgement}

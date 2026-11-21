@@ -66,6 +66,15 @@ describe('SaveController review dialog', () => {
     expect(body).not.toContain('Cancel; keep local drafts');
   });
 
+  it('draws the chunked-save progress as a bar in the footer, only for a multi-part save', () => {
+    expect(render()).not.toContain('<progress');
+    useSaveState.setState({ progress: { phase: 'saving', done: 2, total: 5, failed: null } });
+    const footer = render().slice(render().indexOf('data-footer'));
+    expect(footer).toMatch(/<progress[^>]*max="5"[^>]*value="2"/);
+    useSaveState.setState({ progress: { phase: 'failed', done: 2, total: 5, failed: 'x' } });
+    expect(render()).not.toContain('<progress');
+  });
+
   it('keeps the optional commit message inside a collapsed details element', () => {
     const html = render();
     expect(html).toMatch(

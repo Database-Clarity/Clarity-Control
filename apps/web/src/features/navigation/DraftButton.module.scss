@@ -47,10 +47,20 @@
   visibility: hidden;
 }
 
+// The popover's content is a column: the pinned head and notes keep their height, and the list
+// takes the rest of the room the popover has (it scrolls inside, never the head).
+.overlay > div {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .drafts {
   display: flex;
   flex-direction: column;
+  flex: 0 1 auto;
   min-width: 0;
+  min-height: 0;
 
   > dialog {
     visibility: visible;
@@ -61,112 +71,169 @@
   }
 }
 
-// The popover body: a header line, the rows, then the one primary action.
 .summary {
   display: flex;
   flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
 
-  > p {
-    margin: 0;
-    padding: 0.5rem 0.75rem 0.375rem;
+  > div:first-child {
+    flex: none;
+    padding: 0.375rem 0.5rem 0.375rem 0.75rem;
   }
 
-  > p[role='status'] {
-    padding-top: 0;
+  > p {
+    flex: none;
+    margin: 0;
+    padding: 0 0.75rem 0.375rem;
     color: var(--text2);
     font-size: 0.75rem;
   }
+}
 
-  // Review and save: the primary action, under the list.
-  > button {
-    margin: 0.5rem 0.75rem;
-    justify-content: center;
-    font-weight: 700;
-    color: var(--pri-text);
-    border-color: var(--accent-ink);
+// Recovered-draft conflicts: rare, but each one can be long; they never push the list away.
+.recoveredBox {
+  flex: none;
+  max-height: 12rem;
+  overflow-y: auto;
+  border-top: 1px solid var(--hair);
+}
 
-    &:hover:not(:disabled) {
-      background: var(--pri-hover);
+.listBox {
+  position: relative;
+  flex: 0 1 auto;
+  border-top: 1px solid var(--hair);
+}
+
+.list {
+  position: absolute;
+  inset: 0;
+  height: auto;
+}
+
+// A change-kind group: chevron, name, count. Sticks to the top while its rows scroll.
+.group {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0 0.5rem 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text2);
+  white-space: nowrap;
+  background: var(--raised);
+  border-bottom: 1px solid var(--hair);
+  cursor: pointer;
+  user-select: none;
+
+  @media (hover: hover) {
+    &:hover {
+      background: var(--hover);
     }
   }
 }
 
-// One 28px row per draft: name (link) with its hash, the languages and time, a quiet Discard.
-.list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--hair);
+.chevron {
+  flex: none;
+  width: 0.75rem;
+  color: var(--text3);
+}
 
-  li {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 0.5rem;
-    min-height: 1.75rem;
-    padding: 0 0.5rem 0 0.75rem;
-    border-bottom: 1px solid var(--hair);
-  }
+.groupName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.groupCount {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text3);
+}
+
+// One row per draft: the name (it opens the entry) with its hash, then the languages and time,
+// and a quiet Discard.
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) minmax(0, max-content) auto;
+  align-items: center;
+  column-gap: 0.375rem;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0 0.25rem 0 1.625rem;
+  border-bottom: 1px solid var(--hair);
+  cursor: pointer;
 
   small {
     color: var(--text2);
     font-size: 0.75rem;
   }
+
+  @media (hover: hover) {
+    &:hover:not([aria-disabled]) {
+      background: var(--hover);
+
+      .name {
+        text-decoration: underline;
+      }
+    }
+  }
+
+  &[aria-disabled] {
+    cursor: default;
+
+    .name {
+      color: var(--text2);
+    }
+  }
 }
 
+// The keyboard's place in the list (the tree's active item).
+.row[data-active],
+.group[data-active] {
+  background: var(--sel);
+  box-shadow: inset 2px 0 0 var(--accent-ink);
+}
+
+.name,
+.hash,
 .meta {
-  white-space: nowrap;
-}
-
-.drafts .open {
-  @include controls.control-size;
-  justify-content: flex-start;
-  gap: 0.375rem;
   min-width: 0;
-  padding: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.name {
   color: var(--link);
-  background: none;
-  border: 0;
-  text-align: left;
+}
 
-  &:hover:not(:disabled) {
-    background: none;
-    text-decoration: underline;
-  }
+// An open conflict blocks saving: findable at a glance among hundreds of rows.
+.conflict {
+  color: var(--danger2);
+}
 
-  &:disabled {
-    color: var(--text2);
-    opacity: 1;
-  }
-
-  // A narrow popover cuts the hash first, then the name, each with an ellipsis.
-  .name,
-  small {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .name {
-    flex: 0 0.01 auto;
-  }
-  small {
-    flex: 0 100 auto;
-  }
+.meta {
+  justify-self: end;
 }
 
 .drafts .discard {
+  min-height: 0;
+  height: 1.5rem;
   padding: 0 0.375rem;
   color: var(--text2);
   background: none;
   border: 0;
   text-decoration: underline;
 
-  &:hover:not(:disabled) {
-    color: var(--danger);
-    background: none;
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      color: var(--danger);
+      background: none;
+    }
   }
 }
 
@@ -211,49 +278,55 @@
   }
 }
 
-// Touch: the drafts list's rows on the one page edge.
+// Touch: the head, notes, and rows on the one page edge; Discard keeps a tap height.
 @include theme.mobile-or-coarse {
+  .summary > div:first-child,
   .summary > p,
-  .list li,
   .recovered {
     padding-inline: var(--page-x);
   }
 
-  .summary > button {
-    margin-inline: var(--page-x);
+  .row {
+    padding-inline: var(--page-x) 0;
+  }
+
+  .group {
+    padding-inline: var(--page-x);
+  }
+
+  .drafts .discard {
+    height: 100%;
+    padding-inline: 0.625rem var(--page-x);
   }
 }
 
-// A phone popover is the page width at most: the name takes its own line (never cut while the
-// row has room), the languages, time, and Discard share the line under it. Both lines keep their
-// tap height (Large makes them tall), with the text drawn toward the middle of the two-line row,
-// so it reads as one item.
+// A phone popover is the page width at most: the name and hash take the first line (the name is
+// never cut while the row has room), the languages and time the line under it, and Discard spans
+// both lines on the right, so the whole row reads as one item.
 @include theme.mobile {
-  .list li {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 0;
-    padding-block: 0.25rem;
+  .row {
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    grid-template-rows: 1fr 1fr;
+    row-gap: 0.125rem;
   }
 
-  .drafts .open {
-    grid-column: 1 / -1;
-    align-items: flex-end;
-    min-height: var(--tap-sm);
-    height: var(--tap-sm);
-    padding-bottom: 0.125rem;
+  .name {
+    align-self: end;
+  }
+
+  .hash {
+    align-self: end;
   }
 
   .meta {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    justify-self: start;
     align-self: start;
-    padding-top: 0.25rem;
   }
 
-  // The quiet Discard (a rarely used, secondary link), its text on the meta's line.
   .drafts .discard {
-    align-self: start;
-    align-items: flex-start;
-    min-height: var(--tap-sm);
-    height: var(--tap-sm);
-    padding-top: 0.25rem;
+    grid-column: 3;
+    grid-row: 1 / 3;
   }
 }

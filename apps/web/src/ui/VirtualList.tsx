@@ -119,22 +119,27 @@ export function VirtualList<T>({
     setViewport((previous) => ({ ...previous, top: max }));
   }, [total]);
 
+  const sticky = Boolean(stickyFor);
   // Keep the revealed item in view: render the destination first, then move the native scroll.
   useLayoutEffect(() => {
     if (reveal === undefined || reveal < 0 || reveal >= items.length) return;
     const view = { ...latest.current.viewport, top: scrollTop.current };
     const top = offsets[reveal];
     const bottom = offsets[reveal + 1];
-    if (top >= view.top && bottom <= view.top + view.height) return;
-    // Show the group's header with the row when it fits, so the position reads in context.
     const header = groupStart?.(reveal) ?? -1;
-    const context = header >= 0 && bottom - offsets[header] <= view.height ? offsets[header] : top;
+    // A pinned group header covers the top of the view: a row is only in view below it.
+    const pin =
+      sticky && header >= 0 && header !== reveal ? offsets[header + 1] - offsets[header] : 0;
+    if (top >= view.top + pin && bottom <= view.top + view.height) return;
+    // Show the group's header with the row when it fits, so the position reads in context.
+    const context =
+      header >= 0 && bottom - offsets[header] <= view.height ? offsets[header] : top - pin;
     const destination =
-      top < view.top
+      top < view.top + pin
         ? context
         : Math.max(0, Math.min(totalRef.current - view.height, bottom - view.height));
     moveTo(Math.max(0, Math.min(Math.max(0, totalRef.current - view.height), destination)));
-  }, [reveal, offsets, items.length, groupStart, moveTo]);
+  }, [reveal, offsets, items.length, groupStart, moveTo, sticky]);
 
   const first = Math.max(0, indexAt(offsets, viewport.top) - overscan);
   let last = first;
