@@ -187,6 +187,21 @@
   }
 }
 
+@include theme.mobile {
+  .reportHead {
+    overflow-wrap: anywhere;
+  }
+  .right {
+    flex-basis: 100%;
+    align-items: baseline;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+  .trust {
+    white-space: normal;
+  }
+}
+
 .note {
   display: flex;
   align-items: flex-start;

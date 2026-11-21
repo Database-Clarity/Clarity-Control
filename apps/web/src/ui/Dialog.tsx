@@ -53,7 +53,7 @@ export function Dialog({
       }}
     >
       <header className={styles.header}>
-        <h2>{title}</h2>
+        <h2 className={styles.title}>{title}</h2>
         {!compact && (
           // A phone sheet shows the square × on its right edge, as the Settings sheet does.
           <button

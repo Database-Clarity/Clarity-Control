@@ -79,6 +79,19 @@
   gap: 1rem;
   align-items: baseline;
   justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+
+  @include theme.mobile {
+    font-size: var(--ctl-text);
+  }
 }
 
 .body {
@@ -145,6 +158,7 @@
     align-items: center;
     min-height: var(--bar);
     box-sizing: border-box;
+    margin-bottom: 0;
     padding-block: 0;
     border-bottom: 1px solid var(--line);
 
@@ -162,12 +176,6 @@
     }
     .closeMark {
       display: inline;
-    }
-
-    h2 {
-      margin: 0;
-      font-size: var(--ctl-text);
-      font-weight: 700;
     }
   }
 

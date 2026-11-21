@@ -210,9 +210,9 @@ describe('Reports pane', () => {
       'r-bbbbbbbb',
     ]);
     expect(rows[0]!.getAttribute('aria-selected')).toBe('true');
-    expect(rows[0]!.textContent).toContain('○ anonymous');
+    expect(rows[0]!.textContent).toMatch(/○\s+anonymous/);
     expect(rows[0]!.textContent).toContain('Gives 10%, not 7.5%.');
-    expect(rows[1]!.textContent).toContain('● kyber3000 · filed 4, accepted 3');
+    expect(rows[1]!.textContent).toMatch(/●\s+kyber3000 · filed 4, accepted 3/);
     expect(rows[1]!.textContent).toContain('claimed by hazel');
     const video = rows[1]!.querySelector('a')!;
     expect(video.getAttribute('rel')).toBe('noopener noreferrer');

@@ -1,5 +1,30 @@
 @use '../../ui/controls';
 
+// Keep the tools and More together when the language, batch, and marks use the first line.
+// Queue mode keeps its existing stepper layout.
+.phoneRow {
+  display: inline-flex;
+  position: relative;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 100%;
+
+  &:not([data-queue]) {
+    flex: 1 0 auto;
+  }
+  &[data-wrap] {
+    flex-basis: 100%;
+  }
+  &[data-queue] {
+    display: contents;
+  }
+  &:not([data-queue]) .tools:not(:has(> :not(.measure))) {
+    position: absolute;
+  }
+}
+
 // The tools that fit inline, between the draft dot and the queue stepper: they hug the right
 // group, and the slot takes only the room left on the line (it never wraps the row).
 .tools {
