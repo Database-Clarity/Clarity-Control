@@ -26850,10 +26850,14 @@ init_publishRequest();
 init_schemas3();
 var currentSaveStagingCapability = "currentSaveStagingV1";
 var currentSavePartBytes = 32 * 1024;
+var currentSaveMaxParts = 512;
+var currentSaveStartsPerHour = 30;
+var currentSaveStartWindow = 60 * 6e4;
 var currentSaveStageLifetime = 24 * 60 * 6e4;
 var currentSaveSha = external_exports.string().regex(/^[0-9a-f]{40}$/);
 var digest3 = external_exports.string().regex(/^[0-9a-f]{64}$/);
 var ordinal = external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+var partCount = ordinal.min(1).max(currentSaveMaxParts);
 var requester = external_exports.object({
   id: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   login: external_exports.string().regex(/^[a-z0-9][a-z0-9-]{0,38}$/i)
@@ -26875,7 +26879,7 @@ var currentSaveIntent = external_exports.object({
   repo: external_exports.string(),
   branch: external_exports.string(),
   sourceCommit: currentSaveSha,
-  parts: ordinal.min(1),
+  parts: partCount,
   digest: digest3
 }).strict();
 var envelope = external_exports.object({
@@ -26894,8 +26898,8 @@ var outcome = external_exports.discriminatedUnion("status", [
   external_exports.object({ status: external_exports.literal("queued") })
 ]);
 var currentSaveStageRecord = external_exports.discriminatedUnion("status", [
-  record2.extend({ status: external_exports.literal("uploading"), parts: ordinal.min(1) }),
-  record2.extend({ status: external_exports.literal("queued"), envelope, parts: ordinal.min(1) }),
+  record2.extend({ status: external_exports.literal("uploading"), parts: partCount }),
+  record2.extend({ status: external_exports.literal("queued"), envelope, parts: partCount }),
   record2.extend({
     status: external_exports.literal("saved"),
     commit: currentSaveSha,
@@ -26904,13 +26908,18 @@ var currentSaveStageRecord = external_exports.discriminatedUnion("status", [
   record2.extend({ status: external_exports.literal("conflicts") }),
   record2.extend({ status: external_exports.literal("failed"), error: external_exports.string().max(2e3) })
 ]);
+var currentSaveUploadUsage = external_exports.object({
+  active: external_exports.object({ requestId: publishOpIdSchema, parts: partCount }).strict().nullable(),
+  starts: external_exports.array(ordinal).max(currentSaveStartsPerHour)
+}).strict();
 var currentSavePath = "current-saves/";
 var currentSaveStagePaths = {
   prefix: (id) => `${currentSavePath}${id}/`,
   record: (id) => `${currentSavePath}${id}/request.json`,
   part: (id, part) => `${currentSavePath}${id}/${part}.json`,
   conflicts: (id) => `${currentSavePath}${id}/conflicts.json`,
-  kick: (id) => `publish/kicks/current-save-${id}.json`
+  kick: (id) => `publish/kicks/current-save-${id}.json`,
+  usage: (requesterId) => `${currentSavePath}requesters/${requesterId}.json`
 };
 
 // packages/core/src/migrateLegacy.ts
@@ -32728,6 +32737,12 @@ async function drainCurrentSaves(pub) {
       if (started.status !== "queued" && now - Date.parse(started.updatedAt) < currentSaveStageLifetime)
         break;
       discardStage(tree, id);
+      if (started.status === "uploading") {
+        const path = currentSaveStagePaths.usage(started.requester.id);
+        const usage = currentSaveUploadUsage.safeParse(pub.read(tree, path));
+        if (usage.success && usage.data.active?.requestId === id)
+          tree[path] = pub.writeBlob(json2({ ...usage.data, active: null }));
+      }
       const outcome2 = { requester: started.requester, updatedAt: new Date(now).toISOString() };
       let parent = head;
       if (started.status === "queued") {
