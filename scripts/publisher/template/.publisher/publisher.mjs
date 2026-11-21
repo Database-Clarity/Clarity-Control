@@ -24753,22 +24753,22 @@ var loadExports = (descriptionData) => {
       ...descriptionString2.match(/^import [A-z0-9 ]+? from (\d+|global) *?$/gm) || [],
       ...descriptionString2.match(/^import self *?$/gm) || []
     ];
-    return imports.flatMap((importLine) => {
-      const importSelf = importLine.includes("import self");
+    return imports.flatMap((importLine2) => {
+      const importSelf = importLine2.includes("import self");
       if (importSelf) {
         return {
-          line: importLine,
+          line: importLine2,
           name: "self",
           from: ""
         };
       }
-      const name2 = importLine.match(/(?<=import) .+ (?=from)/)?.[0].trim();
-      const from = importLine.match(/(?<=from) (\d+|global)/)?.[0].trim();
+      const name2 = importLine2.match(/(?<=import) .+ (?=from)/)?.[0].trim();
+      const from = importLine2.match(/(?<=from) (\d+|global)/)?.[0].trim();
       if (name2 === void 0 || from === void 0) return [];
       return {
-        line: importLine,
-        name: importLine.match(/(?<=import) .+ (?=from)/)?.[0].trim() || "",
-        from: importLine.match(/(?<=from) (\d+|global)/)?.[0].trim() || ""
+        line: importLine2,
+        name: importLine2.match(/(?<=import) .+ (?=from)/)?.[0].trim() || "",
+        from: importLine2.match(/(?<=from) (\d+|global)/)?.[0].trim() || ""
       };
     });
   };
@@ -29729,6 +29729,445 @@ function stampUploads(entries, changed, livePerks, now, uploader) {
   }
 }
 
+// apps/web/src/services/tooltipImports.ts
+var numberInputs = /* @__PURE__ */ new Map();
+var numberedImports = /* @__PURE__ */ new WeakMap();
+var numberGlobals = /* @__PURE__ */ new WeakMap();
+function previewNumberGlobals(tooltip, lang, globals) {
+  if (lang === "en" || !tooltip?.text.en) return globals;
+  const english = tooltip.text.en;
+  const key = JSON.stringify([english.text, english.numbers, lang]);
+  let input2 = numberInputs.get(key);
+  if (!input2) {
+    if (numberInputs.size >= 64) numberInputs.delete(numberInputs.keys().next().value);
+    let values, issue2;
+    try {
+      values = numberValues(english, lang);
+    } catch {
+      values = /* @__PURE__ */ new Map();
+      issue2 = "Save English before translating its changed numbers.";
+    }
+    input2 = { values, english: english.text, lang, ...issue2 && { issue: issue2 } };
+    numberInputs.set(key, input2);
+  }
+  let byTooltip = numberGlobals.get(globals);
+  if (!byTooltip) numberGlobals.set(globals, byTooltip = /* @__PURE__ */ new WeakMap());
+  let byLanguage = byTooltip.get(tooltip);
+  if (!byLanguage) byTooltip.set(tooltip, byLanguage = /* @__PURE__ */ new Map());
+  let result = byLanguage.get(lang);
+  if (!result) {
+    result = {
+      ...globals,
+      numberInput: {
+        ...input2,
+        // Only the deferred parser reads this; constructing editor globals never scans a draft.
+        get fallback() {
+          return usesEnglishFallback(tooltip, lang);
+        },
+        hasImportedNumbers: (hash2) => !!globals.imports && !!numberedImports.get(globals.imports)?.(hash2)
+      }
+    };
+    byLanguage.set(lang, result);
+  }
+  return result;
+}
+function resolvedImport(tooltip, lang, text) {
+  if (lang === "en" || !text.includes("#{=")) return text;
+  if (usesEnglishFallback(tooltip, lang)) return tooltip.text.en?.text ?? "?";
+  try {
+    return resolveNumberTokens(
+      text,
+      tooltip.text.en ? numberValuesCached(tooltip, lang) : /* @__PURE__ */ new Map()
+    );
+  } catch {
+    return "?";
+  }
+}
+function numberValuesCached(tooltip, lang) {
+  return previewNumberGlobals(tooltip, lang, emptyNumberGlobals).numberInput.values;
+}
+var emptyNumberGlobals = { variables: "", titles: "" };
+var savedImports = /* @__PURE__ */ new WeakMap();
+var aliasIndexes = /* @__PURE__ */ new WeakMap();
+function aliasIndex(aliases) {
+  let index = aliasIndexes.get(aliases);
+  if (!index) {
+    index = new Map(
+      Object.keys(aliases).map((hash2) => [hash2, resolveAlias(Number(hash2), aliases)])
+    );
+    aliasIndexes.set(aliases, index);
+  }
+  return index;
+}
+function tooltipImports(tooltips, drafts, lang, aliases, options) {
+  if (options?.lookupOnly) {
+    const tooltipAt2 = (key) => {
+      const hash2 = Number(key);
+      if (!Number.isInteger(hash2) || String(hash2) !== key) return void 0;
+      const canonical = resolveAlias(hash2, aliases);
+      return drafts[canonical]?.next ?? tooltips[canonical];
+    };
+    const read2 = (key) => {
+      const tooltip = tooltipAt2(key);
+      return tooltip ? resolvedImport(tooltip, lang, tooltip.text[lang]?.text ?? "") : void 0;
+    };
+    const proxy2 = new Proxy(
+      {},
+      {
+        get: (_target, key) => typeof key === "string" ? read2(key) : void 0,
+        has: (_target, key) => typeof key === "string" && read2(key) !== void 0,
+        getOwnPropertyDescriptor(_target, key) {
+          const value2 = typeof key === "string" ? read2(key) : void 0;
+          return value2 === void 0 ? void 0 : { configurable: true, enumerable: true, value: value2 };
+        }
+      }
+    );
+    numberedImports.set(
+      proxy2,
+      (key) => lang !== "en" && !!tooltipAt2(key)?.text[lang]?.text.includes("#{=")
+    );
+    return proxy2;
+  }
+  let byAliases = savedImports.get(tooltips);
+  if (!byAliases) savedImports.set(tooltips, byAliases = /* @__PURE__ */ new WeakMap());
+  let byLanguage = byAliases.get(aliases);
+  if (!byLanguage) byAliases.set(aliases, byLanguage = /* @__PURE__ */ new Map());
+  let saved = byLanguage.get(lang);
+  if (!saved) {
+    const index = aliasIndex(aliases);
+    const text2 = {};
+    for (const [hash2, tooltip] of Object.entries(tooltips)) {
+      if ((index.get(hash2) ?? Number(hash2)) === Number(hash2)) {
+        text2[hash2] = tooltip.text[lang]?.text ?? "";
+      }
+    }
+    saved = {
+      text: text2,
+      aliases: index
+    };
+    byLanguage.set(lang, saved);
+  }
+  const text = saved.text;
+  const tooltipAt = (key) => {
+    const hash2 = Number(key);
+    if (!Number.isInteger(hash2) || String(hash2) !== key) return void 0;
+    const canonical = saved.aliases.get(key) ?? hash2;
+    return drafts[canonical]?.next ?? tooltips[canonical];
+  };
+  const read = (key) => {
+    const hash2 = Number(key);
+    if (!Number.isInteger(hash2) || String(hash2) !== key) return void 0;
+    const canonical = saved.aliases.get(key) ?? hash2;
+    const raw = drafts[canonical]?.next.text[lang]?.text ?? (drafts[canonical] ? "" : text[canonical]);
+    return raw === void 0 || lang === "en" || !raw.includes("#{=") ? raw : resolvedImport(tooltipAt(key), lang, raw);
+  };
+  const proxy = new Proxy(
+    {},
+    {
+      get(_target, key) {
+        return typeof key === "string" ? read(key) : void 0;
+      },
+      ownKeys() {
+        const keys = { ...text };
+        for (const hash2 of Object.keys(drafts)) {
+          if ((saved.aliases.get(hash2) ?? Number(hash2)) === Number(hash2)) keys[hash2] = "";
+        }
+        for (const [hash2, canonical] of saved.aliases) {
+          if (read(String(canonical)) !== void 0) keys[hash2] = "";
+        }
+        return Object.keys(keys);
+      },
+      getOwnPropertyDescriptor(_target, key) {
+        const value2 = typeof key === "string" ? read(key) : void 0;
+        return value2 === void 0 ? void 0 : { configurable: true, enumerable: true, value: value2 };
+      },
+      has(_target, key) {
+        return typeof key === "string" && read(key) !== void 0;
+      }
+    }
+  );
+  numberedImports.set(
+    proxy,
+    (key) => lang !== "en" && !!tooltipAt(key)?.text[lang]?.text.includes("#{=")
+  );
+  return proxy;
+}
+function importGlobals(data, source, lang) {
+  const imports = tooltipImports(data?.bundle.tooltips ?? {}, source, lang, data?.aliases ?? {});
+  return { variables: imports[2] ?? "", titles: imports[3] ?? "", imports };
+}
+
+// apps/web/src/features/navigation/canonicalHash.ts
+var canonicalIndexes = /* @__PURE__ */ new WeakMap();
+function canonicalHash(hash2, data) {
+  let index = canonicalIndexes.get(data);
+  if (!index) canonicalIndexes.set(data, index = /* @__PURE__ */ new Map());
+  const cached2 = index.get(hash2);
+  if (cached2 !== void 0) return cached2;
+  const seen = /* @__PURE__ */ new Set();
+  const remember = (canonical) => {
+    for (const member of seen) index.set(member, canonical);
+    return canonical;
+  };
+  while (!seen.has(hash2)) {
+    seen.add(hash2);
+    const resolved = resolveAlias(hash2, data.aliases);
+    if (resolved !== hash2) {
+      hash2 = resolved;
+      continue;
+    }
+    const item = data.items[hash2];
+    if (frameGroupSize(hash2, data) > 1) return remember(hash2);
+    const target = item?.baseHash ?? (data.bundle.aliasGroups ? aliasPairedBase(item, data.items, data.aliases) : void 0);
+    if (target === void 0) return remember(hash2);
+    hash2 = target;
+  }
+  throw new Error(`Cyclic tooltip alias at ${hash2}`);
+}
+var frameCounts = /* @__PURE__ */ new WeakMap();
+function frameGroupSize(hash2, data) {
+  let counts2 = frameCounts.get(data);
+  if (!counts2) {
+    counts2 = /* @__PURE__ */ new Map();
+    for (const [alias, entry] of Object.entries(data.aliases)) {
+      if (entry.kind !== "frame") continue;
+      const target = resolveAlias(Number(alias), data.aliases);
+      counts2.set(target, (counts2.get(target) ?? 1) + 1);
+    }
+    frameCounts.set(data, counts2);
+  }
+  return counts2.get(hash2) ?? 1;
+}
+
+// apps/web/src/features/editor/references.ts
+var importLine = /^import ([A-z0-9 ]+?) from (\d+|global) *$/;
+var titleReference = /<title .+? \[([^\]]+)\] \/>/g;
+function referenceInLine(line, column) {
+  const imported = importLine.exec(line);
+  if (imported) {
+    const from = "import ".length;
+    const to = line.trimEnd().length;
+    return column >= from && column <= to && imported[1].trim() !== "self" ? { kind: "import", name: imported[1].trim(), source: imported[2], from, to } : null;
+  }
+  for (const match of line.matchAll(/#\{([a-zA-Z0-9]+)\}|#([a-zA-Z0-9]+)/g)) {
+    const from = match.index;
+    const to = from + match[0].length;
+    if (column >= from && column <= to)
+      return match[1] === void 0 ? { kind: "variable", name: match[2], from, to } : { kind: "variable", name: match[1], braced: true, from, to };
+  }
+  for (const match of line.matchAll(titleReference)) {
+    const to = match.index + match[0].length - "] />".length;
+    const from = to - match[1].length;
+    if (column >= from && column <= to) return { kind: "title", name: match[1], from, to };
+  }
+  return null;
+}
+
+// apps/web/src/features/globals/usages.ts
+var conditionTypes = [
+  void 0,
+  enhancedMarkupType,
+  "Weapon Catalyst Exotic",
+  "Weapon Perk Exotic"
+];
+var keyOf2 = (kind, name2) => `${kind}:${name2}`;
+function authored(text) {
+  const found = /* @__PURE__ */ new Map();
+  text = text.replace(/\r/g, "");
+  const lineAt = (offset) => text.slice(0, offset).split("\n").length;
+  const add = (key, offset) => {
+    if (!found.has(key)) found.set(key, lineAt(offset));
+  };
+  if (text.includes("#")) {
+    const { comments } = markupCommentContext(text);
+    for (const ref of variableReferences(text))
+      if (!comments.some((range) => ref.from >= range.from && ref.to <= range.to))
+        add(keyOf2("variables", ref.name), ref.from);
+  }
+  if (text.includes(enhancedArrowMarkup)) add("variables:e", text.indexOf(enhancedArrowMarkup));
+  for (const kind of ["titles", "exports"])
+    for (const span of globalReferenceSpans(text, kind)) add(keyOf2(kind, span.name), span.from);
+  return found;
+}
+function importsOf(text) {
+  if (!text.includes("import ")) return [];
+  const found = [];
+  for (const line of text.replace(/\r/g, "").split("\n")) {
+    const ref = line.startsWith("import ") ? referenceInLine(line, "import ".length) : null;
+    if (ref?.kind === "import") found.push({ name: ref.name, source: ref.source });
+  }
+  return found;
+}
+function* usageSteps(data, entries, only) {
+  const live = entries.filter((entry) => !entry.tombstone);
+  const targets = only === void 0 ? live : live.filter((entry) => entry.id === only);
+  const ids = new Map(live.map((entry) => [keyOf2(entry.kind, entry.name), entry.id]));
+  const bodyOf = (entry, lang) => (entry.definitions[lang] ?? entry.definitions.en)?.body;
+  const declared = /* @__PURE__ */ new Map();
+  const globalsFor = (lang, without) => {
+    const cacheKey = `${lang}:${without?.id ?? ""}`;
+    let globals2 = declared.get(cacheKey);
+    if (globals2) return globals2;
+    const write = (kind, declare) => live.filter((entry) => entry !== without && entry.kind === kind).flatMap((entry) => {
+      const body2 = bodyOf(entry, lang);
+      return body2 === void 0 ? [] : [declare(entry.name, body2)];
+    }).join(kind === "variables" ? "\n" : "\n\n");
+    const exports = write("exports", (name2, body2) => `export ${name2} (
+${body2}
+)`);
+    const catalogue = importGlobals(data, {}, lang).imports ?? {};
+    globals2 = {
+      variables: write(
+        "variables",
+        (name2, body2) => `var ${name2} = ${body2 === "" ? "empty" : body2}`
+      ),
+      titles: write("titles", (name2, body2) => `title ${name2} (
+${body2}
+)`),
+      // The global exports come from the entries; every tooltip is the editor's own catalogue.
+      imports: new Proxy(
+        {},
+        {
+          get: (_target, key) => key === "1" || key === "global" ? exports : typeof key === "string" ? catalogue[key] : void 0
+        }
+      )
+    };
+    declared.set(cacheKey, globals2);
+    return globals2;
+  };
+  function* render(text, globals2) {
+    const rendered = [];
+    for (const type of conditionTypes) {
+      rendered.push(JSON.stringify(parseMarkup(text, { ...globals2, type }).lines));
+      yield;
+    }
+    return rendered;
+  }
+  function* usedBy(text, lang, self) {
+    const globals2 = globalsFor(lang);
+    const variables = /* @__PURE__ */ new Set();
+    const reads = /* @__PURE__ */ new Set();
+    const baseline = yield* render(text, {
+      ...globals2,
+      onVariable: (name2) => variables.add(name2),
+      imports: new Proxy(
+        {},
+        {
+          get: (_target, key) => {
+            if (typeof key === "string") reads.add(key);
+            return globals2.imports[key];
+          }
+        }
+      )
+    });
+    const titled = baseline.some((rendered) => rendered.includes('"title":'));
+    const used = /* @__PURE__ */ new Set();
+    for (const entry of targets) {
+      if (entry === self) continue;
+      const candidate = entry.kind === "variables" ? variables.has(entry.name) : entry.kind === "exports" ? reads.has("1") || reads.has("global") : titled;
+      if (!candidate) continue;
+      const without = yield* render(text, globalsFor(lang, entry));
+      if (without.some((rendered, type) => rendered !== baseline[type]))
+        used.add(keyOf2(entry.kind, entry.name));
+    }
+    return used;
+  }
+  const docs = [];
+  for (const tooltip of Object.values(data.bundle.tooltips)) {
+    if (tooltip.hash >= 1 && tooltip.hash <= 3) continue;
+    for (const lang of languages2) {
+      const text = tooltip.text[lang]?.text;
+      if (text) docs.push({ hash: tooltip.hash, lang, text, used: yield* usedBy(text, lang) });
+    }
+  }
+  const usedByDoc = new Map(docs.map((doc) => [`${doc.hash}:${doc.lang}`, doc.used]));
+  const bodies = live.flatMap(
+    (entry) => languages2.filter((lang) => entry.definitions[lang]?.body).map((lang) => ({ entry, lang, text: entry.definitions[lang].body }))
+  );
+  const usedByEntry = /* @__PURE__ */ new Map();
+  for (const { entry, lang, text } of bodies)
+    usedByEntry.set(`${entry.id}:${lang}`, yield* usedBy(text, lang, entry));
+  const members3 = /* @__PURE__ */ new Map();
+  for (const hash2 of Object.keys(data.items)) {
+    const canonical = canonicalHash(Number(hash2), data);
+    members3.set(canonical, (members3.get(canonical) ?? 0) + 1);
+    yield;
+  }
+  const through = (text, lang, own2, key) => {
+    const found = [];
+    for (const { name: name2, source } of importsOf(text)) {
+      const uses = source === "global" || Number(source) === 1 ? usedByEntry.get(`${ids.get(keyOf2("exports", name2))}:${lang}`) : usedByDoc.get(`${resolveAlias(Number(source), data.aliases)}:${lang}`);
+      if (uses?.has(key)) found.push(`import ${name2} from ${source}`);
+    }
+    for (const written of own2.keys()) {
+      if (!usedByEntry.get(`${ids.get(written)}:${lang}`)?.has(key)) continue;
+      const name2 = written.slice(written.indexOf(":") + 1);
+      found.push(
+        written.startsWith("variables:") ? `#${name2}` : written.startsWith("titles:") ? `[${name2}]` : `import ${name2} from global`
+      );
+    }
+    return found;
+  };
+  const record2 = (row, lang, direct, paths3) => {
+    if (!row.langs.includes(lang)) row.langs.push(lang);
+    if (direct) row.direct = true;
+    else for (const path of paths3()) if (!row.via.includes(path)) row.via.push(path);
+  };
+  const tooltips = /* @__PURE__ */ new Map();
+  for (const { hash: hash2, lang, text, used } of docs) {
+    if (!used.size) continue;
+    const own2 = authored(text);
+    const canonical = canonicalHash(hash2, data);
+    for (const key of used) {
+      const id = ids.get(key);
+      let rows = tooltips.get(id);
+      if (!rows) tooltips.set(id, rows = /* @__PURE__ */ new Map());
+      let row = rows.get(canonical);
+      if (!row) {
+        const open2 = { variant: hash2, lang };
+        const members_ = members3.get(canonical) ?? 1;
+        row = { hash: canonical, open: open2, members: members_, langs: [], direct: false, via: [] };
+        rows.set(canonical, row);
+      }
+      const line = own2.get(key);
+      if (line !== void 0 && !row.direct) row.open = { variant: hash2, lang, line };
+      record2(row, lang, line !== void 0, () => through(text, lang, own2, key));
+    }
+    yield;
+  }
+  const globals = /* @__PURE__ */ new Map();
+  for (const { entry, lang, text } of bodies) {
+    const used = usedByEntry.get(`${entry.id}:${lang}`);
+    if (!used.size) continue;
+    const own2 = authored(text);
+    for (const key of used) {
+      const id = ids.get(key);
+      let rows = globals.get(id);
+      if (!rows) globals.set(id, rows = /* @__PURE__ */ new Map());
+      let row = rows.get(entry.id);
+      if (!row) rows.set(entry.id, row = { id: entry.id, langs: [], direct: false, via: [] });
+      record2(row, lang, own2.has(key), () => through(text, lang, own2, key));
+    }
+  }
+  return {
+    of(id) {
+      return {
+        tooltips: [...tooltips.get(id)?.values() ?? []],
+        globals: [...globals.get(id)?.values() ?? []]
+      };
+    }
+  };
+}
+function bundleGlobalUsages(data, entries) {
+  const steps = usageSteps(data, entries);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  const index = step.value;
+  return Object.fromEntries(
+    entries.filter((entry) => !entry.tombstone).map(({ id }) => [id, index.of(id)])
+  );
+}
+
 // scripts/publisher/batch.ts
 init_schedule();
 var json2 = (v) => JSON.stringify(v, null, 2) + "\n";
@@ -33597,9 +34036,32 @@ var Publisher = class _Publisher {
         })()
       } : {}
     };
+    const catalog = bundle.globals;
+    const aliasFacts = this.options.aliasFacts;
+    let usages;
+    if (catalog && aliasFacts?.generatorSha === this.options.generatorSha && aliasFacts.items) {
+      try {
+        const groups = bundle.aliasGroups === void 0 ? void 0 : aliasGroupsSchema.parse(bundle.aliasGroups);
+        const aliases = composeAliases(
+          this.options.aliases,
+          groups,
+          aliasFacts.items,
+          this.options.sandboxConflicts,
+          bundle.sandboxPointers
+        ).aliases;
+        usages = bundleGlobalUsages({ bundle, aliases, items: aliasFacts.items }, catalog.entries);
+      } catch (error62) {
+        console.warn("Could not precompute global usages:", error62);
+      }
+    }
     const c = this.git.commit(
       old,
-      { ...oldTree, "bundle.json": this.git.writeBlob(json5(bundle)) },
+      {
+        ...oldTree,
+        "bundle.json": this.git.writeBlob(
+          json5(usages ? { ...bundle, globals: { ...catalog, usages } } : bundle)
+        )
+      },
       `Bundle ${h}`,
       appCredits
     );
