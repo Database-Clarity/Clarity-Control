@@ -30175,7 +30175,7 @@ function globalUsageStampInputs(items, aliases, groups) {
     items: JSON.stringify(
       Object.keys(items).sort().map((key) => {
         const { hash: hash2, baseHash, name: name2, categoryId, isEnhanced, exotic: exotic2, plugCategoryHash } = items[key];
-        return [key, hash2, baseHash, name2, categoryId, isEnhanced, exotic2, plugCategoryHash];
+        return { key, hash: hash2, baseHash, name: name2, categoryId, isEnhanced, exotic: exotic2, plugCategoryHash };
       })
     ),
     aliases: stableStringify({ aliases, groups: groups?.groups ?? null })
