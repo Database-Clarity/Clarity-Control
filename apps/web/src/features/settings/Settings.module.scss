@@ -64,6 +64,11 @@
   }
   button {
     flex: none;
+
+    // Reserve the reset's width so the slider stays still when crossing 100%.
+    &:disabled {
+      visibility: hidden;
+    }
   }
 }
 .hint,

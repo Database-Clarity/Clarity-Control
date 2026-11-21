@@ -320,10 +320,15 @@ textarea.input {
 
   > * {
     @include stepper.segment;
+    height: var(--tap, 1.75rem);
+    min-height: var(--tap, 1.75rem);
+    font-size: var(--ctl-text, 0.8125rem);
   }
 
   > button {
     @include stepper.arrow;
+    width: var(--tap, 1.75rem);
+    min-width: var(--tap, 1.75rem);
   }
 }
 
@@ -357,6 +362,21 @@ textarea.input {
   width: min(50rem, calc(100vw - 3rem));
   max-width: 100%;
   min-width: 0;
+}
+
+@include theme.mobile {
+  .liveWide[data-short] {
+    --gallery-suggest-max: 7.5rem;
+  }
+
+  .versionDemo {
+    width: 18rem;
+    max-width: 100%;
+
+    > * {
+      width: 100%;
+    }
+  }
 }
 
 // Fixture hosts supply the bounded pane that these app components normally live in.

@@ -9,6 +9,7 @@ import {
   visibleArea,
 } from '../../ui/anchorPlacement';
 import { scaledPx } from '../../ui/scale';
+import dialogStyles from '../../ui/Dialog.module.scss';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useSettingsPanel } from './panel';
 import { SettingsContent } from './SettingsContent';
@@ -202,7 +203,9 @@ function OpenSettings({ layout }: { layout: React.RefObject<HTMLElement | null> 
         onKeyDown={keydown}
       >
         <header className={styles.header}>
-          <h2 id="settings-title">Settings</h2>
+          <h2 id="settings-title" className={dialogStyles.title}>
+            Settings
+          </h2>
           <button type="button" onClick={close} aria-label="Close settings">
             {phoneSheet ? '×' : 'Close'}
           </button>

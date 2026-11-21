@@ -50,6 +50,7 @@ export function ScaleControl({
   onCommit: (value: number) => void;
 }) {
   const [draft, setDraft] = useState<number | null>(null);
+  const slider = useRef<HTMLInputElement>(null);
   const dragging = useRef(false);
   const latest = useRef(value);
   useEffect(() => {
@@ -71,6 +72,7 @@ export function ScaleControl({
   return (
     <span className={styles.scale}>
       <input
+        ref={slider}
         type="range"
         min={uiScaleMin}
         max={uiScaleMax}
@@ -90,7 +92,14 @@ export function ScaleControl({
         }}
       />
       <output>{shown}%</output>
-      <button type="button" disabled={shown === 100} onClick={() => onCommit(100)}>
+      <button
+        type="button"
+        disabled={shown === 100}
+        onClick={() => {
+          slider.current?.focus({ preventScroll: true });
+          onCommit(100);
+        }}
+      >
         100%
       </button>
     </span>

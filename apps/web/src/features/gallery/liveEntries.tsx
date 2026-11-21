@@ -216,7 +216,9 @@ function PickerDemo({ kind }: { kind: string }) {
 function VersionDemo({ enhanced = true }: { enhanced?: boolean }) {
   const [value, set] = useState<ComponentProps<typeof VersionSwitch>['value']>('base');
   return (
-    <VersionSwitch label="Preview version" value={value} hasEnhanced={enhanced} onChange={set} />
+    <div className={styles.versionDemo}>
+      <VersionSwitch label="Preview version" value={value} hasEnhanced={enhanced} onChange={set} />
+    </div>
   );
 }
 function DiffDemo({ kind }: { kind: string }) {
@@ -375,7 +377,7 @@ function SuggestDemo({ kind }: { kind: string }) {
           position: 'relative',
           top: 0,
           left: 0,
-          '--menu-max': kind === 'Short' ? '120px' : '340px',
+          '--menu-max': 'var(--gallery-suggest-max, 340px)',
         } as CSSProperties
       }
       snapshot={{
@@ -666,7 +668,7 @@ export const liveEntries: GalleryEntry[] = [
       'Long',
     ].map((kind) =>
       state(kind, () => (
-        <div className={styles.liveWide}>
+        <div className={styles.liveWide} data-short={kind === 'Short' || undefined}>
           <SuggestDemo kind={kind} />
         </div>
       )),
