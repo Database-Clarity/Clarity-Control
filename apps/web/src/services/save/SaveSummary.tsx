@@ -38,14 +38,19 @@ export function SaveSummary({
       {issues.length > 0 && (
         <section aria-label="Save validation issues">
           <h3>Validation</h3>
-          <ul>
-            {issues.map((issue, index) => (
-              <li key={index}>
-                <strong>{issue.severity}</strong>: {issue.hash} / {languageLabel(issue.lang)}:{' '}
-                {issue.message}
-              </li>
-            ))}
-          </ul>
+          {/* Errors block saving and stay open; warnings fold away (they can run to hundreds). */}
+          <IssueList issues={issues.filter((issue) => issue.severity === 'error')} />
+          {issues.some((issue) => issue.severity !== 'error') && (
+            <details>
+              <summary>
+                {(() => {
+                  const n = issues.filter((issue) => issue.severity !== 'error').length;
+                  return `${n} warning${n === 1 ? '' : 's'}`;
+                })()}
+              </summary>
+              <IssueList issues={issues.filter((issue) => issue.severity !== 'error')} />
+            </details>
+          )}
         </section>
       )}
       {changes.slice(0, visible).map((change) => (
@@ -58,6 +63,20 @@ export function SaveSummary({
         count={Math.max(1, Math.min(3, changes.length - visible))}
       />
     </>
+  );
+}
+
+function IssueList({ issues }: { issues: TooltipValidationIssue[] }) {
+  if (!issues.length) return null;
+  return (
+    <ul>
+      {issues.map((issue, index) => (
+        <li key={index}>
+          <strong>{issue.severity}</strong>: {issue.hash} / {languageLabel(issue.lang)}:{' '}
+          {issue.message}
+        </li>
+      ))}
+    </ul>
   );
 }
 
