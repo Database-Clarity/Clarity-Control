@@ -12,7 +12,7 @@
   top: 1rem;
   left: 1rem;
   box-sizing: border-box;
-  width: min(30rem, calc(100vw - 1rem));
+  width: min(36rem, calc(100vw - 1rem));
   max-height: calc(var(--app-h) - 2rem);
   display: flex;
   flex-direction: column;
@@ -82,7 +82,7 @@
         line-height: 1.35;
       }
       label {
-        grid-template-columns: minmax(6.5rem, 0.55fr) minmax(0, 1.45fr);
+        grid-template-columns: minmax(0, 3fr) minmax(0, 5fr);
         align-items: center;
         gap: 0.5rem;
         font-size: 0.9rem;

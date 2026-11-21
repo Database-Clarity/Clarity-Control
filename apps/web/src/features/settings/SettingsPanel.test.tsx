@@ -399,8 +399,8 @@ describe('Settings popover', () => {
       await render();
       await openSettings();
       const dialog = popover()!;
-      expect(dialog.style.width).toBe('480px');
-      expect(dialog.style.left).toBe(`${rootWidth - 480 - 8}px`);
+      expect(dialog.style.width).toBe('576px');
+      expect(dialog.style.left).toBe(`${rootWidth - 576 - 8}px`);
     } finally {
       rect.mockRestore();
       delete (root as unknown as { offsetWidth?: number }).offsetWidth;

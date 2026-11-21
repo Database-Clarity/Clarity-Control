@@ -19,7 +19,7 @@ import { useWorkspaceShortcutOwner } from '../../ui/interaction';
 const focusable =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const phone = '(max-width: 700px)';
-const width = 480;
+const width = 576;
 const margin = 8;
 const gap = 6;
 // Keep a visible bottom edge: never run the popover to the viewport edge.
@@ -49,7 +49,7 @@ function anchor(button: Element | null): CSSProperties {
     };
   }
   const rect = button.getBoundingClientRect();
-  // The popover is 30rem wide (at most the window less a margin), whatever the interface scale;
+  // The popover is 36rem wide (at most the window less a margin), whatever the interface scale;
   // the window's width leaves out the reserved scrollbar gutter.
   const room = viewportWidth();
   const wide = Math.min(scaledPx(width), room - margin * 2);

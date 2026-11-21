@@ -118,9 +118,20 @@
 .management {
   margin-top: 1rem;
 }
+.management,
+.management fieldset {
+  row-gap: 0.5rem;
+}
+.panel.management > p {
+  margin: 0;
+}
+.management > form {
+  // Match the separation below the form while keeping its controls grouped.
+  margin-block-start: 0.5rem;
+}
 .management h2 {
   font-size: 0.875rem;
-  margin: 0 0 0.5rem;
+  margin: 0;
 }
 .typeRow {
   display: flex;
