@@ -227,15 +227,16 @@ export function DraftList({
     }
     return result;
   }, [rows, collapsed]);
-  const toggle = useCallback(
-    (kind: DraftKind) =>
-      setCollapsed((previous) => {
-        const next = new Set(previous);
-        if (!next.delete(kind)) next.add(kind);
-        return next;
-      }),
-    [],
-  );
+  // A toggle anchors on its own heading (made the active item, so the list keeps it in view):
+  // collapsing a long group from its pinned copy never scrolls the heading out of reach.
+  const toggle = useCallback((kind: DraftKind) => {
+    setActive(`h:${kind}`);
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      if (!next.delete(kind)) next.add(kind);
+      return next;
+    });
+  }, []);
   // Row heights follow the interface scale: 28px desktop rows, the touch size on coarse pointers,
   // and two lines (name over languages and time) on a phone.
   const phone = useMedia(phoneQuery);
@@ -367,9 +368,11 @@ export function DraftList({
     <div
       ref={box}
       className={styles.listBox}
-      // A wheel or touch scroll moves the view away from the keyboard's place: drop it.
-      onWheel={() => setActive(null)}
-      onTouchMove={() => setActive(null)}
+      // Any scroll (wheel, touch, scrollbar, PageUp) that takes the keyboard's place out of view
+      // drops it, so no key acts on a row the user cannot see and Home/End always move again.
+      onScrollCapture={() => {
+        if (index >= 0 && !activeVisible()) setActive(null);
+      }}
       style={{
         flexBasis: `min(${naturalRem}rem, 28rem)`,
         minHeight: `min(${naturalRem}rem, 6rem)`,

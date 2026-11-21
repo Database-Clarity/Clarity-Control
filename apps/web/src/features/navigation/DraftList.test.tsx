@@ -118,16 +118,37 @@ describe('drafts list', () => {
     ]);
   });
 
-  it('after a wheel scroll, the first key picks an item in view instead of acting', async () => {
+  it('a scroll that hides the active row drops it; the next key picks an item in view', async () => {
     const h = await render(draftRows(drafts));
     await press('ArrowDown');
     await press('ArrowDown');
     expect(tree().getAttribute('aria-activedescendant')).toBe('draft-row-3');
-    await act(async () => void tree().dispatchEvent(new WheelEvent('wheel', { bubbles: true })));
+    // The scrollbar (or PageUp) moves row 3 far below the view.
+    const row = host.querySelector('#draft-row-3')!;
+    row.getBoundingClientRect = () => ({ top: 5000, bottom: 5028 }) as DOMRect;
+    await act(async () => void tree().dispatchEvent(new Event('scroll')));
     expect(tree().getAttribute('aria-activedescendant')).toBeNull();
     await press('Delete');
     expect(h.onDiscard).not.toHaveBeenCalled();
     expect(tree().getAttribute('aria-activedescendant')).toBe('draft-group-compendium');
+    // End reaches the last item again after a manual scroll.
+    await press('End');
+    expect(tree().getAttribute('aria-activedescendant')).toBe('draft-row-4');
+    host.querySelector('#draft-row-4')!.getBoundingClientRect = () =>
+      ({ top: -5000, bottom: -4972 }) as DOMRect;
+    await act(async () => void tree().dispatchEvent(new Event('scroll')));
+    await press('End');
+    expect(tree().getAttribute('aria-activedescendant')).toBe('draft-row-4');
+  });
+
+  it('a click on a group heading keeps that heading as the place', async () => {
+    await render(draftRows(drafts));
+    const english = () => host.querySelector<HTMLElement>('#draft-group-text')!;
+    await act(async () => void english().click());
+    expect(tree().getAttribute('aria-activedescendant')).toBe('draft-group-text');
+    expect(english().getAttribute('aria-expanded')).toBe('false');
+    await act(async () => void english().click());
+    expect(english().getAttribute('aria-expanded')).toBe('true');
   });
 
   it('keeps its place when the active draft is discarded', async () => {
