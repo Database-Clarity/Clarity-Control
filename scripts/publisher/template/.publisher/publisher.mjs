@@ -23040,6 +23040,19 @@ var init_activate = __esm({
 });
 
 // packages/core/src/schedule/schemas.ts
+function scheduleIndexEntry(batch, hashes, updatedAt) {
+  return scheduleIndexSchema.shape.batches.element.parse({
+    id: batch.id,
+    name: batch.name,
+    status: batch.status,
+    notBefore: batch.notBefore,
+    opId: batch.opId,
+    revision: batch.revision,
+    hashes: batch.memberHashes ? [] : [...hashes].sort((a, b) => a - b),
+    ...batch.memberHashes ? { memberCount: batch.memberHashes.length } : {},
+    updatedAt
+  });
+}
 var scheduleLimits, schedulePaths, batchIdSchema, commitSchema, revisionSchema, userSchema, sortedUniqueHashes, notBeforeSchema, batchStatusSchema, openStatuses, isOpenStatus, batchResultStatusSchema, batchEventActionSchema, batchEventSchema, batchResultSchema, batchSchema, batchMemberSchema, dueSchema, scheduleIndexSchema, activationConflictSchema;
 var init_schemas4 = __esm({
   "packages/core/src/schedule/schemas.ts"() {
@@ -23053,7 +23066,6 @@ var init_schemas4 = __esm({
     scheduleLimits = {
       /** Open = draft, scheduled, or publishing; checked at create and at every return to draft. */
       openBatches: 50,
-      membersPerBatch: 100,
       /** Terminal (published, cancelled) entries kept in index.json besides the open ones. */
       indexTerminal: 100,
       /** Inline events per batch.json; older ones move to events/<seq>.json in the same commit. */
@@ -23083,7 +23095,7 @@ var init_schemas4 = __esm({
       id: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
       login: external_exports.string().min(1).max(39)
     }).strict();
-    sortedUniqueHashes = (max) => external_exports.array(hashSchema).max(max).refine(
+    sortedUniqueHashes = external_exports.array(hashSchema).refine(
       (list) => list.every((hash2, index) => index === 0 || list[index - 1] < hash2),
       "Hashes must be sorted and unique"
     );
@@ -23145,7 +23157,7 @@ var init_schemas4 = __esm({
       revision: revisionSchema,
       contentRevision: revisionSchema,
       notBefore: notBeforeSchema.optional(),
-      hashes: external_exports.array(hashSchema).max(scheduleLimits.membersPerBatch).optional()
+      hashes: external_exports.array(hashSchema).optional()
     }).strict();
     batchResultSchema = external_exports.object({
       opId: publishOpIdSchema,
@@ -23159,7 +23171,7 @@ var init_schemas4 = __esm({
       exportNow: timestampSchema.optional(),
       liveCommit: commitSchema.optional(),
       /** Per-hash outcomes as the publisher logs them (stale fields, missing, and so on). */
-      outcomes: external_exports.array(external_exports.looseObject({ hash: hashSchema, status: external_exports.string().min(1) })).max(scheduleLimits.membersPerBatch).optional(),
+      outcomes: external_exports.array(external_exports.looseObject({ hash: hashSchema, status: external_exports.string().min(1) })).optional(),
       /** Reason for a rejected or superseded operation ("Last run failed: <reason>"). */
       error: external_exports.string().max(2e3).optional()
     }).strict().superRefine((value2, ctx) => {
@@ -23182,6 +23194,12 @@ var init_schemas4 = __esm({
       /** +1 only when approvedDigest's input changes (see revisions.ts). */
       contentRevision: revisionSchema,
       status: batchStatusSchema,
+      /** Terminal membership, stored with the batch so the hot index only carries the count. */
+      memberHashes: sortedUniqueHashes.optional(),
+      draftStaging: external_exports.object({
+        id: publishOpIdSchema,
+        ownerId: userSchema.shape.id
+      }).strict().optional(),
       notBefore: notBeforeSchema.nullable(),
       /** IANA zone the time was chosen in; display only. */
       zone: external_exports.string().min(1).max(64).nullable(),
@@ -23211,6 +23229,10 @@ var init_schemas4 = __esm({
     }).strict().superRefine((batch, ctx) => {
       const issue2 = (message) => ctx.addIssue({ code: "custom", message });
       if (batch.contentRevision > batch.revision) issue2("contentRevision exceeds revision");
+      if (batch.memberHashes && isOpenStatus(batch.status))
+        issue2("Only a closed batch stores historical membership");
+      if (batch.draftStaging && !(batch.status === "draft" || batch.preparation?.returnStatus === "draft"))
+        issue2("An unfinished save belongs to a draft batch");
       if (batch.scheduledContentRevision !== null && batch.scheduledContentRevision !== batch.contentRevision)
         issue2("scheduledContentRevision differs from contentRevision");
       const succeeded = batch.result?.status === "published" || batch.result?.status === "unchanged";
@@ -23293,7 +23315,8 @@ var init_schemas4 = __esm({
           notBefore: notBeforeSchema.nullable(),
           opId: publishOpIdSchema.nullable(),
           revision: revisionSchema,
-          hashes: sortedUniqueHashes(scheduleLimits.membersPerBatch),
+          hashes: sortedUniqueHashes,
+          memberCount: external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
           updatedAt: timestampSchema
         }).strict()
       ).max(scheduleLimits.openBatches + scheduleLimits.indexTerminal)
@@ -23412,7 +23435,7 @@ var init_digest = __esm({
       batchId: batchIdSchema,
       contentRevision: external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
       notBefore: notBeforeSchema,
-      hashes: external_exports.array(hashSchema).min(1).max(scheduleLimits.membersPerBatch).refine(
+      hashes: external_exports.array(hashSchema).min(1).refine(
         (list) => list.every((hash2, index) => index === 0 || list[index - 1] < hash2),
         "Hashes must be sorted and unique"
       ),
@@ -23638,7 +23661,7 @@ async function verifyScheduleRequest(value2, body2, key, target) {
     throw new Error("Schedule request does not match its signed intent");
   return { request, intent };
 }
-var schedulePreparationCapability, scheduleIntentPaths, revision, oid, digest, common, scheduleIntentSchema, scheduleEnvelopeSchema, preparationReasonSchema, scheduleRequestSchema;
+var schedulePreparationCapability, draftBatchStagingCapability, scheduledBatchStagingCapability, preparedDraftSave, stagedPartsPrefix, draftStagingInputSchema, scheduleIntentPaths, revision, oid, digest, scheduledStagingSchema, common, scheduleIntentSchema, scheduleEnvelopeSchema, preparationReasonSchema, scheduleRequestSchema;
 var init_intent = __esm({
   "packages/core/src/schedule/intent.ts"() {
     "use strict";
@@ -23648,14 +23671,30 @@ var init_intent = __esm({
     init_schemas3();
     init_schemas4();
     schedulePreparationCapability = "schedulePreparationV1";
+    draftBatchStagingCapability = "draftBatchStagingV1";
+    scheduledBatchStagingCapability = "scheduledBatchStagingV1";
+    preparedDraftSave = { changes: 100, bytes: 96 * 1024 };
+    stagedPartsPrefix = (batchId, id) => `schedule/batches/${batchId}/staged/${id}/`;
+    draftStagingInputSchema = external_exports.object({ id: publishOpIdSchema, finish: external_exports.boolean() }).strict();
     scheduleIntentPaths = {
       request: (id) => `schedule/requests/${id}.json`,
       body: (id) => `schedule/requests/${id}.body.json`,
-      publication: (batchId) => `schedule/batches/${batchId}/publication.json`
+      publication: (batchId) => `schedule/batches/${batchId}/publication.json`,
+      stagedSave: (batchId) => `schedule/batches/${batchId}/staged-save.json`,
+      stagedPartsPrefix,
+      stagedPart: (batchId, id, part) => `${stagedPartsPrefix(batchId, id)}${part}.json`
     };
     revision = external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
     oid = external_exports.string().regex(/^[0-9a-f]{40}$/);
     digest = external_exports.string().regex(/^[0-9a-f]{64}$/);
+    scheduledStagingSchema = external_exports.object({
+      id: publishOpIdSchema,
+      ownerId: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      revision,
+      parts: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      ready: external_exports.boolean(),
+      updatedAt: timestampSchema
+    }).strict();
     common = {
       version: external_exports.literal(1),
       requestId: publishOpIdSchema,
@@ -23688,10 +23727,19 @@ var init_intent = __esm({
         kind: external_exports.literal("save"),
         returnStatus: external_exports.enum(["draft", "scheduled"]),
         /** Worker-derived owner policy; clients cannot select this field. */
-        onValidationFailure: external_exports.enum(["keep_scheduled", "needs_attention"])
+        onValidationFailure: external_exports.enum(["keep_scheduled", "needs_attention"]),
+        draftStaging: draftStagingInputSchema.optional(),
+        /** Each part is read from this intent's immutable sourceCommit. */
+        scheduledParts: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
       }).strict().refine(
         (intent) => intent.onValidationFailure !== "keep_scheduled" || intent.returnStatus === "scheduled",
         "Only an existing schedule can survive a failed save"
+      ).refine(
+        (intent) => !intent.draftStaging || intent.returnStatus === "draft",
+        "Only a draft batch can have an unfinished save"
+      ).refine(
+        (intent) => !intent.scheduledParts || intent.returnStatus === "scheduled",
+        "Staged scheduled edits require an accepted schedule"
       )
     ]);
     scheduleEnvelopeSchema = external_exports.object({ payload: external_exports.string().max(4096), sig: external_exports.string().regex(/^[A-Za-z0-9+/]{86}==$/) }).strict();
@@ -23748,6 +23796,8 @@ __export(schedule_exports, {
   checkNotBefore: () => checkNotBefore,
   compose: () => compose,
   composeParsed: () => composeParsed,
+  draftBatchStagingCapability: () => draftBatchStagingCapability,
+  draftStagingInputSchema: () => draftStagingInputSchema,
   dueSchema: () => dueSchema,
   existsField: () => existsField,
   fieldValue: () => fieldValue,
@@ -23764,10 +23814,12 @@ __export(schedule_exports, {
   nowMinute: () => nowMinute,
   openStatuses: () => openStatuses,
   preparationReasonSchema: () => preparationReasonSchema,
+  preparedDraftSave: () => preparedDraftSave,
   reconcileScheduledNumbers: () => reconcileScheduledNumbers,
   resolveActivation: () => resolveActivation,
   scheduleBodyDigest: () => scheduleBodyDigest,
   scheduleEnvelopeSchema: () => scheduleEnvelopeSchema,
+  scheduleIndexEntry: () => scheduleIndexEntry,
   scheduleIndexSchema: () => scheduleIndexSchema,
   scheduleIntentPaths: () => scheduleIntentPaths,
   scheduleIntentSchema: () => scheduleIntentSchema,
@@ -23775,6 +23827,8 @@ __export(schedule_exports, {
   schedulePaths: () => schedulePaths,
   schedulePreparationCapability: () => schedulePreparationCapability,
   scheduleRequestSchema: () => scheduleRequestSchema,
+  scheduledBatchStagingCapability: () => scheduledBatchStagingCapability,
+  scheduledStagingSchema: () => scheduledStagingSchema,
   signScheduleIntent: () => signScheduleIntent,
   verifyScheduleIntent: () => verifyScheduleIntent,
   verifyScheduleRequest: () => verifyScheduleRequest,
@@ -29794,16 +29848,7 @@ function editDue(io, tree, edit) {
 function editIndex(io, tree, batch, hashes, at) {
   const current = scheduleIndexSchema.safeParse(advisory(io, tree, schedulePaths.index));
   if (!current.success) return;
-  const entry = {
-    id: batch.id,
-    name: batch.name,
-    status: batch.status,
-    notBefore: batch.notBefore,
-    opId: batch.opId,
-    revision: batch.revision,
-    hashes,
-    updatedAt: at
-  };
+  const entry = scheduleIndexEntry(batch, hashes, at);
   const batches = current.data.batches.some((b) => b.id === batch.id) ? current.data.batches.map((b) => b.id === batch.id ? entry : b) : [...current.data.batches, entry];
   const terminal = batches.filter((b) => b.status === "published" || b.status === "cancelled").sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt));
   const drop = new Set(
@@ -29812,7 +29857,8 @@ function editIndex(io, tree, batch, hashes, at) {
   const next = scheduleIndexSchema.safeParse({
     batches: batches.filter((b) => !drop.has(b.id))
   });
-  if (next.success) tree[schedulePaths.index] = io.writeBlob(json2(next.data));
+  if (next.success) tree[schedulePaths.index] = io.writeBlob(`${JSON.stringify(next.data)}
+`);
 }
 
 // scripts/publisher/publisher.ts
@@ -31420,14 +31466,12 @@ function keepsTranslationRevision(head, lang, text, english = head?.text.en) {
 
 // apps/worker/src/schedule/store.ts
 init_schedule();
+init_schedule();
 init_zod();
 var unpublishedMessage2 = "This field has saved changes that are not published yet; publish them first";
-var memberCap = 15;
-var saveChangeCap = 15;
 var scheduledSaveChangeCap = 10;
 var memberByteCap = 8 * 1024;
 var eventArchiveSchema = external_exports.object({ events: external_exports.array(external_exports.unknown()).min(1) }).strict();
-var indexEntrySchema = scheduleIndexSchema.shape.batches.element;
 var storedIndexSchema = external_exports.object({
   batches: external_exports.array(external_exports.looseObject({ id: external_exports.string(), status: batchStatusSchema, updatedAt: external_exports.string() })).max(scheduleLimits.openBatches + scheduleLimits.indexTerminal)
 }).strict();
@@ -31678,6 +31722,8 @@ function verifiedSource(pub, raw) {
   ) : null;
   if (batch.id !== intent.batchId || batch.revision !== intent.expectedRevision || batch.contentRevision !== intent.contentRevision || oid4 !== intent.memberTreeOid || batch.claim || (intent.kind === "save" ? batch.status !== intent.returnStatus : !["draft", "scheduled"].includes(batch.status)))
     throw new InvalidScheduleIntent("Signed schedule source identity mismatch");
+  if (batch.draftStaging && (intent.kind !== "save" || intent.draftStaging?.id !== batch.draftStaging.id || intent.requester.id !== batch.draftStaging.ownerId))
+    throw new InvalidScheduleIntent("The signed request does not own the unfinished draft save");
   return { intent, tree, batch, members: members3 };
 }
 function verifiedRequest(pub, tree, path) {
@@ -31692,6 +31738,34 @@ function verifiedRequest(pub, tree, path) {
   const input2 = JSON.parse(body2);
   if (input2.requestId !== intent.requestId || input2.revision !== intent.expectedRevision)
     throw new InvalidScheduleIntent("Submitted request identity mismatch");
+  if (intent.kind === "save" && stableStringify(input2.draftStaging ?? null) !== stableStringify(intent.draftStaging ?? null))
+    throw new InvalidScheduleIntent("Submitted draft save identity mismatch");
+  if (intent.kind === "save" && intent.scheduledParts) {
+    const manifest = scheduledStagingSchema.parse(
+      pub.read(source.tree, scheduleIntentPaths.stagedSave(intent.batchId))
+    );
+    if (input2.finish !== true || manifest.id !== intent.requestId || manifest.ownerId !== intent.requester.id || manifest.parts !== intent.scheduledParts || manifest.parts > source.members.length || manifest.revision !== intent.expectedRevision || manifest.ready)
+      throw new InvalidScheduleIntent("Signed staged-save manifest mismatch");
+    const changes2 = [];
+    let message;
+    for (let part = 0; part < manifest.parts; part++) {
+      const oid4 = source.tree[scheduleIntentPaths.stagedPart(intent.batchId, manifest.id, part)];
+      if (!oid4) throw new InvalidScheduleIntent("Missing staged save part");
+      const raw = pub.git.blob(oid4);
+      if (Buffer.byteLength(raw) > 300 * 1024)
+        throw new InvalidScheduleIntent("Staged save part exceeds the request budget");
+      const chunk = JSON.parse(raw);
+      if (chunk.requestId !== intent.requestId || chunk.revision !== intent.expectedRevision || chunk.part !== part || !Array.isArray(chunk.changes) || typeof chunk.message !== "string" || message !== void 0 && message !== chunk.message)
+        throw new InvalidScheduleIntent("Invalid staged save part");
+      message = chunk.message;
+      changes2.push(...chunk.changes);
+    }
+    return {
+      ...source,
+      request,
+      input: { requestId: input2.requestId, revision: input2.revision, changes: changes2, message }
+    };
+  }
   return { ...source, request, input: input2 };
 }
 async function schedulePayload(pub, envelope) {
@@ -31743,8 +31817,9 @@ var ProposalRejected = class extends PreparationRejected {
 var saveInput = external_exports.object({
   requestId: external_exports.string(),
   revision: external_exports.number().int().nonnegative(),
-  changes: external_exports.array(batchSaveChangeSchema).min(1).max(saveChangeCap).refine((changes2) => new Set(changes2.map((c) => c.hash)).size === changes2.length),
-  message: external_exports.string().trim().min(1).max(500)
+  changes: external_exports.array(batchSaveChangeSchema).min(1).refine((changes2) => new Set(changes2.map((c) => c.hash)).size === changes2.length),
+  message: external_exports.string().trim().min(1).max(500),
+  draftStaging: draftStagingInputSchema.optional()
 }).strict();
 function reject(message) {
   throw new PreparationRejected(message);
@@ -31777,19 +31852,25 @@ var SchedulePreparer = class {
     if (!inputResult.success) throw new ProposalRejected("Invalid batch save proposal");
     const input2 = inputResult.data;
     const access = this.access(tree, intent.requester.id);
+    if (intent.draftStaging && access.role === "translator")
+      throw new ProposalRejected("Draft batch staging requires an editing role");
     const own2 = new Set(members3.map((m) => m.hash));
     const adds = input2.changes.filter((c) => !own2.has(c.hash));
-    if (intent.returnStatus === "scheduled" && input2.changes.length > scheduledSaveChangeCap)
+    if (!intent.scheduledParts && input2.changes.length > preparedDraftSave.changes)
+      throw new ProposalRejected("Too many batch save changes");
+    if (intent.returnStatus === "scheduled" && !intent.scheduledParts && input2.changes.length > scheduledSaveChangeCap)
       throw new ProposalRejected("Too many scheduled save changes");
     if (adds.length && (access.role === "translator" || batch.status !== "draft"))
       throw new ProposalRejected("Unschedule to add batch members");
-    if (own2.size + adds.length > memberCap) throw new ProposalRejected("Too many batch members");
     const aliases = this.pub.aliasesAt(tree);
+    const others = this.batches(tree).filter(
+      (other) => other.id !== batch.id && isOpenStatus(other.status)
+    );
     for (const { hash: hash2 } of input2.changes) {
       if (resolveAlias(hash2, aliases) !== hash2)
         throw new ProposalRejected(`Tooltip ${hash2} is an alias`);
-      for (const other of this.batches(tree)) {
-        if (other.id !== batch.id && isOpenStatus(other.status) && tree[schedulePaths.member(other.id, hash2)])
+      for (const other of others) {
+        if (tree[schedulePaths.member(other.id, hash2)])
           throw new ProposalRejected(`Tooltip ${hash2} already belongs to open batch ${other.id}`);
       }
     }
@@ -31842,25 +31923,22 @@ var SchedulePreparer = class {
     });
   }
   refreshIndex(tree) {
-    const entries = this.batches(tree).map((b) => ({
-      id: b.id,
-      name: b.name,
-      status: b.status,
-      notBefore: b.notBefore,
-      opId: b.opId,
-      revision: b.revision,
-      // Advisory membership comes from names, not member bodies that validation may
-      // just have rejected. Failure outcomes must still be able to commit.
-      hashes: Object.keys(tree).flatMap((path) => {
-        const prefix = `schedule/batches/${b.id}/tooltips/`;
-        if (!path.startsWith(prefix)) return [];
-        const name2 = path.slice(prefix.length);
-        if (!/^(0|[1-9]\d*)\.json$/.test(name2)) return [];
-        const hash2 = hashSchema.safeParse(Number(name2.slice(0, -5)));
-        return hash2.success ? [hash2.data] : [];
-      }).sort((a, b2) => a - b2),
-      updatedAt: b.events.at(-1)?.at ?? b.createdAt
-    }));
+    const entries = this.batches(tree).map(
+      (b) => scheduleIndexEntry(
+        b,
+        // Advisory membership comes from names, not member bodies that validation may
+        // just have rejected. Failure outcomes must still be able to commit.
+        b.memberHashes ?? Object.keys(tree).flatMap((path) => {
+          const prefix = `schedule/batches/${b.id}/tooltips/`;
+          if (!path.startsWith(prefix)) return [];
+          const name2 = path.slice(prefix.length);
+          if (!/^(0|[1-9]\d*)\.json$/.test(name2)) return [];
+          const hash2 = hashSchema.safeParse(Number(name2.slice(0, -5)));
+          return hash2.success ? [hash2.data] : [];
+        }),
+        b.events.at(-1)?.at ?? b.createdAt
+      )
+    );
     if (!entries.length && !tree[schedulePaths.index]) return;
     const terminal = entries.filter((b) => !isOpenStatus(b.status)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
     const keep = new Set(terminal.slice(0, scheduleLimits.indexTerminal).map((b) => b.id));
@@ -31878,7 +31956,8 @@ var SchedulePreparer = class {
       batches: [...previous.data.batches].sort((a, b) => a.id.localeCompare(b.id))
     }) === stableStringify(index))
       return;
-    tree[schedulePaths.index] = this.pub.writeBlob(json2(index));
+    tree[schedulePaths.index] = this.pub.writeBlob(`${JSON.stringify(index)}
+`);
   }
   collision(tree, opId) {
     if (tree[paths2(opId).request] || tree[paths2(opId).log])
@@ -31897,12 +31976,14 @@ var SchedulePreparer = class {
   async validatePublication(tree, payload, head) {
     this.pin(tree);
     const members3 = batchMembers(this.pub, tree, payload.batchId);
-    if (!members3.length || members3.length > memberCap)
-      reject("Invalid scheduled batch member count");
+    if (!members3.length) reject("Invalid scheduled batch member count");
+    const others = this.batches(tree).filter(
+      (batch) => batch.id !== payload.batchId && isOpenStatus(batch.status)
+    );
     for (const member of members3) {
       refuseMemberSize(member);
-      for (const other of this.batches(tree))
-        if (other.id !== payload.batchId && isOpenStatus(other.status) && tree[schedulePaths.member(other.id, member.hash)])
+      for (const other of others)
+        if (tree[schedulePaths.member(other.id, member.hash)])
           reject(`Tooltip ${member.hash} already belongs to open batch ${other.id}`);
     }
     const pushed = new Set(
@@ -31943,18 +32024,24 @@ var SchedulePreparer = class {
       reject("Schedule source is not in data branch history");
     if (intent.batchId !== batch.id || batch.contentRevision !== intent.contentRevision || batch.preparation?.kind !== intent.kind || batch.preparation.returnStatus !== (intent.kind === "schedule" ? "scheduled" : intent.returnStatus))
       reject("Preparation intent or content fence mismatch");
-    for (const m of batchMembers(this.pub, tree, batch.id))
+    const currentMembers = batchMembers(this.pub, tree, batch.id);
+    for (const m of currentMembers)
       if (tree[schedulePaths.member(batch.id, m.hash)] !== checked.tree[schedulePaths.member(batch.id, m.hash)])
         reject("Accepted members changed during preparation");
-    if (batchMembers(this.pub, tree, batch.id).length !== checked.members.length)
+    if (currentMembers.length !== checked.members.length)
       reject("Accepted membership changed during preparation");
     const access = this.access(tree, intent.requester.id);
     this.pin(tree);
+    const staging = intent.kind === "save" ? intent.draftStaging : void 0;
+    if (staging && (batch.draftStaging?.id !== staging.id || batch.draftStaging.ownerId !== intent.requester.id))
+      reject("Draft batch staging changed during preparation");
     let contentChanged = false;
+    let stagedHashes;
     if (intent.kind === "save") {
       const result = this.validateSave(tree, checked);
       contentChanged = isContentChange(result.before, result.written);
       if (intent.returnStatus === "scheduled" && contentChanged) reject("Unschedule to edit");
+      if (staging) stagedHashes = result.written.map(({ hash: hash2 }) => hash2);
       for (const m of result.written)
         tree[schedulePaths.member(batch.id, m.hash)] = this.pub.writeBlob(json2(m));
     } else if (!["maintainer", "editor"].includes(access.role)) reject("Scheduling role revoked");
@@ -31996,13 +32083,14 @@ var SchedulePreparer = class {
         preparation: null,
         preparedRequestId: ready,
         contentRevision: batch.contentRevision + Number(contentChanged),
-        scheduledContentRevision: scheduled ? batch.contentRevision : null
+        scheduledContentRevision: scheduled ? batch.contentRevision : null,
+        ...staging?.finish ? { draftStaging: void 0 } : {}
       },
       {
         action: "prepared",
         by: intent.requester,
         at,
-        hashes: batchMembers(this.pub, tree, batch.id).map((m) => m.hash)
+        hashes: stagedHashes ?? batchMembers(this.pub, tree, batch.id).map((m) => m.hash)
       }
     );
     tree[schedulePaths.batch(batch.id)] = this.pub.writeBlob(json2(updated));
@@ -32055,8 +32143,9 @@ var SchedulePreparer = class {
       Array.isArray(details) ? details : details?.members
     );
     const reasons = parsed.success && parsed.data.length ? parsed.data.slice(0, 100).map((r) => ({ ...r, reason: (r.reason ?? reason).slice(0, 2e3) })) : [{ reason }];
+    const draftFailed = semantic && checked?.intent.kind === "save" && checked.intent.draftStaging !== void 0;
     let restored = false;
-    let update = { status: "needs_attention" };
+    let update = draftFailed ? { status: "draft", preparation: null } : { status: "needs_attention" };
     if ((error62 instanceof ProposalRejected || error62 instanceof ProposalOutputRejected) && checked?.intent.kind === "save" && checked.intent.onValidationFailure === "keep_scheduled") {
       try {
         const source = checked.batch;
@@ -32106,7 +32195,7 @@ var SchedulePreparer = class {
     tree[scheduleIntentPaths.request(request.requestId)] = this.pub.writeBlob(
       json2({
         ...record2,
-        status: restored ? "failed" : "needs_attention",
+        status: restored || draftFailed ? "failed" : "needs_attention",
         retryable: !semantic,
         updatedAt: at,
         reasons,
@@ -32192,9 +32281,11 @@ var SchedulePreparer = class {
         }
       }
       if (readyOnly && !recheckedReady) return;
+      const deadline = readyOnly ? Infinity : await this.prepareScheduledStages(tree, head);
       this.refreshIndex(tree);
       if (stableStringify(tree) === stableStringify(original)) return;
       const commit2 = this.pub.git.commit(head, tree, "Prepare scheduled changes", appCredits);
+      if (this.pub.options.now() >= deadline) continue;
       try {
         this.pub.git.cas(ref, head, commit2);
         return;
@@ -32205,6 +32296,82 @@ var SchedulePreparer = class {
       }
     }
     throw new Error("Schedule preparation CAS exhausted; requests remain durable");
+  }
+  /** Prepare against a private tree. Only the outer CAS can replace an accepted schedule. */
+  async prepareScheduledStages(tree, head) {
+    let deadline = Infinity;
+    for (const batch of this.batches(tree)) {
+      const path = scheduleIntentPaths.stagedSave(batch.id);
+      if (!tree[path]) continue;
+      const parsed = scheduledStagingSchema.safeParse(this.pub.read(tree, path));
+      if (!parsed.success) continue;
+      const stage = parsed.data;
+      const due = batch.notBefore ? Date.parse(batch.notBefore) : -Infinity;
+      const now = this.pub.options.now();
+      const consumed = !!batch.claim || batch.status === "published" || batch.status === "scheduled" && now >= due;
+      const changed = batch.status !== "scheduled" || batch.revision !== stage.revision;
+      if (!stage.ready && !consumed && !changed && now - Date.parse(stage.updatedAt) < 864e5)
+        continue;
+      if (stage.ready) {
+        const requestPath = scheduleIntentPaths.request(stage.id);
+        const record2 = scheduleRequestSchema.safeParse(this.pub.read(tree, requestPath));
+        if (record2.success && record2.data.batchId === batch.id && record2.data.requestId === stage.id && record2.data.requesterId === stage.ownerId && record2.data.status === "pending") {
+          const request = record2.data;
+          try {
+            if (consumed) reject("Batch published before these edits landed");
+            if (changed) reject("The accepted schedule changed before these edits landed");
+            const checked = verifiedRequest(this.pub, tree, requestPath);
+            const { intent } = checked;
+            if (intent.kind !== "save" || intent.scheduledParts !== stage.parts || intent.expectedRevision !== stage.revision || intent.requester.id !== stage.ownerId)
+              reject("Staged save identity changed");
+            const publicationPath = paths2(batch.opId).request;
+            if (!tree[publicationPath]) reject("The accepted publication could not be read");
+            const next = {
+              ...tree,
+              [scheduleIntentPaths.publication(batch.id)]: tree[publicationPath]
+            };
+            delete next[publicationPath];
+            const preparing = withEvent(
+              this.pub,
+              next,
+              batch,
+              {
+                status: "preparing",
+                preparedRequestId: null,
+                preparation: {
+                  requestId: stage.id,
+                  kind: "save",
+                  returnStatus: "scheduled",
+                  requestedAt: intent.createdAt,
+                  attempt: request.attempt
+                }
+              },
+              { at: iso(now), by: intent.requester, action: "request" }
+            );
+            next[schedulePaths.batch(batch.id)] = this.pub.writeBlob(json2(preparing));
+            await this.prepare(next, head, preparing, request, checked);
+            if (this.pub.options.now() >= due) reject("Batch published before these edits landed");
+            Object.assign(tree, next);
+            deadline = Math.min(deadline, due);
+          } catch (error62) {
+            const reason = (error62 instanceof Error ? error62.message : String(error62)).slice(0, 2e3) || "The staged edits could not be applied";
+            tree[requestPath] = this.pub.writeBlob(
+              json2({
+                ...request,
+                status: "failed",
+                retryable: false,
+                reasons: [{ reason }],
+                updatedAt: iso(this.pub.options.now())
+              })
+            );
+          }
+        }
+      }
+      delete tree[path];
+      const prefix = scheduleIntentPaths.stagedPartsPrefix(batch.id, stage.id);
+      for (const part of Object.keys(tree)) if (part.startsWith(prefix)) delete tree[part];
+    }
+    return deadline;
   }
 };
 
@@ -33498,6 +33665,7 @@ var Publisher = class _Publisher {
       batch,
       {
         status: "published",
+        memberHashes: payload.hashes,
         result: {
           opId,
           status: unchanged ? "unchanged" : "published",
