@@ -1076,13 +1076,15 @@ function Workspace({
                         </button>
                         {reviewPopover(row)}
                       </div>
-                      <div className={styles.consumerMeta}>
-                        <span>
+                      <div className={styles.projectedMeta}>
+                        <span className={styles.projectedDetail}>
                           {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
                           {reviewState(row)}, {destinationLabel(row.consumer.destination)}
                           {row.archived ? ', archived' : ''}
                         </span>
-                        <span>{row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}</span>
+                        <span className={styles.projectedDetail}>
+                          {row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}
+                        </span>
                         <span>
                           {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
                         </span>
