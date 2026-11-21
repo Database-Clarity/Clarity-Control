@@ -25,7 +25,7 @@ it('ignores exports, glossary, snippets, and entry marks on editor-data pushes',
     'utf8',
   );
   expect(workflow).toContain(
-    "paths-ignore: ['exports/**', 'glossary/**', 'snippets/**', 'config/marks.json']",
+    "paths-ignore: ['exports/**', 'glossary/**', 'snippets/**', 'config/marks.json', 'current-saves/**']",
   );
 });
 
@@ -71,6 +71,7 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
       'schedulePreparationV1',
       'draftBatchStagingV1',
       'scheduledBatchStagingV1',
+      'currentSaveStagingV1',
       'exoticTags',
     ],
   });

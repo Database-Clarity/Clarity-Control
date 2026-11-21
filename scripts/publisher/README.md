@@ -69,6 +69,10 @@ Config supplies repo, dataBranch, liveBranch, publicKey (PEM from the independen
 endpoint), keyFingerprint (SHA-256 of SPKI DER, pinned independently), publisherSha, generatorSha,
 facts, aliases, and runUrl. Facts and aliases must come from the pinned generator commit.
 The standalone dry-run does not fetch keys or provide a write enable switch.
+The `currentSaveStagingV1` capability drains oversized Current saves in the existing pipeline.
+An authenticated Worker uploads bounded parts and signs the final manifest against their immutable
+source. The Action validates access and applies the complete save through one editor-data ref
+update. Install the matching pipeline workflow so only the final manifest kicks the Action.
 The `schedulePreparationV1` capability verifies Worker-signed save and schedule intents,
 their exact submitted bytes, and immutable member-tree identities. Preparation runs before
 the globals drain, bundle, and publisher in the same serialized pipeline. One CAS commits

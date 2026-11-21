@@ -410,13 +410,15 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
             onClick={() => void submit()}
           >
             {pending
-              ? progress.phase === 'staging'
-                ? progress.done === progress.total
-                  ? 'Staged edits are still landing'
-                  : `Staging ${progress.done} of ${progress.total}`
-                : progress.phase === 'saving' && progress.total > 1
-                  ? `Saving ${progress.done} of ${progress.total}`
-                  : 'Saving...'
+              ? progress.phase === 'landing'
+                ? 'Edits are landing (usually about a minute)'
+                : progress.phase === 'staging'
+                  ? progress.done === progress.total
+                    ? 'Staged edits are still landing'
+                    : `Staging ${progress.done} of ${progress.total}`
+                  : progress.phase === 'saving' && progress.total > 1
+                    ? `Saving ${progress.done} of ${progress.total}`
+                    : 'Saving...'
               : !validation && data
                 ? 'Validating...'
                 : batchTarget

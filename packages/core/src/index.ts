@@ -4,6 +4,7 @@ export * from './schemas.js';
 export * from './contentHash.js';
 export * from './publishableHash.js';
 export * from './publishRequest.js';
+export * from './currentSaveStage.js';
 export * from './migrateLegacy.js';
 export * from './exportLegacy.js';
 export * from './aliases.js';

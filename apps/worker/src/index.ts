@@ -17,6 +17,7 @@ import { inactiveMovesRoute } from './inactiveMoves.js';
 import { marksRoute } from './marks.js';
 import { aliasGroupsRoute } from './aliasGroups.js';
 import { save } from './save.js';
+import { stageCurrentSave } from './currentSaveStage.js';
 import {
   globalPublicationRead,
   globalsRoute,
@@ -94,6 +95,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (handled) return handled;
   }
   if (request.method === 'POST' && path === '/save') return save(request, github, user);
+  if (path === '/save/stage') return stageCurrentSave(request, github, user);
   if (request.method === 'POST' && path === '/push-live') return pushLive(request, github, user);
   const worklist = /^\/worklists\/([^/]+)$/.exec(path);
   const personalSnippet = /^\/snippets\/mine\/([^/]+)$/.exec(path);

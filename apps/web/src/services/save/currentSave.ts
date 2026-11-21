@@ -3,8 +3,10 @@ import { errorMessage } from '../http';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { writeSaveReceipt } from '../draftStorage';
+import { newOpId } from '../publisher/ulid';
 import { acceptSaved } from './drafts';
-import { fitsSaveRequest } from './requestSize';
+import { fitsSaveRequest, saveRequestLimits } from './requestSize';
+import { stageCurrentSave } from './stagedCurrentSave';
 import { requestSaveChunks } from './validationWorker';
 import { useSaveState, type SaveReview } from './state';
 
@@ -86,12 +88,16 @@ export async function saveCurrent({
           review.submitted[hash] ? [[hash, review.submitted[hash]]] : [],
         ),
       );
+      const stageId = fitsSaveRequest(chunk, message, noTranslationImpact, saveRequestLimits.atomic)
+        ? undefined
+        : newOpId();
       const receipt = {
         id: owner ? crypto.randomUUID() : '',
         at: Date.now(),
         submitted,
         tooltips: chunk.map(({ next }) => next),
         confirmed: false,
+        stageId,
       };
       if (owner) {
         await writeSaveReceipt(owner, receipt.id, receipt);
@@ -101,7 +107,30 @@ export async function saveCurrent({
           return stop;
         }
       }
-      const result = await save(chunk, message, noTranslationImpact);
+      const result = stageId
+        ? await stageCurrentSave(
+            stageId,
+            chunk,
+            message,
+            noTranslationImpact,
+            () =>
+              !accountChanged() &&
+              sameSession() &&
+              useSaveState.getState().review === review &&
+              !useDraftStore.getState().external,
+            (uploaded) => {
+              if (accountChanged() || useSaveState.getState().review !== review) return;
+              useSaveState.setState({
+                progress: {
+                  phase: uploaded === null ? 'landing' : 'staging',
+                  done: previous + accepted.size + (uploaded ?? chunk.length),
+                  total,
+                  failed: null,
+                },
+              });
+            },
+          )
+        : await save(chunk, message, noTranslationImpact);
       if (owner && result.kind !== 'saved')
         void writeSaveReceipt(owner, receipt.id).catch(() => {});
       if (accountChanged() && result.kind !== 'saved')

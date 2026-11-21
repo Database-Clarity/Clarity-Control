@@ -11,6 +11,7 @@ import { saveChunks } from './chunks';
 import { saveCurrent, saveRemainder } from './currentSave';
 import { editorData, english } from './fixtures.testSupport';
 import { fitsSaveRequest, saveRequestLimits } from './requestSize';
+import * as staged from './stagedCurrentSave';
 import { reviewSaveChanges, useSaveState } from './state';
 
 const post = vi.hoisted(() => vi.fn());
@@ -49,6 +50,7 @@ afterEach(() => {
   useSaveState.getState().close();
   clearSavedOverlay();
   post.mockReset();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -169,6 +171,67 @@ it('keeps a simultaneous export rename and importer repair in one bounded reques
   const chunks = saveChunks(changes, data, 'Rename an export', false);
   expect(chunks).toHaveLength(1);
   expect(chunks[0]).toEqual(expect.arrayContaining(changes));
+});
+
+it('keeps an oversized closure as drafts while it lands and retries it intact on failure', async () => {
+  const text = 'Existing text. '.repeat(400);
+  const target = makeTooltip(10_001, `export Old (\nText\n)\n${text}`);
+  const importer = makeTooltip(10_002, `import Old from ${target.hash}\n${text}`);
+  const data = loaded();
+  data.bundle.tooltips = { [target.hash]: target, [importer.hash]: importer };
+  const changes = [
+    {
+      hash: target.hash,
+      base: target,
+      next: makeTooltip(target.hash, `export New (\nText\n)\n${text}`),
+    },
+    {
+      hash: importer.hash,
+      base: importer,
+      next: makeTooltip(importer.hash, `import New from ${target.hash}\n${text}`),
+    },
+  ];
+  const submitted = Object.fromEntries(
+    changes.map(({ hash, base, next }) => [hash, { base, next }]),
+  );
+  useDataStore.setState({ data });
+  useDraftStore.setState({
+    drafts: submitted,
+    external: false,
+    error: null,
+    retry: () => {},
+    flush: async () => {},
+  });
+  reviewSaveChanges(changes, submitted);
+  const stage = vi
+    .spyOn(staged, 'stageCurrentSave')
+    .mockImplementationOnce(async (_id, chunk, _message, _impact, _proceed, progress) => {
+      expect(chunk).toEqual(expect.arrayContaining(changes));
+      progress(null);
+      expect(useSaveState.getState().progress.phase).toBe('landing');
+      expect(useDraftStore.getState().drafts).toEqual(submitted);
+      return { kind: 'retry', error: 'Action could not apply these drafts' };
+    })
+    .mockResolvedValueOnce({
+      kind: 'saved',
+      commit: 'a'.repeat(40),
+      tooltips: changes.map(({ next }) => next),
+    });
+  const options = {
+    prepared: changes,
+    data,
+    review: useSaveState.getState().review!,
+    message: 'Rename export',
+    noTranslationImpact: false,
+    sameSession: () => true,
+    accountChanged: () => false,
+  };
+  expect(await saveCurrent(options)).toMatchObject({ kind: 'failed' });
+  expect(useDraftStore.getState().drafts).toEqual(submitted);
+  expect(await saveCurrent(options)).toMatchObject({ kind: 'saved' });
+  expect(useDraftStore.getState().drafts).toEqual({});
+  expect(stage).toHaveBeenCalledTimes(2);
+  expect(post).not.toHaveBeenCalled();
 });
 
 it('stops after a failed later request and resumes with only the unsaved drafts', async () => {

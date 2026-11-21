@@ -4,14 +4,10 @@ import type { Change } from '../api';
 import { dependencyChunks } from '../dependencyChunks';
 import { saveDependencies } from './dependencies';
 import { liveForm, validateChanges } from './validation';
-import { fitsSaveCosts, saveChangeCost, saveEnvelopeBytes, saveRequestLimits } from './requestSize';
+import { fitsSaveCosts, saveChangeCost, saveEnvelopeBytes } from './requestSize';
 
 const fallbackLanguages = (tooltip: Tooltip) =>
   languages.filter((lang) => usesEnglishFallback(tooltip, lang));
-
-function oversizedCurrentClosureMessage(hash: number): string {
-  return `Tooltip ${hash} and the tooltips it depends on could not be saved together. The drafts are retained.`;
-}
 
 export function saveChunks(
   changes: Change[],
@@ -88,11 +84,9 @@ export function saveChunks(
     changes.map((change) => ({ ...change, dependencies: [...dependencies.get(change.hash)!] })),
     {
       fits,
-      fitsAtomic: (items) =>
-        fitsSaveCosts(items, envelope, ({ hash }) => cost.get(hash)!, saveRequestLimits.atomic),
+      splitDependencies: true,
       missing: (hash) => `Tooltip ${hash} is missing from this save.`,
       duplicate: 'This save contains duplicate tooltips.',
-      tooLarge: oversizedCurrentClosureMessage,
     },
   ).map((chunk) => chunk.map(({ hash, base, next }) => ({ hash, base, next })));
 

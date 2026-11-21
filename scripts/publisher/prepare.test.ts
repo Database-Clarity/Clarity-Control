@@ -4,7 +4,15 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { exportLegacy, publishableHash, stableStringify, type Tooltip } from '@clarity/core';
+import {
+  currentSavePartBytes,
+  currentSaveStagePaths as currentPaths,
+  currentSaveStagingCapability,
+  exportLegacy,
+  publishableHash,
+  stableStringify,
+  type Tooltip,
+} from '@clarity/core';
 import {
   batchSchema,
   schedulePaths,
@@ -30,6 +38,7 @@ import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { runPipeline } from './pipeline.js';
 import { newUlid, withIndexEntry } from '../../apps/worker/src/schedule/store.js';
 import { createRequest } from './request.js';
+import { drainCurrentSaves } from './currentSave.js';
 
 const D = 'refs/heads/editor-data',
   L = 'refs/heads/converter-v2-test';
@@ -357,6 +366,106 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
     keys,
   };
 }
+
+async function stagedCurrentFixture(count = 2, correctDigest = true) {
+  const f = await fixture();
+  const text = ' Existing text.'.repeat(127);
+  const edits = Array.from({ length: count }, (_, index) => {
+    const hash = 123 + index;
+    const template = index ? 'import TOKEN from 123\n' : 'export TOKEN (\nValue\n)\n';
+    const base = { ...tip(template.replace('TOKEN', 'Old') + text), hash };
+    const next = { ...tip(template.replace('TOKEN', 'New') + text), hash };
+    next.text.en!.updatedAt = AT;
+    return { hash, base, next };
+  });
+  const bytes = Buffer.from(JSON.stringify({ changes: edits, message: 'Rename shared export' }));
+  const files: Record<string, unknown> = Object.fromEntries(
+    edits.map(({ hash, base }) => [`tooltips/${hash}.json`, base]),
+  );
+  let parts = 0;
+  for (let start = 0; start < bytes.length; start += currentSavePartBytes)
+    files[currentPaths.part(S, parts++)] = bytes
+      .subarray(start, start + currentSavePartBytes)
+      .toString('base64');
+  const staged = { requester: user, updatedAt: AT, parts, status: 'uploading' };
+  f.change({
+    ...files,
+    [currentPaths.record(S)]: staged,
+    '.publisher/PIN': {
+      sourceSha: f.options.publisherSha,
+      sha256: f.options.publisherDigest,
+      capabilities: [currentSaveStagingCapability],
+    },
+  });
+  const payload = stableStringify({
+    version: 1,
+    requestId: S,
+    requester: user,
+    repo: f.options.repo,
+    branch: f.options.dataBranch,
+    sourceCommit: f.pub.head(f.options.dataBranch),
+    parts,
+    digest: correctDigest ? createHash('sha256').update(bytes).digest('hex') : 'a'.repeat(64),
+  });
+  const envelope = {
+    payload,
+    sig: sign(null, Buffer.from(payload), f.keys.privateKey).toString('base64'),
+  };
+  f.change({ [currentPaths.record(S)]: { ...staged, status: 'queued', envelope } });
+  return { ...f, edits };
+}
+
+describe('offline staged Current saves', () => {
+  it('applies a 36-tooltip export rename and acknowledges its immutable commit through one CAS', async () => {
+    const f = await stagedCurrentFixture(36);
+    const update = vi.spyOn(f.git, 'cas');
+    await drainCurrentSaves(f.pub);
+    expect(update).toHaveBeenCalledTimes(1);
+    const result = f.read(currentPaths.record(S)) as { status: string; commit: string };
+    expect(result.status).toBe('saved');
+    const commit = f.git.tree(result.commit);
+    for (const { hash, next } of f.edits) {
+      expect(f.read(`tooltips/${hash}.json`)).toEqual(next);
+      expect(f.pub.read(commit, `tooltips/${hash}.json`)).toEqual(next);
+    }
+    expect(f.read(currentPaths.part(S, 0))).toBeUndefined();
+    update.mockClear();
+    await drainCurrentSaves(f.pub);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('keeps the whole closure unchanged on bad content or revoked permission', async () => {
+    for (const revoked of [false, true]) {
+      const f = await stagedCurrentFixture(2, revoked);
+      if (revoked) f.change({ 'config/permissions.json': { users: {} } });
+      await drainCurrentSaves(f.pub);
+      expect(f.read(currentPaths.record(S))).toMatchObject({ status: 'failed' });
+      for (const { hash, base } of f.edits) expect(f.read(`tooltips/${hash}.json`)).toEqual(base);
+      expect(f.read(currentPaths.part(S, 0))).toBeUndefined();
+    }
+  });
+
+  it('rechecks a concurrent owner save at CAS and records conflicts without applying any part', async () => {
+    const f = await stagedCurrentFixture();
+    const cas = f.git.cas.bind(f.git);
+    let raced = false;
+    const external = { ...tip('Concurrent edit'), hash: 124 };
+    vi.spyOn(f.git, 'cas').mockImplementation((ref, head, next) => {
+      if (!raced && ref === D) {
+        raced = true;
+        f.change({ 'tooltips/124.json': external });
+        throw new RefRace('A concurrent save won');
+      }
+      cas(ref, head, next);
+    });
+    await drainCurrentSaves(f.pub);
+    expect(raced).toBe(true);
+    expect(f.read('tooltips/123.json')).toEqual(f.edits[0]!.base);
+    expect(f.read('tooltips/124.json')).toEqual(external);
+    expect(f.read(currentPaths.record(S))).toMatchObject({ status: 'conflicts' });
+    expect(f.read(currentPaths.conflicts(S))).toMatchObject({ conflicts: [{ hash: 124 }] });
+  });
+});
 
 async function withGlobals(
   f: Awaited<ReturnType<typeof fixture>>,

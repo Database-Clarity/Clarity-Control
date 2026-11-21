@@ -5,10 +5,9 @@ interface Dependent {
 
 interface ChunkLimits<T> {
   fits(items: readonly T[]): boolean;
-  fitsAtomic?(items: readonly T[]): boolean;
+  splitDependencies?: boolean;
   missing(hash: number): string;
   duplicate: string;
-  tooLarge?(hash: number): string;
 }
 
 /** Keep not-yet-emitted dependencies together. With a hard limit, try dependencies first
@@ -50,13 +49,11 @@ export function dependencyChunks<T extends Dependent>(
   for (const { hash } of [...inputs].sort((a, b) => a.hash - b.hash)) {
     const closure = collect(hash);
     if (!closure.items.length) continue;
-    if (!limits.tooLarge || limits.fits(closure.items)) append(closure.items);
+    if (!limits.splitDependencies || limits.fits(closure.items)) append(closure.items);
     else {
       for (const dependency of closure.finished) {
         const { items } = collect(dependency);
         if (!items.length) continue;
-        if (!(limits.fitsAtomic ?? limits.fits)(items))
-          throw new Error(limits.tooLarge(dependency));
         append(items);
       }
     }

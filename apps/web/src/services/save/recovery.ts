@@ -9,7 +9,8 @@ import {
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { applySavedOverlay, rememberSaved } from '../../stores/savedOverlay';
-import { readSaveReceipts, type SaveReceipt } from '../draftStorage';
+import { readSaveReceipts, writeSaveReceipt, type SaveReceipt } from '../draftStorage';
+import { readCurrentSaveOutcome, readStagedSavedTooltips } from './stagedCurrentSave';
 import { useSaveState } from './state';
 
 /** Compare the whole submitted tooltip, including links and translation revision stamps. */
@@ -66,7 +67,27 @@ export function startSaveRecovery(): () => void {
       generation = current;
       receipts = null;
       void readSaveReceipts(owner)
-        .then((records) => {
+        .then(async (records) => {
+          const stillCurrent = () => !stopped && useDraftStore.getState().generation === current;
+          for (const [index, receipt] of records.entries()) {
+            if (!stillCurrent()) return;
+            if (!receipt.stageId || receipt.confirmed) continue;
+            try {
+              const result = await readCurrentSaveOutcome(receipt.stageId);
+              if (!stillCurrent()) return;
+              if (result.status !== 'saved') continue;
+              const tooltips = await readStagedSavedTooltips(
+                result.commit,
+                receipt.tooltips.map(({ hash }) => hash),
+              );
+              if (!stillCurrent()) return;
+              const confirmed = { ...receipt, confirmed: true, tooltips, savedAt: result.savedAt };
+              await writeSaveReceipt(owner, receipt.id, confirmed);
+              records[index] = confirmed;
+            } catch {
+              // The next bundle can confirm the original attempt when status or raw is unavailable.
+            }
+          }
           if (stopped || useDraftStore.getState().generation !== current) return;
           receipts = records.sort((a, b) => a.at - b.at);
           recover();

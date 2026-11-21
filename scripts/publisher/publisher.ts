@@ -88,6 +88,7 @@ import {
   type GlobalReleaseReceipt,
 } from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
+import { drainCurrentSaves } from './currentSave.js';
 import {
   verifiedSource,
   verifiedRequest,
@@ -1906,6 +1907,7 @@ export class Publisher {
     const start = this.options.now();
     try {
       if (syncGlobals) {
+        await drainCurrentSaves(this);
         await new SchedulePreparer(this).drain();
         await new GlobalsPublisher(this).drain();
       }

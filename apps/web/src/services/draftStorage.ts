@@ -1,4 +1,4 @@
-import { tooltipSchema } from '@clarity/core';
+import { publishOpIdSchema, tooltipSchema } from '@clarity/core';
 import { z } from 'zod';
 
 export const draftsSchema = z
@@ -24,6 +24,7 @@ const saveReceiptSchema = z.object({
   submitted: draftsSchema,
   tooltips: z.array(tooltipSchema),
   savedAt: z.number().optional(),
+  stageId: publishOpIdSchema.optional(),
   confirmed: z.boolean(),
 });
 export type SaveReceipt = z.infer<typeof saveReceiptSchema>;

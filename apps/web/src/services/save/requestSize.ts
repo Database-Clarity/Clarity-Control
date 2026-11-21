@@ -46,6 +46,16 @@ export function fitsSaveCosts(
   return bytes <= saveRequestLimits.bytes && work <= workLimit;
 }
 
-export function fitsSaveRequest(changes: Change[], message: string, noTranslationImpact: boolean) {
-  return fitsSaveCosts(changes, saveEnvelopeBytes(message, noTranslationImpact), saveChangeCost);
+export function fitsSaveRequest(
+  changes: Change[],
+  message: string,
+  noTranslationImpact: boolean,
+  workLimit?: number,
+) {
+  return fitsSaveCosts(
+    changes,
+    saveEnvelopeBytes(message, noTranslationImpact),
+    saveChangeCost,
+    workLimit,
+  );
 }
