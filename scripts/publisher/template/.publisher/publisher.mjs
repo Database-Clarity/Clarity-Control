@@ -23198,7 +23198,8 @@ var init_schemas4 = __esm({
       memberHashes: sortedUniqueHashes.optional(),
       draftStaging: external_exports.object({
         id: publishOpIdSchema,
-        ownerId: userSchema.shape.id
+        ownerId: userSchema.shape.id,
+        updatedAt: timestampSchema
       }).strict().optional(),
       notBefore: notBeforeSchema.nullable(),
       /** IANA zone the time was chosen in; display only. */
@@ -23625,6 +23626,10 @@ var init_preparation = __esm({
 });
 
 // packages/core/src/schedule/intent.ts
+function activeDraftStaging(batch, now) {
+  const stage = batch.draftStaging;
+  return stage && now - Date.parse(stage.updatedAt) < 24 * 60 * 6e4 ? stage : void 0;
+}
 async function scheduleBodyDigest(bytes) {
   return Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))),
@@ -23661,7 +23666,7 @@ async function verifyScheduleRequest(value2, body2, key, target) {
     throw new Error("Schedule request does not match its signed intent");
   return { request, intent };
 }
-var schedulePreparationCapability, draftBatchStagingCapability, scheduledBatchStagingCapability, preparedDraftSave, stagedPartsPrefix, draftStagingInputSchema, scheduleIntentPaths, revision, oid, digest, scheduledStagingSchema, common, scheduleIntentSchema, scheduleEnvelopeSchema, preparationReasonSchema, scheduleRequestSchema;
+var schedulePreparationCapability, draftBatchStagingCapability, scheduledBatchStagingCapability, batchRemoveChunkSize, preparedDraftSave, stagedPartsPrefix, draftStagingInputSchema, scheduleIntentPaths, revision, oid, digest, scheduledStagingSchema, common, scheduleIntentSchema, scheduleEnvelopeSchema, preparationReasonSchema, scheduleRequestSchema;
 var init_intent = __esm({
   "packages/core/src/schedule/intent.ts"() {
     "use strict";
@@ -23673,6 +23678,7 @@ var init_intent = __esm({
     schedulePreparationCapability = "schedulePreparationV1";
     draftBatchStagingCapability = "draftBatchStagingV1";
     scheduledBatchStagingCapability = "scheduledBatchStagingV1";
+    batchRemoveChunkSize = 4;
     preparedDraftSave = { changes: 100, bytes: 96 * 1024 };
     stagedPartsPrefix = (batchId, id) => `schedule/batches/${batchId}/staged/${id}/`;
     draftStagingInputSchema = external_exports.object({ id: publishOpIdSchema, finish: external_exports.boolean() }).strict();
@@ -23778,6 +23784,7 @@ var schedule_exports = {};
 __export(schedule_exports, {
   activate: () => activate,
   activationConflictSchema: () => activationConflictSchema,
+  activeDraftStaging: () => activeDraftStaging,
   approvalInput: () => approvalInput,
   approvedDigest: () => approvedDigest,
   batchEventActionSchema: () => batchEventActionSchema,
@@ -23786,6 +23793,7 @@ __export(schedule_exports, {
   batchIntentDigest: () => batchIntentDigest,
   batchMemberSchema: () => batchMemberSchema,
   batchPublishPayloadSchema: () => batchPublishPayloadSchema,
+  batchRemoveChunkSize: () => batchRemoveChunkSize,
   batchResultSchema: () => batchResultSchema,
   batchResultStatusSchema: () => batchResultStatusSchema,
   batchSchema: () => batchSchema,
@@ -30110,8 +30118,6 @@ var rawBlobFields = external_exports.object({
   isTruncated: external_exports.boolean(),
   text: external_exports.string().nullable()
 }).strict();
-var blobContent = (value2) => `${JSON.stringify(value2, null, 2)}
-`;
 var exportBlob = external_exports.object({ object: external_exports.union([blobFields, external_exports.object({}).strict()]) }).nullable();
 var exportsRepository = external_exports.object({
   ref: external_exports.object({
@@ -31470,7 +31476,6 @@ init_schedule();
 init_zod();
 var unpublishedMessage2 = "This field has saved changes that are not published yet; publish them first";
 var scheduledSaveChangeCap = 10;
-var memberByteCap = 8 * 1024;
 var eventArchiveSchema = external_exports.object({ events: external_exports.array(external_exports.unknown()).min(1) }).strict();
 var storedIndexSchema = external_exports.object({
   batches: external_exports.array(external_exports.looseObject({ id: external_exports.string(), status: batchStatusSchema, updatedAt: external_exports.string() })).max(scheduleLimits.openBatches + scheduleLimits.indexTerminal)
@@ -31478,7 +31483,6 @@ var storedIndexSchema = external_exports.object({
 var fixed = ["config/permissions.json", publisherPinPath, schedulePaths.due, schedulePaths.index];
 
 // apps/worker/src/schedule/validation.ts
-var encoder3 = new TextEncoder();
 var batchSaveChangeSchema = external_exports.object({ hash: hashSchema, base: tooltipSchema.nullable(), next: tooltipSchema }).strict().refine(({ hash: hash2, base, next }) => next.hash === hash2 && (!base || base.hash === hash2), {
   message: "Change hash, base hash and next hash must agree"
 });
@@ -31494,13 +31498,6 @@ function parseMember(value2, batchId, hash2) {
   if (member.hash !== hash2)
     throw new HttpError(502, `Stored member ${hash2} of ${batchId} mismatch`);
   return member;
-}
-function refuseMemberSize(member) {
-  if (encoder3.encode(blobContent(member)).byteLength > memberByteCap)
-    throw new HttpError(
-      413,
-      `Tooltip ${member.hash} is too large to stage in a batch (${memberByteCap / 1024} KiB per tooltip)`
-    );
 }
 function validateBatchSave({
   batch,
@@ -31527,6 +31524,8 @@ function validateBatchSave({
       const stored = parseMember(file2.value, batchId, change.hash);
       let merged = change.next;
       if (change.base === null) {
+        if (batch.status === "draft" && !changedFields(stored.proposed, change.next).length)
+          continue;
         conflicts.push({ ...change, head: stored.proposed, fields: ["$exists"] });
         continue;
       }
@@ -31586,7 +31585,6 @@ function validateBatchSave({
         updatedAt: now,
         updatedBy: user.login
       });
-      refuseMemberSize(member);
       if (pushed) {
         const snapshotFile = files[2 * input2.changes.length + index];
         const composed = composeParsed({
@@ -31636,7 +31634,6 @@ function validateBatchSave({
         updatedAt: now,
         updatedBy: user.login
       });
-      refuseMemberSize(member);
       written.push(member);
     }
   }
@@ -31722,7 +31719,8 @@ function verifiedSource(pub, raw) {
   ) : null;
   if (batch.id !== intent.batchId || batch.revision !== intent.expectedRevision || batch.contentRevision !== intent.contentRevision || oid4 !== intent.memberTreeOid || batch.claim || (intent.kind === "save" ? batch.status !== intent.returnStatus : !["draft", "scheduled"].includes(batch.status)))
     throw new InvalidScheduleIntent("Signed schedule source identity mismatch");
-  if (batch.draftStaging && (intent.kind !== "save" || intent.draftStaging?.id !== batch.draftStaging.id || intent.requester.id !== batch.draftStaging.ownerId))
+  const stage = activeDraftStaging(batch, Date.parse(intent.createdAt));
+  if (stage && (intent.kind !== "save" || intent.draftStaging?.id !== stage.id || intent.requester.id !== stage.ownerId))
     throw new InvalidScheduleIntent("The signed request does not own the unfinished draft save");
   return { intent, tree, batch, members: members3 };
 }
@@ -31981,7 +31979,6 @@ var SchedulePreparer = class {
       (batch) => batch.id !== payload.batchId && isOpenStatus(batch.status)
     );
     for (const member of members3) {
-      refuseMemberSize(member);
       for (const other of others)
         if (tree[schedulePaths.member(other.id, member.hash)])
           reject(`Tooltip ${member.hash} already belongs to open batch ${other.id}`);
