@@ -12,6 +12,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GlobalEntryWorkspace } from '../src/features/globals/GlobalEntryWorkspace';
 import type { GlobalHistoryReader } from '../src/features/globals/GlobalHistory';
+import type { TooltipUse } from '../src/features/globals/usages';
 import type { GlobalSnapshot, GlobalsService } from '../src/services/globals';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 import { useGlobalDraftStorage } from '../src/features/globals/globalDrafts';
@@ -406,7 +407,7 @@ it('uses the bundle until a save, only replaces the saved row, and adopts a refr
   const [damage, title] = snapshot.entries;
   snapshot.impacts = { [damage.id]: [], [title.id]: [] };
   const empty = { globals: [], tooltips: [] };
-  const row = {
+  const row: TooltipUse = {
     hash: 40,
     open: { variant: 40, lang: 'en', line: 2 },
     members: 1,
