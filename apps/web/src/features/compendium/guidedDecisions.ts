@@ -504,16 +504,6 @@ export function* guidedDecisionSteps(
             reason: 'not in a current artifact',
           };
         const { tab, nameNorm, sectionOf, matches } = artifactSectionMatches(entry, source);
-        const twin = artifactTwinDecision(entry, source);
-        if (twin)
-          return {
-            ...result,
-            action: 'link',
-            confidence: 'high',
-            link: twin.link,
-            ruleId: 'artifact-manifest-section',
-            reason: `Shared perk — used on: ${twin.sectionOf.map(artifactSectionName).join(', ')}`,
-          };
         if (matches.length === 1) {
           const match = matches[0];
           const anchor = match.row.anchor;
