@@ -755,11 +755,11 @@ function Workspace({
         {rows ? (
           <p className={styles.counts}>
             <Link to={linkTo('open')}>{number.format(counts.open)} to review</Link>
-            {' · '}
+            {'\u00a0· '}
             <Link to={linkTo('matched')}>
               {number.format(counts.matched)} matched automatically
             </Link>
-            {' · '}
+            {'\u00a0· '}
             <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
           </p>
         ) : (
@@ -767,7 +767,11 @@ function Workspace({
           // An invisible line of the same shape holds the counts' height wherever they wrap.
           <div className={`${styles.counts} ${styles.countsPending}`} aria-hidden="true">
             <span className={styles.countsShape}>
-              000 to review · 0,000 matched automatically · 000 not needed
+              <span className={styles.count}>000 to review</span>
+              {'\u00a0· '}
+              <span className={styles.count}>0,000 matched automatically</span>
+              {'\u00a0· '}
+              <span className={styles.count}>000 not needed</span>
             </span>
             <SkeletonRegion className={styles.countsBars}>
               <SkeletonLine width={60} />
@@ -814,6 +818,7 @@ function Workspace({
           manifest={manifestItems}
           currentText={selectedEntry?.next.text.en?.text}
           blocks={blocks}
+          showDiagnostics={user?.role === 'maintainer'}
           highlight={highlight}
           onHighlight={setHighlight}
           source={source}
