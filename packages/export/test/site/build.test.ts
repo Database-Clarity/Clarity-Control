@@ -50,7 +50,7 @@ const readJson = (bytes: Uint8Array | undefined) =>
   JSON.parse(Buffer.from(bytes!).toString('utf8'));
 const builtPaths = (manifest: { files: Record<string, { outcome: string }> }) =>
   Object.entries(manifest.files)
-    .filter(([path, file]) => /\/v2\/f\d\.json$/.test(path) && file.outcome === 'built')
+    .filter(([path, file]) => /\/v1\/f\d\.json$/.test(path) && file.outcome === 'built')
     .map(([path]) => path);
 
 const style = (id: string, uid: string, extra: Record<string, unknown> = {}) => ({
@@ -812,12 +812,12 @@ describe('build-site per-file outcomes', () => {
     const boot = harness.siteRun({ extra: ['--max-bytes', '4000'] });
     expectOk(boot);
     expect(boot.result).toMatchObject({ bootstrap: true });
-    expect(harness.served('alpha/v2/big.json')).toBeUndefined();
+    expect(harness.served('alpha/v1/big.json')).toBeUndefined();
     expect(harness.served('beta/v2/small.json')).toBeDefined();
     expect(harness.servedJson<{ files: unknown[] }>('alpha/index.json').files).toEqual([]);
     // A normal run without the limit publishes it; then it is oversized while beta updates: carried.
     expectOk(harness.siteRun());
-    const big = harness.served('alpha/v2/big.json');
+    const big = harness.served('alpha/v1/big.json');
     expect(big).toBeDefined();
     const keys = {
       categories: ['weapon-trait'],
@@ -837,14 +837,14 @@ describe('build-site per-file outcomes', () => {
       ),
     });
     expectOk(harness.siteRun({ extra: ['--max-bytes', '4000'] }));
-    expect(harness.served('alpha/v2/big.json')).toEqual(big);
-    expect(harness.served('gamma/v2/big.json')).toBeUndefined(); // new and oversized: absent
+    expect(harness.served('alpha/v1/big.json')).toEqual(big);
+    expect(harness.served('gamma/v1/big.json')).toBeUndefined(); // new and oversized: absent
     const notices = harness.servedJson<{ kind: string; path?: string }[]>('_build/notices.json');
     expect(
-      notices.filter((notice) => notice.path === 'gamma/v2/big.json').map((notice) => notice.kind),
+      notices.filter((notice) => notice.path === 'gamma/v1/big.json').map((notice) => notice.kind),
     ).toEqual(['not-published']);
     expect(
-      notices.filter((notice) => notice.path === 'alpha/v2/big.json').map((notice) => notice.kind),
+      notices.filter((notice) => notice.path === 'alpha/v1/big.json').map((notice) => notice.kind),
     ).toEqual(['build-failed']);
     // Budget exhausted (nothing may start): published files carry, new ones stay absent, legacy copies still copy.
     harness.commit('editor-data', {
@@ -855,7 +855,7 @@ describe('build-site per-file outcomes', () => {
     const budget = harness.siteRun({ extra: ['--carry-after', '0'] });
     expectOk(budget);
     expect(budget.result).toMatchObject({ budgetHit: true });
-    expect(harness.served('alpha/v2/big.json')).toEqual(big);
+    expect(harness.served('alpha/v1/big.json')).toEqual(big);
     expect(harness.served('delta/v2/nn.json')).toBeUndefined();
     const liveCommit = readJson(harness.show('export-pins', 'pins/latest.json')).liveCommit;
     expect(harness.served('delta/v1/dim.json')).toEqual(
@@ -895,7 +895,7 @@ describe('build-site per-file outcomes', () => {
     const builtSecond = builtPaths(harness.servedJson('_build/manifest.json'));
     expect(builtSecond.length).toBeGreaterThan(0);
     // The files the first run skipped go first (no starvation); only then any it rebuilt.
-    const all = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v2/${file.id}.json`);
+    const all = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v1/${file.id}.json`);
     const skipped = all.filter((path) => !builtFirst.includes(path));
     expect(builtSecond.filter((path) => skipped.includes(path))).toHaveLength(
       Math.min(skipped.length, builtSecond.length),
@@ -971,7 +971,7 @@ describe('build-site per-file outcomes', () => {
     harness.commit('converter', harness.wrapEngine({ hang: ['f0', 'f1'] }));
     expectOk(harness.legacyRun());
     const limits = ['--file-timeout', '20000', '--carry-after', '10000'];
-    const paths = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v2/${file.id}.json`);
+    const paths = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v1/${file.id}.json`);
     const attempted = () => {
       const manifest = harness.servedJson<{ builtAt: string; attempts: Record<string, string> }>(
         '_build/manifest.json',
