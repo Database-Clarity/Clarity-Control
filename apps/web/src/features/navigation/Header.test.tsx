@@ -518,14 +518,18 @@ describe('drafts', () => {
     useDraftStore.setState({ drafts: { 1: draftFor(1, 'new'), 2: draftFor(2, 'newer') } });
     await mount(person('editor'));
     await click(q('[data-drafts-button]'));
-    const rows = [...document.querySelectorAll('[aria-label="Local drafts"] li')];
+    const rows = [
+      ...document.querySelectorAll('[aria-label="Local drafts"] [role="treeitem"][aria-level="2"]'),
+    ];
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.textContent)).toEqual([
       expect.stringContaining('First thing'),
       expect.stringContaining('Second thing'),
     ]);
     expect(rows[0].textContent).toContain('English');
-    await click(rows[1].querySelector('button'));
+    // Grouped by what they change, with a count.
+    expect(q('[aria-label="Local drafts"] [aria-level="1"]').textContent).toBe('▾English text2');
+    await click(rows[1]);
     expect(route()).toBe('/t/2');
     // The popover closed before the navigation; focus is back on the header button.
     expect(document.querySelector('[data-shell-overlay]')).toBeNull();

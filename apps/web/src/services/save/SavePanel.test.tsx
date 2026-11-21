@@ -106,7 +106,7 @@ describe('SavePanel drafts summary', () => {
     expect(empty).not.toContain('data-dialog');
     useDraftStore.setState({ drafts: { 1: draft } });
     const html = render();
-    expect(html).toContain('1 local draft kept in this browser');
+    expect(html).toContain('>1 local draft<');
     expect(html).toContain('Review and save draft');
     expect(buttonDisabled(html)).toBe(false);
   });

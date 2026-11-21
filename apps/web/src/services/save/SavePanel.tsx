@@ -92,13 +92,45 @@ export function SavePanel({
   const unpreviewed = usePreviewReviewStore(
     (state) => Object.values(state.entries).filter((entry) => entry.dirty > entry.reviewed).length,
   );
+  const action =
+    open > 0 ? (
+      // Saving waits until every conflict is resolved; this takes the user to the next one.
+      <button
+        type="button"
+        data-autofocus
+        data-drafts-resolve
+        onClick={() => {
+          onReview?.();
+          onResolve?.(conflicts[0]!.hash);
+        }}
+      >
+        {open === 1 ? 'Resolve 1 conflict' : `Resolve ${open} conflicts`}
+      </button>
+    ) : (
+      <button
+        type="button"
+        data-autofocus
+        data-drafts-review
+        disabled={!apiUrl || !user?.role || !count || Boolean(review) || paused}
+        onClick={() => {
+          dismiss();
+          onReview?.();
+          openDraftSaveReview();
+        }}
+      >
+        {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
+      </button>
+    );
+  // The count and the one primary action share the pinned head line, above any list, so the
+  // action is reachable without scrolling at any draft count.
   return (
     <section aria-label="Save drafts" className={className}>
-      <p data-summary>
-        {count === 0
-          ? 'No local drafts'
-          : `${count} local ${count === 1 ? 'draft' : 'drafts'} kept in this browser`}
-      </p>
+      <div className={styles.head}>
+        <p data-summary>
+          {count === 0 ? 'No local drafts' : `${count} local ${count === 1 ? 'draft' : 'drafts'}`}
+        </p>
+        {action}
+      </div>
       {unpreviewed > 0 && (
         <p data-unpreviewed>
           {unpreviewed === 1 ? '1 change' : `${unpreviewed} changes`} not previewed. You can still
@@ -107,34 +139,6 @@ export function SavePanel({
       )}
       {notice && <p role="status">{notice}</p>}
       {children}
-      {open > 0 ? (
-        // Saving waits until every conflict is resolved; this takes the user to the next one.
-        <button
-          type="button"
-          data-autofocus
-          data-drafts-resolve
-          onClick={() => {
-            onReview?.();
-            onResolve?.(conflicts[0]!.hash);
-          }}
-        >
-          {open === 1 ? 'Resolve 1 conflict' : `Resolve ${open} conflicts`}
-        </button>
-      ) : (
-        <button
-          type="button"
-          data-autofocus
-          data-drafts-review
-          disabled={!apiUrl || !user?.role || !count || Boolean(review) || paused}
-          onClick={() => {
-            dismiss();
-            onReview?.();
-            openDraftSaveReview();
-          }}
-        >
-          {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
-        </button>
-      )}
     </section>
   );
 }
@@ -149,6 +153,33 @@ export function conflictNotice(outcome: BeginResult): string {
   return open > 0
     ? `Nothing was saved: ${tooltips} changed on the server meanwhile. Resolve ${open === 1 ? '1 conflict' : `${open} conflicts`} in the editor, then review and save again.${merged}`
     : `Nothing was saved: ${tooltips} changed on the server meanwhile.${merged || ' Your edits were merged.'} Review and save again.`;
+}
+
+/** The "Save caps" progress contract (`useSaveProgress()` in ./state). */
+interface SaveProgress {
+  phase: 'idle' | 'saving' | 'failed';
+  done: number;
+  total: number;
+  failed: string | null;
+}
+
+/**
+ * SAVE-PROGRESS SLOT: the chunked-save progress, in the pinned review footer beside Save. Whichever
+ * of this task and "Save caps" merges second passes `progress={useSaveProgress()}` here; until
+ * then it shows nothing. After a recoverable failure the Save button itself is the Retry.
+ */
+function SaveProgressSlot({ progress }: { progress?: SaveProgress }) {
+  if (!progress || progress.phase === 'idle') return null;
+  return progress.phase === 'saving' ? (
+    <p role="status" className={styles.progress}>
+      <progress max={progress.total || 1} value={progress.done} aria-hidden="true" />
+      Saving {progress.done} of {progress.total}
+    </p>
+  ) : (
+    <p role="alert" className={styles.progress}>
+      {progress.failed ?? 'Saving stopped.'} Saved {progress.done} of {progress.total}.
+    </p>
+  );
 }
 
 const accountChanged = (generation: number) => useDraftStore.getState().generation !== generation;
@@ -232,7 +263,6 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     !validation ||
     validation?.error ||
     validation?.issues.some((issue) => issue.severity === 'error') ||
-    changes.length > 100 ||
     (batchTarget?.kind === 'new' && !batchTarget.name.trim()) ||
     (batchTarget && destinationBlocked),
   );
@@ -367,10 +397,12 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   return (
     <Dialog
       title="Review save"
+      className={styles.review}
       busy={pending}
       onClose={close}
       footer={
         <>
+          <SaveProgressSlot />
           <button
             type="button"
             disabled={pending || blocked || !data || Boolean(remoteCommit) || needsAcknowledgement}
@@ -454,9 +486,6 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       {unresolved && <p role="alert">Resolve the open conflicts before saving.</p>}
       {paused && (
         <p role="alert">Another tab changed your drafts. Choose Reload or Keep mine first.</p>
-      )}
-      {changes.length > 100 && (
-        <p role="alert">At most 100 tooltips can be saved at once. Reduce your drafts first.</p>
       )}
       {validation?.issues.some((issue) => issue.severity === 'warning') && (
         <p>Warnings do not block saving.</p>

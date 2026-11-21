@@ -10,6 +10,7 @@ export function Dialog({
   footer,
   compact = false,
   form = false,
+  className,
 }: {
   title: string;
   children: ReactNode;
@@ -21,6 +22,8 @@ export function Dialog({
   compact?: boolean;
   /** A few fields: a medium card held near the top, so lines appearing below never move it. */
   form?: boolean;
+  /** An extra class on the dialog, for a caller's own layout rules. */
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useNativeDialogShortcutOwner(ref);
@@ -39,13 +42,9 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className={
-        compact
-          ? `${styles.dialog} ${styles.compact}`
-          : form
-            ? `${styles.dialog} ${styles.form}`
-            : styles.dialog
-      }
+      className={[styles.dialog, compact && styles.compact, form && styles.form, className]
+        .filter(Boolean)
+        .join(' ')}
       aria-label={title}
       aria-busy={busy}
       onCancel={(event) => {
