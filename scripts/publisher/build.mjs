@@ -71,6 +71,8 @@ for (const marker of [
   'Cannot restore superseded publication',
   'Schedule preparation CAS exhausted',
   'Scheduled global source is not in data branch history',
+  'Draft batch staging changed during preparation',
+  'Signed staged-save manifest mismatch',
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks schedule preparation (${marker}); refusing its PIN`);
@@ -117,6 +119,8 @@ writeFileSync(
         'globalsExportsV1',
         'scheduledGlobalsV1',
         'schedulePreparationV1',
+        'draftBatchStagingV1',
+        'scheduledBatchStagingV1',
         'exoticTags',
       ],
     },

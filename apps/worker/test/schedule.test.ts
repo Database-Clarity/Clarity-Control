@@ -1369,11 +1369,10 @@ describe('GitHub.publishSnapshot trees (names-only listing)', () => {
 });
 
 describe('Worker caps (CPU gate, root option A)', () => {
-  it('admits at most memberCap members per batch and saveChangeCap changes per save', async () => {
-    const { memberCap, saveChangeCap, scheduledSaveChangeCap } =
-      await import('../src/schedule/store.js');
-    expect([memberCap, saveChangeCap, scheduledSaveChangeCap]).toEqual([15, 15, 10]);
-    const hashes = Array.from({ length: memberCap }, (_, i) => 1000 + i);
+  it('adds to a draft batch beyond the old membership limit and bounds each synchronous write', async () => {
+    const { saveChangeCap, scheduledSaveChangeCap } = await import('../src/schedule/store.js');
+    expect([saveChangeCap, scheduledSaveChangeCap]).toEqual([15, 10]);
+    const hashes = Array.from({ length: 15 }, (_, i) => 1000 + i);
     const files: Record<string, unknown> = {};
     for (const hash of hashes) {
       files[`tooltips/${hash}.json`] = { ...tooltip(), hash };
@@ -1383,18 +1382,12 @@ describe('Worker caps (CPU gate, root option A)', () => {
       });
     }
     f.moveData(files);
-    // 123 + 25 = 26 members: refused at schedule; one more add is refused at save.
-    const schedule26 = await schedule();
-    expect([schedule26.status, schedule26.body.error]).toEqual([
-      422,
-      `A batch publishes at most ${memberCap} tooltips; remove some first`,
-    ]);
     f.moveData({ 'tooltips/9999.json': { ...tooltip(), hash: 9999 } });
     const add = await call(
       `/batches/${ID}/save`,
       saveBody(withText({ ...tooltip(), hash: 9999 }, 'en', 'y'), { ...tooltip(), hash: 9999 }),
     );
-    expect(add.status).toBe(409);
+    expect(add.status).toBe(200);
     const tooMany = await call(`/batches/${ID}/save`, {
       revision: storedBatch().revision,
       changes: Array.from({ length: saveChangeCap + 1 }, (_, i) => ({

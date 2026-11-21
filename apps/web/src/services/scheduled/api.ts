@@ -15,11 +15,13 @@ import {
   batchIdSchema,
   batchMemberSchema,
   batchSchema,
+  preparedDraftSave,
   scheduleIndexSchema,
   schedulePaths,
   type ActivationConflict,
   type Batch,
   type BatchMember,
+  type DraftStagingInput,
   type ScheduleIndex,
 } from '@clarity/core/schedule';
 import { z } from 'zod';
@@ -28,6 +30,7 @@ import { preparationEnabled, scheduledEnabled } from './flag';
 import { newOpId } from '../publisher/ulid';
 import { parseMemberTexts, type MemberParse } from './api.parse';
 import { assertNoGlobalAggregates } from '../globalsFlag';
+import { jsonBytes } from '../save/requestSize';
 
 /** editor-data lives in this repository; a head SHA pins every read to one commit. */
 const rawSource = 'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database';
@@ -158,6 +161,16 @@ async function fetchText(head: string, batchId: string, hash: number): Promise<s
   return response.text();
 }
 
+async function fetchInGroups<T, R>(
+  items: readonly T[],
+  load: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let start = 0; start < items.length; start += 16)
+    results.push(...(await Promise.all(items.slice(start, start + 16).map(load))));
+  return results;
+}
+
 /**
  * The members of one batch at `head`, in `hashes` order (null: no file for that hash at the head).
  * Bodies already read at this head come from the cache; the rest are fetched in parallel and
@@ -175,7 +188,7 @@ export async function readBatchMembers(
   const missing = hashes.filter((hash) => !members.has(key(hash)));
   if (missing.length) {
     const batch = (async () => {
-      const texts = await Promise.all(missing.map((hash) => fetchText(head, batchId, hash)));
+      const texts = await fetchInGroups(missing, (hash) => fetchText(head, batchId, hash));
       const jobs: MemberParse[] = [];
       texts.forEach((text, index) => {
         if (text !== null) jobs.push({ hash: missing[index], text });
@@ -268,16 +281,14 @@ export function readActivationConflicts(
 ): Promise<(ActivationConflict | null)[]> {
   requireEnabled();
   headSchema.parse(head);
-  return Promise.all(
-    hashes.map((hash) =>
-      cached(conflictFiles, `${head}/${hash}`, async () => {
-        const value = await rawJson(head, schedulePaths.conflict(hash));
-        if (value === undefined) return null;
-        const conflict = activationConflictSchema.parse(value);
-        if (conflict.hash !== hash) throw new Error(`Conflict file ${hash} holds ${conflict.hash}`);
-        return conflict;
-      }),
-    ),
+  return fetchInGroups(hashes, (hash) =>
+    cached(conflictFiles, `${head}/${hash}`, async () => {
+      const value = await rawJson(head, schedulePaths.conflict(hash));
+      if (value === undefined) return null;
+      const conflict = activationConflictSchema.parse(value);
+      if (conflict.hash !== hash) throw new Error(`Conflict file ${hash} holds ${conflict.hash}`);
+      return conflict;
+    }),
   );
 }
 
@@ -285,8 +296,6 @@ export function readActivationConflicts(
 
 /** Changes per POST /batches/:id/save (Worker caps, root ruling after P1; apps/worker store.ts). */
 export const saveChunk = { draft: 15, scheduled: 10 } as const;
-/** Tooltips per batch the Worker admits (apps/worker store.ts memberCap); the UI warns before it. */
-export const memberCap = 15;
 
 const memberRefusalSchema = z.looseObject({
   hash: z.number(),
@@ -392,6 +401,38 @@ export interface BatchChange {
   hash: number;
   base: Tooltip | null;
   next: Tooltip;
+}
+
+export function draftSaveParts<T extends BatchChange>(
+  changes: readonly T[],
+  message: string,
+): T[][] {
+  const id = '0'.repeat(26);
+  const overhead = jsonBytes({
+    requestId: id,
+    revision: Number.MAX_SAFE_INTEGER,
+    changes: [],
+    message,
+    draftStaging: { id, finish: false },
+  });
+  const parts: T[][] = [];
+  let part: T[] = [];
+  let bytes = overhead;
+  for (const change of changes) {
+    const size = jsonBytes(change) + 1;
+    if (
+      part.length &&
+      (part.length === preparedDraftSave.changes || bytes + size > preparedDraftSave.bytes)
+    ) {
+      parts.push(part);
+      part = [];
+      bytes = overhead;
+    }
+    part.push(change);
+    bytes += size;
+  }
+  if (part.length) parts.push(part);
+  return parts;
 }
 
 export interface BatchSaveResult {
@@ -578,13 +619,62 @@ export function queueBatchSave(
   changes: readonly BatchChange[],
   message: string,
   requestId: string = newOpId(),
+  draftStaging?: DraftStagingInput,
 ) {
   batchIdSchema.parse(batchId);
   assertNoGlobalAggregates(changes.map(({ hash }) => hash));
   return post(
     `/batches/${batchId}/save`,
-    { requestId, revision, changes, message },
+    { requestId, revision, changes, message, ...(draftStaging ? { draftStaging } : {}) },
     admissionSchema,
+  );
+}
+
+export async function queueStagedScheduledSave(
+  batchId: string,
+  revision: number,
+  changes: readonly BatchChange[],
+  message: string,
+  proceed: () => boolean,
+  progress: (uploaded: number) => void,
+): Promise<BatchAdmission> {
+  batchIdSchema.parse(batchId);
+  assertNoGlobalAggregates(changes.map(({ hash }) => hash));
+  const requestId = newOpId();
+  const path = `/batches/${batchId}/stage`;
+  for (let start = 0, part = 0; start < changes.length; start += saveChunk.scheduled, part++) {
+    if (!proceed()) throw new Error(accountChanged);
+    const chunk = changes.slice(start, start + saveChunk.scheduled);
+    const reply = await post(
+      path,
+      { requestId, revision, part, changes: chunk, message },
+      z.object({ accepted: z.number() }),
+    );
+    if (reply.accepted !== part)
+      throw new Error('The staged save is out of order. Retry from your drafts.');
+    progress(start + chunk.length);
+  }
+  if (!proceed()) throw new Error(accountChanged);
+  return post(path, { requestId, revision, finish: true }, admissionSchema);
+}
+
+/** Wait for the Action before sending the next part of the same draft batch. */
+export async function waitForBatchSave(batchId: string, requestId: string, proceed: () => boolean) {
+  const deadline = Date.now() + 5 * 60_000;
+  while (proceed() && Date.now() < deadline) {
+    const result = await readBatchStatus(batchId, undefined, requestId);
+    if (result.request?.status === 'completed') return result.batch;
+    if (result.request && result.request.status !== 'pending')
+      throw new Error(
+        result.request.reasons?.map(({ reason }) => reason).join('\n') ||
+          'The batch save was not applied.',
+      );
+    await new Promise<void>((resolve) => setTimeout(resolve, 4000));
+  }
+  throw new Error(
+    proceed()
+      ? 'The batch is still preparing. Retry after the current save settles.'
+      : accountChanged,
   );
 }
 

@@ -239,6 +239,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     !validation ||
     validation?.error ||
     validation?.issues.some((issue) => issue.severity === 'error') ||
+    (!changes.length && !batchTarget) ||
     (batchTarget?.kind === 'new' && !batchTarget.name.trim()) ||
     (batchTarget && destinationBlocked),
   );
@@ -248,6 +249,15 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     setError(null);
     const drafts = useDraftStore.getState();
     const generation = drafts.generation;
+    let checkedSources = changedSource;
+    let staged: { id: string; confirmed: ReadonlySet<number>; total: number } | undefined;
+    const retainRemainder = (accepted: ReadonlySet<number>) => {
+      if (!accepted.size) return;
+      const remainingSources = checkedSources.filter(({ hash }) => !accepted.has(hash));
+      if (acknowledged === sourceKey(checkedSources)) setAcknowledged(sourceKey(remainingSources));
+      setChangedSource(remainingSources);
+      useSaveState.setState({ review: saveRemainder(review, accepted) });
+    };
     try {
       await drafts.flush();
       if (accountChanged(generation)) return;
@@ -259,7 +269,6 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       // the current source now; if it differs from what the editor was shown, show the new diff
       // and wait for an explicit tick. What was fetched and ticked is exactly what gets recorded.
       let source: CompendiumData | undefined;
-      let checkedSources = changedSource;
       if (linksCompendium(changes)) {
         source = await loadCompendium(true);
         if (accountChanged(generation)) return;
@@ -311,6 +320,19 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
           review.submitted,
           sameSession,
           (staged) => prepareChanges(staged, user, data, source),
+          undefined,
+          (id, confirmed, total, uploaded) => {
+            staged = { id, confirmed, total };
+            if (sameSession() && useSaveState.getState().review === review)
+              useSaveState.setState({
+                progress: {
+                  phase: uploaded === undefined ? 'saving' : 'staging',
+                  done: progress.done + (uploaded ?? confirmed.size),
+                  total: progress.done + total,
+                  failed: null,
+                },
+              });
+          },
         );
         if (accountChanged(generation)) return;
         if (source) useCompendiumStore.setState({ data: source });
@@ -343,13 +365,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         onSaved(conflictNotice(outcome, saved));
         close();
       } else if (result.kind === 'failed') {
-        if (result.accepted.size) {
-          const remainingSources = checkedSources.filter(({ hash }) => !result.accepted.has(hash));
-          if (acknowledged === sourceKey(checkedSources))
-            setAcknowledged(sourceKey(remainingSources));
-          setChangedSource(remainingSources);
-          useSaveState.setState({ review: saveRemainder(review, result.accepted) });
-        }
+        retainRemainder(result.accepted);
         setReloadRequired(!!result.reload);
         const status = saved
           ? `Saved ${saved} of ${saved + changes.length - result.accepted.size} tooltips. Remaining drafts were kept.`
@@ -361,7 +377,22 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         close();
       }
     } catch (error) {
-      if (!accountChanged(generation)) setError(errorMessage(error));
+      if (!accountChanged(generation) && useSaveState.getState().review === review) {
+        const failure = errorMessage(error);
+        if (staged) {
+          retainRemainder(staged.confirmed);
+          setDestination({ kind: 'batch', id: staged.id });
+          useSaveState.setState({
+            progress: {
+              phase: 'failed',
+              done: progress.done + staged.confirmed.size,
+              total: progress.done + staged.total,
+              failed: failure,
+            },
+          });
+        }
+        setError(failure);
+      }
     } finally {
       if (!accountChanged(generation)) setPending(false);
     }
@@ -379,13 +410,19 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
             onClick={() => void submit()}
           >
             {pending
-              ? progress.phase === 'saving' && progress.total > 1
-                ? `Saving ${progress.done} of ${progress.total}`
-                : 'Saving...'
+              ? progress.phase === 'staging'
+                ? progress.done === progress.total
+                  ? 'Staged edits are still landing'
+                  : `Staging ${progress.done} of ${progress.total}`
+                : progress.phase === 'saving' && progress.total > 1
+                  ? `Saving ${progress.done} of ${progress.total}`
+                  : 'Saving...'
               : !validation && data
                 ? 'Validating...'
                 : batchTarget
-                  ? 'Save to batch'
+                  ? progress.phase === 'failed'
+                    ? 'Retry'
+                    : 'Save to batch'
                   : progress.phase === 'failed' && !reloadRequired
                     ? 'Retry'
                     : 'Save changes'}

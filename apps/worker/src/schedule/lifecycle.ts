@@ -45,7 +45,6 @@ import {
   checkedBatch,
   child,
   indexEntry,
-  memberCap,
   pushedHashes,
   refuseAliases,
   memberHashes,
@@ -156,13 +155,10 @@ export async function scheduleBatch(
     const batch = requireBatch(state, batchId);
     refuseClaimed(batch);
     refuseRevision(batch, input.revision);
+    if (batch.draftStaging)
+      throw new HttpError(409, 'Finish saving the draft batch before scheduling');
     const hashes = memberHashes(child(state.trees[0], 'tooltips'));
     if (!hashes.length) throw new HttpError(422, 'Add a tooltip to the batch first');
-    if (hashes.length > memberCap)
-      throw new HttpError(
-        422,
-        `A batch publishes at most ${memberCap} tooltips; remove some first`,
-      );
     refuseGlobalScheduling(state.trees[1] ?? null);
     const rescheduling = batch.status === 'scheduled';
     if (!rescheduling && state.due.entries.length >= scheduleLimits.openBatches)
@@ -352,10 +348,12 @@ export async function endSchedule(
       },
       archivedCounter(github, state.head, batchId, child(state.trees[0], 'events')),
     );
+    const hashes = memberHashes(child(state.trees[0], 'tooltips'));
     const next = checkedBatch({
       ...batch,
       ...revisions,
       status: action === 'cancel' ? 'cancelled' : 'draft',
+      ...(action === 'cancel' ? { memberHashes: hashes, draftStaging: undefined } : {}),
       preparedRequestId: null,
       notBefore: null,
       zone: null,
@@ -363,7 +361,6 @@ export async function endSchedule(
       scheduledContentRevision: null,
       events: appended.events,
     } satisfies Batch);
-    const hashes = memberHashes(child(state.trees[0], 'tooltips'));
     const files: Record<string, unknown> = {
       [schedulePaths.batch(batchId)]: next,
       [schedulePaths.index]: withIndexEntry(state.index, indexEntry(next, hashes, at)),

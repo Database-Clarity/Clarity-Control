@@ -52,7 +52,7 @@ import {
   checkedBatch,
   child,
   indexEntry,
-  memberCap,
+  removeChangeCap,
   memberHashes,
   newUlid,
   readRoles,
@@ -103,7 +103,7 @@ const removeSchema = z
     hashes: z
       .array(hashSchema)
       .min(1)
-      .max(memberCap)
+      .max(removeChangeCap)
       .refine((list) => new Set(list).size === list.length, 'Duplicate tooltip hash'),
   })
   .strict();
@@ -302,6 +302,8 @@ export async function saveBatch(
     const batch = requireBatch(state, batchId);
     refuseClaimed(batch);
     refuseRevision(batch, input.revision);
+    if (batch.draftStaging)
+      throw new HttpError(409, 'Finish saving the draft batch before replacing its changes');
     if (batch.status !== 'draft' && input.changes.length > scheduledSaveChangeCap)
       throw new HttpError(
         422,
@@ -316,8 +318,6 @@ export async function saveBatch(
       if (access.role === 'translator')
         throw new HttpError(403, 'Translators may change only tooltips already in the batch');
       if (batch.status !== 'draft') throw new HttpError(409, 'Unschedule to edit');
-      if (own.size + adds.length > memberCap)
-        throw new HttpError(409, `A batch holds at most ${memberCap} tooltips`);
     }
     // Every change must name a canonical tooltip, as /save checks (a member the generator has
     // since aliased is refused too: publishing it would export its target instead).

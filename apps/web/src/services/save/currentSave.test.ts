@@ -115,6 +115,23 @@ it('keeps a real resolver import target with or before its importer', () => {
   expect(chunks.flat()).toHaveLength(changes.length);
 });
 
+it('saves the importer repair before removing its old export', () => {
+  const text = 'Existing text. '.repeat(120);
+  const target = makeTooltip(10_001, `export Detail (\nText\n)\n${text}`);
+  const importer = makeTooltip(10_002, `import Detail from ${target.hash}\n${text}`);
+  const data = loaded();
+  data.bundle.tooltips = { [target.hash]: target, [importer.hash]: importer };
+  const changes = [
+    { hash: target.hash, base: target, next: makeTooltip(target.hash, `New. ${text}`) },
+    { hash: importer.hash, base: importer, next: makeTooltip(importer.hash, `Repaired. ${text}`) },
+  ];
+  expect(
+    saveChunks(changes, data, 'Remove an old export', false).map((chunk) =>
+      chunk.map(({ hash }) => hash),
+    ),
+  ).toEqual([[importer.hash], [target.hash]]);
+});
+
 it('stops after a failed later request and resumes with only the unsaved drafts', async () => {
   const changes = realChanges(saveRequestLimits.changes * 2 + 1);
   const data = loaded();
@@ -149,7 +166,8 @@ it('stops after a failed later request and resumes with only the unsaved drafts'
   const first = await saveCurrent({ ...options, prepared: changes, review, data });
   expect(first.kind).toBe('failed');
   expect(post).toHaveBeenCalledTimes(2);
-  expect(first.accepted.size).toBe(saveRequestLimits.changes);
+  expect(first.accepted.size).toBe((post.mock.calls[0][0] as Change[]).length);
+  expect(first.accepted.size).toBeLessThan(changes.length);
   const remaining = saveRemainder(review, first.accepted);
   expect(useDraftStore.getState().drafts).toEqual(remaining.submitted);
   useSaveState.setState({ review: remaining });

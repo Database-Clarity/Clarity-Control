@@ -1773,6 +1773,7 @@ export class Publisher {
       batch,
       {
         status: 'published',
+        memberHashes: payload.hashes,
         result: {
           opId,
           status: unchanged ? 'unchanged' : 'published',

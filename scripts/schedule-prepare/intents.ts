@@ -9,6 +9,7 @@ import {
   scheduleIntentSchema,
   scheduleRequestSchema,
   scheduleIntentPaths,
+  scheduledStagingSchema,
   type ScheduleEnvelope,
   type BatchPublishPayload,
 } from '@clarity/core/schedule';
@@ -65,6 +66,13 @@ export function verifiedSource(pub: Publisher, raw: unknown) {
       : !['draft', 'scheduled'].includes(batch.status))
   )
     throw new InvalidScheduleIntent('Signed schedule source identity mismatch');
+  if (
+    batch.draftStaging &&
+    (intent.kind !== 'save' ||
+      intent.draftStaging?.id !== batch.draftStaging.id ||
+      intent.requester.id !== batch.draftStaging.ownerId)
+  )
+    throw new InvalidScheduleIntent('The signed request does not own the unfinished draft save');
   return { intent, tree, batch, members };
 }
 
@@ -89,6 +97,52 @@ export function verifiedRequest(pub: Publisher, tree: Tree, path: string) {
   const input = JSON.parse(body);
   if (input.requestId !== intent.requestId || input.revision !== intent.expectedRevision)
     throw new InvalidScheduleIntent('Submitted request identity mismatch');
+  if (
+    intent.kind === 'save' &&
+    stableStringify(input.draftStaging ?? null) !== stableStringify(intent.draftStaging ?? null)
+  )
+    throw new InvalidScheduleIntent('Submitted draft save identity mismatch');
+  if (intent.kind === 'save' && intent.scheduledParts) {
+    const manifest = scheduledStagingSchema.parse(
+      pub.read(source.tree, scheduleIntentPaths.stagedSave(intent.batchId)),
+    );
+    if (
+      input.finish !== true ||
+      manifest.id !== intent.requestId ||
+      manifest.ownerId !== intent.requester.id ||
+      manifest.parts !== intent.scheduledParts ||
+      manifest.parts > source.members.length ||
+      manifest.revision !== intent.expectedRevision ||
+      manifest.ready
+    )
+      throw new InvalidScheduleIntent('Signed staged-save manifest mismatch');
+    const changes: unknown[] = [];
+    let message: string | undefined;
+    for (let part = 0; part < manifest.parts; part++) {
+      const oid = source.tree[scheduleIntentPaths.stagedPart(intent.batchId, manifest.id, part)];
+      if (!oid) throw new InvalidScheduleIntent('Missing staged save part');
+      const raw = pub.git.blob(oid);
+      if (Buffer.byteLength(raw) > 300 * 1024)
+        throw new InvalidScheduleIntent('Staged save part exceeds the request budget');
+      const chunk = JSON.parse(raw);
+      if (
+        chunk.requestId !== intent.requestId ||
+        chunk.revision !== intent.expectedRevision ||
+        chunk.part !== part ||
+        !Array.isArray(chunk.changes) ||
+        typeof chunk.message !== 'string' ||
+        (message !== undefined && message !== chunk.message)
+      )
+        throw new InvalidScheduleIntent('Invalid staged save part');
+      message = chunk.message;
+      changes.push(...chunk.changes);
+    }
+    return {
+      ...source,
+      request,
+      input: { requestId: input.requestId, revision: input.revision, changes, message },
+    };
+  }
   return { ...source, request, input: input as unknown };
 }
 

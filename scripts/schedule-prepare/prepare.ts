@@ -8,12 +8,15 @@ import {
 } from '@clarity/core';
 import {
   batchSchema,
+  draftStagingInputSchema,
   dueSchema,
   isContentChange,
   isOpenStatus,
   matchesPreparationFence,
+  preparedDraftSave,
   scheduleIntentPaths,
   schedulePaths,
+  scheduleIndexEntry,
   scheduleIndexSchema,
   scheduleLimits,
   type Batch,
@@ -21,6 +24,7 @@ import {
   type ScheduleRequest,
   scheduleIntentSchema,
   scheduleRequestSchema,
+  scheduledStagingSchema,
 } from '@clarity/core/schedule';
 import {
   batchSaveChangeSchema,
@@ -30,11 +34,7 @@ import {
 } from '../../apps/worker/src/schedule/validation.js';
 import { HttpError } from '../../apps/worker/src/http.js';
 import type { RepoFile } from '../../apps/worker/src/github.js';
-import {
-  memberCap,
-  saveChangeCap,
-  scheduledSaveChangeCap,
-} from '../../apps/worker/src/schedule/store.js';
+import { scheduledSaveChangeCap } from '../../apps/worker/src/schedule/store.js';
 import { appCredits, RefRace, type Tree } from '../publisher/git.js';
 import { batchMembers, json, iso, withEvent } from '../publisher/batch.js';
 import {
@@ -69,9 +69,9 @@ const saveInput = z
     changes: z
       .array(batchSaveChangeSchema)
       .min(1)
-      .max(saveChangeCap)
       .refine((changes) => new Set(changes.map((c) => c.hash)).size === changes.length),
     message: z.string().trim().min(1).max(500),
+    draftStaging: draftStagingInputSchema.optional(),
   })
   .strict();
 function reject(message: string): never {
@@ -113,23 +113,29 @@ export class SchedulePreparer {
     if (!inputResult.success) throw new ProposalRejected('Invalid batch save proposal');
     const input = inputResult.data;
     const access = this.access(tree, intent.requester.id);
+    if (intent.draftStaging && access.role === 'translator')
+      throw new ProposalRejected('Draft batch staging requires an editing role');
     const own = new Set(members.map((m) => m.hash));
     const adds = input.changes.filter((c) => !own.has(c.hash));
-    if (intent.returnStatus === 'scheduled' && input.changes.length > scheduledSaveChangeCap)
+    if (!intent.scheduledParts && input.changes.length > preparedDraftSave.changes)
+      throw new ProposalRejected('Too many batch save changes');
+    if (
+      intent.returnStatus === 'scheduled' &&
+      !intent.scheduledParts &&
+      input.changes.length > scheduledSaveChangeCap
+    )
       throw new ProposalRejected('Too many scheduled save changes');
     if (adds.length && (access.role === 'translator' || batch.status !== 'draft'))
       throw new ProposalRejected('Unschedule to add batch members');
-    if (own.size + adds.length > memberCap) throw new ProposalRejected('Too many batch members');
     const aliases = this.pub.aliasesAt(tree);
+    const others = this.batches(tree).filter(
+      (other) => other.id !== batch.id && isOpenStatus(other.status),
+    );
     for (const { hash } of input.changes) {
       if (resolveAlias(hash, aliases) !== hash)
         throw new ProposalRejected(`Tooltip ${hash} is an alias`);
-      for (const other of this.batches(tree)) {
-        if (
-          other.id !== batch.id &&
-          isOpenStatus(other.status) &&
-          tree[schedulePaths.member(other.id, hash)]
-        )
+      for (const other of others) {
+        if (tree[schedulePaths.member(other.id, hash)])
           throw new ProposalRejected(`Tooltip ${hash} already belongs to open batch ${other.id}`);
       }
     }
@@ -189,27 +195,23 @@ export class SchedulePreparer {
       });
   }
   refreshIndex(tree: Tree) {
-    const entries = this.batches(tree).map((b) => ({
-      id: b.id,
-      name: b.name,
-      status: b.status,
-      notBefore: b.notBefore,
-      opId: b.opId,
-      revision: b.revision,
-      // Advisory membership comes from names, not member bodies that validation may
-      // just have rejected. Failure outcomes must still be able to commit.
-      hashes: Object.keys(tree)
-        .flatMap((path) => {
-          const prefix = `schedule/batches/${b.id}/tooltips/`;
-          if (!path.startsWith(prefix)) return [];
-          const name = path.slice(prefix.length);
-          if (!/^(0|[1-9]\d*)\.json$/.test(name)) return [];
-          const hash = hashSchema.safeParse(Number(name.slice(0, -5)));
-          return hash.success ? [hash.data] : [];
-        })
-        .sort((a, b) => a - b),
-      updatedAt: b.events.at(-1)?.at ?? b.createdAt,
-    }));
+    const entries = this.batches(tree).map((b) =>
+      scheduleIndexEntry(
+        b,
+        // Advisory membership comes from names, not member bodies that validation may
+        // just have rejected. Failure outcomes must still be able to commit.
+        b.memberHashes ??
+          Object.keys(tree).flatMap((path) => {
+            const prefix = `schedule/batches/${b.id}/tooltips/`;
+            if (!path.startsWith(prefix)) return [];
+            const name = path.slice(prefix.length);
+            if (!/^(0|[1-9]\d*)\.json$/.test(name)) return [];
+            const hash = hashSchema.safeParse(Number(name.slice(0, -5)));
+            return hash.success ? [hash.data] : [];
+          }),
+        b.events.at(-1)?.at ?? b.createdAt,
+      ),
+    );
     if (!entries.length && !tree[schedulePaths.index]) return;
     const terminal = entries
       .filter((b) => !isOpenStatus(b.status))
@@ -236,7 +238,7 @@ export class SchedulePreparer {
       }) === stableStringify(index)
     )
       return;
-    tree[schedulePaths.index] = this.pub.writeBlob(json(index));
+    tree[schedulePaths.index] = this.pub.writeBlob(`${JSON.stringify(index)}\n`);
   }
   collision(tree: Tree, opId: string) {
     if (tree[paths(opId).request] || tree[paths(opId).log])
@@ -259,16 +261,14 @@ export class SchedulePreparer {
   ) {
     this.pin(tree);
     const members = batchMembers(this.pub, tree, payload.batchId);
-    if (!members.length || members.length > memberCap)
-      reject('Invalid scheduled batch member count');
+    if (!members.length) reject('Invalid scheduled batch member count');
+    const others = this.batches(tree).filter(
+      (batch) => batch.id !== payload.batchId && isOpenStatus(batch.status),
+    );
     for (const member of members) {
       refuseMemberSize(member);
-      for (const other of this.batches(tree))
-        if (
-          other.id !== payload.batchId &&
-          isOpenStatus(other.status) &&
-          tree[schedulePaths.member(other.id, member.hash)]
-        )
+      for (const other of others)
+        if (tree[schedulePaths.member(other.id, member.hash)])
           reject(`Tooltip ${member.hash} already belongs to open batch ${other.id}`);
     }
     const pushed = new Set(
@@ -327,21 +327,30 @@ export class SchedulePreparer {
     )
       reject('Preparation intent or content fence mismatch');
     // Admission cannot mutate accepted members; a later Retry must keep this exact source.
-    for (const m of batchMembers(this.pub, tree, batch.id))
+    const currentMembers = batchMembers(this.pub, tree, batch.id);
+    for (const m of currentMembers)
       if (
         tree[schedulePaths.member(batch.id, m.hash)] !==
         checked.tree[schedulePaths.member(batch.id, m.hash)]
       )
         reject('Accepted members changed during preparation');
-    if (batchMembers(this.pub, tree, batch.id).length !== checked.members.length)
+    if (currentMembers.length !== checked.members.length)
       reject('Accepted membership changed during preparation');
     const access = this.access(tree, intent.requester.id);
     this.pin(tree);
+    const staging = intent.kind === 'save' ? intent.draftStaging : undefined;
+    if (
+      staging &&
+      (batch.draftStaging?.id !== staging.id || batch.draftStaging.ownerId !== intent.requester.id)
+    )
+      reject('Draft batch staging changed during preparation');
     let contentChanged = false;
+    let stagedHashes: number[] | undefined;
     if (intent.kind === 'save') {
       const result = this.validateSave(tree, checked);
       contentChanged = isContentChange(result.before, result.written);
       if (intent.returnStatus === 'scheduled' && contentChanged) reject('Unschedule to edit');
+      if (staging) stagedHashes = result.written.map(({ hash }) => hash);
       for (const m of result.written)
         tree[schedulePaths.member(batch.id, m.hash)] = this.pub.writeBlob(json(m));
     } else if (!['maintainer', 'editor'].includes(access.role)) reject('Scheduling role revoked');
@@ -394,12 +403,13 @@ export class SchedulePreparer {
         preparedRequestId: ready,
         contentRevision: batch.contentRevision + Number(contentChanged),
         scheduledContentRevision: scheduled ? batch.contentRevision : null,
+        ...(staging?.finish ? { draftStaging: undefined } : {}),
       },
       {
         action: 'prepared',
         by: intent.requester,
         at,
-        hashes: batchMembers(this.pub, tree, batch.id).map((m) => m.hash),
+        hashes: stagedHashes ?? batchMembers(this.pub, tree, batch.id).map((m) => m.hash),
       },
     );
     tree[schedulePaths.batch(batch.id)] = this.pub.writeBlob(json(updated));
@@ -486,8 +496,12 @@ export class SchedulePreparer {
             .slice(0, 100)
             .map((r) => ({ ...r, reason: (r.reason ?? reason).slice(0, 2000) }))
         : [{ reason }];
+    const draftFailed =
+      semantic && checked?.intent.kind === 'save' && checked.intent.draftStaging !== undefined;
     let restored = false;
-    let update: Partial<Batch> = { status: 'needs_attention' };
+    let update: Partial<Batch> = draftFailed
+      ? { status: 'draft', preparation: null }
+      : { status: 'needs_attention' };
     // Only a VERIFIED owner policy and a known proposal rejection may restore an old schedule.
     if (
       (error instanceof ProposalRejected || error instanceof ProposalOutputRejected) &&
@@ -552,7 +566,7 @@ export class SchedulePreparer {
     tree[scheduleIntentPaths.request(request.requestId)] = this.pub.writeBlob(
       json({
         ...record,
-        status: restored ? 'failed' : 'needs_attention',
+        status: restored || draftFailed ? 'failed' : 'needs_attention',
         retryable: !semantic,
         updatedAt: at,
         reasons,
@@ -666,9 +680,11 @@ export class SchedulePreparer {
         }
       }
       if (readyOnly && !recheckedReady) return;
+      const deadline = readyOnly ? Infinity : await this.prepareScheduledStages(tree, head);
       this.refreshIndex(tree);
       if (stableStringify(tree) === stableStringify(original)) return;
       const commit = this.pub.git.commit(head, tree, 'Prepare scheduled changes', appCredits);
+      if (this.pub.options.now() >= deadline) continue;
       try {
         this.pub.git.cas(ref, head, commit);
         return;
@@ -679,5 +695,98 @@ export class SchedulePreparer {
       }
     }
     throw new Error('Schedule preparation CAS exhausted; requests remain durable');
+  }
+
+  /** Prepare against a private tree. Only the outer CAS can replace an accepted schedule. */
+  async prepareScheduledStages(tree: Tree, head: string): Promise<number> {
+    let deadline = Infinity;
+    for (const batch of this.batches(tree)) {
+      const path = scheduleIntentPaths.stagedSave(batch.id);
+      if (!tree[path]) continue;
+      const parsed = scheduledStagingSchema.safeParse(this.pub.read(tree, path));
+      if (!parsed.success) continue;
+      const stage = parsed.data;
+      const due = batch.notBefore ? Date.parse(batch.notBefore) : -Infinity;
+      const now = this.pub.options.now();
+      const consumed =
+        !!batch.claim ||
+        batch.status === 'published' ||
+        (batch.status === 'scheduled' && now >= due);
+      const changed = batch.status !== 'scheduled' || batch.revision !== stage.revision;
+      if (!stage.ready && !consumed && !changed && now - Date.parse(stage.updatedAt) < 86_400_000)
+        continue;
+      if (stage.ready) {
+        const requestPath = scheduleIntentPaths.request(stage.id);
+        const record = scheduleRequestSchema.safeParse(this.pub.read(tree, requestPath));
+        if (
+          record.success &&
+          record.data.batchId === batch.id &&
+          record.data.requestId === stage.id &&
+          record.data.requesterId === stage.ownerId &&
+          record.data.status === 'pending'
+        ) {
+          const request = record.data;
+          try {
+            if (consumed) reject('Batch published before these edits landed');
+            if (changed) reject('The accepted schedule changed before these edits landed');
+            const checked = verifiedRequest(this.pub, tree, requestPath);
+            const { intent } = checked;
+            if (
+              intent.kind !== 'save' ||
+              intent.scheduledParts !== stage.parts ||
+              intent.expectedRevision !== stage.revision ||
+              intent.requester.id !== stage.ownerId
+            )
+              reject('Staged save identity changed');
+            const publicationPath = paths(batch.opId!).request;
+            if (!tree[publicationPath]) reject('The accepted publication could not be read');
+            const next = {
+              ...tree,
+              [scheduleIntentPaths.publication(batch.id)]: tree[publicationPath]!,
+            };
+            delete next[publicationPath];
+            const preparing = withEvent(
+              this.pub,
+              next,
+              batch,
+              {
+                status: 'preparing',
+                preparedRequestId: null,
+                preparation: {
+                  requestId: stage.id,
+                  kind: 'save',
+                  returnStatus: 'scheduled',
+                  requestedAt: intent.createdAt,
+                  attempt: request.attempt,
+                },
+              },
+              { at: iso(now), by: intent.requester, action: 'request' },
+            );
+            next[schedulePaths.batch(batch.id)] = this.pub.writeBlob(json(preparing));
+            await this.prepare(next, head, preparing, request, checked);
+            if (this.pub.options.now() >= due) reject('Batch published before these edits landed');
+            Object.assign(tree, next);
+            deadline = Math.min(deadline, due);
+          } catch (error) {
+            const reason =
+              (error instanceof Error ? error.message : String(error)).slice(0, 2000) ||
+              'The staged edits could not be applied';
+            tree[requestPath] = this.pub.writeBlob(
+              json({
+                ...request,
+                status: 'failed',
+                retryable: false,
+                reasons: [{ reason }],
+                updatedAt: iso(this.pub.options.now()),
+              }),
+            );
+          }
+        }
+      }
+      delete tree[path];
+      const prefix = scheduleIntentPaths.stagedPartsPrefix(batch.id, stage.id);
+      for (const part of Object.keys(tree)) if (part.startsWith(prefix)) delete tree[part];
+    }
+    return deadline;
   }
 }

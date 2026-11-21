@@ -25,9 +25,11 @@ is admission only: the publisher re-checks everything at the claim (I1).
 
 ## Caps (CPU gate, root 2026-11-13 option A)
 
-- `memberCap` = 15 members per batch (core allows 100): scheduling validates every member in
-  ONE request inside the Workers Free 10 ms CPU limit. A workflow limit, one constant in
-  `store.ts`, so it can move with the measured gate.
+- The Action validates all members when a batch is scheduled. The Worker admits one request
+  for the whole batch, and the publisher publishes it as one operation.
+- Prepared draft saves can land in several requests. The batch carries a draft-only fence
+  until the final part is applied. Scheduled edits upload beside the batch, and the Action
+  applies the complete signed set at once if the accepted schedule has yet to come due.
 - `saveChangeCap` = 15 changes per batch save request; the web chunks larger saves (P3a).
 - `scheduledSaveChangeCap` = 10 changes per save into a scheduled batch (422 above it): those
   saves also compose every member against pushed.json and the live snapshots, and the gate

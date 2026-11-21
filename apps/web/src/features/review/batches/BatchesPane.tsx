@@ -72,7 +72,7 @@ function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean })
   next.set('view', 'batches');
   next.set('batch', entry.id);
   const facts = [
-    plural(entry.hashes.length, 'tooltip'),
+    plural(entry.memberCount ?? entry.hashes.length, 'tooltip'),
     counts?.stale ? `${counts.stale} stale` : '',
     counts?.conflicts ? plural(counts.conflicts, 'conflict') : '',
     counts?.coverage?.needed

@@ -6,6 +6,7 @@ import {
   carryNumberTranslations,
   hashSchema,
   merge3,
+  permissionsSchema,
   reconcileNumberMap,
   refreshNumberFallbacks,
   resolveAlias,
@@ -23,7 +24,6 @@ import {
   checkEdit,
   checkEnglishRevision,
   checkTranslationStamps,
-  permissions,
   requireAccess,
   type Access,
 } from './permissions.js';
@@ -74,10 +74,14 @@ export type SaveResult =
       }[];
     };
 
+const compendiumContent = (link: Tooltip['compendium']) =>
+  link ? { ...link, snapshotAt: undefined } : undefined;
+
 function createdContent(tooltip: Tooltip): string {
-  const { text, bungieSnapshot, ...fields } = tooltip;
+  const { text, bungieSnapshot, compendium, ...fields } = tooltip;
   return stableStringify({
     ...fields,
+    compendium: compendiumContent(compendium),
     bungieDescription: bungieSnapshot?.description,
     text: Object.fromEntries(Object.entries(text).map(([lang, entry]) => [lang, entry.text])),
   });
@@ -95,8 +99,12 @@ export async function saveChanges(
 ): Promise<SaveResult> {
   let aliases: Aliases | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const headCommit = await github.head();
-    const access = requireAccess(await permissions(github, headCommit), user, [
+    const snapshot = await github.publishSnapshot(['config/permissions.json']);
+    const headCommit = snapshot.head;
+    const permissionFile = snapshot.files[0];
+    if (!permissionFile)
+      throw new HttpError(502, 'Missing repository file: config/permissions.json');
+    const access = requireAccess(permissionsSchema.parse(permissionFile.value), user, [
       'maintainer',
       'editor',
       'trial',
@@ -181,6 +189,15 @@ export async function saveChanges(
         // Both inputs were already validated. Byte equality also avoids hashing and
         // reparsing the same tooltip twice solely to decide whether a merge is needed.
         rebased = stableStringify(head) !== stableStringify(change.base);
+        if (
+          rebased &&
+          next.compendium &&
+          head.compendium &&
+          head.compendium.snapshotAt !== change.base.compendium?.snapshotAt &&
+          stableStringify(compendiumContent(head.compendium)) ===
+            stableStringify(compendiumContent(next.compendium))
+        )
+          next.compendium = head.compendium;
         const result = rebased
           ? merge3(change.base, head, next)
           : { ok: true as const, merged: next };
@@ -216,7 +233,11 @@ export async function saveChanges(
           refreshNumberFallbacks(merged, lang);
       checkTranslationStamps(head, merged);
       refuseUnlowerable(merged, await exporterPin(merged), 'saved', head);
-      if (head && head.text.en?.text !== merged.text.en?.text) {
+      if (
+        head &&
+        head.text.en?.text !== merged.text.en?.text &&
+        Object.keys(merged.text).some((lang) => lang !== 'en')
+      ) {
         const result = carryNumberTranslations(head, merged);
         merged = result.tooltip;
         if (result.carried.length) carried.push(`${merged.hash}=${result.carried.join(',')}`);
@@ -251,6 +272,7 @@ export async function saveChanges(
         // Carried languages are attributed per tooltip, immediately after Clarity-Changed.
         `${input.message}\n\n${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(',')}\n` : ''}Clarity-Changed: ${changed.join(';')}${carried.length ? `\nClarity-Carried: ${carried.join(';')}` : ''}`,
         user,
+        { baseTree: snapshot.tree },
       );
       // Explicit body time is readable cross-origin without exposing response headers.
       return { commit, tooltips, savedAt: Date.now() };

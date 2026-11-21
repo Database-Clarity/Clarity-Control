@@ -4,7 +4,7 @@ import type { Change } from '../api';
 import { dependencyChunks } from '../dependencyChunks';
 import { saveDependencies } from './dependencies';
 import { liveForm, validateChanges } from './validation';
-import { jsonBytes, saveEnvelopeBytes, saveRequestLimits } from './requestSize';
+import { fitsSaveCosts, saveChangeCost, saveEnvelopeBytes } from './requestSize';
 
 const fallbackLanguages = (tooltip: Tooltip) =>
   languages.filter((lang) => usesEnglishFallback(tooltip, lang));
@@ -16,11 +16,9 @@ export function saveChunks(
   noTranslationImpact: boolean,
 ): Change[][] {
   const envelope = saveEnvelopeBytes(message, noTranslationImpact);
-  const bytes = new Map(changes.map((change) => [change.hash, jsonBytes(change)]));
+  const cost = new Map(changes.map((change) => [change.hash, saveChangeCost(change)]));
   const fits = (items: readonly Change[]) =>
-    items.length <= saveRequestLimits.changes &&
-    items.reduce((size, item) => size + bytes.get(item.hash)! + 1, envelope - 1) <=
-      saveRequestLimits.bytes;
+    fitsSaveCosts(items, envelope, ({ hash }) => cost.get(hash)!);
   if (fits(changes)) return [changes];
 
   const tooltips = { ...data.bundle.tooltips };
@@ -28,24 +26,57 @@ export function saveChunks(
   for (const { hash, next } of changes) tooltips[hash] = liveForm(next, fallbackLanguages(next));
   const { globalsFor } = saveDependencies(changes, data.bundle.tooltips, tooltips, data);
   for (const lang of languages) {
-    for (const { hash, next } of changes) {
+    for (const { hash, base, next } of changes) {
       const found = dependencies.get(hash)!;
       const live = tooltips[hash]?.text[lang]?.text;
       const raw = next.text[lang]?.text;
+      const previous = base && (usesEnglishFallback(base, lang) ? base.text.en : base.text[lang]);
+      if (live === undefined && raw === undefined && !previous) continue;
+      const globals = globalsFor(hash, lang);
       for (const text of new Set([live, raw])) {
         if (text === undefined) continue;
-        const { reads } = validateTextWithReads(
-          text,
-          lang,
-          globalsFor(hash, lang),
-          false,
-          hash,
-          data.aliases,
-        );
+        const { reads } = validateTextWithReads(text, lang, globals, false, hash, data.aliases);
         for (const target of reads.imports.values())
           if (dependencies.has(target)) found.add(target);
         if (reads.variables.size && dependencies.has(2)) found.add(2);
         if (dependencies.has(3)) found.add(3);
+      }
+      // If editing a target would break the importer's old text, land the repair of
+      // that importer first (or together, if its new text also needs the target).
+      if (previous && previous.text !== live) {
+        const checked = validateTextWithReads(
+          previous.text,
+          lang,
+          globals,
+          false,
+          hash,
+          data.aliases,
+        );
+        if (checked.issues.some(({ severity }) => severity === 'error')) {
+          const baseline = validateTextWithReads(
+            previous.text,
+            lang,
+            globalsFor(hash, lang, true),
+            false,
+            hash,
+            data.aliases,
+          );
+          const oldErrors = new Set(
+            baseline.issues
+              .filter(({ severity }) => severity === 'error')
+              .map(({ message }) => message),
+          );
+          if (
+            checked.issues.some(
+              ({ severity, message }) => severity === 'error' && !oldErrors.has(message),
+            )
+          ) {
+            for (const target of baseline.reads.imports.values())
+              dependencies.get(target)?.add(hash);
+            if (baseline.reads.variables.size) dependencies.get(2)?.add(hash);
+            dependencies.get(3)?.add(hash);
+          }
+        }
       }
     }
   }
@@ -62,6 +93,16 @@ export function saveChunks(
 
   // A target may also remove an import still used by saved text. Check each intermediate
   // catalogue before sending anything, using the same live validator as the review.
+  if (
+    !changes.some(({ base, next }) =>
+      languages.some(
+        (lang) =>
+          base?.text[lang]?.text !== next.text[lang]?.text ||
+          (base && usesEnglishFallback(base, lang) !== usesEnglishFallback(next, lang)),
+      ),
+    )
+  )
+    return chunks;
   let snapshot = data;
   for (const chunk of chunks) {
     const fallback = Object.fromEntries(

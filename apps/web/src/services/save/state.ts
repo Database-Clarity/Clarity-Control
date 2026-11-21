@@ -8,7 +8,7 @@ export interface SaveReview {
 }
 
 export interface SaveProgress {
-  phase: 'idle' | 'saving' | 'failed';
+  phase: 'idle' | 'saving' | 'staging' | 'failed';
   done: number;
   total: number;
   failed: string | null;

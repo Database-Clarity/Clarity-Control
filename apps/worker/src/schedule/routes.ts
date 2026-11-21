@@ -11,6 +11,7 @@ import {
   batchRequestStatus,
   retryBatchRequest,
   endBatchRequest,
+  stageScheduledSave,
 } from './admission.js';
 
 export const isBatchPath = (path: string) => path === '/batches' || path.startsWith('/batches/');
@@ -22,6 +23,7 @@ export function refuseWhenOff(): void {
 
 const actions = [
   'save',
+  'stage',
   'rebase',
   'remove',
   'schedule',
@@ -59,6 +61,8 @@ export async function batchesRoute(
   }
   if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
   switch (match[2]) {
+    case 'stage':
+      return stageScheduledSave(request, github, user, id);
     case 'save':
       if (switches.preparation()) return admitBatchRequest(request, github, user, id, 'save');
       return saveBatch(request, github, user, id);

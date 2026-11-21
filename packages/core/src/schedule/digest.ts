@@ -4,7 +4,7 @@ import { hashSchema } from '../legacy.js';
 import { publishOpIdSchema, publishPayloadSchema } from '../publishRequest.js';
 import { type Tooltip } from '../schemas.js';
 import { nonTranslationChanges, withField, withoutTranslations } from './fields.js';
-import { batchIdSchema, notBeforeSchema, scheduleLimits } from './schemas.js';
+import { batchIdSchema, notBeforeSchema } from './schemas.js';
 
 async function sha256(text: string): Promise<string> {
   const bytes = new TextEncoder().encode(text);
@@ -84,7 +84,6 @@ export const batchPublishPayloadSchema = z
     hashes: z
       .array(hashSchema)
       .min(1)
-      .max(scheduleLimits.membersPerBatch)
       .refine(
         (list) => list.every((hash, index) => index === 0 || list[index - 1] < hash),
         'Hashes must be sorted and unique',

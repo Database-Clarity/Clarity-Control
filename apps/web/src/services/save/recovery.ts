@@ -77,7 +77,7 @@ export function startSaveRecovery(): () => void {
           currentDraft &&
           submitted &&
           stableStringify(currentDraft) === stableStringify(submitted) &&
-          (receipt.confirmed || sameSubmission(bundle.tooltips[tooltip.hash], tooltip))
+          sameSubmission(bundle.tooltips[tooltip.hash], tooltip)
         ) {
           if (remaining === drafts) remaining = { ...drafts };
           delete remaining[tooltip.hash];

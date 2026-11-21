@@ -7,13 +7,13 @@ import {
   batchStatusSchema,
   dueSchema,
   isOpenStatus,
-  scheduleIndexSchema,
   scheduleLimits,
   schedulePaths,
   type Batch,
   type Due,
   type ScheduleIndex,
 } from '@clarity/core/schedule';
+export { scheduleIndexEntry as indexEntry } from '@clarity/core/schedule';
 import { z } from 'zod';
 import { publisherPinPath } from '../elementTags.js';
 import { HttpError } from '../http.js';
@@ -90,12 +90,8 @@ export function pushedHashes(file: RepoFile | null | undefined): Set<number> {
 export const scheduleRoles: Access['role'][] = ['maintainer', 'editor'];
 export const readRoles: Access['role'][] = ['maintainer', 'editor', 'translator'];
 
-/**
- * Members per batch the Worker admits (root 2026-11-13, CPU gate option A; core allows 100).
- * Scheduling validates every member in ONE request inside the Workers Free 10 ms CPU limit, so
- * this is a workflow limit, kept as one constant so it can move with the measured gate.
- */
-export const memberCap = 15;
+/** A remove request reads and validates the removed member bodies in the Worker. */
+export const removeChangeCap = 15;
 /** Changes per POST /batches/:id/save (same gate); the web chunks larger saves (P3a). */
 export const saveChangeCap = 15;
 /**
@@ -219,7 +215,6 @@ export function checkedBatch(batch: Batch): Batch {
 }
 
 type IndexEntry = ScheduleIndex['batches'][number];
-const indexEntrySchema = scheduleIndexSchema.shape.batches.element;
 const storedIndexSchema = z
   .object({
     batches: z
@@ -231,19 +226,6 @@ const storedIndexSchema = z
 /** index.json: derived and advisory; entries are passed through, ids and statuses checked. */
 export function parseIndex(value: unknown): ScheduleIndex {
   return storedIndexSchema.parse(value) as unknown as ScheduleIndex;
-}
-
-export function indexEntry(batch: Batch, hashes: readonly number[], updatedAt: string): IndexEntry {
-  return indexEntrySchema.parse({
-    id: batch.id,
-    name: batch.name,
-    status: batch.status,
-    notBefore: batch.notBefore,
-    opId: batch.opId,
-    revision: batch.revision,
-    hashes: [...hashes].sort((a, b) => a - b),
-    updatedAt,
-  });
 }
 
 /** index.json with `entry` replacing its batch; only the latest 100 terminal entries are kept. */
