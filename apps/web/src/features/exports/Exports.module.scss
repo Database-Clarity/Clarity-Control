@@ -1521,12 +1521,21 @@ $row: 1.75rem;
     margin-top: -0.25rem;
   }
 
-  .projectTitle {
-    flex: 0 1 auto;
-  }
-
   .titleRow {
     width: 100%;
+    flex-wrap: wrap;
+    row-gap: 0.125rem;
+
+    > .meta {
+      max-width: 100%;
+      white-space: normal;
+    }
+  }
+
+  .projectTitle {
+    min-width: 0;
+    overflow: visible;
+    white-space: normal;
   }
 
   .formGrid,
