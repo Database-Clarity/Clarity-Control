@@ -45,7 +45,16 @@ async function post(value: unknown) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(value),
   });
-  if (!response.ok) return failure(response);
+  if (!response.ok) {
+    const error = z.object({ error: z.string() }).safeParse(
+      await response
+        .clone()
+        .json()
+        .catch(() => null),
+    );
+    if (error.success) throw new Error(error.data.error);
+    return failure(response);
+  }
   return response.json();
 }
 

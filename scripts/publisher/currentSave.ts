@@ -8,6 +8,7 @@ import {
   currentSaveStagePaths as paths,
   currentSaveStageRecord,
   currentSaveStagingCapability,
+  currentSaveUploadUsage,
   permissionsSchema,
   publishOpIdSchema,
   stableStringify,
@@ -116,6 +117,12 @@ export async function drainCurrentSaves(pub: Publisher) {
       )
         break;
       discardStage(tree, id);
+      if (started.status === 'uploading') {
+        const path = paths.usage(started.requester.id);
+        const usage = currentSaveUploadUsage.safeParse(pub.read(tree, path));
+        if (usage.success && usage.data.active?.requestId === id)
+          tree[path] = pub.writeBlob(json({ ...usage.data, active: null }));
+      }
       const outcome = { requester: started.requester, updatedAt: new Date(now).toISOString() };
       let parent = head;
       if (started.status === 'queued') {

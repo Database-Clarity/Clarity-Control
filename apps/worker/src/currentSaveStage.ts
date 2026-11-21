@@ -1,9 +1,13 @@
 import {
   currentSaveIntent,
+  currentSaveMaxParts,
+  currentSaveStartsPerHour,
+  currentSaveStartWindow,
   currentSaveStageInput,
   currentSaveStagePaths as paths,
   currentSaveStageRecord,
   currentSaveStagingCapability,
+  currentSaveUploadUsage,
   permissionsSchema,
   publishOpIdSchema,
   stableStringify,
@@ -18,13 +22,14 @@ import { signingKey } from './publish.js';
 import { currentSaveRoles } from './save.js';
 import type { Identity } from './types.js';
 
-async function snapshot(github: GitHub, user: Identity, id: string) {
+async function snapshot(github: GitHub, user: Identity, id: string, upload = false) {
   const state = await github.publishSnapshot([
     'config/permissions.json',
     publisherPinPath,
     paths.record(id),
+    ...(upload ? [paths.usage(user.id)] : []),
   ]);
-  const [permissions, pin, stored] = state.files;
+  const [permissions, pin, stored, usage] = state.files;
   if (!permissions) throw new HttpError(502, 'Missing repository file: config/permissions.json');
   requireAccess(permissionsSchema.parse(permissions.value), user, currentSaveRoles);
   const record = stored ? currentSaveStageRecord.parse(stored.value) : null;
@@ -34,6 +39,7 @@ async function snapshot(github: GitHub, user: Identity, id: string) {
   return {
     ...state,
     record,
+    usage: usage ? currentSaveUploadUsage.parse(usage.value) : { active: null, starts: [] },
     supported: Array.isArray(capabilities) && capabilities.includes(currentSaveStagingCapability),
   };
 }
@@ -56,24 +62,55 @@ export async function stageCurrentSave(request: Request, github: GitHub, user: I
   const input = await body(request, currentSaveStageInput, 48 * 1024);
   const id = input.requestId;
   const requester = { id: user.id, login: user.login };
+  if (('part' in input ? input.part + 1 : input.parts) > currentSaveMaxParts) {
+    console.warn('Current save staging guard', { guard: 'part ceiling', requesterId: user.id });
+    throw new HttpError(
+      413,
+      'This save exceeds the staged upload safety limit of 16 MiB. Your drafts are kept.',
+    );
+  }
   try {
     validatePublishTime(id, Date.now());
   } catch {
     throw new HttpError(400, 'This save attempt expired. Retry from your drafts.');
   }
   for (let attempt = 0; attempt < 3; attempt++) {
-    const state = await snapshot(github, user, id);
+    const state = await snapshot(github, user, id, true);
     if (!state.supported)
       throw new HttpError(422, 'Update the installed publisher before landing these edits');
     const record = state.record;
     if (record && record.status !== 'uploading')
       throw new HttpError(409, 'This save was already queued');
-    const updatedAt = new Date().toISOString();
+    const now = Date.now();
+    const updatedAt = new Date(now).toISOString();
     let next: CurrentSaveStageRecord;
     const files: Record<string, unknown> = {};
+    const deletions: string[] = [];
+    const { active, starts } = state.usage;
+    const recentStarts = starts.filter((at) => now - at < currentSaveStartWindow);
+    if (record && (active?.requestId !== id || active.parts !== record.parts))
+      throw new HttpError(409, 'Another upload replaced this save. Retry from your drafts.');
     if ('part' in input) {
       if (input.part !== (record?.parts ?? 0))
         throw new HttpError(409, 'Save parts arrived out of order. Retry from your drafts.');
+      if (!record) {
+        if (recentStarts.length >= currentSaveStartsPerHour) {
+          console.warn('Current save staging guard', {
+            guard: 'starts per hour',
+            requesterId: user.id,
+          });
+          throw new HttpError(
+            429,
+            'This account has reached the staged upload limit of 30 starts per hour. Your drafts are kept. Try again later.',
+          );
+        }
+        recentStarts.push(now);
+        if (active) {
+          deletions.push(paths.record(active.requestId));
+          for (let part = 0; part < active.parts; part++)
+            deletions.push(paths.part(active.requestId, part));
+        }
+      }
       next = { status: 'uploading', parts: input.part + 1, requester, updatedAt };
       files[paths.part(id, input.part)] = input.content;
     } else {
@@ -105,13 +142,17 @@ export async function stageCurrentSave(request: Request, github: GitHub, user: I
       files[paths.kick(id)] = { requestId: id };
     }
     files[paths.record(id)] = next;
+    files[paths.usage(user.id)] = {
+      active: next.status === 'uploading' ? { requestId: id, parts: next.parts } : null,
+      starts: recentStarts,
+    };
     try {
       await github.commit(
         state.head,
         files,
         'part' in input ? 'Stage Current save part' : 'Queue Current save',
         user,
-        { baseTree: state.tree },
+        { baseTree: state.tree, deletions },
       );
       return 'part' in input ? json({ accepted: input.part }) : json({ queued: true }, 202);
     } catch (error) {

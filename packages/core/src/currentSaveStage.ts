@@ -4,10 +4,14 @@ import { timestampSchema } from './schemas.js';
 
 export const currentSaveStagingCapability = 'currentSaveStagingV1';
 export const currentSavePartBytes = 32 * 1024;
+export const currentSaveMaxParts = 512;
+export const currentSaveStartsPerHour = 30;
+export const currentSaveStartWindow = 60 * 60_000;
 export const currentSaveStageLifetime = 24 * 60 * 60_000;
 export const currentSaveSha = z.string().regex(/^[0-9a-f]{40}$/);
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const ordinal = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const partCount = ordinal.min(1).max(currentSaveMaxParts);
 const requester = z
   .object({
     id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -43,7 +47,7 @@ export const currentSaveIntent = z
     repo: z.string(),
     branch: z.string(),
     sourceCommit: currentSaveSha,
-    parts: ordinal.min(1),
+    parts: partCount,
     digest,
   })
   .strict();
@@ -66,8 +70,8 @@ const outcome = z.discriminatedUnion('status', [
 ]);
 export const currentSaveOutcome = outcome;
 export const currentSaveStageRecord = z.discriminatedUnion('status', [
-  record.extend({ status: z.literal('uploading'), parts: ordinal.min(1) }),
-  record.extend({ status: z.literal('queued'), envelope, parts: ordinal.min(1) }),
+  record.extend({ status: z.literal('uploading'), parts: partCount }),
+  record.extend({ status: z.literal('queued'), envelope, parts: partCount }),
   record.extend({
     status: z.literal('saved'),
     commit: currentSaveSha,
@@ -78,6 +82,12 @@ export const currentSaveStageRecord = z.discriminatedUnion('status', [
 ]);
 
 export type CurrentSaveStageRecord = z.infer<typeof currentSaveStageRecord>;
+export const currentSaveUploadUsage = z
+  .object({
+    active: z.object({ requestId: publishOpIdSchema, parts: partCount }).strict().nullable(),
+    starts: z.array(ordinal).max(currentSaveStartsPerHour),
+  })
+  .strict();
 export const currentSavePath = 'current-saves/';
 export const currentSaveStagePaths = {
   prefix: (id: string) => `${currentSavePath}${id}/`,
@@ -85,4 +95,5 @@ export const currentSaveStagePaths = {
   part: (id: string, part: number) => `${currentSavePath}${id}/${part}.json`,
   conflicts: (id: string) => `${currentSavePath}${id}/conflicts.json`,
   kick: (id: string) => `publish/kicks/current-save-${id}.json`,
+  usage: (requesterId: number) => `${currentSavePath}requesters/${requesterId}.json`,
 };

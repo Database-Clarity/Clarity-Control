@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   currentSavePartBytes,
   currentSaveStagePaths as currentPaths,
+  currentSaveStageLifetime,
   currentSaveStagingCapability,
   exportLegacy,
   publishableHash,
@@ -416,6 +417,25 @@ async function stagedCurrentFixture(count = 2, correctDigest = true) {
 }
 
 describe('offline staged Current saves', () => {
+  it('expires an abandoned Current upload and releases its account slot', async () => {
+    const f = await fixture();
+    const expired = NOW - currentSaveStageLifetime - 1;
+    f.change({
+      [currentPaths.record(S)]: {
+        requester: user,
+        status: 'uploading',
+        parts: 1,
+        updatedAt: new Date(expired).toISOString(),
+      },
+      [currentPaths.part(S, 0)]: 'YQ==',
+      [currentPaths.usage(user.id)]: { active: { requestId: S, parts: 1 }, starts: [expired] },
+    });
+    await drainCurrentSaves(f.pub);
+    expect(f.read(currentPaths.record(S))).toBeUndefined();
+    expect(f.read(currentPaths.part(S, 0))).toBeUndefined();
+    expect(f.read(currentPaths.usage(user.id))).toMatchObject({ active: null, starts: [expired] });
+  });
+
   it('applies a 36-tooltip export rename and acknowledges its immutable commit through one CAS', async () => {
     const f = await stagedCurrentFixture(36);
     const update = vi.spyOn(f.git, 'cas');
