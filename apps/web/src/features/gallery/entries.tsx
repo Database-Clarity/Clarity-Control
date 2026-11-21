@@ -410,11 +410,7 @@ function NoticeDemo() {
 
 function ScaleDemo() {
   const [value, setValue] = useState(100);
-  return (
-    <div className={styles.scaleDemo}>
-      <ScaleControl value={value} onCommit={setValue} />
-    </div>
-  );
+  return <ScaleControl value={value} onCommit={setValue} />;
 }
 
 function StepperDemo({ start }: { start: number }) {

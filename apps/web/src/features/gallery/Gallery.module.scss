@@ -315,11 +315,6 @@ textarea.input {
   }
 }
 
-.scaleDemo button:disabled {
-  // Keep the slider's width stable when passing through 100%.
-  visibility: hidden;
-}
-
 .stepper {
   @include stepper.group;
 
