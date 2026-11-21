@@ -194,11 +194,13 @@ it('validates inferred rules on held-out real definitions not in the 282 constru
     origin: 'editor',
   });
 });
-it('refuses distinct artifact same-name mechanics and ambiguous or mislabelled generic Siphon sources', () => {
+it('links distinct artifact same-name mechanics to each section and still refuses ambiguous Siphon sources', () => {
   const tab = source.tabs.find((t) => t.gid === '473308249')!;
   const rows = tab.rows.filter((r) => r.name === 'Elemental Siphon');
   expect(rows).toHaveLength(2);
-  expect(combineCompendiumMatches(rows.map((row) => ({ tab, row })))).toBeUndefined();
+  expect(combineCompendiumMatches(rows.map((row) => ({ tab, row })))).toMatchObject({
+    parts: ['Tablet of Ruin (Heresy)', "Hunter's Journal (Echoes)"],
+  });
   expect(inferredSiphonDecision(entry(3619040076), source)).toBeUndefined();
   const unsupported = { ...entry(3832366019), name: 'Arc Entropy Siphon' };
   unsupported.manifestFacts = structuredClone(unsupported.manifestFacts)!;
