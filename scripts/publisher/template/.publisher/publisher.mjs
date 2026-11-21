@@ -30168,6 +30168,20 @@ function bundleGlobalUsages(data, entries) {
   );
 }
 
+// apps/web/src/features/globals/usageStamp.ts
+var globalUsagesFile = "global-usages.json";
+function globalUsageStampInputs(items, aliases, groups) {
+  return {
+    items: JSON.stringify(
+      Object.keys(items).sort().map((key) => {
+        const { hash: hash2, baseHash, name: name2, categoryId, isEnhanced, exotic: exotic2, plugCategoryHash } = items[key];
+        return [key, hash2, baseHash, name2, categoryId, isEnhanced, exotic2, plugCategoryHash];
+      })
+    ),
+    aliases: stableStringify({ aliases, groups: groups?.groups ?? null })
+  };
+}
+
 // scripts/publisher/batch.ts
 init_schedule();
 var json2 = (v) => JSON.stringify(v, null, 2) + "\n";
@@ -34038,7 +34052,8 @@ var Publisher = class _Publisher {
     };
     const catalog = bundle.globals;
     const aliasFacts = this.options.aliasFacts;
-    let usages;
+    const nextTree = { ...oldTree, "bundle.json": this.git.writeBlob(json5(bundle)) };
+    delete nextTree[globalUsagesFile];
     if (catalog && aliasFacts?.generatorSha === this.options.generatorSha && aliasFacts.items) {
       try {
         const groups = bundle.aliasGroups === void 0 ? void 0 : aliasGroupsSchema.parse(bundle.aliasGroups);
@@ -34049,22 +34064,30 @@ var Publisher = class _Publisher {
           this.options.sandboxConflicts,
           bundle.sandboxPointers
         ).aliases;
-        usages = bundleGlobalUsages({ bundle, aliases, items: aliasFacts.items }, catalog.entries);
+        const { items, aliases: importAliases } = globalUsageStampInputs(
+          aliasFacts.items,
+          aliases,
+          groups
+        );
+        nextTree[globalUsagesFile] = this.git.writeBlob(
+          json5({
+            stamp: {
+              version: 1,
+              sourceCommit: h,
+              itemsHash: createHash3("sha256").update(items).digest("hex"),
+              aliasesHash: createHash3("sha256").update(importAliases).digest("hex")
+            },
+            usages: bundleGlobalUsages(
+              { bundle, aliases, items: aliasFacts.items },
+              catalog.entries
+            )
+          })
+        );
       } catch (error62) {
         console.warn("Could not precompute global usages:", error62);
       }
     }
-    const c = this.git.commit(
-      old,
-      {
-        ...oldTree,
-        "bundle.json": this.git.writeBlob(
-          json5(usages ? { ...bundle, globals: { ...catalog, usages } } : bundle)
-        )
-      },
-      `Bundle ${h}`,
-      appCredits
-    );
+    const c = this.git.commit(old, nextTree, `Bundle ${h}`, appCredits);
     this.git.cas(ref, old, c);
   }
   async run(syncGlobals = true) {
