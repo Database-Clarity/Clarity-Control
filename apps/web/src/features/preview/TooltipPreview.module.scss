@@ -592,6 +592,9 @@ $symbol: 0.75rem;
   :global([data-panel='preview']) .fill {
     width: calc(100% + 2 * var(--page-x));
     margin-inline: calc(-1 * var(--page-x));
+    .description {
+      max-width: none;
+    }
     .header,
     .description,
     .diagnostics {

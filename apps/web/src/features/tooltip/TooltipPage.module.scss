@@ -529,6 +529,7 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
 }
 .groupedBase,
 .groupedEnhanced {
+  text-align: end;
   white-space: nowrap;
   color: var(--text2);
 }

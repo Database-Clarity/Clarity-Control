@@ -85,6 +85,7 @@
 }
 .panel button {
   @include controls.button;
+  justify-self: start;
   white-space: nowrap;
 }
 .panel input,
