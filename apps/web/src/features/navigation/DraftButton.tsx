@@ -201,6 +201,12 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
   );
 }
 
+function toolbarDiscardRect() {
+  return document
+    .querySelector('[aria-label="Editor tools"] button[aria-label="Discard this draft"]')
+    ?.getBoundingClientRect();
+}
+
 /** Header button: the draft count, a dot while anything needs attention. */
 export function DraftButton({ iconOnly = false }: { iconOnly?: boolean }) {
   const hashes = useDraftStore(useShallow((state) => Object.keys(state.drafts)));
@@ -251,6 +257,7 @@ export function DraftButton({ iconOnly = false }: { iconOnly?: boolean }) {
         anchorRef={button}
         width={460}
         align="end"
+        desktopClearance={toolbarDiscardRect}
       >
         <DraftsContent onClose={() => setOpen(false)} />
       </ShellOverlay>

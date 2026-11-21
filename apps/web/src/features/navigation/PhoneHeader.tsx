@@ -118,10 +118,11 @@ export function PhoneHeader({
           className={styles.title}
           aria-haspopup="dialog"
           aria-expanded={sheet === 'finder'}
+          title={title}
           onClick={() => setSheet((value) => (value === 'finder' ? null : 'finder'))}
         >
           <span
-            className={kicker ? undefined : styles.twoLines}
+            className={styles.label}
             style={{ '--title-em': titleWidthEm(title) } as CSSProperties}
           >
             {kicker && <span className={styles.kicker}>{kicker}</span>}
@@ -130,9 +131,9 @@ export function PhoneHeader({
           <span className={styles.chevron} aria-hidden="true" />
         </button>
       ) : (
-        <h1 className={styles.title}>
+        <h1 className={styles.title} title={title}>
           <span
-            className={styles.twoLines}
+            className={styles.label}
             style={{ '--title-em': titleWidthEm(title) } as CSSProperties}
           >
             {title}

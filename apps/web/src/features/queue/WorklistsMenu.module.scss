@@ -39,6 +39,10 @@
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
+  &:disabled {
+    color: var(--text2);
+    opacity: 1;
+  }
   > span:first-child {
     overflow-wrap: anywhere;
     white-space: normal;
