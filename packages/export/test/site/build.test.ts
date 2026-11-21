@@ -50,7 +50,7 @@ const readJson = (bytes: Uint8Array | undefined) =>
   JSON.parse(Buffer.from(bytes!).toString('utf8'));
 const builtPaths = (manifest: { files: Record<string, { outcome: string }> }) =>
   Object.entries(manifest.files)
-    .filter(([path, file]) => /\/v1\/f\d\.json$/.test(path) && file.outcome === 'built')
+    .filter(([path, file]) => /\/v2\/f\d\.json$/.test(path) && file.outcome === 'built')
     .map(([path]) => path);
 
 const style = (id: string, uid: string, extra: Record<string, unknown> = {}) => ({
@@ -96,7 +96,7 @@ describe('pins and the legacy job', () => {
       projects: {
         reference: project('reference', [style('main', 'reserved001')]),
         alpha: project('alpha', [
-          style('main', 'alpha00001'),
+          style('main', 'alpha00001', { formatVersion: 1 }),
           legacyFile('dim', 'alpha00002', 'dim'),
         ]),
       },
@@ -126,16 +126,17 @@ describe('pins and the legacy job', () => {
     expect(harness.served('alpha/v1/dim.json')).toEqual(
       harness.show(live, 'descriptions/dim.json'),
     );
-    expect(harness.served('alpha/v1/main.json')).toBeDefined();
+    expect(readJson(harness.served('alpha/v2/main.json'))).toMatchObject({ format: 2 });
+    expect(harness.served('alpha/v1/main.json')).toBeUndefined();
     expect(configSchema.safeParse(project('reference', [])).success).toBe(false);
-    expect(harness.served('reference/v1/main.json')).toBeUndefined();
+    expect(harness.served('reference/v2/main.json')).toBeUndefined();
     for (const shape of ['lines', 'text']) {
       const file = harness.servedJson<{
         format: number;
         shape: string;
         perks: Record<string, unknown>;
-      }>(`reference/v1/${shape}/en.json`);
-      expect(file).toMatchObject({ format: 1, shape });
+      }>(`reference/v2/${shape}/en.json`);
+      expect(file).toMatchObject({ format: 2, shape });
       expect(file.perks).toHaveProperty('-1');
       expect(Object.keys(file.perks).length).toBeGreaterThan(1);
     }
@@ -146,21 +147,18 @@ describe('pins and the legacy job', () => {
     for (const path of Object.keys(manifest.files).filter((path) => path.endsWith('.html'))) {
       const markup = harness.served(path)!.toString();
       const icons = [...markup.matchAll(/<link rel="icon"[^>]+>/g)];
-      expect(icons).toHaveLength(2);
-      for (const theme of ['light', 'dark']) {
-        const target = `reference/kit/brand/mark-${theme}.svg`;
-        expect(markup).toContain(
-          `<link rel="icon" type="image/svg+xml" href="kit/brand/mark-${theme}.svg" media="(prefers-color-scheme: ${theme})">`,
-        );
-        expect(manifest.files[target]!.sha256).toBe(sha256(harness.served(target)!));
-      }
+      const target = 'reference/kit/brand/clarity-icon.svg';
+      expect(icons.map(([link]) => link)).toEqual([
+        '<link rel="icon" type="image/svg+xml" href="kit/brand/clarity-icon.svg">',
+      ]);
+      expect(manifest.files[target]!.sha256).toBe(sha256(harness.served(target)!));
     }
     expect(harness.served('reference/partner-kit.zip')).toBeDefined();
     const index = harness.servedJson<{ files: { path: string; sha256: string }[] }>(
       'alpha/index.json',
     );
     expect(index.files.map((file) => file.path)).toEqual([
-      'alpha/v1/main.json',
+      'alpha/v2/main.json',
       'alpha/v1/dim.json',
     ]);
     const status = harness.servedJson<{
@@ -529,7 +527,7 @@ describe('build-site per-file outcomes', () => {
     await harness.seed({ input: fixtureText(), projects: { alpha: project('alpha', [file]) } });
     expectOk(harness.legacyRun());
     expectOk(harness.siteRun());
-    const published = harness.served('alpha/v1/main.json');
+    const published = harness.served('alpha/v2/main.json');
     file.data = { ...file.data, languages: ['de', 'en'] };
     harness.commit('editor-data', {
       'exports/projects/alpha.json': JSON.stringify(project('alpha', [file])),
@@ -542,9 +540,9 @@ describe('build-site per-file outcomes', () => {
       ['--carry-after', '0'],
     ]) {
       expectOk(harness.siteRun({ extra }));
-      expect(harness.served('alpha/v1/main.json')).toEqual(published);
+      expect(harness.served('alpha/v2/main.json')).toEqual(published);
       expect(entry()).toMatchObject({ languages: ['en'], status: 'stale' });
-      expect(readJson(harness.served('alpha/v1/main.json')).languages).toEqual(['en']);
+      expect(readJson(harness.served('alpha/v2/main.json')).languages).toEqual(['en']);
     }
     expectOk(harness.siteRun());
     expect(entry()).toMatchObject({ languages: ['en', 'de'], status: 'current' });
@@ -560,9 +558,9 @@ describe('build-site per-file outcomes', () => {
     const until = '2099-01-01T00:00:00.000Z';
     const retained = [
       {
-        path: 'alpha/v1/old',
+        path: 'alpha/v2/old',
         uid: 'alpha00009',
-        formatVersion: 1,
+        formatVersion: 2,
         snapshot: split('old', 'alpha00009'),
         until,
       },
@@ -581,21 +579,21 @@ describe('build-site per-file outcomes', () => {
       index.files.map((file) => [file.path, file.languages, file.status, file.updatesUntil]),
     ).toEqual([
       ...languages.map((language) => [
-        `alpha/v1/main/${language}.json`,
+        `alpha/v2/main/${language}.json`,
         [language],
         'current',
         undefined,
       ]),
       ...languages.map((language) => [
-        `alpha/v1/old/${language}.json`,
+        `alpha/v2/old/${language}.json`,
         [language],
         'current',
         until,
       ]),
     ]);
-    const english = readJson(harness.served('alpha/v1/main/en.json'));
+    const english = readJson(harness.served('alpha/v2/main/en.json'));
     for (const language of languages) {
-      const file = readJson(harness.served(`alpha/v1/main/${language}.json`));
+      const file = readJson(harness.served(`alpha/v2/main/${language}.json`));
       expect(file.languages).toEqual([language]);
       // Complete in every language: the fixture's untranslated perks carry the English text.
       expect(Object.keys(file.perks)).toEqual(Object.keys(english.perks));
@@ -609,8 +607,8 @@ describe('build-site per-file outcomes', () => {
       Object.keys(manifest.attempts)
         .filter((path) => path.startsWith('alpha/'))
         .sort(),
-    ).toEqual(['alpha/v1/main', 'alpha/v1/old']);
-    expect(manifest.files['alpha/v1/main/de.json']!.outcome).toBe('built');
+    ).toEqual(['alpha/v2/main', 'alpha/v2/old']);
+    expect(manifest.files['alpha/v2/main/de.json']!.outcome).toBe('built');
   }, 180_000);
 
   it('removed languages update for three months, re-additions reclaim URLs, and expired URLs disappear', async () => {
@@ -637,7 +635,7 @@ describe('build-site per-file outcomes', () => {
     await harness.seed({ input: input('Before'), projects: { alpha: config } });
     expectOk(harness.legacyRun());
     expectOk(harness.siteRun({ extra: ['--now', '2026-11-17T00:00:00.000Z'] }));
-    const before = harness.served('alpha/v1/main/de.json');
+    const before = harness.served('alpha/v2/main/de.json');
     const middle = structuredClone(config);
     if ('data' in middle.files[0]!) middle.files[0].data.languages = ['en', 'fr'];
     middle.retained = planRetained(config, middle, new Date('2026-11-17T00:00:00.000Z')).retained;
@@ -650,7 +648,7 @@ describe('build-site per-file outcomes', () => {
     harness.commit('converter', { 'liveDescriptions.json': input('After') });
     expectOk(harness.legacyRun());
     expectOk(harness.siteRun({ extra: ['--now', '2027-02-16T00:00:00.000Z'] }));
-    expect(harness.served('alpha/v1/main/de.json')).not.toEqual(before);
+    expect(harness.served('alpha/v2/main/de.json')).not.toEqual(before);
     const index = () =>
       harness.servedJson<{ files: { path: string; updatesUntil?: string; status: string }[] }>(
         'alpha/index.json',
@@ -658,7 +656,7 @@ describe('build-site per-file outcomes', () => {
     expect(index().files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: 'alpha/v1/main/de.json',
+          path: 'alpha/v2/main/de.json',
           status: 'current',
           updatesUntil: '2027-02-17T00:00:00.000Z',
         }),
@@ -670,8 +668,8 @@ describe('build-site per-file outcomes', () => {
     expect(retainedNotices).toHaveLength(2);
     expect(retainedNotices.map((notice) => notice.message)).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('alpha/v1/main/de.json'),
-        expect.stringContaining('alpha/v1/main/fr.json'),
+        expect.stringContaining('alpha/v2/main/de.json'),
+        expect.stringContaining('alpha/v2/main/fr.json'),
       ]),
     );
     const reclaimed = structuredClone(config);
@@ -689,11 +687,11 @@ describe('build-site per-file outcomes', () => {
     );
     expect(index().files).toHaveLength(3);
     expectOk(harness.siteRun({ extra: ['--now', '2027-02-17T00:00:00.000Z'] }));
-    expect(harness.served('alpha/v1/main/de.json')).toBeUndefined();
-    expect(harness.served('alpha/v1/main/fr.json')).toBeDefined();
+    expect(harness.served('alpha/v2/main/de.json')).toBeUndefined();
+    expect(harness.served('alpha/v2/main/fr.json')).toBeDefined();
     expect(index().files).toHaveLength(2);
     expect(harness.servedJson<{ files: object }>('_build/manifest.json').files).not.toHaveProperty(
-      'alpha/v1/main/de.json',
+      'alpha/v2/main/de.json',
     );
   }, 180_000);
 
@@ -814,12 +812,12 @@ describe('build-site per-file outcomes', () => {
     const boot = harness.siteRun({ extra: ['--max-bytes', '4000'] });
     expectOk(boot);
     expect(boot.result).toMatchObject({ bootstrap: true });
-    expect(harness.served('alpha/v1/big.json')).toBeUndefined();
-    expect(harness.served('beta/v1/small.json')).toBeDefined();
+    expect(harness.served('alpha/v2/big.json')).toBeUndefined();
+    expect(harness.served('beta/v2/small.json')).toBeDefined();
     expect(harness.servedJson<{ files: unknown[] }>('alpha/index.json').files).toEqual([]);
     // A normal run without the limit publishes it; then it is oversized while beta updates: carried.
     expectOk(harness.siteRun());
-    const big = harness.served('alpha/v1/big.json');
+    const big = harness.served('alpha/v2/big.json');
     expect(big).toBeDefined();
     const keys = {
       categories: ['weapon-trait'],
@@ -839,14 +837,14 @@ describe('build-site per-file outcomes', () => {
       ),
     });
     expectOk(harness.siteRun({ extra: ['--max-bytes', '4000'] }));
-    expect(harness.served('alpha/v1/big.json')).toEqual(big);
-    expect(harness.served('gamma/v1/big.json')).toBeUndefined(); // new and oversized: absent
+    expect(harness.served('alpha/v2/big.json')).toEqual(big);
+    expect(harness.served('gamma/v2/big.json')).toBeUndefined(); // new and oversized: absent
     const notices = harness.servedJson<{ kind: string; path?: string }[]>('_build/notices.json');
     expect(
-      notices.filter((notice) => notice.path === 'gamma/v1/big.json').map((notice) => notice.kind),
+      notices.filter((notice) => notice.path === 'gamma/v2/big.json').map((notice) => notice.kind),
     ).toEqual(['not-published']);
     expect(
-      notices.filter((notice) => notice.path === 'alpha/v1/big.json').map((notice) => notice.kind),
+      notices.filter((notice) => notice.path === 'alpha/v2/big.json').map((notice) => notice.kind),
     ).toEqual(['build-failed']);
     // Budget exhausted (nothing may start): published files carry, new ones stay absent, legacy copies still copy.
     harness.commit('editor-data', {
@@ -857,8 +855,8 @@ describe('build-site per-file outcomes', () => {
     const budget = harness.siteRun({ extra: ['--carry-after', '0'] });
     expectOk(budget);
     expect(budget.result).toMatchObject({ budgetHit: true });
-    expect(harness.served('alpha/v1/big.json')).toEqual(big);
-    expect(harness.served('delta/v1/nn.json')).toBeUndefined();
+    expect(harness.served('alpha/v2/big.json')).toEqual(big);
+    expect(harness.served('delta/v2/nn.json')).toBeUndefined();
     const liveCommit = readJson(harness.show('export-pins', 'pins/latest.json')).liveCommit;
     expect(harness.served('delta/v1/dim.json')).toEqual(
       harness.show(liveCommit, 'descriptions/dim.json'),
@@ -897,7 +895,7 @@ describe('build-site per-file outcomes', () => {
     const builtSecond = builtPaths(harness.servedJson('_build/manifest.json'));
     expect(builtSecond.length).toBeGreaterThan(0);
     // The files the first run skipped go first (no starvation); only then any it rebuilt.
-    const all = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v1/${file.id}.json`);
+    const all = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v2/${file.id}.json`);
     const skipped = all.filter((path) => !builtFirst.includes(path));
     expect(builtSecond.filter((path) => skipped.includes(path))).toHaveLength(
       Math.min(skipped.length, builtSecond.length),
@@ -973,7 +971,7 @@ describe('build-site per-file outcomes', () => {
     harness.commit('converter', harness.wrapEngine({ hang: ['f0', 'f1'] }));
     expectOk(harness.legacyRun());
     const limits = ['--file-timeout', '20000', '--carry-after', '10000'];
-    const paths = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v1/${file.id}.json`);
+    const paths = files.map((file, index) => `${index < 3 ? 'alpha' : 'beta'}/v2/${file.id}.json`);
     const attempted = () => {
       const manifest = harness.servedJson<{ builtAt: string; attempts: Record<string, string> }>(
         '_build/manifest.json',

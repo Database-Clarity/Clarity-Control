@@ -1,7 +1,7 @@
 // Vocabulary check (spec section 5): a file's marker sets are its entry key paths with the value
-// type at each path, its class names (legacy `classNames`; v1 `style`, `icon`, and `element`
+// type at each path, its class names (legacy `classNames`; v2 `style`, `icon`, and `element`
 // values; per path, so part- and line-level classes differ), and the configured string markers
-// (replacement tokens) it uses. Link, title (v1 `note`), and formula presence are key paths. A
+// (replacement tokens) it uses. Link, title (v2 `note`), and formula presence are key paths. A
 // build that adds, removes, or retypes any member is breaking; text content and new entries are
 // not (entries, languages, and array positions are wildcards).
 import { converterSettings } from '../converter/index.js';
@@ -20,8 +20,8 @@ export function markerSet(file: unknown, tokens: readonly string[] = []): string
   const used = new Set<string>();
   const wanted = [...new Set(tokens.filter((token) => token.length > 0))];
   // Paths whose keys are data (hashes, languages, text indices), not vocabulary.
-  const v1 = isV1(file);
-  const classKeys = v1 ? ['style', 'icon', 'element'] : ['classNames'];
+  const configurable = isConfigurableOutput(file);
+  const classKeys = configurable ? ['style', 'icon', 'element'] : ['classNames'];
   const visit = (value: unknown, path: string, parentKey: string) => {
     markers.add(`${path}:${typeOf(value)}`);
     if (typeof value === 'string') {
@@ -34,7 +34,7 @@ export function markerSet(file: unknown, tokens: readonly string[] = []): string
       return;
     }
     if (value && typeof value === 'object') {
-      const wildcard = isDataKeyed(path, v1);
+      const wildcard = isDataKeyed(path, configurable);
       for (const [key, child] of Object.entries(value))
         visit(child, `${path}.${wildcard ? '*' : key}`, key);
     }
@@ -44,11 +44,12 @@ export function markerSet(file: unknown, tokens: readonly string[] = []): string
   return [...markers].sort();
 }
 
-const isV1 = (file: unknown) =>
+const isConfigurableOutput = (file: unknown) =>
   !!file && typeof file === 'object' && 'descriptions' in file && 'perks' in file;
 
-function isDataKeyed(path: string, v1: boolean) {
-  if (v1) return path === '$.perks' || path === '$.descriptions[]' || path === '$.perks.*.edited';
+function isDataKeyed(path: string, configurable: boolean) {
+  if (configurable)
+    return path === '$.perks' || path === '$.descriptions[]' || path === '$.perks.*.edited';
   // Legacy: { "<hash>": { ..., descriptions: { "<lang>": ... } } }
   return path === '$' || path === '$.*.descriptions';
 }

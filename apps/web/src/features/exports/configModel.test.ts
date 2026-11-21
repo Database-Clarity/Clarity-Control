@@ -219,6 +219,7 @@ describe('G-ROUNDTRIP', () => {
     state = setPreset(state, key, 'markdown');
     const markdown = state.config.files[0] as StyleFile;
     expect(markdown.uid).toBe(key);
+    expect(markdown.formatVersion).toBe(2);
     expect(markdown.shape).toBe(styleShapes.markdown);
     expect(changedRows(markdown)).toEqual([]);
     state = setPreset(state, key, 'dim');
@@ -231,6 +232,7 @@ describe('G-ROUNDTRIP', () => {
     state = setPreset(state, key, 'structured');
     state = setShape(state, key, 'text');
     const text = state.config.files[0] as StyleFile;
+    expect(text.formatVersion).toBe(2);
     expect(Object.values(text.format.symbols).some((rule) => rule?.mode === 'keep')).toBe(false);
     expect(configSchema.safeParse(state.config).success).toBe(true);
   });

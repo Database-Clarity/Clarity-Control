@@ -7,7 +7,7 @@ import {
 import { descriptionFilter } from '../src/converter/descriptionFilter.js';
 import { expandAliases } from '../src/converter/index.js';
 import { prismaticAssets } from '../src/converter/prismatic.js';
-import { emptyNotes, transform } from '../src/v1/transform.js';
+import { emptyNotes, transform } from '../src/v2/transform.js';
 import { fixtureInput, liveInput, editorDataInput, expected, sha256 } from './helpers.js';
 
 const json = (bytes: Uint8Array) => JSON.parse(new TextDecoder().decode(bytes));

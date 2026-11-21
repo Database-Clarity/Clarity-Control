@@ -12,6 +12,8 @@ import { permissionsSchema, type Permissions } from '@clarity/core';
 import {
   configLimits,
   configSchema,
+  configurableFormatVersion,
+  currentFileFormatVersion,
   deletesRetained,
   filePath,
   fileUrls,
@@ -81,7 +83,7 @@ function warmSchemas(): void {
   const file = {
     id: 'warm',
     uid: 'warmwarmwarmwarm',
-    formatVersion: 1,
+    formatVersion: configurableFormatVersion,
     preset: 'markdown',
     shape: 'lines',
     data: {
@@ -470,7 +472,7 @@ function summary(value: unknown) {
     const { id, preset, formatVersion } = file as Record<string, unknown>;
     if (typeof id !== 'string' || typeof preset !== 'string' || typeof formatVersion !== 'number')
       return null;
-    rows.push({ id, preset, formatVersion });
+    rows.push({ id, preset, formatVersion: currentFileFormatVersion(preset, formatVersion) });
   }
   return {
     schema,

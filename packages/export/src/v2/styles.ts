@@ -3,7 +3,14 @@
 // reads the config alone, so a symbol added to the engine later stays out of every existing file
 // until its owner chooses it ("nothing new", owner 2026-11-11).
 import type { FileData, FileFormat, StyleFile, SymbolRule } from './config.js';
-import { iconSymbols, symbolIds, type Shape, type Style, type SymbolId } from './vocabulary.js';
+import {
+  configurableFormatVersion,
+  iconSymbols,
+  symbolIds,
+  type Shape,
+  type Style,
+  type SymbolId,
+} from './vocabulary.js';
 
 const keep: SymbolRule = { mode: 'keep' };
 const drop: SymbolRule = { mode: 'drop' };
@@ -114,5 +121,12 @@ export function newStyleFile(
     if (format.titles.mode === 'keep') format.titles = { mode: 'drop' };
     if (format.links.mode === 'keep') format.links = { mode: 'drop' };
   }
-  return { id, formatVersion: 1, preset: style, shape, data: structuredClone(data), format };
+  return {
+    id,
+    formatVersion: configurableFormatVersion,
+    preset: style,
+    shape,
+    data: structuredClone(data),
+    format,
+  };
 }

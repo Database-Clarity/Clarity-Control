@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { compile } from 'sass';
 import { fileURLToPath } from 'node:url';
-import { isV1Lines, lastEdit, outputRows, renderLine, rowKeys } from './output';
+import { isStructuredLines, lastEdit, outputRows, renderLine, rowKeys } from './output';
 
 test('Exotic output uses the themed yellow colour for lines, text, and arrows', () => {
   const line = renderLine({
@@ -25,7 +25,7 @@ test('Exotic output uses the themed yellow colour for lines, text, and arrows', 
   expect(rule?.[2]).toMatch(/color:\s*var\(--tp-yellow\)/);
 });
 
-test('format v1 lines map to the class names the tooltip renderer draws', () => {
+test('format v2 lines map to the class names the tooltip renderer draws', () => {
   expect(
     renderLine({
       style: ['bold'],
@@ -48,9 +48,9 @@ test('format v1 lines map to the class names the tooltip renderer draws', () => 
     ],
   });
   expect(renderLine({ spacer: true })).toEqual({ classNames: ['spacer'] });
-  expect(isV1Lines([{ parts: [] }, { spacer: true }])).toBe(true);
-  // An older engine's lines (class names and spans) are not format v1.
-  expect(isV1Lines([{ linesContent: [{ text: 'a' }] }])).toBe(false);
+  expect(isStructuredLines([{ parts: [] }, { spacer: true }])).toBe(true);
+  // An older engine's lines (class names and spans) are not format v2.
+  expect(isStructuredLines([{ linesContent: [{ text: 'a' }] }])).toBe(false);
 });
 
 test('output rows hold one tooltip line each, and the last edit names what changed', () => {

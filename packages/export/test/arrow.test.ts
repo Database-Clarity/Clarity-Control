@@ -2,7 +2,7 @@ import { validateText } from '@clarity/core';
 import { expect, test } from 'vitest';
 import { parseMarkup } from '@clarity/core/markup/parse';
 import { buildLegacy, deployedLegacyPresets, newStyleFile } from '../src/index.js';
-import { emptyNotes, transform } from '../src/v1/transform.js';
+import { emptyNotes, transform } from '../src/v2/transform.js';
 import { fixtureInput } from './helpers.js';
 
 const inputWith = (text: string) => {

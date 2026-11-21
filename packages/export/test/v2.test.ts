@@ -7,7 +7,7 @@ import {
   type InventoryItems,
   compile,
   compileStages,
-  decodeV1,
+  decodeV2,
   exportLanguages,
   filePath,
   fileUrls,
@@ -20,7 +20,7 @@ import {
   styleFormats,
   styles,
   symbolIds,
-  validateV1,
+  validateV2,
   type Catalog,
   type ExportConfig,
   type LanguageFiles,
@@ -28,7 +28,7 @@ import {
   type StyleFile,
 } from '../src/index.js';
 import { configSchema, immutableChanges, migrateConfig, unknownCategories } from '../src/config.js';
-import { emptyNotes, transform } from '../src/v1/transform.js';
+import { emptyNotes, transform } from '../src/v2/transform.js';
 import { lowerInput } from '../src/elementTags.js';
 import { editorDataInput, fixtureInput, heldBytes, liveInput, sha256 } from './helpers.js';
 
@@ -156,6 +156,41 @@ describe('config schema 1 (AC1)', () => {
     }
   });
 
+  test('upgrades saved configurable files and retained paths while preserving legacy metadata', () => {
+    const current = {
+      ...file({ languageFiles: 'perLanguage', languages: ['en'] }),
+      uid: 'styletest',
+    };
+    const old = { ...current, formatVersion: 1 };
+    const legacy = {
+      id: 'compatibility',
+      formatVersion: 1,
+      preset: 'clarityV2',
+      arrowFallback: true,
+    };
+    const until = '2099-01-01T00:00:00.000Z';
+    const snapshot = { ...old, data: { ...old.data, languages: ['de'] } };
+    const stored = {
+      ...validConfig(),
+      files: [old, legacy],
+      retained: [{ path: 'dim/v1/main', uid: current.uid, formatVersion: 1, snapshot, until }],
+    };
+    const migrated = migrateConfig(JSON.parse(JSON.stringify(stored)));
+    expect(migrated.files).toEqual([current, legacy]);
+    expect(migrated.retained).toEqual([
+      {
+        ...stored.retained[0],
+        path: 'dim/v2/main',
+        formatVersion: 2,
+        snapshot: { ...snapshot, formatVersion: 2 },
+      },
+    ]);
+    expect(migrateConfig(migrated)).toEqual(migrated);
+    expect(() =>
+      migrateConfig({ ...stored, retained: [{ ...stored.retained[0], path: 'dim/v2/main' }] }),
+    ).toThrow();
+  });
+
   test.each([
     ['unknown top-level key', (c: Loose) => ({ ...c, extra: 1 })],
     ['unknown file key', (c: Loose) => ({ ...c, files: [{ ...c.files[0], extra: 1 }] })],
@@ -216,7 +251,10 @@ describe('config schema 1 (AC1)', () => {
       'legacy preset with data',
       (c: Loose) => ({ ...c, files: [{ ...c.files[1], data: c.files[0].data }] }),
     ],
-    ['format version 2', (c: Loose) => ({ ...c, files: [{ ...c.files[1], formatVersion: 2 }] })],
+    [
+      'format version 2 on a legacy preset',
+      (c: Loose) => ({ ...c, files: [{ ...c.files[1], formatVersion: 2 }] }),
+    ],
     ['schema 2', (c: Loose) => ({ ...c, schema: 2 })],
     ['path traversal id', (c: Loose) => ({ ...c, id: '../dim' })],
     ['reserved id', (c: Loose) => ({ ...c, id: 'index' })],
@@ -409,7 +447,7 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
       catalog,
     });
     expect(Object.keys(plan.expanded!)).toEqual(['250']);
-    const decoded = decodeV1(json(plan.bytes));
+    const decoded = decodeV2(json(plan.bytes));
     expect(decoded[250].descriptions).toEqual(plan.expanded![250].descriptions);
     const none = compile(refsInput, file({ sandboxPerks: [] }), { catalog });
     expect(none.expanded).not.toHaveProperty('250');
@@ -446,13 +484,13 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
 
   test('every description index and relation resolves; a broken file is refused', () => {
     const plan = compile(refsInput, file(), { catalog });
-    expect(() => validateV1(plan.file!)).not.toThrow();
-    const header = { format: 1 as const, shape: 'lines' as const, languages: ['en' as const] };
+    expect(() => validateV2(plan.file!)).not.toThrow();
+    const header = { format: 2 as const, shape: 'lines' as const, languages: ['en' as const] };
     expect(() =>
-      validateV1({ ...header, descriptions: [], perks: { 1: { description: 0 } } }),
+      validateV2({ ...header, descriptions: [], perks: { 1: { description: 0 } } }),
     ).toThrow(/missing description/);
     expect(() =>
-      validateV1({
+      validateV2({
         ...header,
         descriptions: [{}],
         perks: { 1: { description: 0, references: [2] } },
@@ -462,7 +500,7 @@ describe('compiler stages and reference policy (AC2, G-REFS)', () => {
 });
 
 // ---------------------------------------------------------------- keys, header, language files
-describe('format v1 keys, header, and language files', () => {
+describe('format v2 keys, header, and language files', () => {
   const day = Date.UTC(2026, 0, 1);
   const translated = {
     perks: {
@@ -505,7 +543,7 @@ describe('format v1 keys, header, and language files', () => {
     const plan = build({ keys: [...itemKeys], languages: ['en', 'de'] });
     const parsed = json(plan.bytes);
     expect(Object.keys(parsed)).toEqual(['format', 'shape', 'languages', 'descriptions', 'perks']);
-    expect(parsed).toMatchObject({ format: 1, shape: 'lines', languages: ['en', 'de'] });
+    expect(parsed).toMatchObject({ format: 2, shape: 'lines', languages: ['en', 'de'] });
     expect(parsed.perks[100]).toEqual({
       name: 'Perk 100',
       category: 'armor-trait-exotic',
@@ -518,7 +556,7 @@ describe('format v1 keys, header, and language files', () => {
     // Combined files keep the existing English fallback and only list texts a perk has.
     expect(parsed.perks[102].edited).toEqual({ en: { at: at(day), by: 'Ann' } });
     expect(parsed.descriptions[parsed.perks[102].description]).not.toHaveProperty('de');
-    expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(plan.expanded));
+    expect(JSON.stringify(decodeV2(parsed))).toBe(JSON.stringify(plan.expanded));
   });
 
   test('edited and editedBy are independent: either one alone validates and decodes', () => {
@@ -531,13 +569,13 @@ describe('format v1 keys, header, and language files', () => {
     const name = build({ keys: ['editedBy'] });
     const parsed = json(name.bytes);
     expect(parsed.perks[100]).toEqual({ edited: { en: { by: 'Ann' } }, description: 0 });
-    expect(() => validateV1(parsed)).not.toThrow();
-    expect(decodeV1(parsed)[100]).toEqual({
+    expect(() => validateV2(parsed)).not.toThrow();
+    expect(decodeV2(parsed)[100]).toEqual({
       hash: 100,
       edited: { en: { by: 'Ann' } },
       descriptions: parsed.descriptions[0],
     });
-    expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(name.expanded));
+    expect(JSON.stringify(decodeV2(parsed))).toBe(JSON.stringify(name.expanded));
     expect(json(build({ keys: ['name'] }).bytes).perks[100]).not.toHaveProperty('edited');
   });
 
@@ -552,8 +590,8 @@ describe('format v1 keys, header, and language files', () => {
     for (const [output, parsed] of plan.outputs!.map((o, i) => [o, [en, de, fr][i]] as const)) {
       expect(parsed.languages).toEqual(output.languages);
       expect(Object.keys(parsed.perks)).toEqual(['100', '102']);
-      expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(output.expanded));
-      expect(() => validateV1(parsed)).not.toThrow();
+      expect(JSON.stringify(decodeV2(parsed))).toBe(JSON.stringify(output.expanded));
+      expect(() => validateV2(parsed)).not.toThrow();
     }
     expect(plan.bytes).toEqual(plan.outputs![0]!.bytes);
     // Own translation.
@@ -601,8 +639,8 @@ describe('format v1 keys, header, and language files', () => {
           expect(fr.file.perks[100].edited).toEqual({ en: { by: 'Ann' } });
         }
         for (const output of plan.outputs!) {
-          expect(() => validateV1(output.file)).not.toThrow();
-          expect(decodeV1(json(output.bytes))).toEqual(output.expanded);
+          expect(() => validateV2(output.file)).not.toThrow();
+          expect(decodeV2(json(output.bytes))).toEqual(output.expanded);
         }
       }
     },
@@ -639,7 +677,7 @@ describe('format v1 keys, header, and language files', () => {
           expect(perk).not.toHaveProperty('edited');
     }
     for (const output of plan.outputs!)
-      expect(decodeV1(json(output.bytes))).toEqual(output.expanded);
+      expect(decodeV2(json(output.bytes))).toEqual(output.expanded);
   });
 
   test('the stand-in rule is exported: no own text or the English fallback means English', () => {
@@ -655,13 +693,13 @@ describe('format v1 keys, header, and language files', () => {
 
   test('URLs: one per file, or one per language in a folder; legacy files hold every language', () => {
     const split = file({ languages: ['de', 'en'], languageFiles: 'perLanguage' });
-    expect(filePath('p', split)).toBe('p/v1/main');
+    expect(filePath('p', split)).toBe('p/v2/main');
     expect(fileUrls('p', split)).toEqual([
-      { path: 'p/v1/main/en.json', languages: ['en'] },
-      { path: 'p/v1/main/de.json', languages: ['de'] },
+      { path: 'p/v2/main/en.json', languages: ['en'] },
+      { path: 'p/v2/main/de.json', languages: ['de'] },
     ]);
     const combined = file({ languages: ['de', 'en'] });
-    expect(fileUrls('p', combined)).toEqual([{ path: 'p/v1/main.json', languages: ['en', 'de'] }]);
+    expect(fileUrls('p', combined)).toEqual([{ path: 'p/v2/main.json', languages: ['en', 'de'] }]);
     const legacy = fileUrls('p', { id: 'old', formatVersion: 1, preset: 'dim' });
     expect(legacy).toEqual([{ path: 'p/v1/old.json', languages: [...exportLanguages] }]);
   });
@@ -894,9 +932,9 @@ describe('determinism and real data', () => {
     (style, shape) => {
       const plan = compile(input, everything(style, shape), { catalog: realCatalog, identical });
       const parsed = json(plan.bytes);
-      expect(() => validateV1(parsed)).not.toThrow();
+      expect(() => validateV2(parsed)).not.toThrow();
       // String comparisons: deep equality on thousands of items is slow.
-      expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(plan.expanded));
+      expect(JSON.stringify(decodeV2(parsed))).toBe(JSON.stringify(plan.expanded));
       expect(Object.keys(parsed.perks).length).toBeGreaterThan(2000);
       expect(decoder.decode(plan.bytes)).not.toContain('{{');
       expect(
@@ -919,9 +957,9 @@ describe('determinism and real data', () => {
       expect(hashes.length).toBeGreaterThan(2000);
       for (const output of plan.outputs!) {
         const parsed = json(output.bytes);
-        expect(() => validateV1(parsed)).not.toThrow();
+        expect(() => validateV2(parsed)).not.toThrow();
         expect(parsed.languages).toEqual(output.languages);
-        expect(JSON.stringify(decodeV1(parsed))).toBe(JSON.stringify(output.expanded));
+        expect(JSON.stringify(decodeV2(parsed))).toBe(JSON.stringify(output.expanded));
         // Every perk, in every language (the data has no translations yet: English stands in).
         expect(Object.keys(parsed.perks)).toEqual(hashes);
         const [language] = output.languages;
@@ -948,7 +986,7 @@ describe('determinism and real data', () => {
         catalog: realCatalog,
         identical: live.identical,
       });
-      expect(() => validateV1(json(plan.bytes))).not.toThrow();
+      expect(() => validateV2(json(plan.bytes))).not.toThrow();
     }
   }, 60_000);
 
@@ -994,12 +1032,12 @@ describe('project index and legacy bytes', () => {
       outcome,
     });
     const entry = { sha256: 'a'.repeat(64), bytes: 10, updatedAt: '2026-11-11T00:00:00Z' };
-    const index = projectIndex(config, { 'dim/v1/main.json': numbers('built') });
+    const index = projectIndex(config, { 'dim/v2/main.json': numbers('built') });
     expect(index.files).toEqual([
       {
         id: 'main',
-        format: 1,
-        path: 'dim/v1/main.json',
+        format: 2,
+        path: 'dim/v2/main.json',
         languages: ['en'],
         ...entry,
         status: 'current',
@@ -1019,8 +1057,8 @@ describe('project index and legacy bytes', () => {
       },
     ];
     const built = projectIndex(configSchema.parse(split), {
-      'dim/v1/main/en.json': numbers('built'),
-      'dim/v1/main/de.json': numbers('carried'),
+      'dim/v2/main/en.json': numbers('built'),
+      'dim/v2/main/de.json': numbers('carried'),
       'dim/v1/legacy.json': numbers('built'),
       'dim/v1/old.json': numbers('frozen'),
     });
@@ -1033,12 +1071,12 @@ describe('project index and legacy bytes', () => {
       })),
     ).toEqual([
       {
-        path: 'dim/v1/main/en.json',
+        path: 'dim/v2/main/en.json',
         languages: ['en'],
         status: 'current',
         updatesUntil: undefined,
       },
-      { path: 'dim/v1/main/de.json', languages: ['de'], status: 'stale', updatesUntil: undefined },
+      { path: 'dim/v2/main/de.json', languages: ['de'], status: 'stale', updatesUntil: undefined },
       {
         path: 'dim/v1/legacy.json',
         languages: [...exportLanguages],
@@ -1071,7 +1109,7 @@ test('the core markup code the engine bundles never evaluates text as code (P1a 
     const source = readFileSync(new URL(`${name}.ts`, dir), 'utf8');
     expect(`${name}: ${/new\s+Function\b|\beval\s*\(/.test(source)}`).toBe(`${name}: false`);
   }
-  const decoderSource = readFileSync(new URL('../decoder/decode-v1.mjs', import.meta.url), 'utf8');
+  const decoderSource = readFileSync(new URL('../decoder/decode-v2.mjs', import.meta.url), 'utf8');
   expect(/new\s+Function\b|\beval\s*\(/.test(decoderSource)).toBe(false);
 });
 
@@ -1152,11 +1190,9 @@ describe('review fixes', () => {
       ),
     ).not.toEqual([]);
     expect(
-      immutableChanges(before, change([{ ...one, id: 'old', uid: undefined }, two])),
+      immutableChanges(before, change([one, { ...two, id: 'old', uid: undefined }])),
     ).not.toEqual([]);
-    expect(
-      immutableChanges(before, change([{ ...one, id: 'old', uid: one.uid }, two])),
-    ).not.toEqual([]);
+    expect(immutableChanges(before, change([one, { ...two, id: 'old' }]))).not.toEqual([]);
     const restore = change(
       [one, two]
         .slice(0, 1)
@@ -1179,7 +1215,7 @@ describe('review fixes', () => {
     ['a path that is not its snapshot', { path: 'dim/v1/else.json' }],
     [
       'an active URL',
-      { path: 'dim/v1/one.json', snapshot: { id: 'one', formatVersion: 1, preset: 'dim' } },
+      { path: 'dim/v1/two.json', snapshot: { id: 'two', formatVersion: 1, preset: 'dim' } },
     ],
     [
       'a snapshot with another uid',
@@ -1238,7 +1274,7 @@ describe('review fixes', () => {
   });
 });
 
-test('v1 uses exotic for inline, line, nested-note, and arrow styles and config keys', () => {
+test('format v2 uses exotic for inline, line, nested-note, and arrow styles and config keys', () => {
   const file = newStyleFile('exotic-test', 'structured');
   expect(file.format.symbols).toHaveProperty('exotic', { mode: 'keep' });
   expect(file.format.symbols).not.toHaveProperty('yellow');

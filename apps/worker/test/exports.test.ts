@@ -68,7 +68,7 @@ async function body(response: Response) {
 /** A minimal style file (the engine's index is not imported: it carries an untyped .mjs). */
 const styleFile = (id: string, categories: string[] = []) => ({
   id,
-  formatVersion: 1 as const,
+  formatVersion: 2 as const,
   preset: 'markdown' as const,
   shape: 'text' as const,
   data: {
@@ -173,6 +173,24 @@ describe('GET /exports/projects', () => {
       expect((await get(path, PARTNER)).status).toBe(200);
       expect(fixture.subrequests).toBe(2);
     }
+  });
+
+  it('reads, lists, and saves old configurable files as v2 without reassigning their uid', async () => {
+    const active = { ...styleFile('notes'), uid: 'aaaaaaaaaaaaaaaa' };
+    const previous = {
+      ...dimConfig(),
+      files: [{ ...active, formatVersion: 1 }],
+    };
+    fixture.moveData({ 'exports/projects/dim.json': previous });
+    const listing = await body(await get('', PARTNER));
+    expect(listing.projects).toMatchObject([{ files: [{ id: 'notes', formatVersion: 2 }] }]);
+    const loaded = await body(await get('?project=dim', PARTNER));
+    const current = { ...dimConfig(), files: [active] };
+    expect(loaded).toMatchObject({ config: current, revision: revisionOf() });
+    expect(stored()).toEqual(previous);
+    later();
+    expect((await put('dim', { ...current, name: 'Renamed' }, MAINTAINER)).status).toBe(200);
+    expect(stored()).toEqual({ ...current, name: 'Renamed' });
   });
 });
 
@@ -422,9 +440,9 @@ describe('retained URLs and URL ownership', () => {
     const h = make('file-h', 'hhhhhhhh', ['en']);
     const kept = (file: typeof f, languages: ('de' | 'fr')[], days: number) => ({
       reason: 'language' as const,
-      path: `dim/v1/${file.id}`,
+      path: `dim/v2/${file.id}`,
       uid: file.uid!,
-      formatVersion: 1 as const,
+      formatVersion: 2 as const,
       snapshot: make(file.id, file.uid!, languages),
       until: new Date(Date.now() + days * 86_400_000).toISOString(),
     });
@@ -441,7 +459,7 @@ describe('retained URLs and URL ownership', () => {
     expect(response.status).toBe(409);
     const details = (await body(response)).details as { deletions: unknown[] };
     expect(details.deletions).toEqual([
-      expect.objectContaining({ urls: ['dim/v1/file-f/de.json'] }),
+      expect.objectContaining({ urls: ['dim/v2/file-f/de.json'] }),
     ]);
     expect(
       (
@@ -477,7 +495,7 @@ describe('retained URLs and URL ownership', () => {
     };
     const response = await put('dim', next);
     expect(response.status).toBe(400);
-    expect((await body(response)).error).toContain('The URL dim/v1/texts belongs to another file');
+    expect((await body(response)).error).toContain('The URL dim/v2/texts belongs to another file');
   });
   it('keeps removed languages, reclaims them, and confirms the oldest language entry at the limit', async () => {
     const file = { ...styleFile('texts'), uid: 'cccccccccccccccc' };
@@ -507,7 +525,7 @@ describe('retained URLs and URL ownership', () => {
     const details = (await body(response)).details as { kind: string; deletions: unknown[] };
     expect(details).toMatchObject({
       kind: 'confirm-retained-deletion',
-      deletions: [{ path: 'dim/v1/texts', urls: ['dim/v1/texts/de.json'] }],
+      deletions: [{ path: 'dim/v2/texts', urls: ['dim/v2/texts/de.json'] }],
     });
     expect(stored()!.retained).toHaveLength(2);
     const wrong = await fixture.request(
@@ -550,9 +568,9 @@ describe('retained URLs and URL ownership', () => {
       ...dimConfig(),
       files: [split],
       retained: ['older', 'oldest'].map((id) => ({
-        path: `dim/v1/${id}.json`,
+        path: `dim/v2/${id}.json`,
         uid: file.uid,
-        formatVersion: 1,
+        formatVersion: 2,
         snapshot: { ...file, id },
         until: retainUntil(new Date()),
       })),
@@ -567,7 +585,7 @@ describe('retained URLs and URL ownership', () => {
       deletions: { path: string; urls: string[] }[];
     };
     expect(details.deletions).toMatchObject([
-      { path: 'dim/v1/older.json', urls: ['dim/v1/older.json'] },
+      { path: 'dim/v2/older.json', urls: ['dim/v2/older.json'] },
     ]);
     expect(stored()).toEqual(previous);
     const confirmed = await fixture.request(
@@ -578,7 +596,7 @@ describe('retained URLs and URL ownership', () => {
     );
     expect(confirmed.status).toBe(200);
     expect(stored()!.retained).toHaveLength(2);
-    expect(stored()!.retained!.some((entry) => entry.path === 'dim/v1/older.json')).toBe(false);
+    expect(stored()!.retained!.some((entry) => entry.path === 'dim/v2/older.json')).toBe(false);
   });
 
   it('requires confirmation at six project slots, and rechecks a confirmed save after a CAS race', async () => {
@@ -592,9 +610,9 @@ describe('retained URLs and URL ownership', () => {
       files,
       retained: files.map((file, i) => ({
         reason: 'language',
-        path: `dim/v1/old-${i}`,
+        path: `dim/v2/old-${i}`,
         uid: file.uid!,
-        formatVersion: 1,
+        formatVersion: 2,
         snapshot: { ...structuredClone(file), id: `old-${i}` },
         until: new Date(Date.now() + (90 + i) * 86_400_000).toISOString(),
       })),
@@ -607,7 +625,7 @@ describe('retained URLs and URL ownership', () => {
     const responseBody = await body(response);
     expect(response.status, JSON.stringify(responseBody)).toBe(409);
     const details = responseBody.details as { deletions: unknown[] };
-    expect(details.deletions).toEqual([expect.objectContaining({ path: 'dim/v1/old-0' })]);
+    expect(details.deletions).toEqual([expect.objectContaining({ path: 'dim/v2/old-0' })]);
     const rev = revisionOf();
     fixture.beforePatch = () => fixture.moveData({ 'config/permissions.json': config });
     const revoked = await fixture.request(
@@ -703,12 +721,12 @@ describe('retained URLs and URL ownership', () => {
     const entry = (path: string, snapshot: File) => ({
       path,
       uid: 'cccccccccccccccc',
-      formatVersion: 1,
+      formatVersion: 2,
       snapshot,
       until: retainUntil(now),
     });
     expect(planRetained(project(combined), project(split), now)).toEqual({
-      retained: [entry('dim/v1/texts.json', combined)],
+      retained: [entry('dim/v2/texts.json', combined)],
       problems: [],
     });
     // Languages change inside the same folder; removed languages become a kept entry.
@@ -716,9 +734,9 @@ describe('retained URLs and URL ownership', () => {
     expect(planRetained(project(split), project(fewer), now)).toEqual({
       retained: [
         {
-          path: 'dim/v1/texts',
+          path: 'dim/v2/texts',
           uid: split.uid,
-          formatVersion: 1,
+          formatVersion: 2,
           reason: 'language',
           snapshot: { ...split, data: { ...split.data, languages: ['en'] } },
           until: retainUntil(now),
@@ -727,7 +745,7 @@ describe('retained URLs and URL ownership', () => {
       problems: [],
     });
     expect(planRetained(project(split), project(combined), now)).toEqual({
-      retained: [entry('dim/v1/texts', split)],
+      retained: [entry('dim/v2/texts', split)],
       problems: [],
     });
   });
@@ -814,8 +832,10 @@ describe('retained URLs and URL ownership', () => {
   it('plans a format switch and a switch back with the same rules (pure planner)', () => {
     const now = new Date('2026-11-11T13:00:00Z');
     const previous = dimConfig();
-    const switched = structuredClone(previous);
-    (switched.files[0] as { formatVersion: number }).formatVersion = 2;
+    const switched = {
+      ...previous,
+      files: [{ ...styleFile('descriptions'), uid: previous.files[0]!.uid }],
+    };
     const plan = planRetained(previous, switched, now);
     expect(plan.problems).toEqual([]);
     expect(plan.retained).toEqual([

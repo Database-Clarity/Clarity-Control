@@ -7,7 +7,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import type * as Engine from '../index.js';
-import type { ExportFile } from '../v1/config.js';
+import type { ExportFile } from '../v2/config.js';
 import { sha256 } from './util.js';
 
 export type ChildInit = {
@@ -97,7 +97,7 @@ export async function childMain() {
         const parsed = JSON.parse(
           new TextDecoder('utf-8', { fatal: true }).decode(bytes),
         ) as unknown;
-        if (!engine!.isLegacyFile(job.file)) engine!.validateV1(parsed as Engine.FormatV1File);
+        if (!engine!.isLegacyFile(job.file)) engine!.validateV2(parsed as Engine.FormatV2File);
         return {
           path: url.path,
           languages: url.languages,
