@@ -8,6 +8,7 @@ import {
   batchMemberSchema,
   batchSchema,
   dueSchema,
+  scheduleIndexEntry,
   scheduleIndexSchema,
   scheduleLimits,
   schedulePaths,
@@ -122,16 +123,7 @@ export function editDue(io: TreeIo, tree: Tree, edit: (entries: Due['entries']) 
 export function editIndex(io: TreeIo, tree: Tree, batch: Batch, hashes: number[], at: string) {
   const current = scheduleIndexSchema.safeParse(advisory(io, tree, schedulePaths.index));
   if (!current.success) return;
-  const entry = {
-    id: batch.id,
-    name: batch.name,
-    status: batch.status,
-    notBefore: batch.notBefore,
-    opId: batch.opId,
-    revision: batch.revision,
-    hashes,
-    updatedAt: at,
-  };
+  const entry = scheduleIndexEntry(batch, hashes, at);
   const batches = current.data.batches.some((b) => b.id === batch.id)
     ? current.data.batches.map((b) => (b.id === batch.id ? entry : b))
     : [...current.data.batches, entry];
@@ -144,5 +136,5 @@ export function editIndex(io: TreeIo, tree: Tree, batch: Batch, hashes: number[]
   const next = scheduleIndexSchema.safeParse({
     batches: batches.filter((b) => !drop.has(b.id)),
   });
-  if (next.success) tree[schedulePaths.index] = io.writeBlob(json(next.data));
+  if (next.success) tree[schedulePaths.index] = io.writeBlob(`${JSON.stringify(next.data)}\n`);
 }

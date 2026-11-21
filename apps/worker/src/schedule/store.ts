@@ -7,13 +7,14 @@ import {
   batchStatusSchema,
   dueSchema,
   isOpenStatus,
-  scheduleIndexSchema,
+  scheduledBatchStagingCapability,
   scheduleLimits,
   schedulePaths,
   type Batch,
   type Due,
   type ScheduleIndex,
 } from '@clarity/core/schedule';
+export { scheduleIndexEntry as indexEntry } from '@clarity/core/schedule';
 import { z } from 'zod';
 import { publisherPinPath } from '../elementTags.js';
 import { HttpError } from '../http.js';
@@ -62,6 +63,11 @@ export function pinSchedulesBatches(pin: unknown): boolean {
   return Array.isArray(capabilities) && capabilities.includes(scheduledBatchesCapability);
 }
 
+export function pinStagesScheduledSaves(pin: unknown): boolean {
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(scheduledBatchStagingCapability);
+}
+
 /** Every hash must be canonical, with /save's message (an aliased member would export its target). */
 export function refuseAliases(hashes: readonly number[], aliases: Aliases): void {
   for (const hash of hashes) {
@@ -90,12 +96,6 @@ export function pushedHashes(file: RepoFile | null | undefined): Set<number> {
 export const scheduleRoles: Access['role'][] = ['maintainer', 'editor'];
 export const readRoles: Access['role'][] = ['maintainer', 'editor', 'translator'];
 
-/**
- * Members per batch the Worker admits (root 2026-11-13, CPU gate option A; core allows 100).
- * Scheduling validates every member in ONE request inside the Workers Free 10 ms CPU limit, so
- * this is a workflow limit, kept as one constant so it can move with the measured gate.
- */
-export const memberCap = 15;
 /** Changes per POST /batches/:id/save (same gate); the web chunks larger saves (P3a). */
 export const saveChangeCap = 15;
 /**
@@ -105,14 +105,6 @@ export const saveChangeCap = 15;
  * moved.
  */
 export const scheduledSaveChangeCap = 10;
-
-/**
- * Bytes one stored member file may take (base + proposal, pretty JSON). The largest real tooltip
- * is 2,112 bytes (editor-data 6ac370e3), so its member is about 4.6 KB; the cap bounds what
- * repeated translation saves can accumulate and the CPU of reading every member (CPU gate,
- * scripts/publisher/cpu/schedule.mjs). Lower it, never a check, if the gate fails.
- */
-export const memberByteCap = 8 * 1024;
 
 const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 /** A ULID (batch id, opId): 48-bit millisecond time + 80 random bits, Crockford base32. */
@@ -219,7 +211,6 @@ export function checkedBatch(batch: Batch): Batch {
 }
 
 type IndexEntry = ScheduleIndex['batches'][number];
-const indexEntrySchema = scheduleIndexSchema.shape.batches.element;
 const storedIndexSchema = z
   .object({
     batches: z
@@ -231,19 +222,6 @@ const storedIndexSchema = z
 /** index.json: derived and advisory; entries are passed through, ids and statuses checked. */
 export function parseIndex(value: unknown): ScheduleIndex {
   return storedIndexSchema.parse(value) as unknown as ScheduleIndex;
-}
-
-export function indexEntry(batch: Batch, hashes: readonly number[], updatedAt: string): IndexEntry {
-  return indexEntrySchema.parse({
-    id: batch.id,
-    name: batch.name,
-    status: batch.status,
-    notBefore: batch.notBefore,
-    opId: batch.opId,
-    revision: batch.revision,
-    hashes: [...hashes].sort((a, b) => a - b),
-    updatedAt,
-  });
 }
 
 /** index.json with `entry` replacing its batch; only the latest 100 terminal entries are kept. */

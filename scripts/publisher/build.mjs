@@ -71,9 +71,14 @@ for (const marker of [
   'Cannot restore superseded publication',
   'Schedule preparation CAS exhausted',
   'Scheduled global source is not in data branch history',
+  'Draft batch staging changed during preparation',
+  'Signed staged-save manifest mismatch',
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks schedule preparation (${marker}); refusing its PIN`);
+for (const marker of ['drainCurrentSaves(', 'Invalid staged Current save signature'])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks staged Current saves (${marker}); refusing its PIN`);
 for (const marker of [
   'Installed publisher lacks globalsExportsV1',
   'Expected aggregate 1, 2, or 3',
@@ -117,6 +122,9 @@ writeFileSync(
         'globalsExportsV1',
         'scheduledGlobalsV1',
         'schedulePreparationV1',
+        'draftBatchStagingV1',
+        'scheduledBatchStagingV1',
+        'currentSaveStagingV1',
         'exoticTags',
       ],
     },

@@ -128,6 +128,64 @@ describe('scheduled batches client: prepared requests', () => {
     expect((await api.readBatchStatus(batch.id)).request).toBeNull();
   });
 
+  it('uploads a scheduled edit set through one staging identity and queues atomic apply last', async () => {
+    const api = await load();
+    const draft = await draftWithMember(api);
+    const batch = (
+      await api.scheduleBatch(draft.id, draft.revision, '2026-12-01T10:00:00.000Z', 'UTC')
+    ).batch;
+    const requests: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      expect(new URL(request.url).pathname).toBe(`/batches/${batch.id}/stage`);
+      const body = (await request.json()) as Record<string, unknown>;
+      requests.push(body);
+      return body.finish
+        ? Response.json(
+            {
+              commit: 'a'.repeat(40),
+              batch,
+              requestId: body.requestId,
+              status: 'pending',
+              request: {
+                requestId: body.requestId,
+                status: 'pending',
+                attempt: 1,
+                updatedAt: batch.createdAt,
+              },
+            },
+            { status: 202 },
+          )
+        : Response.json({ accepted: body.part });
+    });
+    const changes = Array.from({ length: 21 }, (_, index) => {
+      const base = tooltip(index + 100, 'Old');
+      return { hash: base.hash, base, next: base };
+    });
+    const progress = vi.fn();
+    const result = await api.queueStagedScheduledSave(
+      batch.id,
+      batch.revision,
+      changes,
+      'Review',
+      () => true,
+      progress,
+    );
+    expect(
+      requests.map(({ part, changes }) => [part, Array.isArray(changes) ? changes.length : 0]),
+    ).toEqual([
+      [0, 10],
+      [1, 10],
+      [2, 1],
+      [undefined, 0],
+    ]);
+    expect(new Set(requests.map(({ requestId }) => requestId))).toEqual(
+      new Set([result.requestId]),
+    );
+    expect(requests.at(-1)).toMatchObject({ finish: true, revision: batch.revision });
+    expect(progress.mock.calls).toEqual([[10], [20], [21]]);
+  });
+
   it('decodes needs-attention reasons, keeps only a GitHub workflow link, and retries', async () => {
     (await import('../../stores/auth')).useAuthStore.setState({
       user: { id: 1, login: 'm', role: 'maintainer', schedulePreparation: true },

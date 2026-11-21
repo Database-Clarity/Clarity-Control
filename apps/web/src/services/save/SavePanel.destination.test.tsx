@@ -291,7 +291,7 @@ describe('Review save destination (scheduled changes)', () => {
     expect(fixture.members.get(batch.id)?.get(200)?.proposed.text.de?.text).toBe('Deutsch');
   });
 
-  it('refuses before writing when the batch would pass the member cap', async () => {
+  it('adds a tooltip to a batch that already holds fifteen members', async () => {
     const { batch } = await call('/batches', { name: 'Full' });
     const hashes = Array.from({ length: 15 }, (_, i) => 300 + i);
     for (const hash of hashes) fixture.setCurrent(hash, extra(hash));
@@ -306,14 +306,10 @@ describe('Review save destination (scheduled changes)', () => {
     const view = await setup('editor');
     await view.settle(() => Boolean(view.button('Batch') && !view.button('Batch')!.disabled));
     await view.click('Batch');
-    expect(host.querySelector('[data-over-cap]')?.textContent).toContain(
-      'A batch holds at most 15 tooltips; this save would make 16.',
-    );
-    const writes = fixture.log.length;
     await view.click('Save to batch');
-    await view.settle(() => host.textContent!.includes('Nothing was saved'));
-    expect(fixture.log.slice(writes).every((entry) => entry.method === 'GET')).toBe(true);
-    expect(view.useDraftStore.getState().drafts[123]).toBeTruthy();
+    await view.settle(() => view.useSaveState.getState().review === null);
+    expect(fixture.members.get(batch.id)?.size).toBe(16);
+    expect(view.useDraftStore.getState().drafts[123]).toBeUndefined();
   });
 
   it('keeps every unconfirmed draft after a partial chunk failure and names them', async () => {

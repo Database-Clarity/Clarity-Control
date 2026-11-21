@@ -2,12 +2,17 @@ import { z } from 'zod';
 import { hashSchema, langSchema, publishMonth, validatePublishTime } from '@clarity/core';
 import {
   checkNotBefore,
+  draftBatchStagingCapability,
+  draftStagingInputSchema,
   isValidZone,
   nowMinute,
+  activeDraftStaging,
+  preparedDraftSave,
   scheduleBodyDigest,
   scheduleIntentPaths,
   schedulePreparationCapability,
   scheduleRequestSchema,
+  scheduledStagingSchema,
   signScheduleIntent,
   type Batch,
   type ScheduleIntent,
@@ -24,8 +29,8 @@ import {
   appendEvent,
   archivedCounter,
   child,
-  memberCap,
   memberHashes,
+  pinStagesScheduledSaves,
   readRoles,
   readAdmissionState as readState,
   refuseClaimed,
@@ -33,7 +38,6 @@ import {
   requireScheduledGlobals,
   refuseRevision,
   requireBatch,
-  saveChangeCap,
   scheduledSaveChangeCap,
   scheduleRoles,
   switches,
@@ -67,12 +71,18 @@ const saveInput = z
           .refine(({ hash, base, next }) => hash === next.hash && (!base || base.hash === hash)),
       )
       .min(1)
-      .max(saveChangeCap)
+      .max(preparedDraftSave.changes)
       .refine((changes) => new Set(changes.map(({ hash }) => hash)).size === changes.length),
     message: z.string().trim().min(1).max(500),
+    draftStaging: draftStagingInputSchema.optional(),
   })
   .strict();
 const endInput = z.object({ revision }).strict();
+const scheduledStageUpload = saveInput.omit({ draftStaging: true }).extend({
+  part: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+});
+const scheduledStageFinish = z.object({ requestId, revision, finish: z.literal(true) }).strict();
+const scheduledStageInput = z.union([scheduledStageUpload, scheduledStageFinish]);
 const retryInput = z.object({ revision, requestId }).strict();
 const maxBytes = 300 * 1024;
 const encoder = new TextEncoder();
@@ -89,6 +99,170 @@ function requireCapability(state: ScheduleState): void {
     !capabilities.includes(schedulePreparationCapability)
   )
     throw new HttpError(422, `The installed publisher lacks ${schedulePreparationCapability}`);
+}
+
+/** Upload bounded parts beside an accepted schedule. Finalization signs the immutable source
+ * tree. It does not change the batch, its due time, or its publication operation. */
+export async function stageScheduledSave(
+  request: Request,
+  github: GitHub,
+  user: Identity,
+  batchId: string,
+): Promise<Response> {
+  requirePreparation();
+  const submittedBody = await submitted(request);
+  const parsed = scheduledStageInput.safeParse(submittedBody.value);
+  if (!parsed.success) throw new HttpError(400, 'Invalid staged save', parsed.error.issues);
+  const input = parsed.data;
+  const id = input.requestId;
+  const path = scheduleIntentPaths.stagedSave(batchId);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const state = await readState(github, user, readRoles, {
+      batchId,
+      extra: [path, scheduleIntentPaths.request(id)],
+      trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
+    });
+    requireCapability(state);
+    if (!pinStagesScheduledSaves(state.pin))
+      throw new HttpError(
+        422,
+        'Update the installed publisher before staging edits to this schedule',
+      );
+    const batch = requireBatch(state, batchId);
+    const prior = state.extra[1] ? scheduleRequestSchema.parse(state.extra[1].value) : undefined;
+    if ('finish' in input && prior) {
+      if (
+        prior.batchId !== batchId ||
+        prior.requesterId !== user.id ||
+        prior.bodyDigest !== submittedBody.digest
+      )
+        throw new HttpError(409, 'This requestId was used for different input');
+      return reply(state, prior);
+    }
+    if (prior) throw new HttpError(409, 'This requestId was used for different input');
+    if (batch.claim || batch.status === 'publishing' || batch.status === 'published')
+      throw new HttpError(409, 'Batch published before these edits landed');
+    refuseRevision(batch, input.revision);
+    if (batch.status !== 'scheduled' || !batch.notBefore || !batch.opId)
+      throw new HttpError(409, 'The accepted schedule changed before these edits landed');
+    if (Date.now() >= Date.parse(batch.notBefore))
+      throw new HttpError(409, 'Batch published before these edits landed');
+    requireScheduledGlobals(state.trees[1] ?? null, state.pin);
+    if (state.access.role === 'translator' && !state.access.languages?.length)
+      throw new HttpError(403, 'No assigned languages');
+    try {
+      validatePublishTime(id, Date.now());
+    } catch {
+      throw new HttpError(400, 'Staged save expired. Retry from your drafts');
+    }
+    const stage = state.extra[0] ? scheduledStagingSchema.parse(state.extra[0].value) : undefined;
+    if (stage && (stage.ownerId !== user.id || stage.ready))
+      throw new HttpError(409, 'Another scheduled save is still landing');
+    if (stage?.id === id && stage.revision !== batch.revision)
+      throw new HttpError(409, 'The accepted schedule changed before these edits landed');
+    const hashes = new Set(memberHashes(child(state.trees[0], 'tooltips')));
+    if (stage && stage.parts > hashes.size)
+      throw new HttpError(409, 'The staged save membership changed. Retry after it settles');
+    const at = new Date().toISOString();
+
+    try {
+      if ('changes' in input) {
+        if (input.changes.length > scheduledSaveChangeCap)
+          throw new HttpError(400, 'Invalid staged save part');
+        if (input.part >= hashes.size)
+          throw new HttpError(400, 'A staged part must belong to a member of this batch');
+        if (input.changes.some(({ hash, base }) => !hashes.has(hash) || !base))
+          throw new HttpError(409, 'A scheduled save can change only existing batch members');
+        if (state.trees[1] && [1, 2, 3].some((hash) => hashes.has(hash)))
+          throw new HttpError(
+            409,
+            'Use global entry mutations; Sync pending protection is required',
+          );
+        if (input.part !== (stage?.id === id ? stage.parts : 0))
+          throw new HttpError(409, 'The staged drafts changed in another tab. Retry');
+        const next = scheduledStagingSchema.parse({
+          id,
+          ownerId: user.id,
+          revision: batch.revision,
+          parts: input.part + 1,
+          ready: false,
+          updatedAt: at,
+        });
+        const deletions =
+          stage && stage.id !== id
+            ? Array.from({ length: stage.parts }, (_, part) =>
+                scheduleIntentPaths.stagedPart(batchId, stage.id, part),
+              )
+            : [];
+        await github.commit(
+          state.head,
+          { [path]: next },
+          `Stage edits for batch "${batch.name}"`,
+          user,
+          {
+            baseTree: state.tree,
+            deletions,
+            rawFiles: {
+              [scheduleIntentPaths.stagedPart(batchId, id, input.part)]: submittedBody.raw,
+            },
+          },
+        );
+        return json({ accepted: input.part });
+      }
+
+      if (!stage || stage.id !== id || stage.revision !== batch.revision)
+        throw new HttpError(409, 'The staged drafts changed in another tab. Retry');
+      const members = await memberTreeOid(github, state, batchId);
+      if (!members) throw new HttpError(502, 'Batch member tree is unreadable');
+      const intent: ScheduleIntent = {
+        version: 1,
+        kind: 'save',
+        requestId: id,
+        batchId,
+        repo: `${github.env.GITHUB_OWNER}/${github.env.GITHUB_REPO}`,
+        dataBranch: github.env.DATA_BRANCH,
+        liveBranch: github.env.LIVE_BRANCH,
+        requester: by(user),
+        expectedRevision: batch.revision,
+        contentRevision: batch.contentRevision,
+        sourceCommit: state.head,
+        memberTreeOid: members,
+        createdAt: at,
+        bodyDigest: submittedBody.digest,
+        returnStatus: 'scheduled',
+        onValidationFailure: 'keep_scheduled',
+        scheduledParts: stage.parts,
+      };
+      const record: ScheduleRequest = {
+        envelope: await signScheduleIntent(intent, (await signingKey(github.env)).key),
+        requestId: id,
+        batchId,
+        requesterId: user.id,
+        bodyDigest: intent.bodyDigest,
+        admissionRevision: batch.revision + 1,
+        status: 'pending',
+        attempt: 1,
+        updatedAt: at,
+      };
+      const commit = await github.commit(
+        state.head,
+        {
+          [path]: { ...stage, ready: true, updatedAt: at },
+          [scheduleIntentPaths.request(id)]: record,
+        },
+        `Queue staged edits for batch "${batch.name}"`,
+        user,
+        {
+          baseTree: state.tree,
+          rawFiles: { [scheduleIntentPaths.body(id)]: submittedBody.raw },
+        },
+      );
+      return reply(state, record, commit);
+    } catch (error) {
+      if (!(error instanceof RefRace)) throw error;
+    }
+  }
+  throw new HttpError(409, 'Data branch kept moving; retry these drafts');
 }
 function readRequest(state: ScheduleState): ScheduleRequest | undefined {
   const file = state.extra[0];
@@ -142,7 +316,7 @@ function reply(
 /** Read bytes once, bounded even with a missing or dishonest Content-Length. */
 async function submitted(
   request: Request,
-): Promise<{ raw: string; value: unknown; digest: string }> {
+): Promise<{ raw: string; value: unknown; size: number; digest: string }> {
   const reader = request.body?.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const chunks: Uint8Array[] = [];
@@ -180,7 +354,7 @@ async function submitted(
   // Preserve exact bytes, including a UTF-8 BOM, through the rawFiles commit API.
   if (encoder.encode(raw).length !== bytes.length)
     throw new HttpError(400, 'Noncanonical UTF-8 JSON');
-  return { raw, value, digest: await scheduleBodyDigest(bytes) };
+  return { raw, value, size: bytes.byteLength, digest: await scheduleBodyDigest(bytes) };
 }
 
 /** Directory metadata only: its tooltips entry carries Git's immutable subtree OID. */
@@ -259,9 +433,21 @@ export async function admitBatchRequest(
     refuseRevision(batch, input.revision);
     if (batch.status !== 'draft' && batch.status !== 'scheduled')
       throw new HttpError(409, 'This batch cannot be changed');
-    const hashes = memberHashes(child(state.trees[0], 'tooltips'));
-    if (hashes.length > memberCap)
-      throw new HttpError(422, `A batch holds at most ${memberCap} tooltips`);
+    const hashes = new Set(memberHashes(child(state.trees[0], 'tooltips')));
+    const staging = 'changes' in input ? input.draftStaging : undefined;
+    const activeStage = activeDraftStaging(batch, Date.now());
+    if (activeStage && (staging?.id !== activeStage.id || user.id !== activeStage.ownerId))
+      throw new HttpError(
+        409,
+        'Finish saving the draft batch before scheduling or replacing its changes',
+      );
+    if (staging) {
+      if (batch.status !== 'draft' || state.access.role === 'translator')
+        throw new HttpError(403, 'Only editors and maintainers may continue a draft batch save');
+      const capabilities = (state.pin as { capabilities?: unknown } | null)?.capabilities;
+      if (!Array.isArray(capabilities) || !capabilities.includes(draftBatchStagingCapability))
+        throw new HttpError(422, 'Update the installed publisher before staging this draft batch');
+    }
     returnStatus = kind === 'schedule' || batch.status === 'scheduled' ? 'scheduled' : 'draft';
     // Draft saves stay available, but aggregate members fail closed once globals/ exists.
     if (
@@ -274,23 +460,23 @@ export async function admitBatchRequest(
     if ('changes' in input) {
       if (state.access.role === 'translator' && input.changes.some(({ base }) => base === null))
         throw new HttpError(403, 'Translators may change only existing tooltips');
+      if (batch.status === 'draft' && submittedBody.size > preparedDraftSave.bytes)
+        throw new HttpError(413, 'Invalid draft save part');
       if (batch.status === 'scheduled' && input.changes.length > scheduledSaveChangeCap)
         throw new HttpError(
           422,
           `A scheduled batch takes at most ${scheduledSaveChangeCap} changes per save`,
         );
-      const adds = input.changes.filter(({ hash }) => !hashes.includes(hash));
+      const adds = input.changes.filter(({ hash }) => !hashes.has(hash));
       if (state.access.role === 'translator' && adds.length)
         throw new HttpError(403, 'Translators may change only tooltips already in the batch');
       if (batch.status === 'scheduled' && adds.length)
         throw new HttpError(409, 'Unschedule to edit');
-      if (hashes.length + adds.length > memberCap)
-        throw new HttpError(422, `A batch holds at most ${memberCap} tooltips`);
       // Assigned-language authority is checked against the current accepted proposal offline.
       if (state.access.role === 'translator' && !state.access.languages?.length)
         throw new HttpError(403, 'No assigned languages');
     } else {
-      if (!hashes.length) throw new HttpError(422, 'Add a tooltip to the batch first');
+      if (!hashes.size) throw new HttpError(422, 'Add a tooltip to the batch first');
       if (!isValidZone(input.zone)) throw new HttpError(400, 'Unknown time zone');
       if (!target) {
         const notBefore = input.notBefore === 'now' ? nowMinute(Date.now()) : input.notBefore;
@@ -303,7 +489,7 @@ export async function admitBatchRequest(
     const at = new Date().toISOString();
     if (!envelope) {
       const tree = await memberTreeOid(github, state, batchId);
-      if (hashes.length && !tree) throw new HttpError(502, 'Batch member tree is unreadable');
+      if (hashes.size && !tree) throw new HttpError(502, 'Batch member tree is unreadable');
       firstSource = { contentRevision: batch.contentRevision, tree };
       const common = {
         version: 1 as const,
@@ -328,6 +514,7 @@ export async function admitBatchRequest(
               ...common,
               kind,
               returnStatus,
+              ...(staging ? { draftStaging: staging } : {}),
               onValidationFailure:
                 state.access.role === 'translator' && returnStatus === 'scheduled'
                   ? 'keep_scheduled'
@@ -346,6 +533,11 @@ export async function admitBatchRequest(
       claim: null,
       preparedRequestId: null,
       preparation: { requestId: id, kind, returnStatus, requestedAt: at, attempt: 1 },
+      ...(staging
+        ? { draftStaging: { id: staging.id, ownerId: user.id, updatedAt: at } }
+        : batch.draftStaging
+          ? { draftStaging: undefined }
+          : {}),
       ...(target ? { ...target, opId: id, scheduledContentRevision: null } : {}),
     });
     const record: ScheduleRequest = {
@@ -587,6 +779,14 @@ export async function endBatchRequest(
       events: appended.events,
       revision: batch.revision + 1,
       status: action === 'cancel' ? 'cancelled' : 'draft',
+      ...(action === 'cancel'
+        ? {
+            draftStaging: undefined,
+            ...(pinStagesScheduledSaves(state.pin)
+              ? { memberHashes: memberHashes(child(state.trees[0], 'tooltips')) }
+              : {}),
+          }
+        : {}),
       preparation: null,
       preparedRequestId: null,
       opId: null,

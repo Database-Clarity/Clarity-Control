@@ -26,6 +26,7 @@ export {
   isOpenStatus,
   notBeforeSchema,
   openStatuses,
+  scheduleIndexEntry,
   scheduleIndexSchema,
   scheduleLimits,
   schedulePaths,
@@ -76,6 +77,15 @@ export { boundTranslationSources } from './stamps.js';
 export { matchesPreparationFence, canClaimPreparedBatch } from './preparation.js';
 export {
   schedulePreparationCapability,
+  draftBatchStagingCapability,
+  draftStagingInputSchema,
+  type DraftStagingInput,
+  scheduledBatchStagingCapability,
+  activeDraftStaging,
+  batchRemoveChunkSize,
+  preparedDraftSave,
+  scheduledStagingSchema,
+  type ScheduledStaging,
   scheduleIntentPaths,
   scheduleIntentSchema,
   scheduleEnvelopeSchema,

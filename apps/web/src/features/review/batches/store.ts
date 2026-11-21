@@ -72,15 +72,27 @@ function setLoad(id: string, load: DetailLoad) {
 }
 
 async function readDetail(head: string, entry: IndexEntry): Promise<BatchDetail> {
-  const [batch, members] = await Promise.all([
-    readBatch(head, entry.id),
-    readBatchMembers(head, entry.id, entry.hashes),
+  const record = readBatch(head, entry.id);
+  const membership =
+    entry.memberCount === undefined
+      ? Promise.resolve(entry.hashes)
+      : record.then((batch) => {
+          if (!batch?.memberHashes || batch.memberHashes.length !== entry.memberCount)
+            throw new Error(
+              `Batch ${entry.name} has an incomplete member list at ${head.slice(0, 8)}`,
+            );
+          return batch.memberHashes;
+        });
+  const [batch, hashes, members] = await Promise.all([
+    record,
+    membership,
+    membership.then((hashes) => readBatchMembers(head, entry.id, hashes)),
   ]);
   if (!batch) throw new Error(`Batch ${entry.name} is missing at ${head.slice(0, 8)}`);
   const present = members.filter((member): member is BatchMember => member !== null);
   const conflicts =
     batch.status === 'published'
-      ? (await readActivationConflicts(head, entry.hashes)).filter(
+      ? (await readActivationConflicts(head, hashes)).filter(
           (conflict): conflict is ActivationConflict =>
             conflict !== null && conflict.batchId === entry.id,
         )

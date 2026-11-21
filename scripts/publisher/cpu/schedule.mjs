@@ -50,7 +50,7 @@ const LANGS = [
   'zh-chs',
   'zh-cht',
 ];
-// `kind:N` runs a kind at N members per batch; default: the Worker's cap (memberCap).
+// `kind:N` runs a kind at N members per batch; default: the draft save request size.
 // The save kinds also take a `-sched` suffix (a scheduled target batch; default N:
 // scheduledSaveChangeCap).
 const KINDS = [
@@ -315,7 +315,7 @@ async function state(name, real, lib) {
   const cap = kind.endsWith('-cap');
   const members = MEMBERS.map((hash) =>
     cap
-      ? capped(real[hash], lib.memberByteCap)
+      ? capped(real[hash], 8 * 1024)
       : {
           hash,
           base: real[hash],
@@ -509,7 +509,9 @@ async function child(name) {
   };
   const lib = await import(pathToFileURL(`${out}/worker.mjs`).href);
   const { env, token } = JSON.parse(readFileSync(`${out}/env.json`, 'utf8'));
-  const cap = name.split(':')[0].endsWith('-sched') ? lib.scheduledSaveChangeCap : lib.memberCap;
+  const cap = name.split(':')[0].endsWith('-sched')
+    ? lib.scheduledSaveChangeCap
+    : lib.saveChangeCap;
   MEMBERS = REAL.slice(0, Number(name.split(':')[1] ?? cap));
   const real = {};
   for (const hash of [...GLOBALS, ...REAL])
