@@ -193,7 +193,7 @@ export function TranslationsFrame({
   );
 }
 
-/** Current | Upcoming, beside the heading (its own full-width line on phones). */
+/** Current | Upcoming, beside the heading on wider screens. */
 function SourceSwitch({
   source,
   onSource,
@@ -561,8 +561,6 @@ export function TranslationsPage() {
     if (params.get('state') || params.get('open')) update({ state: null, open: null });
   };
 
-  // Phones: language, category, and the count on the first line; the filter, the state pair, and
-  // Coverage on the second. On a 390 px phone the count moves to the end (see .controls).
   const renderFilter = (onKeyDown: (event: KeyboardEvent) => void) => (
     <input
       type="search"
@@ -657,6 +655,21 @@ export function TranslationsPage() {
       {filtered ? `${shown.length} of ${rows.length}` : `${rows.length} to translate`}
     </span>
   );
+  const sortControl = (
+    <label className={styles.sort}>
+      <span className="sr-only">Sort translations</span>
+      <select
+        aria-label="Sort translations"
+        value={small ? 'small' : 'default'}
+        onChange={(event) =>
+          update({ sort: event.target.value === 'small' ? 'small' : null }, true)
+        }
+      >
+        <option value="default">Oldest changes first</option>
+        <option value="small">Small changes first</option>
+      </select>
+    </label>
+  );
   return (
     <TranslationsFrame
       rail={coverage}
@@ -691,8 +704,7 @@ export function TranslationsPage() {
                   ))}
                 </select>
               </label>
-              {!phone && filterField}
-              {phone && countLine}
+              {phone ? sortControl : filterField}
             </>
           )}
         </>
@@ -714,19 +726,7 @@ export function TranslationsPage() {
                 </button>
               ))}
             </div>
-            <label className={styles.sort}>
-              <span className="sr-only">Sort translations</span>
-              <select
-                aria-label="Sort translations"
-                value={small ? 'small' : 'default'}
-                onChange={(event) =>
-                  update({ sort: event.target.value === 'small' ? 'small' : null }, true)
-                }
-              >
-                <option value="default">Oldest changes first</option>
-                <option value="small">Small changes first</option>
-              </select>
-            </label>
+            {!phone && sortControl}
             {small && (
               <button
                 type="button"
@@ -749,7 +749,7 @@ export function TranslationsPage() {
               </button>
             )}
             {managersControl}
-            {!phone && countLine}
+            {countLine}
           </>
         )
       }

@@ -1,7 +1,8 @@
-import { Suspense, useMemo } from 'react';
+import { Suspense, useContext, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { publisherEnabled } from '../../services/publisher/flag';
 import { useAuthStore } from '../../stores/auth';
+import { FinderSheetCloseContext, FinderSheetContext } from '../navigation/FinderSheetContext';
 import { useDraftStore } from '../../stores/drafts';
 import { SkeletonRows } from '../../ui/Skeleton';
 import { kindWords, useRowKinds, type Kind } from './kinds';
@@ -102,12 +103,16 @@ export function SelectionCounts({ changes }: { changes: number }) {
 export function ReviewSidebar() {
   const [searchParams] = useSearchParams();
   const user = useAuthStore((state) => state.user);
-  if (reviewSubview(searchParams, user) === 'batches' && BatchesList)
+  const inSheet = Boolean(useContext(FinderSheetCloseContext));
+  const sheetOpen = useContext(FinderSheetContext);
+  if (reviewSubview(searchParams, user) === 'batches' && BatchesList) {
+    if (inSheet && !sheetOpen) return null;
     return (
       <Suspense fallback={null}>
-        <BatchesList />
+        <BatchesList phone={inSheet} />
       </Suspense>
     );
+  }
   return <SavedSidebar />;
 }
 

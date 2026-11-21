@@ -264,7 +264,7 @@ export function ReviewPage() {
     if (entries) publishSidebar(entries);
   }, [entries]);
   useEffect(() => {
-    if (!entries || selectionIntent.current) return;
+    if (subview === 'batches' || !entries || selectionIntent.current) return;
     const params = new URLSearchParams(searchParams);
     if (!current) {
       if (!params.has('hash')) return;
@@ -275,7 +275,7 @@ export function ReviewPage() {
     if (searchParams.get('hash') === String(current.tooltip.hash)) return;
     params.set('hash', String(current.tooltip.hash));
     setSearchParams(params, { replace: true });
-  }, [current, entries, searchParams, setSearchParams]);
+  }, [current, entries, searchParams, setSearchParams, subview]);
   useEffect(() => {
     clearSelection();
     setDecisions([]);
@@ -517,7 +517,7 @@ export function ReviewPage() {
           </Suspense>
         </header>
         <Suspense fallback={<p className={styles.note}>Loading batches…</p>}>
-          <BatchesMain />
+          <BatchesMain phone={phone} />
         </Suspense>
       </article>
     );

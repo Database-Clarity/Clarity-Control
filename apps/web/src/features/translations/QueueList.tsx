@@ -288,6 +288,7 @@ export function QueueList<Row extends ListRow = QueueRow>({
             const row = rows[index]!;
             const isSelected = index === kept;
             const shown = rowState(row);
+            const detail = extra?.(row);
             return (
               <li
                 key={row.key}
@@ -332,7 +333,7 @@ export function QueueList<Row extends ListRow = QueueRow>({
                     {shown.text}
                   </span>
                 </Link>
-                {extra && <span className={styles.extra}>{extra(row)}</span>}
+                {detail != null && <span className={styles.extra}>{detail}</span>}
               </li>
             );
           })}

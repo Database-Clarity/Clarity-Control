@@ -45,23 +45,6 @@
     > .summary {
       display: contents;
     }
-
-    // The filter always starts the second line.
-    > .summary::before {
-      content: '';
-      flex: 0 0 100%;
-      height: 0;
-      margin-block-start: -0.375rem;
-    }
-
-    // Too narrow for language, category, and the count on one line (390 px phones at any
-    // interface scale): the count moves to the end, sharing the last line with Coverage when the
-    // filter and the state pair fill the second.
-    @container (max-width: 23.99rem) {
-      .count {
-        order: 1;
-      }
-    }
   }
 }
 
@@ -115,11 +98,6 @@
       white-space: nowrap;
     }
 
-    // Line 1: language, category, and the count on the right edge. At a large interface scale
-    // the count drops to its own line rather than cutting the language or the category.
-    flex-wrap: wrap;
-    gap: 0.375rem;
-
     .fixedLanguage {
       flex: none;
       white-space: nowrap;
@@ -160,15 +138,6 @@
     .categories select {
       width: 100%;
     }
-
-    .count {
-      flex: none;
-      margin-inline-start: auto;
-      font-size: 0.8125rem;
-      color: var(--text2);
-      white-space: nowrap;
-      font-variant-numeric: tabular-nums;
-    }
   }
 }
 
@@ -208,11 +177,8 @@
   }
 }
 
-// Line 2 on a phone: the filter, then Outdated and Missing as one joined pair.
 @include theme.mobile {
   .summary {
-    gap: 0.375rem;
-
     input[type='search'] {
       @include controls.field;
       flex: 1 1 5rem;
@@ -220,11 +186,9 @@
       height: var(--tap);
     }
 
-    // Right-aligned, also when it wraps under the filter at a large interface scale.
     [role='group'] {
       flex: none;
       gap: 0;
-      margin-inline-start: auto;
 
       button {
         border-radius: 0;
@@ -245,6 +209,11 @@
       button[aria-pressed='true'] {
         position: relative;
       }
+    }
+
+    .count {
+      flex: none;
+      white-space: nowrap;
     }
   }
 
@@ -609,6 +578,26 @@
       font-size: 0.75rem;
       width: 5.5rem;
     }
+
+    @include theme.mobile {
+      // Keep every status on the trailing edge. Rows with a word count show it beside the name.
+      a {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: 'name name' 'category state';
+      }
+
+      &:has(> .extra) a {
+        grid-template-columns: minmax(0, 1fr) minmax(5.5rem, max-content);
+        grid-template-areas: 'name size' 'category state';
+      }
+
+      .extra {
+        inset-inline-end: var(--page-x);
+        top: 0.125rem;
+        bottom: auto;
+        height: 50%;
+      }
+    }
   }
 }
 
@@ -741,8 +730,7 @@ $cue: color-mix(in srgb, var(--text) 35%, transparent);
 }
 
 // Current | Upcoming (scheduled changes, switch-ON builds only): a joined pair beside the heading,
-// the same height as the pickers; on phones its own full-width line above them, like the editor's
-// preview switch. Upcoming, when chosen, carries the editor's cyan "future" mark.
+// the same height as the pickers. Upcoming, when chosen, carries the editor's cyan "future" mark.
 .sourceSwitch[role='group'] {
   // The shared Segmented, at the pickers' height (28px; var(--tap) on touch).
   --segmented-h: 1.75rem;
@@ -753,9 +741,9 @@ $cue: color-mix(in srgb, var(--text) 35%, transparent);
     --segmented-h: var(--tap);
   }
   @include theme.mobile {
-    flex: 0 0 100%;
     button {
-      flex: 1 1 0;
+      padding-inline: 0.25rem;
+      width: 4.625rem;
     }
   }
 }
