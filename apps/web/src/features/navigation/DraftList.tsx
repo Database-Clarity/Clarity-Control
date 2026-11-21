@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type KeyboardEvent } from 'react';
+import { Fragment, memo, useCallback, useMemo, useState, type KeyboardEvent } from 'react';
 import type { Lang, Tooltip } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { VirtualList } from '../../ui/VirtualList';
@@ -113,14 +113,25 @@ const Row = memo(function Row({
       <span className={styles.name}>{name}</span>
       <small className={styles.hash}>{row.hash}</small>
       <small className={styles.meta}>
-        {row.languages.length ? row.languages.map(languageLabel).join(', ') : 'Other fields'}
-        {conflicts > 0 && ` · ${conflicts} conflict${conflicts === 1 ? '' : 's'}`}
-        {row.time && (
-          <>
-            {' · '}
-            <When value={row.time} />
-          </>
-        )}
+        {/* The group already says English text: name the languages only when they add to it. */}
+        {[
+          row.kind !== 'other' && !(row.kind === 'text' && row.languages.length === 1)
+            ? row.languages.map(languageLabel).join(', ')
+            : null,
+          conflicts > 0 ? (
+            <span key="c" className={styles.conflict}>
+              {conflicts} conflict{conflicts === 1 ? '' : 's'}
+            </span>
+          ) : null,
+          row.time ? <When key="t" value={row.time} /> : null,
+        ]
+          .filter(Boolean)
+          .map((part, at) => (
+            <Fragment key={at}>
+              {at ? ' · ' : ''}
+              {part}
+            </Fragment>
+          ))}
       </small>
       <button
         type="button"

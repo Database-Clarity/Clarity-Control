@@ -526,7 +526,8 @@ describe('drafts', () => {
       expect.stringContaining('First thing'),
       expect.stringContaining('Second thing'),
     ]);
-    expect(rows[0].textContent).toContain('English');
+    // The group names the language; a lone English row does not repeat it.
+    expect(rows[0].textContent).not.toContain('English');
     // Grouped by what they change, with a count.
     expect(q('[aria-label="Local drafts"] [aria-level="1"]').textContent).toBe('▾English text2');
     await click(rows[1]);
