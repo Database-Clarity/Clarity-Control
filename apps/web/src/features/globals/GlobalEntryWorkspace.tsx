@@ -292,11 +292,28 @@ function Workspace({
     () => (data ? tooltipTextSources(data.bundle.tooltips, {}, data.aliases) : undefined),
     [data],
   );
+  const paneBody = useRef<HTMLDivElement>(null);
+  const [paneVisible, setPaneVisible] = useState(false);
+  const hasEntry = entry !== undefined;
+  useEffect(() => {
+    const pane = paneBody.current;
+    if (!pane) {
+      setPaneVisible(false);
+      return;
+    }
+    if (typeof IntersectionObserver === 'undefined') return;
+    // The phone and narrow layouts keep the selected Usages tab mounted behind Editor.
+    const observer = new IntersectionObserver(([visible]) =>
+      setPaneVisible(visible.isIntersecting),
+    );
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, [hasEntry]);
   const { uses, error: usageError } = useGlobalUsages(
     data,
     snapshot.entries,
     openId,
-    shownTab === 'usages',
+    shownTab === 'usages' && (paneVisible || typeof IntersectionObserver === 'undefined'),
   );
   const allRows = useMemo(
     () => usageRows(uses ?? noUses, savedImpacts, data, snapshot.entries, lang),
@@ -545,7 +562,6 @@ function Workspace({
       if (mounted.current && generation === projectionGeneration.current) setProjecting(false);
     }
   }
-  const paneBody = useRef<HTMLDivElement>(null);
   const focusTab = useRef(false);
   useLayoutEffect(() => {
     if (!focusTab.current) return;
