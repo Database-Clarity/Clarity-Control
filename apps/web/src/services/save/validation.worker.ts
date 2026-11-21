@@ -2,6 +2,7 @@ import type { EditorData } from '../../stores/data';
 import type { Change } from '../api';
 import type { LiveFallback } from './fallback';
 import { validateChanges } from './validation';
+import { saveChunks } from './chunks';
 
 let snapshot: { revision: number; data: EditorData } | undefined;
 self.onmessage = (
@@ -11,14 +12,19 @@ self.onmessage = (
     changes: Change[];
     fallback?: LiveFallback;
     data?: EditorData;
+    plan?: { message: string; noTranslationImpact: boolean };
   }>,
 ) => {
-  const { id, revision, changes, fallback, data } = event.data;
+  const { id, revision, changes, fallback, data, plan } = event.data;
   try {
     if (data) snapshot = { revision, data };
     if (!snapshot || snapshot.revision !== revision)
       throw new Error('Save catalogue snapshot missing.');
-    self.postMessage({ id, issues: validateChanges(changes, snapshot.data, fallback) });
+    self.postMessage(
+      plan
+        ? { id, chunks: saveChunks(changes, snapshot.data, plan.message, plan.noTranslationImpact) }
+        : { id, issues: validateChanges(changes, snapshot.data, fallback) },
+    );
   } catch (error) {
     self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });
   }

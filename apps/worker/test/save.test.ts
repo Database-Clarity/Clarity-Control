@@ -296,6 +296,37 @@ describe('save concurrency', () => {
     expect(response.status).toBe(409);
     expect(fixture.commits).toHaveLength(0);
   });
+
+  it('acknowledges retried edits and creations without a second commit', async () => {
+    const existing = tooltip('edited');
+    const created = { ...tooltip('created'), hash: 125 };
+    const input = {
+      changes: [
+        { hash: 123, base: tooltip(), next: existing },
+        { hash: 125, base: null, next: created },
+      ],
+      message: 'Save drafts',
+    };
+    const first = await fixture.request('/save', 'POST', input);
+    expect(first.status).toBe(200);
+    const retried = {
+      ...input,
+      changes: input.changes.map((change) => ({
+        ...change,
+        next: {
+          ...change.next,
+          text: { en: { ...change.next.text.en!, updatedAt: '2026-11-20T00:00:00Z' } },
+        },
+      })),
+    };
+    const second = await fixture.request('/save', 'POST', retried);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({
+      commit: fixture.dataHead,
+      tooltips: [existing, created],
+    });
+    expect(fixture.commits).toHaveLength(1);
+  });
 });
 
 describe('sandbox set-bonus creation follows existing armor permissions', () => {

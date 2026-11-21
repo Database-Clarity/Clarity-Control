@@ -1,0 +1,117 @@
+import { stableStringify, type Tooltip } from '@clarity/core';
+import { useDataStore } from '../../stores/data';
+import { useDraftStore } from '../../stores/drafts';
+import { applySavedOverlay, rememberSaved } from '../../stores/savedOverlay';
+import { readSaveReceipts, type SaveReceipt } from '../draftStorage';
+import { useSaveState } from './state';
+
+/** Only the Worker owns number maps. Keep the rest of the submitted content, including links
+ * and revision stamps, in the comparison so matching text cannot erase another edit. */
+function sameSubmission(saved: Tooltip | undefined, sent: Tooltip): boolean {
+  const withoutNumberMap = (tooltip: Tooltip) => {
+    const en = tooltip.text.en;
+    if (!en?.numbers) return tooltip;
+    const entry = { ...en };
+    delete entry.numbers;
+    return { ...tooltip, text: { ...tooltip.text, en: entry } };
+  };
+  return (
+    saved !== undefined &&
+    stableStringify(withoutNumberMap(saved)) === stableStringify(withoutNumberMap(sent))
+  );
+}
+
+/** Restore confirmed writes during bundle lag and recognise a lost response once the bundle
+ * contains the submitted content. Any draft edited after sending is retained. */
+export function startSaveRecovery(): () => void {
+  if (typeof indexedDB === 'undefined') return () => {};
+  let stopped = false;
+  let generation = -1;
+  let receipts: SaveReceipt[] | null = null;
+
+  function recover() {
+    const {
+      hydrated,
+      owner,
+      generation: current,
+      external,
+      error,
+      drafts,
+    } = useDraftStore.getState();
+    const { data } = useDataStore.getState();
+    if (stopped || !hydrated || !owner || !data || useSaveState.getState().locked) return;
+    if (generation !== current) {
+      generation = current;
+      receipts = null;
+      void readSaveReceipts(owner)
+        .then((records) => {
+          if (stopped || useDraftStore.getState().generation !== current) return;
+          receipts = records.sort((a, b) => a.at - b.at);
+          recover();
+        })
+        .catch(() => {
+          // A failed receipt read never removes a draft.
+        });
+      return;
+    }
+    if (!receipts?.length) return;
+
+    // Work on this snapshot once. Updating the overlay or drafts can notify the subscriptions.
+    const records = receipts;
+    receipts = null;
+    for (const receipt of records)
+      if (receipt.confirmed) rememberSaved(receipt.tooltips, [], receipt.at, receipt.savedAt);
+    const bundle = applySavedOverlay(data.bundle);
+    if (bundle !== data.bundle) useDataStore.setState({ data: { ...data, bundle } });
+    if (external || error) {
+      receipts = records;
+      return;
+    }
+
+    let remaining = drafts;
+    for (const receipt of records) {
+      for (const tooltip of receipt.tooltips) {
+        const currentDraft = remaining[tooltip.hash];
+        const submitted = receipt.submitted[tooltip.hash];
+        if (
+          currentDraft &&
+          submitted &&
+          stableStringify(currentDraft) === stableStringify(submitted) &&
+          (receipt.confirmed || sameSubmission(bundle.tooltips[tooltip.hash], tooltip))
+        ) {
+          if (remaining === drafts) remaining = { ...drafts };
+          delete remaining[tooltip.hash];
+        }
+      }
+    }
+    if (remaining !== drafts) {
+      useDraftStore.setState({ drafts: remaining });
+      useDraftStore.getState().retry();
+    }
+    // Keep unresolved attempts available for later static bundle refreshes.
+    receipts = records.filter((record) => !record.confirmed);
+  }
+
+  const stopData = useDataStore.subscribe((value, old) => {
+    if (value.data !== old.data) recover();
+  });
+  const stopDrafts = useDraftStore.subscribe((value, old) => {
+    if (
+      value.hydrated !== old.hydrated ||
+      value.generation !== old.generation ||
+      (old.external && !value.external) ||
+      (old.error && !value.error)
+    )
+      recover();
+  });
+  const stopSave = useSaveState.subscribe((value, old) => {
+    if (!value.locked && old.locked) recover();
+  });
+  recover();
+  return () => {
+    stopped = true;
+    stopData();
+    stopDrafts();
+    stopSave();
+  };
+}

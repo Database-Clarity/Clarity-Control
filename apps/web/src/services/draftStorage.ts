@@ -17,6 +17,72 @@ export const draftsSchema = z
     'Draft keys and tooltip hashes must match',
   );
 export type Drafts = z.infer<typeof draftsSchema>;
+
+const saveReceiptSchema = z.object({
+  id: z.string(),
+  at: z.number(),
+  submitted: draftsSchema,
+  tooltips: z.array(tooltipSchema),
+  savedAt: z.number().optional(),
+  confirmed: z.boolean(),
+});
+export type SaveReceipt = z.infer<typeof saveReceiptSchema>;
+
+const receiptKey = (owner: string) => `save-receipts:user:${owner}`;
+const receiptTtl = 24 * 60 * 60 * 1000;
+
+function receipts(value: unknown): SaveReceipt[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const parsed = saveReceiptSchema.safeParse(entry);
+    return parsed.success && Date.now() - parsed.data.at < receiptTtl ? [parsed.data] : [];
+  });
+}
+
+export async function readSaveReceipts(owner: string): Promise<SaveReceipt[]> {
+  const db = await openDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction('drafts', 'readonly');
+      const request = transaction.objectStore('drafts').get(receiptKey(owner));
+      transaction.oncomplete = () => resolve(receipts(request.result));
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Save receipt read aborted'));
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** A single transaction merges receipts even if another tab saves at the same time. */
+export async function writeSaveReceipt(
+  owner: string,
+  id: string,
+  receipt?: SaveReceipt,
+): Promise<void> {
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('drafts', 'readwrite');
+      const store = transaction.objectStore('drafts');
+      const key = receiptKey(owner);
+      const request = store.get(key);
+      request.onsuccess = () => {
+        const next = receipts(request.result).filter((entry) => entry.id !== id);
+        if (receipt) next.push(receipt);
+        store.put(next, key);
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Save receipt write aborted'));
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
 export interface DraftStorage {
   read(): Promise<Drafts>;
   write(drafts: Drafts): Promise<void>;

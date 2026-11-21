@@ -3,7 +3,6 @@ import {
   type Aliases,
   aliasGroupsPath,
   languages,
-  contentHash,
   carryNumberTranslations,
   hashSchema,
   merge3,
@@ -11,6 +10,7 @@ import {
   refreshNumberFallbacks,
   resolveAlias,
   sandboxPointersPath,
+  stableStringify,
   tooltipSchema,
   type Tooltip,
 } from '@clarity/core';
@@ -74,6 +74,15 @@ export type SaveResult =
       }[];
     };
 
+function createdContent(tooltip: Tooltip): string {
+  const { text, bungieSnapshot, ...fields } = tooltip;
+  return stableStringify({
+    ...fields,
+    bungieDescription: bungieSnapshot?.description,
+    text: Object.fromEntries(Object.entries(text).map(([lang, entry]) => [lang, entry.text])),
+  });
+}
+
 /**
  * The /save pipeline (merge, every write check, server-owned maps, CAS commit authored by `user`).
  * `authorize` adds a caller's own rule against the access read at each attempt's head (rollback).
@@ -102,6 +111,7 @@ export async function saveChanges(
       fields: string[];
     }[] = [];
     const tooltips: Tooltip[] = [];
+    const writes: Record<string, Tooltip> = {};
     const changed: string[] = [];
     const carried: string[] = [];
     const kept: number[] = [];
@@ -166,21 +176,28 @@ export async function saveChanges(
         if (change.base?.text.en?.numbers) next.text.en.numbers = change.base.text.en.numbers;
       }
       let merged = next;
+      let rebased = false;
       if (head && change.base) {
-        const result =
-          (await contentHash(head)) === (await contentHash(change.base))
-            ? { ok: true as const, merged: next }
-            : merge3(change.base, head, next);
+        // Both inputs were already validated. Byte equality also avoids hashing and
+        // reparsing the same tooltip twice solely to decide whether a merge is needed.
+        rebased = stableStringify(head) !== stableStringify(change.base);
+        const result = rebased
+          ? merge3(change.base, head, next)
+          : { ok: true as const, merged: next };
         if (!result.ok) {
           conflicts.push({ ...change, head, fields: result.conflicts.map(({ field }) => field) });
           continue;
         }
         merged = result.merged;
+      } else if (head && createdContent(head) === createdContent(next)) {
+        // A new tooltip may have landed even when the browser never received its response.
+        tooltips.push(head);
+        continue;
       } else if (head || change.base) {
         conflicts.push({ ...change, head, fields: ['$exists'] });
         continue;
       }
-      checkEdit(access, head, merged);
+      if (rebased) checkEdit(access, head, merged);
       // Against the real head, after the merge: what this commit does to the English revision.
       if (checkEnglishRevision(access, head, merged, input.noTranslationImpact === true) === 'kept')
         kept.push(merged.hash);
@@ -220,13 +237,17 @@ export async function saveChanges(
           )
           .map((field) => (field === 'associated' ? 'associations' : field)),
       ];
+      if (rebased && !fields.length && head && stableStringify(head) === stableStringify(merged))
+        continue;
+      writes[`tooltips/${merged.hash}.json`] = merged;
       changed.push(`${merged.hash}=${fields.join(',') || 'none'}`);
     }
     if (conflicts.length) return { conflicts };
+    if (!changed.length) return { commit: headCommit, tooltips, savedAt: Date.now() };
     try {
       const commit = await github.commit(
         headCommit,
-        Object.fromEntries(tooltips.map((tooltip) => [`tooltips/${tooltip.hash}.json`, tooltip])),
+        writes,
         // Carried languages are attributed per tooltip, immediately after Clarity-Changed.
         `${input.message}\n\n${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(',')}\n` : ''}Clarity-Changed: ${changed.join(';')}${carried.length ? `\nClarity-Carried: ${carried.join(';')}` : ''}`,
         user,

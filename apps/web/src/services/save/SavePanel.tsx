@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { resolveCompendiumLink, type CompendiumData } from '@clarity/core';
-import { apiUrl, save } from '../api';
+import { apiUrl } from '../api';
 import { loadCompendium } from '../compendium';
 import { errorMessage } from '../http';
 import { sameUser, useAuthStore } from '../../stores/auth';
@@ -20,13 +20,14 @@ import { linkLocation, matchLocation } from '../../features/compendium/sourceLoc
 import { useCompendiumStore } from '../../features/compendium/store';
 import { Dialog } from '../../ui/Dialog';
 import styles from './SavePanel.module.scss';
-import { acceptSaved } from './drafts';
+import { saveCurrent, saveRemainder } from './currentSave';
 import { useSaveNotice } from './notice';
+import { startSaveRecovery } from './recovery';
 import { permissionError, prepareChanges } from './pipeline';
 import { requestSaveValidation } from './validationWorker';
 import { liveFallback, noImpactAvailable } from './fallback';
 import type { TooltipValidationIssue } from '@clarity/core';
-import { useSaveState, type SaveReview } from './state';
+import { useSaveProgress, useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
 import { SaveSummary } from './SaveSummary';
@@ -53,6 +54,7 @@ export function SaveController() {
   const showNotice = useSaveNotice((state) => state.show);
   // Conflict rows and their saved copy follow the drafts of the signed-in account.
   useEffect(() => useConflictStore.getState().start(), []);
+  useEffect(startSaveRecovery, []);
   useEffect(() => {
     // A review lists one account's drafts: switching accounts closes it, keeping the drafts.
     return () => {
@@ -140,15 +142,19 @@ export function SavePanel({
 }
 
 /** What the user is told when somebody else saved the same tooltips first. */
-export function conflictNotice(outcome: BeginResult): string {
+export function conflictNotice(outcome: BeginResult, saved = 0): string {
   const tooltips = outcome.tooltips === 1 ? '1 tooltip' : `${outcome.tooltips} tooltips`;
   const open = outcome.markers + outcome.rows;
   const merged = outcome.merged
     ? ` ${outcome.merged} text${outcome.merged === 1 ? '' : 's'} merged automatically.`
     : '';
+  const prefix = saved
+    ? `Saved ${saved} tooltip(s). The remaining drafts were kept.`
+    : 'Nothing was saved:';
+  const changed = `${prefix} ${tooltips} changed on the server meanwhile.`;
   return open > 0
-    ? `Nothing was saved: ${tooltips} changed on the server meanwhile. Resolve ${open === 1 ? '1 conflict' : `${open} conflicts`} in the editor, then review and save again.${merged}`
-    : `Nothing was saved: ${tooltips} changed on the server meanwhile.${merged || ' Your edits were merged.'} Review and save again.`;
+    ? `${changed} Resolve ${open === 1 ? '1 conflict' : `${open} conflicts`} in the editor, then review and save again.${merged}`
+    : `${changed}${merged || ' Your edits were merged.'} Review and save again.`;
 }
 
 const accountChanged = (generation: number) => useDraftStore.getState().generation !== generation;
@@ -161,11 +167,12 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const openConflicts = useOpenConflicts();
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
-  const [remoteCommit, setRemoteCommit] = useState<string | null>(null);
+  const [reloadRequired, setReloadRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const progress = useSaveProgress();
   // Where this save goes: Current, or a batch (maintainers and editors, switch ON only).
   const [destination, setDestination] = useState<Destination>({ kind: 'current' });
-  // A refusal the Destination row foresees (scheduled batch content, member cap).
+  // A scheduled-batch refusal the Destination row can foresee.
   const [destinationBlocked, setDestinationBlocked] = useState<string | null>(null);
   // Maintainers and editors only (root 2026-11-14: translators get no Destination row until the
   // later destination task; trials get no batch access, Q3). The Worker stays the guard.
@@ -232,12 +239,11 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
     !validation ||
     validation?.error ||
     validation?.issues.some((issue) => issue.severity === 'error') ||
-    changes.length > 100 ||
     (batchTarget?.kind === 'new' && !batchTarget.name.trim()) ||
     (batchTarget && destinationBlocked),
   );
   async function submit() {
-    if (!data || !user || pending || blocked || remoteCommit) return;
+    if (!data || !user || pending || blocked || reloadRequired) return;
     setPending(true);
     setError(null);
     const drafts = useDraftStore.getState();
@@ -253,10 +259,12 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       // the current source now; if it differs from what the editor was shown, show the new diff
       // and wait for an explicit tick. What was fetched and ticked is exactly what gets recorded.
       let source: CompendiumData | undefined;
+      let checkedSources = changedSource;
       if (linksCompendium(changes)) {
         source = await loadCompendium(true);
         if (accountChanged(generation)) return;
         const found = changedSources(changes, useCompendiumStore.getState().data, source);
+        checkedSources = found;
         setChangedSource(found);
         setFreshSource(source);
         if (found.length && acknowledged !== sourceKey(found)) {
@@ -280,21 +288,21 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       const auth = useAuthStore.getState();
       if (auth.loading || !sameUser(auth.user, user) || auth.token !== sessionToken())
         throw new Error('Your login changed. Close this review and check your role.');
+      const token = auth.token;
+      const sameSession = () => {
+        if (accountChanged(generation)) return false;
+        const now = useAuthStore.getState();
+        return (
+          !now.loading &&
+          sameUser(now.user, user) &&
+          now.token === token &&
+          sessionToken() === token
+        );
+      };
       if (batchTarget) {
         // A batch save is several requests: each one goes out only while the session is still
         // the one checked above (settled auth, same user, same token; the draft generation lags
         // a token change while /me loads). Asked before create, after awaits, and per chunk.
-        const token = sessionToken();
-        const sameSession = () => {
-          if (accountChanged(generation)) return false;
-          const now = useAuthStore.getState();
-          return (
-            !now.loading &&
-            sameUser(now.user, user) &&
-            now.token === token &&
-            sessionToken() === token
-          );
-        };
         const { saveReviewToBatch } = await destinationChunk();
         const notice = await saveReviewToBatch(
           batchTarget,
@@ -310,52 +318,46 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         close();
         return;
       }
-      const result = await save(
+      const result = await saveCurrent({
         prepared,
-        message.trim() || `Update ${changes.length} tooltip(s)`,
+        review,
+        data,
+        message: message.trim() || `Update ${progress.total || changes.length} tooltip(s)`,
         noTranslationImpact,
-      );
-      if (accountChanged(generation) && result.kind === 'saved') {
-        // Switching accounts already closed this review; report through the save notice.
-        onSaved(
-          `Remote save ${result.commit.slice(0, 8)} succeeded, but you switched accounts meanwhile. The drafts stay with the account that made them: sign back in to it and reload data.`,
-        );
+        sameSession,
+        accountChanged: () => accountChanged(generation),
+      });
+      if (result.kind === 'interrupted') {
+        if (result.commit && accountChanged(generation))
+          onSaved(
+            `Remote save ${result.commit.slice(0, 8)} succeeded, but you switched accounts meanwhile. The drafts stay with the account that made them: sign back in to it and reload data.`,
+          );
         return;
       }
-      if (accountChanged(generation)) return;
+      if (accountChanged(generation) || useSaveState.getState().review !== review) return;
+      const saved = progress.done + result.accepted.size;
       if (result.kind === 'conflicts') {
-        // Nothing was saved. Rebase the drafts on the server's versions and resolve in the editor.
-        const conflicted = new Set(result.conflicts.map((conflict) => conflict.hash));
-        const outcome = useConflictStore.getState().begin(
-          result.conflicts,
-          prepared.filter((change) => !conflicted.has(change.hash)),
-          result.serverAt,
-        );
-        onSaved(conflictNotice(outcome));
+        const outcome = useConflictStore
+          .getState()
+          .begin(result.result.conflicts, result.kept, result.result.serverAt);
+        onSaved(conflictNotice(outcome, saved));
         close();
-      } else if (result.kind === 'retry')
-        setError(`${result.error}. Nothing was saved. Retry when ready.`);
-      else {
-        setRemoteCommit(result.commit);
-        // The panel now compares against what was just recorded, not an older fetch.
+      } else if (result.kind === 'failed') {
+        if (result.accepted.size) {
+          const remainingSources = checkedSources.filter(({ hash }) => !result.accepted.has(hash));
+          if (acknowledged === sourceKey(checkedSources))
+            setAcknowledged(sourceKey(remainingSources));
+          setChangedSource(remainingSources);
+          useSaveState.setState({ review: saveRemainder(review, result.accepted) });
+        }
+        setReloadRequired(!!result.reload);
+        const status = saved
+          ? `Saved ${saved} of ${saved + changes.length - result.accepted.size} tooltips. Remaining drafts were kept.`
+          : 'Nothing was confirmed saved.';
+        setError(`${result.error}. ${status}${result.reload ? '' : ' Retry when ready.'}`);
+      } else {
         if (source) useCompendiumStore.setState({ data: source });
-        const expected = new Set(prepared.map(({ hash }) => hash));
-        if (
-          result.tooltips.length !== expected.size ||
-          result.tooltips.some(({ hash }) => !expected.delete(hash))
-        ) {
-          throw new Error(
-            `Remote save ${result.commit} succeeded, but returned an incomplete tooltip set. Drafts are retained; close this dialog and reload data before continuing.`,
-          );
-        }
-        try {
-          acceptSaved(review.submitted, result.tooltips, result.commit, [], result.savedAt);
-        } catch (error) {
-          throw new Error(
-            `Remote save ${result.commit} succeeded, but local reconciliation failed: ${errorMessage(error).replace(/\.+$/, '')}. Drafts are retained; close this dialog and reload data before continuing.`,
-          );
-        }
-        onSaved(`Saved ${result.tooltips.length} tooltip(s) in ${result.commit.slice(0, 8)}.`);
+        onSaved(`Saved ${saved} tooltip(s). Latest commit ${result.commit.slice(0, 8)}.`);
         close();
       }
     } catch (error) {
@@ -373,16 +375,20 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         <>
           <button
             type="button"
-            disabled={pending || blocked || !data || Boolean(remoteCommit) || needsAcknowledgement}
+            disabled={pending || blocked || !data || reloadRequired || needsAcknowledgement}
             onClick={() => void submit()}
           >
             {pending
-              ? 'Saving...'
+              ? progress.phase === 'saving' && progress.total > 1
+                ? `Saving ${progress.done} of ${progress.total}`
+                : 'Saving...'
               : !validation && data
                 ? 'Validating...'
                 : batchTarget
                   ? 'Save to batch'
-                  : 'Save changes'}
+                  : progress.phase === 'failed' && !reloadRequired
+                    ? 'Retry'
+                    : 'Save changes'}
           </button>
           <button type="button" disabled={pending} onClick={close}>
             Cancel; keep local drafts
@@ -454,9 +460,6 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
       {unresolved && <p role="alert">Resolve the open conflicts before saving.</p>}
       {paused && (
         <p role="alert">Another tab changed your drafts. Choose Reload or Keep mine first.</p>
-      )}
-      {changes.length > 100 && (
-        <p role="alert">At most 100 tooltips can be saved at once. Reduce your drafts first.</p>
       )}
       {validation?.issues.some((issue) => issue.severity === 'warning') && (
         <p>Warnings do not block saving.</p>
