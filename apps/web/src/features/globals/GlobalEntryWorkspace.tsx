@@ -70,6 +70,7 @@ import { definitionPath } from '../editor/definitionPath';
 import { canonicalHash, classifiedCategory, itemFor, listName } from '../navigation/catalog';
 import { FinderIcon } from '../navigation/FinderIcon';
 import { globalUsageIndex, type GlobalUsageIndex, type GlobalUsages } from './usages';
+import { applySavedGlobals } from '../../stores/savedOverlay';
 
 const globals = { variables: '', titles: '' };
 type Action = 'create' | 'rename' | 'remove' | 'remove-language';
@@ -291,14 +292,14 @@ function Workspace({
     () => (data ? tooltipTextSources(data.bundle.tooltips, {}, data.aliases) : undefined),
     [data],
   );
-  const usageIndex = useGlobalUsageIndex(data, snapshot.entries, shownTab === 'usages');
-  const uses = useMemo(
-    () => (openId && usageIndex.index ? usageIndex.index.of(openId) : undefined),
-    [usageIndex.index, openId],
-  );
+  const {
+    uses,
+    entries: usageEntries,
+    error: usageError,
+  } = useGlobalUsages(data, snapshot.entries, openId, shownTab === 'usages');
   const allRows = useMemo(
-    () => usageRows(uses ?? noUses, savedImpacts, data, snapshot.entries, lang),
-    [uses, savedImpacts, data, snapshot.entries, lang],
+    () => usageRows(uses ?? noUses, savedImpacts, data, usageEntries, lang),
+    [uses, savedImpacts, data, usageEntries, lang],
   );
   const [reviewReload, setReviewReload] = useState(0);
   const [reviewError, setReviewError] = useState('');
@@ -1042,8 +1043,7 @@ function Workspace({
               )
             ) : !uses ? (
               <p role="status">
-                {usageIndex.error ||
-                  (data ? 'Finding usages…' : 'Usages show once the tooltips load.')}
+                {usageError || (data ? 'Finding usages…' : 'Usages show once the tooltips load.')}
               </p>
             ) : (
               !shownRows.length && (
@@ -1182,34 +1182,60 @@ const noUses: GlobalUsages = { tooltips: [], globals: [] };
 
 /**
  * The usage index, built once per loaded data and catalogue: at once when the Usages tab is
- * open, otherwise when the browser is idle (so the tab count fills in). The previous index stays
- * shown while a newer one builds.
+ * open, otherwise when the browser is idle (so the tab count fills in).
  */
-function useGlobalUsageIndex(
+function useGlobalUsages(
   data: EditorData | null,
-  entries: readonly GlobalEntry[],
+  snapshotEntries: readonly GlobalEntry[],
+  id: string | undefined,
   wanted: boolean,
-): { index?: GlobalUsageIndex; error: string } {
+) {
+  const bundle = data?.bundle;
+  const catalog = bundle?.globals;
+  const entries = useMemo(
+    () =>
+      bundle && catalog?.usages
+        ? applySavedGlobals(bundle, catalog.entries, undefined, false)
+        : snapshotEntries,
+    [bundle, catalog, snapshotEntries],
+  );
+  const saved = entries.find((entry) => entry.id === id);
+  const bundled = catalog?.entries.find((entry) => entry.id === id);
+  const precomputed =
+    catalog?.usages && id
+      ? !saved || saved.tombstone
+        ? noUses
+        : saved === bundled
+          ? catalog.usages[id]
+          : undefined
+      : undefined;
+  // Older bundles share one sliced calculation. A present payload only needs the entry
+  // this tab saved, and only while the bundle still lacks that saved revision.
+  const only = catalog?.usages ? id : undefined;
+  const hasId = id !== undefined;
+  const input = useMemo(
+    () => (data && hasId && !precomputed ? { data, entries, only } : undefined),
+    [data, entries, only, precomputed, hasId],
+  );
   const [built, setBuilt] = useState<{
-    data: EditorData;
-    entries: readonly GlobalEntry[];
-    index: GlobalUsageIndex;
+    input: NonNullable<typeof input>;
+    index?: GlobalUsageIndex;
+    error: string;
   }>();
-  const [error, setError] = useState('');
-  const current = built?.data === data && built?.entries === entries;
   useEffect(() => {
-    if (!data || current) return;
-    const controller = new AbortController();
+    if (!input) return;
+    let active = true;
     const start = () =>
-      void globalUsageIndex(data, entries).then(
+      void globalUsageIndex(input.data, input.entries, input.only).then(
         (index) => {
-          if (controller.signal.aborted) return;
-          setError('');
-          setBuilt({ data, entries, index });
+          if (active) setBuilt({ input, index, error: '' });
         },
         (reason: unknown) => {
-          if (!controller.signal.aborted)
-            setError(reason instanceof Error ? reason.message : 'Could not find usages.');
+          if (active)
+            setBuilt({
+              input,
+              error: reason instanceof Error ? reason.message : 'Could not find usages.',
+            });
         },
       );
     let cancel = () => {};
@@ -1223,10 +1249,15 @@ function useGlobalUsageIndex(
     }
     return () => {
       cancel();
-      controller.abort();
+      active = false;
     };
-  }, [data, entries, wanted, current]);
-  return { index: built?.index, error };
+  }, [input, wanted]);
+  const current = built?.input === input ? built : undefined;
+  const uses = useMemo(
+    () => precomputed ?? (id && current?.index ? current.index.of(id) : undefined),
+    [precomputed, id, current?.index],
+  );
+  return { uses, entries, error: current?.error ?? '' };
 }
 
 interface UsageRow {

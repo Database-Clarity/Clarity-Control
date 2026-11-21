@@ -11,10 +11,10 @@ import {
   type GlobalRecord,
   type Lang,
   type MarkupGlobals,
+  type Tooltip,
 } from '@clarity/core';
-import type { EditorData } from '../../stores/data';
 import { importGlobals } from '../../services/tooltipImports';
-import { canonicalHash } from '../navigation/catalog';
+import { canonicalHash, type NavigationGroups } from '../navigation/canonicalHash';
 import { referenceInLine } from '../editor/references';
 
 /**
@@ -63,18 +63,8 @@ export interface GlobalUsageIndex {
   of(id: string): GlobalUsages;
 }
 
-const yieldToPaint = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-/** Runs `work` over `items` in slices of about 8 ms, so no task runs long. */
-async function sliced<T>(items: readonly T[], work: (item: T) => void, signal?: AbortSignal) {
-  let started = performance.now();
-  for (const item of items) {
-    if (performance.now() - started > 8) {
-      await yieldToPaint();
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      started = performance.now();
-    }
-    work(item);
-  }
+export interface GlobalUsageData extends NavigationGroups {
+  bundle: NavigationGroups['bundle'] & { tooltips: Record<string, Tooltip> };
 }
 
 /** Globals written in `text` itself, with the line of the first token of each. */
@@ -111,15 +101,16 @@ function importsOf(text: string): { name: string; source: string }[] {
 }
 
 /**
- * Builds the index over the loaded tooltips (slice by slice, so it never blocks a frame) and
- * the live entries' bodies. Saved text only: drafts never change it.
+ * Shared resolver checks for the publisher and the editor. Each yield ends a unit of work
+ * so the editor can return to painting between parses and during grouping.
  */
-export async function buildGlobalUsageIndex(
-  data: EditorData,
+function* usageSteps(
+  data: GlobalUsageData,
   entries: readonly GlobalRecord[],
-  signal?: AbortSignal,
-): Promise<GlobalUsageIndex> {
+  only?: string,
+): Generator<void, GlobalUsageIndex> {
   const live = entries.filter((entry) => !entry.tombstone);
+  const targets = only === undefined ? live : live.filter((entry) => entry.id === only);
   const ids = new Map(live.map((entry) => [keyOf(entry.kind, entry.name), entry.id]));
   const bodyOf = (entry: GlobalRecord, lang: Lang) =>
     (entry.definitions[lang] ?? entry.definitions.en)?.body;
@@ -162,26 +153,20 @@ export async function buildGlobalUsageIndex(
     declared.set(cacheKey, globals);
     return globals;
   };
-  // One parse is the unit of work: the build yields between parses once a slice reaches 8 ms.
-  let slice = performance.now();
-  const render = async (text: string, globals: MarkupGlobals) => {
+  function* render(text: string, globals: MarkupGlobals): Generator<void, string[]> {
     const rendered: string[] = [];
     for (const type of conditionTypes) {
-      if (performance.now() - slice > 8) {
-        await yieldToPaint();
-        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-        slice = performance.now();
-      }
       rendered.push(JSON.stringify(parseMarkup(text, { ...globals, type }).lines));
+      yield;
     }
     return rendered;
-  };
+  }
   /** Globals the rendered output of `text` depends on, under any condition type. */
-  const usedBy = async (text: string, lang: Lang, self?: GlobalRecord): Promise<Set<Key>> => {
+  function* usedBy(text: string, lang: Lang, self?: GlobalRecord): Generator<void, Set<Key>> {
     const globals = globalsFor(lang);
     const variables = new Set<string>();
     const reads = new Set<string>();
-    const baseline = await render(text, {
+    const baseline = yield* render(text, {
       ...globals,
       onVariable: (name) => variables.add(name),
       imports: new Proxy<Record<string, string>>(
@@ -196,7 +181,7 @@ export async function buildGlobalUsageIndex(
     });
     const titled = baseline.some((rendered) => rendered.includes('"title":'));
     const used = new Set<Key>();
-    for (const entry of live) {
+    for (const entry of targets) {
       if (entry === self) continue;
       const candidate =
         entry.kind === 'variables'
@@ -205,23 +190,22 @@ export async function buildGlobalUsageIndex(
             ? reads.has('1') || reads.has('global')
             : titled;
       if (!candidate) continue;
-      const without = await render(text, globalsFor(lang, entry));
+      const without = yield* render(text, globalsFor(lang, entry));
       if (without.some((rendered, type) => rendered !== baseline[type]))
         used.add(keyOf(entry.kind, entry.name));
     }
     return used;
-  };
+  }
 
-  const docs: { hash: number; lang: Lang; text: string; used?: Set<Key> }[] = [];
+  const docs: { hash: number; lang: Lang; text: string; used: Set<Key> }[] = [];
   for (const tooltip of Object.values(data.bundle.tooltips)) {
     if (tooltip.hash >= 1 && tooltip.hash <= 3) continue;
     for (const lang of languages) {
       const text = tooltip.text[lang]?.text;
-      if (text) docs.push({ hash: tooltip.hash, lang, text });
+      if (text) docs.push({ hash: tooltip.hash, lang, text, used: yield* usedBy(text, lang) });
     }
   }
-  for (const doc of docs) doc.used = await usedBy(doc.text, doc.lang);
-  const usedByDoc = new Map(docs.map((doc) => [`${doc.hash}:${doc.lang}`, doc.used!]));
+  const usedByDoc = new Map(docs.map((doc) => [`${doc.hash}:${doc.lang}`, doc.used]));
   // A global's own body, rendered as its editor previews it.
   const bodies = live.flatMap((entry) =>
     languages
@@ -230,16 +214,13 @@ export async function buildGlobalUsageIndex(
   );
   const usedByEntry = new Map<string, Set<Key>>();
   for (const { entry, lang, text } of bodies)
-    usedByEntry.set(`${entry.id}:${lang}`, await usedBy(text, lang, entry));
+    usedByEntry.set(`${entry.id}:${lang}`, yield* usedBy(text, lang, entry));
   const members = new Map<number, number>();
-  await sliced(
-    Object.keys(data.items),
-    (hash) => {
-      const canonical = canonicalHash(Number(hash), data);
-      members.set(canonical, (members.get(canonical) ?? 0) + 1);
-    },
-    signal,
-  );
+  for (const hash of Object.keys(data.items)) {
+    const canonical = canonicalHash(Number(hash), data);
+    members.set(canonical, (members.get(canonical) ?? 0) + 1);
+    yield;
+  }
 
   /** What brings `key` into a text that does not write it: an import, or a global it writes. */
   const through = (text: string, lang: Lang, own: Map<Key, number>, key: Key): string[] => {
@@ -271,31 +252,28 @@ export async function buildGlobalUsageIndex(
   };
 
   const tooltips = new Map<string, Map<number, TooltipUse>>();
-  await sliced(
-    docs,
-    ({ hash, lang, text, used }) => {
-      if (!used!.size) return;
-      const own = authored(text);
-      const canonical = canonicalHash(hash, data);
-      for (const key of used!) {
-        const id = ids.get(key)!;
-        let rows = tooltips.get(id);
-        if (!rows) tooltips.set(id, (rows = new Map()));
-        let row = rows.get(canonical);
-        if (!row) {
-          const open = { variant: hash, lang };
-          const members_ = members.get(canonical) ?? 1;
-          row = { hash: canonical, open, members: members_, langs: [], direct: false, via: [] };
-          rows.set(canonical, row);
-        }
-        const line = own.get(key);
-        // The first direct use decides where the row opens: its member, language, and line.
-        if (line !== undefined && !row.direct) row.open = { variant: hash, lang, line };
-        record(row, lang, line !== undefined, () => through(text, lang, own, key));
+  for (const { hash, lang, text, used } of docs) {
+    if (!used.size) continue;
+    const own = authored(text);
+    const canonical = canonicalHash(hash, data);
+    for (const key of used) {
+      const id = ids.get(key)!;
+      let rows = tooltips.get(id);
+      if (!rows) tooltips.set(id, (rows = new Map()));
+      let row = rows.get(canonical);
+      if (!row) {
+        const open = { variant: hash, lang };
+        const members_ = members.get(canonical) ?? 1;
+        row = { hash: canonical, open, members: members_, langs: [], direct: false, via: [] };
+        rows.set(canonical, row);
       }
-    },
-    signal,
-  );
+      const line = own.get(key);
+      // The first direct use decides where the row opens: its member, language, and line.
+      if (line !== undefined && !row.direct) row.open = { variant: hash, lang, line };
+      record(row, lang, line !== undefined, () => through(text, lang, own, key));
+    }
+    yield;
+  }
   const globals = new Map<string, Map<string, EntryUse>>();
   for (const { entry, lang, text } of bodies) {
     const used = usedByEntry.get(`${entry.id}:${lang}`)!;
@@ -320,29 +298,74 @@ export async function buildGlobalUsageIndex(
   };
 }
 
-const indexes = new WeakMap<EditorData, Map<string, Promise<GlobalUsageIndex>>>();
+/** Serializes a row for every live ID, including entries with no uses. */
+export function bundleGlobalUsages(
+  data: GlobalUsageData,
+  entries: readonly GlobalRecord[],
+): Record<string, GlobalUsages> {
+  const steps = usageSteps(data, entries);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  const index = step.value;
+  return Object.fromEntries(
+    entries.filter((entry) => !entry.tombstone).map(({ id }) => [id, index.of(id)]),
+  );
+}
+
+export async function buildGlobalUsageIndex(
+  data: GlobalUsageData,
+  entries: readonly GlobalRecord[],
+  signal?: AbortSignal,
+  only?: string,
+): Promise<GlobalUsageIndex> {
+  const steps = usageSteps(data, entries, only);
+  signal?.throwIfAborted();
+  let started = performance.now();
+  let step = steps.next();
+  while (!step.done) {
+    if (performance.now() - started > 8) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      signal?.throwIfAborted();
+      started = performance.now();
+    }
+    step = steps.next();
+  }
+  return step.value;
+}
+
+const indexes = new WeakMap<
+  GlobalUsageData,
+  {
+    key: string;
+    controller: AbortController;
+    byId: Map<string | undefined, Promise<GlobalUsageIndex>>;
+  }
+>();
 /**
  * The index for this data and these entries, built once and shared: reopening a global (or
  * another one) never rebuilds it. Keyed by the entries' names and bodies, since each catalogue
  * read is a new array. A failed build is dropped so the next open retries.
  */
 export function globalUsageIndex(
-  data: EditorData,
+  data: GlobalUsageData,
   entries: readonly GlobalRecord[],
+  only?: string,
 ): Promise<GlobalUsageIndex> {
   const key = JSON.stringify(
     entries
       .filter((entry) => !entry.tombstone)
       .map((entry) => [entry.id, entry.kind, entry.name, entry.definitions]),
   );
-  let byEntries = indexes.get(data);
-  if (!byEntries) indexes.set(data, (byEntries = new Map()));
-  let index = byEntries.get(key);
+  let current = indexes.get(data);
+  if (current?.key !== key) {
+    current?.controller.abort();
+    indexes.set(data, (current = { key, controller: new AbortController(), byId: new Map() }));
+  }
+  const { byId, controller } = current;
+  let index = byId.get(only);
   if (!index) {
-    // Only the latest catalogue is kept per data: after a save the old one is stale.
-    byEntries.clear();
-    byEntries.set(key, (index = buildGlobalUsageIndex(data, entries)));
-    index.catch(() => byEntries!.delete(key));
+    byId.set(only, (index = buildGlobalUsageIndex(data, entries, controller.signal, only)));
+    index.catch(() => byId.delete(only));
   }
   return index;
 }

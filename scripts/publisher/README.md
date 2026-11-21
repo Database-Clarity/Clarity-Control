@@ -193,6 +193,10 @@ bundle.json `globals` holds the globals catalogue at the bundle's sourceCommit: 
 catalogue page order plus the public sync header (the Worker's publicGlobalSync), or null when
 the catalogue files are malformed. The editor reads its finder lists from it; the Worker serves
 only the opened entry, its reviews, and writes. Install this build before deploying that editor.
+The same bundle build computes `globals.usages` for every live ID, including entries with no
+uses. Its install config needs the full `aliasFacts.items` from the same pinned generator
+revision as `generatorSha`, `aliases`, and `sandboxConflicts`. Older configs and older bundle
+producers still serve the catalogue, with usages calculated by the editor on demand.
 It merges maintainer sandbox picks (config/sandbox-pointers.json, core mergeSandboxPointers with
 the config's generator `sandboxConflicts`) into the aliases it digests and exports, carries the
 picks in bundle.json, and its PIN declares `sandboxPointers`, which the Worker's

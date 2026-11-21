@@ -2011,6 +2011,33 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       },
     });
     expect(JSON.stringify(bundle())).not.toContain(secret);
+    f.options.aliasFacts = { generatorSha: f.options.generatorSha, items: {} };
+    f.change(D, {
+      'tooltips/123.json': {
+        ...f.tooltip,
+        text: { en: { ...f.tooltip.text.en!, text: 'Uses #Alpha' } },
+      },
+    });
+    f.pub.bundle();
+    expect(bundle().globals).toMatchObject({
+      usages: {
+        [b.id]: { tooltips: [], globals: [] },
+        [a.id]: {
+          tooltips: [
+            {
+              hash: 123,
+              open: { variant: 123, lang: 'en', line: 1 },
+              langs: ['en'],
+              direct: true,
+              members: 1,
+              via: [],
+            },
+          ],
+          globals: [],
+        },
+        [c.id]: { tooltips: [], globals: [] },
+      },
+    });
     // A broken catalogue is unavailable (null), never a partial list; tooltips still update.
     f.change(D, { [`globals/entries/${c.id}.json`]: { ...c, id: 'g_dddddddd' } });
     f.pub.bundle();

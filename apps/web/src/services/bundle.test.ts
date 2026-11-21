@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { bundleUrl, inactiveMovesUrl, loadBundle } from './bundle';
+import { bundleSchema, bundleUrl, inactiveMovesUrl, loadBundle } from './bundle';
 
 const bundle = {
   sourceCommit: 'a'.repeat(40),
@@ -38,4 +38,32 @@ it('treats an absent file as empty, and fails closed on malformed data or upstre
   await expect(loadBundle()).rejects.toThrow();
   serve({}, 502);
   await expect(loadBundle()).rejects.toThrow('502');
+});
+
+it('preserves computed empty usages and treats incomplete or malformed usage payloads as absent', () => {
+  const id = 'g_aaaaaaaa';
+  const globals = {
+    entries: [
+      {
+        version: 1,
+        id,
+        kind: 'variables',
+        name: 'Damage',
+        revision: 'r1',
+        definitions: {
+          en: { body: '10%', revision: 'r1', updatedAt: bundle.generatedAt, updatedBy: 'a' },
+        },
+        nameHistory: [],
+      },
+    ],
+    sync: { status: 'current', causeIds: [], lastFailure: null, causeEntries: {} },
+  };
+  const parse = (usages?: unknown) =>
+    bundleSchema.parse({ ...bundle, globals: { ...globals, usages } }).globals;
+  expect(parse()).toMatchObject(globals);
+  expect(parse()?.usages).toBeUndefined();
+  expect(parse({})?.usages).toBeUndefined();
+  expect(parse({ [id]: { tooltips: null, globals: [] } })?.usages).toBeUndefined();
+  const empty = { [id]: { tooltips: [], globals: [] } };
+  expect(parse(empty)?.usages).toEqual(empty);
 });

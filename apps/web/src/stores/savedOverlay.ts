@@ -80,6 +80,7 @@ export function applySavedGlobals(
   bundle: Pick<Bundle, 'sourceCommit' | 'generatedAt'>,
   fetched: readonly GlobalRecord[],
   now = Date.now(),
+  forgetRetired = true,
 ): GlobalRecord[] {
   const generatedAt = Date.parse(bundle.generatedAt);
   const result = [...fetched];
@@ -93,7 +94,7 @@ export function applySavedGlobals(
         (stableStringify(current) === stableStringify(saved.entry) ||
           current.nameHistory.some((old) => old.revision === saved.entry.revision)));
     if (retired(saved, generatedAt, caughtUp, now)) {
-      globals.delete(id);
+      if (forgetRetired) globals.delete(id);
       continue;
     }
     if (index >= 0) result[index] = saved.entry;

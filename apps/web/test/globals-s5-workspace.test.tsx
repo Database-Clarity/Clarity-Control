@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  type NavigateFunction,
+} from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GlobalEntryWorkspace } from '../src/features/globals/GlobalEntryWorkspace';
 import type { GlobalHistoryReader } from '../src/features/globals/GlobalHistory';
@@ -9,6 +16,7 @@ import type { GlobalSnapshot, GlobalsService } from '../src/services/globals';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 import { useGlobalDraftStorage } from '../src/features/globals/globalDrafts';
 import { useDataStore, type EditorData } from '../src/stores/data';
+import { clearSavedOverlay, rememberSavedGlobal } from '../src/stores/savedOverlay';
 
 let change: (value: string) => void;
 vi.mock('../src/features/editor/ClarityEditor', () => ({
@@ -21,6 +29,7 @@ vi.mock('../src/features/editor/ClarityEditor', () => ({
 let root: Root | undefined;
 let host: HTMLDivElement;
 let path = '';
+let navigate: NavigateFunction;
 const stored = new Map<string, string>();
 beforeEach(() => {
   useGlobalDraftStorage.setState({ failed: false });
@@ -39,6 +48,7 @@ beforeEach(() => {
   });
 });
 afterEach(async () => {
+  clearSavedOverlay();
   useDataStore.setState({ data: null, status: 'idle' });
   vi.unstubAllGlobals();
   await act(async () => root?.unmount());
@@ -61,6 +71,7 @@ async function discard() {
 }
 function Where() {
   const location = useLocation();
+  navigate = useNavigate();
   path = `${location.pathname}${location.search}`;
   return null;
 }
@@ -387,6 +398,92 @@ it('says when a global is not used by any tooltip', async () => {
   await mount('/globals/g_title00001', service(catalogue));
   await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
   expect(host.textContent).toContain('Not used by any tooltip.');
+});
+
+it('uses the bundle until a save, only replaces the saved row, and adopts a refreshed bundle', async () => {
+  const snapshot = structuredClone(globalFixtureSnapshot);
+  const [damage, title] = snapshot.entries;
+  snapshot.impacts = { [damage.id]: [], [title.id]: [] };
+  const empty = { globals: [], tooltips: [] };
+  const row = {
+    hash: 40,
+    open: { variant: 40, lang: 'en', line: 2 },
+    members: 1,
+    langs: ['en'],
+    direct: true,
+    via: [],
+  };
+  const data = {
+    items: {},
+    categories: [],
+    aliases: {},
+    bundle: {
+      sourceCommit: snapshot.head,
+      generatedAt: '2026-01-01T00:00:00Z',
+      tooltips: {
+        30: { hash: 30, text: { en: { text: '#Damage' } }, associated: [] },
+        // Recomputing the unchanged title would find this use. Its bundled row is empty.
+        31: {
+          hash: 31,
+          text: { en: { text: '<title Reload [Reload] />' } },
+          associated: [],
+        },
+      },
+      globals: {
+        entries: snapshot.entries,
+        usages: { [damage.id]: { ...empty, tooltips: [row] }, [title.id]: empty },
+      },
+    },
+  } as unknown as EditorData;
+  useDataStore.setState({ status: 'ready', data });
+  const globals = service(snapshot);
+  const href = () => host.querySelector('[data-global-usage] a')?.getAttribute('href');
+  await mount(`/globals/${damage.id}`, globals);
+  expect(href()).toBe('/t/40?lang=en&variant=40&line=2');
+
+  let saved = snapshot;
+  for (const revision of ['r2', 'r3']) {
+    await act(() => change(`Saved ${revision}`));
+    const next = structuredClone(saved);
+    next.head = fixtureHead(next.head === snapshot.head ? 2 : 3);
+    const entry = next.entries[0];
+    entry.revision = revision;
+    entry.definitions.en!.body = `Saved ${revision}`;
+    globals.mutate.mockImplementationOnce(async () => {
+      rememberSavedGlobal(entry, next.head);
+      return { kind: 'ok', value: next };
+    });
+    await act(async () => button('Save').click());
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(href()).toBe('/t/30?lang=en&variant=30&line=1');
+    });
+    saved = next;
+  }
+  await act(async () => navigate(`/globals/${title.id}`));
+  expect(host.textContent).toContain('Not used by any tooltip.');
+  expect(href()).toBeUndefined();
+  await act(async () => navigate(`/globals/${damage.id}`));
+
+  // A background bundle refresh can arrive while the service still holds its old snapshot.
+  await act(async () => {
+    useDataStore.setState({
+      data: {
+        ...data,
+        bundle: {
+          ...data.bundle,
+          sourceCommit: saved.head,
+          globals: {
+            ...data.bundle.globals!,
+            entries: saved.entries,
+            usages: { [damage.id]: empty, [title.id]: empty },
+          },
+        },
+      },
+    });
+  });
+  expect(host.textContent).toContain('Not used by any tooltip.');
+  expect(href()).toBeUndefined();
 });
 
 it('filters the saved impacts under a row, and the selection, by language', async () => {
