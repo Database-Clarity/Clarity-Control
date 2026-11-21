@@ -547,6 +547,9 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
   border-top: 0 !important;
   color: var(--text2);
   font-size: 0.75rem;
+  > button {
+    margin-inline-start: auto;
+  }
 }
 .paneToggles {
   display: inline-flex;
