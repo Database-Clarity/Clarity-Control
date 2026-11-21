@@ -132,12 +132,80 @@ it('fits about 50 real-size Compendium links in one part and keeps text edits un
   expect(metadataOnly(edit)).toBe(false);
   const linkCost = saveChangeCost(link);
   expect(linkCost.bytes).toBeGreaterThan(3_000);
-  expect(Math.floor(saveRequestLimits.work / linkCost.work)).toBeGreaterThanOrEqual(40);
-  expect(Math.floor(saveRequestLimits.work / linkCost.work)).toBeLessThanOrEqual(60);
+  expect(Math.floor(saveRequestLimits.work / linkCost.metadataWork!)).toBeGreaterThanOrEqual(40);
+  expect(Math.floor(saveRequestLimits.work / linkCost.metadataWork!)).toBeLessThanOrEqual(60);
   const editBytes = JSON.stringify(edit).length + 1;
-  expect(saveChangeCost(edit).work).toBe(
-    editBytes + 512 + 2 * (JSON.stringify(text).length + JSON.stringify(`${text}!`).length),
+  expect(saveChangeCost(edit)).toEqual({
+    bytes: editBytes,
+    work: editBytes + 512 + 2 * (JSON.stringify(text).length + JSON.stringify(`${text}!`).length),
+  });
+  // A part with any text edit is costed in full, links included (v2 accounting).
+  const links = Array.from({ length: 40 }, (_, i) => {
+    const tooltip = makeTooltip(20_000 + i, text);
+    return { hash: tooltip.hash, base: tooltip, next: { ...tooltip, compendium } };
+  });
+  const short: Change = { hash: 1, base: makeTooltip(1, 'A'), next: makeTooltip(1, 'B') };
+  expect(fitsSaveRequest(links, 'Save', false)).toBe(true);
+  expect(fitsSaveRequest([...links, short], 'Save', false)).toBe(false);
+  expect(fitsSaveRequest([...links.slice(0, 3), short], 'Save', false)).toBe(true);
+});
+
+it('reports a conflict in a big link part, keeps every draft, and saves the remainder', async () => {
+  const changes = realChanges(16);
+  const data = loaded();
+  useDataStore.setState({ data });
+  const submitted = Object.fromEntries(
+    changes.map(({ hash, base, next }) => [hash, { base: base!, next }]),
   );
+  useDraftStore.setState({
+    drafts: submitted,
+    external: false,
+    error: null,
+    retry: () => {},
+    flush: async () => {},
+  });
+  reviewSaveChanges(changes, submitted);
+  const conflicted = changes.at(-1)!;
+  post
+    .mockResolvedValueOnce({
+      kind: 'conflicts',
+      conflicts: [{ ...conflicted, head: conflicted.base, fields: ['compendium'] }],
+    })
+    .mockImplementation(async (chunk: Change[]) => ({
+      kind: 'saved',
+      tooltips: chunk.map(({ next }) => next),
+      commit: 'c',
+    }));
+  const options = {
+    message: 'Review Compendium links',
+    noTranslationImpact: false,
+    sameSession: () => true,
+    accountChanged: () => false,
+  };
+  const review = useSaveState.getState().review!;
+  const first = await saveCurrent({ ...options, prepared: changes, review, data });
+  expect(first.kind).toBe('conflicts');
+  expect(post.mock.calls.map(([chunk]) => (chunk as Change[]).length)).toEqual([16]);
+  expect(first.accepted.size).toBe(0);
+  expect(first.kind === 'conflicts' && first.kept).toEqual(changes.slice(0, -1));
+  expect(useDraftStore.getState().drafts).toEqual(submitted);
+  const kept = changes.slice(0, -1);
+  useSaveState.setState({
+    review: {
+      changes: kept,
+      submitted: Object.fromEntries(kept.map(({ hash }) => [hash, submitted[hash]])),
+    },
+  });
+  const next = await saveCurrent({
+    ...options,
+    prepared: kept,
+    review: useSaveState.getState().review!,
+    data: useDataStore.getState().data!,
+  });
+  expect(next.kind).toBe('saved');
+  expect(useDraftStore.getState().drafts).toEqual({
+    [conflicted.hash]: submitted[conflicted.hash],
+  });
 });
 
 it('keeps the pending receipt of a split part that may have committed', async () => {
@@ -177,7 +245,7 @@ it('keeps the pending receipt of a split part that may have committed', async ()
   expect(write.mock.calls.filter((call) => call[1] === id && call.length === 2)).toEqual([]);
 });
 
-it('retries a metadata-only part that fails on Worker resources as two halves', async () => {
+it('retries a metadata-only part that fails on Worker CPU or the network as two halves', async () => {
   const changes = realChanges(9);
   const data = loaded();
   useDataStore.setState({ data });
@@ -193,7 +261,8 @@ it('retries a metadata-only part that fails on Worker resources as two halves', 
   });
   reviewSaveChanges(changes, submitted);
   post.mockImplementation(async (chunk: Change[]) => {
-    if (chunk.length > 4) throw new TypeError('Failed to fetch');
+    if (chunk.length > 5) throw new TypeError('Failed to fetch');
+    if (chunk.length > 4) throw new Error('API HTTP 503: error code: 1102');
     return { kind: 'saved', tooltips: chunk.map(({ next }) => next), commit: 'c' };
   });
   const result = await saveCurrent({
@@ -229,6 +298,7 @@ it('does not split a text part or a rejected metadata-only part', async () => {
   for (const [changes, error] of [
     [edits, new TypeError('Failed to fetch')],
     [realChanges(4), new Error('API HTTP 422: Tooltip rejected')],
+    [realChanges(4), new Error('API HTTP 502: {"error":"Stored tooltip hash mismatch"}')],
   ] as const) {
     post.mockReset().mockRejectedValue(error);
     const submitted = Object.fromEntries(

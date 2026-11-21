@@ -131,12 +131,14 @@ export async function saveCurrent({
               });
             },
           )
-        : await save(chunk, message, noTranslationImpact).catch(async (error: unknown) => {
-            // A CPU-limited Worker reply has no CORS headers, so it reaches the browser as a
-            // network error. Order-free metadata-only parts retry as two halves, so size never
-            // fails a save. The pending receipt stays: this part may have committed.
-            if (chunk.length < 2 || !chunk.every(metadataOnly) || !(error instanceof TypeError))
-              throw error;
+        : await save(chunk, message, noTranslationImpact).catch((error: unknown) => {
+            // A CPU-limited Worker (Cloudflare error 1102) reaches the browser as a network
+            // error, or as a readable 503. Order-free metadata-only parts retry as two halves,
+            // so size never fails a save. The pending receipt stays: this part may have committed.
+            const resources =
+              error instanceof TypeError ||
+              (error instanceof Error && /^API HTTP 503\b[\s\S]*\b1102\b/.test(error.message));
+            if (chunk.length < 2 || !chunk.every(metadataOnly) || !resources) throw error;
             const half = Math.ceil(chunk.length / 2);
             chunks.unshift(chunk.slice(0, half), chunk.slice(half));
             return null;
