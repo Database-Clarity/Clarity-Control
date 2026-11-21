@@ -238,7 +238,7 @@ it('keeps manifest-backed identity for a single artifact row', () => {
     confidence: 'unresolved',
     ruleId: 'owner-artifact-identity',
   });
-  expect(f.decide().link).toBeUndefined();
+  expect(f.decide()?.link).toBeUndefined();
 });
 
 it('keeps note-only samples and category comments on artifact twins', () => {
@@ -246,7 +246,7 @@ it('keeps note-only samples and category comments on artifact twins', () => {
   // A note-only sample is not the skipped exception.
   expect(note.record.references?.[105]?.decision).toBeUndefined();
   expect(note.decide()).toMatchObject({ action: 'owner', confidence: 'unresolved' });
-  expect(note.decide().link).toBeUndefined();
+  expect(note.decide()?.link).toBeUndefined();
   const comment = artifactTwinFixture('Sample 102', 102);
   comment.record.comment = 'Owner wants these reviewed together.';
   expect(comment.decide()).toMatchObject({
@@ -254,7 +254,7 @@ it('keeps note-only samples and category comments on artifact twins', () => {
     confidence: 'unresolved',
     reason: expect.stringContaining('comment'),
   });
-  expect(comment.decide().link).toBeUndefined();
+  expect(comment.decide()?.link).toBeUndefined();
 });
 
 it('requires catalog parent and perk identity on the exotic card', () => {
