@@ -503,11 +503,9 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
     sorted.some(({ tab, row }) => tab.gid !== first.tab.gid || row.nameNorm !== first.row.nameNorm)
   )
     return undefined;
-  if (
-    first.tab.gid === compendiumTabId('Artifact Perks') &&
-    sorted.some((match) => !sameCell(match.row.cell, first.row.cell))
-  )
-    return undefined;
+  // Artifact perks may repeat a name in different current artifacts with different
+  // mechanics; each section is its own part, so differing cells do not block the
+  // combination (owner 2026-11-21, `.agents/t3/preview-feedback-1104/ARTIFACT-TWINS.md`).
   if (sorted.length === 1) return { ...first };
   const components = sorted.map(compendiumDescriptionCells);
   const shared: CompendiumGridCell[] = [];

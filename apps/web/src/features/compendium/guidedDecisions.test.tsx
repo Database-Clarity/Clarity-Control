@@ -72,7 +72,7 @@ it('learns a tab from a sample whose source cells changed, but not from changed 
   expect(decide(102)).toMatchObject({ action: 'owner' });
 });
 
-it('chooses an artifact section using manifest membership when names repeat', () => {
+it('links a repeated artifact perk to every current section, even with differing cells and parents', () => {
   const f = guidedFixture(),
     category = f.categories[0],
     record = f.document.categories[category.id];
@@ -113,33 +113,72 @@ it('chooses an artifact section using manifest membership when names repeat', ()
   ];
   tab.rows[0].anchor = { row: 10, col: 2 };
   tab.rows[1].anchor = { row: 30, col: 2 };
-  tab.grid.push({ row: 31, col: 1, cell: tab.rows[1].cell });
-  const decision = guidedDecisions(
+  // Owner 2026-11-21: both sections are sources, exactly as the sheet lists them.
+  const parts = ['Other Artifact (Other)', 'Encrypted Data Disk (Reclamation)'];
+  const decide = () =>
+    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+      .entries[2];
+  // The fixture cells differ (`Mechanics 0` / `Mechanics 1`); the names still link both.
+  expect(decide()).toMatchObject({
+    action: 'link',
+    confidence: 'high',
+    ruleId: 'artifact-manifest-section',
+    link: { parts },
+  });
+  // Socket parents no longer choose a single section, and the old preview family is ignored.
+  entry.manifestFacts.item.artifactMemberships = [
+    { source: 'socket', artifactHash: 1, artifactName: 'Other Artifact', ownerHash: 2 },
+  ];
+  expect(decide()).toMatchObject({ action: 'link', link: { parts } });
+  // Sunset exclusions stay: a proven parent absent from every current section is excluded.
+  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Sunset Artifact';
+  expect(decide()).toMatchObject({ action: 'out-of-scope', ruleId: 'artifact-sunset' });
+});
+
+it('links a repeated artifact perk whose triage sample was only skipped', () => {
+  const f = guidedFixture(),
+    category = f.categories[0],
+    record = f.document.categories[category.id];
+  delete f.document.categories[category.id];
+  category.id = record.id = 'catalog:armor-mod-seasonal';
+  f.document.categories[record.id] = record;
+  const tab = f.source.tabs[0];
+  tab.gid = '473308249';
+  tab.name = 'Artifact Perks';
+  tab.grid = [
+    { row: 1, col: 3, cell: { plain: 'First Artifact (One)', runs: [{ text: 'First Artifact (One)' }] } },
+    { row: 20, col: 3, cell: { plain: 'Second Artifact (Two)', runs: [{ text: 'Second Artifact (Two)' }] } },
+  ];
+  tab.rows = [
+    { ...tab.rows[0], rowIndex: 10, name: 'Sample 104', nameNorm: 'sample 104', section: 'One' },
+    { ...tab.rows[1], rowIndex: 30, name: 'Sample 104', nameNorm: 'sample 104', section: 'Two' },
+  ];
+  tab.rows[0].anchor = { row: 10, col: 2 };
+  tab.rows[1].anchor = { row: 30, col: 2 };
+  const entry = category.entries.find((candidate) => candidate.hash === 104)!;
+  // A skipped sample leaves the entry open; it is not an owner no-equivalent decision.
+  expect(record.references?.[104]).toMatchObject({ decision: 'skipped' });
+  entry.classification = {
+    categoryId: 'armor-mod-seasonal',
+    ruleId: 'artifact-identity-unresolved',
+    reason: 'Recorded distinct mechanics.',
+    excluded: false,
+    origin: 'owner',
+  };
+  const [group] = guidedDecisions(
     f.document,
     f.categories,
     f.proposals,
     f.source,
     f.baseline,
     f.scope,
-  )[0].entries[2];
-  expect(decision).toMatchObject({
+  );
+  expect(group.entries.find((decision) => decision.hash === 104)).toMatchObject({
     action: 'link',
+    confidence: 'high',
     ruleId: 'artifact-manifest-section',
-    link: { section: 'Reclamation' },
+    link: { parts: ['First Artifact (One)', 'Second Artifact (Two)'] },
   });
-  // The old preview family falsely says Implement of Curiosity. Only socket parents count.
-  const decide = () =>
-    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
-      .entries[2];
-  entry.manifestFacts.item.artifactMemberships = [
-    { source: 'socket', artifactHash: 1, artifactName: 'Sunset Artifact', ownerHash: 2 },
-  ];
-  expect(decide()).toMatchObject({ action: 'out-of-scope', ruleId: 'artifact-sunset' });
-  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Other Artifact';
-  tab.grid.push({ row: 11, col: 1, cell: tab.rows[0].cell });
-  expect(decide()).toMatchObject({ action: 'link', link: { section: 'Other' } });
-  entry.manifestFacts.item.artifactMemberships[0].artifactName = 'Unknown Artifact';
-  expect(decide().link).toBeUndefined();
 });
 
 it('requires catalog parent and perk identity on the exotic card', () => {

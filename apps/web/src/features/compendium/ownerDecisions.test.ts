@@ -57,9 +57,18 @@ it('links Armorsmith under BOTH current artifacts with stable multipart headings
   expect(sharedPerkLabel(f.entry.hash, f.editor, f.source)).toBe(
     'Shared perk — used on: Encrypted Data Disk, Queensfoil Censer',
   );
-  // A same-name third card without manifest parent evidence cannot join the link.
+  // Owner 2026-11-21: a same-name third card in another current artifact section joins the link.
   f.source.tabs[0].rows.push({ ...rows[0], rowIndex: 200, section: 'Unknown' });
-  expect(f.decide().entries[0].link).toBeUndefined();
+  expect(f.decide().entries[0]).toMatchObject({
+    action: 'link',
+    link: {
+      parts: [
+        'Encrypted Data Disk (Renegades)',
+        'Queensfoil Censer (Wish)',
+        'NPA Repulsion Regulator (Deep)',
+      ],
+    },
+  });
 });
 it('drops the twelve absent plugs without socket parents with the owner-specified reason', () => {
   const hashes = [

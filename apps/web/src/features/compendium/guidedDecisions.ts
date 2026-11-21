@@ -71,6 +71,52 @@ function stableSelection(
   return link && { ...link, snapshotAt: source.fetchedAt };
 }
 
+// Rows holding this perk's exact name in the current artifact sections, one entry per
+// section. Owner 2026-11-21: the exact name is the artifact evidence, even when the
+// manifest socket parents disagree or the sections' description cells differ
+// (`.agents/t3/preview-feedback-1104/ARTIFACT-TWINS.md`).
+function artifactSectionMatches(entry: ReviewSample, source: CompendiumData) {
+  const tab = source.tabs.find((candidate) => candidate.gid === compendiumTabId('Artifact Perks'));
+  const headers = artifactSections(source);
+  const nameNorm = normaliseCompendiumName(entry.name);
+  const nextHeader = (header: (typeof headers)[number]) =>
+    Math.min(...headers.filter((cell) => cell.row > header.row).map((cell) => cell.row), Infinity);
+  const sectionOf = headers.filter((header) =>
+    (tab?.rows ?? []).some(
+      (row) =>
+        row.rowIndex > header.row && row.rowIndex < nextHeader(header) && row.nameNorm === nameNorm,
+    ),
+  );
+  const matches = sectionOf.flatMap((header) =>
+    (tab?.rows ?? [])
+      .filter(
+        (row) =>
+          row.rowIndex > header.row &&
+          row.rowIndex < nextHeader(header) &&
+          row.nameNorm === nameNorm,
+      )
+      .map((row) => ({ tab: tab!, row })),
+  );
+  return { tab, nameNorm, sectionOf, matches };
+}
+function artifactSectionName(header: ReturnType<typeof artifactSections>[number]) {
+  return header.cell.plain.replace(/\s*\([^()]+\)\s*$/, '');
+}
+function artifactTwinDecision(entry: ReviewSample, source: CompendiumData) {
+  const { tab, nameNorm, sectionOf, matches } = artifactSectionMatches(entry, source);
+  // One row per section, and no same-name row outside the current sections.
+  if (
+    !tab ||
+    matches.length < 2 ||
+    sectionOf.length !== matches.length ||
+    tab.rows.filter((row) => row.nameNorm === nameNorm).length !== matches.length
+  )
+    return;
+  const combined = combineCompendiumMatches(matches);
+  const link = combined && stableSelection(combined, source);
+  return link?.parts?.length === matches.length ? { link, sectionOf } : undefined;
+}
+
 // Pure facts of a source row name, shared by every entry that scans the same rows.
 const rowNames = new Map<string, { first: string; lines: string[]; full: string }>();
 function rowNameFacts(name: string) {
@@ -335,6 +381,12 @@ export function* guidedDecisionSteps(
           reason: 'Exotic part: weapon row is not its text; review its own tooltip source.',
         };
       const classification = entry.classification;
+      // Owner 2026-11-21: an artifact perk whose name appears in the current sections of two
+      // or more artifacts links to each of them, so the recorded distinct-artifact triage no
+      // longer blocks the artifact section rule (`.agents/t3/preview-feedback-1104/ARTIFACT-TWINS.md`).
+      const distinctArtifact =
+        classification?.ruleId === 'artifact-identity-unresolved' &&
+        record.id === 'catalog:armor-mod-seasonal';
       if (
         classification &&
         [
@@ -342,7 +394,8 @@ export function* guidedDecisionSteps(
           'artifact-identity-unresolved',
           'optional-movement',
           'owner-classification-evidence-changed',
-        ].includes(classification.ruleId)
+        ].includes(classification.ruleId) &&
+        !distinctArtifact
       )
         return { ...result, ruleId: classification.ruleId, reason: classification.reason };
       const reference = usable.get(hash);
@@ -404,6 +457,21 @@ export function* guidedDecisionSteps(
           reason:
             'Owner: no equivalent for now (absent/incidental source). Reopens when sheet or entry evidence changes.',
         };
+      // Owner 2026-11-21: same-name artifact perks link to every current artifact section,
+      // including entries whose triage sample was only skipped and is still open for review.
+      const twin =
+        record.id === 'catalog:armor-mod-seasonal' && !notCurrentArtifact(entry, source)
+          ? artifactTwinDecision(entry, source)
+          : undefined;
+      if (twin)
+        return {
+          ...result,
+          action: 'link',
+          confidence: 'high',
+          link: twin.link,
+          ruleId: 'artifact-manifest-section',
+          reason: `Shared perk — used on: ${twin.sectionOf.map(artifactSectionName).join(', ')}`,
+        };
       // Never override an unresolved/stale/skipped/note-only owner sample with an inferred rule.
       if (record.references?.[hash])
         return { ...result, reason: 'Owner sample unresolved or stale; not inferred.' };
@@ -435,45 +503,17 @@ export function* guidedDecisionSteps(
             ruleId: artifactNames.size ? 'artifact-sunset' : 'artifact-source-absent',
             reason: 'not in a current artifact',
           };
-        const tab = source.tabs.find(
-          (candidate) => candidate.gid === compendiumTabId('Artifact Perks'),
-        );
-        const headers = artifactSections(source);
-        const matchingHeaders = headers.filter((cell) =>
-          [...artifactNames].some((name) => cell.cell.plain.startsWith(`${name} (`)),
-        );
-        const matches = matchingHeaders.flatMap((header) => {
-          const next = Math.min(
-            ...headers.filter((cell) => cell.row > header.row).map((cell) => cell.row),
-            Infinity,
-          );
-          return (tab?.rows ?? [])
-            .filter(
-              (row) =>
-                row.rowIndex > header.row &&
-                row.rowIndex < next &&
-                row.nameNorm === normaliseCompendiumName(entry.name),
-            )
-            .map((row) => ({ tab: tab!, row }));
-        });
-        if (
-          matches.length > 1 &&
-          matchingHeaders.length === matches.length &&
-          tab!.rows.filter((row) => row.nameNorm === normaliseCompendiumName(entry.name)).length ===
-            matches.length
-        ) {
-          const combined = combineCompendiumMatches(matches);
-          const link = combined && stableSelection(combined, source);
-          if (link?.parts?.length === matches.length)
-            return {
-              ...result,
-              action: 'link',
-              confidence: 'high',
-              link,
-              ruleId: 'artifact-manifest-section',
-              reason: `Shared perk — used on: ${[...artifactNames].join(', ')}`,
-            };
-        }
+        const { tab, nameNorm, sectionOf, matches } = artifactSectionMatches(entry, source);
+        const twin = artifactTwinDecision(entry, source);
+        if (twin)
+          return {
+            ...result,
+            action: 'link',
+            confidence: 'high',
+            link: twin.link,
+            ruleId: 'artifact-manifest-section',
+            reason: `Shared perk — used on: ${twin.sectionOf.map(artifactSectionName).join(', ')}`,
+          };
         if (matches.length === 1) {
           const match = matches[0];
           const anchor = match.row.anchor;
@@ -507,13 +547,13 @@ export function* guidedDecisionSteps(
               confidence: 'high',
               link,
               ruleId: 'artifact-manifest-section',
-              reason: `Manifest artifact ${[...artifactNames].join(', ')} matches its sheet section.`,
+              reason: `Artifact section ${artifactSectionName(sectionOf[0])} matches this perk's exact name.`,
             };
         }
         return {
           ...result,
           ruleId:
-            tab && !tab.rows.some((row) => row.nameNorm === normaliseCompendiumName(entry.name))
+            tab && !tab.rows.some((row) => row.nameNorm === nameNorm)
               ? 'artifact-source-absent'
               : 'owner-artifact-identity',
           reason:
@@ -522,7 +562,7 @@ export function* guidedDecisionSteps(
               .filter((tab) => tab.name === 'Artifact Perks')
               .flatMap((tab) =>
                 tab.rows
-                  .filter((row) => row.nameNorm === normaliseCompendiumName(entry.name))
+                  .filter((row) => row.nameNorm === nameNorm)
                   .map((row) =>
                     JSON.stringify({
                       gid: tab.gid,
