@@ -1,8 +1,8 @@
 import type { Change } from '../api';
-import { languages } from '@clarity/core';
+import { languages, usesEnglishFallback } from '@clarity/core';
 
-// A request with the largest real English edit, or several smaller metadata edits,
-// falls into the measured low-CPU band. Text edits also run revision and number checks.
+// A request with the largest real English edit, or about 50 real Compendium links, falls into
+// the measured CPU band. Text edits also run revision and number checks.
 export const saveRequestLimits = {
   changes: 100,
   bytes: 2_000_000,
@@ -17,8 +17,20 @@ export function saveEnvelopeBytes(message: string, noTranslationImpact: boolean)
   return jsonBytes({ changes: [], message, ...(noTranslationImpact && { noTranslationImpact }) });
 }
 
+/** No live text changes in any language: a Compendium link or other metadata-only change. */
+export function metadataOnly({ base, next }: Change) {
+  return languages.every(
+    (lang) =>
+      base?.text[lang]?.text === next.text[lang]?.text &&
+      (!base || usesEnglishFallback(base, lang) === usesEnglishFallback(next, lang)),
+  );
+}
+
 export function saveChangeCost(change: Change) {
   const bytes = jsonBytes(change) + 1;
+  // Metadata-only changes skip every text check. Hosted /save CPU is about 40 ms, and cold local
+  // runs add 0.35 to 0.5 ms per real Compendium link: about 50 links per part, under 64 ms.
+  if (metadataOnly(change)) return { bytes, work: Math.ceil((bytes + 512) / 12) };
   let work = bytes + 512;
   for (const lang of languages) {
     const before = change.base?.text[lang]?.text;

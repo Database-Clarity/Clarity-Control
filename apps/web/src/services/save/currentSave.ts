@@ -5,7 +5,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { writeSaveReceipt } from '../draftStorage';
 import { newOpId } from '../publisher/ulid';
 import { acceptSaved } from './drafts';
-import { fitsSaveRequest, saveRequestLimits } from './requestSize';
+import { fitsSaveRequest, metadataOnly, saveRequestLimits } from './requestSize';
 import { stageCurrentSave } from './stagedCurrentSave';
 import { requestSaveChunks } from './validationWorker';
 import { useSaveState, type SaveReview } from './state';
@@ -80,7 +80,8 @@ export async function saveCurrent({
     const chunks = fitsSaveRequest(prepared, message, noTranslationImpact)
       ? [prepared]
       : await requestSaveChunks(prepared, data, message, noTranslationImpact);
-    for (const chunk of chunks) {
+    while (chunks.length) {
+      const chunk = chunks.shift()!;
       const stop = stopped();
       if (stop) return stop;
       const submitted = Object.fromEntries(
@@ -130,7 +131,21 @@ export async function saveCurrent({
               });
             },
           )
-        : await save(chunk, message, noTranslationImpact);
+        : await save(chunk, message, noTranslationImpact).catch(async (error: unknown) => {
+            // A CPU-limited Worker reply reaches the browser as a network error or HTTP 5xx.
+            // Order-free metadata-only parts retry as two halves, so size never fails a save.
+            if (
+              chunk.length < 2 ||
+              !chunk.every(metadataOnly) ||
+              (error instanceof Error && /^API HTTP 4\d\d\b/.test(error.message))
+            )
+              throw error;
+            if (owner) await writeSaveReceipt(owner, receipt.id);
+            const half = Math.ceil(chunk.length / 2);
+            chunks.unshift(chunk.slice(0, half), chunk.slice(half));
+            return null;
+          });
+      if (!result) continue;
       if (owner && result.kind !== 'saved')
         void writeSaveReceipt(owner, receipt.id).catch(() => {});
       if (accountChanged() && result.kind !== 'saved')

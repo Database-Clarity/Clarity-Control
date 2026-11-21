@@ -10,7 +10,7 @@ import type { Change } from '../api';
 import { saveChunks } from './chunks';
 import { saveCurrent, saveRemainder } from './currentSave';
 import { editorData, english } from './fixtures.testSupport';
-import { fitsSaveRequest, saveRequestLimits } from './requestSize';
+import { fitsSaveRequest, metadataOnly, saveChangeCost, saveRequestLimits } from './requestSize';
 import * as staged from './stagedCurrentSave';
 import { reviewSaveChanges, useSaveState } from './state';
 
@@ -110,8 +110,111 @@ it.each([415, 1000])(
     expect(useDraftStore.getState().drafts).toEqual({});
     for (const { hash, next } of changes)
       expect(worker.current()[`tooltips/${hash}.json`]).toEqual(next);
+    // Link-only parts are sized by Worker CPU, not by tooltip bytes: a few requests, not hundreds.
+    expect(post).toHaveBeenCalledTimes(Math.ceil(count / saveRequestLimits.changes));
   },
 );
+
+it('fits about 50 real-size Compendium links in one part and keeps text edits unchanged', () => {
+  const text = 'Real tooltip text with a few numbers like 25% and 3 seconds. '.repeat(16);
+  const base = makeTooltip(10_001, text);
+  const run = { text: 'Compendium cell text, 10% more damage for 5 seconds. ', bold: true };
+  const compendium = {
+    gid: '1',
+    rowKey: 'Row',
+    snapshot: { runs: Array.from({ length: 24 }, () => run) },
+    snapshotAt: '2026-11-21T12:00:00.000Z',
+  } as unknown as Tooltip['compendium'];
+  const link: Change = { hash: base.hash, base, next: { ...base, compendium } };
+  const edit: Change = { hash: base.hash, base, next: makeTooltip(base.hash, `${text}!`) };
+  expect(metadataOnly(link)).toBe(true);
+  expect(metadataOnly(edit)).toBe(false);
+  const linkCost = saveChangeCost(link);
+  expect(linkCost.bytes).toBeGreaterThan(3_000);
+  expect(Math.floor(saveRequestLimits.work / linkCost.work)).toBeGreaterThanOrEqual(40);
+  expect(Math.floor(saveRequestLimits.work / linkCost.work)).toBeLessThanOrEqual(60);
+  const editBytes = JSON.stringify(edit).length + 1;
+  expect(saveChangeCost(edit).work).toBe(
+    editBytes + 512 + 2 * (JSON.stringify(text).length + JSON.stringify(`${text}!`).length),
+  );
+});
+
+it('retries a metadata-only part that fails on Worker resources as two halves', async () => {
+  const changes = realChanges(9);
+  const data = loaded();
+  useDataStore.setState({ data });
+  const submitted = Object.fromEntries(
+    changes.map(({ hash, base, next }) => [hash, { base: base!, next }]),
+  );
+  useDraftStore.setState({
+    drafts: submitted,
+    external: false,
+    error: null,
+    retry: () => {},
+    flush: async () => {},
+  });
+  reviewSaveChanges(changes, submitted);
+  post.mockImplementation(async (chunk: Change[]) => {
+    if (chunk.length > 4) throw new TypeError('Failed to fetch');
+    return { kind: 'saved', tooltips: chunk.map(({ next }) => next), commit: 'c' };
+  });
+  const result = await saveCurrent({
+    prepared: changes,
+    data,
+    review: useSaveState.getState().review!,
+    message: 'Review Compendium links',
+    noTranslationImpact: false,
+    sameSession: () => true,
+    accountChanged: () => false,
+  });
+  expect(result.kind).toBe('saved');
+  expect(post.mock.calls.map(([chunk]) => (chunk as Change[]).length)).toEqual([9, 5, 3, 2, 4]);
+  expect(post.mock.calls.slice(2).flatMap(([chunk]) => chunk)).toEqual(changes);
+  expect(useDraftStore.getState().drafts).toEqual({});
+});
+
+it('does not split a text part or a rejected metadata-only part', async () => {
+  const data = loaded();
+  useDataStore.setState({ data });
+  const options = {
+    data,
+    message: 'Save',
+    noTranslationImpact: false,
+    sameSession: () => true,
+    accountChanged: () => false,
+  };
+  const edits = realChanges(4).map(({ hash, base }) => ({
+    hash,
+    base,
+    next: makeTooltip(hash, 'Edited text.'),
+  }));
+  for (const [changes, error] of [
+    [edits, new TypeError('Failed to fetch')],
+    [realChanges(4), new Error('API HTTP 422: Tooltip rejected')],
+  ] as const) {
+    post.mockReset().mockRejectedValue(error);
+    const submitted = Object.fromEntries(
+      changes.map(({ hash, base, next }) => [hash, { base: base!, next }]),
+    );
+    useDraftStore.setState({
+      drafts: submitted,
+      external: false,
+      error: null,
+      retry: () => {},
+      flush: async () => {},
+    });
+    reviewSaveChanges([...changes], submitted);
+    const result = await saveCurrent({
+      ...options,
+      prepared: [...changes],
+      review: useSaveState.getState().review!,
+    });
+    expect(result.kind).toBe('failed');
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(useDraftStore.getState().drafts).toEqual(submitted);
+    useSaveState.getState().close();
+  }
+});
 
 it('keeps a real resolver import target with or before its importer', () => {
   const base = makeTooltip(100_001);
@@ -257,7 +360,7 @@ it('stops after a failed later request and resumes with only the unsaved drafts'
   });
   post
     .mockImplementationOnce(send)
-    .mockRejectedValueOnce(new Error('Offline'))
+    .mockRejectedValueOnce(new Error('API HTTP 422: Tooltip rejected'))
     .mockImplementation(send);
   const options = {
     message: 'Save',
