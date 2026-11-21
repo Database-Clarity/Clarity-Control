@@ -61,3 +61,41 @@ it('survives the list shrinking below the scroll position', async () => {
   expect(host.querySelector('[data-key="0"]')).not.toBeNull();
   expect(host.querySelector('[data-key="4"]')).not.toBeNull();
 });
+
+it('reveals a row below the pinned group header, not under it', async () => {
+  // Headers every 10 items; revealing 39 then 31 moves up within group 30 (too long to show whole).
+  const list = items(500);
+  const sticky = (reveal: number) =>
+    act(async () =>
+      root.render(
+        createElement(VirtualList<Item>, {
+          items: list,
+          heightRem: (item) => (item.header ? 1.5 : 2),
+          itemKey: (item) => item.key,
+          renderItem: (item) => createElement('span', { 'data-key': item.key }, item.key),
+          stickyFor: (item) => (item.header ? createElement('b', null, 'pin') : null),
+          groupStart: (index) => index - (index % 10),
+          label: 'List',
+          reveal,
+        }),
+      ),
+    );
+  // A 3-row viewport (fallback 640px is too tall): shrink it through clientHeight.
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get: () => 96,
+  });
+  try {
+    const viewport = host.querySelector<HTMLElement>('[role="list"]');
+    // Stepping up row by row from the end of a long group: each row lands below the 24px pin.
+    for (let reveal = 49; reveal >= 41; reveal--) {
+      await sticky(reveal);
+      const top = (Math.floor(reveal / 10) * 19.5 + 1.5 + ((reveal % 10) - 1) * 2) * 16;
+      expect(top).toBeGreaterThanOrEqual(
+        (viewport ?? host.querySelector<HTMLElement>('[role="list"]')!).scrollTop + 24,
+      );
+    }
+  } finally {
+    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+  }
+});

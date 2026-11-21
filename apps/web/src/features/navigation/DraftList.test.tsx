@@ -104,6 +104,46 @@ describe('drafts list', () => {
     expect(tree().getAttribute('aria-activedescendant')).toBe('draft-group-compendium');
   });
 
+  it('groups text removals by the language removed', () => {
+    const rows = draftRows({
+      1: { base: tip(1, { en: 'a' }), next: tip(1, {}) },
+      2: { base: tip(2, { en: 'a', de: 'x' }), next: tip(2, { en: 'a' }) },
+      3: { base: tip(3, { en: 'a', de: 'x' }), next: tip(3, { de: 'y' }) },
+    });
+    const byHash = [...rows].sort((a, b) => a.hash - b.hash);
+    expect(byHash.map(({ hash, kind, languages }) => [hash, kind, languages])).toEqual([
+      [1, 'text', ['en']],
+      [2, 'translation', ['de']],
+      [3, 'text', ['en', 'de']],
+    ]);
+  });
+
+  it('after a wheel scroll, the first key picks an item in view instead of acting', async () => {
+    const h = await render(draftRows(drafts));
+    await press('ArrowDown');
+    await press('ArrowDown');
+    expect(tree().getAttribute('aria-activedescendant')).toBe('draft-row-3');
+    await act(async () => void tree().dispatchEvent(new WheelEvent('wheel', { bubbles: true })));
+    expect(tree().getAttribute('aria-activedescendant')).toBeNull();
+    await press('Delete');
+    expect(h.onDiscard).not.toHaveBeenCalled();
+    expect(tree().getAttribute('aria-activedescendant')).toBe('draft-group-compendium');
+  });
+
+  it('keeps its place when the active draft is discarded', async () => {
+    const h = await render(draftRows(drafts));
+    await press('ArrowDown');
+    await press('ArrowDown');
+    await press('ArrowDown');
+    await press('ArrowDown'); // Item 1, the English text row
+    expect(tree().getAttribute('aria-activedescendant')).toBe('draft-row-1');
+    const { 1: _gone, ...rest } = drafts;
+    void _gone;
+    await render(draftRows(rest), h);
+    // Its group went with it; the item now at that place takes over: Item 2.
+    expect(tree().getAttribute('aria-activedescendant')).toBe('draft-row-2');
+  });
+
   it('keeps a bounded DOM with 400 drafts and reaches the last one from the keyboard', async () => {
     const many = Object.fromEntries(
       Array.from({ length: 400 }, (_, i) => [

@@ -1,4 +1,13 @@
-import { Fragment, memo, useCallback, useMemo, useState, type KeyboardEvent } from 'react';
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import type { Lang, Tooltip } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { VirtualList } from '../../ui/VirtualList';
@@ -14,7 +23,7 @@ interface DraftPair {
 }
 
 /** What a draft changes, for grouping. A draft sits in the first kind it matches. */
-export type DraftKind = 'compendium' | 'text' | 'translation' | 'other';
+type DraftKind = 'compendium' | 'text' | 'translation' | 'other';
 const kinds: DraftKind[] = ['compendium', 'text', 'translation', 'other'];
 const kindLabels: Record<DraftKind, string> = {
   compendium: 'Compendium link',
@@ -24,7 +33,9 @@ const kindLabels: Record<DraftKind, string> = {
 };
 
 function changedLanguages(draft: DraftPair) {
-  return Object.keys(draft.next.text).filter(
+  // Both sides: a restore from History can remove a language's text.
+  const languages = new Set([...Object.keys(draft.base.text), ...Object.keys(draft.next.text)]);
+  return [...languages].filter(
     (language) =>
       draft.next.text[language as Lang]?.text !== draft.base.text[language as Lang]?.text,
   );
@@ -37,7 +48,7 @@ function latest(draft: DraftPair, languages: string[]) {
     .at(-1);
 }
 
-export function draftKind(draft: DraftPair, languages: string[]): DraftKind {
+function draftKind(draft: DraftPair, languages: string[]): DraftKind {
   if (
     JSON.stringify(draft.base.compendium ?? null) !== JSON.stringify(draft.next.compendium ?? null)
   )
@@ -74,7 +85,7 @@ type Item =
 
 const itemKey = (item: Item) => (item.type === 'header' ? `h:${item.kind}` : item.row.hash);
 const headerRem = 1.5;
-export const draftRowId = (hash: number) => `draft-row-${hash}`;
+const draftRowId = (hash: number) => `draft-row-${hash}`;
 const headerId = (kind: DraftKind) => `draft-group-${kind}`;
 const itemId = (item: Item) =>
   item.type === 'header' ? headerId(item.kind) : draftRowId(item.row.hash);
@@ -252,6 +263,42 @@ export function DraftList({
     [items],
   );
   const index = active === null ? -1 : items.findIndex((item) => itemKey(item) === active);
+  // A discarded (or otherwise removed) active item hands its place to the item now there, so
+  // repeated keyboard discards carry on where the user left off.
+  const lastIndex = useRef(-1);
+  if (index >= 0) lastIndex.current = index;
+  useLayoutEffect(() => {
+    if (active === null || index >= 0) return;
+    const near = items[Math.min(lastIndex.current, items.length - 1)];
+    setActive(near ? itemKey(near) : null);
+  }, [active, index, items]);
+  const box = useRef<HTMLDivElement>(null);
+  /** The first item fully in view below the pinned group header, or -1. */
+  const firstVisible = () => {
+    const tree = box.current?.querySelector<HTMLElement>('[role="tree"]');
+    if (!tree) return -1;
+    const view = tree.getBoundingClientRect();
+    const pin = tree.querySelector(`.${styles.group}[aria-hidden]`)?.getBoundingClientRect();
+    const top = Math.max(view.top, pin?.bottom ?? view.top);
+    for (let i = 0; i < items.length; i++) {
+      const rect = document.getElementById(itemId(items[i]!))?.getBoundingClientRect();
+      if (rect && rect.top >= top - 1 && rect.bottom <= view.bottom + 1) return i;
+    }
+    return -1;
+  };
+  /** Whether the active item is on screen, not scrolled away or under the pinned header. */
+  const activeVisible = () => {
+    const tree = box.current?.querySelector<HTMLElement>('[role="tree"]');
+    const rect =
+      index >= 0
+        ? document.getElementById(itemId(items[index]!))?.getBoundingClientRect()
+        : undefined;
+    if (!tree || !rect) return false;
+    const view = tree.getBoundingClientRect();
+    const pin = tree.querySelector(`.${styles.group}[aria-hidden]`)?.getBoundingClientRect();
+    const covered = pin && items[index]!.type === 'row' ? pin.bottom : view.top;
+    return rect.top >= covered - 1 && rect.bottom <= view.bottom + 1;
+  };
   const keydown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey)
       return;
@@ -260,6 +307,19 @@ export function DraftList({
       const target = items[Math.max(0, Math.min(items.length - 1, to))];
       if (target) setActive(itemKey(target));
     };
+    // No action ever lands on an item the user cannot see: after scrolling away (or with nothing
+    // active yet), the first key picks the first item in view instead.
+    if (event.key !== 'Home' && event.key !== 'End' && event.key !== 'Tab' && !activeVisible()) {
+      if (
+        !['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Delete'].includes(
+          event.key,
+        )
+      )
+        return;
+      event.preventDefault();
+      go(Math.max(0, firstVisible()));
+      return;
+    }
     let handled = true;
     switch (event.key) {
       case 'ArrowDown':
@@ -281,6 +341,7 @@ export function DraftList({
         break;
       case 'ArrowRight':
         if (current?.type === 'header' && current.collapsed) toggle(current.kind);
+        else if (current?.type === 'header') go(index + 1);
         else handled = false;
         break;
       case 'Enter':
@@ -304,7 +365,11 @@ export function DraftList({
   return (
     // The box takes its share of the popover from flex layout; the list fills it.
     <div
+      ref={box}
       className={styles.listBox}
+      // A wheel or touch scroll moves the view away from the keyboard's place: drop it.
+      onWheel={() => setActive(null)}
+      onTouchMove={() => setActive(null)}
       style={{
         flexBasis: `min(${naturalRem}rem, 28rem)`,
         minHeight: `min(${naturalRem}rem, 6rem)`,

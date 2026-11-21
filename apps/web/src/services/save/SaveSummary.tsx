@@ -28,6 +28,8 @@ export function SaveSummary({
     });
     return () => cancelAnimationFrame(frame);
   }, [changes, visible]);
+  const errors = issues.filter((issue) => issue.severity === 'error');
+  const warnings = issues.filter((issue) => issue.severity !== 'error');
   return (
     <>
       <p>
@@ -39,16 +41,13 @@ export function SaveSummary({
         <section aria-label="Save validation issues">
           <h3>Validation</h3>
           {/* Errors block saving and stay open; warnings fold away (they can run to hundreds). */}
-          <IssueList issues={issues.filter((issue) => issue.severity === 'error')} />
-          {issues.some((issue) => issue.severity !== 'error') && (
+          <IssueList issues={errors} />
+          {warnings.length > 0 && (
             <details>
               <summary>
-                {(() => {
-                  const n = issues.filter((issue) => issue.severity !== 'error').length;
-                  return `${n} warning${n === 1 ? '' : 's'}`;
-                })()}
+                {warnings.length} warning{warnings.length === 1 ? '' : 's'}
               </summary>
-              <IssueList issues={issues.filter((issue) => issue.severity !== 'error')} />
+              <IssueList issues={warnings} />
             </details>
           )}
         </section>

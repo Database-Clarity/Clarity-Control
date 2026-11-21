@@ -34,6 +34,10 @@ function Pair({ keepMounted = false, modal = true }: { keepMounted?: boolean; mo
         <button type="button" data-testid="a-last">
           last
         </button>
+        {/* Out of the Tab order (a list row's mouse-only action): never the trap's edge. */}
+        <button type="button" tabIndex={-1}>
+          skipped
+        </button>
       </ShellOverlay>
       <ShellOverlay
         open={open === 'b'}
