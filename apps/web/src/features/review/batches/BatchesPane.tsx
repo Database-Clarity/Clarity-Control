@@ -186,6 +186,14 @@ export function BatchRowView({
 
 /** "New batch…": a name, then Create (maintainers and editors). */
 function NewBatch({ onCreated }: { onCreated(id: string): void }) {
+  const { key } = useLocation();
+  const owner = useRef(0);
+  useLayoutEffect(
+    () => () => {
+      owner.current++;
+    },
+    [key],
+  );
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [pending, setPending] = useState(false);
@@ -200,6 +208,7 @@ function NewBatch({ onCreated }: { onCreated(id: string): void }) {
   async function create() {
     const trimmed = name.trim();
     if (!trimmed || pending) return;
+    const submittedFrom = owner.current;
     setPending(true);
     setError(null);
     try {
@@ -207,7 +216,8 @@ function NewBatch({ onCreated }: { onCreated(id: string): void }) {
       await refreshBatches();
       setOpen(false);
       setName('');
-      onCreated(batch.id);
+      // The write can finish after the user opens a different batch or leaves the list.
+      if (owner.current === submittedFrom) onCreated(batch.id);
     } catch (reason) {
       setError(reason);
     } finally {

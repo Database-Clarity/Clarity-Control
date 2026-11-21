@@ -97,6 +97,8 @@ it('loads nothing signed out or for the Batches view', () => {
   expect(open()).toBeNull();
   useAuthStore.setState({ user: { id: 1, login: 'fixture', role: 'editor' } });
   expect(open('?hash=1&view=batches')).toBeNull();
+  expect(open('?view=batches')).toBeNull();
+  expect(open('?view=batches&batch=example&query=weapon')).toBeNull();
   expect(getPushedVersion).not.toHaveBeenCalled();
 });
 

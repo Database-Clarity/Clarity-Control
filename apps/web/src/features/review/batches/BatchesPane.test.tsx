@@ -687,6 +687,41 @@ describe('Review → Batches', () => {
     expect(view.router.state.location.search).toContain('batch=');
     await view.unmount();
   });
+
+  it('keeps the current phone detail when a batch created from a previous entry finishes', async () => {
+    const batch = await seed();
+    const view = await mount('maintainer', '?view=batches', true);
+    const row = () => view.host.querySelector<HTMLAnchorElement>(`[data-batch-row="${batch.id}"]`);
+    await view.settle(() => !!row());
+    let finishCreate!: () => void;
+    const release = new Promise<void>((resolve) => {
+      finishCreate = resolve;
+    });
+    const fetchBatch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === 'https://worker.example/batches' && init?.method === 'POST')
+        await release;
+      return fixture.fetch(input, init);
+    });
+    vi.stubGlobal('fetch', fetchBatch);
+    await view.click('New batch…');
+    await setInput(view.host.querySelector('input[aria-label="New batch name"]')!, 'January');
+    await view.click('Create');
+    expect(view.button('Creating...')?.disabled).toBe(true);
+
+    await act(async () => row()!.click());
+    await view.settle(() => !!view.detail());
+    await act(async () => finishCreate());
+    const { useBatches } = await import('./store');
+    await view.settle(
+      () => useBatches.getState().entries?.some(({ name }) => name === 'January') === true,
+    );
+    expect(view.detail()?.dataset.batch).toBe(batch.id);
+    await view.click('‹ Back to batches');
+    expect(view.router.state.location.search).toBe('?view=batches');
+    expect(document.activeElement).toBe(row());
+    expect(view.text()).toContain('January');
+    await view.unmount();
+  });
 });
 
 describe('Review → Batches: prepared requests (scheduling off the Worker)', () => {
