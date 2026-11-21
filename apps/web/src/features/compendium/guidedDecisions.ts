@@ -116,6 +116,29 @@ function artifactTwinDecision(entry: ReviewSample, source: CompendiumData) {
   const link = combined && stableSelection(combined, source);
   return link?.parts?.length === matches.length ? { link, sectionOf } : undefined;
 }
+// The single-row fallback keeps manifest-backed behavior: only a section named by the
+// perk's socket parent may supply its one row (code review 2026-11-21, finding 2).
+function manifestSectionMatches(entry: ReviewSample, source: CompendiumData) {
+  const tab = source.tabs.find((candidate) => candidate.gid === compendiumTabId('Artifact Perks'));
+  const headers = artifactSections(source);
+  const names = new Set(artifactParents(entry));
+  const nameNorm = normaliseCompendiumName(entry.name);
+  const matches = headers
+    .filter((header) => [...names].some((name) => header.cell.plain.startsWith(`${name} (`)))
+    .flatMap((header) => {
+      const next = Math.min(
+        ...headers.filter((cell) => cell.row > header.row).map((cell) => cell.row),
+        Infinity,
+      );
+      return (tab?.rows ?? [])
+        .filter(
+          (row) =>
+            row.rowIndex > header.row && row.rowIndex < next && row.nameNorm === nameNorm,
+        )
+        .map((row) => ({ tab: tab!, row }));
+    });
+  return { tab, nameNorm, matches };
+}
 
 // Pure facts of a source row name, shared by every entry that scans the same rows.
 const rowNames = new Map<string, { first: string; lines: string[]; full: string }>();
@@ -237,16 +260,36 @@ export function* guidedDecisionSteps(
   }
   const groups: GuidedCategory[] = [];
   for (const record of Object.values(document.categories)) {
+    if (!record.active || (onlyCategory !== undefined && record.id !== onlyCategory)) continue;
+    const category = current.get(record.id);
+    const compatible = document.scope === scope && document.baseline === baseline;
+    // Owner 2026-11-21, scoped admission (code review 2026-11-21, finding 1): a current
+    // artifact twin outside the recorded membership still gets its decision, because the
+    // owner rule covers every current twin. This is never a new approval, and never applies
+    // to saved, drafted, decided or out-of-scope entries, or to any other category.
+    const twins = new Map<number, NonNullable<ReturnType<typeof artifactTwinDecision>>>();
+    if (compatible && !record.comment.trim() && record.id === 'catalog:armor-mod-seasonal')
+      for (const entry of category?.entries ?? []) {
+        if (record.hashes.includes(entry.hash)) continue;
+        if (
+          entry.status !== 'open' ||
+          entry.base.compendium ||
+          entry.next.compendium ||
+          classifyScope(entry, record.id) ||
+          notCurrentArtifact(entry, source)
+        )
+          continue;
+        const twin = artifactTwinDecision(entry, source);
+        if (twin) twins.set(entry.hash, twin);
+      }
     if (
-      !record.active ||
-      (onlyHash !== undefined && !record.hashes.includes(onlyHash)) ||
-      (onlyCategory !== undefined && record.id !== onlyCategory)
+      onlyHash !== undefined &&
+      !record.hashes.includes(onlyHash) &&
+      !twins.has(onlyHash)
     )
       continue;
-    const category = current.get(record.id);
     const entries = new Map(category?.entries.map((entry) => [entry.hash, entry]));
     const issues: string[] = [];
-    const compatible = document.scope === scope && document.baseline === baseline;
     if (document.scope !== scope) issues.push('Dataset scope differs; all proposals withheld.');
     if (document.baseline !== baseline)
       issues.push('Baseline differs; renew references before proposing.');
@@ -299,7 +342,10 @@ export function* guidedDecisionSteps(
       }
       issues.push(`Reference ${reference.hash}: stale, missing or outside recorded membership.`);
     }
-    const extra = category?.entries.filter((entry) => !record.hashes.includes(entry.hash)) ?? [];
+    const extra =
+      category?.entries.filter(
+        (entry) => !record.hashes.includes(entry.hash) && !twins.has(entry.hash),
+      ) ?? [];
     if (extra.length) issues.push(`${extra.length} new entries excluded from recorded scope.`);
     const configuredTabs = new Set(
       compendiumCategoryTabs[record.id.slice('catalog:'.length)] ?? [],
@@ -383,10 +429,11 @@ export function* guidedDecisionSteps(
       const classification = entry.classification;
       // Owner 2026-11-21: an artifact perk whose name appears in the current sections of two
       // or more artifacts links to each of them, so the recorded distinct-artifact triage no
-      // longer blocks the artifact section rule (`.agents/t3/preview-feedback-1104/ARTIFACT-TWINS.md`).
+      // longer blocks the artifact section rule when the twin link actually validates.
       const distinctArtifact =
         classification?.ruleId === 'artifact-identity-unresolved' &&
-        record.id === 'catalog:armor-mod-seasonal';
+        record.id === 'catalog:armor-mod-seasonal' &&
+        !!artifactTwinDecision(entry, source);
       if (
         classification &&
         [
@@ -457,29 +504,34 @@ export function* guidedDecisionSteps(
           reason:
             'Owner: no equivalent for now (absent/incidental source). Reopens when sheet or entry evidence changes.',
         };
-      // Owner 2026-11-21: same-name artifact perks link to every current artifact section,
-      // including entries whose triage sample was only skipped and is still open for review.
-      const twin =
-        record.id === 'catalog:armor-mod-seasonal' && !notCurrentArtifact(entry, source)
-          ? artifactTwinDecision(entry, source)
-          : undefined;
-      if (twin)
-        return {
-          ...result,
-          action: 'link',
-          confidence: 'high',
-          link: twin.link,
-          ruleId: 'artifact-manifest-section',
-          reason: `Shared perk — used on: ${twin.sectionOf.map(artifactSectionName).join(', ')}`,
-        };
-      // Never override an unresolved/stale/skipped/note-only owner sample with an inferred rule.
-      if (record.references?.[hash])
+      // Never override an unresolved/stale/note-only owner sample with an inferred rule.
+      // Narrowed (code review 2026-11-21): an artifact twin whose only hold is a skipped
+      // sample still links, after the category comment gate.
+      const heldReference = record.references?.[hash];
+      const skippedReference = heldReference?.decision === 'skipped';
+      if (heldReference && !skippedReference)
         return { ...result, reason: 'Owner sample unresolved or stale; not inferred.' };
       if (record.comment.trim())
         return {
           ...result,
           reason: 'Category comment needs agent interpretation; no automatic rule applied.',
         };
+      if (skippedReference) {
+        const twin =
+          record.id === 'catalog:armor-mod-seasonal'
+            ? artifactTwinDecision(entry, source)
+            : undefined;
+        if (twin)
+          return {
+            ...result,
+            action: 'link',
+            confidence: 'high',
+            link: twin.link,
+            ruleId: 'artifact-manifest-section',
+            reason: `Shared perk — used on: ${twin.sectionOf.map(artifactSectionName).join(', ')}`,
+          };
+        return { ...result, reason: 'Owner sample unresolved or stale; not inferred.' };
+      }
       const setBonus = inferredSetBonusDecision(entry, source);
       if (setBonus) return { ...result, ...setBonus };
       const classItemPerk = inferredClassItemPerkDecision(
@@ -503,7 +555,18 @@ export function* guidedDecisionSteps(
             ruleId: artifactNames.size ? 'artifact-sunset' : 'artifact-source-absent',
             reason: 'not in a current artifact',
           };
-        const { tab, nameNorm, sectionOf, matches } = artifactSectionMatches(entry, source);
+        const twin = artifactTwinDecision(entry, source);
+        if (twin)
+          return {
+            ...result,
+            action: 'link',
+            confidence: 'high',
+            link: twin.link,
+            ruleId: 'artifact-manifest-section',
+            reason: `Shared perk — used on: ${twin.sectionOf.map(artifactSectionName).join(', ')}`,
+          };
+        // One same-name row links only from a section named by the perk's socket parents.
+        const { tab, nameNorm, matches } = manifestSectionMatches(entry, source);
         if (matches.length === 1) {
           const match = matches[0];
           const anchor = match.row.anchor;
@@ -537,7 +600,7 @@ export function* guidedDecisionSteps(
               confidence: 'high',
               link,
               ruleId: 'artifact-manifest-section',
-              reason: `Artifact section ${artifactSectionName(sectionOf[0])} matches this perk's exact name.`,
+              reason: `Manifest artifact ${[...artifactNames].join(', ')} matches its sheet section.`,
             };
         }
         return {
@@ -813,7 +876,7 @@ export function* guidedDecisionSteps(
       };
     };
     const decisions: GuidedDecision[] = [];
-    for (const hash of record.hashes) {
+    for (const hash of [...record.hashes, ...twins.keys()]) {
       if (onlyHash !== undefined && hash !== onlyHash) continue;
       decisions.push(decide(hash));
       yield;

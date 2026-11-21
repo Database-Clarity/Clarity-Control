@@ -460,6 +460,15 @@ export function compendiumDescriptionCells({
 }
 const isCooldown = (cell: CompendiumGridCell) =>
   /(?:^|\n)(?:Base Cooldown|Chunk Scalar):/.test(cell.cell.plain);
+// The current artifact heading above a row: the same cell shape artifactSections reads
+// (column 3, plain text ending in a parenthesised season).
+function artifactSectionOf(tab: CompendiumSheet, rowIndex: number) {
+  return (tab.grid ?? [])
+    .filter(
+      (cell) => cell.col === 3 && cell.row < rowIndex && /\s\([^()]+\)\s*$/.test(cell.cell.plain),
+    )
+    .sort((a, b) => b.row - a.row)[0]?.cell.plain;
+}
 // Combine only the same named thing in one tab; explicit category boundaries stay ambiguous.
 export function combineCompendiumMatches(matches: CompendiumMatch[]): CompendiumMatch | undefined {
   if (!matches.length) return undefined;
@@ -504,8 +513,16 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
   )
     return undefined;
   // Artifact perks may repeat a name in different current artifacts with different
-  // mechanics; each section is its own part, so differing cells do not block the
-  // combination (owner 2026-11-21, `.agents/t3/preview-feedback-1104/ARTIFACT-TWINS.md`).
+  // mechanics. Differing cells combine only when every row sits alone in its own current
+  // artifact section; the same section stays ambiguous (owner 2026-11-21).
+  if (
+    first.tab.gid === compendiumTabId('Artifact Perks') &&
+    sorted.some((match) => !sameCell(match.row.cell, first.row.cell))
+  ) {
+    const sections = sorted.map(({ tab, row }) => artifactSectionOf(tab, row.rowIndex));
+    if (sections.some((section) => !section) || new Set(sections).size !== sorted.length)
+      return undefined;
+  }
   if (sorted.length === 1) return { ...first };
   const components = sorted.map(compendiumDescriptionCells);
   const shared: CompendiumGridCell[] = [];
@@ -537,14 +554,7 @@ export function combineCompendiumMatches(matches: CompendiumMatch[]): Compendium
     // is not an artifact identity; reuse the actual enclosing artifact heading.
     const artifact =
       tab.gid === compendiumTabId('Artifact Perks')
-        ? tab.grid
-            ?.filter(
-              (cell) =>
-                cell.col === 3 &&
-                cell.row < row.rowIndex &&
-                /\s\([^()]+\)\s*$/.test(cell.cell.plain),
-            )
-            .sort((a, b) => b.row - a.row)[0]?.cell.plain
+        ? artifactSectionOf(tab, row.rowIndex)
         : undefined;
     return (
       artifact ??

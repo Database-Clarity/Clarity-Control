@@ -4,6 +4,7 @@ import {
   resolveCompendiumLink,
   snapshotCompendium,
   compendiumSimilarity,
+  combineCompendiumMatches,
   withCompendiumMatchingIndex,
 } from '../../src/compendium/resolve.js';
 import type { CompendiumData, CompendiumLink, CompendiumRow } from '../../src/compendium/types.js';
@@ -196,6 +197,45 @@ it('does not relink to ignored OLD tabs', () => {
   source.tabs[1].name = 'Weapon Perks OLD';
   expect(resolveCompendiumLink(link, source).status).toBe('missing');
 });
+it('combines differing artifact rows only across distinct current sections', () => {
+  const artifact = (rows: CompendiumRow[], headerRows: number[]): CompendiumData => ({
+    fetchedAt: '2026-11-21T00:00:00Z',
+    tabs: [
+      {
+        gid: '473308249',
+        name: 'Artifact Perks',
+        rows,
+        grid: headerRows.map((rowIndex, index) => ({
+          row: rowIndex,
+          col: 3,
+          cell: cell(`${index ? 'Second' : 'First'} Artifact (Season)`),
+        })),
+      },
+    ],
+  });
+  const sectioned = [
+    { ...row('Dielectric', 'First body', 'One'), rowIndex: 10, anchor: { row: 10, col: 2 } },
+    { ...row('Dielectric', 'Second body', 'Two'), rowIndex: 30, anchor: { row: 30, col: 2 } },
+  ];
+  const source = artifact(sectioned, [1, 20]);
+  expect(
+    combineCompendiumMatches(sectioned.map((entry) => ({ tab: source.tabs[0], row: entry }))),
+  ).toMatchObject({ parts: ['First Artifact (Season)', 'Second Artifact (Season)'] });
+  // Two differing rows in the SAME section stay ambiguous.
+  const sameSection = artifact(
+    [
+      { ...row('Dielectric', 'First body', 'One'), rowIndex: 10, anchor: { row: 10, col: 2 } },
+      { ...row('Dielectric', 'Second body', 'One'), rowIndex: 12, anchor: { row: 12, col: 2 } },
+    ],
+    [1],
+  );
+  expect(
+    combineCompendiumMatches(
+      sameSection.tabs[0].rows.map((entry) => ({ tab: sameSection.tabs[0], row: entry })),
+    ),
+  ).toBeUndefined();
+});
+
 describe('Compendium sheet backgrounds', () => {
   const tinted = { ...cell('Grants increased damage for ten seconds.'), background: '#2e3c4e' };
   it('are display-only: ignored when comparing, kept out of stored links', () => {

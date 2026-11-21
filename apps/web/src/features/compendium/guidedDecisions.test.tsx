@@ -181,6 +181,82 @@ it('links a repeated artifact perk whose triage sample was only skipped', () => 
   });
 });
 
+function artifactTwinFixture(name: string, hash = 102) {
+  const f = guidedFixture();
+  const category = f.categories[0];
+  const record = f.document.categories[category.id];
+  delete f.document.categories[category.id];
+  category.id = record.id = 'catalog:armor-mod-seasonal';
+  f.document.categories[record.id] = record;
+  const tab = f.source.tabs[0];
+  tab.gid = '473308249';
+  tab.name = 'Artifact Perks';
+  const heading = (row: number, plain: string) => ({
+    row,
+    col: 3,
+    cell: { plain, runs: [{ text: plain }] },
+  });
+  tab.grid = [heading(1, 'First Artifact (One)'), heading(20, 'Second Artifact (Two)')];
+  const nameNorm = name.toLowerCase();
+  tab.rows = [
+    {
+      ...tab.rows[0],
+      rowIndex: 10,
+      name,
+      nameNorm,
+      section: 'One',
+      anchor: { row: 10, col: 2 },
+    },
+    {
+      ...tab.rows[1],
+      rowIndex: 30,
+      name,
+      nameNorm,
+      section: 'Two',
+      anchor: { row: 30, col: 2 },
+    },
+  ];
+  const entry = category.entries.find((candidate) => candidate.hash === hash)!;
+  const decide = () =>
+    guidedDecisions(f.document, f.categories, f.proposals, f.source, f.baseline, f.scope)[0]
+      .entries.find((decision) => decision.hash === hash);
+  return { ...f, category, record, tab, entry, decide };
+}
+
+it('keeps manifest-backed identity for a single artifact row', () => {
+  const f = artifactTwinFixture('Armorsmith');
+  const facts = loadManifestFacts();
+  f.entry.name = 'Armorsmith';
+  f.entry.manifestFacts = { item: facts.items['2903198437'], version: facts.source.manifestVersion };
+  // One same-name row exists in First Artifact, but the socket parent is Second Artifact.
+  f.tab.rows = [f.tab.rows[0]];
+  f.entry.manifestFacts.item.artifactMemberships = [
+    { source: 'socket', artifactHash: 1, artifactName: 'Second Artifact', ownerHash: 2 },
+  ];
+  expect(f.decide()).toMatchObject({
+    action: 'owner',
+    confidence: 'unresolved',
+    ruleId: 'owner-artifact-identity',
+  });
+  expect(f.decide().link).toBeUndefined();
+});
+
+it('keeps note-only samples and category comments on artifact twins', () => {
+  const note = artifactTwinFixture('Sample 105', 105);
+  // A note-only sample is not the skipped exception.
+  expect(note.record.references?.[105]?.decision).toBeUndefined();
+  expect(note.decide()).toMatchObject({ action: 'owner', confidence: 'unresolved' });
+  expect(note.decide().link).toBeUndefined();
+  const comment = artifactTwinFixture('Sample 102', 102);
+  comment.record.comment = 'Owner wants these reviewed together.';
+  expect(comment.decide()).toMatchObject({
+    action: 'owner',
+    confidence: 'unresolved',
+    reason: expect.stringContaining('comment'),
+  });
+  expect(comment.decide().link).toBeUndefined();
+});
+
 it('requires catalog parent and perk identity on the exotic card', () => {
   const f = guidedFixture();
   const category = f.categories[0];
