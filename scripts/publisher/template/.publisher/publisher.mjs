@@ -16,11 +16,11 @@ var __export = (target, all) => {
 // packages/core/src/markup/arithmetic.ts
 function evaluateMarkupMath(text) {
   return text.replace(/\${.+?}/g, (expression) => {
-    const source = expression.match(
+    const source2 = expression.match(
       /(-?\d+(\.\d+)?)(\s{0,9}[+\-/*]\s{0,9}(-?\d+(\.\d+)?)){0,99}/
     )?.[0];
-    if (!source) return expression;
-    const tokens = source.match(/-?\d+(?:\.\d+)?|[+*/-]/g) ?? [];
+    if (!source2) return expression;
+    const tokens = source2.match(/-?\d+(?:\.\d+)?|[+*/-]/g) ?? [];
     let index = 0;
     function number5() {
       return Number(tokens[index++]);
@@ -276,10 +276,10 @@ function cached(getter) {
 function nullish(input2) {
   return input2 === null || input2 === void 0;
 }
-function cleanRegex(source) {
-  const start = source.startsWith("^") ? 1 : 0;
-  const end = source.endsWith("$") ? source.length - 1 : source.length;
-  return source.slice(start, end);
+function cleanRegex(source2) {
+  const start = source2.startsWith("^") ? 1 : 0;
+  const end = source2.endsWith("$") ? source2.length - 1 : source2.length;
+  return source2.slice(start, end);
 }
 function floatSafeRemainder(val, step) {
   const ratio = val / step;
@@ -346,28 +346,28 @@ function putProp(target, key, value2) {
   else
     target[key] = value2;
 }
-function mirrorShape(target, source, keys, wrap) {
-  const raw = sourceShape(source);
+function mirrorShape(target, source2, keys, wrap) {
+  const raw = sourceShape(source2);
   for (const key of keys) {
     const desc = Object.getOwnPropertyDescriptor(raw, key);
     if (!desc.enumerable)
       continue;
     if (desc.get) {
       deferProp(target, key, () => {
-        const value2 = source._zod.def.shape[key];
+        const value2 = source2._zod.def.shape[key];
         return wrap ? wrap(value2, key) : value2;
       });
     } else
       putProp(target, key, wrap ? wrap(desc.value, key) : desc.value);
   }
 }
-function mirrorProps(target, source) {
-  for (const key of Reflect.ownKeys(source)) {
-    const desc = Object.getOwnPropertyDescriptor(source, key);
+function mirrorProps(target, source2) {
+  for (const key of Reflect.ownKeys(source2)) {
+    const desc = Object.getOwnPropertyDescriptor(source2, key);
     if (!desc.enumerable)
       continue;
     if (desc.get)
-      deferProp(target, key, () => source[key]);
+      deferProp(target, key, () => source2[key]);
     else
       putProp(target, key, desc.value);
   }
@@ -1590,8 +1590,8 @@ function nanoidOfLength(length) {
 function emoji() {
   return new RegExp(_emoji, "u");
 }
-function anchor(source) {
-  return new RegExp(`^${source}$`);
+function anchor(source2) {
+  return new RegExp(`^${source2}$`);
 }
 function timeSource(args) {
   const hhmm = `(?:[01]\\d|2[0-3]):[0-5]\\d`;
@@ -4536,11 +4536,11 @@ var init_schemas = __esm({
       const regexParts = [];
       for (const part of def.parts) {
         if (typeof part === "object" && part !== null) {
-          const source = partPattern(part);
-          if (!source) {
+          const source2 = partPattern(part);
+          if (!source2) {
             throw new Error(`Invalid template literal part, no pattern found: ${[...part._zod.traits].shift()}`);
           }
-          regexParts.push(cleanRegex(source));
+          regexParts.push(cleanRegex(source2));
         } else if (part === null || primitiveTypes.has(typeof part)) {
           regexParts.push(escapeRegex(`${part}`));
         } else {
@@ -13088,9 +13088,9 @@ function withParser(schema, parser) {
     installCompiledUserMethods(clone2, schema, parser);
   return clone2;
 }
-function installCompiledUserMethods(target, source, parser) {
+function installCompiledUserMethods(target, source2, parser) {
   const targetAny = target;
-  const sourceAny = source;
+  const sourceAny = source2;
   if (typeof sourceAny.safeParse === "function") {
     const originalSafeParse = sourceAny.safeParse;
     targetAny.safeParse = (data, params) => {
@@ -14157,7 +14157,7 @@ function generateTupleCheck(doc, ctx, schema, accessor) {
   const outputVar = newVar(ctx);
   doc.write(`const ${outputVar} = [];`);
   for (let i = 0; i < items.length; i++) {
-    const itemSchema = items[i];
+    const itemSchema2 = items[i];
     if (i >= optoutStart) {
       doc.write(`if (${outputVar}.length === ${i}) {`);
       doc.indented((d) => {
@@ -14165,12 +14165,12 @@ function generateTupleCheck(doc, ctx, schema, accessor) {
         d.indented((d2) => {
           const elemVar = newVar(ctx);
           d2.write(`const ${elemVar} = ${accessor}[${i}];`);
-          const elemOutput = compileChild(d2, ctx, itemSchema, elemVar);
+          const elemOutput = compileChild(d2, ctx, itemSchema2, elemVar);
           d2.write(`${outputVar}[${i}] = ${elemOutput};`);
         });
         d.write(`} else {`);
         d.indented((d2) => {
-          if (dropsWhenAbsent(itemSchema)) {
+          if (dropsWhenAbsent(itemSchema2)) {
             d2.write(`${outputVar}.length = ${i};`);
             return;
           }
@@ -14179,7 +14179,7 @@ function generateTupleCheck(doc, ctx, schema, accessor) {
           d2.write(`const ${elemVar} = undefined;`);
           d2.write(`const ${branchVar} = (() => {`);
           d2.indented((d3) => {
-            const elemOutput = compileChild(d3, ctx, itemSchema, elemVar);
+            const elemOutput = compileChild(d3, ctx, itemSchema2, elemVar);
             d3.write(`return ${elemOutput};`);
           });
           d2.write(`})();`);
@@ -14192,7 +14192,7 @@ function generateTupleCheck(doc, ctx, schema, accessor) {
     } else {
       const elemVar = newVar(ctx);
       doc.write(`const ${elemVar} = ${accessor}[${i}];`);
-      const elemOutput = compileChild(doc, ctx, itemSchema, elemVar);
+      const elemOutput = compileChild(doc, ctx, itemSchema2, elemVar);
       doc.write(`${outputVar}[${i}] = ${elemOutput};`);
     }
   }
@@ -15728,10 +15728,10 @@ var init_api = __esm({
 
 // node_modules/zod/v4/core/to-json-schema.js
 function assignProps(target, ...sources) {
-  for (const source of sources) {
-    for (const key of Reflect.ownKeys(source)) {
-      if (Object.prototype.propertyIsEnumerable.call(source, key)) {
-        assignProp(target, key, source[key]);
+  for (const source2 of sources) {
+    for (const key of Reflect.ownKeys(source2)) {
+      if (Object.prototype.propertyIsEnumerable.call(source2, key)) {
+        assignProp(target, key, source2[key]);
       }
     }
   }
@@ -16345,8 +16345,8 @@ function rewriteKeyNames(ctx) {
       bySchema.set(entry.schema, entry);
   }
   const rewrites = /* @__PURE__ */ new Map();
-  for (const record2 of pendingRecords.get(ctx) ?? []) {
-    const seen = ctx.seen.get(record2);
+  for (const record3 of pendingRecords.get(ctx) ?? []) {
+    const seen = ctx.seen.get(record3);
     const names = (seen?.def ?? seen?.schema)?.propertyNames;
     if (!names || names === true || rewrites.has(names))
       continue;
@@ -21462,10 +21462,10 @@ function resolveImports(text, globals, diagnostics) {
       const name2 = line.match(/(?<=import) .+ (?=from)/)?.[0].trim() ?? "";
       const from = line.match(/(?<=from) (\d+|global)/)?.[0].trim() ?? "";
       const raw = globals.imports?.[from] ?? (from === "global" ? globals.imports?.["1"] : void 0);
-      const source = raw === void 0 ? void 0 : lowerDelimitedMarkup(raw);
-      let imported = source;
+      const source2 = raw === void 0 ? void 0 : lowerDelimitedMarkup(raw);
+      let imported = source2;
       if (name2 !== "main" && name2 !== "secondary") {
-        const blocks = extractBlocks(source ?? "", "export");
+        const blocks = extractBlocks(source2 ?? "", "export");
         imported = Object.hasOwn(blocks, name2) ? blocks[name2] : void 0;
       }
       if (imported === void 0 && visible) {
@@ -21531,13 +21531,13 @@ function nativeKeep(pieces, offsets) {
 }
 function nativeRemove(pieces, pattern, keepPrefix = 0) {
   const output2 = [];
-  const source = nativeStructure(pieces);
+  const source2 = nativeStructure(pieces);
   let at = 0;
-  for (const match of source.matchAll(pattern)) {
+  for (const match of source2.matchAll(pattern)) {
     output2.push(...nativeSlice(pieces, at, match.index + keepPrefix));
     at = match.index + match[0].length;
   }
-  output2.push(...nativeSlice(pieces, at, source.length));
+  output2.push(...nativeSlice(pieces, at, source2.length));
   return output2;
 }
 function cleanNative(pieces, removeTitles = true) {
@@ -21549,8 +21549,8 @@ function cleanNative(pieces, removeTitles = true) {
       pieces = nativeRemove(pieces, pattern);
   pieces = nativeRemove(pieces, unusedMarkup.variables);
   pieces = nativeRemove(pieces, unusedMarkup.blanks, 2);
-  const source = nativeStructure(pieces);
-  return nativeSlice(pieces, source.length - source.trimStart().length, source.trimEnd().length);
+  const source2 = nativeStructure(pieces);
+  return nativeSlice(pieces, source2.length - source2.trimStart().length, source2.trimEnd().length);
 }
 function replaceNativeVariable(pieces, variable, value2) {
   const output2 = [];
@@ -21613,11 +21613,11 @@ function prepareNativeTitle(pieces, globals) {
 function prepareNativeDocument(text, globals) {
   const pieces = prepareNativePieces(nativePieces(text), globals);
   const titlePieces = cleanNative(pieces, false);
-  const source = nativeStructure(titlePieces);
+  const source2 = nativeStructure(titlePieces);
   const titles = /* @__PURE__ */ Object.create(null);
   const nativeTitles = /* @__PURE__ */ Object.create(null);
   const globalTitles = extractBlocks(globals.titles, "title");
-  for (const match of source.matchAll(/^title [A-z0-9 ]+ \([^]*?\n\)$/gm)) {
+  for (const match of source2.matchAll(/^title [A-z0-9 ]+ \([^]*?\n\)$/gm)) {
     const firstLine = match[0].indexOf("\n");
     const name2 = match[0].slice(0, firstLine).replace(/title|\(.*/gi, "").trim();
     const body2 = nativeSlice(
@@ -21644,8 +21644,8 @@ function prepareMarkup(text, globals, diagnostics, onCondition) {
   text = resolveImports(text, globals, diagnostics);
   const nativePairs = text.includes("{{") || globals.variables.includes("{{") || globals.titles.includes("{{");
   if (nativePairs) {
-    for (const source of [text, globals.variables, globals.titles]) {
-      if (source.includes("{{") && scanBaseEnhanced(removeMarkupComments(source)).issues.length) {
+    for (const source2 of [text, globals.variables, globals.titles]) {
+      if (source2.includes("{{") && scanBaseEnhanced(removeMarkupComments(source2)).issues.length) {
         diagnostics.push({ severity: "error", message: baseEnhancedMessage });
       }
     }
@@ -21749,8 +21749,8 @@ function formulaLocals(formula, text) {
   const definitions = numberVariables(text);
   const result = /* @__PURE__ */ new Set();
   const visited = /* @__PURE__ */ new Set();
-  const visit2 = (source) => {
-    for (const ref of variableReferences(source)) {
+  const visit2 = (source2) => {
+    for (const ref of variableReferences(source2)) {
       for (const local of definitions.filter((entry) => ref.name.startsWith(entry.name))) {
         if (visited.has(local)) continue;
         visited.add(local);
@@ -21765,10 +21765,10 @@ function formulaLocals(formula, text) {
 function freezeFormula(formula, english, numbers, translations) {
   const variables = numberVariables(english);
   const locals = formulaLocals(formula, english);
-  const prefixAmbiguity = (source) => {
+  const prefixAmbiguity = (source2) => {
     const names = [
-      ...numberVariables(source).map((variable) => variable.name),
-      ...variableReferences(source).map((ref) => ref.name)
+      ...numberVariables(source2).map((variable) => variable.name),
+      ...variableReferences(source2).map((ref) => ref.name)
     ];
     return [...locals].some(
       (name2) => names.some((other) => other !== name2 && (other.startsWith(name2) || name2.startsWith(other)))
@@ -21780,11 +21780,11 @@ function freezeFormula(formula, english, numbers, translations) {
   const values = /* @__PURE__ */ new Map();
   const visiting = /* @__PURE__ */ new Set();
   let valid = true;
-  const expand = (source) => {
+  const expand = (source2) => {
     let result = "", at = 0;
-    for (const ref of variableReferences(source)) {
-      result += source.slice(at, ref.from);
-      if (!locals.has(ref.name)) result += source.slice(ref.from, ref.to);
+    for (const ref of variableReferences(source2)) {
+      result += source2.slice(at, ref.from);
+      if (!locals.has(ref.name)) result += source2.slice(ref.from, ref.to);
       else {
         if (visiting.has(ref.name)) {
           valid = false;
@@ -21810,7 +21810,7 @@ function freezeFormula(formula, english, numbers, translations) {
       }
       at = ref.to;
     }
-    return result + source.slice(at);
+    return result + source2.slice(at);
   };
   const frozen = expand(formula);
   if (!valid) return null;
@@ -21831,6 +21831,20 @@ function freezeFormula(formula, english, numbers, translations) {
     if (!agrees) fallback.push(lang);
   }
   return fallback.length ? { value: frozen, fallback: fallback.sort(), variables: Object.fromEntries(values) } : frozen;
+}
+function frozenVariablesAgree(text, expected2, resolve4) {
+  if (markupImports(text).length) return false;
+  const definitions = numberVariables(text);
+  const names = [
+    ...definitions.map((entry) => entry.name),
+    ...variableReferences(text).map((ref) => ref.name)
+  ];
+  return Object.entries(expected2).every(([name2, value2]) => {
+    if (names.some((other) => other !== name2 && (other.startsWith(name2) || name2.startsWith(other))))
+      return false;
+    const own2 = definitions.filter((entry) => entry.name === name2);
+    return own2.length === 1 && !own2[0].ambiguous && resolve4(own2[0].value) === value2;
+  });
 }
 var init_freeze = __esm({
   "packages/core/src/numbers/freeze.ts"() {
@@ -21919,6 +21933,29 @@ function reconcileNumberMap(before, after, tooltip) {
     if (!referenced.has(Number(id))) delete next.retired[id];
   const implicit = implicitNumberMap(next.ids.length);
   return next.next === implicit.next && next.ids.every((id, i) => id === implicit.ids[i]) && !Object.keys(next.retired).length ? void 0 : next;
+}
+function refreshNumberFallbacks(tooltip, lang) {
+  const english = tooltip.text.en;
+  const entry = tooltip.text[lang];
+  if (lang === "en" || !english?.numbers || !entry) return;
+  let values;
+  for (const [id, retired2] of Object.entries(english.numbers.retired)) {
+    if (!retired2 || typeof retired2 === "string" || !retired2.variables || !retired2.fallback.includes(lang))
+      continue;
+    values ??= numberValues(english, lang);
+    try {
+      if (frozenVariablesAgree(
+        entry.text,
+        retired2.variables,
+        (value2) => resolveNumberTokens(value2, values)
+      ))
+        english.numbers.retired[id] = {
+          ...retired2,
+          fallback: retired2.fallback.filter((item) => item !== lang)
+        };
+    } catch {
+    }
+  }
 }
 var init_map = __esm({
   "packages/core/src/numbers/map.ts"() {
@@ -22494,8 +22531,8 @@ function stableStringify(value2) {
   if (typeof value2 === "number" && Number.isFinite(value2)) return JSON.stringify(value2);
   if (Array.isArray(value2)) return `[${value2.map(stableStringify).join(",")}]`;
   if (typeof value2 === "object" && Object.getPrototypeOf(value2) === Object.prototype) {
-    const record2 = value2;
-    return `{${Object.keys(record2).filter((key) => record2[key] !== void 0).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record2[key])}`).join(",")}}`;
+    const record3 = value2;
+    return `{${Object.keys(record3).filter((key) => record3[key] !== void 0).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record3[key])}`).join(",")}}`;
   }
   throw new TypeError("Expected finite JSON data");
 }
@@ -22643,20 +22680,20 @@ function fieldValue(tooltip, field) {
   if (field === "hash") throw new Error("hash is not a field");
   return tooltip[field];
 }
-function withField(target, source, field) {
+function withField(target, source2, field) {
   if (field === "hash") throw new Error("hash is not a field");
   if (field.startsWith(textPrefix)) {
     const lang = field.slice(textPrefix.length);
     if (!languages2.includes(lang)) throw new Error(`Unknown field ${field}`);
     const text = { ...target.text };
-    const value3 = source.text[lang];
+    const value3 = source2.text[lang];
     if (value3 === void 0) delete text[lang];
     else text[lang] = value3;
     return { ...target, text };
   }
-  if (field === "associated") return { ...target, associated: [...source.associated] };
+  if (field === "associated") return { ...target, associated: [...source2.associated] };
   const next = { ...target };
-  const value2 = source[field];
+  const value2 = source2[field];
   if (value2 === void 0) delete next[field];
   else next[field] = value2;
   return next;
@@ -22715,8 +22752,8 @@ function changedNumberSlots(before, after) {
   });
   return changed;
 }
-function numericLiterals(source) {
-  const normalized = source.normalize("NFKC");
+function numericLiterals(source2) {
+  const normalized = source2.normalize("NFKC");
   const readings = [
     normalized,
     normalized.replace(/(\d),(?=\d)/g, "$1."),
@@ -22728,9 +22765,9 @@ function numericLiterals(source) {
     )
   );
 }
-function renderVariants(source) {
+function renderVariants(source2) {
   return [void 0, ...markupConditions.map(([, type]) => type)].map(
-    (type) => prepareMarkup(source, { variables: "", titles: "", type }, []).text
+    (type) => prepareMarkup(source2, { variables: "", titles: "", type }, []).text
   );
 }
 function canCarryNumbers(before, after, translation) {
@@ -22749,11 +22786,11 @@ function canCarryNumbers(before, after, translation) {
     const definitions = numberVariables(translation.text);
     const names = new Set(definitions.map((local) => local.name));
     if (maths.some(({ from, to }) => {
-      const source = prose.slice(from, to);
-      const locals = formulaLocals(source, translation.text);
+      const source2 = prose.slice(from, to);
+      const locals = formulaLocals(source2, translation.text);
       if (locals.size && markupImports(translation.text).length) return true;
       return [
-        source,
+        source2,
         ...definitions.filter((local) => locals.has(local.name)).map((local) => local.value)
       ].some((value2) => variableReferences(value2).some((ref) => !names.has(ref.name)));
     }))
@@ -22774,7 +22811,7 @@ function canCarryNumbers(before, after, translation) {
         slot.value,
         ...definitions.filter((local) => locals.has(local.name)).map((local) => local.value)
       ];
-      if (sources.some((source) => variableReferences(source).some((ref) => !names.has(ref.name))))
+      if (sources.some((source2) => variableReferences(source2).some((ref) => !names.has(ref.name))))
         return false;
       renderVariants(slot.value + "\n" + before.text).map((text) => text.split("\n")[0]).flatMap(numericLiterals).forEach((value2) => oldValues.add(value2));
     }
@@ -22796,6 +22833,23 @@ function canCarryNumbers(before, after, translation) {
   if (scans.some((text) => /\uE000[\d\uE000]|\d\uE000/.test(text))) return false;
   if (scans.flatMap(numericLiterals).some((value2) => oldValues.has(value2))) return false;
   return true;
+}
+function carryNumberTranslations(before, merged) {
+  const old = before.text.en, english = merged.text.en;
+  if (!old || !english || alignSlots(old.text, english.text).kind !== "value")
+    return { tooltip: merged, carried: [] };
+  const text = { ...merged.text };
+  const carried = [];
+  for (const [lang, translation] of Object.entries(text)) {
+    if (lang === "en" || !canCarryNumbers(old, english, translation)) continue;
+    text[lang] = {
+      ...translation,
+      sourceUpdatedAt: english.updatedAt,
+      updatedAt: english.updatedAt
+    };
+    carried.push(lang);
+  }
+  return { tooltip: { ...merged, text }, carried: carried.sort() };
 }
 var init_carry = __esm({
   "packages/core/src/numbers/carry.ts"() {
@@ -22916,16 +22970,16 @@ var init_stamps = __esm({
 });
 
 // packages/core/src/schedule/activate.ts
-function reconcileScheduledNumbers(base, source, proposed, tooltip) {
+function reconcileScheduledNumbers(base, source2, proposed, tooltip) {
   const english = tooltip.text.en;
   if (!english) return { ok: true, tooltip };
   const changedEnglish = !sameFieldValue("text.en", base?.text.en, proposed.text.en);
-  const keepsProposal = changedEnglish && english.text === proposed.text.en?.text && sameFieldValue("text.en", source?.text.en, base?.text.en);
-  const numbers = keepsProposal ? proposed.text.en?.numbers : source?.text.en?.text === english.text ? source.text.en.numbers : reconcileNumberMap(source?.text.en, english, tooltip);
+  const keepsProposal = changedEnglish && english.text === proposed.text.en?.text && sameFieldValue("text.en", source2?.text.en, base?.text.en);
+  const numbers = keepsProposal ? proposed.text.en?.numbers : source2?.text.en?.text === english.text ? source2.text.en.numbers : reconcileNumberMap(source2?.text.en, english, tooltip);
   const stagedTokens = Object.entries(tooltip.text).some(
     ([lang, entry]) => lang !== "en" && entry.text.includes("#{=")
   );
-  if ((changedEnglish || !source?.text.en) && !keepsProposal && proposed.text.en && stagedTokens && stableStringify(readNumberMap({ text: english.text, numbers })) !== stableStringify(readNumberMap(proposed.text.en)))
+  if ((changedEnglish || !source2?.text.en) && !keepsProposal && proposed.text.en && stagedTokens && stableStringify(readNumberMap({ text: english.text, numbers })) !== stableStringify(readNumberMap(proposed.text.en)))
     return {
       ok: false,
       reason: `Tooltip ${tooltip.hash}: English number identities changed; reload and re-pick the staged numbers`
@@ -23366,8 +23420,8 @@ var init_schemas4 = __esm({
 // packages/core/src/schedule/digest.ts
 async function sha256(text) {
   const bytes = new TextEncoder().encode(text);
-  const digest5 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest5), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest6 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest6), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 function approvedProposal({ base, proposed }) {
   if (base === null) return withoutTranslations(proposed);
@@ -23647,8 +23701,8 @@ async function signScheduleIntent(intent, key) {
   );
   return { payload, sig };
 }
-async function verifyScheduleIntent(envelope, key) {
-  const checked = scheduleEnvelopeSchema.parse(envelope);
+async function verifyScheduleIntent(envelope2, key) {
+  const checked = scheduleEnvelopeSchema.parse(envelope2);
   const signature = Uint8Array.from(atob(checked.sig), (char) => char.charCodeAt(0));
   if (!await crypto.subtle.verify(
     "Ed25519",
@@ -24629,10 +24683,10 @@ var unsafeKeys = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype
 var pick = (object2, keys) => {
   const result = {};
   if (object2 == null) return result;
-  const source = Object(object2);
+  const source2 = Object(object2);
   for (const key of keys) {
-    if (unsafeKeys.has(key) || !(key in source)) continue;
-    result[key] = source[key];
+    if (unsafeKeys.has(key) || !(key in source2)) continue;
+    result[key] = source2[key];
   }
   return result;
 };
@@ -25149,22 +25203,22 @@ function parseOrdinary(text, globals, indexed = false) {
   }
   let reserved = false;
   let tagged = false;
-  const clean = (source) => {
-    if (!reservedMarker.test(source)) return source;
+  const clean = (source2) => {
+    if (!reservedMarker.test(source2)) return source2;
     reserved = true;
-    return source.replace(elementTextMarkers, "");
+    return source2.replace(elementTextMarkers, "");
   };
-  const mark = (source) => {
-    source = clean(source);
-    const marked2 = markElementTags(lowerExoticMarkup(source));
-    if (marked2 !== source) tagged = true;
+  const mark = (source2) => {
+    source2 = clean(source2);
+    const marked2 = markElementTags(lowerExoticMarkup(source2));
+    if (marked2 !== source2) tagged = true;
     return lowerDelimitedMarkup(marked2);
   };
   const tinted = parseWith(text, globals, mark, numbered2, indexed);
   const parsed = tagged ? parseWith(
     text,
     globals,
-    (source) => lowerDelimitedMarkup(lowerElementTags(lowerExoticMarkup(clean(source)))),
+    (source2) => lowerDelimitedMarkup(lowerElementTags(lowerExoticMarkup(clean(source2)))),
     numbered2,
     indexed
   ) : tinted;
@@ -25180,7 +25234,7 @@ function parseNumberSlots(text, globals, ids) {
   const variables = numberVariables(text);
   const slots = numberSlots(text);
   const markers = [];
-  let source = "", at = 0;
+  let source2 = "", at = 0;
   for (const [index, slot] of slots.entries()) {
     const id = ids[index];
     if (id === void 0 || variables.some(
@@ -25205,11 +25259,11 @@ function parseNumberSlots(text, globals, ids) {
     markers.push({ from: ref.from, to: ref.to, key: "w" + ref.name });
   }
   for (const marker2 of markers.sort((a, b) => a.from - b.from)) {
-    source += text.slice(at, marker2.from) + open2 + marker2.key + close + text.slice(marker2.from, marker2.to) + open2 + close;
+    source2 += text.slice(at, marker2.from) + open2 + marker2.key + close + text.slice(marker2.from, marker2.to) + open2 + close;
     at = marker2.to;
   }
-  source += text.slice(at);
-  const parsed = parseOrdinary(source, globals, true);
+  source2 += text.slice(at);
+  const parsed = parseOrdinary(source2, globals, true);
   const spans2 = (parts) => {
     let active;
     return parts.flatMap((part) => {
@@ -25350,12 +25404,12 @@ var nativeDescription = (descriptionData, description) => {
   };
   const variables = library(2);
   const titles = library(3);
-  let native = [description, variables, titles].some((source) => source.includes("{{"));
+  let native = [description, variables, titles].some((source2) => source2.includes("{{"));
   const imports = new Proxy(/* @__PURE__ */ Object.create(null), {
     get(_target, key) {
-      const source = typeof key === "string" ? database[key]?.editor[language]?.main : void 0;
-      if (source?.includes("{")) native = true;
-      return source;
+      const source2 = typeof key === "string" ? database[key]?.editor[language]?.main : void 0;
+      if (source2?.includes("{")) native = true;
+      return source2;
     }
   });
   const parsed = parseMarkup(description, {
@@ -25663,7 +25717,7 @@ function buildLegacy(input2, preset, options = {}) {
 }
 
 // scripts/publisher/publisher.ts
-import { createHash as createHash3, createPublicKey as createPublicKey2, verify as verify2 } from "node:crypto";
+import { createHash as createHash4, createPublicKey as createPublicKey3, verify as verify3 } from "node:crypto";
 
 // packages/core/src/index.ts
 init_languages();
@@ -26028,11 +26082,11 @@ function tableRowToLine(row) {
   if (!cells) return row;
   return cells.map((cell) => cell.replace(/^\|[bchr\d-]+|^\|/, "").trim()).filter(Boolean).join(" | ");
 }
-function tableOccurrences(text, source) {
+function tableOccurrences(text, source2) {
   const found = [];
   for (const match of text.matchAll(/^< table [^\n]*\n[\s\S]*?\n<\$>$/gm)) {
     const from = match.index;
-    const rows = source.slice(from, from + match[0].length).split("\n");
+    const rows = source2.slice(from, from + match[0].length).split("\n");
     const lines = rows.slice(1, -1).map(tableRowToLine).join("\n");
     found.push({
       kind: "table",
@@ -26054,25 +26108,25 @@ function tableOccurrences(text, source) {
   }
   return found;
 }
-function placementCandidates(source) {
-  if (!quick.test(source) && !source.includes("/*")) return [];
-  const context = markupCommentContext(source);
+function placementCandidates(source2) {
+  if (!quick.test(source2) && !source2.includes("/*")) return [];
+  const context = markupCommentContext(source2);
   const { text, offsets } = context;
   if (!quick.test(text)) return [];
   const found = [];
   const mapOccurrence = (item, positions = offsets) => {
     const from = positions[item.from];
     const to = positions[item.to - 1] + 1;
-    const token2 = source.slice(from, to);
+    const token2 = source2.slice(from, to);
     item.fixes = item.fixes.map((fix) => ({
       ...fix,
       edits: fix.edits.flatMap((edit) => {
-        const editFrom = positions[edit.from] ?? source.length;
+        const editFrom = positions[edit.from] ?? source2.length;
         const editTo = edit.to ? positions[edit.to - 1] + 1 : 0;
         const insert = edit.insert;
         if (fix.id === "to-yellow") return [{ from, to, insert }];
         if (item.kind === "wrapper" || item.kind === "marker") {
-          const compact = positions.slice(item.from, item.to).map((at) => source[at]).join("");
+          const compact = positions.slice(item.from, item.to).map((at) => source2[at]).join("");
           const content = item.kind === "wrapper" ? wrapper.exec(compact)?.[2] : void 0;
           if (item.kind === "wrapper" && content === void 0) return [];
           const contentAt = content === void 0 ? -1 : compact.indexOf(content, compact.indexOf(item.name) + item.name.length);
@@ -26080,10 +26134,10 @@ function placementCandidates(source) {
             (_, index) => contentAt < 0 || index < contentAt || index >= contentAt + content.length
           );
           if (item.kind === "marker") {
-            const lineStart = from === 0 || source[from - 1] === "\n";
-            const lineEnd = to === source.length || source[to] === "\n";
-            if (lineStart && source[to] === " ") deleted.push(to);
-            else if (lineEnd && source[from - 1] === " ") deleted.unshift(from - 1);
+            const lineStart = from === 0 || source2[from - 1] === "\n";
+            const lineEnd = to === source2.length || source2[to] === "\n";
+            if (lineStart && source2[to] === " ") deleted.push(to);
+            else if (lineEnd && source2[from - 1] === " ") deleted.unshift(from - 1);
           }
           const edits = [];
           for (const at of deleted) {
@@ -26094,7 +26148,7 @@ function placementCandidates(source) {
           return edits;
         }
         if (fix.id === "rows-to-lines") {
-          const block = source.slice(editFrom, editTo);
+          const block = source2.slice(editFrom, editTo);
           const lines = block.split("\n");
           const edits = [
             { from: editFrom, to: editFrom + lines[0].length + 1, insert: "" }
@@ -26224,56 +26278,56 @@ function normalizedLines(lines) {
     })).map(stripRetired);
   });
 }
-function commentBytes(source) {
-  return markupCommentContext(source).comments.sort((a, b) => a.from - b.from).map(({ from, to }) => source.slice(from, to));
+function commentBytes(source2) {
+  return markupCommentContext(source2).comments.sort((a, b) => a.from - b.from).map(({ from, to }) => source2.slice(from, to));
 }
-function supportedTokens(source) {
-  return [...markupCommentContext(source).text.matchAll(/<([a-zA-Z]+)(\/?>|\s)?/g)].filter((match) => !retiredMarkers.includes(match[1])).map((match) => match[0]);
+function supportedTokens(source2) {
+  return [...markupCommentContext(source2).text.matchAll(/<([a-zA-Z]+)(\/?>|\s)?/g)].filter((match) => !retiredMarkers.includes(match[1])).map((match) => match[0]);
 }
-function verifyFix(source, occurrence, fix) {
-  const next = applyRetiredEdits(source, fix.edits);
-  if (JSON.stringify(commentBytes(source)) !== JSON.stringify(commentBytes(next)))
+function verifyFix(source2, occurrence, fix) {
+  const next = applyRetiredEdits(source2, fix.edits);
+  if (JSON.stringify(commentBytes(source2)) !== JSON.stringify(commentBytes(next)))
     return "The edit would change a source comment.";
-  if (JSON.stringify(supportedTokens(source)) !== JSON.stringify(supportedTokens(next)))
+  if (JSON.stringify(supportedTokens(source2)) !== JSON.stringify(supportedTokens(next)))
     return "The edit would change supported markup.";
   const type = markupConditions.find(([name2]) => name2 === occurrence.name)?.[1];
-  const before = parseMarkup(source, { variables: "", titles: "", type }).lines;
+  const before = parseMarkup(source2, { variables: "", titles: "", type }).lines;
   const after = parseMarkup(next, { variables: "", titles: "", type }).lines;
   const normalize = fix.structural ? normalizedLines : stripRetired;
   if (JSON.stringify(stripRetired(normalize(before))) !== JSON.stringify(stripRetired(normalize(after))))
     return "The parser cannot confirm unchanged text and supported styles.";
-  if (next === source || parserNames(parseMarkup(next).lines).length >= parserNames(parseMarkup(source).lines).length && occurrence.kind !== "condition")
+  if (next === source2 || parserNames(parseMarkup(next).lines).length >= parserNames(parseMarkup(source2).lines).length && occurrence.kind !== "condition")
     return "The edit does not remove a retired parser finding.";
   return void 0;
 }
-function fallbackBlock(source, name2, count) {
-  const { text, offsets } = markupCommentContext(source);
+function fallbackBlock(source2, name2, count) {
+  const { text, offsets } = markupCommentContext(source2);
   const tables = [...text.matchAll(/< table [\s\S]*?\n<\$>/g)].map((match) => ({
     from: offsets[match.index],
     to: offsets[match.index + match[0].length - 1] + 1
   }));
   const blocks = [...tables];
   let at = 0;
-  for (const line of source.split("\n")) {
+  for (const line of source2.split("\n")) {
     const to = at + line.length;
     if (!tables.some((table2) => at < table2.to && to > table2.from)) blocks.push({ from: at, to });
     at = to + 1;
   }
   const block = blocks.find(
-    ({ from, to }) => parserNames(parseMarkup(source.slice(0, from) + source.slice(to)).lines).filter(
+    ({ from, to }) => parserNames(parseMarkup(source2.slice(0, from) + source2.slice(to)).lines).filter(
       (value2) => value2 === name2
     ).length < count
-  ) ?? blocks.find(({ from, to }) => source.slice(from, to).includes(name2)) ?? blocks[0] ?? { from: 0, to: source.length };
-  return { ...block, source: source.slice(block.from, block.to) };
+  ) ?? blocks.find(({ from, to }) => source2.slice(from, to).includes(name2)) ?? blocks[0] ?? { from: 0, to: source2.length };
+  return { ...block, source: source2.slice(block.from, block.to) };
 }
-function findRetiredMarkup(source) {
-  const names = parserNames(parseMarkup(source).lines);
-  const candidates = placementCandidates(source);
+function findRetiredMarkup(source2) {
+  const names = parserNames(parseMarkup(source2).lines);
+  const candidates = placementCandidates(source2);
   const found = [];
   for (const name2 of names) {
     const count = names.filter((value2) => value2 === name2).length;
     const index = candidates.findIndex(
-      (item) => item.name === name2 && parserNames(parseMarkup(source.slice(0, item.from) + source.slice(item.to)).lines).filter(
+      (item) => item.name === name2 && parserNames(parseMarkup(source2.slice(0, item.from) + source2.slice(item.to)).lines).filter(
         (value2) => value2 === name2
       ).length < count
     );
@@ -26283,26 +26337,26 @@ function findRetiredMarkup(source) {
         kind: name2 === "table" ? "table" : "wrapper",
         name: name2,
         token: noun(name2),
-        ...fallbackBlock(source, name2, count),
+        ...fallbackBlock(source2, name2, count),
         message: retired(noun(name2), "Fix by hand: an exact source token could not be mapped."),
         fixes: [],
         refusalReason: "An exact source token could not be mapped."
       }
     );
   }
-  prepareMarkup(source, { variables: "", titles: "" }, [], (name2, block) => {
+  prepareMarkup(source2, { variables: "", titles: "" }, [], (name2, block) => {
     if (name2 === "enhanced") return;
-    const from = source.indexOf(block);
-    const mapped = from >= 0 && source.lastIndexOf(block) === from;
+    const from = source2.indexOf(block);
+    const mapped = from >= 0 && source2.lastIndexOf(block) === from;
     const rangeFrom = Math.max(0, from);
-    const end = from >= 0 ? from + block.length : Math.max(0, source.indexOf("\n"));
+    const end = from >= 0 ? from + block.length : Math.max(0, source2.indexOf("\n"));
     const openEnd = from + block.indexOf("\n");
     const closeFrom = from + block.lastIndexOf("\n");
     found.push({
       kind: "condition",
       name: name2,
       token: `${name2} ( \u2026 )`,
-      source: source.slice(rangeFrom, end),
+      source: source2.slice(rangeFrom, end),
       from: rangeFrom,
       to: end,
       message: retired(`${name2} ( \u2026 )`, "Keep its contents, or fix by hand."),
@@ -26324,11 +26378,11 @@ function findRetiredMarkup(source) {
     occurrence.fixes = occurrence.fixes.filter((fix) => {
       const blockFrom = Math.min(occurrence.from, ...fix.edits.map((edit) => edit.from));
       const blockEnd = Math.max(occurrence.to, ...fix.edits.map((edit) => edit.to));
-      const newline = source.indexOf("\n", blockEnd);
-      const blockTo = newline < 0 ? source.length : newline;
-      const refusal = fix.structural && markupCommentContext(source).comments.some(
+      const newline = source2.indexOf("\n", blockEnd);
+      const blockTo = newline < 0 ? source2.length : newline;
+      const refusal = fix.structural && markupCommentContext(source2).comments.some(
         (comment) => comment.from < blockTo && comment.to > blockFrom
-      ) ? "Blocks containing comments must be fixed by hand." : verifyFix(source, occurrence, fix);
+      ) ? "Blocks containing comments must be fixed by hand." : verifyFix(source2, occurrence, fix);
       if (refusal) {
         reason = refusal;
         (occurrence.manualFixes ??= []).push({ label: fix.label, reason: refusal });
@@ -26340,7 +26394,7 @@ function findRetiredMarkup(source) {
       occurrence.message = retired(occurrence.token, `Fix by hand: ${occurrence.refusalReason}`);
     }
   }
-  const context = markupCommentContext(source);
+  const context = markupCommentContext(source2);
   for (const match of context.text.matchAll(
     /<yellow(?= |\/>).*?\/>|^export hidden (?=[A-z0-9 ]+ \()/gm
   )) {
@@ -26354,7 +26408,7 @@ function findRetiredMarkup(source) {
       kind: hidden ? "condition" : match[0] === "<yellow/>" ? "marker" : "wrapper",
       name: hidden ? "export hidden" : "yellow",
       token: hidden ? "export hidden" : "<yellow \u2026 />",
-      source: source.slice(from, to),
+      source: source2.slice(from, to),
       from,
       to,
       message: hidden ? "Retired markup export hidden: use a plain export." : "Deprecated markup <yellow \u2026 />: use <exotic \u2026 />.",
@@ -26481,7 +26535,7 @@ function validateText(text, lang, globals = { variables: "", titles: "" }, requi
     ...variableNameIssues(
       text,
       defined,
-      [text, globals.variables, globals.titles].some((source) => source.includes("{{"))
+      [text, globals.variables, globals.titles].some((source2) => source2.includes("{{"))
     )
   );
   for (const reserved of reservedNames(text)) {
@@ -26783,12 +26837,81 @@ async function publishableHash(tooltip, aliases = {}) {
       ...incoming.length ? { aliases: incoming } : {}
     })
   );
-  const digest5 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest5), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest6 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest6), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 // packages/core/src/index.ts
 init_publishRequest();
+
+// packages/core/src/currentSaveStage.ts
+init_zod();
+init_publishRequest();
+init_schemas3();
+var currentSaveStagingCapability = "currentSaveStagingV1";
+var currentSavePartBytes = 32 * 1024;
+var currentSaveStageLifetime = 24 * 60 * 6e4;
+var currentSaveSha = external_exports.string().regex(/^[0-9a-f]{40}$/);
+var digest3 = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var ordinal = external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+var requester = external_exports.object({
+  id: external_exports.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  login: external_exports.string().regex(/^[a-z0-9][a-z0-9-]{0,38}$/i)
+}).strict();
+var currentSaveStageInput = external_exports.union([
+  external_exports.object({
+    requestId: publishOpIdSchema,
+    part: ordinal,
+    content: external_exports.string().min(4).max(Math.ceil(currentSavePartBytes / 3) * 4).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(
+      (content) => content.length % 4 === 0 && content.length / 4 * 3 - (content.endsWith("==") ? 2 : Number(content.endsWith("="))) <= currentSavePartBytes
+    )
+  }).strict(),
+  external_exports.object({ requestId: publishOpIdSchema, parts: ordinal.min(1), digest: digest3 }).strict()
+]);
+var currentSaveIntent = external_exports.object({
+  version: external_exports.literal(1),
+  requestId: publishOpIdSchema,
+  requester,
+  repo: external_exports.string(),
+  branch: external_exports.string(),
+  sourceCommit: currentSaveSha,
+  parts: ordinal.min(1),
+  digest: digest3
+}).strict();
+var envelope = external_exports.object({
+  payload: external_exports.string().max(4096),
+  sig: external_exports.string().regex(/^[A-Za-z0-9+/]{86}==$/)
+}).strict();
+var record2 = external_exports.object({ requester, updatedAt: timestampSchema }).strict();
+var outcome = external_exports.discriminatedUnion("status", [
+  external_exports.object({
+    status: external_exports.literal("saved"),
+    commit: currentSaveSha,
+    savedAt: external_exports.number().int().positive()
+  }),
+  external_exports.object({ status: external_exports.literal("conflicts"), head: currentSaveSha }),
+  external_exports.object({ status: external_exports.literal("failed"), error: external_exports.string().max(2e3) }),
+  external_exports.object({ status: external_exports.literal("queued") })
+]);
+var currentSaveStageRecord = external_exports.discriminatedUnion("status", [
+  record2.extend({ status: external_exports.literal("uploading"), parts: ordinal.min(1) }),
+  record2.extend({ status: external_exports.literal("queued"), envelope, parts: ordinal.min(1) }),
+  record2.extend({
+    status: external_exports.literal("saved"),
+    commit: currentSaveSha,
+    savedAt: external_exports.number().int().positive()
+  }),
+  record2.extend({ status: external_exports.literal("conflicts") }),
+  record2.extend({ status: external_exports.literal("failed"), error: external_exports.string().max(2e3) })
+]);
+var currentSavePath = "current-saves/";
+var currentSaveStagePaths = {
+  prefix: (id) => `${currentSavePath}${id}/`,
+  record: (id) => `${currentSavePath}${id}/request.json`,
+  part: (id, part) => `${currentSavePath}${id}/${part}.json`,
+  conflicts: (id) => `${currentSavePath}${id}/conflicts.json`,
+  kick: (id) => `publish/kicks/current-save-${id}.json`
+};
 
 // packages/core/src/migrateLegacy.ts
 init_legacy();
@@ -26895,8 +27018,8 @@ async function inactivePublishableHash(tooltip, aliases, moves = {}) {
 }
 async function inactiveRemovalHash(hash2) {
   const bytes = new TextEncoder().encode(stableStringify({ inactive: hash2 }));
-  const digest5 = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest5), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest6 = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest6), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 var unreviewedInactiveMessage = "Publish inactive move decisions in Review changes before scheduling or publishing this batch";
 async function hasUnpublishedInactiveMove(hash2, snapshot, pushed, aliases, moves) {
@@ -26976,7 +27099,7 @@ function applyInactiveLive(perks, moves, hashes, aliases, previous = perks) {
   const selected = selectedInactiveMoves(moves, hashes, aliases);
   const result = { ...perks };
   const removed = /* @__PURE__ */ new Set();
-  const record2 = (value2) => !!value2 && typeof value2 === "object" && !Array.isArray(value2);
+  const record3 = (value2) => !!value2 && typeof value2 === "object" && !Array.isArray(value2);
   const erase = (hash2) => {
     delete result[hash2];
     removed.add(hash2);
@@ -26991,7 +27114,7 @@ function applyInactiveLive(perks, moves, hashes, aliases, previous = perks) {
     erase(hash2);
     if (resolveAlias(hash2, aliases) === hash2) {
       for (const [stub, value2] of Object.entries(result))
-        if (record2(value2) && value2.aliasOf === hash2 || Object.hasOwn(aliases, stub) && resolveAlias(Number(stub), aliases) === hash2)
+        if (record3(value2) && value2.aliasOf === hash2 || Object.hasOwn(aliases, stub) && resolveAlias(Number(stub), aliases) === hash2)
           erase(Number(stub));
     }
   }
@@ -26999,23 +27122,23 @@ function applyInactiveLive(perks, moves, hashes, aliases, previous = perks) {
   if (!removed.size) return result;
   const liveAliases = { ...aliases };
   for (const [key, value2] of Object.entries(perks))
-    if (record2(value2) && typeof value2.aliasOf === "number")
+    if (record3(value2) && typeof value2.aliasOf === "number")
       liveAliases[key] = { to: value2.aliasOf, kind: "name" };
   for (const language of languages2)
     for (const field of ["main", "secondary"]) {
       const imports = {};
       for (const [key, value2] of Object.entries(result)) {
-        if (!record2(value2) || "aliasOf" in value2) continue;
+        if (!record3(value2) || "aliasOf" in value2) continue;
         const editor = value2.editor;
-        if (!record2(editor)) throw new Error(`Invalid live tooltip ${key}`);
+        if (!record3(editor)) throw new Error(`Invalid live tooltip ${key}`);
         const translation = editor[language];
-        imports[key] = record2(translation) && typeof translation[field] === "string" ? translation[field] : "";
+        imports[key] = record3(translation) && typeof translation[field] === "string" ? translation[field] : "";
       }
       for (const [key, value2] of Object.entries(result))
-        if (record2(value2) && typeof value2.aliasOf === "number")
+        if (record3(value2) && typeof value2.aliasOf === "number")
           imports[key] = imports[value2.aliasOf] ?? "";
       for (const [key, value2] of Object.entries(result)) {
-        if (!record2(value2) || "aliasOf" in value2) continue;
+        if (!record3(value2) || "aliasOf" in value2) continue;
         if (Array.isArray(value2.associated)) {
           for (const hash2 of value2.associated)
             if (typeof hash2 === "number" && (removed.has(hash2) || removed.has(resolveAlias(hash2, liveAliases))))
@@ -27035,8 +27158,8 @@ function applyInactiveLive(perks, moves, hashes, aliases, previous = perks) {
           Number(key),
           liveAliases
         );
-        for (const [source, hash2] of reads.imports)
-          if (removed.has(hash2) || removed.has(Number(source)))
+        for (const [source2, hash2] of reads.imports)
+          if (removed.has(hash2) || removed.has(Number(source2)))
             throw new Error(
               `Tooltip ${key} imports inactive tooltip ${hash2} (${language}, ${field})`
             );
@@ -27118,15 +27241,15 @@ var globalRecordSchema = external_exports.object({
     }).strict()
   ),
   tombstone: external_exports.object({ at: timestampSchema, by: external_exports.string().min(1) }).strict().optional()
-}).strict().superRefine((record2, ctx) => {
-  if (!validGlobalName(record2.kind, record2.name))
+}).strict().superRefine((record3, ctx) => {
+  if (!validGlobalName(record3.kind, record3.name))
     ctx.addIssue({ code: "custom", message: "Name cannot round-trip through the resolver" });
-  for (const [lang, definition2] of Object.entries(record2.definitions)) {
-    if (definition2.provenance && (definition2.provenance.lang !== lang || definition2.provenance.hash !== globalAggregateHash(record2.kind)))
+  for (const [lang, definition2] of Object.entries(record3.definitions)) {
+    if (definition2.provenance && (definition2.provenance.lang !== lang || definition2.provenance.hash !== globalAggregateHash(record3.kind)))
       ctx.addIssue({ code: "custom", message: "Definition provenance kind/language mismatch" });
-    if (record2.kind === "variables" && /[\r\n]/.test(definition2.body))
+    if (record3.kind === "variables" && /[\r\n]/.test(definition2.body))
       ctx.addIssue({ code: "custom", message: "Variables must fit on one line" });
-    if (record2.kind !== "variables" && !definition2.body.trim())
+    if (record3.kind !== "variables" && !definition2.body.trim())
       ctx.addIssue({ code: "custom", message: "Title and export bodies must not be empty" });
   }
 });
@@ -27405,9 +27528,9 @@ function globalSourceLanguage(tooltip, lang, mode) {
 }
 function globalSourceText(tooltip, lang, mode) {
   if (!tooltip.text[lang]) return void 0;
-  const source = tooltip.text[globalSourceLanguage(tooltip, lang, mode)];
-  if (mode === "authored") return source.text;
-  const resolved = source.text.includes("#{=") && tooltip.text.en ? resolveNumberTokens(source.text, numberValues(tooltip.text.en, lang)) : source.text;
+  const source2 = tooltip.text[globalSourceLanguage(tooltip, lang, mode)];
+  if (mode === "authored") return source2.text;
+  const resolved = source2.text.includes("#{=") && tooltip.text.en ? resolveNumberTokens(source2.text, numberValues(tooltip.text.en, lang)) : source2.text;
   return lowerConsumerMarkup(resolved);
 }
 
@@ -27460,11 +27583,11 @@ function assertGlobalTransition(beforeInput, afterInput, tooltips) {
         if (!added.size) continue;
         for (const tooltip of Object.values(tooltips)) {
           if (tooltip.hash === hash2) continue;
-          const source = globalSourceText(tooltip, lang, mode) ?? "";
-          const locals = hash2 === 1 ? Object.keys(extractBlocks(removeMarkupComments(source), "export")).map((name2) => ({
+          const source2 = globalSourceText(tooltip, lang, mode) ?? "";
+          const locals = hash2 === 1 ? Object.keys(extractBlocks(removeMarkupComments(source2), "export")).map((name2) => ({
             kind: "export",
             name: name2
-          })) : markupDefinitions(source);
+          })) : markupDefinitions(source2);
           for (const local of locals) {
             if (local.kind === (hash2 === 2 ? "variable" : hash2 === 1 ? "export" : "title") && added.has(local.name))
               throw new Error(
@@ -27521,9 +27644,9 @@ function resolveSnapshot(snapshot, blockers) {
           result.set(keyOf(hash2, lang), { hash: hash2, lang, result: existing2 });
           continue;
         }
-        const blockHiddenImports = (source) => {
-          const visible = removeUnusedText(source, false);
-          if (markupImports(source).some((line) => !visible.includes(line.trim())))
+        const blockHiddenImports = (source2) => {
+          const visible = removeUnusedText(source2, false);
+          if (markupImports(source2).some((line) => !visible.includes(line.trim())))
             blockers.add(
               `Hidden import context requires review: ${snapshot.revision}/${tooltip.hash}/${lang}`
             );
@@ -27536,9 +27659,9 @@ function resolveSnapshot(snapshot, blockers) {
               const hash3 = key === "global" ? 1 : Number(key);
               if (!Number.isInteger(hash3)) return void 0;
               const imported = snapshot.tooltips[resolveAlias(hash3, snapshot.aliases)];
-              const source = imported && !(snapshot.mode === "live" && isTextlessDescription(imported)) ? globalSourceText(imported, lang, snapshot.mode) : void 0;
-              if (source !== void 0) blockHiddenImports(source);
-              return source;
+              const source2 = imported && !(snapshot.mode === "live" && isTextlessDescription(imported)) ? globalSourceText(imported, lang, snapshot.mode) : void 0;
+              if (source2 !== void 0) blockHiddenImports(source2);
+              return source2;
             }
           }
         );
@@ -27592,8 +27715,8 @@ function languageAffected(snapshot, change, lang) {
   if (!change.languages) return true;
   if (change.languages.includes("en")) return true;
   const aggregate = snapshot.tooltips[globalAggregateHash(change.kind)];
-  const source = aggregate ? globalSourceLanguage(aggregate, lang, snapshot.mode) : lang;
-  return change.languages.includes(source);
+  const source2 = aggregate ? globalSourceLanguage(aggregate, lang, snapshot.mode) : lang;
+  return change.languages.includes(source2);
 }
 function calculateGlobalImpact(before, after, changes2, destination) {
   for (const change of changes2) {
@@ -27655,7 +27778,7 @@ function calculateGlobalImpact(before, after, changes2, destination) {
 // packages/core/src/globalsRelease/model.ts
 init_zod();
 var oid2 = external_exports.string().regex(/^[a-f0-9]{40}$/);
-var digest3 = external_exports.string().regex(/^[a-f0-9]{64}$/);
+var digest4 = external_exports.string().regex(/^[a-f0-9]{64}$/);
 var globalSourcesSchema = external_exports.object({
   authored: oid2,
   definitions: oid2,
@@ -27665,8 +27788,8 @@ var globalSourcesSchema = external_exports.object({
   upcoming: oid2,
   aliases: oid2,
   generator: oid2,
-  fallback: digest3,
-  resolver: digest3
+  fallback: digest4,
+  resolver: digest4
 }).strict();
 var globalLayoutSchema = external_exports.object({ version: external_exports.literal(1), aggregates: globalStoreSchema.shape.aggregates }).strict().refine(
   (layout) => (layout.aggregates.length === 2 || layout.aggregates.length === 3) && new Set(layout.aggregates.map((aggregate) => aggregate.document.hash)).size === layout.aggregates.length && layout.aggregates.every((aggregate) => [1, 2, 3].includes(aggregate.document.hash)) && [2, 3].every(
@@ -29408,13 +29531,13 @@ init_contentHash();
 init_zod();
 init_legacy();
 var commit = external_exports.string().regex(/^[0-9a-f]{40}$/);
-var digest4 = external_exports.string().regex(/^[0-9a-f]{64}$/);
+var digest5 = external_exports.string().regex(/^[0-9a-f]{64}$/);
 var members2 = external_exports.array(hashSchema).min(2).max(256).refine((v) => new Set(v).size === v.length);
 var selection = {
   canonical: hashSchema,
   members: members2,
   /** Compare with server-recomputed membership/facts digest, never trust client eligibility. */
-  factsDigest: digest4,
+  factsDigest: digest5,
   /** Single-group only. Server still refuses loss of a locale absent from canonical text. */
   acknowledgeConflicts: external_exports.literal(true).optional(),
   note: external_exports.string().max(500).optional()
@@ -29425,7 +29548,7 @@ var aliasGroupOperationSchema = external_exports.discriminatedUnion("op", [
   external_exports.object({
     op: external_exports.literal("reject"),
     members: members2,
-    factsDigest: digest4,
+    factsDigest: digest5,
     reason: external_exports.string().max(500).optional()
   }).strict(),
   external_exports.object({ op: external_exports.literal("ungroup"), canonical: hashSchema }).strict(),
@@ -30118,6 +30241,7 @@ var rawBlobFields = external_exports.object({
   isTruncated: external_exports.boolean(),
   text: external_exports.string().nullable()
 }).strict();
+var globalAggregatePath = /(?:^|\/)tooltips\/[123]\.json$/;
 var exportBlob = external_exports.object({ object: external_exports.union([blobFields, external_exports.object({}).strict()]) }).nullable();
 var exportsRepository = external_exports.object({
   ref: external_exports.object({
@@ -30147,10 +30271,10 @@ var decoder = new TextDecoder("utf-8", { fatal: true });
 
 // apps/worker/src/globals/handlers.ts
 async function namePaths(kind, name2) {
-  const digest5 = new Uint8Array(
+  const digest6 = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${kind}:${name2}`))
   );
-  const key = [...digest5].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const key = [...digest6].map((b) => b.toString(16).padStart(2, "0")).join("");
   return {
     claim: `globals/names/${kind}/${key}.json`,
     proof: `globals/proofs/clashes/${kind}/${key}.json`
@@ -30667,7 +30791,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
             `Global ${entry.name} changed after scheduling; return to draft and schedule again`
           );
     }
-    const digest5 = await globalIdentityDigest({
+    const digest6 = await globalIdentityDigest({
       sourceCommit: revision2,
       sources,
       ids,
@@ -30679,7 +30803,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
       version: 1,
       roots,
       sources,
-      digest: digest5,
+      digest: digest6,
       published,
       ...batch ? { batchSource: batch.source } : {}
     };
@@ -30984,8 +31108,8 @@ var GlobalsPublisher = class _GlobalsPublisher {
     for (const document of documents)
       for (const mode of ["authored", "live"])
         for (const lang of languages2) {
-          const source = globalSourceText(document, lang, mode) ?? "";
-          const localSources = document.hash === 2 ? [] : document.hash === 3 || document.hash === 1 ? Object.values(extractBlocks(source, document.hash === 1 ? "export" : "title")) : [source];
+          const source2 = globalSourceText(document, lang, mode) ?? "";
+          const localSources = document.hash === 2 ? [] : document.hash === 3 || document.hash === 1 ? Object.values(extractBlocks(source2, document.hash === 1 ? "export" : "title")) : [source2];
           for (const text of localSources) {
             for (const name2 of Object.keys(extractBlocks(text, "export")))
               localNames.add(`export:${name2}`);
@@ -31336,6 +31460,11 @@ function refuseUnlowerableTags(tooltip, lowers, action, lowersPrismatic = lowers
 }
 
 // apps/worker/src/permissions.ts
+function requireAccess(config2, user, roles) {
+  const access = config2.users[String(user.id)];
+  if (!access || !roles.includes(access.role)) throw new HttpError(403, "Permission denied");
+  return access;
+}
 function checkEdit(access, base, next) {
   if (isTextlessDescription(next) && (base === null || hasTooltipText(base))) {
     if (!["maintainer", "editor"].includes(access.role))
@@ -31389,7 +31518,7 @@ function checkEnglishRevision(access, head, next, noTranslationImpact, now = Dat
   };
   if (!before) {
     future();
-    const sources = languages2.map((lang) => lang === "en" ? void 0 : head?.text[lang]?.sourceUpdatedAt).filter((source) => source !== void 0).map((source) => Date.parse(source));
+    const sources = languages2.map((lang) => lang === "en" ? void 0 : head?.text[lang]?.sourceUpdatedAt).filter((source2) => source2 !== void 0).map((source2) => Date.parse(source2));
     if (sources.length && !(Date.parse(after.updatedAt) > Math.max(...sources)))
       throw new HttpError(
         422,
@@ -31702,12 +31831,12 @@ init_schedule();
 var InvalidScheduleIntent = class extends Error {
 };
 function verifiedSource(pub, raw) {
-  const envelope = scheduleEnvelopeSchema.parse(raw);
+  const envelope2 = scheduleEnvelopeSchema.parse(raw);
   const key = createPublicKey(pub.options.publicKey);
-  if (createHash2("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== pub.options.keyFingerprint || !verify(null, Buffer.from(envelope.payload), key, Buffer.from(envelope.sig, "base64")))
+  if (createHash2("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== pub.options.keyFingerprint || !verify(null, Buffer.from(envelope2.payload), key, Buffer.from(envelope2.sig, "base64")))
     throw new InvalidScheduleIntent("Invalid schedule signature or key pin");
-  const intent = scheduleIntentSchema.parse(JSON.parse(envelope.payload));
-  if (stableStringify(intent) !== envelope.payload || intent.repo !== pub.options.repo || intent.dataBranch !== pub.options.dataBranch || intent.liveBranch !== pub.options.liveBranch)
+  const intent = scheduleIntentSchema.parse(JSON.parse(envelope2.payload));
+  if (stableStringify(intent) !== envelope2.payload || intent.repo !== pub.options.repo || intent.dataBranch !== pub.options.dataBranch || intent.liveBranch !== pub.options.liveBranch)
     throw new InvalidScheduleIntent("Schedule intent target or canonical bytes mismatch");
   const tree = pub.git.tree(intent.sourceCommit);
   const batch = batchSchema.parse(pub.read(tree, `schedule/batches/${intent.batchId}/batch.json`));
@@ -31726,8 +31855,8 @@ function verifiedSource(pub, raw) {
 }
 function verifiedRequest(pub, tree, path) {
   const request = scheduleRequestSchema.parse(pub.read(tree, path));
-  const source = verifiedSource(pub, request.envelope);
-  const { intent } = source;
+  const source2 = verifiedSource(pub, request.envelope);
+  const { intent } = source2;
   const bodyOid = tree[scheduleIntentPaths.body(intent.requestId)];
   if (!bodyOid) throw new InvalidScheduleIntent("Missing submitted schedule bytes");
   const body2 = pub.git.blob(bodyOid);
@@ -31740,14 +31869,14 @@ function verifiedRequest(pub, tree, path) {
     throw new InvalidScheduleIntent("Submitted draft save identity mismatch");
   if (intent.kind === "save" && intent.scheduledParts) {
     const manifest = scheduledStagingSchema.parse(
-      pub.read(source.tree, scheduleIntentPaths.stagedSave(intent.batchId))
+      pub.read(source2.tree, scheduleIntentPaths.stagedSave(intent.batchId))
     );
-    if (input2.finish !== true || manifest.id !== intent.requestId || manifest.ownerId !== intent.requester.id || manifest.parts !== intent.scheduledParts || manifest.parts > source.members.length || manifest.revision !== intent.expectedRevision || manifest.ready)
+    if (input2.finish !== true || manifest.id !== intent.requestId || manifest.ownerId !== intent.requester.id || manifest.parts !== intent.scheduledParts || manifest.parts > source2.members.length || manifest.revision !== intent.expectedRevision || manifest.ready)
       throw new InvalidScheduleIntent("Signed staged-save manifest mismatch");
     const changes2 = [];
     let message;
     for (let part = 0; part < manifest.parts; part++) {
-      const oid4 = source.tree[scheduleIntentPaths.stagedPart(intent.batchId, manifest.id, part)];
+      const oid4 = source2.tree[scheduleIntentPaths.stagedPart(intent.batchId, manifest.id, part)];
       if (!oid4) throw new InvalidScheduleIntent("Missing staged save part");
       const raw = pub.git.blob(oid4);
       if (Buffer.byteLength(raw) > 300 * 1024)
@@ -31759,15 +31888,15 @@ function verifiedRequest(pub, tree, path) {
       changes2.push(...chunk.changes);
     }
     return {
-      ...source,
+      ...source2,
       request,
       input: { requestId: input2.requestId, revision: input2.revision, changes: changes2, message }
     };
   }
-  return { ...source, request, input: input2 };
+  return { ...source2, request, input: input2 };
 }
-async function schedulePayload(pub, envelope) {
-  const { intent, members: members3 } = verifiedSource(pub, envelope);
+async function schedulePayload(pub, envelope2) {
+  const { intent, members: members3 } = verifiedSource(pub, envelope2);
   if (intent.kind !== "schedule")
     throw new InvalidScheduleIntent("Publication requires a signed schedule approval");
   const approval = {
@@ -31966,8 +32095,8 @@ var SchedulePreparer = class {
       tree,
       scheduleIntentPaths.publication(checked.batch.id)
     );
-    const source = this.pub.read(checked.tree, paths2(checked.batch.opId).request);
-    if (!original || stableStringify(source) !== stableStringify(original))
+    const source2 = this.pub.read(checked.tree, paths2(checked.batch.opId).request);
+    if (!original || stableStringify(source2) !== stableStringify(original))
       reject("Withdrawn publication identity mismatch");
     return original;
   }
@@ -32045,28 +32174,28 @@ var SchedulePreparer = class {
     const scheduled = batch.preparation.returnStatus === "scheduled";
     let ready = null;
     if (scheduled) {
-      let envelope;
+      let envelope2;
       if (intent.kind === "schedule") {
         if (batch.opId !== intent.requestId || batch.notBefore !== intent.notBefore || batch.zone !== intent.zone)
           reject("Schedule target changed");
-        envelope = publication(
+        envelope2 = publication(
           await schedulePayload(this.pub, request.envelope),
           request.envelope,
           request.requestId
         );
       } else {
         const original = this.original(tree, checked);
-        envelope = { ...original, preparedRequestId: request.requestId };
+        envelope2 = { ...original, preparedRequestId: request.requestId };
       }
       this.collision(tree, batch.opId);
       const payload = await this.pub.verifyRequest(
-        this.pub.writeBlob(json2(envelope)),
+        this.pub.writeBlob(json2(envelope2)),
         batch.opId,
         tree
       );
       if (payload.kind !== "batch" || payload.batchId !== batch.id || payload.contentRevision !== batch.contentRevision || payload.notBefore !== batch.notBefore)
         reject("Publication approval identity mismatch");
-      tree[paths2(batch.opId).request] = this.pub.writeBlob(json2(envelope));
+      tree[paths2(batch.opId).request] = this.pub.writeBlob(json2(envelope2));
       await this.validatePublication(tree, payload, head);
       ready = request.requestId;
     }
@@ -32145,25 +32274,25 @@ var SchedulePreparer = class {
     let update = draftFailed ? { status: "draft", preparation: null } : { status: "needs_attention" };
     if ((error62 instanceof ProposalRejected || error62 instanceof ProposalOutputRejected) && checked?.intent.kind === "save" && checked.intent.onValidationFailure === "keep_scheduled") {
       try {
-        const source = checked.batch;
+        const source2 = checked.batch;
         const original = this.original(tree, checked);
-        this.collision(tree, source.opId);
+        this.collision(tree, source2.opId);
         const payload = await this.pub.verifyRequest(
           this.pub.writeBlob(json2(original)),
-          source.opId,
+          source2.opId,
           tree
         );
-        if (payload.kind !== "batch" || payload.batchId !== batch.id || payload.contentRevision !== source.contentRevision || payload.notBefore !== source.notBefore || batch.opId !== source.opId || batch.notBefore !== source.notBefore)
+        if (payload.kind !== "batch" || payload.batchId !== batch.id || payload.contentRevision !== source2.contentRevision || payload.notBefore !== source2.notBefore || batch.opId !== source2.opId || batch.notBefore !== source2.notBefore)
           reject("Cannot restore superseded publication");
-        tree[paths2(source.opId).request] = this.pub.writeBlob(json2(original));
+        tree[paths2(source2.opId).request] = this.pub.writeBlob(json2(original));
         update = {
           status: "scheduled",
           preparation: null,
-          preparedRequestId: source.preparedRequestId ?? null,
-          opId: source.opId,
-          notBefore: source.notBefore,
-          zone: source.zone,
-          scheduledContentRevision: source.scheduledContentRevision
+          preparedRequestId: source2.preparedRequestId ?? null,
+          opId: source2.opId,
+          notBefore: source2.notBefore,
+          zone: source2.zone,
+          scheduledContentRevision: source2.scheduledContentRevision
         };
         restored = true;
       } catch (restoreError) {
@@ -32187,11 +32316,11 @@ var SchedulePreparer = class {
       { at, by: checked?.intent.requester ?? batch.createdBy, action: "preparation_failed" }
     );
     tree[schedulePaths.batch(batch.id)] = this.pub.writeBlob(json2(updated));
-    const { result: _result, ...record2 } = request;
+    const { result: _result, ...record3 } = request;
     void _result;
     tree[scheduleIntentPaths.request(request.requestId)] = this.pub.writeBlob(
       json2({
-        ...record2,
+        ...record3,
         status: restored || draftFailed ? "failed" : "needs_attention",
         retryable: !semantic,
         updatedAt: at,
@@ -32208,8 +32337,8 @@ var SchedulePreparer = class {
       const original = { ...tree };
       const requests = this.batches(tree).filter(() => !readyOnly).filter((b) => b.status === "preparing" && b.preparation).map((b) => scheduleIntentPaths.request(b.preparation.requestId)).sort();
       for (const path of requests) {
-        const record2 = this.pub.read(tree, path);
-        const request = scheduleRequestSchema.parse(record2);
+        const record3 = this.pub.read(tree, path);
+        const request = scheduleRequestSchema.parse(record3);
         if (request.status !== "pending") continue;
         const batch = batchSchema.parse(this.pub.read(tree, schedulePaths.batch(request.batchId)));
         if (!matchesPreparationFence(batch, request)) continue;
@@ -32235,9 +32364,9 @@ var SchedulePreparer = class {
           let pinnedGlobals = false;
           try {
             const recorded = this.pub.read(tree, path);
-            const source = JSON.parse(recorded?.envelope.payload ?? "null")?.sourceCommit;
-            if (typeof source === "string" && /^[a-f0-9]{40}$/.test(source))
-              pinnedGlobals = hasGlobals(this.pub.git.tree(source));
+            const source2 = JSON.parse(recorded?.envelope.payload ?? "null")?.sourceCommit;
+            if (typeof source2 === "string" && /^[a-f0-9]{40}$/.test(source2))
+              pinnedGlobals = hasGlobals(this.pub.git.tree(source2));
           } catch {
           }
           if (!pinnedGlobals) continue;
@@ -32311,9 +32440,9 @@ var SchedulePreparer = class {
         continue;
       if (stage.ready) {
         const requestPath = scheduleIntentPaths.request(stage.id);
-        const record2 = scheduleRequestSchema.safeParse(this.pub.read(tree, requestPath));
-        if (record2.success && record2.data.batchId === batch.id && record2.data.requestId === stage.id && record2.data.requesterId === stage.ownerId && record2.data.status === "pending") {
-          const request = record2.data;
+        const record3 = scheduleRequestSchema.safeParse(this.pub.read(tree, requestPath));
+        if (record3.success && record3.data.batchId === batch.id && record3.data.requestId === stage.id && record3.data.requesterId === stage.ownerId && record3.data.status === "pending") {
+          const request = record3.data;
           try {
             if (consumed) reject("Batch published before these edits landed");
             if (changed) reject("The accepted schedule changed before these edits landed");
@@ -32371,6 +32500,310 @@ var SchedulePreparer = class {
     return deadline;
   }
 };
+
+// scripts/publisher/currentSave.ts
+init_zod();
+import { createHash as createHash3, createPublicKey as createPublicKey2, verify as verify2 } from "node:crypto";
+
+// apps/worker/src/save.ts
+init_zod();
+
+// apps/worker/src/catalog.ts
+init_zod();
+var itemSchema = external_exports.object({
+  hash: hashSchema,
+  name: external_exports.string(),
+  categoryId: external_exports.string(),
+  itemHash: hashSchema.optional(),
+  itemName: external_exports.string().optional(),
+  // Editor-only; accepted so the generator may emit it, never exported.
+  owners: external_exports.array(hashSchema).optional()
+});
+var itemsSchema = external_exports.record(external_exports.string(), itemSchema);
+var aliasItemSchema = itemSchema.extend({
+  inGameDescription: external_exports.string(),
+  isEnhanced: external_exports.boolean().optional(),
+  exotic: external_exports.boolean().optional(),
+  plugCategoryHash: hashSchema.optional(),
+  baseHash: hashSchema.optional(),
+  dimBaseHash: hashSchema.optional()
+});
+var aliasItemsSchema = external_exports.record(external_exports.string(), aliasItemSchema);
+var categoriesSchema = external_exports.array(
+  external_exports.object({
+    id: external_exports.string(),
+    legacyType: external_exports.string().optional()
+  })
+);
+
+// apps/worker/src/sandboxPointers.ts
+init_zod();
+var candidatesSchema = external_exports.array(hashSchema);
+var aliasEntrySchema = external_exports.object({ to: hashSchema }).passthrough();
+var revisionSchema2 = external_exports.string().regex(/^[0-9a-f]{40}$/).nullable();
+var updateSchema = external_exports.object({
+  revision: revisionSchema2,
+  // Every staged decision, keyed by sandbox perk hash; an omitted hash is undone.
+  picks: external_exports.record(external_exports.string().regex(/^(0|[1-9]\d*)$/), sandboxPickSchema)
+}).strict();
+
+// apps/worker/src/save.ts
+var currentSaveRoles = ["maintainer", "editor", "trial", "translator"];
+var changeSchema = external_exports.object({
+  hash: hashSchema,
+  base: tooltipSchema.nullable(),
+  next: tooltipSchema
+}).strict().refine(({ hash: hash2, base, next }) => next.hash === hash2 && (!base || base.hash === hash2), {
+  message: "Change hash, base hash and next hash must agree"
+});
+var savedChangesSchema = external_exports.object({
+  changes: external_exports.array(changeSchema).min(1).refine(
+    (changes2) => new Set(changes2.map(({ hash: hash2 }) => hash2)).size === changes2.length,
+    "Duplicate tooltip hash"
+  ),
+  message: external_exports.string().trim().min(1).max(500),
+  // "No translation impact" (TR3): English wording changes keep their English revision.
+  // Sent only when ticked; ignored for saves without such a change (checkEnglishRevision).
+  noTranslationImpact: external_exports.boolean().optional()
+}).strict();
+var saveSchema = savedChangesSchema.extend({
+  changes: savedChangesSchema.shape.changes.max(100)
+});
+var compendiumContent = (link) => link ? { ...link, snapshotAt: void 0 } : void 0;
+function createdContent(tooltip) {
+  const { text, bungieSnapshot, compendium, ...fields } = tooltip;
+  return stableStringify({
+    ...fields,
+    compendium: compendiumContent(compendium),
+    bungieDescription: bungieSnapshot?.description,
+    text: Object.fromEntries(Object.entries(text).map(([lang, entry]) => [lang, entry.text]))
+  });
+}
+async function planSaveChanges(input2, access, current, saveAliases, exporterPin, now = Date.now()) {
+  const conflicts = [];
+  const tooltips = [];
+  const writes = {};
+  const changed = [];
+  const carried = [];
+  const kept = [];
+  for (const [index, change] of input2.changes.entries()) {
+    const canonical = resolveAlias(change.hash, saveAliases);
+    if (canonical !== change.hash) {
+      throw new HttpError(
+        422,
+        `Tooltip ${change.hash} is an alias; edit canonical tooltip ${canonical}`
+      );
+    }
+    checkEdit(access, change.base, change.next);
+    const file2 = current[index];
+    const head = file2 ? tooltipSchema.parse(file2.value) : null;
+    if (head && head.hash !== change.hash) throw new HttpError(502, "Stored tooltip hash mismatch");
+    const next = structuredClone(change.next);
+    if (next.text.en) {
+      delete next.text.en.numbers;
+      if (change.base?.text.en?.numbers) next.text.en.numbers = change.base.text.en.numbers;
+    }
+    let merged = next;
+    let rebased = false;
+    if (head && change.base) {
+      rebased = stableStringify(head) !== stableStringify(change.base);
+      if (rebased && next.compendium && head.compendium && head.compendium.snapshotAt !== change.base.compendium?.snapshotAt && stableStringify(compendiumContent(head.compendium)) === stableStringify(compendiumContent(next.compendium)))
+        next.compendium = head.compendium;
+      const result = rebased ? merge3(change.base, head, next) : { ok: true, merged: next };
+      if (!result.ok) {
+        conflicts.push({ ...change, head, fields: result.conflicts.map(({ field }) => field) });
+        continue;
+      }
+      merged = result.merged;
+    } else if (head && createdContent(head) === createdContent(next)) {
+      tooltips.push(head);
+      continue;
+    } else if (head || change.base) {
+      conflicts.push({ ...change, head, fields: ["$exists"] });
+      continue;
+    }
+    if (rebased) checkEdit(access, head, merged);
+    if (checkEnglishRevision(access, head, merged, input2.noTranslationImpact === true, now) === "kept")
+      kept.push(merged.hash);
+    const english = merged.text.en;
+    if (english) {
+      const numbers = head?.text.en?.text === english.text ? structuredClone(head.text.en.numbers) : reconcileNumberMap(head?.text.en, english, merged);
+      delete english.numbers;
+      if (numbers) english.numbers = numbers;
+    }
+    for (const lang of languages2)
+      if (lang !== "en" && merged.text[lang]?.text !== head?.text[lang]?.text)
+        refreshNumberFallbacks(merged, lang);
+    checkTranslationStamps(head, merged);
+    refuseUnlowerable(merged, await exporterPin(merged), "saved", head);
+    if (head && head.text.en?.text !== merged.text.en?.text && Object.keys(merged.text).some((lang) => lang !== "en")) {
+      const result = carryNumberTranslations(head, merged);
+      merged = result.tooltip;
+      if (result.carried.length) carried.push(`${merged.hash}=${result.carried.join(",")}`);
+    }
+    tooltips.push(merged);
+    const fields = [
+      ...languages2.filter(
+        (language) => JSON.stringify(head?.text[language]) !== JSON.stringify(merged.text[language])
+      ),
+      ...["associated", "custom", "archive", "compendium"].filter(
+        (field) => JSON.stringify(head?.[field] ?? (field === "associated" ? [] : null)) !== JSON.stringify(merged[field] ?? (field === "associated" ? [] : null))
+      ).map((field) => field === "associated" ? "associations" : field)
+    ];
+    if (rebased && !fields.length && head && stableStringify(head) === stableStringify(merged))
+      continue;
+    writes[`tooltips/${merged.hash}.json`] = merged;
+    changed.push(`${merged.hash}=${fields.join(",") || "none"}`);
+  }
+  if (conflicts.length) return { conflicts };
+  return {
+    writes,
+    tooltips,
+    // Carried languages are attributed per tooltip, immediately after Clarity-Changed.
+    message: `${input2.message}
+
+${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(",")}
+` : ""}Clarity-Changed: ${changed.join(";")}${carried.length ? `
+Clarity-Carried: ${carried.join(";")}` : ""}`
+  };
+}
+
+// scripts/publisher/currentSave.ts
+var sha2562 = (bytes) => createHash3("sha256").update(bytes).digest("hex");
+var pinSchema = external_exports.object({
+  sourceSha: external_exports.string(),
+  sha256: external_exports.string(),
+  capabilities: external_exports.array(external_exports.string())
+});
+function readSubmission(pub, head, id, record3) {
+  const { payload, sig } = record3.envelope;
+  const key = createPublicKey2(pub.options.publicKey);
+  if (sha2562(key.export({ type: "spki", format: "der" })) !== pub.options.keyFingerprint || !verify2(null, Buffer.from(payload), key, Buffer.from(sig, "base64")))
+    throw new Error("Invalid staged Current save signature");
+  const intent = currentSaveIntent.parse(JSON.parse(payload));
+  if (stableStringify(intent) !== payload || intent.requestId !== id || intent.repo !== pub.options.repo || intent.branch !== pub.options.dataBranch || intent.parts !== record3.parts || stableStringify(intent.requester) !== stableStringify(record3.requester) || !pub.git.ancestor(intent.sourceCommit, head))
+    throw new Error("Staged Current save source identity changed");
+  const source2 = pub.git.tree(intent.sourceCommit);
+  const staged = currentSaveStageRecord.parse(pub.read(source2, currentSaveStagePaths.record(id)));
+  if (staged.status !== "uploading" || staged.parts !== intent.parts || stableStringify(staged.requester) !== stableStringify(intent.requester))
+    throw new Error("Staged Current save manifest does not match its source");
+  const chunks = [];
+  for (let part = 0; part < intent.parts; part++) {
+    const raw = pub.read(source2, currentSaveStagePaths.part(id, part));
+    if (typeof raw !== "string") throw new Error("Missing staged Current save part");
+    const bytes2 = Buffer.from(raw, "base64");
+    if (!bytes2.length || bytes2.length > currentSavePartBytes || bytes2.toString("base64") !== raw)
+      throw new Error("Invalid staged Current save part");
+    chunks.push(bytes2);
+  }
+  const bytes = Buffer.concat(chunks);
+  if (sha2562(bytes) !== intent.digest) throw new Error("Staged Current save content changed");
+  return savedChangesSchema.parse(
+    JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes))
+  );
+}
+function requestIds(tree) {
+  return Object.keys(tree).flatMap((path) => {
+    if (!path.startsWith(currentSavePath) || !path.endsWith("/request.json")) return [];
+    const id = publishOpIdSchema.safeParse(
+      path.slice(currentSavePath.length, -"/request.json".length)
+    );
+    return id.success ? [id.data] : [];
+  }).sort();
+}
+function discardStage(tree, id) {
+  for (const path of Object.keys(tree)) if (path.startsWith(currentSaveStagePaths.prefix(id))) delete tree[path];
+  delete tree[currentSaveStagePaths.kick(id)];
+}
+async function drainCurrentSaves(pub) {
+  const ref = `refs/heads/${pub.options.dataBranch}`;
+  for (const id of requestIds(pub.git.tree(pub.head(pub.options.dataBranch)))) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const head = pub.head(pub.options.dataBranch);
+      const tree = { ...pub.git.tree(head) };
+      const record3 = currentSaveStageRecord.safeParse(pub.read(tree, currentSaveStagePaths.record(id)));
+      if (!record3.success) break;
+      const started = record3.data;
+      const now = pub.options.now();
+      if (started.status !== "queued" && now - Date.parse(started.updatedAt) < currentSaveStageLifetime)
+        break;
+      discardStage(tree, id);
+      const outcome2 = { requester: started.requester, updatedAt: new Date(now).toISOString() };
+      let parent = head;
+      if (started.status === "queued") {
+        let plan;
+        try {
+          const input2 = readSubmission(pub, head, id, started);
+          const access = requireAccess(
+            permissionsSchema.parse(pub.read(tree, "config/permissions.json")),
+            started.requester,
+            currentSaveRoles
+          );
+          const pin = pinSchema.parse(pub.read(tree, ".publisher/PIN"));
+          if (pin.sourceSha !== pub.options.publisherSha || pin.sha256 !== pub.options.publisherDigest || !pin.capabilities.includes(currentSaveStagingCapability))
+            throw new Error(
+              "Installed publisher does not match the staged Current save capability"
+            );
+          const current = input2.changes.map(({ hash: hash2 }) => {
+            const value2 = pub.read(tree, `tooltips/${hash2}.json`);
+            return value2 === void 0 ? null : { value: value2 };
+          });
+          const validated = await planSaveChanges(
+            input2,
+            access,
+            current,
+            pub.aliasesAt(tree),
+            () => ({ value: pin }),
+            now
+          );
+          if (!("conflicts" in validated) && Object.keys(validated.writes).some((path) => globalAggregatePath.test(path)) && hasGlobals(tree))
+            throw new HttpError(
+              409,
+              "Use global entry mutations; Sync pending protection is required"
+            );
+          plan = validated;
+        } catch (error62) {
+          if (!(error62 instanceof Error)) throw error62;
+          tree[currentSaveStagePaths.record(id)] = pub.writeBlob(
+            json2({ ...outcome2, status: "failed", error: error62.message.slice(0, 2e3) })
+          );
+        }
+        if (plan) {
+          if ("conflicts" in plan) {
+            tree[currentSaveStagePaths.conflicts(id)] = pub.writeBlob(json2(plan));
+            tree[currentSaveStagePaths.record(id)] = pub.writeBlob(json2({ ...outcome2, status: "conflicts" }));
+          } else {
+            const writes = Object.entries(plan.writes);
+            if (writes.length) {
+              for (const [path, tooltip] of writes) tree[path] = pub.writeBlob(json2(tooltip));
+              parent = pub.git.commit(
+                head,
+                tree,
+                plan.message,
+                requesterCredits(started.requester)
+              );
+            }
+            tree[currentSaveStagePaths.record(id)] = pub.writeBlob(
+              json2({ ...outcome2, status: "saved", commit: parent, savedAt: pub.options.now() })
+            );
+          }
+        }
+      }
+      try {
+        const receipt = pub.git.commit(
+          parent,
+          tree,
+          `Record staged Current save ${id}`,
+          appCredits
+        );
+        pub.git.cas(ref, head, receipt);
+        break;
+      } catch (error62) {
+        if (!(error62 instanceof RefRace)) throw error62;
+      }
+    }
+  }
+}
 
 // scripts/publisher/publisher.ts
 var publishBackoff = () => setTimeout2(3e4);
@@ -32599,23 +33032,23 @@ var Publisher = class _Publisher {
     return this.pendingRequests(head).flatMap((e) => e.kind === "batch" && !e.due ? [e.payload] : []).sort((a, b) => a.notBefore.localeCompare(b.notBefore) || a.opId.localeCompare(b.opId));
   }
   async verifyRequest(blob, opId, tree) {
-    const envelope = JSON.parse(this.git.blob(blob));
-    if (envelope.sourceIntent) {
-      const payload = await verifyPreparedPublication(this, envelope, opId);
+    const envelope2 = JSON.parse(this.git.blob(blob));
+    if (envelope2.sourceIntent) {
+      const payload = await verifyPreparedPublication(this, envelope2, opId);
       const permissions2 = permissionsSchema.parse(this.read(tree, "config/permissions.json"));
       if (!["maintainer", "editor"].includes(permissions2.users[String(payload.requester.id)]?.role))
         throw new Error("Requester revoked");
       requesterCredits(payload.requester);
       return payload;
     }
-    if (typeof envelope.payload !== "string" || typeof envelope.sig !== "string")
+    if (typeof envelope2.payload !== "string" || typeof envelope2.sig !== "string")
       throw new Error("Invalid signed envelope");
-    const key = createPublicKey2(this.options.publicKey);
-    const fingerprint = createHash3("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex");
-    if (fingerprint !== this.options.keyFingerprint || !verify2(null, Buffer.from(envelope.payload), key, Buffer.from(envelope.sig, "base64")))
+    const key = createPublicKey3(this.options.publicKey);
+    const fingerprint = createHash4("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex");
+    if (fingerprint !== this.options.keyFingerprint || !verify3(null, Buffer.from(envelope2.payload), key, Buffer.from(envelope2.sig, "base64")))
       throw new Error("Invalid signature or key pin");
-    const p = await parsePublishRequestPayload(JSON.parse(envelope.payload));
-    if (stableStringify(p) !== envelope.payload || await publishRequestIntentDigest(p) !== p.intentDigest)
+    const p = await parsePublishRequestPayload(JSON.parse(envelope2.payload));
+    if (stableStringify(p) !== envelope2.payload || await publishRequestIntentDigest(p) !== p.intentDigest)
       throw new Error("Noncanonical or altered intent");
     if (p.opId !== opId || p.repo !== this.options.repo || p.dataBranch !== this.options.dataBranch || p.liveBranch !== this.options.liveBranch)
       throw new Error("Request target mismatch");
@@ -32627,20 +33060,20 @@ var Publisher = class _Publisher {
   }
   /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
   credits(blob, opId) {
-    const envelope = JSON.parse(this.git.blob(blob));
-    if (envelope.sourceIntent) {
-      const { intent } = verifiedSource(this, envelope.sourceIntent);
-      const payload2 = batchPublishPayloadSchema.parse(JSON.parse(envelope.payload));
+    const envelope2 = JSON.parse(this.git.blob(blob));
+    if (envelope2.sourceIntent) {
+      const { intent } = verifiedSource(this, envelope2.sourceIntent);
+      const payload2 = batchPublishPayloadSchema.parse(JSON.parse(envelope2.payload));
       if (intent.kind !== "schedule" || intent.requestId !== opId || payload2.opId !== opId || stableStringify(payload2.requester) !== stableStringify(intent.requester) || payload2.batchId !== intent.batchId || payload2.notBefore !== intent.notBefore || payload2.contentRevision !== intent.contentRevision)
         throw new Error("Prepared credit identity mismatch");
       return requesterCredits(intent.requester);
     }
-    const key = createPublicKey2(this.options.publicKey);
-    if (createHash3("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== this.options.keyFingerprint || typeof envelope.payload !== "string" || typeof envelope.sig !== "string" || !verify2(null, Buffer.from(envelope.payload), key, Buffer.from(envelope.sig, "base64")))
+    const key = createPublicKey3(this.options.publicKey);
+    if (createHash4("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== this.options.keyFingerprint || typeof envelope2.payload !== "string" || typeof envelope2.sig !== "string" || !verify3(null, Buffer.from(envelope2.payload), key, Buffer.from(envelope2.sig, "base64")))
       throw new Error("Invalid credit envelope");
-    const raw = JSON.parse(envelope.payload);
+    const raw = JSON.parse(envelope2.payload);
     const payload = raw.kind === "batch" ? batchPublishPayloadSchema.parse(raw) : publishPayloadSchema.parse(raw);
-    if (stableStringify(payload) !== envelope.payload || payload.opId !== opId || payload.repo !== this.options.repo || payload.dataBranch !== this.options.dataBranch || payload.liveBranch !== this.options.liveBranch)
+    if (stableStringify(payload) !== envelope2.payload || payload.opId !== opId || payload.repo !== this.options.repo || payload.dataBranch !== this.options.dataBranch || payload.liveBranch !== this.options.liveBranch)
       throw new Error("Credit request target mismatch");
     return requesterCredits(payload.requester);
   }
@@ -32681,7 +33114,7 @@ var Publisher = class _Publisher {
     }
     const merged = { ...live, perks };
     const bytes = json5(merged);
-    const checkKey = createHash3("sha256").update(tree["liveDescriptions.json"]).update(bytes).digest("hex");
+    const checkKey = createHash4("sha256").update(tree["liveDescriptions.json"]).update(bytes).digest("hex");
     if (!this.checkedOutputs.has(checkKey)) {
       const hasMoves = Object.keys(this.movesAt(this.git.tree(r.sourceCommit))).length > 0;
       for (const preset of [
@@ -32718,8 +33151,8 @@ var Publisher = class _Publisher {
     };
   }
   buildCandidate(parent, receipt) {
-    const { bytes, outcome } = this.merge(parent, receipt);
-    const r = { ...receipt, liveParent: parent, outcome };
+    const { bytes, outcome: outcome2 } = this.merge(parent, receipt);
+    const r = { ...receipt, liveParent: parent, outcome: outcome2 };
     const tree = {
       ...this.git.tree(parent),
       "liveDescriptions.json": this.git.writeBlob(bytes),
@@ -33014,15 +33447,15 @@ var Publisher = class _Publisher {
             outcomes.push({ hash: canonical, status: "missing" });
             continue;
           }
-          const digest5 = await inactivePublishableHash(tooltip.data, aliases, moves);
+          const digest6 = await inactivePublishableHash(tooltip.data, aliases, moves);
           outcomes.push({
             hash: canonical,
-            status: digest5 === payload.expected[hash2] ? "accepted" : "stale"
+            status: digest6 === payload.expected[hash2] ? "accepted" : "stale"
           });
           if (!seen.has(canonical)) {
             entries.push({
               hash: canonical,
-              digest: digest5,
+              digest: digest6,
               tooltipBlob: oid4 ?? this.git.writeBlob(json5(tooltip.data))
             });
             tooltips.push(tooltip.data);
@@ -33308,8 +33741,8 @@ var Publisher = class _Publisher {
     let globals;
     const prepared = this.read(tree, paths2(payload.opId).request);
     if (!hasGlobals(tree) && prepared?.sourceIntent) {
-      const source = verifiedSource(this, prepared.sourceIntent);
-      if (hasGlobals(source.tree))
+      const source2 = verifiedSource(this, prepared.sourceIntent);
+      if (hasGlobals(source2.tree))
         return {
           failure: {
             status: "rejected",
@@ -33326,17 +33759,17 @@ var Publisher = class _Publisher {
           throw new Error("The installed publisher does not support scheduled globals yet");
         if (members3.some((member) => member.hash === 1 || member.hash === 2 || member.hash === 3))
           throw new Error("Use global entry mutations instead of scheduled aggregate edits");
-        const envelope = prepared;
-        if (!envelope?.sourceIntent)
+        const envelope2 = prepared;
+        if (!envelope2?.sourceIntent)
           throw new Error("Scheduled globals require a signed preparation source; schedule again");
-        const source = verifiedSource(this, envelope.sourceIntent);
+        const source2 = verifiedSource(this, envelope2.sourceIntent);
         const release = await new GlobalsPublisher(this).release(
           tree,
           revision2,
           payload.hashes,
           live,
           {
-            source: source.intent.sourceCommit,
+            source: source2.intent.sourceCommit,
             documents: tooltips
           }
         );
@@ -33433,10 +33866,10 @@ var Publisher = class _Publisher {
     const claimed = batch.status === "publishing" && batch.opId === opId && batch.claim?.opId === opId;
     if (batch.opId !== opId || batch.status !== "scheduled" && !claimed || batch.scheduledContentRevision !== payload.contentRevision || batch.contentRevision !== payload.contentRevision || batch.notBefore !== payload.notBefore)
       return fail({ status: "superseded", error: supersededMessage });
-    const envelope = JSON.parse(this.git.blob(blob));
+    const envelope2 = JSON.parse(this.git.blob(blob));
     if (!claimed && Date.parse(payload.notBefore) > this.options.now()) return;
-    if (batch.preparedRequestId != null || envelope.preparedRequestId != null || envelope.sourceIntent) {
-      if (!claimed && !canClaimPreparedBatch(batch, envelope.preparedRequestId ?? "") || claimed && (batch.preparation || !batch.preparedRequestId || batch.preparedRequestId !== envelope.preparedRequestId))
+    if (batch.preparedRequestId != null || envelope2.preparedRequestId != null || envelope2.sourceIntent) {
+      if (!claimed && !canClaimPreparedBatch(batch, envelope2.preparedRequestId ?? "") || claimed && (batch.preparation || !batch.preparedRequestId || batch.preparedRequestId !== envelope2.preparedRequestId))
         return fail({ status: "rejected", error: "Batch preparation ready fence mismatch" });
       try {
         new SchedulePreparer(this).pin(tree);
@@ -33457,14 +33890,14 @@ var Publisher = class _Publisher {
             if (stableStringify(accepted?.proposed) !== stableStringify(member.proposed))
               throw new Error("Accepted translations differ from prepared signed save");
           }
-        } else if (checked.intent.requestId !== payload.opId || stableStringify(checked.request.envelope) !== stableStringify(envelope.sourceIntent))
+        } else if (checked.intent.requestId !== payload.opId || stableStringify(checked.request.envelope) !== stableStringify(envelope2.sourceIntent))
           throw new Error("Prepared schedule approval mismatch");
       } catch (error62) {
         return fail({ status: "rejected", error: String(error62) });
       }
     }
-    const source = claimed ? this.claimCommit(payload.batchId, opId) : s;
-    const at = claimed ? this.git.tree(source) : tree;
+    const source2 = claimed ? this.claimCommit(payload.batchId, opId) : s;
+    const at = claimed ? this.git.tree(source2) : tree;
     let frozenAliases = aliases;
     if (claimed)
       try {
@@ -33475,7 +33908,7 @@ var Publisher = class _Publisher {
           error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`
         });
       }
-    const plan = await this.batchPlan(at, payload, frozenAliases, source, live);
+    const plan = await this.batchPlan(at, payload, frozenAliases, source2, live);
     if ("failure" in plan) {
       if (plan.failure.globals && !claimed && batch.preparedRequestId) {
         await new SchedulePreparer(this).drain(true);
@@ -33489,7 +33922,7 @@ var Publisher = class _Publisher {
     const receipt = {
       opId,
       requestBlob: blob,
-      sourceCommit: source,
+      sourceCommit: source2,
       liveParent: live,
       now: plan.now,
       publisherSha: this.options.publisherSha,
@@ -33506,7 +33939,7 @@ var Publisher = class _Publisher {
       ...plan.globals ? { globals: plan.globals } : {}
     };
     this.merge(live, receipt);
-    let sourceCommit = source;
+    let sourceCommit = source2;
     if (!claimed) {
       const next = { ...tree };
       const claimedAt = iso(this.options.now());
@@ -33536,7 +33969,7 @@ var Publisher = class _Publisher {
         return void 0;
       }
     }
-    if (receipt.globals && sourceCommit !== source) {
+    if (receipt.globals && sourceCommit !== source2) {
       const frozen = await this.batchPlan(
         this.git.tree(sourceCommit),
         payload,
@@ -33774,6 +34207,7 @@ var Publisher = class _Publisher {
     const start = this.options.now();
     try {
       if (syncGlobals) {
+        await drainCurrentSaves(this);
         await new SchedulePreparer(this).drain();
         await new GlobalsPublisher(this).drain();
       }
@@ -33792,7 +34226,7 @@ var Publisher = class _Publisher {
 
 // scripts/publisher/pipeline.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { createHash as createHash4, createPublicKey as createPublicKey3 } from "node:crypto";
+import { createHash as createHash5, createPublicKey as createPublicKey4 } from "node:crypto";
 import { mkdtempSync as mkdtempSync2, mkdirSync, readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join2, resolve as resolve2 } from "node:path";
@@ -33938,20 +34372,20 @@ function publicationIdentity(repo, branch = "converter") {
   const receiptPath = paths2(receipt.opId).receipt;
   if (added.path !== receiptPath) throw new Error("Publication receipt path mismatch");
   const data = repo.head("refs/heads/editor-data");
-  const record2 = repo.additions(data, paths2(receipt.opId).log).at(-1);
-  if (!record2) throw new Error("Publication receipt has no confirmed RECORD");
-  const recordTree = repo.tree(record2.commit);
+  const record3 = repo.additions(data, paths2(receipt.opId).log).at(-1);
+  if (!record3) throw new Error("Publication receipt has no confirmed RECORD");
+  const recordTree = repo.tree(record3.commit);
   const log = JSON.parse(repo.blob(recordTree[paths2(receipt.opId).log]));
   if (log.candidateCommit !== commit2 || !["done", "unchanged"].includes(log.result?.status))
     throw new Error("Publication RECORD differs from receipt");
-  const hash2 = (bytes) => createHash4("sha256").update(bytes).digest("hex");
+  const hash2 = (bytes) => createHash5("sha256").update(bytes).digest("hex");
   const enginePin = tree[".exports/PIN"] ? repo.blob(tree[".exports/PIN"]).trim() : null;
   if (!/^[a-f0-9]{40}$/.test(receipt.generatorSha) || branch === "converter" && (!enginePin || !/^[a-f0-9]{40}$/.test(enginePin) || !tree[".exports/engine.mjs"] || !receipt.verifierSha256 || !/^[a-f0-9]{64}$/.test(receipt.verifierSha256) || !recordTree[".publisher/verify-publication.mjs"] || hash2(repo.blob(recordTree[".publisher/verify-publication.mjs"])) !== receipt.verifierSha256))
     throw new Error("Invalid immutable publication identity");
   return {
     opId: receipt.opId,
     commit: commit2,
-    recordCommit: record2.commit,
+    recordCommit: record3.commit,
     receiptPath,
     receiptBlob: tree[receiptPath],
     sourceCommit: receipt.sourceCommit,
@@ -34070,11 +34504,12 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
       });
       if (!response.ok) throw new Error("Worker key unavailable");
       const key = await response.json();
-      const fingerprint = createHash4("sha256").update(createPublicKey3(key.publicKey).export({ type: "spki", format: "der" })).digest("hex");
+      const fingerprint = createHash5("sha256").update(createPublicKey4(key.publicKey).export({ type: "spki", format: "der" })).digest("hex");
       if (key.algorithm !== "Ed25519" || fingerprint !== config2.keyFingerprint || key.fingerprint !== fingerprint)
         throw new Error("Worker key fingerprint mismatch");
       options.publicKey = key.publicKey;
       const publisher = new Publisher(initial, options);
+      await drainCurrentSaves(publisher);
       await new SchedulePreparer(publisher).drain();
       await new GlobalsPublisher(publisher).drain();
       if (enabled) publishBundle(initial, options);
@@ -34141,32 +34576,32 @@ publication=${productionPush ? JSON.stringify(handoff2) : ""}
 }
 function verifyRuntime(root) {
   const pin = JSON.parse(readFileSync(join2(root, "PIN"), "utf8"));
-  if (!/^[0-9a-f]{64}$/.test(pin.verifierSha256) || createHash4("sha256").update(readFileSync(join2(root, "verify-publication.mjs"))).digest("hex") !== pin.verifierSha256 || !/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash4("sha256").update(readFileSync(join2(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
+  if (!/^[0-9a-f]{64}$/.test(pin.verifierSha256) || createHash5("sha256").update(readFileSync(join2(root, "verify-publication.mjs"))).digest("hex") !== pin.verifierSha256 || !/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash5("sha256").update(readFileSync(join2(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
     throw new Error("Publisher PIN mismatch");
   return pin;
 }
 
 // scripts/publisher/cli.ts
 async function main() {
-  const [flag, source, config2, output2] = process.argv.slice(2);
-  if (["--pipeline-dry-run", "--pipeline-publish"].includes(flag) && source && config2 && output2) {
+  const [flag, source2, config2, output2] = process.argv.slice(2);
+  if (["--pipeline-dry-run", "--pipeline-publish"].includes(flag) && source2 && config2 && output2) {
     const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
     const options = JSON.parse(readFileSync2(config2, "utf8"));
     if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
       throw new Error("Config requires the publisher source PIN and full generator commit");
     await runPipeline(
-      source,
+      source2,
       { ...options, publisherDigest: pin.sha256, verifierDigest: pin.verifierSha256 },
       output2,
       flag === "--pipeline-publish"
     );
     return;
   }
-  if (flag !== "--dry-run" || !source || !config2 || !output2)
+  if (flag !== "--dry-run" || !source2 || !config2 || !output2)
     throw new Error(
       "Usage: publisher.mjs --dry-run <local repository> <config.json> <artifact directory>"
     );
-  const local = realpathSync2(resolve3(source)), out = resolve3(output2);
+  const local = realpathSync2(resolve3(source2)), out = resolve3(output2);
   const temp = mkdtempSync3(join3(tmpdir3(), "publisher-dry-run-"));
   try {
     const repo = join3(temp, "simulator.git");
