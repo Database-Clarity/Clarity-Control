@@ -217,7 +217,6 @@ const FinderOption = memo(function FinderOption({
   virtual,
   rowHeight,
   twoLine,
-  narrow = false,
   hashQuery,
 }: {
   row: Row;
@@ -237,8 +236,6 @@ const FinderOption = memo(function FinderOption({
   rowHeight: number;
   /** The phone sheet shows a grouped row as entry over "group · kind · hash". */
   twoLine: boolean;
-  /** A screen under 21rem wide: every row is two lines, the name over its context. */
-  narrow?: boolean;
   /** A digits-only search: rows whose hash it matches show the hash. */
   hashQuery: string;
 }) {
@@ -272,7 +269,6 @@ const FinderOption = memo(function FinderOption({
       virtual={virtual}
       rowHeight={rowHeight}
       twoLine={twoLine}
-      narrow={narrow}
       stacked={stacked}
       title={globalContents ?? shared}
       global={Boolean(row.global)}
@@ -859,19 +855,11 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
   const scale = useScaleFactor();
   const touchRows = useMedia(touchQuery);
   const touchSize = useSettingsStore((state) => state.device.touchSize);
-  // Under 21rem of screen width (a phone at a large interface scale) a row is two lines.
-  const narrow = useMedia(`(max-width: ${Math.floor(21 * 16 * scale)}px)`) && touchRows;
-  // Matches the fixed CSS row geometry (var(--tap), plus 1.125rem for two lines) at every
-  // interface scale, computed once per scale and size: scroll handlers never measure a row or
-  // synchronously flush a React render.
+  // Matches the fixed CSS row geometry at every interface scale, even when a grouped
+  // touch row has two lines. Scroll handlers never need to measure a row.
   // Compact is 2.25rem (follows the scale both ways); Large is max(44px, 2.75rem).
   const tap = touchSize === 'large' ? Math.max(44, 44 * scale) : 36 * scale;
-  const rowHeight =
-    Math.round(
-      (touchRows
-        ? tap + (narrow && !(selectedGlobal && !allCategories) ? 18 * scale : 0)
-        : 28 * scale) * 64,
-    ) / 64;
+  const rowHeight = Math.round((touchRows ? tap : 28 * scale) * 64) / 64;
   const [viewportStore] = useState(createFinderViewport);
   const setViewport = viewportStore.set;
   const root = useRef<HTMLDivElement>(null);
@@ -1526,7 +1514,6 @@ const LoadedTooltipNavigation = memo(function LoadedTooltipNavigation({
           onCommit={commitRef}
           rowHeight={rowHeight}
           twoLine={touchRows}
-          narrow={narrow}
           hashQuery={hashQuery}
         />
       </ul>

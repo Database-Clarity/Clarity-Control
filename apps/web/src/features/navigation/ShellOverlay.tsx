@@ -63,6 +63,7 @@ export function ShellOverlay({
   keepMounted = false,
   restoreFocus = true,
   className,
+  desktopClearance,
 }: {
   open: boolean;
   onClose(): void;
@@ -84,6 +85,8 @@ export function ShellOverlay({
   /** False when the caller moves focus elsewhere on purpose (a full-screen dialog follows). */
   restoreFocus?: boolean;
   className?: string;
+  /** A desktop control that needs to stay visible when the panel would cover it. */
+  desktopClearance?(): DOMRect | undefined;
 }) {
   const phone = useMedia(phoneQuery);
   /** The phone finder: anchored like the rest, but it fills its side and locks the page. */
@@ -148,11 +151,25 @@ export function ShellOverlay({
     };
     // Below first, at the final width, so the content's height is measured as it will wrap.
     const below = placeAnchored(input);
+    if (!phone) {
+      const control = desktopClearance?.();
+      if (
+        control &&
+        typeof below.top === 'number' &&
+        below.top < control.bottom + scaledPx(8) &&
+        below.left < control.right &&
+        below.left + below.width > control.left
+      ) {
+        const top = control.bottom + scaledPx(8);
+        applyPlacement(element, { ...below, top, maxHeight: Math.max(0, area.bottom - top) });
+        return;
+      }
+    }
     applyPlacement(element, below);
     if (!phone) return;
     const height = naturalHeight(element, element.querySelector<HTMLElement>(`.${styles.content}`));
     if (height > below.maxHeight) applyPlacement(element, placeAnchored({ ...input, height }));
-  }, [anchorRef, fill, phone, width, align]);
+  }, [anchorRef, fill, phone, width, align, desktopClearance]);
   useLayoutEffect(() => {
     if (!open) return;
     reposition();
