@@ -402,7 +402,7 @@ it('says when a global is not used by any tooltip', async () => {
   expect(host.textContent).toContain('Not used by any tooltip.');
 });
 
-it('uses the bundle until a save, only replaces the saved row, and adopts a refreshed bundle', async () => {
+it('rechecks the opened usage row after saves and adopts a refreshed bundle', async () => {
   const snapshot = structuredClone(globalFixtureSnapshot);
   const [damage, title] = snapshot.entries;
   snapshot.impacts = { [damage.id]: [], [title.id]: [] };
@@ -461,8 +461,7 @@ it('uses the bundle until a save, only replaces the saved row, and adopts a refr
     saved = next;
   }
   await act(async () => navigate(`/globals/${title.id}`));
-  expect(host.textContent).toContain('Not used by any tooltip.');
-  expect(href()).toBeUndefined();
+  expect(href()).toBe('/t/31?lang=en&variant=31&line=1');
 
   // A saved tooltip can introduce and remove a use without a global edit.
   const added = { ...data.bundle.tooltips[31], hash: 32 };
@@ -531,6 +530,25 @@ it('uses the bundle until a save, only replaces the saved row, and adopts a refr
   });
   expect(host.textContent).toContain('Not used by any tooltip.');
   expect(href()).toBeUndefined();
+
+  // Edit a different global to reference Damage. Damage's own revision is unchanged.
+  await act(async () => navigate(`/globals/${title.id}`));
+  const changed = structuredClone(saved);
+  changed.head = fixtureHead(4);
+  changed.entries[1].revision = 'r2';
+  changed.entries[1].definitions.en!.body = 'Reloads with #Damage';
+  await act(() => change('Reloads with #Damage'));
+  globals.mutate.mockResolvedValueOnce({ kind: 'ok', value: changed });
+  await act(async () => button('Save').click());
+  await act(async () => navigate(`/globals/${damage.id}`));
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    const row = host.querySelector(`[data-global-usage="g:${title.id}"] a`);
+    expect(row?.getAttribute('href')).toBe(`/globals/${title.id}?lang=en`);
+    expect(host.querySelector('[data-global-usage="t:31"]')?.textContent).toContain(
+      'Through [Reload]',
+    );
+  });
 });
 
 it('filters the saved impacts under a row, and the selection, by language', async () => {

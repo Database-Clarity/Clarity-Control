@@ -1192,24 +1192,32 @@ function useGlobalUsages(
 ) {
   const catalog = data?.bundle.globals;
   const saved = entries.find((entry) => entry.id === id);
-  const bundled = catalog?.entries.find((entry) => entry.id === id);
-  const bundledInputs = data?.bundledUsageInputs;
-  const overlaid =
-    data &&
-    bundledInputs &&
-    (bundledInputs.tooltips !== data.bundle.tooltips || bundledInputs.aliases !== data.aliases);
+  const bundledEntries = catalog?.usages ? catalog.entries : undefined;
+  const sameCatalogue = useMemo(
+    () =>
+      bundledEntries?.length === entries.length &&
+      bundledEntries.every((bundled, i) => {
+        const current = entries[i];
+        return (
+          bundled.id === current.id &&
+          bundled.revision === current.revision &&
+          bundled.name === current.name &&
+          bundled.kind === current.kind &&
+          !!bundled.tombstone === !!current.tombstone
+        );
+      }),
+    [bundledEntries, entries],
+  );
+  const sameInputs =
+    data?.bundledUsageInputs?.tooltips === data?.bundle.tooltips &&
+    data?.bundledUsageInputs?.aliases === data?.aliases;
   const precomputed = saved?.tombstone
     ? noUses
-    : !overlaid &&
-        saved &&
-        bundled?.revision === saved.revision &&
-        bundled.name === saved.name &&
-        bundled.kind === saved.kind &&
-        !bundled.tombstone
+    : sameInputs && sameCatalogue && saved
       ? catalog?.usages?.[saved.id]
       : undefined;
-  // A present payload can miss an entry or predate a save. Recheck only the opened
-  // entry against the editor's current catalogue and tooltips. Older bundles share a full pass.
+  // A change to another declaration can add or remove a transitive use. Recheck only the
+  // opened ID against current inputs. Older bundles share a full pass.
   const only = catalog?.usages ? id : undefined;
   const hasId = id !== undefined;
   const input = useMemo(
