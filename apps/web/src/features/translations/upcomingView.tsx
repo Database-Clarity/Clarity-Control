@@ -377,7 +377,6 @@ export default function UpcomingTranslations({
                 </select>
               </label>
               {!phone && field}
-              {phone && countLine}
             </>
           )}
         </>
@@ -418,7 +417,7 @@ export default function UpcomingTranslations({
               </button>
             )}
             {managersControl}
-            {!phone && countLine}
+            {countLine}
           </>
         )
       }
