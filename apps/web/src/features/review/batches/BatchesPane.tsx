@@ -3,14 +3,25 @@
  * batches; the main column shows the open one (`?view=batches&batch=<id>`). Loaded only with the
  * build switch ON, for maintainers, editors, and translators (ReviewPage, ReviewSidebar).
  */
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import {
+  Fragment,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { isOpenStatus } from '@clarity/core/schedule';
 import { useAuthStore } from '../../../stores/auth';
 import { useDataStore, type EditorData } from '../../../stores/data';
 import { zonedNotBefore } from '../../../services/format/date';
 import { createBatch } from '../../../services/scheduled/api';
 import { canPushLive } from '../../auth/permissions';
+import { FinderSheetCloseContext } from '../../navigation/FinderSheetContext';
+import { phoneQuery, useMedia } from '../../../ui/useMedia';
 import {
   isOverdue,
   memberView,
@@ -31,13 +42,18 @@ import styles from './Batches.module.scss';
 const count = new Intl.NumberFormat('en');
 const plural = (n: number, word: string) => `${count.format(n)} ${word}${n === 1 ? '' : 's'}`;
 
-/** The open batch id: the URL's, else the first listed. */
-function useOpenBatch(entries: IndexEntry[] | null) {
-  const [params] = useSearchParams();
-  const asked = params.get('batch');
+/** Only the split view defaults to the first listed batch. */
+function useOpenBatch(entries: IndexEntry[] | null, asked: string | null, phone: boolean) {
   const ordered = useMemo(() => (entries ? orderBatches(entries) : []), [entries]);
-  const open = ordered.find((entry) => entry.id === asked) ?? ordered[0];
-  return { ordered, open, asked };
+  const open = ordered.find((entry) => entry.id === asked) ?? (phone ? undefined : ordered[0]);
+  return { ordered, open };
+}
+
+function batchParams(params: URLSearchParams, id: string) {
+  const next = new URLSearchParams(params);
+  next.set('view', 'batches');
+  next.set('batch', id);
+  return next;
 }
 
 /** List counts for one batch, once its members are read: members, stale, conflicts, coverage. */
@@ -62,15 +78,23 @@ function rowCounts(entry: IndexEntry, load: DetailLoad | undefined, data: Editor
   };
 }
 
-function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean }) {
-  const [params] = useSearchParams();
+function BatchRow({
+  entry,
+  selected,
+  search,
+  replace,
+  fromList,
+}: {
+  entry: IndexEntry;
+  selected: boolean;
+  search: string;
+  replace: boolean;
+  fromList: boolean;
+}) {
   const load = useBatches((state) => state.loads[entry.id]);
   const data = useDataStore((state) => state.data);
   const counts = useMemo(() => rowCounts(entry, load, data), [entry, load, data]);
   const chip = statusChip(entry);
-  const next = new URLSearchParams(params);
-  next.set('view', 'batches');
-  next.set('batch', entry.id);
   const facts = [
     plural(entry.hashes.length, 'tooltip'),
     counts?.stale ? `${counts.stale} stale` : '',
@@ -84,7 +108,9 @@ function BatchRow({ entry, selected }: { entry: IndexEntry; selected: boolean })
       id={entry.id}
       name={entry.name}
       selected={selected}
-      search={`?${next}`}
+      search={search}
+      replace={replace}
+      fromList={fromList}
       chip={chip}
       when={entry.notBefore ? zonedNotBefore(entry.notBefore) : 'No time set'}
       facts={facts}
@@ -100,6 +126,8 @@ export function BatchRowView({
   chip,
   when,
   facts,
+  replace = true,
+  fromList = false,
 }: {
   id: string;
   name: string;
@@ -108,25 +136,38 @@ export function BatchRowView({
   chip: { tone: string; label: string };
   when: string;
   facts: string[];
+  replace?: boolean;
+  fromList?: boolean;
 }) {
+  const closeSheet = useContext(FinderSheetCloseContext);
   return (
     <li>
       <Link
-        to={{ search: search }}
-        replace
+        to={{ search }}
+        replace={replace}
+        state={fromList ? { batchFromList: true } : undefined}
         className={styles.row}
         aria-current={selected ? 'true' : undefined}
         data-batch-row={id}
+        onClick={(event) => {
+          if (
+            !event.defaultPrevented &&
+            event.button === 0 &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey
+          )
+            closeSheet?.();
+        }}
       >
-        <span className={styles.rowHead}>
-          <span className={styles.rowName} title={name}>
-            {name}
-          </span>
+        <span className={styles.rowName}>{name}</span>
+        <span className={styles.rowMeta}>
           <span className={styles.chip} data-tone={chip.tone}>
             {chip.label}
           </span>
+          <span className={styles.rowWhen}>{when}</span>
         </span>
-        <span className={styles.rowWhen}>{when}</span>
         <span className={styles.rowFacts}>
           {facts.map((fact, index) => (
             <Fragment key={fact}>
@@ -202,23 +243,29 @@ function NewBatch({ onCreated }: { onCreated(id: string): void }) {
 }
 
 /** The left column (and the phone's list sheet) in the Batches subview. */
-export function BatchesList() {
+export function BatchesList({ phone = false }: { phone?: boolean }) {
   useEffect(startBatches, []);
   const entries = useBatches((state) => state.entries);
   const listError = useBatches((state) => state.listError);
   const user = useAuthStore((state) => state.user);
   const [params, setParams] = useSearchParams();
-  const { ordered, open } = useOpenBatch(entries);
+  const { state } = useLocation();
+  const closeSheet = useContext(FinderSheetCloseContext);
+  const asked = params.get('batch') || null;
+  const { ordered, open } = useOpenBatch(entries, asked, phone);
+  const push = phone && !asked;
+  const fromList = push || (state as { batchFromList?: boolean } | null)?.batchFromList === true;
   const firstClosed = ordered.findIndex((entry) => !isOpenStatus(entry.status));
   return (
     <div className={styles.list}>
       {canPushLive(user) && (
         <NewBatch
           onCreated={(id) => {
-            const next = new URLSearchParams(params);
-            next.set('view', 'batches');
-            next.set('batch', id);
-            setParams(next, { replace: true });
+            setParams(batchParams(params, id), {
+              replace: !push,
+              state: fromList ? { batchFromList: true } : undefined,
+            });
+            closeSheet?.();
           }}
         />
       )}
@@ -238,7 +285,13 @@ export function BatchesList() {
         <ul className={styles.rows} aria-label="Batches">
           {ordered.map((entry, index) => (
             <BatchGroup key={entry.id} first={index === firstClosed}>
-              <BatchRow entry={entry} selected={entry.id === open?.id} />
+              <BatchRow
+                entry={entry}
+                selected={entry.id === open?.id}
+                search={`?${batchParams(params, entry.id)}`}
+                replace={!push}
+                fromList={fromList}
+              />
             </BatchGroup>
           ))}
         </ul>
@@ -260,16 +313,42 @@ function BatchGroup({ first, children }: { first: boolean; children: ReactNode }
   );
 }
 
-/** The main column in the Batches subview: the open batch's detail. */
-export function BatchesMain() {
+/** The main column: a single list or detail on phones, the detail of the split view elsewhere. */
+export function BatchesMain({ phone = false }: { phone?: boolean }) {
   useEffect(startBatches, []);
   const entries = useBatches((state) => state.entries);
   const listError = useBatches((state) => state.listError);
-  const { open, asked } = useOpenBatch(entries);
+  const [params, setParams] = useSearchParams();
+  const { state } = useLocation();
+  const navigate = useNavigate();
+  const asked = params.get('batch') || null;
+  const { open } = useOpenBatch(entries, asked, phone);
+  const previousBatch = useRef(asked);
+  const list = useRef<HTMLElement>(null);
+  const back = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const previous = previousBatch.current;
+    previousBatch.current = asked;
+    if (!phone || previous === asked) return;
+    if (asked) back.current?.focus();
+    else if (list.current) {
+      const row = Array.from(
+        list.current.querySelectorAll<HTMLAnchorElement>('[data-batch-row]'),
+      ).find((link) => link.dataset.batchRow === previous);
+      (row ?? list.current).focus();
+    }
+  }, [asked, phone]);
   useEffect(() => focusBatch(open?.id ?? null), [open?.id]);
   useEffect(() => () => focusBatch(null), []);
-  if (!entries)
-    return listError ? (
+  if (phone && !asked)
+    return (
+      <nav ref={list} className={styles.phoneList} aria-label="Batch list" tabIndex={-1}>
+        <BatchesList phone />
+      </nav>
+    );
+
+  const detail = !entries ? (
+    listError ? (
       <p role="alert" className={styles.note}>
         {listError}{' '}
         <button type="button" className={styles.textButton} onClick={() => void refreshBatches()}>
@@ -278,15 +357,14 @@ export function BatchesMain() {
       </p>
     ) : (
       <p className={styles.note}>Loading batches…</p>
-    );
-  if (!open)
-    return (
-      <p className={styles.note}>
-        No batches yet. A batch holds tooltip changes that publish together, not before a time you
-        choose.
-      </p>
-    );
-  return (
+    )
+  ) : !open ? (
+    <p className={styles.note}>
+      {phone && asked
+        ? 'That batch is no longer listed.'
+        : 'No batches yet. A batch holds tooltip changes that publish together, not before a time you choose.'}
+    </p>
+  ) : (
     <>
       {asked && asked !== open.id && (
         <p className={styles.note} role="note">
@@ -296,11 +374,36 @@ export function BatchesMain() {
       <BatchDetail key={open.id} entry={open} />
     </>
   );
+  return (
+    <>
+      {phone && (
+        <div className={styles.backStrip}>
+          <button
+            ref={back}
+            type="button"
+            onClick={() => {
+              if ((state as { batchFromList?: boolean } | null)?.batchFromList) {
+                void navigate(-1);
+              } else {
+                const next = new URLSearchParams(params);
+                next.delete('batch');
+                setParams(next, { replace: true });
+              }
+            }}
+          >
+            ‹ Back to batches
+          </button>
+        </div>
+      )}
+      {detail}
+    </>
+  );
 }
 
 /** Review header: Saved | Batches. Saved keeps its filters and open change in the URL. */
 export function SubviewSwitch() {
   const [params, setParams] = useSearchParams();
+  const phone = useMedia(phoneQuery);
   const view = params.get('view') === 'batches' ? 'batches' : 'saved';
   return (
     <span className={styles.subviews} role="group" aria-label="Review view">
@@ -311,7 +414,10 @@ export function SubviewSwitch() {
           aria-pressed={view === value}
           data-perf-navigation="true"
           onClick={() => {
-            if (view !== value) setParams(subviewParams(params, value));
+            if (view === value) return;
+            const next = subviewParams(params, value);
+            if (phone && value === 'batches') next.delete('batch');
+            setParams(next);
           }}
         >
           {value === 'saved' ? 'Saved' : 'Batches'}

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider, useSearchParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import {
@@ -101,9 +101,10 @@ async function seed() {
   return saved.batch;
 }
 
-async function mount(role: FixtureRole, search = '?view=batches') {
+async function mount(role: FixtureRole, search = '?view=batches', initialPhone = false) {
   fixture.setUser({ id: 1, login: 'mia', role, languages: ['de'] });
-  const { BatchesList, BatchesMain, BatchesHeader } = await import('./BatchesPane');
+  const { BatchesList, BatchesMain, BatchesHeader, SubviewSwitch } = await import('./BatchesPane');
+  const { phoneQuery, useMedia } = await import('../../../ui/useMedia');
   const { resetBatches } = await import('./store');
   const { useAuthStore } = await import('../../../stores/auth');
   const { useDataStore } = await import('../../../stores/data');
@@ -113,23 +114,32 @@ async function mount(role: FixtureRole, search = '?view=batches') {
     user: role ? { id: 1, login: 'mia', role, languages: ['de'] } : null,
     loading: false,
   });
+  const media = Object.assign(new EventTarget(), { matches: initialPhone });
+  vi.stubGlobal('matchMedia', () => media);
+  function Workspace() {
+    const phone = useMedia(phoneQuery);
+    const [params] = useSearchParams();
+    const batches = params.get('view') === 'batches';
+    return (
+      <>
+        {batches && !phone && (
+          <aside>
+            <BatchesList />
+          </aside>
+        )}
+        <header>
+          <SubviewSwitch />
+          {batches && <BatchesHeader />}
+        </header>
+        <main>{batches ? <BatchesMain phone={phone} /> : <p>Saved changes</p>}</main>
+      </>
+    );
+  }
   const router = createMemoryRouter(
     [
       {
         path: '/review',
-        element: (
-          <>
-            <aside>
-              <BatchesList />
-            </aside>
-            <header>
-              <BatchesHeader />
-            </header>
-            <main>
-              <BatchesMain />
-            </main>
-          </>
-        ),
+        element: <Workspace />,
       },
     ],
     { initialEntries: [`/review${search}`] },
@@ -164,6 +174,11 @@ async function mount(role: FixtureRole, search = '?view=batches') {
     button,
     click,
     detail,
+    resize: (phone: boolean) =>
+      act(async () => {
+        media.matches = phone;
+        media.dispatchEvent(new Event('change'));
+      }),
     text: () => host.textContent ?? '',
     unmount: () => act(async () => root.unmount()),
   };
@@ -196,6 +211,98 @@ async function setCurrent(hash: number, next: Tooltip) {
 }
 
 describe('Review → Batches', () => {
+  it('enters the phone list and restores the selected row on both Back paths', async () => {
+    const batch = await seed();
+    const start = `?query=Rampage&kind=new&batch=${batch.id}`;
+    const view = await mount('maintainer', start, true);
+    const row = () => view.host.querySelector<HTMLAnchorElement>(`[data-batch-row="${batch.id}"]`);
+    const backLabel = '‹ Back to batches';
+    const listSearch = '?query=Rampage&kind=new&view=batches';
+    await view.click('Batches');
+    await view.settle(() => !!row());
+    expect(view.router.state.location.search).toBe(listSearch);
+    expect(view.detail()).toBeNull();
+    expect(row()?.hasAttribute('aria-current')).toBe(false);
+
+    await act(async () => row()!.click());
+    await view.settle(() => !!view.detail());
+    expect(view.detail()?.dataset.batch).toBe(batch.id);
+    expect(view.router.state.location.search).toBe(`${listSearch}&batch=${batch.id}`);
+    expect(row()).toBeNull();
+    expect(document.activeElement).toBe(view.button(backLabel));
+
+    await act(async () => view.router.navigate(-1));
+    expect(document.activeElement).toBe(row());
+    expect(view.router.state.location.search).toBe(listSearch);
+    await act(async () => view.router.navigate(1));
+    expect(view.detail()?.dataset.batch).toBe(batch.id);
+    await view.click(backLabel);
+    expect(document.activeElement).toBe(row());
+    expect(view.router.state.location.search).toBe(listSearch);
+
+    await act(async () => row()!.click());
+    await view.click('Saved');
+    expect(view.text()).toContain('Saved changes');
+    expect(view.router.state.location.search).toBe(start);
+    await view.click('Batches');
+    expect(view.router.state.location.search).toBe(listSearch);
+    expect(view.detail()).toBeNull();
+    await view.unmount();
+  });
+
+  it('honors a direct batch link across resize and stays in Batches when going back to the list', async () => {
+    const batch = await seed();
+    const search = `?view=batches&batch=${batch.id}`;
+    const view = await mount('maintainer', search, true);
+    await view.settle(() => !!view.detail());
+    const detail = view.detail();
+    expect(detail?.dataset.batch).toBe(batch.id);
+    await view.resize(false);
+    expect(view.host.querySelector('aside [aria-current="true"]')).toBeTruthy();
+    expect(view.button('‹ Back to batches')).toBeUndefined();
+    await view.resize(true);
+    expect(view.detail()).toBe(detail);
+    expect(view.router.state.location.search).toBe(search);
+    await view.click('‹ Back to batches');
+    expect(view.router.state.location.search).toBe('?view=batches');
+    expect(document.activeElement?.getAttribute('data-batch-row')).toBe(batch.id);
+    await view.resize(false);
+    expect(view.detail()?.dataset.batch).toBe(batch.id);
+    await view.resize(true);
+    expect(view.detail()).toBeNull();
+    await view.unmount();
+  });
+
+  it('keeps the desktop split view and replaces the batch selection in its history entry', async () => {
+    const first = await seed();
+    const { batch: second } = await call('/batches', { name: 'Second batch' });
+    const view = await mount('maintainer', `?batch=${first.id}`);
+    await view.click('Batches');
+    await view.settle(() => !!view.detail());
+    expect(view.detail()?.dataset.batch).toBe(first.id);
+    const row = view.host.querySelector<HTMLAnchorElement>(
+      `aside [data-batch-row="${second.id}"]`,
+    )!;
+    await act(async () => row.click());
+    await view.settle(() => view.detail()?.dataset.batch === second.id);
+    expect(row.getAttribute('aria-current')).toBe('true');
+    expect(view.detail()?.dataset.batch).toBe(second.id);
+    await act(async () => view.router.navigate(-1));
+    expect(view.text()).toContain('Saved changes');
+    await view.unmount();
+  });
+
+  it('keeps a deleted phone batch distinct from the empty list and focuses the list on Back', async () => {
+    const view = await mount('maintainer', '?view=batches&batch=deleted', true);
+    await view.settle(() => view.text().includes('That batch is no longer listed.'));
+    expect(view.detail()).toBeNull();
+    expect(view.text()).toContain('That batch is no longer listed.');
+    await view.click('‹ Back to batches');
+    expect(view.text()).toContain('No batches yet.');
+    expect(document.activeElement).toBe(view.host.querySelector('[aria-label="Batch list"]'));
+    await view.unmount();
+  });
+
   it('lists a draft batch and shows its changes, first publications, and the task strip', async () => {
     const batch = await seed();
     const view = await mount('maintainer');
@@ -717,7 +824,7 @@ describe('Review → Batches: a failed background save that kept the batch sched
     const line = view.host.querySelector('[data-failed-save]')!.textContent!;
     expect(line).toContain('nothing from it was applied');
     expect(line).toContain('Rampage (10): German stamp is older than English');
-    expect(view.text()).not.toContain('Saved');
+    expect(view.detail()?.textContent).not.toContain('Saved');
     expect(view.button('Reschedule…')).toBeDefined();
     await view.unmount();
   });
