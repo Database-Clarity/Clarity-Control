@@ -7,6 +7,8 @@ import { legacyPresets, type LegacyPreset } from '../legacy.js';
 import {
   configLimits,
   configSchemaVersion,
+  configurableFormatVersion,
+  currentFileFormatVersion,
   exportLanguages,
   filePath,
   fileUrls,
@@ -109,10 +111,10 @@ const fileBase = {
     .string()
     .regex(/^[a-z0-9]{8,32}$/)
     .optional(),
-  formatVersion: z.literal(1),
 };
 const styleFile = z.strictObject({
   ...fileBase,
+  formatVersion: z.literal(configurableFormatVersion),
   preset: z.enum(styles),
   shape: z.enum(shapes),
   data: dataSchema,
@@ -122,6 +124,7 @@ const styleFile = z.strictObject({
 const legacyFile = z
   .strictObject({
     ...fileBase,
+    formatVersion: z.literal(1),
     preset: z.enum(legacyPresets),
     arrowFallback: z.boolean().optional(),
   })
@@ -154,7 +157,7 @@ export const retainedSchema = z
     reason: z.literal('language').optional(),
     path: z.string().max(128),
     uid: z.string().regex(/^[a-z0-9]{8,32}$/),
-    formatVersion: z.literal(1),
+    formatVersion: z.literal([1, configurableFormatVersion]),
     snapshot: fileSchema,
     /** ISO date-time; the URL keeps updating until then. */
     until: z.iso.datetime(),
@@ -275,6 +278,37 @@ export type ExportConfig = z.infer<typeof configSchema>;
 export type Migration = (config: Record<string, unknown>) => Record<string, unknown>;
 export const migrations: Readonly<Record<number, Migration>> = {};
 
+/** Upgrades configurable files saved before the format was renamed. Legacy presets stay at 1. */
+function upgradeFormat(config: Record<string, unknown>): void {
+  const upgrade = (value: unknown) => {
+    if (!value || typeof value !== 'object' || !('formatVersion' in value)) return undefined;
+    // Only migrate recognizable configurable files. The final schema still checks every field.
+    if (
+      value.formatVersion !== 1 ||
+      !('preset' in value) ||
+      currentFileFormatVersion(value.preset, value.formatVersion) === value.formatVersion
+    )
+      return undefined;
+    const parsed = styleFile.safeParse({ ...value, formatVersion: configurableFormatVersion });
+    return parsed.success ? parsed.data : undefined;
+  };
+  if (Array.isArray(config.files)) config.files = config.files.map((file) => upgrade(file) ?? file);
+  if (!Array.isArray(config.retained) || typeof config.id !== 'string') return;
+  const project = config.id;
+  config.retained = config.retained.map((entry) => {
+    if (!entry || typeof entry !== 'object' || entry.formatVersion !== 1) return entry;
+    const snapshot = upgrade(entry.snapshot);
+    if (!snapshot || entry.path !== filePath(project, { ...snapshot, formatVersion: 1 }))
+      return entry;
+    return {
+      ...entry,
+      formatVersion: configurableFormatVersion,
+      path: filePath(project, snapshot),
+      snapshot,
+    };
+  });
+}
+
 /**
  * Brings a stored config of any older schema up to `configSchemaVersion` by applying each
  * migration in turn, then validates it. Throws on an unknown or newer schema, a missing
@@ -301,7 +335,9 @@ export function migrateConfig(
       throw new Error(`Migration from schema ${version} must produce schema ${version + 1}`);
     version += 1;
   }
-  return target === configSchemaVersion ? configSchema.parse(config) : (config as ExportConfig);
+  if (target !== configSchemaVersion) return config as ExportConfig;
+  upgradeFormat(config);
+  return configSchema.parse(config);
 }
 
 /**

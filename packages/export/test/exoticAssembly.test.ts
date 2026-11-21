@@ -78,9 +78,15 @@ test.each(rows)(
     for (const style of styles) {
       const config = newStyleFile('matrix', style);
       config.data.categories = ['all'];
-      expect(sha(compile(input, config, { catalog }).bytes), style).toBe(
-        row.expected[`v1:${style}`],
-      );
+      const bytes = Buffer.from(compile(input, config, { catalog }).bytes);
+      const header = '{"format":2,';
+      expect(bytes.subarray(0, header.length).toString()).toBe(header);
+      // Compare with the pinned v1 bytes after changing only the version field.
+      const normalized = Buffer.concat([
+        Buffer.from('{"format":1,'),
+        bytes.subarray(header.length),
+      ]);
+      expect(sha(normalized), style).toBe(row.expected[`v1:${style}`]);
     }
   },
 );

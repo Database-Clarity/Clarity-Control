@@ -175,7 +175,7 @@ The `exoticTags` capability declares lowering of `<exotic … />` to the compati
 save, publish, and scheduled-proposal validation refuse Exotic text until the publisher
 installed in the data branch declares this capability. Install the updated template
 before saving Exotic text or running the separate gated data rewrite. The deprecated
-`yellow` authoring alias retains compatibility. Format v1 uses `exotic` for its
+`yellow` authoring alias retains compatibility. Format v2 uses `exotic` for its
 style and configuration key; the seven legacy outputs still use `yellow`.
 Exotic is literal-only authoring syntax. Variable-assembled tag names keep the base
 resolver's unknown-tag behavior, with a warning; assembled `yellow` remains supported.

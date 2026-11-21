@@ -17,8 +17,8 @@ export {
   type SandboxPerks,
 } from './legacy.js';
 
-// Configurable exports: config schema 1, the compiler, and format v1 (README.md, "Format v1").
-export * from './v1/vocabulary.js';
+// Configurable exports: config schema 1, the compiler, and format v2 (README.md, "Format v2").
+export * from './v2/vocabulary.js';
 export type {
   ExportConfig,
   ExportFile,
@@ -28,26 +28,26 @@ export type {
   Migration,
   StyleFile,
   SymbolRule,
-} from './v1/config.js';
+} from './v2/config.js';
 export {
   compile,
   compileStages,
-  encodeV1,
-  validateV1,
+  encodeV2,
+  validateV2,
   type Catalog,
   type CompileOptions,
   type CompileStage,
   type Descriptions,
   type Edited,
   type ExpandedItem,
-  type FormatV1File,
+  type FormatV2File,
   type Notice,
   type PerkKeys,
   type Plan,
   type PlanOutput,
-} from './v1/compile.js';
-export { defaultData, newStyleFile, styleFormats, styleShapes } from './v1/styles.js';
-export type { Line, OutLine, OutSpan, Part } from './v1/transform.js';
+} from './v2/compile.js';
+export { defaultData, newStyleFile, styleFormats, styleShapes } from './v2/styles.js';
+export type { Line, OutLine, OutSpan, Part } from './v2/transform.js';
 export {
   fileStatus,
   projectIndex,
@@ -57,12 +57,13 @@ export {
   type FileStatus,
   type IndexFile,
   type ProjectIndex,
-} from './v1/project.js';
-export { decodeV1 } from '../decoder/decode-v1.mjs';
+} from './v2/project.js';
+// Older web builds call the pinned engine's decoder by its former name.
+export { decodeV2, decodeV2 as decodeV1 } from '../decoder/decode-v2.mjs';
 // For the Exports page: the built-in feature showcase's markup source (`data.includeShowcase`)
 // and the per-language stand-in rule compile uses.
 export { showcaseText } from '@clarity/core/markup/showcase';
-export { standsIn } from './v1/compile.js';
+export { standsIn } from './v2/compile.js';
 
 // Vocabulary check (spec section 5): marker sets of an output file.
-export { markerChange, markerSet, outputTokens, type MarkerChange } from './v1/markers.js';
+export { markerChange, markerSet, outputTokens, type MarkerChange } from './v2/markers.js';

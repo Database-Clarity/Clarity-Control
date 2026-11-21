@@ -208,19 +208,13 @@ export const resetRows = (state: ProjectState, key: string, rows: readonly Forma
 export function setPreset(state: ProjectState, key: string, preset: Preset): ProjectState {
   return editFile(state, key, (file) => {
     if (file.preset === preset) return file;
-    const base = { id: file.id, ...(file.uid ? { uid: file.uid } : {}), formatVersion: 1 as const };
+    const uid = file.uid ? { uid: file.uid } : {};
     if ((legacyPresets as readonly string[]).includes(preset))
-      return { ...base, preset: preset as LegacyPreset };
+      return { id: file.id, ...uid, formatVersion: 1, preset: preset as LegacyPreset };
     const style = preset as Style;
     const data = isLegacyFile(file) ? undefined : file.data;
     const seeded = newStyleFile(file.id, style, data, styleShapes[style]);
-    return {
-      ...base,
-      preset: seeded.preset,
-      shape: seeded.shape,
-      data: seeded.data,
-      format: seeded.format,
-    };
+    return { ...seeded, ...uid };
   });
 }
 

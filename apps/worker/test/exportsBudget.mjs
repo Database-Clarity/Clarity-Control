@@ -48,7 +48,7 @@ async function step(route, i, call) {
       await call('POST', '/__drop?id=project-39');
       const files = [0, 1, 2].map((f) => ({
         id: `file-${f}`,
-        formatVersion: 1,
+        formatVersion: 2,
         preset: 'markdown',
         shape: 'text',
         data: {

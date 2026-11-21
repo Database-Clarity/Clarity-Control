@@ -392,9 +392,7 @@ function DeleteProject({
             fileUrls(project.id, file).map((url) => url.path),
           ),
           ...(project.config.retained ?? []).flatMap((entry) =>
-            fileUrls(project.id, { ...entry.snapshot, formatVersion: entry.formatVersion }).map(
-              (url) => url.path,
-            ),
+            fileUrls(project.id, entry.snapshot).map((url) => url.path),
           ),
         ]),
       // An unreadable config can still be deleted; it names no URLs.

@@ -247,16 +247,30 @@ test('static docs, examples, machine files, and kit stay complete without script
     expect(page.querySelector('#' + id)).not.toBeNull();
   for (const feature of features) expect(page.querySelector('#part-' + feature.id)).not.toBeNull();
   expect(page.querySelectorAll('script[data-example]')).toHaveLength(features.length);
-  expect(outputs.has('llms.txt')).toBe(true);
+  expect(page.querySelectorAll('noscript')).toHaveLength(1);
+  expect(page.querySelector('main')!.firstElementChild!.tagName).toBe('NOSCRIPT');
+  const llms = Buffer.from(outputs.get('llms.txt')!).toString();
+  expect(llms).toContain('/reference/v2/lines/en.json');
+  expect(llms).not.toContain('partnerships');
+  expect(page.textContent).not.toMatch(/Other display options|data usage requirements/);
   const usage = JSON.parse(Buffer.from(outputs.get('reference/kit/usage.json')!).toString());
-  expect(usage['symbols/dark/solar.svg']).toContain('Bungie');
+  expect(usage['symbols/dark/solar.svg']).toContain('MIT licence');
+  expect(
+    Buffer.from(outputs.get('reference/kit/CREDITS.txt')!).toString().trim().split('\n'),
+  ).toEqual([expect.stringContaining('Bungie')]);
   expect(usage['brand/ClarityCut/ClarityCut-Variable.woff2']).toContain('OFL');
   const contents = JSON.parse(
     Buffer.from(outputs.get('reference/kit/contents.json')!).toString(),
   ) as string[];
   expect(contents).toContain('brand/ClarityCut/OFL.txt');
   expect(contents).toContain('brand/ClarityCut/FONTLOG.md');
-  expect(contents.filter((path) => path.endsWith('.svg'))).toHaveLength(40);
+  expect(contents).toContain('symbols/LICENSE');
+  expect(contents.filter((path) => /^brand\/.*\.svg$/.test(path))).toEqual([
+    'brand/clarity-icon.svg',
+    'brand/clarity-text-dark.svg',
+    'brand/clarity-text-light.svg',
+  ]);
+  expect(contents.filter((path) => path.endsWith('.svg'))).toHaveLength(39);
   // Bundled font is the actual editor asset, not a substituted web font.
   expect(outputs.get('reference/kit/symbols/DestinySymbols.woff2')).toEqual(
     readFileSync('apps/web/src/assets/DestinySymbols.woff2'),

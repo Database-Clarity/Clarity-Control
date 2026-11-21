@@ -1,19 +1,19 @@
-// The preview's view of one output entry (format v1, spec section 7): its lines as the app's
+// The preview's view of one output entry (format v2, spec section 7): its lines as the app's
 // tooltip renderer draws them (the Rendered pane), and the entry printed one tooltip line per row
 // (the Output pane), so a row of Output and a line of Rendered read side by side.
 import type { MarkupLine, MarkupSpan } from '@clarity/core';
 import type { Line } from '@clarity/export';
 
-/** A description as the file holds it: format v1 lines, or one string (the text shape). */
+/** A description as the file holds it: format v2 lines, or one string (the text shape). */
 export type Description = Line[] | string;
 export type Descriptions = Record<string, Description>;
 
-/** True for format v1 lines (`parts` or `spacer`); an older engine's output is not. */
-export const isV1Lines = (text: unknown): text is Line[] =>
+/** True for format v2 lines (`parts` or `spacer`); an older engine's output is not. */
+export const isStructuredLines = (text: unknown): text is Line[] =>
   Array.isArray(text) &&
   text.every((line) => !!line && typeof line === 'object' && ('parts' in line || 'spacer' in line));
 
-/** One format v1 line as the tooltip renderer reads lines: each part's keys as class names. */
+/** One format v2 line as the tooltip renderer reads lines: each part's keys as class names. */
 export function renderLine(line: Line): MarkupLine {
   if ('spacer' in line) return { classNames: ['spacer'] };
   return {

@@ -1,4 +1,4 @@
-// The v1 vocabulary: names, limits, and ids shared by the config schema (config.ts, zod) and the
+// The v2 vocabulary: names, limits, and ids shared by the config schema (config.ts, zod) and the
 // engine. Kept free of zod so the engine bundle the preview loads stays small.
 import { legacyPresets } from '../legacy.js';
 import type { ExportFile, LegacyFile, StyleFile } from './config.js';
@@ -6,7 +6,12 @@ import type { ExportFile, LegacyFile, StyleFile } from './config.js';
 /** Current config schema version (the config JSON's own shape). */
 export const configSchemaVersion = 1;
 /** Output contracts this engine can build (spec section 5, "Format version"). */
-export const supportedFormatVersions = [1] as const;
+export const configurableFormatVersion = 2;
+export const supportedFormatVersions = [1, configurableFormatVersion] as const;
+
+/** Maps a saved configurable format number to the current one. */
+export const currentFileFormatVersion = (preset: unknown, version: number): number =>
+  version === 1 && styles.some((style) => style === preset) ? configurableFormatVersion : version;
 
 /** The four styles a new file starts from (presets in styles.ts). */
 export const styles = ['structured', 'markdown', 'discord', 'plain'] as const;
@@ -72,7 +77,7 @@ export const iconSymbols = [
   'titan',
   'warlock',
 ] as const;
-/** Symbols v1 (spec section 6): 16 icons, the enhanced arrow, and the text styles. */
+/** Format v2 symbols (spec section 6): 16 icons, the enhanced arrow, and the text styles. */
 export const symbolIds = [
   ...iconSymbols,
   'arrow',

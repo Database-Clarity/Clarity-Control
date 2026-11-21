@@ -125,7 +125,7 @@ async function load() {
   request?.abort(); request = new AbortController(); const signal = request.signal;
   $('load-state').textContent = 'Loading the published file...'; $('retry').hidden = true;
   try {
-    const response = await fetch('./v1/lines/' + $('language').value + '.json', { signal });
+    const response = await fetch('./v2/lines/' + $('language').value + '.json', { signal });
     if (!response.ok) throw new Error('HTTP ' + response.status);
     const file = await response.json();
     if (signal.aborted) return;
@@ -133,7 +133,7 @@ async function load() {
     // Showcase is available even when a carried file predates its introduction.
     if (!perks['-1']) perks['-1'] = decode(showcase)['-1'];
     $('file-json').textContent = JSON.stringify({ ...file, descriptions: file.descriptions.slice(0, 1), perks: Object.fromEntries(Object.entries(file.perks).slice(0, 2)) }, null, 2);
-    const textResponse = await fetch('./v1/text/' + $('language').value + '.json', { signal });
+    const textResponse = await fetch('./v2/text/' + $('language').value + '.json', { signal });
     if (textResponse.ok) {
       const textPerks = decode(await textResponse.json());
       if (!signal.aborted) $('text-example').textContent = textPerks['-1']?.descriptions[$('language').value] || '';

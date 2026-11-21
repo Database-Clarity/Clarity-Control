@@ -14,7 +14,8 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type * as Engine from '../index.js';
 import type * as ConfigModule from '../config.js';
-import type { ExportConfig, ExportFile } from '../v1/config.js';
+import type { ExportConfig, ExportFile } from '../v2/config.js';
+import { configurableFormatVersion } from '../v2/vocabulary.js';
 import { locatePages, locateSim, type SiteState } from './pages.js';
 import { effectivePin, isPinId, type Pin } from './pins.js';
 import { BuildPool, childMain, type BuildJob, type BuildResult } from './pool.js';
@@ -298,6 +299,12 @@ export async function buildSite(options: Record<string, string>) {
   const buildId = sha256(snapshotNames.map((name) => snapshotShas[name]).join('\n')).slice(0, 16);
 
   const engine = (await import(pathToFileURL(join(engineDir, 'engine.mjs')).href)) as typeof Engine;
+  // Config-only builds may run after installation but before a matching legacy publish pin.
+  if (!engine.supportedFormatVersions?.includes(configurableFormatVersion)) {
+    console.log('The site waits for a publish pin with a format v2 engine');
+    finish({ deploy: false, reason: 'format-pin' });
+    return;
+  }
   const config = (await import(
     pathToFileURL(join(engineDir, 'config.mjs')).href
   )) as typeof ConfigModule;

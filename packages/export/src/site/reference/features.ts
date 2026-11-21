@@ -1,4 +1,10 @@
-import { exportLanguages, iconSymbols, itemKeys, symbolIds } from '../../v1/vocabulary.js';
+import {
+  configurableFormatVersion,
+  exportLanguages,
+  iconSymbols,
+  itemKeys,
+  symbolIds,
+} from '../../v2/vocabulary.js';
 
 const iconDescription: Record<string, string> = {
   kinetic: 'Kinetic damage',
@@ -102,7 +108,7 @@ export function featureTable(symbols: readonly string[] = symbolIds) {
     if (!Object.hasOwn(documentedSymbols, symbol))
       throw new Error('Undocumented symbol: ' + symbol);
   return {
-    format: 1,
+    format: configurableFormatVersion,
     parts: features,
     symbols: symbols.map((id) => ({
       id,
@@ -191,7 +197,7 @@ export function featureTable(symbols: readonly string[] = symbolIds) {
 }
 
 const keyExamples: Record<string, unknown> = {
-  format: 1,
+  format: configurableFormatVersion,
   shape: 'lines',
   languages: ['en'],
   descriptions: [{ en: [{ parts: [{ text: 'Research.' }] }] }],
@@ -215,7 +221,7 @@ const keyExamples: Record<string, unknown> = {
   note: [{ parts: [{ text: 'A note.' }] }],
   project: 'reference',
   id: 'lines',
-  path: 'reference/v1/lines/en.json',
+  path: 'reference/v2/lines/en.json',
   sha256: '0'.repeat(64),
   bytes: 1234,
   updatedAt: '2026-11-18T00:00:00.000Z',
@@ -238,7 +244,7 @@ export function formatSchema() {
     type: 'object',
     required: ['format', 'shape', 'languages', 'descriptions', 'perks'],
     properties: {
-      format: { const: 1 },
+      format: { const: configurableFormatVersion },
       shape: { const: shape },
       languages: {
         type: 'array',
@@ -252,8 +258,8 @@ export function formatSchema() {
   });
   return {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
-    $id: 'https://data.d2clarity.com/reference/format-v1.schema.json',
-    title: 'Clarity format v1 file or project index',
+    $id: 'https://data.d2clarity.com/reference/format-v2.schema.json',
+    title: 'Clarity format v2 file or project index',
     oneOf: [file('lines'), file('text'), ref('index')],
     $defs: {
       style: {

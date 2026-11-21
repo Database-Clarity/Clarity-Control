@@ -55,6 +55,19 @@ them until a compatible pin is effective. The compatibility fallback for older p
 their protected entries; it does not teach their schema the new config shape. Installs, pin
 advances, and Worker deployment remain owner-gated.
 
+## Format v2 rollout
+
+Install the format v2 export engine, then run the legacy publishing job and verify that the
+effective pin names the new engine before enabling v2 saves in the Worker and web app.
+While the effective pin still names an older engine, the new build-site script leaves the
+served site in place. Old preview snapshots can still open legacy files while waiting for
+a v2 data build.
+
+Before republishing, check the current editor-data export configs for any configurable
+v1 URLs that partners use. Keep any such URL updating for three months before deletion.
+The built-in reference moves to `/reference/v2/`. Verify the seven legacy files and
+`clarityV2` byte for byte against the previous engine with the same input and manifest.
+
 ## The publish pipeline's downstream job
 
 The explicit production installer plan appends `scripts/publisher/template/production-job.yml`,

@@ -117,6 +117,25 @@ const siteBuild = (file: ExportFile) =>
   sha(nodeEngine.compile(input as never, file, { catalog, identical }).bytes);
 
 describe('G-PREVIEW', () => {
+  it('loads the previous pinned decoder and waits for a v2 build before compiling v2 previews', async () => {
+    const oldIo = {
+      ...io(),
+      importEngine: async () => ({
+        ...nodeEngine,
+        decodeV2: undefined,
+        supportedFormatVersions: [1],
+      }),
+    };
+    const snapshot = await loadSnapshot(oldIo, site, status);
+    const preview = new Preview(oldIo, snapshot, { site, liveRaw });
+    const file = newStyleFile('showcase', 'structured');
+    expect(await preview.sample(file, '-1', null)).toMatchObject({
+      kind: 'error',
+      message: 'Format v2 needs a newer data build',
+    });
+    await expect(preview.build(file)).rejects.toBeInstanceOf(SnapshotMismatch);
+  });
+
   it('the showcase is always previewed and matches whole-file output, with an old-pin state', async () => {
     const snapshot = await loadSnapshot(io(), site, status);
     const preview = new Preview(io(), snapshot, { site, liveRaw });
@@ -315,13 +334,13 @@ describe('G-PREVIEW', () => {
     served = original;
     const preview = new Preview(io(), await loadSnapshot(io(), site, status), { site, liveRaw });
     const result = await preview.liveSample(
-      { kind: 'site', path: 'p1/v1/f1.json', sha256: '0'.repeat(64) },
+      { kind: 'site', path: 'p1/v2/f1.json', sha256: '0'.repeat(64) },
       '1',
     );
     expect(result.kind).toBe('error');
-    served.set(`${site}/p1/v1/f1.json`, new TextEncoder().encode('{}'));
+    served.set(`${site}/p1/v2/f1.json`, new TextEncoder().encode('{}'));
     const wrong = await preview.liveSample(
-      { kind: 'site', path: 'p1/v1/f1.json', sha256: '0'.repeat(64) },
+      { kind: 'site', path: 'p1/v2/f1.json', sha256: '0'.repeat(64) },
       '1',
     );
     expect(wrong).toMatchObject({ kind: 'error' });

@@ -19,7 +19,7 @@ const SLOW_FILES: Record<string, number> = {
   'packages/export/test/parity-live.test.ts': 76,
   'apps/worker/test/reports.test.ts': 18,
   'scripts/publisher/remote.test.ts': 17,
-  'packages/export/test/v1.test.ts': 13,
+  'packages/export/test/v2.test.ts': 13,
   'apps/web/src/features/history/HistoryEntry.test.tsx': 11,
 };
 

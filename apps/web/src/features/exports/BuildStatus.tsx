@@ -1,5 +1,5 @@
 // Build state from the site manifest and notices: the list's status dot and the project header's
-// "Live 12:03 · v1 · 1.8 MB" line.
+// "Live 12:03 · v2 · 1.8 MB" line.
 import { When } from '../../ui/When';
 import { buildState, isFailure, type SiteManifest, type SiteNotice } from './site';
 import styles from './Exports.module.scss';

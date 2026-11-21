@@ -1,6 +1,6 @@
-import { decodeV1 } from '../../../decoder/decode-v1.mjs';
+import { decodeV2 } from '../../../decoder/decode-v2.mjs';
 import assets from './assets.json';
-import { iconSymbols } from '../../v1/vocabulary.js';
+import { iconSymbols } from '../../v2/vocabulary.js';
 
 const symbols = Object.fromEntries(
   [...iconSymbols, 'arrow', 'enhancedArrow'].map((id) => [
@@ -19,7 +19,7 @@ const symbols = Object.fromEntries(
 
 // Shipped as one readable, dependency-free ES module. No HTML from the data is interpreted.
 export const rendererSource =
-  `// SPDX-License-Identifier: MIT\n// Clarity format v1 reference renderer. Artwork provenance: kit/usage.json.\nexport const decode = ${decodeV1.toString()};\nconst artwork = ${JSON.stringify(symbols)};\n` +
+  `// SPDX-License-Identifier: MIT\n// Clarity format v2 reference renderer. Artwork provenance: kit/usage.json.\nexport const decode = ${decodeV2.toString()};\nconst artwork = ${JSON.stringify(symbols)};\n` +
   String.raw`
 const styles = new Set(['bold', 'exotic', 'pve', 'pvp']);
 const elements = new Set(['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic']);

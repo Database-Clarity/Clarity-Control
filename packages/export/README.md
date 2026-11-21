@@ -9,7 +9,7 @@ It builds two kinds of file:
   held converter, except for armour set bonuses (see "Set bonuses" below). The code in
   `src/converter/` is a copy of that converter (MIT, see `PROVENANCE.md` for where it came from
   and every change).
-- **Format v1 files**: what a project's config asks for (which tooltips, languages, and keys, and
+- **Format v2 files**: what a project's config asks for (which tooltips, languages, and keys, and
   how each symbol looks), in a smaller shape. See "Configurable files" below.
 
 The package has no Node-only code, so the same engine runs in a GitHub Actions job and in a
@@ -81,7 +81,7 @@ built by the held converter never contain them.
   for the owner, and the hashes are updated in the same change with the reason.
 - `test/engine.test.ts` covers one failing file next to working ones, `versions.json`, the safe
   math, and that nothing in this package runs text as code.
-- `test/v1.test.ts` covers the config schema and migrations, the build steps and references,
+- `test/v2.test.ts` covers the config schema and migrations, the build steps and references,
   each style, base/enhanced pairs against the editor preview, and real data in every style
   (same bytes twice, decoder round trip, and every tooltip equal to the editor preview).
 
@@ -107,8 +107,9 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, outputs[i].bytes))
   a-z, 0-9, and -, starting with a letter; not `index`, `changelog`, `api`, `assets`,
   `well-known`, or `v` + digits), more than 3 files or 6 URLs per project, strings over 64
   characters or with control characters, and `keep` in the text shape.
-- **`migrateConfig(stored)`** runs `migrations[n]` (schema n to n + 1) until the config reaches
-  the current schema, then checks it. Schema 1 is the first, so there are none yet.
+- **`migrateConfig(stored)`** applies schema migrations, upgrades saved configurable files
+  and their retained snapshots from format version 1 to 2, then validates the project. The
+  project schema stays at 1. Legacy presets keep format version 1 and their existing URLs.
 - **`immutableChanges(previous, next)`** lists what a save may not change: the project id, file
   uids the server did not assign, and the retained old URLs.
 - **`unknownCategories(config, ids)`** lists category ids the catalog does not have (a notice,
@@ -124,8 +125,8 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, outputs[i].bytes))
   (`edited.<lang>.by`, the editor's name; it can be chosen without `edited`), and `references`
   (perks this one refers to, such as keyword verbs). A new file has `name` and `edited`.
 - **Language files** (`data.languageFiles`): `combined` (the default) writes one file with every
-  chosen language at `<project>/v1/<file>.json`; `perLanguage` writes one file per language at
-  `<project>/v1/<file>/<lang>.json`. A per-language file is complete: a perk without text in that
+  chosen language at `<project>/v2/<file>.json`; `perLanguage` writes one file per language at
+  `<project>/v2/<file>/<lang>.json`. A per-language file is complete: a perk without text in that
   language, or whose translation is more than 90 days behind its English text, carries the
   English text under that language and `edited.en` instead of `edited.<lang>`. A file counts
   once toward the 3 files and the 6 URL slots, whatever its languages. Removing languages keeps
@@ -162,17 +163,17 @@ fileUrls(config.id, file).forEach((url, i) => write(url.path, outputs[i].bytes))
 3. **Keys**: only the chosen ones.
 4. **References**: a `references` hash that is not in the file is removed.
 5. **Symbols**, as chosen above. Tables (retired, none in today's data) are not written.
-6. **Encoding** (format v1, below): one output, or one per language.
+6. **Encoding** (format v2, below): one output, or one per language.
 7. **Bytes**: minified JSON, after checking that every reference resolves.
 
 Legacy presets skip steps 3, 5, and 6 and build exactly as before. They refuse base/enhanced
 pairs until the owner decides what the old files show for them.
 
-### Format v1
+### Format v2
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "shape": "lines",
   "languages": ["en"],
   "descriptions": [{ "en": [{ "parts": [{ "text": "Picking up a " }, { "icon": "heavy" }] }] }],
@@ -196,11 +197,11 @@ with an optional `style`. A part is one of: `{ "icon": "heavy" }` (the 16 icons,
 `style` (`bold`, `exotic`, `pve`, `pvp`), `element` (`"solar"`, tagged element text), `link`
 (a URL), or `note` (the hover explanation, itself a list of lines). To get the older per-hash
 shape (`{ "123": { "hash": 123, "name": "Perk", "descriptions": { ... } } }`), copy
-`decoder/decode-v1.mjs` (about 25 lines, plain JavaScript) into your app:
+`decoder/decode-v2.mjs` (about 25 lines, plain JavaScript) into your app:
 
 ```js
-import { decodeV1 } from './decode-v1.mjs';
-const perks = decodeV1(await (await fetch(url)).json());
+import { decodeV2 } from './decode-v2.mjs';
+const perks = decodeV2(await (await fetch(url)).json());
 ```
 
 Apps can poll `/<project>/index.json` (`projectIndex`), about 1 KB, which lists one entry per URL:
