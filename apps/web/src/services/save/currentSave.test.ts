@@ -17,6 +17,11 @@ import { reviewSaveChanges, useSaveState } from './state';
 
 const post = vi.hoisted(() => vi.fn());
 vi.mock('../api', () => ({ apiUrl: '', save: post }));
+vi.mock('../apiAuth', async (original) => ({
+  ...(await original<object>()),
+  endpoint: (path: string) => `https://worker.test${path}`,
+  authorization: () => ({}),
+}));
 vi.mock('./validationWorker', async () => {
   const { saveChunks } = await import('./chunks');
   return { requestSaveChunks: saveChunks };
@@ -278,6 +283,44 @@ it('retries a metadata-only part that fails on Worker CPU or the network as two 
   expect(post.mock.calls.map(([chunk]) => (chunk as Change[]).length)).toEqual([9, 5, 3, 2, 4]);
   expect(post.mock.calls.slice(2).flatMap(([chunk]) => chunk)).toEqual(changes);
   expect(useDraftStore.getState().drafts).toEqual({});
+});
+
+it.each([422, 502])('does not split after a known Worker %i whose body drops', async (status) => {
+  const changes = realChanges(2);
+  const data = loaded();
+  useDataStore.setState({ data });
+  const submitted = Object.fromEntries(
+    changes.map(({ hash, base, next }) => [hash, { base: base!, next }]),
+  );
+  useDraftStore.setState({
+    drafts: submitted,
+    external: false,
+    error: null,
+    retry: () => {},
+    flush: async () => {},
+  });
+  reviewSaveChanges(changes, submitted);
+  const fetch = vi.fn(async () => {
+    const body = new ReadableStream({
+      start: (controller) => controller.error(new TypeError('Network error reading body')),
+    });
+    return new Response(body, { status });
+  });
+  vi.stubGlobal('fetch', fetch);
+  const api = await vi.importActual<typeof import('../api')>('../api');
+  post.mockImplementation(api.save);
+  const result = await saveCurrent({
+    prepared: changes,
+    data,
+    review: useSaveState.getState().review!,
+    message: 'Review Compendium links',
+    noTranslationImpact: false,
+    sameSession: () => true,
+    accountChanged: () => false,
+  });
+  expect(result).toMatchObject({ kind: 'failed', error: `API HTTP ${status}: ` });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(useDraftStore.getState().drafts).toEqual(submitted);
 });
 
 it('does not split a text part or a rejected metadata-only part', async () => {

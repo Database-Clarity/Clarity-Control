@@ -51,7 +51,9 @@ export function apiRequest(path: string, init: RequestInit = {}): Promise<Respon
 }
 
 export async function failure(response: Response): Promise<never> {
-  throw new Error(`API HTTP ${response.status}: ${await response.text()}`);
+  // The status is known even when the body drops: never report it as a network error.
+  const body = await response.text().catch(() => '');
+  throw new Error(`API HTTP ${response.status}: ${body}`);
 }
 
 const legacyOrigin = 'https://database-clarity.github.io';

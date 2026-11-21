@@ -156,6 +156,16 @@ describe('worker client', () => {
     await expect(save([], 'test')).rejects.toThrow('403');
     await expect(getMe()).rejects.toThrow();
   });
+  it('keeps a known rejection status when its body drops', async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.error(new TypeError('network error'));
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 422 })));
+    const api = await import('./api');
+    await expect(api.save([], 'Save')).rejects.toThrow(/^API HTTP 422: $/);
+  });
   it('distinguishes exhausted ref races from field conflicts and validates successful saves', async () => {
     const fetch = vi
       .fn()
