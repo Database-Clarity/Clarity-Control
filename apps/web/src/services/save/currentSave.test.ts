@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
+import { Fixture, makePrivateKey } from '../../../../worker/test/fixture';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { clearSavedOverlay } from '../../stores/savedOverlay';
@@ -56,6 +57,17 @@ it.each([415, 1000])(
   async (count) => {
     const changes = realChanges(count);
     expect(changes).toHaveLength(count);
+    const worker = new Fixture(await makePrivateKey());
+    worker.aliases = {};
+    worker.moveData({
+      '.publisher/PIN': JSON.parse(
+        readFileSync(
+          new URL('../../../../../scripts/publisher/template/.publisher/PIN', import.meta.url),
+          'utf8',
+        ),
+      ),
+      ...Object.fromEntries(changes.map(({ hash, base }) => [`tooltips/${hash}.json`, base])),
+    });
     const data = loaded();
     useDataStore.setState({ data });
     const submitted = Object.fromEntries(
@@ -74,11 +86,12 @@ it.each([415, 1000])(
     post.mockImplementation(async (chunk: Change[], message: string) => {
       expect(fitsSaveRequest(chunk, message, false)).toBe(true);
       expect(flush).toHaveBeenCalledTimes(post.mock.calls.length - 1);
-      return {
-        kind: 'saved',
-        tooltips: chunk.map(({ next }) => next),
-        commit: String(post.mock.calls.length),
-      };
+      const previousRequests = worker.subrequests;
+      const response = await worker.request('/save', 'POST', { changes: chunk, message });
+      const saved = await response.json();
+      expect(response.status, JSON.stringify(saved)).toBe(200);
+      expect(worker.subrequests - previousRequests).toBeLessThanOrEqual(50);
+      return { kind: 'saved', ...saved };
     });
     const result = await saveCurrent({
       prepared: changes,
@@ -89,10 +102,12 @@ it.each([415, 1000])(
       sameSession: () => true,
       accountChanged: () => false,
     });
-    expect(result.kind).toBe('saved');
+    expect(result.kind, result.kind === 'failed' ? result.error : undefined).toBe('saved');
     expect(result.accepted.size).toBe(count);
     expect(useSaveState.getState().progress).toMatchObject({ done: count, total: count });
     expect(useDraftStore.getState().drafts).toEqual({});
+    for (const { hash, next } of changes)
+      expect(worker.current()[`tooltips/${hash}.json`]).toEqual(next);
   },
 );
 
@@ -130,6 +145,30 @@ it('saves the importer repair before removing its old export', () => {
       chunk.map(({ hash }) => hash),
     ),
   ).toEqual([[importer.hash], [target.hash]]);
+});
+
+it('keeps a simultaneous export rename and importer repair in one bounded request', () => {
+  const text = 'Existing text. '.repeat(120);
+  const target = makeTooltip(10_001, `export Old (\nText\n)\n${text}`);
+  const importer = makeTooltip(10_002, `import Old from ${target.hash}\n${text}`);
+  const data = loaded();
+  data.bundle.tooltips = { [target.hash]: target, [importer.hash]: importer };
+  const changes = [
+    {
+      hash: target.hash,
+      base: target,
+      next: makeTooltip(target.hash, `export New (\nText\n)\n${text}`),
+    },
+    {
+      hash: importer.hash,
+      base: importer,
+      next: makeTooltip(importer.hash, `import New from ${target.hash}\n${text}`),
+    },
+  ];
+  expect(fitsSaveRequest(changes, 'Rename an export', false)).toBe(false);
+  const chunks = saveChunks(changes, data, 'Rename an export', false);
+  expect(chunks).toHaveLength(1);
+  expect(chunks[0]).toEqual(expect.arrayContaining(changes));
 });
 
 it('stops after a failed later request and resumes with only the unsaved drafts', async () => {

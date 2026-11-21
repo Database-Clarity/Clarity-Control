@@ -176,6 +176,7 @@ export const batchSchema = z
       .object({
         id: publishOpIdSchema,
         ownerId: userSchema.shape.id,
+        updatedAt: timestampSchema,
       })
       .strict()
       .optional(),

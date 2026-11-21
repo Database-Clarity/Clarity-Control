@@ -50,6 +50,7 @@ import {
   memberHashes,
   newUlid,
   pinSchedulesBatches,
+  pinStagesScheduledSaves,
   parseIndex,
   readState,
   refuseClaimed,
@@ -353,7 +354,12 @@ export async function endSchedule(
       ...batch,
       ...revisions,
       status: action === 'cancel' ? 'cancelled' : 'draft',
-      ...(action === 'cancel' ? { memberHashes: hashes, draftStaging: undefined } : {}),
+      ...(action === 'cancel'
+        ? {
+            draftStaging: undefined,
+            ...(pinStagesScheduledSaves(state.pin) ? { memberHashes: hashes } : {}),
+          }
+        : {}),
       preparedRequestId: null,
       notBefore: null,
       zone: null,

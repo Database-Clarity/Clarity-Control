@@ -19,7 +19,7 @@ import {
   type BatchMember,
 } from '@clarity/core/schedule';
 import { refuseUnlowerable } from '../elementTags.js';
-import { blobContent, type RepoFile } from '../github.js';
+import type { RepoFile } from '../github.js';
 import { HttpError } from '../http.js';
 import {
   checkEdit,
@@ -28,8 +28,7 @@ import {
   type Access,
 } from '../permissions.js';
 import type { Identity } from '../types.js';
-import { memberByteCap, unpublishedMessage } from './store.js';
-const encoder = new TextEncoder();
+import { unpublishedMessage } from './store.js';
 
 export const batchSaveChangeSchema = z
   .object({ hash: hashSchema, base: tooltipSchema.nullable(), next: tooltipSchema })
@@ -58,14 +57,6 @@ export function parseMember(value: unknown, batchId: string, hash: number): Batc
   if (member.hash !== hash)
     throw new HttpError(502, `Stored member ${hash} of ${batchId} mismatch`);
   return member;
-}
-
-export function refuseMemberSize(member: BatchMember): void {
-  if (encoder.encode(blobContent(member)).byteLength > memberByteCap)
-    throw new HttpError(
-      413,
-      `Tooltip ${member.hash} is too large to stage in a batch (${memberByteCap / 1024} KiB per tooltip)`,
-    );
 }
 
 export interface Conflict {
@@ -114,6 +105,9 @@ export function validateBatchSave({
       const stored = parseMember(file.value, batchId, change.hash);
       let merged = change.next;
       if (change.base === null) {
+        // A previously admitted draft part may have landed before its response was lost.
+        if (batch.status === 'draft' && !changedFields(stored.proposed, change.next).length)
+          continue;
         conflicts.push({ ...change, head: stored.proposed, fields: ['$exists'] });
         continue;
       }
@@ -182,7 +176,6 @@ export function validateBatchSave({
         updatedAt: now,
         updatedBy: user.login,
       });
-      refuseMemberSize(member);
       if (pushed) {
         const snapshotFile = files[2 * input.changes.length + index];
         const composed = compose({
@@ -236,7 +229,6 @@ export function validateBatchSave({
         updatedAt: now,
         updatedBy: user.login,
       });
-      refuseMemberSize(member);
       written.push(member);
     }
   }

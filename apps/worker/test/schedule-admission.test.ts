@@ -150,7 +150,7 @@ describe('durable asynchronous admission', () => {
     });
     const first = await call('save', { ...saveBody(), draftStaging: { id, finish: false } });
     expect(first.status).toBe(202);
-    expect(first.body.batch.draftStaging).toEqual({ id, ownerId: alice.id });
+    expect(first.body.batch.draftStaging).toMatchObject({ id, ownerId: alice.id });
     const draft = { ...storedBatch(), status: 'draft', revision: 4, preparation: null };
     f.moveData({ [path]: draft });
     RID = newUlid();
@@ -165,6 +165,24 @@ describe('durable asynchronous admission', () => {
       (await call('save', { ...saveBody(), revision: 4, draftStaging: { id, finish: true } }))
         .status,
     ).toBe(202);
+  });
+
+  it('abandons an expired draft sequence without touching its accepted members', async () => {
+    const previous = f.current()[member];
+    f.moveData({
+      '.publisher/PIN': { capabilities: [...pin.capabilities, draftBatchStagingCapability] },
+      [path]: {
+        ...storedBatch(),
+        draftStaging: {
+          id: newUlid(),
+          ownerId: 2,
+          updatedAt: new Date(Date.now() - 90_000_000).toISOString(),
+        },
+      },
+    });
+    expect((await call('schedule', scheduleBody())).status).toBe(202);
+    expect(storedBatch().draftStaging).toBeUndefined();
+    expect(f.current()[member]).toEqual(previous);
   });
 
   it('signs staged scheduled edits without changing the accepted schedule or its due operation', async () => {
@@ -576,6 +594,26 @@ describe('durable asynchronous admission', () => {
 });
 
 describe('preparation cancellation, retry, and claim fences', () => {
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'cancels with compact history only on a compatible PIN (pending=%s, capable=%s)',
+    async (pending, capable) => {
+      if (capable)
+        f.moveData({
+          '.publisher/PIN': {
+            capabilities: [...pin.capabilities, scheduledBatchStagingCapability],
+          },
+        });
+      if (pending) expect((await call('schedule', scheduleBody())).status).toBe(202);
+      expect((await call('cancel', { revision: storedBatch().revision })).status).toBe(200);
+      expect(storedBatch().memberHashes).toEqual(capable ? [123] : undefined);
+      if (!capable) expect(f.current()[path]).not.toHaveProperty('memberHashes');
+    },
+  );
   it.each(['unschedule', 'cancel'] as const)(
     'writes the withdrawn publication tombstone on %s of a scheduled save',
     async (action) => {

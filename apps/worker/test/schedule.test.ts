@@ -1069,10 +1069,11 @@ describe('save semantics', () => {
     expect(response.body.commit).toBeNull();
     expect(f.commits.length).toBe(commits);
   });
-  it('refuses a stored member over the byte cap', async () => {
+  it('saves a member larger than the former 8 KiB cap', async () => {
     const proposal = (stored(memberPath()) as BatchMember).proposed;
     const huge = withText(proposal, 'de', 'x'.repeat(30 * 1024));
-    expect((await call(`/batches/${ID}/save`, saveBody(huge, proposal))).status).toBe(413);
+    expect((await call(`/batches/${ID}/save`, saveBody(huge, proposal))).status).toBe(200);
+    expect((stored(memberPath()) as BatchMember).proposed.text.de).toEqual(huge.text.de);
   });
   it('moves overflowing events to events/<seq>.json in the same commit (root ruling)', async () => {
     const many = Array.from({ length: 200 }, (_, index) => ({

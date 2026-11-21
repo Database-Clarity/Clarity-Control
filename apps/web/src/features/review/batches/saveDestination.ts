@@ -124,6 +124,7 @@ export async function saveReviewToBatch(
   onConfirmed?: (members: BatchMember[]) => void,
   onProgress?: BatchProgress,
 ): Promise<string> {
+  message = message.trim() || 'Save batch edits';
   const data = useDataStore.getState().data;
   const name = (hash: number) => `${nameFor(data, hash)} (${hash})`;
   // Every write goes out as the account that began the save (code review round 1): checked before
@@ -190,7 +191,10 @@ export async function saveReviewToBatch(
       destination.kind === 'new'
         ? `Created ${batch.name}, but nothing was queued to it.`
         : `Nothing was saved to ${batch.name}.`;
-    if (batch.status === 'scheduled' && payload.length > saveChunk.scheduled)
+    if (
+      batch.status === 'scheduled' &&
+      draftSaveParts(payload, message, saveChunk.scheduled).length > 1
+    )
       return stageScheduledBatch(batch, payload, message, save, onProgress);
     sameAccountOr('Nothing was saved.');
     if (batch.status === 'draft') {

@@ -3,7 +3,6 @@
 import worker from '../../../apps/worker/src/index.ts';
 export { scheduleTick } from '../../../apps/worker/src/schedule/lifecycle.ts';
 export {
-  memberByteCap,
   saveChangeCap,
   scheduledSaveChangeCap,
 } from '../../../apps/worker/src/schedule/store.ts';

@@ -81,6 +81,8 @@ export {
   draftStagingInputSchema,
   type DraftStagingInput,
   scheduledBatchStagingCapability,
+  activeDraftStaging,
+  batchRemoveChunkSize,
   preparedDraftSave,
   scheduledStagingSchema,
   type ScheduledStaging,

@@ -13,6 +13,7 @@ import {
   activationConflictSchema,
   batchEventSchema,
   batchIdSchema,
+  batchRemoveChunkSize,
   batchMemberSchema,
   batchSchema,
   preparedDraftSave,
@@ -406,6 +407,7 @@ export interface BatchChange {
 export function draftSaveParts<T extends BatchChange>(
   changes: readonly T[],
   message: string,
+  maxChanges: number = preparedDraftSave.changes,
 ): T[][] {
   const id = '0'.repeat(26);
   const overhead = jsonBytes({
@@ -420,10 +422,7 @@ export function draftSaveParts<T extends BatchChange>(
   let bytes = overhead;
   for (const change of changes) {
     const size = jsonBytes(change) + 1;
-    if (
-      part.length &&
-      (part.length === preparedDraftSave.changes || bytes + size > preparedDraftSave.bytes)
-    ) {
+    if (part.length && (part.length === maxChanges || bytes + size > preparedDraftSave.bytes)) {
       parts.push(part);
       part = [];
       bytes = overhead;
@@ -532,8 +531,26 @@ export function rebaseMember(
   );
 }
 
-export function removeFromBatch(batchId: string, revision: number, hashes: number[]) {
-  return post(`/batches/${batchId}/remove`, { revision, hashes }, writeSchema);
+export async function removeFromBatch(batchId: string, revision: number, hashes: number[]) {
+  if (new Set(hashes).size !== hashes.length)
+    throw new BatchRefusal(400, 'The batch removal contains a duplicate tooltip');
+  const path = `/batches/${batchId}/remove`;
+  let result = await post(
+    path,
+    { revision, hashes: hashes.slice(0, batchRemoveChunkSize) },
+    writeSchema,
+  );
+  for (let start = batchRemoveChunkSize; start < hashes.length; start += batchRemoveChunkSize) {
+    result = await post(
+      path,
+      {
+        revision: result.batch.revision,
+        hashes: hashes.slice(start, start + batchRemoveChunkSize),
+      },
+      writeSchema,
+    );
+  }
+  return result;
 }
 
 /**
@@ -642,9 +659,9 @@ export async function queueStagedScheduledSave(
   assertNoGlobalAggregates(changes.map(({ hash }) => hash));
   const requestId = newOpId();
   const path = `/batches/${batchId}/stage`;
-  for (let start = 0, part = 0; start < changes.length; start += saveChunk.scheduled, part++) {
+  let uploaded = 0;
+  for (const [part, chunk] of draftSaveParts(changes, message, saveChunk.scheduled).entries()) {
     if (!proceed()) throw new Error(accountChanged);
-    const chunk = changes.slice(start, start + saveChunk.scheduled);
     const reply = await post(
       path,
       { requestId, revision, part, changes: chunk, message },
@@ -652,7 +669,8 @@ export async function queueStagedScheduledSave(
     );
     if (reply.accepted !== part)
       throw new Error('The staged save is out of order. Retry from your drafts.');
-    progress(start + chunk.length);
+    uploaded += chunk.length;
+    progress(uploaded);
   }
   if (!proceed()) throw new Error(accountChanged);
   return post(path, { requestId, revision, finish: true }, admissionSchema);

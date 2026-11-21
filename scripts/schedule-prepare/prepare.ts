@@ -28,7 +28,6 @@ import {
 } from '@clarity/core/schedule';
 import {
   batchSaveChangeSchema,
-  refuseMemberSize,
   validateBatchSave,
   validateScheduleMembers,
 } from '../../apps/worker/src/schedule/validation.js';
@@ -266,7 +265,6 @@ export class SchedulePreparer {
       (batch) => batch.id !== payload.batchId && isOpenStatus(batch.status),
     );
     for (const member of members) {
-      refuseMemberSize(member);
       for (const other of others)
         if (tree[schedulePaths.member(other.id, member.hash)])
           reject(`Tooltip ${member.hash} already belongs to open batch ${other.id}`);

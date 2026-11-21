@@ -7,6 +7,7 @@ import {
   batchStatusSchema,
   dueSchema,
   isOpenStatus,
+  scheduledBatchStagingCapability,
   scheduleLimits,
   schedulePaths,
   type Batch,
@@ -62,6 +63,11 @@ export function pinSchedulesBatches(pin: unknown): boolean {
   return Array.isArray(capabilities) && capabilities.includes(scheduledBatchesCapability);
 }
 
+export function pinStagesScheduledSaves(pin: unknown): boolean {
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(scheduledBatchStagingCapability);
+}
+
 /** Every hash must be canonical, with /save's message (an aliased member would export its target). */
 export function refuseAliases(hashes: readonly number[], aliases: Aliases): void {
   for (const hash of hashes) {
@@ -90,8 +96,6 @@ export function pushedHashes(file: RepoFile | null | undefined): Set<number> {
 export const scheduleRoles: Access['role'][] = ['maintainer', 'editor'];
 export const readRoles: Access['role'][] = ['maintainer', 'editor', 'translator'];
 
-/** A remove request reads and validates the removed member bodies in the Worker. */
-export const removeChangeCap = 15;
 /** Changes per POST /batches/:id/save (same gate); the web chunks larger saves (P3a). */
 export const saveChangeCap = 15;
 /**
@@ -101,14 +105,6 @@ export const saveChangeCap = 15;
  * moved.
  */
 export const scheduledSaveChangeCap = 10;
-
-/**
- * Bytes one stored member file may take (base + proposal, pretty JSON). The largest real tooltip
- * is 2,112 bytes (editor-data 6ac370e3), so its member is about 4.6 KB; the cap bounds what
- * repeated translation saves can accumulate and the CPU of reading every member (CPU gate,
- * scripts/publisher/cpu/schedule.mjs). Lower it, never a check, if the gate fails.
- */
-export const memberByteCap = 8 * 1024;
 
 const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 /** A ULID (batch id, opId): 48-bit millisecond time + 80 random bits, Crockford base32. */

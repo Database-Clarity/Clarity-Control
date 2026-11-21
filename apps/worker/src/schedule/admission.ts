@@ -6,12 +6,12 @@ import {
   draftStagingInputSchema,
   isValidZone,
   nowMinute,
+  activeDraftStaging,
   preparedDraftSave,
   scheduleBodyDigest,
   scheduleIntentPaths,
   schedulePreparationCapability,
   scheduleRequestSchema,
-  scheduledBatchStagingCapability,
   scheduledStagingSchema,
   signScheduleIntent,
   type Batch,
@@ -30,6 +30,7 @@ import {
   archivedCounter,
   child,
   memberHashes,
+  pinStagesScheduledSaves,
   readRoles,
   readAdmissionState as readState,
   refuseClaimed,
@@ -122,8 +123,7 @@ export async function stageScheduledSave(
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
-    const capabilities = (state.pin as { capabilities?: unknown } | null)?.capabilities;
-    if (!Array.isArray(capabilities) || !capabilities.includes(scheduledBatchStagingCapability))
+    if (!pinStagesScheduledSaves(state.pin))
       throw new HttpError(
         422,
         'Update the installed publisher before staging edits to this schedule',
@@ -435,10 +435,8 @@ export async function admitBatchRequest(
       throw new HttpError(409, 'This batch cannot be changed');
     const hashes = new Set(memberHashes(child(state.trees[0], 'tooltips')));
     const staging = 'changes' in input ? input.draftStaging : undefined;
-    if (
-      batch.draftStaging &&
-      (staging?.id !== batch.draftStaging.id || user.id !== batch.draftStaging.ownerId)
-    )
+    const activeStage = activeDraftStaging(batch, Date.now());
+    if (activeStage && (staging?.id !== activeStage.id || user.id !== activeStage.ownerId))
       throw new HttpError(
         409,
         'Finish saving the draft batch before scheduling or replacing its changes',
@@ -535,7 +533,11 @@ export async function admitBatchRequest(
       claim: null,
       preparedRequestId: null,
       preparation: { requestId: id, kind, returnStatus, requestedAt: at, attempt: 1 },
-      ...(staging ? { draftStaging: { id: staging.id, ownerId: user.id } } : {}),
+      ...(staging
+        ? { draftStaging: { id: staging.id, ownerId: user.id, updatedAt: at } }
+        : batch.draftStaging
+          ? { draftStaging: undefined }
+          : {}),
       ...(target ? { ...target, opId: id, scheduledContentRevision: null } : {}),
     });
     const record: ScheduleRequest = {
@@ -778,7 +780,12 @@ export async function endBatchRequest(
       revision: batch.revision + 1,
       status: action === 'cancel' ? 'cancelled' : 'draft',
       ...(action === 'cancel'
-        ? { memberHashes: memberHashes(child(state.trees[0], 'tooltips')), draftStaging: undefined }
+        ? {
+            draftStaging: undefined,
+            ...(pinStagesScheduledSaves(state.pin)
+              ? { memberHashes: memberHashes(child(state.trees[0], 'tooltips')) }
+              : {}),
+          }
         : {}),
       preparation: null,
       preparedRequestId: null,

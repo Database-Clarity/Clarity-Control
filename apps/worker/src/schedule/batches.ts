@@ -3,7 +3,6 @@ import {
   batchSaveChangeSchema,
   overlay,
   parseMember,
-  refuseMemberSize,
   sameTooltip,
   validateBatchSave,
 } from './validation.js';
@@ -18,6 +17,7 @@ import {
 import {
   reconcileScheduledNumbers,
   batchIdSchema,
+  batchRemoveChunkSize,
   batchMemberSchema,
   batchSchema,
   batchStatusSchema,
@@ -52,7 +52,6 @@ import {
   checkedBatch,
   child,
   indexEntry,
-  removeChangeCap,
   memberHashes,
   newUlid,
   readRoles,
@@ -103,7 +102,7 @@ const removeSchema = z
     hashes: z
       .array(hashSchema)
       .min(1)
-      .max(removeChangeCap)
+      .max(batchRemoveChunkSize)
       .refine((list) => new Set(list).size === list.length, 'Duplicate tooltip hash'),
   })
   .strict();
@@ -493,7 +492,6 @@ export async function rebaseBatch(
       updatedAt: new Date().toISOString(),
       updatedBy: user.login,
     });
-    refuseMemberSize(member);
     try {
       const result = await commitBatch(github, state, user, {
         batch,

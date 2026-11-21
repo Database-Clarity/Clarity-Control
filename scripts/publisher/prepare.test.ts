@@ -235,6 +235,7 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
     actor = user,
     notBefore = DUE,
     id = kind === 'schedule' ? R : S,
+    draftStaging?: { id: string; finish: boolean },
   ) {
     const sourceCommit = pub.head(options.dataBranch),
       sourceTree = git.tree(sourceCommit),
@@ -247,6 +248,7 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
             revision: before.revision,
             changes,
             message: 'Save reviewed translation',
+            ...(draftStaging ? { draftStaging } : {}),
           };
     const body = JSON.stringify(input);
     const common = {
@@ -271,6 +273,7 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
             ...common,
             kind,
             returnStatus: before.status as 'draft' | 'scheduled',
+            ...(draftStaging ? { draftStaging } : {}),
             onValidationFailure:
               actor.id === 2 && before.status === 'scheduled'
                 ? 'keep_scheduled'
@@ -294,6 +297,9 @@ async function fixture(git: Repository = new Memory(), repository = 'test/local'
         requestedAt: AT,
         attempt: 1,
       },
+      ...(draftStaging
+        ? { draftStaging: { id: draftStaging.id, ownerId: actor.id, updatedAt: AT } }
+        : {}),
       ...(kind === 'schedule'
         ? { opId: id, notBefore, zone: 'UTC', scheduledContentRevision: null }
         : {}),
@@ -805,6 +811,38 @@ describe('scheduled global closure', () => {
 });
 
 describe('offline schedule preparation', () => {
+  it('finishes a retried draft stage whose new member already landed', async () => {
+    const f = await fixture();
+    const next: Tooltip = {
+      ...f.proposed,
+      hash: 124,
+      text: {
+        ...f.proposed.text,
+        de: {
+          text: 'Langer Text. '.repeat(900),
+          updatedAt: AT,
+          updatedBy: user.login,
+          sourceUpdatedAt: f.proposed.text.en!.updatedAt,
+        },
+      },
+    };
+    const changes = [{ hash: next.hash, base: null, next }];
+    f.admit('save', changes, user, DUE, S, { id: S, finish: false });
+    await f.prep.drain();
+    expect(f.request(S).status).toBe('completed');
+    const memberPath = schedulePaths.member(B, next.hash);
+    const landed = f.read(memberPath);
+    expect(JSON.stringify(landed).length).toBeGreaterThan(8 * 1024);
+    expect(f.batch().draftStaging?.id).toBe(S);
+    const previousRevision = f.batch().contentRevision;
+    f.admit('save', changes, user, DUE, R, { id: S, finish: true });
+    await f.prep.drain();
+    expect(f.request(R).status).toBe('completed');
+    expect(f.batch().draftStaging).toBeUndefined();
+    expect(f.batch().contentRevision).toBe(previousRevision);
+    expect(f.read(memberPath)).toEqual(landed);
+  });
+
   async function stagedSchedule() {
     const f = await fixture();
     f.change({

@@ -3,7 +3,12 @@ import { languages } from '@clarity/core';
 
 // A request with the largest real English edit, or several smaller metadata edits,
 // falls into the measured low-CPU band. Text edits also run revision and number checks.
-export const saveRequestLimits = { changes: 100, bytes: 2_000_000, work: 16 * 1024 };
+export const saveRequestLimits = {
+  changes: 100,
+  bytes: 2_000_000,
+  work: 16 * 1024,
+  atomic: 40 * 1024,
+};
 const encoder = new TextEncoder();
 
 export const jsonBytes = (value: unknown) => encoder.encode(JSON.stringify(value)).length;
@@ -28,6 +33,7 @@ export function fitsSaveCosts(
   items: readonly Change[],
   envelope: number,
   cost: (change: Change) => { bytes: number; work: number },
+  workLimit = saveRequestLimits.work,
 ) {
   if (items.length > saveRequestLimits.changes) return false;
   let bytes = envelope - 1;
@@ -37,7 +43,7 @@ export function fitsSaveCosts(
     bytes += size.bytes;
     work += size.work;
   }
-  return bytes <= saveRequestLimits.bytes && (items.length === 1 || work <= saveRequestLimits.work);
+  return bytes <= saveRequestLimits.bytes && work <= workLimit;
 }
 
 export function fitsSaveRequest(changes: Change[], message: string, noTranslationImpact: boolean) {

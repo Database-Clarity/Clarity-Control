@@ -5,6 +5,7 @@ interface Dependent {
 
 interface ChunkLimits<T> {
   fits(items: readonly T[]): boolean;
+  fitsAtomic?(items: readonly T[]): boolean;
   missing(hash: number): string;
   duplicate: string;
   tooLarge?(hash: number): string;
@@ -54,7 +55,8 @@ export function dependencyChunks<T extends Dependent>(
       for (const dependency of closure.finished) {
         const { items } = collect(dependency);
         if (!items.length) continue;
-        if (!limits.fits(items)) throw new Error(limits.tooLarge(dependency));
+        if (!(limits.fitsAtomic ?? limits.fits)(items))
+          throw new Error(limits.tooLarge(dependency));
         append(items);
       }
     }

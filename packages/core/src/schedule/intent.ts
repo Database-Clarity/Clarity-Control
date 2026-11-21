@@ -2,14 +2,19 @@ import { z } from 'zod';
 import { stableStringify } from '../contentHash.js';
 import { publishOpIdSchema } from '../publishRequest.js';
 import { timestampSchema } from '../schemas.js';
-import { notBeforeSchema } from './schemas.js';
+import { notBeforeSchema, type Batch } from './schemas.js';
 
 /** Installed only after the Action preparer AND publisher claim fence are present. */
 export const schedulePreparationCapability = 'schedulePreparationV1';
 export const draftBatchStagingCapability = 'draftBatchStagingV1';
 export const scheduledBatchStagingCapability = 'scheduledBatchStagingV1';
+export const batchRemoveChunkSize = 4;
 /** Bounded staging request, measured independently of the batch's membership. */
 export const preparedDraftSave = { changes: 100, bytes: 96 * 1024 } as const;
+export function activeDraftStaging(batch: Batch, now: number) {
+  const stage = batch.draftStaging;
+  return stage && now - Date.parse(stage.updatedAt) < 24 * 60 * 60_000 ? stage : undefined;
+}
 const stagedPartsPrefix = (batchId: string, id: string) =>
   `schedule/batches/${batchId}/staged/${id}/`;
 export const draftStagingInputSchema = z

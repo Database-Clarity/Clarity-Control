@@ -1,12 +1,18 @@
-import { stableStringify, type Tooltip } from '@clarity/core';
+import {
+  carryNumberTranslations,
+  languages,
+  reconcileNumberMap,
+  refreshNumberFallbacks,
+  stableStringify,
+  type Tooltip,
+} from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { applySavedOverlay, rememberSaved } from '../../stores/savedOverlay';
 import { readSaveReceipts, type SaveReceipt } from '../draftStorage';
 import { useSaveState } from './state';
 
-/** Only the Worker owns number maps. Keep the rest of the submitted content, including links
- * and revision stamps, in the comparison so matching text cannot erase another edit. */
+/** Compare the whole submitted tooltip, including links and translation revision stamps. */
 function sameSubmission(saved: Tooltip | undefined, sent: Tooltip): boolean {
   const withoutNumberMap = (tooltip: Tooltip) => {
     const en = tooltip.text.en;
@@ -19,6 +25,22 @@ function sameSubmission(saved: Tooltip | undefined, sent: Tooltip): boolean {
     saved !== undefined &&
     stableStringify(withoutNumberMap(saved)) === stableStringify(withoutNumberMap(sent))
   );
+}
+
+/** Derive the server-owned number metadata and translation carry for an unchanged base. */
+function expectedSubmission(base: Tooltip | null, sent: Tooltip): Tooltip {
+  const next = structuredClone(sent);
+  if (next.text.en && base?.text.en?.text !== next.text.en.text) {
+    const numbers = reconcileNumberMap(base?.text.en, next.text.en, next);
+    delete next.text.en.numbers;
+    if (numbers) next.text.en.numbers = numbers;
+  }
+  for (const lang of languages)
+    if (lang !== 'en' && next.text[lang]?.text !== base?.text[lang]?.text)
+      refreshNumberFallbacks(next, lang);
+  return base && base.text.en?.text !== next.text.en?.text
+    ? carryNumberTranslations(base, next).tooltip
+    : next;
 }
 
 /** Restore confirmed writes during bundle lag and recognise a lost response once the bundle
@@ -77,7 +99,12 @@ export function startSaveRecovery(): () => void {
           currentDraft &&
           submitted &&
           stableStringify(currentDraft) === stableStringify(submitted) &&
-          sameSubmission(bundle.tooltips[tooltip.hash], tooltip)
+          (sameSubmission(bundle.tooltips[tooltip.hash], tooltip) ||
+            (!receipt.confirmed &&
+              sameSubmission(
+                bundle.tooltips[tooltip.hash],
+                expectedSubmission(submitted.base, tooltip),
+              )))
         ) {
           if (remaining === drafts) remaining = { ...drafts };
           delete remaining[tooltip.hash];

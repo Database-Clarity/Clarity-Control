@@ -315,7 +315,7 @@ async function state(name, real, lib) {
   const cap = kind.endsWith('-cap');
   const members = MEMBERS.map((hash) =>
     cap
-      ? capped(real[hash], lib.memberByteCap)
+      ? capped(real[hash], 8 * 1024)
       : {
           hash,
           base: real[hash],

@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { carryNumberTranslations, reconcileNumberMap } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { clearSavedOverlay } from '../../stores/savedOverlay';
@@ -40,7 +41,7 @@ afterEach(() => {
   read.mockReset();
 });
 
-function start() {
+function start(saved = records()) {
   vi.stubGlobal('indexedDB', {});
   useSaveState.getState().close();
   const fixture = editorData();
@@ -52,7 +53,6 @@ function start() {
       tooltips: { 123: tooltip, 400: second },
     },
   };
-  const saved = records();
   read.mockResolvedValueOnce(saved);
   useDataStore.setState({ data });
   useDraftStore.setState({
@@ -80,6 +80,36 @@ it('restores a confirmed chunk before the static bundle catches up and keeps an 
     data: {
       ...data,
       bundle: { ...data.bundle, tooltips: { 123: confirmed, 400: ambiguous } },
+    },
+  });
+  expect(useDraftStore.getState().drafts).toEqual({});
+});
+
+it('recognizes a lost response after the Worker carries numbered translations', async () => {
+  const en = { ...tooltip.text.en!, text: 'Damage 10.' };
+  const base = {
+    ...second,
+    text: { en, de: { ...en, text: 'Schaden #{=1}.', sourceUpdatedAt: en.updatedAt } },
+  };
+  const next = {
+    ...base,
+    text: {
+      ...base.text,
+      en: { ...en, text: 'Damage 20.', updatedAt: '2026-01-02T00:00:00.000Z' },
+    },
+  };
+  const saved = records();
+  saved[1] = { ...saved[1], tooltips: [next], submitted: { 400: { base, next } } };
+  const data = start(saved);
+  await Promise.resolve();
+  const raw = structuredClone(next);
+  Object.assign(raw.text.en, { numbers: reconcileNumberMap(base.text.en, raw.text.en, raw) });
+  const carried = carryNumberTranslations(base, raw);
+  expect(carried.carried).toEqual(['de']);
+  useDataStore.setState({
+    data: {
+      ...data,
+      bundle: { ...data.bundle, tooltips: { 123: confirmed, 400: carried.tooltip } },
     },
   });
   expect(useDraftStore.getState().drafts).toEqual({});

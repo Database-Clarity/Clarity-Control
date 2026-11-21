@@ -5,6 +5,7 @@ import {
   batchIntentDigest,
   batchPublishPayloadSchema,
   batchSchema,
+  activeDraftStaging,
   scheduleEnvelopeSchema,
   scheduleIntentSchema,
   scheduleRequestSchema,
@@ -66,11 +67,12 @@ export function verifiedSource(pub: Publisher, raw: unknown) {
       : !['draft', 'scheduled'].includes(batch.status))
   )
     throw new InvalidScheduleIntent('Signed schedule source identity mismatch');
+  const stage = activeDraftStaging(batch, Date.parse(intent.createdAt));
   if (
-    batch.draftStaging &&
+    stage &&
     (intent.kind !== 'save' ||
-      intent.draftStaging?.id !== batch.draftStaging.id ||
-      intent.requester.id !== batch.draftStaging.ownerId)
+      intent.draftStaging?.id !== stage.id ||
+      intent.requester.id !== stage.ownerId)
   )
     throw new InvalidScheduleIntent('The signed request does not own the unfinished draft save');
   return { intent, tree, batch, members };
