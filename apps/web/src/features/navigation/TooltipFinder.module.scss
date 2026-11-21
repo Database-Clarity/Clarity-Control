@@ -197,6 +197,7 @@
     }
 
     small {
+      grid-column-end: -1;
       justify-content: flex-start;
       text-overflow: ellipsis;
     }
@@ -430,18 +431,15 @@
   display: flex;
   align-items: center;
 }
-// A two-line row's context sits under its name, so there is no edge to keep: the markers take only
-// the width they draw, at the row's right edge, and the name gets the rest.
+// On the sheet, markers take only the space they draw. In a grouped row the context
+// runs underneath them, across the full text width.
+.popup[data-variant='sheet'] .option,
 .option[data-two-line] {
   --finder-marker-width: auto;
 
-  > .markers {
-    grid-row: 1 / span 2;
-
-    > * {
-      width: auto;
-      flex-basis: auto;
-    }
+  > .markers > * {
+    width: auto;
+    flex-basis: auto;
   }
 }
 

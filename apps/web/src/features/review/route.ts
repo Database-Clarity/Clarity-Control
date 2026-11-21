@@ -36,19 +36,21 @@ export function initialReviewParams(
 
 /** Normalize prepared selection, then start loading the published text of every waiting change. */
 export function reviewRoute({ request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  const params = url.searchParams;
+  // Batches carries the Saved filters for later. Canonicalizing the Saved hash here would
+  // redirect a batch navigation and discard its history state.
+  if (params.get('view') === 'batches') return null;
   const data = useDataStore.getState().data;
   if (!data) return null;
   const entries = preparedPending(data, acknowledgedMarkers(data));
   if (!entries) return null;
-  const url = new URL(request.url);
-  const params = url.searchParams;
   const next = initialReviewParams(params, entries);
   // Finish canonical routing before mounting: a post-mount history replacement
   // flushes the newly inserted workspace layout and renders its parent again.
   if (next.toString() !== params.toString())
     return redirect(`/review${next.size ? `?${next}` : ''}`);
-  // The Batches subview shows no saved change: nothing to compare.
-  if (apiUrl && useAuthStore.getState().user?.role && params.get('view') !== 'batches')
+  if (apiUrl && useAuthStore.getState().user?.role)
     // Background only: the route commits at once, and rows never wait for these requests.
     void loadPublished(publishedRows(entries));
   return null;

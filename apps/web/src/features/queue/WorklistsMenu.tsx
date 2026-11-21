@@ -380,9 +380,9 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
         ))}
       {user && (
         <div className={styles.row}>
-          <span role="status">
+          <p role="status">
             {notice || (saving.length ? 'Saving…' : 'Saved worklists sync to your account.')}
-          </span>
+          </p>
           <button type="button" onClick={() => void syncWorklists()}>
             Sync
           </button>

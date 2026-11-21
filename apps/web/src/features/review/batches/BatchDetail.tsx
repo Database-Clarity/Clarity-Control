@@ -178,7 +178,7 @@ export function BatchDetail({ entry }: { entry: IndexEntry }) {
   return (
     <section aria-label={`Batch ${batch.name}`} data-batch={batch.id} data-status={batch.status}>
       <div className={styles.identity}>
-        <h2 title={batch.name}>{batch.name}</h2>
+        <h2>{batch.name}</h2>
         <span className={styles.chip} data-tone={chip.tone}>
           {chip.label}
         </span>
@@ -1010,9 +1010,7 @@ function MemberRow({
           onClick={() => setOpen(!open)}
         >
           <span className={styles.chevron} aria-hidden="true" />
-          <span className={styles.memberName} title={name}>
-            {name}
-          </span>
+          <span className={styles.memberName}>{name}</span>
         </button>
         <span className={styles.memberInfo}>
           <span className={styles.muted}>{member.hash}</span>
