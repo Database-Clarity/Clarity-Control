@@ -125,9 +125,12 @@ describe('prepared workflows', () => {
     for (const file of [main, exportsYml]) expect(file).toContain('secrets: inherit');
   });
 
-  it('the publish pipeline ignores config-only pushes', () => {
+  it('the publish pipeline ignores config-only and Current save staging-only pushes', () => {
     expect(pipeline).toMatch(
-      /branches: \[editor-data\]\n {4}# .*\n {4}paths-ignore: \['exports\/\*\*', 'glossary\/\*\*', 'snippets\/\*\*', 'config\/marks\.json'\]/,
+      /branches: \[editor-data\]\n(?: {4}# .*\n)* {4}paths-ignore:/,
+    );
+    expect(pipeline).toContain(
+      "paths-ignore: ['exports/**', 'glossary/**', 'snippets/**', 'config/marks.json', 'current-saves/**']",
     );
   });
 

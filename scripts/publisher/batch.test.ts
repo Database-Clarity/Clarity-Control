@@ -1382,6 +1382,9 @@ describe('scheduled batches (simulator)', () => {
       'globalsExportsV1',
       'scheduledGlobalsV1',
       'schedulePreparationV1',
+      'draftBatchStagingV1',
+      'scheduledBatchStagingV1',
+      'currentSaveStagingV1',
       'exoticTags',
     ]);
     const f = await setup();
