@@ -298,6 +298,8 @@ type Layout = {
   headerGap: number;
   /** The header line's width after the items before the tools (language, draft dot). */
   room: number;
+  /** The whole header line, when the tools need a row of their own. */
+  rowWidth: number;
   /** More's square, and the queue stepper's width (0 without a queue). */
   more: number;
   queue: number;
@@ -311,7 +313,7 @@ type Layout = {
  */
 export function phoneFit(
   widths: readonly number[],
-  layout: Omit<Layout, 'widths'>,
+  layout: Omit<Layout, 'widths' | 'rowWidth'>,
   alwaysMore = false,
 ) {
   const { gap, headerGap, room, more, queue } = layout;
@@ -362,8 +364,9 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
   useLayoutEffect(() => {
     const row = slot.current;
     const copy = measure.current;
-    const header = row?.parentElement;
-    if (!row || !copy || !header || typeof ResizeObserver !== 'function') return;
+    const group = row?.parentElement;
+    const header = group?.parentElement;
+    if (!row || !copy || !group || !header || typeof ResizeObserver !== 'function') return;
     let first = true;
     let last = '';
     // Every size read here is independent of the fit (never the tools slot or the line it wraps
@@ -376,17 +379,21 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
       const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
       const box = getComputedStyle(header);
       const headerGap = parseFloat(box.columnGap) || 0;
-      let room =
+      const rowWidth =
         header.clientWidth -
         (parseFloat(box.paddingLeft) || 0) -
         (parseFloat(box.paddingRight) || 0);
+      let room = rowWidth;
       for (const item of header.children) {
-        if (item === row) break;
+        if (item === group) break;
         const width = item.getBoundingClientRect().width;
-        if (width) room -= width + headerGap;
+        if (!width) continue;
+        // Without a queue the tools can join the last line, even if an earlier item wrapped.
+        if (!hasQueue && width > room) room = rowWidth;
+        room -= width + headerGap;
       }
       const queue = queueBox.current?.getBoundingClientRect().width ?? 0;
-      const next = { widths, gap, headerGap, room, more: square, queue };
+      const next = { widths, gap, headerGap, room, rowWidth, more: square, queue };
       const id = JSON.stringify(next);
       if (id === last) return;
       last = id;
@@ -397,24 +404,29 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
     });
     // The copy is a 0x0 clip: its tools (whole width, no wrap) are what change size.
     observer.observe(header);
-    for (const item of header.children) if (item !== row) observer.observe(item);
+    for (const item of header.children) if (item !== group) observer.observe(item);
     for (const child of copy.children) observer.observe(child);
     if (queueBox.current) observer.observe(queueBox.current);
     return () => observer.disconnect();
   }, [key, hasQueue]);
   // Unmeasured (no layout yet, or no ResizeObserver): every tool in More (a lone one inline).
-  const count = layout
-    ? phoneFit(
-        tools.map((tool) => layout.widths[tool.label] ?? 0),
-        layout,
-        Boolean(props.extra),
-      )
-    : tools.length <= 1
-      ? tools.length
-      : 0;
+  const widths = tools.map((tool) => layout?.widths[tool.label] ?? 0);
+  const alwaysMore = Boolean(props.extra);
+  let count = layout ? phoneFit(widths, layout, alwaysMore) : tools.length <= 1 ? tools.length : 0;
+  const wrap =
+    !!layout &&
+    !hasQueue &&
+    count === 0 &&
+    (tools.length > 0 || alwaysMore) &&
+    layout.more > layout.room;
+  if (wrap) count = phoneFit(widths, { ...layout, room: layout.rowWidth }, alwaysMore);
   const overflow = new Set(tools.slice(count).map((tool) => tool.id));
   return (
-    <>
+    <span
+      className={styles.phoneRow}
+      data-queue={hasQueue || undefined}
+      data-wrap={wrap || undefined}
+    >
       <span ref={slot} className={styles.tools}>
         {tools.slice(0, count).map((tool) => (
           <InlineTool key={tool.id} tool={tool} {...props} />
@@ -444,7 +456,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
           />
         )}
       </span>
-    </>
+    </span>
   );
 }
 

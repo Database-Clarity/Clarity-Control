@@ -618,7 +618,7 @@ function Trust({ report }: { report: PaneReport }) {
         data-trust="anonymous"
         title="Anonymous report: counts for much less"
       >
-        ○ anonymous
+        ○&nbsp;anonymous
       </span>
     );
   const history = report.reporter_history;
@@ -626,7 +626,7 @@ function Trust({ report }: { report: PaneReport }) {
   if (report.trust === 'role')
     return (
       <span className={styles.trust} data-trust="role" title="Filed by a role holder">
-        ◆ {login}
+        ◆&nbsp;{login}
       </span>
     );
   return (
@@ -635,7 +635,7 @@ function Trust({ report }: { report: PaneReport }) {
       data-trust="account"
       title="Signed-in reporter; accepted = fixed or closed"
     >
-      ● {login}
+      ●&nbsp;{login}
       {history && ` · filed ${history.filed}, accepted ${history.accepted}`}
     </span>
   );
