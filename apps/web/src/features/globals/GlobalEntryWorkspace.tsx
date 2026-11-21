@@ -70,7 +70,6 @@ import { definitionPath } from '../editor/definitionPath';
 import { canonicalHash, classifiedCategory, itemFor, listName } from '../navigation/catalog';
 import { FinderIcon } from '../navigation/FinderIcon';
 import { globalUsageIndex, type GlobalUsageIndex, type GlobalUsages } from './usages';
-import { applySavedGlobals } from '../../stores/savedOverlay';
 
 const globals = { variables: '', titles: '' };
 type Action = 'create' | 'rename' | 'remove' | 'remove-language';
@@ -292,14 +291,15 @@ function Workspace({
     () => (data ? tooltipTextSources(data.bundle.tooltips, {}, data.aliases) : undefined),
     [data],
   );
-  const {
-    uses,
-    entries: usageEntries,
-    error: usageError,
-  } = useGlobalUsages(data, snapshot.entries, openId, shownTab === 'usages');
+  const { uses, error: usageError } = useGlobalUsages(
+    data,
+    snapshot.entries,
+    openId,
+    shownTab === 'usages',
+  );
   const allRows = useMemo(
-    () => usageRows(uses ?? noUses, savedImpacts, data, usageEntries, lang),
-    [uses, savedImpacts, data, usageEntries, lang],
+    () => usageRows(uses ?? noUses, savedImpacts, data, snapshot.entries, lang),
+    [uses, savedImpacts, data, snapshot.entries, lang],
   );
   const [reviewReload, setReviewReload] = useState(0);
   const [reviewError, setReviewError] = useState('');
@@ -1186,31 +1186,30 @@ const noUses: GlobalUsages = { tooltips: [], globals: [] };
  */
 function useGlobalUsages(
   data: EditorData | null,
-  snapshotEntries: readonly GlobalEntry[],
+  entries: readonly GlobalEntry[],
   id: string | undefined,
   wanted: boolean,
 ) {
-  const bundle = data?.bundle;
-  const catalog = bundle?.globals;
-  const entries = useMemo(
-    () =>
-      bundle && catalog?.usages
-        ? applySavedGlobals(bundle, catalog.entries, undefined, false)
-        : snapshotEntries,
-    [bundle, catalog, snapshotEntries],
-  );
+  const catalog = data?.bundle.globals;
   const saved = entries.find((entry) => entry.id === id);
   const bundled = catalog?.entries.find((entry) => entry.id === id);
-  const precomputed =
-    catalog?.usages && id
-      ? !saved || saved.tombstone
-        ? noUses
-        : saved === bundled
-          ? catalog.usages[id]
-          : undefined
+  const bundledInputs = data?.bundledUsageInputs;
+  const overlaid =
+    data &&
+    bundledInputs &&
+    (bundledInputs.tooltips !== data.bundle.tooltips || bundledInputs.aliases !== data.aliases);
+  const precomputed = saved?.tombstone
+    ? noUses
+    : !overlaid &&
+        saved &&
+        bundled?.revision === saved.revision &&
+        bundled.name === saved.name &&
+        bundled.kind === saved.kind &&
+        !bundled.tombstone
+      ? catalog?.usages?.[saved.id]
       : undefined;
-  // Older bundles share one sliced calculation. A present payload only needs the entry
-  // this tab saved, and only while the bundle still lacks that saved revision.
+  // A present payload can miss an entry or predate a save. Recheck only the opened
+  // entry against the editor's current catalogue and tooltips. Older bundles share a full pass.
   const only = catalog?.usages ? id : undefined;
   const hasId = id !== undefined;
   const input = useMemo(
@@ -1257,7 +1256,7 @@ function useGlobalUsages(
     () => precomputed ?? (id && current?.index ? current.index.of(id) : undefined),
     [precomputed, id, current?.index],
   );
-  return { uses, entries, error: current?.error ?? '' };
+  return { uses, error: current?.error ?? '' };
 }
 
 interface UsageRow {

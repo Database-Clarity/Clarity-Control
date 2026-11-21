@@ -16,7 +16,8 @@ import type { GlobalSnapshot, GlobalsService } from '../src/services/globals';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 import { useGlobalDraftStorage } from '../src/features/globals/globalDrafts';
 import { useDataStore, type EditorData } from '../src/stores/data';
-import { clearSavedOverlay, rememberSavedGlobal } from '../src/stores/savedOverlay';
+import { clearSavedOverlay } from '../src/stores/savedOverlay';
+import { applyHeadToData } from '../src/stores/conflicts';
 
 let change: (value: string) => void;
 vi.mock('../src/features/editor/ClarityEditor', () => ({
@@ -435,6 +436,7 @@ it('uses the bundle until a save, only replaces the saved row, and adopts a refr
       },
     },
   } as unknown as EditorData;
+  data.bundledUsageInputs = { tooltips: data.bundle.tooltips, aliases: data.aliases };
   useDataStore.setState({ status: 'ready', data });
   const globals = service(snapshot);
   const href = () => host.querySelector('[data-global-usage] a')?.getAttribute('href');
@@ -449,10 +451,7 @@ it('uses the bundle until a save, only replaces the saved row, and adopts a refr
     const entry = next.entries[0];
     entry.revision = revision;
     entry.definitions.en!.body = `Saved ${revision}`;
-    globals.mutate.mockImplementationOnce(async () => {
-      rememberSavedGlobal(entry, next.head);
-      return { kind: 'ok', value: next };
-    });
+    globals.mutate.mockResolvedValueOnce({ kind: 'ok', value: next });
     await act(async () => button('Save').click());
     await vi.waitFor(async () => {
       await act(async () => {});
@@ -463,7 +462,54 @@ it('uses the bundle until a save, only replaces the saved row, and adopts a refr
   await act(async () => navigate(`/globals/${title.id}`));
   expect(host.textContent).toContain('Not used by any tooltip.');
   expect(href()).toBeUndefined();
+
+  // A saved tooltip can introduce and remove a use without a global edit.
+  const added = { ...data.bundle.tooltips[31], hash: 32 };
+  await act(async () => applyHeadToData(32, added));
+  expect(host.querySelector('[data-global-usage="t:32"] a')?.getAttribute('href')).toBe(
+    '/t/32?lang=en&variant=32&line=1',
+  );
+  await act(async () => applyHeadToData(32, null));
+  expect(host.querySelector('[data-global-usage="t:32"]')).toBeNull();
+
+  await act(async () =>
+    useDataStore.setState({
+      data: { ...data, aliases: { 31: { to: 42, kind: 'sandbox' } } },
+    }),
+  );
+  expect(href()).toBe('/t/42?lang=en&variant=31&line=1');
+
+  // The Worker snapshot can know about an ID created after the bundle was built.
+  await act(async () => {
+    useDataStore.setState({
+      data: {
+        ...data,
+        bundle: {
+          ...data.bundle,
+          globals: {
+            ...data.bundle.globals!,
+            entries: [damage],
+            usages: { [damage.id]: { ...empty, tooltips: [row] } },
+          },
+        },
+      },
+    });
+  });
+  expect(href()).toBe('/t/31?lang=en&variant=31&line=1');
   await act(async () => navigate(`/globals/${damage.id}`));
+
+  // The existing save overlay replaces tooltips independently of the globals catalogue.
+  await act(async () => applyHeadToData(30, null));
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(host.textContent).toContain('Not used by any tooltip.');
+    expect(href()).toBeUndefined();
+  });
+  await act(async () => applyHeadToData(30, data.bundle.tooltips[30]));
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(href()).toBe('/t/30?lang=en&variant=30&line=1');
+  });
 
   // A background bundle refresh can arrive while the service still holds its old snapshot.
   await act(async () => {
