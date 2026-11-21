@@ -1,1 +1,0 @@
-const o="_dialog_1kipo_1",_="_compact_1kipo_139",c="_form_1kipo_143",t="_hint_1kipo_148",s="_caption_1kipo_157",e="_header_1kipo_171",i="_body_1kipo_178",n="_closeMark_1kipo_182",p="_footer_1kipo_186",a="_close_1kipo_182",k="_closeText_1kipo_243",l={dialog:o,compact:_,form:c,hint:t,caption:s,header:e,body:i,closeMark:n,footer:p,close:a,closeText:k};export{l as s};
