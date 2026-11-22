@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import {
   emptyGitTree,
+  globalConfigIdentity,
   globalIdentityDigest,
   globalLayoutSchema,
   globalPublishedSchema,
   globalsReleasePaths,
+  globalsConfigWithoutMarks,
   observeGlobalSources,
   planGlobalRelease,
   reconcileGlobalStore,
@@ -115,14 +117,8 @@ export interface GlobalReleaseReceipt {
   batchSource?: string;
 }
 
-/** Exact Git tree OID from the repository's flat blob tree, without shelling out or reading blobs. */
-export function globalTreeOid(
-  tree: Tree,
-  prefix: string,
-  modes: Record<string, string> = {},
-): string {
+function globalTreeEntries(tree: Tree, prefix: string, modes: Record<string, string> = {}) {
   const entries = Object.entries(tree).filter(([path]) => path.startsWith(`${prefix}/`));
-  if (!entries.length) return emptyGitTree;
   const files = new Map<string, string>(),
     directories = new Set<string>();
   for (const [path, oid] of entries) {
@@ -131,25 +127,36 @@ export function globalTreeOid(
     if (slash < 0) files.set(rest, oid);
     else directories.add(rest.slice(0, slash));
   }
-  const parts = [
-    ...[...files].map(([name, oid]) => ({ name, oid, directory: false })),
+  return [
+    ...[...files].map(([name, oid]) => ({
+      name,
+      oid,
+      mode: modes[`${prefix}/${name}`] ?? '100644',
+    })),
     ...[...directories].map((name) => ({
       name,
       oid: globalTreeOid(tree, `${prefix}/${name}`, modes),
-      directory: true,
+      mode: '40000',
     })),
-  ].sort((a, b) =>
+  ];
+}
+
+/** Exact Git tree OID from the repository's flat blob tree, without shelling out or reading blobs. */
+export function globalTreeOid(
+  tree: Tree,
+  prefix: string,
+  modes: Record<string, string> = {},
+): string {
+  const parts = globalTreeEntries(tree, prefix, modes).sort((a, b) =>
     Buffer.compare(
-      Buffer.from(a.name + (a.directory ? '/' : '')),
-      Buffer.from(b.name + (b.directory ? '/' : '')),
+      Buffer.from(a.name + (a.mode === '40000' ? '/' : '')),
+      Buffer.from(b.name + (b.mode === '40000' ? '/' : '')),
     ),
   );
+  if (!parts.length) return emptyGitTree;
   const bytes = Buffer.concat(
-    parts.map(({ name, oid, directory }) =>
-      Buffer.concat([
-        Buffer.from(`${directory ? '40000' : (modes[`${prefix}/${name}`] ?? '100644')} ${name}\0`),
-        Buffer.from(oid, 'hex'),
-      ]),
+    parts.map(({ name, oid, mode }) =>
+      Buffer.concat([Buffer.from(`${mode} ${name}\0`), Buffer.from(oid, 'hex')]),
     ),
   );
   return createHash('sha1').update(`tree ${bytes.length}\0`).update(bytes).digest('hex');
@@ -208,13 +215,23 @@ export class GlobalsPublisher {
     )
       throw new Error('Installed publisher lacks globalsExportsV1');
     const modes = this.git.treeModes?.(head ?? this.publisher.head(this.options.dataBranch)) ?? {};
+    // Historical causes retain the config identity used by the publisher installed at that head.
+    const config = pin.capabilities.includes(globalsConfigWithoutMarks)
+      ? await globalConfigIdentity(
+          globalTreeEntries(tree, 'config', modes).map(({ name, oid, mode }) => ({
+            nameRaw: Buffer.from(name).toString('base64'),
+            oid,
+            mode: parseInt(mode, 8),
+          })),
+        )
+      : globalTreeOid(tree, 'config', modes);
     return observeGlobalSources({
       authored: globalTreeOid(tree, 'tooltips', modes),
       definitions: globalTreeOid(tree, 'globals/entries', modes),
       projections: globalTreeOid(tree, 'globals/projections', modes),
       layout: tree[globalsReleasePaths.layout],
       published: tree[globalsReleasePaths.published(this.options.liveBranch)],
-      config: globalTreeOid(tree, 'config', modes),
+      config,
       live,
       upcoming: globalTreeOid(tree, 'schedule', modes),
       aliasGroups: tree['config/alias-groups.json'] ?? null,

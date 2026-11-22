@@ -1,5 +1,10 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { emptyGitTree, observeGlobalSources, type GlobalSources } from '@clarity/core';
+import {
+  emptyGitTree,
+  globalsConfigWithoutMarks,
+  observeGlobalSources,
+  type GlobalSources,
+} from '@clarity/core';
 import type { GlobalRecord } from '../../../packages/core/src/globals/model.js';
 import { GitHub } from '../src/github.js';
 import { namePaths } from '../src/globals/index.js';
@@ -100,6 +105,31 @@ const read = async (path: string, user = 1, method = 'GET', value?: unknown) => 
 };
 
 describe('global entry routes (S5 integration)', () => {
+  it('excludes only root marks and verifies the complete config tree against the raw Git OID', async () => {
+    bootstrap();
+    f.moveData({
+      '.publisher/PIN': {
+        sourceSha: pinSource,
+        capabilities: ['globalsRelease', 'globalsExportsV1', globalsConfigWithoutMarks],
+      },
+    });
+    const github = new GitHub(f.env);
+    const before = await observeGlobals(github);
+    f.moveData({ 'config/marks.json': { changed: true } });
+    expect((await observeGlobals(github)).sources).toEqual(before.sources);
+
+    f.moveData({ 'config/other/marks.json': { nested: true } });
+    const nested = await observeGlobals(github);
+    expect(nested.sources.config).not.toBe(before.sources.config);
+    f.moveData({ 'config/inactive.json': {} });
+    expect((await observeGlobals(github)).sources.config).not.toBe(nested.sources.config);
+
+    f.configEntriesOverride = [];
+    await expect(observeGlobals(github)).rejects.toMatchObject({
+      status: 503,
+      message: fixed.message,
+    });
+  });
   it('stays off before authentication by default', async () => {
     vi.mocked(globalsSwitch.enabled).mockReturnValue(false);
     const result = await read(entryPath);

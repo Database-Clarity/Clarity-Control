@@ -245,7 +245,7 @@ it('follows one reviewed request through Sync pending, Publishing, and Published
     expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
   });
   postAnswer = accepted;
-  vi.setSystemTime(Date.now() + publishTiming.sendBackoffMs(0) + 500);
+  vi.setSystemTime(Date.now() + publishTiming.pollMs(0) + 500);
   await act(async () => void (await publishDriver.refresh()));
   await waitFor(() => expect(posts()).toHaveLength(2));
   expect(posts()[1]!.body).toEqual(body);

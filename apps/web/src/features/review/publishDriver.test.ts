@@ -686,6 +686,40 @@ it('shows Sync pending and retries the same reviewed request until proof is read
   expect(usePublishState.getState().notes[created.opId]).toBeUndefined();
 });
 
+it.each(['unknown', 'pending'] as const)(
+  'keeps the sync deadline through reload and reconciles a Worker status of %s',
+  async (remote) => {
+    const h = harness();
+    const first = h.make();
+    await first.start('1');
+    h.api.post.mockRejectedValue(
+      new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode),
+    );
+    const created = await first.create(inputs);
+    await settle();
+    const deadline = Date.now() + publishTiming.syncWaitMs;
+    expect(op().syncPendingSince).toBe(Date.now());
+    first.stop();
+    vi.setSystemTime(deadline - 300);
+    const reloaded = h.make();
+    h.api.status.mockResolvedValue(remote);
+    // Keep the same rejection if this tab manages one last send before the deadline.
+    h.api.post.mockRejectedValue(
+      new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode),
+    );
+    await reloaded.start('1');
+    await vi.advanceTimersByTimeAsync(800);
+    expect(h.api.status).toHaveBeenCalledWith(created.opId);
+    expect(op().status).toBe(remote === 'unknown' ? 'failed' : 'pending');
+    if (remote === 'unknown') {
+      expect(op().error).toContain('Sync is still pending for tooltips 10, 20.');
+      const sends = h.api.post.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(h.api.post).toHaveBeenCalledTimes(sends);
+    }
+  },
+);
+
 it('never kicks an operation a pass just found finished', async () => {
   const h = harness();
   const driver = h.make();

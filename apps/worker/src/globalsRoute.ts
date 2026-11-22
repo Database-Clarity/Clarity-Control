@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import {
   emptyGitTree,
+  globalConfigIdentity,
   globalSourcePaths,
+  globalsConfigWithoutMarks,
   langSchema,
   globalsReleasePaths,
   observeGlobalSources,
@@ -87,6 +89,7 @@ export async function observeGlobals(
       ],
       ['config/permissions.json', '.publisher/PIN', '.publisher/installed.json'],
       262_144,
+      globalSourcePaths.config,
     );
   } catch (error) {
     if (error instanceof HttpError && error.status === 503) throw error;
@@ -112,13 +115,18 @@ export async function observeGlobals(
   if (!installedFile || installedFile.bytes.byteLength > 1024) throw incomplete();
   const metadata = installedMetadataSchema.safeParse(parseRaw(installedFile.bytes));
   if (!metadata.success || metadata.data.configOid !== installed) throw incomplete();
+  const configIdentity = pin.data.capabilities.includes(globalsConfigWithoutMarks)
+    ? await globalConfigIdentity(observed.configEntries, config).catch(() => {
+        throw rawReadFailure();
+      })
+    : config;
   const sources = await observeGlobalSources({
     authored,
     definitions: definitions ?? emptyGitTree,
     projections: projections ?? emptyGitTree,
     layout,
     published,
-    config,
+    config: configIdentity,
     live: observed.live,
     upcoming: upcoming ?? emptyGitTree,
     aliasGroups,

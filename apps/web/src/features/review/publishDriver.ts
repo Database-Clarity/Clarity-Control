@@ -26,6 +26,8 @@ export const publishTiming = {
   foreignAttemptMs: 8_000,
   /** The Worker only creates requests whose opId time is within 24 h; stop resending before that. */
   sendExpiryMs: 23 * 3_600_000,
+  /** Proof refresh can take several minutes after a large save. */
+  syncWaitMs: 10 * 60_000,
   /** Finished operations are kept (they back the acknowledgment overlay) for a day. */
   retainMs: 24 * 3_600_000,
   /** After a reload only operations this fresh rebuild acknowledgments (bundle lag is minutes). */
@@ -102,6 +104,9 @@ export function publishChunks(inputs: readonly PublishInput[]): PublishInput[][]
 export function activeHashes(ops: readonly PublishOp[]): Set<number> {
   return new Set(ops.filter((op) => !isTerminal(op.status)).flatMap((op) => op.hashes));
 }
+
+const syncDeadline = (op: PublishOp) =>
+  op.syncPendingSince === undefined ? Infinity : op.syncPendingSince + publishTiming.syncWaitMs;
 
 export class PublishDriver {
   private userId: string | null = null;
@@ -351,7 +356,10 @@ export class PublishDriver {
       if (op.status === 'created') {
         if (!(await this.groupReady(op))) continue;
         const retry = this.attempts.get(op.opId);
-        const due = retry ? retry.at : (op.polledAt ?? 0) + publishTiming.foreignAttemptMs;
+        const due = Math.min(
+          syncDeadline(op),
+          retry ? retry.at : (op.polledAt ?? 0) + publishTiming.foreignAttemptMs,
+        );
         if (due <= now) await this.send(op.opId);
       } else if (op.status === 'pending') {
         const accepted = op.acceptedAt ?? op.createdAt;
@@ -398,6 +406,7 @@ export class PublishDriver {
         const retry = this.attempts.get(op.opId);
         next = Math.min(
           next,
+          syncDeadline(op),
           retry ? retry.at : (op.polledAt ?? 0) + publishTiming.foreignAttemptMs,
         );
       } else {
@@ -528,13 +537,29 @@ export class PublishDriver {
         if (!(await this.groupReady(op))) return;
       }
       const now = this.deps.now();
-      if (op.status === 'created' && now - op.createdAt > publishTiming.sendExpiryMs) {
+      const syncExpired = now >= syncDeadline(op);
+      if (
+        op.status === 'created' &&
+        (syncExpired || now - op.createdAt > publishTiming.sendExpiryMs)
+      ) {
         // The window for (re)creating the request has closed, but the Worker may already hold it (a
         // lost 202). Only the Worker's own answer can say so: never infer non-delivery from age.
         let remote: RemoteStatus | 'unknown';
         try {
           remote = await this.deps.api.status(opId);
         } catch {
+          if (generation !== this.generation) return;
+          if (syncExpired) {
+            await this.settle(
+              opId,
+              {
+                status: 'failed',
+                error: `Sync is still pending for tooltips ${op.hashes.join(', ')}. Check publish status before trying again.`,
+              },
+              true,
+            );
+            return;
+          }
           this.attempts.set(opId, { count: 9, at: now + publishTiming.sendBackoffMs(9) });
           this.note(
             opId,
@@ -548,7 +573,9 @@ export class PublishDriver {
             opId,
             {
               status: 'failed',
-              error: `The publisher has no record of this request and it is too old to send. Review and publish tooltips ${op.hashes.join(', ')} again.`,
+              error: syncExpired
+                ? `Sync is still pending for tooltips ${op.hashes.join(', ')}. Publish again after sync finishes.`
+                : 'The Worker has no record of this publish and it is too old to send. Publish again.',
             },
             true,
           );
@@ -603,7 +630,28 @@ export class PublishDriver {
       });
       return;
     }
-    if (status === 409 && !syncPending) {
+    if (syncPending) {
+      if (op.syncPendingSince === undefined) {
+        await this.claim(op.opId, (current, now) =>
+          current.status === 'created' && current.syncPendingSince === undefined
+            ? { ...current, syncPendingSince: now }
+            : undefined,
+        );
+        if (generation !== this.generation) return;
+        await this.reload(generation);
+        if (generation !== this.generation) return;
+      }
+      const waiting = this.current(op.opId);
+      if (waiting?.status !== 'created') return;
+      const now = this.deps.now();
+      this.attempts.set(op.opId, {
+        count: 0,
+        at: now + publishTiming.pollMs(now - (waiting.syncPendingSince ?? now)),
+      });
+      this.note(op.opId, 'Sync pending. Publishing will continue automatically.');
+      return;
+    }
+    if (status === 409) {
       await this.settle(op.opId, {
         status: 'failed',
         error:
@@ -641,14 +689,14 @@ export class PublishDriver {
       });
       return;
     }
-    if (status >= 400 && status < 500 && status !== 408 && status !== 429 && !syncPending) {
+    if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
       await this.settle(op.opId, {
         status: 'failed',
         error: `The Worker rejected this publish (HTTP ${status}). Publish again.`,
       });
       return;
     }
-    // Sync, offline, timeout, 5xx, 429: keep the record and resend the same opId and body.
+    // Offline, timeout, 5xx, 429: keep the record and resend the same opId and body.
     const count = (this.attempts.get(op.opId)?.count ?? 0) + 1;
     this.attempts.set(op.opId, {
       count,
@@ -683,13 +731,11 @@ export class PublishDriver {
     }
     this.note(
       op.opId,
-      syncPending
-        ? 'Sync pending. Publishing will continue automatically.'
-        : status === 0
-          ? 'Offline; retrying.'
-          : workerError
-            ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
-            : `Worker busy (HTTP ${status}); retrying.`,
+      status === 0
+        ? 'Offline; retrying.'
+        : workerError
+          ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
+          : `Worker busy (HTTP ${status}); retrying.`,
     );
   }
 

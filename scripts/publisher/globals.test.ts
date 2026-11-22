@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { inventoryGlobals, projectGlobals } from '../../packages/core/src/globals/projection.js';
 import {
   composeGlobalRelease,
+  globalsConfigWithoutMarks,
   observeGlobalSources,
 } from '../../packages/core/src/globalsRelease/index.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
@@ -959,6 +960,10 @@ describe('dependency-safe global release', () => {
     const moved = { by: 1, at: new Date(now).toISOString() };
     f.options.aliases[140] = { to: 42, kind: 'sandbox' };
     f.change({
+      '.publisher/PIN': {
+        ...f.read('.publisher/PIN'),
+        capabilities: ['globalsRelease', globalsConfigWithoutMarks],
+      },
       'config/inactive.json': { [hash]: moved, 140: moved, 141: { ...moved, inactive: false } },
     });
     await f.globals.drain();
@@ -974,6 +979,10 @@ describe('dependency-safe global release', () => {
       sources: f.read(publicationSourcesPath('converter-v2-test')),
       consumer: { hash, lang: 'en', destination: 'converter-v2-test' },
     });
+    const before = await f.globals.sources(f.current(), f.git.head(L)!, f.git.head(D)!);
+    f.change({ 'config/marks.json': { editorialOnly: true } });
+    expect(await f.globals.sources(f.current(), f.git.head(L)!, f.git.head(D)!)).toEqual(before);
+    // A marks edit alone leaves the old certificates current, even without another sync.
     await f.request([42, hash]);
     await f.pub.operation(A);
     expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);

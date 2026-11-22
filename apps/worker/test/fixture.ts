@@ -126,6 +126,7 @@ export class Fixture {
   kicks = new Set<string>();
   /** Raw global Blob field overrides by repository path (binary/truncated/size probes). */
   rawOverrides = new Map<string, Record<string, unknown>>();
+  configEntriesOverride?: unknown;
 
   constructor(privateKey: string) {
     this.env = {
@@ -269,6 +270,7 @@ export class Fixture {
 
   /** Deterministic stand-in for a Git tree OID: changes whenever any file below it changes. */
   treeOid(files: Record<string, unknown>, path: string): string | null {
+    if (path === 'config') return this.rawTree(files, path)?.oid ?? null;
     const prefix = `${path}/`;
     const items = Object.keys(files)
       .filter((name) => name.startsWith(prefix))
@@ -277,6 +279,44 @@ export class Fixture {
     return createHash('sha1')
       .update(JSON.stringify(items.map((name) => [name, blobOid(files[name])])))
       .digest('hex');
+  }
+
+  private rawTree(
+    files: Record<string, unknown>,
+    path: string,
+  ): { oid: string; entries: { nameRaw: string; mode: number; oid: string }[] } | null {
+    const prefix = `${path}/`;
+    const names = new Set(
+      Object.keys(files)
+        .filter((file) => file.startsWith(prefix))
+        .map((file) => file.slice(prefix.length).split('/')[0]!),
+    );
+    if (!names.size) return null;
+    const entries = [...names].map((name) => {
+      const child = `${prefix}${name}`;
+      return Object.hasOwn(files, child)
+        ? { name, mode: 0o100644, oid: blobOid(files[child]) }
+        : { name, mode: 0o40000, oid: this.rawTree(files, child)!.oid };
+    });
+    entries.sort((a, b) =>
+      Buffer.compare(
+        Buffer.from(a.name + (a.mode === 0o40000 ? '/' : '')),
+        Buffer.from(b.name + (b.mode === 0o40000 ? '/' : '')),
+      ),
+    );
+    const bytes = Buffer.concat(
+      entries.flatMap(({ name, mode, oid }) => [
+        Buffer.from(`${mode.toString(8)} ${name}\0`),
+        Buffer.from(oid, 'hex'),
+      ]),
+    );
+    return {
+      oid: createHash('sha1').update(`tree ${bytes.length}\0`).update(bytes).digest('hex'),
+      entries: entries.map(({ name, ...entry }) => ({
+        ...entry,
+        nameRaw: Buffer.from(name).toString('base64'),
+      })),
+    };
   }
 
   private graphql(raw: unknown): Response {
@@ -295,7 +335,16 @@ export class Fixture {
         if (name.startsWith('x'))
           target[name] = value === undefined ? null : { object: this.rawFields(path, value) };
         else if (value !== undefined) target[name] = { type: 'blob', oid: blobOid(value) };
-        else {
+        else if (path === 'config') {
+          const tree = this.rawTree(files, path);
+          target[name] = tree
+            ? {
+                type: 'tree',
+                oid: tree.oid,
+                object: { entries: this.configEntriesOverride ?? tree.entries },
+              }
+            : null;
+        } else {
           const tree = this.treeOid(files, path);
           target[name] = tree ? { type: 'tree', oid: tree } : null;
         }

@@ -36,7 +36,11 @@ export function describeOp(
         ...base,
         tone: 'busy',
         chip: 'Sending…',
-        detail: note ?? 'Saved on this device; sending to the publisher.',
+        detail:
+          note ??
+          (op.syncPendingSince === undefined
+            ? 'Saved on this device; sending to the publisher.'
+            : 'Sync pending. Publishing will continue automatically.'),
       };
     case 'pending': {
       const waiting = now - (op.acceptedAt ?? op.createdAt) >= publishTiming.waitingMs;
