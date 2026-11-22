@@ -50,6 +50,7 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'aliasGroups',
     'globalsRelease',
     'globalsExportsV1',
+    'globalsConfigWithoutMarksV1',
     'scheduledGlobalsV1',
     'schedulePreparationV1',
     'draftBatchStagingV1',

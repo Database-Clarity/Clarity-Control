@@ -43,7 +43,7 @@ async function send(path: string, init?: RequestInit): Promise<{ status: number;
     value = null;
   }
   if (!response.ok) {
-    const error = z.object({ error: z.string(), details: z.unknown() }).safeParse(value);
+    const error = z.object({ error: z.string(), details: z.unknown().optional() }).safeParse(value);
     const details = z.object({ code: z.string() }).safeParse(error.data?.details);
     throw new PublishHttpError(
       response.status,

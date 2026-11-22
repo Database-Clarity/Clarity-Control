@@ -1380,6 +1380,7 @@ describe('scheduled batches (simulator)', () => {
       'aliasGroups',
       'globalsRelease',
       'globalsExportsV1',
+      'globalsConfigWithoutMarksV1',
       'scheduledGlobalsV1',
       'schedulePreparationV1',
       'draftBatchStagingV1',

@@ -26,8 +26,8 @@ export const publishTiming = {
   foreignAttemptMs: 8_000,
   /** The Worker only creates requests whose opId time is within 24 h; stop resending before that. */
   sendExpiryMs: 23 * 3_600_000,
-  /** Proof refresh can take several minutes after a large save. */
-  syncWaitMs: 10 * 60_000,
+  /** Allow the publisher pipeline's 30-minute job timeout plus startup time. */
+  syncWaitMs: 35 * 60_000,
   /** Finished operations are kept (they back the acknowledgment overlay) for a day. */
   retainMs: 24 * 3_600_000,
   /** After a reload only operations this fresh rebuild acknowledgments (bundle lag is minutes). */

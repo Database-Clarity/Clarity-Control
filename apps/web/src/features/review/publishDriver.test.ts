@@ -673,15 +673,20 @@ it('shows Sync pending and retries the same reviewed request until proof is read
   const driver = h.make();
   await driver.start('1');
   const pending = new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode);
-  for (let i = 0; i < 4; i++) h.api.post.mockRejectedValueOnce(pending);
+  const readyAfter = 11 * 60_000;
+  const readyAt = Date.now() + readyAfter;
+  h.api.post.mockImplementation(async () => {
+    if (Date.now() < readyAt) throw pending;
+    return { status: 'pending' };
+  });
   const created = await driver.create(inputs);
   await settle();
   expect(usePublishState.getState().notes[created.opId]).toMatch(/^Sync pending/);
   expect(op().status).toBe('created');
   expect(h.api.kick).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(60_000);
-  expect(h.api.post).toHaveBeenCalledTimes(5);
-  expect(h.api.post.mock.calls).toEqual(Array.from({ length: 5 }, () => h.api.post.mock.calls[0]));
+  await vi.advanceTimersByTimeAsync(readyAfter + 30_000);
+  expect(h.api.post.mock.calls.length).toBeGreaterThan(4);
+  for (const call of h.api.post.mock.calls) expect(call).toEqual(h.api.post.mock.calls[0]);
   expect(op().status).toBe('pending');
   expect(usePublishState.getState().notes[created.opId]).toBeUndefined();
 });
