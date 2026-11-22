@@ -5,6 +5,10 @@ export interface GlobalPublicationConsumer {
   lang: string;
   destination: string;
 }
+export const publicationSyncPendingCode = 'publication-sync-pending';
+export const publicationSourcesPath = (destination: string) =>
+  `globals/proofs/publication-sources/${destination}.json`;
+
 /** S5's bounded authenticated adapter supplies current identities and certificates.
  * Never accept this object from an HTTP request or a stored sources manifest.
  */
@@ -14,6 +18,8 @@ export type GlobalPublicationRead = (
 ) => Promise<{
   sources: GlobalSources;
   sync: unknown;
+  /** Last materialized sources. Used only to explain a refusal. */
+  materializedSources?: unknown;
   certificates: unknown[];
 }>;
 

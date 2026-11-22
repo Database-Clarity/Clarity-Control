@@ -1,3 +1,4 @@
+import { publicationSyncPendingCode } from '@clarity/core';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PublishHttpError, type RemoteStatus } from '../../services/publisher/api';
 import { createMemoryOpStore, type OpStore } from '../../services/publisher/opStore';
@@ -665,6 +666,24 @@ it("shows the Worker's 409 reason; the old sentence is the fallback without one"
     'Sync pending: complete publication proof required',
     'This publish id was already used with different contents. Publish again.',
   ]);
+});
+
+it('shows Sync pending and retries the same reviewed request until proof is ready', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const pending = new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode);
+  for (let i = 0; i < 4; i++) h.api.post.mockRejectedValueOnce(pending);
+  const created = await driver.create(inputs);
+  await settle();
+  expect(usePublishState.getState().notes[created.opId]).toMatch(/^Sync pending/);
+  expect(op().status).toBe('created');
+  expect(h.api.kick).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(h.api.post).toHaveBeenCalledTimes(5);
+  expect(h.api.post.mock.calls).toEqual(Array.from({ length: 5 }, () => h.api.post.mock.calls[0]));
+  expect(op().status).toBe('pending');
+  expect(usePublishState.getState().notes[created.opId]).toBeUndefined();
 });
 
 it('never kicks an operation a pass just found finished', async () => {

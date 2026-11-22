@@ -350,6 +350,7 @@ describe('global entry routes (S5 integration)', () => {
     expect(proof).toEqual({
       sources: (await observeGlobals(new GitHub(f.env))).sources,
       sync: current,
+      materializedSources: null,
       certificates: [certificate, null],
     });
     await expect(reader(sha(5), consumers)).rejects.toMatchObject({ status: 409 });

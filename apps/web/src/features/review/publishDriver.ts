@@ -1,3 +1,4 @@
+import { publicationSyncPendingCode } from '@clarity/core';
 import { create } from 'zustand';
 import { dependencyChunks } from '../../services/dependencyChunks';
 import type { RemoteStatus } from '../../services/publisher/api';
@@ -547,8 +548,7 @@ export class PublishDriver {
             opId,
             {
               status: 'failed',
-              error:
-                'The Worker has no record of this publish and it is too old to send. Publish again.',
+              error: `The publisher has no record of this request and it is too old to send. Review and publish tooltips ${op.hashes.join(', ')} again.`,
             },
             true,
           );
@@ -585,6 +585,11 @@ export class PublishDriver {
     // Only the Worker's own JSON sentence; an edge page's body is not a message to show.
     const workerMessage =
       reason instanceof PublishHttpError && reason.fromWorker ? reason.message.trim() : '';
+    const syncPending =
+      status === 409 &&
+      reason instanceof PublishHttpError &&
+      reason.fromWorker &&
+      reason.code === publicationSyncPendingCode;
     if (status === 401) {
       this.paused.add(op.opId);
       this.note(op.opId, 'Sign in again to continue; nothing is lost.');
@@ -598,9 +603,7 @@ export class PublishDriver {
       });
       return;
     }
-    if (status === 409) {
-      // 409 covers an opId conflict, tooltips that changed since review, and a missing sync proof:
-      // the Worker's sentence is the only thing that tells them apart.
+    if (status === 409 && !syncPending) {
       await this.settle(op.opId, {
         status: 'failed',
         error:
@@ -638,14 +641,14 @@ export class PublishDriver {
       });
       return;
     }
-    if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+    if (status >= 400 && status < 500 && status !== 408 && status !== 429 && !syncPending) {
       await this.settle(op.opId, {
         status: 'failed',
         error: `The Worker rejected this publish (HTTP ${status}). Publish again.`,
       });
       return;
     }
-    // Offline, timeout, 5xx, 429: unresolved. Keep the record and resend the same opId and body.
+    // Sync, offline, timeout, 5xx, 429: keep the record and resend the same opId and body.
     const count = (this.attempts.get(op.opId)?.count ?? 0) + 1;
     this.attempts.set(op.opId, {
       count,
@@ -680,11 +683,13 @@ export class PublishDriver {
     }
     this.note(
       op.opId,
-      status === 0
-        ? 'Offline; retrying.'
-        : workerError
-          ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
-          : `Worker busy (HTTP ${status}); retrying.`,
+      syncPending
+        ? 'Sync pending. Publishing will continue automatically.'
+        : status === 0
+          ? 'Offline; retrying.'
+          : workerError
+            ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
+            : `Worker busy (HTTP ${status}); retrying.`,
     );
   }
 

@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { publishableHash, type Tooltip } from '@clarity/core';
+import { publicationSyncPendingCode, publishableHash, type Tooltip } from '@clarity/core';
 import { Layout } from '../navigation/Layout';
 import { ReviewPage } from './ReviewPage';
 import { useDataStore } from '../../stores/data';
@@ -217,7 +217,7 @@ afterEach(async () => {
 
 const posts = () => calls.filter((c) => c.path === '/publish');
 
-it('confirms, stores and sends one operation, then follows it from Publishing to Published', async () => {
+it('follows one reviewed request through Sync pending, Publishing, and Published', async () => {
   await mount();
   expect(host.textContent).toContain('1 change waiting to go live');
   await selectAll();
@@ -227,12 +227,28 @@ it('confirms, stores and sends one operation, then follows it from Publishing to
   expect(dialog.textContent).toContain('1 new tooltip goes live for everyone using Clarity.');
   expect(dialog.textContent).toContain('Tooltip 10');
   vi.useFakeTimers({ toFake: ['Date'] });
+  const accepted = postAnswer;
+  postAnswer = () =>
+    Response.json(
+      { error: 'Sync pending', details: { code: publicationSyncPendingCode } },
+      { status: 409 },
+    );
   await click('Publish 1');
   await waitFor(() => expect(posts()).toHaveLength(1));
   const body = posts()[0]!.body as { opId: string; hashes: number[]; expected: object };
   expect(Object.keys(body).sort()).toEqual(['expected', 'hashes', 'opId']);
   expect(body.hashes).toEqual([10]);
   expect(body.expected).toEqual({ 10: await publishableHash(tooltip) });
+  await waitFor(() => {
+    const activity = host.querySelector('[aria-label="Publish activity"]')!;
+    expect(activity.textContent).toContain('Sync pending. Publishing will continue automatically.');
+    expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
+  });
+  postAnswer = accepted;
+  vi.setSystemTime(Date.now() + publishTiming.sendBackoffMs(0) + 500);
+  await act(async () => void (await publishDriver.refresh()));
+  await waitFor(() => expect(posts()).toHaveLength(2));
+  expect(posts()[1]!.body).toEqual(body);
   // The legacy path is never used with the flag on.
   expect(calls.some((c) => c.path === '/push-live')).toBe(false);
   await waitFor(() => {

@@ -15,6 +15,7 @@ import {
   aliasGroupsPath,
   isTextlessDescription,
   permissionsSchema,
+  publicationSyncPendingCode,
   publishBodySchema,
   publishIntentDigest,
   publishMonth,
@@ -41,6 +42,7 @@ import { schedulePaths } from '@clarity/core/schedule';
 import { switches } from './schedule/store.js';
 import type { Env, Identity } from './types.js';
 import { assertGlobalsPublication } from './globals/guards.js';
+import { publicationSchema, sameSources, sourcesSchema, syncSchema } from './globals/model.js';
 
 const envelopeSchema = z.object({ payload: z.string(), sig: z.string() }).strict();
 const logSchema = z.object({ intentDigest: z.string().nullable(), result: z.unknown() });
@@ -286,8 +288,53 @@ export async function publish(
         const proof = await globalPublication(snapshot.head, consumers);
         if (proof.certificates.length !== consumers.length)
           throw new HttpError(409, 'Sync pending: complete publication proof required');
-        for (const [index, consumer] of consumers.entries())
-          assertGlobalsPublication(proof.sources, proof.sync, proof.certificates[index], consumer);
+        const blocked = consumers.filter((consumer, index) => {
+          try {
+            assertGlobalsPublication(
+              proof.sources,
+              proof.sync,
+              proof.certificates[index],
+              consumer,
+            );
+            return false;
+          } catch (error) {
+            if (!(error instanceof HttpError)) throw error;
+            return true;
+          }
+        });
+        if (blocked.length) {
+          const sync = syncSchema.safeParse(proof.sync);
+          const materialized = sourcesSchema.safeParse(proof.materializedSources);
+          // Older publishers lack the materialization marker. A valid older certificate
+          // still establishes that the source inputs advanced before proofs were refreshed.
+          const stale = materialized.success
+            ? !sameSources(materialized.data, proof.sources)
+            : proof.materializedSources == null &&
+              proof.certificates.some((input, index) => {
+                const certificate = publicationSchema.safeParse(input);
+                const consumer = consumers[index]!;
+                return (
+                  certificate.success &&
+                  certificate.data.consumer.hash === consumer.hash &&
+                  certificate.data.consumer.lang === consumer.lang &&
+                  certificate.data.consumer.destination === consumer.destination &&
+                  !sameSources(certificate.data.sources, proof.sources)
+                );
+              });
+          if (
+            sync.success &&
+            (sync.data.status === 'sync-pending' || (sync.data.status === 'current' && stale))
+          )
+            throw new HttpError(409, 'Sync pending', { code: publicationSyncPendingCode });
+          const hashes = [...new Set(blocked.map(({ hash }) => hash))];
+          throw new HttpError(
+            409,
+            sync.success && sync.data.status === 'sync-failed'
+              ? `Global changes failed to sync. Retry sync before publishing tooltips ${hashes.join(', ')}.`
+              : `Global checks could not clear tooltips ${hashes.join(', ')} for publication. Review global changes or report this error.`,
+            { hashes },
+          );
+        }
       }
       checkedHead = snapshot.head;
     }

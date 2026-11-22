@@ -6,6 +6,8 @@ import {
   globalsReleasePaths,
   observeGlobalSources,
   permissionsSchema,
+  publicationSourcesPath,
+  publicationSyncPendingCode,
   type GlobalPublicationRead,
   type GlobalSources,
   type Permissions,
@@ -277,9 +279,13 @@ export function globalPublicationRead(github: GitHub): GlobalPublicationRead {
         `Publish at most ${maxPublicationConsumers} tooltip languages at once while global entries are active`,
       );
     const observed = await observeGlobals(github);
-    if (observed.head !== head) throw new HttpError(409, 'Sync pending: source head changed');
+    if (observed.head !== head)
+      throw new HttpError(409, 'Sync pending: source head changed', {
+        code: publicationSyncPendingCode,
+      });
     const paths = [
       globalsReleasePaths.sync,
+      publicationSourcesPath(globalDestinations(github)[0]!),
       ...consumers.map((consumer) => {
         const parsed = consumerSchema.safeParse(consumer);
         if (!parsed.success || !globalDestinations(github).includes(parsed.data.destination))
@@ -303,8 +309,10 @@ export function globalPublicationRead(github: GitHub): GlobalPublicationRead {
         throw rawReadFailure();
       }
     }
-    const [sync, ...certificates] = files.map((file) => (file ? parseRaw(file.bytes) : null));
+    const [sync, materializedSources, ...certificates] = files.map((file) =>
+      file ? parseRaw(file.bytes) : null,
+    );
     if (sync === null) throw incomplete();
-    return { sources: observed.sources, sync, certificates };
+    return { sources: observed.sources, sync, materializedSources, certificates };
   };
 }
