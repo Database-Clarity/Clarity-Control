@@ -28252,6 +28252,9 @@ async function planGlobalRelease(input2) {
   return result.sort((a, b) => stableStringify(a.ids).localeCompare(stableStringify(b.ids)));
 }
 
+// packages/core/src/globalsRelease/admission.ts
+var publicationSourcesPath = (destination) => `globals/proofs/publication-sources/${destination}.json`;
+
 // packages/core/src/status/index.ts
 init_languages();
 init_map();
@@ -30648,9 +30651,8 @@ var GlobalsPublisher = class _GlobalsPublisher {
     const sources = await this.sources(tree, live, revision2);
     const captured = this.capture(tree, revision2, live, batch?.documents), components = await this.plan(tree, revision2, live, batch?.documents);
     const selected = roots.map((hash2) => resolveAlias(hash2, captured.authored.aliases));
-    const activeSelection = selected.filter(
-      (hash2) => !isMovedInactive(hash2, this.publisher.movesAt(tree))
-    );
+    const moves = this.publisher.movesAt(tree);
+    const activeSelection = selected.filter((hash2) => !isMovedInactive(hash2, moves));
     const aggregateHashes = captured.saved.aggregates.map(({ document }) => document.hash);
     const aggregate = selected.some((hash2) => aggregateHashes.includes(hash2));
     const relevant = components.filter(
@@ -30680,7 +30682,6 @@ var GlobalsPublisher = class _GlobalsPublisher {
     ].sort((a, b) => a - b);
     if (ids.length) {
       const markers = pushedSchema.parse(this.read(tree, "live/pushed.json"));
-      const moves = this.publisher.movesAt(tree);
       for (const hash2 of hashes) {
         const stored = this.read(tree, `live/tooltips/${hash2}.json`);
         if (await hasUnpublishedInactiveMove(
@@ -30699,7 +30700,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
     }
     hashes.sort((a, b) => a - b);
     const documents = hashes.map((hash2) => {
-      const document = globals[hash2] ?? captured.authored.tooltips[hash2] ?? captured.live.tooltips[hash2];
+      const document = globals[hash2] ?? captured.authored.tooltips[hash2] ?? captured.live.tooltips[hash2] ?? (!batch && selected.includes(hash2) && isMovedInactive(hash2, moves) ? { hash: hash2, text: {}, associated: [] } : void 0);
       if (!document) throw new Error("Deleted release dependency");
       return document;
     });
@@ -31193,29 +31194,34 @@ var GlobalsPublisher = class _GlobalsPublisher {
     ))
       delete tree[path];
     const moves = this.publisher.movesAt(tree);
-    for (const document of Object.values(captured.authored.tooltips))
+    const hashes = new Set(Object.keys(captured.authored.tooltips).map(Number));
+    for (const key of Object.keys(moves)) {
+      const hash2 = Number(key);
+      if (isMovedInactive(hash2, moves) && resolveAlias(hash2, captured.authored.aliases) === hash2)
+        hashes.add(hash2);
+    }
+    for (const hash2 of hashes)
       for (const lang of [
         .../* @__PURE__ */ new Set([
-          ...Object.keys(document.text),
-          ...isMovedInactive(document.hash, moves) ? ["en"] : []
+          ...Object.keys(captured.authored.tooltips[hash2]?.text ?? {}),
+          ...isMovedInactive(hash2, moves) ? ["en"] : []
         ])
       ]) {
-        const relevant = isMovedInactive(document.hash, moves) ? [] : components.filter(
-          (component) => captured.saved.aggregates.some(
-            (aggregate) => aggregate.document.hash === document.hash
-          ) || component.rows.some(
-            (row) => row.view.consumer.hash === document.hash && row.view.consumer.lang === lang
+        const aggregate = captured.saved.aggregates.some(({ document }) => document.hash === hash2);
+        const relevant = isMovedInactive(hash2, moves) ? [] : components.filter(
+          (component) => aggregate || component.rows.some(
+            (row) => row.view.consumer.hash === hash2 && row.view.consumer.lang === lang
           )
         );
         const ready = relevant.filter(
           (component) => component.rows.every((row) => this.approved(tree, row))
         );
-        if (captured.saved.aggregates.some((aggregate) => aggregate.document.hash === document.hash) ? relevant.length > 0 && ready.length === 0 : ready.length !== relevant.length)
+        if (aggregate ? relevant.length > 0 && ready.length === 0 : ready.length !== relevant.length)
           continue;
-        const consumer = { hash: document.hash, lang, destination: this.options.liveBranch };
+        const consumer = { hash: hash2, lang, destination: this.options.liveBranch };
         this.write(
           tree,
-          `globals/proofs/publication/${this.options.liveBranch}/${document.hash}-${lang}.json`,
+          `globals/proofs/publication/${this.options.liveBranch}/${hash2}-${lang}.json`,
           publicationSchema.parse({
             version: 1,
             complete: true,
@@ -31228,6 +31234,12 @@ var GlobalsPublisher = class _GlobalsPublisher {
           limits.metadataBytes
         );
       }
+    this.write(
+      tree,
+      publicationSourcesPath(this.options.liveBranch),
+      sources,
+      limits.metadataBytes
+    );
     for (const request of requested.values()) {
       const owners = [...captured.saved.entries, ...captured.published.entries].filter(
         (entry) => !entry.tombstone && entry.kind === request.kind && entry.name === request.name
