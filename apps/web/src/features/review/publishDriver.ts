@@ -133,6 +133,10 @@ export function activeHashes(ops: readonly PublishOp[]): Set<number> {
   const groups = new Set(active.map((op) => op.groupId));
   const recoverable = new Map<string, boolean>();
   for (const op of ops) {
+    if (needsPublishReceipt(op)) {
+      active.push(op);
+      continue;
+    }
     if (op.refusal === undefined || !op.groupId) continue;
     if (!recoverable.has(op.groupId))
       recoverable.set(
@@ -145,12 +149,22 @@ export function activeHashes(ops: readonly PublishOp[]): Set<number> {
   return new Set(active.flatMap((op) => op.hashes));
 }
 
+/** An older open tab can persist a rejection from the status projection alone. */
+export function needsPublishReceipt(op: PublishOp): boolean {
+  return (
+    op.status === 'rejected' &&
+    op.round !== undefined &&
+    !op.receiptChecked &&
+    op.refusal === undefined
+  );
+}
+
 /** Keep successful requests and greedily combine only the latest round's refused parts in order. */
 export function regroupRefusals(members: readonly PublishOp[]): PublishOp[][] {
   const expected = members[0]?.groupHashCount;
   if (
     expected === undefined ||
-    members.some((op) => !isTerminal(op.status)) ||
+    members.some((op) => !isTerminal(op.status) || needsPublishReceipt(op)) ||
     members.reduce((count, op) => count + op.hashes.length, 0) !== expected
   )
     return [];
@@ -458,6 +472,13 @@ export class PublishDriver {
           );
           if (kicked) await this.kick(op.opId);
         }
+      } else if (needsPublishReceipt(op)) {
+        const claimed = await this.claim(op.opId, (current, at) =>
+          needsPublishReceipt(current) && at - (current.polledAt ?? 0) >= publishTiming.pollMs(0)
+            ? { ...current, polledAt: at }
+            : undefined,
+        );
+        if (claimed && generation === this.generation) await this.adopt(op.opId, 'rejected');
       }
     }
     if (generation === this.generation) await this.recoverGroups();
@@ -516,6 +537,8 @@ export class PublishDriver {
     const now = this.deps.now();
     let next = this.recoveries().length ? now + publishTiming.pollMs(0) : Infinity;
     for (const op of usePublishState.getState().ops) {
+      if (needsPublishReceipt(op))
+        next = Math.min(next, (op.polledAt ?? 0) + publishTiming.pollMs(0));
       if (isTerminal(op.status) || this.paused.has(op.opId) || this.inFlight.has(op.opId)) continue;
       if (
         op.status === 'pending' &&
@@ -612,6 +635,7 @@ export class PublishDriver {
     return this.settle(opId, {
       status: remote,
       acceptedAt: op.acceptedAt ?? this.deps.now(),
+      ...(remote === 'rejected' && answer ? { receiptChecked: true } : {}),
       ...(refusal !== undefined
         ? { refusal, error: `Tooltips ${op.hashes.join(', ')}: ${refusal}` }
         : {}),

@@ -1,5 +1,5 @@
 import { isTerminal, type PublishOp } from '../../services/publisher/opStore';
-import { publishTiming, regroupRefusals } from './publishDriver';
+import { needsPublishReceipt, publishTiming, regroupRefusals } from './publishDriver';
 
 export type Tone = 'busy' | 'ok' | 'warn' | 'bad';
 export interface OpView {
@@ -135,6 +135,7 @@ export function groupPublishes(
     const unfinished = members.find((op) => !isTerminal(op.status));
     const combining =
       (unfinished?.round ?? 0) > 0 ||
+      members.some(needsPublishReceipt) ||
       (members.some((op) => op.refusal !== undefined) && regroupRefusals(members).length > 0);
     if (members.length === 1 && !missing && !combining) return { op: first, members };
     const failures = members.filter(

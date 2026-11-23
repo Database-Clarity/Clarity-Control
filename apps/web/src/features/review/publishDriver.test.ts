@@ -163,44 +163,70 @@ it('retries up to 500 proofs and stops with the refused hashes and reason once n
   driver.stop();
 });
 
-it('resumes a refused round after reload while keeping successful parts outside the retry', async () => {
+it.each([false, true])(
+  'resumes after reload and preserves successful parts (older tab rejected: %s)',
+  async (oldTab) => {
+    const h = harness();
+    const first = h.make();
+    await first.start('1');
+    const reviewed = Array.from({ length: 101 }, (_, hash) => ({
+      hash: hash + 1000,
+      digest: digest(1),
+      previous: undefined,
+    }));
+    const group = await first.create(reviewed);
+    await settle();
+    const admitted = h.api.post.mock.calls.map(([body]) => body);
+    expect(admitted.map(({ hashes }) => hashes.length)).toEqual([50, 50, 1]);
+    first.stop();
+    const resumed = h.make();
+    const refused = admitted.slice(1);
+    if (oldTab)
+      for (const { opId } of refused)
+        await h.store.update(opId, (op) => ({ ...op, status: 'rejected' }));
+    h.api.status.mockImplementation(async (id) =>
+      refused.some(({ opId }) => opId === id) ? 'rejected' : 'done',
+    );
+    h.api.post.mockImplementation(async (body) =>
+      refused.some(({ opId }) => opId === body.opId)
+        ? { status: 'rejected', refusal: 'Missing import' }
+        : { status: 'pending' },
+    );
+    vi.setSystemTime(Date.now() + 10_000);
+    await resumed.start('1');
+    const retried = h.api.post.mock.calls.slice(3).map(([body]) => body);
+    expect(retried.slice(0, 2)).toEqual(refused);
+    expect(retried[2]?.hashes).toEqual(refused.flatMap(({ hashes }) => hashes));
+    expect(retried[2]?.expected).toEqual(
+      Object.assign({}, ...refused.map(({ expected }) => expected)),
+    );
+    expect(ops().map(({ groupId, status }) => [groupId, status])).toEqual([
+      [group.groupId, 'done'],
+      [group.groupId, 'pending'],
+    ]);
+    await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+    expect(groupPublishes(ops())[0]?.op.status).toBe('done');
+    resumed.stop();
+  },
+);
+
+it('records that a rejection without a regroupable reason was checked', async () => {
   const h = harness();
   const first = h.make();
   await first.start('1');
-  const reviewed = Array.from({ length: 101 }, (_, hash) => ({
-    hash: hash + 1000,
-    digest: digest(1),
-    previous: undefined,
-  }));
-  const group = await first.create(reviewed);
+  const created = await first.create(inputs);
   await settle();
-  const admitted = h.api.post.mock.calls.map(([body]) => body);
-  expect(admitted.map(({ hashes }) => hashes.length)).toEqual([50, 50, 1]);
   first.stop();
+  await h.store.update(created.opId, (op) => ({ ...op, status: 'rejected' }));
+
   const resumed = h.make();
-  const refused = admitted.slice(1);
-  h.api.status.mockImplementation(async (id) =>
-    refused.some(({ opId }) => opId === id) ? 'rejected' : 'done',
-  );
-  h.api.post.mockImplementation(async (body) =>
-    refused.some(({ opId }) => opId === body.opId)
-      ? { status: 'rejected', refusal: 'Missing import' }
-      : { status: 'pending' },
-  );
+  h.api.post.mockResolvedValue({ status: 'rejected' });
   vi.setSystemTime(Date.now() + 10_000);
   await resumed.start('1');
-  const retried = h.api.post.mock.calls.slice(3).map(([body]) => body);
-  expect(retried.slice(0, 2)).toEqual(refused);
-  expect(retried[2]?.hashes).toEqual(refused.flatMap(({ hashes }) => hashes));
-  expect(retried[2]?.expected).toEqual(
-    Object.assign({}, ...refused.map(({ expected }) => expected)),
-  );
-  expect(ops().map(({ groupId, status }) => [groupId, status])).toEqual([
-    [group.groupId, 'done'],
-    [group.groupId, 'pending'],
-  ]);
-  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
-  expect(groupPublishes(ops())[0]?.op.status).toBe('done');
+  expect(op()).toMatchObject({ status: 'rejected', receiptChecked: true });
+  expect(h.api.post.mock.calls[1]).toEqual(h.api.post.mock.calls[0]);
+  await vi.advanceTimersByTimeAsync(2 * publishTiming.pollMs(0));
+  expect(h.api.post).toHaveBeenCalledTimes(2);
   resumed.stop();
 });
 
