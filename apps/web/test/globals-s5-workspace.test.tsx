@@ -189,14 +189,10 @@ it('renders the definition while only the opened entry reviews wait, fail, and r
   expect(button('Rename').disabled).toBe(false);
 });
 
-it('recovers reviews after the head moved past the catalogue: Retry reads a fresh snapshot', async () => {
+it('recovers reviews from a newer Worker head without replacing the draft or reloading the catalogue', async () => {
   const catalogue = structuredClone(globalFixtureSnapshot);
   catalogue.impacts = {};
-  const moved = structuredClone(catalogue);
-  moved.head = fixtureHead(7);
   const globals = service(catalogue);
-  globals.read.mockResolvedValueOnce({ kind: 'ok', value: catalogue });
-  globals.read.mockResolvedValueOnce({ kind: 'ok', value: moved });
   const loaded = structuredClone(globalFixtureSnapshot);
   loaded.head = fixtureHead(7);
   const readEntry = vi
@@ -210,14 +206,14 @@ it('recovers reviews after the head moved past the catalogue: Retry reads a fres
   await act(async () => change('KEPT DRAFT'));
   expect(host.textContent).toContain('Globals changed.');
   await act(async () => button('Retry reviews').click());
-  expect(globals.read).toHaveBeenCalledTimes(2);
+  expect(globals.read).toHaveBeenCalledTimes(1);
   expect(readEntry).toHaveBeenCalledTimes(2);
   expect(host.textContent).not.toContain('Globals changed.');
   expect(host.querySelectorAll('[data-global-consumer]').length).toBe(2);
   expect(host.querySelector('textarea')!.value).toBe('KEPT DRAFT');
 });
 
-it('refreshes a queued rename even when its review page fails', async () => {
+it('keeps a confirmed rename when its review page fails and a review retry fails again', async () => {
   const queued = structuredClone(globalFixtureSnapshot);
   const id = queued.entries[0].id;
   queued.renameIntents = {
@@ -232,7 +228,7 @@ it('refreshes a queued rename even when its review page fails', async () => {
   const readEntry = vi
     .fn<NonNullable<GlobalsService['readEntry']>>()
     .mockResolvedValueOnce({ kind: 'ok', value: applied })
-    .mockResolvedValueOnce({ kind: 'retry', message: 'Invalid global review page' });
+    .mockResolvedValue({ kind: 'retry', message: 'Invalid global review page' });
   await mount(`/globals/${id}`, { ...globals, readEntry });
   expect(host.textContent).toContain('Rename queued.');
   await act(async () => button('Refresh').click());
@@ -240,6 +236,12 @@ it('refreshes a queued rename even when its review page fails', async () => {
   expect(host.querySelector('h1')?.textContent).toBe('Harm');
   expect(host.textContent).not.toContain('Rename queued.');
   expect(host.textContent).toContain('Invalid global review page');
+  await act(async () => button('Retry reviews').click());
+  expect(readEntry).toHaveBeenCalledTimes(3);
+  expect(globals.read).toHaveBeenCalledTimes(1);
+  expect(host.querySelector('h1')?.textContent).toBe('Harm');
+  expect(host.textContent).toContain('Invalid global review page');
+  expect(host.textContent).not.toContain('Acknowledge review');
 });
 
 it('keeps an unsaved definition across a remount (reload) and marks it stale after a new revision', async () => {
