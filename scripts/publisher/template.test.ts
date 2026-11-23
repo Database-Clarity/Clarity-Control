@@ -52,8 +52,8 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
   const root = 'scripts/publisher/template/.publisher';
   const pin = verifyRuntime(root);
   expect(pin).toEqual({
-    sourceSha: '650ee4d51edfece39b452426f401dbdb3f0369d4',
-    sha256: '00135fa0a4956444249a5690d3802db25357a009626301022bcb7702b7e0dcad',
+    sourceSha: 'feed387905558fcd42a3c7ccd13d790e01df6573',
+    sha256: 'f21773b1ee2619fa034d2d7baf6a0ab75ff0a632b892391769631a04393921bd',
     verifierSha256: 'd960337b7435cb3a8464f03aa8221476c3bc571da341d683ab4dc3e58a2a304f',
     capabilities: [
       'elementTags',
@@ -74,6 +74,7 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
       'scheduledBatchStagingV1',
       'currentSaveStagingV1',
       'exoticTags',
+      'aliasGroupRemovals',
     ],
   });
   expect(

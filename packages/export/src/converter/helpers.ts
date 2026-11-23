@@ -79,11 +79,5 @@ export function cleanObject<T>(dirtyObject: T, allowMutations = false): T {
 export function customJsonStringify(object: unknown, properties: string[], spaces = 1): string {
   const string = JSON.stringify(object, undefined, spaces)
   const regex = new RegExp(`"(${properties.join('|')})"\\s*:\\s*\\[([^]+?)\\]`, 'g')
-  const matches = string.match(regex)
-  if (matches === null) return string
-  const newString = matches.reduce((acc, match) => {
-    acc = acc.replace(match, match.replaceAll('\n', '').replace(/  +/g, ' '))
-    return acc
-  }, string)
-  return newString
+  return string.replace(regex, (match) => match.replaceAll('\n', '').replace(/  +/g, ' '))
 }

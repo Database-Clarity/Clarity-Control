@@ -19,6 +19,10 @@ export function sameDocumentMetadata(a, b, ignoreEditHistory = false) {
   return isDeepStrictEqual(metadata(a), metadata(b));
 }
 
+/** Members of a proposal a maintainer took out of a group: only a manual accept may regroup them. */
+export const removedMembers = (members, config) =>
+  members.filter((hash) => Object.hasOwn(config?.removed ?? {}, hash));
+
 export function uniqueProposals(proposals) {
   const groups = new Map();
   for (const proposal of proposals) {

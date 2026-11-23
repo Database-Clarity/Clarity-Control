@@ -1098,6 +1098,78 @@ describe('save semantics', () => {
   });
 });
 
+describe('final batches (the publisher stops counting them as upcoming)', () => {
+  const opId = newUlid();
+  const claim = { opId, claimedAt: '2026-11-13T10:00:00Z' };
+  const final = {
+    cancelled: () => draft({ status: 'cancelled' }),
+    published: () =>
+      draft({
+        status: 'published',
+        opId,
+        notBefore: nowMinute(Date.now() - 60 * 60_000),
+        zone: 'UTC',
+        scheduledContentRevision: 1,
+        claim,
+        result: {
+          opId,
+          status: 'published',
+          landedAt: '2026-11-13T10:01:00Z',
+          landedAtSource: 'cas',
+          recordedAt: '2026-11-13T10:02:00Z',
+          exportNow: '2026-11-13T10:00:30Z',
+          liveCommit: '2'.padStart(40, '0'),
+        },
+      }),
+  };
+  it.each(
+    (['cancelled', 'published'] as const).flatMap((status) =>
+      [false, true].map((preparation) => ({ status, preparation })),
+    ),
+  )('no route changes a $status batch (preparation $preparation)', async (mode) => {
+    vi.mocked(switches.preparation).mockReturnValue(mode.preparation);
+    f.moveData({
+      '.publisher/PIN': {
+        capabilities: [
+          ...pin.capabilities,
+          'schedulePreparationV1',
+          'draftBatchStagingV1',
+          'scheduledBatchStagingV1',
+        ],
+      },
+      [batchPath()]: final[mode.status](),
+    });
+    const commits = f.commits.length;
+    const before = structuredClone(f.current());
+    const revision = storedBatch().revision;
+    const next = withText(tooltip(), 'en', 'revived');
+    const requestId = newUlid();
+    const change = { hash: 123, base: withText(tooltip(), 'en', 'upcoming'), next };
+    const id = mode.preparation ? { requestId } : {};
+    const off = mode.preparation ? 409 : 503;
+    for (const [route, value, status] of [
+      ['save', { ...id, revision, changes: [change], message: 'Revive' }, 409],
+      ['stage', { revision, requestId, part: 0, changes: [change], message: 'Revive' }, off],
+      ['stage', { revision, requestId, finish: true }, off],
+      ['rebase', { revision, hash: 123, base: tooltip(), next }, 409],
+      ['remove', { revision, hashes: [123] }, 409],
+      ['schedule', { ...id, revision, notBefore: later(), zone: 'UTC' }, 409],
+      ['retry', { revision, requestId }, off],
+      ['unschedule', { revision }, 409],
+      ['cancel', { revision }, 409],
+      ['resolve', { hash: 123, expectedCurrent: null, choices: {} }, 404],
+      ['kick', {}, 409],
+    ] as const)
+      for (const user of [MAINTAINER, EDITOR])
+        expect([route, (await call(`/batches/${ID}/${route}`, value, user)).status]).toEqual([
+          route,
+          status,
+        ]);
+    expect(f.commits.length).toBe(commits);
+    expect(f.current()).toEqual(before);
+  });
+});
+
 describe('resolve', () => {
   const published = () => {
     const opId = newUlid();

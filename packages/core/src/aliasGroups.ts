@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { hashSchema } from './legacy.js';
 import { aliasesSchema, resolveAlias, type Aliases } from './aliases.js';
-import { timestampSchema, type Tooltip } from './schemas.js';
+import { timestampSchema, tooltipSchema, type Tooltip } from './schemas.js';
 import { stableStringify } from './contentHash.js';
 import {
   mergeSandboxPointers,
@@ -15,6 +15,8 @@ export * from './aliasGroupOperations.js';
 
 export const aliasGroupsPath = 'config/alias-groups.json';
 export const aliasGroupsCapability = 'aliasGroups';
+/** PIN capability of a publisher build that reads the `removed` map of the alias group config. */
+export const aliasGroupRemovalsCapability = 'aliasGroupRemovals';
 
 const hashKey = z
   .string()
@@ -79,6 +81,11 @@ export const aliasGroupsSchema = z
         .strict(),
     ),
     archives: z.array(aliasGroupArchiveSchema).optional(),
+    /** Members a maintainer took out of a group. Adoption tools never regroup them silently;
+     * a manual accept that includes one clears its entry. */
+    removed: z
+      .record(hashKey, z.object({ canonical: hashSchema, by: actor, at: timestampSchema }).strict())
+      .optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -113,6 +120,8 @@ export const aliasGroupsResponseSchema = z
     config: aliasGroupsSchema,
     issues: z.array(aliasGroupIssueSchema),
     affectedCanonicals: z.array(hashSchema).refine((v) => new Set(v).size === v.length),
+    /** A removed member's stored document, when it has one. */
+    tooltip: tooltipSchema.optional(),
   })
   .strict();
 export type AliasGroupsResponse = z.infer<typeof aliasGroupsResponseSchema>;
@@ -133,8 +142,26 @@ export interface AliasItem {
   dimBaseHash?: number;
   itemHash?: number;
   owners?: number[];
+  sandboxPerkHashes?: number[];
 }
 export type AliasItems = Readonly<Record<string, AliasItem>>;
+
+/** Sandbox perks of `member` that another inventory item also uses: the generator lists them as
+ * shared (conflicts) or aliased them to another owner. Such a member cannot leave its group,
+ * because its sandbox perk would no longer follow it alone (owner 2026-11-23).
+ */
+export function sharedSandboxPerks(
+  member: number,
+  items: AliasItems,
+  generated: Aliases,
+  conflicts: SandboxConflicts,
+): number[] {
+  return (items[member]?.sandboxPerkHashes ?? []).filter(
+    (perk) =>
+      Object.hasOwn(conflicts, String(perk)) ||
+      (Object.hasOwn(generated, String(perk)) && generated[perk]!.to !== member),
+  );
+}
 
 /** Rejections expire when membership or authoritative grouping facts change. This digest is
  * recomputed by the server from pinned generator facts, never from a submitted proposal.

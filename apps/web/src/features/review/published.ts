@@ -1,4 +1,4 @@
-import { tooltipSchema, type Tooltip } from '@clarity/core';
+import { tooltipSchema, usesEnglishFallback, type Lang, type Tooltip } from '@clarity/core';
 import { create } from 'zustand';
 import { getPushedVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
@@ -35,6 +35,17 @@ export function publishedFor(
   if (marker === undefined) return { status: 'ready', tooltip: null };
   const entry = byHash[hash];
   return entry?.marker === marker ? entry : undefined;
+}
+
+/**
+ * The text a language goes live with: a translation that falls back goes out in English (the
+ * same rule as the publish digest), so a fallback flip is a change players see.
+ */
+export function exportedText(tooltip: Tooltip | null, lang: Lang): string {
+  if (!tooltip) return '';
+  return usesEnglishFallback(tooltip, lang)
+    ? (tooltip.text.en?.text ?? '')
+    : (tooltip.text[lang]?.text ?? '');
 }
 
 function put(hash: number, entry: Entry) {

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -49,6 +50,9 @@ export interface Repository {
   additions(head: string, path: string): { commit: string; path: string }[];
 }
 
+/** Per-document files: a publisher step that reads one reads (nearly) all of them. */
+const bulkPath = /^(tooltips|live\/tooltips|globals|schedule\/batches\/[^/]+\/tooltips)\//;
+
 /** Disposable bare object store; the simulator updates only local refs, RemoteRepository supplies transport. */
 export class LocalRepository implements Repository {
   readonly path: string;
@@ -56,6 +60,10 @@ export class LocalRepository implements Repository {
   protected preserveModes = false;
   private trees = new Map<string, Tree>();
   private blobs = new Map<string, string>();
+  /** A bulk document's object ID to every bulk object ID of a tree that holds it. */
+  private bulk = new Map<string, string[]>();
+  /** Blobs not yet in the object store; commit() imports them all with one Git process. */
+  private unwritten = new Map<string, Buffer>();
   constructor(path: string) {
     this.path = realpathSync(resolve(path));
     if (this.git(['rev-parse', '--is-bare-repository']).trim() !== 'true')
@@ -65,14 +73,18 @@ export class LocalRepository implements Repository {
     if (this.git(['remote']).trim()) throw new Error('Simulator must have no remotes');
   }
   git(args: string[], input?: string, extraEnv = {}): string {
+    return this.gitBytes(args, input, extraEnv).toString();
+  }
+  protected gitBytes(args: string[], input?: string | Buffer, extraEnv = {}): Buffer {
     return execFileSync('git', ['--git-dir', this.path, ...args], {
       input,
       timeout: this.commandTimeout,
       maxBuffer,
-      encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
+        // Only remoteGit authenticates, through its own configuration variables.
+        GITHUB_TOKEN: undefined,
         GIT_AUTHOR_NAME: 'Publisher simulator',
         GIT_AUTHOR_EMAIL: 'publisher@invalid',
         GIT_COMMITTER_NAME: 'Publisher simulator',
@@ -105,7 +117,34 @@ export class LocalRepository implements Repository {
         }),
     );
     this.trees.set(commit, tree);
+    const bulk = Object.keys(tree)
+      .filter((path) => bulkPath.test(path))
+      .map((path) => tree[path]);
+    for (const oid of bulk) this.bulk.set(oid, bulk);
     return { ...tree };
+  }
+  /**
+   * Load bulk documents through one Git process instead of one each; all or nothing. An object
+   * that is missing or not a blob stays uncached, so blob() still fails on it when it is used.
+   */
+  private readBulk(bulk: string[]) {
+    const oids = [...new Set(bulk)].filter((oid) => !this.blobs.has(oid));
+    const output = this.gitBytes(['cat-file', '--batch'], oids.map((oid) => `${oid}\n`).join(''));
+    const read = new Map<string, string>();
+    let at = 0;
+    for (const oid of oids) {
+      const end = output.indexOf('\n', at);
+      const header = end < 0 ? '' : output.toString('latin1', at, end);
+      at = end + 1;
+      if (header === `${oid} missing`) continue;
+      const [, named, type, size] = /^([0-9a-f]{40}) ([a-z]+) (\d+)$/.exec(header) ?? [];
+      const stop = at + Number(size);
+      if (named !== oid || output[stop] !== 10) throw new Error('Unexpected Git batch output');
+      if (type === 'blob') read.set(oid, output.toString('utf8', at, stop));
+      at = stop + 1;
+    }
+    if (at !== output.length) throw new Error('Unexpected Git batch output');
+    for (const [oid, bytes] of read) this.blobs.set(oid, bytes);
   }
   treeModes(commit: string): Record<string, string> {
     return Object.fromEntries(
@@ -120,13 +159,33 @@ export class LocalRepository implements Repository {
     );
   }
   blob(oid: string) {
+    if (!this.blobs.has(oid) && this.bulk.has(oid)) this.readBulk(this.bulk.get(oid)!);
     if (!this.blobs.has(oid)) this.blobs.set(oid, this.git(['cat-file', 'blob', oid]));
     return this.blobs.get(oid)!;
   }
   writeBlob(bytes: string) {
-    const oid = this.git(['hash-object', '-w', '--stdin'], bytes).trim();
+    const buffer = Buffer.from(bytes);
+    const oid = createHash('sha1').update(`blob ${buffer.length}\0`).update(buffer).digest('hex');
+    // A known blob is in the object store, or already waits for its import.
+    if (!this.blobs.has(oid)) this.unwritten.set(oid, buffer);
     this.blobs.set(oid, bytes);
     return oid;
+  }
+  /** Import the waiting blobs (no refs). Git itself must name every one of them. */
+  private writeBlobs() {
+    if (!this.unwritten.size) return;
+    const stream = [...this.unwritten.values()].flatMap((buffer, index) => [
+      Buffer.from(`blob\nmark :${index + 1}\ndata ${buffer.length}\n`),
+      buffer,
+      Buffer.from(`\nget-mark :${index + 1}\n`),
+    ]);
+    const stored = this.gitBytes(
+      ['fast-import', '--quiet', '--done'],
+      Buffer.concat([...stream, Buffer.from('done\n')]),
+    );
+    if (stored.toString() !== [...this.unwritten.keys()].map((oid) => `${oid}\n`).join(''))
+      throw new Error('Unexpected Git import output');
+    this.unwritten.clear();
   }
   protected requireCredits = false;
   commit(parent: string | undefined, tree: Tree, message: string, credits?: CommitCredits) {
@@ -136,6 +195,7 @@ export class LocalRepository implements Repository {
         if (!identity.name || !identity.email || /[<>\r\n\0]/.test(identity.name + identity.email))
           throw new Error('Invalid commit credits');
       }
+    this.writeBlobs();
     const temp = mkdtempSync(join(tmpdir(), 'publisher-index-'));
     try {
       const modes = new Map<string, string>();

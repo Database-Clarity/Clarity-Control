@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Dialog } from '../../ui/Dialog';
-import { kindCounts } from './kinds';
+import { rowKey, unitName } from './globalRows';
+import { kindCounts, type Kind } from './kinds';
 import type { PendingTooltip } from './model';
 import type { RowKinds } from './queueModel';
 import styles from './Review.module.scss';
@@ -13,12 +14,15 @@ import styles from './Review.module.scss';
  */
 export function PushConfirm({
   entries,
+  rows,
   kinds,
   background = false,
   onConfirm,
   onCancel,
 }: {
   entries: PendingTooltip[];
+  /** The list's rows of these changes (a globals file has one per changed entry). */
+  rows: PendingTooltip[];
   /** Each row's word, for the by-kind line and the list. */
   kinds: RowKinds;
   /** Publisher flow: the run happens in the background after confirming (wording only). */
@@ -32,6 +36,25 @@ export function PushConfirm({
   // showModal would otherwise leave it on the header's Close button.
   useEffect(() => confirm.current?.focus(), []);
   const count = entries.length;
+  const byFile = new Map<number, PendingTooltip[]>();
+  for (const row of rows) {
+    const file = byFile.get(row.tooltip.hash);
+    if (file) file.push(row);
+    else byFile.set(row.tooltip.hash, [row]);
+  }
+  const rowsOf = (entry: PendingTooltip) => byFile.get(entry.tooltip.hash) ?? [entry];
+  // A globals file is one change, so its word must hold for every one of its rows.
+  const kindOf = (entry: PendingTooltip): Kind | undefined => {
+    const own = rowsOf(entry);
+    const words = new Set(own.map((row) => kinds.get(rowKey(row))));
+    const [word] = words;
+    if (words.has(undefined)) return undefined;
+    if (!own[0]!.part) return word;
+    if (words.has('Text changed')) return 'Text changed';
+    // Single entries being new or removed do not make the file so.
+    if (words.size === 1 && (entry.isNew || (word !== 'New' && word !== 'Removed'))) return word;
+    return 'Definition changed';
+  };
   const label = background ? `Publish ${count}` : `Push ${count} live`;
   return (
     <Dialog
@@ -64,8 +87,8 @@ export function PushConfirm({
     >
       <p className={styles.confirmSummary}>
         {/* "19 new tooltips and 6 with no visible change go live …" */}
-        {kindCounts(entries.map(({ tooltip }) => kinds.get(tooltip.hash)))}{' '}
-        {count === 1 ? 'goes' : 'go'} live for everyone using Clarity.
+        {kindCounts(entries.map(kindOf))} {count === 1 ? 'goes' : 'go'} live for everyone using
+        Clarity.
       </p>
       {background && (
         <p className={styles.confirmSummary}>
@@ -74,13 +97,13 @@ export function PushConfirm({
         </p>
       )}
       <ul className={styles.confirmList} aria-label="Tooltips going live" tabIndex={0}>
-        {entries.map(({ tooltip, name, category }) => (
-          <li key={tooltip.hash}>
-            <span className={styles.confirmName}>{name}</span>
+        {entries.map((entry) => (
+          <li key={entry.tooltip.hash}>
+            <span className={styles.confirmName}>{unitName(rowsOf(entry)[0]!)}</span>
             <small>
-              {category} · {tooltip.hash}
+              {entry.category} · {entry.tooltip.hash}
             </small>
-            <small className={styles.confirmKind}>{kinds.get(tooltip.hash) ?? ''}</small>
+            <small className={styles.confirmKind}>{kindOf(entry) ?? ''}</small>
           </li>
         ))}
       </ul>

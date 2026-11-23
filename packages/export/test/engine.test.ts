@@ -191,6 +191,27 @@ describe('local replacements for lodash and tool-box', () => {
       '{\n "classNames": [ "a", "b" ],\n "other": [\n  1\n ]\n}',
     );
   });
+
+  test('customJsonStringify prints repeated, empty, and nested named arrays as before', () => {
+    const properties = ['stat', 'multiplier', 'weaponTypes', 'classNames'];
+    // The tool-box original: one whole-string replace per match.
+    const original = (object: unknown) => {
+      const string = JSON.stringify(object, undefined, 1);
+      const regex = new RegExp(`"(${properties.join('|')})"\\s*:\\s*\\[([^]+?)\\]`, 'g');
+      return (string.match(regex) ?? []).reduce(
+        (text, match) => text.replace(match, match.replaceAll('\n', '').replace(/  +/g, ' ')),
+        string,
+      );
+    };
+    for (const value of [
+      { none: 1 },
+      [{ classNames: ['a', 'b'] }, { classNames: ['a', 'b'] }, { x: { classNames: ['a', 'b'] } }],
+      { classNames: [], other: [1, 2], stat: [1], weaponTypes: ['Auto Rifle', 'Two  spaces'] },
+      { stat: [{ multiplier: [1, 0.5], classNames: ['a'] }, { multiplier: [1, 0.5] }], tail: [3] },
+      { text: 'a "classNames": [ quoted ] text\n', classNames: ['[', 'a]b', 'c'] },
+    ])
+      expect(customJsonStringify(value, properties)).toBe(original(value));
+  });
 });
 
 test('packages/export never evaluates code and does not use lodash or tool-box (AC2)', () => {

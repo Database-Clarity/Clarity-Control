@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   affectedAliasCanonicals,
   aliasGroupFactsDigest,
+  aliasGroupRemovalsCapability,
   aliasGroupsCapability,
   aliasGroupsPath,
   aliasGroupsRequestSchema,
@@ -12,19 +13,26 @@ import {
   emptyAliasGroups,
   hashSchema,
   languages,
+  pushedSchema,
   resolveAlias,
   sandboxConflictsSchema,
+  sharedSandboxPerks,
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
   usesEnglishFallback,
   validateTextWithReads,
   type AliasGroupArchive,
+  type AliasGroupOperation,
   type AliasGroups,
+  type AliasGroupsResponse,
   type AliasItems,
   type Aliases,
+  type SandboxConflicts,
+  type SandboxPointers,
   type Tooltip,
 } from '@clarity/core';
+import { aliasInputs, scopedAliases } from './catalog.js';
 import { exporter, publisherPinPath } from './elementTags.js';
 import { RefRace, type GitHub, type RepoFile } from './github.js';
 import { body, HttpError, json, upstreamJson } from './http.js';
@@ -44,6 +52,7 @@ const itemSchema = z.object({
   dimBaseHash: hashSchema.optional(),
   itemHash: hashSchema.optional(),
   owners: z.array(hashSchema).optional(),
+  sandboxPerkHashes: z.array(hashSchema).optional(),
 });
 
 /** Resolve the public generator once, then read every fact at that immutable commit. */
@@ -247,10 +256,207 @@ async function checkImports(
   }
 }
 
+function requirePublisher(pin: RepoFile | null | undefined, capability: string, message: string) {
+  const capabilities = (pin?.value as { capabilities?: unknown } | undefined)?.capabilities;
+  if (
+    !exporter.publisherEnabled() ||
+    !Array.isArray(capabilities) ||
+    !capabilities.includes(capability)
+  )
+    throw new HttpError(409, message);
+}
+
+/** The newest archive that can restore exactly this membership. */
+function restorationArchive(config: AliasGroups, members: number[]) {
+  return [...(config.archives ?? [])]
+    .reverse()
+    .find(
+      (entry) =>
+        Object.keys(entry.files).length === members.length &&
+        members.every((hash) => Object.hasOwn(entry.files, hash)),
+    );
+}
+
+/** One atomic CAS on the reviewed head; a lost race is never replayed. */
+async function commitDecisions(
+  github: GitHub,
+  head: string,
+  writes: Record<string, unknown>,
+  count: number,
+  user: Identity,
+  options: { blobRefs: Record<string, string>; deletions: string[] },
+) {
+  const message = `Update alias group decisions (${count}) by ${user.login}`;
+  try {
+    return await github.commit(head, writes, message, user, options);
+  } catch (error) {
+    if (error instanceof RefRace)
+      throw new HttpError(409, 'Data branch moved; reload alias groups and review again');
+    throw error;
+  }
+}
+
+/**
+ * One member leaves its group with a copy of the current document. Unlike the batch operations it
+ * stays on the scoped alias path of grouped saves (Workers Free CPU). It needs no import census:
+ * readers of the member already resolved to this text, with the same outgoing imports.
+ */
+async function removeMember(
+  github: GitHub,
+  user: Identity,
+  head: string,
+  { canonical, member }: Extract<AliasGroupOperation, { op: 'removeMember' }>,
+  config: AliasGroups,
+  picks: SandboxPointers | null,
+) {
+  const group = config.groups[canonical];
+  const grouped = Object.values(config.groups).some(({ members }) => members.includes(member));
+  if (!grouped && config.removed?.[member]?.canonical === canonical) {
+    // A retry after a lost response: the removal is already saved, so answer it without writing.
+    const [file] = await github.files([tooltipPath(member)], head);
+    const stored = tooltip(file, member);
+    return json({
+      head,
+      config,
+      issues: [],
+      affectedCanonicals: [],
+      ...(stored ? { tooltip: stored } : {}),
+    } satisfies AliasGroupsResponse);
+  }
+  if (!group?.members.includes(member))
+    throw new HttpError(422, `${member} is not a member of this group`);
+  const inputs = await aliasInputs(github);
+  const items = inputs.items as AliasItems;
+  const facts = itemSchema.safeParse(items[member]);
+  if (!facts.success || facts.data.hash !== member)
+    throw new HttpError(409, 'Alias facts changed; reload and retry');
+  const shared = sharedSandboxPerks(
+    member,
+    { [member]: facts.data },
+    inputs.aliases as Aliases,
+    inputs.conflicts as SandboxConflicts,
+  );
+  if (shared.length)
+    throw new HttpError(
+      422,
+      `Sandbox perk ${shared.join(', ')} is shared with another inventory item; ${member} stays grouped`,
+    );
+  const remaining = group.members.filter((hash) => hash !== member);
+  const archive = restorationArchive(config, group.members);
+  const kept = archive ? remaining.filter((hash) => archive.files[hash]) : [];
+  const reducedPath = `migration-archives/alias-groups/${head}/${canonical}.json`;
+  const [source, existing, occupied, pushed, ...blobs] = await github.files(
+    [
+      tooltipPath(canonical),
+      tooltipPath(member),
+      reducedPath,
+      'live/pushed.json',
+      ...kept.map((hash) => retainedPath(archive!, String(hash))),
+    ],
+    head,
+  );
+  if (existing)
+    throw new HttpError(
+      409,
+      `Tooltip ${member} was authored after grouping; refusing to overwrite it`,
+    );
+  const next: AliasGroups = { ...config, groups: { ...config.groups } };
+  const writes: Record<string, unknown> = {},
+    blobRefs: Record<string, string> = {};
+  next.removed = {
+    ...next.removed,
+    [member]: {
+      canonical,
+      by: { id: String(user.id), login: user.login },
+      at: new Date().toISOString(),
+    },
+  };
+  // Every language with its stamps, so no translation turns outdated. A group without a
+  // document leaves the member without one. The reviewed Bungie text belongs to the canonical
+  // item: it only carries over when the member's in-game text is the same.
+  const current = tooltip(source, canonical);
+  const copy: Tooltip | null = current && { ...current, hash: member };
+  if (copy && items[canonical]?.inGameDescription !== facts.data.inGameDescription)
+    delete copy.bungieSnapshot;
+  if (copy) writes[tooltipPath(member)] = copy;
+  // A publish marker from before the grouping would make the new entry look already published:
+  // live still holds its stub, so Review must list it as new.
+  const markers = pushedSchema.parse(pushed?.value ?? {});
+  if (Object.hasOwn(markers, member)) {
+    delete markers[member];
+    writes['live/pushed.json'] = markers;
+  }
+  if (remaining.length < 2) delete next.groups[canonical];
+  else {
+    next.groups[canonical] = { ...group, members: remaining };
+    if (archive) {
+      // The remaining group stays restorable from the same original blobs.
+      if (occupied) throw new HttpError(409, 'Archive already exists; refusing to overwrite it');
+      const reduced: AliasGroupArchive = {
+        path: reducedPath,
+        files: Object.fromEntries(remaining.map((hash) => [hash, archive.files[hash] ?? null])),
+      };
+      for (const [i, hash] of kept.entries()) {
+        const sha = archive.files[hash]!;
+        if (blobs[i]?.sha !== sha) throw new HttpError(409, 'Group archive is missing or changed');
+        blobRefs[retainedPath(reduced, String(hash))] = sha;
+      }
+      writes[reducedPath] = reduced;
+      next.archives = [...(next.archives ?? []), reduced];
+    }
+  }
+  // Revalidate what is left and every group that pairs with it, by base pointer or by name, also
+  // through generator aliases: removing a base member must not silently disable an accepted
+  // enhanced group.
+  const generated = inputs.aliases as Aliases;
+  const reach = new Set(group.members);
+  for (const key of Object.keys(generated))
+    if (reach.has(resolveAlias(Number(key), generated))) reach.add(Number(key));
+  const named = (hash: number) => items[hash]?.name.trim().toLowerCase();
+  const names = new Set([...reach].map(named));
+  const related = Object.values(config.groups).filter(({ members }) =>
+    members.some((hash) => reach.has(items[hash]?.baseHash ?? -1) || names.has(named(hash))),
+  );
+  let after: Aliases;
+  try {
+    after = scopedAliases(inputs, next, picks).extend([
+      ...group.members,
+      ...related.flatMap((other) => other.members),
+    ]);
+  } catch (error) {
+    if (
+      error instanceof HttpError &&
+      Array.isArray(error.details) &&
+      error.details.some((detail) => String(detail).includes('Enhanced member no longer shares'))
+    )
+      throw new HttpError(
+        422,
+        `${member} is the base of a grouped enhanced version; remove that enhanced version from its group first`,
+      );
+    throw error;
+  }
+  for (const hash of [canonical, member])
+    if (resolveAlias(hash, after) !== hash)
+      throw new HttpError(409, `The generator now aliases ${hash}; it has no entry of its own`);
+  const before: Aliases = { ...after, [member]: { to: canonical, kind: 'name' } };
+  writes[aliasGroupsPath] = aliasGroupsSchema.parse(next);
+  const commit = await commitDecisions(github, head, writes, 1, user, { blobRefs, deletions: [] });
+  return json({
+    head: commit,
+    config: next,
+    issues: [],
+    affectedCanonicals: affectedAliasCanonicals(before, after, items),
+    ...(copy ? { tooltip: copy } : {}),
+  } satisfies AliasGroupsResponse);
+}
+
 /** One approval, one head, one atomic CAS. Ref races never replay an approval. */
 export async function aliasGroupsRoute(request: Request, github: GitHub, user: Identity) {
   const head = await github.head();
   requireAccess(await permissions(github, head), user, ['maintainer']);
+  // The CAS head alone, for a single removal's confirm (no composed snapshot: Free CPU).
+  if (request.method === 'GET' && new URL(request.url).searchParams.has('head'))
+    return json({ head });
   const input = request.method === 'POST' ? await body(request, aliasGroupsRequestSchema) : null;
   if (input && input.expectedHead !== head)
     throw new HttpError(409, 'Alias groups changed since review; reload and retry');
@@ -259,6 +465,16 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     head,
   );
   const config = storedAliasGroups(stored);
+  const only = input?.ops.length === 1 ? input.ops[0] : undefined;
+  if (only?.op === 'removeMember') {
+    // Older publishers reject the config's `removed` map, so removals wait for the new build.
+    requirePublisher(
+      pin,
+      aliasGroupRemovalsCapability,
+      'Removing a group member needs the updated publisher',
+    );
+    return removeMember(github, user, head, only, config, storedSandboxPointers(picksFile));
+  }
   const { items, generated, conflicts, types } = await generatorFacts(github);
   const picks = storedSandboxPointers(picksFile);
   const compose = (groups: AliasGroups) => {
@@ -283,16 +499,11 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
       }),
     );
   if (input.ops.some((op) => op.op !== 'reject')) {
-    const capabilities = (pin?.value as { capabilities?: unknown } | undefined)?.capabilities;
-    if (
-      !exporter.publisherEnabled() ||
-      !Array.isArray(capabilities) ||
-      !capabilities.includes(aliasGroupsCapability)
-    )
-      throw new HttpError(
-        409,
-        'The active publisher must support aliasGroups before changing accepted groups',
-      );
+    requirePublisher(
+      pin,
+      aliasGroupsCapability,
+      'The active publisher must support aliasGroups before changing accepted groups',
+    );
   }
   const next = structuredClone(config);
   const by = { id: String(user.id), login: user.login },
@@ -308,6 +519,7 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     ['accept', 'split', 'setCanonical'].includes(op.op),
   ).length;
   const plans = input.ops.map((op) => {
+    if (op.op === 'removeMember') throw new HttpError(422, 'Remove one member per request');
     const group = 'canonical' in op ? config.groups[op.canonical] : undefined;
     const members = 'members' in op ? op.members : group?.members;
     if (!members) throw new HttpError(422, 'Alias group does not exist');
@@ -320,13 +532,7 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
       throw new HttpError(422, 'Alias group does not exist');
     const archive =
       op.op === 'ungroup' || op.op === 'setCanonical'
-        ? [...(config.archives ?? [])]
-            .reverse()
-            .find(
-              (entry) =>
-                Object.keys(entry.files).length === members.length &&
-                members.every((hash) => Object.hasOwn(entry.files, hash)),
-            )
+        ? restorationArchive(config, members)
         : undefined;
     if ((op.op === 'ungroup' || op.op === 'setCanonical') && !archive)
       throw new HttpError(409, 'Group has no complete restoration archive');
@@ -452,6 +658,11 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     };
     changedGroups.add(canonical);
     roots.add(canonical);
+    // A manual accept of a removed member is the maintainer's explicit decision to regroup it.
+    if (next.removed) {
+      for (const hash of members) delete next.removed[hash];
+      if (!Object.keys(next.removed).length) delete next.removed;
+    }
     const archive: AliasGroupArchive = {
       path: `migration-archives/alias-groups/${head}/${canonical}.json`,
       files: originals,
@@ -489,20 +700,10 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     throw new HttpError(409, 'Archive already exists; refusing to overwrite it');
   await checkImports(github, head, roots, changed, before.aliases, after.aliases, items, types);
   writes[aliasGroupsPath] = aliasGroupsSchema.parse(next);
-  let commit: string;
-  try {
-    commit = await github.commit(
-      head,
-      writes,
-      `Update alias group decisions (${input.ops.length}) by ${user.login}`,
-      user,
-      { blobRefs, deletions: [...deletions] },
-    );
-  } catch (error) {
-    if (error instanceof RefRace)
-      throw new HttpError(409, 'Data branch moved; reload alias groups and review again');
-    throw error;
-  }
+  const commit = await commitDecisions(github, head, writes, input.ops.length, user, {
+    blobRefs,
+    deletions: [...deletions],
+  });
   return json(
     aliasGroupsResponseSchema.parse({
       head: commit,
