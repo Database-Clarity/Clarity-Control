@@ -2,8 +2,11 @@ import { publicationSyncPendingCode } from '@clarity/core';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PublishHttpError, type RemoteStatus } from '../../services/publisher/api';
 import { createMemoryOpStore, type OpStore } from '../../services/publisher/opStore';
+import { describeOp, groupPublishes } from './publishStatus';
 import {
+  activeHashes,
   PublishDriver,
+  publishingAlready,
   publishChunks,
   publishTiming,
   usePublishState,
@@ -121,6 +124,252 @@ it('a lost 202 resends the same opId and body, never a new one', async () => {
   expect(new Set(lost.mock.calls.map(([body]) => body.opId))).toEqual(new Set([created.opId]));
   expect(new Set(lost.mock.calls.map(([body]) => JSON.stringify(body))).size).toBe(1);
   expect(op().status).toBe('pending');
+});
+
+it('retries up to 500 proofs and stops with the refused hashes and reason once no progress is possible', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const reviewed = Array.from({ length: 550 }, (_, hash) => ({
+    hash: hash + 1000,
+    digest: digest(1),
+    previous: undefined,
+  }));
+  const reason = 'Missing named export';
+  let resolved = false;
+  h.api.status.mockImplementation(async () => (resolved ? 'rejected' : 'pending'));
+  h.api.post.mockImplementation(async (body) =>
+    resolved && ops().some((op) => op.opId === body.opId && op.acceptedAt !== undefined)
+      ? { status: 'rejected', refusal: reason }
+      : { status: 'pending' },
+  );
+  const first = await driver.create(reviewed);
+  await settle();
+  expect(h.api.post).toHaveBeenCalledTimes(11);
+  resolved = true;
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  expect(ops().map(({ round, consumers }) => [round, consumers])).toEqual([
+    [1, 500],
+    [1, 50],
+  ]);
+  expect(ops().every(({ groupId }) => groupId === first.groupId)).toBe(true);
+  expect(groupPublishes(ops())[0]?.combining).toBe(true);
+  expect(h.api.post).toHaveBeenCalledTimes(24); // 11 sends, 11 receipt reads, and 2 new sends.
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  const failed = groupPublishes(ops())[0]?.op;
+  expect(failed?.status).toBe('failed');
+  expect(failed?.error).toContain(`1009 and 490 more: ${reason}`);
+  expect(failed?.error).toContain(`1509 and 40 more: ${reason}`);
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  expect(h.api.post).toHaveBeenCalledTimes(26);
+  driver.stop();
+});
+
+it.each([false, true])(
+  'resumes after reload and preserves successful parts (older tab rejected: %s)',
+  async (oldTab) => {
+    const h = harness();
+    const first = h.make();
+    await first.start('1');
+    const reviewed = Array.from({ length: 101 }, (_, hash) => ({
+      hash: hash + 1000,
+      digest: digest(1),
+      previous: undefined,
+    }));
+    const group = await first.create(reviewed);
+    await settle();
+    const admitted = h.api.post.mock.calls.map(([body]) => body);
+    expect(admitted.map(({ hashes }) => hashes.length)).toEqual([50, 50, 1]);
+    first.stop();
+    const resumed = h.make();
+    const refused = admitted.slice(1);
+    if (oldTab)
+      for (const { opId } of refused)
+        await h.store.update(opId, (op) => ({ ...op, status: 'rejected' }));
+    h.api.status.mockImplementation(async (id) =>
+      refused.some(({ opId }) => opId === id) ? 'rejected' : 'done',
+    );
+    h.api.post.mockImplementation(async (body) =>
+      refused.some(({ opId }) => opId === body.opId)
+        ? { status: 'rejected', refusal: 'Missing import' }
+        : { status: 'pending' },
+    );
+    vi.setSystemTime(Date.now() + 10_000);
+    await resumed.start('1');
+    const retried = h.api.post.mock.calls.slice(3).map(([body]) => body);
+    expect(retried.slice(0, 2)).toEqual(refused);
+    expect(retried[2]?.hashes).toEqual(refused.flatMap(({ hashes }) => hashes));
+    expect(retried[2]?.expected).toEqual(
+      Object.assign({}, ...refused.map(({ expected }) => expected)),
+    );
+    expect(ops().map(({ groupId, status }) => [groupId, status])).toEqual([
+      [group.groupId, 'done'],
+      [group.groupId, 'pending'],
+    ]);
+    await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+    expect(groupPublishes(ops())[0]?.op.status).toBe('done');
+    resumed.stop();
+  },
+);
+
+it('records that a rejection without a regroupable reason was checked', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const created = await first.create(inputs);
+  await settle();
+  first.stop();
+  await h.store.update(created.opId, (op) => ({ ...op, status: 'rejected' }));
+
+  const resumed = h.make();
+  h.api.post.mockResolvedValue({ status: 'rejected' });
+  vi.setSystemTime(Date.now() + 10_000);
+  await resumed.start('1');
+  expect(op()).toMatchObject({ status: 'rejected', receiptChecked: true });
+  expect(h.api.post.mock.calls[1]).toEqual(h.api.post.mock.calls[0]);
+  await vi.advanceTimersByTimeAsync(2 * publishTiming.pollMs(0));
+  expect(h.api.post).toHaveBeenCalledTimes(2);
+  resumed.stop();
+});
+
+it('holds the whole group while any older-tab receipt is unread, then shows no dead Retry', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const reviewed = Array.from({ length: 51 }, (_, hash) => ({
+    hash: hash + 100,
+    digest: digest(1),
+    previous: undefined,
+  }));
+  await first.create(reviewed);
+  await settle();
+  const admitted = h.api.post.mock.calls.map(([body]) => body);
+  expect(admitted.map(({ hashes }) => hashes.length)).toEqual([50, 1]);
+  first.stop();
+  for (const { opId } of admitted)
+    await h.store.update(opId, (op) => ({ ...op, status: 'rejected' }));
+
+  const resumed = h.make();
+  // The first receipt reads; the second keeps failing for now.
+  let unavailable = true;
+  h.api.post.mockImplementation(async (body) => {
+    if (body.opId === admitted[1]!.opId && unavailable) throw new PublishHttpError(0, 'offline');
+    return admitted.some(({ opId }) => opId === body.opId)
+      ? { status: 'rejected', refusal: 'Missing export' }
+      : { status: 'pending' };
+  });
+  vi.setSystemTime(Date.now() + 10_000);
+  await resumed.start('1');
+  expect(ops().map(({ refusal }) => refusal)).toEqual(['Missing export', undefined]);
+  expect(activeHashes(ops())).toEqual(new Set(reviewed.map(({ hash }) => hash)));
+
+  // Aged: every part is terminal, so nothing is queued and Retry would do nothing.
+  await vi.advanceTimersByTimeAsync(30 * 60_000);
+  const group = groupPublishes(ops())[0]!;
+  const view = describeOp(group.op, undefined, Date.now(), String, group.checking);
+  expect(view).toMatchObject({ chip: 'Combining…', waiting: false, finished: false });
+  expect(activeHashes(ops()).size).toBe(51);
+  expect(h.api.kick).not.toHaveBeenCalled();
+
+  // Once the last receipt reads, exactly one combined request carries all 51 rows.
+  unavailable = false;
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(Infinity) + 100);
+  const sent = h.api.post.mock.calls
+    .map(([body]) => body)
+    .filter(({ opId }) => !admitted.some((original) => original.opId === opId));
+  expect(sent.map(({ hashes }) => hashes.length)).toEqual([51]);
+  expect(activeHashes(ops()).size).toBe(51);
+  resumed.stop();
+});
+
+it('backs off receipt reads, and stops while signed out until the account signs in again', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const created = await first.create(inputs);
+  await settle();
+  first.stop();
+  await h.store.update(created.opId, (op) => ({ ...op, status: 'rejected' }));
+  const reads = () => h.api.post.mock.calls.length - 1;
+
+  const resumed = h.make();
+  h.api.post.mockRejectedValue(new PublishHttpError(503, 'unavailable'));
+  await resumed.start('1');
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  // Status-poll pacing (4 s, then 10 s, 30 s, and 60 s), not a read every 4 s (150).
+  expect(reads()).toBeGreaterThan(10);
+  expect(reads()).toBeLessThanOrEqual(40);
+
+  h.api.post.mockRejectedValue(new PublishHttpError(401, 'expired'));
+  await vi.advanceTimersByTimeAsync(60_000);
+  const signedOut = reads();
+  expect(usePublishState.getState().notes[created.opId]).toMatch(/Sign in again/);
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(reads()).toBe(signedOut);
+
+  h.api.post.mockResolvedValue({ status: 'rejected' });
+  await resumed.start('1');
+  expect(reads()).toBe(signedOut + 1);
+  expect(op()).toMatchObject({ status: 'rejected', receiptChecked: true });
+  resumed.stop();
+});
+
+it('stores nothing for rows another publish already holds (a confirmation that outlived its list)', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const created = await first.create(inputs);
+  await settle();
+  first.stop();
+  // An older tab left this part refused with its receipt unread: the group still holds its rows.
+  await h.store.update(created.opId, (op) => ({ ...op, status: 'rejected' }));
+  const driver = h.make();
+  h.api.post.mockRejectedValue(new PublishHttpError(0, 'offline'));
+  await driver.start('1');
+  const posts = h.api.post.mock.calls.length;
+  await expect(driver.create([inputs[0]!])).rejects.toThrow(publishingAlready);
+  expect(await h.store.list('1')).toHaveLength(1);
+  expect(h.api.post.mock.calls.slice(posts).every(([body]) => body.opId === created.opId)).toBe(
+    true,
+  );
+  driver.stop();
+});
+
+it('stores a rejection seen by status polling as an unread receipt: no Retry, no kick', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  await driver.create(inputs);
+  await settle();
+  h.api.status.mockResolvedValue('rejected');
+  h.api.post.mockRejectedValue(new PublishHttpError(503, 'busy'));
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  expect(op()).toMatchObject({ status: 'rejected' });
+  expect(op().receiptChecked).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  const group = groupPublishes(ops())[0]!;
+  const view = describeOp(group.op, undefined, Date.now(), String, group.checking);
+  expect(view).toMatchObject({ chip: 'Combining…', waiting: false });
+  await driver.kickWaiting(op().opId);
+  expect(h.api.kick).not.toHaveBeenCalled();
+  // Reads back off like any receipt (first POST is the original send).
+  expect(h.api.post.mock.calls.length - 1).toBeLessThanOrEqual(40);
+
+  // A 401 pauses the reads; a definite 403 after signing in finishes the part with what is known.
+  h.api.post.mockRejectedValue(new PublishHttpError(401, 'expired'));
+  await vi.advanceTimersByTimeAsync(60_000);
+  const paused = h.api.post.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(h.api.post.mock.calls.length).toBe(paused);
+  h.api.post.mockRejectedValue(new PublishHttpError(403, 'Access revoked', true));
+  await driver.start('1');
+  expect(op()).toMatchObject({ status: 'rejected', receiptChecked: true });
+  expect(op().error).toContain('Its reason could not be read (HTTP 403: Access revoked)');
+  const finished = h.api.post.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(h.api.post.mock.calls.length).toBe(finished);
+  expect(h.api.kick).not.toHaveBeenCalled();
+  driver.stop();
 });
 
 it('retries 5xx and 429 with backoff, but gives up on a definite rejection', async () => {
@@ -336,14 +585,20 @@ it.each([
   const created = await driver.create(inputs);
   await settle();
   h.api.status.mockResolvedValue(status);
+  if (status === 'rejected')
+    h.api.post.mockResolvedValueOnce({ status, refusal: 'Missing export' });
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
   expect(op().status).toBe(status);
   expect(h.acked).toEqual(acknowledged ? [created.opId] : []);
-  // Terminal means no more polling and no resends.
+  // Terminal means no more polling or resends after reading a refused operation's receipt.
   const polls = h.api.status.mock.calls.length;
   await vi.advanceTimersByTimeAsync(10 * 60_000);
   expect(h.api.status.mock.calls.length).toBe(polls);
-  expect(h.api.post).toHaveBeenCalledTimes(1);
+  expect(h.api.post).toHaveBeenCalledTimes(status === 'rejected' ? 2 : 1);
+  if (status === 'rejected') {
+    expect(h.api.post.mock.calls[1]).toEqual(h.api.post.mock.calls[0]);
+    expect(op().error).toBe('Tooltips 10, 20: Missing export');
+  }
 });
 
 it('adopts an already-finished answer to the POST itself (duplicate or lost-202 retry)', async () => {
@@ -436,6 +691,30 @@ it('auto-kicks exactly once after three minutes, across reloads', async () => {
   await again.start('1');
   await vi.advanceTimersByTimeAsync(10 * 60_000);
   expect(h.api.kick).toHaveBeenCalledTimes(1);
+});
+
+it('reserves automatic kicks for later queued chunks, including across a reload', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  await first.create(
+    Array.from({ length: 101 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs + 1000);
+  const [head, middle, last] = ops();
+  expect(h.api.post).toHaveBeenCalledTimes(3);
+  expect(h.api.kick.mock.calls).toEqual([[head!.opId]]);
+  first.stop();
+
+  const reloaded = h.make();
+  const finished = new Set([head!.opId]);
+  h.api.status.mockImplementation(async (id) => (finished.has(id) ? 'done' : 'pending'));
+  await reloaded.start('1');
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(h.api.kick.mock.calls).toEqual([[head!.opId], [middle!.opId]]);
+  finished.add(middle!.opId);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(h.api.kick.mock.calls).toEqual([[head!.opId], [middle!.opId], [last!.opId]]);
 });
 
 it('two tabs share one poll stream and one auto-kick', async () => {
@@ -609,7 +888,7 @@ it('does not spin while a request hangs: no storage re-reads once a send is in f
   expect(h.api.post).toHaveBeenCalledTimes(1);
 });
 
-it('refuses selections over the Worker caps before storing or sending anything', async () => {
+it('stores selections over the Worker request size as one group of bounded chunks', async () => {
   const h = harness();
   const driver = h.make();
   await driver.start('1');
@@ -618,12 +897,11 @@ it('refuses selections over the Worker caps before storing or sending anything',
     digest: digest(1),
     previous: undefined,
   }));
-  await expect(driver.create(many)).rejects.toThrow(/limit is 3000.*Nothing was sent/);
-  expect(h.store.records.size).toBe(0);
-  expect(h.api.post).not.toHaveBeenCalled();
-  // At the cap exactly it is accepted.
-  await driver.create(many.slice(0, 3000));
-  expect(h.store.records.size).toBe(60);
+  await driver.create(many);
+  expect(h.store.records.size).toBe(61);
+  expect([...h.store.records.values()].flatMap((op) => op.hashes)).toEqual(
+    many.map((row) => row.hash),
+  );
 });
 
 it('only blames the clock for the creation-window rejection; 413 and 403 say what happened', async () => {
@@ -825,6 +1103,30 @@ it('keeps transitive imports and cycles in one oversize closure, and refuses mis
   }));
   expect(publishChunks(many).map((chunk) => chunk.length)).toEqual([60]);
   expect(() => publishChunks(many.slice(0, 59))).toThrow(/Select pending imported tooltip 59/);
+  expect(() => publishChunks(many.map((row) => ({ ...row, consumers: 9 })))).toThrow(
+    /cannot safely split/,
+  );
+});
+
+it('splits a multilingual selection below the Worker publication proof limit', () => {
+  const many = Array.from({ length: 100 }, (_, hash) => ({
+    hash,
+    previous: undefined,
+    consumers: 13,
+    dependencies: hash === 0 ? [99] : [],
+  }));
+  const chunks = publishChunks(many);
+  expect(chunks.map((chunk) => chunk.length)).toEqual([38, 38, 24]);
+  expect(chunks[0]?.map(({ hash }) => hash).slice(0, 2)).toEqual([0, 99]);
+});
+
+it('sends an acyclic prerequisite before a cycle that fills the proof budget', () => {
+  const rows = [
+    { hash: 1, consumers: 250, dependencies: [2, 3] },
+    { hash: 2, consumers: 250, dependencies: [1] },
+    { hash: 3, consumers: 1 },
+  ].map((row) => ({ ...row, previous: undefined }));
+  expect(publishChunks(rows).map((chunk) => chunk.map(({ hash }) => hash))).toEqual([[3], [1, 2]]);
 });
 
 it('does not send later group chunks after a definite earlier POST failure, even after dismissal and reload', async () => {

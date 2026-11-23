@@ -14,6 +14,10 @@ export interface PublishOp {
   groupSize?: number;
   /** Stable dependency order; ULID random tails do not encode chunk order. */
   groupIndex?: number;
+  /** New groups can replace refused requests while preserving their total reviewed hashes. */
+  groupHashCount?: number;
+  round?: number;
+  consumers?: number;
   /** Numeric account id the body was confirmed under; another account never resumes it. */
   userId: string;
   createdAt: number;
@@ -31,6 +35,10 @@ export interface PublishOp {
   polledAt?: number;
   /** Plain-language reason for `failed`/`stale`/`rejected` that originates in the client. */
   error?: string;
+  /** Authoritative fail-closed refusal recovered from an immutable request receipt. */
+  refusal?: string;
+  /** Also set for checked rejections that do not qualify for regrouping. */
+  receiptChecked?: true;
   updatedAt: number;
   dismissed?: boolean;
 }
@@ -41,6 +49,8 @@ export interface OpStore {
   add(op: PublishOp): Promise<void>;
   /** All chunks commit atomically before any send. */
   addMany(ops: PublishOp[]): Promise<void>;
+  /** Compare and replace the exact terminal requests in one transaction across tabs. */
+  replaceRefused(refused: PublishOp[], replacements: PublishOp[]): Promise<boolean>;
   /**
    * Atomic read-modify-write (one IndexedDB transaction, so two tabs cannot both win a claim). The
    * callback returns the changed record or undefined for "leave it". A terminal status is never
@@ -107,6 +117,17 @@ export function createIndexedDbOpStore(): OpStore {
       run<void>('readwrite', (store) => {
         for (const op of ops) store.add(op);
       }),
+    replaceRefused: (refused, replacements) =>
+      run<boolean>('readwrite', (store, done) => {
+        const found = store.getAll();
+        found.onsuccess = () => {
+          const current = new Map((found.result as PublishOp[]).map((op) => [op.opId, op]));
+          if (!sameRefusals(refused, current)) return done(false);
+          for (const op of replacements) store.add(op);
+          for (const op of refused) store.delete(op.opId);
+          done(true);
+        };
+      }),
     update: (opId, change) =>
       run<PublishOp | undefined>('readwrite', (store, done) => {
         store.get(opId).onsuccess = (event) => {
@@ -125,6 +146,13 @@ export function createIndexedDbOpStore(): OpStore {
   };
 }
 
+function sameRefusals(refused: PublishOp[], current: ReadonlyMap<string, PublishOp>): boolean {
+  return refused.every(({ opId, userId, refusal }) => {
+    const op = current.get(opId);
+    return op?.userId === userId && op.status === 'rejected' && op.refusal === refusal;
+  });
+}
+
 /** Identity fields are immutable; a terminal status sticks. Shared by every store implementation. */
 export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
   const merged: PublishOp = {
@@ -132,6 +160,10 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     opId: current.opId,
     groupId: current.groupId,
     groupSize: current.groupSize,
+    groupIndex: current.groupIndex,
+    groupHashCount: current.groupHashCount,
+    round: current.round,
+    consumers: current.consumers,
     userId: current.userId,
     createdAt: current.createdAt,
     hashes: current.hashes,
@@ -141,6 +173,8 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
   if (isTerminal(current.status) && next.status !== current.status) {
     merged.status = current.status;
     merged.error = current.error;
+    merged.refusal = current.refusal;
+    merged.receiptChecked = current.receiptChecked;
   }
   return merged;
 }
@@ -167,6 +201,14 @@ export function createMemoryOpStore(): OpStore & { records: Map<string, PublishO
         throw new Error('Operation already exists');
       const copies = structuredClone(ops);
       for (const op of copies) records.set(op.opId, op);
+    },
+    async replaceRefused(refused, replacements) {
+      if (!sameRefusals(refused, records)) return false;
+      if (replacements.some((op) => records.has(op.opId)))
+        throw new Error('Operation already exists');
+      for (const op of structuredClone(replacements)) records.set(op.opId, op);
+      for (const op of refused) records.delete(op.opId);
+      return true;
     },
     async update(opId, change) {
       const current = records.get(opId);

@@ -1,7 +1,7 @@
 import { groupPublishes } from './publishStatus';
 import { expect, it } from 'vitest';
 import type { PublishOp } from '../../services/publisher/opStore';
-import { publishTiming } from './publishDriver';
+import { hashList, publishTiming } from './publishDriver';
 import { describeOp, foreignWaiting } from './publishStatus';
 
 const base: PublishOp = {
@@ -110,6 +110,61 @@ it("PUBLISH-502: a grouped failure keeps the first failed part's own reason", ()
   expect(mixed.error).toMatch(
     /^Publish incomplete: 3 of 4 tooltips confirmed live\. First failed part \(1 tooltips\): Worker error \(HTTP 502: GitHub batch read failed\)/,
   );
+});
+
+it('offers Retry only for a queued part, and keeps long final reasons whole', () => {
+  const part = {
+    opId: 'A',
+    groupId: 'A',
+    groupHashCount: 2,
+    round: 1,
+    userId: '1',
+    createdAt: 1,
+    updatedAt: 1,
+    hashes: [1],
+    expected: {},
+    previous: {},
+    status: 'done' as const,
+  };
+  const now = 10 * publishTiming.waitingMs;
+  const describe = (members: PublishOp[]) => {
+    const group = groupPublishes(members)[0]!;
+    return describeOp(group.op, undefined, now, String, group.checking);
+  };
+  // Still sending: nothing the Worker could kick yet.
+  expect(describe([part, { ...part, opId: 'B', hashes: [2], status: 'created' }])).toMatchObject({
+    chip: 'Sending…',
+    waiting: false,
+  });
+  // Queued long ago: Retry kicks it. Accepted just now: not waiting yet.
+  const queued = { ...part, opId: 'B', hashes: [2], status: 'pending' as const, acceptedAt: 1 };
+  expect(describe([part, queued]).waiting).toBe(true);
+  expect(describe([part, { ...queued, acceptedAt: now - 1000 }]).waiting).toBe(false);
+  // Every part finished, one receipt unread: the real state, no Retry.
+  const unread = { ...part, opId: 'B', hashes: [2], status: 'rejected' as const };
+  expect(describe([part, unread])).toMatchObject({ chip: 'Combining…', waiting: false });
+
+  // Five refused 50-row parts with ten-digit hashes: every sentence and the reason survive.
+  const refusedParts = Array.from({ length: 5 }, (_, index) => {
+    const hashes = Array.from({ length: 50 }, (__, i) => 3_000_000_000 + index * 50 + i);
+    return {
+      ...part,
+      opId: `P${index}`,
+      hashes,
+      groupHashCount: 250,
+      consumers: 400,
+      status: 'rejected' as const,
+      receiptChecked: true as const,
+      refusal: 'Missing export "Charge"',
+      error: `Tooltips ${hashList(hashes)}: Missing export "Charge"`,
+    };
+  });
+  const final = describe(refusedParts);
+  expect(final.chip).toBe('Failed');
+  expect(final.detail).toContain('3000000009 and 40 more: Missing export "Charge"');
+  expect(final.detail).toContain('2 more parts were refused.');
+  expect(final.detail.endsWith('Check live status before publishing again.')).toBe(true);
+  expect(final.detail.length).toBeLessThan(800);
 });
 
 it('never labels an incomplete local group as published', () => {

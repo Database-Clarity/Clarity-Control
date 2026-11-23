@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { Tooltip } from '@clarity/core';
 import { Layout } from '../src/features/navigation/Layout';
 import { ReviewPage } from '../src/features/review/ReviewPage';
-import { usePublishState } from '../src/features/review/publishDriver';
+import { hashList, usePublishState } from '../src/features/review/publishDriver';
 import { useAuthStore } from '../src/stores/auth';
 import { useDataStore, type EditorData } from '../src/stores/data';
 import { useDraftStore } from '../src/stores/drafts';
@@ -87,6 +87,24 @@ const states: PublishOp[] =
         op(7, 'failed', {
           error:
             'The publish run failed after repeated attempts; check the run log, then publish these tooltips again.',
+        }),
+        // An older tab recorded this refusal without its reason; the receipt is still unread.
+        op(8, 'rejected', { round: 0, hashes: [901] }),
+        // Two refused 50-row parts that cannot be combined, as the receipt path stores them.
+        ...[0, 1].map((index) => {
+          const hashes = Array.from({ length: 50 }, (_, i) => 3_000_000_000 + index * 50 + i);
+          return op(9, 'rejected', {
+            opId: `01M6GMFKG9JPP01N49ZMR9Z9T${index}`,
+            groupId: 'refused-group',
+            groupIndex: index,
+            groupHashCount: 100,
+            round: 0,
+            consumers: 400,
+            hashes,
+            receiptChecked: true,
+            refusal: 'Missing export "Charge"',
+            error: `Tooltips ${hashList(hashes)}: Missing export "Charge"`,
+          });
         }),
       ];
 useDataStore.setState({ data, status: 'ready', error: null, load: async () => {} });

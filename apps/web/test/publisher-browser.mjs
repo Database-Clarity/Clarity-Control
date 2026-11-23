@@ -32,6 +32,8 @@ try {
       'import.meta.env.VITE_PUBLISHER_ENABLED': JSON.stringify('1'),
       'import.meta.env.VITE_API_URL': JSON.stringify('https://synthetic.invalid'),
     },
+    // The app's Compendium worker is code-split, which Vite's default IIFE worker format rejects.
+    worker: { format: 'es' },
     build: {
       target: 'esnext',
       outDir: output,
@@ -54,6 +56,7 @@ try {
       `${pathToFileURL(join(output, 'test', 'publisher-activity.html')).href}?mode=all`,
     );
     await page.waitForSelector('[aria-label="Publish activity"] li');
+    await page.waitForSelector('article[aria-busy="false"]');
     await page.waitForFunction(() => !document.body.textContent.includes('Comparing publishable'));
     const measure = () =>
       page.evaluate(() => {
@@ -79,6 +82,9 @@ try {
           rows: rows.map((r) => ({
             h: Math.round(r.getBoundingClientRect().height * 10) / 10,
             chip: r.children[0].textContent,
+            action: r.children[2].textContent,
+            text: r.children[1].textContent,
+            title: r.children[1].title,
           })),
           clipped,
           wrapped,
@@ -92,6 +98,20 @@ try {
     assert.deepEqual(before.clipped, [], `${width}: chips clipped`);
     assert.deepEqual(before.wrapped, [], `${width}: wrapped controls`);
     assert.deepEqual(before.tallControls, [], `${width}: tall controls`);
+    // An unread receipt with every part finished: its real state, never a Retry that does nothing.
+    assert.deepEqual(
+      before.rows.filter((r) => r.chip === 'Combining…').map((r) => r.action),
+      [''],
+      `${width}: combining row`,
+    );
+    // A refused group names ten tooltips per part, then its reason and the safety sentence, in
+    // the line and its hover text alike.
+    const refused = before.rows.find((r) => r.text.includes('Publish incomplete'));
+    for (const shown of [refused.text, refused.title]) {
+      assert.match(shown, /3000000009 and 40 more: Missing export "Charge"/, `${width}: reason`);
+      assert.ok(shown.endsWith('Check live status before publishing again.'), `${width}: ending`);
+    }
+    assert.ok(Math.max(...before.rows.map((r) => r.text.length)) < 600, `${width}: long reason`);
     const heights = new Set(before.rows.map((r) => r.h));
     assert.equal(heights.size, 1, `${width}: row heights differ ${JSON.stringify(before.rows)}`);
     if (shots)
