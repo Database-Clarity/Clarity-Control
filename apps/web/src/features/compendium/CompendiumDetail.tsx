@@ -332,7 +332,7 @@ export function CompendiumDetail({
             <div className={styles.empty}>
               <p>
                 {row.kind === 'no-match'
-                  ? 'No match yet: the Compendium has no row for this entry right now. It returns by itself at a confident match.'
+                  ? 'No match yet: the Compendium has no row for this entry right now. A confident match ends this by itself.'
                   : row.excluded === 'shared'
                     ? 'Not needed: this entry needs no tooltip text from the Compendium.'
                     : row.excluded === 'local'

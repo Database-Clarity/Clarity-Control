@@ -1,4 +1,5 @@
 .queue {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -16,6 +17,28 @@
   > * {
     flex: 1 1 0;
   }
+}
+
+// Too narrow for both labels beside each other: one above the other.
+@mixin stacked-views {
+  .views {
+    flex-direction: column;
+    height: auto;
+
+    > * {
+      flex: none;
+      min-height: var(--segmented-h);
+    }
+
+    > :not(:first-child) {
+      border-left: 0;
+      border-top: 1px solid var(--ctl-edge);
+    }
+  }
+}
+
+@container (max-width: 14rem) {
+  @include stacked-views;
 }
 
 .filters {
@@ -264,5 +287,9 @@
 
   .views {
     --segmented-h: var(--tap);
+  }
+
+  @container (max-width: 16rem) {
+    @include stacked-views;
   }
 }

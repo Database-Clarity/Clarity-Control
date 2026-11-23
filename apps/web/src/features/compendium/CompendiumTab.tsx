@@ -139,7 +139,11 @@ export function CompendiumTab() {
   const phone = useMedia(phoneQuery);
   return (
     <article className={styles.tab} aria-label={linked ? 'Source changes' : 'Compendium review'}>
-      {phone && <CompendiumViews />}
+      {phone && (
+        <div className={styles.views}>
+          <CompendiumViews />
+        </div>
+      )}
       {error && <InlineAlert onRetry={() => void load(true)}>{plainError(error)}</InlineAlert>}
       {display.error && <InlineAlert>{plainError(display.error)}</InlineAlert>}
       {linked && editor && data && <CompendiumPage />}
@@ -885,6 +889,7 @@ function Workspace({
           canMarkNotNeeded={canDecide && canShare}
           canMarkNoMatch={canMarkNoMatch}
           canUndo={canUndo}
+          canShare={canShare}
           sharedReason={canEdit && !canShare ? sharedReason : undefined}
           readOnlyReason={readOnlyReason}
           message={message}

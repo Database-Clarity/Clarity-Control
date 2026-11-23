@@ -32,17 +32,17 @@ export function CompendiumPage() {
         <span className={styles.counts}>
           {rows && `${shown.length.toLocaleString('en')} shown`}
         </span>
-        <button type="button" disabled={loading} onClick={() => void load(true)}>
-          Reload
-        </button>
       </header>
       <p className={styles.muted}>
         {list === 'unlinked'
           ? 'Tooltips without a saved Compendium link.'
-          : 'Linked Compendium text compared with the last English save or review, newest first.'}
+          : 'Linked Compendium text compared with the last English save or review, newest snapshot first.'}
       </p>
       <div className={styles.freshness}>
         <CompendiumFreshness />
+        <button type="button" disabled={loading} onClick={() => void load(true)}>
+          Reload published data
+        </button>
       </div>
       <SkeletonBoundary
         pending={loading}

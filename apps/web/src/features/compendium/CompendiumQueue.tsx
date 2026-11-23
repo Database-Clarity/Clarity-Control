@@ -152,7 +152,7 @@ function LinkedFilters() {
             set('linkedList', event.target.value === 'unlinked' ? 'unlinked' : '')
           }
         >
-          <option value="changes">Changed</option>
+          <option value="changes">All changes</option>
           <option value="unlinked">Without links</option>
         </select>
       </div>

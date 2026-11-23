@@ -12,6 +12,8 @@ export interface ActionBarProps {
   canUndo: boolean;
   /** Why drafting links is unavailable, shown in place of the consequence text. */
   readOnlyReason?: string;
+  /** A maintainer: only they have the decisions for everyone on a narrow bar. */
+  canShare: boolean;
   /** Why the decisions for everyone are unavailable to this editor. */
   sharedReason?: string;
   message: string;
@@ -35,6 +37,7 @@ export function CompendiumActionBar({
   canMarkNotNeeded,
   canMarkNoMatch,
   canUndo,
+  canShare,
   readOnlyReason,
   sharedReason,
   message,
@@ -78,7 +81,7 @@ export function CompendiumActionBar({
   }, [moreOpen]);
   const pause = (inMenu?: boolean) => (
     <label className={styles.advanceSetting}>
-      <span>Auto-advance</span>
+      <span className={styles.advanceWord}>Auto-advance</span>
       <select
         aria-label="Auto-advance pause"
         value={ms}
@@ -109,7 +112,11 @@ export function CompendiumActionBar({
     </button>
   );
   return (
-    <footer className={styles.actionBar} aria-label="Review actions">
+    <footer
+      className={styles.actionBar}
+      data-share={canShare || undefined}
+      aria-label="Review actions"
+    >
       {advancing && (
         <span
           key={advancing.token}
@@ -126,6 +133,7 @@ export function CompendiumActionBar({
       </button>
       <button
         type="button"
+        className={styles.forEveryone}
         disabled={!canMarkNotNeeded}
         title={sharedReason ?? 'Needs no Compendium row. Hidden for everyone until re-included.'}
         onClick={onNotNeeded}
@@ -134,6 +142,7 @@ export function CompendiumActionBar({
       </button>
       <button
         type="button"
+        className={styles.forEveryone}
         disabled={!canMarkNoMatch}
         title={sharedReason ?? 'Hidden for everyone until unmarked or confidently matched.'}
         onClick={onNoMatch}
