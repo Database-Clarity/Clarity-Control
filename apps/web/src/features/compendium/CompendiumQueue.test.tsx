@@ -96,13 +96,12 @@ it('keeps fast typing intact and follows it into the URL once typing pauses', as
 });
 
 it('clicking a row selects it by replacing the route', async () => {
-  await mount('/compendium?tab=linked&show=all');
+  await mount('/compendium?show=all');
   await act(async () => {
     host.querySelectorAll<HTMLElement>('[role="treeitem"][aria-level="2"]')[1].click();
   });
   const search = new URLSearchParams(host.querySelector('[data-route]')!.textContent!);
   expect(search.get('hash')).toBe('101');
-  expect(search.has('tab')).toBe(false);
   expect(search.get('show')).toBe('all');
 });
 

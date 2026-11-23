@@ -11,6 +11,12 @@ import { useSaveState } from '../../services/save/state';
 import { useCompendiumStore } from './store';
 import { useCompendiumQueueStore } from './queueStore';
 import { useAdvanceSetting } from './advanceSetting';
+import { emptyProgress, reviewStorageKey } from './reviewProgress';
+import { useSharedSaves } from './sharedDecisions';
+import { useMarksStore } from '../marks/store';
+import { apiUrl } from '../../services/api';
+import { bundleUrl } from '../../services/bundle';
+import { compendiumDataUrl } from '../../services/compendium';
 import { CompendiumQueue } from './CompendiumQueue';
 import { CompendiumTab } from './CompendiumTab';
 
@@ -106,8 +112,16 @@ beforeEach(() => {
   });
   fixture = guidedFixture();
   captured.proposals = fixture.proposals;
-  vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new Error('Blocked network'))));
-  useDataStore.setState({ data: fixture.editor, status: 'ready', error: null, load: async () => {} });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Promise.reject(new Error('Blocked network'))),
+  );
+  useDataStore.setState({
+    data: fixture.editor,
+    status: 'ready',
+    error: null,
+    load: async () => {},
+  });
   useDraftStore.setState({
     drafts: {},
     hydrated: true,
@@ -125,6 +139,13 @@ beforeEach(() => {
     load: async () => {},
   });
   useAdvanceSetting.setState({ ms: 0 });
+  // Saving stays in flight: what is shown is the decision as made.
+  useMarksStore.setState({
+    marks: { types: [], entries: {} },
+    writable: true,
+    save: () => new Promise(() => {}),
+  });
+  useSharedSaves.setState({ pending: new Map(), error: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -164,23 +185,97 @@ describe('keyboard review flow', () => {
     expect(host.querySelector('header p')?.textContent).toContain('6 to review');
   });
 
-  it('S skips and N marks not needed, both locally; neither drafts a link', async () => {
+  it('S skips locally; N and M decide for everyone and do nothing for an editor', async () => {
     await mount();
     await press('s');
     expect(title()).toContain('Sample 101');
     await press('n');
-    expect(title()).toContain('Sample 102');
+    await press('m');
+    expect(title()).toContain('Sample 101');
+    expect(useSharedSaves.getState().pending.size).toBe(0);
+    for (const label of ['Not needed', 'No match']) {
+      expect(barButton(label).disabled).toBe(true);
+      expect(barButton(label).title).toContain('Only maintainers');
+    }
     expect(Object.keys(useDraftStore.getState().drafts)).toHaveLength(0);
     const stored = JSON.parse(
       [...Array(localStorage.length).keys()]
         .map((i) => localStorage.getItem(localStorage.key(i)!)!)
         .find((value) => value.includes('"decisions"'))!,
     );
-    expect(Object.values(stored.decisions as Record<string, { kind: string }>).map((d) => d.kind)).toEqual(
-      ['skipped', 'no-equivalent'],
+    expect(
+      Object.values(stored.decisions as Record<string, { kind: string }>).map((d) => d.kind),
+    ).toEqual(['skipped']);
+    expect(host.querySelector('header p')?.textContent).toContain('5 to review');
+  });
+
+  it('a maintainer marks, undoes, and unmarks for everyone', async () => {
+    useAuthStore.setState({ user: { id: 1, login: 'm', role: 'maintainer' } });
+    await mount('/compendium', true);
+    await press('n');
+    await press('m');
+    expect(title()).toContain('Sample 102');
+    expect([...useSharedSaves.getState().pending]).toEqual([
+      [100, 'not-needed'],
+      [101, 'no-match'],
+    ]);
+    const counts = () => host.querySelector('header p')!.textContent!;
+    expect(counts()).toContain('4 to review');
+    expect(counts()).toContain('1 not needed');
+    expect(counts()).toContain('1 no match yet');
+    await press('u');
+    expect(useSharedSaves.getState().pending.get(101)).toBe(null);
+    expect(title()).toContain('Sample 101');
+    expect(counts()).toContain('5 to review');
+    await press('m');
+    const header = [...host.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].find(
+      (button) => button.textContent?.includes('No match yet'),
+    )!;
+    expect(header.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => header.click());
+    const unmark = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Unmark')!;
+    await act(async () => unmark.click());
+    expect(useSharedSaves.getState().pending.get(101)).toBe(null);
+    expect(counts()).toContain('5 to review');
+  });
+
+  it('shows others what a maintainer decided, with the reason they cannot change it', async () => {
+    const at = '2026-11-23T10:00:00Z';
+    useMarksStore.setState({
+      marks: {
+        types: [],
+        entries: {},
+        compendium: {
+          100: { kind: 'no-match', by: 7, at },
+          101: { kind: 'not-needed', by: 7, at },
+        },
+      } as never,
+    });
+    for (const hash of [100, 101]) {
+      await mount(`/compendium?hash=${hash}`);
+      const detail = host.querySelector('[aria-label="Entry to review"]')!;
+      expect(detail.textContent).toContain('GitHub user 7');
+      expect(detail.textContent).toContain('Only maintainers can change it.');
+      expect(detail.textContent).not.toMatch(/Unmark|Re-include/);
+      expect(host.querySelector('header p')?.textContent).toContain('4 to review');
+    }
+  });
+
+  it('offers earlier Not needed choices for everyone, and writes only on the click', async () => {
+    useAuthStore.setState({ user: { id: 1, login: 'm', role: 'maintainer' } });
+    const progress = emptyProgress();
+    progress.decisions[102] = { kind: 'no-equivalent', fingerprint: '12:34' };
+    localStorage.setItem(
+      reviewStorageKey(`${bundleUrl}|${compendiumDataUrl}|${apiUrl ?? 'read-only'}`, 1),
+      JSON.stringify(progress),
     );
-    expect(host.querySelector('header p')?.textContent).toContain('4 to review');
-    expect(host.querySelector('header p')?.textContent).toContain('1 not needed');
+    await mount();
+    const section = host.querySelector('[aria-label="Earlier Not needed choices"]')!;
+    expect(section.textContent).toContain('Sample 102');
+    expect(useSharedSaves.getState().pending.size).toBe(0);
+    await act(async () => section.querySelector('button')!.click());
+    expect([...useSharedSaves.getState().pending]).toEqual([[102, 'not-needed']]);
+    expect(host.querySelector('[aria-label="Earlier Not needed choices"]')).toBeNull();
   });
 
   it('arrows, J/K, Home, and End move the selection by replacing history', async () => {
@@ -328,20 +423,21 @@ describe('linked sources view', () => {
     await act(async () => {
       vi.advanceTimersByTime(400);
     });
-    expect(host.querySelector('[aria-label="Linked sources changed"]')).toBeTruthy();
+    expect(host.querySelector('[aria-label="Source changes"]')).toBeTruthy();
     expect(host.textContent).not.toContain('Loading the review queue');
-    expect(host.querySelector('[aria-selected="true"]')?.id).toBe('cq-row-101');
     await press('Enter');
     await press('ArrowDown');
     expect(Object.keys(useDraftStore.getState().drafts)).toHaveLength(0);
     expect(route().searchParams.get('tab')).toBe('linked');
-    const back = [...host.querySelectorAll('a')].find((a) =>
-      a.textContent?.includes('Back to the'),
+    const back = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.startsWith('To review'),
     )!;
+    expect(back.textContent).toBe('To review 6');
     await act(async () => {
       back.click();
     });
     expect(route().searchParams.has('tab')).toBe(false);
+    expect(host.querySelector('[aria-selected="true"]')?.id).toBe('cq-row-101');
     expect(title()).toContain('Sample 101');
     expect(host.textContent).not.toContain('Loading the review queue');
   });

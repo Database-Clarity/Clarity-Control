@@ -84,9 +84,7 @@ async function clickLink(text: string) {
 }
 
 async function change(label: string, value: string) {
-  const input = [...host.querySelectorAll('label')]
-    .find((element) => element.textContent?.trim().startsWith(label))
-    ?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select');
+  const input = host.querySelector<HTMLInputElement | HTMLSelectElement>(`[aria-label="${label}"]`);
   if (!input) throw new Error(`Missing control ${label}: ${host.textContent}`);
   await act(async () => {
     const prototype =
@@ -237,13 +235,16 @@ describe('Compendium route and linked-source view', () => {
     expect(title()).toContain('Sample 105');
   });
 
-  it('labels zero linked changes separately from the real unlinked-tooltip count', async () => {
+  it('labels zero source changes separately from the real unlinked-tooltip count', async () => {
     await mount('/compendium?tab=linked');
 
-    expect(button('Linked sources changed (0)')).toBeTruthy();
-    expect(button('Tooltips without links (6)')).toBeTruthy();
-    expect(host.textContent).toContain('No linked Compendium changes match these filters.');
-    expect(host.textContent).not.toContain('all matching complete');
+    expect(button('Source changes 0').getAttribute('aria-pressed')).toBe('true');
+    expect(button('To review 6').getAttribute('aria-pressed')).toBe('false');
+    expect(host.textContent).toContain('Every linked source is as it was saved.');
+    await change('Show', 'unlinked');
+    expect(route().searchParams.get('linkedList')).toBe('unlinked');
+    expect(button('All categories').textContent).toBe('All categories6');
+    expect(host.textContent).toContain('6 shown');
   });
 
   it('retains populated linked-source entries, filters, and history across the queue', async () => {
@@ -265,13 +266,16 @@ describe('Compendium route and linked-source view', () => {
     await mount('/compendium?hash=100&show=all');
     expect(title()).toContain('Sample 100');
 
-    await clickLink('Linked (2)');
+    await act(async () => button('Source changes 2').click());
     expect(route().searchParams.get('tab')).toBe('linked');
-    expect(button('Linked sources changed (2)')).toBeTruthy();
-    expect(button('Tooltips without links (4)')).toBeTruthy();
+    expect(button('Source changes 2').getAttribute('aria-pressed')).toBe('true');
+    expect(button('Traits').textContent).toBe('Traits2');
     expect(link('Sample 100').getAttribute('href')).toBe('/t/100');
+    expect(host.textContent).toContain('Needs relink');
 
-    await change('Search tooltips', 'Sample 101');
+    await act(async () => button('Traits').click());
+    expect(route().searchParams.get('linkedCategory')).toBe('weapon-trait');
+    await change('Find entry', 'Sample 101');
     expect(route().searchParams.get('hash')).toBe('100');
     expect(route().searchParams.get('show')).toBe('all');
     expect(route().searchParams.get('linkedQuery')).toBe('Sample 101');
@@ -282,9 +286,12 @@ describe('Compendium route and linked-source view', () => {
     await go(-1);
     expect(route().searchParams.get('tab')).toBe('linked');
     expect(route().searchParams.get('linkedQuery')).toBe('Sample 101');
-    await clickLink('Back to the review queue');
+    await act(async () => button('To review').click());
     expect(route().searchParams.has('tab')).toBe(false);
     expect(route().searchParams.get('hash')).toBe('100');
     expect(title()).toContain('Sample 100');
+    // The switch is a page of its own in history.
+    await go(-1);
+    expect(route().searchParams.get('tab')).toBe('linked');
   });
 });

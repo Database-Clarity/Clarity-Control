@@ -4,7 +4,13 @@ import type { EditorData } from '../../stores/data';
 import { createDraftStore } from '../../stores/drafts';
 import { confirmCompendiumSelection } from './selection';
 import { emptyProgress, readProgress, reviewStorageKey, sourceFingerprint } from './reviewProgress';
-import { applyReviewProgress, mayDraftLink, reviewEvidence, reviewQueue } from './reviewQueue';
+import {
+  applyReviewProgress,
+  entryEvidence,
+  mayDraftLink,
+  reviewEvidence,
+  reviewQueue,
+} from './reviewQueue';
 import { categorySuggestions, suggestionAnchor } from './suggestions';
 
 const cell = { plain: 'Description', runs: [{ text: 'Description', bold: true as const }] };
@@ -122,14 +128,14 @@ it('keeps archived tooltips out of the unresolved queue', () => {
     100,
   );
 });
-it('persists filters, position, skip/no-equivalent and reopen; source changes reveal tentative negatives', () => {
+it('persists filters, position, skip/no-equivalent and reopen; only the entry itself reopens them', () => {
   for (const kind of ['skipped', 'no-equivalent', 'open'] as const) {
     editor = fixture();
     const progress = emptyProgress();
     const entry = reviewQueue(editor, source, {}, progress, fingerprint).find(
       (entry) => entry.hash === 100,
     )!;
-    progress.decisions[entry.hash] = { kind, fingerprint: entry.evidence };
+    progress.decisions[entry.hash] = { kind, fingerprint: entryEvidence(entry) };
     Object.assign(progress, {
       query: 'Test',
       category: 'weapon-frame',
@@ -144,15 +150,26 @@ it('persists filters, position, skip/no-equivalent and reopen; source changes re
     ).toBe(kind);
     expect(
       reviewQueue(editor, source, {}, loaded, 'new-source').find((entry) => entry.hash === 100)!,
-    ).toMatchObject({
-      status: 'open',
-      stale: true,
-    });
+    ).toMatchObject({ status: kind, reason: 'Unlinked' });
     editor.bundle.tooltips[100].text.en!.text = 'New English evidence';
     expect(
       reviewQueue(editor, source, {}, loaded, fingerprint).find((entry) => entry.hash === 100)!
         .status,
     ).toBe('open');
+  }
+});
+it('keeps decisions recorded with an earlier sheet, and never calls an unlinked entry changed', () => {
+  // The fingerprint earlier versions recorded: the whole sheet and the entry in one digest.
+  const old = reviewEvidence(editor, source, {}, 'earlier sheet').find(
+    (entry) => entry.hash === 100,
+  )!.evidence;
+  for (const kind of ['skipped', 'no-equivalent', 'open'] as const) {
+    const progress = emptyProgress();
+    progress.decisions[100] = { kind, fingerprint: old };
+    const entry = reviewQueue(editor, source, {}, progress, fingerprint).find(
+      (entry) => entry.hash === 100,
+    )!;
+    expect(entry).toMatchObject({ status: kind, reason: 'Unlinked' });
   }
 });
 it('isolates identity/data scopes and rejects corrupt/unavailable storage defensively', () => {
@@ -216,9 +233,9 @@ it('reuses resolved evidence for local navigation and decisions; changed source 
   const progress = emptyProgress();
   const healthy = evidence.find((entry) => entry.hash === 104)!;
   const unlinked = evidence.find((entry) => entry.hash === 100)!;
-  const decision = { kind: 'skipped' as const, fingerprint: unlinked.evidence };
+  const decision = { kind: 'skipped' as const, fingerprint: entryEvidence(unlinked) };
   progress.decisions[100] = decision;
-  progress.decisions[104] = { kind: 'open', fingerprint: healthy.evidence };
+  progress.decisions[104] = { kind: 'open', fingerprint: entryEvidence(healthy) };
   // Repeated navigation/filter changes reuse the same evidence and preserve decisions.
   for (const selected of [100, 104, 103]) {
     const entries = applyReviewProgress(evidence, {
@@ -239,8 +256,8 @@ it('reuses resolved evidence for local navigation and decisions; changed source 
   );
   const entries = applyReviewProgress(refreshed, progress);
   expect(entries.find((entry) => entry.hash === 100)).toMatchObject({
-    status: 'open',
-    stale: true,
+    status: 'skipped',
+    reason: 'Unlinked',
   });
   expect(entries.find((entry) => entry.hash === 104)).toMatchObject({
     status: 'open',

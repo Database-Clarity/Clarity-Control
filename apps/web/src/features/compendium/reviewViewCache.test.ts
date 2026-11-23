@@ -63,5 +63,8 @@ it('keeps worker clones usable as evidence while preserving real draft text', ()
   )!;
   expect(accepted.status).toBe('drafted');
   expect(accepted.next).toBe(linked);
-  expect(preparedQueueRows([accepted], prepared, proposals, new Set(), new Map())[0].kind).toBe('drafted');
+  expect(
+    preparedQueueRows([accepted], prepared, proposals, source, new Set(), new Map(), new Map())[0]
+      .kind,
+  ).toBe('drafted');
 });

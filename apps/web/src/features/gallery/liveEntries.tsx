@@ -29,7 +29,7 @@ import { NumberStatus } from '../editor/numbers/NumberTools';
 import { createNumberStore } from '../editor/numbers/state';
 import { numberSource } from '../editor/numbers/model';
 import statusStyles from '../editor/StatusBar.module.scss';
-import { WorklistPickerView, DraftWorklistsView } from '../queue/WorklistsMenu';
+import { DraftWorklistsView, ParityWorklistView, WorklistPickerView } from '../queue/WorklistsMenu';
 import { BatchRowView } from '../review/batches/BatchesPane';
 import { VersionSwitch } from '../preview/PreviewColumn';
 import { CompendiumDiffView } from '../compendium/CompendiumDiff';
@@ -716,11 +716,25 @@ export const liveEntries: GalleryEntry[] = [
     id: 'worklists',
     group: 'Navigation',
     title: 'Worklists picker',
-    from: 'features/queue/WorklistsMenu (WorklistPickerView, DraftWorklistsView)',
+    from: 'features/queue/WorklistsMenu (WorklistPickerView, ParityWorklistView, DraftWorklistsView)',
     note: 'Fixture choices and creation form emit events; no sync or save calls.',
     states: ['Default', 'Create', 'Empty', 'Saving', 'Error', 'Long']
       .map((kind) => state(kind, () => <WorklistDemo kind={kind} />))
       .concat([
+        ...[
+          { label: 'Parity loading', items: null },
+          {
+            label: 'Parity populated',
+            items: [{ key: '1399216', hash: 1399216, name: 'Duskfield Grenade' }],
+          },
+          { label: 'Parity empty', items: [] },
+        ].map(({ label, items }) =>
+          state(label, () => (
+            <div className={worklists.content}>
+              <ParityWorklistView items={items} onOpen={noop} />
+            </div>
+          )),
+        ),
         state('Drafts loading', () => (
           <div className={worklists.content}>
             <DraftWorklistsView drafts={null} onOpen={noop} />

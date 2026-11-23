@@ -1,9 +1,10 @@
 import { editorName, itemFor } from '../navigation/catalog';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Popover } from '../../ui/Popover';
 import { useDataStore } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
+import { useCompendiumStore } from '../compendium/store';
 import { usePreviewReviewStore } from '../../stores/previewReview';
 import {
   loadWorklist,
@@ -15,6 +16,7 @@ import {
 import {
   draftGroups,
   draftItems,
+  parityItems,
   savedItems,
   worklistAvailable,
   type DraftGroup,
@@ -228,7 +230,12 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
     },
     [location.key],
   );
-  const run = async (items: QueueItem[], id?: string, category?: string) => {
+  const run = async (
+    items: QueueItem[],
+    source: 'custom' | 'drafts' | 'parity',
+    restore: { worklistId?: string; category?: string } = {},
+  ) => {
+    const id = restore.worklistId;
     const attempt = ++openRequest.current;
     if (id && data) {
       try {
@@ -244,7 +251,6 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       setError('Every entry is unavailable. Remove unavailable entries or choose another list.');
       return;
     }
-    const source = id ? 'custom' : 'drafts';
     if (
       !usePreviewReviewStore
         .getState()
@@ -258,7 +264,7 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
       first,
       origin: {
         path: `${location.pathname}${location.search}`,
-        restore: id ? { worklistId: id } : { category },
+        restore,
       },
       focus: true,
     });
@@ -275,7 +281,8 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
   };
   return (
     <div className={styles.content}>
-      <DraftWorklists onOpen={(group) => void run(group.items, undefined, group.id)} />
+      <ParityWorklist onOpen={(items) => void run(items, 'parity')} />
+      <DraftWorklists onOpen={(group) => void run(group.items, 'drafts', { category: group.id })} />
       {!user && <p>Sign in to create and sync saved worklists.</p>}
       {lists.map((list) => (
         <details
@@ -304,7 +311,9 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
                 disabled={
                   !data || !(loaded.includes(list.id) ? list.items.length : index[list.id]?.count)
                 }
-                onClick={() => void run(savedItems(list.items, data!), list.id)}
+                onClick={() =>
+                  void run(savedItems(list.items, data!), 'custom', { worklistId: list.id })
+                }
               >
                 Open
               </button>
@@ -393,6 +402,52 @@ export function WorklistsManager({ close = () => {} }: { close?(restoreFocus?: b
     </div>
   );
 }
+/**
+ * The built-in Compendium parity worklist, derived from saved links and the loaded sheet. Not for
+ * translators: they never load the live sheet.
+ */
+function ParityWorklist({ onOpen }: { onOpen(items: QueueItem[]): void }) {
+  const data = useDataStore((state) => state.data);
+  const loads = useAuthStore((state) => !state.loading && state.user?.role !== 'translator');
+  const source = useCompendiumStore((state) => state.data);
+  const error = useCompendiumStore((state) => state.error);
+  const load = useCompendiumStore((state) => state.load);
+  useEffect(() => {
+    if (loads) void load();
+  }, [loads, load]);
+  const items = useMemo(() => (data && source ? parityItems(data, source) : null), [data, source]);
+  if (!loads) return null;
+  return <ParityWorklistView items={items} failed={!!error} onOpen={onOpen} />;
+}
+
+export function ParityWorklistView({
+  items,
+  failed = false,
+  onOpen,
+}: {
+  items: QueueItem[] | null;
+  failed?: boolean;
+  onOpen(items: QueueItem[]): void;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        className={styles.choice}
+        disabled={!items?.length}
+        onClick={() => onOpen(items!)}
+      >
+        <span>Compendium parity</span>
+        <span>{items ? items.length : failed ? 'Unavailable' : 'Loading…'}</span>
+      </button>
+      <p>
+        Linked Compendium text changed since the last English save or review. Save English or mark
+        the source as reviewed to finish an entry.
+      </p>
+    </>
+  );
+}
+
 /**
  * The built-in Drafts worklists: one per finder category with bulk drafts that still need saved
  * English, in finder order. Derived from the draft index and saved data (a save recounts them).

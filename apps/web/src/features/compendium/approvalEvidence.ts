@@ -1,6 +1,15 @@
-import { compendiumCellSchema, type CompendiumCell, type CompendiumMatch } from '@clarity/core';
+import {
+  compendiumCellSchema,
+  resolveCompendiumLink,
+  type CompendiumCell,
+  type CompendiumData,
+  type CompendiumLink,
+  type CompendiumMatch,
+} from '@clarity/core';
 import reviewed from './owner-reviewed.json';
 import shipped from './approved-guidance.v1.json';
+import { sourceFingerprint } from './reviewProgress';
+import { sourceNeedsUpdate } from './tracking';
 
 type Approval = { name: string; categoryId: string; gid: string; approvedSnapshot?: unknown };
 const approvals: Record<string, Approval> = { ...reviewed.verified, ...reviewed.reapproved };
@@ -44,6 +53,38 @@ export function approvalEvidence(
   return approvalCell(reference.link.snapshot);
 }
 
+type Proof = { name: string; cellEvidence: string };
+const proofs: Record<string, { gid: string; name: string; categoryId: string; rows: Proof[] }> = {
+  ...reviewed.verified,
+  ...Object.fromEntries(
+    Object.entries(reviewed.reapproved).map(([hash, record]) => [
+      hash,
+      { ...record, rows: [record] },
+    ]),
+  ),
+};
+
+/** Whether the owner approved a link for this entry whose source cells are no longer the same. */
+export function approvedSourceChanged(
+  { hash, name, category }: { hash: number; name: string; category: string },
+  source: CompendiumData,
+): boolean {
+  const proof = proofs[hash];
+  if (proof?.name === name && proof.categoryId === `catalog:${category}`) {
+    const rows = source.tabs.find((tab) => tab.gid === proof.gid)?.rows ?? [];
+    return proof.rows.some(
+      ({ name, cellEvidence }) =>
+        !rows.some((row) => row.name === name && sourceFingerprint(row.cell) === cellEvidence),
+    );
+  }
+  const reference = shippedReference(hash, category);
+  return (
+    reference?.name === name &&
+    !!reference.link &&
+    sourceNeedsUpdate(resolveCompendiumLink(reference.link, source))
+  );
+}
+
 function shippedReference(hash: number, categoryId: string) {
   const category = shipped.categories[`catalog:${categoryId}` as keyof typeof shipped.categories];
   return (
@@ -52,7 +93,7 @@ function shippedReference(hash: number, categoryId: string) {
           string,
           {
             name: string;
-            link?: { gid: string; rowKey: string; snapshot: unknown; setBonusPieces?: number };
+            link?: CompendiumLink;
           }
         >
       | undefined

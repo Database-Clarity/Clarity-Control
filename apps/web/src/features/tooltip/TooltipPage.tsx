@@ -142,7 +142,9 @@ export function TooltipPage(props: Parameters<typeof TooltipPageContent>[0]) {
     props.hashOverride === undefined &&
     data &&
     work?.mode === 'active' &&
-    (work.queue.source === 'custom' || work.queue.source === 'drafts') &&
+    (work.queue.source === 'custom' ||
+      work.queue.source === 'drafts' ||
+      work.queue.source === 'parity') &&
     !worklistAvailable(entry, data)
   ) {
     const id = (work.queue.origin.restore as { worklistId?: string }).worklistId;
@@ -965,6 +967,12 @@ function TooltipWorkspace({
       <VariantWorkspace
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
+        openCompendium={
+          (routeState as { pane?: unknown } | null)?.pane === 'compendium' ||
+          (work?.mode === 'active' && work.queue.source === 'parity')
+            ? routeState
+            : undefined
+        }
         source={
           lang === 'en' || (batchEditing && !batchAllowed) ? undefined : batchEditing ? (
             upcoming.overlay?.[activeHash] ? (

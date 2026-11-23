@@ -7,7 +7,7 @@ import {
   SkeletonStatus,
   useSkeletonVisible,
 } from '../../ui/Skeleton';
-import { touchQuery, useMedia } from '../../ui/useMedia';
+import { phoneQuery, touchQuery, useMedia } from '../../ui/useMedia';
 import { useScaleFactor } from '../../ui/usePaneDivider';
 import { useSettingsStore } from '../../stores/settings';
 import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
@@ -21,6 +21,10 @@ import {
   type QueueRow,
 } from './queueRows';
 import type { QueueItem } from './queueView';
+import { asideKinds } from './queueView';
+import { maintainersOnly, useCanShareDecisions } from './sharedDecisions';
+import { CompendiumViews } from './CompendiumViews';
+import { useLinkedSources } from './linkedSources';
 import styles from './CompendiumQueue.module.scss';
 import { plainError } from '../../services/httpError';
 import { InlineAlert } from '../../ui/InlineAlert';
@@ -33,16 +37,19 @@ const Row = memo(function Row({
   row,
   selected,
   pinned,
+  canShare,
   onSelect,
   onReinclude,
 }: {
   row: QueueRow;
   selected: boolean;
   pinned?: boolean;
+  /** May clear a decision that applies to everyone. */
+  canShare: boolean;
   onSelect(hash: number): void;
   onReinclude?: (row: QueueRow) => void;
 }) {
-  const excluded = row.kind === 'not-needed';
+  const shared = row.kind === 'no-match' || row.excluded === 'shared';
   return (
     <div
       id={queueRowId(row.hash)}
@@ -60,17 +67,18 @@ const Row = memo(function Row({
         {kindGlyphs[row.kind]}
       </span>
       <span className={styles.name}>{row.name}</span>
-      {excluded ? (
+      {asideKinds.includes(row.kind) ? (
         <button
           type="button"
           className={styles.reinclude}
-          disabled={!onReinclude}
+          disabled={!onReinclude || (shared && !canShare)}
+          title={shared && !canShare ? maintainersOnly : undefined}
           onClick={(event) => {
             event.stopPropagation();
             onReinclude?.(row);
           }}
         >
-          Re-include
+          {row.kind === 'no-match' ? 'Unmark' : 'Re-include'}
         </button>
       ) : (
         <span className={styles.kind}>
@@ -105,9 +113,77 @@ function Header({
   );
 }
 
-/** The queue behind the Compendium tab: filters and one virtualised, grouped list. */
+/** The left column of the Compendium page: the view switch, then the open view's list. */
 export function CompendiumQueue() {
+  const [params] = useSearchParams();
+  // A phone has the switch on the page itself, above this sheet's list.
+  const phone = useMedia(phoneQuery);
+  const linked = params.get('tab') === 'linked';
+  return (
+    <nav
+      aria-label={linked ? 'Source changes by category' : 'Compendium review queue'}
+      className={styles.queue}
+    >
+      {!phone && <CompendiumViews />}
+      {linked ? <LinkedFilters /> : <ReviewQueue />}
+    </nav>
+  );
+}
+
+/** Search, list, and category of the Source changes view; the page beside it lists the entries. */
+function LinkedFilters() {
+  const closeSheet = useContext(FinderSheetCloseContext);
+  const { list, query, category, rows, searched, categories, set } = useLinkedSources();
+  const options = [{ id: '', label: 'All categories', count: searched.length }, ...categories];
+  return (
+    <>
+      <div className={styles.filters}>
+        <input
+          type="search"
+          aria-label="Find entry"
+          placeholder="Name or hash"
+          value={query}
+          onChange={(event) => set('linkedQuery', event.target.value)}
+        />
+        <select
+          aria-label="Show"
+          value={list}
+          onChange={(event) =>
+            set('linkedList', event.target.value === 'unlinked' ? 'unlinked' : '')
+          }
+        >
+          <option value="changes">Changed</option>
+          <option value="unlinked">Without links</option>
+        </select>
+      </div>
+      {rows && (
+        <ul className={styles.categories}>
+          {options.map(({ id, label, count }) => (
+            <li key={id}>
+              <button
+                type="button"
+                className={styles.category}
+                aria-pressed={id === category}
+                onClick={() => {
+                  set('linkedCategory', id);
+                  closeSheet?.();
+                }}
+              >
+                <span className={styles.groupName}>{label}</span>
+                <span className={styles.count}>{count.toLocaleString('en')}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+/** The queue behind the Compendium tab: filters and one virtualised, grouped list. */
+function ReviewQueue() {
   const [params, setParams] = useSearchParams();
+  const canShare = useCanShareDecisions();
   // Writes start from the URL as it is now, never from the render a timer or row was set up in;
   // the router's setter changes with every URL, so rows keep one stable select (no row re-renders
   // beyond the two whose selection changed).
@@ -143,7 +219,6 @@ export function CompendiumQueue() {
   const query = params.get('q') ?? '';
   const select = useCallback((hash: number) => {
     const next = new URLSearchParams(paramsRef.current);
-    next.delete('tab');
     next.set('hash', String(hash));
     setParamsRef.current(next, { replace: true });
     closeSheet.current?.();
@@ -210,7 +285,7 @@ export function CompendiumQueue() {
     </p>
   );
   return (
-    <nav aria-label="Compendium review queue" className={styles.queue}>
+    <>
       <div className={styles.filters}>
         <input
           type="search"
@@ -274,6 +349,7 @@ export function CompendiumQueue() {
                 <Row
                   row={item.row}
                   pinned={item.pinned}
+                  canShare={canShare}
                   selected={item.row.hash === selected}
                   onSelect={select}
                   onReinclude={reinclude}
@@ -283,6 +359,6 @@ export function CompendiumQueue() {
           />
         </>
       )}
-    </nav>
+    </>
   );
 }

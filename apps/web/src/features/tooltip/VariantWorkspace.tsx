@@ -52,6 +52,8 @@ interface VariantWorkspaceProps {
   reports?: { pane: ReactNode; count: number | null };
   /** Panel shown first on a phone, or in the swapped slot; defaults to the editor. */
   initialPanel?: Panel;
+  /** Set by a visit that is about the Compendium: each new one opens the Compendium view. */
+  openCompendium?: unknown;
   /** Keep pane measurement/tab state stable while a navigation burst hides the workspace. */
   suspended?: boolean;
 }
@@ -88,6 +90,7 @@ export function VariantWorkspace({
   compendiumLabel = 'Compendium',
   reports,
   initialPanel = 'translation',
+  openCompendium,
   suspended = false,
 }: VariantWorkspaceProps) {
   const phone = useMedia(phoneQuery);
@@ -113,6 +116,11 @@ export function VariantWorkspace({
       remember({ translatePane: id === 'source' ? 'english' : 'compendium' });
   };
   const side = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!openCompendium) return;
+    setActive('compendium');
+    setReportsOpen(false);
+  }, [openCompendium, setReportsOpen]);
   const showEditor = useRef(() => {});
   showEditor.current = () => {
     if (mode !== 'split') open('translation');

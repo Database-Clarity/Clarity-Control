@@ -5,6 +5,7 @@ import {
   type Lang,
 } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
+import { sourceNeedsUpdate } from '../compendium/tracking';
 import { classifyItem, inactiveCategory, isSetSelector } from '../compendium/itemClassification';
 import { canonicalHash, variantHashes } from './catalog';
 
@@ -35,9 +36,7 @@ export function savedFinderMarkers(
     if (tooltip?.text.en?.text.trim() && translationStateOf(tooltip, lang).state === 'outdated')
       flags |= Outdated;
   } else if (source && tooltip?.compendium) {
-    const resolved = resolveCompendiumLink(tooltip.compendium, source);
-    if (resolved.status !== 'ok' && !(resolved.status === 'moved' && !resolved.changed))
-      flags |= Outdated;
+    if (sourceNeedsUpdate(resolveCompendiumLink(tooltip.compendium, source))) flags |= Outdated;
   }
   return flags;
 }
