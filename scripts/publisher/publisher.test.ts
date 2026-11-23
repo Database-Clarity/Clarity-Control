@@ -482,6 +482,39 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     },
   );
 
+  it('recovers a signed alias marker using the generator at the frozen source', async () => {
+    const f = await setup();
+    f.options.aliases = { 555: { to: 123, kind: 'frame' } };
+    f.options.facts[555] = { name: 'Frame alias', type: 'perk' };
+    f.change(D, {
+      '.publisher/config.json': {
+        generatorSha: f.options.generatorSha,
+        aliases: f.options.aliases,
+        facts: f.options.facts,
+      },
+    });
+    const digest = await inactivePublishableHash(f.tooltip, f.options.aliases);
+    await f.request(A, [555], { 555: digest });
+    const create = f.pub.createCandidate.bind(f.pub);
+    f.pub.createCandidate = (opId, blob, live, receipt) => {
+      const candidate = create(opId, blob, live, receipt);
+      f.git.cas(L, live, candidate.c);
+      f.options.generatorSha = 'c'.repeat(40);
+      f.options.aliases = {};
+      return candidate;
+    };
+    await f.pub.operation(A);
+    const { result } = f.pub.read<{ result: { status: string; error?: string } }>(
+      f.git.tree(f.git.head(D)!),
+      paths(A).log,
+    )!;
+    expect(result.status, result.error).toMatch(/done|unchanged/);
+    f.assertDone(A);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toMatchObject({
+      123: digest,
+    });
+  });
+
   it.each([true, false])(
     'inactive: an unrelated publish cannot restore an absent pick stub (inactive=%s)',
     async (inactive) => {
