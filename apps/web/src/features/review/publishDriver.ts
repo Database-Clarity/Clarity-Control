@@ -1,7 +1,7 @@
 import { publicationSyncPendingCode } from '@clarity/core';
 import { create } from 'zustand';
 import { dependencyChunks } from '../../services/dependencyChunks';
-import type { RemoteStatus } from '../../services/publisher/api';
+import type { PublishAnswer, RemoteStatus } from '../../services/publisher/api';
 import { PublishHttpError } from '../../services/publisher/api';
 import { isTerminal, type OpStore, type PublishOp } from '../../services/publisher/opStore';
 import { newOpId } from '../../services/publisher/ulid';
@@ -46,7 +46,7 @@ export interface PublishApi {
     opId: string;
     hashes: number[];
     expected: Record<string, string>;
-  }): Promise<{ status: 'pending' } | { status: RemoteStatus }>;
+  }): Promise<PublishAnswer>;
   status(opId: string): Promise<RemoteStatus | 'unknown'>;
   kick(opId: string): Promise<void>;
 }
@@ -129,7 +129,50 @@ export function publishChunks<T extends Omit<PublishInput, 'digest'>>(inputs: re
 
 /** Hashes covered by an operation that is still queued or being sent. */
 export function activeHashes(ops: readonly PublishOp[]): Set<number> {
-  return new Set(ops.filter((op) => !isTerminal(op.status)).flatMap((op) => op.hashes));
+  const active = ops.filter((op) => !isTerminal(op.status));
+  const groups = new Set(active.map((op) => op.groupId));
+  const recoverable = new Map<string, boolean>();
+  for (const op of ops) {
+    if (op.refusal === undefined || !op.groupId) continue;
+    if (!recoverable.has(op.groupId))
+      recoverable.set(
+        op.groupId,
+        groups.has(op.groupId) ||
+          regroupRefusals(ops.filter((entry) => entry.groupId === op.groupId)).length > 0,
+      );
+    if (recoverable.get(op.groupId)) active.push(op);
+  }
+  return new Set(active.flatMap((op) => op.hashes));
+}
+
+/** Keep successful requests and greedily combine only the latest round's refused parts in order. */
+export function regroupRefusals(members: readonly PublishOp[]): PublishOp[][] {
+  const expected = members[0]?.groupHashCount;
+  if (
+    expected === undefined ||
+    members.some((op) => !isTerminal(op.status)) ||
+    members.reduce((count, op) => count + op.hashes.length, 0) !== expected
+  )
+    return [];
+  const round = Math.max(...members.map((op) => op.round ?? 0));
+  const latest = members.filter((op) => op.round === round).sort(byAge);
+  const refused = latest.filter((op) => op.status === 'rejected' && op.refusal !== undefined);
+  const parts: PublishOp[][] = [];
+  let weight = 0;
+  for (const op of refused) {
+    if (!parts.length || weight + op.consumers! > publishTiming.maxConsumers) {
+      parts.push([]);
+      weight = 0;
+    }
+    parts.at(-1)!.push(op);
+    weight += op.consumers!;
+  }
+  // Combining reduces the number of requests left. A successful part can also have repaired a
+  // prerequisite, so give the refused selection another chance even if it already fills a request.
+  return parts.length < refused.length ||
+    latest.some((op) => op.status === 'done' || op.status === 'unchanged')
+    ? parts
+    : [];
 }
 
 const syncDeadline = (op: PublishOp) =>
@@ -205,8 +248,15 @@ export class PublishDriver {
     for (const chunk of planned) {
       const op: PublishOp = {
         opId: chunks.length === 0 ? groupId : newOpId(now),
+        round: 0,
         ...(planned.length > 1
-          ? { groupId, groupSize: planned.length, groupIndex: chunks.length }
+          ? {
+              groupId,
+              groupSize: planned.length,
+              groupIndex: chunks.length,
+              groupHashCount: inputs.length,
+              consumers: chunk.reduce((count, input) => count + (input.consumers ?? 1), 0),
+            }
           : {}),
         userId,
         createdAt: now,
@@ -410,13 +460,61 @@ export class PublishDriver {
         }
       }
     }
+    if (generation === this.generation) await this.recoverGroups();
+  }
+
+  private recoveries() {
+    const groups = new Set(
+      this.storedOps
+        .filter((op) => op.refusal !== undefined && !op.dismissed)
+        .map((op) => op.groupId),
+    );
+    return [...groups].flatMap((groupId) => {
+      if (!groupId) return [];
+      const parts = regroupRefusals(this.storedOps.filter((op) => op.groupId === groupId));
+      return parts.length ? [parts] : [];
+    });
+  }
+
+  private async recoverGroups() {
+    const generation = this.generation;
+    for (const parts of this.recoveries()) {
+      const now = this.deps.now();
+      const replacements = parts.map((part): PublishOp => {
+        const first = part[0]!;
+        return {
+          opId: newOpId(now),
+          userId: first.userId,
+          groupId: first.groupId,
+          groupSize: first.groupSize,
+          groupIndex: first.groupIndex,
+          groupHashCount: first.groupHashCount,
+          round: first.round! + 1,
+          consumers: part.reduce((count, op) => count + op.consumers!, 0),
+          hashes: part.flatMap((op) => op.hashes),
+          expected: Object.assign({}, ...part.map((op) => op.expected)),
+          previous: Object.assign({}, ...part.map((op) => op.previous)),
+          status: 'created',
+          createdAt: now,
+          updatedAt: now,
+        };
+      });
+      const stored = await this.deps.store
+        .replaceRefused(parts.flat(), replacements)
+        .catch(() => null);
+      if (generation !== this.generation) return;
+      if (stored === null) continue;
+      if (stored) this.deps.broadcast();
+      // Reload the new round, regardless of which tab won the replace.
+      this.again = true;
+    }
   }
 
   private schedule() {
     this.stopTimer();
     if (!this.userId || !this.deps.visible()) return;
     const now = this.deps.now();
-    let next = Infinity;
+    let next = this.recoveries().length ? now + publishTiming.pollMs(0) : Infinity;
     for (const op of usePublishState.getState().ops) {
       if (isTerminal(op.status) || this.paused.has(op.opId) || this.inFlight.has(op.opId)) continue;
       if (
@@ -494,11 +592,29 @@ export class PublishDriver {
     this.deps.broadcast();
   }
 
-  private adopt(opId: string, remote: RemoteStatus) {
+  private async adopt(opId: string, remote: RemoteStatus, answer?: PublishAnswer) {
     const op = this.current(opId);
+    if (!op) return;
+    if (remote === 'rejected' && op.round !== undefined && !answer) {
+      // The status projection omits the reason. Replaying the exact POST returns the terminal
+      // receipt for this intent, with no new request or change to the original selection.
+      const generation = this.generation;
+      try {
+        answer = await this.deps.api.post({ opId, hashes: op.hashes, expected: op.expected });
+      } catch {
+        if (generation === this.generation)
+          this.note(opId, 'Checking why the publisher refused this part.');
+        return;
+      }
+      if (generation !== this.generation || answer.status !== 'rejected') return;
+    }
+    const refusal = remote === 'rejected' ? answer?.refusal : undefined;
     return this.settle(opId, {
       status: remote,
-      acceptedAt: op?.acceptedAt ?? this.deps.now(),
+      acceptedAt: op.acceptedAt ?? this.deps.now(),
+      ...(refusal !== undefined
+        ? { refusal, error: `Tooltips ${op.hashes.join(', ')}: ${refusal}` }
+        : {}),
     });
   }
 
@@ -631,7 +747,7 @@ export class PublishDriver {
       }
       if (generation !== this.generation) return;
       this.attempts.delete(opId);
-      await this.adopt(opId, result.status);
+      await this.adopt(opId, result.status, result);
     } finally {
       this.inFlight.delete(opId);
       // A send outside a tick (create, resend) still needs its follow-up poll/retry scheduled.

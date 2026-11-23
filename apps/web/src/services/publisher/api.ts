@@ -3,6 +3,10 @@ import { apiRequest } from '../api';
 
 /** What the Worker reports for one operation (GET /publish/status, fixed shape). */
 export type RemoteStatus = 'pending' | 'done' | 'unchanged' | 'stale' | 'rejected' | 'failed';
+export interface PublishAnswer {
+  status: RemoteStatus;
+  refusal?: string;
+}
 export const terminalStatuses = ['done', 'unchanged', 'stale', 'rejected', 'failed'] as const;
 
 /** A non-2xx answer. `status` 0 = the request never got an answer (offline, timeout, CORS). */
@@ -63,7 +67,7 @@ export async function postPublish(body: {
   opId: string;
   hashes: number[];
   expected: Record<string, string>;
-}): Promise<{ status: 'pending' } | { status: RemoteStatus }> {
+}): Promise<PublishAnswer> {
   const { status, value } = await send('/publish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -76,9 +80,17 @@ export async function postPublish(body: {
   }
   const complete = completeSchema.safeParse(value);
   if (!complete.success) throw new PublishHttpError(502, 'Unexpected publish response');
-  const result = z.object({ status: terminal }).safeParse(complete.data.result);
+  const result = z
+    .object({ status: terminal, error: z.unknown().optional() })
+    .safeParse(complete.data.result);
   // A completed log whose status we do not understand is still a finished operation.
-  return { status: result.success ? result.data.status : 'failed' };
+  const resolved = result.success ? result.data.status : 'failed';
+  const error = result.data?.error;
+  // The Publisher records this terminal refusal before making any live change.
+  const prefix = 'ConsumerOutputRejected: ';
+  return resolved === 'rejected' && typeof error === 'string' && error.startsWith(prefix)
+    ? { status: resolved, refusal: error.slice(prefix.length) }
+    : { status: resolved };
 }
 
 /** `unknown` = the Worker has neither a request nor a log for this opId (a lost 202, or a typo). */

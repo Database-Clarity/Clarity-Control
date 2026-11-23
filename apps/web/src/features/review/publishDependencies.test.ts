@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import {
   applyInactiveLive,
   exportLegacy,
@@ -12,10 +12,12 @@ import {
 } from '@clarity/core';
 import { Publisher } from '../../../../../scripts/publisher/publisher';
 import type { EditorData } from '../../stores/data';
+import { createMemoryOpStore } from '../../services/publisher/opStore';
+import type { PublishAnswer } from '../../services/publisher/api';
 import type { PendingTooltip } from './model';
 import { planReviewedPublish } from './publishAction';
 import { publishDependencies } from './publishDependencies';
-import { publishChunks } from './publishDriver';
+import { PublishDriver, publishChunks, type PublishApi } from './publishDriver';
 import { usePublished } from './published';
 
 const t = (hash: number, text: string): Tooltip => ({
@@ -214,7 +216,7 @@ it('waits for comparison states and splits 501 independent removals once ready',
   }
 });
 
-function reviewPlan(
+function reviewInputs(
   rows: Tooltip[],
   archived: Tooltip[],
   aliases: Aliases,
@@ -255,13 +257,14 @@ function reviewPlan(
         ]),
       ),
     });
-    return publishChunks(planReviewedPublish(entries, entries, data)).map((chunk) =>
-      chunk.map(({ hash }) => hash),
-    );
+    return planReviewedPublish(entries, entries, data);
   } finally {
     usePublished.setState({ byHash: before });
   }
 }
+
+const reviewPlan = (...args: Parameters<typeof reviewInputs>) =>
+  publishChunks(reviewInputs(...args)).map((chunk) => chunk.map(({ hash }) => hash));
 
 it('keeps a possible live reader with a removal even when the saved alias points to a retained row', async () => {
   const rows = Array.from({ length: 60 }, (_, index) => ({
@@ -385,29 +388,39 @@ it('waits for a repair comparison when an active dependency would pull a stub re
 });
 
 it.each([
-  [false, 60, 100],
-  [true, 60, 100],
-  [true, 900, 60],
-])(
-  'keeps an export rename with its reader (removal %s, reader %i, source %i)',
-  (withRemoval, readerHash, sourceHash) => {
+  [false, 60, 100, 'visible'],
+  [true, 60, 100, 'visible'],
+  [true, 900, 60, 'visible'],
+  [true, 900, 60, 'hidden'],
+  [true, 900, 60, 'historical alias'],
+  [true, 900, 60, 'no marker'],
+] as const)(
+  'publishes an export rename with its reader (removal %s, reader %i, source %i, %s)',
+  async (withRemoval, readerHash, sourceHash, variant) => {
     const filler = Array.from({ length: 49 }, (_, index) => t(200 + index, 'New filler'));
     const source = t(sourceHash, 'Visible source\nexport New (\nNew text\n)');
+    const read = (name: string, hash: number) =>
+      variant === 'hidden'
+        ? `Visible reader\nexport hidden Hidden (\nimport ${name} from ${hash}\n)`
+        : `import ${name} from ${hash}`;
+    const oldHash = variant === 'historical alias' ? 601 : sourceHash;
+    const liveAliases: Aliases =
+      oldHash !== sourceHash ? { [oldHash]: { kind: 'frame', to: sourceHash } } : {};
     const reader = {
-      ...t(readerHash, `import New from ${sourceHash}`),
+      ...t(readerHash, read('New', sourceHash)),
       associated: [sourceHash, ...filler.map(({ hash }) => hash)],
     };
     const removal = withRemoval ? [t(300, 'Independent removal')] : [];
     const moves = (withRemoval ? { 300: move } : {}) as InactiveMoves;
     const saved = [reader, source, ...filler, ...removal];
     const archived = [
-      t(readerHash, `import Old from ${sourceHash}`),
+      t(readerHash, read('Old', oldHash)),
       t(sourceHash, 'Visible source\nexport Old (\nOld text\n)'),
       ...filler.map(({ hash }) => t(hash, 'Old filler')),
       ...removal,
     ];
     const initial = JSON.stringify({
-      perks: exportLegacy([t(1, ''), t(2, ''), t(3, ''), ...archived], 0),
+      perks: exportLegacy([t(1, ''), t(2, ''), t(3, ''), ...archived], 0, undefined, liveAliases),
       databaseSettings: {},
     });
     let live = initial;
@@ -436,11 +449,70 @@ it.each([
       } as Parameters<Publisher['merge']>[1]).bytes;
     }
 
-    expect(() => merge([sourceHash])).toThrow(`Missing export Old from ${sourceHash}`);
+    expect(() => merge([sourceHash])).toThrow(`Missing export Old from ${oldHash}`);
     expect(() => merge([readerHash])).toThrow(`Missing export New from ${sourceHash}`);
-    const chunks = reviewPlan(saved, archived, {}, moves);
     const expected = merge(saved.map(({ hash }) => hash));
-    for (const hashes of chunks) live = merge(hashes);
+    if (variant === 'visible') {
+      for (const hashes of reviewPlan(saved, archived, {}, moves)) live = merge(hashes);
+    } else {
+      const compared = archived.filter(
+        ({ hash }) => variant !== 'no marker' || hash !== readerHash,
+      );
+      const inputs = reviewInputs(saved, compared, {}, moves).map((input) => ({
+        ...input,
+        digest: String(input.hash).padStart(64, '0'),
+      }));
+      const receipts = new Map<string, PublishAnswer>();
+      const queued: Parameters<PublishApi['post']>[0][] = [];
+      let now = Date.now();
+      const driver = new PublishDriver({
+        store: createMemoryOpStore(),
+        api: {
+          async post(body) {
+            if (!receipts.has(body.opId) && !queued.some((part) => part.opId === body.opId))
+              queued.push(body);
+            return receipts.get(body.opId) ?? { status: 'pending' };
+          },
+          async status(opId) {
+            return receipts.get(opId)?.status ?? 'pending';
+          },
+          async kick() {},
+        },
+        now: () => now,
+        setTimer: () => undefined,
+        clearTimer: () => undefined,
+        visible: () => true,
+        broadcast: () => undefined,
+        acknowledge: () => undefined,
+      });
+      await driver.start('1');
+      try {
+        await driver.create(inputs);
+        await vi.waitFor(() => expect(queued).toHaveLength(2));
+        const first = queued.splice(0);
+        for (const { opId, hashes } of first)
+          expect(() => {
+            try {
+              merge(hashes);
+            } catch (error) {
+              receipts.set(opId, { status: 'rejected', refusal: (error as Error).message });
+              throw error;
+            }
+          }).toThrow(/Missing export/);
+        now += 10_000;
+        await driver.refresh();
+        expect(queued).toHaveLength(1);
+        const retry = queued[0]!;
+        expect(first.map(({ opId }) => opId)).not.toContain(retry.opId);
+        expect(retry.expected).toEqual(Object.assign({}, ...first.map(({ expected }) => expected)));
+        live = merge(retry.hashes);
+        receipts.set(retry.opId, { status: 'done' });
+        now += 10_000;
+        await driver.refresh();
+      } finally {
+        driver.stop();
+      }
+    }
     expect(live).toBe(expected);
   },
 );

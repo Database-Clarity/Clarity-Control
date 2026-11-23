@@ -42,6 +42,23 @@ for (const [name, make] of [
     expect(await store.list('1')).toHaveLength(3);
   });
 
+  it(`${name}: two recovery claims can replace the same refused round only once`, async () => {
+    const first = op('A', { groupId: 'A', status: 'rejected', refusal: 'Missing export' });
+    const second = op('B', { groupId: 'A', status: 'rejected', refusal: 'Missing import' });
+    const done = op('C', { groupId: 'A', status: 'done' });
+    await store.addMany([first, second, done]);
+    const refused = [first, second];
+    const won = await Promise.all([
+      store.replaceRefused(refused, [op('D', { groupId: 'A' })]),
+      store.replaceRefused(refused, [op('E', { groupId: 'A' })]),
+    ]);
+    expect(won.filter(Boolean)).toHaveLength(1);
+    expect((await store.list('1')).map(({ opId }) => opId).sort()).toEqual([
+      'C',
+      won[0] ? 'D' : 'E',
+    ]);
+  });
+
   it(`${name}: persists per account and never replaces an opId`, async () => {
     await store.add(op('A'));
     await store.add(op('B', { userId: '2' }));
