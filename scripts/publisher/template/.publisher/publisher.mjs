@@ -33361,7 +33361,7 @@ var Publisher = class _Publisher {
     const reviewedModes = this.git.treeModes?.(source2) ?? {};
     const currentModes = this.git.treeModes?.(head) ?? {};
     const kick = new RegExp(`^publish/kicks/${opId}-[0-9]+\\.json$`);
-    const added = Object.keys(tree).filter((path) => !reviewed[path]);
+    const added = Object.keys(tree).filter((path) => !Object.hasOwn(reviewed, path));
     return added.length > 0 && added.every((path) => kick.test(path) && (currentModes[path] ?? "100644") === "100644") && Object.entries(reviewed).every(
       ([path, oid4]) => tree[path] === oid4 && currentModes[path] === reviewedModes[path]
     );
