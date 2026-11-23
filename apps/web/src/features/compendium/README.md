@@ -8,11 +8,15 @@ and decision-data/document synchronization.
 
 
 `#/compendium` is the review queue. Rows are derived once per (entries, display, proposals,
-scope) in `queueRows.ts` / `reviewViewCache.ts`: proposal, candidates, none, changed (open),
-drafted, skipped (decided), not needed (local no-equivalent or out of scope by rule, with
-Re-include), and matched (confident, display-only until cut-over). Filters (`show`, `q`,
-`group`) and the entry (`hash`) live in the URL; `#/compendium?tab=linked` keeps the
-**Linked sources changed** list. The Editor's Compendium pane links here (`hash`, `show=all`).
+scope, shared decisions) in `queueRows.ts` / `reviewViewCache.ts`: proposal, candidates, none,
+changed (open), drafted, skipped (decided), no match yet and not needed (set aside in their own
+collapsed groups), and matched (confident, display-only until cut-over). **Changed** means one
+thing: a saved, drafted, or owner-approved link whose linked source changed. Filters (`show`, `q`,
+`group`) and the entry (`hash`) live in the URL. The switch at the top of the left column (on the
+page itself on phones) opens **Source changes** (`#/compendium?tab=linked`): every saved link whose
+source is not as it was saved. Those whose text changed or that need relinking are also the built-in
+**Compendium parity** worklist (`features/queue`), which an entry leaves when an English save or the
+explicit review renews its snapshot. The Editor's Compendium pane links here (`hash`, `show=all`).
 Sheet locations (`sourceLocation.ts`) are text plus `edit#gid=&range=` links.
 Sandbox/frame aliases are excluded; enhanced tooltips that own distinct text remain separate.
 
@@ -42,17 +46,25 @@ has a separate explicit scope and is never adopted into a user's progress.
 Identity changes remount the queue. Corrupt/unsupported records and unavailable
 storage surface alerts; failed writes retain usable in-memory progress.
 
-Skip, No equivalent found, and Reopen modify only this local record. They do not
-write Tooltip metadata, share across devices, or train a model. The fingerprints
-cover source tabs/grid content (not fetch timestamps) and the entry's name,
-category, saved English text and saved link. Any changed sheet content
-conservatively reopens tentative negative decisions, even if unrelated to the
-entry; filters chosen by the user remain in effect. This may require repeated
-review but prevents silently suppressing new evidence. Saved valid links always
+Skip and Reopen modify only this local record. They do not write Tooltip metadata,
+share across devices, or train a model. The fingerprints (`entryEvidence`) cover the
+entry's name, category, saved English text, and saved link, never the sheet: a
+Compendium refresh does not reopen a decision. Decisions recorded by earlier versions
+digested the whole sheet with the entry and stay as made. Saved valid links always
 win over local negative decisions. Local decisions can be revisited via All queue
 entries or their status filter. Browser storage clearing removes local progress;
 the separately stored normal drafts and authoritative saved links keep their
 existing lifecycle. Cross-tab synchronization is not implemented.
+
+## Decisions for everyone
+
+Not needed and No match yet (`sharedDecisions.ts`) are maintainer decisions stored in
+`config/marks.json` and shown to everyone. Not needed holds until a maintainer re-includes
+the entry. No match yet holds until a maintainer unmarks it; it never hides an entry with
+a link, and a confident match ends it. Decisions show at once, are written one request at
+a time, and stay pending until the server acknowledges them. Stored hashes resolve through
+aliases for display. A maintainer's earlier browser-only Not needed choices keep applying
+on that device until **Save N earlier Not needed choices for everyone** shares them.
 
 ## Research integration
 
