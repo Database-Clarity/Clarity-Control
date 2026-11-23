@@ -17,7 +17,10 @@ import { publishDriver } from './publisher';
 import { publishTiming } from './publishDriver';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
-vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
+vi.mock('../../services/bundle', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/bundle')>()),
+  loadBundle: vi.fn(),
+}));
 vi.mock('../../services/globalsFlag', async (original) => ({
   ...(await original<typeof import('../../services/globalsFlag')>()),
   globalsEnabled: true,

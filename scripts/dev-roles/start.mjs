@@ -159,6 +159,11 @@ export async function startRoleHarness({ port, prepareSandbox }) {
       define: {
         'import.meta.env.VITE_API_URL': JSON.stringify(`${localPath}/api`),
         'import.meta.env.VITE_GLOBALS_ENABLED': JSON.stringify('1'),
+        // The local proxy serves the same datasets under loopback URLs.
+        'import.meta.env.VITE_COMPENDIUM_GUIDANCE_SCOPE': JSON.stringify(
+          'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/editor-data-bundle/bundle.json|' +
+            'https://raw.githubusercontent.com/Database-Clarity/Compendium-data/main/compendium.json',
+        ),
       },
       plugins: [
         rolePlugin({
