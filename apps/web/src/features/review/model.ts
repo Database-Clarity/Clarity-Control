@@ -16,6 +16,7 @@ import { useSidebarQueueStore, type SidebarPendingChange } from '../navigation/s
 export { canPushLive as canPush } from '../auth/permissions';
 
 import { categoryDisplay } from '../../services/categoryLabels';
+import { globalAggregates } from '../../services/globalsFlag';
 
 export interface PendingTooltip {
   tooltip: Tooltip;
@@ -169,7 +170,10 @@ async function computePending(
     return {
       tooltip,
       name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
-      category: (category ?? categoryDisplay(categoryId)).label,
+      category:
+        categoryId === 'none' && globalAggregates.includes(tooltip.hash)
+          ? 'Globals'
+          : (category ?? categoryDisplay(categoryId)).label,
       categoryId,
       categoryOrder: (category ?? categoryDisplay(categoryId)).order,
       markerOnly:

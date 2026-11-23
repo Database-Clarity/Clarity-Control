@@ -8,7 +8,8 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import type { Lang, Tooltip } from '@clarity/core';
+import type { Lang } from '@clarity/core';
+import type { Drafts } from '../../services/draftStorage';
 import { languageLabel } from '../../languageLabels';
 import { VirtualList } from '../../ui/VirtualList';
 import { phoneQuery, touchQuery, useMedia } from '../../ui/useMedia';
@@ -17,10 +18,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { When } from '../../ui/When';
 import styles from './DraftButton.module.scss';
 
-interface DraftPair {
-  base: Tooltip;
-  next: Tooltip;
-}
+type DraftPair = Drafts[string];
 
 /** What a draft changes, for grouping. A draft sits in the first kind it matches. */
 type DraftKind = 'compendium' | 'text' | 'translation' | 'other';
@@ -65,7 +63,7 @@ export interface DraftRow {
 }
 
 /** One row per draft, newest first within its kind. */
-export function draftRows(drafts: Record<string, DraftPair>): DraftRow[] {
+export function draftRows(drafts: Drafts): DraftRow[] {
   return Object.entries(drafts)
     .map(([hash, draft]) => {
       const languages = changedLanguages(draft);
@@ -73,7 +71,7 @@ export function draftRows(drafts: Record<string, DraftPair>): DraftRow[] {
         hash: Number(hash),
         kind: draftKind(draft, languages),
         languages,
-        time: latest(draft, languages),
+        time: draft.changedAt ?? latest(draft, languages),
       };
     })
     .sort((a, b) => (b.time ?? '').localeCompare(a.time ?? '') || a.hash - b.hash);

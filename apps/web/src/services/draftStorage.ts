@@ -1,14 +1,14 @@
 import { publishOpIdSchema, tooltipSchema } from '@clarity/core';
 import { z } from 'zod';
 
+export const draftSchema = z.object({
+  base: tooltipSchema,
+  next: tooltipSchema,
+  changedAt: z.iso.datetime().optional(),
+});
+
 export const draftsSchema = z
-  .record(
-    z.string(),
-    z.object({
-      base: tooltipSchema,
-      next: tooltipSchema,
-    }),
-  )
+  .record(z.string(), draftSchema)
   .refine(
     (drafts) =>
       Object.entries(drafts).every(

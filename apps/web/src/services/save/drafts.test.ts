@@ -8,6 +8,7 @@ import {
 } from '../../stores/savedOverlay';
 import { acceptSaved, replaceDraft } from './drafts';
 import { editorData, english, tooltip } from './fixtures.testSupport';
+import { draftsSchema } from '../draftStorage';
 
 const initial = useDraftStore.getState();
 const retry = vi.fn();
@@ -45,6 +46,14 @@ describe('save draft reconciliation', () => {
     expect(retry).toHaveBeenCalledTimes(2);
     replaceDraft(tooltip, tooltip);
     expect(useDraftStore.getState().drafts).toEqual({});
+  });
+  it('persists the time a revision was restored separately from its text timestamp', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-23T01:00:00Z'));
+    replaceDraft(tooltip, next);
+    const restored = draftsSchema.parse(useDraftStore.getState().drafts)[123];
+    expect(restored.changedAt).toBe('2026-11-23T01:00:00.000Z');
+    expect(restored.next.text.en?.updatedAt).toBe(english.updatedAt);
   });
   it('clears only submitted unchanged drafts and updates the authoritative bundle immediately', () => {
     replaceDraft(tooltip, next);

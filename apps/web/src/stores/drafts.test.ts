@@ -129,6 +129,7 @@ describe('local drafts', () => {
     expect(recovered.getState().drafts[10]).toEqual({
       base,
       next: { ...base, associated: [30, 20] },
+      changedAt: expect.any(String),
     });
     store
       .getState()
@@ -265,7 +266,9 @@ describe('drafts belong to one account', () => {
       expect(await storage.read()).toEqual(identical);
       const disk = await account.read();
       expect(disk).toEqual(
-        action === 'discard' ? {} : { 10: { base, next: { ...base, associated: [4] } } },
+        action === 'discard'
+          ? {}
+          : { 10: { base, next: { ...base, associated: [4] }, changedAt: expect.any(String) } },
       );
       await account.write({});
       await storage.write({});

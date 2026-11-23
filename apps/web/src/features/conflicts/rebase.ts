@@ -96,15 +96,18 @@ export function rebaseConflict(
  * other field both changed keeps mine. Nothing either side wrote is dropped silently.
  */
 export function reconcileDrafts(ancestor: Drafts, mine: Drafts, theirs: Drafts): Drafts {
-  const same = (a: unknown, b: unknown) =>
-    a === undefined || b === undefined ? a === b : stableStringify(a) === stableStringify(b);
+  const same = (a?: Drafts[string], b?: Drafts[string]) =>
+    a === undefined || b === undefined
+      ? a === b
+      : stableStringify(a.base) === stableStringify(b.base) &&
+        stableStringify(a.next) === stableStringify(b.next);
   const out: Drafts = {};
   for (const key of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
     const a = ancestor[key];
     const m = mine[key];
     const t = theirs[key];
     if (same(m, t)) {
-      if (m) out[key] = m;
+      if (m) out[key] = t && (t.changedAt ?? '') > (m.changedAt ?? '') ? t : m;
     } else if (same(a, t)) {
       if (m) out[key] = m;
     } else if (same(a, m)) {
@@ -127,8 +130,11 @@ function reconcileOne(
       ? mine.base
       : theirs.base;
   const origin = ancestor?.next ?? theirs.base;
+  const changedAt =
+    (theirs.changedAt ?? '') > (mine.changedAt ?? '') ? theirs.changedAt : mine.changedAt;
+  const draft = changedAt ? { base, changedAt } : { base };
   const merge = merge3(origin, theirs.next, mine.next);
-  if (merge.ok) return { base, next: merge.merged };
+  if (merge.ok) return { ...draft, next: merge.merged };
   const rebased = rebaseConflict(
     {
       hash: mine.next.hash,
@@ -139,5 +145,5 @@ function reconcileOne(
     },
     () => '(other tab)',
   );
-  return { base, next: rebased?.next ?? mine.next };
+  return { ...draft, next: rebased?.next ?? mine.next };
 }

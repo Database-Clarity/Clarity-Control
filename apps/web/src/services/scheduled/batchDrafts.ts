@@ -14,11 +14,16 @@
  * Signed out there is no batch destination: the signed-out bucket is always empty and refuses
  * writes, and the store refuses edits.
  */
-import { tooltipSchema, type Lang, type Tooltip } from '@clarity/core';
+import type { Lang, Tooltip } from '@clarity/core';
 import { batchIdSchema, type BatchMember } from '@clarity/core/schedule';
 import { z } from 'zod';
 import { createDraftStore, type useDraftStore } from '../../stores/drafts';
-import { createIndexedDbBucket, type DraftStorage, type Drafts } from '../draftStorage';
+import {
+  createIndexedDbBucket,
+  draftSchema,
+  type DraftStorage,
+  type Drafts,
+} from '../draftStorage';
 import { reconcileSaved, replaceDraftAt } from '../save/drafts';
 
 const keyPattern = /^batch:([^:]+):(0|[1-9]\d*)$/;
@@ -33,16 +38,14 @@ export function parseBatchDraftKey(key: string): { batchId: string; hash: number
   return Number.isSafeInteger(hash) ? { batchId: match[1], hash } : null;
 }
 
-export const batchDraftsSchema = z
-  .record(z.string(), z.object({ base: tooltipSchema, next: tooltipSchema }))
-  .refine(
-    (drafts) =>
-      Object.entries(drafts).every(([key, { base, next }]) => {
-        const parsed = parseBatchDraftKey(key);
-        return parsed !== null && parsed.hash === base.hash && base.hash === next.hash;
-      }),
-    'Batch draft keys must be batch:<batchId>:<hash> and match their tooltips',
-  );
+export const batchDraftsSchema = z.record(z.string(), draftSchema).refine(
+  (drafts) =>
+    Object.entries(drafts).every(([key, { base, next }]) => {
+      const parsed = parseBatchDraftKey(key);
+      return parsed !== null && parsed.hash === base.hash && base.hash === next.hash;
+    }),
+  'Batch draft keys must be batch:<batchId>:<hash> and match their tooltips',
+);
 
 export const batchBucketKey = (userId: string) => `batch-drafts:user:${userId}`;
 

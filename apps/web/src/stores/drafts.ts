@@ -276,7 +276,10 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
           if (!existing) {
             moved[hash] = draft;
             adopted++;
-          } else if (JSON.stringify(existing) === JSON.stringify(draft)) adopted++;
+          } else if (
+            JSON.stringify(existing.base) === JSON.stringify(draft.base) &&
+            JSON.stringify(existing.next) === JSON.stringify(draft.next)
+          ) adopted++;
           else left[hash] = draft; // The account already has its own draft: keep both.
         }
         const merged = Object.keys(moved).length ? { ...current, ...moved } : current;
@@ -323,13 +326,14 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
         if (options.requireOwner && owner === null) throw new Error('Sign in to edit these drafts');
         checkKey(key, base.hash);
         const draft = get().drafts[key] ?? { base, next: base };
+        const changedAt = new Date().toISOString();
         const next: Tooltip = {
           ...draft.next,
           text: {
             ...draft.next.text,
             [lang]: {
               text,
-              updatedAt: new Date().toISOString(),
+              updatedAt: changedAt,
               updatedBy: author,
               ...(lang !== 'en' && draft.next.text.en
                 ? { sourceUpdatedAt: draft.next.text.en.updatedAt }
@@ -341,7 +345,7 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
           if (draft.base.text[lang]) next.text[lang] = draft.base.text[lang];
           else delete next.text[lang];
         }
-        const drafts: Drafts = { ...get().drafts, [key]: { base: draft.base, next } };
+        const drafts: Drafts = { ...get().drafts, [key]: { base: draft.base, next, changedAt } };
         // Returning text to its base value should not create a metadata-only draft.
         // A changed edited string already proves inequality. Compare all fields
         // only on a return to the saved text, rather than serializing every
@@ -368,12 +372,13 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
         if (options.requireOwner && owner === null) throw new Error('Sign in to edit these drafts');
         for (const { key, base } of updates) checkKey(key, base.hash);
         const drafts: Drafts = { ...get().drafts };
+        const changedAt = new Date().toISOString();
         for (const { key, base, update } of updates) {
           const draft = drafts[key] ?? { base, next: base };
           const next = update(structuredClone(draft.next));
           if (next.hash !== base.hash)
             throw new Error('A draft update cannot change the tooltip hash');
-          drafts[key] = { base: draft.base, next };
+          drafts[key] = { base: draft.base, next, changedAt };
           if (JSON.stringify(next) === JSON.stringify(draft.base)) delete drafts[key];
         }
         set({ drafts });

@@ -33,7 +33,10 @@ export function replaceDraftAt(
   if (!state.ownsKey(key, base.hash))
     throw new Error(`Draft key ${key} does not belong to tooltip ${base.hash}.`);
   const original = resetBase ? base : (state.drafts[key]?.base ?? base);
-  const drafts: Drafts = { ...state.drafts, [key]: { base: original, next } };
+  const drafts: Drafts = {
+    ...state.drafts,
+    [key]: { base: original, next, changedAt: new Date().toISOString() },
+  };
   if (stableStringify(original) === stableStringify(next)) delete drafts[key];
   store.setState({ drafts });
   state.retry();
@@ -62,7 +65,7 @@ export function reconcileSaved(
     if (stableStringify(current) === stableStringify(draft)) delete out[key];
     else if (head) {
       const merged = merge3(draft.next, head, current.next);
-      if (merged.ok) out[key] = { base: head, next: merged.merged };
+      if (merged.ok) out[key] = { ...current, base: head, next: merged.merged };
     }
   }
   return out;
