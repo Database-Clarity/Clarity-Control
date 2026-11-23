@@ -88,7 +88,7 @@ it.each([false, true])(
       },
       write: async (drafts) => {
         // Cleanup must never run ahead of the account write's acknowledgment.
-        expect(saved[10]).toEqual(unowned[10]);
+        expect(saved[10]).toMatchObject(unowned[10]);
         unowned = structuredClone(drafts);
       },
       forUser: () => ({

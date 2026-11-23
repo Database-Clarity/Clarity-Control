@@ -5,6 +5,15 @@ import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { referenceExtensions, type TooltipTarget } from './referenceActions';
 import { sourcesFromGlobals } from './references';
 import { openUrl, urlInLine } from './urls';
+import { useAuthStore } from '../../stores/auth';
+
+const flags = vi.hoisted(() => ({ globalsEnabled: false }));
+vi.mock('../../services/globalsFlag', async (original) => ({
+  ...(await original<typeof import('../../services/globalsFlag')>()),
+  get globalsEnabled() {
+    return flags.globalsEnabled;
+  },
+}));
 
 const globals = { variables: 'var damage = 25\nvar other = 1', titles: '' };
 const views: EditorView[] = [];
@@ -32,7 +41,12 @@ function press(view: EditorView, init: KeyboardEventInit) {
   return runScopeHandlers(view, new KeyboardEvent('keydown', { ...init, bubbles: true }), 'editor');
 }
 
-afterEach(() => views.splice(0).forEach((view) => view.destroy()));
+const initialUser = useAuthStore.getState().user;
+afterEach(() => {
+  views.splice(0).forEach((view) => view.destroy());
+  flags.globalsEnabled = false;
+  useAuthStore.setState({ user: initialUser });
+});
 
 describe('F12 go to definition', () => {
   test('a global variable navigates to its tooltip line, leaving the text alone', () => {
@@ -42,6 +56,20 @@ describe('F12 go to definition', () => {
     expect(press(view, { key: 'F12', code: 'F12' })).toBe(true);
     expect(navigate).toHaveBeenCalledWith({ type: 'tooltip', hash: 2, lang: 'en', line: 1 });
     expect(view.state.doc.toString()).toBe(doc);
+  });
+  test('per-entry globals show their value without navigation until the reader has a role', () => {
+    flags.globalsEnabled = true;
+    useAuthStore.setState({ user: null });
+    const navigate = vi.fn();
+    const view = editor('#damage', 3, navigate);
+    expect(press(view, { key: 'F12' })).toBe(true);
+    const popover = view.dom.querySelector('.clarity-reference-popover');
+    expect(popover?.textContent).toContain('25');
+    expect(popover?.textContent).not.toContain('Open definition');
+    expect(navigate).not.toHaveBeenCalled();
+    useAuthStore.setState({ user: { id: 1, login: 'editor', role: 'editor' } });
+    press(view, { key: 'F12' });
+    expect(navigate).toHaveBeenCalledWith({ type: 'tooltip', hash: 2, lang: 'en', line: 1 });
   });
   test('a local var moves the selection onto the definition and changes no text', () => {
     const doc = 'var mine = 5\n\n\n#mine';
