@@ -687,12 +687,10 @@ export class Publisher {
       return request.success && request.data.id === id;
     };
 
-    let changed = false;
     for (const [path, oid] of Object.entries(reviewed)) {
       if (!Object.hasOwn(tree, path)) {
         // A name-proof drain can consume its request while adding a clash proof.
         if (!regular(reviewedModes, path) || !nameProofRequest(reviewed, path)) return false;
-        changed = true;
       } else if (
         tree[path] !== oid ||
         (currentModes &&
@@ -719,9 +717,8 @@ export class Publisher {
           log[1] === publishMonth(log[2]));
       const clashProof = /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
       if (!queueAddition && !clashProof.test(path) && !nameProofRequest(tree, path)) return false;
-      changed = true;
     }
-    return changed;
+    return true;
   }
   async record(
     opId: string,

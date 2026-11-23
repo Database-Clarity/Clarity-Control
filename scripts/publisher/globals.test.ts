@@ -639,10 +639,12 @@ describe('dependency-safe global release', () => {
       }
     },
   );
-  it.each(['enqueue', 'drain'] as const)(
-    'records a candidate while sibling requests arrive and a name proof is %s',
+  it.each(['enqueue', 'drain', 'round trip'] as const)(
+    'records a candidate during a name-proof %s',
     async (action) => {
       const f = await fixture();
+      if (action === 'round trip')
+        f.change({ 'tooltips/42.json': tooltip(42, 'var NeverUsed = 42\n#NeverUsed') });
       await f.globals.drain();
       const proofId = '3283270b-d921-468b-8d09-6b4a90659d30';
       const proofPath = `globals/retries/${proofId}.json`;
@@ -662,31 +664,45 @@ describe('dependency-safe global release', () => {
       };
       if (action === 'drain') f.change({ [proofPath]: proofRequest });
       await f.request([42]);
+      const pinned = f.git.head(D);
+      const pinnedTree = f.current();
       const sibling = '01K95H00000000000000000002';
       const completed = '01K95H00000000000000000003';
       const kick = `publish/kicks/${sibling}-12345.json`;
       const record = f.pub.record.bind(f.pub);
       f.pub.record = async (...args) => {
         if (args[0] === A && args[6]) {
-          await f.request([42], sibling);
-          f.change({
-            [kick]: { opId: sibling },
-            [`publish/kicks/batch-${sibling}-12345.json`]: {},
-            [`publish/kicks/current-save-${sibling}.json`]: {},
-            'publish/kicks/due-202611231625-12345.json': {},
-            [paths(completed).log]: { result: {} },
-          });
-          if (action === 'drain') await f.globals.drain();
-          else f.change({ [proofPath]: proofRequest });
+          if (action === 'round trip') {
+            f.change({ [proofPath]: proofRequest });
+            await f.globals.drain();
+            expect(f.git.head(D)).not.toBe(pinned);
+            expect(f.current()).toEqual(pinnedTree);
+          } else {
+            await f.request([42], sibling);
+            f.change({
+              [kick]: { opId: sibling },
+              [`publish/kicks/batch-${sibling}-12345.json`]: {},
+              [`publish/kicks/current-save-${sibling}.json`]: {},
+              'publish/kicks/due-202611231625-12345.json': {},
+              [paths(completed).log]: { result: {} },
+            });
+            if (action === 'drain') await f.globals.drain();
+            else f.change({ [proofPath]: proofRequest });
+          }
         }
         return record(...args);
       };
       await f.pub.operation(A);
       expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
-      expect(f.current()[paths(sibling).request]).toBeDefined();
-      expect(f.current()[paths(completed).log]).toBeDefined();
       expect(f.current()[proofPath]).toBeUndefined();
-      expect(f.read((await namePaths('variables', 'NeverUsed')).proof).name).toBe('NeverUsed');
+      const clashProof = (await namePaths('variables', 'NeverUsed')).proof;
+      if (action === 'round trip') {
+        expect(f.current()[clashProof]).toBeUndefined();
+      } else {
+        expect(f.current()[paths(sibling).request]).toBeDefined();
+        expect(f.current()[paths(completed).log]).toBeDefined();
+        expect(f.read(clashProof).name).toBe('NeverUsed');
+      }
     },
   );
   it.each([
