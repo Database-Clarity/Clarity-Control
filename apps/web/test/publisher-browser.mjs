@@ -83,7 +83,8 @@ try {
             h: Math.round(r.getBoundingClientRect().height * 10) / 10,
             chip: r.children[0].textContent,
             action: r.children[2].textContent,
-            textLength: r.children[1].textContent.length,
+            text: r.children[1].textContent,
+            title: r.children[1].title,
           })),
           clipped,
           wrapped,
@@ -103,7 +104,14 @@ try {
       [''],
       `${width}: combining row`,
     );
-    assert.ok(Math.max(...before.rows.map((r) => r.textLength)) < 600, `${width}: long reason`);
+    // A refused group names ten tooltips per part, then its reason and the safety sentence, in
+    // the line and its hover text alike.
+    const refused = before.rows.find((r) => r.text.includes('Publish incomplete'));
+    for (const shown of [refused.text, refused.title]) {
+      assert.match(shown, /3000000009 and 40 more: Missing export "Charge"/, `${width}: reason`);
+      assert.ok(shown.endsWith('Check live status before publishing again.'), `${width}: ending`);
+    }
+    assert.ok(Math.max(...before.rows.map((r) => r.text.length)) < 600, `${width}: long reason`);
     const heights = new Set(before.rows.map((r) => r.h));
     assert.equal(heights.size, 1, `${width}: row heights differ ${JSON.stringify(before.rows)}`);
     if (shots)
