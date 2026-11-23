@@ -473,6 +473,24 @@ export class GlobalsPublisher {
     )
       throw new GlobalReleaseRejected('The saved global layout changes legacy consumer output');
   }
+  private async hasReleaseChanges(
+    tree: Tree,
+    captured: ReturnType<GlobalsPublisher['capture']>,
+    documents: Tooltip[],
+    aggregateHashes: number[],
+  ) {
+    const markers = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+    const moves = this.publisher.movesAt(tree);
+    for (const document of documents) {
+      // Even without a changed entry, a selected aggregate can gain or lose an alias.
+      const previous = aggregateHashes.includes(document.hash)
+        ? await inactivePublishableHash(document, captured.live.aliases)
+        : markers[document.hash];
+      const next = await inactivePublishableHash(document, captured.authored.aliases, moves);
+      if (previous !== next) return true;
+    }
+    return false;
+  }
   capture(tree: Tree, revision: string, liveCommit: string, roots: Tooltip[] = []) {
     const published = globalPublishedSchema.parse(
       this.read(tree, globalsReleasePaths.published(this.options.liveBranch)),
@@ -784,7 +802,10 @@ export class GlobalsPublisher {
         store = exact;
         documents = exactDocuments;
       } catch (error) {
-        if (!ids.length)
+        if (
+          !ids.length &&
+          !(await this.hasReleaseChanges(tree, captured, documents, aggregateHashes))
+        )
           throw error instanceof GlobalReleaseRejected
             ? error
             : new GlobalReleaseRejected(

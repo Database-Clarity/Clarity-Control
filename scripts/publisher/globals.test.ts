@@ -15,7 +15,7 @@ import { exportLegacy, usesEnglishFallback } from '../../packages/core/src/expor
 import { buildLegacy, type LegacyInput } from '../../packages/export/src/legacy.js';
 import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js';
-import { inactivePublishableHash } from '../../packages/core/src/inactiveMoves.js';
+import { inactivePublishableHash, type InactiveMoves } from '../../packages/core/src/inactiveMoves.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
 import {
   batchSchema,
@@ -254,11 +254,12 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
     }
   };
   const request = async (hashes: number[], opId = A) => {
+    const aliases = pub.aliasesAt(current());
     const expected = Object.fromEntries(
       await Promise.all(
         hashes.map(async (hash) => [
           hash,
-          await inactivePublishableHash(tooltipSchemaRead(hash), {}, pub.movesAt(current())),
+          await inactivePublishableHash(tooltipSchemaRead(hash), aliases, pub.movesAt(current())),
         ]),
       ),
     );
@@ -554,25 +555,130 @@ describe('dependency-safe global release', () => {
       expect(f.pub.receipt(f.git.head(L)!, A)?.entries[0].digest).toBe(digest);
     },
   );
-  it('rejects a layout change that alters a live consumer through language fallback', async () => {
-    const f = await fixture('', false, true);
+  it.each([
+    'layout only',
+    'unchanged row',
+    'text edit',
+    'inactive removal',
+    'removal without a snapshot',
+    'alias addition',
+    'inactive alias',
+    'aggregate alias',
+    'all aggregates with a cleared entry',
+    'all aggregates with only layouts',
+  ] as const)('uses v2 for an unproven layout when the request has work (%s)', async (scenario) => {
+    const allAggregates = scenario.startsWith('all aggregates');
+    const f = await fixture('title Info (\nBefore\n)', allAggregates, true);
     const layout = structuredClone(f.published.aggregates);
-    layout[0].languages.en!.metadata.updatedAt = '2026-09-01T00:00:00Z';
+    layout.find(({ document }) => document.hash === 2)!.languages.en!.metadata.updatedAt =
+      '2026-09-01T00:00:00Z';
+    const clearedEntry =
+      scenario === 'all aggregates with a cleared entry'
+        ? f.saved.entries.find(({ kind }) => kind === 'exports')
+        : undefined;
+    if (allAggregates)
+      for (const aggregate of layout)
+        if (aggregate.document.hash !== 2)
+          aggregate.languages.en!.segments[0] = { literal: '// pending layout\n' };
+
+    const previous = projectGlobals(f.published);
+    const ordinary = f.read('tooltips/42.json') as Tooltip;
+    const beforeAliases: Options['aliases'] =
+      scenario === 'inactive alias' ? { 142: { to: 42, kind: 'sandbox' } } : {};
+    const aliases: Options['aliases'] =
+      scenario === 'aggregate alias'
+        ? { 142: { to: 2, kind: 'sandbox' } }
+        : scenario === 'alias addition'
+          ? { 142: { to: 42, kind: 'sandbox' } }
+          : beforeAliases;
+    const moved = { by: 1, at: new Date(now).toISOString() };
+    const moves: InactiveMoves =
+      scenario === 'inactive removal'
+        ? { 42: moved }
+        : scenario === 'removal without a snapshot'
+          ? { 43: moved }
+          : scenario === 'inactive alias'
+            ? { 142: moved }
+            : {};
+    if (Object.keys(aliases).length) f.options.facts[142] = { name: 'Alias', type: 'Weapon Perk' };
+    f.options.aliases = aliases;
+    if (scenario === 'inactive alias') {
+      const live = JSON.parse(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']));
+      Object.assign(live.perks, exportLegacy([ordinary], 0, f.options.facts, beforeAliases));
+      f.git.refs.set(
+        L,
+        f.git.commit(f.git.head(L), { 'liveDescriptions.json': f.git.writeBlob(encode(live)) }),
+      );
+    }
     f.change({
       ...Object.fromEntries(
-        f.published.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+        f.published.entries.map((entry) => [
+          `globals/entries/${entry.id}.json`,
+          entry.id === clearedEntry?.id ? clearedEntry : entry,
+        ]),
       ),
       'globals/layout.json': { version: 1, aggregates: layout },
+      'live/pushed.json': {
+        2: await inactivePublishableHash(previous[2], {}),
+        42: await inactivePublishableHash(ordinary, beforeAliases),
+      },
+      'config/inactive.json': moves,
+      ...(scenario === 'text edit' && { 'tooltips/42.json': tooltip(42, 'cleared edit') }),
     });
+    const hashes = allAggregates
+      ? [1, 2, 3]
+      : scenario === 'removal without a snapshot'
+        ? [2, 43]
+        : scenario === 'layout only' || scenario === 'aggregate alias'
+          ? [2]
+          : [2, 42];
     await f.globals.drain();
-    const live = f.git.head(L);
-    await f.request([2]);
+    if (clearedEntry) {
+      f.approve(40);
+      await f.globals.drain();
+    }
+    const liveHead = f.git.head(L);
+    await f.request(hashes);
     await f.pub.operation(A);
-    expect(f.git.head(L)).toBe(live);
-    expect(f.read(paths(A).log).result).toMatchObject({
-      status: 'rejected',
-      error: expect.stringContaining('saved global layout changes'),
-    });
+    const result = f.read(paths(A).log).result;
+    if (
+      scenario === 'layout only' ||
+      scenario === 'unchanged row' ||
+      scenario === 'all aggregates with only layouts'
+    ) {
+      expect(result).toMatchObject({
+        status: 'rejected',
+        error: expect.stringContaining('saved global layout changes'),
+      });
+      expect(f.git.head(L)).toBe(liveHead);
+      return;
+    }
+    expect(result.status, result.error).toBe(
+      scenario === 'removal without a snapshot' ? 'unchanged' : 'done',
+    );
+    const expected = composeGlobalRelease(
+      f.published,
+      f.globals.store(f.current()),
+      clearedEntry ? [clearedEntry.id] : [],
+    );
+    for (const hash of hashes.filter((hash) => hash <= 3))
+      expect(f.read(`live/tooltips/${hash}.json`)).toEqual(projectGlobals(expected)[hash]);
+    expect(f.read('live/pushed.json')[2]).not.toBe(
+      await inactivePublishableHash(f.read('tooltips/2.json'), aliases, moves),
+    );
+    const live = JSON.parse(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']));
+    for (const hash of hashes.filter((hash) => hash > 3)) {
+      const selected =
+        hash === 43 ? { hash, text: {}, associated: [] } : f.read('tooltips/42.json');
+      expect(f.read('live/pushed.json')[hash]).toBe(
+        await inactivePublishableHash(selected, aliases, moves),
+      );
+      if (scenario.includes('removal')) expect(live.perks[hash]).toBeUndefined();
+      else expect(f.read(`live/tooltips/${hash}.json`)).toEqual(selected);
+    }
+    if (scenario === 'alias addition' || scenario === 'aggregate alias')
+      expect(live.perks[142].aliasOf).toBe(scenario === 'aggregate alias' ? 2 : 42);
+    if (scenario === 'inactive alias') expect(live.perks[142]).toBeUndefined();
   });
   it.each([false, true])(
     'keeps a twice-saved translation releasable with v2 composition (already live=%s)',
