@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { buildLegacy, legacyPresets, type LegacyInput } from '../../packages/export/src/legacy.js';
 import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import {
   emptyGitTree,
@@ -357,18 +358,23 @@ export class GlobalsPublisher {
       aliases,
       selectedInactiveMoves(this.publisher.movesAt(tree), hashes, aliases),
     );
-    const perks = this.publisher.mergePublicationPerks(tree, captured.livePerks, exported, hashes);
-    return this.liveSnapshot(
+    const perks = livePerksSchema.parse(
+      this.publisher.mergePublicationPerks(tree, captured.livePerks, exported, hashes),
+    );
+    const snapshot = this.liveSnapshot(
       revision,
-      livePerksSchema.parse(perks),
+      perks,
       {
         ...captured.live.tooltips,
         ...Object.fromEntries(
-          documents.filter(({ hash }) => exported[hash]).map((document) => [document.hash, document]),
+          documents
+            .filter(({ hash }) => exported[hash])
+            .map((document) => [document.hash, document]),
         ),
       },
       types,
     );
+    return { snapshot, perks };
   }
   capture(tree: Tree, revision: string, liveCommit: string, roots: Tooltip[] = []) {
     const published = globalPublishedSchema.parse(
@@ -567,10 +573,15 @@ export class GlobalsPublisher {
     const moves = this.publisher.movesAt(tree);
     const activeSelection = selected.filter((hash) => !isMovedInactive(hash, moves));
     const aggregateHashes = captured.saved.aggregates.map(({ document }) => document.hash);
-    const aggregate = selected.some((hash) => aggregateHashes.includes(hash));
+    const aggregate = activeSelection.some((hash) => aggregateHashes.includes(hash));
+    const selectedEntries = new Set(
+      captured.saved.entries
+        .filter((entry) => activeSelection.includes(globalAggregateHash(entry.kind)))
+        .map((entry) => entry.id),
+    );
     const relevant = components.filter(
       (component) =>
-        aggregate ||
+        component.ids.some((id) => selectedEntries.has(id)) ||
         component.rows.some((row) => activeSelection.includes(row.view.consumer.hash)) ||
         component.hashes.some(
           (hash) => !aggregateHashes.includes(hash) && activeSelection.includes(hash),
@@ -661,14 +672,16 @@ export class GlobalsPublisher {
         // may accompany it only if it preserves the resolver result.
         if (sync.status !== 'current')
           throw new Error('Sync pending: global dependency review required');
+        const before = this.publicationSnapshot(
+          tree,
+          revision,
+          captured,
+          documents.map((document) => previous[document.hash] ?? document),
+        );
+        const after = this.publicationSnapshot(tree, revision, captured, documents);
         const comparison = calculateGlobalImpact(
-          this.publicationSnapshot(
-            tree,
-            revision,
-            captured,
-            documents.map((document) => previous[document.hash] ?? document),
-          ),
-          this.publicationSnapshot(tree, revision, captured, documents),
+          before.snapshot,
+          after.snapshot,
           [
             {
               // Title preparation covers every consumer in the existing resolver.
@@ -684,6 +697,28 @@ export class GlobalsPublisher {
           comparison.rows.some((row) => stableStringify(row.before) !== stableStringify(row.after))
         )
           throw new Error('The saved global layout changes or cannot prove consumer output');
+
+        // Compare a layout-only library against its actual LIVE input,
+        // including the historical secondary text the converter can read.
+        const baseline = projectGlobals(captured.published);
+        const perks = { ...before.perks };
+        for (const hash of activeSelection)
+          if (
+            captured.livePerks[hash] &&
+            previous[hash] &&
+            stableStringify(previous[hash]) !== stableStringify(globals[hash]) &&
+            stableStringify(previous[hash]) === stableStringify(baseline[hash])
+          )
+            perks[hash] = captured.livePerks[hash];
+        if (
+          legacyPresets.some(
+            (preset) =>
+              !Buffer.from(buildLegacy({ perks } as LegacyInput, preset)).equals(
+                buildLegacy({ perks: after.perks } as LegacyInput, preset),
+              ),
+          )
+        )
+          throw new Error('The saved global layout changes legacy consumer output');
       }
     }
     const published = globalPublishedSchema.parse({
@@ -718,7 +753,7 @@ export class GlobalsPublisher {
           'The global generator changed after scheduling; return to draft and schedule again',
         );
       const sourceAliases = this.publisher.aliasesAt(sourceTree);
-      const snapshot = this.publicationSnapshot(tree, revision, captured, documents);
+      const { snapshot } = this.publicationSnapshot(tree, revision, captured, documents);
       const pinned = this.store(sourceTree);
       const pinnedDocuments = this.canonicalDocuments(sourceTree, 'live/tooltips', sourceAliases);
       for (const document of documents)

@@ -310,7 +310,7 @@ async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
     repository: f.options.repo,
     destinations: [f.options.liveBranch],
   });
-  const edit = (id: string, body: string) =>
+  const edit = (id: string, body: string, lang = 'en') =>
     globalsHandler(
       new Request(`https://api.invalid/globals/${id}/body`, {
         method: 'POST',
@@ -321,7 +321,7 @@ async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
             operation: 'edit',
             id,
             revision: f.read(`globals/entries/${id}.json`).revision,
-            lang: 'en',
+            lang,
             body,
           },
         }),
@@ -551,6 +551,171 @@ describe('dependency-safe global release', () => {
       status: 'rejected',
       error: expect.stringContaining('saved global layout changes'),
     });
+  });
+  it.each([false, true])(
+    'publishes a reviewed translation fallback (repairing an old marker=%s)',
+    async (historical) => {
+      const f = await fixture();
+      const published = structuredClone(f.published);
+      const alpha = published.entries.find(({ name }) => name === 'Alpha')!;
+      const beta = published.entries.find(({ name }) => name === 'Beta')!;
+      const variables = published.aggregates.find(({ document }) => document.hash === 2)!;
+      alpha.definitions.en!.updatedAt = '2026-09-01T00:00:00Z';
+      variables.languages.en!.metadata.updatedAt = alpha.definitions.en!.updatedAt;
+      const reader = tooltip(41, '#Beta');
+      reader.text.de = cell('#Beta');
+      const live = JSON.parse(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']));
+      Object.assign(
+        live.perks,
+        exportLegacy([projectGlobals(published)[2], reader], 0, f.options.facts),
+      );
+      f.git.refs.set(
+        L,
+        f.git.commit(f.git.head(L), {
+          'liveDescriptions.json': f.git.writeBlob(encode(live)),
+        }),
+      );
+      f.change({
+        ...Object.fromEntries(
+          published.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+        ),
+        'globals/layout.json': { version: 1, aggregates: published.aggregates },
+        'globals/live/converter-v2-test.json': {
+          version: 1,
+          destination: f.options.liveBranch,
+          store: published,
+        },
+        'live/tooltips/41.json': reader,
+        'tooltips/41.json': reader,
+      });
+      const port = await mutationPort(f);
+      await f.globals.drain();
+      for (const body of ['80', '81']) {
+        const response = await port.edit(beta.id, body, 'de');
+        expect(response.status, await response.text()).toBe(200);
+        await f.globals.drain();
+      }
+      if (historical) {
+        // Emulate a pre-fix entry-only release where the German projection
+        // was published without the definition's source date.
+        const store = f.globals.store(f.current());
+        delete store.aggregates.find(({ document }) => document.hash === 2)!.languages.de!.metadata
+          .sourceUpdatedAt;
+        const previous = projectGlobals(store)[2];
+        Object.assign(live.perks, exportLegacy([previous], 0, f.options.facts));
+        f.git.refs.set(
+          L,
+          f.git.commit(f.git.head(L), {
+            'liveDescriptions.json': f.git.writeBlob(encode(live)),
+          }),
+        );
+        f.change({
+          ...Object.fromEntries(
+            Object.keys(f.current())
+              .filter((path) => /^globals\/(causes|reviews)\//.test(path))
+              .map((path) => [path, undefined]),
+          ),
+          'globals/live/converter-v2-test.json': {
+            version: 1,
+            destination: f.options.liveBranch,
+            store,
+          },
+          'live/tooltips/2.json': previous,
+        });
+        await f.globals.drain();
+        await expect(
+          f.globals.release(f.current(), f.git.head(D)!, [2], f.git.head(L)!),
+        ).rejects.toThrow('review required');
+      }
+      const reviews = Object.keys(f.current())
+        .filter((path) => path.startsWith('globals/reviews/'))
+        .map((path) => rowSchema.parse(f.read(path)))
+        .filter((row) => row.review.causes.some((cause) => cause.globalId === beta.id));
+      expect(reviews.some((row) => row.review.consumer.lang === 'de')).toBe(true);
+      for (const row of reviews) {
+        const response = await globalsHandler(
+          new Request(`https://api.invalid/globals/${beta.id}/acknowledge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              expectedHead: f.git.head(D),
+              mutation: {
+                operation: 'acknowledge',
+                id: beta.id,
+                consumerId: row.id,
+                contentDigest: row.review.contentDigest,
+                dependencyDigest: row.review.dependencyDigest,
+                impactDigest: row.impactDigest,
+                decision: 'no-text-change',
+              },
+            }),
+          }),
+          port.load,
+        );
+        expect(response.status, await response.text()).toBe(200);
+      }
+      await f.globals.drain();
+      await f.request([2]);
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toBe('done');
+      expect(f.read('live/tooltips/2.json')).toEqual(f.read('tooltips/2.json'));
+    },
+  );
+  it('rejects layout-only publication that would overwrite meaningful legacy secondary output', async () => {
+    const f = await fixture();
+    const before = JSON.parse(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']));
+    const reader = tooltip(140, '#Alpha');
+    f.options.facts[140] = { name: 'Reader', type: 'Weapon Perk' };
+    Object.assign(before.perks, exportLegacy([reader], 0, f.options.facts));
+    before.perks[2].editor.en.secondary = 'var Alpha = 77';
+    f.git.refs.set(
+      L,
+      f.git.commit(f.git.head(L), {
+        'liveDescriptions.json': f.git.writeBlob(encode(before)),
+      }),
+    );
+    const layout = structuredClone(f.published.aggregates);
+    layout[0].languages.en!.segments[0] = { literal: '// only the comment changed\n' };
+    f.change({
+      ...Object.fromEntries(
+        f.published.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+      ),
+      'globals/layout.json': { version: 1, aggregates: layout },
+      'tooltips/140.json': reader,
+      'live/tooltips/140.json': reader,
+    });
+    await f.globals.drain();
+    const live = f.git.head(L);
+    await f.request([2]);
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(live);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining('changes legacy consumer output'),
+    });
+  });
+  it('publishes the selected exports layout without an independently approved variable edit', async () => {
+    const f = await fixture('', true);
+    const layout = structuredClone(f.published.aggregates);
+    layout[0].languages.en!.segments[0] = { literal: '// edited exports layout\n' };
+    f.change({
+      ...Object.fromEntries(
+        f.published.entries
+          .filter(({ name }) => name !== 'Beta')
+          .map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+      ),
+      'globals/layout.json': { version: 1, aggregates: layout },
+    });
+    await f.globals.drain();
+    f.approve(41);
+    await f.globals.drain();
+    await f.request([1]);
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'done',
+      outcomes: [{ hash: 1, status: 'published' }],
+    });
+    expect(f.read('live/tooltips/2.json')).toEqual(projectGlobals(f.published)[2]);
   });
   it('drains once, preserves audits on metadata-only retries, and produces bounded name/publication proofs', async () => {
     const f = await fixture();

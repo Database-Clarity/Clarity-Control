@@ -3,14 +3,23 @@ import { stableStringify } from '../contentHash.js';
 import {
   globalAggregateKind,
   globalStoreSchema,
+  type GlobalDefinition,
   type GlobalRecord,
   type GlobalStore,
 } from '../globals/model.js';
 import { projectGlobals } from '../globals/projection.js';
 
-/** Retain all existing literal bytes and recipes; add only newly introduced declarations.
- * New language cells start empty, using the real entry's metadata; existing
- * layout bytes and metadata remain intact.
+function definitionMetadata(definition: GlobalDefinition) {
+  const { body, revision, provenance, sourceRevision, ...metadata } = definition;
+  void body;
+  void revision;
+  void provenance;
+  void sourceRevision;
+  return metadata;
+}
+
+/** Retain existing literal bytes and recipes and attach new declarations.
+ * A new language takes the same complete metadata as a later update to that language.
  */
 export function reconcileGlobalStore(
   layout: GlobalStore['aggregates'],
@@ -23,33 +32,24 @@ export function reconcileGlobalStore(
       const definitions = entries.filter(
         (entry) => !entry.tombstone && entry.kind === kind && entry.definitions[lang],
       );
-      let cell = aggregate.languages[lang];
-      if (!cell && definitions.length) {
-        const definition = definitions[0].definitions[lang]!;
-        cell = aggregate.languages[lang] = {
-          metadata: { updatedAt: definition.updatedAt, updatedBy: definition.updatedBy },
-          segments: [{ literal: '' }],
-        };
-      }
-      if (!cell) continue;
       const latest = definitions
         .map((entry) => entry.definitions[lang]!)
         .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
         .at(-1);
-      if (latest && Date.parse(latest.updatedAt) > Date.parse(cell.metadata.updatedAt)) {
-        const {
-          body: _body,
-          revision: _revision,
-          provenance: _provenance,
-          sourceRevision: _sourceRevision,
-          ...metadata
-        } = latest;
-        void _body;
-        void _revision;
-        void _provenance;
-        void _sourceRevision;
-        cell.metadata = metadata;
+      let cell = aggregate.languages[lang];
+      if (latest && !cell) {
+        cell = aggregate.languages[lang] = {
+          metadata: definitionMetadata(latest),
+          segments: [{ literal: '' }],
+        };
+      } else if (
+        latest &&
+        cell &&
+        Date.parse(latest.updatedAt) > Date.parse(cell.metadata.updatedAt)
+      ) {
+        cell.metadata = definitionMetadata(latest);
       }
+      if (!cell) continue;
       const valid = new Set(definitions.map((entry) => entry.id));
       cell.segments = cell.segments.filter(
         (segment) => !('entryId' in segment) || valid.has(segment.entryId),
@@ -77,6 +77,36 @@ export function reconcileGlobalStore(
   return result;
 }
 
+/** Old releases could drop the source date when a language was first created.
+ * Attribute a repair to the entry owning that exact stamp so its readers can approve it.
+ */
+function missingSourceDates(published: GlobalStore, saved: GlobalStore) {
+  const repairs: { id: string; hash: number; lang: (typeof languages)[number]; date: string }[] =
+    [];
+  for (const aggregate of published.aggregates) {
+    const hash = aggregate.document.hash;
+    const next = saved.aggregates.find(({ document }) => document.hash === hash);
+    for (const lang of languages) {
+      const previous = aggregate.languages[lang]?.metadata;
+      const metadata = next?.languages[lang]?.metadata;
+      if (!previous || previous.sourceUpdatedAt || !metadata?.sourceUpdatedAt) continue;
+      const { sourceUpdatedAt, ...stamp } = metadata;
+      if (stableStringify(previous) !== stableStringify(stamp)) continue;
+      const owner = saved.entries.find((entry) => {
+        const definition = entry.definitions[lang];
+        return (
+          !entry.tombstone &&
+          entry.kind === globalAggregateKind(hash) &&
+          definition !== undefined &&
+          stableStringify(definitionMetadata(definition)) === stableStringify(metadata)
+        );
+      });
+      if (owner) repairs.push({ id: owner.id, hash, lang, date: sourceUpdatedAt });
+    }
+  }
+  return repairs;
+}
+
 /** A release starts with last-published records, never with the saved aggregate. */
 export function composeGlobalRelease(
   published: GlobalStore,
@@ -93,17 +123,24 @@ export function composeGlobalRelease(
   const entries = published.entries.map((entry) => replacements.get(entry.id) ?? entry);
   for (const entry of replacements.values())
     if (!entries.some((old) => old.id === entry.id)) entries.push(entry);
-  return reconcileGlobalStore(published.aggregates, entries);
+  const repairs = missingSourceDates(published, saved).filter(({ id }) => replacements.has(id));
+  const layout = repairs.length ? structuredClone(published.aggregates) : published.aggregates;
+  for (const { hash, lang, date } of repairs)
+    layout.find(({ document }) => document.hash === hash)!.languages[
+      lang
+    ]!.metadata.sourceUpdatedAt = date;
+  return reconcileGlobalStore(layout, entries);
 }
 
 export function changedGlobalIds(published: GlobalStore, saved: GlobalStore): string[] {
   const next = new Map(saved.entries.map((entry) => [entry.id, entry]));
   for (const entry of published.entries)
     if (!next.has(entry.id)) throw new Error('Missing global tombstone');
+  const repairs = new Set(missingSourceDates(published, saved).map(({ id }) => id));
   return saved.entries
     .filter((entry) => {
       const previous = published.entries.find((old) => old.id === entry.id);
-      return stableStringify(previous ?? null) !== stableStringify(entry);
+      return repairs.has(entry.id) || stableStringify(previous ?? null) !== stableStringify(entry);
     })
     .map((entry) => entry.id);
 }
