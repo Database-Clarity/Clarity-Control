@@ -948,7 +948,7 @@ describe('offline schedule preparation', () => {
       text: {
         ...f.proposed.text,
         de: {
-          text: 'Langer Text. '.repeat(900),
+          text: 'Langer Text. '.repeat(8400),
           updatedAt: AT,
           updatedBy: user.login,
           sourceUpdatedAt: f.proposed.text.en!.updatedAt,
@@ -961,7 +961,7 @@ describe('offline schedule preparation', () => {
     expect(f.request(S).status).toBe('completed');
     const memberPath = schedulePaths.member(B, next.hash);
     const landed = f.read(memberPath);
-    expect(JSON.stringify(landed).length).toBeGreaterThan(8 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(landed))).toBeGreaterThan(96 * 1024);
     expect(f.batch().draftStaging?.id).toBe(S);
     const previousRevision = f.batch().contentRevision;
     f.admit('save', changes, user, DUE, R, { id: S, finish: true });

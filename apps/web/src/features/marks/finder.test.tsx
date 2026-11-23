@@ -17,6 +17,7 @@ import { resetWorkQueues, useWorkQueues } from '../queue/store';
 import type { WorkQueue } from '../queue/model';
 import { navigationGroups, groupedSection } from '../navigation/catalog';
 import { TooltipNavigation } from '../navigation/TooltipNavigation';
+import { disposeSteppingActivity } from '../navigation/steppingActivity';
 import { picker, pickOption } from '../navigation/finderPicker.testUtils';
 import { useMarksStore } from './store';
 import { buildMarkedSection, markedRouteCategory, markedScopeValue } from './finder';
@@ -95,6 +96,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   act(() => root.unmount());
+  disposeSteppingActivity();
   host.remove();
   useMarksStore.getState().accept({ types: [], entries: {} });
   useDataStore.setState({ data: previousData });

@@ -18,6 +18,10 @@ import { publishTiming } from './publishDriver';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
+vi.mock('../../services/globalsFlag', async (original) => ({
+  ...(await original<typeof import('../../services/globalsFlag')>()),
+  globalsEnabled: true,
+}));
 vi.mock('../../services/api', async (original) => ({
   ...(await original<typeof import('../../services/api')>()),
   apiUrl: 'https://synthetic.invalid',
@@ -217,6 +221,41 @@ afterEach(async () => {
 
 const posts = () => calls.filter((c) => c.path === '/publish');
 
+it.each([false, true])(
+  'checks a pending aggregate before confirmation when the selection imports it (%s)',
+  async (importsExports) => {
+    bundle.tooltips[1] = {
+      ...tooltip,
+      hash: 1,
+      custom: { name: 'Global exports', categoryId: 'other' },
+    };
+    if (importsExports) bundle.tooltips[10]!.text.en!.text = 'import main from 1';
+    await mount();
+    await act(async () =>
+      host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
+    );
+    if (importsExports) {
+      await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' })));
+      expect(host.querySelector('dialog[open]')).toBeNull();
+      expect(host.textContent).toContain('Include Global exports before publishing.');
+      expect(posts()).toHaveLength(0);
+      await act(async () =>
+        host.querySelector<HTMLInputElement>('input[data-review-toggle="1"]')!.click(),
+      );
+    }
+    await openPublish();
+    const dialog = host.querySelector('dialog[open]')!;
+    expect(dialog.textContent).toContain('Tooltip 10');
+    expect(dialog.textContent?.includes('Global exports')).toBe(importsExports);
+    await click('Cancel');
+    expect(posts()).toHaveLength(0);
+    await openPublish();
+    await click(importsExports ? 'Publish 2' : 'Publish 1');
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ hashes: importsExports ? [1, 10] : [10] });
+  },
+);
+
 it('follows one reviewed request through Sync pending, Publishing, and Published', async () => {
   await mount();
   expect(host.textContent).toContain('1 change waiting to go live');
@@ -278,7 +317,7 @@ it('follows one reviewed request through Sync pending, Publishing, and Published
   await waitFor(() => expect(host.querySelector('[aria-label="Publish activity"]')).toBeNull());
 });
 
-it('refuses an unselected pending import, then publishes its reviewed closure on retry', async () => {
+it('names an unselected pending import before confirmation, then publishes its reviewed closure', async () => {
   bundle.tooltips[10]!.text.en!.text = 'import main from 20';
   bundle.tooltips[20] = {
     ...structuredClone(tooltip),
@@ -291,10 +330,8 @@ it('refuses an unselected pending import, then publishes its reviewed closure on
     host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
   );
   await openPublish();
-  await click('Publish 1');
-  await waitFor(() =>
-    expect(useReviewSession.getState().error).toContain('Select pending imported tooltip 20'),
-  );
+  expect(host.querySelector('dialog[open]')).toBeNull();
+  expect(host.textContent).toContain('Include Dependency before publishing.');
   expect(posts()).toHaveLength(0);
   expect(useReviewSession.getState().pushing).toBe(false);
   await selectAll();

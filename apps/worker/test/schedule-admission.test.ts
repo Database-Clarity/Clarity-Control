@@ -143,6 +143,33 @@ afterEach(() => {
 });
 
 describe('durable asynchronous admission', () => {
+  it('hands an indivisible 109,013-byte draft edit to the Action', async () => {
+    const original = saveBody();
+    const change = original.changes[0]!;
+    const bytes = 109_013 - Buffer.byteLength(JSON.stringify(original));
+    const input = {
+      ...original,
+      changes: [{ ...change, next: tooltip(`updated${'x'.repeat(bytes)}`) }],
+    };
+    const raw = JSON.stringify(input);
+    expect(Buffer.byteLength(raw)).toBe(109_013);
+    expect((await call('save', input)).status).toBe(202);
+    expect(record().status).toBe('pending');
+    expect(f.current()[scheduleIntentPaths.body(RID)]).toEqual(input);
+  });
+
+  it('keeps the byte ceiling on draft save parts the client can split', async () => {
+    const input = saveBody();
+    const next = tooltip('ab'.repeat(55_000));
+    input.changes.push({
+      hash: 124,
+      base: { ...tooltip(), hash: 124 },
+      next: { ...next, hash: 124 },
+    });
+    expect((await call('save', input)).status).toBe(413);
+    expect(f.current()[scheduleIntentPaths.request(RID)]).toBeUndefined();
+  });
+
   it('keeps a draft staging fence after an admitted part settles', async () => {
     const id = newUlid();
     f.moveData({

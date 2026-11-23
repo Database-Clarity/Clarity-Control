@@ -31,7 +31,7 @@ import {
 } from './model';
 import { loadPublished, publishedFor, publishedRows, usePublished } from './published';
 import { PublishActivity } from './PublishActivity';
-import { queuePublish } from './publishAction';
+import { planReviewedPublish, queuePublish } from './publishAction';
 import { publishDriver } from './publisher';
 import { PushConfirm } from './PushConfirm';
 import { queueView, stepRow } from './queueModel';
@@ -134,7 +134,11 @@ export function ReviewPage() {
   const collapsed = useReviewQueue((state) => state.collapsed);
   const leftovers = useReviewQueue((state) => state.leftovers);
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
-  const [confirming, setConfirming] = useState<{ entries: PendingTooltip[]; data: EditorData }>();
+  const [confirming, setConfirming] = useState<{
+    entries: PendingTooltip[];
+    data: EditorData;
+    inputs?: ReturnType<typeof planReviewedPublish>;
+  }>();
   // A newer snapshot is being compared; the old list and open change stay on screen meanwhile.
   const [comparing, setComparing] = useState(!prepared);
   const query = searchParams.get('query') ?? '';
@@ -377,7 +381,12 @@ export function ReviewPage() {
     if (!canPush(user) || !data || !entries || comparing || reloading || pushing) return;
     if (!chosen.length) return;
     setError(undefined);
-    setConfirming({ entries: chosen, data });
+    try {
+      const inputs = publisher ? planReviewedPublish(chosen, entries, data) : undefined;
+      setConfirming({ entries: chosen, data, inputs });
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
   }
   // A confirmation belongs to the snapshot it listed: new saved data retires it, out loud.
   useEffect(() => {
@@ -468,14 +477,17 @@ export function ReviewPage() {
     return () => window.removeEventListener('keydown', keydown);
   }, [pushing, selectHash, stopPause]);
 
-  async function publish({ entries: picked, data: reviewed }: NonNullable<typeof confirming>) {
+  async function publish({
+    entries: picked,
+    data: reviewed,
+    inputs,
+  }: NonNullable<typeof confirming>) {
     setConfirming(undefined);
     setError(undefined);
-    const succeeded = await (publisher ? queuePublish : publishReviewed)(
-      picked,
-      reviewed,
-      () => mounted.current,
-    );
+    const isMounted = () => mounted.current;
+    const succeeded = inputs
+      ? await queuePublish(inputs, reviewed, isMounted)
+      : await publishReviewed(picked, reviewed, isMounted);
     if (succeeded && mounted.current) {
       clearSelection();
       setDecisions([]);

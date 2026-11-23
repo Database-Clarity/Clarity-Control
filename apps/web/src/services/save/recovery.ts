@@ -9,7 +9,12 @@ import {
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { applySavedOverlay, rememberSaved } from '../../stores/savedOverlay';
-import { readSaveReceipts, writeSaveReceipt, type SaveReceipt } from '../draftStorage';
+import {
+  readSaveReceipts,
+  sameDraftContent,
+  writeSaveReceipt,
+  type SaveReceipt,
+} from '../draftStorage';
 import { readCurrentSaveOutcome, readStagedSavedTooltips } from './stagedCurrentSave';
 import { useSaveState } from './state';
 
@@ -119,7 +124,7 @@ export function startSaveRecovery(): () => void {
         if (
           currentDraft &&
           submitted &&
-          stableStringify(currentDraft) === stableStringify(submitted) &&
+          sameDraftContent(currentDraft, submitted) &&
           (sameSubmission(bundle.tooltips[tooltip.hash], tooltip) ||
             (!receipt.confirmed &&
               sameSubmission(

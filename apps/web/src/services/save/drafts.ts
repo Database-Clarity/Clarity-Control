@@ -2,7 +2,7 @@ import { merge3, stableStringify, type Tooltip } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { rememberSaved } from '../../stores/savedOverlay';
-import type { Drafts } from '../draftStorage';
+import { sameDraftContent, type Drafts } from '../draftStorage';
 
 /** The part of a draft store (Current or batch) that save reconciliation touches. */
 export interface ReconciledStore {
@@ -33,7 +33,10 @@ export function replaceDraftAt(
   if (!state.ownsKey(key, base.hash))
     throw new Error(`Draft key ${key} does not belong to tooltip ${base.hash}.`);
   const original = resetBase ? base : (state.drafts[key]?.base ?? base);
-  const drafts: Drafts = { ...state.drafts, [key]: { base: original, next } };
+  const drafts: Drafts = {
+    ...state.drafts,
+    [key]: { base: original, next, changedAt: new Date().toISOString() },
+  };
   if (stableStringify(original) === stableStringify(next)) delete drafts[key];
   store.setState({ drafts });
   state.retry();
@@ -59,10 +62,10 @@ export function reconcileSaved(
     if (!head && !gone(key))
       throw new Error(`Save response omitted tooltip ${key}; drafts were retained.`);
     if (!current) continue;
-    if (stableStringify(current) === stableStringify(draft)) delete out[key];
+    if (sameDraftContent(current, draft)) delete out[key];
     else if (head) {
       const merged = merge3(draft.next, head, current.next);
-      if (merged.ok) out[key] = { base: head, next: merged.merged };
+      if (merged.ok) out[key] = { ...current, base: head, next: merged.merged };
     }
   }
   return out;

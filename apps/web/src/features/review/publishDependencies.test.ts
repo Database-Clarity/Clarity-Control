@@ -68,3 +68,32 @@ it('orders pending global libraries and observes imports inside a global title',
   expect(deps.get(100)).toContain(3);
   expect(deps.get(100)).toContain(200);
 });
+
+it('keeps the 149 reviewed rows together when the selection includes an Inactive removal', () => {
+  const aggregate = t(1, 'Global exports');
+  const selected = [
+    aggregate,
+    ...Array.from({ length: 148 }, (_, index) => t(100 + index, 'Tooltip text')),
+  ];
+  const tooltips = Object.fromEntries(selected.map((tooltip) => [tooltip.hash, tooltip]));
+  const dependencies = publishDependencies(
+    tooltips,
+    {},
+    new Set(selected.map(({ hash }) => hash)),
+    selected,
+    { 100: { by: 1, at: '2026-11-14T00:00:00Z' } },
+    true,
+  );
+  const chunks = publishChunks(
+    selected.map(({ hash }) => ({
+      hash,
+      digest: 'a'.repeat(64),
+      previous: undefined,
+      dependencies: dependencies.get(hash),
+    })),
+  );
+  expect(chunks.map((chunk) => chunk.length)).toEqual([149]);
+  expect(new Set(chunks[0]?.map(({ hash }) => hash))).toEqual(
+    new Set(selected.map(({ hash }) => hash)),
+  );
+});

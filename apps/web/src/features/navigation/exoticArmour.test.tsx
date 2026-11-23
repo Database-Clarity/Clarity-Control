@@ -4,6 +4,7 @@ import { picker } from './finderPicker.testUtils';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { disposeSteppingActivity } from './steppingActivity';
 import type { EditorData } from '../../stores/data';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { TooltipPreview } from '../preview/TooltipPreview';
@@ -304,6 +305,7 @@ describe('exotic armour in the finder', () => {
   });
   afterEach(async () => {
     await act(async () => root.unmount());
+    disposeSteppingActivity();
     host.remove();
   });
   const mount = (path: string) =>
