@@ -323,13 +323,13 @@ it('report-items jobs rebuild both catalogs for the published bundle, leased and
   expect(again.stdout).toContain('already current');
   expect(bundleHead()).toBe(refreshed);
 
-  // (3) The head moves after the build: fail closed before writing anything.
+  // (3) A superseded artifact is a successful no-op.
   const carried = Object.fromEntries(names.map((p) => [p, show(refreshed, p) + '\n']));
   const built = build();
   const moved = commit({ ...carried, 'bundle.json': bundleJson(3, ['123', '456']) }, refreshed);
   setBundle(moved);
   const raced = push(built);
-  expect(raced.status).not.toBe(0);
+  expect(raced.status).toBe(0);
   expect(raced.stdout + raced.stderr).toContain('moved after the catalogs were built');
   expect(bundleHead()).toBe(moved);
 
@@ -348,8 +348,8 @@ it('report-items jobs rebuild both catalogs for the published bundle, leased and
     GIT_CONFIG_KEY_0: 'core.hooksPath',
     GIT_CONFIG_VALUE_0: hooks.replace(/\\/g, '/'),
   });
-  expect(leased.status).not.toBe(0);
-  expect(leased.stderr).toMatch(/stale info|rejected|failed to push/);
+  expect(leased.status, leased.stderr).toBe(0);
+  expect(leased.stdout).toContain('advanced during the push');
   expect(bundleHead()).toBe(racer);
 
   // (5) A catalog for another source, or an extra file, never lands.
@@ -364,6 +364,20 @@ it('report-items jobs rebuild both catalogs for the published bundle, leased and
     expect(rejected.stderr).toMatch(/not a catalog for this bundle|Unexpected catalog files/);
     expect(bundleHead()).toBe(racer);
   }
+
+  // (6) A push failure without head movement remains a failure.
+  writeFileSync(join(hooks, 'pre-push'), '#!/bin/sh\nexit 1\n');
+  const failed = push(build(), {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: hooks.replace(/\\/g, '/'),
+  });
+  expect(failed.status).not.toBe(0);
+  expect(bundleHead()).toBe(racer);
+  const latest = push(build());
+  expect(latest.status, latest.stderr).toBe(0);
+  for (const name of names)
+    expect(JSON.parse(show(bundleHead(), name)).sourceCommit).toBe(source(4));
 });
 
 it('the pipeline step publishes for real only when the installed config says publishWritesEnabled: true', () => {

@@ -23,6 +23,31 @@ afterEach(async () => {
 });
 const data = 'refs/heads/editor-data';
 const candidate = 'refs/heads/publish-candidate/01K95H00000000000000000001';
+it('uses a fresh remote advertisement but fetches only when the cached ref changes', () => {
+  const upstream = bare();
+  const url = pathToFileURL(upstream).href;
+  const writer = new RemoteRepository(bare(), { fileUrl: url });
+  const a = writer.commit(undefined, { file: writer.writeBlob('one') }, 'first');
+  const b = writer.commit(a, { file: writer.writeBlob('two') }, 'second');
+  const reader = new RemoteRepository(bare(), { fileUrl: url });
+  const calls = vi.spyOn(reader, 'remoteGit');
+  writer.cas(candidate, undefined, a);
+  expect(reader.head(candidate)).toBe(a);
+  expect(reader.head(candidate)).toBe(a);
+  writer.cas(candidate, a, b);
+  expect(reader.head(candidate)).toBe(b);
+  expect(reader.ancestor(a, b)).toBe(true);
+  writer.cas(candidate, b, undefined);
+  expect(reader.head(candidate)).toBeUndefined();
+  expect(calls.mock.calls.map(([args]) => args[0])).toEqual([
+    'ls-remote',
+    'fetch',
+    'ls-remote',
+    'ls-remote',
+    'fetch',
+    'ls-remote',
+  ]);
+});
 it('allowlisted publication plans grant only their selected target, including atomic writes', () => {
   for (const liveBranch of ['converter-v2-test', 'converter'] as const) {
     const repo = new RemoteRepository(bare(), { fileUrl: pathToFileURL(bare()).href, liveBranch });

@@ -2,7 +2,7 @@ import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
 import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync, createHash, sign } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RemoteRepository } from './remote.js';
@@ -47,9 +47,37 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       const checkoutRoot = mkdtempSync(join(tmpdir(), 'pipeline-checkout-'));
       const checkout = join(checkoutRoot, 'checkout');
       roots.push(checkoutRoot);
-      execFileSync('git', ['clone', '--branch', 'editor-data', '--', f.upstream, checkout], {
-        stdio: 'pipe',
-      });
+      execFileSync(
+        'git',
+        [
+          'clone',
+          '--depth=1',
+          '--branch',
+          'editor-data',
+          '--',
+          pathToFileURL(f.upstream).href,
+          checkout,
+        ],
+        { stdio: 'pipe' },
+      );
+      const bundleRef = 'refs/heads/editor-data-bundle';
+      // A report push wins the initial bundle lease, after the pipeline snapshot.
+      f.pub.bundle();
+      f.change(D, { 'notes.json': { changed: true } });
+      const origin = new LocalRepository(f.upstream);
+      const reportBase = f.git.head(bundleRef)!;
+      const reportTree = {
+        ...origin.tree(reportBase),
+        'report-items.json': origin.writeBlob('catalog bytes'),
+      };
+      const reportCommit = origin.commit(reportBase, reportTree, 'Concurrent report update');
+      const hook = join(checkout, '.git', 'hooks', 'pre-push');
+      vi.stubEnv('PUBLISHER_FIXTURE_ORIGIN', f.upstream.replace(/\\/g, '/'));
+      writeFileSync(
+        hook,
+        `#!/bin/sh\ngit --git-dir "$PUBLISHER_FIXTURE_ORIGIN" update-ref ${bundleRef} ${reportCommit} ${reportBase} 2>/dev/null || true\n`,
+      );
+      chmodSync(hook, 0o755);
       let latest = f.git.head(D)!;
       vi.stubGlobal(
         'fetch',
@@ -85,7 +113,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
           hashes: number[];
           createdAt: string;
         }[];
-      }>(f.git.tree(f.git.head('refs/heads/editor-data-bundle')!), 'bundle.json')!;
+      }>(f.git.tree(f.git.head(bundleRef)!), 'bundle.json')!;
+      expect(f.git.ancestor(reportCommit, f.git.head(bundleRef)!)).toBe(true);
+      expect(f.git.tree(f.git.head(bundleRef)!)['report-items.json']).toBe(
+        reportTree['report-items.json'],
+      );
       expect(bundle.sourceCommit).toBe(latest);
       expect(bundle.publishQueue.map((p) => p.opId)).toEqual([A]);
       expect(Object.keys(bundle.publishQueue[0]).sort()).toEqual([
@@ -126,6 +158,35 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       expect(simulatedLog.includes(paths(A).log)).toBe(!badKey);
     },
   );
+
+  it('rebuilds a raced publisher bundle on the winning report commit', async () => {
+    const f = await setup();
+    const bundleRef = 'refs/heads/editor-data-bundle';
+    f.pub.bundle();
+    const old = f.git.head(bundleRef)!;
+    const data = f.change(D, { 'notes.json': { changed: true } });
+    const writes = f.git.cas.bind(f.git);
+    const origin = new LocalRepository(f.upstream);
+    const catalog = origin.writeBlob('report contents');
+    const report = origin.commit(
+      old,
+      { ...origin.tree(old), 'report-items.json': catalog },
+      'Concurrent report update',
+    );
+    const cas = vi.spyOn(f.git, 'cas').mockImplementationOnce((ref, base, next) => {
+      expect(ref).toBe(bundleRef);
+      origin.cas(ref, old, report);
+      writes(ref, base, next);
+    });
+    f.pub.bundle();
+    const head = f.git.head(bundleRef)!;
+    expect(f.git.git(['rev-parse', `${head}^`]).trim()).toBe(report);
+    const tree = f.git.tree(head);
+    expect(tree['report-items.json']).toBe(catalog);
+    expect(f.pub.read(tree, 'bundle.json')).toHaveProperty('sourceCommit', data);
+    expect(cas).toHaveBeenCalledTimes(2);
+    cas.mockRestore();
+  });
 
   it('invalid bundle inputs preserve the prior bundle, including the remote pipeline bundle', async () => {
     const f = await setup();

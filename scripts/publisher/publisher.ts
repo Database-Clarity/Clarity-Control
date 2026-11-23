@@ -717,7 +717,8 @@ export class Publisher {
           log[2] !== opId &&
           publishOpIdSchema.safeParse(log[2]).success &&
           log[1] === publishMonth(log[2]));
-      const clashProof = /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
+      const clashProof =
+        /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
       if (!queueAddition && !clashProof.test(path) && !nameProofRequest(tree, path)) return false;
     }
     return true;
@@ -1871,10 +1872,22 @@ export class Publisher {
     return { landedAt, landedAtSource: land.source, recordedAt };
   }
   bundle() {
+    const ref = dataRef('editor-data-bundle');
+    let old = this.git.head(ref);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return this.bundleAt(ref, old);
+      } catch (error) {
+        if (!(error instanceof RefRace) || attempt === 2) throw error;
+        const current = this.git.head(ref);
+        if (!current || current === old || (old && !this.git.ancestor(old, current))) throw error;
+        old = current;
+      }
+    }
+  }
+  private bundleAt(ref: string, old: string | undefined) {
     const h = this.head(this.options.dataBranch),
       t = this.git.tree(h),
-      ref = dataRef('editor-data-bundle'),
-      old = this.git.head(ref),
       oldTree = old ? this.git.tree(old) : {};
     const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
     if (prior?.sourceCommit === h) return;

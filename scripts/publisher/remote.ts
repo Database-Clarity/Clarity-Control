@@ -71,6 +71,10 @@ export class RemoteRepository extends LocalRepository {
       this.git(['update-ref', '-d', ref]);
       return undefined;
     }
+    const [advertisedOid] = advertised.split('\t');
+    if (!/^[0-9a-f]{40}$/.test(advertisedOid) || advertised !== `${advertisedOid}\t${ref}`)
+      throw new TransportUnresolved('Invalid remote ref advertisement');
+    if (super.head(ref) === advertisedOid) return advertisedOid;
     this.remoteGit(['fetch', '--no-tags', this.remote, ref]);
     const oid = this.git(['rev-parse', '--verify', 'FETCH_HEAD']).trim();
     this.git(['update-ref', ref, oid]);
