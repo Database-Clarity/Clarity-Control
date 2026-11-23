@@ -4,6 +4,11 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => vi.fn());
+const session = vi.hoisted(() => ({ token: 't' }));
+vi.mock('../../services/session', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/session')>()),
+  sessionToken: () => session.token,
+}));
 vi.mock('../../services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/api')>()),
   apiRequest: api,
@@ -42,6 +47,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   api.mockReset();
   api.mockImplementation(async () => Response.json({ marks: reply(), revision }));
+  session.token = 't';
   useAuthStore.setState({ user: { id: 1, login: 'm', role: 'maintainer' }, token: 't' });
   useSharedSaves.setState({ pending: new Map(), error: null });
   useDataStore.setState({ data: { aliases: {} } as never });
@@ -153,6 +159,7 @@ it(
     useSharedSaves.getState().set([1], 'not-needed');
     await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1), { timeout: 10_000 });
     const one = useAuthStore.getState().user;
+    session.token = 'u';
     useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' }, token: 'u' });
     expect(shown().size).toBe(0);
     useSharedSaves.getState().retry();
@@ -162,8 +169,11 @@ it(
     });
     await new Promise((done) => setTimeout(done, 600));
     expect(changes()).toHaveLength(1);
+    session.token = 't';
     useAuthStore.setState({ user: one, token: 't' });
     expect(shown().get(1)).toEqual({ kind: 'not-needed' });
+    // It was never sent: the notice says so and offers Retry.
+    expect(useSharedSaves.getState().error).toContain('sign-in changed');
     // A decision of the other account replaces them, and is written even while the first's is out.
     api.mockImplementationOnce(async () => {
       await new Promise<void>((done) => (release = done));
@@ -172,6 +182,7 @@ it(
     useMarksStore.setState({ writable: true });
     useSharedSaves.getState().retry();
     await vi.waitFor(() => expect(changes()).toHaveLength(2), { timeout: 10_000 });
+    session.token = 'u';
     useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' }, token: 'u' });
     useSharedSaves.getState().set([2], 'no-match');
     release();
@@ -236,6 +247,30 @@ it(
     useSharedSaves.getState().set([2], 'no-match');
     await settled();
     expect(useSharedSaves.getState().error).toContain('Invalid config/marks.json');
+  },
+);
+
+it(
+  'sends nothing once the stored session belongs to another account',
+  { timeout: 20_000 },
+  async () => {
+    api.mockImplementationOnce(async () => {
+      // Another tab signed in as someone else; this tab has not noticed yet.
+      session.token = 'u';
+      return Response.json({ error: 'offline' }, { status: 502 });
+    });
+    useSharedSaves.getState().set([1], 'not-needed');
+    await settled();
+    expect(changes()).toHaveLength(1);
+    expect(useSharedSaves.getState().error).toContain('sign-in changed');
+    useSharedSaves.getState().retry();
+    await settled();
+    expect(changes()).toHaveLength(1);
+    session.token = 't';
+    useSharedSaves.getState().retry();
+    await settled();
+    expect(changes()).toHaveLength(2);
+    expect(useSharedSaves.getState().pending.size).toBe(0);
   },
 );
 

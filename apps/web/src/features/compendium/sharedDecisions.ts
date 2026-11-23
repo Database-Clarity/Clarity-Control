@@ -3,6 +3,7 @@ import { resolveAlias, type Aliases } from '@clarity/core';
 import type { CompendiumDecision, MarkAction, Marks } from '@clarity/core/marks';
 import { apiUrl, type User } from '../../services/api';
 import { errorMessage } from '../../services/http';
+import { sessionToken } from '../../services/session';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useMarksStore } from '../marks/store';
@@ -119,7 +120,7 @@ async function drain() {
   if (draining) return;
   draining = true;
   const { owner } = useSharedSaves.getState();
-  const current = () => useSharedSaves.getState().owner === owner && account() === owner;
+  const current = () => useSharedSaves.getState().owner === owner && signedInAs(owner);
   try {
     for (let attempt = 1; current() && useSharedSaves.getState().pending.size;) {
       try {
@@ -144,8 +145,22 @@ async function drain() {
     }
   } finally {
     draining = false;
+    const { owner: now, pending, error } = useSharedSaves.getState();
     // Another account decided something while this one's request was on its way.
-    if (useSharedSaves.getState().owner !== owner) void drain();
+    if (now !== owner) void drain();
+    // Stopped by an account change: on this account's return, the notice offers Retry.
+    else if (pending.size && !error)
+      useSharedSaves.setState({ error: 'The sign-in changed before they were sent.' });
+  }
+}
+
+/** The account is signed in, and a request sent now would carry its session. */
+function signedInAs(owner: User['id'] | undefined) {
+  const { user, token } = useAuthStore.getState();
+  try {
+    return !!user && user.id === owner && token !== null && token === sessionToken();
+  } catch {
+    return false;
   }
 }
 
