@@ -88,6 +88,15 @@ const states: PublishOp[] =
           error:
             'The publish run failed after repeated attempts; check the run log, then publish these tooltips again.',
         }),
+        // An older tab recorded this refusal without its reason; the receipt is still unread.
+        op(8, 'rejected', { round: 0, hashes: [901] }),
+        op(9, 'failed', {
+          hashes: [902],
+          error: `Publish incomplete: 0 of 900 tooltips confirmed live. Tooltips ${Array.from(
+            { length: 900 },
+            (_, i) => 1000 + i,
+          ).join(', ')}: Missing export.`,
+        }),
       ];
 useDataStore.setState({ data, status: 'ready', error: null, load: async () => {} });
 useAuthStore.setState({
