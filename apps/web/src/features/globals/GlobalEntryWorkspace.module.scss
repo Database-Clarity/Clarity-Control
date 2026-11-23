@@ -1,3 +1,4 @@
+@use '../../data/variables' as theme;
 @use '../../ui/controls';
 
 // Loading, sign-in, and empty states, which replace the editor page.
@@ -336,6 +337,13 @@
   > .consumers {
     flex: 1 1 auto;
     min-height: 8rem;
-    max-height: none;
+    @media (width > theme.$mobile-max-width) {
+      max-height: none;
+    }
+    // On the document-scrolling phone layout, keep the list capped and let a gesture
+    // at its edge reach the page if the viewport cuts off part of the list.
+    @include theme.mobile {
+      overscroll-behavior-y: auto;
+    }
   }
 }
