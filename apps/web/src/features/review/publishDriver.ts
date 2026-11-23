@@ -127,26 +127,26 @@ export function publishChunks<T extends Omit<PublishInput, 'digest'>>(inputs: re
   return chunks;
 }
 
-/** Hashes covered by an operation that is still queued or being sent. */
+/**
+ * Hashes covered by an operation that is still queued or being sent. A group that is recovering
+ * from a refusal holds every one of its rows until it can no longer recover, never part of it.
+ */
 export function activeHashes(ops: readonly PublishOp[]): Set<number> {
-  const active = ops.filter((op) => !isTerminal(op.status));
-  const groups = new Set(active.map((op) => op.groupId));
-  const recoverable = new Map<string, boolean>();
-  for (const op of ops) {
-    if (needsPublishReceipt(op)) {
-      active.push(op);
-      continue;
-    }
-    if (op.refusal === undefined || !op.groupId) continue;
-    if (!recoverable.has(op.groupId))
-      recoverable.set(
-        op.groupId,
-        groups.has(op.groupId) ||
-          regroupRefusals(ops.filter((entry) => entry.groupId === op.groupId)).length > 0,
-      );
-    if (recoverable.get(op.groupId)) active.push(op);
-  }
-  return new Set(active.flatMap((op) => op.hashes));
+  const groups = new Map<string, PublishOp[]>();
+  for (const op of ops)
+    if (op.groupId) groups.set(op.groupId, [...(groups.get(op.groupId) ?? []), op]);
+  const held = ops.filter((op) => !isTerminal(op.status) || needsPublishReceipt(op));
+  for (const members of groups.values()) if (recovering(members)) held.push(...members);
+  return new Set(held.flatMap((op) => op.hashes));
+}
+
+/** A group with an unread receipt, or with a refusal that it can still combine and resend. */
+export function recovering(members: readonly PublishOp[]): boolean {
+  return (
+    members.some(needsPublishReceipt) ||
+    (members.some((op) => op.refusal !== undefined) &&
+      (members.some((op) => !isTerminal(op.status)) || regroupRefusals(members).length > 0))
+  );
 }
 
 /** An older open tab can persist a rejection from the status projection alone. */
@@ -188,6 +188,10 @@ export function regroupRefusals(members: readonly PublishOp[]): PublishOp[][] {
     ? parts
     : [];
 }
+
+/** Receipt reads back off like status polls, by age since the rejection was recorded. */
+const receiptDue = (op: PublishOp) =>
+  op.polledAt === undefined ? 0 : op.polledAt + publishTiming.pollMs(op.polledAt - op.updatedAt);
 
 const syncDeadline = (op: PublishOp) =>
   op.syncPendingSince === undefined ? Infinity : op.syncPendingSince + publishTiming.syncWaitMs;
@@ -474,7 +478,7 @@ export class PublishDriver {
         }
       } else if (needsPublishReceipt(op)) {
         const claimed = await this.claim(op.opId, (current, at) =>
-          needsPublishReceipt(current) && at - (current.polledAt ?? 0) >= publishTiming.pollMs(0)
+          needsPublishReceipt(current) && at >= receiptDue(current)
             ? { ...current, polledAt: at }
             : undefined,
         );
@@ -537,8 +541,8 @@ export class PublishDriver {
     const now = this.deps.now();
     let next = this.recoveries().length ? now + publishTiming.pollMs(0) : Infinity;
     for (const op of usePublishState.getState().ops) {
-      if (needsPublishReceipt(op))
-        next = Math.min(next, (op.polledAt ?? 0) + publishTiming.pollMs(0));
+      if (needsPublishReceipt(op) && !this.paused.has(op.opId))
+        next = Math.min(next, receiptDue(op));
       if (isTerminal(op.status) || this.paused.has(op.opId) || this.inFlight.has(op.opId)) continue;
       if (
         op.status === 'pending' &&
@@ -624,9 +628,13 @@ export class PublishDriver {
       const generation = this.generation;
       try {
         answer = await this.deps.api.post({ opId, hashes: op.hashes, expected: op.expected });
-      } catch {
-        if (generation === this.generation)
-          this.note(opId, 'Checking why the publisher refused this part.');
+      } catch (reason) {
+        if (generation !== this.generation) return;
+        if (reason instanceof PublishHttpError && reason.status === 401) {
+          // Signing in again restarts the driver, which clears the pause.
+          this.paused.add(opId);
+          this.note(opId, 'Sign in again to continue; nothing is lost.');
+        } else this.note(opId, 'Checking why the publisher refused this part.');
         return;
       }
       if (generation !== this.generation || answer.status !== 'rejected') return;

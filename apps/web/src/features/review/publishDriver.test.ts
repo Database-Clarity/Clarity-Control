@@ -2,8 +2,9 @@ import { publicationSyncPendingCode } from '@clarity/core';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PublishHttpError, type RemoteStatus } from '../../services/publisher/api';
 import { createMemoryOpStore, type OpStore } from '../../services/publisher/opStore';
-import { groupPublishes } from './publishStatus';
+import { describeOp, groupPublishes } from './publishStatus';
 import {
+  activeHashes,
   PublishDriver,
   publishChunks,
   publishTiming,
@@ -227,6 +228,88 @@ it('records that a rejection without a regroupable reason was checked', async ()
   expect(h.api.post.mock.calls[1]).toEqual(h.api.post.mock.calls[0]);
   await vi.advanceTimersByTimeAsync(2 * publishTiming.pollMs(0));
   expect(h.api.post).toHaveBeenCalledTimes(2);
+  resumed.stop();
+});
+
+it('holds the whole group while any older-tab receipt is unread, then shows no dead Retry', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const reviewed = Array.from({ length: 51 }, (_, hash) => ({
+    hash: hash + 100,
+    digest: digest(1),
+    previous: undefined,
+  }));
+  await first.create(reviewed);
+  await settle();
+  const admitted = h.api.post.mock.calls.map(([body]) => body);
+  expect(admitted.map(({ hashes }) => hashes.length)).toEqual([50, 1]);
+  first.stop();
+  for (const { opId } of admitted)
+    await h.store.update(opId, (op) => ({ ...op, status: 'rejected' }));
+
+  const resumed = h.make();
+  // The first receipt reads; the second keeps failing for now.
+  let unavailable = true;
+  h.api.post.mockImplementation(async (body) => {
+    if (body.opId === admitted[1]!.opId && unavailable) throw new PublishHttpError(0, 'offline');
+    return admitted.some(({ opId }) => opId === body.opId)
+      ? { status: 'rejected', refusal: 'Missing export' }
+      : { status: 'pending' };
+  });
+  vi.setSystemTime(Date.now() + 10_000);
+  await resumed.start('1');
+  expect(ops().map(({ refusal }) => refusal)).toEqual(['Missing export', undefined]);
+  expect(activeHashes(ops())).toEqual(new Set(reviewed.map(({ hash }) => hash)));
+
+  // Aged: every part is terminal, so nothing is queued and Retry would do nothing.
+  await vi.advanceTimersByTimeAsync(30 * 60_000);
+  const group = groupPublishes(ops())[0]!;
+  const view = describeOp(group.op, undefined, Date.now(), String, group.checking);
+  expect(view).toMatchObject({ chip: 'Combining…', waiting: false, finished: false });
+  expect(activeHashes(ops()).size).toBe(51);
+  expect(h.api.kick).not.toHaveBeenCalled();
+
+  // Once the last receipt reads, exactly one combined request carries all 51 rows.
+  unavailable = false;
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(Infinity) + 100);
+  const sent = h.api.post.mock.calls
+    .map(([body]) => body)
+    .filter(({ opId }) => !admitted.some((original) => original.opId === opId));
+  expect(sent.map(({ hashes }) => hashes.length)).toEqual([51]);
+  expect(activeHashes(ops()).size).toBe(51);
+  resumed.stop();
+});
+
+it('backs off receipt reads, and stops while signed out until the account signs in again', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const created = await first.create(inputs);
+  await settle();
+  first.stop();
+  await h.store.update(created.opId, (op) => ({ ...op, status: 'rejected' }));
+  const reads = () => h.api.post.mock.calls.length - 1;
+
+  const resumed = h.make();
+  h.api.post.mockRejectedValue(new PublishHttpError(503, 'unavailable'));
+  await resumed.start('1');
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  // Status-poll pacing (4 s, then 10 s, 30 s, and 60 s), not a read every 4 s (150).
+  expect(reads()).toBeGreaterThan(10);
+  expect(reads()).toBeLessThanOrEqual(40);
+
+  h.api.post.mockRejectedValue(new PublishHttpError(401, 'expired'));
+  await vi.advanceTimersByTimeAsync(60_000);
+  const signedOut = reads();
+  expect(usePublishState.getState().notes[created.opId]).toMatch(/Sign in again/);
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(reads()).toBe(signedOut);
+
+  h.api.post.mockResolvedValue({ status: 'rejected' });
+  await resumed.start('1');
+  expect(reads()).toBe(signedOut + 1);
+  expect(op()).toMatchObject({ status: 'rejected', receiptChecked: true });
   resumed.stop();
 });
 

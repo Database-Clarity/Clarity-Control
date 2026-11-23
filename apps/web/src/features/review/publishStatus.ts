@@ -11,7 +11,7 @@ export interface OpView {
   detail: string;
   /** "3 tooltips · 14:05": the line's fixed lead-in. */
   lead: string;
-  /** No publish run has picked this up for a while: offer Retry. */
+  /** A queued part has not been picked up for a while: Retry kicks it. */
   waiting: boolean;
   /** Finished: can be dismissed. */
   finished: boolean;
@@ -20,12 +20,22 @@ export interface OpView {
 /** Formats a timestamp for display: the shared formatter with the user's date settings. */
 export type When = (ms: number) => string;
 
-/** The one place statuses become words. Wording keeps "nothing went live" explicit when true. */
+/** Long final reasons (many hashes, converter messages) stay readable in one Activity line. */
+const reasonChars = 500;
+const clampReason = (text: string) =>
+  text.length <= reasonChars ? text : `${text.slice(0, reasonChars - 1).trimEnd()}…`;
+
+/**
+ * The one place statuses become words. Wording keeps "nothing went live" explicit when true.
+ * `combining`: every part has finished and the group is reading receipts or combining refusals, so
+ * nothing is queued and Retry would do nothing.
+ */
 export function describeOp(
   op: PublishOp,
   note: string | undefined,
   now: number,
   when: When,
+  combining = false,
 ): OpView {
   const count = op.hashes.length;
   const lead = `${count} tooltip${count === 1 ? '' : 's'} · ${when(op.createdAt)}`;
@@ -43,6 +53,8 @@ export function describeOp(
             : 'Sync pending. Publishing will continue automatically.'),
       };
     case 'pending': {
+      if (combining)
+        return { ...base, tone: 'busy', chip: 'Combining…', detail: note ?? 'Combining parts…' };
       const waiting = now - (op.acceptedAt ?? op.createdAt) >= publishTiming.waitingMs;
       return waiting
         ? {
@@ -73,25 +85,27 @@ export function describeOp(
         ...base,
         tone: 'warn',
         chip: 'Changed',
-        detail:
-          op.error ??
-          'Saved text changed since review. Nothing from this request went live; review and publish again.',
+        detail: op.error
+          ? clampReason(op.error)
+          : 'Saved text changed since review. Nothing from this request went live; review and publish again.',
       };
     case 'rejected':
       return {
         ...base,
         tone: 'bad',
         chip: 'Rejected',
-        detail:
-          op.error ?? 'The publisher refused this request. Nothing went live; check the tooltips.',
+        detail: op.error
+          ? clampReason(op.error)
+          : 'The publisher refused this request. Nothing went live; check the tooltips.',
       };
     case 'failed':
       return {
         ...base,
         tone: 'bad',
         chip: 'Failed',
-        detail:
-          op.error ?? 'The publish run failed. Check live status before publishing these again.',
+        detail: op.error
+          ? clampReason(op.error)
+          : 'The publish run failed. Check live status before publishing these again.',
       };
   }
 }
@@ -114,10 +128,13 @@ export function foreignWaiting(
     : undefined;
 }
 
-/** Present one confirmed action; pending always wins over partial success or failure. */
+/**
+ * Present one confirmed action; a queued part wins over one still sending, and both win over
+ * partial success or failure. `checking`: combining with every part finished (nothing to kick).
+ */
 export function groupPublishes(
   ops: readonly PublishOp[],
-): { op: PublishOp; members: PublishOp[]; combining?: boolean }[] {
+): { op: PublishOp; members: PublishOp[]; combining?: boolean; checking?: boolean }[] {
   const groups = new Map<string, PublishOp[]>();
   for (const op of ops) {
     const id = op.groupId ?? op.opId;
@@ -132,7 +149,8 @@ export function groupPublishes(
       first.groupHashCount === undefined
         ? members.length < (first.groupSize ?? members.length)
         : count !== first.groupHashCount;
-    const unfinished = members.find((op) => !isTerminal(op.status));
+    const unfinished =
+      members.find((op) => op.status === 'pending') ?? members.find((op) => !isTerminal(op.status));
     const combining =
       (unfinished?.round ?? 0) > 0 ||
       members.some(needsPublishReceipt) ||
@@ -151,18 +169,23 @@ export function groupPublishes(
     return {
       members,
       combining,
+      checking: combining && !unfinished,
       op: {
         ...first,
+        // Waiting (and Retry) is timed from the queued part, e.g. a resent combination.
+        acceptedAt: unfinished ? (unfinished.acceptedAt ?? unfinished.createdAt) : first.acceptedAt,
         hashes: members.flatMap((op) => op.hashes),
         status: missing
           ? 'failed'
-          : unfinished || combining
-            ? 'pending'
-            : failed
-              ? 'failed'
-              : members.every((op) => op.status === 'unchanged')
-                ? 'unchanged'
-                : 'done',
+          : unfinished
+            ? unfinished.status
+            : combining
+              ? 'pending'
+              : failed
+                ? 'failed'
+                : members.every((op) => op.status === 'unchanged')
+                  ? 'unchanged'
+                  : 'done',
         error: missing
           ? 'Some local publish records are unavailable. Check live status before publishing again.'
           : failed

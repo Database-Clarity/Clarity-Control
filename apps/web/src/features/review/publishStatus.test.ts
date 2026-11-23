@@ -112,6 +112,49 @@ it("PUBLISH-502: a grouped failure keeps the first failed part's own reason", ()
   );
 });
 
+it('offers Retry only for a queued part, and clamps long final reasons', () => {
+  const part = {
+    opId: 'A',
+    groupId: 'A',
+    groupHashCount: 2,
+    round: 1,
+    userId: '1',
+    createdAt: 1,
+    updatedAt: 1,
+    hashes: [1],
+    expected: {},
+    previous: {},
+    status: 'done' as const,
+  };
+  const now = 10 * publishTiming.waitingMs;
+  const describe = (members: PublishOp[]) => {
+    const group = groupPublishes(members)[0]!;
+    return describeOp(group.op, undefined, now, String, group.checking);
+  };
+  // Still sending: nothing the Worker could kick yet.
+  expect(describe([part, { ...part, opId: 'B', hashes: [2], status: 'created' }])).toMatchObject({
+    chip: 'Sending…',
+    waiting: false,
+  });
+  // Queued long ago: Retry kicks it. Accepted just now: not waiting yet.
+  const queued = { ...part, opId: 'B', hashes: [2], status: 'pending' as const, acceptedAt: 1 };
+  expect(describe([part, queued]).waiting).toBe(true);
+  expect(describe([part, { ...queued, acceptedAt: now - 1000 }]).waiting).toBe(false);
+  // Every part finished, one receipt unread: the real state, no Retry.
+  const unread = { ...part, opId: 'B', hashes: [2], status: 'rejected' as const };
+  expect(describe([part, unread])).toMatchObject({ chip: 'Combining…', waiting: false });
+
+  const reason = `Tooltips ${Array.from({ length: 400 }, (_, i) => i).join(', ')}: Missing export`;
+  const detail = describeOp(
+    { ...base, status: 'failed', error: reason },
+    undefined,
+    now,
+    String,
+  ).detail;
+  expect(detail.length).toBeLessThanOrEqual(500);
+  expect(detail.endsWith('…')).toBe(true);
+});
+
 it('never labels an incomplete local group as published', () => {
   const only = {
     opId: 'A',

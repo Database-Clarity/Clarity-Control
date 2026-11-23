@@ -40,13 +40,14 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
     <section className={styles.activity} aria-label="Publish activity">
       {storageError && <p role="alert">{storageError}</p>}
       <ul>
-        {groupPublishes(ops).map(({ op, members, combining }) => {
+        {groupPublishes(ops).map(({ op, members, combining, checking }) => {
           const note = members.map((member) => notes[member.opId]).find(Boolean);
           const view = describeOp(
             op,
             note ?? (combining ? 'Combining parts…' : undefined),
             now,
             when,
+            checking,
           );
           if (members.length > 1 && !view.finished) {
             const done = members
