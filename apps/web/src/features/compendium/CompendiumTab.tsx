@@ -91,7 +91,8 @@ function StagePicker({
 }
 
 type Undo = {
-  progress: ReviewProgress;
+  /** The entry's decision on this device before. */
+  local: ReviewProgress['decisions'][string] | undefined;
   hash: number;
   links: { base: import('@clarity/core').Tooltip; before: unknown; after: unknown }[];
   revision: string;
@@ -515,7 +516,13 @@ function Workspace({
     }, advanceMs);
   };
   const snapshot = (hash: number, links: Undo['links'] = [], shared?: Undo['shared']) =>
-    setUndo({ progress, hash, links, revision: editor.bundle.sourceCommit, shared });
+    setUndo({
+      local: progress.decisions[hash],
+      hash,
+      links,
+      revision: editor.bundle.sourceCommit,
+      shared,
+    });
   const canDecide = openForDecision && !pending;
   // A linked entry has a match: only its source can need attention.
   const canMarkNoMatch = canDecide && canShare && !selectedEntry?.next.compendium;
@@ -576,7 +583,14 @@ function Workspace({
         update: (next) => restoreLink(next, before as never, after as never)!,
       })),
     );
-    update(() => undo.progress);
+    // This entry's decision only: another tab's choices are not this tab's to undo.
+    update((state) => {
+      if (state.decisions[undo.hash] === undo.local) return state;
+      const decisions = { ...state.decisions };
+      if (undo.local) decisions[undo.hash] = undo.local;
+      else delete decisions[undo.hash];
+      return { ...state, decisions };
+    });
     if (undo.shared) useSharedSaves.getState().set([undo.hash], undo.shared.before);
     select(undo.hash);
     setUndo(undefined);

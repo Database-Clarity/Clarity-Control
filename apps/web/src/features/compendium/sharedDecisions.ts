@@ -36,52 +36,59 @@ function mainEntry(hash: number, aliases: Aliases | undefined) {
 }
 
 type Pending = ReadonlyMap<number, SharedKind | null>;
-const none: Pending = new Map();
-interface SavesState {
-  /** The account that made the pending decisions: no other one sees or writes them. */
-  owner?: User['id'];
+interface Unsaved {
   /** Not yet acknowledged, by main entry: the decision, or null for a cleared one. */
   pending: Pending;
   error: string | null;
+}
+const nothing: Unsaved = { pending: new Map(), error: null };
+interface SavesState {
+  /** Unsaved decisions by the account that made them: no other one sees or writes them. */
+  accounts: ReadonlyMap<User['id'] | undefined, Unsaved>;
   set(hashes: readonly number[], kind: SharedKind | null): void;
   retry(): void;
   /** Gives up on decisions that could not be saved. */
   discard(): void;
 }
 const account = () => useAuthStore.getState().user?.id;
+/** What the account (the signed-in one) has not saved yet. */
+export const unsaved = (owner = account()): Unsaved =>
+  useSharedSaves.getState().accounts.get(owner) ?? nothing;
 
-export const useSharedSaves = create<SavesState>((set, get) => ({
-  pending: none,
-  error: null,
+function keep(owner: User['id'] | undefined, change: Partial<Unsaved>) {
+  const accounts = new Map(useSharedSaves.getState().accounts);
+  const next = { ...unsaved(owner), ...change };
+  if (next.pending.size) accounts.set(owner, next);
+  else accounts.delete(owner);
+  useSharedSaves.setState({ accounts });
+}
+
+export const useSharedSaves = create<SavesState>(() => ({
+  accounts: new Map(),
   set(hashes, kind) {
-    const owner = account();
-    const pending = new Map(get().owner === owner ? get().pending : none);
+    const pending = new Map(unsaved().pending);
     for (const hash of hashes) pending.set(hash, kind);
-    set({ owner, pending, error: null });
+    keep(account(), { pending, error: null });
     window.addEventListener('beforeunload', keepPage);
     void drain();
   },
   retry() {
-    set({ error: null });
+    keep(account(), { error: null });
     void drain();
   },
   discard() {
-    set({ pending: none, error: null });
+    keep(account(), nothing);
   },
 }));
 
-/** This account's decisions the server has not acknowledged, and why not. */
-export function useUnsaved() {
+export function useUnsaved(): Unsaved {
   const user = useAuthStore((state) => state.user?.id);
-  const mine = useSharedSaves((state) => state.owner === user);
-  const pending = useSharedSaves((state) => state.pending);
-  const error = useSharedSaves((state) => state.error);
-  return mine ? { pending, error } : { pending: none, error: null };
+  return useSharedSaves((state) => state.accounts.get(user) ?? nothing);
 }
 
 /** Leaving the page would lose decisions the server has not acknowledged: the browser asks first. */
 function keepPage(event: BeforeUnloadEvent) {
-  if (useSharedSaves.getState().pending.size) event.preventDefault();
+  if (useSharedSaves.getState().accounts.size) event.preventDefault();
   else window.removeEventListener('beforeunload', keepPage);
 }
 
@@ -119,49 +126,51 @@ let draining = false;
 async function drain() {
   if (draining) return;
   draining = true;
-  const { owner } = useSharedSaves.getState();
-  const current = () => useSharedSaves.getState().owner === owner && signedInAs(owner);
+  const owner = account();
   try {
-    for (let attempt = 1; current() && useSharedSaves.getState().pending.size;) {
+    for (let attempt = 1; !whyNotSent(owner) && unsaved(owner).pending.size;) {
       try {
         await marksReady();
-        if (!current() || !useSharedSaves.getState().pending.size) return;
-        const { pending } = useSharedSaves.getState();
+        const { pending } = unsaved(owner);
+        if (whyNotSent(owner) || !pending.size) break;
         const { entries, change } = nextBatch(pending);
         if (change.hashes.length) await useMarksStore.getState().save(change);
-        if (!current()) return;
-        const rest = new Map(useSharedSaves.getState().pending);
+        // A response the marks store dropped (the sign-in changed) acknowledges nothing here.
+        if (whyNotSent(owner)) break;
+        const rest = new Map(unsaved(owner).pending);
         for (const hash of entries) if (rest.get(hash) === pending.get(hash)) rest.delete(hash);
-        useSharedSaves.setState({ pending: rest });
+        keep(owner, { pending: rest });
         attempt = 1;
       } catch (error) {
         // The actions are idempotent: after a lost race the marks are read and written again.
         if (attempt++ < 3) await new Promise((resolve) => setTimeout(resolve, 400));
         else {
-          if (current()) useSharedSaves.setState({ error: errorMessage(error) });
-          return;
+          keep(owner, { error: errorMessage(error) });
+          break;
         }
       }
     }
   } finally {
     draining = false;
-    const { owner: now, pending, error } = useSharedSaves.getState();
+    // Stopped part-way: on this account's return, the notice says why and offers Retry.
+    const why = whyNotSent(owner);
+    if (why && unsaved(owner).pending.size && !unsaved(owner).error) keep(owner, { error: why });
     // Another account decided something while this one's request was on its way.
-    if (now !== owner) void drain();
-    // Stopped by an account change: on this account's return, the notice offers Retry.
-    else if (pending.size && !error)
-      useSharedSaves.setState({ error: 'The sign-in changed before they were sent.' });
+    if (unsaved().pending.size && !unsaved().error) void drain();
   }
 }
 
-/** The account is signed in, and a request sent now would carry its session. */
-function signedInAs(owner: User['id'] | undefined) {
+/** Why a request must not go out for this account now; undefined when it may. */
+function whyNotSent(owner: User['id'] | undefined): string | undefined {
   const { user, token } = useAuthStore.getState();
   try {
-    return !!user && user.id === owner && token !== null && token === sessionToken();
+    // A request carries the stored session, which another tab can have replaced.
+    if (!user || user.id !== owner || token === null || token !== sessionToken())
+      return 'The sign-in changed before they were sent.';
   } catch {
-    return false;
+    return 'The sign-in changed before they were sent.';
   }
+  return mayShare(user) ? undefined : 'Changing decisions for everyone is turned off for now.';
 }
 
 /** The marks as they are now, once no other save (the entry's marks popover) is on its way. */
@@ -213,10 +222,10 @@ export function useSharedDecisions(): SharedDecisions {
 }
 
 /** Only maintainers set or clear them, while the Worker accepts it; the Worker enforces the same. */
+const mayShare = (user: User | null) =>
+  !!apiUrl && user?.role === 'maintainer' && user.compendiumDecisions === true;
 export function useCanShareDecisions(): boolean {
-  return useAuthStore(
-    ({ user }) => !!apiUrl && user?.role === 'maintainer' && user.compendiumDecisions === true,
-  );
+  return useAuthStore((state) => mayShare(state.user));
 }
 
 /** Why this account cannot change a decision that applies to everyone; undefined when it can. */

@@ -75,14 +75,22 @@ const proofs: Record<string, Proof> = {
 function proofHolds({ gid, mode, rows: approved }: Proof, source: CompendiumData) {
   const key = (name: string, evidence: string) => JSON.stringify([name, evidence]);
   const name = normaliseCompendiumName(approved[0].name);
-  const now = (source.tabs.find((tab) => tab.gid === gid)?.rows ?? [])
+  const tab = source.tabs.find((tab) => tab.gid === gid);
+  if (mode === undefined) {
+    // A re-approved card is pinned: one named row with its place, and one such body in the grid.
+    const [{ name, cellEvidence }] = approved;
+    const same = ({ cell }: { cell: CompendiumCell }) => sourceFingerprint(cell) === cellEvidence;
+    const rows = tab?.rows.filter((row) => row.name === name && same(row)) ?? [];
+    return rows.length === 1 && !!rows[0].anchor && tab?.grid?.filter(same).length === 1;
+  }
+  const now = (tab?.rows ?? [])
     .filter((row) => row.nameNorm === name)
     .map((row) => key(row.name, sourceFingerprint(row.cell)));
   const then = approved.map((row) => key(row.name, row.cellEvidence));
-  // A verified source is all of its rows; a re-approved row or armour card is the one named.
-  return mode === 'multi' || mode === 'single'
-    ? now.length === then.length && now.sort().join() === then.sort().join()
-    : now.includes(then[0]);
+  // A verified source is all of its rows; an armour card is the one named.
+  return mode === 'armor'
+    ? now.includes(then[0])
+    : now.length === then.length && now.sort().join() === then.sort().join();
 }
 
 /** The link the owner approved for this entry, as it was then. */

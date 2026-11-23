@@ -118,3 +118,37 @@ it('reads a verified source as all of its rows, repeated ones included', () => {
     });
   }
 });
+
+it('holds a re-approved card only at its named row and its one body', () => {
+  const [hash, record] = Object.entries(reviewed.reapproved)[0];
+  const entry = { hash: Number(hash), name: record.name, category: record.categoryId.slice(8) };
+  const cell = record.approvedSnapshot as CompendiumCell;
+  const evidence = record.cellEvidence;
+  const source = (anchor: boolean, bodies: number): CompendiumData => ({
+    fetchedAt: '2026-11-23T00:00:00Z',
+    tabs: [
+      {
+        gid: record.gid,
+        name: 'Weapon Perks',
+        rows: [
+          {
+            name: record.name,
+            nameNorm: normaliseCompendiumName(record.name),
+            rowIndex: 1,
+            ...(anchor ? { anchor: { row: 1, col: 0 } } : {}),
+            cell,
+          },
+        ],
+        grid: Array.from({ length: bodies }, (_, row) => ({ row, col: 2, cell })),
+      },
+    ],
+  });
+  try {
+    record.cellEvidence = sourceFingerprint(cell);
+    expect(approvedSourceChanged(entry, source(true, 1))).toBe(false);
+    expect(approvedSourceChanged(entry, source(false, 1))).toBe(true);
+    expect(approvedSourceChanged(entry, source(true, 2))).toBe(true);
+  } finally {
+    record.cellEvidence = evidence;
+  }
+});

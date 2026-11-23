@@ -18,7 +18,12 @@ import type { Marks } from '@clarity/core/marks';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useMarksStore } from '../marks/store';
-import { useSharedDecisions, useSharedSaves, type SharedDecisions } from './sharedDecisions';
+import {
+  unsaved,
+  useSharedDecisions,
+  useSharedSaves,
+  type SharedDecisions,
+} from './sharedDecisions';
 
 const revision = 'a'.repeat(40);
 const at = '2026-11-23T10:00:00Z';
@@ -37,7 +42,7 @@ const accept = (compendium: Marks['compendium']) =>
 const settled = () =>
   vi.waitFor(
     () => {
-      const { pending, error } = useSharedSaves.getState();
+      const { pending, error } = unsaved();
       if (pending.size && !error) throw new Error('still saving');
     },
     { timeout: 10_000 },
@@ -48,8 +53,11 @@ beforeEach(() => {
   api.mockReset();
   api.mockImplementation(async () => Response.json({ marks: reply(), revision }));
   session.token = 't';
-  useAuthStore.setState({ user: { id: 1, login: 'm', role: 'maintainer' }, token: 't' });
-  useSharedSaves.setState({ pending: new Map(), error: null });
+  useAuthStore.setState({
+    user: { id: 1, login: 'm', role: 'maintainer', compendiumDecisions: true },
+    token: 't',
+  });
+  useSharedSaves.setState({ accounts: new Map() });
   useDataStore.setState({ data: { aliases: {} } as never });
   useMarksStore.setState({ marks: reply(), revision, writable: true, saving: false });
 });
@@ -112,12 +120,12 @@ it('splits large sets and loses none of them when a batch fails', { timeout: 20_
   });
   useSharedSaves.getState().set(hashes, 'not-needed');
   await settled();
-  expect(useSharedSaves.getState().error).toContain('GitHub is down');
-  expect(useSharedSaves.getState().pending.size).toBe(250);
+  expect(unsaved().error).toContain('GitHub is down');
+  expect(unsaved().pending.size).toBe(250);
   expect(shown().size).toBe(250);
   useSharedSaves.getState().retry();
   await settled();
-  expect(useSharedSaves.getState().pending.size).toBe(0);
+  expect(unsaved().pending.size).toBe(0);
   const saved = changes().flatMap((change) => change.hashes as number[]);
   expect(new Set(saved)).toEqual(new Set(hashes));
   expect(Math.max(...changes().map((change) => change.hashes.length))).toBe(200);
@@ -132,7 +140,7 @@ it(
     );
     useSharedSaves.getState().set([7], 'no-match');
     await settled();
-    expect(useSharedSaves.getState().error).toBeNull();
+    expect(unsaved().error).toBeNull();
     expect(api.mock.calls.map(([path, init]) => `${init?.method ?? 'GET'} ${path}`)).toEqual([
       'PUT /marks',
       'GET /marks',
@@ -141,7 +149,7 @@ it(
     api.mockImplementation(async () => Response.json({ error: 'No' }, { status: 403 }));
     useSharedSaves.getState().set([8], 'no-match');
     await settled();
-    expect(useSharedSaves.getState().error).not.toBeNull();
+    expect(unsaved().error).not.toBeNull();
     useSharedSaves.getState().discard();
     expect(shown().has(8)).toBe(false);
   },
@@ -160,7 +168,10 @@ it(
     await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1), { timeout: 10_000 });
     const one = useAuthStore.getState().user;
     session.token = 'u';
-    useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' }, token: 'u' });
+    useAuthStore.setState({
+      user: { id: 2, login: 'other', role: 'maintainer', compendiumDecisions: true },
+      token: 'u',
+    });
     expect(shown().size).toBe(0);
     useSharedSaves.getState().retry();
     release();
@@ -173,8 +184,9 @@ it(
     useAuthStore.setState({ user: one, token: 't' });
     expect(shown().get(1)).toEqual({ kind: 'not-needed' });
     // It was never sent: the notice says so and offers Retry.
-    expect(useSharedSaves.getState().error).toContain('sign-in changed');
-    // A decision of the other account replaces them, and is written even while the first's is out.
+    expect(unsaved().error).toContain('sign-in changed');
+    // The other account's own decision is written even while the first's is out, and takes nothing
+    // from it.
     api.mockImplementationOnce(async () => {
       await new Promise<void>((done) => (release = done));
       return Response.json({ marks: reply(), revision });
@@ -183,7 +195,10 @@ it(
     useSharedSaves.getState().retry();
     await vi.waitFor(() => expect(changes()).toHaveLength(2), { timeout: 10_000 });
     session.token = 'u';
-    useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' }, token: 'u' });
+    useAuthStore.setState({
+      user: { id: 2, login: 'other', role: 'maintainer', compendiumDecisions: true },
+      token: 'u',
+    });
     useSharedSaves.getState().set([2], 'no-match');
     release();
     await settled();
@@ -205,7 +220,7 @@ it('never retries a decision undone while its request failed', { timeout: 20_000
   await settled();
   // Nothing is stored, so there is nothing to clear.
   expect(changes()).toHaveLength(1);
-  expect(useSharedSaves.getState().pending.size).toBe(0);
+  expect(unsaved().pending.size).toBe(0);
 });
 
 it(
@@ -246,7 +261,7 @@ it(
     api.mockImplementation(async () => Response.json({ marks: {}, revision }));
     useSharedSaves.getState().set([2], 'no-match');
     await settled();
-    expect(useSharedSaves.getState().error).toContain('Invalid config/marks.json');
+    expect(unsaved().error).toContain('Invalid config/marks.json');
   },
 );
 
@@ -262,7 +277,7 @@ it(
     useSharedSaves.getState().set([1], 'not-needed');
     await settled();
     expect(changes()).toHaveLength(1);
-    expect(useSharedSaves.getState().error).toContain('sign-in changed');
+    expect(unsaved().error).toContain('sign-in changed');
     useSharedSaves.getState().retry();
     await settled();
     expect(changes()).toHaveLength(1);
@@ -270,7 +285,7 @@ it(
     useSharedSaves.getState().retry();
     await settled();
     expect(changes()).toHaveLength(2);
-    expect(useSharedSaves.getState().pending.size).toBe(0);
+    expect(unsaved().pending.size).toBe(0);
   },
 );
 

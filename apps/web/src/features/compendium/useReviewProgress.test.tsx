@@ -195,29 +195,47 @@ it('flushes on hidden visibility and uses a deferred fallback without idle callb
   expect(readProgress(localStorage, 'review-navigation').selected).toBe(4);
 });
 
-it('keeps another tab’s decisions when it records its own, and drops only what it undoes', () => {
+it('keeps another tab’s decisions, shows them at once, and writes later what could not be written', () => {
   mount('two-tabs');
-  const decision = (kind: 'skipped' | 'open') => ({ kind, fingerprint: 'entry:1:1' });
-  const decide = (hash: number, kind: 'skipped' | 'open') =>
+  const decide = (hash: number, kind: 'skipped' | 'open' | undefined) =>
     act(() =>
-      state.update((progress) => ({
-        ...progress,
-        decisions: { ...progress.decisions, [hash]: decision(kind) },
-      })),
+      state.update((progress) => {
+        const decisions = { ...progress.decisions };
+        if (kind) decisions[hash] = { kind, fingerprint: 'entry:1:1' };
+        else delete decisions[hash];
+        return { ...progress, decisions };
+      }),
     );
-  decide(1, 'skipped');
-  const before = state.progress;
-  // The other tab, on an earlier version.
-  const stored = JSON.parse(values.get('two-tabs')!);
-  stored.decisions[2] = { kind: 'no-equivalent', fingerprint: '12:34' };
-  values.set('two-tabs', JSON.stringify(stored));
-  decide(3, 'skipped');
   const read = () => Object.keys(JSON.parse(values.get('two-tabs')!).decisions);
-  expect(read()).toEqual(['1', '2', '3']);
+  /** The other tab, on an earlier version: the browser tells this one, or is late to. */
+  const otherTab = (hash: number, told: boolean) => {
+    const stored = JSON.parse(values.get('two-tabs')!);
+    stored.decisions[hash] = { kind: 'no-equivalent', fingerprint: '12:34' };
+    values.set('two-tabs', JSON.stringify(stored));
+    if (told)
+      act(() => {
+        window.dispatchEvent(
+          new StorageEvent('storage', { key: 'two-tabs', newValue: values.get('two-tabs') }),
+        );
+      });
+  };
+  decide(1, 'skipped');
+  otherTab(2, true);
   expect(state.progress.decisions[2].kind).toBe('no-equivalent');
-  // Undo restores what this tab had; the other tab's choice is not its to undo.
-  act(() =>
-    state.update(() => ({ ...before, decisions: { ...state.progress.decisions, 3: undefined! } })),
-  );
-  expect(read()).toEqual(['1', '2']);
+  otherTab(4, false);
+  decide(3, 'skipped');
+  expect(read()).toEqual(['1', '2', '3', '4']);
+  // Taking back this tab's own decision leaves the other tab's.
+  decide(3, undefined);
+  expect(read()).toEqual(['1', '2', '4']);
+  // A write that failed is made up for by the next one.
+  write.mockImplementationOnce(() => {
+    throw new Error('full');
+  });
+  decide(5, 'skipped');
+  expect(state.error).toContain('only in memory');
+  otherTab(6, true);
+  decide(7, 'skipped');
+  expect(state.error).toBe('');
+  expect(read()).toEqual(['1', '2', '4', '5', '6', '7']);
 });
