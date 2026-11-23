@@ -457,7 +457,7 @@ function QueueMenu({
           const status = statusOf(queue, item, isDone);
           const here = item.key === visit.key;
           const unavailable =
-            (queue.source === 'custom' || queue.source === 'drafts') &&
+            (queue.source === 'custom' || queue.source === 'drafts' || queue.source === 'parity') &&
             context &&
             !worklistAvailable(item.hash, context.data);
           return (

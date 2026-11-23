@@ -23,7 +23,15 @@ import {
 
 /** The worklists a queue can come from. */
 export type QueueSourceId =
-  'review' | 'drift' | 'lost-text' | 'archive' | 'translations' | 'custom' | 'drafts' | 'marks';
+  | 'review'
+  | 'drift'
+  | 'lost-text'
+  | 'archive'
+  | 'translations'
+  | 'custom'
+  | 'drafts'
+  | 'parity'
+  | 'marks';
 
 export type ItemStatus = 'open' | 'done' | 'skipped';
 

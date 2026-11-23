@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { notifyCompendiumInputs } from './inputEvents';
+import { recordDecision, restoreDecision } from './rapidReview';
 import { emptyProgress, readProgress } from './reviewProgress';
 import { useReviewProgress } from './useReviewProgress';
 
@@ -193,4 +194,53 @@ it('flushes on hidden visibility and uses a deferred fallback without idle callb
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
   act(() => document.dispatchEvent(new Event('visibilitychange')));
   expect(readProgress(localStorage, 'review-navigation').selected).toBe(4);
+});
+
+it('keeps another tab’s decisions when it records or undoes its own, and makes up for a failed write', () => {
+  mount('two-tabs');
+  const decide = (hash: number) =>
+    act(() => state.update((progress) => recordDecision(progress, hash, 'entry:1:1', 'skipped')));
+  const read = () => Object.keys(JSON.parse(values.get('two-tabs')!).decisions);
+  // The other tab, on an earlier version.
+  const otherTab = (hash: number) => {
+    const stored = JSON.parse(values.get('two-tabs')!);
+    stored.decisions[hash] = { kind: 'no-equivalent', fingerprint: '12:34' };
+    values.set('two-tabs', JSON.stringify(stored));
+  };
+  decide(1);
+  otherTab(2);
+  const before = state.progress.decisions[3];
+  decide(3);
+  expect(read()).toEqual(['1', '2', '3']);
+  expect(state.progress.decisions[2].kind).toBe('no-equivalent');
+  act(() => state.update((progress) => restoreDecision(progress, 3, before)));
+  expect(read()).toEqual(['1', '2']);
+  write.mockImplementationOnce(() => {
+    throw new Error('full');
+  });
+  decide(4);
+  expect(state.error).toContain('only in memory');
+  otherTab(6);
+  decide(5);
+  expect(state.error).toBe('');
+  expect(read()).toEqual(['1', '2', '4', '5', '6']);
+  // A removal that could not be written is made up for too.
+  write.mockImplementationOnce(() => {
+    throw new Error('full');
+  });
+  act(() => state.update((progress) => restoreDecision(progress, 4, undefined)));
+  otherTab(7);
+  decide(8);
+  expect(read()).toEqual(['1', '2', '5', '6', '7', '8']);
+  // What another tab added before the failure and removed after it stays removed.
+  otherTab(9);
+  write.mockImplementationOnce(() => {
+    throw new Error('full');
+  });
+  decide(10);
+  const stored = JSON.parse(values.get('two-tabs')!);
+  delete stored.decisions[9];
+  values.set('two-tabs', JSON.stringify(stored));
+  decide(11);
+  expect(read()).toEqual(['1', '2', '5', '6', '7', '8', '10', '11']);
 });

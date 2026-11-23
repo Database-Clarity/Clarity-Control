@@ -1,9 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CompendiumPage } from './CompendiumPage';
-import { compendiumChanges } from './tracking';
+import { CompendiumViews } from './CompendiumViews';
 import { resolveAlias, type CompendiumData, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
+import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl } from '../../services/compendium';
 import { openDraftSaveReview } from '../../services/save/openReview';
@@ -20,24 +21,33 @@ import {
   useSkeletonVisible,
 } from '../../ui/Skeleton';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
-import { approvalEvidence } from './approvalEvidence';
+import { approvalEvidence, approvedLink } from './approvalEvidence';
 import { useAdvanceSetting } from './advanceSetting';
 import { candidateBlocks } from './candidateBlocks';
 import { CompendiumActionBar } from './CompendiumActionBar';
 import { CompendiumDetail } from './CompendiumDetail';
+import { EarlierChoices, SharedSaveError } from './SharedDecisionNotices';
+import {
+  useCanShareDecisions,
+  useSharedDecisions,
+  useSharedSaves,
+  useWhyNotShared,
+  type SharedKind,
+} from './sharedDecisions';
 import { LinkPicker } from './LinkPicker';
 import { PickerStage } from './PickerStage';
 import { decidedKinds, openKinds, parseShow, queueCounts, type QueueRow } from './queueRows';
 import { useCompendiumQueueStore } from './queueStore';
 import {
+  asideKinds,
   buildQueue,
   nextOpenRow,
   selectedRow,
   type CategoryInfo,
   type QueueFilters,
 } from './queueView';
-import { advanceHash, recordDecision, restoreLink } from './rapidReview';
-import { mayDraftLink, reviewEvidence } from './reviewQueue';
+import { advanceHash, recordDecision, restoreDecision, restoreLink } from './rapidReview';
+import { entryEvidence, mayDraftLink, reviewEvidence } from './reviewQueue';
 import { sourceFingerprint, reviewStorageKey, type ReviewProgress } from './reviewProgress';
 import {
   preparedDecisions,
@@ -81,10 +91,13 @@ function StagePicker({
 }
 
 type Undo = {
-  progress: ReviewProgress;
+  /** The entry's decision on this device before. */
+  local: ReviewProgress['decisions'][string] | undefined;
   hash: number;
   links: { base: import('@clarity/core').Tooltip; before: unknown; after: unknown }[];
   revision: string;
+  /** A decision that applies to everyone: what stood before it. */
+  shared?: { before: SharedKind | null };
 };
 
 /** The Compendium tab: the review queue's detail, decisions, and header counts. */
@@ -124,22 +137,17 @@ export function CompendiumTab() {
   // The linked-sources view keeps the review workspace mounted (it renders nothing there): the
   // queue beside it stays listed instead of loading forever, and Back to the queue rebuilds nothing.
   const linked = params.get('tab') === 'linked';
+  const phone = useMedia(phoneQuery);
   return (
-    <article
-      className={styles.tab}
-      aria-label={linked ? 'Linked sources changed' : 'Compendium review'}
-    >
-      {linked && (
-        <header className={styles.summary}>
-          <h1 className={styles.heading}>Linked sources changed</h1>
-          <Link to={{ search: withoutTab(params) }} className={styles.counts}>
-            ← Back to the review queue
-          </Link>
-        </header>
+    <article className={styles.tab} aria-label={linked ? 'Source changes' : 'Compendium review'}>
+      {phone && (
+        <div className={styles.views}>
+          <CompendiumViews />
+        </div>
       )}
       {error && <InlineAlert onRetry={() => void load(true)}>{plainError(error)}</InlineAlert>}
       {display.error && <InlineAlert>{plainError(display.error)}</InlineAlert>}
-      {linked && editor && data && <CompendiumPage />}
+      {linked && editor && <CompendiumPage />}
       {editor && data && (ready || early) && !showSkeleton ? (
         <Workspace
           key={storageKey}
@@ -169,17 +177,6 @@ export function CompendiumTab() {
 function hashOf(params: URLSearchParams) {
   const value = params.get('hash') ? Number(params.get('hash')) : undefined;
   return value !== undefined && Number.isSafeInteger(value) ? value : undefined;
-}
-function withTab(params: URLSearchParams) {
-  const next = new URLSearchParams(params);
-  next.set('tab', 'linked');
-  return `?${next}`;
-}
-function withoutTab(params: URLSearchParams) {
-  const next = new URLSearchParams(params);
-  next.delete('tab');
-  const search = next.toString();
-  return search ? `?${search}` : '';
 }
 
 function loadRestored(scopeKey: string) {
@@ -269,11 +266,16 @@ function Workspace({
       ),
     [editor.categories],
   );
+  const shared = useSharedDecisions();
+  const canShare = useCanShareDecisions();
+  const whyNot = useWhyNotShared();
   const modelReady = !!evidence && (!matching || !!proposalError);
   const rows = useMemo(
     () =>
-      modelReady ? preparedQueueRows(entries, prepared, proposals, scope.hashes, categories) : null,
-    [modelReady, entries, prepared, proposals, scope.hashes, categories],
+      modelReady
+        ? preparedQueueRows(entries, prepared, proposals, source, scope.hashes, shared, categories)
+        : null,
+    [modelReady, entries, prepared, proposals, source, scope.hashes, shared, categories],
   );
   const counts = useMemo(() => queueCounts(rows ?? []), [rows]);
 
@@ -285,8 +287,11 @@ function Workspace({
   const routeHash = hashOf(params);
   // The current entry ahead of the model; its actions wait for the model (they need the queue).
   const early = useMemo(
-    () => (review && !rows ? earlyEntry(review, editor, drafts, scope.hashes) : undefined),
-    [review, rows, editor, drafts, scope.hashes],
+    () =>
+      review && !rows
+        ? earlyEntry(review, editor, drafts, source, scope.hashes, shared, progress)
+        : undefined,
+    [review, rows, editor, drafts, source, scope.hashes, shared, progress],
   );
   // Without `hash`, the editor's tooltip is the current entry when it is open work; the URL
   // takes it (below), so the list highlights it once ready and nothing moves.
@@ -404,15 +409,19 @@ function Workspace({
     },
     [scopeKey],
   );
-  const decisionNow = useRef<(kind: 'open' | 'skipped' | 'no-equivalent', hash: number) => void>();
-  decisionNow.current = (kind, hash) => {
+  const reopen = useRef<(hash: number) => void>();
+  reopen.current = (hash) => {
     const entry = entryByHash.get(hash);
-    if (entry) update((state) => recordDecision(state, hash, entry.evidence, kind));
+    if (entry) update((state) => recordDecision(state, hash, entryEvidence(entry), 'open'));
   };
   const reinclude = useCallback(
     (row: QueueRow) => {
-      if (row.excluded === 'local') decisionNow.current?.('open', row.hash);
-      else restoreScope(row.hash);
+      if (row.excluded === 'rule') restoreScope(row.hash);
+      else {
+        // An earlier choice on this device must not take over what is cleared for everyone.
+        if (row.excluded) reopen.current?.(row.hash);
+        if (row.excluded !== 'local') useSharedSaves.getState().set([row.hash], null);
+      }
       setMessage(`${row.name}: back in the queue.`);
     },
     [restoreScope],
@@ -457,17 +466,19 @@ function Workspace({
   }, [hintHash, hintCategory, hintName, source]);
   const blockHints =
     selected && (selected.kind === 'candidates' || selected.kind === 'none') ? hintsFor() : noHints;
-  const blocks = useMemo(
-    () => (selected ? candidateBlocks({ decision, proposal, source, hints: blockHints }) : []),
-    [selected, decision, proposal, source, blockHints],
-  );
+  const blocks = useMemo(() => {
+    if (!selected) return [];
+    const changed =
+      selected.kind === 'changed' && selectedEntry
+        ? (selectedEntry.next.compendium ?? approvedLink(selectedEntry))
+        : undefined;
+    return candidateBlocks({ decision, proposal, source, changed, hints: blockHints });
+  }, [selected, selectedEntry, decision, proposal, source, blockHints]);
   const approved = useMemo(() => {
     if (selected?.kind !== 'changed' || !selectedEntry || !blocks[0]) return undefined;
-    return approvalEvidence(
-      selected.hash,
-      selectedEntry.name,
-      selectedEntry.category,
-      blocks[0].match,
+    return (
+      selectedEntry.next.compendium?.snapshot ??
+      approvalEvidence(selected.hash, selectedEntry.name, selectedEntry.category, blocks[0].match)
     );
   }, [selected, selectedEntry, blocks]);
   // The proposal is highlighted by default; a fuzzy candidate needs an explicit choice.
@@ -504,15 +515,31 @@ function Workspace({
       select(next?.hash);
     }, advanceMs);
   };
-  const snapshot = (hash: number, links: Undo['links'] = []) =>
-    setUndo({ progress, hash, links, revision: editor.bundle.sourceCommit });
-  const decide = (kind: 'skipped' | 'no-equivalent') => {
-    if (!selected || !selectedEntry || !openForDecision || pending) return;
-    snapshot(selected.hash);
-    update((state) => recordDecision(state, selected.hash, selectedEntry.evidence, kind));
-    setMessage(
-      `${selected.name}: ${kind === 'skipped' ? 'skipped' : 'marked not needed'} on this device.`,
-    );
+  const snapshot = (hash: number, links: Undo['links'] = [], shared?: Undo['shared']) =>
+    setUndo({
+      local: progress.decisions[hash],
+      hash,
+      links,
+      revision: editor.bundle.sourceCommit,
+      shared,
+    });
+  const canDecide = openForDecision && !pending;
+  // A linked entry has a match: only its source can need attention.
+  const canMarkNoMatch = canDecide && canShare && !selectedEntry?.next.compendium;
+  const decide = (kind: 'skipped' | SharedKind) => {
+    if (!selected || !selectedEntry || !canDecide) return;
+    if (kind === 'skipped') {
+      snapshot(selected.hash);
+      update((state) => recordDecision(state, selected.hash, entryEvidence(selectedEntry), kind));
+      setMessage(`${selected.name}: skipped on this device.`);
+    } else {
+      if (kind === 'no-match' ? !canMarkNoMatch : !canShare) return;
+      snapshot(selected.hash, [], { before: shared.get(selected.hash)?.kind ?? null });
+      useSharedSaves.getState().set([selected.hash], kind);
+      setMessage(
+        `${selected.name}: ${kind === 'no-match' ? 'no match yet' : 'not needed'}, for everyone.`,
+      );
+    }
     advanceFrom(selected);
   };
   const canConfirm =
@@ -526,12 +553,14 @@ function Workspace({
     useDraftStore
       .getState()
       .updateDraft(selectedEntry.base, (next) => ({ ...next, compendium: link }));
-    update((state) => recordDecision(state, selected.hash, selectedEntry.evidence, 'open'));
+    update((state) => recordDecision(state, selected.hash, entryEvidence(selectedEntry), 'open'));
     setMessage(`${selected.name}: link drafted, not saved.`);
     advanceFrom(selected);
   };
+  const canUndo =
+    !!undo && !locked && !(undo.links.length > 0 && !canEdit) && !(undo.shared && !canShare);
   const undoLast = () => {
-    if (!undo || locked || (undo.links.length > 0 && !canEdit)) return;
+    if (!undo || !canUndo) return;
     if (
       undo.revision !== editor.bundle.sourceCommit ||
       undo.links.some(
@@ -554,7 +583,8 @@ function Workspace({
         update: (next) => restoreLink(next, before as never, after as never)!,
       })),
     );
-    update(() => undo.progress);
+    update((state) => restoreDecision(state, undo.hash, undo.local));
+    if (undo.shared) useSharedSaves.getState().set([undo.hash], undo.shared.before);
     select(undo.hash);
     setUndo(undefined);
     setMessage('Last decision undone.');
@@ -624,7 +654,7 @@ function Workspace({
         if (lower === 'u') {
           event.preventDefault();
           handlers.current.undoLast();
-        } else if (['a', 'n', 's', 'p'].includes(lower) || (key >= '1' && key <= '9')) {
+        } else if (['a', 'n', 'm', 's', 'p'].includes(lower) || (key >= '1' && key <= '9')) {
           event.preventDefault();
         }
         return;
@@ -647,7 +677,10 @@ function Workspace({
         setPicker(true);
       } else if (lower === 'n') {
         event.preventDefault();
-        handlers.current.decide('no-equivalent');
+        handlers.current.decide('not-needed');
+      } else if (lower === 'm') {
+        event.preventDefault();
+        handlers.current.decide('no-match');
       } else if (lower === 's') {
         event.preventDefault();
         handlers.current.decide('skipped');
@@ -679,7 +712,7 @@ function Workspace({
   };
   const linkedNow = () => {
     if (!selected || !selectedEntry) return;
-    update((state) => recordDecision(state, selected.hash, selectedEntry.evidence, 'open'));
+    update((state) => recordDecision(state, selected.hash, entryEvidence(selectedEntry), 'open'));
     setPicker(false);
     setMessage(`${selected.name}: link drafted, not saved.`);
     advanceFrom(selected);
@@ -726,9 +759,9 @@ function Workspace({
 
   // ---- render ----
   const draftCount = Object.keys(drafts).length;
-  const linkedChanges = useMemo(
-    () => compendiumChanges(editor.bundle.tooltips, source).length,
-    [editor.bundle.tooltips, source],
+  const earlier = useMemo(
+    () => (canShare ? (rows ?? []).filter((row) => row.excluded === 'local') : []),
+    [canShare, rows],
   );
   if (linked) return null;
   const linkTo = (show: string) => {
@@ -739,6 +772,8 @@ function Workspace({
   };
   const filtered = filters.show !== 'open' || !!filters.query || !!filters.group;
   const empty = rows !== null && !selected;
+  const mark = selected && shared.get(selected.hash);
+  const accounts = editor.bundle.permissions.users;
   const readOnlyReason = canEdit ? undefined : 'Viewing only: sign in as an editor to link.';
   const categoryOf = (id: string) => categories.get(id)?.label ?? `Other: ${id}`;
   const fromEditor = model.items.some(
@@ -760,7 +795,13 @@ function Workspace({
               {number.format(counts.matched)} matched automatically
             </Link>
             {'\u00a0· '}
-            <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
+            <Link to={linkTo('not-needed')}>{number.format(counts.notNeeded)} not needed</Link>
+            {counts.noMatch > 0 && (
+              <>
+                {'\u00a0· '}
+                <Link to={linkTo('no-match')}>{number.format(counts.noMatch)} no match yet</Link>
+              </>
+            )}
           </p>
         ) : (
           // Counts need the whole queue: a placeholder, never zeros.
@@ -779,14 +820,6 @@ function Workspace({
             </SkeletonRegion>
           </div>
         )}
-        <Link
-          className={styles.linked}
-          to={{ search: withTab(params) }}
-          aria-label={`Linked sources changed (${linkedChanges})`}
-        >
-          <span className={styles.long}>Linked sources changed</span>
-          <span className={styles.short}>Linked</span> ({linkedChanges})
-        </Link>
         <button
           type="button"
           className={styles.save}
@@ -799,6 +832,8 @@ function Workspace({
       {(progressError || scope.error) && (
         <InlineAlert>{plainError(progressError || scope.error)}</InlineAlert>
       )}
+      <SharedSaveError />
+      <EarlierChoices rows={earlier} />
       {/* Sign-in, not the queue, decides it: shown with the early entry too, so it never pushes it
           down; never before drafts hydrate (an editor would see it flash). */}
       {readOnlyReason && hydrated && (rows !== null || !!selected) && (
@@ -823,9 +858,22 @@ function Workspace({
           onHighlight={setHighlight}
           source={source}
           approved={approved}
-          stale={selectedEntry?.stale}
+          change={
+            selected.kind !== 'changed'
+              ? undefined
+              : selectedEntry?.next.compendium
+                ? 'link'
+                : 'approval'
+          }
           outsideFilter={fromEditor}
-          onReinclude={rows && selected.kind === 'not-needed' ? onReinclude : undefined}
+          markedBy={
+            mark?.by === undefined
+              ? undefined
+              : (accounts[mark.by]?.login ?? `GitHub user ${mark.by}`)
+          }
+          markedAt={mark?.at}
+          whyNot={whyNot}
+          onReinclude={rows && asideKinds.includes(selected.kind) ? onReinclude : undefined}
           onStep={onStep}
           stepDisabled={!rows}
         />
@@ -838,7 +886,9 @@ function Workspace({
           ) : (
             <p>
               Nothing left to review · {number.format(counts.matched)} matched ·{' '}
-              {number.format(counts.notNeeded)} not needed · <Link to="/">Open the Editor</Link>
+              {number.format(counts.notNeeded)} not needed ·{' '}
+              {counts.noMatch > 0 && `${number.format(counts.noMatch)} no match yet · `}
+              <Link to="/">Open the Editor</Link>
             </p>
           )}
         </section>
@@ -847,8 +897,18 @@ function Workspace({
         <CompendiumActionBar
           canConfirm={canConfirm}
           canPick={canEdit && !!rows && !!selected && selected.kind !== 'not-needed' && !pending}
-          canDecide={!!selected && openForDecision && !pending}
-          canUndo={!!undo && !locked && !(undo.links.length > 0 && !canEdit)}
+          canDecide={canDecide}
+          canMarkNotNeeded={canDecide && canShare}
+          canMarkNoMatch={canMarkNoMatch}
+          canUndo={canUndo}
+          canShare={canShare}
+          sharedReason={
+            !canEdit || canShare
+              ? undefined
+              : user?.role === 'maintainer'
+                ? 'Not needed and No match yet are turned off for now.'
+                : 'Only maintainers set Not needed and No match yet.'
+          }
           readOnlyReason={readOnlyReason}
           message={message}
           advancing={
@@ -860,7 +920,8 @@ function Workspace({
           }
           onConfirm={confirm}
           onPick={() => setPicker(true)}
-          onNone={() => decide('no-equivalent')}
+          onNotNeeded={() => decide('not-needed')}
+          onNoMatch={() => decide('no-match')}
           onSkip={() => decide('skipped')}
           onUndo={undoLast}
         />

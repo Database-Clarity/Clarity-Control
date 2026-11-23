@@ -1,6 +1,16 @@
-import { compendiumCellSchema, type CompendiumCell, type CompendiumMatch } from '@clarity/core';
+import {
+  compendiumCellSchema,
+  normaliseCompendiumName,
+  resolveCompendiumLink,
+  type CompendiumCell,
+  type CompendiumData,
+  type CompendiumLink,
+  type CompendiumMatch,
+} from '@clarity/core';
 import reviewed from './owner-reviewed.json';
 import shipped from './approved-guidance.v1.json';
+import { sourceFingerprint } from './reviewProgress';
+import { sourceNeedsUpdate } from './tracking';
 
 type Approval = { name: string; categoryId: string; gid: string; approvedSnapshot?: unknown };
 const approvals: Record<string, Approval> = { ...reviewed.verified, ...reviewed.reapproved };
@@ -44,6 +54,76 @@ export function approvalEvidence(
   return approvalCell(reference.link.snapshot);
 }
 
+interface Proof {
+  gid: string;
+  name: string;
+  categoryId: string;
+  mode?: string;
+  rows: { name: string; cellEvidence: string }[];
+}
+const proofs: Record<string, Proof> = {
+  ...reviewed.verified,
+  ...Object.fromEntries(
+    Object.entries(reviewed.reapproved).map(([hash, record]) => [
+      hash,
+      { ...record, rows: [record] },
+    ]),
+  ),
+};
+
+/** Whether the approved rows are still the source, as reviewedOwnerDecision reads them. */
+function proofHolds({ gid, mode, rows: approved }: Proof, source: CompendiumData) {
+  const key = (name: string, evidence: string) => JSON.stringify([name, evidence]);
+  const name = normaliseCompendiumName(approved[0].name);
+  const now = (source.tabs.find((tab) => tab.gid === gid)?.rows ?? [])
+    .filter((row) => row.nameNorm === name)
+    .map((row) => key(row.name, sourceFingerprint(row.cell)));
+  const then = approved.map((row) => key(row.name, row.cellEvidence));
+  // A verified source is all of its rows; a re-approved row or armour card is the one named.
+  return mode === 'multi' || mode === 'single'
+    ? now.length === then.length && now.sort().join() === then.sort().join()
+    : now.includes(then[0]);
+}
+
+/** The link the owner approved for this entry, as it was then. */
+export function approvedLink({
+  hash,
+  name,
+  category,
+}: {
+  hash: number;
+  name: string;
+  category: string;
+}): CompendiumLink | undefined {
+  const reference = shippedReference(hash, category);
+  return reference?.name === name ? reference.link : undefined;
+}
+
+const changedIn = new WeakMap<CompendiumData, Map<string, boolean>>();
+/** Whether the owner approved a link for this entry whose source cells are no longer the same. */
+export function approvedSourceChanged(
+  entry: { hash: number; name: string; category: string },
+  source: CompendiumData,
+): boolean {
+  let answers = changedIn.get(source);
+  if (!answers) changedIn.set(source, (answers = new Map()));
+  const key = `${entry.hash}|${entry.category}|${entry.name}`;
+  let answer = answers.get(key);
+  if (answer === undefined) answers.set(key, (answer = sourceChanged(entry, source)));
+  return answer;
+}
+
+function sourceChanged(
+  entry: { hash: number; name: string; category: string },
+  source: CompendiumData,
+): boolean {
+  const proof = proofs[entry.hash];
+  if (proof?.name === entry.name && proof.categoryId === `catalog:${entry.category}`)
+    return !proofHolds(proof, source);
+  const link = approvedLink(entry);
+  return !!link && sourceNeedsUpdate(resolveCompendiumLink(link, source));
+}
+
 function shippedReference(hash: number, categoryId: string) {
   const category = shipped.categories[`catalog:${categoryId}` as keyof typeof shipped.categories];
   return (
@@ -52,7 +132,7 @@ function shippedReference(hash: number, categoryId: string) {
           string,
           {
             name: string;
-            link?: { gid: string; rowKey: string; snapshot: unknown; setBonusPieces?: number };
+            link?: CompendiumLink;
           }
         >
       | undefined

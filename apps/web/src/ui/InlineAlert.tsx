@@ -11,22 +11,33 @@ export function InlineAlert({
   onRetry,
   retryLabel = 'Retry',
   retryDisabled = false,
+  action,
   className,
 }: {
   children: ReactNode;
   onRetry?(): void;
   retryLabel?: string;
   retryDisabled?: boolean;
+  /** A second way out, beside Retry. */
+  action?: ReactNode;
   className?: string;
 }) {
+  const retry = onRetry && (
+    // data-retry: a host can move focus here after a failed load.
+    <button type="button" data-retry="" disabled={retryDisabled} onClick={onRetry}>
+      {retryLabel}
+    </button>
+  );
   return (
     <div role="alert" className={className ? `${styles.alert} ${className}` : styles.alert}>
       <span className={styles.message}>{children}</span>
-      {onRetry && (
-        // data-retry: a host can move focus here after a failed load.
-        <button type="button" data-retry="" disabled={retryDisabled} onClick={onRetry}>
-          {retryLabel}
-        </button>
+      {action ? (
+        <span className={styles.actions}>
+          {retry}
+          {action}
+        </span>
+      ) : (
+        retry
       )}
     </div>
   );

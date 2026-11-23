@@ -20,6 +20,7 @@ import {
   type CompendiumCell,
 } from '@clarity/core';
 import { approvalEvidence, mayHaveApprovalEvidence } from './approvalEvidence';
+import { useSharedDecisions } from './sharedDecisions';
 import { usePreparedPaneDiff } from './usePreparedPaneDiff';
 import { CompendiumPaneSkeleton, rememberPaneSkeleton } from './CompendiumPaneSkeleton';
 import { initializeCompendiumDiffWorker, prepareCompendiumDiff } from './compendiumDiffCache';
@@ -351,7 +352,9 @@ export function CompendiumPanel({
   const navigating = displayed !== base;
   // Entries the shipped decisions rule out need no Compendium row: the pane then offers the tab, not a review.
   const decisionAction = preparedDecisions(reviewPrepared).get(displayed.hash)?.action;
-  const excluded = decisionAction === 'out-of-scope' || decisionAction === 'no-equivalent';
+  const shared = useSharedDecisions().has(displayed.hash);
+  const excluded =
+    shared || decisionAction === 'out-of-scope' || decisionAction === 'no-equivalent';
   const matched =
     navigating && previousMatch.current.base === displayed
       ? previousMatch.current.value

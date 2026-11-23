@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { useCompendiumStore } from '../compendium/store';
 import { useLostDecisions } from '../lost-text/decisions';
 import { visitOf, type QueueItem, type QueueVisit, type WorkQueue } from './model';
 import { queueSources, type SourceContext } from './sources';
@@ -14,7 +15,11 @@ export function useSourceContext(): SourceContext | null {
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const decisions = useLostDecisions(user);
-  return useMemo(() => (data ? { data, user, decisions } : null), [data, user, decisions]);
+  const compendium = useCompendiumStore((state) => state.data);
+  return useMemo(
+    () => (data ? { data, user, decisions, compendium } : null),
+    [data, user, decisions, compendium],
+  );
 }
 
 /**

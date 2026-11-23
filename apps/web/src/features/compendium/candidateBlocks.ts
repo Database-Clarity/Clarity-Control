@@ -45,6 +45,8 @@ export interface BlockInput {
   decision?: Pick<GuidedDecision, 'action' | 'confidence' | 'link' | 'ruleId' | 'reason'>;
   proposal?: ReviewProposal;
   source: CompendiumData;
+  /** A changed entry's own or approved link: its source as it is now comes first. */
+  changed?: CompendiumLink;
   hints: readonly CompendiumSuggestion[];
 }
 
@@ -53,11 +55,22 @@ export interface BlockInput {
  * hints. A medium decision's own link beats the live resolver's, since the shipped approval is
  * what the owner reviewed.
  */
-export function candidateBlocks({ decision, proposal, source, hints }: BlockInput): CandidateBlock[] {
+export function candidateBlocks({
+  decision,
+  proposal,
+  source,
+  changed,
+  hints,
+}: BlockInput): CandidateBlock[] {
   const blocks: CandidateBlock[] = [];
-  const link =
-    (decision?.action === 'link' ? decision.link : undefined) ?? proposal?.link ?? undefined;
   let proposed: CompendiumMatch | undefined;
+  if (changed) {
+    const resolved = resolveCompendiumLink(changed, source);
+    if ('row' in resolved) proposed = resolved;
+  }
+  const link = proposed
+    ? undefined
+    : ((decision?.action === 'link' ? decision.link : undefined) ?? proposal?.link);
   if (link) {
     const resolved = resolveCompendiumLink(link, source);
     if (['ok', 'changed', 'moved'].includes(resolved.status) && 'row' in resolved)

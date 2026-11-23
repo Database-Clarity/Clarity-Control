@@ -3,10 +3,16 @@ import { useAuthStore } from '../../stores/auth';
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../services/apiAuth', () => ({ apiRequest: api }));
 import { afterEach, expect, it, vi } from 'vitest';
-import type { Tooltip } from '@clarity/core';
+import type { CompendiumData, Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { setEditorDraftFetch } from '../../services/editorDrafts';
-import { draftGroups, draftItems, savedItems, worklistAvailable } from './savedSources';
+import {
+  draftGroups,
+  draftItems,
+  parityItems,
+  savedItems,
+  worklistAvailable,
+} from './savedSources';
 import { queueSources } from './sources';
 import { startQueue } from './start';
 import { useWorkQueues, resetWorkQueues } from './store';
@@ -46,6 +52,74 @@ it('takes Drafts membership from the loader index and only saved English complet
   expect(test(items[0]!, { 11: { next: current.bundle.tooltips[12]! } } as never)).toBe(false);
   current.bundle.tooltips[11] = { ...current.bundle.tooltips[12]!, hash: 11 };
   expect(test(items[0]!, {})).toBe(true);
+});
+it('lists changed and unresolved links for Compendium parity until the saved link is current', async () => {
+  const cell = (plain: string) => ({ plain, runs: [{ text: plain }] });
+  const row = (name: string, plain: string, rowIndex: number) => ({
+    name,
+    nameNorm: name.toLowerCase(),
+    rowIndex,
+    cell: cell(plain),
+  });
+  const source = {
+    fetchedAt: '2026-11-23T00:00:00Z',
+    tabs: [
+      {
+        gid: '1',
+        name: 'Weapon Perks',
+        rows: [
+          row('Alpha', 'New text', 1),
+          row('Beta', 'Same', 2),
+          row('Renamed', 'Moved text', 3),
+        ],
+      },
+    ],
+  } as CompendiumData;
+  const linked = (hash: number, rowKey: string, plain: string): Tooltip => ({
+    hash,
+    text: {},
+    associated: [],
+    compendium: { gid: '1', rowKey, snapshot: cell(plain), snapshotAt: '2026-10-01T00:00:00Z' },
+  });
+  const current = data();
+  for (const hash of [13, 14, 15])
+    current.items[hash] = { ...current.items[11]!, hash, name: `Entry ${hash}` };
+  current.bundle.tooltips = {
+    11: linked(11, 'Alpha', 'Old text'),
+    12: linked(12, 'Beta', 'Same'),
+    13: linked(13, 'Gone', 'Nothing alike remains here'),
+    // Moved with the same text: nothing to update.
+    14: linked(14, 'Old name', 'Moved text'),
+    // No entry any more.
+    99: linked(99, 'Alpha', 'Old text'),
+  };
+  const items = parityItems(current, source);
+  expect(items.map((item) => item.hash)).toEqual([11, 13]);
+  const done = (tooltips: Record<string, Tooltip>, compendium: CompendiumData | null = source) => {
+    const test = queueSources.parity.done({
+      data: { ...current, bundle: { ...current.bundle, tooltips } },
+      user: null,
+      decisions: {},
+      compendium,
+    });
+    return items.map((item) => test(item, {}));
+  };
+  expect(done(current.bundle.tooltips)).toEqual([false, false]);
+  // Unknown until the sheet is loaded.
+  expect(done(current.bundle.tooltips, null)).toEqual([false, false]);
+  expect(
+    done({
+      ...current.bundle.tooltips,
+      11: linked(11, 'Alpha', 'New text'),
+      13: { hash: 13, text: {}, associated: [] },
+    }),
+  ).toEqual([true, true]);
+  const queue = { origin: { path: '/', restore: {} } } as never;
+  const context = { data: current, user: null, decisions: {} };
+  expect(
+    (await queueSources.parity.rebuild(queue, { ...context, compendium: source }, {})).length,
+  ).toBe(2);
+  await expect(queueSources.parity.rebuild(queue, context, {})).rejects.toThrow('not loaded');
 });
 it('reuses the queue, freezes membership, preserves the save baseline, and rebuilds explicitly', async () => {
   const current = data();

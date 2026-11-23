@@ -1,13 +1,15 @@
-import { resolveCompendiumLink, type CompendiumData } from '@clarity/core';
+import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import type { displayMatches } from './displayMatches';
-import { applyReviewProgress, type reviewEvidence } from './reviewQueue';
+import { applyReviewProgress, decisionHolds, linkState, type reviewEvidence } from './reviewQueue';
 import type { ReviewProgress } from './reviewProgress';
 import type { ReviewProposal } from './rapidReview';
 import { deriveQueueRow, deriveQueueRows, type QueueRow } from './queueRows';
 import type { PriorityReview } from './matchingSessionPlanning';
 import { sortRows, type CategoryInfo } from './queueView';
+import { approvedSourceChanged } from './approvalEvidence';
+import type { SharedDecisions } from './sharedDecisions';
 
 type Prepared = ReturnType<typeof displayMatches>;
 type Evidence = ReturnType<typeof reviewEvidence>;
@@ -54,12 +56,11 @@ export function preparedEvidence(
       return base === entry.base && next === entry.next ? entry : { ...entry, base, next };
     // A local link change affects just this row. Keep the factual queue responsive
     // while the worker revalidates automatic matches; never reuse its old link status.
-    const resolved = next.compendium && resolveCompendiumLink(next.compendium, source);
     return {
       ...entry,
       base,
       next,
-      valid: !!resolved && ['ok', 'changed', 'moved'].includes(resolved.status),
+      ...linkState(next.compendium, source),
       changed: JSON.stringify(base.compendium) !== JSON.stringify(next.compendium),
     };
   });
@@ -176,22 +177,30 @@ export function earlyEntry(
   review: PriorityReview,
   editor: EditorData,
   drafts: Drafts,
+  source: CompendiumData,
   restored: ReadonlySet<number>,
+  shared: SharedDecisions,
+  progress: ReviewProgress,
 ) {
   if (!review.entry) return undefined;
   const { hash, decision } = review;
   const base = editor.bundle.tooltips[hash] ?? review.entry.base;
   const entry = { ...review.entry, base, next: drafts[hash]?.next ?? base };
+  // The matcher's copy is open; this device's decision is the row's.
+  const local = progress.decisions[hash];
+  if (entry.status === 'open' && local && decisionHolds(local.fingerprint, entry))
+    entry.status = local.kind;
   const match = review.matches.get(hash);
   const proposal: ReviewProposal | undefined = match
     ? { match, link: decision?.link, candidates: review.proposal?.candidates ?? [] }
     : review.proposal;
-  const row = deriveQueueRow(
-    entry,
-    new Map(decision ? [[hash, decision]] : []),
-    new Map(proposal ? [[hash, proposal]] : []),
+  const row = deriveQueueRow(entry, {
+    decisions: new Map(decision ? [[hash, decision]] : []),
+    proposals: new Map(proposal ? [[hash, proposal]] : []),
     restored,
-  );
+    shared,
+    approvedChanged: (entry) => approvedSourceChanged(entry, source),
+  });
   return row && { row, entry, decision, proposal };
 }
 
@@ -200,7 +209,9 @@ const rowCache = new WeakMap<
   {
     prepared: Prepared | undefined;
     proposals: Map<number, ReviewProposal>;
+    source: CompendiumData;
     restored: ReadonlySet<number>;
+    shared: SharedDecisions;
     categories: ReadonlyMap<string, CategoryInfo>;
     rows: QueueRow[];
   }
@@ -217,14 +228,17 @@ export function preparedDecisions(prepared: Prepared | undefined) {
 }
 
 /**
- * Queue rows for the Compendium tab, built once per (entries, display, proposals, scope). Selection,
+ * Queue rows for the Compendium tab, built once per (entries, display, proposals, scope, shared
+ * decisions). Selection,
  * filters, and search narrow this array; they never rebuild it.
  */
 export function preparedQueueRows(
   entries: ReturnType<typeof applyReviewProgress>,
   prepared: Prepared | undefined,
   proposals: Map<number, ReviewProposal>,
+  source: CompendiumData,
   restored: ReadonlySet<number>,
+  shared: SharedDecisions,
   categories: ReadonlyMap<string, CategoryInfo>,
 ): QueueRow[] {
   const previous = rowCache.get(entries);
@@ -232,14 +246,23 @@ export function preparedQueueRows(
     previous &&
     previous.prepared === prepared &&
     previous.proposals === proposals &&
+    previous.source === source &&
     previous.restored === restored &&
+    previous.shared === shared &&
     previous.categories === categories
   )
     return previous.rows;
   const rows = sortRows(
-    deriveQueueRows({ entries, decisions: preparedDecisions(prepared), proposals, restored }),
+    deriveQueueRows({
+      entries,
+      decisions: preparedDecisions(prepared),
+      proposals,
+      restored,
+      shared,
+      approvedChanged: (entry) => approvedSourceChanged(entry, source),
+    }),
     categories,
   );
-  rowCache.set(entries, { prepared, proposals, restored, categories, rows });
+  rowCache.set(entries, { prepared, proposals, source, restored, shared, categories, rows });
   return rows;
 }

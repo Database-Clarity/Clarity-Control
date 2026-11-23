@@ -64,6 +64,7 @@ import { PreviewColumn, type EnhancedView } from '../preview';
 import { effectiveMode, previewedHashes, type PreviewMode } from '../preview/previewMode';
 import { useAcknowledgePreview } from '../navigation/useAcknowledgePreview';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { compendiumVisit } from '../queue/compendiumVisit';
 import { HistoryPanel } from '../history/HistoryPanel';
 import { useSaveState } from '../../services/save/state';
 import { AssociationsPanel } from '../associations/AssociationsPanel';
@@ -142,7 +143,9 @@ export function TooltipPage(props: Parameters<typeof TooltipPageContent>[0]) {
     props.hashOverride === undefined &&
     data &&
     work?.mode === 'active' &&
-    (work.queue.source === 'custom' || work.queue.source === 'drafts') &&
+    (work.queue.source === 'custom' ||
+      work.queue.source === 'drafts' ||
+      work.queue.source === 'parity') &&
     !worklistAvailable(entry, data)
   ) {
     const id = (work.queue.origin.restore as { worklistId?: string }).worklistId;
@@ -965,6 +968,7 @@ function TooltipWorkspace({
       <VariantWorkspace
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
+        visit={compendiumVisit(routeState, work, phone)}
         source={
           lang === 'en' || (batchEditing && !batchAllowed) ? undefined : batchEditing ? (
             upcoming.overlay?.[activeHash] ? (

@@ -2,12 +2,20 @@ export { reviewStamp } from './model';
 import {
   draftGroups,
   draftItems,
+  parityItems,
+  parityOpen,
   savedItems,
   worklistAvailable,
   worklistStamp,
 } from './savedSources';
 import { loadWorklist } from './worklists';
-import { bungieDrift, translationStateOf, type Lang, type Tooltip } from '@clarity/core';
+import {
+  bungieDrift,
+  translationStateOf,
+  type CompendiumData,
+  type Lang,
+  type Tooltip,
+} from '@clarity/core';
 import type { User } from '../../services/api';
 import type { Drafts } from '../../services/draftStorage';
 import type { EditorData } from '../../stores/data';
@@ -22,6 +30,8 @@ export interface SourceContext {
   user: User | null | undefined;
   /** Lost text's local dismissals for this account. */
   decisions: Record<string, string>;
+  /** The loaded Compendium sheet; null until it arrives. */
+  compendium?: CompendiumData | null;
 }
 
 export interface QueueSource {
@@ -293,9 +303,32 @@ export const draftsSource: QueueSource = {
   },
 };
 
+// ---- Compendium parity: done once the saved link is as its source again (an English save or a
+// review renewed its snapshot), or the entry has no link any more. ----
+
+const parity: QueueSource = {
+  label: 'Compendium parity',
+  path: customSource.path,
+  done({ data, compendium }) {
+    const answers = new Map<number, boolean>();
+    return (item) => {
+      if (!compendium) return false;
+      let answer = answers.get(item.hash);
+      if (answer === undefined)
+        answers.set(item.hash, (answer = !parityOpen(item.hash, data, compendium)));
+      return answer;
+    };
+  },
+  async rebuild(_queue, { data, compendium }) {
+    if (!compendium) throw new Error('The Compendium is not loaded yet.');
+    return parityItems(data, compendium);
+  },
+};
+
 export const queueSources: Record<QueueSourceId, QueueSource> = {
   custom: customSource,
   drafts: draftsSource,
+  parity,
   marks: marksQueue,
   review,
   drift,

@@ -1,4 +1,4 @@
-import { resolveAlias } from '@clarity/core';
+import { resolveAlias, resolveCompendiumLink, type CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { editorDraftIndex } from '../../services/editorDrafts';
 import {
@@ -9,6 +9,7 @@ import {
   itemFor,
   navigationGroups,
 } from '../navigation/catalog';
+import { compendiumChanges, sourceNeedsUpdate } from '../compendium/tracking';
 import { editorPath } from './editorPath';
 import type { QueueItem } from './model';
 import { reviewStamp } from './model';
@@ -66,6 +67,31 @@ export async function draftItems(data: EditorData): Promise<QueueItem[]> {
       })),
     data,
   );
+}
+
+/** Whether the entry's saved link asks for an update of its tooltip, or a relink. */
+export function parityOpen(hash: number, data: EditorData, source: CompendiumData): boolean {
+  const link = data.bundle.tooltips[hash]?.compendium;
+  return (
+    !!link &&
+    worklistAvailable(hash, data) &&
+    sourceNeedsUpdate(resolveCompendiumLink(link, source))
+  );
+}
+/**
+ * The built-in Compendium parity worklist, in finder category order: every saved link whose source
+ * text changed since the last English save or review, or that needs relinking.
+ */
+export function parityItems(data: EditorData, source: CompendiumData): QueueItem[] {
+  const changed = compendiumChanges(data.bundle.tooltips, source).filter(
+    ({ tooltip, resolution }) =>
+      sourceNeedsUpdate(resolution) && worklistAvailable(tooltip.hash, data),
+  );
+  const items = savedItems(
+    changed.map(({ tooltip: { hash } }) => ({ hash, name: editorName(itemFor(hash, data)!) })),
+    data,
+  );
+  return draftGroups(items, data).flatMap((group) => group.items);
 }
 
 /** A built-in Drafts worklist: the drafts of one finder category. */

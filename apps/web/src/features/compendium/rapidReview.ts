@@ -59,6 +59,18 @@ export function recordDecision(
     decisions: { ...progress.decisions, [hash]: { kind, fingerprint: evidence } },
   };
 }
+/** Undo on this device: the entry's earlier decision back, every other one as it is now. */
+export function restoreDecision(
+  progress: ReviewProgress,
+  hash: number,
+  before: ReviewProgress['decisions'][string] | undefined,
+): ReviewProgress {
+  if (progress.decisions[hash] === before) return progress;
+  const decisions = { ...progress.decisions };
+  if (before) decisions[hash] = before;
+  else delete decisions[hash];
+  return { ...progress, decisions };
+}
 export function shortcutAction(
   event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>,
   editing: boolean,

@@ -4,8 +4,10 @@ import type { GuidedDecision } from './guidedDecisions';
 import type { ReviewProposal } from './rapidReview';
 import type { ReviewEntry } from './reviewCategories';
 import { decodePrecomputed } from './precomputedCodec';
+import type { SharedKind } from './sharedDecisions';
 import { applyReviewProgress } from './reviewQueue';
 import { emptyProgress } from './reviewProgress';
+import { buildQueue } from './queueView';
 import {
   deriveQueueRow,
   deriveQueueRows,
@@ -21,6 +23,7 @@ const entry = (hash: number, patch: Partial<ReviewEntry> = {}) =>
     name: `Entry ${hash}`,
     category: 'weapon-perk',
     status: 'open',
+    reason: 'Unlinked',
     stale: false,
     ...patch,
   }) as ReviewEntry;
@@ -41,13 +44,16 @@ function kindOf(
   d?: ReturnType<typeof decision>,
   p?: ReviewProposal,
   restored: number[] = [],
+  shared?: SharedKind,
+  approvedChanged = false,
 ): QueueKind | undefined {
-  return deriveQueueRow(
-    e,
-    new Map(d ? [[e.hash, d]] : []),
-    new Map(p ? [[e.hash, p]] : []),
-    new Set(restored),
-  )?.kind;
+  return deriveQueueRow(e, {
+    decisions: new Map(d ? [[e.hash, d]] : []),
+    proposals: new Map(p ? [[e.hash, p]] : []),
+    restored: new Set(restored),
+    shared: new Map(shared ? [[e.hash, { kind: shared }]] : []),
+    approvedChanged: () => approvedChanged,
+  })?.kind;
 }
 
 describe('queue row kinds', () => {
@@ -62,7 +68,6 @@ describe('queue row kinds', () => {
     expect(kindOf(entry(1, { status: 'saved' }))).toBeUndefined();
     expect(kindOf(entry(1), decision('out-of-scope', 'out-of-scope'))).toBe('not-needed');
     expect(kindOf(entry(1), decision('no-equivalent', 'high'))).toBe('not-needed');
-    expect(kindOf(entry(1, { stale: true }), decision('link', 'high', link))).toBe('changed');
     expect(kindOf(entry(1), decision('link', 'medium', link), proposal(false))).toBe('proposal');
     expect(kindOf(entry(1), decision('owner', 'unresolved'), proposal(true))).toBe('proposal');
     expect(kindOf(entry(1), decision('owner', 'unresolved'), proposal(false, 2))).toBe(
@@ -75,6 +80,58 @@ describe('queue row kinds', () => {
     expect(kindOf(entry(1), undefined, proposal(true))).toBe('none');
   });
 
+  it('calls an entry changed only when a link it has or the owner approved lost its source', () => {
+    const owner = decision('owner', 'unresolved');
+    const repair = entry(1, { reason: 'Needs repair' });
+    expect(kindOf(repair, decision('preserve', 'unresolved'))).toBe('changed');
+    expect(kindOf(entry(1, { status: 'drafted', reason: 'Changed' }))).toBe('changed');
+    expect(kindOf(entry(1, { status: 'drafted', reason: 'Linked' }))).toBe('drafted');
+    expect(kindOf(entry(1), owner, undefined, [], undefined, true)).toBe('changed');
+    // An old decision about an entry that never had a link is no change of its source.
+    expect(kindOf(entry(1, { stale: true }), owner)).toBe('none');
+    // The matcher still proves the approval's source.
+    expect(kindOf(entry(1), decision('link', 'high', link), undefined, [], undefined, true)).toBe(
+      'matched',
+    );
+    expect(kindOf({ ...repair, status: 'skipped' })).toBe('skipped');
+  });
+
+  it('ends a skip at a confident match, and only marks an earlier Not needed choice', () => {
+    const confident = decision('link', 'high', link);
+    const skipped = entry(1, { status: 'skipped' });
+    expect(kindOf(skipped, confident)).toBe('matched');
+    expect(kindOf(skipped, decision('link', 'medium', link))).toBe('skipped');
+    const row = (d: typeof confident) =>
+      deriveQueueRow(entry(1, { status: 'no-equivalent' }), {
+        decisions: new Map([[1, d]]),
+        proposals: new Map(),
+        restored: new Set(),
+        shared: new Map(),
+        approvedChanged: () => false,
+      });
+    expect(row(confident)).toMatchObject({ kind: 'not-needed', excluded: 'local', matches: true });
+    expect(row(decision('owner', 'unresolved'))).not.toHaveProperty('matches');
+  });
+
+  it('hides a maintainer decision for everyone, until a link or a confident match ends No match', () => {
+    const open = decision('owner', 'unresolved');
+    expect(kindOf(entry(1), open, proposal(true), [], 'not-needed')).toBe('not-needed');
+    expect(kindOf(entry(1), open, proposal(true), [], 'no-match')).toBe('no-match');
+    expect(kindOf(entry(1), undefined, undefined, [], 'no-match')).toBe('no-match');
+    expect(kindOf(entry(1, { status: 'skipped' }), open, undefined, [], 'no-match')).toBe(
+      'no-match',
+    );
+    const confident = decision('link', 'high', link);
+    expect(kindOf(entry(1), confident, proposal(true), [], 'no-match')).toBe('matched');
+    expect(kindOf(entry(1), confident, proposal(true), [], 'not-needed')).toBe('not-needed');
+    expect(kindOf(entry(1, { reason: 'Needs repair' }), undefined, undefined, [], 'no-match')).toBe(
+      'changed',
+    );
+    expect(kindOf(entry(1, { status: 'drafted' }), open, undefined, [], 'not-needed')).toBe(
+      'drafted',
+    );
+  });
+
   it('re-including an excluded entry reopens it from its resolver state', () => {
     const rule = decision('out-of-scope', 'out-of-scope');
     expect(kindOf(entry(7), rule, proposal(false), [7])).toBe('none');
@@ -84,19 +141,34 @@ describe('queue row kinds', () => {
 
   it('marks why a not-needed row is excluded', () => {
     const rows = deriveQueueRows({
-      entries: [entry(1, { status: 'no-equivalent' }), entry(2)],
+      entries: [entry(1, { status: 'no-equivalent' }), entry(2), entry(3)],
       decisions: new Map([[2, decision('out-of-scope', 'out-of-scope')]]),
       proposals: new Map(),
       restored: new Set(),
+      shared: new Map([[3, { kind: 'not-needed' }]]),
+      approvedChanged: () => false,
     });
-    expect(rows.map((row) => row.excluded)).toEqual(['local', 'rule']);
+    expect(rows.map((row) => row.excluded)).toEqual(['local', 'rule', 'shared']);
   });
 
-  it('counts open, matched, not needed, and decided separately', () => {
-    const rows = ['proposal', 'none', 'changed', 'drafted', 'skipped', 'matched', 'not-needed'].map(
-      (kind, hash) => ({ hash, name: '', category: '', kind }) as never,
-    );
-    expect(queueCounts(rows)).toEqual({ open: 3, matched: 1, notNeeded: 1, decided: 2 });
+  it('counts open, matched, no match, not needed, and decided separately', () => {
+    const rows = [
+      'proposal',
+      'none',
+      'changed',
+      'drafted',
+      'skipped',
+      'matched',
+      'no-match',
+      'not-needed',
+    ].map((kind, hash) => ({ hash, name: '', category: '', kind }) as never);
+    expect(queueCounts(rows)).toEqual({
+      open: 3,
+      matched: 1,
+      noMatch: 1,
+      notNeeded: 1,
+      decided: 2,
+    });
   });
 });
 
@@ -111,6 +183,27 @@ describe('show filter', () => {
     expect(showMatches('none', 'candidates')).toBe(true);
     expect(showMatches('decided', 'skipped')).toBe(true);
     expect(showMatches('matched', 'matched')).toBe(true);
+  });
+
+  it('opens a set-aside group asked for on its own, and folds it beside the open work', () => {
+    const rows = [
+      { hash: 1, name: 'Open', category: 'a', kind: 'none' as const },
+      { hash: 2, name: 'Later', category: 'a', kind: 'no-match' as const },
+      { hash: 3, name: 'Never', category: 'a', kind: 'not-needed' as const },
+    ];
+    const model = (show: string, toggled: string[] = []) =>
+      buildQueue({
+        rows,
+        filters: { show: parseShow(show), query: '', group: '' },
+        categories: new Map(),
+        toggled: new Set(toggled),
+      });
+    expect(model('open').steps.map((row) => row.hash)).toEqual([1]);
+    expect(model('open', ['no-match']).steps.map((row) => row.hash)).toEqual([1, 2]);
+    expect(model('no-match').steps.map((row) => row.hash)).toEqual([2]);
+    expect(model('no-match', ['no-match']).steps.map((row) => row.hash)).toEqual([2]);
+    expect(model('no-match', ['only:no-match']).steps).toEqual([]);
+    expect(model('not-needed').items.map((item) => item.key)).toEqual(['group:not-needed', 3]);
   });
 });
 
@@ -135,6 +228,8 @@ describe('shipped precomputed census (157 to review, 1,533 matched, 272 not need
       decisions: new Map(value.display.decisions.map((d) => [d.hash, d])),
       proposals: new Map(value.proposals),
       restored: new Set(),
+      shared: new Map(),
+      approvedChanged: () => false,
     });
     expect(rows).toHaveLength(1962);
     const counts = queueCounts(rows);

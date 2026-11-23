@@ -30,6 +30,8 @@ const userSchema = z.object({
   /** Export projects this account is a partner of. */
   projects: z.optional(z.array(z.string())),
   schedulePreparation: z.optional(z.boolean()),
+  /** The Worker accepts maintainers' Compendium decisions for everyone. */
+  compendiumDecisions: z.optional(z.boolean()),
 });
 export type User = z.infer<typeof userSchema>;
 export type Me = User;

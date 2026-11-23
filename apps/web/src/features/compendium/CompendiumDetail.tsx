@@ -9,6 +9,8 @@ import { RichCell } from './RichCell';
 import { SheetCell } from './sheetSurface';
 import type { CandidateBlock } from './candidateBlocks';
 import { SourceRef } from './SourceRef';
+import { When } from '../../ui/When';
+import { asideKinds } from './queueView';
 import { cellLocation } from './sourceLocation';
 import { kindLabels, type QueueRow } from './queueRows';
 import styles from './CompendiumTab.module.scss';
@@ -105,7 +107,7 @@ const Candidate = memo(function Candidate({
   deferred: boolean;
   matched: boolean;
   source: CompendiumData;
-  /** Approval-time cell to diff against, for entries whose evidence changed. */
+  /** The saved or approved cell to diff against, for entries whose source changed. */
   approved?: CompendiumCell;
   showDiagnostics?: boolean;
   onPick(index: number): void;
@@ -193,9 +195,15 @@ export interface DetailProps {
   highlight: number;
   onHighlight(index: number): void;
   source: CompendiumData;
-  /** Approval-time cell for changed entries (diffed against the first block). */
+  /** Saved or approved cell for changed entries (diffed against the first block). */
   approved?: CompendiumCell;
-  stale?: boolean;
+  /** Which link's source changed: the entry's own (saved or drafted), or the owner's approval. */
+  change?: 'link' | 'approval';
+  /** Who set the entry's No match yet or Not needed, once saved. */
+  markedBy?: string;
+  markedAt?: string;
+  /** Why a decision that applies to everyone cannot be cleared here. */
+  whyNot?: string;
   /** Prev/next for phones, where the queue is behind the list button. */
   onStep?: (direction: -1 | 1) => void;
   /** Stepping waits for the queue (shown in place, disabled). */
@@ -218,7 +226,10 @@ export function CompendiumDetail({
   onHighlight,
   source,
   approved,
-  stale,
+  change,
+  markedBy,
+  markedAt,
+  whyNot,
   onStep,
   stepDisabled,
   onReinclude,
@@ -226,6 +237,7 @@ export function CompendiumDetail({
 }: DetailProps) {
   const phone = useMedia(phoneQuery);
   const groups = useMemo(() => manifestGroups(manifest), [manifest]);
+  const shared = row.kind === 'no-match' || row.excluded === 'shared';
   const owners = useMemo(() => exoticOwners(manifest), [manifest]);
   return (
     <section className={styles.detail} aria-label="Entry to review" data-kind={row.kind}>
@@ -283,7 +295,13 @@ export function CompendiumDetail({
           </button>
         )}
       </header>
-      {stale && <p className={styles.warn}>Source evidence changed since this was reviewed.</p>}
+      {change && (
+        <p className={styles.warn}>
+          {change === 'link'
+            ? 'The linked Compendium source changed since the link was made.'
+            : 'The Compendium source changed since this link was approved.'}
+        </p>
+      )}
       <div className={styles.columns}>
         <Tooltip phone={phone}>
           <h3>Manifest</h3>
@@ -309,16 +327,30 @@ export function CompendiumDetail({
           )}
         </Tooltip>
         <div className={styles.candidates}>
-          {row.kind === 'not-needed' ? (
+          {asideKinds.includes(row.kind) ? (
             <div className={styles.empty}>
               <p>
-                {row.excluded === 'local'
-                  ? 'Marked “no equivalent” on this device.'
-                  : 'Not needed by rule: this entry needs no tooltip text from the Compendium.'}
+                {row.kind === 'no-match'
+                  ? 'No match yet: the Compendium has no row for this entry right now. A confident match ends this by itself.'
+                  : row.excluded === 'shared'
+                    ? 'Not needed: this entry needs no tooltip text from the Compendium.'
+                    : row.excluded === 'local'
+                      ? `Marked not needed on this device only.${row.matches ? ' It has a confident match now: re-include it to use the match.' : ''}`
+                      : 'Not needed by rule: this entry needs no tooltip text from the Compendium.'}
               </p>
-              {onReinclude && (
+              {shared && (
+                <p className={styles.muted}>
+                  {markedBy && (
+                    <>
+                      {markedBy} · <When value={markedAt} />.{' '}
+                    </>
+                  )}
+                  {whyNot}
+                </p>
+              )}
+              {onReinclude && !(shared && whyNot) && (
                 <button type="button" onClick={onReinclude}>
-                  Re-include
+                  {row.kind === 'no-match' ? 'Unmark' : 'Re-include'}
                 </button>
               )}
             </div>

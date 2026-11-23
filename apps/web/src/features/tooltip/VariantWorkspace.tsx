@@ -17,6 +17,7 @@ import styles from './TooltipPage.module.scss';
 import { useWorkspaceDivider } from './useWorkspaceDivider';
 import { usePaneStatus } from '../compendium/paneStatus';
 import { useReportsTab } from '../reports/pane/tabStore';
+import type { ViewVisit } from '../queue/compendiumVisit';
 
 type Panel = 'source' | 'translation' | 'preview' | 'compendium' | 'reports';
 
@@ -52,6 +53,8 @@ interface VariantWorkspaceProps {
   reports?: { pane: ReactNode; count: number | null };
   /** Panel shown first on a phone, or in the swapped slot; defaults to the editor. */
   initialPanel?: Panel;
+  /** A visit with a view of its own: a new one opens it, whatever was open. */
+  visit?: ViewVisit;
   /** Keep pane measurement/tab state stable while a navigation burst hides the workspace. */
   suspended?: boolean;
 }
@@ -88,6 +91,7 @@ export function VariantWorkspace({
   compendiumLabel = 'Compendium',
   reports,
   initialPanel = 'translation',
+  visit,
   suspended = false,
 }: VariantWorkspaceProps) {
   const phone = useMedia(phoneQuery);
@@ -104,15 +108,28 @@ export function VariantWorkspace({
   const setReportsOpen = useReportsTab((state) => state.setOpen);
   const rememberedPane = useSettingsStore((state) => state.device.remembered.translatePane);
   const remember = useSettingsStore((state) => state.remember);
-  const sideTab: Panel = paired && rememberedPane === 'compendium' ? 'compendium' : 'source';
+  // A visit about the Compendium shows it until another view is picked; the pick remembered for
+  // translating stays as it is.
+  const [visiting, setVisiting] = useState(false);
+  const sideTab: Panel =
+    paired && (visiting || rememberedPane === 'compendium') ? 'compendium' : 'source';
   /** Opening English or the Compendium, in any mode, is the pick the split pane remembers. */
   const open = (id: Panel) => {
     setActive(id);
+    setVisiting(false);
     if (hasReports) setReportsOpen(id === 'reports');
     if (paired && (id === 'source' || id === 'compendium'))
       remember({ translatePane: id === 'source' ? 'english' : 'compendium' });
   };
   const side = useRef<HTMLDivElement>(null);
+  const visitId = visit?.id;
+  const visitView = visit?.view;
+  useLayoutEffect(() => {
+    setVisiting(visitView === 'compendium');
+    if (!visitView) return;
+    setActive(visitView);
+    setReportsOpen(false);
+  }, [visitId, visitView, setReportsOpen]);
   const showEditor = useRef(() => {});
   showEditor.current = () => {
     if (mode !== 'split') open('translation');
@@ -161,6 +178,7 @@ export function VariantWorkspace({
             onSelect(id) {
               // The other pane's header replaces this one: its tab takes the focus over.
               focusTab.current = true;
+              setVisiting(false);
               setReportsOpen(id === 'reports');
               if (paired && id !== 'reports')
                 remember({ translatePane: id === 'source' ? 'english' : 'compendium' });

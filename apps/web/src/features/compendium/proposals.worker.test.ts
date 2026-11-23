@@ -210,7 +210,9 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     applyReviewProgress(full.evidence, input.progress),
     full,
     shown,
+    f.source,
     new Set(),
+    new Map(),
     new Map(),
   );
   for (const review of [first, next]) {
@@ -219,7 +221,7 @@ it('publishes selected review evidence before assets/full proposals, and reprior
     );
     expect(review.decision).toEqual(full.decisions.find((d) => d.hash === review.hash));
     expect(review.matches.get(review.hash)?.row).toEqual(full.matches.get(review.hash)?.row);
-    const early = earlyEntry(review, f.editor, {}, new Set());
+    const early = earlyEntry(review, f.editor, {}, f.source, new Set(), new Map(), input.progress);
     expect(early?.row).toEqual(rows.find((row) => row.hash === review.hash));
     expect(early?.decision).toEqual(preparedDecisions(full).get(review.hash));
     const proposal = shown.get(review.hash);

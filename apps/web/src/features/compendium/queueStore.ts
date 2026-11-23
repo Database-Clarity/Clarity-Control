@@ -14,17 +14,23 @@ interface QueueState {
   error?: string;
   /** The filtered list model (headers, rows, stepping order) the left column renders. */
   model: QueueModel;
-  /** Groups flipped from their default (open, except Not needed which starts closed). */
+  /** Groups flipped from their default (open, except the set-aside ones, which start closed). */
   toggled: ReadonlySet<string>;
   toggleGroup(group: string): void;
   /** The selected entry, for highlighting. */
   selected?: number;
-  /** Put an excluded entry back in the queue; undefined when this user cannot. */
+  /** Put an excluded or unmatched entry back in the queue; undefined before the model is ready. */
   reinclude?: (row: QueueRow) => void;
   publish(state: Partial<Omit<QueueState, 'publish'>>): void;
 }
 
-export const emptyCounts: QueueCounts = { open: 0, matched: 0, notNeeded: 0, decided: 0 };
+export const emptyCounts: QueueCounts = {
+  open: 0,
+  matched: 0,
+  noMatch: 0,
+  notNeeded: 0,
+  decided: 0,
+};
 export const useCompendiumQueueStore = create<QueueState>((set) => ({
   rows: null,
   counts: emptyCounts,

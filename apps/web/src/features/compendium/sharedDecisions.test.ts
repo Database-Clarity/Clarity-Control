@@ -1,0 +1,288 @@
+// @vitest-environment jsdom
+import { createElement, act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+const api = vi.hoisted(() => vi.fn());
+const session = vi.hoisted(() => ({ token: 't' }));
+vi.mock('../../services/session', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/session')>()),
+  sessionToken: () => session.token,
+}));
+vi.mock('../../services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/api')>()),
+  apiRequest: api,
+  apiUrl: 'https://api.invalid',
+}));
+import type { Marks } from '@clarity/core/marks';
+import { useAuthStore } from '../../stores/auth';
+import { useDataStore } from '../../stores/data';
+import { useMarksStore } from '../marks/store';
+import { useSharedDecisions, useSharedSaves, type SharedDecisions } from './sharedDecisions';
+
+const revision = 'a'.repeat(40);
+const at = '2026-11-23T10:00:00Z';
+const reply = (compendium?: Marks['compendium']): Marks => ({
+  types: [],
+  entries: {},
+  ...(compendium ? { compendium } : {}),
+});
+const changes = () =>
+  api.mock.calls.flatMap(([, init]) =>
+    init?.method === 'PUT' ? [JSON.parse(init.body as string).change] : [],
+  );
+const accept = (compendium: Marks['compendium']) =>
+  useMarksStore.setState({ marks: reply(compendium), revision, writable: true });
+// Retries wait 400 ms each.
+const settled = () =>
+  vi.waitFor(
+    () => {
+      const { pending, error } = useSharedSaves.getState();
+      if (pending.size && !error) throw new Error('still saving');
+    },
+    { timeout: 10_000 },
+  );
+
+beforeEach(() => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  api.mockReset();
+  api.mockImplementation(async () => Response.json({ marks: reply(), revision }));
+  session.token = 't';
+  useAuthStore.setState({ user: { id: 1, login: 'm', role: 'maintainer' }, token: 't' });
+  useSharedSaves.setState({ pending: new Map(), error: null });
+  useDataStore.setState({ data: { aliases: {} } as never });
+  useMarksStore.setState({ marks: reply(), revision, writable: true, saving: false });
+});
+afterEach(() => {
+  useDataStore.setState({ data: null });
+});
+
+function shown() {
+  let value!: SharedDecisions;
+  const root = createRoot(document.createElement('div'));
+  act(() =>
+    root.render(
+      createElement(() => {
+        value = useSharedDecisions();
+        return null;
+      }),
+    ),
+  );
+  act(() => root.unmount());
+  return value;
+}
+
+it('shows decisions at once and writes those made meanwhile in one later request', async () => {
+  let release!: () => void;
+  api.mockImplementationOnce(async () => {
+    await new Promise<void>((done) => (release = done));
+    return Response.json({ marks: reply(), revision });
+  });
+  const { set } = useSharedSaves.getState();
+  set([1], 'not-needed');
+  expect(shown().get(1)).toEqual({ kind: 'not-needed' });
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+  set([2], 'no-match');
+  set([3], 'no-match');
+  set([1], null);
+  // Until the server has them, leaving the page asks first.
+  const leave = () => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  expect(leave()).toBe(true);
+  release();
+  await settled();
+  expect(leave()).toBe(false);
+  expect(changes()).toEqual([
+    { action: 'compendium-set', kind: 'not-needed', hashes: [1] },
+    { action: 'compendium-set', kind: 'no-match', hashes: [2, 3] },
+  ]);
+  expect(shown().size).toBe(0);
+});
+
+it('splits large sets and loses none of them when a batch fails', { timeout: 20_000 }, async () => {
+  const hashes = Array.from({ length: 450 }, (_, index) => index + 10);
+  let puts = 0;
+  api.mockImplementation(async (_path: string, init?: RequestInit) => {
+    if (init?.method === 'PUT' && ++puts > 1 && puts < 5)
+      return Response.json({ error: 'GitHub is down' }, { status: 502 });
+    return Response.json({ marks: reply(), revision });
+  });
+  useSharedSaves.getState().set(hashes, 'not-needed');
+  await settled();
+  expect(useSharedSaves.getState().error).toContain('GitHub is down');
+  expect(useSharedSaves.getState().pending.size).toBe(250);
+  expect(shown().size).toBe(250);
+  useSharedSaves.getState().retry();
+  await settled();
+  expect(useSharedSaves.getState().pending.size).toBe(0);
+  const saved = changes().flatMap((change) => change.hashes as number[]);
+  expect(new Set(saved)).toEqual(new Set(hashes));
+  expect(Math.max(...changes().map((change) => change.hashes.length))).toBe(200);
+});
+
+it(
+  'reloads the marks and writes again after a lost race; discarding gives the decision up',
+  { timeout: 20_000 },
+  async () => {
+    api.mockImplementationOnce(async () =>
+      Response.json({ error: 'Marks changed' }, { status: 409 }),
+    );
+    useSharedSaves.getState().set([7], 'no-match');
+    await settled();
+    expect(useSharedSaves.getState().error).toBeNull();
+    expect(api.mock.calls.map(([path, init]) => `${init?.method ?? 'GET'} ${path}`)).toEqual([
+      'PUT /marks',
+      'GET /marks',
+      'PUT /marks',
+    ]);
+    api.mockImplementation(async () => Response.json({ error: 'No' }, { status: 403 }));
+    useSharedSaves.getState().set([8], 'no-match');
+    await settled();
+    expect(useSharedSaves.getState().error).not.toBeNull();
+    useSharedSaves.getState().discard();
+    expect(shown().has(8)).toBe(false);
+  },
+);
+
+it(
+  'keeps one account’s decisions from another, and hands them back on its return',
+  { timeout: 20_000 },
+  async () => {
+    let release!: () => void;
+    api.mockImplementationOnce(async () => {
+      await new Promise<void>((done) => (release = done));
+      return Response.json({ error: 'offline' }, { status: 502 });
+    });
+    useSharedSaves.getState().set([1], 'not-needed');
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+    const one = useAuthStore.getState().user;
+    session.token = 'u';
+    useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' }, token: 'u' });
+    expect(shown().size).toBe(0);
+    useSharedSaves.getState().retry();
+    release();
+    await vi.waitFor(() => expect(useMarksStore.getState().saving).toBe(false), {
+      timeout: 10_000,
+    });
+    await new Promise((done) => setTimeout(done, 600));
+    expect(changes()).toHaveLength(1);
+    session.token = 't';
+    useAuthStore.setState({ user: one, token: 't' });
+    expect(shown().get(1)).toEqual({ kind: 'not-needed' });
+    // It was never sent: the notice says so and offers Retry.
+    expect(useSharedSaves.getState().error).toContain('sign-in changed');
+    // A decision of the other account replaces them, and is written even while the first's is out.
+    api.mockImplementationOnce(async () => {
+      await new Promise<void>((done) => (release = done));
+      return Response.json({ marks: reply(), revision });
+    });
+    useMarksStore.setState({ writable: true });
+    useSharedSaves.getState().retry();
+    await vi.waitFor(() => expect(changes()).toHaveLength(2), { timeout: 10_000 });
+    session.token = 'u';
+    useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' }, token: 'u' });
+    useSharedSaves.getState().set([2], 'no-match');
+    release();
+    await settled();
+    expect(changes().at(-1)).toEqual({ action: 'compendium-set', kind: 'no-match', hashes: [2] });
+    expect(shown().size).toBe(0);
+  },
+);
+
+it('never retries a decision undone while its request failed', { timeout: 20_000 }, async () => {
+  let release!: () => void;
+  api.mockImplementationOnce(async () => {
+    await new Promise<void>((done) => (release = done));
+    return Response.json({ error: 'offline' }, { status: 502 });
+  });
+  useSharedSaves.getState().set([1], 'not-needed');
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+  useSharedSaves.getState().set([1], null);
+  release();
+  await settled();
+  // Nothing is stored, so there is nothing to clear.
+  expect(changes()).toHaveLength(1);
+  expect(useSharedSaves.getState().pending.size).toBe(0);
+});
+
+it(
+  'clears what is stored after a lost race, not what was stored before it',
+  { timeout: 20_000 },
+  async () => {
+    useDataStore.setState({ data: { aliases: { 11: { to: 10, kind: 'name' } } } as never });
+    accept({ 10: { kind: 'no-match', by: 1, at } });
+    api.mockImplementationOnce(async () =>
+      Response.json({ error: 'Marks changed' }, { status: 409 }),
+    );
+    const reload = useMarksStore.getState().reload;
+    useMarksStore.setState({
+      reload: async () => accept({ 11: { kind: 'not-needed', by: 2, at } }),
+    });
+    useSharedSaves.getState().set([10], null);
+    await settled();
+    useMarksStore.setState({ reload });
+    expect(changes()).toEqual([
+      { action: 'compendium-clear', hashes: [10] },
+      { action: 'compendium-clear', hashes: [11] },
+    ]);
+  },
+);
+
+it(
+  'waits for another save of the marks, and says why they cannot be read',
+  { timeout: 20_000 },
+  async () => {
+    useMarksStore.setState({ saving: true, writable: false });
+    useSharedSaves.getState().set([1], 'no-match');
+    await new Promise((done) => setTimeout(done, 1500));
+    expect(api).not.toHaveBeenCalled();
+    useMarksStore.setState({ saving: false, writable: true });
+    await settled();
+    expect(changes()).toHaveLength(1);
+    useMarksStore.setState({ writable: false });
+    api.mockImplementation(async () => Response.json({ marks: {}, revision }));
+    useSharedSaves.getState().set([2], 'no-match');
+    await settled();
+    expect(useSharedSaves.getState().error).toContain('Invalid config/marks.json');
+  },
+);
+
+it(
+  'sends nothing once the stored session belongs to another account',
+  { timeout: 20_000 },
+  async () => {
+    api.mockImplementationOnce(async () => {
+      // Another tab signed in as someone else; this tab has not noticed yet.
+      session.token = 'u';
+      return Response.json({ error: 'offline' }, { status: 502 });
+    });
+    useSharedSaves.getState().set([1], 'not-needed');
+    await settled();
+    expect(changes()).toHaveLength(1);
+    expect(useSharedSaves.getState().error).toContain('sign-in changed');
+    useSharedSaves.getState().retry();
+    await settled();
+    expect(changes()).toHaveLength(1);
+    session.token = 't';
+    useSharedSaves.getState().retry();
+    await settled();
+    expect(changes()).toHaveLength(2);
+    expect(useSharedSaves.getState().pending.size).toBe(0);
+  },
+);
+
+it('shows a grouped entry’s decision on its main entry, and clearing removes the stored one', async () => {
+  useDataStore.setState({ data: { aliases: { 11: { to: 10, kind: 'name' } } } as never });
+  accept({ 11: { kind: 'no-match', by: 1, at }, 12: { kind: 'not-needed', by: 1, at } });
+  expect([...shown().keys()]).toEqual([10, 12]);
+  // The main entry's own decision outranks the grouped one.
+  accept({ 11: { kind: 'no-match', by: 1, at }, 10: { kind: 'not-needed', by: 1, at } });
+  expect(shown().get(10)!.kind).toBe('not-needed');
+  useSharedSaves.getState().set([10], null);
+  expect(shown().has(10)).toBe(false);
+  await settled();
+  expect(changes()).toEqual([{ action: 'compendium-clear', hashes: [10, 11] }]);
+});

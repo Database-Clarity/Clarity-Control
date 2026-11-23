@@ -5,34 +5,47 @@ import styles from './CompendiumTab.module.scss';
 export interface ActionBarProps {
   canConfirm: boolean;
   canPick: boolean;
+  /** Skip; the two decisions for everyone also need a maintainer. */
   canDecide: boolean;
+  canMarkNotNeeded: boolean;
+  canMarkNoMatch: boolean;
   canUndo: boolean;
   /** Why drafting links is unavailable, shown in place of the consequence text. */
   readOnlyReason?: string;
+  /** A maintainer: only they have the decisions for everyone on a narrow bar. */
+  canShare: boolean;
+  /** Why the decisions for everyone are unavailable to this editor. */
+  sharedReason?: string;
   message: string;
   /** A decision was just made: the next entry, shown during the pause. */
   advancing?: { name: string; ms: number; token: number };
   onConfirm(): void;
   onPick(): void;
-  onNone(): void;
+  onNotNeeded(): void;
+  onNoMatch(): void;
   onSkip(): void;
   onUndo(): void;
 }
 
 const advanceLabel = (ms: number) => (ms === 0 ? 'Off' : `${ms / 1000} s`);
 
-/** One bar of decisions: Confirm, Pick row, Not needed, Skip, Undo, and the advance pause. */
+/** One bar of decisions: Confirm, Pick row, Not needed, No match yet, Skip, Undo, and the pause. */
 export function CompendiumActionBar({
   canConfirm,
   canPick,
   canDecide,
+  canMarkNotNeeded,
+  canMarkNoMatch,
   canUndo,
+  canShare,
   readOnlyReason,
+  sharedReason,
   message,
   advancing,
   onConfirm,
   onPick,
-  onNone,
+  onNotNeeded,
+  onNoMatch,
   onSkip,
   onUndo,
 }: ActionBarProps) {
@@ -68,7 +81,7 @@ export function CompendiumActionBar({
   }, [moreOpen]);
   const pause = (inMenu?: boolean) => (
     <label className={styles.advanceSetting}>
-      <span>Auto-advance</span>
+      <span className={styles.advanceWord}>Auto-advance</span>
       <select
         aria-label="Auto-advance pause"
         value={ms}
@@ -99,7 +112,11 @@ export function CompendiumActionBar({
     </button>
   );
   return (
-    <footer className={styles.actionBar} aria-label="Review actions">
+    <footer
+      className={styles.actionBar}
+      data-share={canShare || undefined}
+      aria-label="Review actions"
+    >
       {advancing && (
         <span
           key={advancing.token}
@@ -114,8 +131,23 @@ export function CompendiumActionBar({
       <button type="button" disabled={!canPick} onClick={onPick}>
         Pick<span className={styles.rowWord}> row</span> <kbd>P</kbd>
       </button>
-      <button type="button" disabled={!canDecide} onClick={onNone}>
+      <button
+        type="button"
+        className={styles.forEveryone}
+        disabled={!canMarkNotNeeded}
+        title={sharedReason ?? 'Needs no Compendium row. Hidden for everyone until re-included.'}
+        onClick={onNotNeeded}
+      >
         Not needed <kbd>N</kbd>
+      </button>
+      <button
+        type="button"
+        className={styles.forEveryone}
+        disabled={!canMarkNoMatch}
+        title={sharedReason ?? 'Hidden for everyone until unmarked or confidently matched.'}
+        onClick={onNoMatch}
+      >
+        No match yet <kbd>M</kbd>
       </button>
       <button type="button" disabled={!canDecide} onClick={onSkip}>
         Skip <kbd>S</kbd>
@@ -144,8 +176,8 @@ export function CompendiumActionBar({
             Next: <strong>{advancing.name}</strong> · Esc stays
           </span>
         ) : (
-          <span className={styles.consequence} title={message || readOnlyReason}>
-            {message || readOnlyReason || 'Confirm drafts a link, not a save.'}
+          <span className={styles.consequence} title={message || readOnlyReason || sharedReason}>
+            {message || readOnlyReason || sharedReason || 'Confirm drafts a link, not a save.'}
           </span>
         )}
         {pause()}

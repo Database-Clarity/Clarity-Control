@@ -1,4 +1,10 @@
-import { kindLabels, showMatches, type QueueKind, type QueueRow, type ShowFilter } from './queueRows';
+import {
+  kindLabels,
+  showMatches,
+  type QueueKind,
+  type QueueRow,
+  type ShowFilter,
+} from './queueRows';
 
 export interface CategoryInfo {
   id: string;
@@ -10,7 +16,7 @@ export type QueueItem =
   | {
       type: 'header';
       key: string;
-      /** Category id, or `not-needed`. */
+      /** Category id, or a set-aside kind. */
       group: string;
       label: string;
       count: number;
@@ -31,7 +37,8 @@ export interface QueueFilters {
   group: string;
 }
 
-export const notNeededGroup = 'not-needed';
+/** Kinds listed in a collapsed group of their own, after the open work. */
+export const asideKinds: readonly QueueKind[] = ['no-match', 'not-needed'];
 
 function matchesQuery(row: QueueRow, query: string): boolean {
   if (!query) return true;
@@ -51,7 +58,7 @@ export function filterRows(
   const query = filters.query.trim().toLowerCase();
   return rows.filter(
     (row) =>
-      row.kind !== 'not-needed' &&
+      !asideKinds.includes(row.kind) &&
       ((showMatches(filters.show, row.kind) &&
         (!filters.group || row.category === filters.group) &&
         matchesQuery(row, query)) ||
@@ -59,13 +66,17 @@ export function filterRows(
   );
 }
 
-/** Not-needed rows are a group of their own, listed with the open and all views. */
-export function notNeededRows(rows: readonly QueueRow[], filters: QueueFilters): QueueRow[] {
-  if (filters.show !== 'open' && filters.show !== 'all') return [];
+/** Rows set aside as `kind`, listed with the open and all views and on their own. */
+export function asideRows(
+  rows: readonly QueueRow[],
+  kind: QueueKind,
+  filters: QueueFilters,
+): QueueRow[] {
+  if (filters.show !== 'open' && filters.show !== 'all' && filters.show !== kind) return [];
   const query = filters.query.trim().toLowerCase();
   return rows.filter(
     (row) =>
-      row.kind === 'not-needed' &&
+      row.kind === kind &&
       (!filters.group || row.category === filters.group) &&
       matchesQuery(row, query),
   );
@@ -91,7 +102,7 @@ export interface BuildInput {
   rows: readonly QueueRow[];
   filters: QueueFilters;
   categories: ReadonlyMap<string, CategoryInfo>;
-  /** Groups the user flipped from their default (open, except Not needed which starts closed). */
+  /** Groups the user flipped from their default (open, except the set-aside ones, closed). */
   toggled: ReadonlySet<string>;
   /** The route's `hash`, pinned visible when the filters would hide it. */
   hash?: number;
@@ -108,7 +119,6 @@ export interface QueueModel {
 /** The flat list model: group headers and rows, with collapsed groups folded away. */
 export function buildQueue({ rows, filters, categories, toggled, hash }: BuildInput): QueueModel {
   const shown = filterRows(rows, filters, hash);
-  const notNeeded = notNeededRows(rows, filters);
   const items: QueueItem[] = [];
   const steps: QueueRow[] = [];
   const hidden = (row: QueueRow) =>
@@ -144,18 +154,25 @@ export function buildQueue({ rows, filters, categories, toggled, hash }: BuildIn
       }
     index = end;
   }
-  if (notNeeded.length) {
-    const isCollapsed = !toggled.has(notNeededGroup);
+  let visible = shown.filter((row) => !hidden(row)).length;
+  for (const kind of asideKinds) {
+    const aside = asideRows(rows, kind, filters);
+    if (!aside.length) continue;
+    visible += aside.length;
+    // Asked for on its own, a group starts open, however it was left beside the open work.
+    const alone = filters.show === kind;
+    const group = alone ? `only:${kind}` : kind;
+    const isCollapsed = toggled.has(group) === alone;
     items.push({
       type: 'header',
-      key: `group:${notNeededGroup}`,
-      group: notNeededGroup,
-      label: 'Not needed',
-      count: notNeeded.length,
+      key: `group:${kind}`,
+      group,
+      label: kindLabels[kind],
+      count: aside.length,
       collapsed: isCollapsed,
     });
     if (!isCollapsed)
-      for (const row of notNeeded) {
+      for (const row of aside) {
         items.push({ type: 'row', key: row.hash, row });
         steps.push(row);
       }
@@ -163,7 +180,7 @@ export function buildQueue({ rows, filters, categories, toggled, hash }: BuildIn
   return {
     items,
     steps,
-    visible: shown.filter((row) => !hidden(row)).length + notNeeded.length,
+    visible,
   };
 }
 

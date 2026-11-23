@@ -96,13 +96,12 @@ it('keeps fast typing intact and follows it into the URL once typing pauses', as
 });
 
 it('clicking a row selects it by replacing the route', async () => {
-  await mount('/compendium?tab=linked&show=all');
+  await mount('/compendium?show=all');
   await act(async () => {
     host.querySelectorAll<HTMLElement>('[role="treeitem"][aria-level="2"]')[1].click();
   });
   const search = new URLSearchParams(host.querySelector('[data-route]')!.textContent!);
   expect(search.get('hash')).toBe('101');
-  expect(search.has('tab')).toBe(false);
   expect(search.get('show')).toBe('all');
 });
 
@@ -137,4 +136,53 @@ it('closes the phone sheet once a row is chosen, and keeps it for filters', asyn
   const search = new URLSearchParams(host.querySelector('[data-route]')!.textContent!);
   expect(search.get('hash')).toBe('102');
   expect(search.get('q')).toBe('Entry');
+});
+
+it('brings the selection into view with it or the filters, and stays put when a group opens', async () => {
+  const publish = (hash: number, show: 'open' | 'all', toggled: string[] = []) =>
+    act(async () =>
+      useCompendiumQueueStore.setState({
+        selected: hash,
+        model: buildQueue({
+          rows,
+          filters: { show, query: '', group: '' },
+          categories,
+          toggled: new Set(toggled),
+          hash,
+        }),
+      }),
+    );
+  // A cold open: the rows arrive after the list's column.
+  useCompendiumQueueStore.setState({ rows: null, selected: 139 });
+  await mount();
+  useCompendiumQueueStore.setState({ rows });
+  await publish(139, 'open');
+  await act(async () => {
+    vi.advanceTimersByTime(1000);
+  });
+  const tree = host.querySelector<HTMLElement>('[role="tree"]')!;
+  expect(tree.scrollTop).toBeGreaterThan(0);
+  await publish(100, 'open');
+  expect(tree.scrollTop).toBe(0);
+  const scrollAway = () =>
+    act(async () => {
+      tree.scrollTop = 700;
+      tree.dispatchEvent(new Event('scroll'));
+    });
+  await scrollAway();
+  const beta = [...host.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].find((b) =>
+    b.textContent?.includes('Beta'),
+  )!;
+  await act(async () => beta.click());
+  await publish(100, 'open', ['b']);
+  await publish(100, 'open');
+  expect(tree.scrollTop).toBeGreaterThan(0);
+  // A filter change: the URL first, then its model.
+  await act(async () => {
+    const select = host.querySelector('select')!;
+    select.value = 'all';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await publish(100, 'all');
+  expect(tree.scrollTop).toBe(0);
 });
