@@ -573,6 +573,92 @@ async function withGlobals(
 }
 
 describe('scheduled global closure', () => {
+  it.each([
+    { source: 125, status: 'published' },
+    { source: 126, status: 'needs_attention' },
+  ])('checks the candidate import from historical canonical $source', async ({ source, status }) => {
+    const f = await fixture();
+    await withGlobals(f, `import main from ${source}`);
+    const canonical = { ...tip('Current canonical text'), hash: 124 };
+    const formerMember = { ...tip('Historical member text'), hash: 125 };
+    const frame = { ...tip('Historical frame text'), hash: 126 };
+    f.options.facts[125] = f.options.facts[124];
+    f.options.facts[126] = { name: 'Frame', type: 'perk' };
+    f.options.aliases = { 126: { to: 124, kind: 'frame' } };
+    f.options.aliasFacts = {
+      generatorSha: f.options.generatorSha,
+      items: Object.fromEntries(
+        Object.entries(f.options.facts).map(([hash, { name }]) => [
+          hash,
+          {
+            hash: Number(hash),
+            name,
+            categoryId: 'weapon-trait',
+            inGameDescription: 'In game',
+            plugCategoryHash: 20,
+          },
+        ]),
+      ),
+    };
+    f.change({
+      '.publisher/config.json': {
+        ...f.read<Record<string, unknown>>('.publisher/config.json'),
+        aliases: f.options.aliases,
+        aliasFacts: f.options.aliasFacts,
+        facts: f.options.facts,
+      },
+      'config/alias-groups.json': {
+        version: 1,
+        rejected: {},
+        groups: {
+          124: {
+            members: [124, 125],
+            kind: 'S',
+            basis: { name: 'Other', categoryId: 'weapon-trait' },
+            by: { id: '1', login: 'alice' },
+            at: AT,
+          },
+        },
+      },
+      'tooltips/124.json': canonical,
+      'live/tooltips/124.json': canonical,
+      'live/tooltips/125.json': formerMember,
+      'live/tooltips/126.json': frame,
+    });
+    const old = f.git.head(L)!;
+    const live = f.pub.read<LegacyInput>(f.git.tree(old), 'liveDescriptions.json')!;
+    const before = f.git.commit(
+      old,
+      {
+        'liveDescriptions.json': f.git.writeBlob(
+          json({
+            ...live,
+            perks: {
+              ...live.perks,
+              ...exportLegacy([canonical, formerMember, frame], 0, f.options.facts),
+            },
+          }),
+        ),
+      },
+      'historical canonical snapshots',
+    );
+    f.git.cas(L, old, before);
+    f.admit('schedule');
+    await f.prep.drain();
+    if (status === 'needs_attention') {
+      expect(f.batch().status).toBe(status);
+      expect(f.request().reasons?.[0].reason).toMatch(/Global dependencies changed/);
+      expect(f.git.head(L)).toBe(before);
+      return;
+    }
+    expect(f.batch().status).toBe('scheduled');
+    await f.pub.operation(R);
+    expect(f.batch().status).toBe(status);
+    const output = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    expect(output.perks[125]).toMatchObject({ aliasOf: 124, aliasKind: 'name' });
+    expect(output.perks[126]).toMatchObject({ editor: { en: { main: 'Historical frame text' } } });
+    expect(f.read('live/tooltips/125.json')).toEqual(formerMember);
+  });
   it('publishes scheduled consumers with the pinned export projection in the same receipt', async () => {
     const f = await fixture();
     const { store } = await withGlobals(

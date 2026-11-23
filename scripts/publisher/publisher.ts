@@ -568,6 +568,22 @@ export class Publisher {
       return { c, r };
     }
   }
+  mergePublicationPerks(
+    sourceTree: Tree,
+    live: Record<string, unknown>,
+    entries: Receipt['exported'],
+    hashes: Iterable<number>,
+  ) {
+    const aliases = this.aliasesAt(sourceTree);
+    const groups = sourceTree[aliasGroupsPath] ? { aliases, catalog: this.options.facts } : undefined;
+    return applyInactiveLive(
+      mergeLivePerks(live, entries, this.pickRecomputeAt(sourceTree), groups),
+      this.movesAt(sourceTree),
+      hashes,
+      aliases,
+      live,
+    );
+  }
   merge(parent: string, r: Receipt): { bytes: string; outcome: Receipt['outcome'] } {
     const tree = this.git.tree(parent);
     const live = this.read<{
@@ -582,16 +598,11 @@ export class Publisher {
       const sourceTree = this.git.tree(r.sourceCommit);
       if (sourceTree[aliasGroupsPath] && r.generatorSha !== this.options.generatorSha)
         throw new Error('Generator revision differs from frozen alias-group receipt');
-      const aliases = this.aliasesAt(sourceTree);
-      const groups = sourceTree[aliasGroupsPath]
-        ? { aliases, catalog: this.options.facts }
-        : undefined;
-      perks = applyInactiveLive(
-        mergeLivePerks(live.perks, entries, this.pickRecomputeAt(sourceTree), groups),
-        this.movesAt(sourceTree),
-        r.entries.map((e) => e.hash),
-        aliases,
+      perks = this.mergePublicationPerks(
+        sourceTree,
         live.perks,
+        entries,
+        r.entries.map((e) => e.hash),
       );
     } catch (error) {
       throw new ConsumerOutputRejected(String(error));
