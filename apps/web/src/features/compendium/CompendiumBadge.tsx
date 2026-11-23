@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/auth';
 import { groupManifestItems } from './manifestItems';
 import { preparedEvidence, warmPreparedProposals, reviewedEntries } from './reviewViewCache';
 import { peekMatchingSession, prewarmMatchingSession } from './matchingSession';
+import { approvedSourceChanged } from './approvalEvidence';
 import { readProgress, reviewStorageKey } from './reviewProgress';
 import { bundleUrl } from '../../services/bundle';
 import { compendiumDataUrl, pendingCompendiumWorker } from '../../services/compendium';
@@ -87,6 +88,15 @@ export function CompendiumWarmup() {
         } catch {
           // The review view owns the existing invalid-progress recovery/error flow.
         }
+      },
+      () => {
+        // The rows ask this of every entry the owner decides; answered once per source.
+        for (const { hash, name, categoryId, action } of prepared.decisions)
+          if (action === 'owner')
+            approvedSourceChanged(
+              { hash, name, category: categoryId.replace(/^catalog:/, '') },
+              data,
+            );
       },
       () => {
         const core = peekMatchingSession(editor, data)?.currentProposals;

@@ -99,8 +99,21 @@ export function approvedLink({
   return reference?.name === name ? reference.link : undefined;
 }
 
+const changedIn = new WeakMap<CompendiumData, Map<string, boolean>>();
 /** Whether the owner approved a link for this entry whose source cells are no longer the same. */
 export function approvedSourceChanged(
+  entry: { hash: number; name: string; category: string },
+  source: CompendiumData,
+): boolean {
+  let answers = changedIn.get(source);
+  if (!answers) changedIn.set(source, (answers = new Map()));
+  const key = `${entry.hash}|${entry.category}|${entry.name}`;
+  let answer = answers.get(key);
+  if (answer === undefined) answers.set(key, (answer = sourceChanged(entry, source)));
+  return answer;
+}
+
+function sourceChanged(
   entry: { hash: number; name: string; category: string },
   source: CompendiumData,
 ): boolean {
