@@ -661,13 +661,14 @@ export class GlobalsPublisher {
         // may accompany it only if it preserves the resolver result.
         if (sync.status !== 'current')
           throw new Error('Sync pending: global dependency review required');
-        const snapshot = this.publicationSnapshot(tree, revision, captured, documents);
-        const tooltips = { ...snapshot.tooltips };
-        for (const [hash, document] of Object.entries(previous))
-          if (tooltips[hash]) tooltips[hash] = document;
         const comparison = calculateGlobalImpact(
-          { ...snapshot, tooltips },
-          snapshot,
+          this.publicationSnapshot(
+            tree,
+            revision,
+            captured,
+            documents.map((document) => previous[document.hash] ?? document),
+          ),
+          this.publicationSnapshot(tree, revision, captured, documents),
           [
             {
               // Title preparation covers every consumer in the existing resolver.
