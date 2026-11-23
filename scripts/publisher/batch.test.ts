@@ -789,6 +789,24 @@ describe('scheduled batches (simulator)', () => {
     },
   );
 
+  it('rejects a batch candidate whose marker differs from its approved composition', async () => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    const create = f.pub.createCandidate.bind(f.pub);
+    f.pub.createCandidate = (opId, blob, live, receipt) => {
+      receipt.entries[0].digest = '0'.repeat(64);
+      return create(opId, blob, live, receipt);
+    };
+    const before = f.git.head(L);
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(before);
+    expect(f.receipts()).toHaveLength(0);
+    expect(f.batchFile().result).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining('Tooltip 123 would publish a different revision'),
+    });
+  });
+
   it('sec F1: a claimed batch drains before a push that landed after its claim (never overwritten)', async () => {
     const f = await setup();
     await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);

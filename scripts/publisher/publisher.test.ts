@@ -455,6 +455,33 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.assertDone(B);
   });
 
+  it.each([false, true])(
+    'rejects a candidate with the wrong signed marker (inactive=%s)',
+    async (inactive) => {
+      const f = await setup();
+      if (inactive) {
+        f.change(D, {
+          'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } },
+        });
+        await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+      } else await f.request(A);
+      const create = f.pub.createCandidate.bind(f.pub);
+      f.pub.createCandidate = (opId, blob, live, receipt) => {
+        receipt.entries[0].digest = '0'.repeat(64);
+        return create(opId, blob, live, receipt);
+      };
+      const before = f.git.head(L);
+      await f.pub.operation(A);
+      expect(f.git.head(L)).toBe(before);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+        result: {
+          status: 'rejected',
+          error: expect.stringContaining('Tooltip 123 would publish a different revision'),
+        },
+      });
+    },
+  );
+
   it.each([true, false])(
     'inactive: an unrelated publish cannot restore an absent pick stub (inactive=%s)',
     async (inactive) => {

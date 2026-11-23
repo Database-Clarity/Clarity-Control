@@ -341,6 +341,35 @@ export class GlobalsPublisher {
     if (!tooltips[2] || !tooltips[3]) throw new Error('Missing last-published global library');
     return { repository: this.options.repo, revision, aliases, types: liveTypes, tooltips, mode: 'live' };
   }
+  private publicationSnapshot(
+    tree: Tree,
+    revision: string,
+    captured: ReturnType<GlobalsPublisher['capture']>,
+    documents: Tooltip[],
+  ) {
+    // Partial publication may preserve legacy canonicals and reconcile alias groups.
+    const { aliases, types } = captured.authored;
+    const hashes = documents.map(({ hash }) => hash);
+    const exported = exportWithInactiveMoves(
+      documents,
+      0,
+      this.options.facts,
+      aliases,
+      selectedInactiveMoves(this.publisher.movesAt(tree), hashes, aliases),
+    );
+    const perks = this.publisher.mergePublicationPerks(tree, captured.livePerks, exported, hashes);
+    return this.liveSnapshot(
+      revision,
+      livePerksSchema.parse(perks),
+      {
+        ...captured.live.tooltips,
+        ...Object.fromEntries(
+          documents.filter(({ hash }) => exported[hash]).map((document) => [document.hash, document]),
+        ),
+      },
+      types,
+    );
+  }
   capture(tree: Tree, revision: string, liveCommit: string, roots: Tooltip[] = []) {
     const published = globalPublishedSchema.parse(
       this.read(tree, globalsReleasePaths.published(this.options.liveBranch)),
@@ -578,7 +607,18 @@ export class GlobalsPublisher {
     )
       throw new Error('Sync pending: global dependency review required');
     const ids = ready.flatMap((component) => component.ids);
-    const store = composeGlobalRelease(captured.published, captured.saved, ids);
+    const entryRelease = composeGlobalRelease(captured.published, captured.saved, ids);
+    const layout = entryRelease.aggregates.map((previous) =>
+      activeSelection.includes(previous.document.hash)
+        ? (captured.saved.aggregates.find(
+            ({ document }) => document.hash === previous.document.hash,
+          ) ?? previous)
+        : previous,
+    );
+    const store =
+      stableStringify(layout) === stableStringify(entryRelease.aggregates)
+        ? entryRelease
+        : reconcileGlobalStore(layout, entryRelease.entries);
     const hashes = [
       ...new Set([...selected, ...ready.flatMap((component) => component.hashes)]),
     ].sort((a, b) => a - b);
@@ -612,6 +652,37 @@ export class GlobalsPublisher {
       if (!document) throw new Error('Deleted release dependency');
       return document;
     });
+    if (store !== entryRelease) {
+      const previous = projectGlobals(entryRelease);
+      if (stableStringify(previous) !== stableStringify(globals)) {
+        // Entry approvals cover the entry-only candidate. The selected layout
+        // may accompany it only if it preserves the resolver result.
+        if (sync.status !== 'current')
+          throw new Error('Sync pending: global dependency review required');
+        const snapshot = this.publicationSnapshot(tree, revision, captured, documents);
+        const tooltips = { ...snapshot.tooltips };
+        for (const [hash, document] of Object.entries(previous))
+          if (tooltips[hash]) tooltips[hash] = document;
+        const comparison = calculateGlobalImpact(
+          { ...snapshot, tooltips },
+          snapshot,
+          [
+            {
+              // Title preparation covers every consumer in the existing resolver.
+              kind: 'titles',
+              beforeName: 'Release',
+              cause: { globalId: 'g_release000', beforeRevision: null, afterRevision: 'layout' },
+            },
+          ],
+          this.options.liveBranch,
+        );
+        if (
+          !comparison.complete ||
+          comparison.rows.some((row) => stableStringify(row.before) !== stableStringify(row.after))
+        )
+          throw new Error('The saved global layout changes or cannot prove consumer output');
+      }
+    }
     const published = globalPublishedSchema.parse({
       version: 1,
       destination: this.options.liveBranch,
@@ -644,35 +715,7 @@ export class GlobalsPublisher {
           'The global generator changed after scheduling; return to draft and schedule again',
         );
       const sourceAliases = this.publisher.aliasesAt(sourceTree);
-      // A partial publish reconciles adopted name groups and preserves some legacy
-      // canonicals. Use the exact candidate merge to decide which identities have text.
-      const aliases = captured.authored.aliases;
-      const exported = exportWithInactiveMoves(
-        documents,
-        0,
-        this.options.facts,
-        aliases,
-        selectedInactiveMoves(moves, hashes, aliases),
-      );
-      const perks = this.publisher.mergePublicationPerks(
-        tree,
-        captured.livePerks,
-        exported,
-        hashes,
-      );
-      const snapshot = this.liveSnapshot(
-        revision,
-        livePerksSchema.parse(perks),
-        {
-          ...captured.live.tooltips,
-          ...Object.fromEntries(
-            documents
-              .filter((document) => exported[document.hash])
-              .map((document) => [document.hash, document]),
-          ),
-        },
-        captured.authored.types,
-      );
+      const snapshot = this.publicationSnapshot(tree, revision, captured, documents);
       const pinned = this.store(sourceTree);
       const pinnedDocuments = this.canonicalDocuments(sourceTree, 'live/tooltips', sourceAliases);
       for (const document of documents)

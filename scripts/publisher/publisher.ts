@@ -720,6 +720,81 @@ export class Publisher {
     }
     return true;
   }
+  private assertRequestedDigests(
+    entries: Entry[],
+    hashes: number[],
+    expected: (hash: number) => string | undefined,
+    aliases: Aliases,
+  ) {
+    const markers = new Map(entries.map(({ hash, digest }) => [hash, digest]));
+    if (markers.size !== entries.length)
+      throw new ConsumerOutputRejected('Publication has duplicate markers');
+    for (const hash of hashes) {
+      const digest = expected(hash);
+      if (!digest || markers.get(resolveAlias(hash, aliases)) !== digest)
+        throw new ConsumerOutputRejected(
+          `Tooltip ${hash} would publish a different revision than requested. Review the changes again.`,
+        );
+    }
+  }
+  private async verifyReceiptDigests(receipt: Receipt) {
+    const frozen = this.git.tree(receipt.sourceCommit);
+    const signed = await this.verifyRequest(receipt.requestBlob, receipt.opId, frozen);
+    const aliases = this.aliasesAt(frozen);
+    if (
+      !receipt.globals &&
+      receipt.entries.length !==
+        new Set(signed.hashes.map((hash) => resolveAlias(hash, aliases))).size
+    )
+      throw new ConsumerOutputRejected('Receipt does not match the requested rows');
+    if (signed.kind === 'push')
+      this.assertRequestedDigests(
+        receipt.entries,
+        signed.hashes,
+        (hash) => signed.expected[hash],
+        aliases,
+      );
+    else {
+      const members = batchMembers(this, frozen, signed.batchId);
+      if (
+        signed.batchId !== receipt.batchId ||
+        stableStringify(members.map(({ hash }) => hash)) !== stableStringify(signed.hashes) ||
+        (await approvedDigest(members)) !== signed.approvedDigest
+      )
+        throw new ConsumerOutputRejected('Batch receipt differs from the signed request');
+      const pushed = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
+      const moves = this.movesAt(frozen);
+      const expected = new Map<number, string>();
+      const entries = new Map(receipt.entries.map((entry) => [entry.hash, entry]));
+      for (const member of members) {
+        const { hash } = member;
+        const document = (prefix: string) => {
+          const raw = this.read<unknown>(frozen, `${prefix}/${hash}.json`);
+          return raw === undefined ? null : tooltipSchema.parse(raw);
+        };
+        const composed = this.composeMember(
+          member,
+          document('live/tooltips'),
+          document('tooltips'),
+          pushed[hash] !== undefined,
+        );
+        if (
+          composed.status === 'stale' ||
+          this.git.writeBlob(json(composed.tooltip)) !== entries.get(hash)?.tooltipBlob
+        )
+          throw new ConsumerOutputRejected(
+            `Tooltip ${hash} differs from the approved batch composition`,
+          );
+        expected.set(hash, await inactivePublishableHash(composed.tooltip, aliases, moves));
+      }
+      this.assertRequestedDigests(
+        receipt.entries,
+        signed.hashes,
+        (hash) => expected.get(hash),
+        aliases,
+      );
+    }
+  }
   async record(
     opId: string,
     receipt: Receipt | undefined,
@@ -730,6 +805,7 @@ export class Publisher {
     atomicLive?: { parent: string; candidate: string },
   ) {
     const p = paths(opId);
+    if (receipt) await this.verifyReceiptDigests(receipt);
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);
@@ -1122,10 +1198,18 @@ export class Publisher {
                 })),
               )),
             );
-          } catch {
-            throw new ConsumerOutputRejected('Sync pending: global dependency review required');
+          } catch (error) {
+            throw new ConsumerOutputRejected(
+              error instanceof Error ? error.message : String(error),
+            );
           }
         }
+        this.assertRequestedDigests(
+          entries,
+          payload.hashes,
+          (hash) => payload.expected[hash],
+          aliases,
+        );
         const checked = this.checkAndExport(tree, tooltips, aliases);
         if ('error' in checked) {
           await this.record(
@@ -1197,7 +1281,7 @@ export class Publisher {
               { parent: l, candidate: c },
             );
           } catch (error) {
-            if (error instanceof RefRace) throw error;
+            if (error instanceof RefRace || error instanceof ConsumerOutputRejected) throw error;
             throw new ConsumerOutputRejected(
               'Global publication changed or requires recovery; nothing partially published',
             );
@@ -1209,6 +1293,7 @@ export class Publisher {
           }
           return;
         }
+        await this.verifyReceiptDigests(r);
         let pushed = false;
         try {
           this.git.cas(dataRef(this.options.liveBranch), l, c);
@@ -1471,9 +1556,25 @@ export class Publisher {
     for (const tooltip of documents)
       entries.push({
         hash: tooltip.hash,
-        digest: await inactivePublishableHash(tooltip, aliases, this.movesAt(tree)),
+        digest: await inactivePublishableHash(tooltip, aliases, moves),
         tooltipBlob: this.git.writeBlob(json(tooltip)),
       });
+    if (globals) {
+      const expected = new Map(
+        await Promise.all(
+          tooltips.map(
+            async (tooltip) =>
+              [tooltip.hash, await inactivePublishableHash(tooltip, aliases, moves)] as const,
+          ),
+        ),
+      );
+      try {
+        this.assertRequestedDigests(entries, payload.hashes, (hash) => expected.get(hash), aliases);
+      } catch (error) {
+        if (!(error instanceof ConsumerOutputRejected)) throw error;
+        return { failure: { status: 'rejected', error: error.message } };
+      }
+    }
     return {
       entries,
       now: checked.now,
@@ -1770,40 +1871,11 @@ export class Publisher {
     if (receipt.batchId !== payload.batchId) throw new Error('Receipt batch mismatch');
     const frozen = this.git.tree(receipt.sourceCommit);
     const members = batchMembers(this, frozen, payload.batchId);
-    const snapshotAt = (hash: number) => {
-      const value = this.read<unknown>(frozen, `live/tooltips/${hash}.json`);
-      return value === undefined ? null : tooltipSchema.parse(value);
-    };
-    const pushedAt = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
-    // The composed snapshots exist only as receipt OIDs: rewrite them from S' (deterministic)
-    // so a recovering runner holds the blobs, and fail closed if they ever differ.
-    const byHash = new Map(members.map((m) => [m.hash, m]));
     if (
       receipt.globals &&
-      (stableStringify(receipt.globals.roots) !== stableStringify(payload.hashes) ||
-        stableStringify(members.map((member) => member.hash)) !== stableStringify(payload.hashes) ||
-        members.some((member) => !receipt.entries.some((entry) => entry.hash === member.hash)))
+      stableStringify(receipt.globals.roots) !== stableStringify(payload.hashes)
     )
       throw new Error('Global batch receipt roots differ from its signed members');
-    for (const e of receipt.entries) {
-      const m = byHash.get(e.hash);
-      // Global closure entries were checked as a set before the atomic transaction.
-      // They publish alongside the batch, but only actual members activate into current.
-      if (!m && receipt.globals) continue;
-      if (!m) throw new Error(`Receipt member ${e.hash} missing at S'; operator required`);
-      const saved = this.read<unknown>(frozen, `tooltips/${m.hash}.json`);
-      const composed = this.composeMember(
-        m,
-        snapshotAt(m.hash),
-        saved === undefined ? null : tooltipSchema.parse(saved),
-        pushedAt[m.hash] !== undefined,
-      );
-      if (
-        composed.status === 'stale' ||
-        this.git.writeBlob(json(composed.tooltip)) !== e.tooltipBlob
-      )
-        throw new Error(`Composition of ${e.hash} differs from its receipt; operator required`);
-    }
     const batch = batchSchema.parse(this.read<unknown>(tree, path));
     if (batch.status !== 'publishing' || batch.opId !== opId || batch.claim?.opId !== opId)
       throw new Error(`Batch ${batch.id} is not claimed by ${opId}; operator required`);
