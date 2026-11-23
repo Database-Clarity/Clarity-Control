@@ -106,12 +106,12 @@ async function click(label: string) {
   await act(async () => button(label).click());
   await flush();
 }
-async function mount() {
+async function mount(route = '/review') {
   await act(async () =>
     root.render(
       createElement(
         MemoryRouter,
-        { initialEntries: ['/review'] },
+        { initialEntries: [route] },
         createElement(
           Routes,
           null,
@@ -293,6 +293,117 @@ it.each([false, true])(
     expect(posts()[0]!.body).toMatchObject({ hashes: importsExports ? [1, 10] : [10] });
   },
 );
+
+it('lists each export of the globals file, ticks them together, and publishes the one file', async () => {
+  const text = (word: string) =>
+    ['anti_barrier', 'overload', 'unstoppable']
+      .map((name) => `${word} ${name} (\nText of ${name}\n)`)
+      .join('\n\n');
+  const file = (word: string): Tooltip => ({
+    hash: 1,
+    custom: { name: 'Global exports', categoryId: 'none' },
+    text: { en: { ...tooltip.text.en!, text: text(word) } },
+    associated: [],
+  });
+  bundle.tooltips = { 1: file('export') };
+  // A change after the file, which a decision on it moves on to.
+  bundle.tooltips[2] = {
+    ...file('export'),
+    hash: 2,
+    custom: { name: 'Global variables', categoryId: 'none' },
+    text: { en: { ...tooltip.text.en!, text: 'var a = 1' } },
+  };
+  bundle.pushed = { 1: 'live-marker' };
+  const fallback = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((url, init) =>
+    String(url).endsWith('/history/1?live=1')
+      ? Promise.resolve(
+          Response.json({ tooltip: file('export hidden'), pushedHash: 'live-marker' }),
+        )
+      : fallback(url, init),
+  );
+  await mount();
+  const rows = () =>
+    [...host.querySelectorAll<HTMLAnchorElement>('a[data-review-hash]')].map(
+      (row) => row.textContent,
+    );
+  await waitFor(() =>
+    expect(rows()).toEqual([
+      'anti_barrierOutput unchanged',
+      'overloadOutput unchanged',
+      'unstoppableOutput unchanged',
+      'aNew',
+    ]),
+  );
+  expect(host.textContent).not.toContain('Global exports');
+  expect(host.textContent).toContain('2 changes waiting to go live');
+  expect(host.textContent).toContain('Globals · exports ticked together');
+  const detail = () => host.querySelector('section[aria-label="Selected change"]')!;
+  expect(detail().textContent).toContain(
+    'Output unchanged. The published version hides this export; its text is the same.',
+  );
+  expect(detail().querySelector('ins, del')).toBeNull();
+  expect(
+    host.querySelector<HTMLAnchorElement>('a[href="/t/1?global=anti_barrier"]'),
+  ).not.toBeNull();
+
+  // Include on one export ticks all three, says so, and moves past the file.
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' })));
+  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('overload'));
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })));
+  const boxes = () => [...host.querySelectorAll<HTMLInputElement>('input[data-review-toggle="1"]')];
+  expect(boxes().map(({ checked }) => checked)).toEqual([true, true, true]);
+  expect(host.textContent).toContain(
+    'anti_barrier, overload, and unstoppable: included in the publish.',
+  );
+  expect(host.textContent).toContain('1 included');
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })));
+  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('a'));
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'u' })));
+  expect(boxes().map(({ checked }) => checked)).toEqual([false, false, false]);
+  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('overload'));
+
+  await act(async () => boxes()[2]!.click());
+  expect(boxes().map(({ checked }) => checked)).toEqual([true, true, true]);
+  await openPublish();
+  const dialog = host.querySelector('dialog[open]')!;
+  expect(dialog.textContent).toContain('1 tooltip with unchanged output goes live');
+  expect([...dialog.querySelectorAll('li')].map((row) => row.textContent)).toEqual([
+    'anti_barrier, overload, and unstoppableGlobals · 1Output unchanged',
+  ]);
+  await click('Publish 1');
+  await waitFor(() => expect(posts()).toHaveLength(1));
+  expect(posts()[0]!.body).toMatchObject({
+    hashes: [1],
+    expected: { 1: await publishableHash(file('export')) },
+  });
+});
+
+it('opens the export a cold filtered link names once its word is known', async () => {
+  const file = (word: string): Tooltip => ({
+    hash: 1,
+    custom: { name: 'Global exports', categoryId: 'none' },
+    text: {
+      en: {
+        ...tooltip.text.en!,
+        text: ['first', 'last'].map((name) => `${word} ${name} (\nText\n)`).join('\n\n'),
+      },
+    },
+    associated: [],
+  });
+  bundle.tooltips = { 1: file('export') };
+  bundle.pushed = { 1: 'deep-link-marker' };
+  const fallback = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (url, init) => {
+    if (!String(url).endsWith('/history/1?live=1')) return fallback(url, init);
+    // The rows mount, filtered out, before their published file arrives.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    return Response.json({ tooltip: file('export hidden'), pushedHash: 'deep-link-marker' });
+  });
+  await mount(`/review?hash=${encodeURIComponent('1:last')}&kind=Output+unchanged`);
+  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('last'));
+  expect(host.querySelectorAll('a[data-review-hash^="1:"]')).toHaveLength(2);
+});
 
 it('follows one reviewed request through Sync pending, Publishing, and Published', async () => {
   await mount();
