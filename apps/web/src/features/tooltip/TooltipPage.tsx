@@ -64,6 +64,7 @@ import { PreviewColumn, type EnhancedView } from '../preview';
 import { effectiveMode, previewedHashes, type PreviewMode } from '../preview/previewMode';
 import { useAcknowledgePreview } from '../navigation/useAcknowledgePreview';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
+import { compendiumVisit } from '../queue/compendiumVisit';
 import { HistoryPanel } from '../history/HistoryPanel';
 import { useSaveState } from '../../services/save/state';
 import { AssociationsPanel } from '../associations/AssociationsPanel';
@@ -967,14 +968,7 @@ function TooltipWorkspace({
       <VariantWorkspace
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
-        openCompendium={
-          // A parity run opens it once: stepping keeps the view the user is in.
-          work?.mode === 'active' && work.queue.source === 'parity'
-            ? work.queue.id
-            : (routeState as { pane?: unknown } | null)?.pane === 'compendium'
-              ? routeState
-              : undefined
-        }
+        openCompendium={compendiumVisit(routeState, work, phone)}
         source={
           lang === 'en' || (batchEditing && !batchAllowed) ? undefined : batchEditing ? (
             upcoming.overlay?.[activeHash] ? (
