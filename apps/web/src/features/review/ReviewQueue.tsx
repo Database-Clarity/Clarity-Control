@@ -143,7 +143,7 @@ const GroupHeader = memo(function GroupHeader({
         title={
           marker
             ? 'Saved text already matches live; listed only because of the alias migration.'
-            : undefined
+            : group.note
         }
       >
         <span className={styles.chevron} aria-hidden="true" />
