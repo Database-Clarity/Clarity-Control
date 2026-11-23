@@ -14,8 +14,9 @@ it('does no parsing or invalidation for unchanged focus, unrelated keys or selec
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null });
   const { storedInputs } = await import('./storedInputs');
   const scope = 'content-cache-test';
-  const key = reviewStorageKey(`${scope}|read-only`);
-  const store = storedInputs(scope, 'read-only');
+  const datasetScope = 'loopback-dataset';
+  const key = reviewStorageKey(`${datasetScope}|read-only`);
+  const store = storedInputs(scope, 'read-only', undefined, datasetScope);
   const listener = vi.fn();
   const unsubscribe = store.subscribe(listener);
   const first = store.getSnapshot();

@@ -28,7 +28,10 @@ import { useAdvanceSetting } from '../compendium/advanceSetting';
 import { useKinds } from './kinds';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
-vi.mock('../../services/bundle', () => ({ loadBundle: vi.fn() }));
+vi.mock('../../services/bundle', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/bundle')>()),
+  loadBundle: vi.fn(),
+}));
 vi.mock('../../services/api', async (original) => ({
   ...(await original<typeof import('../../services/api')>()),
   apiUrl: 'https://synthetic.invalid',

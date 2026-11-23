@@ -130,8 +130,14 @@ workflow runs there), read from raw.githubusercontent.com:
 `source.text` is the fingerprint: the plain text of the non-blank `compendium.json` grid cells
 inside `range` on tab `gid`, row by row and left to right (a merged cell once, at its
 top-left), joined by newlines. The popover compares it with the same text of the current
-Compendium, ignoring whitespace differences. A missing or invalid file, a hash mismatch, or a
-failed request shows nothing. `test/fixtures/editor-drafts` is a local example;
+Compendium, ignoring whitespace differences.
+
+An entry with no Compendium row is drafted from its in-game description: `source.tab` is
+`Manifest` (`gid` `0` and `range` `A1` are placeholders), and `source.text` is that description.
+The popover says so without a sheet link, and compares the text with the description the page
+shows; while that is unavailable, it reports no change.
+
+A missing or invalid file, a hash mismatch, or a failed request shows nothing. `test/fixtures/editor-drafts` is a local example;
 `test/draft-loader-browser.mjs` runs the render matrix and flows against it.
 
 ## Compendium tracking

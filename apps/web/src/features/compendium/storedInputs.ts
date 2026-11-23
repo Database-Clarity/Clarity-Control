@@ -3,9 +3,8 @@ import { displayInputKey } from './matchingSession';
 import { emptyProgress, progressSchema, reviewStorageKey } from './reviewProgress';
 import { compendiumInputEvent } from './inputEvents';
 
-function createStore(scope: string, apiScope: string, userId?: string | number) {
+function createStore(scope: string, progressKey: string) {
   const guidanceKey = `clarity-review-guidance:v1:${encodeURIComponent(scope)}`;
-  const progressKey = reviewStorageKey(`${scope}|${apiScope}`, userId);
   type Cache = ReturnType<typeof guidanceCacheSchema.parse>;
   type Inputs = {
     key: string;
@@ -88,11 +87,17 @@ function createStore(scope: string, apiScope: string, userId?: string | number) 
   };
 }
 const stores = new Map<string, ReturnType<typeof createStore>>();
-export function storedInputs(scope: string, apiScope: string, userId?: string | number) {
-  const key = JSON.stringify([scope, apiScope, userId]);
+export function storedInputs(
+  scope: string,
+  apiScope: string,
+  userId?: string | number,
+  datasetScope = scope,
+) {
+  const progressKey = reviewStorageKey(`${datasetScope}|${apiScope}`, userId);
+  const key = JSON.stringify([scope, progressKey]);
   let store = stores.get(key);
   if (!store) {
-    store = createStore(scope, apiScope, userId);
+    store = createStore(scope, progressKey);
     stores.set(key, store);
     for (const [oldKey, old] of stores) {
       if (stores.size <= 8) break;

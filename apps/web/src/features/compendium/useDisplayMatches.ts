@@ -3,8 +3,11 @@ import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { apiUrl } from '../../services/api';
-import { bundleUrl } from '../../services/bundle';
-import { pendingCompendiumWorker, compendiumDataUrl } from '../../services/compendium';
+import {
+  compendiumDatasetScope,
+  compendiumGuidanceScope,
+  pendingCompendiumWorker,
+} from '../../services/compendium';
 import { guidanceResponseSchema } from './guidanceSchema';
 import { matchingSession, prewarmMatchingSession } from './matchingSession';
 import type { PriorityReview } from './matchingSessionPlanning';
@@ -96,9 +99,9 @@ export function useDisplayMatches(
     () => Object.fromEntries(JSON.parse(evidence)) as Drafts,
     [evidence],
   );
-  const scope = `${bundleUrl}|${compendiumDataUrl}`;
+  const scope = compendiumGuidanceScope;
   const inputsStore = useMemo(
-    () => storedInputs(scope, apiUrl ?? 'read-only', userId),
+    () => storedInputs(scope, apiUrl ?? 'read-only', userId, compendiumDatasetScope),
     [scope, userId],
   );
   const inputs = useSyncExternalStore(

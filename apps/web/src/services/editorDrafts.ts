@@ -147,3 +147,12 @@ export function sourceChanged(draft: EditorDraft, data: CompendiumData | null) {
   const now = rangeText(data, draft.source.gid, draft.source.range);
   return now === undefined || normalised(now) !== normalised(draft.source.text);
 }
+
+/** Written from the in-game description (no Compendium row): its gid and range point nowhere. */
+export const manifestSourced = (draft: EditorDraft) => draft.source.tab === 'Manifest';
+
+/** sourceChanged for a manifest-sourced draft; undefined while the description is unavailable. */
+export function manifestSourceChanged(draft: EditorDraft, description: string) {
+  if (!description) return undefined;
+  return normalised(description) !== normalised(draft.source.text);
+}

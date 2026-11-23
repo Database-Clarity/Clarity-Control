@@ -1,15 +1,21 @@
 import {
+  normaliseCompendiumName,
   resolveCompendiumLink,
   withCompendiumMatchingIndex,
   type CompendiumData,
+  type CompendiumMatch,
 } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { DisplayInput } from './matchingSession';
 import type { ReviewSample } from './reviewCategories';
-import type { ReviewProposal } from './rapidReview';
+import { proposalFor, type ReviewProposal } from './rapidReview';
 import approved from './approved-guidance.v1.json';
 import { guidanceSchema } from './guidanceSchema';
-import { guidedDecisionSteps, type GuidedDecision } from './guidedDecisions';
+import {
+  guidedDecisionSteps,
+  type GuidedDecision,
+  type OwnsCompendiumRow,
+} from './guidedDecisions';
 import { rebaselineGuidance } from './rebaselineGuidance';
 import { reviewCategories } from './reviewCategories';
 import { applyReviewProgress, reviewEvidence } from './reviewQueue';
@@ -126,14 +132,28 @@ export function prepareMatchingPlan(
         ]),
     ),
   };
-  return { fingerprint, baseline, evidence, categories, document, overrides, scope: input.scope };
+  return {
+    fingerprint,
+    baseline,
+    evidence,
+    categories,
+    document,
+    overrides,
+    scope: input.scope,
+    editor,
+    input,
+    approvedInput,
+  };
 }
 
-export function* matchingPlanSteps(
-  plan: ReturnType<typeof prepareMatchingPlan>,
+type MatchingPlan = ReturnType<typeof prepareMatchingPlan>;
+
+function* decisionSteps(
+  plan: MatchingPlan,
   source: CompendiumData,
   proposals: Map<number, ReviewProposal>,
   onlyHash?: number,
+  ownsRow?: OwnsCompendiumRow,
 ) {
   const { categories, document, overrides, baseline, scope } = plan;
   const decisionsByHash = new Map<number, GuidedDecision>();
@@ -148,11 +168,97 @@ export function* matchingPlanSteps(
       scope,
       onlyHash,
       plan.fingerprint,
+      undefined,
+      ownsRow,
     );
     for (const group of groups)
       for (const decision of group.entries) decisionsByHash.set(decision.hash, decision);
   }
-  const decisions = [...decisionsByHash.values()];
+  return decisionsByHash;
+}
+
+function competitorOwnership(
+  plan: MatchingPlan,
+  source: CompendiumData,
+  proposals: Map<number, ReviewProposal>,
+  priority: boolean,
+): OwnsCompendiumRow {
+  const { editor, input, approvedInput } = plan;
+  let itemsByName: Map<string, number[]> | undefined;
+  const ownedMatches = new Map<number, CompendiumMatch | undefined>();
+  const independentMatch = (hash: number) => {
+    const ownerPlan = priority
+      ? prepareMatchingPlan(editor, source, input, proposals, approvedInput, hash, plan.fingerprint)
+      : plan;
+    const owner = ownerPlan.evidence.find((entry) => entry.hash === hash);
+    if (!owner) return;
+    if (owner.base.compendium) {
+      if (owner.changed) return;
+      const saved = resolveCompendiumLink(owner.base.compendium, source);
+      if ('row' in saved) return saved;
+      return;
+    }
+    const local = input.progress.decisions[hash];
+    if (local && local.fingerprint !== owner.evidence) return;
+    const ownerProposals = proposals.has(hash)
+      ? proposals
+      : new Map([[hash, proposalFor(owner.base, editor, source)]]);
+    // No ownership callback here. Even a sole match that didn't need to consult
+    // another owner cannot establish ownership for this rule.
+    const steps = decisionSteps(ownerPlan, source, ownerProposals, hash);
+    let next = steps.next();
+    while (!next.done) next = steps.next();
+    const decision = next.value.get(hash);
+    if (
+      decision?.action === 'link' &&
+      decision.confidence === 'high' &&
+      decision.ruleId !== 'sole-compendium-candidate' &&
+      decision.link
+    ) {
+      const resolved = resolveCompendiumLink(decision.link, source);
+      if (resolved.status === 'ok') return resolved;
+    }
+  };
+  return (challenger, match) => {
+    if (!itemsByName) {
+      itemsByName = new Map();
+      for (const item of Object.values(editor.items)) {
+        const name = normaliseCompendiumName(item.name);
+        const hashes = itemsByName.get(name);
+        if (hashes) hashes.push(item.hash);
+        else itemsByName.set(name, [item.hash]);
+      }
+    }
+    return (itemsByName.get(normaliseCompendiumName(match.row.name)) ?? []).some((hash) => {
+      if (hash === challenger) return false;
+      if (!ownedMatches.has(hash)) ownedMatches.set(hash, independentMatch(hash));
+      const resolved = ownedMatches.get(hash);
+      if (!resolved || resolved.tab.gid !== match.tab.gid) return false;
+      if (resolved.row === match.row || resolved.componentRows?.includes(match.row)) return true;
+      // The resolver copies the named row when it projects a manual cell selection.
+      const anchor = resolved.row.anchor;
+      return !!(
+        resolved.cells &&
+        anchor &&
+        resolved.row.name === match.row.name &&
+        anchor.row === match.row.anchor?.row &&
+        anchor.col === match.row.anchor.col
+      );
+    });
+  };
+}
+
+export function* matchingPlanSteps(
+  plan: MatchingPlan,
+  source: CompendiumData,
+  proposals: Map<number, ReviewProposal>,
+  onlyHash?: number,
+) {
+  const { categories } = plan;
+  const ownership = competitorOwnership(plan, source, proposals, onlyHash !== undefined);
+  const decisions = [
+    ...(yield* decisionSteps(plan, source, proposals, onlyHash, ownership)).values(),
+  ];
   const matches = new Map(
     decisions.flatMap((decision) => {
       if (
