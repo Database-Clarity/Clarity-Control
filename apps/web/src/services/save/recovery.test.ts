@@ -233,6 +233,31 @@ it('releases an abandoned legacy upload without sending a finalization', async (
   expect(draftSaveStatus(useDraftStore.getState(), useSaveState.getState())).toBeNull();
 });
 
+it.each(['discarded', 'changed'])('never replays a finalization for a %s draft', async (kind) => {
+  vi.useFakeTimers();
+  const saved = records();
+  saved[1] = {
+    ...saved[1],
+    stageId: '01K95H00000000000000000A02',
+    finalization: { parts: 3, digest: 'd'.repeat(64) },
+  };
+  useAuthStore.setState({
+    loading: false,
+    user: { id: 1, login: 'alice', role: 'editor' },
+    token: 'test',
+  });
+  stage.outcome.mockResolvedValue({ status: 'uploading' });
+  start(saved);
+  const later = { 400: { base: second, next: { ...ambiguous, associated: [789] } } };
+  const expected = kind === 'discarded' ? {} : later;
+  useDraftStore.setState({ drafts: expected });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(stage.resume).not.toHaveBeenCalled();
+  expect(write).toHaveBeenCalledExactlyOnceWith('1', 'ambiguous');
+  expect(useDraftStore.getState().drafts).toEqual(expected);
+  expect(draftSaveStatus(useDraftStore.getState(), useSaveState.getState())).toBeNull();
+});
+
 it.each(['saved', 'failed'])(
   'keeps edits made while applying when the stage is %s',
   async (status) => {

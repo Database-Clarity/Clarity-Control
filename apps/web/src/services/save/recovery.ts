@@ -97,13 +97,28 @@ export function startSaveRecovery(): () => void {
         } else {
           if (result?.status === 'uploading' && receipt.finalization) {
             const { token, user, loading } = useAuthStore.getState();
+            const { drafts, external } = useDraftStore.getState();
             if (
+              !external &&
               !loading &&
               user?.role &&
               String(user.id) === session.owner &&
               token === sessionToken()
-            )
+            ) {
+              const submitted = Object.entries(receipt.submitted);
+              if (
+                !submitted.length ||
+                submitted.some(
+                  ([hash, draft]) =>
+                    !drafts[hash] || stableStringify(drafts[hash]) !== stableStringify(draft),
+                )
+              ) {
+                failed.add(receipt.id);
+                void writeSaveReceipt(session.owner, receipt.id).catch(() => {});
+                continue;
+              }
               await resumeCurrentSave(receipt.stageId, receipt.finalization);
+            }
             pending.push(receipt);
             continue;
           }

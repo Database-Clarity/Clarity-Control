@@ -65,9 +65,11 @@ export async function resumeCurrentSave(requestId: string, finalization: SaveFin
   queued.parse(await response.json());
 }
 
-async function post(value: unknown) {
+async function post(value: unknown, onRefusal?: () => Promise<void>) {
   const response = await postRequest(value);
   if (!response.ok) {
+    // A concurrent finalizer can return 409 after it has already queued this upload.
+    if (response.status !== 409) await onRefusal?.();
     const error = z.object({ error: z.string() }).safeParse(
       await response
         .clone()
@@ -87,7 +89,7 @@ export async function stageCurrentSave(
   noTranslationImpact: boolean,
   proceed: () => boolean,
   progress: (uploaded: number | null) => void,
-  beforeFinish: (finalization: SaveFinalization) => Promise<void>,
+  storeFinalization: (finalization: SaveFinalization | undefined) => Promise<void>,
 ): Promise<SaveResult> {
   const hashes = changes.map(({ hash }) => hash);
   assertNoGlobalAggregates(hashes);
@@ -114,9 +116,9 @@ export async function stageCurrentSave(
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
   checkSession();
-  await beforeFinish({ parts, digest });
+  await storeFinalization({ parts, digest });
   checkSession();
-  queued.parse(await post({ requestId, parts, digest }));
+  queued.parse(await post({ requestId, parts, digest }, () => storeFinalization(undefined)));
   progress(null);
   const deadline = Date.now() + 5 * 60_000;
   while (Date.now() < deadline) {

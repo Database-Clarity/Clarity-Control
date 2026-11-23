@@ -133,6 +133,10 @@ export async function saveCurrent({
             },
             async (finalization) => {
               if (!owner) return;
+              if (!finalization) {
+                await writeSaveReceipt(owner, receipt.id);
+                return;
+              }
               await writeSaveReceipt(owner, receipt.id, { ...receipt, finalization });
               if (!mayStage()) await writeSaveReceipt(owner, receipt.id);
             },

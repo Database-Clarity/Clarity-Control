@@ -7,6 +7,7 @@ import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { clearSavedOverlay } from '../../stores/savedOverlay';
 import * as storage from '../draftStorage';
+import * as apiAuth from '../apiAuth';
 import type { Change } from '../api';
 import { saveChunks } from './chunks';
 import { saveCurrent, saveRemainder } from './currentSave';
@@ -59,6 +60,35 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+it.each([422, 409, 'network'] as const)(
+  'keeps the finalization receipt only when refusal %s can be ambiguous',
+  async (status) => {
+    const request = vi
+      .spyOn(apiAuth, 'apiRequest')
+      .mockResolvedValueOnce(Response.json({ accepted: 0 }));
+    if (status === 'network') request.mockRejectedValueOnce(new TypeError('Connection closed'));
+    else request.mockResolvedValueOnce(Response.json({ error: 'Finalize refused' }, { status }));
+    const receipt = vi.fn(async () => {});
+    await expect(
+      staged.stageCurrentSave(
+        '01K95H00000000000000000A02',
+        realChanges(1),
+        'Edit',
+        false,
+        () => true,
+        () => {},
+        receipt,
+      ),
+    ).rejects.toThrow(status === 'network' ? 'Connection closed' : 'Finalize refused');
+    expect(receipt).toHaveBeenNthCalledWith(1, {
+      parts: 1,
+      digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(receipt).toHaveBeenCalledTimes(status === 422 ? 2 : 1);
+    if (status === 422) expect(receipt).toHaveBeenLastCalledWith(undefined);
+  },
+);
 
 it.each([415, 1000])(
   'saves %i real tooltip records through sequential bounded requests',
