@@ -206,6 +206,7 @@ if (resolve(process.argv[1] ?? '') === import.meta.filename) {
   if (args.length && (args.length !== 2 || args[0] !== '--port'))
     throw new Error('Usage: npm run dev:roles -- [--port PORT]');
   const { prepareSandbox } = await import('./sandbox.mjs');
+  console.log('Preparing disposable data and publication proofs');
   const app = await startRoleHarness({
     port: args.length ? Number(args[1]) : 5187,
     prepareSandbox,

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { chromium } from 'playwright-core';
 import { startRoleHarness } from './start.mjs';
 import { localPath } from '../../apps/web/test/dev-role-web.mjs';
 import { prepareSandbox } from './sandbox.mjs';
+import { SandboxGit } from './sandbox-git.mjs';
 
 const browserPath = [
   process.env.PICKER_BROWSER,
@@ -20,11 +20,10 @@ const socket = createServer();
 await new Promise((done) => socket.listen(0, '127.0.0.1', done));
 const { port } = socket.address();
 await new Promise((done) => socket.close(done));
+console.log('Preparing disposable data and publication proofs');
 const app = await startRoleHarness({ port, prepareSandbox });
-const git = (...args) =>
-  execFileSync('git', ['--git-dir', app.dataGitDir, ...args], {
-    encoding: 'utf8',
-  }).trim();
+const data = new SandboxGit(app.dataGitDir);
+const git = (...args) => data.text(args).trim();
 const directory = app.origin + localPath;
 let browser;
 
@@ -134,12 +133,8 @@ try {
   assert.equal(stored(), afterSave);
   console.log('PASS English editor was read-only and the Worker refused the forced save (403)');
 
-  await me('editor', async () => {
-    await page.getByRole('button', { name: 'Dev role', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Development identity' });
-    await dialog.getByRole('combobox').selectOption('editor');
-    await dialog.getByRole('button', { name: 'Switch', exact: true }).click();
-  });
+  // The role switch reloads the editor. Wait for the new bundle before that reload
+  // so the review queue opens against the German save, rather than the previous snapshot.
   await page.waitForFunction(
     async ({ url, hash, text }) => {
       const response = await fetch(url, { cache: 'no-store' });
@@ -150,13 +145,17 @@ try {
     { url: bundleUrl, hash: tooltip.hash, text: current.text.de.text },
     { polling: 5000, timeout: 1_200_000 },
   );
+  await me('editor', async () => {
+    await page.getByRole('button', { name: 'Dev role', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Development identity' });
+    await dialog.getByRole('combobox').selectOption('editor');
+    await dialog.getByRole('button', { name: 'Switch', exact: true }).click();
+  });
   await page.goto(`${app.origin}/#/review?hash=${tooltip.hash}`);
-  await page.getByRole('link', { name: 'Open in editor ↗' }).waitFor();
-  assert.ok(
-    (await page.getByRole('link', { name: 'Open in editor ↗' }).getAttribute('href')).endsWith(
-      `/t/${tooltip.hash}`,
-    ),
-  );
+  const target = page
+    .getByRole('link', { name: 'Open in editor ↗' })
+    .and(page.locator(`a[href$="/t/${tooltip.hash}"]`));
+  await target.waitFor();
   await page.getByRole('button', { name: /^Include/ }).click();
   await page.locator('[data-review-publish]').click();
   const publish = page.waitForResponse(
@@ -168,8 +167,14 @@ try {
     .click();
   const accepted = await publish;
   assert.equal(accepted.status(), 202, await accepted.text());
+  const { opId } = await accepted.json();
+  console.log(`Accepted local publish ${opId}`);
   const activity = page.getByRole('region', { name: 'Publish activity' });
-  await activity.locator('li[data-status="done"]').waitFor({ timeout: 1_200_000 });
+  const receipt = activity.locator(
+    'li[data-status]:not([data-status="created"], [data-status="pending"], [data-status="foreign"])',
+  );
+  await receipt.waitFor({ timeout: 1_200_000 });
+  assert.equal(await receipt.getAttribute('data-status'), 'done', await receipt.innerText());
   const liveAfter = git('rev-parse', liveRef);
   assert.notEqual(liveAfter, liveBefore);
   console.log(
