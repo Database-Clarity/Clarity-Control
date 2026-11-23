@@ -676,9 +676,7 @@ export class Publisher {
     const added = Object.keys(tree).filter((path) => !Object.hasOwn(reviewed, path));
     return (
       added.length > 0 &&
-      added.every(
-        (path) => kick.test(path) && (!currentModes || currentModes[path] === '100644'),
-      ) &&
+      added.every((path) => kick.test(path) && (!currentModes || currentModes[path] === '100644')) &&
       Object.entries(reviewed).every(
         ([path, oid]) =>
           tree[path] === oid &&

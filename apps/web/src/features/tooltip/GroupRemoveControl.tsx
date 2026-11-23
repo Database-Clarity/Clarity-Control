@@ -3,7 +3,7 @@ import { sharedSandboxPerks } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { getAliasGroupsHead, removeGroupMember } from '../../services/aliasGroups';
 import { useAuthStore } from '../../stores/auth';
-import { applyAliasGroups, useDataStore } from '../../stores/data';
+import { applyGroupRemoval, useDataStore } from '../../stores/data';
 import { Popover } from '../../ui/Popover';
 import styles from './InactiveMoveControl.module.scss';
 
@@ -47,7 +47,9 @@ export function GroupRemoveControl({
       },
       (reason: unknown) => {
         if (!abort.signal.aborted)
-          setError(reason instanceof Error ? reason.message : 'Cannot load alias groups');
+          setError(
+            `${reason instanceof Error ? reason.message : 'Cannot load alias groups'}. Close and reopen to reload, then try again.`,
+          );
       },
     );
     return () => abort.abort();
@@ -78,12 +80,21 @@ export function GroupRemoveControl({
       const result = await removeGroupMember(head, canonical, hash);
       const current = useAuthStore.getState();
       if (current.user !== identity.user || current.token !== identity.token) return;
-      // The removal is saved from here on: nothing below may report it as failed.
       setOpen(false);
-      const source = useDataStore.getState().data?.bundle.tooltips[canonical];
-      applyAliasGroups(result.config, source && { ...structuredClone(source), hash });
+      try {
+        applyGroupRemoval(result, hash);
+      } catch {
+        // Saved on the server: a local failure only needs the data again.
+        void useDataStore.getState().load({ background: true });
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Cannot remove from group');
+      const message = reason instanceof Error ? reason.message : 'Cannot remove from group';
+      setError(
+        message.replace(/[.!?]?$/, '.') +
+          (reason instanceof Error && 'refused' in reason && reason.refused
+            ? ''
+            : ' Close and reopen to reload, then try again.'),
+      );
       // A conflict requires closing and reopening for a fresh head and confirmation.
       setHead(null);
     } finally {
@@ -113,7 +124,7 @@ export function GroupRemoveControl({
           </p>
           {error && (
             <p role="alert" className={styles.error}>
-              {error.replace(/[.!?]?$/, '.')} Close and reopen to reload, then try again.
+              {error}
             </p>
           )}
           {!head && !error && <p role="status">Checking the saved groups…</p>}

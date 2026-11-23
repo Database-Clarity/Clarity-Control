@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { hashSchema } from './legacy.js';
 import { aliasesSchema, resolveAlias, type Aliases } from './aliases.js';
-import { timestampSchema, type Tooltip } from './schemas.js';
+import { timestampSchema, tooltipSchema, type Tooltip } from './schemas.js';
 import { stableStringify } from './contentHash.js';
 import {
   mergeSandboxPointers,
@@ -120,6 +120,8 @@ export const aliasGroupsResponseSchema = z
     config: aliasGroupsSchema,
     issues: z.array(aliasGroupIssueSchema),
     affectedCanonicals: z.array(hashSchema).refine((v) => new Set(v).size === v.length),
+    /** A removed member's stored document, when it has one. */
+    tooltip: tooltipSchema.optional(),
   })
   .strict();
 export type AliasGroupsResponse = z.infer<typeof aliasGroupsResponseSchema>;

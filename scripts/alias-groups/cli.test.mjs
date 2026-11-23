@@ -25,14 +25,8 @@ test('edit history does not exclude identical text, while document facts still c
   b.legacy.inLiveDatabase = true;
   b.associated.push(99);
   assert.equal(sameDocumentMetadata(a, b, true), false);
-  assert.equal(
-    sameDocumentMetadata(
-      { hash: 42, text: {}, legacy: { updateTracker: {} } },
-      { hash: 43, text: {} },
-      true,
-    ),
-    true,
-  );
+  assert.equal(sameDocumentMetadata({ hash: 42, text: {}, legacy: { updateTracker: {} } },
+    { hash: 43, text: {} }, true), true);
 });
 
 test('duplicate proposals produce one review row per membership, preferring supported S', () => {

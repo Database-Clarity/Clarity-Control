@@ -13,6 +13,7 @@ import {
   emptyAliasGroups,
   hashSchema,
   languages,
+  pushedSchema,
   resolveAlias,
   sandboxConflictsSchema,
   sharedSandboxPerks,
@@ -309,6 +310,19 @@ async function removeMember(
   picks: SandboxPointers | null,
 ) {
   const group = config.groups[canonical];
+  const grouped = Object.values(config.groups).some(({ members }) => members.includes(member));
+  if (!grouped && config.removed?.[member]?.canonical === canonical) {
+    // A retry after a lost response: the removal is already saved, so answer it without writing.
+    const [file] = await github.files([tooltipPath(member)], head);
+    const stored = tooltip(file, member);
+    return json({
+      head,
+      config,
+      issues: [],
+      affectedCanonicals: [],
+      ...(stored ? { tooltip: stored } : {}),
+    } satisfies AliasGroupsResponse);
+  }
   if (!group?.members.includes(member))
     throw new HttpError(422, `${member} is not a member of this group`);
   const inputs = await aliasInputs(github);
@@ -331,11 +345,12 @@ async function removeMember(
   const archive = restorationArchive(config, group.members);
   const kept = archive ? remaining.filter((hash) => archive.files[hash]) : [];
   const reducedPath = `migration-archives/alias-groups/${head}/${canonical}.json`;
-  const [source, existing, occupied, ...blobs] = await github.files(
+  const [source, existing, occupied, pushed, ...blobs] = await github.files(
     [
       tooltipPath(canonical),
       tooltipPath(member),
       reducedPath,
+      'live/pushed.json',
       ...kept.map((hash) => retainedPath(archive!, String(hash))),
     ],
     head,
@@ -357,9 +372,20 @@ async function removeMember(
     },
   };
   // Every language with its stamps, so no translation turns outdated. A group without a
-  // document leaves the member without one.
+  // document leaves the member without one. The reviewed Bungie text belongs to the canonical
+  // item: it only carries over when the member's in-game text is the same.
   const current = tooltip(source, canonical);
-  if (current) writes[tooltipPath(member)] = { ...current, hash: member };
+  const copy: Tooltip | null = current && { ...current, hash: member };
+  if (copy && items[canonical]?.inGameDescription !== facts.data.inGameDescription)
+    delete copy.bungieSnapshot;
+  if (copy) writes[tooltipPath(member)] = copy;
+  // A publish marker from before the grouping would make the new entry look already published:
+  // live still holds its stub, so Review must list it as new.
+  const markers = pushedSchema.parse(pushed?.value ?? {});
+  if (Object.hasOwn(markers, member)) {
+    delete markers[member];
+    writes['live/pushed.json'] = markers;
+  }
   if (remaining.length < 2) delete next.groups[canonical];
   else {
     next.groups[canonical] = { ...group, members: remaining };
@@ -379,18 +405,39 @@ async function removeMember(
       next.archives = [...(next.archives ?? []), reduced];
     }
   }
-  // Revalidate what is left and every group that pairs with it, by base or by name: removing a
-  // base member must not silently disable an accepted enhanced group.
-  const name = group.basis.name.trim().toLowerCase();
-  const related = Object.values(config.groups).filter(
-    (other) =>
-      other.basis.name.trim().toLowerCase() === name ||
-      other.members.some((hash) => group.members.includes(items[hash]?.baseHash ?? -1)),
+  // Revalidate what is left and every group that pairs with it, by base pointer or by name, also
+  // through generator aliases: removing a base member must not silently disable an accepted
+  // enhanced group.
+  const generated = inputs.aliases as Aliases;
+  const reach = new Set(group.members);
+  for (const key of Object.keys(generated))
+    if (reach.has(resolveAlias(Number(key), generated))) reach.add(Number(key));
+  const named = (hash: number) => items[hash]?.name.trim().toLowerCase();
+  const names = new Set([...reach].map(named));
+  const related = Object.values(config.groups).filter(({ members }) =>
+    members.some((hash) => reach.has(items[hash]?.baseHash ?? -1) || names.has(named(hash))),
   );
-  const after = scopedAliases(inputs, next, picks).extend([
-    ...group.members,
-    ...related.flatMap((other) => other.members),
-  ]);
+  let after: Aliases;
+  try {
+    after = scopedAliases(inputs, next, picks).extend([
+      ...group.members,
+      ...related.flatMap((other) => other.members),
+    ]);
+  } catch (error) {
+    if (
+      error instanceof HttpError &&
+      Array.isArray(error.details) &&
+      error.details.some((detail) => String(detail).includes('Enhanced member no longer shares'))
+    )
+      throw new HttpError(
+        422,
+        `${member} is the base of a grouped enhanced version; remove that enhanced version from its group first`,
+      );
+    throw error;
+  }
+  for (const hash of [canonical, member])
+    if (resolveAlias(hash, after) !== hash)
+      throw new HttpError(409, `The generator now aliases ${hash}; it has no entry of its own`);
   const before: Aliases = { ...after, [member]: { to: canonical, kind: 'name' } };
   writes[aliasGroupsPath] = aliasGroupsSchema.parse(next);
   const commit = await commitDecisions(github, head, writes, 1, user, { blobRefs, deletions: [] });
@@ -399,6 +446,7 @@ async function removeMember(
     config: next,
     issues: [],
     affectedCanonicals: affectedAliasCanonicals(before, after, items),
+    ...(copy ? { tooltip: copy } : {}),
   } satisfies AliasGroupsResponse);
 }
 

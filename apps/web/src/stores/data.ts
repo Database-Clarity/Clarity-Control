@@ -3,9 +3,8 @@ import {
   hasSandboxTargets,
   composeAliases,
   type AliasGroupIssue,
-  type AliasGroups,
+  type AliasGroupsResponse,
   type Aliases,
-  type Tooltip,
   type SandboxConflicts,
   type SandboxPointers,
   type InactiveMoves,
@@ -13,7 +12,12 @@ import {
 import { loadGenerator, loadSandboxConflicts } from '../services/generator';
 import { loadBundle, type Bundle } from '../services/bundle';
 import { errorMessage } from '../services/http';
-import { applySavedOverlay, savedOverlayVersion } from './savedOverlay';
+import {
+  applySavedOverlay,
+  rememberSaved,
+  rememberSavedAliasGroups,
+  savedOverlayVersion,
+} from './savedOverlay';
 import { useMarksStore } from '../features/marks/store';
 
 export type Catalog = Awaited<ReturnType<typeof loadGenerator>>;
@@ -155,17 +159,18 @@ export const useDataStore = create<DataState>((set, get) => ({
 }));
 
 /**
- * A saved group change shows at once: the new config and, for a removed member, its copied
- * tooltip. A reload shows the published bundle again once it has caught up.
+ * A saved removal shows at once, with the document the server stored, and survives in-app data
+ * reloads (the saved overlay) until the published bundle has caught up.
  */
-export function applyAliasGroups(config: AliasGroups, copied?: Tooltip): void {
+export function applyGroupRemoval(
+  { config, head, tooltip }: AliasGroupsResponse,
+  member: number,
+): void {
+  rememberSavedAliasGroups(config, head, member);
+  if (tooltip) rememberSaved([tooltip]);
   useDataStore.setState((state) => {
     if (!state.data) return {};
-    const bundle = {
-      ...state.data.bundle,
-      aliasGroups: config,
-      ...(copied ? { tooltips: { ...state.data.bundle.tooltips, [copied.hash]: copied } } : {}),
-    };
+    const bundle = applySavedOverlay(state.data.bundle);
     return { data: withSandboxPicks({ ...state.data, bundle }, bundle.sandboxPointers) };
   });
 }

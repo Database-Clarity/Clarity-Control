@@ -93,6 +93,13 @@ test('a removed member keeps its live stubs until its own publish', () => {
   expect(published[43]).not.toHaveProperty('aliasOf');
   expect(published[700]).toEqual({ hash: 700, aliasOf: 43, aliasKind: 'sandbox' });
   expect(mergeLivePerks(published, other, undefined, groups, removed)).toEqual(published);
+  // A tooltip associating the member publishes together with it (Review includes the pending
+  // target); an association never points at a stub.
+  const reader = { ...tooltip(), hash: 50, associated: [43] };
+  const both = exportLegacy([reader, { ...canonical, hash: 43 }], 0, catalog, generated);
+  const joint = mergeLivePerks(live, both, undefined, groups, removed);
+  expect([joint[50], joint[43]]).toMatchObject([{ associated: [43] }, { hash: 43 }]);
+  expect(joint[43]).not.toHaveProperty('aliasOf');
   // Bounds: no former live record, no manifest facts, or never live keeps the existing rule.
   const gone = { 43: live[43], 50: live[50] };
   expect(mergeLivePerks(gone, other, undefined, groups, removed)).not.toHaveProperty('43');

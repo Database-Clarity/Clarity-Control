@@ -77,6 +77,8 @@ for (const marker of [
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks schedule preparation (${marker}); refusing its PIN`);
+if (!runtime.includes('withUnpublishedRemovals('))
+  throw new Error('Publisher runtime lacks alias group removals; refusing its PIN');
 for (const marker of ['drainCurrentSaves(', 'Invalid staged Current save signature'])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks staged Current saves (${marker}); refusing its PIN`);

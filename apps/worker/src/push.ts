@@ -289,7 +289,14 @@ export async function pushLive(
     try {
       // Reuse the existing bounded alias cleanup for obsolete name stubs after ungroup or
       // recanonicalization. Canonical live records remain protected by mergeLivePerks.
-      const aliasKeys = [...loaded.pickKeys, ...oldNames];
+      // Stubs that resolve through a removed member follow its retained stub too.
+      const aliasKeys = [
+        ...loaded.pickKeys,
+        ...oldNames,
+        ...Object.keys(live.perks).filter(
+          (hash) => loaded!.aliases[hash] && removed?.[resolveAlias(Number(hash), loaded!.aliases)],
+        ),
+      ];
       perks = applyInactiveLive(
         mergeLivePerks(
           live.perks,

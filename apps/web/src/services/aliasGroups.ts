@@ -13,7 +13,8 @@ async function checked<T>(response: Response, schema: z.ZodType<T>): Promise<T> 
   } catch {
     /* Keep the status when an upstream response is not JSON. */
   }
-  throw new Error(detail);
+  // 422: the removal is refused for a stated reason, so trying again cannot help.
+  throw Object.assign(new Error(detail), { refused: response.status === 422 });
 }
 
 /** The data head a removal's confirm was opened at: its CAS (the Worker refuses a moved head). */
