@@ -671,6 +671,13 @@ export class Publisher {
     const reviewed = this.git.tree(source);
     const reviewedModes = this.git.treeModes?.(source);
     const currentModes = this.git.treeModes?.(head);
+    // The commit writer reconstructs directories from tracked leaves. An explicit empty
+    // subtree has its own Git identity and cannot be carried forward by that writer.
+    if (
+      Object.keys(reviewedModes ?? {}).some((path) => !Object.hasOwn(reviewed, path)) ||
+      Object.keys(currentModes ?? {}).some((path) => !Object.hasOwn(tree, path))
+    )
+      return false;
     const regular = (modes: Record<string, string> | undefined, path: string) =>
       !modes || modes[path] === '100644';
     const nameProofRequest = (snapshot: Tree, path: string) => {

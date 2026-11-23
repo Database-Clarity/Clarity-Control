@@ -735,6 +735,41 @@ describe('dependency-safe global release', () => {
       expect(git.head(L)).toBe(live);
     },
   );
+  it('rejects a sibling kick alongside an explicit empty config subtree in Git', async () => {
+    const f = await fixture();
+    mkdirSync('.agents', { recursive: true });
+    const repo = mkdtempSync(resolve('.agents/globals-s4-empty-tree-'));
+    execFileSync('git', ['init', '--bare', repo], { stdio: 'pipe' });
+    execFileSync('git', ['--git-dir', repo, 'config', 'publisher.simulator', 'true']);
+    const git = new LocalRepository(repo);
+    const pub = new Publisher(git, f.options);
+    const source = git.commit(
+      undefined,
+      { 'config/permissions.json': git.writeBlob('{}') },
+      'Pinned data',
+    );
+    const sibling = '01K95H00000000000000000002';
+    const kicked = git.commit(
+      source,
+      { ...git.tree(source), [`publish/kicks/${sibling}-12345.json`]: git.writeBlob('{}') },
+      'Kick sibling publish',
+    );
+    expect(pub['onlyPublishBookkeeping'](source, kicked, git.tree(kicked), A)).toBe(true);
+
+    const empty = git.git(['mktree'], '').trim();
+    const config = git.git(['rev-parse', `${kicked}:config`]).trim();
+    const changedConfig = git
+      .git(['mktree'], `${git.git(['ls-tree', config])}040000 tree ${empty}\tempty\n`)
+      .trim();
+    const changedRoot = git
+      .git(['mktree'], git.git(['ls-tree', kicked]).replace(config, changedConfig))
+      .trim();
+    const changed = git
+      .git(['commit-tree', changedRoot, '-p', source], 'Kick and change config identity')
+      .trim();
+    expect(git.tree(changed)).toEqual(git.tree(kicked));
+    expect(pub['onlyPublishBookkeeping'](source, changed, git.tree(changed), A)).toBe(false);
+  });
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();
     await f.globals.drain();

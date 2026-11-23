@@ -6,6 +6,7 @@ import { maxBuffer } from './childProcess.mjs';
 
 export class RefRace extends Error {}
 export type Tree = Record<string, string>;
+const emptyTreeOid = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 export interface CommitCredits {
   author: { name: string; email: string };
   committer: { name: string; email: string };
@@ -35,6 +36,7 @@ export function requesterCredits(user: { id: number; login: string }): CommitCre
 export interface Repository {
   head(ref: string): string | undefined;
   tree(commit: string): Tree;
+  /** Entry modes, including explicit empty trees that a flattened tree cannot represent. */
   treeModes?(commit: string): Record<string, string>;
   blob(oid: string): string;
   writeBlob(bytes: string): string;
@@ -107,12 +109,13 @@ export class LocalRepository implements Repository {
   }
   treeModes(commit: string): Record<string, string> {
     return Object.fromEntries(
-      this.git(['ls-tree', '-rz', '--full-tree', commit])
+      this.git(['ls-tree', '-rtz', '--full-tree', commit])
         .split('\0')
         .filter(Boolean)
-        .map((line) => {
+        .flatMap((line) => {
           const tab = line.indexOf('\t');
-          return [line.slice(tab + 1), line.slice(0, 6)];
+          const [mode, type, oid] = line.slice(0, tab).split(' ');
+          return type === 'tree' && oid !== emptyTreeOid ? [] : [[line.slice(tab + 1), mode]];
         }),
     );
   }
