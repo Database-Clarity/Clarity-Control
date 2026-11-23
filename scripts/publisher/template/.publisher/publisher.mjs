@@ -29802,7 +29802,9 @@ var aliasGroupsResponseSchema = external_exports.object({
   head: external_exports.string().regex(/^[0-9a-f]{40}$/),
   config: aliasGroupsSchema,
   issues: external_exports.array(aliasGroupIssueSchema),
-  affectedCanonicals: external_exports.array(hashSchema).refine((v) => new Set(v).size === v.length)
+  affectedCanonicals: external_exports.array(hashSchema).refine((v) => new Set(v).size === v.length),
+  /** A removed member's stored document, when it has one. */
+  tooltip: tooltipSchema.optional()
 }).strict();
 var enhanced = (item) => !exotic(item) && (item.isEnhanced ?? item.categoryId.includes("-enhanced"));
 var exotic = (item) => item.exotic ?? item.categoryId.endsWith("-exotic");
