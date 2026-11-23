@@ -66,6 +66,8 @@ export interface GuidedCategory {
   referenceEvidence: GuidanceReference[];
 }
 
+export type OwnsCompendiumRow = (challenger: number, match: CompendiumMatch) => boolean;
+
 function stableSelection(
   match: Parameters<typeof confirmCompendiumSelection>[0],
   source: CompendiumData,
@@ -162,6 +164,7 @@ function soleKeywordCandidate(
   entry: ReviewSample,
   source: CompendiumData,
   configuredTabs: ReadonlySet<string>,
+  ownsRow?: OwnsCompendiumRow,
 ) {
   if (
     !entry.manifestKeywordDescription ||
@@ -173,6 +176,7 @@ function soleKeywordCandidate(
 
   const name = normaliseCompendiumName(entry.name);
   let match: CompendiumMatch | undefined;
+  const competitors: CompendiumMatch[] = [];
   for (const tab of source.tabs) {
     if (!configuredTabs.has(tab.gid)) continue;
     for (const row of tab.rows) {
@@ -188,8 +192,10 @@ function soleKeywordCandidate(
             compendiumSimilarity(name, other, MIN_NAME_SIMILARITY) >= MIN_NAME_SIMILARITY ||
             (name.length >= MIN_TYPO_NAME_LENGTH && editDistance(name, other) <= MAX_TYPO_DISTANCE),
         )
-      )
-        return;
+      ) {
+        if (!ownsRow) return;
+        competitors.push({ tab, row });
+      }
     }
   }
   if (match?.row.section !== 'Glossary' || compendiumDescriptionCells(match)?.length !== 1) return;
@@ -203,8 +209,13 @@ function soleKeywordCandidate(
   const link = stableSelection(match, source);
   if (!link || link.parts || link.cells) return;
   const resolved = resolveCompendiumLink(link, source);
-  if (resolved.status === 'ok' && resolved.tab.gid === match.tab.gid && resolved.row === match.row)
-    return { match, link };
+  if (
+    resolved.status === 'ok' &&
+    resolved.tab.gid === match.tab.gid &&
+    resolved.row === match.row &&
+    competitors.every((candidate) => ownsRow?.(entry.hash, candidate))
+  )
+    return { match, link, ignoredOwned: competitors.length > 0 };
 }
 
 function exoticParentLink(
@@ -262,6 +273,7 @@ export function* guidedDecisionSteps(
   onlyHash?: number,
   sheetFingerprint = sourceFingerprint(source.tabs),
   onlyCategory?: string,
+  ownsRow?: OwnsCompendiumRow,
 ): Generator<void, GuidedCategory[]> {
   const current = new Map(categories.map((category) => [category.id, category]));
   const globalUsable = new Map<number, GuidanceReference>();
@@ -850,7 +862,7 @@ export function* guidedDecisionSteps(
           }
         }
         if (record.id === 'catalog:verbs') {
-          const sole = soleKeywordCandidate(entry, source, configuredTabs);
+          const sole = soleKeywordCandidate(entry, source, configuredTabs, ownsRow);
           if (sole)
             return {
               ...result,
@@ -858,7 +870,7 @@ export function* guidedDecisionSteps(
               confidence: 'high',
               link: sole.link,
               ruleId: 'sole-compendium-candidate',
-              reason: `Manifest keyword has one exact Glossary row in the element tabs and no near-name competitor: ${sole.match.tab.name}, row ${sole.match.row.rowIndex}.`,
+              reason: `Manifest keyword has one exact Glossary row in the element tabs and no ${sole.ignoredOwned ? 'unowned ' : ''}near-name competitor: ${sole.match.tab.name}, row ${sole.match.row.rowIndex}.`,
             };
         }
         if (uncovered) return uncovered;
