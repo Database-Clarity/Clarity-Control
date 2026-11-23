@@ -15,6 +15,12 @@ import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/a
 import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js';
 import { inactivePublishableHash } from '../../packages/core/src/inactiveMoves.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
+import {
+  batchSchema,
+  batchStatusSchema,
+  type Batch,
+  type BatchStatus,
+} from '../../packages/core/src/schedule/schemas.js';
 import { globalFileBytes, rowSchema, syncSchema } from '../../apps/worker/src/globals/model.js';
 import { GlobalsPublisher, globalTreeOid } from './globals.js';
 import { Publisher, paths, type Options } from './publisher.js';
@@ -1419,3 +1425,169 @@ it.each([2, 3, 40])(
     );
   },
 );
+
+describe('upcoming batches', () => {
+  const B = '01K95H00000000000000000B01',
+    notBefore = '2026-01-02T00:00:00.000Z',
+    at = '2026-01-01T00:00:00Z',
+    alice = { id: 1, login: 'alice' };
+  const batch = (status: BatchStatus): Batch => {
+    const operation = ['scheduled', 'publishing', 'published'].includes(status),
+      claimed = ['publishing', 'published'].includes(status);
+    return batchSchema.parse({
+      id: B,
+      name: 'Batch',
+      createdBy: alice,
+      createdAt: at,
+      revision: 1,
+      contentRevision: 1,
+      status,
+      notBefore: operation ? notBefore : null,
+      zone: operation ? 'UTC' : null,
+      opId: operation ? A : null,
+      scheduledContentRevision: operation ? 1 : null,
+      claim: claimed ? { opId: A, claimedAt: at } : null,
+      result:
+        status === 'published'
+          ? {
+              opId: A,
+              status: 'published',
+              landedAt: at,
+              landedAtSource: 'cas',
+              recordedAt: at,
+              exportNow: at,
+              liveCommit: 'f'.repeat(40),
+            }
+          : null,
+      events: [],
+      ...(['preparing', 'needs_attention'].includes(status)
+        ? {
+            preparation: {
+              requestId: A,
+              kind: 'save',
+              returnStatus: 'draft',
+              requestedAt: at,
+              attempt: 1,
+            },
+          }
+        : {}),
+    });
+  };
+  const member = (proposed: Tooltip, base: Tooltip | null = null) => ({
+    hash: proposed.hash,
+    base,
+    baseCommit: 'f'.repeat(40),
+    proposed,
+    updatedAt: at,
+    updatedBy: 'alice',
+  });
+  const batchPath = `schedule/batches/${B}/batch.json`,
+    memberPath = (hash: number) => `schedule/batches/${B}/tooltips/${hash}.json`,
+    conflictPath = (hash: number) => `schedule/activation-conflicts/${hash}.json`;
+
+  it.each(batchStatusSchema.options)('counts a %s batch unless it is final', async (status) => {
+    const f = await fixture();
+    const proposed = tooltip(42, 'proposed');
+    f.change({ [batchPath]: batch(status), [memberPath(42)]: member(proposed) });
+    expect(f.globals.upcoming(f.current())).toEqual(
+      ['cancelled', 'published'].includes(status) ? [] : [{ 42: proposed }],
+    );
+  });
+
+  it('groups each side, and counts unproven final batches and open activation conflicts', async () => {
+    const f = await fixture();
+    const base = tooltip(41, 'base'),
+      one = tooltip(41, 'one'),
+      two = tooltip(42, 'two');
+    f.change({
+      [batchPath]: batch('draft'),
+      [memberPath(41)]: member(one, base),
+      [memberPath(42)]: member(two),
+    });
+    expect(f.globals.upcoming(f.current())).toEqual([{ 41: base }, { 41: one, 42: two }]);
+    for (const status of ['published', 'cancelled'] as const) {
+      f.change({ [batchPath]: batch(status), [conflictPath(41)]: {} });
+      expect(f.globals.upcoming(f.current())).toEqual([{ 41: base }, { 41: one }]);
+      f.change({ [conflictPath(41)]: undefined });
+      expect(f.globals.upcoming(f.current())).toEqual([]);
+      // Anything but this batch's own valid final record keeps counting.
+      for (const unproven of [
+        undefined,
+        { status },
+        { ...batch(status), id: A },
+        { ...batch(status), claim: { opId: B, claimedAt: at } },
+      ]) {
+        f.change({ [batchPath]: unproven });
+        expect(f.globals.upcoming(f.current())).toEqual([{ 41: base }, { 41: one, 42: two }]);
+      }
+    }
+    f.change({ [batchPath]: batch('published'), [memberPath(42)]: { hash: 42 } });
+    expect(() => f.globals.upcoming(f.current())).toThrow();
+  });
+
+  it('keeps removal and name proofs away until a batch is final, and stales them if it changes', async () => {
+    const f = await fixture();
+    const plain = tooltip(41, 'unrelated'),
+      proposed = tooltip(41, '#Beta\nvar Local = 1\n#Local');
+    const docs = Object.keys(f.current())
+      .filter((path) => path.startsWith('live/tooltips/'))
+      .map((path) => f.read(path) as Tooltip);
+    f.git.refs.set(
+      L,
+      f.git.commit(f.git.head(L), {
+        'liveDescriptions.json': f.git.writeBlob(
+          encode({
+            perks: exportLegacy(
+              docs.map((document) => (document.hash === 41 ? plain : document)),
+              0,
+              f.options.facts,
+            ),
+            databaseSettings: {},
+          }),
+        ),
+      }),
+    );
+    f.change({ 'tooltips/41.json': plain, 'live/tooltips/41.json': plain });
+    const beta = f.saved.entries.find((entry) => entry.name === 'Beta')!;
+    const removal = `globals/proofs/removal/${beta.id}-all.json`,
+      name = (await namePaths('variables', 'Local')).proof;
+    const drain = async () => {
+      f.change({
+        'globals/retries/local.json': {
+          version: 1,
+          type: 'name-proof',
+          id: 'local',
+          operation: 'create',
+          kind: 'variables',
+          name: 'Local',
+          globalId: null,
+          revision: null,
+          expectedHead: f.git.head(D),
+          sources: await f.globals.sources(f.current(), f.git.head(L)!),
+          by: 'alice',
+          at: new Date(now).toISOString(),
+        },
+      });
+      await f.globals.drain();
+      return [removal, name].map((path) => f.current()[path] !== undefined);
+    };
+    f.change({ [memberPath(41)]: member(proposed, plain) });
+    for (const status of ['draft', 'scheduled', 'publishing', 'needs_attention'] as const) {
+      f.change({ [batchPath]: batch(status) });
+      expect(await drain()).toEqual([false, false]);
+    }
+    // Published with an activation conflict: the resolve route can still write the proposal.
+    f.change({ [batchPath]: batch('published'), [conflictPath(41)]: { hash: 41 } });
+    expect(await drain()).toEqual([false, false]);
+    f.change({ [conflictPath(41)]: undefined });
+    expect(await drain()).toEqual([true, true]);
+    // A proof names the exact schedule tree, so no later batch write can use it.
+    const stored = f.read(removal).sources;
+    expect((await f.globals.sources(f.current(), f.git.head(L)!)).upcoming).toBe(stored.upcoming);
+    f.change({ [batchPath]: batch('draft') });
+    expect((await f.globals.sources(f.current(), f.git.head(L)!)).upcoming).not.toBe(
+      stored.upcoming,
+    );
+    expect(await drain()).toEqual([false, false]);
+  });
+});

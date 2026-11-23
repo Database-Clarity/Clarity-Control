@@ -1,6 +1,6 @@
 import { stableStringify } from '../contentHash.js';
 import { resolveAlias } from '../aliases.js';
-import { calculateGlobalImpact } from '../globals/impact.js';
+import { calculateGlobalImpact, GlobalSnapshotScans } from '../globals/impact.js';
 import { projectGlobals } from '../globals/projection.js';
 import { globalReferenceSpans } from '../globals/references.js';
 import { globalSourceText } from '../globals/source.js';
@@ -76,7 +76,12 @@ function changes(
   });
 }
 
-function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
+function impacts(
+  input: GlobalReleaseInput,
+  store: GlobalStore,
+  ids: string[],
+  scans: GlobalSnapshotScans,
+) {
   const beforeGlobals = projectGlobals(input.published),
     afterGlobals = projectGlobals(store);
   const afterLive = Object.fromEntries(
@@ -114,7 +119,10 @@ function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
     ],
   ] as const;
   return pairs.map(([before, after, names, published]) => {
-    if (published && !calculateGlobalImpact(published, published, [], input.destination).complete)
+    if (
+      published &&
+      !calculateGlobalImpact(published, published, [], input.destination, scans).complete
+    )
       throw new Error('Sync pending: historical published closure is incomplete');
     let observedBefore = before;
     let result = calculateGlobalImpact(
@@ -122,6 +130,7 @@ function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
       after,
       changes(input, ids, names),
       input.destination,
+      scans,
     );
     if (!result.complete && names && published) {
       // A failed, never-published intermediate definition has no valid render.
@@ -144,6 +153,7 @@ function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
         after,
         changes(input, ids, names),
         input.destination,
+        scans,
       );
     }
     if (!result.complete) throw new Error('Sync pending: resolver closure is incomplete');
@@ -153,6 +163,7 @@ function impacts(input: GlobalReleaseInput, store: GlobalStore, ids: string[]) {
       after,
       result,
       changes(input, ids, names).map((change) => change.cause),
+      scans,
     );
   });
 }
@@ -166,11 +177,12 @@ function expandReleaseDependencies(
   after: GlobalImpactSnapshot,
   impact: GlobalImpact,
   causes: GlobalCause[],
+  scans: GlobalSnapshotScans,
 ): GlobalImpact {
   const probe = [
     { kind: 'titles' as const, beforeName: 'Release', afterName: 'Release', cause: causes[0] },
   ];
-  const census = calculateGlobalImpact(before, after, probe, input.destination);
+  const census = calculateGlobalImpact(before, after, probe, input.destination, scans);
   if (!census.complete) throw new Error('Sync pending: import release closure is incomplete');
   const key = (row: GlobalImpactRow) => `${row.consumer.hash}:${row.consumer.lang}`;
   const rows = new Map(impact.rows.map((row) => [key(row), row]));
@@ -192,6 +204,7 @@ function expandReleaseDependencies(
     },
     probe,
     input.destination,
+    scans,
   );
   if (!globalOnly.complete) throw new Error('Sync pending: global fallback closure is incomplete');
   for (const row of globalOnly.rows)
@@ -285,16 +298,20 @@ export async function planGlobalRelease(
       groups.splice(groups.indexOf(group), 1);
     }
   };
-  const complete = impacts(input, input.saved, changed);
+  const scans = new GlobalSnapshotScans();
+  const complete = impacts(input, input.saved, changed, scans);
   for (const result of complete)
     for (const row of result.rows) join(row.causes.map((cause) => cause.globalId));
   const membership = new Map<string, Set<string>>();
   // Single-entry candidates expose fallback/dependency interactions hidden by a
   // simultaneous edit. Consumers shared by them form one coherent release group.
   for (const id of changed)
-    for (const impact of impacts(input, composeGlobalRelease(input.published, input.saved, [id]), [
-      id,
-    ]))
+    for (const impact of impacts(
+      input,
+      composeGlobalRelease(input.published, input.saved, [id]),
+      [id],
+      scans,
+    ))
       for (const row of impact.rows) {
         const key = `${row.consumer.hash}:${row.consumer.lang}`;
         const ids = membership.get(key) ?? new Set<string>();
@@ -324,7 +341,7 @@ export async function planGlobalRelease(
   for (const group of groups) {
     const ids = [...group].sort();
     const store = composeGlobalRelease(input.published, input.saved, ids);
-    const contexts = impacts(input, store, ids);
+    const contexts = impacts(input, store, ids, scans);
     const rows = new Map<string, GlobalReleaseRow>();
     for (const impact of contexts)
       for (const view of impact.rows) {

@@ -23,14 +23,14 @@ import {
   type GlobalRecord,
   type GlobalStore,
 } from '../../packages/core/src/globals/model.js';
-import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js';
+import {
+  calculateGlobalImpact,
+  GlobalSnapshotScans,
+} from '../../packages/core/src/globals/impact.js';
 import { projectGlobals } from '../../packages/core/src/globals/projection.js';
 import { assertGlobalTransition } from '../../packages/core/src/globals/transition.js';
 import { globalSourceText } from '../../packages/core/src/globals/source.js';
-import {
-  globalReferenceSpans,
-  rewriteGlobalReferences,
-} from '../../packages/core/src/globals/references.js';
+import { rewriteGlobalReferences } from '../../packages/core/src/globals/references.js';
 import { markupDefinitions } from '../../packages/core/src/markup/clashes.js';
 import { extractBlocks } from '../../packages/core/src/markup/syntax.js';
 import { languages, type Lang } from '../../packages/core/src/languages.js';
@@ -50,7 +50,12 @@ import { stableStringify } from '../../packages/core/src/contentHash.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
 import { aliasesSchema, resolveAlias, type Aliases } from '../../packages/core/src/aliases.js';
 import type { GlobalImpactSnapshot } from '../../packages/core/src/globals/impactModel.js';
-import { batchMemberSchema } from '../../packages/core/src/schedule/schemas.js';
+import {
+  batchMemberSchema,
+  batchSchema,
+  isOpenStatus,
+  schedulePaths,
+} from '../../packages/core/src/schedule/schemas.js';
 import {
   clashSchema,
   entrySchema,
@@ -304,15 +309,35 @@ export class GlobalsPublisher {
       ),
     );
   }
+  /**
+   * The bases, and the proposals, of each batch that can still reach Current or live. A cancelled
+   * or published batch is final: no Worker route or publisher step reopens it, and what it
+   * published is in Current and live. The exception is a member with an open activation conflict,
+   * whose stored proposal the resolve route can still write to Current. A batch that does not
+   * prove its final status counts.
+   */
   upcoming(tree: Tree): Record<string, Tooltip>[] {
-    return Object.keys(tree)
-      .filter((path) => /^schedule\/batches\/[^/]+\/tooltips\/\d+\.json$/.test(path))
-      .flatMap((path) => {
-        const member = batchMemberSchema.parse(this.read(tree, path));
-        return [member.base, member.proposed].flatMap((document) =>
-          document ? [{ [document.hash]: document }] : [],
-        );
-      });
+    const batches = new Map<string, { final: boolean; sides: Record<string, Tooltip>[] }>();
+    for (const path of Object.keys(tree)) {
+      const id = /^schedule\/batches\/([^/]+)\/tooltips\/\d+\.json$/.exec(path)?.[1];
+      if (!id) continue;
+      const member = batchMemberSchema.parse(this.read(tree, path));
+      let batch = batches.get(id);
+      if (!batch) {
+        const stored = batchSchema.safeParse(this.read(tree, schedulePaths.batch(id)));
+        batch = {
+          final: stored.success && stored.data.id === id && !isOpenStatus(stored.data.status),
+          sides: [{}, {}],
+        };
+        batches.set(id, batch);
+      }
+      if (batch.final && !tree[schedulePaths.conflict(member.hash)]) continue;
+      if (member.base) batch.sides[0][member.hash] = member.base;
+      batch.sides[1][member.hash] = member.proposed;
+    }
+    return [...batches.values()].flatMap(({ sides }) =>
+      sides.filter((documents) => Object.keys(documents).length),
+    );
   }
   private liveSnapshot(
     revision: string,
@@ -1220,9 +1245,16 @@ export class GlobalsPublisher {
     // declarations/references still prevent name clashes and physical removal.
     const authoredSources = { ...captured.authored, tooltips: this.documents(tree, 'tooltips') };
     const localNames = this.localNames(tree, captured);
+    const scans = new GlobalSnapshotScans();
     // Establish resolver coverage even when there are no changed globals.
     for (const snapshot of snapshots) {
-      const validation = calculateGlobalImpact(snapshot, snapshot, [], this.options.liveBranch);
+      const validation = calculateGlobalImpact(
+        snapshot,
+        snapshot,
+        [],
+        this.options.liveBranch,
+        scans,
+      );
       if (!validation.complete) throw new Error('Sync pending: proof coverage is incomplete');
     }
     for (const path of Object.keys(tree).filter((path) =>
@@ -1343,26 +1375,20 @@ export class GlobalsPublisher {
             snapshot,
             names.map((name) => ({ ...change, beforeName: name })),
             this.options.liveBranch,
+            scans,
           );
           return (
             !impact.complete ||
             impact.rows.length ||
-            Object.values(snapshot.tooltips).some((document) =>
-              languages.some(
-                (language) =>
-                  (!lang || language === lang || lang === 'en') &&
-                  globalReferenceSpans(
-                    globalSourceText(document, language, snapshot.mode) ?? '',
-                    entry.kind,
-                  ).some((span) => names.includes(span.name)),
-              ),
+            languages.some(
+              (language) =>
+                (!lang || language === lang || lang === 'en') &&
+                names.some((name) => scans.references(snapshot, entry.kind, language).has(name)),
             )
           );
         });
-        const authoredReference = Object.values(authoredSources.tooltips).some((document) =>
-          Object.values(document.text).some((cell) =>
-            globalReferenceSpans(cell.text, entry.kind).some((span) => names.includes(span.name)),
-          ),
+        const authoredReference = languages.some((language) =>
+          names.some((name) => scans.references(authoredSources, entry.kind, language).has(name)),
         );
         if (!referenced && !authoredReference)
           this.write(
