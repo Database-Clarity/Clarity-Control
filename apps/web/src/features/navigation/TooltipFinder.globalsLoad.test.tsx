@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { TooltipNavigation } from './TooltipNavigation';
+import { disposeSteppingActivity } from './steppingActivity';
 import { useAuthStore } from '../../stores/auth';
 import { useGlobalIdentities } from '../../stores/globalIdentities';
 import type { EditorData } from '../../stores/data';
@@ -102,6 +103,7 @@ it('shows progressive globals without aggregate fallback and keeps an empty cate
     expect(host.querySelector('output')?.textContent).toBe('/globals/g_title00001');
   } finally {
     await act(async () => root.unmount());
+    disposeSteppingActivity();
     host.remove();
     useAuthStore.setState(originalAuth);
     useGlobalIdentities.setState(originalIndex);
