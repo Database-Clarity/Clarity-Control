@@ -23,18 +23,17 @@ node --input-type=module -e "import(process.argv[1]).then(m => m.runCli(process.
 `Inputs` contains full 40-character `editorHead`, `engineCommit`, `catalogCommit`,
 and `compendiumCommit`, a fixed ISO `snapshotAt`, exact UTF-8 `itemsJson`,
 `categoriesJson`, `aliasesJson`, and `compendiumJson` blobs; nullable exact
-`inactiveJson` and `sandboxPointersJson` editor-data config blobs (null means
+`inactiveJson`, `aliasGroupsJson`, and `sandboxPointersJson` editor-data config blobs (null means
 absent at editorHead); nullable `sandboxConflictsJson` from the same generator
-commit (required when any sandbox pick has a target); and `files` mapping every
+commit (required for accepted alias groups or a sandbox pick with a target); and `files` mapping every
 tracked `tooltips/<hash>.json` to its exact Git blob bytes. Fetch immutable Git
 objects, never a mutable working directory or mixed bundle/branch snapshots.
 Catalog items, categories, aliases, and sandbox conflicts come from the same
 generator commit (`templates/v2` on its v2 branch).
 Include the entire tooltip inventory, not the selected upload hashes. Pin
-config/inactive.json and config/sandbox-pointers.json at that same editor head.
-Sandbox picks merge through the app's core mergeSandboxPointers function; absent
-or no-target picks leave aliases unchanged. Missing conflicts for a target pick
-fail closed. The planner pins the shipped guidance's canonical SHA-256 and category
+`config/inactive.json`, `config/alias-groups.json`, and `config/sandbox-pointers.json` at that same editor head.
+Accepted groups and sandbox picks compose through the same core function used by
+the app. The planner pins the shipped guidance's canonical SHA-256 and category
 blob bytes, uses tracked tabs only, and passes no drafts, local guidance, or
 personal review progress to displayMatches. Engine identity and repository/ref
 provenance are trusted adapter inputs: the library
@@ -77,7 +76,7 @@ identical bytes. A fresh snapshot or editor head requires a new plan and approva
 4. The library reads back all persisted files and verifies their exact inventory.
    Rebuild the normal editor bundle from the returned persisted head, and call
    `verifyBundle(manifest, persistedInputs, bundle)`. This checks the bundle's
-   source commit and every tooltip against the manifest's complete after state.
+   source commit, alias groups, and every tooltip against the persisted inputs.
    Run the existing consumer exporter; core excludes text-less descriptions.
    Never export link-only records directly as consumer tooltips.
 5. Only then produce the first upload's consumer inputs and publish receipt using

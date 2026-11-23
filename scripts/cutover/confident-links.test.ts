@@ -28,6 +28,7 @@ import {
   sandboxPointersSchema,
   sandboxConflictsSchema,
   inactiveMovesSchema,
+  aliasGroupsSchema,
 } from '../../packages/core/src/index.js';
 import { withSandboxPicks, type EditorData } from '../../apps/web/src/stores/data.js';
 import { displayMatches } from '../../apps/web/src/features/compendium/displayMatches.js';
@@ -60,6 +61,7 @@ function input(): Inputs {
       { id: 'armor-set-bonus', label: 'Armor Set Bonuses', group: 'Armor', order: 1 },
     ]),
     inactiveJson: null,
+    aliasGroupsJson: null,
     sandboxPointersJson: null,
     sandboxConflictsJson: null,
     itemsJson: JSON.stringify(
@@ -154,6 +156,10 @@ function shown(data: Inputs) {
           data.inactiveJson === null
             ? {}
             : inactiveMovesSchema.parse(JSON.parse(data.inactiveJson)),
+        aliasGroups:
+          data.aliasGroupsJson === null
+            ? undefined
+            : aliasGroupsSchema.parse(JSON.parse(data.aliasGroupsJson)),
       },
     } as EditorData,
     data.sandboxPointersJson === null
@@ -253,6 +259,47 @@ it('uses the app sandbox-pick aliases, pins picks and conflicts, and leaves abse
       }).changes,
     ).toEqual(plain.changes);
   }
+});
+
+it('uses the app’s accepted alias groups, pins exact bytes, and verifies the rebuilt bundle', async () => {
+  const data = input();
+  const items = JSON.parse(data.itemsJson);
+  const basis = { name: 'Same Trait', categoryId: 'weapon-trait' };
+  for (const hash of [17188252, 109046537])
+    items[hash] = { ...items[hash], ...basis, plugCategoryHash: 1 };
+  data.itemsJson = JSON.stringify(items);
+  const aliasGroups = aliasGroupsSchema.parse({
+    version: 1,
+    groups: {
+      17188252: {
+        members: [17188252, 109046537],
+        kind: 'S',
+        basis,
+        by: { id: '1', login: 'alice' },
+        at: now,
+      },
+    },
+    rejected: {},
+  });
+  data.aliasGroupsJson = JSON.stringify(aliasGroups);
+  expect(() => plan(data)).toThrow(/conflicts/);
+  data.sandboxConflictsJson = '{}';
+  const m = plan(data);
+  expect(shown(data).editor.aliases[109046537]).toEqual({ to: 17188252, kind: 'name' });
+  expect(m.rows.find((row) => row.hash === 109046537)?.reason).toBe('alias');
+  expect(m.changes.some((row) => row.path === 'tooltips/109046537.json')).toBe(false);
+  expect(m.pins.aliasGroupsSha256).toBe(digest(data.aliasGroupsJson));
+  const store = new MemoryStore({ ...data, aliasGroupsJson: data.aliasGroupsJson + '\n' });
+  await expect(apply(store, m)).rejects.toThrow(/Stale source pins/);
+  expect(store.calls).toBe(0);
+  store.state = data;
+  await apply(store, m);
+  const bundle = {
+    sourceCommit: store.state.editorHead,
+    tooltips: shown(store.state).editor.bundle.tooltips,
+  };
+  expect(() => verifyBundle(m, store.state, bundle)).toThrow(/alias groups mismatch/);
+  verifyBundle(m, store.state, { ...bundle, aliasGroups });
 });
 
 it('plans all catalog rows, preserves human links, and changes only compendium metadata', () => {
