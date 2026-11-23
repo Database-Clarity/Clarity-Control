@@ -30896,6 +30896,16 @@ var GlobalsPublisher = class _GlobalsPublisher {
     ))
       throw new GlobalReleaseRejected("The saved global layout changes legacy consumer output");
   }
+  async hasReleaseChanges(tree, captured, documents, aggregateHashes) {
+    const markers = pushedSchema.parse(this.read(tree, "live/pushed.json"));
+    const moves = this.publisher.movesAt(tree);
+    for (const document of documents) {
+      const previous = aggregateHashes.includes(document.hash) ? await inactivePublishableHash(document, captured.live.aliases) : markers[document.hash];
+      const next = await inactivePublishableHash(document, captured.authored.aliases, moves);
+      if (previous !== next) return true;
+    }
+    return false;
+  }
   capture(tree, revision2, liveCommit, roots = []) {
     const published = globalPublishedSchema.parse(
       this.read(tree, globalsReleasePaths.published(this.options.liveBranch))
@@ -31122,7 +31132,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
         store = exact;
         documents = exactDocuments;
       } catch (error62) {
-        if (!ids.length)
+        if (!ids.length && !await this.hasReleaseChanges(tree, captured, documents, aggregateHashes))
           throw error62 instanceof GlobalReleaseRejected ? error62 : new GlobalReleaseRejected(
             "The saved global layout changes or cannot prove consumer output"
           );
