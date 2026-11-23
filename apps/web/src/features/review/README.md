@@ -16,7 +16,8 @@ the list shows one row per entry that changed (`globalRows.ts`), compared defini
 The file stays the change: its rows share one tick, every count (waiting, included, groups, kinds,
 positions, Publish N) counts the file once, and the confirmation lists it once with its entries'
 names. "Output unchanged" is an entry whose text is the same and only its declaration differs (an
-export that was hidden). Until the published file is known, every saved entry is listed without a word.
+export that was hidden), and whose text uses nothing else; one that uses an import, a variable, or a
+title reads "Definition changed", because what it uses is not compared here. Until the published file is known, every saved entry is listed without a word.
 
 Row words (`kinds.ts`): New, Removed, Restored, On hold, and Leftover are known locally. Text
 changed, No visible change, and Links changed come from the published text (`published.ts`): it is

@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
 import { classifyRendered } from '../history/useRenderedDiff';
-import { publishedOf, rowKey, type RowKey } from './globalRows';
+import { publishedOf, rowKey, usesOthers, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
 import { exportedText, usePublished, type Published } from './published';
 import type { RowKinds } from './queueModel';
@@ -18,6 +18,7 @@ export const kindWords = [
   'Text changed',
   'No visible change',
   'Output unchanged',
+  'Definition changed',
   'New',
   'Links changed',
   'Removed',
@@ -47,7 +48,9 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
   if (entry.inactiveChange === 'restore') return { kind: 'Restored' };
   if (entry.unpublishable) return { kind: 'On hold' };
   if (entry.markerOnly) return { kind: 'Leftover' };
-  if (entry.part?.removed) return { kind: 'Removed' };
+  if (entry.part?.change === 'removed') return { kind: 'Removed' };
+  if (entry.part?.change === 'same-text')
+    return { kind: usesOthers(entry.tooltip) ? 'Definition changed' : 'Output unchanged' };
   if (entry.isNew) return { kind: 'New' };
   return undefined;
 }
@@ -98,9 +101,9 @@ export function publishedKind(
   before: Tooltip | null,
   current: Tooltip,
   outputs: readonly (Output | undefined)[],
-  changed: readonly Lang[] = before ? textLanguages(before, current) : [],
 ): Classification | undefined {
   if (!before) return { kind: 'New' };
+  const changed = textLanguages(before, current);
   if (outputs.some((output) => !output)) return undefined;
   const visible = changed.filter((_, index) => outputs[index]!.base || outputs[index]!.enhanced);
   if (visible.length) {
@@ -200,26 +203,26 @@ export function classifyRows(
       continue;
     const request = { saved, before, tooltips };
     running.set(key, request);
-    // The same body of a globals entry can render differently when its file changed around it.
-    const files = entry.part?.files;
-    const changed = files
-      ? languages.filter((lang) => before.text[lang] || saved.text[lang])
-      : textLanguages(before, saved);
+    const changed = textLanguages(before, saved);
     void Promise.all(
       changed.map((lang) =>
         classifyRendered(
           exportedText(before, lang),
           exportedText(saved, lang),
-          diffGlobals(data, files?.after ?? {}, lang, saved.hash),
-          files && diffGlobals(data, files.before, lang, saved.hash),
+          diffGlobals(data, {}, lang, saved.hash),
         ),
       ),
     ).then((outputs) => {
       // A newer check for this row (new saved text, published text, or imports) owns the result.
       if (running.get(key) !== request) return;
       running.delete(key);
-      const value = publishedKind(before, saved, outputs, changed);
-      const sameBodies = !!files && !textLanguages(before, saved).length;
+      const value = publishedKind(before, saved, outputs);
+      // Both sides rendered with the saved imports: for a globals entry that uses others, equal
+      // output is not proven.
+      const unproven =
+        entry.part &&
+        value?.kind === 'No visible change' &&
+        (usesOthers(before) || usesOthers(saved));
       useKinds.setState((state) => ({
         byHash: {
           ...state.byHash,
@@ -228,10 +231,7 @@ export function classifyRows(
             savedJson: JSON.stringify(saved),
             published: before,
             tooltips,
-            value:
-              sameBodies && value?.kind === 'No visible change'
-                ? { kind: 'Output unchanged' as const }
-                : value,
+            value: unproven ? { kind: 'Definition changed' as const } : value,
           },
         },
       }));
@@ -288,6 +288,7 @@ export function kindCounts(kinds: readonly (Kind | undefined)[]): string {
         'Text changed': `with changed text`,
         'No visible change': `with no visible change`,
         'Output unchanged': `with unchanged output`,
+        'Definition changed': `with a changed definition`,
         New: `new`,
         'Links changed': `with changed links`,
         Removed: `removed`,

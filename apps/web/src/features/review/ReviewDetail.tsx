@@ -4,7 +4,6 @@ import { languageLabel } from '../../languageLabels';
 import { getHistory, type HistoryCommit } from '../../services/history';
 import { apiUrl } from '../../services/api';
 import { errorMessage } from '../../services/http';
-import type { Drafts } from '../../services/draftStorage';
 import { replaceDraft } from '../../services/save/drafts';
 import { useSaveState } from '../../services/save/state';
 import { useAuthStore } from '../../stores/auth';
@@ -34,7 +33,6 @@ import { useDelayed } from './useDelayed';
 import styles from './Review.module.scss';
 
 const count = new Intl.NumberFormat('en');
-const noDrafts: Drafts = {};
 const list = (words: string[]) =>
   words.length < 3 ? words.join(' and ') : `${words.slice(0, -1).join(', ')}, and ${words.at(-1)}`;
 
@@ -113,6 +111,13 @@ function Sentence({
           )
             ? 'The published version hides this export; its text is the same.'
             : 'Only how it is written changed; its text is the same.'}
+        </p>
+      );
+    case 'Definition changed':
+      return (
+        <p className={styles.sentence}>
+          <b>Definition changed.</b> It uses other entries or tooltips, so its output may change
+          with them.
         </p>
       );
     case 'New': {
@@ -202,21 +207,11 @@ function GlobalNote({ entry, part }: { entry: PendingTooltip; part: GlobalPart }
 }
 
 /** Rendered text, plain (New, Removed, Restored), 12 lines then "Show all". */
-function PlainText({
-  text,
-  lang,
-  hash,
-  files = noDrafts,
-}: {
-  text: string;
-  lang: Lang;
-  hash: number;
-  files?: Drafts;
-}) {
+function PlainText({ text, lang, hash }: { text: string; lang: Lang; hash: number }) {
   const data = useDataStore((state) => state.data);
   const [all, setAll] = useState(false);
   const { base, enhanced } = useMemo(() => {
-    const globals = diffGlobals(data, files, lang, hash);
+    const globals = diffGlobals(data, {}, lang, hash);
     const render = (variant: boolean) => parseMarkup(text, variantGlobals(globals, variant)).lines;
     const base = render(false),
       enhanced = render(true);
@@ -224,7 +219,7 @@ function PlainText({
       base,
       enhanced: JSON.stringify(base) === JSON.stringify(enhanced) ? undefined : enhanced,
     };
-  }, [data, files, lang, hash, text]);
+  }, [data, lang, hash, text]);
   const cut = (lines: MarkupLine[]) => (all ? lines : lines.slice(0, 12));
   const longest = Math.max(base.length, enhanced?.length ?? 0);
   return (
@@ -315,27 +310,17 @@ function TextChange({
   after,
   lang,
   hash,
-  files,
   classification,
 }: {
   before: string;
   after: string;
   lang: Lang;
   hash: number;
-  /** A globals entry: the file each side's text renders with. */
-  files: GlobalPart['files'] | undefined;
   classification: Classification | undefined;
 }) {
   const data = useDataStore((state) => state.data);
-  const globals = useMemo(
-    () => diffGlobals(data, files?.after ?? noDrafts, lang, hash),
-    [data, files, lang, hash],
-  );
-  const beforeGlobals = useMemo(
-    () => (files ? diffGlobals(data, files.before, lang, hash) : globals),
-    [data, files, lang, hash, globals],
-  );
-  const { result, busy } = useRenderedDiff(before, after, globals, beforeGlobals);
+  const globals = useMemo(() => diffGlobals(data, {}, lang, hash), [data, lang, hash]);
+  const { result, busy } = useRenderedDiff(before, after, globals);
   const variants = classification?.variants;
   const scope = classification?.scope;
   const enhanced = useMemo(
@@ -348,11 +333,10 @@ function TextChange({
               after,
               variantGlobals(globals, true),
               before.length + after.length <= 4000,
-              variantGlobals(beforeGlobals, true),
             ),
           ))
         : undefined,
-    [variants, scope, result, before, after, globals, beforeGlobals],
+    [variants, scope, result, before, after, globals],
   );
   const late = useDelayed(busy);
   if (busy)
@@ -503,12 +487,7 @@ export const ReviewDetail = memo(function ReviewDetail({
           .map(([lang, value], _, all) => (
             <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
               {(all.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
-              <PlainText
-                text={value.text}
-                lang={lang}
-                hash={entry.tooltip.hash}
-                files={entry.part?.files[entry.part.removed ? 'before' : 'after']}
-              />
+              <PlainText text={value.text} lang={lang} hash={entry.tooltip.hash} />
             </section>
           ))
       : null;
@@ -523,7 +502,6 @@ export const ReviewDetail = memo(function ReviewDetail({
           after={exportedText(entry.tooltip, lang)}
           lang={lang}
           hash={entry.tooltip.hash}
-          files={entry.part?.files}
           classification={classification}
         />
       </section>
@@ -540,7 +518,8 @@ export const ReviewDetail = memo(function ReviewDetail({
       </div>
     );
   else if (kind === 'Removed') evidence = savedText(live ?? entry.tooltip);
-  else if (kind === 'Output unchanged') evidence = savedText(entry.tooltip);
+  else if (kind === 'Output unchanged' || kind === 'Definition changed')
+    evidence = savedText(entry.tooltip);
   else if (kind === 'New' || kind === 'Restored' || kind === 'On hold' || !kind) {
     // Unknown (loading, failed, signed out): the saved text renders plain so it can be judged.
     if (kind || published?.status !== 'loading') evidence = savedText(entry.tooltip);

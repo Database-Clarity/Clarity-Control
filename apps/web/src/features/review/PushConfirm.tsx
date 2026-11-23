@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Dialog } from '../../ui/Dialog';
 import { rowKey, unitName } from './globalRows';
-import { kindCounts, kindWords } from './kinds';
+import { kindCounts, type Kind } from './kinds';
 import type { PendingTooltip } from './model';
 import type { RowKinds } from './queueModel';
 import styles from './Review.module.scss';
@@ -43,10 +43,17 @@ export function PushConfirm({
     else byFile.set(row.tooltip.hash, [row]);
   }
   const rowsOf = (entry: PendingTooltip) => byFile.get(entry.tooltip.hash) ?? [entry];
-  // A globals file is one change: the first word of the list that any of its rows shows.
-  const kindOf = (entry: PendingTooltip) => {
-    const words = rowsOf(entry).map((row) => kinds.get(rowKey(row)));
-    return words.includes(undefined) ? undefined : kindWords.find((word) => words.includes(word));
+  // A globals file is one change, so its word must hold for every one of its rows.
+  const kindOf = (entry: PendingTooltip): Kind | undefined => {
+    const own = rowsOf(entry);
+    const words = new Set(own.map((row) => kinds.get(rowKey(row))));
+    const [word] = words;
+    if (words.has(undefined)) return undefined;
+    if (!own[0]!.part) return word;
+    if (words.has('Text changed')) return 'Text changed';
+    // Single entries being new or removed do not make the file so.
+    if (words.size === 1 && (entry.isNew || (word !== 'New' && word !== 'Removed'))) return word;
+    return 'Definition changed';
   };
   const label = background ? `Publish ${count}` : `Push ${count} live`;
   return (

@@ -1,6 +1,5 @@
 import { languages, usesEnglishFallback, type Lang, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
-import type { Drafts } from '../../services/draftStorage';
 import { globalAggregates, globalsEnabled } from '../../services/globalsFlag';
 import {
   globalDefinitions,
@@ -31,10 +30,8 @@ export interface GlobalPart {
   published: Published | undefined;
   /** The declarations as written, for raw markup. */
   source: { before: Definition['source']; after: Definition['source'] };
-  /** The whole file as each side exports it: what that side's text renders with. */
-  files: { before: Drafts; after: Drafts };
-  /** Its text no longer goes live. */
-  removed: boolean;
+  /** What is known without rendering: no longer goes live, or the same text in another declaration. */
+  change?: 'removed' | 'same-text';
 }
 
 /** A row's identity: the tooltip hash, or the file's hash and the entry's name. */
@@ -108,21 +105,18 @@ function definitionsOf(file: Tooltip): Map<string, Definition> {
 }
 
 const none: Definition['source'] = {};
-const noDrafts: Drafts = {};
-const asDrafts = (file: Tooltip): Drafts => ({ [file.hash]: { base: file, next: file } });
 const noText = (hash: number): Tooltip => ({ hash, text: {}, associated: [] });
 
 /** One row per entry that changed; the file itself when no entry accounts for its change. */
 function partsOf(unit: PendingTooltip, published: Published | undefined): PendingTooltip[] {
   const hash = unit.tooltip.hash;
   const kind = globalTypes.find((type) => type.hash === hash)!.kind;
-  const savedFile = exportedFile(unit.tooltip);
   const liveFile =
     published?.status === 'ready' && published.tooltip
       ? exportedFile(published.tooltip)
       : undefined;
   // Bodies are compared as they go live; raw markup shows what is written.
-  const saved = definitionsOf(savedFile);
+  const saved = definitionsOf(exportedFile(unit.tooltip));
   const savedSource = definitionsOf(unit.tooltip);
   // Which entries changed is only known with the published file; until then every one is listed.
   const live =
@@ -135,10 +129,6 @@ function partsOf(unit: PendingTooltip, published: Published | undefined): Pendin
     published?.status === 'ready' && published.tooltip
       ? definitionsOf(published.tooltip)
       : undefined;
-  const files = {
-    before: liveFile ? asDrafts(liveFile) : noDrafts,
-    after: asDrafts(savedFile),
-  };
   const names: string[] = [];
   const rows: PendingTooltip[] = [];
   for (const name of [...new Set([...saved.keys(), ...(live?.keys() ?? [])])].sort((a, b) =>
@@ -150,15 +140,12 @@ function partsOf(unit: PendingTooltip, published: Published | undefined): Pendin
       before: liveSource?.get(name)?.source ?? none,
       after: savedSource.get(name)?.source ?? none,
     };
-    if (
-      live &&
+    const sameText =
+      !!live &&
       languages.every(
-        (lang) =>
-          source.before[lang] === source.after[lang] &&
-          before?.tooltip.text[lang]?.text === after?.tooltip.text[lang]?.text,
-      )
-    )
-      continue;
+        (lang) => before?.tooltip.text[lang]?.text === after?.tooltip.text[lang]?.text,
+      );
+    if (sameText && languages.every((lang) => source.before[lang] === source.after[lang])) continue;
     names.push(name);
     rows.push({
       ...unit,
@@ -174,13 +161,23 @@ function partsOf(unit: PendingTooltip, published: Published | undefined): Pendin
             ? { status: 'ready', tooltip: before?.tooltip ?? null }
             : published,
         source,
-        files,
-        removed: !after,
+        ...(!after
+          ? { change: 'removed' as const }
+          : sameText
+            ? { change: 'same-text' as const }
+            : {}),
       },
     });
   }
   return rows.length ? rows : [unit];
 }
+
+/**
+ * Whether an entry's output depends on anything but its own text (an import, a variable, or a
+ * title). What those hold when it goes live is not compared here, so no "unchanged" claim is made.
+ */
+export const usesOthers = (tooltip: Tooltip) =>
+  Object.values(tooltip.text).some((cell) => /^import |#|<title/m.test(cell?.text ?? ''));
 
 const expanded = new WeakMap<
   readonly PendingTooltip[],

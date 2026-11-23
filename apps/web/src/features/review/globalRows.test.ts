@@ -118,25 +118,37 @@ describe('globals files as rows', () => {
     });
   });
 
-  it('says the text changed when an identical body uses an entry that changed', async () => {
+  it('claims unchanged output only for an entry that uses nothing else', async () => {
     const rows = reviewRows(
-      [pending(exportsFile(block('leaf', 'New'), block('parent', 'import leaf from 1')))],
+      [
+        pending(
+          exportsFile(
+            block('alone', 'Same'),
+            block('imports', 'import leaf from 1'),
+            block('rewritten', '#damage'),
+            block('titled', '<title See [Tip] />'),
+            block('variable', 'Deals #{damage}'),
+          ),
+        ),
+      ],
       ready(
         exportsFile(
-          block('leaf', 'Old'),
-          block('parent', 'import leaf from global', 'export hidden').replace('global', '1'),
+          block('alone', 'Same', 'export hidden'),
+          block('imports', 'import leaf from 1', 'export hidden'),
+          block('rewritten', '#{damage}'),
+          block('titled', '<title See [Tip] />', 'export hidden'),
+          block('variable', 'Deals #{damage}', 'export hidden'),
         ),
       ),
     );
     expect(await classified(rows)).toEqual([
-      ['leaf', 'Text changed'],
-      ['parent', 'Text changed'],
+      ['alone', 'Output unchanged'],
+      ['imports', 'Definition changed'],
+      // Rendered alike with the saved variables, which the published file may not share.
+      ['rewritten', 'Definition changed'],
+      ['titled', 'Definition changed'],
+      ['variable', 'Definition changed'],
     ]);
-    const variables = reviewRows(
-      [pending(file(2, { en: 'var a = 2\nvar b =  #a' }))],
-      ready(file(2, { en: 'var a = 1\nvar b = #a' })),
-    );
-    expect(variables.map(({ name }) => name)).toEqual(['a', 'b']);
   });
 
   it('compares the language a file goes live in: a fallback drops a definition only it had', () => {
@@ -156,7 +168,7 @@ describe('globals files as rows', () => {
     expect(rows.map(({ name }) => name)).toEqual(['a', 'b']);
     expect(rows[0]!.tooltip.text.de!.text).toBe('A');
     expect(publishedOf(rows[0]!, {})).toMatchObject({ tooltip: { text: { de: { text: 'Ä' } } } });
-    expect(rows[1]!.part).toMatchObject({ removed: true });
+    expect(rows[1]!.part).toMatchObject({ change: 'removed' });
     // It no longer goes live, but it is still saved: its own page opens.
     expect(editorPath(rows[1]!)).toBe('/t/1?global=b');
   });
