@@ -33371,11 +33371,9 @@ var Publisher = class _Publisher {
       const request = nameProofRequestSchema.safeParse(this.read(snapshot, path));
       return request.success && request.data.id === id;
     };
-    let changed = false;
     for (const [path, oid4] of Object.entries(reviewed)) {
       if (!Object.hasOwn(tree, path)) {
         if (!regular(reviewedModes, path) || !nameProofRequest(reviewed, path)) return false;
-        changed = true;
       } else if (tree[path] !== oid4 || currentModes && (!Object.hasOwn(currentModes, path) || currentModes[path] !== reviewedModes?.[path])) {
         return false;
       }
@@ -33390,9 +33388,8 @@ var Publisher = class _Publisher {
       const queueAddition = request !== opId && publishOpIdSchema.safeParse(request).success || publishOpIdSchema.safeParse(kick).success || publishOpIdSchema.safeParse(saveKick).success || /^publish\/kicks\/due-[0-9]{12}-[0-9]+\.json$/.test(path) || log && log[2] !== opId && publishOpIdSchema.safeParse(log[2]).success && log[1] === publishMonth(log[2]);
       const clashProof = /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
       if (!queueAddition && !clashProof.test(path) && !nameProofRequest(tree, path)) return false;
-      changed = true;
     }
-    return changed;
+    return true;
   }
   async record(opId, receipt, candidate, result, requestBlob, landing, atomicLive) {
     const p = paths2(opId);
