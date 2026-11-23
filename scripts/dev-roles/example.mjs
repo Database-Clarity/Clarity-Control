@@ -176,16 +176,19 @@ try {
         (r) => r.url() === directory + '/api/publish' && r.request().method() === 'POST',
       )
       .then((response) => ({ response }));
-    const missing = page
-      .getByRole('alert')
-      .filter({ hasText: /Select pending imported tooltip \d+ as well/ });
-    const requirement = missing.waitFor().then(async () => ({
-      dependency: Number((await missing.innerText()).match(/tooltip (\d+)/)?.[1]),
-    }));
+    const missing = page.getByRole('alert').filter({
+      hasText: /Select pending imported tooltip \d+ as well/,
+      hasNotText: new RegExp(
+        `Select pending imported tooltip (?:${[...included].join('|')}) as well`,
+      ),
+    });
     await page
       .getByRole('dialog', { name: 'Publish to live' })
       .getByRole('button', { name: `Publish ${included.size}`, exact: true })
       .click();
+    const requirement = missing.waitFor().then(async () => ({
+      dependency: Number((await missing.innerText()).match(/tooltip (\d+)/)?.[1]),
+    }));
     const attempt = await Promise.race([publish, requirement]);
     if (attempt.response) accepted = attempt.response;
     else {

@@ -56,4 +56,5 @@ and applies the publish request. Allow 20–30 minutes on a Windows checkout.
 The script adds or edits German, saves from the editor, checks the resulting data
 commit, and verifies that English is read-only and a forced save returns
 HTTP 403. It switches to editor, publishes the same tooltip, waits for the
-published state, and verifies the disposable live ref advanced.
+published state, and verifies the disposable live ref advanced. If Review
+requires a pending dependency, the script includes the requested row.
