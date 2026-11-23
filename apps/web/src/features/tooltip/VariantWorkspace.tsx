@@ -17,6 +17,7 @@ import styles from './TooltipPage.module.scss';
 import { useWorkspaceDivider } from './useWorkspaceDivider';
 import { usePaneStatus } from '../compendium/paneStatus';
 import { useReportsTab } from '../reports/pane/tabStore';
+import type { ViewVisit } from '../queue/compendiumVisit';
 
 type Panel = 'source' | 'translation' | 'preview' | 'compendium' | 'reports';
 
@@ -52,8 +53,8 @@ interface VariantWorkspaceProps {
   reports?: { pane: ReactNode; count: number | null };
   /** Panel shown first on a phone, or in the swapped slot; defaults to the editor. */
   initialPanel?: Panel;
-  /** Names a visit (or a run of visits) that is about the Compendium: a new one opens its view. */
-  openCompendium?: unknown;
+  /** A visit with a view of its own: a new one opens it, whatever was open. */
+  visit?: ViewVisit;
   /** Keep pane measurement/tab state stable while a navigation burst hides the workspace. */
   suspended?: boolean;
 }
@@ -90,7 +91,7 @@ export function VariantWorkspace({
   compendiumLabel = 'Compendium',
   reports,
   initialPanel = 'translation',
-  openCompendium,
+  visit,
   suspended = false,
 }: VariantWorkspaceProps) {
   const phone = useMedia(phoneQuery);
@@ -121,12 +122,14 @@ export function VariantWorkspace({
       remember({ translatePane: id === 'source' ? 'english' : 'compendium' });
   };
   const side = useRef<HTMLDivElement>(null);
+  const visitId = visit?.id;
+  const visitView = visit?.view;
   useLayoutEffect(() => {
-    setVisiting(!!openCompendium);
-    if (!openCompendium) return;
-    setActive('compendium');
+    setVisiting(visitView === 'compendium');
+    if (!visitView) return;
+    setActive(visitView);
     setReportsOpen(false);
-  }, [openCompendium, setReportsOpen]);
+  }, [visitId, visitView, setReportsOpen]);
   const showEditor = useRef(() => {});
   showEditor.current = () => {
     if (mode !== 'split') open('translation');

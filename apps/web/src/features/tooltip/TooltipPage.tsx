@@ -968,7 +968,7 @@ function TooltipWorkspace({
       <VariantWorkspace
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
-        openCompendium={compendiumVisit(routeState, work, phone)}
+        visit={compendiumVisit(routeState, work, phone)}
         source={
           lang === 'en' || (batchEditing && !batchAllowed) ? undefined : batchEditing ? (
             upcoming.overlay?.[activeHash] ? (

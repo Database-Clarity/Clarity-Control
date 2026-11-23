@@ -6,6 +6,7 @@ import { VariantWorkspace } from './VariantWorkspace';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import { useSettingsStore } from '../../stores/settings';
 import { useReportsTab } from '../reports/pane/tabStore';
+import type { ViewVisit } from '../queue/compendiumVisit';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -25,10 +26,11 @@ const Compendium = () => (
     Sheet
   </RightPane>
 );
-const render = (count: number | null = 2) =>
+const render = (count: number | null = 2, visit?: ViewVisit) =>
   act(() =>
     root.render(
       <VariantWorkspace
+        visit={visit}
         editor={<div>Editor</div>}
         compendium={<Compendium />}
         reports={{ pane: <Reports />, count }}
@@ -103,6 +105,30 @@ describe('Reports tab in the right pane', () => {
     expect(useReportsTab.getState().open).toBe(false);
     // Reports never becomes the remembered English/Compendium pick.
     expect(useSettingsStore.getState().device.remembered.translatePane).toBeUndefined();
+  });
+
+  it('opens a visit’s own view once, over any open tab, and keeps the pick made after it', () => {
+    const run = (id: string, view: ViewVisit['view']): ViewVisit => ({ id, view });
+    const shown = () => host.querySelector('[data-view]')!.getAttribute('data-view');
+    render();
+    act(() => paneTab('Reports')!.click());
+    render(2, run('q1', 'compendium'));
+    expect(panes()).toEqual(['Compendium pane']);
+    // Reports picked during the run stays while stepping (a new object for the same run).
+    act(() => paneTab('Reports')!.click());
+    render(2, run('q1', 'compendium'));
+    expect(panes()).toEqual(['Reports pane']);
+    // A phone's run starts on the editor, from the Compendium view too.
+    const phoneTab = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((button) =>
+      button.id.endsWith('-tab-compendium'),
+    )!;
+    act(() => phoneTab.click());
+    expect(shown()).toBe('compendium');
+    render(2, run('q2', 'translation'));
+    expect(shown()).toBe('translation');
+    act(() => paneTab('Reports')!.click());
+    render(2, run('q2', 'translation'));
+    expect(shown()).toBe('reports');
   });
 
   it('Alt+R opens the tab and asks the pane to focus its first report', () => {
