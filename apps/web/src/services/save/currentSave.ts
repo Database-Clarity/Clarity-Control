@@ -100,7 +100,7 @@ export async function saveCurrent({
         confirmed: false,
         stageId,
       };
-      if (owner) {
+      if (owner && !stageId) {
         await writeSaveReceipt(owner, receipt.id, receipt);
         const stop = stopped();
         if (stop) {
@@ -108,17 +108,18 @@ export async function saveCurrent({
           return stop;
         }
       }
+      const mayStage = () =>
+        !accountChanged() &&
+        sameSession() &&
+        useSaveState.getState().review === review &&
+        !useDraftStore.getState().external;
       const result = stageId
         ? await stageCurrentSave(
             stageId,
             chunk,
             message,
             noTranslationImpact,
-            () =>
-              !accountChanged() &&
-              sameSession() &&
-              useSaveState.getState().review === review &&
-              !useDraftStore.getState().external,
+            mayStage,
             (uploaded) => {
               if (accountChanged() || useSaveState.getState().review !== review) return;
               useSaveState.setState({
@@ -129,6 +130,11 @@ export async function saveCurrent({
                   failed: null,
                 },
               });
+            },
+            async (finalization) => {
+              if (!owner) return;
+              await writeSaveReceipt(owner, receipt.id, { ...receipt, finalization });
+              if (!mayStage()) await writeSaveReceipt(owner, receipt.id);
             },
           )
         : await save(chunk, message, noTranslationImpact).catch((error: unknown) => {
@@ -173,6 +179,7 @@ export async function saveCurrent({
         if (owner)
           await writeSaveReceipt(owner, receipt.id, {
             ...receipt,
+            ...(stageId ? { at: Date.now() } : {}),
             tooltips: result.tooltips,
             savedAt: result.savedAt,
             confirmed: true,

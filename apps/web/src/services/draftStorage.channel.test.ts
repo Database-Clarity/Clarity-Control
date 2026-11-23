@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import type { Tooltip } from '@clarity/core';
 import { createDraftStore } from '../stores/drafts';
-import { createIndexedDbStorage } from './draftStorage';
+import { createIndexedDbStorage, readSaveReceipts, writeSaveReceipt } from './draftStorage';
 
 const base: Tooltip = {
   hash: 10,
@@ -11,6 +11,20 @@ const base: Tooltip = {
   associated: [],
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
+
+it('keeps unresolved staged receipts across reloads after the ordinary receipt cutoff', async () => {
+  const owner = 'receipt-cutoff';
+  const old = {
+    at: Date.now() - 25 * 60 * 60_000,
+    submitted: { 10: { base, next: base } },
+    tooltips: [base],
+    confirmed: false,
+  };
+  const staged = { ...old, id: 'stage', stageId: '01K95H00000000000000000A02' };
+  await writeSaveReceipt(owner, staged.id, staged);
+  await writeSaveReceipt(owner, 'direct', { ...old, id: 'direct' });
+  expect(await readSaveReceipts(owner)).toEqual([staged]);
+});
 
 describe('draft storage channel (real IndexedDB, real BroadcastChannel)', () => {
   it('tells other tabs about a write, never the tab that made it', async () => {

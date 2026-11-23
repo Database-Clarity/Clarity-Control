@@ -18,6 +18,12 @@ export const draftsSchema = z
   );
 export type Drafts = z.infer<typeof draftsSchema>;
 
+const saveFinalizationSchema = z.object({
+  parts: z.number().int().positive(),
+  digest: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export type SaveFinalization = z.infer<typeof saveFinalizationSchema>;
+
 const saveReceiptSchema = z.object({
   id: z.string(),
   at: z.number(),
@@ -25,6 +31,7 @@ const saveReceiptSchema = z.object({
   tooltips: z.array(tooltipSchema),
   savedAt: z.number().optional(),
   stageId: publishOpIdSchema.optional(),
+  finalization: saveFinalizationSchema.optional(),
   confirmed: z.boolean(),
 });
 export type SaveReceipt = z.infer<typeof saveReceiptSchema>;
@@ -46,7 +53,11 @@ export async function readSaveReceipts(owner: string): Promise<SaveReceipt[]> {
         const cursor = request.result;
         if (!cursor) return;
         const parsed = saveReceiptSchema.safeParse(cursor.value);
-        if (parsed.success && parsed.data.at > cutoff) result.push(parsed.data);
+        if (
+          parsed.success &&
+          (parsed.data.at > cutoff || (parsed.data.stageId && !parsed.data.confirmed))
+        )
+          result.push(parsed.data);
         else cursor.delete();
         cursor.continue();
       };

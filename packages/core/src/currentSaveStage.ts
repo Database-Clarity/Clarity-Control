@@ -59,6 +59,7 @@ const envelope = z
   .strict();
 const record = z.object({ requester, updatedAt: timestampSchema }).strict();
 const outcome = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('uploading') }),
   z.object({
     status: z.literal('saved'),
     commit: currentSaveSha,

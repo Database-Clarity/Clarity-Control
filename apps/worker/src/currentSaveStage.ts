@@ -49,8 +49,7 @@ export async function stageCurrentSave(request: Request, github: GitHub, user: I
     const id = publishOpIdSchema.safeParse(new URL(request.url).searchParams.get('requestId'));
     if (!id.success) throw new HttpError(400, 'Invalid save request identifier');
     const { head, record } = await snapshot(github, user, id.data);
-    if (!record || record.status === 'uploading')
-      throw new HttpError(404, 'Save request was not found');
+    if (!record) throw new HttpError(404, 'Save request was not found');
     if (record.status === 'saved')
       return json({ status: record.status, commit: record.commit, savedAt: record.savedAt });
     if (record.status === 'conflicts') return json({ status: record.status, head });

@@ -39,10 +39,16 @@ it('stores bounded parts in sequence, and signs the immutable source only at fin
   expect((await f.request(route, 'POST', { requestId, part: 0, content })).status).toBe(200);
   expect(f.current()[paths.part(requestId, 0)]).toBe(content);
   expect(f.current()[paths.kick(requestId)]).toBeUndefined();
+  const status = `${route}?requestId=${requestId}`;
+  expect(await (await f.request(status, 'GET', undefined)).json()).toEqual({ status: 'uploading' });
+  expect((await f.request(status, 'GET', undefined, 2)).status).toBe(404);
   const sourceCommit = f.dataHead;
   expect((await f.request(route, 'POST', { requestId, parts: 2, digest })).status).toBe(409);
   expect((await f.request(route, 'POST', { requestId, parts: 1, digest }, 2)).status).toBe(404);
   expect((await f.request(route, 'POST', { requestId, parts: 1, digest })).status).toBe(202);
+  const queuedCommit = f.dataHead;
+  expect((await f.request(route, 'POST', { requestId, parts: 1, digest })).status).toBe(409);
+  expect(f.dataHead).toBe(queuedCommit);
   const record = currentSaveStageRecord.parse(f.current()[paths.record(requestId)]);
   if (record.status !== 'queued') throw new Error('Expected a queued save');
   const { payload, sig } = record.envelope;

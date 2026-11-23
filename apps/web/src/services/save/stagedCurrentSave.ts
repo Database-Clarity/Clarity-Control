@@ -8,19 +8,25 @@ import {
 import { conflictSchema, type Change, type SaveResult } from '../api';
 import { apiRequest, failure } from '../apiAuth';
 import { assertNoGlobalAggregates } from '../globalsFlag';
+import type { SaveFinalization } from '../draftStorage';
 
 const rawSource = 'https://raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database';
 const route = '/save/stage';
 
 export async function readCurrentSaveOutcome(requestId: string) {
-  const response = await apiRequest(`${route}?requestId=${encodeURIComponent(requestId)}`);
+  const response = await apiRequest(`${route}?requestId=${encodeURIComponent(requestId)}`, {
+    signal: AbortSignal.timeout(15_000),
+  });
   if (response.status === 404) return null;
   if (!response.ok) return failure(response);
   return currentSaveOutcome.parse(await response.json());
 }
 
 async function readSaved(path: string) {
-  const response = await fetch(`${rawSource}/${path}`, { credentials: 'omit' });
+  const response = await fetch(`${rawSource}/${path}`, {
+    credentials: 'omit',
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!response.ok) throw new Error(`Saved data is still loading (HTTP ${response.status})`);
   return response.json();
 }
@@ -40,12 +46,27 @@ export async function readStagedSavedTooltips(commit: string, hashes: readonly n
   return tooltips;
 }
 
-async function post(value: unknown) {
-  const response = await apiRequest(route, {
+const postRequest = (value: unknown, signal?: AbortSignal) =>
+  apiRequest(route, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(value),
+    signal,
   });
+
+const queued = z.object({ queued: z.literal(true) });
+
+/** Re-send only the finalization of the same immutable upload. The Worker CAS permits one queue. */
+export async function resumeCurrentSave(requestId: string, finalization: SaveFinalization) {
+  const response = await postRequest({ requestId, ...finalization }, AbortSignal.timeout(15_000));
+  // These answers can mean another finalizer won or the upload is gone. Read the receipt again.
+  if ([400, 404, 409].includes(response.status)) return;
+  if (!response.ok) return failure(response);
+  queued.parse(await response.json());
+}
+
+async function post(value: unknown) {
+  const response = await postRequest(value);
   if (!response.ok) {
     const error = z.object({ error: z.string() }).safeParse(
       await response
@@ -66,6 +87,7 @@ export async function stageCurrentSave(
   noTranslationImpact: boolean,
   proceed: () => boolean,
   progress: (uploaded: number | null) => void,
+  beforeFinish: (finalization: SaveFinalization) => Promise<void>,
 ): Promise<SaveResult> {
   const hashes = changes.map(({ hash }) => hash);
   assertNoGlobalAggregates(hashes);
@@ -92,7 +114,9 @@ export async function stageCurrentSave(
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
   checkSession();
-  z.object({ queued: z.literal(true) }).parse(await post({ requestId, parts, digest }));
+  await beforeFinish({ parts, digest });
+  checkSession();
+  queued.parse(await post({ requestId, parts, digest }));
   progress(null);
   const deadline = Date.now() + 5 * 60_000;
   while (Date.now() < deadline) {

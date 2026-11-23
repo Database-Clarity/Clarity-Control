@@ -1,6 +1,5 @@
 import {
   carryNumberTranslations,
-  currentSaveStageLifetime,
   languages,
   reconcileNumberMap,
   refreshNumberFallbacks,
@@ -8,10 +7,16 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
+import { useAuthStore } from '../../stores/auth';
 import { useDraftStore } from '../../stores/drafts';
 import { applySavedOverlay, rememberSaved } from '../../stores/savedOverlay';
 import { readSaveReceipts, writeSaveReceipt, type Drafts, type SaveReceipt } from '../draftStorage';
-import { readCurrentSaveOutcome, readStagedSavedTooltips } from './stagedCurrentSave';
+import { sessionToken } from '../session';
+import {
+  readCurrentSaveOutcome,
+  readStagedSavedTooltips,
+  resumeCurrentSave,
+} from './stagedCurrentSave';
 import { useSaveState } from './state';
 
 /** Compare the whole submitted tooltip, including links and translation revision stamps. */
@@ -54,6 +59,7 @@ export function startSaveRecovery(): () => void {
   let active: Session | null = null;
   let receipts: SaveReceipt[] | null = null;
   let pendingStages = new Set<string>();
+  const missingSince = new Map<string, number>();
   let retry: ReturnType<typeof setTimeout> | undefined;
   const stillCurrent = (session: Session) =>
     !stopped && active === session && useDraftStore.getState().generation === session.generation;
@@ -63,16 +69,12 @@ export function startSaveRecovery(): () => void {
     const failed = new Set<string>();
     for (const [index, receipt] of records.entries()) {
       if (!stillCurrent(session)) return;
-      if (
-        !receipt.stageId ||
-        receipt.confirmed ||
-        Date.now() - receipt.at >= currentSaveStageLifetime
-      )
-        continue;
+      if (!receipt.stageId || receipt.confirmed) continue;
       try {
         const result = await readCurrentSaveOutcome(receipt.stageId);
         if (!stillCurrent(session)) return;
         if (result?.status === 'queued') {
+          missingSince.delete(receipt.id);
           pending.push(receipt);
         } else if (result?.status === 'saved') {
           const tooltips = await readStagedSavedTooltips(
@@ -80,11 +82,41 @@ export function startSaveRecovery(): () => void {
             receipt.tooltips.map(({ hash }) => hash),
           );
           if (!stillCurrent(session)) return;
-          const confirmed = { ...receipt, confirmed: true, tooltips, savedAt: result.savedAt };
+          const confirmed = {
+            ...receipt,
+            at: Date.now(),
+            confirmed: true,
+            tooltips,
+            savedAt: result.savedAt,
+          };
           await writeSaveReceipt(session.owner, receipt.id, confirmed);
           records[index] = confirmed;
-        } else if (result) {
+        } else if (result?.status === 'failed' || result?.status === 'conflicts') {
           failed.add(receipt.id);
+          void writeSaveReceipt(session.owner, receipt.id).catch(() => {});
+        } else {
+          if (result?.status === 'uploading' && receipt.finalization) {
+            const { token, user, loading } = useAuthStore.getState();
+            if (
+              !loading &&
+              user?.role &&
+              String(user.id) === session.owner &&
+              token === sessionToken()
+            )
+              await resumeCurrentSave(receipt.stageId, receipt.finalization);
+            pending.push(receipt);
+            continue;
+          }
+          // Older clients wrote receipts before uploading and did not save a manifest. Give
+          // a final POST already in flight time to queue before releasing an abandoned upload.
+          const since = missingSince.get(receipt.id) ?? Date.now();
+          if (Date.now() - since < 12_000) {
+            missingSince.set(receipt.id, since);
+            pending.push(receipt);
+          } else {
+            failed.add(receipt.id);
+            void writeSaveReceipt(session.owner, receipt.id).catch(() => {});
+          }
         }
       } catch {
         // Keep waiting if either the receipt or the tooltips at its commit are temporarily unreadable.
@@ -121,6 +153,7 @@ export function startSaveRecovery(): () => void {
       const session = { generation: current, owner };
       active = session;
       receipts = null;
+      missingSince.clear();
       clearTimeout(retry);
       void readSaveReceipts(owner)
         .then((records) => resolveStages(records, session))

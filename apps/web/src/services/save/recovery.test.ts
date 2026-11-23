@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { carryNumberTranslations, reconcileNumberMap } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { useAuthStore } from '../../stores/auth';
 import { clearSavedOverlay } from '../../stores/savedOverlay';
 import type { SaveReceipt } from '../draftStorage';
 import { editorData, tooltip } from './fixtures.testSupport';
@@ -11,7 +12,7 @@ import { openDraftSaveReview } from './openReview';
 
 const read = vi.hoisted(() => vi.fn());
 const write = vi.hoisted(() => vi.fn());
-const stage = vi.hoisted(() => ({ outcome: vi.fn(), tooltips: vi.fn() }));
+const stage = vi.hoisted(() => ({ outcome: vi.fn(), tooltips: vi.fn(), resume: vi.fn() }));
 vi.mock('../draftStorage', async (actual) => ({
   ...(await actual<typeof import('../draftStorage')>()),
   readSaveReceipts: read,
@@ -20,6 +21,11 @@ vi.mock('../draftStorage', async (actual) => ({
 vi.mock('./stagedCurrentSave', () => ({
   readCurrentSaveOutcome: stage.outcome,
   readStagedSavedTooltips: stage.tooltips,
+  resumeCurrentSave: stage.resume,
+}));
+vi.mock('../session', async (actual) => ({
+  ...(await actual<typeof import('../session')>()),
+  sessionToken: () => 'test',
 }));
 
 const second = { ...tooltip, hash: 400 };
@@ -42,6 +48,7 @@ const records = (): SaveReceipt[] => [
   },
 ];
 let stop: (() => void) | undefined;
+const originalAuth = useAuthStore.getState();
 afterEach(() => {
   stop?.();
   clearSavedOverlay();
@@ -51,6 +58,8 @@ afterEach(() => {
   write.mockReset();
   stage.outcome.mockReset();
   stage.tooltips.mockReset();
+  stage.resume.mockReset();
+  useAuthStore.setState(originalAuth);
   useSaveState.setState({ recoveryGeneration: null, applyingDrafts: {} });
 });
 
@@ -67,6 +76,7 @@ function start(saved = records()) {
     },
   };
   read.mockResolvedValueOnce(saved);
+  write.mockResolvedValue(undefined);
   useDataStore.setState({ data });
   useDraftStore.setState({
     drafts: { ...saved[0].submitted, ...saved[1].submitted },
@@ -147,10 +157,15 @@ it('retains an edited draft even when its previously submitted content arrives',
 it('keeps a reopened staged save applying until its immutable receipt confirms the merged tooltip', async () => {
   vi.useFakeTimers();
   const saved = records();
-  saved[1] = { ...saved[1], stageId: '01K95H00000000000000000A02' };
+  saved[1] = {
+    ...saved[1],
+    stageId: '01K95H00000000000000000A02',
+    at: Date.now() - 25 * 60 * 60_000,
+  };
   const merged = { ...ambiguous, associated: [123, 789] };
   const commit = 'c'.repeat(40);
   stage.outcome
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce({ status: 'queued' })
     .mockResolvedValueOnce({ status: 'saved', commit, savedAt: Date.now() });
   stage.tooltips.mockResolvedValueOnce([merged]);
@@ -170,6 +185,8 @@ it('keeps a reopened staged save applying until its immutable receipt confirms t
   expect(useSaveState.getState().review).toBeNull();
 
   await vi.advanceTimersByTimeAsync(4000);
+  expect(status()).toBe('Applying');
+  await vi.advanceTimersByTimeAsync(4000);
   expect(stage.tooltips).toHaveBeenCalledWith(commit, [400]);
   expect(write).toHaveBeenCalledWith(
     '1',
@@ -179,6 +196,41 @@ it('keeps a reopened staged save applying until its immutable receipt confirms t
   expect(useDataStore.getState().data!.bundle.tooltips[400]).toEqual(merged);
   expect(useDraftStore.getState().drafts).toEqual({});
   expect(status()).toBeNull();
+});
+
+it('replays only a persisted finalization after reopening during an upload', async () => {
+  vi.useFakeTimers();
+  const saved = records();
+  const finalization = { parts: 3, digest: 'd'.repeat(64) };
+  const stageId = '01K95H00000000000000000A02';
+  saved[1] = { ...saved[1], stageId, finalization };
+  useAuthStore.setState({
+    loading: false,
+    user: { id: 1, login: 'alice', role: 'editor' },
+    token: 'test',
+  });
+  stage.outcome
+    .mockResolvedValueOnce({ status: 'uploading' })
+    .mockResolvedValueOnce({ status: 'queued' });
+  start(saved);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(stage.resume).toHaveBeenCalledExactlyOnceWith(stageId, finalization);
+  expect(draftSaveStatus(useDraftStore.getState(), useSaveState.getState())).toBe('Applying');
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(stage.resume).toHaveBeenCalledTimes(1);
+});
+
+it('releases an abandoned legacy upload without sending a finalization', async () => {
+  vi.useFakeTimers();
+  const saved = records();
+  saved[1] = { ...saved[1], stageId: '01K95H00000000000000000A02' };
+  stage.outcome.mockResolvedValue({ status: 'uploading' });
+  start(saved);
+  await vi.advanceTimersByTimeAsync(12_000);
+  expect(stage.resume).not.toHaveBeenCalled();
+  expect(write).toHaveBeenCalledWith('1', 'ambiguous');
+  expect(useDraftStore.getState().drafts[400]?.next).toEqual(ambiguous);
+  expect(draftSaveStatus(useDraftStore.getState(), useSaveState.getState())).toBeNull();
 });
 
 it.each(['saved', 'failed'])(
@@ -207,6 +259,7 @@ it.each(['saved', 'failed'])(
     await vi.advanceTimersByTimeAsync(4000);
     expect(draftSaveStatus(useDraftStore.getState(), useSaveState.getState())).toBeNull();
     expect(useDraftStore.getState().drafts[400]?.next).toEqual(next);
-    expect(write).toHaveBeenCalledTimes(status === 'saved' ? 1 : 0);
+    expect(write).toHaveBeenCalledTimes(1);
+    if (status === 'failed') expect(write).toHaveBeenCalledWith('1', 'ambiguous');
   },
 );
