@@ -170,7 +170,16 @@ export function applyGroupRemoval(
   if (tooltip) rememberSaved([tooltip]);
   useDataStore.setState((state) => {
     if (!state.data) return {};
-    const bundle = applySavedOverlay(state.data.bundle);
+    // Never through the overlay: the loaded data already holds it, so it would look caught up.
+    const { tooltips, pushed, ...loaded } = state.data.bundle;
+    const bundle = {
+      ...loaded,
+      aliasGroups: config,
+      tooltips: tooltip ? { ...tooltips, [member]: tooltip } : tooltips,
+      pushed: Object.fromEntries(
+        Object.entries(pushed).filter(([hash]) => hash !== String(member)),
+      ),
+    };
     return { data: withSandboxPicks({ ...state.data, bundle }, bundle.sandboxPointers) };
   });
 }

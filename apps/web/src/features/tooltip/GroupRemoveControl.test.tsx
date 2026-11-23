@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { emptyAliasGroups, type AliasGroups, type Tooltip } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
-import { useDataStore, type EditorData } from '../../stores/data';
-import { applySavedOverlay, clearSavedOverlay } from '../../stores/savedOverlay';
+import { applyGroupRemoval, useDataStore, type EditorData } from '../../stores/data';
+import { applySavedOverlay, clearSavedOverlay, rememberSaved } from '../../stores/savedOverlay';
 import { getAliasGroupsHead, removeGroupMember } from '../../services/aliasGroups';
 import { GroupRemoveControl } from './GroupRemoveControl';
 
@@ -148,6 +148,36 @@ it('removes a member after an in-place confirm and shows it as its own entry wit
     aliasGroups: data.bundle.aliasGroups,
   };
   expect(applySavedOverlay(caught as never)).toBe(caught);
+});
+
+it('keeps earlier saves and removals of this tab through an in-app reload', () => {
+  const edited: Tooltip = { ...text, associated: [7] };
+  rememberSaved([edited]);
+  const data = useDataStore.getState().data!;
+  useDataStore.setState({
+    data: { ...data, bundle: { ...data.bundle, tooltips: { 42: edited } } },
+  });
+  const removal = { canonical: 42, by: { id: '1', login: 'alice' }, at: '2026-11-23T00:00:00Z' };
+  const response = (removed: AliasGroups['removed'], tooltip: Tooltip) => ({
+    head,
+    config: { ...groups, groups: {}, removed },
+    issues: [],
+    affectedCanonicals: [],
+    tooltip,
+  });
+  const other = { ...stored, hash: 44 };
+  applyGroupRemoval(response({ 43: removal }, stored), 43);
+  applyGroupRemoval(response({ 43: removal, 44: removal }, other), 44);
+  const reloaded = applySavedOverlay({
+    sourceCommit: 'old',
+    generatedAt: stale,
+    tooltips: { 42: text },
+    pushed: { 42: 'a', 43: 'b', 44: 'c' },
+    aliasGroups: groups,
+  } as never);
+  expect(reloaded.tooltips).toEqual({ 42: edited, 43: stored, 44: other });
+  expect(reloaded.pushed).toEqual({ 42: 'a' });
+  expect(Object.keys(reloaded.aliasGroups!.removed!)).toEqual(['43', '44']);
 });
 
 it('offers nothing for the main entry, editors, or translators', async () => {
