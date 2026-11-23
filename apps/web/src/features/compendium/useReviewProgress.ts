@@ -94,6 +94,8 @@ export function useReviewProgress(storageKey: string) {
   const [progress, setProgress] = useState(initial.progress);
   const [error, setError] = useState(initial.error);
   const current = useRef(progress);
+  /** The decisions as this tab last stored them: what differs is still its own to write. */
+  const saved = useRef(progress.decisions);
   const mounted = useRef(false);
   const decisionWriteFailed = useRef(false);
   useEffect(() => {
@@ -122,22 +124,18 @@ export function useReviewProgress(storageKey: string) {
     // Authored review decisions retain their existing immediate durability guarantee.
     removePending(storageKey);
     try {
-      // Another tab may have decided other entries since: write only what changed here.
+      // Another tab may have decided other entries since: write only what changed here, a failed
+      // write's changes included.
       const raw = localStorage.getItem(storageKey);
-      let stored = previous.decisions;
-      // After a failed write this tab holds more than is stored: it is written whole, as before.
-      if (!decisionWriteFailed.current)
-        try {
-          stored = readProgress({ getItem: () => raw }, storageKey).decisions;
-        } catch {
-          // An unreadable record (already reported) is replaced, as before.
-        }
+      let stored = saved.current;
+      try {
+        stored = readProgress({ getItem: () => raw }, storageKey).decisions;
+      } catch {
+        // An unreadable record (already reported) is replaced, as before.
+      }
       const merged = { ...next, decisions: { ...stored } };
-      for (const hash of new Set([
-        ...Object.keys(previous.decisions),
-        ...Object.keys(next.decisions),
-      ])) {
-        if (next.decisions[hash] === previous.decisions[hash]) continue;
+      for (const hash of new Set([...Object.keys(saved.current), ...Object.keys(next.decisions)])) {
+        if (next.decisions[hash] === saved.current[hash]) continue;
         if (next.decisions[hash]) merged.decisions[hash] = next.decisions[hash];
         else delete merged.decisions[hash];
       }
@@ -148,6 +146,7 @@ export function useReviewProgress(storageKey: string) {
         localStorage.setItem(storageKey, serialized);
         notifyCompendiumInputs(storageKey);
       }
+      saved.current = merged.decisions;
       decisionWriteFailed.current = false;
       setError('');
     } catch (error) {

@@ -220,7 +220,16 @@ it('keeps another tab’s decisions when it records or undoes its own, and makes
   });
   decide(4);
   expect(state.error).toContain('only in memory');
+  otherTab(6);
   decide(5);
   expect(state.error).toBe('');
-  expect(read()).toEqual(['1', '2', '4', '5']);
+  expect(read()).toEqual(['1', '2', '4', '5', '6']);
+  // A removal that could not be written is made up for too.
+  write.mockImplementationOnce(() => {
+    throw new Error('full');
+  });
+  act(() => state.update((progress) => restoreDecision(progress, 4, undefined)));
+  otherTab(7);
+  decide(8);
+  expect(read()).toEqual(['1', '2', '5', '6', '7', '8']);
 });
