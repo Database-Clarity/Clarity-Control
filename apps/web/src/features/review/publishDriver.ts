@@ -96,12 +96,9 @@ export interface PublishInput {
 }
 
 export class PublishClosureLimitError extends Error {
-  constructor(
-    readonly hashes: number[],
-    consumers: number,
-  ) {
+  constructor(readonly groups: { hashes: number[]; consumers: number }[]) {
     super(
-      `Review cannot safely split these changes into separate requests, and together they require ${consumers} tooltip languages. The publisher allows ${publishTiming.maxConsumers} per request.`,
+      `Review cannot safely split these changes into separate requests. The publisher allows ${publishTiming.maxConsumers} tooltip languages per request.`,
     );
   }
 }
@@ -119,12 +116,13 @@ export function publishChunks<T extends Omit<PublishInput, 'digest'>>(inputs: re
     missing: (hash) => `Select pending imported tooltip ${hash} as well. Nothing was sent.`,
     duplicate: 'Duplicate publish hash. Nothing was sent.',
   });
-  const oversized = chunks.find((chunk) => consumers(chunk) > publishTiming.maxConsumers);
-  if (oversized)
-    throw new PublishClosureLimitError(
-      oversized.map(({ hash }) => hash),
-      consumers(oversized),
-    );
+  const oversized = chunks.flatMap((chunk) => {
+    const count = consumers(chunk);
+    return count > publishTiming.maxConsumers
+      ? [{ hashes: chunk.map(({ hash }) => hash), consumers: count }]
+      : [];
+  });
+  if (oversized.length) throw new PublishClosureLimitError(oversized);
   return chunks;
 }
 

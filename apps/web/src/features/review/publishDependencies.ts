@@ -64,8 +64,8 @@ function tooltipReads(
 interface PublishDependencyOptions {
   moves?: InactiveMoves;
   globals?: boolean;
-  /** Ready Review comparisons. Null means the tooltip has no published version. */
-  published?: Readonly<Partial<Record<number, Tooltip | null>>>;
+  /** Ready Review comparisons. A row without a marker has an explicit undefined value. */
+  published?: Readonly<Partial<Record<number, Tooltip | null | undefined>>>;
 }
 
 export function publishDependencies(
@@ -92,7 +92,13 @@ export function publishDependencies(
     if (isMovedInactive(hash, moves)) removedBy.set(hash, resolveAlias(hash, aliases));
   }
   if (removedBy.size) {
-    const uncertain = new Set<number>();
+    // Older live rows can predate their pushed marker. The comparison endpoint cannot tell
+    // them apart from new rows, so keep them with the removals they might still read.
+    const uncertain = new Set(
+      selected
+        .map(({ hash }) => hash)
+        .filter((hash) => Object.hasOwn(published, hash) && published[hash] === undefined),
+    );
     const live = { ...tooltips };
     for (const [key, tooltip] of Object.entries(published)) {
       if (tooltip) live[key] = tooltip;

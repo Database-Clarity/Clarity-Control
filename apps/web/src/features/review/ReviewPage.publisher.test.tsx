@@ -221,6 +221,41 @@ afterEach(async () => {
 
 const posts = () => calls.filter((c) => c.path === '/publish');
 
+it('loads a manually included migration leftover before confirming a removal selection', async () => {
+  bundle.pushed[10] = await publishableHash(tooltip);
+  bundle.tooltips[20] = { ...structuredClone(tooltip), hash: 20 };
+  bundle.inactiveMoves = { 20: { by: 1, at: '2026-11-14T00:00:00Z' } };
+  vi.mocked(loadGenerator).mockResolvedValue({
+    categories: [],
+    items: {
+      10: { hash: 10, name: 'Tooltip 10', categoryId: 'other', icon: '', inGameDescription: '' },
+    } as never,
+    aliases: { 30: { to: 10, kind: 'frame' } },
+  });
+  await mount();
+  await selectAll();
+  await click('Show');
+  const group = [...host.querySelectorAll('button')].find((node) =>
+    node.textContent?.includes('Migration leftovers'),
+  )!;
+  await act(async () => group.click());
+  const row = () => host.querySelector<HTMLAnchorElement>('a[data-review-hash="10"]');
+  await waitFor(() => expect(row()).not.toBeNull());
+  await act(async () => row()!.click());
+  const include = () => host.querySelector<HTMLButtonElement>('footer[aria-label="Decide"] button');
+  await waitFor(() => expect(include()?.textContent).toContain('Include'));
+  await act(async () => include()!.click());
+  await waitFor(() => {
+    expect(headPublish()?.textContent).toContain('Publish 2');
+    expect(
+      vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/history/10?live=1')),
+    ).toBe(true);
+  });
+  await openPublish();
+  expect(host.querySelector('dialog[open]')?.textContent).toContain('Publish to live');
+  expect(posts()).toHaveLength(0);
+});
+
 it.each([false, true])(
   'checks a pending aggregate before confirmation when the selection imports it (%s)',
   async (importsExports) => {

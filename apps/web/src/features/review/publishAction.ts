@@ -29,19 +29,26 @@ export function planReviewedPublish(
       inactiveChange === 'remove' ||
       inactiveAliases?.some((hash) => isMovedInactive(hash, bundle.inactiveMoves)),
   }));
-  const published: Record<number, Tooltip | null> = {};
+  const published: Record<number, Tooltip | null | undefined> = {};
   if (inputs.some(({ removal }) => removal)) {
-    const versions = entries.map(
-      ({ tooltip, pushed }) => [tooltip.hash, publishedFor(byHash, tooltip.hash, pushed)] as const,
-    );
-    if (versions.some(([, version]) => version?.status === 'missing'))
+    const versions = entries.map(({ tooltip, pushed, inactiveChange }) => ({
+      hash: tooltip.hash,
+      pushed,
+      // A canonical removal marker records absence even when the archive retains old text.
+      version:
+        inactiveChange === 'restore'
+          ? { status: 'ready' as const, tooltip: null }
+          : publishedFor(byHash, tooltip.hash, pushed),
+    }));
+    if (versions.some(({ version }) => version?.status === 'missing'))
       throw new Error('Some selected changes need published versions that could not be recovered.');
-    if (versions.some(([, version]) => version?.status === 'error'))
+    if (versions.some(({ version }) => version?.status === 'error'))
       throw new Error('Refresh Review to retry loading the published versions.');
-    if (versions.some(([, version]) => version?.status !== 'ready'))
+    if (versions.some(({ version }) => version?.status !== 'ready'))
       throw new Error('Wait for the published versions to load, then publish again.');
-    for (const [hash, version] of versions)
-      if (version?.status === 'ready') published[hash] = version.tooltip;
+    for (const { hash, pushed, version } of versions)
+      if (version?.status === 'ready')
+        published[hash] = pushed === undefined ? undefined : version.tooltip;
   }
   const dependencies = publishDependencies(
     bundle.tooltips,
@@ -64,8 +71,15 @@ export function planReviewedPublish(
     publishChunks(planned);
   } catch (reason) {
     if (reason instanceof PublishClosureLimitError) {
-      const names = reason.hashes.map((hash) => pendingByHash.get(hash)?.name ?? `Tooltip ${hash}`);
-      throw new Error(`${reason.message} Affected changes: ${names.join(', ')}.`);
+      const names = new Map(entries.map(({ name, tooltip }) => [tooltip.hash, name]));
+      const format = new Intl.ListFormat('en');
+      const groups = reason.groups.map(
+        ({ hashes, consumers }) =>
+          `A group requiring ${consumers} tooltip languages includes ${format.format(
+            hashes.map((hash) => names.get(hash) ?? `Tooltip ${hash}`),
+          )}.`,
+      );
+      throw new Error(`${reason.message} ${groups.join(' ')}`);
     }
     throw reason;
   }

@@ -216,14 +216,18 @@ function reviewPlan(
   archived: Tooltip[],
   aliases: Aliases,
   inactiveMoves: InactiveMoves,
-  loading?: number,
+  options: { loading?: number; restored?: ReadonlySet<number> } = {},
 ) {
   const pushed = Object.fromEntries(archived.map(({ hash }) => [hash, 'old']));
   const entries = rows.map((tooltip) => ({
     tooltip,
     name: `Tooltip ${tooltip.hash}`,
     pushed: pushed[tooltip.hash],
-    inactiveChange: inactiveMoves[tooltip.hash] ? 'remove' : undefined,
+    inactiveChange: inactiveMoves[tooltip.hash]
+      ? 'remove'
+      : options.restored?.has(tooltip.hash)
+        ? 'restore'
+        : undefined,
     inactiveAliases: Object.keys(inactiveMoves)
       .map(Number)
       .filter((hash) => aliases[hash]?.to === tooltip.hash),
@@ -242,7 +246,7 @@ function reviewPlan(
       byHash: Object.fromEntries(
         archived.map((tooltip) => [
           tooltip.hash,
-          tooltip.hash === loading
+          tooltip.hash === options.loading
             ? { status: 'loading', marker: 'old' }
             : { status: 'ready', marker: 'old', tooltip },
         ]),
@@ -300,10 +304,49 @@ it.each([true, false])(
     }));
     const moves = Object.fromEntries(rows.map(({ hash }) => [hash, move]));
     expect(() => reviewPlan(rows, rows, { 901: { to: 900, kind: 'frame' } }, moves)).toThrow(
-      /cannot safely split.*501 tooltip languages.*500 per request.*Tooltip 1000.*Tooltip 1500/,
+      /cannot safely split.*500 tooltip languages per request.*501 tooltip languages.*Tooltip 1000.*Tooltip 1500/,
     );
   },
 );
+
+it('reports each over-limit group with its own count and names', () => {
+  const rows = [1000, 2000].flatMap((start) =>
+    Array.from({ length: 501 }, (_, i) => ({
+      ...t(start + i, 'Reader'),
+      associated: [start + ((i + 1) % 501)],
+    })),
+  );
+  expect(() => reviewPlan(rows, [], {}, {})).toThrow(
+    /group requiring 501 tooltip languages includes Tooltip 1000.*group requiring 501 tooltip languages includes Tooltip 2000/,
+  );
+});
+
+it('does not treat archived text for a removed row as live during a restore', () => {
+  const target = t(100, 'Remove me');
+  const rows = Array.from({ length: 500 }, (_, i) => t(200 + i, 'Restored'));
+  const old = rows.map((tooltip) => ({ ...tooltip, associated: [target.hash] }));
+  const moves = { 100: move };
+  const selected = [target, ...rows];
+  const chunks = reviewPlan(selected, [target, ...old], {}, moves, {
+    loading: rows[0]!.hash,
+    restored: new Set(rows.map(({ hash }) => hash)),
+  });
+  expect(chunks.map((chunk) => chunk.length)).toEqual([...Array<number>(10).fill(50), 1]);
+  const initial = exportLegacy([target], 0);
+  const apply = (live: Record<string, unknown>, hashes: number[]) => {
+    const entries = exportLegacy(
+      rows.filter(({ hash }) => hashes.includes(hash)),
+      0,
+    );
+    return applyInactiveLive(mergeLivePerks(live, entries), moves, hashes, {}, live);
+  };
+  expect(chunks.reduce(apply, initial)).toEqual(
+    apply(
+      initial,
+      selected.map(({ hash }) => hash),
+    ),
+  );
+});
 
 it('waits for a repair comparison when an active dependency would pull a stub removal ahead', () => {
   const user = { ...t(10, 'Uses canonical'), associated: [100] };
@@ -314,8 +357,8 @@ it('waits for a repair comparison when an active dependency would pull a stub re
   const selected = [user, owner, repair, ...filler];
   const aliases = { 101: { to: 100, kind: 'name' } } as const;
   const moves = { 101: move };
-  const archived = [owner, oldReader];
-  expect(() => reviewPlan(selected, archived, aliases, moves, 900)).toThrow(
+  const archived = [owner, oldReader, ...filler];
+  expect(() => reviewPlan(selected, archived, aliases, moves, { loading: 900 })).toThrow(
     'Wait for the published versions to load',
   );
   const initial = exportLegacy(archived, 0, undefined, aliases);
@@ -329,13 +372,13 @@ it('waits for a repair comparison when an active dependency would pull a stub re
     return applyInactiveLive(mergeLivePerks(previous, entries), moves, hashes, aliases, previous);
   };
   expect(() => apply(initial, [10, 100])).toThrow(/Tooltip 900 imports inactive tooltip 100/);
-  const chunks = reviewPlan(selected, archived, aliases, moves);
-  expect(chunks.reduce(apply, initial)).toEqual(
-    apply(
-      initial,
-      selected.map(({ hash }) => hash),
-    ),
+  const expected = apply(
+    initial,
+    selected.map(({ hash }) => hash),
   );
+  expect(reviewPlan(selected, archived, aliases, moves).reduce(apply, initial)).toEqual(expected);
+  const markerless = reviewPlan(selected, [owner, ...filler], aliases, moves);
+  expect(markerless.reduce(apply, initial)).toEqual(expected);
 });
 
 it('observes exact, nested, alias, and cyclic imports through the real resolver', () => {
