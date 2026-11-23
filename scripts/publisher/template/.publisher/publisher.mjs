@@ -26670,8 +26670,27 @@ function aliasStub(alias, aliases, catalog) {
   };
 }
 var isRecord = (value2) => typeof value2 === "object" && value2 !== null;
-function mergeLivePerks(live, entries, picks, groups) {
+function withUnpublishedRemovals(aliases, removed, live, entries, catalog) {
+  const view = { ...aliases };
+  for (const [hash2, { canonical }] of Object.entries(removed ?? {})) {
+    const row = live[hash2];
+    if (!isRecord(row) || row.aliasKind !== "name") continue;
+    if (Object.hasOwn(entries, hash2) || Object.hasOwn(aliases, hash2)) continue;
+    if (catalog && !catalog[hash2] || resolveAlias(canonical, view) === Number(hash2)) continue;
+    view[hash2] = { to: canonical, kind: "name" };
+  }
+  return view;
+}
+function mergeLivePerks(live, entries, picks, groups, removed) {
   const merged = { ...live, ...entries };
+  if (removed) {
+    const keep = (view) => ({
+      ...view,
+      aliases: withUnpublishedRemovals(view.aliases, removed, live, entries, view.catalog)
+    });
+    picks &&= keep(picks);
+    groups &&= keep(groups);
+  }
   for (const key of picks?.keys ?? []) {
     if (Object.hasOwn(entries, key)) continue;
     const current = merged[key];
@@ -33285,9 +33304,11 @@ var Publisher = class _Publisher {
   }
   mergePublicationPerks(sourceTree, live, entries, hashes) {
     const aliases = this.aliasesAt(sourceTree);
-    const groups = sourceTree[aliasGroupsPath] ? { aliases, catalog: this.options.facts } : void 0;
+    const raw = this.read(sourceTree, aliasGroupsPath);
+    const groups = raw === void 0 ? void 0 : { aliases, catalog: this.options.facts };
+    const removed = raw === void 0 ? void 0 : aliasGroupsSchema.parse(raw).removed;
     return applyInactiveLive(
-      mergeLivePerks(live, entries, this.pickRecomputeAt(sourceTree), groups),
+      mergeLivePerks(live, entries, this.pickRecomputeAt(sourceTree), groups, removed),
       this.movesAt(sourceTree),
       hashes,
       aliases,
@@ -33369,7 +33390,9 @@ var Publisher = class _Publisher {
     const currentModes = this.git.treeModes?.(head);
     const kick = new RegExp(`^publish/kicks/${opId}-[0-9]+\\.json$`);
     const added = Object.keys(tree).filter((path) => !Object.hasOwn(reviewed, path));
-    return added.length > 0 && added.every((path) => kick.test(path) && (!currentModes || currentModes[path] === "100644")) && Object.entries(reviewed).every(
+    return added.length > 0 && added.every(
+      (path) => kick.test(path) && (!currentModes || currentModes[path] === "100644")
+    ) && Object.entries(reviewed).every(
       ([path, oid4]) => tree[path] === oid4 && (!currentModes || Object.hasOwn(currentModes, path) && currentModes[path] === reviewedModes?.[path])
     );
   }
