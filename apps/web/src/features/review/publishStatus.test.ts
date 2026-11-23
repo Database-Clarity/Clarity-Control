@@ -27,7 +27,7 @@ it('words every status, and says plainly when nothing went live', () => {
   expect(view({ status: 'rejected' })).toMatchObject({ chip: 'Rejected', tone: 'bad' });
   expect(view({ status: 'failed' })).toMatchObject({ chip: 'Failed', tone: 'bad' });
   expect(view({ status: 'failed', error: 'Dropped.' }).detail).toBe('Dropped.');
-  expect(view({ status: 'pending' }).lead).toBe('3 tooltips · @1000000');
+  expect(view({ status: 'pending' }).lead).toBe('3 tooltips');
 });
 
 it('turns a pending operation into Waiting (with Retry) after three minutes, and a note wins the detail', () => {

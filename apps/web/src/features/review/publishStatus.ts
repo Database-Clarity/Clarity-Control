@@ -49,7 +49,7 @@ export function describeOp(
   const lead =
     liveCount !== undefined && !isTerminal(op.status)
       ? `${liveCount} of ${count} tooltips live.`
-      : op.status === 'done'
+      : op.status === 'done' || op.status === 'pending'
         ? tooltipCount
         : `${tooltipCount} · ${when(startedAt)}`;
   const base = { opId: op.opId, lead, waiting: false, finished: isTerminal(op.status) };

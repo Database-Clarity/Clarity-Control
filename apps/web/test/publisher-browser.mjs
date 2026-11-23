@@ -126,10 +126,7 @@ try {
     assert.equal(after.top, before.top, `${width}: strip moved on status change`);
     assert.ok(after.docWidth <= width);
     // Confirm dialog wording (publisher flow) renders without overflow too.
-    await page
-      .getByRole('checkbox', { name: /^Include all .* in / })
-      .first()
-      .click();
+    await page.locator('footer[aria-label="Decide"] button').first().click();
     await page.locator('[data-review-publish]').click();
     await page.waitForSelector('dialog[open]');
     const dialog = await page.evaluate(() => ({
