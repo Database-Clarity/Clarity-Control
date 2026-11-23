@@ -150,7 +150,7 @@ it('persists filters, position, skip/no-equivalent and reopen; only the entry it
     ).toBe(kind);
     expect(
       reviewQueue(editor, source, {}, loaded, 'new-source').find((entry) => entry.hash === 100)!,
-    ).toMatchObject({ status: kind, reason: 'Unlinked' });
+    ).toMatchObject({ status: kind, reason: 'Unlinked', stale: false });
     editor.bundle.tooltips[100].text.en!.text = 'New English evidence';
     expect(
       reviewQueue(editor, source, {}, loaded, fingerprint).find((entry) => entry.hash === 100)!

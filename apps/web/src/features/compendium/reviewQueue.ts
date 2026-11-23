@@ -84,11 +84,11 @@ export function reviewEvidence(
 }
 
 /**
- * Earlier versions recorded the whole sheet with the entry, which cannot be told apart again:
- * those decisions stay as made. Newer ones hold until the entry itself changes.
+ * Earlier versions recorded the whole sheet with the entry in one digest, which cannot be told
+ * apart again: those decisions stay as made. Newer ones hold until the entry itself changes.
  */
 function decisionHolds(fingerprint: string, entry: Parameters<typeof entryEvidence>[0]) {
-  return !fingerprint.startsWith('entry:') || fingerprint === entryEvidence(entry);
+  return /^\d+:\d+$/.test(fingerprint) || fingerprint === entryEvidence(entry);
 }
 
 // Local progress never changes source evidence or resolves sheet links.
@@ -98,15 +98,17 @@ export function applyReviewProgress(
 ) {
   return evidence.flatMap(({ valid, changed, ...entry }) => {
     const decision = progress.decisions[entry.hash];
+    const holds = !!decision && decisionHolds(decision.fingerprint, entry);
     const status = valid
       ? changed
         ? ('drafted' as const)
         : ('saved' as const)
-      : decision && decisionHolds(decision.fingerprint, entry)
+      : holds
         ? decision.kind
         : ('open' as const);
     if (status === 'saved' && !decision && !changed) return [];
-    return [{ ...entry, status }];
+    // `stale`: the entry itself changed since its local decision, so the matcher stays cautious.
+    return [{ ...entry, status, stale: !valid && !!decision && !holds }];
   });
 }
 

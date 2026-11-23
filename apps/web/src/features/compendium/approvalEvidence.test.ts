@@ -40,7 +40,9 @@ it('uses source snapshots from ordinary shipped approvals and rejects a differen
 it('says an approved link changed only while its own source differs, not for other sheet edits', () => {
   const record = Object.values(shipped.categories)
     .flatMap((c) => Object.values(c.references ?? {}))
-    .find((r) => 'link' in r && r.link && !r.link.parts && !r.link.cells)! as unknown as {
+    .find(
+      (r) => 'link' in r && r.link && !('parts' in r.link) && !('cells' in r.link),
+    )! as unknown as {
     hash: number;
     name: string;
     categoryId: string;

@@ -23,6 +23,7 @@ const entry = (hash: number, patch: Partial<ReviewEntry> = {}) =>
     category: 'weapon-perk',
     status: 'open',
     reason: 'Unlinked',
+    stale: false,
     ...patch,
   }) as ReviewEntry;
 const decision = (
@@ -85,6 +86,8 @@ describe('queue row kinds', () => {
     expect(kindOf(entry(1, { status: 'drafted', reason: 'Changed' }))).toBe('changed');
     expect(kindOf(entry(1, { status: 'drafted', reason: 'Linked' }))).toBe('drafted');
     expect(kindOf(entry(1), owner, undefined, [], undefined, true)).toBe('changed');
+    // An old decision about an entry that never had a link is no change of its source.
+    expect(kindOf(entry(1, { stale: true }), owner)).toBe('none');
     // The matcher still proves the approval's source.
     expect(kindOf(entry(1), decision('link', 'high', link), undefined, [], undefined, true)).toBe(
       'matched',
