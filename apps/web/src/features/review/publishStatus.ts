@@ -1,5 +1,5 @@
 import { isTerminal, type PublishOp } from '../../services/publisher/opStore';
-import { publishTiming } from './publishDriver';
+import { needsPublishReceipt, publishTiming, regroupRefusals } from './publishDriver';
 
 export type Tone = 'busy' | 'ok' | 'warn' | 'bad';
 export interface OpView {
@@ -117,7 +117,7 @@ export function foreignWaiting(
 /** Present one confirmed action; pending always wins over partial success or failure. */
 export function groupPublishes(
   ops: readonly PublishOp[],
-): { op: PublishOp; members: PublishOp[] }[] {
+): { op: PublishOp; members: PublishOp[]; combining?: boolean }[] {
   const groups = new Map<string, PublishOp[]>();
   for (const op of ops) {
     const id = op.groupId ?? op.opId;
@@ -127,23 +127,36 @@ export function groupPublishes(
   }
   return [...groups.values()].map((members) => {
     const first = members[0]!;
-    const missing = members.length < (first.groupSize ?? members.length);
-    if (members.length === 1 && !missing) return { op: first, members };
+    const count = members.reduce((total, op) => total + op.hashes.length, 0);
+    const missing =
+      first.groupHashCount === undefined
+        ? members.length < (first.groupSize ?? members.length)
+        : count !== first.groupHashCount;
     const unfinished = members.find((op) => !isTerminal(op.status));
-    const failed = members.find(
+    const combining =
+      (unfinished?.round ?? 0) > 0 ||
+      members.some(needsPublishReceipt) ||
+      (members.some((op) => op.refusal !== undefined) && regroupRefusals(members).length > 0);
+    if (members.length === 1 && !missing && !combining) return { op: first, members };
+    const failures = members.filter(
       (op) => isTerminal(op.status) && op.status !== 'done' && op.status !== 'unchanged',
+    );
+    const failed = failures[0];
+    const refused = failures.flatMap((op) =>
+      op.refusal !== undefined && op.error ? [op.error] : [],
     );
     const successful = members
       .filter((op) => op.status === 'done' || op.status === 'unchanged')
       .reduce((count, op) => count + op.hashes.length, 0);
     return {
       members,
+      combining,
       op: {
         ...first,
         hashes: members.flatMap((op) => op.hashes),
         status: missing
           ? 'failed'
-          : unfinished
+          : unfinished || combining
             ? 'pending'
             : failed
               ? 'failed'
@@ -153,12 +166,14 @@ export function groupPublishes(
         error: missing
           ? 'Some local publish records are unavailable. Check live status before publishing again.'
           : failed
-            ? `Publish incomplete: ${successful} of ${members.reduce((count, op) => count + op.hashes.length, 0)} tooltips confirmed live.${
+            ? `Publish incomplete: ${successful} of ${count} tooltips confirmed live.${
                 // The first failed part's own reason (e.g. the Worker's error), so the grouped
                 // row still says why; it describes that part only, never the whole group.
-                failed.error
-                  ? ` First failed part (${failed.hashes.length} tooltips): ${failed.error}`
-                  : ''
+                refused.length
+                  ? ` ${refused.join(' ')}`
+                  : failed.error
+                    ? ` First failed part (${failed.hashes.length} tooltips): ${failed.error}`
+                    : ''
               } Check live status before publishing again.`
             : undefined,
       },

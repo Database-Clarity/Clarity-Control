@@ -305,6 +305,16 @@ export function ReviewPage() {
     () => publishSelection(selected, list, inFlight),
     [selected, list, inFlight],
   );
+  useEffect(() => {
+    // Manual inclusion can select migration leftovers skipped by the background comparisons.
+    if (publisher && liveAvailable)
+      void loadPublished(
+        chosen.flatMap(({ markerOnly, tooltip, pushed }) =>
+          markerOnly ? [{ hash: tooltip.hash, marker: pushed }] : [],
+        ),
+        true,
+      );
+  }, [chosen, liveAvailable, publisher]);
   const included = current ? selected.has(current.tooltip.hash) : false;
   const locked = current
     ? pushing || !canPush(user) || !!current.unpublishable || inFlight.has(current.tooltip.hash)

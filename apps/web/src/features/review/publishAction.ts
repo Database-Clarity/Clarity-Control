@@ -1,11 +1,12 @@
-import { inactivePublishableHash } from '@clarity/core';
+import { inactivePublishableHash, isMovedInactive, type Tooltip } from '@clarity/core';
 import { globalsEnabled } from '../../services/globalsFlag';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { canPush, type PendingTooltip } from './model';
 import { publishDependencies } from './publishDependencies';
-import type { PublishInput } from './publishDriver';
+import { publishChunks, PublishClosureLimitError, type PublishInput } from './publishDriver';
+import { publishedFor, usePublished } from './published';
 import { publishDriver } from './publisher';
 import { useReviewSession } from './session';
 
@@ -15,16 +16,46 @@ export function planReviewedPublish(
   data: EditorData,
 ) {
   const { bundle, aliases } = data;
+  const byHash = usePublished.getState().byHash;
   const pendingByHash = new Map(
     pending.filter((entry) => !entry.markerOnly).map((entry) => [entry.tooltip.hash, entry]),
   );
+  const inputs = entries.map(({ tooltip, inactiveChange, inactiveAliases }) => ({
+    tooltip,
+    hash: tooltip.hash,
+    previous: bundle.pushed[tooltip.hash],
+    consumers: inactiveChange === 'remove' ? 1 : Object.keys(tooltip.text).length,
+    removal:
+      inactiveChange === 'remove' ||
+      inactiveAliases?.some((hash) => isMovedInactive(hash, bundle.inactiveMoves)),
+  }));
+  const published: Record<number, Tooltip | null | undefined> = {};
+  if (inputs.some(({ removal }) => removal)) {
+    const versions = entries.map(({ tooltip, pushed, inactiveChange }) => ({
+      hash: tooltip.hash,
+      pushed,
+      // A canonical removal marker records absence even when the archive retains old text.
+      version:
+        inactiveChange === 'restore'
+          ? { status: 'ready' as const, tooltip: null }
+          : publishedFor(byHash, tooltip.hash, pushed),
+    }));
+    if (versions.some(({ version }) => version?.status === 'missing'))
+      throw new Error('Some selected changes need published versions that could not be recovered.');
+    if (versions.some(({ version }) => version?.status === 'error'))
+      throw new Error('Refresh Review to retry loading the published versions.');
+    if (versions.some(({ version }) => version?.status !== 'ready'))
+      throw new Error('Wait for the published versions to load, then publish again.');
+    for (const { hash, pushed, version } of versions)
+      if (version?.status === 'ready')
+        published[hash] = pushed === undefined ? undefined : version.tooltip;
+  }
   const dependencies = publishDependencies(
     bundle.tooltips,
     aliases,
     new Set(pendingByHash.keys()),
     entries.map((entry) => entry.tooltip),
-    bundle.inactiveMoves,
-    globalsEnabled,
+    { moves: bundle.inactiveMoves, globals: globalsEnabled, published },
   );
   const missing = new Set([...dependencies.values()].flat());
   for (const { tooltip } of entries) missing.delete(tooltip.hash);
@@ -32,12 +63,27 @@ export function planReviewedPublish(
     const names = [...missing].map((hash) => pendingByHash.get(hash)!.name);
     throw new Error(`Include ${new Intl.ListFormat('en').format(names)} before publishing.`);
   }
-  return entries.map(({ tooltip }) => ({
-    tooltip,
-    hash: tooltip.hash,
-    previous: bundle.pushed[tooltip.hash],
-    dependencies: dependencies.get(tooltip.hash),
+  const planned = inputs.map((input) => ({
+    ...input,
+    dependencies: dependencies.get(input.hash),
   }));
+  try {
+    publishChunks(planned);
+  } catch (reason) {
+    if (reason instanceof PublishClosureLimitError) {
+      const names = new Map(entries.map(({ name, tooltip }) => [tooltip.hash, name]));
+      const format = new Intl.ListFormat('en');
+      const groups = reason.groups.map(
+        ({ hashes, consumers }) =>
+          `A group requiring ${consumers} tooltip languages includes ${format.format(
+            hashes.map((hash) => names.get(hash) ?? `Tooltip ${hash}`),
+          )}.`,
+      );
+      throw new Error(`${reason.message} ${groups.join(' ')}`);
+    }
+    throw reason;
+  }
+  return planned;
 }
 
 /**
