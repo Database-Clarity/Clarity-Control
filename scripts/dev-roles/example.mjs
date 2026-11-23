@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright-core';
 import { startRoleHarness } from './start.mjs';
 import { localPath } from '../../apps/web/test/dev-role-web.mjs';
@@ -30,6 +31,8 @@ let browser;
 try {
   const liveRef = 'refs/heads/converter-v2-test';
   const liveBefore = git('rev-parse', liveRef);
+  const bundleRef = 'refs/heads/editor-data-bundle';
+  let seenBundle = git('rev-parse', bundleRef);
   const bundleUrl =
     directory +
     '/upstream/raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/editor-data-bundle/bundle.json';
@@ -135,16 +138,18 @@ try {
 
   // The role switch reloads the editor. Wait for the new bundle before that reload
   // so the review queue opens against the German save, rather than the previous snapshot.
-  await page.waitForFunction(
-    async ({ url, hash, text }) => {
-      const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) return false;
-      const bundle = await response.json();
-      return bundle.tooltips[hash]?.text.de?.text === text;
-    },
-    { url: bundleUrl, hash: tooltip.hash, text: current.text.de.text },
-    { polling: 5000, timeout: 1_200_000 },
-  );
+  const deadline = Date.now() + 1_200_000;
+  let bundled = false;
+  do {
+    const revision = git('rev-parse', bundleRef);
+    if (revision !== seenBundle) {
+      seenBundle = revision;
+      const bundle = JSON.parse(git('show', revision + ':bundle.json'));
+      bundled = bundle.tooltips[tooltip.hash]?.text.de?.text === current.text.de.text;
+    }
+    if (!bundled) await delay(5000);
+  } while (!bundled && Date.now() < deadline);
+  assert.ok(bundled, 'Local publisher did not bundle the saved translation');
   await me('editor', async () => {
     await page.getByRole('button', { name: 'Dev role', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Development identity' });
