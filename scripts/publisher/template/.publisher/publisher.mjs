@@ -28398,12 +28398,15 @@ var entryMarkSchema = external_exports.object({
   note: external_exports.string().trim().max(maxMarkNoteChars).optional(),
   ...stamp
 }).strict();
+var compendiumDecisionKindSchema = external_exports.enum(["no-match", "not-needed"]);
+var compendiumDecisionSchema = external_exports.object({ kind: compendiumDecisionKindSchema, ...stamp }).strict();
 var marksSchema = external_exports.object({
   types: external_exports.array(markTypeSchema).max(32),
   entries: external_exports.record(inactiveHashKey, external_exports.array(entryMarkSchema).min(1).max(32)).refine(
     (entries) => Object.keys(entries).length <= maxMarkedEntries,
     "Too many marked entries"
-  )
+  ),
+  compendium: external_exports.record(inactiveHashKey, compendiumDecisionSchema).optional()
 }).strict().superRefine((value2, ctx) => {
   const ids = new Set(value2.types.map((type) => type.id));
   if (ids.size !== value2.types.length)
@@ -28426,6 +28429,7 @@ var marksFileSchema = marksSchema.superRefine((value2, ctx) => {
   if (new TextEncoder().encode(JSON.stringify(value2, null, 2) + "\n").length > maxMarksBytes)
     ctx.addIssue({ code: "custom", message: `Marks file exceeds ${maxMarksBytes} bytes` });
 });
+var decisionHashes = external_exports.array(hashSchema).min(1);
 var markActionSchema = external_exports.discriminatedUnion("action", [
   external_exports.object({
     action: external_exports.literal("mark"),
@@ -28446,7 +28450,13 @@ var markActionSchema = external_exports.discriminatedUnion("action", [
     label: markTypeSchema.shape.label,
     colour: markTypeSchema.shape.colour
   }).strict(),
-  external_exports.object({ action: external_exports.literal("remove-type"), id: markIdSchema, force: external_exports.boolean().optional() }).strict()
+  external_exports.object({ action: external_exports.literal("remove-type"), id: markIdSchema, force: external_exports.boolean().optional() }).strict(),
+  external_exports.object({
+    action: external_exports.literal("compendium-set"),
+    kind: compendiumDecisionKindSchema,
+    hashes: decisionHashes
+  }).strict(),
+  external_exports.object({ action: external_exports.literal("compendium-clear"), hashes: decisionHashes }).strict()
 ]);
 var marksRevisionSchema = external_exports.string().regex(/^[0-9a-f]{40}$/).nullable();
 var updateMarksSchema = external_exports.object({

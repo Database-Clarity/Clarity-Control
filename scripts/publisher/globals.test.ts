@@ -1150,7 +1150,13 @@ describe('dependency-safe global release', () => {
       consumer: { hash, lang: 'en', destination: 'converter-v2-test' },
     });
     const before = await f.globals.sources(f.current(), f.git.head(L)!, f.git.head(D)!);
-    f.change({ 'config/marks.json': { editorialOnly: true } });
+    f.change({
+      'config/marks.json': {
+        types: [],
+        entries: {},
+        compendium: { 42: { kind: 'not-needed', by: 1, at: new Date(now).toISOString() } },
+      },
+    });
     expect(await f.globals.sources(f.current(), f.git.head(L)!, f.git.head(D)!)).toEqual(before);
     // A marks edit alone leaves the old certificates current, even without another sync.
     await f.request([42, hash]);
