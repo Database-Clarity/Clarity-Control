@@ -95,7 +95,6 @@ export async function prepareSandbox({ directory, siteOrigin, seedPermissions })
     COMPENDIUM_REPO: compendiumRepo,
     COMPENDIUM_REF: 'main',
     COMPENDIUM_WORKFLOW: 'compendium.yml',
-    TURNSTILE_SECRET: 'clarity-local-turnstile',
   };
   const repos = { [dataRepo]: data, [generatorRepo]: generator, [compendiumRepo]: compendium };
   const queuePublisher = await startPublisher({

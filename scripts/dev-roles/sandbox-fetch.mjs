@@ -437,14 +437,6 @@ export function createAdapter({ repos, bindings, siteOrigin, onDataWrite = () =>
         const [entry] = git.treeEntries(head, false, path);
         return entry?.type === 'blob' ? rawResponse(path, git.blob(entry.oid), method) : missing();
       }
-      if (
-        url.origin === 'https://challenges.cloudflare.com' &&
-        url.pathname === '/turnstile/v0/siteverify' &&
-        method === 'POST'
-      ) {
-        const input = new URLSearchParams(await request.text());
-        return json({ success: input.get('response') === 'clarity-local-turnstile' });
-      }
       if (url.origin !== 'https://api.github.com') return missing();
       if (
         method === 'POST' &&

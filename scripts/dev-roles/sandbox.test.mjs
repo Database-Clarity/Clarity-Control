@@ -85,7 +85,7 @@ function setup() {
   return { git, repos, fetch, initial, baseline, oldLive, writes: () => writes };
 }
 
-test('serves scoped App tokens, pinned generator and raw inputs, accounts, Compendium, and Turnstile', async () => {
+test('serves scoped App tokens, pinned generator and raw inputs, accounts, and Compendium', async () => {
   const { fetch, initial, repos } = setup();
   const tokenURL = `${api}/app/installations/1/access_tokens`;
   const grant = { repositories: [data], permissions: { contents: 'write' } };
@@ -136,18 +136,6 @@ test('serves scoped App tokens, pinned generator and raw inputs, accounts, Compe
   const [result] = (await parsed(fetch, runs, 200)).workflow_runs;
   assert.equal(result.html_url, siteOrigin);
   assert.equal(result.conclusion, 'success');
-  const verify = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
-  for (const [response, success] of [
-    ['clarity-local-turnstile', true],
-    ['impostor', false],
-  ])
-    assert.deepEqual(
-      await parsed(fetch, verify, 200, {
-        method: 'POST',
-        body: new URLSearchParams({ response }),
-      }),
-      { success },
-    );
 });
 
 test('reads real Git refs, commits, history, comparisons, raw blobs, and contents listings', async () => {
