@@ -6,6 +6,18 @@ import { postPublish } from './api';
 vi.mock('../api', () => ({ apiRequest: vi.fn() }));
 
 it.each([
+  ['ConsumerOutputRejected: Missing export Old', 'Missing export Old'],
+  ['Requester revoked', undefined],
+])('reads fail-closed refusals from a same-intent receipt (%s)', async (error, refusal) => {
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ opId: 'op', result: { status: 'rejected', error } }),
+  );
+  await expect(
+    postPublish({ opId: 'op', hashes: [10], expected: { 10: 'digest' } }),
+  ).resolves.toEqual(refusal ? { status: 'rejected', refusal } : { status: 'rejected' });
+});
+
+it.each([
   { status: 409, error: 'Tooltip 10 changed since review' },
   { status: 502, error: 'Upstream request failed' },
   { status: 409, error: 'Sync pending', details: { code: publicationSyncPendingCode } },
