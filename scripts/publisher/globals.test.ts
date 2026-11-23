@@ -639,23 +639,26 @@ describe('dependency-safe global release', () => {
       }
     },
   );
-  it('fails closed when a kick races with a source edit, with no partial live write', async () => {
-    const f = await fixture();
-    await f.globals.drain();
-    f.approve(40);
-    await f.globals.drain();
-    await f.request([40]);
-    const before = f.git.head(L);
-    f.git.beforeAtomic = () =>
-      f.change({
-        [`publish/kicks/${A}-12345.json`]: { opId: A },
-        'tooltips/40.json': tooltip(40, '#Alpha raced'),
-      });
-    await f.pub.operation(A);
-    expect(f.git.head(L)).toBe(before);
-    expect(f.read(paths(A).log).result.status).toBe('rejected');
-    expect(f.read('globals/live/converter-v2-test.json').store).toEqual(f.published);
-  });
+  it.each([
+    ['a tooltip edit', { 'tooltips/40.json': tooltip(40, '#Alpha raced') }],
+    ['an unrelated addition', { toString: { other: true } }],
+  ] as const)(
+    'fails closed when a kick races with %s, with no partial live write',
+    async (_label, changes) => {
+      const f = await fixture();
+      await f.globals.drain();
+      f.approve(40);
+      await f.globals.drain();
+      await f.request([40]);
+      const before = f.git.head(L);
+      f.git.beforeAtomic = () =>
+        f.change({ [`publish/kicks/${A}-12345.json`]: { opId: A }, ...changes });
+      await f.pub.operation(A);
+      expect(f.git.head(L)).toBe(before);
+      expect(f.read(paths(A).log).result.status).toBe('rejected');
+      expect(f.read('globals/live/converter-v2-test.json').store).toEqual(f.published);
+    },
+  );
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();
     await f.globals.drain();
