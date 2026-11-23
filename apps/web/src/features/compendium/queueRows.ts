@@ -158,6 +158,8 @@ export const showOptions = [
   { value: 'changed', label: 'Changed' },
   { value: 'decided', label: 'Decided' },
   { value: 'matched', label: 'Matched' },
+  { value: 'no-match', label: 'No match yet' },
+  { value: 'not-needed', label: 'Not needed' },
   { value: 'all', label: 'All' },
 ] as const;
 export type ShowFilter = (typeof showOptions)[number]['value'];
@@ -180,7 +182,9 @@ export function showMatches(show: ShowFilter, kind: QueueKind): boolean {
     case 'decided':
       return decidedKinds.includes(kind);
     case 'matched':
-      return kind === 'matched';
+    case 'no-match':
+    case 'not-needed':
+      return kind === show;
     case 'all':
       return true;
   }

@@ -147,7 +147,7 @@ export function CompendiumActionBar({
         title={sharedReason ?? 'Hidden for everyone until unmarked or confidently matched.'}
         onClick={onNoMatch}
       >
-        No match<span className={styles.rowWord}> yet</span> <kbd>M</kbd>
+        No match yet <kbd>M</kbd>
       </button>
       <button type="button" disabled={!canDecide} onClick={onSkip}>
         Skip <kbd>S</kbd>

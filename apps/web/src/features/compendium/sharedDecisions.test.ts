@@ -79,8 +79,16 @@ it('shows decisions at once and writes those made meanwhile in one later request
   set([2], 'no-match');
   set([3], 'no-match');
   set([1], null);
+  // Until the server has them, leaving the page asks first.
+  const leave = () => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  expect(leave()).toBe(true);
   release();
   await settled();
+  expect(leave()).toBe(false);
   expect(changes()).toEqual([
     { action: 'compendium-set', kind: 'not-needed', hashes: [1] },
     { action: 'compendium-clear', hashes: [1] },

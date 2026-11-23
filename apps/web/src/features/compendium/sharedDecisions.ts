@@ -56,6 +56,7 @@ export const useSharedSaves = create<SavesState>((set, get) => ({
         if (hashes.includes(mainEntry(Number(key), aliases))) pending.set(Number(key), null);
     }
     set({ pending, error: null });
+    window.addEventListener('beforeunload', keepPage);
     void drain();
   },
   retry() {
@@ -66,6 +67,12 @@ export const useSharedSaves = create<SavesState>((set, get) => ({
     set({ pending: new Map(), error: null });
   },
 }));
+
+/** Leaving the page would lose decisions the server has not acknowledged: the browser asks first. */
+function keepPage(event: BeforeUnloadEvent) {
+  if (useSharedSaves.getState().pending.size) event.preventDefault();
+  else window.removeEventListener('beforeunload', keepPage);
+}
 
 let draining = false;
 /** One request at a time; decisions made meanwhile join a later one. */

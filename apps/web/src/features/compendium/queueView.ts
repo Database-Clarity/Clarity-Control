@@ -66,13 +66,13 @@ export function filterRows(
   );
 }
 
-/** Rows set aside as `kind`, listed with the open and all views. */
+/** Rows set aside as `kind`, listed with the open and all views and on their own. */
 export function asideRows(
   rows: readonly QueueRow[],
   kind: QueueKind,
   filters: QueueFilters,
 ): QueueRow[] {
-  if (filters.show !== 'open' && filters.show !== 'all') return [];
+  if (filters.show !== 'open' && filters.show !== 'all' && filters.show !== kind) return [];
   const query = filters.query.trim().toLowerCase();
   return rows.filter(
     (row) =>
@@ -159,7 +159,8 @@ export function buildQueue({ rows, filters, categories, toggled, hash }: BuildIn
     const aside = asideRows(rows, kind, filters);
     if (!aside.length) continue;
     visible += aside.length;
-    const isCollapsed = !toggled.has(kind);
+    // Asked for on its own, a group starts open.
+    const isCollapsed = toggled.has(kind) === (filters.show === kind);
     items.push({
       type: 'header',
       key: `group:${kind}`,

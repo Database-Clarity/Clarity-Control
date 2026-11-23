@@ -13,12 +13,16 @@ export function SharedSaveError() {
   const { retry, discard } = useSharedSaves.getState();
   if (!error || !count) return null;
   return (
-    <InlineAlert onRetry={retry}>
+    <InlineAlert
+      onRetry={retry}
+      action={
+        <button type="button" onClick={discard}>
+          Discard
+        </button>
+      }
+    >
       {count === 1 ? '1 decision' : `${count} decisions`} not saved for everyone:{' '}
-      {plainError(error)}{' '}
-      <button type="button" onClick={discard}>
-        Discard
-      </button>
+      {plainError(error)}
     </InlineAlert>
   );
 }
@@ -32,6 +36,7 @@ export function EarlierChoices({ rows }: { rows: readonly QueueRow[] }) {
   const [flipped, setFlipped] = useState<ReadonlySet<number>>(new Set());
   if (!rows.length) return null;
   const ticked = rows.filter((row) => flipped.has(row.hash) === !!row.matches);
+  const noun = ticked.length === 1 ? 'choice' : 'choices';
   const to = (hash: number) => {
     const next = new URLSearchParams(params);
     next.set('hash', String(hash));
@@ -45,8 +50,22 @@ export function EarlierChoices({ rows }: { rows: readonly QueueRow[] }) {
     });
   return (
     <section className={styles.earlier} aria-label="Earlier Not needed choices">
+      <h2 className={styles.earlierTitle}>Not needed on this device only</h2>
+      <button
+        type="button"
+        disabled={!ticked.length}
+        aria-label={`Save ${ticked.length} earlier Not needed ${noun} for everyone`}
+        onClick={() =>
+          useSharedSaves.getState().set(
+            ticked.map((row) => row.hash),
+            'not-needed',
+          )
+        }
+      >
+        Save {ticked.length}
+        <span className={styles.earlierWords}> earlier Not needed {noun}</span> for everyone
+      </button>
       <div className={styles.earlierList}>
-        <span className={styles.muted}>Not needed on this device only:</span>
         {rows.map((row) => (
           <span key={row.hash} className={styles.earlierChoice}>
             <input
@@ -60,19 +79,6 @@ export function EarlierChoices({ rows }: { rows: readonly QueueRow[] }) {
           </span>
         ))}
       </div>
-      <button
-        type="button"
-        disabled={!ticked.length}
-        onClick={() =>
-          useSharedSaves.getState().set(
-            ticked.map((row) => row.hash),
-            'not-needed',
-          )
-        }
-      >
-        Save {ticked.length} earlier Not needed {ticked.length === 1 ? 'choice' : 'choices'} for
-        everyone
-      </button>
     </section>
   );
 }

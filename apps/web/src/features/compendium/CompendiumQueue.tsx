@@ -75,6 +75,10 @@ const Row = memo(function Row({
           title={shared && !canShare ? maintainersOnly : undefined}
           onClick={(event) => {
             event.stopPropagation();
+            // The row leaves with its button: keep focus (and its keys) in the list.
+            event.currentTarget
+              .closest<HTMLElement>('[role="tree"]')
+              ?.focus({ preventScroll: true });
             onReinclude?.(row);
           }}
         >
@@ -252,6 +256,17 @@ function ReviewQueue() {
     selected === undefined
       ? undefined
       : model.items.findIndex((item) => item.type === 'row' && item.row.hash === selected);
+  // The selected row is brought into view when it or the filters change, not when a group opens or
+  // a row leaves: the list stays where the user is working.
+  const revealKey = `${selected}|${show}|${query}|${params.get('group') ?? ''}`;
+  const revealed = useRef('');
+  const reveal =
+    revealIndex !== undefined && revealIndex >= 0 && revealed.current !== revealKey
+      ? revealIndex
+      : undefined;
+  useEffect(() => {
+    if (reveal !== undefined) revealed.current = revealKey;
+  }, [reveal, revealKey]);
   const groupStart = useCallback(
     (index: number) => {
       for (let i = index; i >= 0; i--) if (model.items[i]?.type === 'header') return i;
@@ -336,7 +351,7 @@ function ReviewQueue() {
             items={model.items}
             heightRem={itemHeight}
             itemKey={itemKey}
-            reveal={revealIndex !== undefined && revealIndex >= 0 ? revealIndex : undefined}
+            reveal={reveal}
             groupStart={groupStart}
             activeDescendant={selected === undefined ? undefined : queueRowId(selected)}
             stickyFor={(item) =>

@@ -21,7 +21,7 @@ import {
   useSkeletonVisible,
 } from '../../ui/Skeleton';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
-import { approvalEvidence } from './approvalEvidence';
+import { approvalEvidence, approvedLink } from './approvalEvidence';
 import { useAdvanceSetting } from './advanceSetting';
 import { candidateBlocks } from './candidateBlocks';
 import { CompendiumActionBar } from './CompendiumActionBar';
@@ -464,10 +464,14 @@ function Workspace({
   }, [hintHash, hintCategory, hintName, source]);
   const blockHints =
     selected && (selected.kind === 'candidates' || selected.kind === 'none') ? hintsFor() : noHints;
-  const blocks = useMemo(
-    () => (selected ? candidateBlocks({ decision, proposal, source, hints: blockHints }) : []),
-    [selected, decision, proposal, source, blockHints],
-  );
+  const blocks = useMemo(() => {
+    if (!selected) return [];
+    const changed =
+      selected.kind === 'changed' && selectedEntry
+        ? (selectedEntry.next.compendium ?? approvedLink(selectedEntry))
+        : undefined;
+    return candidateBlocks({ decision, proposal, source, changed, hints: blockHints });
+  }, [selected, selectedEntry, decision, proposal, source, blockHints]);
   const approved = useMemo(() => {
     if (selected?.kind !== 'changed' || !selectedEntry || !blocks[0]) return undefined;
     return (
@@ -783,11 +787,11 @@ function Workspace({
               {number.format(counts.matched)} matched automatically
             </Link>
             {'\u00a0· '}
-            <Link to={linkTo('all')}>{number.format(counts.notNeeded)} not needed</Link>
+            <Link to={linkTo('not-needed')}>{number.format(counts.notNeeded)} not needed</Link>
             {counts.noMatch > 0 && (
               <>
                 {'\u00a0· '}
-                <Link to={linkTo('all')}>{number.format(counts.noMatch)} no match yet</Link>
+                <Link to={linkTo('no-match')}>{number.format(counts.noMatch)} no match yet</Link>
               </>
             )}
           </p>

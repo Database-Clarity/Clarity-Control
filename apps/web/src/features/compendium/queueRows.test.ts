@@ -7,6 +7,7 @@ import { decodePrecomputed } from './precomputedCodec';
 import type { SharedKind } from './sharedDecisions';
 import { applyReviewProgress } from './reviewQueue';
 import { emptyProgress } from './reviewProgress';
+import { buildQueue } from './queueView';
 import {
   deriveQueueRow,
   deriveQueueRows,
@@ -182,6 +183,26 @@ describe('show filter', () => {
     expect(showMatches('none', 'candidates')).toBe(true);
     expect(showMatches('decided', 'skipped')).toBe(true);
     expect(showMatches('matched', 'matched')).toBe(true);
+  });
+
+  it('opens a set-aside group asked for on its own, and folds it beside the open work', () => {
+    const rows = [
+      { hash: 1, name: 'Open', category: 'a', kind: 'none' as const },
+      { hash: 2, name: 'Later', category: 'a', kind: 'no-match' as const },
+      { hash: 3, name: 'Never', category: 'a', kind: 'not-needed' as const },
+    ];
+    const model = (show: string, toggled: string[] = []) =>
+      buildQueue({
+        rows,
+        filters: { show: parseShow(show), query: '', group: '' },
+        categories: new Map(),
+        toggled: new Set(toggled),
+      });
+    expect(model('open').steps.map((row) => row.hash)).toEqual([1]);
+    expect(model('open', ['no-match']).steps.map((row) => row.hash)).toEqual([1, 2]);
+    expect(model('no-match').steps.map((row) => row.hash)).toEqual([2]);
+    expect(model('no-match', ['no-match']).steps).toEqual([]);
+    expect(model('not-needed').items.map((item) => item.key)).toEqual(['group:not-needed', 3]);
   });
 });
 

@@ -64,11 +64,26 @@ const proofs: Record<string, { gid: string; name: string; categoryId: string; ro
   ),
 };
 
+/** The link the owner approved for this entry, as it was then. */
+export function approvedLink({
+  hash,
+  name,
+  category,
+}: {
+  hash: number;
+  name: string;
+  category: string;
+}): CompendiumLink | undefined {
+  const reference = shippedReference(hash, category);
+  return reference?.name === name ? reference.link : undefined;
+}
+
 /** Whether the owner approved a link for this entry whose source cells are no longer the same. */
 export function approvedSourceChanged(
-  { hash, name, category }: { hash: number; name: string; category: string },
+  entry: { hash: number; name: string; category: string },
   source: CompendiumData,
 ): boolean {
+  const { hash, name, category } = entry;
   const proof = proofs[hash];
   if (proof?.name === name && proof.categoryId === `catalog:${category}`) {
     const rows = source.tabs.find((tab) => tab.gid === proof.gid)?.rows ?? [];
@@ -77,12 +92,8 @@ export function approvedSourceChanged(
         !rows.some((row) => row.name === name && sourceFingerprint(row.cell) === cellEvidence),
     );
   }
-  const reference = shippedReference(hash, category);
-  return (
-    reference?.name === name &&
-    !!reference.link &&
-    sourceNeedsUpdate(resolveCompendiumLink(reference.link, source))
-  );
+  const link = approvedLink(entry);
+  return !!link && sourceNeedsUpdate(resolveCompendiumLink(link, source));
 }
 
 function shippedReference(hash: number, categoryId: string) {

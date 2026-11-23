@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { approvalEvidence, approvedSourceChanged } from './approvalEvidence';
+import { approvalEvidence, approvedLink, approvedSourceChanged } from './approvalEvidence';
+import { candidateBlocks } from './candidateBlocks';
 import shipped from './approved-guidance.v1.json';
 import {
   normaliseCompendiumName,
@@ -66,4 +67,13 @@ it('says an approved link changed only while its own source differs, not for oth
   const edited = { plain: `${snapshot.plain} more`, runs: [{ text: `${snapshot.plain} more` }] };
   expect(approvedSourceChanged(entry, source(edited))).toBe(true);
   expect(approvedSourceChanged({ ...entry, hash: 5 }, source(edited))).toBe(false);
+  // The approved row as it is now comes first, with a fresh snapshot to confirm.
+  const [block] = candidateBlocks({
+    source: source(edited),
+    changed: approvedLink(entry),
+    proposal: { candidates: [{ tab: source(edited).tabs[0], row: other }] },
+    hints: [],
+  });
+  expect(block).toMatchObject({ origin: 'proposal', match: { row: { name: rowKey } } });
+  expect(block.link?.snapshot.plain).toBe(edited.plain);
 });

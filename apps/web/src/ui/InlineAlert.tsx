@@ -11,12 +11,15 @@ export function InlineAlert({
   onRetry,
   retryLabel = 'Retry',
   retryDisabled = false,
+  action,
   className,
 }: {
   children: ReactNode;
   onRetry?(): void;
   retryLabel?: string;
   retryDisabled?: boolean;
+  /** A second way out, beside Retry. */
+  action?: ReactNode;
   className?: string;
 }) {
   return (
@@ -28,6 +31,7 @@ export function InlineAlert({
           {retryLabel}
         </button>
       )}
+      {action}
     </div>
   );
 }
