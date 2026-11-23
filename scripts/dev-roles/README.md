@@ -4,7 +4,8 @@ Run `npm run dev:roles` from the repository root with Node.js 24, Git, and the
 workspace dependencies installed. Use the printed loopback URL. Each launch
 fetches the current editor data, generator outputs, and Compendium bundle
 anonymously. The printed revisions and bare Git directory identify the inputs
-and the worktree-local copy. D1 starts empty and applies the repository migrations
+and the worktree-local copy. The copy remains under `.agents/dev-roles/` for
+inspection. D1 starts empty and applies the repository migrations
 for settings, worklists, snippets, reports, and attachments.
 
 Open **Dev role**, choose an identity, and select **Switch**. The app reloads
@@ -36,11 +37,12 @@ projects, if present.
   scheduled triggers. The local publishing run writes receipts and consumer
   changes to `converter-v2-test` in the disposable Git store.
 - The loopback host issues short-lived sessions. The Worker verifies them
-  using an ephemeral signing key. GitHub account lookups are limited to the
-  local test accounts and the copied permissions.
-- Reports use local D1 and a synthetic Turnstile challenge. GitHub Actions
-  execution, hosted converter output, remote Compendium refresh, and external
-  spreadsheet imports require the hosted integrations.
+  using an ephemeral signing key. GitHub account lookups use copied permissions
+  and synthetic test accounts.
+- Reports use local D1, the copied report catalogs, and a synthetic Turnstile
+  challenge. Compendium refresh simulates a completed run with the copied
+  bundle. Hosted Actions, converter CDN output, report catalog regeneration,
+  and spreadsheet imports require the hosted integrations.
 
 ## Worked Playwright flow
 
@@ -48,6 +50,8 @@ Run `npm run test:dev-roles:browser` from the repository root. The script starts
 its own fresh instance and uses an installed Chromium browser. Set
 `PICKER_BROWSER` to the browser executable if it is outside the standard
 locations. Pass a tooltip hash after `--` to select another published tooltip.
+The real publisher prepares the starting proofs, refreshes them after the save,
+and applies the publish request. Allow 20–30 minutes on a Windows checkout.
 
 The script adds or edits German, saves from the editor, checks the resulting data
 commit, and verifies that English is read-only and a forced save returns

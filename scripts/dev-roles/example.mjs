@@ -148,7 +148,7 @@ try {
       return bundle.tooltips[hash]?.text.de?.text === text;
     },
     { url: bundleUrl, hash: tooltip.hash, text: current.text.de.text },
-    { polling: 1000, timeout: 120_000 },
+    { polling: 5000, timeout: 1_200_000 },
   );
   await page.goto(`${app.origin}/#/review?hash=${tooltip.hash}`);
   await page.getByRole('link', { name: 'Open in editor ↗' }).waitFor();
@@ -169,7 +169,7 @@ try {
   const accepted = await publish;
   assert.equal(accepted.status(), 202, await accepted.text());
   const activity = page.getByRole('region', { name: 'Publish activity' });
-  await activity.locator('li[data-status="done"]').waitFor({ timeout: 120_000 });
+  await activity.locator('li[data-status="done"]').waitFor({ timeout: 1_200_000 });
   const liveAfter = git('rev-parse', liveRef);
   assert.notEqual(liveAfter, liveBefore);
   console.log(
