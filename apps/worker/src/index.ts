@@ -85,6 +85,7 @@ async function route(request: Request, env: Env): Promise<Response> {
       login: user.login,
       role: roleOf(config, user),
       schedulePreparation: switches.preparation(),
+      ...(github.env.COMPENDIUM_DECISION_WRITES === '1' ? { compendiumDecisions: true } : {}),
       languages: config.users[String(user.id)]?.languages ?? [],
       ...(manages.length ? { manages } : {}),
       ...(projects.length ? { projects } : {}),

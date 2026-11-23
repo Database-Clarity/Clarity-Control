@@ -22,7 +22,7 @@ import {
 } from './queueRows';
 import type { QueueItem } from './queueView';
 import { asideKinds } from './queueView';
-import { maintainersOnly, useCanShareDecisions } from './sharedDecisions';
+import { useWhyNotShared } from './sharedDecisions';
 import { CompendiumViews } from './CompendiumViews';
 import { useLinkedSources } from './linkedSources';
 import styles from './CompendiumQueue.module.scss';
@@ -37,15 +37,15 @@ const Row = memo(function Row({
   row,
   selected,
   pinned,
-  canShare,
+  whyNot,
   onSelect,
   onReinclude,
 }: {
   row: QueueRow;
   selected: boolean;
   pinned?: boolean;
-  /** May clear a decision that applies to everyone. */
-  canShare: boolean;
+  /** Why a decision that applies to everyone cannot be cleared here. */
+  whyNot?: string;
   onSelect(hash: number): void;
   onReinclude?: (row: QueueRow) => void;
 }) {
@@ -71,8 +71,8 @@ const Row = memo(function Row({
         <button
           type="button"
           className={styles.reinclude}
-          disabled={!onReinclude || (shared && !canShare)}
-          title={shared && !canShare ? maintainersOnly : undefined}
+          disabled={!onReinclude || (shared && !!whyNot)}
+          title={shared ? whyNot : undefined}
           onClick={(event) => {
             event.stopPropagation();
             // The row leaves with its button: keep focus (and its keys) in the list.
@@ -187,7 +187,7 @@ function LinkedFilters() {
 /** The queue behind the Compendium tab: filters and one virtualised, grouped list. */
 function ReviewQueue() {
   const [params, setParams] = useSearchParams();
-  const canShare = useCanShareDecisions();
+  const whyNot = useWhyNotShared();
   // Writes start from the URL as it is now, never from the render a timer or row was set up in;
   // the router's setter changes with every URL, so rows keep one stable select (no row re-renders
   // beyond the two whose selection changed).
@@ -377,7 +377,7 @@ function ReviewQueue() {
                 <Row
                   row={item.row}
                   pinned={item.pinned}
-                  canShare={canShare}
+                  whyNot={whyNot}
                   selected={item.row.hash === selected}
                   onSelect={select}
                   onReinclude={reinclude && putBack}

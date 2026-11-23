@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { resolveAlias, type Aliases } from '@clarity/core';
-import type { MarkAction, Marks } from '@clarity/core/marks';
+import type { CompendiumDecision, MarkAction, Marks } from '@clarity/core/marks';
 import { apiUrl, type User } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
@@ -12,16 +12,16 @@ import { useMarksStore } from '../marks/store';
  * - no-match: no Compendium row right now; ends by itself at a confident match
  * - not-needed: the entry needs no Compendium row
  */
-export type SharedKind = 'no-match' | 'not-needed';
+export type SharedKind = CompendiumDecision['kind'];
 export interface SharedDecision {
   kind: SharedKind;
   /** Unset until the save is acknowledged. */
   by?: number;
   at?: string;
 }
+type DecisionAction = Extract<MarkAction, { hashes: number[] }>;
 export type SharedDecisions = ReadonlyMap<number, SharedDecision>;
-type Saved = Record<string, Required<SharedDecision>>;
-const savedIn = (marks: Marks) => (marks as Marks & { compendium?: Saved }).compendium;
+type Saved = NonNullable<Marks['compendium']>;
 /** Hashes per request; larger sets are split. */
 const batchSize = 200;
 
@@ -88,7 +88,7 @@ function keepPage(event: BeforeUnloadEvent) {
  * The next request: the first pending decision's kind, for every entry that has it. Read again for
  * each attempt, so a decision undone meanwhile is never written.
  */
-function nextBatch(pending: Pending) {
+function nextBatch(pending: Pending): { entries: number[]; change: DecisionAction } {
   const kind: SharedKind | null = [...pending.values()][0];
   const entries = [...pending].flatMap(([hash, value]) => (value === kind ? [hash] : []));
   if (kind) {
@@ -98,7 +98,7 @@ function nextBatch(pending: Pending) {
   // A clear removes every stored decision that shows on the entry, as stored right now.
   const aliases = useDataStore.getState().data?.aliases;
   const stored = new Map<number, number[]>();
-  for (const key of Object.keys(savedIn(useMarksStore.getState().marks) ?? {}).map(Number)) {
+  for (const key of Object.keys(useMarksStore.getState().marks.compendium ?? {}).map(Number)) {
     const main = mainEntry(key, aliases);
     stored.set(main, [...(stored.get(main) ?? []), key]);
   }
@@ -127,8 +127,7 @@ async function drain() {
         if (!current() || !useSharedSaves.getState().pending.size) return;
         const { pending } = useSharedSaves.getState();
         const { entries, change } = nextBatch(pending);
-        if (change.hashes.length)
-          await useMarksStore.getState().save(change as unknown as MarkAction);
+        if (change.hashes.length) await useMarksStore.getState().save(change);
         if (!current()) return;
         const rest = new Map(useSharedSaves.getState().pending);
         for (const hash of entries) if (rest.get(hash) === pending.get(hash)) rest.delete(hash);
@@ -192,16 +191,25 @@ function mergeShared(
 }
 
 export function useSharedDecisions(): SharedDecisions {
-  const saved = useMarksStore((state) => savedIn(state.marks));
+  const saved = useMarksStore((state) => state.marks.compendium);
   const { pending } = useUnsaved();
   const aliases = useDataStore((state) => state.data?.aliases);
   return mergeShared(saved, pending, aliases);
 }
 
-/** Why a decision that applies to everyone has no action here. */
-export const maintainersOnly = 'Applies to everyone. Only maintainers can change it.';
-
-/** Only maintainers set or clear them; the Worker enforces the same. */
+/** Only maintainers set or clear them, while the Worker accepts it; the Worker enforces the same. */
 export function useCanShareDecisions(): boolean {
-  return useAuthStore((state) => !!apiUrl && state.user?.role === 'maintainer');
+  return useAuthStore(
+    ({ user }) => !!apiUrl && user?.role === 'maintainer' && user.compendiumDecisions === true,
+  );
+}
+
+/** Why this account cannot change a decision that applies to everyone; undefined when it can. */
+export function useWhyNotShared(): string | undefined {
+  const can = useCanShareDecisions();
+  const maintainer = useAuthStore((state) => !!apiUrl && state.user?.role === 'maintainer');
+  if (can) return undefined;
+  return maintainer
+    ? 'Applies to everyone. Changing it is turned off for now.'
+    : 'Applies to everyone. Only maintainers can change it.';
 }

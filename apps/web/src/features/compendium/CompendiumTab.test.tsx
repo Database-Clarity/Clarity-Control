@@ -209,8 +209,20 @@ describe('keyboard review flow', () => {
     expect(host.querySelector('header p')?.textContent).toContain('5 to review');
   });
 
-  it('a maintainer marks, undoes, and unmarks for everyone', async () => {
+  it('shows a maintainer why both are unavailable while the server has them off', async () => {
     useAuthStore.setState({ user: { id: 1, login: 'm', role: 'maintainer' } });
+    await mount();
+    await press('n');
+    await press('m');
+    expect(useSharedSaves.getState().pending.size).toBe(0);
+    for (const label of ['Not needed', 'No match']) expect(barButton(label).disabled).toBe(true);
+    expect(bar().textContent).toContain('Not needed and No match yet are turned off for now.');
+  });
+
+  it('a maintainer marks, undoes, and unmarks for everyone', async () => {
+    useAuthStore.setState({
+      user: { id: 1, login: 'm', role: 'maintainer', compendiumDecisions: true },
+    });
     await mount('/compendium', true);
     await press('n');
     await press('m');
@@ -262,7 +274,9 @@ describe('keyboard review flow', () => {
   });
 
   it('offers earlier Not needed choices for everyone, and writes only on the click', async () => {
-    useAuthStore.setState({ user: { id: 1, login: 'm', role: 'maintainer' } });
+    useAuthStore.setState({
+      user: { id: 1, login: 'm', role: 'maintainer', compendiumDecisions: true },
+    });
     const progress = emptyProgress();
     progress.decisions[102] = { kind: 'no-equivalent', fingerprint: '12:34' };
     localStorage.setItem(

@@ -31,6 +31,7 @@ import {
   useCanShareDecisions,
   useSharedDecisions,
   useSharedSaves,
+  useWhyNotShared,
   type SharedKind,
 } from './sharedDecisions';
 import { LinkPicker } from './LinkPicker';
@@ -70,7 +71,6 @@ import { plainError } from '../../services/httpError';
 import { InlineAlert } from '../../ui/InlineAlert';
 
 const number = new Intl.NumberFormat('en');
-const sharedReason = 'Only maintainers set Not needed and No match yet.';
 const noHints: CompendiumSuggestion[] = [];
 const noEntries: ReturnType<typeof reviewedEntries> = [];
 type StageLink = NonNullable<Tooltip['compendium']>;
@@ -267,6 +267,7 @@ function Workspace({
   );
   const shared = useSharedDecisions();
   const canShare = useCanShareDecisions();
+  const whyNot = useWhyNotShared();
   const modelReady = !!evidence && (!matching || !!proposalError);
   const rows = useMemo(
     () =>
@@ -864,7 +865,7 @@ function Workspace({
               : (accounts[mark.by]?.login ?? `GitHub user ${mark.by}`)
           }
           markedAt={mark?.at}
-          canShare={canShare}
+          whyNot={whyNot}
           onReinclude={rows && asideKinds.includes(selected.kind) ? onReinclude : undefined}
           onStep={onStep}
           stepDisabled={!rows}
@@ -894,7 +895,13 @@ function Workspace({
           canMarkNoMatch={canMarkNoMatch}
           canUndo={canUndo}
           canShare={canShare}
-          sharedReason={canEdit && !canShare ? sharedReason : undefined}
+          sharedReason={
+            !canEdit || canShare
+              ? undefined
+              : user?.role === 'maintainer'
+                ? 'Not needed and No match yet are turned off for now.'
+                : 'Only maintainers set Not needed and No match yet.'
+          }
           readOnlyReason={readOnlyReason}
           message={message}
           advancing={

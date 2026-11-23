@@ -30,6 +30,15 @@ describe('sessions and OAuth web flow', () => {
       switchSpy.mockRestore();
     }
   });
+  it.each([
+    ['1', true],
+    ['0', undefined],
+    [undefined, undefined],
+  ])('reports Compendium decision writes %s in /me as %s', async (value, reported) => {
+    fixture.env.COMPENDIUM_DECISION_WRITES = value;
+    const me = (await (await fixture.request('/me')).json()) as Record<string, unknown>;
+    expect(me.compendiumDecisions).toBe(reported);
+  });
   it('binds state to the browser and redirects with a signed 30-day identity session in the fragment', async () => {
     const response = await worker.fetch(
       new Request('https://api.example/auth/login'),

@@ -11,7 +11,6 @@ import type { CandidateBlock } from './candidateBlocks';
 import { SourceRef } from './SourceRef';
 import { When } from '../../ui/When';
 import { asideKinds } from './queueView';
-import { maintainersOnly } from './sharedDecisions';
 import { cellLocation } from './sourceLocation';
 import { kindLabels, type QueueRow } from './queueRows';
 import styles from './CompendiumTab.module.scss';
@@ -203,8 +202,8 @@ export interface DetailProps {
   /** Who set the entry's No match yet or Not needed, once saved. */
   markedBy?: string;
   markedAt?: string;
-  /** May clear a decision that applies to everyone. */
-  canShare?: boolean;
+  /** Why a decision that applies to everyone cannot be cleared here. */
+  whyNot?: string;
   /** Prev/next for phones, where the queue is behind the list button. */
   onStep?: (direction: -1 | 1) => void;
   /** Stepping waits for the queue (shown in place, disabled). */
@@ -230,7 +229,7 @@ export function CompendiumDetail({
   change,
   markedBy,
   markedAt,
-  canShare,
+  whyNot,
   onStep,
   stepDisabled,
   onReinclude,
@@ -346,10 +345,10 @@ export function CompendiumDetail({
                       {markedBy} · <When value={markedAt} />.{' '}
                     </>
                   )}
-                  {!canShare && maintainersOnly}
+                  {whyNot}
                 </p>
               )}
-              {onReinclude && (!shared || canShare) && (
+              {onReinclude && !(shared && whyNot) && (
                 <button type="button" onClick={onReinclude}>
                   {row.kind === 'no-match' ? 'Unmark' : 'Re-include'}
                 </button>

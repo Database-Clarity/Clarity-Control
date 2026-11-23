@@ -9,6 +9,7 @@ vi.mock('../../services/api', async (importOriginal) => ({
   apiRequest: api,
   apiUrl: 'https://api.invalid',
 }));
+import type { Marks } from '@clarity/core/marks';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useMarksStore } from '../marks/store';
@@ -16,7 +17,7 @@ import { useSharedDecisions, useSharedSaves, type SharedDecisions } from './shar
 
 const revision = 'a'.repeat(40);
 const at = '2026-11-23T10:00:00Z';
-const reply = (compendium?: object) => ({
+const reply = (compendium?: Marks['compendium']): Marks => ({
   types: [],
   entries: {},
   ...(compendium ? { compendium } : {}),
@@ -25,9 +26,8 @@ const changes = () =>
   api.mock.calls.flatMap(([, init]) =>
     init?.method === 'PUT' ? [JSON.parse(init.body as string).change] : [],
   );
-/** Accepts the marks directly: today's reader does not know the section yet. */
-const accept = (compendium: object) =>
-  useMarksStore.setState({ marks: reply(compendium) as never, revision, writable: true });
+const accept = (compendium: Marks['compendium']) =>
+  useMarksStore.setState({ marks: reply(compendium), revision, writable: true });
 // Retries wait 400 ms each.
 const settled = () =>
   vi.waitFor(
@@ -45,7 +45,7 @@ beforeEach(() => {
   useAuthStore.setState({ user: { id: 1, login: 'm', role: 'maintainer' }, token: 't' });
   useSharedSaves.setState({ pending: new Map(), error: null });
   useDataStore.setState({ data: { aliases: {} } as never });
-  useMarksStore.setState({ marks: reply() as never, revision, writable: true, saving: false });
+  useMarksStore.setState({ marks: reply(), revision, writable: true, saving: false });
 });
 afterEach(() => {
   useDataStore.setState({ data: null });
