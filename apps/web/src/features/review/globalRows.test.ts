@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Lang, Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import {
+  editorLabel,
   editorPath,
   globalUsers,
   publishedOf,
@@ -10,8 +11,10 @@ import {
   rowKey,
   unitCount,
   unitName,
+  unresolvedRow,
 } from './globalRows';
-import { kindOf } from './kinds';
+import { classifyRows, kindOf, useKinds } from './kinds';
+import { initialReviewParams } from './route';
 import { publishableHashes, type PendingTooltip } from './model';
 import { queueView } from './queueModel';
 import type { usePublished } from './published';
@@ -46,7 +49,26 @@ const ready = (tooltip: Tooltip): ReturnType<typeof usePublished.getState>['byHa
 const block = (name: string, body: string, word = 'export') => `${word} ${name} (\n${body}\n)`;
 const exportsFile = (...blocks: string[]) => file(1, { en: blocks.join('\n\n') });
 const words = (rows: PendingTooltip[]) =>
-  rows.map((row) => [row.name, kindOf(row, publishedOf(row, {}), {})?.kind]);
+  rows.map((row) => [
+    row.name,
+    kindOf(row, publishedOf(row, {}), useKinds.getState().byHash)?.kind,
+  ]);
+/** The real rendered check of every row, as the page asks for it. */
+async function classified(rows: PendingTooltip[]) {
+  const saved = rows[0]!.part!.unit.tooltip;
+  classifyRows(
+    rows.map((entry) => ({ entry, published: publishedOf(entry, {}) })),
+    {
+      bundle: { tooltips: { [saved.hash]: saved } },
+      aliases: {},
+      items: {},
+      categories: [],
+    } as unknown as EditorData,
+  );
+  await vi.waitFor(() => expect(words(rows).every(([, word]) => word)).toBe(true));
+  return words(rows);
+}
+beforeEach(() => useKinds.setState({ byHash: {} }));
 
 const saved = exportsFile(
   block('anti_barrier', 'Barrier'),
@@ -60,9 +82,9 @@ const hidden = exportsFile(
 );
 
 describe('globals files as rows', () => {
-  it('lists each un-hidden export with its unchanged output and its real declaration', () => {
+  it('lists each un-hidden export with its unchanged output and its real declaration', async () => {
     const rows = reviewRows([pending(saved)], ready(hidden));
-    expect(words(rows)).toEqual([
+    expect(await classified(rows)).toEqual([
       ['anti_barrier', 'Output unchanged'],
       ['overload', 'Output unchanged'],
       ['unstoppable', 'Output unchanged'],
@@ -94,6 +116,77 @@ describe('globals files as rows', () => {
       status: 'ready',
       tooltip: { text: { en: { text: 'Before' } } },
     });
+  });
+
+  it('says the text changed when an identical body uses an entry that changed', async () => {
+    const rows = reviewRows(
+      [pending(exportsFile(block('leaf', 'New'), block('parent', 'import leaf from 1')))],
+      ready(
+        exportsFile(
+          block('leaf', 'Old'),
+          block('parent', 'import leaf from global', 'export hidden').replace('global', '1'),
+        ),
+      ),
+    );
+    expect(await classified(rows)).toEqual([
+      ['leaf', 'Text changed'],
+      ['parent', 'Text changed'],
+    ]);
+    const variables = reviewRows(
+      [pending(file(2, { en: 'var a = 2\nvar b =  #a' }))],
+      ready(file(2, { en: 'var a = 1\nvar b = #a' })),
+    );
+    expect(variables.map(({ name }) => name)).toEqual(['a', 'b']);
+  });
+
+  it('compares the language a file goes live in: a fallback drops a definition only it had', () => {
+    const german = (english: string): Tooltip => {
+      const tooltip = file(1, {
+        en: block('a', 'A'),
+        de: `${block('a', 'Ä')}\n\n${block('b', 'B')}`,
+      });
+      tooltip.text.en!.updatedAt = english;
+      tooltip.text.de!.sourceUpdatedAt = '2026-01-01T00:00:00Z';
+      return tooltip;
+    };
+    const rows = reviewRows(
+      [pending(german('2026-11-01T00:00:00Z'))],
+      ready(german('2026-01-02T00:00:00Z')),
+    );
+    expect(rows.map(({ name }) => name)).toEqual(['a', 'b']);
+    expect(rows[0]!.tooltip.text.de!.text).toBe('A');
+    expect(publishedOf(rows[0]!, {})).toMatchObject({ tooltip: { text: { de: { text: 'Ä' } } } });
+    expect(rows[1]!.part).toMatchObject({ removed: true });
+    // It no longer goes live, but it is still saved: its own page opens.
+    expect(editorPath(rows[1]!)).toBe('/t/1?global=b');
+  });
+
+  it('lists the published entries as removed when the saved file has none left', () => {
+    const rows = reviewRows([pending(file(1, { en: '// nothing left' }))], ready(hidden));
+    expect(words(rows)).toEqual([
+      ['anti_barrier', 'Removed'],
+      ['overload', 'Removed'],
+      ['unstoppable', 'Removed'],
+    ]);
+    expect(rows.map(editorPath)).toEqual(Array(3).fill('/t/1'));
+    expect(rows.map(editorLabel)).toEqual(Array(3).fill('Open globals'));
+  });
+
+  it('keeps a link to an entry the published file may still list', () => {
+    const entries = [pending(exportsFile(block('a', 'A')))];
+    const cold = reviewRows(entries, {});
+    expect(unresolvedRow(cold, '1:gone', {})).toBe(true);
+    expect(unresolvedRow(cold, '1:a', {})).toBe(false);
+    expect(unresolvedRow(cold, '1', {})).toBe(false);
+    expect(initialReviewParams(new URLSearchParams('hash=1:gone'), cold).get('hash')).toBe(
+      '1:gone',
+    );
+    expect(initialReviewParams(new URLSearchParams('hash=1'), cold).get('hash')).toBe('1:a');
+    const known = ready(exportsFile(block('gone', 'G')));
+    expect(routedRow(reviewRows(entries, known), '1:gone')?.name).toBe('gone');
+    expect(unresolvedRow(reviewRows(entries, known), '1:other', known)).toBe(false);
+    const failed = { 1: { status: 'error' as const, error: 'x', marker: 'marker' } };
+    expect(unresolvedRow(reviewRows(entries, failed), '1:gone', failed)).toBe(false);
   });
 
   it('gives variables and titles rows too, per language', () => {

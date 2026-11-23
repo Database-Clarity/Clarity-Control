@@ -47,8 +47,7 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
   if (entry.inactiveChange === 'restore') return { kind: 'Restored' };
   if (entry.unpublishable) return { kind: 'On hold' };
   if (entry.markerOnly) return { kind: 'Leftover' };
-  if (entry.part?.change === 'removed') return { kind: 'Removed' };
-  if (entry.part?.change === 'same-output') return { kind: 'Output unchanged' };
+  if (entry.part?.removed) return { kind: 'Removed' };
   if (entry.isNew) return { kind: 'New' };
   return undefined;
 }
@@ -99,9 +98,9 @@ export function publishedKind(
   before: Tooltip | null,
   current: Tooltip,
   outputs: readonly (Output | undefined)[],
+  changed: readonly Lang[] = before ? textLanguages(before, current) : [],
 ): Classification | undefined {
   if (!before) return { kind: 'New' };
-  const changed = textLanguages(before, current);
   if (outputs.some((output) => !output)) return undefined;
   const visible = changed.filter((_, index) => outputs[index]!.base || outputs[index]!.enhanced);
   if (visible.length) {
@@ -201,19 +200,26 @@ export function classifyRows(
       continue;
     const request = { saved, before, tooltips };
     running.set(key, request);
-    const changed = textLanguages(before, saved);
+    // The same body of a globals entry can render differently when its file changed around it.
+    const files = entry.part?.files;
+    const changed = files
+      ? languages.filter((lang) => before.text[lang] || saved.text[lang])
+      : textLanguages(before, saved);
     void Promise.all(
       changed.map((lang) =>
         classifyRendered(
           exportedText(before, lang),
           exportedText(saved, lang),
-          diffGlobals(data, {}, lang, saved.hash),
+          diffGlobals(data, files?.after ?? {}, lang, saved.hash),
+          files && diffGlobals(data, files.before, lang, saved.hash),
         ),
       ),
     ).then((outputs) => {
       // A newer check for this row (new saved text, published text, or imports) owns the result.
       if (running.get(key) !== request) return;
       running.delete(key);
+      const value = publishedKind(before, saved, outputs, changed);
+      const sameBodies = !!files && !textLanguages(before, saved).length;
       useKinds.setState((state) => ({
         byHash: {
           ...state.byHash,
@@ -222,7 +228,10 @@ export function classifyRows(
             savedJson: JSON.stringify(saved),
             published: before,
             tooltips,
-            value: publishedKind(before, saved, outputs),
+            value:
+              sameBodies && value?.kind === 'No visible change'
+                ? { kind: 'Output unchanged' as const }
+                : value,
           },
         },
       }));

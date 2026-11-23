@@ -139,14 +139,15 @@ function SavedSidebar() {
   );
   // Each word present among the changes, with its count (leftovers are not changes).
   const present = useMemo(() => {
-    const counts = new Map<Kind, PendingTooltip[]>();
+    const files = new Map<Kind, Set<number>>();
     for (const entry of rows) {
       const word = kinds.get(rowKey(entry));
-      if (!entry.markerOnly && word) counts.set(word, [...(counts.get(word) ?? []), entry]);
+      if (entry.markerOnly || !word) continue;
+      const hashes = files.get(word);
+      if (hashes) hashes.add(entry.tooltip.hash);
+      else files.set(word, new Set([entry.tooltip.hash]));
     }
-    return kindWords
-      .filter((word) => counts.has(word))
-      .map((word) => [word, unitCount(counts.get(word)!)]);
+    return kindWords.filter((word) => files.has(word)).map((word) => [word, files.get(word)!.size]);
   }, [rows, kinds]);
   const changes = useMemo(() => entries?.filter((entry) => !entry.markerOnly) ?? [], [entries]);
   const leftoverCount = (entries?.length ?? 0) - changes.length;

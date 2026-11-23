@@ -36,8 +36,13 @@ export function PushConfirm({
   // showModal would otherwise leave it on the header's Close button.
   useEffect(() => confirm.current?.focus(), []);
   const count = entries.length;
-  const rowsOf = ({ tooltip }: PendingTooltip) =>
-    rows.filter((row) => row.tooltip.hash === tooltip.hash);
+  const byFile = new Map<number, PendingTooltip[]>();
+  for (const row of rows) {
+    const file = byFile.get(row.tooltip.hash);
+    if (file) file.push(row);
+    else byFile.set(row.tooltip.hash, [row]);
+  }
+  const rowsOf = (entry: PendingTooltip) => byFile.get(entry.tooltip.hash) ?? [entry];
   // A globals file is one change: the first word of the list that any of its rows shows.
   const kindOf = (entry: PendingTooltip) => {
     const words = rowsOf(entry).map((row) => kinds.get(rowKey(row)));
@@ -87,7 +92,7 @@ export function PushConfirm({
       <ul className={styles.confirmList} aria-label="Tooltips going live" tabIndex={0}>
         {entries.map((entry) => (
           <li key={entry.tooltip.hash}>
-            <span className={styles.confirmName}>{unitName(rowsOf(entry)[0] ?? entry)}</span>
+            <span className={styles.confirmName}>{unitName(rowsOf(entry)[0]!)}</span>
             <small>
               {entry.category} · {entry.tooltip.hash}
             </small>

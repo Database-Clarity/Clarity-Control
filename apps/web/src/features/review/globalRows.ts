@@ -1,15 +1,17 @@
-import { languages, type Lang, type Tooltip } from '@clarity/core';
+import { languages, usesEnglishFallback, type Lang, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
-import { globalAggregates } from '../../services/globalsFlag';
+import type { Drafts } from '../../services/draftStorage';
+import { globalAggregates, globalsEnabled } from '../../services/globalsFlag';
 import {
   globalDefinitions,
   globalPath,
+  globalTypes,
   globalUsageEntries,
   uncomment,
   type GlobalKind,
 } from '../globals/model';
 import type { PendingTooltip } from './model';
-import { exportedText, publishedFor, usePublished, type Published } from './published';
+import { publishedFor, usePublished, type Published } from './published';
 
 type ByHash = Parameters<typeof publishedFor>[0];
 
@@ -29,8 +31,10 @@ export interface GlobalPart {
   published: Published | undefined;
   /** The declarations as written, for raw markup. */
   source: { before: Definition['source']; after: Definition['source'] };
-  /** Saved without this entry, or published text and saved text are the same. */
-  change?: 'removed' | 'same-output';
+  /** The whole file as each side exports it: what that side's text renders with. */
+  files: { before: Drafts; after: Drafts };
+  /** Its text no longer goes live. */
+  removed: boolean;
 }
 
 /** A row's identity: the tooltip hash, or the file's hash and the entry's name. */
@@ -45,8 +49,31 @@ export function routedRow<T extends PendingTooltip>(
 ): T | undefined {
   return (
     rows.find((row) => String(rowKey(row)) === routed) ??
-    rows.find(({ tooltip, part }) => part && String(tooltip.hash) === routed.split(':')[0])
+    rows.find(({ tooltip }) => String(tooltip.hash) === routed.split(':')[0])
   );
+}
+
+/** A named entry that is not listed, while the published file could still list it (a removal). */
+export function unresolvedRow(
+  rows: readonly PendingTooltip[],
+  routed: string,
+  byHash: ByHash,
+): boolean {
+  if (!routed.includes(':') || rows.some((row) => String(rowKey(row)) === routed)) return false;
+  const file = routedRow(rows, routed);
+  const status = file && publishedOf(file, byHash)?.status;
+  return !!file && (status === undefined || status === 'loading');
+}
+
+/** The file as it goes live: a language that falls back to English holds the English text. */
+function exportedFile(file: Tooltip): Tooltip {
+  const text: Tooltip['text'] = {};
+  for (const lang of languages) {
+    const cell = file.text[usesEnglishFallback(file, lang) ? 'en' : lang];
+    if (file.text[lang] && cell)
+      text[lang] = { text: cell.text, updatedAt: cell.updatedAt, updatedBy: cell.updatedBy };
+  }
+  return { ...file, text };
 }
 
 interface Definition {
@@ -81,21 +108,37 @@ function definitionsOf(file: Tooltip): Map<string, Definition> {
 }
 
 const none: Definition['source'] = {};
+const noDrafts: Drafts = {};
+const asDrafts = (file: Tooltip): Drafts => ({ [file.hash]: { base: file, next: file } });
 const noText = (hash: number): Tooltip => ({ hash, text: {}, associated: [] });
 
 /** One row per entry that changed; the file itself when no entry accounts for its change. */
 function partsOf(unit: PendingTooltip, published: Published | undefined): PendingTooltip[] {
   const hash = unit.tooltip.hash;
-  const kind = globalDefinitions({ [hash]: unit.tooltip })[0]?.kind;
-  if (!kind) return [unit];
-  const saved = definitionsOf(unit.tooltip);
+  const kind = globalTypes.find((type) => type.hash === hash)!.kind;
+  const savedFile = exportedFile(unit.tooltip);
+  const liveFile =
+    published?.status === 'ready' && published.tooltip
+      ? exportedFile(published.tooltip)
+      : undefined;
+  // Bodies are compared as they go live; raw markup shows what is written.
+  const saved = definitionsOf(savedFile);
+  const savedSource = definitionsOf(unit.tooltip);
   // Which entries changed is only known with the published file; until then every one is listed.
   const live =
     published?.status === 'ready'
-      ? published.tooltip
-        ? definitionsOf(published.tooltip)
+      ? liveFile
+        ? definitionsOf(liveFile)
         : new Map<string, Definition>()
       : undefined;
+  const liveSource =
+    published?.status === 'ready' && published.tooltip
+      ? definitionsOf(published.tooltip)
+      : undefined;
+  const files = {
+    before: liveFile ? asDrafts(liveFile) : noDrafts,
+    after: asDrafts(savedFile),
+  };
   const names: string[] = [];
   const rows: PendingTooltip[] = [];
   for (const name of [...new Set([...saved.keys(), ...(live?.keys() ?? [])])].sort((a, b) =>
@@ -103,16 +146,19 @@ function partsOf(unit: PendingTooltip, published: Published | undefined): Pendin
   )) {
     const after = saved.get(name);
     const before = live?.get(name);
-    const sameSource = languages.every((lang) => before?.source[lang] === after?.source[lang]);
-    const sameOutput =
-      !!before &&
-      !!after &&
+    const source = {
+      before: liveSource?.get(name)?.source ?? none,
+      after: savedSource.get(name)?.source ?? none,
+    };
+    if (
+      live &&
       languages.every(
         (lang) =>
-          before.tooltip.text[lang]?.text === after.tooltip.text[lang]?.text &&
-          exportedText(before.tooltip, lang) === exportedText(after.tooltip, lang),
-      );
-    if (sameOutput && sameSource) continue;
+          source.before[lang] === source.after[lang] &&
+          before?.tooltip.text[lang]?.text === after?.tooltip.text[lang]?.text,
+      )
+    )
+      continue;
     names.push(name);
     rows.push({
       ...unit,
@@ -127,12 +173,9 @@ function partsOf(unit: PendingTooltip, published: Published | undefined): Pendin
           published?.status === 'ready'
             ? { status: 'ready', tooltip: before?.tooltip ?? null }
             : published,
-        source: { before: before?.source ?? none, after: after?.source ?? none },
-        ...(!after
-          ? { change: 'removed' as const }
-          : sameOutput
-            ? { change: 'same-output' as const }
-            : {}),
+        source,
+        files,
+        removed: !after,
       },
     });
   }
@@ -189,9 +232,18 @@ export const unitName = ({ name, part }: PendingTooltip) => (part ? list.format(
 export const unitNames = (entries: PendingTooltip[], byHash: ByHash) =>
   new Map(reviewRows(entries, byHash).map((row) => [row.tooltip.hash, unitName(row)]));
 
-/** Where a row is edited (`/t/1?global=name` opens the entry itself). */
+const hasPage = (part: GlobalPart) => Object.keys(part.source.after).length > 0;
+/** Where a row is edited (`/t/1?global=name` opens the entry itself); a removed entry has no page. */
 export const editorPath = ({ tooltip, part }: PendingTooltip) =>
-  part ? globalPath({ hash: tooltip.hash, name: part.name }) : `/t/${tooltip.hash}`;
+  !part
+    ? `/t/${tooltip.hash}`
+    : hasPage(part)
+      ? globalPath({ hash: tooltip.hash, name: part.name })
+      : globalsEnabled
+        ? '/globals'
+        : `/t/${tooltip.hash}`;
+export const editorLabel = ({ part }: PendingTooltip) =>
+  part && !hasPage(part) ? 'Open globals' : 'Open in editor';
 
 /** How many tooltips use this entry directly, as saved. */
 export function globalUsers({ kind, name }: GlobalPart, data: EditorData): number {

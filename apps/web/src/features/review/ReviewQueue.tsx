@@ -12,7 +12,7 @@ import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { flushSync } from 'react-dom';
 import { useHref, useLocation, useNavigate } from 'react-router-dom';
 import styles from './ReviewQueue.module.scss';
-import { editorPath, rowKey, unitName } from './globalRows';
+import { editorLabel, editorPath, rowKey, unitName } from './globalRows';
 import type { Kind } from './kinds';
 import {
   markerGroup,
@@ -54,6 +54,7 @@ const QueueRow = memo(function QueueRow({
   const hash = entry.tooltip.hash;
   const key = rowKey(entry);
   const path = editorPath(entry);
+  const label = editorLabel(entry);
   const together =
     entry.part && entry.part.names.length > 1 ? `Ticked together: ${unitName(entry)}` : undefined;
   return (
@@ -92,8 +93,10 @@ const QueueRow = memo(function QueueRow({
         href={`${editorHref}${path}`}
         data-review-edit={key}
         data-review-path={path}
-        title="Open in editor"
-        aria-label={`Open ${entry.name} in editor`}
+        title={label}
+        aria-label={
+          label === 'Open in editor' ? `Open ${entry.name} in editor` : `${label} (${entry.name})`
+        }
       >
         <span aria-hidden="true">↗</span>
       </a>

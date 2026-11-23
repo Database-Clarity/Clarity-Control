@@ -106,12 +106,12 @@ async function click(label: string) {
   await act(async () => button(label).click());
   await flush();
 }
-async function mount() {
+async function mount(route = '/review') {
   await act(async () =>
     root.render(
       createElement(
         MemoryRouter,
-        { initialEntries: ['/review'] },
+        { initialEntries: [route] },
         createElement(
           Routes,
           null,
@@ -377,6 +377,32 @@ it('lists each export of the globals file, ticks them together, and publishes th
     hashes: [1],
     expected: { 1: await publishableHash(file('export')) },
   });
+});
+
+it('opens the export a cold filtered link names once its word is known', async () => {
+  const file = (word: string): Tooltip => ({
+    hash: 1,
+    custom: { name: 'Global exports', categoryId: 'none' },
+    text: {
+      en: {
+        ...tooltip.text.en!,
+        text: ['first', 'last'].map((name) => `${word} ${name} (\nText\n)`).join('\n\n'),
+      },
+    },
+    associated: [],
+  });
+  bundle.tooltips = { 1: file('export') };
+  bundle.pushed = { 1: 'deep-link-marker' };
+  const fallback = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (url, init) => {
+    if (!String(url).endsWith('/history/1?live=1')) return fallback(url, init);
+    // The rows mount, filtered out, before their published file arrives.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    return Response.json({ tooltip: file('export hidden'), pushedHash: 'deep-link-marker' });
+  });
+  await mount(`/review?hash=${encodeURIComponent('1:last')}&kind=Output+unchanged`);
+  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('last'));
+  expect(host.querySelectorAll('a[data-review-hash^="1:"]')).toHaveLength(2);
 });
 
 it('follows one reviewed request through Sync pending, Publishing, and Published', async () => {

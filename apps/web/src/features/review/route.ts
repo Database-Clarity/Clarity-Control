@@ -1,6 +1,6 @@
 import { redirect, type LoaderFunctionArgs } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
-import { reviewRows, routedRow, rowKey } from './globalRows';
+import { reviewRows, routedRow, rowKey, unresolvedRow } from './globalRows';
 import { preparedPending, type PendingTooltip } from './model';
 import { acknowledgedMarkers } from './session';
 import { useAuthStore } from '../../stores/auth';
@@ -22,6 +22,8 @@ export function initialReviewParams(
       )
     : pool;
   const requestedHash = params.get('hash');
+  if (requestedHash && unresolvedRow(entries, requestedHash, usePublished.getState().byHash))
+    return new URLSearchParams(params);
   const requested =
     requestedHash === null
       ? undefined

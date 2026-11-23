@@ -21,12 +21,14 @@ import { useAdvanceSetting } from '../compendium/advanceSetting';
 import { useRawDiff } from '../history/diffPreference';
 import { useLeftQueue } from '../queue/useQueue';
 import {
+  editorLabel,
   editorPath,
   publishedOf,
   routedRow,
   rowKey,
   unitCount,
   unitName,
+  unresolvedRow,
   useReviewRows,
   type RowKey,
 } from './globalRows';
@@ -277,8 +279,18 @@ export function ReviewPage() {
   useEffect(() => {
     if (entries) publishSidebar(entries);
   }, [entries]);
+  // A named row the filters may still show (its word is being checked), or that the published
+  // file may still list: its link is kept until that is known.
+  const waitingRow = useMemo(() => {
+    if (routedHash === null) return false;
+    const row = rows.find((candidate) => String(rowKey(candidate)) === routedHash);
+    if (!row) return unresolvedRow(rows, routedHash, published);
+    if (!row.part || !kindFilter || kinds.get(rowKey(row))) return false;
+    const status = publishedOf(row, published)?.status;
+    return status !== 'error' && status !== 'missing';
+  }, [routedHash, rows, published, kindFilter, kinds]);
   useEffect(() => {
-    if (subview === 'batches' || !entries || selectionIntent.current) return;
+    if (subview === 'batches' || !entries || selectionIntent.current || waitingRow) return;
     const params = new URLSearchParams(searchParams);
     if (!current) {
       if (!params.has('hash')) return;
@@ -289,7 +301,7 @@ export function ReviewPage() {
     if (searchParams.get('hash') === String(rowKey(current))) return;
     params.set('hash', String(rowKey(current)));
     setSearchParams(params, { replace: true });
-  }, [current, entries, searchParams, setSearchParams, subview]);
+  }, [current, entries, searchParams, setSearchParams, subview, waitingRow]);
   useEffect(() => {
     clearSelection();
     setDecisions([]);
@@ -692,7 +704,7 @@ export function ReviewPage() {
               <span className={styles.muted}>
                 {leftoverView ? `${position} leftovers` : position}
               </span>
-              <Link to={editorPath(current)}>Open in editor ↗</Link>
+              <Link to={editorPath(current)}>{editorLabel(current)} ↗</Link>
             </span>
             {phone && (
               <button

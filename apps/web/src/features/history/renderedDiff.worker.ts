@@ -7,7 +7,15 @@ import { sourceAnalysisSteps, type SourceAnalysis } from './sourceOnlyChanges';
  * request (Review's row words): only whether the rendered text differs, answered at once.
  */
 export type RenderedDiffRequest =
-  | { id: number; before: string; after: string; globals: MarkupGlobals; classify?: true }
+  | {
+      id: number;
+      before: string;
+      after: string;
+      globals: MarkupGlobals;
+      /** What `before` renders with when that differs (a globals file's published definitions). */
+      beforeGlobals?: MarkupGlobals;
+      classify?: true;
+    }
   | { cancel: number };
 /**
  * Replies per request: `result` (the presented diff, or no `result` and no
@@ -43,22 +51,30 @@ const breathe = () =>
     channel.port2.postMessage(0);
   });
 
-async function run({ id, before, after, globals }: Job) {
+async function run({ id, before, after, globals, beforeGlobals = globals }: Job) {
   let steps: ReturnType<typeof sourceAnalysisSteps>;
   try {
-    const result = renderedDiff(before, after, globals);
+    const result = renderedDiff(before, after, globals, true, beforeGlobals);
     // Accounting reads the word diff the user sees; presentDiff then only adds
     // marks (merged runs, whole rewritten lines) in place, so the check reads
     // its own copy and the presented diff can paint first.
     steps = sourceAnalysisSteps(before, after, globals, structuredClone(result));
-    const output = compareDiffOutput(before, after, globals);
+    const output = compareDiffOutput(before, after, globals, beforeGlobals);
     reply({
       id,
       result: {
         ...presentDiff(result),
         output,
         enhanced: output.variantsDiffer
-          ? presentDiff(renderedDiff(before, after, variantGlobals(globals, true)))
+          ? presentDiff(
+              renderedDiff(
+                before,
+                after,
+                variantGlobals(globals, true),
+                true,
+                variantGlobals(beforeGlobals, true),
+              ),
+            )
           : undefined,
       },
     });
@@ -106,7 +122,12 @@ self.onmessage = (event: MessageEvent<RenderedDiffRequest>) => {
   if (request.classify) {
     let classified: RenderedDiffReply['classified'];
     try {
-      classified = compareDiffOutput(request.before, request.after, request.globals);
+      classified = compareDiffOutput(
+        request.before,
+        request.after,
+        request.globals,
+        request.beforeGlobals,
+      );
     } catch {
       classified = undefined;
     }
