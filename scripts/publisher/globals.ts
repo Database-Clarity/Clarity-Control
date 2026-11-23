@@ -642,6 +642,8 @@ export class GlobalsPublisher {
     if (batch) for (const hash of aggregateHashes) if (!hashes.includes(hash)) hashes.push(hash);
     hashes.sort((a, b) => a - b);
     const documents = hashes.map((hash) => {
+      if (aggregateHashes.includes(hash) && !globals[hash])
+        throw new Error(`Missing published layout for aggregate ${hash}`);
       const document =
         globals[hash] ??
         captured.authored.tooltips[hash] ??
