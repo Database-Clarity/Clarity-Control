@@ -9,6 +9,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useCompendiumStore } from '../compendium/store';
+import { resetSandboxPerkText } from '../manifest/manifestText';
 import { setEditorDraftFetch, type EditorDraft } from '../../services/editorDrafts';
 import type { User } from '../../services/api';
 
@@ -114,6 +115,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   setEditorDraftFetch(undefined);
+  resetSandboxPerkText();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   document.body.innerHTML = '';
@@ -214,6 +216,44 @@ it('says when the Compendium source changed since the draft', async () => {
   const page = await mount('/t/10');
   await page.settle();
   expect((await page.open()).textContent).toContain('Source changed since this draft');
+  await page.unmount();
+});
+
+it('names the in-game description as a manifest draft source, never the Compendium', async () => {
+  const load = vi.fn(async () => {});
+  useCompendiumStore.setState({ data: null, load });
+  resetSandboxPerkText({ 900: ['Perk', 'Grants  a bonus.'] });
+  const data = useDataStore.getState().data!;
+  useDataStore.setState({
+    data: {
+      ...data,
+      items: { ...data.items, 10: { ...data.items[10]!, sandboxPerkHashes: [900] } },
+    },
+  });
+  setEditorDraftFetch(async (path) =>
+    path === 'index.json'
+      ? new Response(JSON.stringify({ schemaVersion: 1, hashes: [10] }))
+      : new Response(
+          JSON.stringify({
+            ...draft(10),
+            source: { tab: 'Manifest', gid: '0', range: 'A1', text: 'Grants a bonus.' },
+          }),
+        ),
+  );
+  const page = await mount('/t/10');
+  await page.settle();
+  expect(page.trigger()!.title).toContain('in-game description');
+  const dialog = await page.open();
+  expect(dialog.textContent).toContain('Written from the in-game description');
+  expect(dialog.textContent).not.toContain('A1');
+  expect(dialog.querySelector('a[data-source-ref]')).toBeNull();
+  expect(dialog.textContent).not.toContain('Source changed');
+  // Bungie rewords it; then its text is unavailable (the bundled perk text failed).
+  await act(async () => resetSandboxPerkText({ 900: ['Perk', 'Grants two bonuses.'] }));
+  expect(dialog.textContent).toContain('Source changed since this draft');
+  await act(async () => resetSandboxPerkText({}));
+  expect(dialog.textContent).not.toContain('Source changed');
+  expect(load).not.toHaveBeenCalled();
   await page.unmount();
 });
 
