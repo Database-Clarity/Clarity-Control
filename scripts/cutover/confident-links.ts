@@ -4,6 +4,11 @@ import { resolve, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { aliasesSchema, resolveAlias } from '../../packages/core/src/aliases.js';
+import {
+  aliasGroupsSchema,
+  composeAliases,
+  type AliasGroups,
+} from '../../packages/core/src/aliasGroups.js';
 import { tooltipSchema, hasTooltipText, type Tooltip } from '../../packages/core/src/schemas.js';
 import { compendiumDataSchema } from '../../packages/core/src/compendium/types.js';
 import { withCompendiumMatchingIndex } from '../../packages/core/src/compendium/resolve.js';
@@ -11,7 +16,6 @@ import { isTrackedCompendiumTab } from '../../packages/core/src/compendium/confi
 import { inactiveMovesSchema } from '../../packages/core/src/inactiveMoves.js';
 import {
   hasSandboxTargets,
-  mergeSandboxPointers,
   sandboxPointersSchema,
   sandboxConflictsSchema,
 } from '../../packages/core/src/sandboxPointers.js';
@@ -38,8 +42,9 @@ export interface Inputs {
   compendiumJson: string;
   /** Exact editor-data config blobs; null means absent at editorHead. */
   inactiveJson: string | null;
+  aliasGroupsJson: string | null;
   sandboxPointersJson: string | null;
-  /** From the same generator commit as items/categories/aliases; required for target picks. */
+  /** From the same generator commit; required for target picks and accepted groups. */
   sandboxConflictsJson: string | null;
   files: Record<string, string>;
 }
@@ -62,6 +67,9 @@ export function bytes(value: unknown): string {
 function inventory(files: Record<string, string>): string {
   return digest(bytes(files));
 }
+function parseAliasGroups(raw: Inputs['aliasGroupsJson']): AliasGroups | undefined {
+  return raw === null ? undefined : aliasGroupsSchema.parse(JSON.parse(raw));
+}
 function inputs(input: Inputs) {
   for (const key of ['editorHead', 'engineCommit', 'catalogCommit', 'compendiumCommit'] as const)
     sha.parse(input[key]);
@@ -78,13 +86,17 @@ function inputs(input: Inputs) {
     input.sandboxConflictsJson === null
       ? undefined
       : sandboxConflictsSchema.parse(JSON.parse(input.sandboxConflictsJson));
-  if (hasSandboxTargets(pointers) && !conflicts)
-    throw new Error('Sandbox target picks require pinned conflicts');
+  const aliasGroups = parseAliasGroups(input.aliasGroupsJson);
+  if (!conflicts && (hasSandboxTargets(pointers) || Object.keys(aliasGroups?.groups ?? {}).length))
+    throw new Error('Sandbox target picks and accepted alias groups require pinned conflicts');
   const generatorAliases = aliasesSchema.parse(JSON.parse(input.aliasesJson));
-  const aliases = conflicts
-    ? mergeSandboxPointers(generatorAliases, conflicts, pointers)
-    : generatorAliases;
-  for (const key of Object.keys(aliases)) resolveAlias(Number(key), aliases);
+  const { aliases, issues } = composeAliases(
+    generatorAliases,
+    aliasGroups,
+    items,
+    conflicts,
+    pointers,
+  );
   const data = compendiumDataSchema.parse(JSON.parse(input.compendiumJson));
   data.tabs = data.tabs.filter((tab) => isTrackedCompendiumTab(tab.name));
   const inactiveMoves =
@@ -101,6 +113,7 @@ function inputs(input: Inputs) {
     categories,
     aliases,
     generatorAliases,
+    aliasGroupIssues: issues,
     ...(conflicts ? { sandboxConflicts: conflicts } : {}),
     bundle: {
       sourceCommit: input.editorHead,
@@ -109,6 +122,7 @@ function inputs(input: Inputs) {
       pushed: {},
       tooltips,
       inactiveMoves,
+      aliasGroups,
       sandboxPointers: pointers,
     },
   };
@@ -126,6 +140,7 @@ function pins(input: Inputs) {
     aliasesSha256: digest(input.aliasesJson),
     compendiumSha256: digest(input.compendiumJson),
     inactiveSha256: optionalDigest(input.inactiveJson),
+    aliasGroupsSha256: optionalDigest(input.aliasGroupsJson),
     sandboxPointersSha256: optionalDigest(input.sandboxPointersJson),
     sandboxConflictsSha256: optionalDigest(input.sandboxConflictsJson),
     guidanceSha256: digest(bytes(approved)),
@@ -330,7 +345,7 @@ export async function applyApproved(
 export function verifyBundle(
   manifest: Manifest,
   persisted: Inputs,
-  bundle: { sourceCommit: string; tooltips: Record<string, Tooltip> },
+  bundle: { sourceCommit: string; tooltips: Record<string, Tooltip>; aliasGroups?: AliasGroups },
 ): void {
   sameSources(persisted, manifest);
   if (
@@ -345,6 +360,10 @@ export function verifyBundle(
     }),
   );
   if (bytes(bundle.tooltips) !== bytes(expected)) throw new Error('Bundle tooltips mismatch');
+  if (
+    bytes(bundle.aliasGroups ?? null) !== bytes(parseAliasGroups(persisted.aliasGroupsJson) ?? null)
+  )
+    throw new Error('Bundle alias groups mismatch');
 }
 
 /** Explicit CLI entry: imports must stay inert when S2 bundles this library. */
