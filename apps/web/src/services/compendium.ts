@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { fetchJson } from './http';
 import { apiRequest } from './api';
 import { requestError } from './httpError';
+import { bundleUrl } from './bundle';
 import {
   bindSourceWorker,
   createWorkerBridge,
@@ -12,6 +13,10 @@ import {
 
 export const compendiumDataUrl =
   'https://raw.githubusercontent.com/Database-Clarity/Compendium-data/main/compendium.json';
+export const compendiumDatasetScope = `${bundleUrl}|${compendiumDataUrl}`;
+export const compendiumGuidanceScope =
+  (import.meta.env.DEV && import.meta.env.VITE_COMPENDIUM_GUIDANCE_SCOPE) ||
+  compendiumDatasetScope;
 let cached: { value: CompendiumData; at: number } | undefined;
 let pending: Promise<CompendiumData> | undefined;
 let pendingBridge: ReturnType<typeof createWorkerBridge> | undefined;

@@ -1,7 +1,6 @@
 import type { CompendiumData } from '@clarity/core';
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
-import { bundleUrl } from '../../services/bundle';
-import { compendiumDataUrl } from '../../services/compendium';
+import { compendiumGuidanceScope } from '../../services/compendium';
 import { GuidancePersistence } from './guidancePersistence';
 import type { ReviewCategory } from './reviewCategories';
 
@@ -14,7 +13,7 @@ export function useGuidance(
   const persistence = useMemo(
     () =>
       new GuidancePersistence(
-        `${bundleUrl}|${compendiumDataUrl}`,
+        compendiumGuidanceScope,
         new URL(`${import.meta.env.BASE_URL}__review-guidance`, window.location.href).href,
         {
           getItem: (key) => localStorage.getItem(key),
