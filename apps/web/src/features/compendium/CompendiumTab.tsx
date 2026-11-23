@@ -46,7 +46,7 @@ import {
   type CategoryInfo,
   type QueueFilters,
 } from './queueView';
-import { advanceHash, recordDecision, restoreLink } from './rapidReview';
+import { advanceHash, recordDecision, restoreDecision, restoreLink } from './rapidReview';
 import { entryEvidence, mayDraftLink, reviewEvidence } from './reviewQueue';
 import { sourceFingerprint, reviewStorageKey, type ReviewProgress } from './reviewProgress';
 import {
@@ -583,14 +583,7 @@ function Workspace({
         update: (next) => restoreLink(next, before as never, after as never)!,
       })),
     );
-    // This entry's decision only: another tab's choices are not this tab's to undo.
-    update((state) => {
-      if (state.decisions[undo.hash] === undo.local) return state;
-      const decisions = { ...state.decisions };
-      if (undo.local) decisions[undo.hash] = undo.local;
-      else delete decisions[undo.hash];
-      return { ...state, decisions };
-    });
+    update((state) => restoreDecision(state, undo.hash, undo.local));
     if (undo.shared) useSharedSaves.getState().set([undo.hash], undo.shared.before);
     select(undo.hash);
     setUndo(undefined);

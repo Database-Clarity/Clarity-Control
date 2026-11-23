@@ -76,18 +76,6 @@ function queueView(key: string, progress: ReviewProgress, report: PendingView['r
   document.addEventListener('visibilitychange', flushHiddenViews);
 }
 
-type Decisions = ReviewProgress['decisions'];
-/** `stored` with what changed from `before` to `after` applied, removals included. */
-function withChanges(stored: Decisions, before: Decisions, after: Decisions): Decisions {
-  const merged = { ...stored };
-  for (const hash of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    if (after[hash] === before[hash]) continue;
-    if (after[hash]) merged[hash] = after[hash];
-    else delete merged[hash];
-  }
-  return merged;
-}
-
 // Mount the queue with key=storageKey so identity changes cannot copy another user's state.
 export function useReviewProgress(storageKey: string) {
   const [initial] = useState(() => {
@@ -106,34 +94,14 @@ export function useReviewProgress(storageKey: string) {
   const [progress, setProgress] = useState(initial.progress);
   const [error, setError] = useState(initial.error);
   const current = useRef(progress);
-  /** The decisions as this device last stored them: what differs is still this tab's to write. */
-  const saved = useRef(progress.decisions);
   const mounted = useRef(false);
   const decisionWriteFailed = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    // Another tab's decisions show here at once, under this tab's own unwritten ones.
-    function changed(event: StorageEvent) {
-      if (event.key !== storageKey || event.newValue === null) return;
-      try {
-        const stored = readProgress({ getItem: () => event.newValue }, storageKey).decisions;
-        const next = {
-          ...current.current,
-          decisions: withChanges(stored, saved.current, current.current.decisions),
-        };
-        saved.current = stored;
-        current.current = next;
-        setProgress(next);
-      } catch {
-        // The other tab's record is unreadable here: this one keeps what it has.
-      }
-    }
-    window.addEventListener('storage', changed);
     return () => {
       mounted.current = false;
-      window.removeEventListener('storage', changed);
     };
-  }, [storageKey]);
+  }, []);
   function report(writeError?: unknown) {
     if (!mounted.current) return;
     if (writeError !== undefined)
@@ -156,13 +124,23 @@ export function useReviewProgress(storageKey: string) {
     try {
       // Another tab may have decided other entries since: write only what changed here.
       const raw = localStorage.getItem(storageKey);
-      let stored = saved.current;
-      try {
-        stored = readProgress({ getItem: () => raw }, storageKey).decisions;
-      } catch {
-        // An unreadable record (already reported) is replaced, as before.
+      let stored = previous.decisions;
+      // After a failed write this tab holds more than is stored: it is written whole, as before.
+      if (!decisionWriteFailed.current)
+        try {
+          stored = readProgress({ getItem: () => raw }, storageKey).decisions;
+        } catch {
+          // An unreadable record (already reported) is replaced, as before.
+        }
+      const merged = { ...next, decisions: { ...stored } };
+      for (const hash of new Set([
+        ...Object.keys(previous.decisions),
+        ...Object.keys(next.decisions),
+      ])) {
+        if (next.decisions[hash] === previous.decisions[hash]) continue;
+        if (next.decisions[hash]) merged.decisions[hash] = next.decisions[hash];
+        else delete merged.decisions[hash];
       }
-      const merged = { ...next, decisions: withChanges(stored, saved.current, next.decisions) };
       current.current = merged;
       setProgress(merged);
       const serialized = JSON.stringify(merged);
@@ -170,7 +148,6 @@ export function useReviewProgress(storageKey: string) {
         localStorage.setItem(storageKey, serialized);
         notifyCompendiumInputs(storageKey);
       }
-      saved.current = merged.decisions;
       decisionWriteFailed.current = false;
       setError('');
     } catch (error) {

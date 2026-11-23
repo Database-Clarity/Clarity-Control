@@ -6,13 +6,13 @@ import { expect, it } from 'vitest';
 import { useMarksStore } from '../marks/store';
 import type { QueueRow } from './queueRows';
 import { EarlierChoices } from './SharedDecisionNotices';
-import { unsaved, useSharedSaves } from './sharedDecisions';
+import { useSharedSaves } from './sharedDecisions';
 
 it('leaves earlier choices that now have a match unticked, and saves only the ticked ones', () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   // Saving stays in flight: what is sent is what is pending.
   useMarksStore.setState({ writable: true, save: () => new Promise(() => {}) });
-  useSharedSaves.setState({ accounts: new Map() });
+  useSharedSaves.setState({ pending: new Map(), error: null });
   const row = (hash: number, matches?: true): QueueRow => ({
     hash,
     name: `Entry ${hash}`,
@@ -40,8 +40,8 @@ it('leaves earlier choices that now have a match unticked, and saves only the ti
   expect(save.disabled).toBe(true);
   act(() => boxes[2].click());
   expect(save.textContent).toBe('Save 1 earlier Not needed choice for everyone');
-  expect(unsaved().pending.size).toBe(0);
+  expect(useSharedSaves.getState().pending.size).toBe(0);
   act(() => save.click());
-  expect([...unsaved().pending]).toEqual([[3, 'not-needed']]);
+  expect([...useSharedSaves.getState().pending]).toEqual([[3, 'not-needed']]);
   act(() => root.unmount());
 });

@@ -12,7 +12,7 @@ import { useCompendiumStore } from './store';
 import { useCompendiumQueueStore } from './queueStore';
 import { useAdvanceSetting } from './advanceSetting';
 import { emptyProgress, reviewStorageKey } from './reviewProgress';
-import { unsaved, useSharedSaves } from './sharedDecisions';
+import { useSharedSaves } from './sharedDecisions';
 import { useMarksStore } from '../marks/store';
 import { apiUrl } from '../../services/api';
 import { bundleUrl } from '../../services/bundle';
@@ -140,13 +140,12 @@ beforeEach(() => {
   });
   useAdvanceSetting.setState({ ms: 0 });
   // Saving stays in flight: what is shown is the decision as made.
-  useAuthStore.setState({ token: null });
   useMarksStore.setState({
     marks: { types: [], entries: {} },
     writable: true,
     save: () => new Promise(() => {}),
   });
-  useSharedSaves.setState({ accounts: new Map() });
+  useSharedSaves.setState({ pending: new Map(), error: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -193,7 +192,7 @@ describe('keyboard review flow', () => {
     await press('n');
     await press('m');
     expect(title()).toContain('Sample 101');
-    expect(unsaved().pending.size).toBe(0);
+    expect(useSharedSaves.getState().pending.size).toBe(0);
     for (const label of ['Not needed', 'No match']) {
       expect(barButton(label).disabled).toBe(true);
       expect(barButton(label).title).toContain('Only maintainers');
@@ -215,7 +214,7 @@ describe('keyboard review flow', () => {
     await mount();
     await press('n');
     await press('m');
-    expect(unsaved().pending.size).toBe(0);
+    expect(useSharedSaves.getState().pending.size).toBe(0);
     for (const label of ['Not needed', 'No match']) expect(barButton(label).disabled).toBe(true);
     expect(bar().textContent).toContain('Not needed and No match yet are turned off for now.');
   });
@@ -228,7 +227,7 @@ describe('keyboard review flow', () => {
     await press('n');
     await press('m');
     expect(title()).toContain('Sample 102');
-    expect([...unsaved().pending]).toEqual([
+    expect([...useSharedSaves.getState().pending]).toEqual([
       [100, 'not-needed'],
       [101, 'no-match'],
     ]);
@@ -237,7 +236,7 @@ describe('keyboard review flow', () => {
     expect(counts()).toContain('1 not needed');
     expect(counts()).toContain('1 no match yet');
     await press('u');
-    expect(unsaved().pending.get(101)).toBe(null);
+    expect(useSharedSaves.getState().pending.get(101)).toBe(null);
     expect(title()).toContain('Sample 101');
     expect(counts()).toContain('5 to review');
     await press('m');
@@ -248,7 +247,7 @@ describe('keyboard review flow', () => {
     await act(async () => header.click());
     const unmark = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Unmark')!;
     await act(async () => unmark.click());
-    expect(unsaved().pending.get(101)).toBe(null);
+    expect(useSharedSaves.getState().pending.get(101)).toBe(null);
     expect(counts()).toContain('5 to review');
   });
 
@@ -287,9 +286,9 @@ describe('keyboard review flow', () => {
     await mount();
     const section = host.querySelector('[aria-label="Earlier Not needed choices"]')!;
     expect(section.textContent).toContain('Sample 102');
-    expect(unsaved().pending.size).toBe(0);
+    expect(useSharedSaves.getState().pending.size).toBe(0);
     await act(async () => section.querySelector('button')!.click());
-    expect([...unsaved().pending]).toEqual([[102, 'not-needed']]);
+    expect([...useSharedSaves.getState().pending]).toEqual([[102, 'not-needed']]);
     expect(host.querySelector('[aria-label="Earlier Not needed choices"]')).toBeNull();
   });
 

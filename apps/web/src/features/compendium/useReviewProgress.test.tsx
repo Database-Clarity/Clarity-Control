@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { notifyCompendiumInputs } from './inputEvents';
+import { recordDecision, restoreDecision } from './rapidReview';
 import { emptyProgress, readProgress } from './reviewProgress';
 import { useReviewProgress } from './useReviewProgress';
 
@@ -195,47 +196,31 @@ it('flushes on hidden visibility and uses a deferred fallback without idle callb
   expect(readProgress(localStorage, 'review-navigation').selected).toBe(4);
 });
 
-it('keeps another tab’s decisions, shows them at once, and writes later what could not be written', () => {
+it('keeps another tab’s decisions when it records or undoes its own, and makes up for a failed write', () => {
   mount('two-tabs');
-  const decide = (hash: number, kind: 'skipped' | 'open' | undefined) =>
-    act(() =>
-      state.update((progress) => {
-        const decisions = { ...progress.decisions };
-        if (kind) decisions[hash] = { kind, fingerprint: 'entry:1:1' };
-        else delete decisions[hash];
-        return { ...progress, decisions };
-      }),
-    );
+  const decide = (hash: number) =>
+    act(() => state.update((progress) => recordDecision(progress, hash, 'entry:1:1', 'skipped')));
   const read = () => Object.keys(JSON.parse(values.get('two-tabs')!).decisions);
-  /** The other tab, on an earlier version: the browser tells this one, or is late to. */
-  const otherTab = (hash: number, told: boolean) => {
+  // The other tab, on an earlier version.
+  const otherTab = (hash: number) => {
     const stored = JSON.parse(values.get('two-tabs')!);
     stored.decisions[hash] = { kind: 'no-equivalent', fingerprint: '12:34' };
     values.set('two-tabs', JSON.stringify(stored));
-    if (told)
-      act(() => {
-        window.dispatchEvent(
-          new StorageEvent('storage', { key: 'two-tabs', newValue: values.get('two-tabs') }),
-        );
-      });
   };
-  decide(1, 'skipped');
-  otherTab(2, true);
+  decide(1);
+  otherTab(2);
+  const before = state.progress.decisions[3];
+  decide(3);
+  expect(read()).toEqual(['1', '2', '3']);
   expect(state.progress.decisions[2].kind).toBe('no-equivalent');
-  otherTab(4, false);
-  decide(3, 'skipped');
-  expect(read()).toEqual(['1', '2', '3', '4']);
-  // Taking back this tab's own decision leaves the other tab's.
-  decide(3, undefined);
-  expect(read()).toEqual(['1', '2', '4']);
-  // A write that failed is made up for by the next one.
+  act(() => state.update((progress) => restoreDecision(progress, 3, before)));
+  expect(read()).toEqual(['1', '2']);
   write.mockImplementationOnce(() => {
     throw new Error('full');
   });
-  decide(5, 'skipped');
+  decide(4);
   expect(state.error).toContain('only in memory');
-  otherTab(6, true);
-  decide(7, 'skipped');
+  decide(5);
   expect(state.error).toBe('');
-  expect(read()).toEqual(['1', '2', '4', '5', '6', '7']);
+  expect(read()).toEqual(['1', '2', '4', '5']);
 });
