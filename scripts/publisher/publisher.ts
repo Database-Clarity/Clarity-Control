@@ -897,7 +897,7 @@ export class Publisher {
         )
           throw new ConsumerOutputRejected('Global receipt identity mismatch');
         let documents: Tooltip[] | undefined;
-        let partialAggregates: number[] = [];
+        let entryOnlyAggregates: number[] = [];
         if (signed.kind === 'batch') {
           const plan = await this.batchPlan(
             tree,
@@ -922,7 +922,7 @@ export class Publisher {
             atomicLive.parent,
           );
           documents = release?.documents;
-          partialAggregates = release?.partialAggregates ?? [];
+          entryOnlyAggregates = release?.entryOnlyAggregates ?? [];
         }
         if (
           !documents ||
@@ -937,7 +937,7 @@ export class Publisher {
           this.assertRequestedDigests(
             receipt.entries,
             signed.hashes.filter(
-              (hash) => !partialAggregates.includes(resolveAlias(hash, aliases)),
+              (hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases)),
             ),
             (hash) => signed.expected[hash],
             aliases,
@@ -1263,13 +1263,13 @@ export class Publisher {
           return;
         }
         let globals: GlobalReleaseReceipt | undefined;
-        let partialAggregates: number[] = [];
+        let entryOnlyAggregates: number[] = [];
         if (hasGlobals(tree)) {
           try {
             const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
             if (!release) throw new Error('Missing global release');
             globals = release.receipt;
-            partialAggregates = release.partialAggregates;
+            entryOnlyAggregates = release.entryOnlyAggregates;
             tooltips.splice(0, tooltips.length, ...release.documents);
             entries.splice(
               0,
@@ -1292,7 +1292,7 @@ export class Publisher {
         }
         this.assertRequestedDigests(
           entries,
-          payload.hashes.filter((hash) => !partialAggregates.includes(resolveAlias(hash, aliases))),
+          payload.hashes.filter((hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases))),
           (hash) => payload.expected[hash],
           aliases,
         );

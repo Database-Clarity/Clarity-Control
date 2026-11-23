@@ -3,70 +3,64 @@ import { stableStringify } from '../contentHash.js';
 import {
   globalAggregateKind,
   globalStoreSchema,
-  type GlobalDefinition,
   type GlobalRecord,
   type GlobalStore,
 } from '../globals/model.js';
 import { projectGlobals } from '../globals/projection.js';
 
-function definitionMetadata(definition: GlobalDefinition) {
-  const { body, revision, provenance, sourceRevision, ...metadata } = definition;
-  void body;
-  void revision;
-  void provenance;
-  void sourceRevision;
-  return metadata;
-}
-
-/** Retain existing literal bytes and recipes and attach new declarations.
- * A new language takes the same complete metadata as a later update to that language.
+/** Retain literal bytes and recipes, and add newly introduced declarations.
+ * Saved drafts keep the new language's complete stamp while entry-only releases
+ * use the original publication metadata.
  */
 export function reconcileGlobalStore(
   layout: GlobalStore['aggregates'],
   entries: GlobalRecord[],
-  published?: GlobalStore,
+  { preserveNewLanguageSourceStamp = false } = {},
 ): GlobalStore {
   const aggregates = structuredClone(layout);
   for (const aggregate of aggregates) {
     const kind = globalAggregateKind(aggregate.document.hash);
-    const liveLayout = published?.aggregates.find(
-      ({ document }) => document.hash === aggregate.document.hash,
-    );
     for (const lang of languages) {
       const definitions = entries.filter(
         (entry) => !entry.tombstone && entry.kind === kind && entry.definitions[lang],
       );
+      let cell = aggregate.languages[lang];
       const latest = definitions
         .map((entry) => entry.definitions[lang]!)
         .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
         .at(-1);
-      let cell = aggregate.languages[lang];
-      const liveStamp = liveLayout?.languages[lang]?.metadata;
-      const valid = new Set(definitions.map((entry) => entry.id));
-      if (cell && liveStamp) {
-        const stamp = stableStringify(cell.metadata);
-        const ownsStamp = (entry: GlobalRecord) =>
-          entry.definitions[lang] !== undefined &&
-          stableStringify(definitionMetadata(entry.definitions[lang])) === stamp;
-        const withdrew =
-          cell.segments.some((segment) => 'entryId' in segment && !valid.has(segment.entryId)) ||
-          entries.some((entry) => entry.kind === kind && entry.tombstone && ownsStamp(entry));
-        // A withdrawal cannot age the surviving translations through an abandoned stamp.
-        if (withdrew && !definitions.some(ownsStamp)) cell.metadata = structuredClone(liveStamp);
-      }
-      if (latest && !cell) {
+      if (!cell && latest) {
+        const definition = preserveNewLanguageSourceStamp
+          ? latest
+          : definitions[0].definitions[lang]!;
+        const { updatedAt, updatedBy, sourceUpdatedAt } = definition;
         cell = aggregate.languages[lang] = {
-          metadata: definitionMetadata(latest),
+          metadata: {
+            updatedAt,
+            updatedBy,
+            ...(preserveNewLanguageSourceStamp && sourceUpdatedAt !== undefined && {
+              sourceUpdatedAt,
+            }),
+          },
           segments: [{ literal: '' }],
         };
-      } else if (
-        latest &&
-        cell &&
-        Date.parse(latest.updatedAt) > Date.parse(cell.metadata.updatedAt)
-      ) {
-        cell.metadata = definitionMetadata(latest);
       }
       if (!cell) continue;
+      if (latest && Date.parse(latest.updatedAt) > Date.parse(cell.metadata.updatedAt)) {
+        const {
+          body: _body,
+          revision: _revision,
+          provenance: _provenance,
+          sourceRevision: _sourceRevision,
+          ...metadata
+        } = latest;
+        void _body;
+        void _revision;
+        void _provenance;
+        void _sourceRevision;
+        cell.metadata = metadata;
+      }
+      const valid = new Set(definitions.map((entry) => entry.id));
       cell.segments = cell.segments.filter(
         (segment) => !('entryId' in segment) || valid.has(segment.entryId),
       );
@@ -93,36 +87,6 @@ export function reconcileGlobalStore(
   return result;
 }
 
-/** Old releases could drop the source date when a language was first created.
- * Attribute a repair to the entry owning that exact stamp so its readers can approve it.
- */
-function missingSourceDates(published: GlobalStore, saved: GlobalStore) {
-  const repairs: { id: string; hash: number; lang: (typeof languages)[number]; date: string }[] =
-    [];
-  for (const aggregate of published.aggregates) {
-    const hash = aggregate.document.hash;
-    const next = saved.aggregates.find(({ document }) => document.hash === hash);
-    for (const lang of languages) {
-      const previous = aggregate.languages[lang]?.metadata;
-      const metadata = next?.languages[lang]?.metadata;
-      if (!previous || previous.sourceUpdatedAt || !metadata?.sourceUpdatedAt) continue;
-      const { sourceUpdatedAt, ...stamp } = metadata;
-      if (stableStringify(previous) !== stableStringify(stamp)) continue;
-      const owner = saved.entries.find((entry) => {
-        const definition = entry.definitions[lang];
-        return (
-          !entry.tombstone &&
-          entry.kind === globalAggregateKind(hash) &&
-          definition !== undefined &&
-          stableStringify(definitionMetadata(definition)) === stableStringify(metadata)
-        );
-      });
-      if (owner) repairs.push({ id: owner.id, hash, lang, date: sourceUpdatedAt });
-    }
-  }
-  return repairs;
-}
-
 /** A release starts with last-published records, never with the saved aggregate. */
 export function composeGlobalRelease(
   published: GlobalStore,
@@ -139,24 +103,17 @@ export function composeGlobalRelease(
   const entries = published.entries.map((entry) => replacements.get(entry.id) ?? entry);
   for (const entry of replacements.values())
     if (!entries.some((old) => old.id === entry.id)) entries.push(entry);
-  const repairs = missingSourceDates(published, saved).filter(({ id }) => replacements.has(id));
-  const layout = repairs.length ? structuredClone(published.aggregates) : published.aggregates;
-  for (const { hash, lang, date } of repairs)
-    layout.find(({ document }) => document.hash === hash)!.languages[
-      lang
-    ]!.metadata.sourceUpdatedAt = date;
-  return reconcileGlobalStore(layout, entries, published);
+  return reconcileGlobalStore(published.aggregates, entries);
 }
 
 export function changedGlobalIds(published: GlobalStore, saved: GlobalStore): string[] {
   const next = new Map(saved.entries.map((entry) => [entry.id, entry]));
   for (const entry of published.entries)
     if (!next.has(entry.id)) throw new Error('Missing global tombstone');
-  const repairs = new Set(missingSourceDates(published, saved).map(({ id }) => id));
   return saved.entries
     .filter((entry) => {
       const previous = published.entries.find((old) => old.id === entry.id);
-      return repairs.has(entry.id) || stableStringify(previous ?? null) !== stableStringify(entry);
+      return stableStringify(previous ?? null) !== stableStringify(entry);
     })
     .map((entry) => entry.id);
 }

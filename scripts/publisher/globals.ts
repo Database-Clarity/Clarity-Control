@@ -44,6 +44,7 @@ import {
 import {
   exportWithInactiveMoves,
   hasUnpublishedInactiveMove,
+  inactivePublishableHash,
   isMovedInactive,
   selectedInactiveMoves,
 } from '../../packages/core/src/inactiveMoves.js';
@@ -291,12 +292,7 @@ export class GlobalsPublisher {
           throw new Error('Global identity mismatch');
         return entry;
       });
-    const published = this.read(tree, globalsReleasePaths.published(this.options.liveBranch));
-    return reconcileGlobalStore(
-      layout.aggregates,
-      entries,
-      published === undefined ? undefined : globalPublishedSchema.parse(published).store,
-    );
+    return reconcileGlobalStore(layout.aggregates, entries, { preserveNewLanguageSourceStamp: true });
   }
   documents(tree: Tree, prefix: string): Record<string, Tooltip> {
     return Object.fromEntries(
@@ -407,6 +403,75 @@ export class GlobalsPublisher {
       types,
     );
     return { snapshot, perks };
+  }
+  private async checkSavedLayout(
+    tree: Tree,
+    revision: string,
+    captured: ReturnType<GlobalsPublisher['capture']>,
+    selected: number[],
+    beforeDocuments: Tooltip[],
+    afterDocuments: Tooltip[],
+  ) {
+    const { aliases } = captured.authored;
+    const moves = this.publisher.movesAt(tree);
+    for (const hash of selected) {
+      const requested = tooltipSchema.parse(this.read(tree, `tooltips/${hash}.json`));
+      const projected = afterDocuments.find((document) => document.hash === hash)!;
+      if (
+        (await inactivePublishableHash(requested, aliases, moves)) !==
+        (await inactivePublishableHash(projected, aliases, moves))
+      )
+        throw new GlobalReleaseRejected(
+          `Tooltip ${hash} would publish a different revision than requested. Review the changes again.`,
+        );
+    }
+    if (stableStringify(beforeDocuments) === stableStringify(afterDocuments)) return;
+    if ('error' in this.publisher.checkAndExport(tree, afterDocuments, aliases))
+      throw new GlobalReleaseRejected('The saved global layout cannot be exported');
+    const before = this.publicationSnapshot(tree, revision, captured, beforeDocuments);
+    const after = this.publicationSnapshot(tree, revision, captured, afterDocuments);
+    const comparison = calculateGlobalImpact(
+      before.snapshot,
+      after.snapshot,
+      [
+        {
+          // Title preparation covers every consumer in the existing resolver.
+          kind: 'titles',
+          beforeName: 'Release',
+          cause: { globalId: 'g_release000', beforeRevision: null, afterRevision: 'layout' },
+        },
+      ],
+      this.options.liveBranch,
+    );
+    if (
+      !comparison.complete ||
+      comparison.rows.some((row) => stableStringify(row.before) !== stableStringify(row.after))
+    )
+      throw new GlobalReleaseRejected(
+        'The saved global layout changes or cannot prove consumer output',
+      );
+
+    // Layout-only changes also have to preserve the actual legacy secondary input.
+    const baseline = projectGlobals(captured.published);
+    const perks = { ...before.perks };
+    for (const hash of selected) {
+      const previous = before.snapshot.tooltips[hash];
+      if (
+        captured.livePerks[hash] &&
+        stableStringify(previous) !== stableStringify(after.snapshot.tooltips[hash]) &&
+        stableStringify(previous) === stableStringify(baseline[hash])
+      )
+        perks[hash] = captured.livePerks[hash];
+    }
+    if (
+      legacyPresets.some(
+        (preset) =>
+          !Buffer.from(buildLegacy({ perks } as LegacyInput, preset)).equals(
+            buildLegacy({ perks: after.perks } as LegacyInput, preset),
+          ),
+      )
+    )
+      throw new GlobalReleaseRejected('The saved global layout changes legacy consumer output');
   }
   capture(tree: Tree, revision: string, liveCommit: string, roots: Tooltip[] = []) {
     const published = globalPublishedSchema.parse(
@@ -605,7 +670,8 @@ export class GlobalsPublisher {
     const moves = this.publisher.movesAt(tree);
     const activeSelection = selected.filter((hash) => !isMovedInactive(hash, moves));
     const aggregateHashes = captured.saved.aggregates.map(({ document }) => document.hash);
-    const aggregate = activeSelection.some((hash) => aggregateHashes.includes(hash));
+    const selectedAggregates = activeSelection.filter((hash) => aggregateHashes.includes(hash));
+    const aggregate = selectedAggregates.length > 0;
     const selectedEntries = new Set(
       captured.saved.entries
         .filter((entry) => activeSelection.includes(globalAggregateHash(entry.kind)))
@@ -649,23 +715,9 @@ export class GlobalsPublisher {
       )
     )
       throw new GlobalReleaseRejected('Sync pending: global dependency review required');
-    const partialAggregates =
-      aggregate && ready.length !== relevant.length
-        ? activeSelection.filter((hash) => aggregateHashes.includes(hash))
-        : [];
     const ids = ready.flatMap((component) => component.ids);
-    const entryRelease = composeGlobalRelease(captured.published, captured.saved, ids);
-    const layout = entryRelease.aggregates.map((previous) =>
-      !partialAggregates.length && activeSelection.includes(previous.document.hash)
-        ? (captured.saved.aggregates.find(
-            ({ document }) => document.hash === previous.document.hash,
-          ) ?? previous)
-        : previous,
-    );
-    const store =
-      stableStringify(layout) === stableStringify(entryRelease.aggregates)
-        ? entryRelease
-        : reconcileGlobalStore(layout, entryRelease.entries);
+    let store = composeGlobalRelease(captured.published, captured.saved, ids);
+    let entryOnlyAggregates = ready.length !== relevant.length ? selectedAggregates : [];
     const hashes = [
       ...new Set([...selected, ...ready.flatMap((component) => component.hashes)]),
     ].sort((a, b) => a - b);
@@ -690,7 +742,7 @@ export class GlobalsPublisher {
     const globals = projectGlobals(store);
     if (batch) for (const hash of aggregateHashes) if (!hashes.includes(hash)) hashes.push(hash);
     hashes.sort((a, b) => a - b);
-    const documents = hashes.map((hash) => {
+    let documents = hashes.map((hash) => {
       if (aggregateHashes.includes(hash) && !globals[hash])
         throw new Error(`Missing published layout for aggregate ${hash}`);
       const document =
@@ -703,62 +755,42 @@ export class GlobalsPublisher {
       if (!document) throw new Error('Deleted release dependency');
       return document;
     });
-    if (store !== entryRelease) {
-      const previous = projectGlobals(entryRelease);
-      if (stableStringify(previous) !== stableStringify(globals)) {
-        // Entry approvals cover the entry-only candidate. The selected layout
-        // may accompany it only if it preserves the resolver result.
+    if (aggregate && !entryOnlyAggregates.length) {
+      // Entry approvals cover the v2 composition. Use the saved layout only
+      // if it matches the request and preserves that composition's output.
+      try {
         if (sync.status !== 'current')
           throw new GlobalReleaseRejected('Sync pending: global dependency review required');
-        const before = this.publicationSnapshot(
+        const exact = {
+          ...store,
+          aggregates: store.aggregates.map((layout) =>
+            selectedAggregates.includes(layout.document.hash)
+              ? captured.saved.aggregates.find(
+                  ({ document }) => document.hash === layout.document.hash,
+                )!
+              : layout,
+          ),
+        };
+        const projected = projectGlobals(exact);
+        const exactDocuments = documents.map((document) => projected[document.hash] ?? document);
+        await this.checkSavedLayout(
           tree,
           revision,
           captured,
-          documents.map((document) => previous[document.hash] ?? document),
+          selectedAggregates,
+          documents,
+          exactDocuments,
         );
-        const after = this.publicationSnapshot(tree, revision, captured, documents);
-        const comparison = calculateGlobalImpact(
-          before.snapshot,
-          after.snapshot,
-          [
-            {
-              // Title preparation covers every consumer in the existing resolver.
-              kind: 'titles',
-              beforeName: 'Release',
-              cause: { globalId: 'g_release000', beforeRevision: null, afterRevision: 'layout' },
-            },
-          ],
-          this.options.liveBranch,
-        );
-        if (
-          !comparison.complete ||
-          comparison.rows.some((row) => stableStringify(row.before) !== stableStringify(row.after))
-        )
-          throw new GlobalReleaseRejected(
-            'The saved global layout changes or cannot prove consumer output',
-          );
-
-        // Compare a layout-only library against its actual LIVE input,
-        // including the historical secondary text the converter can read.
-        const baseline = projectGlobals(captured.published);
-        const perks = { ...before.perks };
-        for (const hash of activeSelection)
-          if (
-            captured.livePerks[hash] &&
-            previous[hash] &&
-            stableStringify(previous[hash]) !== stableStringify(globals[hash]) &&
-            stableStringify(previous[hash]) === stableStringify(baseline[hash])
-          )
-            perks[hash] = captured.livePerks[hash];
-        if (
-          legacyPresets.some(
-            (preset) =>
-              !Buffer.from(buildLegacy({ perks } as LegacyInput, preset)).equals(
-                buildLegacy({ perks: after.perks } as LegacyInput, preset),
-              ),
-          )
-        )
-          throw new GlobalReleaseRejected('The saved global layout changes legacy consumer output');
+        store = exact;
+        documents = exactDocuments;
+      } catch (error) {
+        if (!ids.length)
+          throw error instanceof GlobalReleaseRejected
+            ? error
+            : new GlobalReleaseRejected(
+                'The saved global layout changes or cannot prove consumer output',
+              );
+        entryOnlyAggregates = selectedAggregates;
       }
     }
     const published = globalPublishedSchema.parse({
@@ -889,7 +921,7 @@ export class GlobalsPublisher {
       published,
       ...(batch ? { batchSource: batch.source } : {}),
     };
-    return { documents, receipt, partialAggregates };
+    return { documents, receipt, entryOnlyAggregates };
   }
   async validate(
     receipt: GlobalReleaseReceipt | undefined,
@@ -1196,7 +1228,9 @@ export class GlobalsPublisher {
         for (const cell of Object.values(document.text))
           cell.text = rewriteGlobalReferences(cell.text, entry.kind, entry.name, intent.name).text;
       }
-      const after = reconcileGlobalStore(before.aggregates, all);
+      const after = reconcileGlobalStore(before.aggregates, all, {
+        preserveNewLanguageSourceStamp: true,
+      });
       assertGlobalTransition(before, after, documents);
       for (const candidate of after.entries)
         this.write(

@@ -338,7 +338,19 @@ async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
       lang,
       body,
     });
-  return { load, edit, post };
+  const acknowledge = async (row: ReturnType<typeof rowSchema.parse>, id: string) => {
+    const response = await post(`/${id}/acknowledge`, {
+      operation: 'acknowledge',
+      id,
+      consumerId: row.id,
+      contentDigest: row.review.contentDigest,
+      dependencyDigest: row.review.dependencyDigest,
+      impactDigest: row.impactDigest,
+      decision: 'no-text-change',
+    });
+    expect(response.status, await response.text()).toBe(200);
+  };
+  return { load, edit, post, acknowledge };
 }
 
 describe('dependency-safe global release', () => {
@@ -563,7 +575,7 @@ describe('dependency-safe global release', () => {
     });
   });
   it.each([false, true])(
-    'publishes a reviewed translation fallback (repairing an old marker=%s)',
+    'keeps a twice-saved translation releasable with v2 composition (already live=%s)',
     async (historical) => {
       const f = await fixture();
       const published = structuredClone(f.published);
@@ -606,7 +618,7 @@ describe('dependency-safe global release', () => {
         await f.globals.drain();
       }
       if (historical) {
-        // Emulate a pre-fix entry-only release where the German projection
+        // Emulate a v2 entry-only release where the German projection
         // was published without the definition's source date.
         const store = f.globals.store(f.current());
         delete store.aggregates.find(({ document }) => document.hash === 2)!.languages.de!.metadata
@@ -633,42 +645,31 @@ describe('dependency-safe global release', () => {
           'live/tooltips/2.json': previous,
         });
         await f.globals.drain();
-        await expect(
-          f.globals.release(f.current(), f.git.head(D)!, [2], f.git.head(L)!),
-        ).rejects.toThrow('review required');
       }
       const reviews = Object.keys(f.current())
         .filter((path) => path.startsWith('globals/reviews/'))
         .map((path) => rowSchema.parse(f.read(path)))
         .filter((row) => row.review.causes.some((cause) => cause.globalId === beta.id));
-      expect(reviews.some((row) => row.review.consumer.lang === 'de')).toBe(true);
-      for (const row of reviews) {
-        const response = await globalsHandler(
-          new Request(`https://api.invalid/globals/${beta.id}/acknowledge`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              expectedHead: f.git.head(D),
-              mutation: {
-                operation: 'acknowledge',
-                id: beta.id,
-                consumerId: row.id,
-                contentDigest: row.review.contentDigest,
-                dependencyDigest: row.review.dependencyDigest,
-                impactDigest: row.impactDigest,
-                decision: 'no-text-change',
-              },
-            }),
-          }),
-          port.load,
-        );
-        expect(response.status, await response.text()).toBe(200);
-      }
+      expect(reviews.some((row) => row.review.consumer.lang === 'de')).toBe(!historical);
+      for (const row of reviews) await port.acknowledge(row, beta.id);
       await f.globals.drain();
       await f.request([2]);
+      const liveHead = f.git.head(L);
       await f.pub.operation(A);
-      expect(f.read(paths(A).log).result.status).toBe('done');
-      expect(f.read('live/tooltips/2.json')).toEqual(f.read('tooltips/2.json'));
+      if (historical) {
+        expect(f.read(paths(A).log).result).toMatchObject({
+          status: 'rejected',
+          error: expect.stringContaining('saved global layout changes'),
+        });
+        expect(f.git.head(L)).toBe(liveHead);
+      } else {
+        expect(f.read(paths(A).log).result.status).toBe('done');
+        expect(f.read('live/tooltips/2.json').text.de).toMatchObject({ text: '\nvar Beta = 81' });
+        expect(f.read('live/tooltips/2.json').text.de.sourceUpdatedAt).toBeUndefined();
+        expect(f.read('live/pushed.json')[2]).not.toBe(
+          await inactivePublishableHash(f.read('tooltips/2.json'), {}),
+        );
+      }
     },
   );
   it('rejects layout-only publication that would overwrite meaningful legacy secondary output', async () => {
@@ -822,28 +823,29 @@ describe('dependency-safe global release', () => {
     };
     withdrawn.definitions.de = { ...temporary };
     withdrawn.definitions.fr = { ...temporary };
-    const staged = reconcileGlobalStore(published.aggregates, entries, published);
+    const staged = reconcileGlobalStore(published.aggregates, entries);
     for (const lang of ['de', 'fr'] as const)
       expect(usesEnglishFallback(projectGlobals(staged)[hash], lang)).toBe(true);
     delete withdrawn.definitions.de;
     delete withdrawn.definitions.fr;
-    const saved = reconcileGlobalStore(staged.aggregates, entries, published);
-    verify(saved, translations);
+    const saved = reconcileGlobalStore(staged.aggregates, entries);
+    verify(saved, ['es', 'it']);
     verify(composeGlobalRelease(published, saved, [ids.withdrawn]), translations);
 
     withdrawn.definitions.de = { ...temporary, revision: 'readded', sourceUpdatedAt: englishDate };
-    const readded = reconcileGlobalStore(saved.aggregates, entries, published);
-    expect(projectGlobals(readded)[hash].text.de!.updatedAt).toBe(newDate);
+    withdrawn.definitions.de.updatedAt = '2026-10-02T00:00:00Z';
+    const readded = reconcileGlobalStore(saved.aggregates, entries);
+    expect(projectGlobals(readded)[hash].text.de!.updatedAt).toBe(withdrawn.definitions.de.updatedAt);
     expect(usesEnglishFallback(projectGlobals(readded)[hash], 'de')).toBe(false);
-    verify(readded, ['fr', 'es', 'it']);
+    verify(readded, ['es', 'it']);
     verify(composeGlobalRelease(published, readded, [ids.withdrawn]), ['fr', 'es', 'it']);
 
     kept.definitions.de = { ...temporary, body: '30' };
     delete withdrawn.definitions.de;
-    const owned = reconcileGlobalStore(staged.aggregates, entries, published);
+    const owned = reconcileGlobalStore(staged.aggregates, entries);
     expect(projectGlobals(owned)[hash].text.de!.updatedAt).toBe(newDate);
     expect(usesEnglishFallback(projectGlobals(owned)[hash], 'de')).toBe(true);
-    verify(owned, ['fr', 'es', 'it']);
+    verify(owned, ['es', 'it']);
 
     const held = structuredClone(saved);
     held.entries.find(({ id }) => id === ids.kept)!.definitions.en!.body = '999';
@@ -920,23 +922,25 @@ describe('dependency-safe global release', () => {
     expect(response.status, await response.text()).toBe(200);
     await f.globals.drain();
     const saved = f.read('tooltips/2.json');
-    expect(saved.text.en.updatedAt).toBe(before.text.en.updatedAt);
+    expect(saved.text.en.updatedAt).not.toBe(before.text.en.updatedAt);
     expect(saved.text.de).toEqual(before.text.de);
     expect(f.read('globals/proofs/publication/converter-v2-test/2-de.json').approved).toBe(true);
     await f.request([2]);
     await f.pub.operation(A);
     expect(f.read(paths(A).log).result.status).toBe('done');
-    expect(f.read('live/pushed.json')[2]).toBe(await inactivePublishableHash(saved, {}));
+    expect(f.read('live/tooltips/2.json')).toEqual(before);
+    expect(f.read('live/pushed.json')[2]).not.toBe(await inactivePublishableHash(saved, {}));
   });
-  it.each([false, true])(
-    'can publish after withdrawing a German definition (previously live=%s)',
-    async (previouslyLive) => {
-      const f = await fixture('', false, true);
+  it.each(['empty', 'surviving', 'live', 'live-with-alpha'] as const)(
+    'releases cleared entries after a German withdrawal (%s)',
+    async (scenario) => {
+      const translated = scenario.startsWith('live');
+      const f = await fixture('', false, translated);
       const published = structuredClone(f.published);
       const alpha = published.entries.find(({ name }) => name === 'Alpha')!;
       const beta = published.entries.find(({ name }) => name === 'Beta')!;
       const variables = published.aggregates.find(({ document }) => document.hash === 2)!;
-      if (!previouslyLive) {
+      if (scenario === 'live') {
         delete alpha.definitions.de;
         variables.languages.de!.segments = variables.languages.de!.segments.filter(
           (segment) => !('entryId' in segment) || segment.entryId !== alpha.id,
@@ -944,13 +948,19 @@ describe('dependency-safe global release', () => {
       }
       const september = '2026-09-01T00:00:00Z';
       beta.definitions.en!.updatedAt = september;
-      beta.definitions.de!.sourceUpdatedAt = september;
       variables.languages.en!.metadata.updatedAt = september;
-      variables.languages.de!.metadata.sourceUpdatedAt = september;
+      if (translated) {
+        beta.definitions.de!.sourceUpdatedAt = september;
+        variables.languages.de!.metadata.sourceUpdatedAt = september;
+      }
       const liveVariables = projectGlobals(published)[2];
-      const reader = tooltip(40, 'unrelated');
+      const reader = tooltip(41, '#Beta');
+      reader.text.de = cell('#Beta');
       const live = JSON.parse(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']));
-      Object.assign(live.perks, exportLegacy([liveVariables, reader], 0, f.options.facts));
+      Object.assign(
+        live.perks,
+        exportLegacy([liveVariables, reader, tooltip(40, 'unrelated')], 0, f.options.facts),
+      );
       f.git.refs.set(
         L,
         f.git.commit(f.git.head(L), { 'liveDescriptions.json': f.git.writeBlob(encode(live)) }),
@@ -967,15 +977,34 @@ describe('dependency-safe global release', () => {
         },
         'live/tooltips/2.json': liveVariables,
         'live/pushed.json': { 2: await inactivePublishableHash(liveVariables, {}) },
-        'live/tooltips/40.json': reader,
-        'tooltips/40.json': reader,
+        'live/tooltips/40.json': tooltip(40, 'unrelated'),
+        'tooltips/40.json': tooltip(40, 'unrelated'),
+        'live/tooltips/41.json': reader,
+        'tooltips/41.json': reader,
       });
       const port = await mutationPort(f);
+      const acknowledgeBeta = async () => {
+        for (const path of Object.keys(f.current()).filter((path) =>
+          path.startsWith('globals/reviews/'),
+        )) {
+          const row = rowSchema.parse(f.read(path));
+          if (row.review.acknowledgement) continue;
+          const id =
+            row.review.causes.find((cause) => cause.globalId === beta.id)?.globalId ??
+            row.review.causes[0].globalId;
+          await port.acknowledge(row, id);
+        }
+        await f.globals.drain();
+      };
       await f.globals.drain();
+      if (scenario === 'surviving') {
+        const kept = await port.edit(beta.id, '211', 'de');
+        expect(kept.status, await kept.text()).toBe(200);
+        await f.globals.drain();
+      }
       const edit = await port.edit(alpha.id, '112', 'de');
       expect(edit.status, await edit.text()).toBe(200);
       await f.globals.drain();
-      expect(f.read('tooltips/2.json').text.de.sourceUpdatedAt).toBe('2026-01-01T00:00:00Z');
       const removed = await port.post(`/${alpha.id}/remove`, {
         operation: 'remove',
         id: alpha.id,
@@ -985,13 +1014,46 @@ describe('dependency-safe global release', () => {
       expect(removed.status, await removed.text()).toBe(200);
       await f.globals.drain();
       const saved = f.read('tooltips/2.json');
-      expect(saved.text.de.sourceUpdatedAt).toBe(september);
+      expect(saved.text.de.text).not.toContain('Alpha');
+      expect(usesEnglishFallback(saved, 'de')).toBe(true);
+      await f.globals.drain();
+      await acknowledgeBeta();
       expect(f.read('globals/proofs/publication/converter-v2-test/2-de.json').approved).toBe(true);
+      const released = composeGlobalRelease(
+        published,
+        f.globals.store(f.current()),
+        scenario === 'surviving' ? [alpha.id, beta.id] : [alpha.id],
+      );
+      const releasedTooltip = projectGlobals(released)[2];
       await f.request([2]);
       await f.pub.operation(A);
-      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
-      expect(f.read('live/tooltips/2.json')).toEqual(saved);
-      expect(f.read('live/pushed.json')[2]).toBe(await inactivePublishableHash(saved, {}));
+      expect(f.read(paths(A).log).result.status).toBe('done');
+      expect(f.read('live/tooltips/2.json')).toEqual(releasedTooltip);
+      expect(f.read('live/pushed.json')[2]).toBe(await inactivePublishableHash(releasedTooltip, {}));
+      expect(f.read('live/pushed.json')[2]).not.toBe(await inactivePublishableHash(saved, {}));
+      expect(f.read('globals/live/converter-v2-test.json').store).toEqual(released);
+
+      const B = '01K95H00000000000000000002';
+      await f.globals.drain();
+      const liveHead = f.git.head(L);
+      await f.request([2], B);
+      await f.pub.operation(B);
+      expect(f.read(paths(B).log).result).toMatchObject({
+        status: 'rejected',
+        error: expect.stringContaining('saved global layout changes'),
+      });
+      expect(f.git.head(L)).toBe(liveHead);
+
+      // A new reviewed edit can still publish, with its exact saved stamp and layout.
+      const later = await port.edit(beta.id, '212', 'de');
+      expect(later.status, await later.text()).toBe(200);
+      await f.globals.drain();
+      await acknowledgeBeta();
+      const C = '01K95H00000000000000000003';
+      await f.request([2], C);
+      await f.pub.operation(C);
+      expect(f.read(paths(C).log).result.status).toBe('done');
+      expect(f.read('live/tooltips/2.json')).toEqual(f.read('tooltips/2.json'));
     },
   );
   it('drains once, preserves audits on metadata-only retries, and produces bounded name/publication proofs', async () => {
