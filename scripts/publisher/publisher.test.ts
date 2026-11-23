@@ -357,7 +357,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     const fingerprint = f.options.keyFingerprint,
       data = f.git.head(D);
     f.options.keyFingerprint = 'unverified';
-    await expect(f.pub.operation(A)).rejects.toThrow('Invalid credit envelope');
+    await expect(f.pub.operation(A)).rejects.toThrow('Invalid signature or key pin');
     expect(f.git.head(D)).toBe(data);
     f.options.keyFingerprint = fingerprint;
     await f.pub.operation(A);

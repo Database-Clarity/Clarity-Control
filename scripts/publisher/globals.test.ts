@@ -1032,7 +1032,6 @@ describe('dependency-safe global release', () => {
       expect(f.read('live/pushed.json')[2]).toBe(await inactivePublishableHash(releasedTooltip, {}));
       expect(f.read('live/pushed.json')[2]).not.toBe(await inactivePublishableHash(saved, {}));
       expect(f.read('globals/live/converter-v2-test.json').store).toEqual(released);
-
       const B = '01K95H00000000000000000002';
       await f.globals.drain();
       const liveHead = f.git.head(L);
@@ -1043,7 +1042,6 @@ describe('dependency-safe global release', () => {
         error: expect.stringContaining('saved global layout changes'),
       });
       expect(f.git.head(L)).toBe(liveHead);
-
       // A new reviewed edit can still publish, with its exact saved stamp and layout.
       const later = await port.edit(beta.id, '212', 'de');
       expect(later.status, await later.text()).toBe(200);
