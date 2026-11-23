@@ -352,6 +352,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   const roots: string[] = [];
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
   });

@@ -34512,7 +34512,21 @@ var Publisher = class _Publisher {
     return { landedAt, landedAtSource: land.source, recordedAt };
   }
   bundle() {
-    const h = this.head(this.options.dataBranch), t = this.git.tree(h), ref = dataRef("editor-data-bundle"), old = this.git.head(ref), oldTree = old ? this.git.tree(old) : {};
+    const ref = dataRef("editor-data-bundle");
+    let old = this.git.head(ref);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return this.bundleAt(ref, old);
+      } catch (error62) {
+        if (!(error62 instanceof RefRace) || attempt === 2) throw error62;
+        const current = this.git.head(ref);
+        if (!current || current === old || old && !this.git.ancestor(old, current)) throw error62;
+        old = current;
+      }
+    }
+  }
+  bundleAt(ref, old) {
+    const h = this.head(this.options.dataBranch), t = this.git.tree(h), oldTree = old ? this.git.tree(old) : {};
     const prior = old ? this.read(oldTree, "bundle.json") : void 0;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
@@ -34679,6 +34693,10 @@ var RemoteRepository = class extends LocalRepository {
       this.git(["update-ref", "-d", ref]);
       return void 0;
     }
+    const [advertisedOid] = advertised.split("	");
+    if (!/^[0-9a-f]{40}$/.test(advertisedOid) || advertised !== `${advertisedOid}	${ref}`)
+      throw new TransportUnresolved("Invalid remote ref advertisement");
+    if (super.head(ref) === advertisedOid) return advertisedOid;
     this.remoteGit(["fetch", "--no-tags", this.remote, ref]);
     const oid4 = this.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
     this.git(["update-ref", ref, oid4]);
@@ -34829,7 +34847,17 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
   const publications = [];
   let handoff2;
   function snapshot(label) {
-    gitAt(cwd, ["fetch", "--prune", "--no-tags", "origin", "+refs/heads/*:refs/remotes/origin/*"]);
+    const shallow = gitAt(cwd, ["rev-parse", "--is-shallow-repository"]).trim() === "true";
+    gitAt(cwd, [
+      "fetch",
+      "--prune",
+      "--no-tags",
+      ...shallow ? ["--unshallow"] : [],
+      "origin",
+      "+refs/heads/*:refs/remotes/origin/*"
+    ]);
+    if (shallow && gitAt(cwd, ["rev-parse", "--is-shallow-repository"]).trim() !== "false")
+      throw new Error("Publisher snapshot requires complete Git history");
     const repo = join3(temp, label + ".git");
     gitAt(cwd, ["clone", "--bare", "--no-hardlinks", "--", cwd, repo]);
     const command = (args) => gitAt(repo, args);
@@ -34857,17 +34885,30 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
     }) : new LocalRepository(repo);
   }
   function publishBundle(repo, options2) {
-    const pub = new Publisher(repo, options2), old = repo.head(bundleRef);
-    pub.bundle();
-    const next = repo.head(bundleRef);
-    if (next !== old && !(repo instanceof RemoteRepository)) {
+    const pub = new Publisher(repo, options2);
+    let next;
+    for (let attempt = 0; ; attempt++) {
+      const old = repo.head(bundleRef);
+      pub.bundle();
+      next = repo.head(bundleRef);
+      if (next === old || repo instanceof RemoteRepository) break;
       gitAt(cwd, ["fetch", "--no-tags", repo.path, `+${bundleRef}:refs/publisher/bundle`]);
-      gitAt(cwd, [
-        "push",
-        `--force-with-lease=${bundleRef}:${old ?? ""}`,
-        "origin",
-        `${next}:${bundleRef}`
-      ]);
+      try {
+        gitAt(cwd, [
+          "push",
+          `--force-with-lease=${bundleRef}:${old ?? ""}`,
+          "origin",
+          `${next}:${bundleRef}`
+        ]);
+        break;
+      } catch (error62) {
+        if (attempt === 2) throw error62;
+        gitAt(cwd, ["fetch", "--no-tags", "origin", `+${bundleRef}:refs/publisher/bundle-base`]);
+        gitAt(repo.path, ["fetch", "--no-tags", cwd, "refs/publisher/bundle-base"]);
+        const current = repo.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
+        if (current === old || old && !repo.ancestor(old, current)) throw error62;
+        repo.cas(bundleRef, next, current);
+      }
     }
     const queue = pub.queue(pub.head(options2.dataBranch));
     reports.push({
