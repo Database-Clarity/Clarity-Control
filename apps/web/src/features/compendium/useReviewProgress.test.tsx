@@ -232,4 +232,15 @@ it('keeps another tab’s decisions when it records or undoes its own, and makes
   otherTab(7);
   decide(8);
   expect(read()).toEqual(['1', '2', '5', '6', '7', '8']);
+  // What another tab added before the failure and removed after it stays removed.
+  otherTab(9);
+  write.mockImplementationOnce(() => {
+    throw new Error('full');
+  });
+  decide(10);
+  const stored = JSON.parse(values.get('two-tabs')!);
+  delete stored.decisions[9];
+  values.set('two-tabs', JSON.stringify(stored));
+  decide(11);
+  expect(read()).toEqual(['1', '2', '5', '6', '7', '8', '10', '11']);
 });

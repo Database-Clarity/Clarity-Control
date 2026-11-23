@@ -139,14 +139,15 @@ export function useReviewProgress(storageKey: string) {
         if (next.decisions[hash]) merged.decisions[hash] = next.decisions[hash];
         else delete merged.decisions[hash];
       }
-      current.current = merged;
-      setProgress(merged);
       const serialized = JSON.stringify(merged);
       if (localStorage.getItem(storageKey) !== serialized) {
         localStorage.setItem(storageKey, serialized);
         notifyCompendiumInputs(storageKey);
       }
+      // Only once stored: until then, memory holds this tab's own changes and nothing else new.
       saved.current = merged.decisions;
+      current.current = merged;
+      setProgress(merged);
       decisionWriteFailed.current = false;
       setError('');
     } catch (error) {
