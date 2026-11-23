@@ -20,6 +20,8 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 import { enhancedArrowMarkup, mergedVariable, type Lang, type MarkupGlobals } from '@clarity/core';
+import { globalAggregates, globalsEnabled } from '../../services/globalsFlag';
+import { useAuthStore } from '../../stores/auth';
 import { ReferencePopover } from './ReferencePopover';
 import { drawnSymbolAt, findSymbols } from './symbols';
 import {
@@ -98,7 +100,11 @@ export function canOpen(resolved: ResolvedReference, host: Pick<ReferenceHost, '
   return (
     resolved.status === 'found' &&
     target !== undefined &&
-    (target.type === 'local' || host.navigate() !== undefined)
+    (target.type === 'local' ||
+      (host.navigate() !== undefined &&
+        (!globalsEnabled ||
+          !globalAggregates.includes(target.hash) ||
+          !!useAuthStore.getState().user?.role)))
   );
 }
 

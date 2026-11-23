@@ -33,7 +33,8 @@ it('saves an ordered association-only draft through enrichers and the Worker, th
   store.getState().updateDraft(base, (next) => ({ ...next, associated: [30, 20] }));
   await store.getState().flush();
   const submitted = store.getState().drafts;
-  const changes = [{ hash: base.hash, ...submitted[base.hash] }];
+  const { base: draftBase, next } = submitted[base.hash];
+  const changes = [{ hash: base.hash, base: draftBase, next }];
   const prepared = await prepareChanges(changes, user, data);
   expect(prepared[0].next.text).toEqual(base.text);
   expect(prepared[0].next.associated).toEqual([30, 20]);

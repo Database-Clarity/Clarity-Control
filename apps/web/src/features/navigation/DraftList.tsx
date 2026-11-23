@@ -8,7 +8,8 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import type { Lang, Tooltip } from '@clarity/core';
+import type { Lang } from '@clarity/core';
+import type { Drafts } from '../../services/draftStorage';
 import { languageLabel } from '../../languageLabels';
 import { VirtualList } from '../../ui/VirtualList';
 import { phoneQuery, touchQuery, useMedia } from '../../ui/useMedia';
@@ -17,10 +18,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { When } from '../../ui/When';
 import styles from './DraftButton.module.scss';
 
-interface DraftPair {
-  base: Tooltip;
-  next: Tooltip;
-}
+type DraftPair = Drafts[string];
 
 /** What a draft changes, for grouping. A draft sits in the first kind it matches. */
 type DraftKind = 'compendium' | 'text' | 'translation' | 'other';
@@ -41,11 +39,18 @@ function changedLanguages(draft: DraftPair) {
   );
 }
 
+function timeOf(value?: string): number {
+  const time = value ? Date.parse(value) : NaN;
+  return Number.isNaN(time) ? -Infinity : time;
+}
+
 function latest(draft: DraftPair, languages: string[]) {
-  return languages
-    .map((language) => draft.next.text[language as Lang]?.updatedAt ?? '')
-    .sort()
-    .at(-1);
+  let latestTime: string | undefined;
+  for (const language of languages) {
+    const time = draft.next.text[language as Lang]?.updatedAt;
+    if (timeOf(time) > timeOf(latestTime)) latestTime = time;
+  }
+  return latestTime;
 }
 
 function draftKind(draft: DraftPair, languages: string[]): DraftKind {
@@ -65,7 +70,7 @@ export interface DraftRow {
 }
 
 /** One row per draft, newest first within its kind. */
-export function draftRows(drafts: Record<string, DraftPair>): DraftRow[] {
+export function draftRows(drafts: Drafts): DraftRow[] {
   return Object.entries(drafts)
     .map(([hash, draft]) => {
       const languages = changedLanguages(draft);
@@ -73,10 +78,10 @@ export function draftRows(drafts: Record<string, DraftPair>): DraftRow[] {
         hash: Number(hash),
         kind: draftKind(draft, languages),
         languages,
-        time: latest(draft, languages),
+        time: draft.changedAt ?? latest(draft, languages),
       };
     })
-    .sort((a, b) => (b.time ?? '').localeCompare(a.time ?? '') || a.hash - b.hash);
+    .sort((a, b) => timeOf(b.time) - timeOf(a.time) || a.hash - b.hash);
 }
 
 type Item =

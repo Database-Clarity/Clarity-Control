@@ -8,6 +8,7 @@ import {
 } from '../../stores/savedOverlay';
 import { acceptSaved, replaceDraft } from './drafts';
 import { editorData, english, tooltip } from './fixtures.testSupport';
+import { draftsSchema } from '../draftStorage';
 
 const initial = useDraftStore.getState();
 const retry = vi.fn();
@@ -46,6 +47,14 @@ describe('save draft reconciliation', () => {
     replaceDraft(tooltip, tooltip);
     expect(useDraftStore.getState().drafts).toEqual({});
   });
+  it('persists the time a revision was restored separately from its text timestamp', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-23T01:00:00Z'));
+    replaceDraft(tooltip, next);
+    const restored = draftsSchema.parse(useDraftStore.getState().drafts)[123];
+    expect(restored.changedAt).toBe('2026-11-23T01:00:00.000Z');
+    expect(restored.next.text.en?.updatedAt).toBe(english.updatedAt);
+  });
   it('clears only submitted unchanged drafts and updates the authoritative bundle immediately', () => {
     replaceDraft(tooltip, next);
     const submitted = useDraftStore.getState().drafts;
@@ -54,6 +63,16 @@ describe('save draft reconciliation', () => {
     expect(Object.keys(useDraftStore.getState().drafts)).toEqual(['124']);
     expect(useDataStore.getState().data?.bundle.sourceCommit).toBe('saved-commit');
     expect(useDataStore.getState().data?.bundle.tooltips[123]).toEqual(next);
+  });
+  it('clears a saved draft when only its local change time moved during the save', () => {
+    vi.useFakeTimers();
+    replaceDraft(tooltip, next);
+    const submitted = useDraftStore.getState().drafts;
+    vi.setSystemTime(Date.now() + 1000);
+    replaceDraft(tooltip, next);
+    expect(useDraftStore.getState().drafts[123].changedAt).not.toBe(submitted[123].changedAt);
+    acceptSaved(submitted, [next]);
+    expect(useDraftStore.getState().drafts).toEqual({});
   });
   it('does not clear preexisting local work during an isolated metadata-only save', () => {
     replaceDraft(tooltip, next);

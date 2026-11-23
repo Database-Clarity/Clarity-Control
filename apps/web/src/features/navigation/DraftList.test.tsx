@@ -67,6 +67,29 @@ const press = async (key: string) =>
   act(async () => void tree().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
 
 describe('drafts list', () => {
+  it('dates and sorts restored text by draft change time, with a fallback for older drafts', () => {
+    const changedAt = '2026-11-23T01:00:00.000Z';
+    expect(
+      draftRows({
+        1: { ...drafts[1], changedAt },
+        2: { base: tip(2, { en: 'a' }), next: tip(2, { en: 'b' }) },
+      }),
+    ).toMatchObject([
+      { hash: 1, time: changedAt },
+      { hash: 2, time: '2026-11-01T00:00:02Z' },
+    ]);
+  });
+  it('sorts mixed timestamp formats by instant and puts undated drafts last', () => {
+    const legacy = tip(2, { en: 'b' });
+    legacy.text.en!.updatedAt = '2026-11-23T02:00:00+01:00';
+    expect(
+      draftRows({
+        1: { ...drafts[1], changedAt: '2026-11-23T01:00:00.050Z' },
+        2: { base: tip(2, { en: 'a' }), next: legacy },
+        4: drafts[4],
+      }).map(({ hash }) => hash),
+    ).toEqual([1, 2, 4]);
+  });
   it('groups drafts by what they change, each draft once, with counts', async () => {
     await render(draftRows(drafts));
     expect(groups()).toEqual([
