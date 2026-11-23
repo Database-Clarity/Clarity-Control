@@ -213,7 +213,7 @@ it('recovers reviews from a newer Worker head without replacing the draft or rel
   expect(host.querySelector('textarea')!.value).toBe('KEPT DRAFT');
 });
 
-it('keeps a confirmed rename when its review page fails and a review retry fails again', async () => {
+it('keeps a confirmed rename through follow-up sync refresh and repeated review failures', async () => {
   const queued = structuredClone(globalFixtureSnapshot);
   const id = queued.entries[0].id;
   queued.renameIntents = {
@@ -224,10 +224,16 @@ it('keeps a confirmed rename when its review page fails and a review retry fails
   applied.head = fixtureHead(7);
   applied.renameIntents = {};
   applied.impacts = {};
-  const globals = service(queued);
+  const synced = structuredClone(applied);
+  synced.head = fixtureHead(8);
+  applied.sync[id] = { status: 'sync-pending', causeIds: ['other'] };
+  const globals = service(globalFixtureSnapshot);
+  globals.read.mockResolvedValueOnce({ kind: 'ok', value: queued });
   const readEntry = vi
     .fn<NonNullable<GlobalsService['readEntry']>>()
     .mockResolvedValueOnce({ kind: 'ok', value: applied })
+    .mockResolvedValueOnce({ kind: 'ok', value: { ...applied, impacts: { [id]: [] } } })
+    .mockResolvedValueOnce({ kind: 'ok', value: synced })
     .mockResolvedValue({ kind: 'retry', message: 'Invalid global review page' });
   await mount(`/globals/${id}`, { ...globals, readEntry });
   expect(host.textContent).toContain('Rename queued.');
@@ -235,9 +241,12 @@ it('keeps a confirmed rename when its review page fails and a review retry fails
   expect(readEntry.mock.calls).toEqual([[id, { reviews: false }], [id]]);
   expect(host.querySelector('h1')?.textContent).toBe('Harm');
   expect(host.textContent).not.toContain('Rename queued.');
+  await act(async () => button('Refresh').click());
+  expect(readEntry.mock.calls.slice(2)).toEqual([[id, { reviews: false }], [id]]);
+  expect(host.querySelector('h1')?.textContent).toBe('Harm');
   expect(host.textContent).toContain('Invalid global review page');
   await act(async () => button('Retry reviews').click());
-  expect(readEntry).toHaveBeenCalledTimes(3);
+  expect(readEntry).toHaveBeenCalledTimes(5);
   expect(globals.read).toHaveBeenCalledTimes(1);
   expect(host.querySelector('h1')?.textContent).toBe('Harm');
   expect(host.textContent).toContain('Invalid global review page');
