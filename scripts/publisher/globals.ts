@@ -291,9 +291,7 @@ export class GlobalsPublisher {
           throw new Error('Global identity mismatch');
         return entry;
       });
-    const published = entries.some((entry) => entry.tombstone)
-      ? this.read(tree, globalsReleasePaths.published(this.options.liveBranch))
-      : undefined;
+    const published = this.read(tree, globalsReleasePaths.published(this.options.liveBranch));
     return reconcileGlobalStore(
       layout.aggregates,
       entries,

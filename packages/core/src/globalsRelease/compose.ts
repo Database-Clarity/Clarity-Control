@@ -27,9 +27,6 @@ export function reconcileGlobalStore(
   published?: GlobalStore,
 ): GlobalStore {
   const aggregates = structuredClone(layout);
-  const liveEntries = new Set(
-    published?.entries.filter((entry) => !entry.tombstone).map(({ id }) => id),
-  );
   for (const aggregate of aggregates) {
     const kind = globalAggregateKind(aggregate.document.hash);
     const liveLayout = published?.aggregates.find(
@@ -45,22 +42,17 @@ export function reconcileGlobalStore(
         .at(-1);
       let cell = aggregate.languages[lang];
       const liveStamp = liveLayout?.languages[lang]?.metadata;
-      if (
-        cell &&
-        liveStamp &&
-        entries.some((entry) => {
-          const definition = entry.definitions[lang];
-          return (
-            entry.kind === kind &&
-            entry.tombstone &&
-            !liveEntries.has(entry.id) &&
-            definition &&
-            stableStringify(definitionMetadata(definition)) === stableStringify(cell!.metadata)
-          );
-        })
-      ) {
-        // Creating and removing an unpublished declaration must not age other translations.
-        cell.metadata = structuredClone(liveStamp);
+      const valid = new Set(definitions.map((entry) => entry.id));
+      if (cell && liveStamp) {
+        const stamp = stableStringify(cell.metadata);
+        const ownsStamp = (entry: GlobalRecord) =>
+          entry.definitions[lang] !== undefined &&
+          stableStringify(definitionMetadata(entry.definitions[lang])) === stamp;
+        const withdrew =
+          cell.segments.some((segment) => 'entryId' in segment && !valid.has(segment.entryId)) ||
+          entries.some((entry) => entry.kind === kind && entry.tombstone && ownsStamp(entry));
+        // A withdrawal cannot age the surviving translations through an abandoned stamp.
+        if (withdrew && !definitions.some(ownsStamp)) cell.metadata = structuredClone(liveStamp);
       }
       if (latest && !cell) {
         cell = aggregate.languages[lang] = {
@@ -75,7 +67,6 @@ export function reconcileGlobalStore(
         cell.metadata = definitionMetadata(latest);
       }
       if (!cell) continue;
-      const valid = new Set(definitions.map((entry) => entry.id));
       cell.segments = cell.segments.filter(
         (segment) => !('entryId' in segment) || valid.has(segment.entryId),
       );
@@ -154,7 +145,7 @@ export function composeGlobalRelease(
     layout.find(({ document }) => document.hash === hash)!.languages[
       lang
     ]!.metadata.sourceUpdatedAt = date;
-  return reconcileGlobalStore(layout, entries);
+  return reconcileGlobalStore(layout, entries, published);
 }
 
 export function changedGlobalIds(published: GlobalStore, saved: GlobalStore): string[] {
