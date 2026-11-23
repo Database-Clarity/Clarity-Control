@@ -1855,6 +1855,41 @@ describe('upcoming batches', () => {
     expect(() => f.globals.upcoming(f.current())).toThrow();
   });
 
+  it('proves mutually importing batch proposals together without releasing them from Current', async () => {
+    const f = await fixture('', true);
+    const one = tooltip(41, 'export First (\nFirst effect\n)\nimport Second from 42');
+    const two = tooltip(42, 'export Second (\nSecond effect\n)\nimport First from 41');
+    const layout = structuredClone(f.published.aggregates);
+    layout[0].languages.en!.segments[0] = { literal: '// reviewed exports layout\n' };
+    f.change({
+      ...Object.fromEntries(
+        f.published.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+      ),
+      'globals/layout.json': { version: 1, aggregates: layout },
+      [batchPath]: batch('draft'),
+      [memberPath(41)]: member(one, f.read('tooltips/41.json')),
+      [memberPath(42)]: member(two, f.read('tooltips/42.json')),
+    });
+    await f.globals.drain();
+    expect(f.read('globals/proofs/publication/converter-v2-test/1-en.json').approved).toBe(true);
+    const original = [41, 42].map((hash) => f.read(`live/tooltips/${hash}.json`));
+    await f.request([1]);
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    expect(f.pub.receipt(f.git.head(L)!, A)?.entries.map(({ hash }) => hash)).toEqual([1]);
+    expect([41, 42].map((hash) => f.read(`live/tooltips/${hash}.json`))).toEqual(original);
+
+    const source = f.git.head(D)!;
+    const release = await f.globals.release(f.current(), source, [41, 42], f.git.head(L)!, {
+      source,
+      documents: [one, two],
+    });
+    expect(release?.documents.filter(({ hash }) => hash > 3)).toEqual([one, two]);
+    await expect(
+      f.globals.release(f.current(), source, [41], f.git.head(L)!, { source, documents: [one] }),
+    ).rejects.toThrow('dependency closure is incomplete');
+  });
+
   it('keeps removal and name proofs away until a batch is final, and stales them if it changes', async () => {
     const f = await fixture();
     const plain = tooltip(41, 'unrelated'),
