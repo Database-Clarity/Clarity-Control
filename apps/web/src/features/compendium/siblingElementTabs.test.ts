@@ -97,6 +97,41 @@ it('withholds promotion for a manifest mismatch or a multipart description', () 
   expect(f.decide()?.confidence).toBe('medium');
 });
 
+it('requires the original manifest keyword rather than a fragment alias', () => {
+  const f = keywordFixture();
+  f.item.name = 'Thread of Amplified';
+  expect(f.decide()?.confidence).toBe('medium');
+});
+
+it('checks the element named in plain manifest text', () => {
+  const f = keywordFixture();
+  f.item.inGameDescription = 'Gain Solar energy for increasing movement speed.';
+  expect(f.decide()?.confidence).toBe('medium');
+  f.item.inGameDescription = 'Both Arc and Solar abilities can grant this effect.';
+  expect(f.decide()?.confidence).toBe('medium');
+});
+
+it('accepts an exact first-line identifier in a single Glossary cell', () => {
+  const f = keywordFixture();
+  f.row.name = 'Amplified\nArc Buff';
+  f.row.nameNorm = 'amplified arc buff';
+  expect(f.decide()).toMatchObject({
+    ruleId: 'sole-compendium-candidate',
+    link: { gid: f.arc.gid, rowKey: f.row.name },
+  });
+});
+
+it('ignores exact names in tabs that cannot hold the keyword', () => {
+  const f = keywordFixture();
+  f.solar.gid = '1662574278';
+  f.solar.name = 'Weapon Perks';
+  f.solar.rows.push({ ...f.row, section: 'Weapon Traits' });
+  expect(f.decide()).toMatchObject({
+    ruleId: 'sole-compendium-candidate',
+    link: { gid: f.arc.gid },
+  });
+});
+
 function siblingFixture(fragment = false) {
   const f = guidedFixture();
   const categoryId = fragment ? 'subclass-fragment' : 'subclass-aspect';
