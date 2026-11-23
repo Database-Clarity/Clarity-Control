@@ -639,8 +639,61 @@ describe('dependency-safe global release', () => {
       }
     },
   );
+  it.each(['enqueue', 'drain'] as const)(
+    'records a candidate while sibling requests arrive and a name proof is %s',
+    async (action) => {
+      const f = await fixture();
+      await f.globals.drain();
+      const proofId = '3283270b-d921-468b-8d09-6b4a90659d30';
+      const proofPath = `globals/retries/${proofId}.json`;
+      const proofRequest = {
+        version: 1,
+        type: 'name-proof',
+        id: proofId,
+        operation: 'create',
+        kind: 'variables',
+        name: 'NeverUsed',
+        globalId: null,
+        revision: null,
+        expectedHead: f.git.head(D),
+        sources: await f.globals.sources(f.current(), f.git.head(L)!),
+        by: 'alice',
+        at: new Date(now).toISOString(),
+      };
+      if (action === 'drain') f.change({ [proofPath]: proofRequest });
+      await f.request([42]);
+      const sibling = '01K95H00000000000000000002';
+      const completed = '01K95H00000000000000000003';
+      const kick = `publish/kicks/${sibling}-12345.json`;
+      const record = f.pub.record.bind(f.pub);
+      f.pub.record = async (...args) => {
+        if (args[0] === A && args[6]) {
+          await f.request([42], sibling);
+          f.change({
+            [kick]: { opId: sibling },
+            [`publish/kicks/batch-${sibling}-12345.json`]: {},
+            [`publish/kicks/current-save-${sibling}.json`]: {},
+            'publish/kicks/due-202611231625-12345.json': {},
+            [paths(completed).log]: { result: {} },
+          });
+          if (action === 'drain') await f.globals.drain();
+          else f.change({ [proofPath]: proofRequest });
+        }
+        return record(...args);
+      };
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+      expect(f.current()[paths(sibling).request]).toBeDefined();
+      expect(f.current()[paths(completed).log]).toBeDefined();
+      expect(f.current()[proofPath]).toBeUndefined();
+      expect(f.read((await namePaths('variables', 'NeverUsed')).proof).name).toBe('NeverUsed');
+    },
+  );
   it.each([
     ['a tooltip edit', { 'tooltips/40.json': tooltip(40, '#Alpha raced') }],
+    ['a tooltip removal', { 'tooltips/40.json': undefined }],
+    ['a change to the upload markers', { 'live/pushed.json': { '40': 'tampered' } }],
+    ['a non-proof retry', { 'globals/retries/3283270b-d921-468b-8d09-6b4a90659d30.json': {} }],
     ['an unrelated addition', { toString: { other: true } }],
   ] as const)(
     'fails closed when a kick races with %s, with no partial live write',
@@ -666,7 +719,9 @@ describe('dependency-safe global release', () => {
       const git: Repository = f.git;
       const kick = `publish/kicks/${A}-12345.json`;
       git.treeModes = (head) => {
-        const modes = Object.fromEntries(Object.keys(git.tree(head)).map((path) => [path, '100644']));
+        const modes = Object.fromEntries(
+          Object.keys(git.tree(head)).map((path) => [path, '100644']),
+        );
         if (mode) modes[kick] = mode;
         else delete modes[kick];
         return modes;

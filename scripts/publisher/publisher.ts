@@ -62,6 +62,7 @@ import {
   type BatchPublishPayload,
 } from '@clarity/core/schedule';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
+import { nameProofRequestSchema } from '../../apps/worker/src/globals/model.js';
 import {
   appCredits,
   requesterCredits,
@@ -665,23 +666,55 @@ export class Publisher {
     };
     return this.git.commit(parent, tree, `Publish ${r.opId}`, this.credits(r.requestBlob, r.opId));
   }
-  private onlyAddedPublishKicks(source: string, head: string, tree: Tree, opId: string) {
+  private onlyPublishBookkeeping(source: string, head: string, tree: Tree, opId: string) {
     if (!this.git.ancestor(source, head)) return false;
     const reviewed = this.git.tree(source);
     const reviewedModes = this.git.treeModes?.(source);
     const currentModes = this.git.treeModes?.(head);
-    const kick = new RegExp(`^publish/kicks/${opId}-[0-9]+\\.json$`);
-    const added = Object.keys(tree).filter((path) => !Object.hasOwn(reviewed, path));
-    return (
-      added.length > 0 &&
-      added.every((path) => kick.test(path) && (!currentModes || currentModes[path] === '100644')) &&
-      Object.entries(reviewed).every(
-        ([path, oid]) =>
-          tree[path] === oid &&
-          (!currentModes ||
-            (Object.hasOwn(currentModes, path) && currentModes[path] === reviewedModes?.[path])),
-      )
-    );
+    const regular = (modes: Record<string, string> | undefined, path: string) =>
+      !modes || modes[path] === '100644';
+    const nameProofRequest = (snapshot: Tree, path: string) => {
+      const id = /^globals\/retries\/([0-9a-f-]{36})\.json$/.exec(path)?.[1];
+      if (!id) return false;
+      const request = nameProofRequestSchema.safeParse(this.read(snapshot, path));
+      return request.success && request.data.id === id;
+    };
+
+    let changed = false;
+    for (const [path, oid] of Object.entries(reviewed)) {
+      if (!Object.hasOwn(tree, path)) {
+        // A name-proof drain can consume its request while adding a clash proof.
+        if (!regular(reviewedModes, path) || !nameProofRequest(reviewed, path)) return false;
+        changed = true;
+      } else if (
+        tree[path] !== oid ||
+        (currentModes &&
+          (!Object.hasOwn(currentModes, path) || currentModes[path] !== reviewedModes?.[path]))
+      ) {
+        return false;
+      }
+    }
+    for (const path of Object.keys(tree)) {
+      if (Object.hasOwn(reviewed, path)) continue;
+      if (!regular(currentModes, path)) return false;
+      const request = /^publish\/requests\/([^/]+)\.json$/.exec(path)?.[1];
+      const kick = /^publish\/kicks\/(?:batch-)?([^/]+)-[0-9]+\.json$/.exec(path)?.[1];
+      const saveKick = /^publish\/kicks\/current-save-([^/]+)\.json$/.exec(path)?.[1];
+      const log = /^publish\/log\/([^/]+)\/([^/.]+)(?:\.dup-[0-9]+)?\.json$/.exec(path);
+      const queueAddition =
+        (request !== opId && publishOpIdSchema.safeParse(request).success) ||
+        publishOpIdSchema.safeParse(kick).success ||
+        publishOpIdSchema.safeParse(saveKick).success ||
+        /^publish\/kicks\/due-[0-9]{12}-[0-9]+\.json$/.test(path) ||
+        (log &&
+          log[2] !== opId &&
+          publishOpIdSchema.safeParse(log[2]).success &&
+          log[1] === publishMonth(log[2]));
+      const clashProof = /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
+      if (!queueAddition && !clashProof.test(path) && !nameProofRequest(tree, path)) return false;
+      changed = true;
+    }
+    return changed;
   }
   async record(
     opId: string,
@@ -714,11 +747,10 @@ export class Publisher {
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
         const signed = await this.verifyRequest(receipt.requestBlob, opId, tree);
         const source = receipt.sourceCommit;
-        // A manual retry kick only wakes the publisher. Keep validating the original
-        // head-bound release if those new files are the entire change to data.
+        // Queue bookkeeping leaves the original head-bound release inputs intact.
         if (
           source !== h &&
-          (signed.kind === 'batch' || !this.onlyAddedPublishKicks(source, h, tree, opId))
+          (signed.kind === 'batch' || !this.onlyPublishBookkeeping(source, h, tree, opId))
         )
           throw new ConsumerOutputRejected('Global receipt identity mismatch');
         let documents: Tooltip[] | undefined;
