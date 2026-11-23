@@ -201,7 +201,8 @@ describe('show filter', () => {
     expect(model('open').steps.map((row) => row.hash)).toEqual([1]);
     expect(model('open', ['no-match']).steps.map((row) => row.hash)).toEqual([1, 2]);
     expect(model('no-match').steps.map((row) => row.hash)).toEqual([2]);
-    expect(model('no-match', ['no-match']).steps).toEqual([]);
+    expect(model('no-match', ['no-match']).steps.map((row) => row.hash)).toEqual([2]);
+    expect(model('no-match', ['only:no-match']).steps).toEqual([]);
     expect(model('not-needed').items.map((item) => item.key)).toEqual(['group:not-needed', 3]);
   });
 });

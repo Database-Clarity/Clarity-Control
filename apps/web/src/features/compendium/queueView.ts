@@ -159,12 +159,14 @@ export function buildQueue({ rows, filters, categories, toggled, hash }: BuildIn
     const aside = asideRows(rows, kind, filters);
     if (!aside.length) continue;
     visible += aside.length;
-    // Asked for on its own, a group starts open.
-    const isCollapsed = toggled.has(kind) === (filters.show === kind);
+    // Asked for on its own, a group starts open, however it was left beside the open work.
+    const alone = filters.show === kind;
+    const group = alone ? `only:${kind}` : kind;
+    const isCollapsed = toggled.has(group) === alone;
     items.push({
       type: 'header',
       key: `group:${kind}`,
-      group: kind,
+      group,
       label: kindLabels[kind],
       count: aside.length,
       collapsed: isCollapsed,
