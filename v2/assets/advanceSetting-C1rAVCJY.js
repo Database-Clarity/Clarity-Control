@@ -1,0 +1,1 @@
+import{c as s}from"./api-DfMNd-Wq.js";const o=[0,300,600,1e3,2e3],n=600,a="clarity-compendium-advance-ms";function r(t){const c=typeof t=="string"?Number(t):t;return o.find(e=>e===c)??n}function m(){try{return r(localStorage.getItem(a))}catch{return n}}const i=s(t=>({ms:m(),set(c){const e=r(c);t({ms:e});try{localStorage.setItem(a,String(e))}catch{}}}));export{o as a,i as u};

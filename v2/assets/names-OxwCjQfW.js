@@ -1,1 +1,0 @@
-import{r as t}from"./index-Cqyox1Tj.js";import{u as a}from"./data-BYEul_K8.js";import{a as e}from"./catalog-DzySG1ZO.js";function m(o,r){return o&&e(r,o)?.name||`Tooltip ${r}`}function i(){const o=a(r=>r.data);return t.useCallback(r=>m(o,r),[o])}export{m as n,i as u};
