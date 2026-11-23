@@ -337,7 +337,7 @@ it('lists each export of the globals file, ticks them together, and publishes th
   );
   expect(host.textContent).not.toContain('Global exports');
   expect(host.textContent).toContain('2 changes waiting to go live');
-  expect(host.textContent).toContain('3 exports, ticked together');
+  expect(host.textContent).toContain('Globals · exports ticked together');
   const detail = () => host.querySelector('section[aria-label="Selected change"]')!;
   expect(detail().textContent).toContain(
     'Output unchanged. The published version hides this export; its text is the same.',

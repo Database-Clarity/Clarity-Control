@@ -162,13 +162,13 @@ describe('globals files as rows', () => {
       label: 'Globals',
       count: 2,
       publishable: [1, 10],
-      note: '3 exports, ticked together',
+      note: 'exports ticked together',
     });
     expect([...view.shown]).toEqual(['1:anti_barrier', '1:overload', '1:unstoppable', 10]);
     // A filter that shows one of the rows still says the tick covers all three.
     expect(queueView(rows, 'overload', '', new Set(), 'hidden').items[0]).toMatchObject({
       count: 1,
-      note: '3 exports, ticked together',
+      note: 'ticked together',
     });
   });
 

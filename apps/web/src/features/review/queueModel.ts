@@ -55,14 +55,17 @@ export function matchesFilter(
     .includes(query.toLowerCase());
 }
 
-/** "3 exports, ticked together": the rows of one globals file share a tick. */
+/** The rows of one globals file share a tick; short, so a narrow list still shows it. */
 function togetherNote(rows: readonly PendingTooltip[]): string | undefined {
   const files = new Map<number, string>();
   for (const { tooltip, part } of rows)
-    if (part && part.names.length > 1) files.set(tooltip.hash, `${part.names.length} ${part.kind}`);
+    if (part && part.names.length > 1) files.set(tooltip.hash, part.kind);
   if (!files.size) return undefined;
-  const all = [...files.values()].join(', ');
-  return files.size > 1 ? `${all}, each kind ticked together` : `${all}, ticked together`;
+  if (files.size > 1) return 'each kind ticked together';
+  const [[hash, kind]] = [...files] as [[number, string]];
+  return rows.every(({ tooltip }) => tooltip.hash === hash)
+    ? 'ticked together'
+    : `${kind} ticked together`;
 }
 
 /** Leftovers: hidden (the list's "Show" line), or shown as one group, collapsed or open. */
