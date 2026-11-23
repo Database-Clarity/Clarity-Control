@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { calculateGlobalImpact } from './impact.js';
+import { calculateGlobalImpact, GlobalSnapshotScans } from './impact.js';
 import type { GlobalImpactChange, GlobalImpactSnapshot } from './impactModel.js';
 import type { Tooltip } from '../schemas.js';
 import type { Lang } from '../languages.js';
@@ -298,4 +298,69 @@ it('matches live decimals for token-only translations and unfreezable fallback',
     expect(german.before!.rendered).toContain(unfreezable ? '10.5' : '10,5');
     expect(german.after!.rendered).toContain(unfreezable ? '20.5' : '20,5');
   }
+});
+
+it('shares each snapshot scan without changing any result, blocker, or their order', () => {
+  const reads = { before: 0, broken: 0 };
+  const counted = (name: keyof typeof reads, source: GlobalImpactSnapshot) =>
+    Object.defineProperty({ ...source }, 'types', {
+      enumerable: true,
+      get: () => (reads[name]++, source.types),
+    });
+  const docs = [
+    tooltip(1, 'export Shared (\n#damage\n)'),
+    tooltip(2, 'var damage = 10'),
+    tooltip(3, 'title Info (\n#damage\n)'),
+    tooltip(40, '#damage and #{other}', '#damage'),
+    tooltip(41, 'import Shared from global\n<title Info [Info] />'),
+  ];
+  const before = counted('before', snapshot(docs));
+  const after = snapshot(structuredClone(docs), 'source2');
+  after.tooltips[2].text.en!.text = 'var damage = 20';
+  const broken = counted(
+    'broken',
+    snapshot([...docs, tooltip(42, 'import Gone from 999')], 'source3'),
+  );
+  const scans = new GlobalSnapshotScans();
+  const title = { ...change, kind: 'titles' as const, beforeName: 'Info', afterName: 'Info' };
+  const cases = [
+    [before, before, [change]],
+    [before, after, [change, title]],
+    [after, before, []],
+    [before, broken, [change]],
+    [broken, before, [title]],
+    [broken, after, [change]],
+  ] as const;
+  const plain = cases.map(([a, b, changes]) => calculateGlobalImpact(a, b, changes, 'live'));
+  reads.before = reads.broken = 0;
+  const shared = cases.map(([a, b, changes]) =>
+    calculateGlobalImpact(a, b, changes, 'live', scans),
+  );
+  expect(JSON.stringify(shared)).toBe(JSON.stringify(plain));
+  expect(shared[3].blockers.length).toBeGreaterThan(0);
+  const once = { ...reads };
+  calculateGlobalImpact(before, broken, [change], 'live', scans);
+  expect(reads).toEqual(once);
+});
+
+it('lists every authored reference name per kind and language, once per snapshot', () => {
+  const source = snapshot([
+    tooltip(2, 'var damage = #base'),
+    tooltip(40, '#damage // #comment\n#{other}', '#schaden'),
+    tooltip(41, 'import Shared from global\n<title Info [Info] />'),
+  ]);
+  source.mode = 'authored';
+  const scans = new GlobalSnapshotScans();
+  expect([...scans.references(source, 'variables', 'en')].sort()).toEqual([
+    'base',
+    'damage',
+    'other',
+  ]);
+  expect([...scans.references(source, 'variables', 'de')]).toEqual(['schaden']);
+  expect([...scans.references(source, 'exports', 'en')]).toEqual(['Shared']);
+  expect([...scans.references(source, 'titles', 'en')]).toEqual(['Info']);
+  expect([...scans.references(source, 'titles', 'de')]).toEqual([]);
+  expect(scans.references(source, 'variables', 'en')).toBe(
+    scans.references(source, 'variables', 'en'),
+  );
 });
