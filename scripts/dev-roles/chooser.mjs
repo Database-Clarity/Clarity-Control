@@ -7,11 +7,33 @@ const query = new URL(location.href).searchParams.get('dev-role');
 const control = document.createElement('button');
 control.type = 'button';
 control.textContent = 'Dev role';
-control.style.cssText = `
-  position: fixed; z-index: 50; right: .5rem; bottom: .5rem;
-  padding: .3rem .5rem; color: var(--text, CanvasText); background: var(--ctl, Canvas);
-  border: 1px solid var(--ctl-edge, GrayText); border-radius: .25rem; font: inherit;
+control.dataset.devRoleControl = '';
+const bar = document.createElement('div');
+bar.dataset.devRoleBar = '';
+bar.append(control);
+const styles = document.createElement('style');
+styles.textContent = `
+  :root:has([data-dev-role-bar]) {
+    --dev-role-height: 2rem;
+    --app-h: calc(100dvh - var(--kb-room, 0px) - var(--dev-role-height));
+  }
+  @supports (-webkit-touch-callout: none) {
+    :root:has([data-dev-role-bar]) { --app-h: calc(100dvh - var(--dev-role-height)); }
+  }
+  [data-dev-role-bar] {
+    display: flex; align-items: center; justify-content: end;
+    block-size: var(--dev-role-height); padding-inline: .5rem;
+    background: var(--chrome, Canvas); border-bottom: 1px solid var(--line, GrayText);
+  }
+  [data-dev-role-control] {
+    box-sizing: border-box; max-inline-size: 100%; min-block-size: 1.5rem;
+    padding: .125rem .5rem; color: var(--text, CanvasText); background: var(--ctl, Canvas);
+    border: 1px solid var(--ctl-edge, GrayText); border-radius: .25rem;
+    font: .875rem/1.125rem Arial, sans-serif;
+  }
+  select[data-dev-role-control] { background: var(--fld, Canvas); }
 `;
+document.head.append(styles);
 const dialog = document.createElement('dialog');
 dialog.setAttribute('aria-label', 'Development identity');
 dialog.style.cssText = `
@@ -21,10 +43,10 @@ dialog.style.cssText = `
 `;
 dialog.innerHTML = `<form style="display:flex;flex-wrap:wrap;align-items:end;gap:.5rem">
   <label style="display:grid;gap:.25rem;max-width:100%">Development identity
-    <select name="role" required><option value="" disabled selected>Choose a role</option></select>
+    <select name="role" data-dev-role-control required><option value="" disabled selected>Choose a role</option></select>
   </label>
-  <button type="submit">Switch</button>
-  <button type="button" data-cancel>Cancel</button>
+  <button type="submit" data-dev-role-control>Switch</button>
+  <button type="button" data-dev-role-control data-cancel>Cancel</button>
   <p role="alert" hidden></p>
 </form>`;
 const form = dialog.querySelector('form');
@@ -32,7 +54,8 @@ const select = form.elements.namedItem('role');
 const submit = form.querySelector('[type="submit"]');
 const alert = form.querySelector('[role="alert"]');
 const cancel = form.querySelector('[data-cancel]');
-document.body.append(control, dialog);
+document.getElementById('root').before(bar);
+document.body.append(dialog);
 
 let switching = false;
 let loadingRoles = false;

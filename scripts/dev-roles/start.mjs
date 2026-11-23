@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, readdir, readFile, mkdir } from 'node:fs/promises';
+import { createServer as createSocket } from 'node:net';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -37,6 +38,13 @@ export async function startRoleHarness({ port, prepareSandbox }) {
     throw new Error('Pass a free port between 1024 and 65535');
   const host = '127.0.0.1';
   const origin = `http://${host}:${port}`;
+  // Report a port already in use before fetching and materializing the disposable data.
+  // Vite's strict listen still catches any bind race after this preflight.
+  await new Promise((resolve, reject) => {
+    const probe = createSocket();
+    probe.once('error', reject);
+    probe.listen(port, host, () => probe.close((error) => (error ? reject(error) : resolve())));
+  });
   const scratch = join(root, '.agents', 'dev-roles');
   await mkdir(scratch, { recursive: true });
   const directory = await mkdtemp(join(scratch, 'run-'));

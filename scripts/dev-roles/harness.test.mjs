@@ -16,6 +16,26 @@ async function freePort() {
   return port;
 }
 
+test('an occupied port fails before the disposable sandbox is prepared', async () => {
+  const server = createServer();
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  try {
+    let prepared = false;
+    await expect(
+      startRoleHarness({
+        port: server.address().port,
+        prepareSandbox() {
+          prepared = true;
+          throw new Error('Sandbox should not start');
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'EADDRINUSE' });
+    expect(prepared).toBe(false);
+  } finally {
+    await new Promise((done) => server.close(done));
+  }
+});
+
 test('loopback role sessions go through Worker auth and cannot sign in on the stock Worker', async () => {
   const port = await freePort();
   const head = 'a'.repeat(40);
