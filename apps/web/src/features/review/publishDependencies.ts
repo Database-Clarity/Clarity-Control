@@ -16,6 +16,7 @@ export function publishDependencies(
   pending: ReadonlySet<number>,
   selected: readonly Tooltip[],
   moves: InactiveMoves = {},
+  globals = false,
 ): Map<number, number[]> {
   const result = new Map<number, Set<number>>(selected.map((t) => [t.hash, new Set()]));
   const active = selected.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
@@ -61,7 +62,8 @@ export function publishDependencies(
       for (const hash of reads.imports.values()) if (pending.has(hash)) deps.add(hash);
       // Global preparation can read title/variable bodies without a numeric import lookup.
       // Keep pending global libraries ahead of every consumer, conservatively.
-      for (const hash of [1, 2, 3]) if (pending.has(hash)) deps.add(hash);
+      if (!globals)
+        for (const hash of [1, 2, 3]) if (pending.has(hash)) deps.add(hash);
     }
   }
   const removal = selected.find((tooltip) => isMovedInactive(tooltip.hash, moves));
