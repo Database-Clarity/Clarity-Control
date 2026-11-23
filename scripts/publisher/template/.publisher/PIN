@@ -1,6 +1,6 @@
 {
-  "sourceSha": "f7892f1acf8fc984905e23a2de5cede7372886dd",
-  "sha256": "64dd59dc39370a04751d0db30621dcf7613be61895894111ada86a9f09264d15",
+  "sourceSha": "dc269d4a8ed535132625cd0c4b053854cc5111bd",
+  "sha256": "f637f311f3e52908eb2bc0ac48b58df8bbf0043a7df6f7f26f31f3ffc5e7db57",
   "verifierSha256": "d960337b7435cb3a8464f03aa8221476c3bc571da341d683ab4dc3e58a2a304f",
   "capabilities": [
     "elementTags",
@@ -20,6 +20,7 @@
     "draftBatchStagingV1",
     "scheduledBatchStagingV1",
     "currentSaveStagingV1",
-    "exoticTags"
+    "exoticTags",
+    "aliasGroupRemovals"
   ]
 }

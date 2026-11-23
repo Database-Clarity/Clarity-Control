@@ -29706,12 +29706,16 @@ var aliasGroupOperationSchema = external_exports.discriminatedUnion("op", [
     canonical: hashSchema,
     to: hashSchema,
     acknowledgeConflicts: external_exports.literal(true).optional()
-  }).strict()
+  }).strict(),
+  /** One non-canonical member leaves; it starts as a copy of the group's current tooltip. */
+  external_exports.object({ op: external_exports.literal("removeMember"), canonical: hashSchema, member: hashSchema }).strict()
 ]).superRefine((op, ctx) => {
   if ((op.op === "accept" || op.op === "split") && !op.members.includes(op.canonical))
     ctx.addIssue({ code: "custom", message: "Canonical must be a selected member" });
   if (op.op === "setCanonical" && op.canonical === op.to)
     ctx.addIssue({ code: "custom", message: "Canonical must change" });
+  if (op.op === "removeMember" && op.canonical === op.member)
+    ctx.addIssue({ code: "custom", message: "The main entry cannot leave its own group" });
 });
 var aliasGroupsRequestSchema = external_exports.object({
   expectedHead: commit,
@@ -29754,7 +29758,10 @@ var aliasGroupsSchema = external_exports.object({
       reason: external_exports.string().optional()
     }).strict()
   ),
-  archives: external_exports.array(aliasGroupArchiveSchema).optional()
+  archives: external_exports.array(aliasGroupArchiveSchema).optional(),
+  /** Members a maintainer took out of a group. Adoption tools never regroup them silently;
+   * a manual accept that includes one clears its entry. */
+  removed: external_exports.record(hashKey3, external_exports.object({ canonical: hashSchema, by: actor, at: timestampSchema }).strict()).optional()
 }).strict().superRefine((value2, ctx) => {
   const seen = /* @__PURE__ */ new Set();
   const paths3 = value2.archives?.map((archive) => archive.path) ?? [];

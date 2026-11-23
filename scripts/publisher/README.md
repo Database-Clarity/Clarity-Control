@@ -171,8 +171,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `f7892f1acf8fc984905e23a2de5cede7372886dd` (v2).
-Runtime SHA-256: `64dd59dc39370a04751d0db30621dcf7613be61895894111ada86a9f09264d15`.
+Current template source: `dc269d4a8ed535132625cd0c4b053854cc5111bd` (v2).
+Runtime SHA-256: `f637f311f3e52908eb2bc0ac48b58df8bbf0043a7df6f7f26f31f3ffc5e7db57`.
 
 The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
 `yellow` consumer style, including comment-split keywords. While publishing is enabled,
@@ -184,6 +184,10 @@ style and configuration key; the seven legacy outputs still use `yellow`.
 Exotic is literal-only authoring syntax. Variable-assembled tag names keep the base
 resolver's unknown-tag behavior, with a warning; assembled `yellow` remains supported.
 This includes set-bonus pieces, name relinks, armor-set-bonus categories and alias-group schemas.
+
+The `aliasGroupRemovals` capability declares a runtime that accepts the optional `removed`
+map in `config/alias-groups.json` (members a maintainer took out of a group). Older runtimes
+reject that key, so the Worker refuses `removeMember` until the installed PIN declares it.
 Permissions accept the optional export `partners` map while retaining strict validation.
 This rebuild also includes the current Link only guards and the set-bonus publication hold.
 It lowers element-tagged text (`<solar Scorch />` to `<solar/>Scorch`) in exportLegacy, rejects
