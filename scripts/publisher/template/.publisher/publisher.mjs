@@ -23537,8 +23537,9 @@ function compose(input2, boundSources = true) {
   return composeParsed(input2, boundSources);
 }
 function composeParsed(input2, boundSources = true) {
-  const { hash: hash2, base, proposed, snapshot, pushed } = input2;
-  for (const tooltip2 of [base, proposed, snapshot])
+  const { hash: hash2, base, proposed, pushed } = input2;
+  const snapshot = pushed ? input2.snapshot : null;
+  for (const tooltip2 of [base, proposed, input2.snapshot])
     if (tooltip2 && tooltip2.hash !== hash2)
       throw new Error(`Tooltip does not belong to member ${hash2}`);
   const changed = changedFields(base, proposed);
