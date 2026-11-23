@@ -2,12 +2,15 @@ import { expect, it } from 'vitest';
 import {
   applyInactiveLive,
   exportLegacy,
+  exportWithInactiveMoves,
   mergeLivePerks,
   publishableHash,
+  selectedInactiveMoves,
   type Aliases,
   type InactiveMoves,
   type Tooltip,
 } from '@clarity/core';
+import { Publisher } from '../../../../../scripts/publisher/publisher';
 import type { EditorData } from '../../stores/data';
 import type { PendingTooltip } from './model';
 import { planReviewedPublish } from './publishAction';
@@ -380,6 +383,67 @@ it('waits for a repair comparison when an active dependency would pull a stub re
   const markerless = reviewPlan(selected, [owner, ...filler], aliases, moves);
   expect(markerless.reduce(apply, initial)).toEqual(expected);
 });
+
+it.each([
+  [false, 60, 100],
+  [true, 60, 100],
+  [true, 900, 60],
+])(
+  'keeps an export rename with its reader (removal %s, reader %i, source %i)',
+  (withRemoval, readerHash, sourceHash) => {
+    const filler = Array.from({ length: 49 }, (_, index) => t(200 + index, 'New filler'));
+    const source = t(sourceHash, 'Visible source\nexport New (\nNew text\n)');
+    const reader = {
+      ...t(readerHash, `import New from ${sourceHash}`),
+      associated: [sourceHash, ...filler.map(({ hash }) => hash)],
+    };
+    const removal = withRemoval ? [t(300, 'Independent removal')] : [];
+    const moves = (withRemoval ? { 300: move } : {}) as InactiveMoves;
+    const saved = [reader, source, ...filler, ...removal];
+    const archived = [
+      t(readerHash, `import Old from ${sourceHash}`),
+      t(sourceHash, 'Visible source\nexport Old (\nOld text\n)'),
+      ...filler.map(({ hash }) => t(hash, 'Old filler')),
+      ...removal,
+    ];
+    const initial = JSON.stringify({
+      perks: exportLegacy([t(1, ''), t(2, ''), t(3, ''), ...archived], 0),
+      databaseSettings: {},
+    });
+    let live = initial;
+    const publisher = Object.assign(Object.create(Publisher.prototype), {
+      git: { tree: () => ({ 'liveDescriptions.json': 'live' }), blob: () => live },
+      aliasesAt: () => ({}),
+      movesAt: () => moves,
+      pickRecomputeAt: () => undefined,
+      checkedOutputs: new Set<string>(),
+    }) as Publisher;
+    function merge(hashes: number[]) {
+      const rows = saved.filter(({ hash }) => hashes.includes(hash));
+      return publisher.merge('live', {
+        changed: hashes,
+        entries: hashes.map((hash) => ({ hash })),
+        sourceCommit: 'source',
+        exported: exportWithInactiveMoves(
+          rows,
+          0,
+          undefined,
+          {},
+          selectedInactiveMoves(moves, hashes, {}),
+        ),
+        now: 500,
+        requester: { login: 'alice' },
+      } as Parameters<Publisher['merge']>[1]).bytes;
+    }
+
+    expect(() => merge([sourceHash])).toThrow(`Missing export Old from ${sourceHash}`);
+    expect(() => merge([readerHash])).toThrow(`Missing export New from ${sourceHash}`);
+    const chunks = reviewPlan(saved, archived, {}, moves);
+    const expected = merge(saved.map(({ hash }) => hash));
+    for (const hashes of chunks) live = merge(hashes);
+    expect(live).toBe(expected);
+  },
+);
 
 it('observes exact, nested, alias, and cyclic imports through the real resolver', () => {
   const tooltips = Object.fromEntries(

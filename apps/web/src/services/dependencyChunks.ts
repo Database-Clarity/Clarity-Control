@@ -5,7 +5,7 @@ interface Dependent {
 
 interface ChunkLimits<T> {
   fits(items: readonly T[]): boolean;
-  splitDependencies?: boolean;
+  splitDependencies?: boolean | ((items: readonly T[]) => boolean);
   order?(a: T, b: T): number;
   missing(hash: number): string;
   duplicate: string;
@@ -50,7 +50,11 @@ export function dependencyChunks<T extends Dependent>(
   for (const { hash } of [...inputs].sort(limits.order ?? ((a, b) => a.hash - b.hash))) {
     const closure = collect(hash);
     if (!closure.items.length) continue;
-    if (!limits.splitDependencies || limits.fits(closure.items)) append(closure.items);
+    const split =
+      typeof limits.splitDependencies === 'function'
+        ? limits.splitDependencies(closure.items)
+        : limits.splitDependencies;
+    if (!split || limits.fits(closure.items)) append(closure.items);
     else {
       // Walk the reversed edges in reverse finish order to find each cycle independently.
       // A dependency outside a cycle must be able to publish before it.

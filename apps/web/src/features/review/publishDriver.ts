@@ -107,10 +107,11 @@ export class PublishClosureLimitError extends Error {
 export function publishChunks<T extends Omit<PublishInput, 'digest'>>(inputs: readonly T[]): T[][] {
   const consumers = (items: readonly T[]) =>
     items.reduce((total, item) => total + (item.consumers ?? 1), 0);
+  const hasRemoval = inputs.some(({ removal }) => removal);
   const chunks = dependencyChunks(inputs, {
     fits: (items) =>
       items.length <= publishTiming.chunkHashes && consumers(items) <= publishTiming.maxConsumers,
-    splitDependencies: true,
+    splitDependencies: (items) => hasRemoval || consumers(items) > publishTiming.maxConsumers,
     // Prefer publishing repairs ahead of removals when either order is valid.
     order: (a, b) => Number(!!a.removal) - Number(!!b.removal) || a.hash - b.hash,
     missing: (hash) => `Select pending imported tooltip ${hash} as well. Nothing was sent.`,

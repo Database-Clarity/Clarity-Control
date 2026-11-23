@@ -1,4 +1,5 @@
 import {
+  extractBlocks,
   languages,
   isMovedInactive,
   type InactiveMoves,
@@ -7,9 +8,13 @@ import {
   validateTextWithReads,
   usesEnglishFallback,
   type Aliases,
+  type Lang,
   type Tooltip,
 } from '@clarity/core';
 import { globalAggregates } from '../../services/globalsFlag';
+
+const textIn = (tooltip: Tooltip, lang: Lang) =>
+  usesEnglishFallback(tooltip, lang) ? tooltip.text.en?.text : tooltip.text[lang]?.text;
 
 /** Observe real resolver reads, including aliases, nested imports, and prepared titles. */
 function tooltipReads(
@@ -17,21 +22,38 @@ function tooltipReads(
   aliases: Aliases,
   readers: readonly Tooltip[],
   read: (reader: number, source: number, canonical: number) => void,
+  changes?: {
+    saved: readonly Tooltip[];
+    beforeEdit: (source: number, reader: number) => void;
+  },
 ) {
   for (const tooltip of readers)
     for (const hash of tooltip.associated) {
       read(tooltip.hash, hash, resolveAlias(hash, aliases));
     }
+  const saved = new Map(changes?.saved.map((tooltip) => [tooltip.hash, tooltip]));
   for (const lang of languages) {
+    const replacements = new Map<number, string>();
+    for (const [hash, tooltip] of saved) {
+      const before = tooltips[hash] && textIn(tooltips[hash], lang);
+      if (!before?.includes('export ')) continue;
+      const after = textIn(tooltip, lang) ?? '';
+      if (before === after) continue;
+      const exports = extractBlocks(after, 'export');
+      if (
+        Object.keys(extractBlocks(before, 'export')).some((name) => !Object.hasOwn(exports, name))
+      )
+        replacements.set(hash, after);
+    }
+    let replacing: number | undefined;
     const imports = new Proxy<Record<string, string>>(
       {},
       {
         get: (_target, key) => {
           const hash = typeof key === 'string' ? Number(key) : NaN;
+          if (hash === replacing) return replacements.get(hash);
           const t = tooltips[hash];
-          return t
-            ? ((usesEnglishFallback(t, lang) ? t.text.en?.text : t.text[lang]?.text) ?? '')
-            : undefined;
+          return t ? (textIn(t, lang) ?? '') : undefined;
         },
       },
     );
@@ -43,20 +65,37 @@ function tooltipReads(
       },
     });
     for (const tooltip of readers) {
-      const text = usesEnglishFallback(tooltip, lang)
-        ? tooltip.text.en?.text
-        : tooltip.text[lang]?.text;
+      const text = textIn(tooltip, lang);
       if (text === undefined) continue;
-      const { reads } = validateTextWithReads(
-        text,
-        lang,
-        { imports: catalog, variables: catalog[2] ?? '', titles: catalog[3] ?? '' },
-        false,
-        tooltip.hash,
-        aliases,
-      );
+      const validate = () =>
+        validateTextWithReads(
+          text,
+          lang,
+          { imports: catalog, variables: catalog[2] ?? '', titles: catalog[3] ?? '' },
+          false,
+          tooltip.hash,
+          aliases,
+        );
+      const { reads, issues } = validate();
       for (const [source, hash] of reads.imports)
         read(tooltip.hash, source === 'global' ? 1 : Number(source), hash);
+      // Test the exported edit against the live reader. A disappearing export that the reader
+      // actually uses must wait for that reader's repair, even if the saved reader imports it too.
+      if (changes && replacements.size)
+        for (const hash of new Set(reads.imports.values())) {
+          if (hash === tooltip.hash || !replacements.has(hash)) continue;
+          replacing = hash;
+          const edited = validate();
+          replacing = undefined;
+          if (
+            edited.issues.some(
+              ({ message }) =>
+                message.startsWith('Unresolved import "') &&
+                !issues.some((issue) => issue.message === message),
+            )
+          )
+            changes.beforeEdit(hash, tooltip.hash);
+        }
     }
   }
 }
@@ -116,6 +155,7 @@ export function publishDependencies(
         if (![1, 2, 3].includes(source) && !(removedBy.size === 1 && removedBy.has(source)))
           uncertain.add(reader);
       },
+      { saved: active, beforeEdit: (source, reader) => result.get(source)!.add(reader) },
     );
     // Keep possible readers with the removals they could reference. Link them through one
     // member to keep the edges linear.
