@@ -68,7 +68,16 @@ export async function marksRoute(request: Request, github: GitHub, user: Identit
         : ['maintainer', 'editor'],
     );
     if (invalid) throw invalid;
-    if (input && input.change.action.endsWith('-type') && access.role !== 'maintainer')
+    const decision =
+      input?.change.action === 'compendium-set' || input?.change.action === 'compendium-clear'
+        ? input.change
+        : null;
+    if (decision) {
+      if (access.role !== 'maintainer')
+        throw new HttpError(403, 'Only maintainers can manage Compendium decisions');
+      if (github.env.COMPENDIUM_DECISION_WRITES !== '1')
+        throw new HttpError(503, 'Compendium decision writes are disabled');
+    } else if (input && input.change.action.endsWith('-type') && access.role !== 'maintainer')
       throw new HttpError(403, 'Only maintainers can manage mark types');
     // A read hands the stored file to the store, which validates it; only a value that is not
     // marks-shaped at all is refused here.
@@ -88,7 +97,24 @@ export async function marksRoute(request: Request, github: GitHub, user: Identit
       throw new HttpError(409, 'Marks changed since they were loaded; reload and retry');
     const change = input.change;
     const stamp = { by: user.id, at: new Date().toISOString() };
-    if (change.action === 'mark' || change.action === 'unmark') {
+    if (change.action === 'compendium-set' || change.action === 'compendium-clear') {
+      // The editor sends canonical hashes for new decisions and stored keys for clears.
+      const decisions = (marks.compendium ??= {});
+      let changed = false;
+      for (const hash of change.hashes) {
+        if (change.action === 'compendium-set') {
+          if (decisions[hash]?.kind === change.kind) continue;
+          decisions[hash] = { kind: change.kind, ...stamp };
+        } else {
+          if (!Object.hasOwn(decisions, hash)) continue;
+          delete decisions[hash];
+        }
+        changed = true;
+      }
+      if (!changed) return json({ commit: null, marks: file?.value ?? emptyMarks(), revision });
+      if (change.action === 'compendium-clear' && !Object.keys(decisions).length)
+        delete marks.compendium;
+    } else if (change.action === 'mark' || change.action === 'unmark') {
       if (!marks.types.some((type) => type.id === change.type))
         throw new HttpError(409, 'This mark type no longer exists; reload marks');
       const entries = (marks.entries[change.hash] ?? []).filter(
@@ -133,14 +159,18 @@ export async function marksRoute(request: Request, github: GitHub, user: Identit
     // The shared schema bounds total UTF-8 bytes, including multibyte notes; the committed string
     // is the one string checked here.
     if (new TextEncoder().encode(content).length > maxMarksBytes)
-      throw new HttpError(400, `Marks file exceeds ${maxMarksBytes} bytes`);
+      throw new HttpError(
+        400,
+        `Entry marks and Compendium decisions share a ${maxMarksBytes.toLocaleString('en-US')}-byte file limit. This change would exceed it.`,
+      );
     assertMarksCaps(marks);
     try {
       const commit = await github.commit(
         head,
-        { [marksPath]: marks },
-        `Update entry marks by ${user.login}`,
+        {},
+        `Update ${decision ? 'Compendium decisions' : 'entry marks'} by ${user.login}`,
         user,
+        { rawFiles: { [marksPath]: content } },
       );
       return json({ commit, marks, revision: await blobSha(content) });
     } catch (error) {

@@ -29,6 +29,8 @@ export interface Env {
   COMPENDIUM_REPO?: string;
   COMPENDIUM_REF?: string;
   COMPENDIUM_WORKFLOW?: string;
+  /** Enable only after the updated marks readers have been deployed. */
+  COMPENDIUM_DECISION_WRITES?: string;
   SETTINGS_DB?: import('./settings.js').SettingsDatabase;
 }
 

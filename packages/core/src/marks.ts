@@ -25,6 +25,10 @@ export const entryMarkSchema = z
     ...stamp,
   })
   .strict();
+export const compendiumDecisionKindSchema = z.enum(['no-match', 'not-needed']);
+export const compendiumDecisionSchema = z
+  .object({ kind: compendiumDecisionKindSchema, ...stamp })
+  .strict();
 export const marksSchema = z
   .object({
     types: z.array(markTypeSchema).max(32),
@@ -34,6 +38,7 @@ export const marksSchema = z
         (entries) => Object.keys(entries).length <= maxMarkedEntries,
         'Too many marked entries',
       ),
+    compendium: z.record(inactiveHashKey, compendiumDecisionSchema).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -66,7 +71,9 @@ export const marksFileSchema = marksSchema.superRefine((value, ctx) => {
 export type Marks = z.infer<typeof marksSchema>;
 export type MarkType = z.infer<typeof markTypeSchema>;
 export type EntryMark = z.infer<typeof entryMarkSchema>;
+export type CompendiumDecision = z.infer<typeof compendiumDecisionSchema>;
 export const emptyMarks = (): Marks => ({ types: [], entries: {} });
+const decisionHashes = z.array(hashSchema).min(1);
 export const markActionSchema = z.discriminatedUnion('action', [
   z
     .object({
@@ -96,6 +103,14 @@ export const markActionSchema = z.discriminatedUnion('action', [
   z
     .object({ action: z.literal('remove-type'), id: markIdSchema, force: z.boolean().optional() })
     .strict(),
+  z
+    .object({
+      action: z.literal('compendium-set'),
+      kind: compendiumDecisionKindSchema,
+      hashes: decisionHashes,
+    })
+    .strict(),
+  z.object({ action: z.literal('compendium-clear'), hashes: decisionHashes }).strict(),
 ]);
 export type MarkAction = z.infer<typeof markActionSchema>;
 export const marksRevisionSchema = z

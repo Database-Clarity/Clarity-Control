@@ -1,7 +1,18 @@
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { marksPath, maxMarkNoteChars, maxMarksBytes, type MarkAction, type Marks } from '@clarity/core/marks';
+import {
+  entryMarkSchema,
+  marksFileSchema,
+  marksPath,
+  markTypeSchema,
+  maxMarkNoteChars,
+  maxMarksBytes,
+  type MarkAction,
+  type Marks,
+} from '@clarity/core/marks';
+import { inactiveHashKey } from '@clarity/core';
+import { z } from 'zod';
 import { blobContent } from '../src/github.js';
-import { blobOid, Fixture, makePrivateKey } from './fixture.js';
+import { blobOid, config, Fixture, makePrivateKey } from './fixture.js';
 
 let key: string;
 let fixture: Fixture;
@@ -27,6 +38,132 @@ function seed(marks: Marks = base) {
   fixture.moveData({ [marksPath]: marks });
   return blobOid(marks);
 }
+
+const setDecision = {
+  action: 'compendium-set',
+  kind: 'no-match',
+  hashes: [123, 123, 4294967295],
+} satisfies MarkAction;
+const clearDecision = {
+  action: 'compendium-clear',
+  hashes: [123, 4294967295],
+} satisfies MarkAction;
+
+it('gates both decision actions to maintainers and defaults writes off', async () => {
+  const revision = seed();
+  fixture.moveData({
+    'config/permissions.json': {
+      ...config,
+      partners: { 5: { login: 'partner', projects: ['dim'] } },
+    },
+  });
+  for (const action of [setDecision, clearDecision]) {
+    expect((await put(action, revision)).status).toBe(503);
+    for (const user of [2, 3, 4, 5, 99])
+      expect((await put(action, revision, user)).status).toBe(403);
+  }
+  expect((await put(mark, revision, 2)).status).toBe(200);
+  expect(fixture.commits).toHaveLength(1);
+});
+
+it('sets and clears supplied hashes idempotently while preserving all ordinary marks', async () => {
+  fixture.env.COMPENDIUM_DECISION_WRITES = '1';
+  const initial = { ...base, entries: { 123: [{ type: 'retest', note: 'Retest', by: 2, at }] } };
+  const revision = seed(initial);
+  const originalTooltip = fixture.current()['tooltips/123.json'];
+  const originalLive = fixture.liveHead;
+  const response = await put(setDecision, revision);
+  expect(response.status).toBe(200);
+  const saved = await response.json();
+  const decision = { kind: 'no-match', by: 1, at: expect.any(String) };
+  expect(saved.marks).toEqual({
+    ...initial,
+    compendium: { 123: decision, 4294967295: decision },
+  });
+  expect(saved.revision).toBe(blobOid(saved.marks));
+  expect(fixture.current()[marksPath]).toEqual(saved.marks);
+  expect(fixture.current()['tooltips/123.json']).toEqual(originalTooltip);
+  expect(fixture.liveHead).toBe(originalLive);
+  expect(fixture.commits[0]).toMatchObject({
+    author: { name: 'alice', email: '1+alice@users.noreply.github.com' },
+  });
+  for (const user of [1, 2, 3, 4])
+    expect(await (await get(user)).json()).toEqual({
+      revision: saved.revision,
+      marks: saved.marks,
+    });
+  expect(await (await put(setDecision, saved.revision)).json()).toEqual({ ...saved, commit: null });
+  expect(fixture.commits).toHaveLength(1);
+  const ordinary = await (await put(mark, saved.revision, 2)).json();
+  expect(ordinary.marks.compendium).toEqual(saved.marks.compendium);
+  const updated = await (
+    await put({ ...setDecision, kind: 'not-needed', hashes: [123] }, ordinary.revision)
+  ).json();
+  expect(updated.marks.compendium[123]).toMatchObject({ kind: 'not-needed', by: 1 });
+  const cleared = await (await put(clearDecision, updated.revision)).json();
+  expect(cleared.marks).toEqual({ ...initial, entries: ordinary.marks.entries });
+  expect(await (await put(clearDecision, cleared.revision)).json()).toEqual({
+    ...cleared,
+    commit: null,
+  });
+  expect(fixture.commits).toHaveLength(4);
+});
+
+it('uses the whole-file revision on decision retries and rechecks the maintainer role', async () => {
+  fixture.env.COMPENDIUM_DECISION_WRITES = '1';
+  const revision = seed();
+  fixture.beforePatch = () =>
+    fixture.moveData({
+      [marksPath]: {
+        ...base,
+        entries: { 123: [{ type: 'retest', note: 'Concurrent', by: 2, at }] },
+      },
+    });
+  expect((await put(setDecision, revision)).status).toBe(409);
+  const fresh = await (await get()).json();
+  expect(fresh.marks.entries[123][0].note).toBe('Concurrent');
+  expect(fresh.marks).not.toHaveProperty('compendium');
+  fixture.beforePatch = () => fixture.moveData({ 'unrelated.json': { keep: true } });
+  expect((await put(setDecision, fresh.revision)).status).toBe(200);
+  expect(fixture.current()['unrelated.json']).toEqual({ keep: true });
+  const saved = await (await get()).json();
+  fixture.beforePatch = () =>
+    fixture.moveData({
+      'config/permissions.json': { users: { 1: { login: 'alice', role: 'editor' } } },
+    });
+  expect((await put(clearDecision, saved.revision)).status).toBe(403);
+  expect(fixture.current()[marksPath]).toEqual(saved.marks);
+});
+
+it('reads old marks and stores thousands of decisions outside the entry-mark count', async () => {
+  const legacy = z
+    .object({
+      types: z.array(markTypeSchema),
+      entries: z.record(inactiveHashKey, z.array(entryMarkSchema)),
+    })
+    .strict();
+  expect(marksFileSchema.parse(base)).toEqual(base);
+  const marks: Marks = {
+    ...base,
+    entries: Object.fromEntries(
+      Array.from({ length: 1500 }, (_, hash) => [hash, [{ type: 'retest', by: 1, at }]]),
+    ),
+    compendium: Object.fromEntries(
+      Array.from({ length: 4000 }, (_, i) => [4294960000 + i, { kind: 'not-needed', by: 1, at }]),
+    ),
+  };
+  expect(marksFileSchema.parse(marks)).toEqual(marks);
+  expect(legacy.safeParse(marks).success).toBe(false);
+  fixture.env.COMPENDIUM_DECISION_WRITES = '1';
+  const response = await put(
+    { ...setDecision, hashes: Array.from({ length: 350 }, (_, i) => 4294967295 - i) },
+    seed(marks),
+  );
+  expect(response.status).toBe(200);
+  const saved = await response.json();
+  expect(Object.keys(saved.marks.compendium)).toHaveLength(4350);
+  expect(saved.marks.entries).toEqual(marks.entries);
+});
 
 it('allows all editor roles to read, and denies unknown accounts', async () => {
   for (const user of [1, 2, 3, 4])
@@ -161,6 +298,18 @@ it('enforces the type count and total file byte limits before committing', async
   expect(Buffer.byteLength(blobContent(overflow))).toBeGreaterThan(maxMarksBytes);
   revision = seed(full);
   expect((await put({ ...mark, hash: 999999, note: 'x'.repeat(500) }, revision)).status).toBe(400);
+  fixture.env.COMPENDIUM_DECISION_WRITES = '1';
+  const result = await put(
+    { ...setDecision, hashes: [600000, 600001, 600002, 600003, 600004, 600005] },
+    revision,
+  );
+  expect(result.status).toBe(400);
+  expect(await result.json()).toMatchObject({
+    error: expect.stringContaining(
+      'Entry marks and Compendium decisions share a 700,000-byte file limit',
+    ),
+  });
+  expect(fixture.current()[marksPath]).toEqual(full);
   expect(fixture.commits).toHaveLength(0);
 });
 it('accepts a note at the character limit and still refuses the file byte cap at full-length notes', async () => {
@@ -262,6 +411,10 @@ it('bounds input, rejects forged attribution, and prevents stale type writes', a
     { ...mark, hash: 0x100000000 },
     { action: 'create-type', id: '../bad', label: 'Test', colour: 'red' },
     { action: 'create-type', id: 'new', label: 'x'.repeat(65), colour: 'red' },
+    { ...setDecision, kind: 'skip' },
+    { ...setDecision, hashes: [] },
+    { ...setDecision, hashes: [0x100000000] },
+    { ...clearDecision, by: 99 },
   ])
     expect((await fixture.request('/marks', 'PUT', { change, revision })).status).toBe(400);
   expect(
