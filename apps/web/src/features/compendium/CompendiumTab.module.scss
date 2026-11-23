@@ -103,14 +103,10 @@
 .views {
   margin-bottom: 0.5rem;
 
-  // The switch draws its own height, edge, and dividers.
+  // The switch draws its own height, edge, and divider.
   [aria-pressed] {
     height: auto;
-    border-width: 0;
-  }
-
-  [aria-pressed]:not(:first-child) {
-    border-left-width: 1px;
+    border: 0;
   }
 }
 

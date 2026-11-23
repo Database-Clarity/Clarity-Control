@@ -1,5 +1,4 @@
 .queue {
-  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -9,36 +8,28 @@
   font-size: 0.8125rem;
 }
 
-.views {
+// Equal halves, or one above the other where a half cannot hold its label. The divider is the
+// gap's own colour, so it follows either way.
+.views.views {
   --segmented-h: 1.75rem;
+  --view-min: 7rem;
 
   display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 1px;
+  height: auto;
+  background: var(--ctl-edge);
 
   > * {
-    flex: 1 1 0;
-  }
-}
+    flex: 1 1 var(--view-min);
+    min-height: calc(var(--segmented-h) - 2px);
+    border: 0;
 
-// Too narrow for both labels beside each other: one above the other.
-@mixin stacked-views {
-  .views {
-    flex-direction: column;
-    height: auto;
-
-    > * {
-      flex: none;
-      min-height: var(--segmented-h);
-    }
-
-    > :not(:first-child) {
-      border-left: 0;
-      border-top: 1px solid var(--ctl-edge);
+    &:not([aria-pressed='true']) {
+      background: var(--ctl);
     }
   }
-}
-
-@container (max-width: 14rem) {
-  @include stacked-views;
 }
 
 .filters {
@@ -285,11 +276,8 @@
     height: var(--tap);
   }
 
-  .views {
+  .views.views {
     --segmented-h: var(--tap);
-  }
-
-  @container (max-width: 16rem) {
-    @include stacked-views;
+    --view-min: 8rem;
   }
 }
