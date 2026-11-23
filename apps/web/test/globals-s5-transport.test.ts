@@ -274,9 +274,16 @@ describe('stale rename intents', () => {
     status = 'current';
     name = 'Harm';
     expect(intent(await service.read())).toMatchObject({ status: 'queued' });
-    const accepted = await service.readEntry(entry.id);
+    const reviews = vi.spyOn(transport, 'reviews').mockResolvedValue({
+      kind: 'retry',
+      message: 'Invalid global review page',
+    });
+    const accepted = await service.readEntry(entry.id, { reviews: false });
+    expect(reviews).not.toHaveBeenCalled();
     expect(intent(accepted)).toBeUndefined();
     expect(accepted.kind === 'ok' && accepted.value.entries[0].name).toBe('Harm');
+    expect(accepted.kind === 'ok' && accepted.value.impacts[entry.id]).toBeUndefined();
+    expect(await service.readEntry(entry.id)).toMatchObject({ kind: 'retry' });
   });
 
   it('reports a cleared rename even while another change is pending', async () => {

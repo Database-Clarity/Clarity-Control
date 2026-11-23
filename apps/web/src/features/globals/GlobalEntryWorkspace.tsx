@@ -470,6 +470,7 @@ function Workspace({
     setPending(true);
     setError('');
     try {
+      // Settle a queued rename from the entry even if its review page is unavailable.
       const result =
         retry && entry
           ? await service.retrySync({
@@ -477,7 +478,9 @@ function Workspace({
               id: entry.id,
               causeIds: ownCauses,
             })
-          : await service.read();
+          : entry && service.readEntry && snapshot.renameIntents?.[entry.id]?.status === 'queued'
+            ? await service.readEntry(entry.id, { reviews: false })
+            : await service.read();
       if (!mounted.current) return;
       if (result.kind === 'ok') {
         onSnapshot(result.value);

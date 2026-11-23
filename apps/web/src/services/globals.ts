@@ -174,11 +174,15 @@ export type GlobalResult<T> =
   | { kind: 'conflict'; message: string }
   | { kind: 'retry'; message: string }
   | { kind: 'invalid' | 'forbidden'; message: string };
+type ReadGlobalEntry = (
+  id: string,
+  options?: { reviews?: boolean },
+) => Promise<GlobalResult<GlobalSnapshot>>;
 export interface GlobalsService {
   read(): Promise<GlobalResult<GlobalSnapshot>>;
   /** Catalogue-only reads can be shared by the finder and workspace. */
   readCatalog?(): Promise<GlobalResult<GlobalSnapshot>>;
-  readEntry?(id: string): Promise<GlobalResult<GlobalSnapshot>>;
+  readEntry?: ReadGlobalEntry;
   mutate(request: {
     expectedHead: string;
     mutation: GlobalMutation;
@@ -254,12 +258,18 @@ export function createGlobalsService(
     /** A write receipt's entry and head (the saved overlay keeps it until the bundle catches up). */
     onEntrySaved?(entry: GlobalEntry, head: string): void;
   },
-): GlobalsService & { readEntry(id: string): Promise<GlobalResult<GlobalSnapshot>> } {
+): GlobalsService & { readEntry: ReadGlobalEntry } {
   let cached = options.initialSnapshot && structuredClone(options.initialSnapshot);
   let generation = 0;
   let catalogRead: Promise<GlobalResult<GlobalSnapshot>> | undefined;
   let entryRead:
-    { id: string; generation: number; promise: Promise<GlobalResult<GlobalSnapshot>> } | undefined;
+    | {
+        id: string;
+        reviews: boolean;
+        generation: number;
+        promise: Promise<GlobalResult<GlobalSnapshot>>;
+      }
+    | undefined;
   const conflict = (): GlobalResult<GlobalSnapshot> => ({
     kind: 'conflict',
     message: 'Globals changed. Refresh to load the current snapshot.',
@@ -448,9 +458,7 @@ export function createGlobalsService(
     }
     return publish(base, token);
   }
-  const service: GlobalsService & {
-    readEntry(id: string): Promise<GlobalResult<GlobalSnapshot>>;
-  } = {
+  const service: GlobalsService & { readEntry: ReadGlobalEntry } = {
     async read() {
       const token = ++generation;
       const next: GlobalSnapshot = {
@@ -483,13 +491,13 @@ export function createGlobalsService(
       options.onCatalog?.([...next.entries]);
       return publish(next, token);
     },
-    async readEntry(id) {
+    async readEntry(id, { reviews = true } = {}) {
       const token = ++generation;
       if (!cached) return conflict();
       // While sync looks current, the first review page loads alongside the entry; it is used
       // only if the entry is current too, and only at the entry's head (readReviews checks).
       const firstReviews =
-        cached.sync[id]?.status === 'current' ? transport.reviews(id, 'p0') : undefined;
+        reviews && cached.sync[id]?.status === 'current' ? transport.reviews(id, 'p0') : undefined;
       const entry = await transport.entry(id);
       if (entry.kind !== 'ok') return entry;
       if (entry.value.entry.id !== id) return invalid('Global entry read names another entry.');
@@ -499,7 +507,8 @@ export function createGlobalsService(
       mergeEntry(next, entry.value.entry);
       // Only the Worker's entry and pending causes can settle this entry's queued rename.
       applyState(next, entry.value, id);
-      if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
+      if (!reviews) delete next.impacts[id];
+      else if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
         const rows = await readReviews(id, entry.value, token, firstReviews);
         if (rows.kind !== 'ok') return rows;
         next.impacts[id] = rows.value;
@@ -511,12 +520,18 @@ export function createGlobalsService(
   };
   return {
     ...service,
-    readEntry(id) {
-      if (entryRead?.id === id && entryRead.generation === generation) return entryRead.promise;
-      const pending = service.readEntry(id).finally(() => {
+    readEntry(id, options) {
+      const reviews = options?.reviews ?? true;
+      if (
+        entryRead?.id === id &&
+        entryRead.reviews === reviews &&
+        entryRead.generation === generation
+      )
+        return entryRead.promise;
+      const pending = service.readEntry(id, options).finally(() => {
         if (entryRead?.promise === pending) entryRead = undefined;
       });
-      entryRead = { id, generation, promise: pending };
+      entryRead = { id, reviews, generation, promise: pending };
       return pending;
     },
     readCatalog() {
