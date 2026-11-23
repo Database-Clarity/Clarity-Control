@@ -675,7 +675,9 @@ export class PublishDriver {
       ...(remote === 'rejected' && answer ? { receiptChecked: true } : {}),
       ...(refusal !== undefined
         ? { refusal, error: `Tooltips ${hashList(op.hashes)}: ${refusal}` }
-        : {}),
+        : answer?.changedSelection !== undefined
+          ? { error: answer.changedSelection }
+          : {}),
     });
   }
 

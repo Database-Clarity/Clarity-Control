@@ -212,6 +212,31 @@ it.each([false, true])(
   },
 );
 
+it('shows a named changed row without resending its part after another part succeeds', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  await driver.create(
+    Array.from({ length: 51 }, (_, index) => ({
+      hash: index + 1000,
+      digest: digest(1),
+      previous: undefined,
+    })),
+  );
+  await settle();
+  const done = h.api.post.mock.calls[0]![0];
+  const changed = h.api.post.mock.calls[1]![0];
+  const reason = 'Saved text changed after review for Demo Perk.';
+  h.api.status.mockImplementation(async (id) => (id === done.opId ? 'done' : 'rejected'));
+  h.api.post.mockResolvedValue({ status: 'rejected', changedSelection: reason });
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  expect(h.api.post.mock.calls.map(([body]) => body)).toEqual([done, changed, changed]);
+  expect(groupPublishes(ops())[0]?.op.error).toContain(reason);
+  expect(ops().find((op) => op.opId === changed.opId)?.receiptChecked).toBe(true);
+  expect(ops().find((op) => op.opId === done.opId)?.status).toBe('done');
+  driver.stop();
+});
+
 it('records that a rejection without a regroupable reason was checked', async () => {
   const h = harness();
   const first = h.make();

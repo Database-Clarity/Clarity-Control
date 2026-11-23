@@ -17,6 +17,22 @@ it.each([
   ).resolves.toEqual(refusal ? { status: 'rejected', refusal } : { status: 'rejected' });
 });
 
+it('returns the named terminal reason for a changed selection', async () => {
+  const reason = 'Saved text changed after review for Demo Perk.';
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({
+      opId: 'op',
+      result: { status: 'rejected', code: 'selected-rows-changed', error: reason },
+    }),
+  );
+  await expect(
+    postPublish({ opId: 'op', hashes: [10], expected: { 10: 'digest' } }),
+  ).resolves.toEqual({
+    status: 'rejected',
+    changedSelection: reason,
+  });
+});
+
 it.each([
   { status: 409, error: 'Tooltip 10 changed since review' },
   { status: 502, error: 'Upstream request failed' },

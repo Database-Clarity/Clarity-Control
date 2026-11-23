@@ -63,6 +63,9 @@ import {
 } from '@clarity/core/schedule';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { nameProofRequestSchema } from '../../apps/worker/src/globals/model.js';
+import { snippetsPath } from '../../packages/core/src/customSnippets.js';
+import { langSchema } from '../../packages/core/src/languages.js';
+import { marksPath } from '../../packages/core/src/marks.js';
 import {
   appCredits,
   requesterCredits,
@@ -225,6 +228,15 @@ export class TextlessConsumerOutput extends ProposalOutputRejected {
   constructor(message: string) {
     super(message);
     this.name = 'TextlessConsumerOutput';
+  }
+}
+class ManualSourceAdvanced extends Error {
+  constructor(
+    readonly candidate: string,
+    readonly requestBlob: string,
+    readonly source: string,
+  ) {
+    super('The manual publish source kept changing. The request is still queued.');
   }
 }
 export class Publisher {
@@ -668,8 +680,8 @@ export class Publisher {
     };
     return this.git.commit(parent, tree, `Publish ${r.opId}`, this.credits(r.requestBlob, r.opId));
   }
-  private onlyPublishBookkeeping(source: string, head: string, tree: Tree, opId: string) {
-    if (!this.git.ancestor(source, head)) return false;
+  private manualSourceAdvance(source: string, head: string, tree: Tree, opId: string) {
+    if (!this.git.ancestor(source, head)) return 'blocked';
     const reviewed = this.git.tree(source);
     const reviewedModes = this.git.treeModes?.(source);
     const currentModes = this.git.treeModes?.(head);
@@ -679,7 +691,7 @@ export class Publisher {
       Object.keys(reviewedModes ?? {}).some((path) => !Object.hasOwn(reviewed, path)) ||
       Object.keys(currentModes ?? {}).some((path) => !Object.hasOwn(tree, path))
     )
-      return false;
+      return 'blocked';
     const regular = (modes: Record<string, string> | undefined, path: string) =>
       !modes || modes[path] === '100644';
     const nameProofRequest = (snapshot: Tree, path: string) => {
@@ -688,22 +700,56 @@ export class Publisher {
       const request = nameProofRequestSchema.safeParse(this.read(snapshot, path));
       return request.success && request.data.id === id;
     };
+    let rebuild = false;
+    const acceptChange = (path: string) => {
+      if (
+        (Object.hasOwn(reviewed, path) && !regular(reviewedModes, path)) ||
+        (Object.hasOwn(tree, path) && !regular(currentModes, path))
+      )
+        return false;
+      const localized = /^(?:glossary|snippets)\/([^/]+)\.json$/.exec(path)?.[1];
+      if (
+        path === marksPath ||
+        (localized !== 'en' && langSchema.safeParse(localized).success) ||
+        /^current-saves\/(?:[0-7][0-9A-HJKMNP-TV-Z]{25}\/(?:\d+|request|conflicts)|requesters\/\d+)\.json$/.test(
+          path,
+        )
+      )
+        return true;
+      if (
+        /^tooltips\/(?:0|[1-9]\d*)\.json$/.test(path) ||
+        /^globals\/(?:layout\.json$|sync\.json$|(?:entries|causes|intents|names|reviews)\/)/.test(
+          path,
+        ) ||
+        path.startsWith('schedule/') ||
+        [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)
+      ) {
+        rebuild = true;
+        return true;
+      }
+      return false;
+    };
 
     for (const [path, oid] of Object.entries(reviewed)) {
       if (!Object.hasOwn(tree, path)) {
         // A name-proof drain can consume its request while adding a clash proof.
-        if (!regular(reviewedModes, path) || !nameProofRequest(reviewed, path)) return false;
-      } else if (
-        tree[path] !== oid ||
-        (currentModes &&
-          (!Object.hasOwn(currentModes, path) || currentModes[path] !== reviewedModes?.[path]))
-      ) {
-        return false;
+        if (
+          !(regular(reviewedModes, path) && nameProofRequest(reviewed, path)) &&
+          !acceptChange(path)
+        )
+          return 'blocked';
+      } else {
+        if (
+          currentModes &&
+          (!Object.hasOwn(currentModes, path) || currentModes[path] !== reviewedModes?.[path])
+        )
+          return 'blocked';
+        if (tree[path] !== oid && !acceptChange(path)) return 'blocked';
       }
     }
     for (const path of Object.keys(tree)) {
       if (Object.hasOwn(reviewed, path)) continue;
-      if (!regular(currentModes, path)) return false;
+      if (!regular(currentModes, path)) return 'blocked';
       const request = /^publish\/requests\/([^/]+)\.json$/.exec(path)?.[1];
       const kick = /^publish\/kicks\/(?:batch-)?([^/]+)-[0-9]+\.json$/.exec(path)?.[1];
       const saveKick = /^publish\/kicks\/current-save-([^/]+)\.json$/.exec(path)?.[1];
@@ -717,16 +763,23 @@ export class Publisher {
           log[2] !== opId &&
           publishOpIdSchema.safeParse(log[2]).success &&
           log[1] === publishMonth(log[2]));
-      const clashProof = /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
-      if (!queueAddition && !clashProof.test(path) && !nameProofRequest(tree, path)) return false;
+      const clashProof =
+        /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
+      if (
+        !queueAddition &&
+        !clashProof.test(path) &&
+        !nameProofRequest(tree, path) &&
+        !acceptChange(path)
+      )
+        return 'blocked';
     }
-    return true;
+    return rebuild ? 'rebuild' : 'bookkeeping';
   }
   async record(
     opId: string,
     receipt: Receipt | undefined,
     candidate: string | undefined,
-    result?: { status: string; error?: string; outcomes?: unknown },
+    result?: { status: string; code?: 'selected-rows-changed'; error?: string; outcomes?: unknown },
     requestBlob?: string,
     landing?: Landing,
     atomicLive?: { parent: string; candidate: string },
@@ -753,12 +806,14 @@ export class Publisher {
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
         const signed = await this.verifyRequest(receipt.requestBlob, opId, tree);
         const source = receipt.sourceCommit;
-        // Queue bookkeeping leaves the original head-bound release inputs intact.
-        if (
-          source !== h &&
-          (signed.kind === 'batch' || !this.onlyPublishBookkeeping(source, h, tree, opId))
-        )
-          throw new ConsumerOutputRejected('Global receipt identity mismatch');
+        if (source !== h) {
+          const advance =
+            signed.kind === 'batch' ? 'blocked' : this.manualSourceAdvance(source, h, tree, opId);
+          if (advance === 'rebuild')
+            throw new ManualSourceAdvanced(atomicLive.candidate, receipt.requestBlob, source);
+          if (advance === 'blocked')
+            throw new ConsumerOutputRejected('Global receipt identity mismatch');
+        }
         let documents: Tooltip[] | undefined;
         if (signed.kind === 'batch') {
           const plan = await this.batchPlan(
@@ -974,31 +1029,47 @@ export class Publisher {
     throw new Error('Duplicate closure raced');
   }
   async operation(opId: string): Promise<void> {
-    const p = paths(opId),
-      s = this.head(this.options.dataBranch),
-      tree = this.git.tree(s);
-    try {
-      await this.publishOperation(opId, s, tree);
-    } catch (error) {
-      if (!(error instanceof ConsumerOutputRejected)) throw error;
-      // A content refusal is terminal: only the rejection Record changes data. Never
-      // leave it at the queue head, where it would block every later user's publish.
-      await this.record(
-        opId,
-        undefined,
-        undefined,
-        { status: 'rejected', error: String(error) },
-        tree[p.request],
-      );
+    const p = paths(opId);
+    let rebuilding: ManualSourceAdvanced | undefined;
+    for (let attempt = 0; ; attempt++) {
+      const s = this.head(this.options.dataBranch);
+      const tree = this.git.tree(s);
+      if (rebuilding && !tree[p.log] && tree[p.request] !== rebuilding.requestBlob)
+        throw rebuilding;
       try {
-        const candidate = this.git.head(p.candidate);
-        if (candidate) this.git.cas(p.candidate, candidate, undefined);
-      } catch {
-        /* A terminal Record is authoritative; candidate cleanup is best effort. */
+        return await this.publishOperation(opId, s, tree, rebuilding);
+      } catch (error) {
+        if (error instanceof ManualSourceAdvanced && attempt < 2) {
+          this.git.cas(p.candidate, error.candidate, undefined);
+          rebuilding = error;
+          await new GlobalsPublisher(this).drain();
+          continue;
+        }
+        if (!(error instanceof ConsumerOutputRejected)) throw error;
+        // A terminal content refusal closes the signed request without changing LIVE.
+        await this.record(
+          opId,
+          undefined,
+          undefined,
+          { status: 'rejected', error: String(error) },
+          tree[p.request],
+        );
+        try {
+          const candidate = this.git.head(p.candidate);
+          if (candidate) this.git.cas(p.candidate, candidate, undefined);
+        } catch {
+          /* A terminal Record is authoritative; candidate cleanup is best effort. */
+        }
+        return;
       }
     }
   }
-  private async publishOperation(opId: string, s: string, tree: Tree): Promise<void> {
+  private async publishOperation(
+    opId: string,
+    s: string,
+    tree: Tree,
+    rebuilding?: ManualSourceAdvanced,
+  ): Promise<void> {
     const p = paths(opId);
     if (tree[p.log]) {
       await this.duplicate(opId);
@@ -1103,6 +1174,37 @@ export class Publisher {
           }
         }
         if (outcomes.some((e) => e.status !== 'accepted')) {
+          if (rebuilding) {
+            const previous = this.git.tree(rebuilding.source);
+            const changed = [
+              ...new Set(
+                outcomes
+                  .filter(({ status }) => status !== 'accepted')
+                  .map(({ hash }) => {
+                    const document = tooltips.find((tooltip) => tooltip.hash === hash);
+                    return (
+                      document?.custom?.name ||
+                      this.read<Tooltip>(previous, `tooltips/${hash}.json`)?.custom?.name ||
+                      this.options.facts[hash]?.name ||
+                      `Tooltip ${hash}`
+                    );
+                  }),
+              ),
+            ];
+            await this.record(
+              opId,
+              undefined,
+              undefined,
+              {
+                status: 'rejected',
+                code: 'selected-rows-changed',
+                error: `Saved text changed after review for ${changed.join(', ')}. Nothing in this part went live. Review and publish the part again.`,
+                outcomes,
+              },
+              blob,
+            );
+            return;
+          }
           await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
           return;
         }
@@ -1199,7 +1301,7 @@ export class Publisher {
               { parent: l, candidate: c },
             );
           } catch (error) {
-            if (error instanceof RefRace) throw error;
+            if (error instanceof RefRace || error instanceof ManualSourceAdvanced) throw error;
             throw new ConsumerOutputRejected(
               'Global publication changed or requires recovery; nothing partially published',
             );

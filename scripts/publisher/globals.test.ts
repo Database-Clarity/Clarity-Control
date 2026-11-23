@@ -712,8 +712,6 @@ describe('dependency-safe global release', () => {
     },
   );
   it.each([
-    ['a tooltip edit', { 'tooltips/40.json': tooltip(40, '#Alpha raced') }],
-    ['a tooltip removal', { 'tooltips/40.json': undefined }],
     ['a change to the upload markers', { 'live/pushed.json': { '40': 'tampered' } }],
     ['a non-proof retry', { 'globals/retries/3283270b-d921-468b-8d09-6b4a90659d30.json': {} }],
     ['an unrelated addition', { toString: { other: true } }],
@@ -734,6 +732,100 @@ describe('dependency-safe global release', () => {
       expect(f.read('globals/live/converter-v2-test.json').store).toEqual(f.published);
     },
   );
+  it.each([
+    ['marks', { 'config/marks.json': { types: [], entries: {} } }, false],
+    [
+      'a Compendium decision',
+      {
+        'config/marks.json': {
+          types: [],
+          entries: {},
+          compendium: { 42: { kind: 'no-match', by: 1, at: new Date(now).toISOString() } },
+        },
+      },
+      false,
+    ],
+    ['a glossary edit', { 'glossary/de.json': { v: 1, lang: 'de', terms: {} } }, false],
+    ['a localized snippet edit', { 'snippets/de.json': {} }, false],
+    [
+      'a staged save',
+      {
+        [`current-saves/${A}/0.json`]: 'e30=',
+        'current-saves/requesters/1.json': { active: { requestId: A, parts: 1 }, starts: [now] },
+      },
+      false,
+    ],
+    ['a team snippet edit', { 'config/snippets.json': { snippets: [] } }, true],
+    ['another tooltip edit', { 'tooltips/41.json': tooltip(41, 'Saved concurrently') }, true],
+  ] as const)(
+    'records the signed part during %s (rebuild=%s)',
+    async (_label, changes, rebuild) => {
+      const f = await fixture();
+      const pin = f.read('.publisher/PIN');
+      f.change({
+        '.publisher/PIN': {
+          ...pin,
+          capabilities: [...pin.capabilities, globalsConfigWithoutMarks],
+        },
+      });
+      await f.globals.drain();
+      await f.request([42]);
+      const source = f.git.head(D);
+      f.git.beforeAtomic = () => f.change(changes);
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+      for (const [path, value] of Object.entries(changes)) expect(f.read(path)).toEqual(value);
+      const receipt = f.pub.read<{ sourceCommit: string }>(
+        f.git.tree(f.git.head(L)!),
+        paths(A).receipt,
+      );
+      expect(receipt?.sourceCommit === source).toBe(!rebuild);
+      expect(f.current()[paths(A).request]).toBeUndefined();
+    },
+  );
+  it.each([tooltip(40, '#Alpha raced'), undefined])(
+    'names the selected row changed during an atomic multirow part',
+    async (changed) => {
+      const f = await fixture();
+      f.options.facts[40].name = 'Changed entry';
+      f.options.facts[42].name = 'Still ready';
+      await f.globals.drain();
+      f.approve(40);
+      await f.globals.drain();
+      await f.request([40, 42]);
+      const before = f.git.head(L);
+      f.git.beforeAtomic = () => f.change({ 'tooltips/40.json': changed });
+      await f.pub.operation(A);
+      const result = f.read(paths(A).log).result;
+      expect(result.status).toBe('rejected');
+      expect(result.code).toBe('selected-rows-changed');
+      expect(result.error).toContain('Changed entry');
+      expect(result.error).not.toContain('Still ready');
+      expect(result.outcomes).toContainEqual({ hash: 42, status: 'accepted' });
+      expect(f.git.head(L)).toBe(before);
+      expect(f.pub.read(f.current(), 'tooltips/40.json')).toEqual(changed);
+    },
+  );
+  it('keeps the signed request queued when rebuilds exhaust the in-run limit', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    const live = f.git.head(L);
+    const record = f.pub.record.bind(f.pub);
+    let changes = 0;
+    f.pub.record = async (...args) => {
+      if (args[6]) f.change({ 'tooltips/41.json': tooltip(41, `Racing save ${++changes}`) });
+      return record(...args);
+    };
+    await expect(f.pub.operation(A)).rejects.toThrow('request is still queued');
+    expect(changes).toBe(3);
+    expect(f.current()[paths(A).request]).toBeDefined();
+    expect(f.current()[paths(A).log]).toBeUndefined();
+    expect(f.git.head(L)).toBe(live);
+    f.pub.record = record;
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+  });
   it.each(['100755', undefined])(
     'rejects a retry kick with mode %s from a mode-aware adapter',
     async (mode) => {
@@ -776,7 +868,7 @@ describe('dependency-safe global release', () => {
       { ...git.tree(source), [`publish/kicks/${sibling}-12345.json`]: git.writeBlob('{}') },
       'Kick sibling publish',
     );
-    expect(pub['onlyPublishBookkeeping'](source, kicked, git.tree(kicked), A)).toBe(true);
+    expect(pub['manualSourceAdvance'](source, kicked, git.tree(kicked), A)).toBe('bookkeeping');
 
     const empty = git.git(['mktree'], '').trim();
     const config = git.git(['rev-parse', `${kicked}:config`]).trim();
@@ -790,7 +882,7 @@ describe('dependency-safe global release', () => {
       .git(['commit-tree', changedRoot, '-p', source], 'Kick and change config identity')
       .trim();
     expect(git.tree(changed)).toEqual(git.tree(kicked));
-    expect(pub['onlyPublishBookkeeping'](source, changed, git.tree(changed), A)).toBe(false);
+    expect(pub['manualSourceAdvance'](source, changed, git.tree(changed), A)).toBe('blocked');
   });
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();
