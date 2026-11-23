@@ -3,6 +3,7 @@ import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
 import { InactiveMoveControl } from './InactiveMoveControl';
+import { GroupRemoveControl } from './GroupRemoveControl';
 import { applyInactiveMoves, useDataStore } from '../../stores/data';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
@@ -671,19 +672,24 @@ export function GroupedPerks({
                 </span>
               )}
             </span>
-            {currentHash !== undefined && perk.hash !== currentHash && (
-              <InactiveMoveControl
-                hash={perk.hash}
-                name={
-                  perk.name ||
-                  (sandbox && sandboxPerkName(perk.hash, sandbox)) ||
-                  `Tooltip ${perk.hash}`
-                }
-                moves={moves}
-                onSaved={applyInactiveMoves}
-                className={styles.ghost}
-              />
-            )}
+            <span className={styles.groupedActions}>
+              {perk.reason !== 'sandbox' && (
+                <GroupRemoveControl hash={perk.hash} name={perk.name} className={styles.ghost} />
+              )}
+              {currentHash !== undefined && perk.hash !== currentHash && (
+                <InactiveMoveControl
+                  hash={perk.hash}
+                  name={
+                    perk.name ||
+                    (sandbox && sandboxPerkName(perk.hash, sandbox)) ||
+                    `Tooltip ${perk.hash}`
+                  }
+                  moves={moves}
+                  onSaved={applyInactiveMoves}
+                  className={styles.ghost}
+                />
+              )}
+            </span>
           </span>
         </li>
       ))}

@@ -493,6 +493,44 @@ it('pushes canonical output and repairs obsolete name stubs after recanonicaliza
   });
 });
 
+it('keeps a removed member live on rollback pushes until its own push', async () => {
+  publisherConfig.enabled = false;
+  f.aliases = { 700: { to: 124, kind: 'sandbox' } };
+  expect((await f.request('/push-live', 'POST', { hashes: [123] })).status).toBe(200);
+  const before = structuredClone(f.live.perks) as Record<string, unknown>;
+  expect(before).toMatchObject({ 124: { aliasOf: 123 }, 700: { aliasOf: 123 } });
+  items[126] = { ...items[126]!, name: 'Independent tooltip' };
+  f.moveData({
+    [aliasGroupsPath]: {
+      ...groups(123, [123, 125]),
+      removed: { 124: { canonical: 123, by, at } },
+    },
+    'tooltips/124.json': document(124),
+    'tooltips/126.json': document(126, 'Independent text'),
+  });
+  expect((await f.request('/push-live', 'POST', { hashes: [126] })).status).toBe(200);
+  const { 126: independent, ...rest } = f.live.perks as Record<string, unknown>;
+  expect(independent).toMatchObject({ hash: 126 });
+  expect(rest).toEqual(before);
+  // A new canonical for the remaining group: no stub may point at the former one, now a stub.
+  f.moveData({
+    [aliasGroupsPath]: { ...groups(125, [123, 125]), removed: { 124: { canonical: 123, by, at } } },
+    'tooltips/123.json': undefined,
+    'tooltips/125.json': document(125),
+  });
+  expect((await f.request('/push-live', 'POST', { hashes: [125] })).status).toBe(200);
+  expect(f.live.perks).toMatchObject({
+    123: { aliasOf: 125 },
+    124: { aliasOf: 125 },
+    700: { aliasOf: 125 },
+  });
+  expect((await f.request('/push-live', 'POST', { hashes: [124] })).status).toBe(200);
+  expect(f.live.perks).toMatchObject({
+    124: { editor: { en: { main: 'Canonical text' } } },
+    700: { aliasOf: 124 },
+  });
+});
+
 it.each([false, true])(
   'preserves an unrelated saved sandbox pick during a later push (empty groups=%s)',
   async (empty) => {

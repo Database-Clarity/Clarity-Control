@@ -547,8 +547,17 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 4rem) (lang-
   border-top: 0 !important;
   color: var(--text2);
   font-size: 0.75rem;
-  > button {
-    margin-inline-start: auto;
+}
+
+// Row actions (Remove from group, Move to Inactive) share the row's end.
+.groupedActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-inline-start: auto;
+  &:empty {
+    display: none;
   }
 }
 .paneToggles {

@@ -7,6 +7,131 @@ import { reviewQueue } from './reviewQueue';
 import { reviewCategories } from './reviewCategories';
 import { proposalFor } from './rapidReview';
 
+function keywordFixture() {
+  const f = guidedFixture();
+  const hash = 100;
+  const name = 'Amplified';
+  const cell = {
+    plain: 'Increased movement speed.',
+    runs: [{ text: 'Increased movement speed.' }],
+  };
+  const row = {
+    name,
+    nameNorm: 'amplified',
+    rowIndex: 6,
+    section: 'Glossary',
+    anchor: { row: 6, col: 1 },
+    cell,
+  };
+  const arc = { gid: '618967225', name: 'Arc', rows: [row], grid: [{ row: 6, col: 3, cell }] };
+  const solar = { gid: '1186062409', name: 'Solar', rows: [] as typeof arc.rows };
+  f.source.tabs = [arc, solar];
+  const item = {
+    ...f.editor.items[hash],
+    categoryId: 'verbs',
+    definitionType: 'DestinyTraitDefinition',
+    name,
+    inGameDescription: 'Rapidly defeating targets with [Arc] Arc damage makes you amplified.',
+  };
+  f.editor.items = { [hash]: item };
+  const decide = (options: { stale?: boolean; frozen?: boolean } = {}) => {
+    const fingerprint = sourceFingerprint(f.source.tabs);
+    const baseline = `synthetic|${fingerprint}`;
+    const progress = emptyProgress();
+    if (options.stale) progress.decisions[hash] = { kind: 'skipped', fingerprint: 'old' };
+    const entries = reviewQueue(f.editor, f.source, {}, progress, fingerprint);
+    const proposals = new Map(
+      entries.map((e) => [e.hash, proposalFor(e.base, f.editor, f.source)]),
+    );
+    const categories = reviewCategories(entries, f.editor, proposals, false, false, f.source);
+    const [category] = categories;
+    const record = {
+      id: category.id,
+      name: category.name,
+      rule: category.rule,
+      active: true,
+      count: 1,
+      hashes: options.frozen ? [] : [hash],
+      comment: '',
+    };
+    const document = { ...f.document, baseline, categories: { [category.id]: record } };
+    return guidedDecisions(document, categories, proposals, f.source, baseline, f.scope)[0]
+      .entries[0];
+  };
+  return { decide, row, arc, solar, item };
+}
+
+it('promotes a sole manifest keyword in an uncovered element Glossary', () => {
+  const f = keywordFixture();
+  expect(f.decide()).toMatchObject({
+    confidence: 'high',
+    action: 'link',
+    ruleId: 'sole-compendium-candidate',
+    link: { gid: f.arc.gid, rowKey: 'Amplified', section: 'Glossary' },
+  });
+  expect(f.decide({ frozen: true })).toBeUndefined();
+  expect(f.decide({ stale: true })?.confidence).toBe('medium');
+});
+
+it.each(['Amplified', 'Amplify', 'Amqlifieq'])(
+  'withholds promotion for the cross-tab competitor %s',
+  (name) => {
+    const f = keywordFixture();
+    f.solar.rows.push({ ...f.row, name, nameNorm: name.toLowerCase() });
+    expect(f.decide()?.confidence).not.toBe('high');
+  },
+);
+
+it('withholds promotion for a manifest mismatch or a multipart description', () => {
+  const f = keywordFixture();
+  const description = f.item.inGameDescription;
+  f.item.inGameDescription = description.replace('[Arc] Arc', '[Solar] Solar');
+  expect(f.decide()?.confidence).toBe('medium');
+  f.item.inGameDescription = description;
+  const extra = { plain: 'Further information.', runs: [{ text: 'Further information.' }] };
+  f.arc.grid.push({ row: 6, col: 4, cell: extra });
+  f.row.cell = {
+    plain: f.row.cell.plain + '\n' + extra.plain,
+    runs: [{ text: f.row.cell.plain + '\n' + extra.plain }],
+  };
+  expect(f.decide()?.confidence).toBe('medium');
+});
+
+it('requires the original manifest keyword rather than a fragment alias', () => {
+  const f = keywordFixture();
+  f.item.name = 'Thread of Amplified';
+  expect(f.decide()?.confidence).toBe('medium');
+});
+
+it('checks the element named in plain manifest text', () => {
+  const f = keywordFixture();
+  f.item.inGameDescription = 'Gain Solar energy for increasing movement speed.';
+  expect(f.decide()?.confidence).toBe('medium');
+  f.item.inGameDescription = 'Both Arc and Solar abilities can grant this effect.';
+  expect(f.decide()?.confidence).toBe('medium');
+});
+
+it('accepts an exact first-line identifier in a single Glossary cell', () => {
+  const f = keywordFixture();
+  f.row.name = 'Amplified\nArc Buff';
+  f.row.nameNorm = 'amplified arc buff';
+  expect(f.decide()).toMatchObject({
+    ruleId: 'sole-compendium-candidate',
+    link: { gid: f.arc.gid, rowKey: f.row.name },
+  });
+});
+
+it('ignores exact names in tabs that cannot hold the keyword', () => {
+  const f = keywordFixture();
+  f.solar.gid = '1662574278';
+  f.solar.name = 'Weapon Perks';
+  f.solar.rows.push({ ...f.row, section: 'Weapon Traits' });
+  expect(f.decide()).toMatchObject({
+    ruleId: 'sole-compendium-candidate',
+    link: { gid: f.arc.gid },
+  });
+});
+
 function siblingFixture(fragment = false) {
   const f = guidedFixture();
   const categoryId = fragment ? 'subclass-fragment' : 'subclass-aspect';

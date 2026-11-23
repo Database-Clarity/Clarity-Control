@@ -5,7 +5,6 @@ import goldenTricorn from '../history/fixtures/golden-tricorn.json';
 import type { EditorData } from '../../stores/data';
 import {
   changedLines,
-  exportedText,
   classifyRows,
   kindCounts,
   kindOf,
@@ -15,6 +14,7 @@ import {
   useKinds,
 } from './kinds';
 import type { PendingTooltip } from './model';
+import { exportedText } from './published';
 
 const globals = { variables: '', titles: '' };
 const tooltip = (en: string, extra: Partial<Tooltip> = {}): Tooltip => ({

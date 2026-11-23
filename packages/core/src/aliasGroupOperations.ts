@@ -44,12 +44,16 @@ export const aliasGroupOperationSchema = z
         acknowledgeConflicts: z.literal(true).optional(),
       })
       .strict(),
+    /** One non-canonical member leaves; it starts as a copy of the group's current tooltip. */
+    z.object({ op: z.literal('removeMember'), canonical: hashSchema, member: hashSchema }).strict(),
   ])
   .superRefine((op, ctx) => {
     if ((op.op === 'accept' || op.op === 'split') && !op.members.includes(op.canonical))
       ctx.addIssue({ code: 'custom', message: 'Canonical must be a selected member' });
     if (op.op === 'setCanonical' && op.canonical === op.to)
       ctx.addIssue({ code: 'custom', message: 'Canonical must change' });
+    if (op.op === 'removeMember' && op.canonical === op.member)
+      ctx.addIssue({ code: 'custom', message: 'The main entry cannot leave its own group' });
   });
 export type AliasGroupOperation = z.infer<typeof aliasGroupOperationSchema>;
 

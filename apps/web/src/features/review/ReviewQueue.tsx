@@ -12,6 +12,7 @@ import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { flushSync } from 'react-dom';
 import { useHref, useLocation, useNavigate } from 'react-router-dom';
 import styles from './ReviewQueue.module.scss';
+import { editorLabel, editorPath, rowKey, unitName } from './globalRows';
 import type { Kind } from './kinds';
 import {
   markerGroup,
@@ -51,6 +52,11 @@ const QueueRow = memo(function QueueRow({
   locked: string | undefined;
 }) {
   const hash = entry.tooltip.hash;
+  const key = rowKey(entry);
+  const path = editorPath(entry);
+  const label = editorLabel(entry);
+  const together =
+    entry.part && entry.part.names.length > 1 ? `Ticked together: ${unitName(entry)}` : undefined;
   return (
     <div className={styles.row} data-current={current || undefined}>
       <label className={styles.check}>
@@ -59,14 +65,14 @@ const QueueRow = memo(function QueueRow({
           checked={checked}
           readOnly
           disabled={!!locked}
-          title={locked}
+          title={locked ?? together}
           data-review-toggle={hash}
-          aria-label={`Include ${entry.name}, ${entry.category}, ${hash}`}
+          aria-label={`Include ${entry.name}, ${entry.category}, ${hash}${together ? `. ${together}` : ''}`}
         />
       </label>
       <a
-        href={`${href}?hash=${hash}`}
-        data-review-hash={hash}
+        href={`${href}?hash=${encodeURIComponent(key)}`}
+        data-review-hash={key}
         title={`${entry.name} · ${hash}${entry.unpublishable ? ` · ${entry.unpublishable}` : ''}`}
         aria-label={`${entry.name} ${hash}${kind ? `, ${kind}` : ''}`}
         aria-current={current ? 'page' : undefined}
@@ -84,10 +90,13 @@ const QueueRow = memo(function QueueRow({
       {/* Owner 2026-11-16: every item jumps straight to the editor to fix it up. */}
       <a
         className={styles.edit}
-        href={`${editorHref}/${hash}`}
-        data-review-edit={hash}
-        title="Open in editor"
-        aria-label={`Open ${entry.name} in editor`}
+        href={`${editorHref}${path}`}
+        data-review-edit={key}
+        data-review-path={path}
+        title={label}
+        aria-label={
+          label === 'Open in editor' ? `Open ${entry.name} in editor` : `${label} (${entry.name})`
+        }
       >
         <span aria-hidden="true">↗</span>
       </a>
@@ -137,11 +146,14 @@ const GroupHeader = memo(function GroupHeader({
         title={
           marker
             ? 'Saved text already matches live; listed only because of the alias migration.'
-            : undefined
+            : group.note
         }
       >
         <span className={styles.chevron} aria-hidden="true" />
-        <span className={styles.groupName}>{group.label}</span>
+        <span className={styles.groupName}>
+          {group.label}
+          {group.note && <small className={styles.identity}> · {group.note}</small>}
+        </span>
         <span className={styles.groupCount}>{countFormat.format(group.count)}</span>
       </button>
     </div>
@@ -207,13 +219,13 @@ export function ReviewQueue({
   );
   // Resolve the router/base hrefs once per window, rather than querying <base> per row.
   const href = useHref('/review');
-  const editorHref = useHref('/t');
+  const editorHref = useHref('/').replace(/\/$/, '');
   const navigate = useNavigate();
   const location = useLocation();
   const firstRow = items.find((item) => item.kind === 'row');
   const currentHash =
     selectedHash ??
-    (!location.search && firstRow?.kind === 'row' ? String(firstRow.entry.tooltip.hash) : null);
+    (!location.search && firstRow?.kind === 'row' ? String(rowKey(firstRow.entry)) : null);
   const selected = useReviewQueue((state) => state.selected);
   const toggle = useReviewQueue((state) => state.toggle);
   const toggleAll = useReviewQueue((state) => state.toggleAll);
@@ -336,7 +348,7 @@ export function ReviewQueue({
       selectedHash === null
         ? -1
         : items.findIndex(
-            (item) => item.kind === 'row' && String(item.entry.tooltip.hash) === selectedHash,
+            (item) => item.kind === 'row' && String(rowKey(item.entry)) === selectedHash,
           ),
     [items, selectedHash],
   );
@@ -443,7 +455,7 @@ export function ReviewQueue({
           // Modified clicks keep the native link (a new tab or window).
           if (!plain) return;
           event.preventDefault();
-          void navigate(`/t/${edit.dataset.reviewEdit}`);
+          void navigate(edit.dataset.reviewPath!);
           closeSheet?.();
           return;
         }
@@ -587,9 +599,9 @@ export function ReviewQueue({
         distinguish={repeatedNames.has(`${item.entry.categoryId}:${item.entry.name}`)}
         href={href}
         editorHref={editorHref}
-        current={currentHash === String(hash)}
+        current={currentHash === String(rowKey(item.entry))}
         checked={selected.has(hash)}
-        kind={publishing ? 'Publishing…' : kinds.get(hash)}
+        kind={publishing ? 'Publishing…' : kinds.get(rowKey(item.entry))}
         locked={
           item.entry.unpublishable ??
           (publishing ? 'Publishing…' : locked ? 'A publish is starting' : undefined)
@@ -600,7 +612,7 @@ export function ReviewQueue({
 }
 
 function itemKey(item: QueueItem) {
-  return item.kind === 'group' ? `g:${item.id}` : item.entry.tooltip.hash;
+  return item.kind === 'group' ? `g:${item.id}` : rowKey(item.entry);
 }
 
 /** The list's search with only the open hash changed; filters stay. */

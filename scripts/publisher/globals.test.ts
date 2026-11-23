@@ -639,8 +639,77 @@ describe('dependency-safe global release', () => {
       }
     },
   );
+  it.each(['enqueue', 'drain', 'round trip'] as const)(
+    'records a candidate during a name-proof %s',
+    async (action) => {
+      const f = await fixture();
+      if (action === 'round trip')
+        f.change({ 'tooltips/42.json': tooltip(42, 'var NeverUsed = 42\n#NeverUsed') });
+      await f.globals.drain();
+      const proofId = '3283270b-d921-468b-8d09-6b4a90659d30';
+      const proofPath = `globals/retries/${proofId}.json`;
+      const proofRequest = {
+        version: 1,
+        type: 'name-proof',
+        id: proofId,
+        operation: 'create',
+        kind: 'variables',
+        name: 'NeverUsed',
+        globalId: null,
+        revision: null,
+        expectedHead: f.git.head(D),
+        sources: await f.globals.sources(f.current(), f.git.head(L)!),
+        by: 'alice',
+        at: new Date(now).toISOString(),
+      };
+      if (action === 'drain') f.change({ [proofPath]: proofRequest });
+      await f.request([42]);
+      const pinned = f.git.head(D);
+      const pinnedTree = f.current();
+      const sibling = '01K95H00000000000000000002';
+      const completed = '01K95H00000000000000000003';
+      const kick = `publish/kicks/${sibling}-12345.json`;
+      const record = f.pub.record.bind(f.pub);
+      f.pub.record = async (...args) => {
+        if (args[0] === A && args[6]) {
+          if (action === 'round trip') {
+            f.change({ [proofPath]: proofRequest });
+            await f.globals.drain();
+            expect(f.git.head(D)).not.toBe(pinned);
+            expect(f.current()).toEqual(pinnedTree);
+          } else {
+            await f.request([42], sibling);
+            f.change({
+              [kick]: { opId: sibling },
+              [`publish/kicks/batch-${sibling}-12345.json`]: {},
+              [`publish/kicks/current-save-${sibling}.json`]: {},
+              'publish/kicks/due-202611231625-12345.json': {},
+              [paths(completed).log]: { result: {} },
+            });
+            if (action === 'drain') await f.globals.drain();
+            else f.change({ [proofPath]: proofRequest });
+          }
+        }
+        return record(...args);
+      };
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+      expect(f.current()[proofPath]).toBeUndefined();
+      const clashProof = (await namePaths('variables', 'NeverUsed')).proof;
+      if (action === 'round trip') {
+        expect(f.current()[clashProof]).toBeUndefined();
+      } else {
+        expect(f.current()[paths(sibling).request]).toBeDefined();
+        expect(f.current()[paths(completed).log]).toBeDefined();
+        expect(f.read(clashProof).name).toBe('NeverUsed');
+      }
+    },
+  );
   it.each([
     ['a tooltip edit', { 'tooltips/40.json': tooltip(40, '#Alpha raced') }],
+    ['a tooltip removal', { 'tooltips/40.json': undefined }],
+    ['a change to the upload markers', { 'live/pushed.json': { '40': 'tampered' } }],
+    ['a non-proof retry', { 'globals/retries/3283270b-d921-468b-8d09-6b4a90659d30.json': {} }],
     ['an unrelated addition', { toString: { other: true } }],
   ] as const)(
     'fails closed when a kick races with %s, with no partial live write',
@@ -666,7 +735,9 @@ describe('dependency-safe global release', () => {
       const git: Repository = f.git;
       const kick = `publish/kicks/${A}-12345.json`;
       git.treeModes = (head) => {
-        const modes = Object.fromEntries(Object.keys(git.tree(head)).map((path) => [path, '100644']));
+        const modes = Object.fromEntries(
+          Object.keys(git.tree(head)).map((path) => [path, '100644']),
+        );
         if (mode) modes[kick] = mode;
         else delete modes[kick];
         return modes;
@@ -680,6 +751,41 @@ describe('dependency-safe global release', () => {
       expect(git.head(L)).toBe(live);
     },
   );
+  it('rejects a sibling kick alongside an explicit empty config subtree in Git', async () => {
+    const f = await fixture();
+    mkdirSync('.agents', { recursive: true });
+    const repo = mkdtempSync(resolve('.agents/globals-s4-empty-tree-'));
+    execFileSync('git', ['init', '--bare', repo], { stdio: 'pipe' });
+    execFileSync('git', ['--git-dir', repo, 'config', 'publisher.simulator', 'true']);
+    const git = new LocalRepository(repo);
+    const pub = new Publisher(git, f.options);
+    const source = git.commit(
+      undefined,
+      { 'config/permissions.json': git.writeBlob('{}') },
+      'Pinned data',
+    );
+    const sibling = '01K95H00000000000000000002';
+    const kicked = git.commit(
+      source,
+      { ...git.tree(source), [`publish/kicks/${sibling}-12345.json`]: git.writeBlob('{}') },
+      'Kick sibling publish',
+    );
+    expect(pub['onlyPublishBookkeeping'](source, kicked, git.tree(kicked), A)).toBe(true);
+
+    const empty = git.git(['mktree'], '').trim();
+    const config = git.git(['rev-parse', `${kicked}:config`]).trim();
+    const changedConfig = git
+      .git(['mktree'], `${git.git(['ls-tree', config])}040000 tree ${empty}\tempty\n`)
+      .trim();
+    const changedRoot = git
+      .git(['mktree'], git.git(['ls-tree', kicked]).replace(config, changedConfig))
+      .trim();
+    const changed = git
+      .git(['commit-tree', changedRoot, '-p', source], 'Kick and change config identity')
+      .trim();
+    expect(git.tree(changed)).toEqual(git.tree(kicked));
+    expect(pub['onlyPublishBookkeeping'](source, changed, git.tree(changed), A)).toBe(false);
+  });
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();
     await f.globals.drain();

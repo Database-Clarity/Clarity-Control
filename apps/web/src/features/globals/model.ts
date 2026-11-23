@@ -61,7 +61,7 @@ export function globalDefinitions(tooltips: Readonly<Record<string, Tooltip>>): 
   );
 }
 
-export function globalPath(entry: GlobalDefinition, search = ''): string {
+export function globalPath(entry: Pick<GlobalDefinition, 'hash' | 'name'>, search = ''): string {
   const lang = new URLSearchParams(search).get('lang');
   const params = new URLSearchParams();
   if (languages.includes(lang as Lang)) params.set('lang', lang!);

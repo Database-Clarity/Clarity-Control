@@ -404,6 +404,22 @@ describe('composition C1-C4', () => {
       reason: missingSnapshotReason,
     });
   });
+  it('C4: an old snapshot without a marker (removed from an alias group) is no published text', () => {
+    // The member's stored copy of its group's text, its pre-group snapshot, and a German-only batch.
+    const copy: Tooltip = { hash: 7, text: { en: entry('Group text', T1) }, associated: [] };
+    const proposed: Tooltip = { ...copy, text: { ...copy.text, de: entry('Gruppe', T2) } };
+    const snapshot = { ...live, text: { en: entry('import main from 8') } };
+    const result = compose({ hash: 7, base: copy, proposed, snapshot, pushed: false });
+    expect(result).toEqual(
+      compose({ hash: 7, base: copy, proposed, snapshot: null, pushed: false }),
+    );
+    expect(result.status).toBe('whole');
+    if (result.status !== 'stale') expect(result.tooltip.text.en).toEqual(copy.text.en);
+    // The same snapshot with its marker stays the published source.
+    const published = compose({ hash: 7, base: copy, proposed, snapshot, pushed: true });
+    expect(published.status).toBe('overlay');
+  });
+
   it('C4: never published, or created by the batch, publishes the whole proposal', () => {
     expect(compose({ hash: 7, base: current, proposed, snapshot: null, pushed: false })).toEqual({
       status: 'whole',

@@ -10,7 +10,7 @@ export interface ComposeInput {
   /** The member's base (null: the batch creates the tooltip). */
   base: Tooltip | null;
   proposed: Tooltip;
-  /** live/tooltips/<hash>.json at S, if present. */
+  /** live/tooltips/<hash>.json at S, if present; ignored without a pushed entry. */
   snapshot: Tooltip | null;
   /** Whether pushed.json has an entry for the hash at S. */
   pushed: boolean;
@@ -27,7 +27,7 @@ export type ComposeResult =
    * them is root's call (see README). `associated` appears only with a null base.
    */
   | { status: 'overlay'; tooltip: Tooltip; changed: string[]; unpublished: string[] }
-  /** C4: never published (no pushed entry, no snapshot): the whole proposal publishes. */
+  /** C4: not published (no pushed entry): the whole proposal publishes. */
   | { status: 'whole'; tooltip: Tooltip; changed: string[] }
   /** C3: pushed but no snapshot; refuse so saved-unpublished work never leaks (I3). */
   | { status: 'stale'; reason: string };
@@ -60,8 +60,11 @@ export function compose(input: ComposeInput, boundSources = true): ComposeResult
 
 /** Same composition for inputs already checked by tooltipSchema at the request's head. */
 export function composeParsed(input: ComposeInput, boundSources = true): ComposeResult {
-  const { hash, base, proposed, snapshot, pushed } = input;
-  for (const tooltip of [base, proposed, snapshot])
+  const { hash, base, proposed, pushed } = input;
+  // Without a publish marker the file is no published text: a member removed from an alias group
+  // loses its marker, and its old snapshot still holds the text from before the grouping.
+  const snapshot = pushed ? input.snapshot : null;
+  for (const tooltip of [base, proposed, input.snapshot])
     if (tooltip && tooltip.hash !== hash)
       throw new Error(`Tooltip does not belong to member ${hash}`);
   const changed = changedFields(base, proposed);

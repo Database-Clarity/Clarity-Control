@@ -1,4 +1,4 @@
-import { stableStringify, type GlobalRecord, type Tooltip } from '@clarity/core';
+import { stableStringify, type AliasGroups, type GlobalRecord, type Tooltip } from '@clarity/core';
 import type { Bundle } from '../services/bundle';
 
 /**
@@ -51,9 +51,23 @@ export function rememberSavedGlobal(entry: GlobalRecord, head: string, now = Dat
   globals.set(entry.id, { at: now, head, entry });
 }
 
+/** The alias groups after this tab's removals, until the bundle lists those members as removed. */
+let groups: { at: number; head: string; config: AliasGroups; members: number[] } | undefined;
+
+export function rememberSavedAliasGroups(
+  config: AliasGroups,
+  head: string,
+  member: number,
+  now = Date.now(),
+): void {
+  groups = { at: now, head, config, members: [...(groups?.members ?? []), member] };
+  version++;
+}
+
 export function clearSavedOverlay(): void {
   entries.clear();
   globals.clear();
+  groups = undefined;
   version++;
 }
 
@@ -118,5 +132,15 @@ export function applySavedOverlay(bundle: Bundle, now = Date.now()): Bundle {
     if (entry.tooltip) tooltips[hash] = entry.tooltip;
     else delete tooltips[hash];
   }
-  return tooltips === bundle.tooltips ? bundle : { ...bundle, tooltips };
+  if (groups) {
+    const caughtUp =
+      bundle.sourceCommit === groups.head ||
+      groups.members.every((member) => bundle.aliasGroups?.removed?.[member]);
+    if (retired(groups, generatedAt, caughtUp, now)) groups = undefined;
+  }
+  if (!groups) return tooltips === bundle.tooltips ? bundle : { ...bundle, tooltips };
+  // The removal commit also drops the members' publish markers.
+  const pushed = { ...bundle.pushed };
+  for (const member of groups.members) delete pushed[member];
+  return { ...bundle, tooltips, pushed, aliasGroups: groups.config };
 }

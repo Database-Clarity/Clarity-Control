@@ -7,14 +7,17 @@ import {
 } from './safeSourceRules';
 import {
   combineCompendiumMatches,
+  compendiumDescriptionCells,
   compendiumIdentifiers,
   compendiumNameVariants,
   compendiumPreferredTabs,
   compendiumCategoryTabs,
   sameCell,
   normaliseCompendiumName,
+  resolveCompendiumLink,
   type CompendiumData,
   type CompendiumLink,
+  type CompendiumMatch,
 } from '@clarity/core';
 import { compendiumSimilarity } from '@clarity/core';
 import { confirmCompendiumSelection } from './selection';
@@ -62,6 +65,8 @@ export interface GuidedCategory {
   samples: number[];
   referenceEvidence: GuidanceReference[];
 }
+
+export type OwnsCompendiumRow = (challenger: number, match: CompendiumMatch) => boolean;
 
 function stableSelection(
   match: Parameters<typeof confirmCompendiumSelection>[0],
@@ -130,6 +135,9 @@ function rowNameFacts(name: string) {
 // distance of TYPO_DISTANCE_CAP or more is reported as the cap: same ranking head,
 // same gap test, without the full table for every source row of every entry.
 const TYPO_DISTANCE_CAP = 4;
+const MIN_TYPO_NAME_LENGTH = 8;
+const MAX_TYPO_DISTANCE = 2;
+const MIN_NAME_SIMILARITY = 0.65;
 function editDistance(a: string, b: string): number {
   // Insertions alone already cost the length difference.
   if (Math.abs(a.length - b.length) >= TYPO_DISTANCE_CAP) return TYPO_DISTANCE_CAP;
@@ -150,6 +158,64 @@ function editDistance(a: string, b: string): number {
     previous = current;
   }
   return Math.min(previous[b.length], TYPO_DISTANCE_CAP);
+}
+
+function soleKeywordCandidate(
+  entry: ReviewSample,
+  source: CompendiumData,
+  configuredTabs: ReadonlySet<string>,
+  ownsRow?: OwnsCompendiumRow,
+) {
+  if (
+    !entry.manifestKeywordDescription ||
+    entry.stale ||
+    entry.scopeRestored ||
+    entry.groupMembers?.length
+  )
+    return;
+
+  const name = normaliseCompendiumName(entry.name);
+  let match: CompendiumMatch | undefined;
+  const competitors: CompendiumMatch[] = [];
+  for (const tab of source.tabs) {
+    if (!configuredTabs.has(tab.gid)) continue;
+    for (const row of tab.rows) {
+      const names = compendiumIdentifiers(row.name).map(normaliseCompendiumName);
+      if (names.includes(name)) {
+        if (match) return;
+        match = { tab, row };
+        continue;
+      }
+      if (
+        names.some(
+          (other) =>
+            compendiumSimilarity(name, other, MIN_NAME_SIMILARITY) >= MIN_NAME_SIMILARITY ||
+            (name.length >= MIN_TYPO_NAME_LENGTH && editDistance(name, other) <= MAX_TYPO_DISTANCE),
+        )
+      ) {
+        if (!ownsRow) return;
+        competitors.push({ tab, row });
+      }
+    }
+  }
+  if (match?.row.section !== 'Glossary' || compendiumDescriptionCells(match)?.length !== 1) return;
+
+  // A trait may omit its element. Title-cased element names in plain text and
+  // icon tags both count. Multiple different elements leave the proposal open.
+  const elements = new Set(
+    entry.manifestKeywordDescription.match(/\b(?:Arc|Solar|Void|Stasis|Strand|Prismatic)\b/g),
+  );
+  if (elements.size && (elements.size !== 1 || !elements.has(match.tab.name))) return;
+  const link = stableSelection(match, source);
+  if (!link || link.parts || link.cells) return;
+  const resolved = resolveCompendiumLink(link, source);
+  if (
+    resolved.status === 'ok' &&
+    resolved.tab.gid === match.tab.gid &&
+    resolved.row === match.row &&
+    competitors.every((candidate) => ownsRow?.(entry.hash, candidate))
+  )
+    return { match, link, ignoredOwned: competitors.length > 0 };
 }
 
 function exoticParentLink(
@@ -207,6 +273,7 @@ export function* guidedDecisionSteps(
   onlyHash?: number,
   sheetFingerprint = sourceFingerprint(source.tabs),
   onlyCategory?: string,
+  ownsRow?: OwnsCompendiumRow,
 ): Generator<void, GuidedCategory[]> {
   const current = new Map(categories.map((category) => [category.id, category]));
   const globalUsable = new Map<number, GuidanceReference>();
@@ -707,14 +774,14 @@ export function* guidedDecisionSteps(
       const ranking = !exact.length && !token.length;
       const ranked = ranking ? candidates.map(scored).sort((a, b) => b.score - a.score) : [];
       const separated =
-        ranked[0]?.score >= 0.65 && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08;
+        ranked[0]?.score >= MIN_NAME_SIMILARITY && ranked[0].score - (ranked[1]?.score ?? 0) >= 0.08;
       let typo: (typeof candidates)[number] | undefined;
-      if (ranking && !separated && norm.length >= 8) {
+      if (ranking && !separated && norm.length >= MIN_TYPO_NAME_LENGTH) {
         for (const candidate of candidates)
           candidate.distance = editDistance(norm, candidate.first);
         const typoRanked = [...candidates].sort((a, b) => a.distance - b.distance);
         typo =
-          typoRanked[0]?.distance <= 2 &&
+          typoRanked[0]?.distance <= MAX_TYPO_DISTANCE &&
           (typoRanked[1]?.distance ?? Infinity) - typoRanked[0].distance >= 2
             ? typoRanked[0]
             : undefined;
@@ -758,6 +825,7 @@ export function* guidedDecisionSteps(
                 .join('; '),
           };
         }
+        let uncovered: GuidedDecision | undefined;
         // Owner-approved sibling evidence can establish an exact-name convention.
         if (record.id.startsWith('catalog:subclass-') || record.id === 'catalog:verbs') {
           const outside = source.tabs
@@ -776,7 +844,7 @@ export function* guidedDecisionSteps(
                 elementTabs.has(outside[0].tab.gid) &&
                 !link.parts &&
                 !link.cells;
-              return {
+              uncovered = {
                 ...result,
                 action: 'link',
                 confidence: siblingConvention ? 'high' : 'medium',
@@ -789,9 +857,23 @@ export function* guidedDecisionSteps(
                   ? `Unique exact name in configured sibling tab ${outside[0].tab.name}, row ${outside[0].row.rowIndex}; convention established on ${exactElementTabs.size} element tabs.`
                   : `Unique exact name in uncovered tab ${outside[0].tab.name}, row ${outside[0].row.rowIndex}; confirm tab convention.`,
               };
+              if (siblingConvention) return uncovered;
             }
           }
         }
+        if (record.id === 'catalog:verbs') {
+          const sole = soleKeywordCandidate(entry, source, configuredTabs, ownsRow);
+          if (sole)
+            return {
+              ...result,
+              action: 'link',
+              confidence: 'high',
+              link: sole.link,
+              ruleId: 'sole-compendium-candidate',
+              reason: `Manifest keyword has one exact Glossary row in the element tabs and no ${sole.ignoredOwned ? 'unowned ' : ''}near-name competitor: ${sole.match.tab.name}, row ${sole.match.row.rowIndex}.`,
+            };
+        }
+        if (uncovered) return uncovered;
       }
       if (!best)
         return {
