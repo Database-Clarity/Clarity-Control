@@ -774,7 +774,8 @@ export class PublishDriver {
               opId,
               {
                 status: 'failed',
-                error: `Sync is still pending for tooltips ${op.hashes.join(', ')}. Check publish status before trying again.`,
+                error:
+                  'Automatic retries ended. The final status check failed. Check live status before trying again.',
               },
               true,
             );
@@ -794,7 +795,7 @@ export class PublishDriver {
             {
               status: 'failed',
               error: syncExpired
-                ? `Sync is still pending for tooltips ${op.hashes.join(', ')}. Publish again after sync finishes.`
+                ? 'Automatic retries ended. No publish request was found. You can publish again.'
                 : 'The Worker has no record of this publish and it is too old to send. Publish again.',
             },
             true,

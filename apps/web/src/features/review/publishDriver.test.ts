@@ -1014,7 +1014,7 @@ it('shows Sync pending and retries the same reviewed request until proof is read
   expect(usePublishState.getState().notes[created.opId]).toBeUndefined();
 });
 
-it.each(['unknown', 'pending'] as const)(
+it.each(['unknown', 'pending', 'unavailable'] as const)(
   'keeps the sync deadline through reload and reconciles a Worker status of %s',
   async (remote) => {
     const h = harness();
@@ -1030,7 +1030,8 @@ it.each(['unknown', 'pending'] as const)(
     first.stop();
     vi.setSystemTime(deadline - 300);
     const reloaded = h.make();
-    h.api.status.mockResolvedValue(remote);
+    if (remote === 'unavailable') h.api.status.mockRejectedValue(new Error('Offline'));
+    else h.api.status.mockResolvedValue(remote);
     // Keep the same rejection if this tab manages one last send before the deadline.
     h.api.post.mockRejectedValue(
       new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode),
@@ -1038,9 +1039,12 @@ it.each(['unknown', 'pending'] as const)(
     await reloaded.start('1');
     await vi.advanceTimersByTimeAsync(800);
     expect(h.api.status).toHaveBeenCalledWith(created.opId);
-    expect(op().status).toBe(remote === 'unknown' ? 'failed' : 'pending');
-    if (remote === 'unknown') {
-      expect(op().error).toContain('Sync is still pending for tooltips 10, 20.');
+    expect(op().status).toBe(remote === 'pending' ? 'pending' : 'failed');
+    if (remote !== 'pending') {
+      expect(op().error).toContain('Automatic retries ended.');
+      expect(op().error).toContain(
+        remote === 'unknown' ? 'No publish request was found.' : 'The final status check failed.',
+      );
       const sends = h.api.post.mock.calls.length;
       await vi.advanceTimersByTimeAsync(60_000);
       expect(h.api.post).toHaveBeenCalledTimes(sends);
