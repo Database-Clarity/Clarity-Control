@@ -2432,13 +2432,14 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   it('preserves executable, symlink and gitlink modes (simulator fails closed)', async () => {
     const f = await setup();
     await f.request();
+    const store = (text: string) => f.git.git(['hash-object', '-w', '--stdin'], text).trim();
     for (const ref of [D, L]) {
       const h = f.git.head(ref)!;
       f.git.git(['read-tree', h]);
       f.git.git(
         ['update-index', '-z', '--index-info'],
-        `100755 ${f.git.writeBlob('exec bytes')}\texecutable\0` +
-          `120000 ${f.git.writeBlob('executable')}\tlink\0` +
+        `100755 ${store('exec bytes')}\texecutable\0` +
+          `120000 ${store('executable')}\tlink\0` +
           `160000 ${h}\tmodule\0`,
       );
       const root = f.git.git(['write-tree']).trim();

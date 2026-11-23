@@ -12,7 +12,13 @@ import {
   type GlobalImpactRow,
   type GlobalImpactSnapshot,
 } from './impactModel.js';
-import { globalAggregateHash, globalCauseSchema, validGlobalName } from './model.js';
+import {
+  globalAggregateHash,
+  globalCauseSchema,
+  validGlobalName,
+  type GlobalRecord,
+} from './model.js';
+import { globalReferenceSpans } from './references.js';
 import { globalSourceLanguage, globalSourceText } from './source.js';
 
 const keyOf = (hash: number, lang: Lang) => `${hash}:${lang}`;
@@ -154,6 +160,51 @@ function resolveSnapshot(
   return result;
 }
 
+/**
+ * Whole-catalogue scans, each done once per snapshot object. Share one instance only across
+ * calculations during which no snapshot changes.
+ */
+export class GlobalSnapshotScans {
+  private readonly resolved = new WeakMap<
+    GlobalImpactSnapshot,
+    { cells: Map<string, Resolved>; blockers: Set<string> }
+  >();
+  private readonly referenced = new WeakMap<GlobalImpactSnapshot, Map<string, Set<string>>>();
+
+  /** Every rendered cell, with whatever keeps the snapshot from being proven. */
+  resolve(snapshot: GlobalImpactSnapshot) {
+    let resolved = this.resolved.get(snapshot);
+    if (!resolved) {
+      const blockers = new Set<string>();
+      resolved = { cells: resolveSnapshot(snapshot, blockers), blockers };
+      this.resolved.set(snapshot, resolved);
+    }
+    return resolved;
+  }
+
+  /** Every authored reference name of one kind in one language of the snapshot's sources. */
+  references(
+    snapshot: GlobalImpactSnapshot,
+    kind: GlobalRecord['kind'],
+    lang: Lang,
+  ): ReadonlySet<string> {
+    const scans = this.referenced.get(snapshot) ?? new Map<string, Set<string>>();
+    this.referenced.set(snapshot, scans);
+    let names = scans.get(`${kind}:${lang}`);
+    if (!names) {
+      names = new Set(
+        Object.values(snapshot.tooltips).flatMap((tooltip) =>
+          globalReferenceSpans(globalSourceText(tooltip, lang, snapshot.mode) ?? '', kind).map(
+            (span) => span.name,
+          ),
+        ),
+      );
+      scans.set(`${kind}:${lang}`, names);
+    }
+    return names;
+  }
+}
+
 function languageAffected(
   snapshot: GlobalImpactSnapshot,
   change: GlobalImpactChange,
@@ -173,6 +224,7 @@ export function calculateGlobalImpact(
   after: GlobalImpactSnapshot,
   changes: readonly GlobalImpactChange[],
   destination: string,
+  scans = new GlobalSnapshotScans(),
 ): GlobalImpact {
   for (const change of changes) {
     globalCauseSchema.parse(change.cause);
@@ -184,12 +236,13 @@ export function calculateGlobalImpact(
   const blockers = new Set<string>();
   if (before.repository !== after.repository || before.mode !== after.mode)
     blockers.add('Before/after snapshots must describe the same repository and resolution mode');
-  const old = resolveSnapshot(before, blockers),
-    next = resolveSnapshot(after, blockers);
+  const old = scans.resolve(before),
+    next = scans.resolve(after);
+  for (const blocker of [...old.blockers, ...next.blockers]) blockers.add(blocker);
   const rows: GlobalImpactRow[] = [];
-  for (const key of new Set([...old.keys(), ...next.keys()])) {
-    const a = old.get(key),
-      b = next.get(key),
+  for (const key of new Set([...old.cells.keys(), ...next.cells.keys()])) {
+    const a = old.cells.get(key),
+      b = next.cells.get(key),
       { hash, lang } = (a ?? b)!;
     const causes: GlobalImpactRow['causes'] = [];
     let reason: GlobalImpactRow['reason'] = 'variable-read';

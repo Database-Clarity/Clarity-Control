@@ -23,8 +23,8 @@ class DisposableRepository extends LocalRepository {
   private readonly prefetched = new Map<string, string>();
   private readonly pendingBlobs = new Map<string, Buffer>();
 
-  override git(args: string[], input?: string, env = {}) {
-    return data.text(args, input, env);
+  protected override gitBytes(args: string[], input?: string | Buffer, env = {}) {
+    return data.git(args, input, env);
   }
 
   prefetch(head: string) {
