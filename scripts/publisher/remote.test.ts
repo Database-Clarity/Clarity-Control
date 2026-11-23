@@ -76,7 +76,7 @@ it('simulator and real file:// Git implement the same publication CAS contract',
 });
 it('preserves complete Git paths and their modes when reading a tree', () => {
   const repo = new RemoteRepository(bare(), { fileUrl: pathToFileURL(bare()).href });
-  const oid = repo.writeBlob('test data');
+  const oid = repo.git(['hash-object', '-w', '--stdin'], 'test data').trim();
   const filename = 'sample\tfilename';
   const tree = repo.git(['mktree', '-z'], `100755 blob ${oid}\t${filename}\0`).trim();
   const commit = repo.git(['commit-tree', tree], 'Example tree').trim();
@@ -96,6 +96,138 @@ it('local Git reads return real-size output beyond the 1 MiB child-process defau
   expect(fresh.blob(oid)).toBe(bytes);
   expect(fresh.tree(head)).toEqual(tree);
   expect(fresh.additions(head, 'items')).toHaveLength(6000);
+});
+/** Every Git command a repository starts, in order. */
+class CountingRepository extends LocalRepository {
+  commands: string[] = [];
+  protected override gitBytes(...args: Parameters<LocalRepository['gitBytes']>) {
+    this.commands?.push(args[0][0]);
+    return super.gitBytes(...args);
+  }
+}
+const bulk = (count: number, text: (i: number) => string) =>
+  Array.from({ length: count }, (_, i) => [`tooltips/${i}.json`, text(i)] as const);
+it('bulk documents use one Git process to write and one to read, byte for byte', () => {
+  const writer = new CountingRepository(bare());
+  const documents = [
+    ...bulk(400, (i) => `{"hash":${i}}\n`),
+    ['tooltips/empty.json', ''],
+    ['tooltips/bytes.json', 'CRLF\r\nNUL\0 \u00e9\u{1f600} \ufeffdone\nblob\ndata 3\n'],
+    ['globals/large.json', 'x'.repeat(2 << 20)],
+    ['config/plain.json', 'not bulk'],
+  ] as const;
+  writer.commands = [];
+  const tree = Object.fromEntries(documents.map(([path, text]) => [path, writer.writeBlob(text)]));
+  const head = writer.commit(undefined, tree, 'bulk');
+  expect(writer.commands).toEqual([
+    'fast-import',
+    'read-tree',
+    'update-index',
+    'write-tree',
+    'commit-tree',
+  ]);
+  for (const [path, text] of documents.slice(-6))
+    expect(writer.git(['hash-object', '--stdin'], text).trim()).toBe(tree[path]);
+  writer.commands = [];
+  writer.commit(head, { ...tree, again: writer.writeBlob('{"hash":1}\n') }, 'unchanged bytes');
+  expect(writer.commands).not.toContain('fast-import');
+
+  const reader = new CountingRepository(writer.path);
+  reader.commands = [];
+  expect(reader.tree(head)).toEqual(tree);
+  expect(documents.map(([path]) => reader.blob(tree[path]))).toEqual(
+    documents.map(([, text]) => text),
+  );
+  expect(reader.commands).toEqual(['ls-tree', 'cat-file', 'cat-file']);
+  expect(writer.git(['fsck', '--strict', '--no-dangling'])).toBe('');
+});
+it('batched reads decode invalid UTF-8 exactly like a single read', () => {
+  const repo = new LocalRepository(bare());
+  const oid = execFileSync('git', ['--git-dir', repo.path, 'hash-object', '-w', '--stdin'], {
+    input: Buffer.from([0x22, 0xff, 0xc3, 0x28, 0x0a, 0x22]),
+  })
+    .toString()
+    .trim();
+  const commit = (path: string) => {
+    const env = { GIT_INDEX_FILE: join(bare(), 'index') };
+    repo.git(['update-index', '-z', '--index-info'], `100644 ${oid}\t${path}\0`, env);
+    return repo
+      .git(['commit-tree', repo.git(['write-tree'], undefined, env).trim()], 'bytes')
+      .trim();
+  };
+  const batched = new LocalRepository(repo.path),
+    single = new LocalRepository(repo.path);
+  batched.tree(commit('tooltips/1.json'));
+  single.tree(commit('other/1.json'));
+  expect(batched.blob(oid)).toBe(single.blob(oid));
+});
+it('a missing object or a non-blob fails when it is read, exactly as a single read does', () => {
+  const repo = new LocalRepository(bare());
+  const head = repo.commit(
+    undefined,
+    Object.fromEntries(bulk(20, (i) => `doc ${i}`).map(([p, text]) => [p, repo.writeBlob(text)])),
+    'base',
+  );
+  const tree = repo.tree(head);
+  const gone = 'f'.repeat(40);
+  const subtree = repo.git(['rev-parse', `${head}:tooltips`]).trim();
+  const listing = Object.entries(tree).map(([path, oid]) => `100644 blob ${oid}\t${path}\0`);
+  for (const bad of [gone, subtree]) {
+    class Damaged extends LocalRepository {
+      override git(...args: Parameters<LocalRepository['git']>) {
+        return args[0][0] === 'ls-tree'
+          ? [`100644 blob ${bad}\ttooltips/bad.json\0`, ...listing].join('')
+          : super.git(...args);
+      }
+    }
+    const damaged = new Damaged(repo.path);
+    expect(damaged.tree(head)['tooltips/bad.json']).toBe(bad);
+    expect(damaged.blob(tree['tooltips/7.json'])).toBe('doc 7');
+    expect(() => damaged.blob(bad)).toThrow();
+  }
+});
+it.each(['cut', 'renamed', 'extra', 'failed'])('a %s batch read yields no bytes', (fault) => {
+  const repo = new LocalRepository(bare());
+  const head = repo.commit(
+    undefined,
+    Object.fromEntries(bulk(3, (i) => `doc ${i}`).map(([p, text]) => [p, repo.writeBlob(text)])),
+    'base',
+  );
+  class Faulty extends LocalRepository {
+    protected override gitBytes(...args: Parameters<LocalRepository['gitBytes']>) {
+      const output = super.gitBytes(...args);
+      if (!args[0].includes('--batch')) return output;
+      if (fault === 'failed') throw new Error('cat-file died');
+      if (fault === 'cut') return output.subarray(0, output.length - 4);
+      if (fault === 'extra') return Buffer.concat([output, Buffer.from('more\n')]);
+      return Buffer.from(output.toString().replace(/^.{40}/, '0'.repeat(40)));
+    }
+  }
+  expect(() => new Faulty(repo.path).tree(head)).toThrow(
+    fault === 'failed' ? 'cat-file died' : 'Unexpected Git batch output',
+  );
+});
+it('a failed or partial blob import commits nothing and can be retried', () => {
+  let fault: 'dies' | 'skips' | undefined = 'dies';
+  class Faulty extends LocalRepository {
+    protected override gitBytes(...args: Parameters<LocalRepository['gitBytes']>) {
+      if (args[0][0] === 'fast-import' && fault === 'dies') throw new Error('fast-import died');
+      if (args[0][0] === 'fast-import' && fault === 'skips') return Buffer.alloc(0);
+      return super.gitBytes(...args);
+    }
+  }
+  const repo = new Faulty(bare());
+  const tree = { 'tooltips/1.json': repo.writeBlob('one') };
+  expect(() => repo.commit(undefined, tree, 'dies')).toThrow('fast-import died');
+  expect(repo.git(['count-objects']).trim()).toMatch(/^0 objects/);
+  fault = undefined;
+  const head = repo.commit(undefined, tree, 'retry');
+  expect(new LocalRepository(repo.path).blob(tree['tooltips/1.json'])).toBe('one');
+  fault = 'skips';
+  expect(() =>
+    repo.commit(head, { ...tree, 'tooltips/2.json': repo.writeBlob('two') }, 'skips'),
+  ).toThrow(/invalid object|write-tree/);
+  expect(repo.git(['for-each-ref'])).toBe('');
 });
 it('real receive-pack timeout remains unresolved and can reconcile the exact commit', async () => {
   const upstream = bare();
