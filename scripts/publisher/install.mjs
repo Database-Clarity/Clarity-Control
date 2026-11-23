@@ -11,6 +11,7 @@ import {
 import { resolve, join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { load } from 'js-yaml';
 import { maxBuffer } from './childProcess.mjs';
 const [checkoutArg, configArg, mode = '--plan', targetArg, ...extra] = process.argv.slice(2);
 const plans = { test: 'converter-v2-test', production: 'converter' };
@@ -41,7 +42,8 @@ if (
 const template = resolve('scripts/publisher/template');
 const pipelinePath = '.github/workflows/pipeline.yml';
 const runPath = '.github/workflows/publisher-run.yml';
-const runCall = /^\s*uses:\s*(['"]?)\.\/\.github\/workflows\/publisher-run\.yml\1\s*(?:#.*)?$/m;
+const callsPublisherRun = (workflow) =>
+  Object.values(load(workflow)?.jobs ?? {}).some((job) => job?.uses === `./${runPath}`);
 const headFiles = new Map(
   git(
     'ls-tree',
@@ -61,7 +63,7 @@ const readBlob = (oid) =>
 const callerOid = headFiles.get(pipelinePath);
 const installedCaller = callerOid ? readBlob(callerOid).toString('utf8') : '';
 // A legacy inline pipeline is a valid starting point. A split pipeline requires both files.
-if (runCall.test(installedCaller) !== headFiles.has(runPath))
+if (callsPublisherRun(installedCaller) !== headFiles.has(runPath))
   throw new Error('Incomplete publisher workflow pair at HEAD');
 const pin = JSON.parse(readFileSync(join(template, '.publisher/PIN')));
 if (
@@ -152,7 +154,7 @@ const downstream =
 const caller = readFileSync(join(template, pipelinePath), 'utf8');
 const secretMarker =
   '    # Production output secrets are inherited only in the production install.';
-if (!runCall.test(caller) || !caller.includes(secretMarker))
+if (!callsPublisherRun(caller) || !caller.includes(secretMarker))
   throw new Error('Invalid publisher workflow caller template');
 files.set(
   pipelinePath,
@@ -160,30 +162,26 @@ files.set(
     plan === 'production' ? caller.replace(secretMarker, '    secrets: inherit') : caller,
   ),
 );
-files.set(runPath, Buffer.from(readFileSync(join(template, runPath), 'utf8') + downstream));
+const publisherRun = readFileSync(join(template, runPath), 'utf8') + downstream;
+load(publisherRun);
+files.set(runPath, Buffer.from(publisherRun));
 files.set('.github/workflows/bundle.yml', null);
 for (const [file, bytes] of files)
   if (bytes?.includes(13)) throw new Error(`Template must use LF bytes: ${file}`);
 if (plan === 'production') {
-  // actionlint 1.7.12 predates queue:max. Parse YAML with the existing project
-  // parser and validate the exact supported queue policy from GitHub's schema.
-  const reusable = readFileSync(join(template, '.github/workflows/build-outputs.yml'), 'utf8');
-  const { format } = await import('prettier');
-  for (const text of [
-    reusable,
-    files.get(pipelinePath).toString('utf8'),
-    files.get(runPath).toString('utf8'),
-  ])
-    await format(text, { parser: 'yaml' });
+  // actionlint 1.7.12 predates queue:max. Parse YAML and verify GitHub's queue policy.
+  const reusable = load(
+    readFileSync(join(template, '.github/workflows/build-outputs.yml'), 'utf8'),
+  );
   for (const [job, group] of [
     ['legacy', 'legacy-outputs'],
     ['site', 'data-site'],
   ]) {
-    const body = reusable.split(`\n  ${job}:\n`)[1]?.split('\n    steps:')[0];
+    const concurrency = reusable?.jobs?.[job]?.concurrency;
     if (
-      !body?.includes(
-        `concurrency:\n      group: ${group}\n      cancel-in-progress: false\n      queue: max`,
-      )
+      concurrency?.group !== group ||
+      concurrency['cancel-in-progress'] !== false ||
+      concurrency.queue !== 'max'
     )
       throw new Error(
         `Unsupported ${group} queue policy; require queue:max and cancel-in-progress:false`,

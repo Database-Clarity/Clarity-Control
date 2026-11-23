@@ -95,9 +95,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
-      group: editor-data-report-items-push
+      # Only another artifact for this exact head can replace a pending push.
+      group: editor-data-report-items-push-${{ needs.report-items.outputs.head }}
       cancel-in-progress: false
-      queue: max
     permissions:
       contents: write
     steps:

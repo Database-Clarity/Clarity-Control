@@ -717,8 +717,7 @@ export class Publisher {
           log[2] !== opId &&
           publishOpIdSchema.safeParse(log[2]).success &&
           log[1] === publishMonth(log[2]));
-      const clashProof =
-        /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
+      const clashProof = /^globals\/proofs\/clashes\/(?:exports|variables|titles)\/[0-9a-f]{64}\.json$/;
       if (!queueAddition && !clashProof.test(path) && !nameProofRequest(tree, path)) return false;
     }
     return true;

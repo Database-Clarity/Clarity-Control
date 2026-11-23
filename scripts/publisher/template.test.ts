@@ -146,6 +146,13 @@ afterEach(() => {
 });
 
 it('report-items jobs rebuild both catalogs for the published bundle, leased and fast-forward only', () => {
+  const workflow = readFileSync(
+    'scripts/publisher/template/.github/workflows/pipeline.yml',
+    'utf8',
+  );
+  expect(workflow).toContain(
+    'group: editor-data-report-items-push-${{ needs.report-items.outputs.head }}',
+  );
   const root = mkdtempSync(join(tmpdir(), 'report-items-'));
   roots.push(root);
   const identity = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false'];
@@ -603,10 +610,19 @@ describe('install.mjs', () => {
       expect(git('rev-parse', 'HEAD^{tree}')).toBe(before);
     },
   );
-  it.each(['pipeline.yml', 'publisher-run.yml'])('refuses a committed pair missing %s', (file) => {
+  it.each([
+    ['pipeline.yml', false],
+    ['publisher-run.yml', false],
+    ['publisher-run.yml', true],
+  ] as const)('refuses a committed pair missing %s (inline caller=%s)', (file, inline) => {
     const result = install('.', true, '--apply-local');
     expect(result.status, result.stderr).toBe(0);
     rmSync(join(result.target, '.github/workflows', file));
+    if (inline)
+      writeFileSync(
+        join(result.target, '.github/workflows/pipeline.yml'),
+        'on: [workflow_dispatch]\njobs:\n  pipeline: { uses: ./.github/workflows/publisher-run.yml }\n',
+      );
     const git = (...args: string[]) =>
       execFileSync('git', [...identity, '-C', result.target, ...args]);
     git('add', '--all');

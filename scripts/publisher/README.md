@@ -2,6 +2,7 @@
 
 ## Cutover handoff plans (G4/G5 preparation only)
 
+Run the installer from the editor checkout with its development dependencies installed.
 `node scripts/publisher/install.mjs <checkout> <config.json> --plan --target=test`
 prints the exact committed-tree installation patch on stdout (status goes to stderr).
 Its baseline is Git HEAD, so LF and CRLF working checkouts produce the same patch.
@@ -262,7 +263,8 @@ carries every other file of the previous bundle forward byte-identical, so the r
 survive it. Two jobs outside the publish concurrency group rebuild them with the original inputs
 (generator v2, editor 0acd005c). `report-items` uses a read-only token and reads the latest bundle
 after entering its own queue. Running builds finish, and a newer pending build can replace an older one.
-`report-items-push` (separate runner, contents:write) checks that the head has not moved, that the
+`report-items-push` uses a separate runner with contents:write and queues per bundle head.
+It checks that the head has not moved, that the
 artifact holds exactly the two catalogs, and that each is v1 for that bundle's sourceCommit. It then
 pushes one fast-forward commit leased on that head (never --force), or does nothing when the
 catalogs are already current. A moved head is a successful no-op. A later report build reads the
