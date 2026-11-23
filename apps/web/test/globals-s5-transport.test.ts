@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createGlobalsService, type GlobalsTransport } from '../src/services/globals';
+import {
+  canAcknowledgeGlobal,
+  createGlobalsService,
+  type GlobalsTransport,
+} from '../src/services/globals';
 import { assertNoGlobalAggregates, globalAggregateRefusal } from '../src/services/globalsFlag';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 import {
@@ -38,6 +42,37 @@ describe('authenticated globals transport', () => {
   });
   const transport = async () =>
     (await import('../src/services/globalsHttp')).createGlobalsHttpTransport();
+
+  it('gates approval on the destination state sent by the Worker', async () => {
+    const destination = 'converter-v2-test';
+    const consumer = { ...row.consumer, destination };
+    const review = { ...row, consumer, review: { ...row.review, consumer } };
+    const service = createGlobalsService(await transport(), {
+      catalog: async () => ({ kind: 'ok', value: { ...header(), version: 1, entries: [entry] } }),
+    });
+    await service.read();
+    for (const status of ['sync-pending', 'current'] as const) {
+      const destinationSync = { [destination]: { status, causeIds: [] } };
+      fetch.mockImplementation(async (url: string) =>
+        reply({
+          kind: 'ok',
+          value: {
+            ...header(),
+            destinationSync,
+            ...(url.includes('/reviews?')
+              ? { impacts: { [entry.id]: [review] }, nextCursor: null }
+              : { entry }),
+          },
+        }),
+      );
+      const result = await service.readEntry(entry.id);
+      if (result.kind !== 'ok') throw new Error(result.message);
+      expect(result.value.destinationSync).toEqual(destinationSync);
+      expect(canAcknowledgeGlobal(result.value, entry.id, result.value.impacts[entry.id][0])).toBe(
+        status === 'current',
+      );
+    }
+  });
 
   it('normalizes the S2B review page and retry receipt into the S3 shapes', async () => {
     fetch.mockResolvedValueOnce(
@@ -182,7 +217,7 @@ describe('stale rename intents', () => {
     let status: 'sync-pending' | 'current' = 'sync-pending';
     let name = entry.name;
     const worker = () => ({
-      ...header(status, status === 'current' ? [] : ['c1']),
+      ...header(status, status === 'current' ? [] : ['intent1']),
       version: 1 as const,
     });
     const saved = vi.fn();
@@ -195,7 +230,7 @@ describe('stale rename intents', () => {
       mutate: async () => ({
         kind: 'ok',
         value: {
-          ...header('sync-pending', ['c1']),
+          ...header('sync-pending', ['intent1']),
           version: 1,
           entry,
           renameCompleted: false,
@@ -227,29 +262,35 @@ describe('stale rename intents', () => {
     // Refresh while the Worker is still pending: the bundle's "current" settles nothing.
     expect(intent(await service.read())).toMatchObject({ status: 'queued' });
     expect(intent(await service.readEntry(entry.id))).toMatchObject({ status: 'queued' });
-    // Refused: the Worker is current and kept the old name. Reported until the next read.
+    // Refused: the Worker is current and kept the old name.
     status = 'current';
     expect(intent(await service.read())).toMatchObject({ status: 'queued' });
     expect(intent(await service.readEntry(entry.id))).toMatchObject({ status: 'not-applied' });
     expect(intent(await service.read())).toMatchObject({ status: 'not-applied' });
-    expect(intent(await service.readEntry(entry.id))).toBeUndefined();
+    expect(intent(await service.readEntry(entry.id))).toMatchObject({ status: 'not-applied' });
     // Accepted: the Worker shows the new name; the intent clears without a report.
     status = 'sync-pending';
     expect(intent(await service.mutate(rename))).toMatchObject({ status: 'queued' });
     status = 'current';
     name = 'Harm';
     expect(intent(await service.read())).toMatchObject({ status: 'queued' });
-    const accepted = await service.readEntry(entry.id);
+    const reviews = vi.spyOn(transport, 'reviews').mockResolvedValue({
+      kind: 'retry',
+      message: 'Invalid global review page',
+    });
+    const accepted = await service.readEntry(entry.id, { reviews: false });
+    expect(reviews).not.toHaveBeenCalled();
     expect(intent(accepted)).toBeUndefined();
     expect(accepted.kind === 'ok' && accepted.value.entries[0].name).toBe('Harm');
+    expect(accepted.kind === 'ok' && accepted.value.impacts[entry.id]).toBeUndefined();
+    expect(await service.readEntry(entry.id)).toMatchObject({ kind: 'retry' });
   });
 
-  it('reads "not applied" after a current refresh that kept the old name, then clears', async () => {
-    let status: 'sync-pending' | 'current' = 'current';
+  it('reports a cleared rename even while another change is pending', async () => {
     const page = () => ({
       kind: 'ok' as const,
       value: {
-        ...header(status, status === 'current' ? [] : ['c1']),
+        ...header('sync-pending', ['unrelated']),
         version: 1 as const,
         entries: [entry],
       },
@@ -263,7 +304,7 @@ describe('stale rename intents', () => {
       mutate: async () => ({
         kind: 'ok',
         value: {
-          ...header('sync-pending', ['c1']),
+          ...header('sync-pending', ['intent1']),
           version: 1,
           entry,
           renameCompleted: false,
@@ -285,7 +326,6 @@ describe('stale rename intents', () => {
       name: 'Harm',
       status: 'queued',
     });
-    status = 'current';
     // A Refresh is a catalogue read then the opened entry's Worker read, which settles it.
     await service.read();
     const refused = await service.readEntry(entry.id);
@@ -293,9 +333,6 @@ describe('stale rename intents', () => {
       name: 'Harm',
       status: 'not-applied',
     });
-    await service.read();
-    const later = await service.readEntry(entry.id);
-    expect(later.kind === 'ok' && later.value.renameIntents).toEqual({});
   });
 });
 

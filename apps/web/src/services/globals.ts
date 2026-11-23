@@ -126,9 +126,8 @@ export interface GlobalSnapshot {
   causeEntries?: Record<string, string>;
 }
 /**
- * A queued rename. `name` is the requested name; once sync is current an intent whose entry does
- * not carry that name was refused (stale intent, S4 R2) and reads `not-applied` until the next
- * current refresh.
+ * A queued rename. When its cause clears, the Worker entry confirms the new name or the UI
+ * shows `not-applied` until the rename is requested again.
  */
 export interface GlobalRenameIntent {
   intentId: string;
@@ -175,11 +174,15 @@ export type GlobalResult<T> =
   | { kind: 'conflict'; message: string }
   | { kind: 'retry'; message: string }
   | { kind: 'invalid' | 'forbidden'; message: string };
+type ReadGlobalEntry = (
+  id: string,
+  options?: { reviews?: boolean },
+) => Promise<GlobalResult<GlobalSnapshot>>;
 export interface GlobalsService {
   read(): Promise<GlobalResult<GlobalSnapshot>>;
   /** Catalogue-only reads can be shared by the finder and workspace. */
   readCatalog?(): Promise<GlobalResult<GlobalSnapshot>>;
-  readEntry?(id: string): Promise<GlobalResult<GlobalSnapshot>>;
+  readEntry?: ReadGlobalEntry;
   mutate(request: {
     expectedHead: string;
     mutation: GlobalMutation;
@@ -209,6 +212,7 @@ export interface GlobalHttpState extends GlobalSyncState {
   version: 1;
   sources?: GlobalSourcePins;
   causeEntries?: Record<string, string>;
+  destinationSync?: GlobalSnapshot['destinationSync'];
 }
 /** The whole catalogue at one head: the editor-data bundle's globals at its sourceCommit. */
 export interface GlobalCatalog extends GlobalHttpState {
@@ -247,19 +251,25 @@ export interface GlobalsTransport {
 export function createGlobalsService(
   transport: GlobalsTransport,
   options: {
-    destinations: readonly string[];
+    destinations?: readonly string[];
     catalog(): Promise<GlobalResult<GlobalCatalog>>;
     initialSnapshot?: GlobalSnapshot;
     onCatalog?(entries: readonly GlobalEntry[]): void;
     /** A write receipt's entry and head (the saved overlay keeps it until the bundle catches up). */
     onEntrySaved?(entry: GlobalEntry, head: string): void;
   },
-): GlobalsService & { readEntry(id: string): Promise<GlobalResult<GlobalSnapshot>> } {
+): GlobalsService & { readEntry: ReadGlobalEntry } {
   let cached = options.initialSnapshot && structuredClone(options.initialSnapshot);
   let generation = 0;
   let catalogRead: Promise<GlobalResult<GlobalSnapshot>> | undefined;
   let entryRead:
-    { id: string; generation: number; promise: Promise<GlobalResult<GlobalSnapshot>> } | undefined;
+    | {
+        id: string;
+        reviews: boolean;
+        generation: number;
+        promise: Promise<GlobalResult<GlobalSnapshot>>;
+      }
+    | undefined;
   const conflict = (): GlobalResult<GlobalSnapshot> => ({
     kind: 'conflict',
     message: 'Globals changed. Refresh to load the current snapshot.',
@@ -289,6 +299,7 @@ export function createGlobalsService(
     a.status === b.status &&
     a.lastFailure === b.lastFailure &&
     JSON.stringify(a.causeIds) === JSON.stringify(b.causeIds) &&
+    JSON.stringify(a.destinationSync) === JSON.stringify(b.destinationSync) &&
     sourceKey(a.sources) === sourceKey(b.sources);
   /**
    * `intents`: the one entry whose queued rename this header may settle, from that entry's
@@ -301,22 +312,17 @@ export function createGlobalsService(
     next.causeEntries =
       header.status === 'current' ? {} : { ...next.causeEntries, ...header.causeEntries };
     next.sync = Object.fromEntries(next.entries.map((entry) => [entry.id, state(header)]));
-    next.destinationSync = Object.fromEntries(
-      options.destinations.map((destination) => [destination, state(header)]),
-    );
-    if (header.status === 'current' && intents !== 'none')
+    next.destinationSync =
+      header.destinationSync ??
+      Object.fromEntries(
+        (options.destinations ?? []).map((destination) => [destination, state(header)]),
+      );
+    if (intents !== 'none')
       next.renameIntents = Object.fromEntries(
         Object.entries(next.renameIntents ?? {}).flatMap(([id, intent]) => {
-          if (id !== intents) return [[id, intent]];
+          if (id !== intents || header.causeIds.includes(intent.intentId)) return [[id, intent]];
           const entry = next.entries.find((item) => item.id === id);
-          // Reported once already, or applied (or no requested name to compare): cleared.
-          if (
-            intent.status === 'not-applied' ||
-            !intent.name ||
-            !entry ||
-            entry.name === intent.name
-          )
-            return [];
+          if (!intent.name || !entry || entry.name === intent.name) return [];
           return [[id, { ...intent, status: 'not-applied' as const }]];
         }),
       );
@@ -452,9 +458,7 @@ export function createGlobalsService(
     }
     return publish(base, token);
   }
-  const service: GlobalsService & {
-    readEntry(id: string): Promise<GlobalResult<GlobalSnapshot>>;
-  } = {
+  const service: GlobalsService & { readEntry: ReadGlobalEntry } = {
     async read() {
       const token = ++generation;
       const next: GlobalSnapshot = {
@@ -487,13 +491,13 @@ export function createGlobalsService(
       options.onCatalog?.([...next.entries]);
       return publish(next, token);
     },
-    async readEntry(id) {
+    async readEntry(id, { reviews = true } = {}) {
       const token = ++generation;
       if (!cached) return conflict();
       // While sync looks current, the first review page loads alongside the entry; it is used
       // only if the entry is current too, and only at the entry's head (readReviews checks).
       const firstReviews =
-        cached.sync[id]?.status === 'current' ? transport.reviews(id, 'p0') : undefined;
+        reviews && cached.sync[id]?.status === 'current' ? transport.reviews(id, 'p0') : undefined;
       const entry = await transport.entry(id);
       if (entry.kind !== 'ok') return entry;
       if (entry.value.entry.id !== id) return invalid('Global entry read names another entry.');
@@ -501,10 +505,10 @@ export function createGlobalsService(
       // A newer head than the catalogue's: reviews read at the older head are no longer current.
       if (entry.value.head !== cached.head) next.impacts = {};
       mergeEntry(next, entry.value.entry);
-      // The Worker's current state settles this entry's queued rename (one step per read, so
-      // a "not applied" report shows until the next Refresh).
+      // Only the Worker's entry and pending causes can settle this entry's queued rename.
       applyState(next, entry.value, id);
-      if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
+      if (!reviews) delete next.impacts[id];
+      else if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
         const rows = await readReviews(id, entry.value, token, firstReviews);
         if (rows.kind !== 'ok') return rows;
         next.impacts[id] = rows.value;
@@ -516,12 +520,18 @@ export function createGlobalsService(
   };
   return {
     ...service,
-    readEntry(id) {
-      if (entryRead?.id === id && entryRead.generation === generation) return entryRead.promise;
-      const pending = service.readEntry(id).finally(() => {
+    readEntry(id, options) {
+      const reviews = options?.reviews ?? true;
+      if (
+        entryRead?.id === id &&
+        entryRead.reviews === reviews &&
+        entryRead.generation === generation
+      )
+        return entryRead.promise;
+      const pending = service.readEntry(id, options).finally(() => {
         if (entryRead?.promise === pending) entryRead = undefined;
       });
-      entryRead = { id, generation, promise: pending };
+      entryRead = { id, reviews, generation, promise: pending };
       return pending;
     },
     readCatalog() {

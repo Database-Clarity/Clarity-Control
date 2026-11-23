@@ -470,6 +470,7 @@ function Workspace({
     setPending(true);
     setError('');
     try {
+      // Confirm the opened entry even when the bundle lags or its review page is unavailable.
       const result =
         retry && entry
           ? await service.retrySync({
@@ -477,7 +478,9 @@ function Workspace({
               id: entry.id,
               causeIds: ownCauses,
             })
-          : await service.read();
+          : entry && service.readEntry
+            ? await service.readEntry(entry.id, { reviews: false })
+            : await service.read();
       if (!mounted.current) return;
       if (result.kind === 'ok') {
         onSnapshot(result.value);
@@ -572,10 +575,11 @@ function Workspace({
     <GlobalActions
       className={page.ghost}
       open={actionsOpen}
-      disabled={pending || reviewOpen || reviewsMissing}
+      disabled={pending || reviewOpen}
       onOpenChange={setActionsOpen}
       pending={pending}
       blocked={dirty || reviewOpen}
+      reviewsMissing={reviewsMissing}
       referenced={savedImpacts.length > 0 || allRows.some((row) => row.direct || row.via.length)}
       structural={structural}
       maintainer={actor.role === 'maintainer'}
@@ -644,28 +648,25 @@ function Workspace({
       worklistControl={actions || undefined}
     />
   );
+  const renameIntent = snapshot.renameIntents?.[entry.id];
+  const renameQueued = renameIntent && renameIntent.status !== 'not-applied';
   const blockedDestinations = Object.entries(snapshot.destinationSync)
     .filter(([, state]) => state.status !== 'current')
     .map(([destination]) => destinationLabel(destination));
   const notices = (
     <>
-      {snapshot.renameIntents?.[entry.id]?.renameCompleted === false &&
-        (snapshot.renameIntents[entry.id].status === 'not-applied' ? (
-          <p role="alert" className={styles.notice} data-tone="warn">
-            Rename to {snapshot.renameIntents[entry.id].name} not applied. Rename again if it is
-            still needed.
-          </p>
-        ) : (
-          <p role="status" className={styles.notice}>
-            Rename queued; not complete.
-          </p>
-        ))}
-      {(sync.status !== 'current' || blockedDestinations.length > 0) && (
+      {renameIntent?.status === 'not-applied' && (
+        <p role="alert" className={styles.notice} data-tone="warn">
+          Rename to {renameIntent.name} did not apply. Open Actions and choose Rename to try again.
+        </p>
+      )}
+      {(renameQueued || sync.status !== 'current' || blockedDestinations.length > 0) && (
         <div
           className={styles.notice}
           data-tone={sync.status === 'sync-failed' ? 'warn' : undefined}
         >
           <span role="status">
+            {renameQueued && `Rename queued. Refresh to check whether it applied. `}
             {sync.status === 'sync-failed'
               ? /^sync failed/i.test(sync.lastFailure ?? '')
                 ? sync.lastFailure
@@ -965,15 +966,7 @@ function Workspace({
               (reviewError ? (
                 <div role="alert">
                   <p>{reviewError}</p>
-                  <button
-                    disabled={pending}
-                    onClick={async () => {
-                      // The reviews may have failed because the head moved after the catalogue
-                      // loaded: read a fresh snapshot first (drafts stay), then load them again.
-                      await refreshSync();
-                      setReviewReload((value) => value + 1);
-                    }}
-                  >
+                  <button disabled={pending} onClick={() => setReviewReload((value) => value + 1)}>
                     Retry reviews
                   </button>
                 </div>
@@ -1345,6 +1338,7 @@ function GlobalActions({
   referenced,
   pending,
   blocked,
+  reviewsMissing,
   entry,
   lang,
   onSubmit,
@@ -1358,6 +1352,7 @@ function GlobalActions({
   referenced: boolean;
   pending: boolean;
   blocked: boolean;
+  reviewsMissing: boolean;
   entry?: GlobalEntry;
   lang: Lang;
   onSubmit(mutation: GlobalMutation): Promise<boolean>;
@@ -1371,6 +1366,7 @@ function GlobalActions({
   const [kind, setKind] = useState<GlobalEntry['kind']>('variables');
   const [body, setBody] = useState('');
   const removing = action === 'remove' || action === 'remove-language';
+  const submitDisabled = pending || blocked || reviewsMissing || (removing && referenced);
   const label = !action
     ? 'Global actions'
     : action === 'create'
@@ -1409,6 +1405,7 @@ function GlobalActions({
                 allowed && (
                   <button
                     key={value}
+                    disabled={reviewsMissing}
                     onClick={() => {
                       setName(value === 'rename' ? (entry?.name ?? '') : '');
                       setBody('');
@@ -1419,13 +1416,14 @@ function GlobalActions({
                   </button>
                 ),
             )}
+            {reviewsMissing && <p>Load reviews before changing globals.</p>}
           </div>
         ) : (
           <form
             className={styles.action}
             onSubmit={async (event) => {
               event.preventDefault();
-              if (pending || blocked || (removing && referenced)) return;
+              if (submitDisabled) return;
               const success =
                 action === 'create'
                   ? await onSubmit({ operation: 'create', name, kind, lang, body })
@@ -1496,9 +1494,7 @@ function GlobalActions({
               >
                 Cancel
               </button>
-              <button disabled={pending || blocked || (removing && referenced)}>
-                {pending ? 'Working…' : label}
-              </button>
+              <button disabled={submitDisabled}>{pending ? 'Working…' : label}</button>
             </div>
             {(blocked || (removing && referenced)) && (
               <p>Finish or discard your draft first. Removal also requires zero references.</p>

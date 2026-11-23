@@ -19,11 +19,17 @@ import type {
 /** The Worker caps every globals response at 64 KiB (S2B limits.fileBytes). */
 export const globalsResponseBytes = 65_536;
 
-const header = {
-  head: z.string().regex(/^[a-f0-9]{40}$/),
+const syncState = {
   status: z.enum(['sync-pending', 'sync-failed', 'current']),
   causeIds: z.array(z.string().max(128)).max(32),
   lastFailure: z.string().max(512).nullable().optional(),
+};
+const header = {
+  head: z.string().regex(/^[a-f0-9]{40}$/),
+  ...syncState,
+  destinationSync: z
+    .record(z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), z.object(syncState))
+    .optional(),
   /** Per-entry views (handlers.ts snapshot): which entry owns each pending cause. */
   sync: z
     .record(globalIdSchema, z.object({ causeIds: z.array(z.string().max(128)).max(32) }))
