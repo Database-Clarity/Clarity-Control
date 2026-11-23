@@ -2084,7 +2084,14 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   );
   it('bundle.json never copies entry marks', async () => {
     const f = await setup();
-    for (const marks of [{ types: [], entries: { 123: [{ note: 'Retest' }] } }, 'malformed']) {
+    for (const marks of [
+      {
+        types: [],
+        entries: { 123: [{ note: 'Retest' }] },
+        compendium: { 123: { kind: 'no-match', by: 1, at: '2026-11-23T00:00:00Z' } },
+      },
+      'malformed',
+    ]) {
       f.change(D, { 'config/marks.json': marks });
       f.pub.bundle();
       const bundle = f.pub.read<Record<string, unknown>>(
@@ -2093,8 +2100,31 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       )!;
       expect(bundle).not.toHaveProperty('marks');
       expect(JSON.stringify(bundle)).not.toContain('Retest');
+      expect(JSON.stringify(bundle)).not.toContain('no-match');
       expect(JSON.stringify(bundle)).not.toContain('malformed');
     }
+  });
+
+  it('publishes byte-identical output and digests with or without Compendium decisions', async () => {
+    const publish = async (withDecisions: boolean) => {
+      const f = await setup();
+      if (withDecisions)
+        f.change(D, {
+          'config/marks.json': {
+            types: [],
+            entries: {},
+            compendium: { 123: { kind: 'not-needed', by: 1, at: '2026-11-23T00:00:00Z' } },
+          },
+        });
+      await f.request();
+      await f.pub.operation(A);
+      f.assertDone();
+      return {
+        live: f.git.tree(f.git.head(L)!)['liveDescriptions.json'],
+        pushed: f.git.tree(f.git.head(D)!)['live/pushed.json'],
+      };
+    };
+    expect(await publish(true)).toEqual(await publish(false));
   });
 
   it('bundle.json carries the globals catalogue at its head, in page order, with public sync', async () => {

@@ -90,6 +90,7 @@ export async function startRoleHarness({ port, prepareSandbox }) {
         SITE_ORIGINS: '',
         SITE_URL: `${origin}/`,
         SESSION_SECRET: secret,
+        COMPENDIUM_DECISION_WRITES: '1',
         OAUTH_CALLBACK_URL: `${origin}${localPath}/api/auth/callback`,
         TURNSTILE_SECRET: challengeSecret,
       },
