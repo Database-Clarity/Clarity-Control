@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   affectedAliasCanonicals,
   aliasGroupFactsDigest,
+  aliasGroupRemovalsCapability,
   aliasGroupsCapability,
   aliasGroupsPath,
   aliasGroupsRequestSchema,
@@ -14,6 +15,7 @@ import {
   languages,
   resolveAlias,
   sandboxConflictsSchema,
+  sharedSandboxPerks,
   sandboxPointersPath,
   stableStringify,
   tooltipSchema,
@@ -44,6 +46,7 @@ const itemSchema = z.object({
   dimBaseHash: hashSchema.optional(),
   itemHash: hashSchema.optional(),
   owners: z.array(hashSchema).optional(),
+  sandboxPerkHashes: z.array(hashSchema).optional(),
 });
 
 /** Resolve the public generator once, then read every fact at that immutable commit. */
@@ -293,6 +296,12 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
         409,
         'The active publisher must support aliasGroups before changing accepted groups',
       );
+    // Older publishers reject the config's `removed` map, so removals wait for the new build.
+    if (
+      input.ops.some((op) => op.op === 'removeMember') &&
+      !capabilities.includes(aliasGroupRemovalsCapability)
+    )
+      throw new HttpError(409, 'Removing a group member needs the updated publisher');
   }
   const next = structuredClone(config);
   const by = { id: String(user.id), login: user.login },
@@ -319,7 +328,7 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     if ((op.op === 'ungroup' || op.op === 'setCanonical') && !group)
       throw new HttpError(422, 'Alias group does not exist');
     const archive =
-      op.op === 'ungroup' || op.op === 'setCanonical'
+      op.op === 'ungroup' || op.op === 'setCanonical' || op.op === 'removeMember'
         ? [...(config.archives ?? [])]
             .reverse()
             .find(
@@ -357,6 +366,55 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
         at,
         ...(op.reason === undefined ? {} : { reason: op.reason }),
       };
+      continue;
+    }
+    if (op.op === 'removeMember') {
+      if (!group || !members.includes(op.member))
+        throw new HttpError(422, `${op.member} is not a member of this group`);
+      const shared = sharedSandboxPerks(op.member, items, generated, conflicts);
+      if (shared.length)
+        throw new HttpError(
+          422,
+          `Sandbox perk ${shared.join(', ')} is shared with another inventory item; ${op.member} stays grouped`,
+        );
+      if (liveFiles.get(op.member))
+        throw new HttpError(
+          409,
+          `Tooltip ${op.member} was authored after grouping; refusing to overwrite it`,
+        );
+      // A copy of the group's current document: every language with its stamps, so no
+      // translation turns outdated. A group without text leaves the member without a file.
+      const source = tooltip(files.get(op.canonical), op.canonical);
+      const copy = source && tooltipSchema.parse({ ...structuredClone(source), hash: op.member });
+      if (copy) writes[tooltipPath(op.member)] = copy;
+      changed.set(op.member, copy && { sha: '', value: copy });
+      roots.add(op.member);
+      next.removed = { ...next.removed, [op.member]: { canonical: op.canonical, by, at } };
+      const remaining = members.filter((hash) => hash !== op.member);
+      if (remaining.length < 2) {
+        delete next.groups[op.canonical];
+        continue;
+      }
+      next.groups[op.canonical] = { ...group, members: remaining };
+      changedGroups.add(op.canonical);
+      if (!previousArchive) continue;
+      // The remaining group keeps a complete restoration archive with the same original blobs.
+      const archive: AliasGroupArchive = {
+        path: `migration-archives/alias-groups/${head}/${op.canonical}.json`,
+        files: Object.fromEntries(
+          Object.entries(previousArchive.files).filter(([hash]) => Number(hash) !== op.member),
+        ),
+      };
+      if ((config.archives ?? []).some((entry) => entry.path === archive.path))
+        throw new HttpError(409, 'Archive already exists; refusing to overwrite it');
+      for (const [hash, sha] of Object.entries(archive.files)) {
+        if (!sha) continue;
+        if (retainedFiles.get(retainedPath(previousArchive, hash))?.sha !== sha)
+          throw new HttpError(409, 'Group archive is missing or changed');
+        blobRefs[retainedPath(archive, hash)] = sha;
+      }
+      writes[archive.path] = archive;
+      next.archives = [...(next.archives ?? []), archive];
       continue;
     }
     let originals: Record<string, string | null>;
@@ -452,6 +510,11 @@ export async function aliasGroupsRoute(request: Request, github: GitHub, user: I
     };
     changedGroups.add(canonical);
     roots.add(canonical);
+    // A manual accept of a removed member is the maintainer's explicit decision to regroup it.
+    if (next.removed) {
+      for (const hash of members) delete next.removed[hash];
+      if (!Object.keys(next.removed).length) delete next.removed;
+    }
     const archive: AliasGroupArchive = {
       path: `migration-archives/alias-groups/${head}/${canonical}.json`,
       files: originals,

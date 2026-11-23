@@ -615,3 +615,79 @@ it.each([45, 90])(
     expect(read('tooltips/45.json')!.value).toEqual(document(45, exported));
   },
 );
+
+it('removes one member: copies the current document with stamps, keeps a restorable archive, and remembers it', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  const translated = document(42, 'Group text');
+  Object.assign(translated.text, {
+    de: { ...translated.text.en, text: 'Gruppe', sourceUpdatedAt: translated.text.en!.updatedAt },
+  });
+  await put('tooltips/42.json', translated);
+  await put('tooltips/43.json', document(43, 'Group text'));
+  const before = new Map(files);
+  items[43] = { ...items[43]!, sandboxPerkHashes: [900] };
+  generated = { 900: { to: 43, kind: 'sandbox' } };
+  await run([
+    {
+      ...(await intent('accept', [42, 43, 44])),
+      acknowledgeConflicts: true,
+    } as AliasGroupOperation,
+  ]);
+  const result = await run([{ op: 'removeMember', canonical: 42, member: 43 }]);
+  expect(result.config.groups[42]!.members).toEqual([42, 44]);
+  expect(result.config.removed).toEqual({
+    43: { canonical: 42, by: { id: '1', login: 'alice' }, at: expect.any(String) },
+  });
+  // Same text in every language, stamps unchanged: no translation turns outdated.
+  expect(read('tooltips/43.json')!.value).toEqual({ ...translated, hash: 43 });
+  expect(result.affectedCanonicals).toEqual(expect.arrayContaining([42, 43]));
+  // The reduced archive keeps the remaining members' original blobs, so ungroup still restores.
+  const archive = result.config.archives!.at(-1)!;
+  expect(archive.files).toEqual({ 42: before.get('tooltips/42.json'), 44: null });
+  const restored = await run([{ op: 'ungroup', canonical: 42 }]);
+  expect(restored.config.groups).toEqual({});
+  expect(restored.config.removed).toEqual(result.config.removed);
+  expect(files.get('tooltips/42.json')).toBe(before.get('tooltips/42.json'));
+  // A manual accept regroups it explicitly and clears the memory.
+  const regrouped = await run([await intent('accept', [42, 43])]);
+  expect(regrouped.config.removed).toBeUndefined();
+});
+
+it('dissolves a two-member group into the canonical alone', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  await put('tooltips/43.json', document(43));
+  await run([await intent()]);
+  const result = await run([{ op: 'removeMember', canonical: 42, member: 43 }]);
+  expect(result.config.groups).toEqual({});
+  expect(read('tooltips/43.json')!.value).toEqual(document(43));
+  expect(read('tooltips/42.json')!.value).toEqual(document(42));
+});
+
+it('refuses removal for a shared sandbox perk, the main entry, an old publisher, and non-maintainers', async () => {
+  await run([await intent()]);
+  const op = { op: 'removeMember', canonical: 42, member: 43 } as AliasGroupOperation;
+  await expect(run([op])).rejects.toMatchObject({
+    status: 409,
+    message: 'Removing a group member needs the updated publisher',
+  });
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  items[43] = { ...items[43]!, sandboxPerkHashes: [900, 901] };
+  for (const shared of [
+    { conflicts: { 900: [42, 43] }, generated: {} },
+    { conflicts: {}, generated: { 900: { to: 42, kind: 'sandbox' } } },
+  ]) {
+    ({ conflicts, generated } = shared);
+    await expect(run([op])).rejects.toMatchObject({
+      status: 422,
+      message: 'Sandbox perk 900 is shared with another inventory item; 43 stays grouped',
+    });
+  }
+  await expect(
+    run([{ op: 'removeMember', canonical: 42, member: 42 } as AliasGroupOperation]),
+  ).rejects.toMatchObject({ status: 400 });
+  await expect(
+    run([{ op: 'removeMember', canonical: 42, member: 45 } as AliasGroupOperation]),
+  ).rejects.toMatchObject({ status: 422 });
+  await expect(run([op], { id: 2, login: 'other' })).rejects.toMatchObject({ status: 403 });
+  expect(writes).toHaveBeenCalledTimes(1);
+});

@@ -21,6 +21,7 @@ const facts = Object.fromEntries(
   ]),
 );
 const before = snapshot(data, head);
+const removed = JSON.parse(before['config/alias-groups.json'] ?? '{}').removed ?? {};
 const tooltips = Object.fromEntries(
   Object.entries(before)
     .filter(([path]) => path.startsWith('tooltips/'))
@@ -79,6 +80,9 @@ for (const proposal of proposals) {
     seenArmour.add(pairKey(proposal.members));
   }
   if (proposal.kind !== 'S') reasons.push('Cross-category groups are disabled by S1');
+  // A maintainer took this item out of its group: only a manual accept may regroup it.
+  for (const h of proposal.members)
+    if (Object.hasOwn(removed, h)) reasons.push(`${h} was removed from its group by a maintainer`);
   if (!approvedPair) {
     // Empty inventory descriptions alone cannot prove identical in-game text.
     for (const [lang, doc] of Object.entries(localized)) {

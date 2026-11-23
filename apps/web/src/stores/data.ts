@@ -3,7 +3,9 @@ import {
   hasSandboxTargets,
   composeAliases,
   type AliasGroupIssue,
+  type AliasGroups,
   type Aliases,
+  type Tooltip,
   type SandboxConflicts,
   type SandboxPointers,
   type InactiveMoves,
@@ -151,6 +153,22 @@ export const useDataStore = create<DataState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * A saved group change shows at once: the new config and, for a removed member, its copied
+ * tooltip. A reload shows the published bundle again once it has caught up.
+ */
+export function applyAliasGroups(config: AliasGroups, copied?: Tooltip): void {
+  useDataStore.setState((state) => {
+    if (!state.data) return {};
+    const bundle = {
+      ...state.data.bundle,
+      aliasGroups: config,
+      ...(copied ? { tooltips: { ...state.data.bundle.tooltips, [copied.hash]: copied } } : {}),
+    };
+    return { data: withSandboxPicks({ ...state.data, bundle }, bundle.sandboxPointers) };
+  });
+}
 
 /** A move changes listing and review state immediately; saved tooltip text is untouched. */
 export function applyInactiveMoves(moves: InactiveMoves): void {
