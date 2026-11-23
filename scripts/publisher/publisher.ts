@@ -248,10 +248,10 @@ export class Publisher {
    * Generator aliases plus the maintainer sandbox picks at this snapshot (core mergeSandboxPointers,
    * the same merge as the Worker and the editor). A malformed picks file throws: fail closed.
    */
-  aliasesAt(tree: Tree): Aliases {
+  aliasesAt(tree: Tree, options = this.options): Aliases {
     try {
       return Publisher.aliasesAt(
-        this.options,
+        options,
         this.read<unknown>(tree, aliasGroupsPath),
         this.read<unknown>(tree, sandboxPointersPath),
       );
@@ -740,7 +740,13 @@ export class Publisher {
   private async verifyReceiptDigests(receipt: Receipt) {
     const frozen = this.git.tree(receipt.sourceCommit);
     const signed = await this.verifyRequest(receipt.requestBlob, receipt.opId, frozen);
-    const aliases = this.aliasesAt(frozen);
+    const options =
+      receipt.generatorSha === this.options.generatorSha
+        ? this.options
+        : this.read<Options>(frozen, '.publisher/config.json');
+    if (options?.generatorSha !== receipt.generatorSha)
+      throw new ConsumerOutputRejected('Missing pinned generator facts for the publication receipt');
+    const aliases = this.aliasesAt(frozen, options);
     if (
       !receipt.globals &&
       receipt.entries.length !==
