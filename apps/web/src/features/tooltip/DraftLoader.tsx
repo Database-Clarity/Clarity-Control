@@ -6,9 +6,19 @@ import { SourceRef } from '../compendium/SourceRef';
 import { sourceHref } from '../compendium/sourceLocation';
 import { useCompendiumStore } from '../compendium/store';
 import {
+  loadSandboxPerkText,
+  manifestDescription,
+  manifestText,
+  useSandboxPerkText,
+} from '../manifest/manifestText';
+import { itemFor } from '../navigation/catalog';
+import { useDataStore } from '../../stores/data';
+import {
   editorDraft,
   editorDraftIndex,
   knownDraftIndex,
+  manifestSourceChanged,
+  manifestSourced,
   sourceChanged,
   type EditorDraft,
 } from '../../services/editorDrafts';
@@ -121,9 +131,9 @@ export function DraftSlot() {
 }
 
 /**
- * "Load draft…": a draft written from this tooltip's Compendium match, previewed in a popover with
- * its source; Load puts it in the editor as an ordinary unsaved edit (undo, Discard, and Save work
- * as for typed text; nothing is saved here).
+ * "Load draft…": a draft written from this tooltip's Compendium match (or its in-game description),
+ * previewed in a popover with its source; Load puts it in the editor as an ordinary unsaved edit
+ * (undo, Discard, and Save work as for typed text; nothing is saved here).
  */
 export function DraftLoader({
   draft,
@@ -144,7 +154,9 @@ export function DraftLoader({
       label="Draft for this tooltip"
       className={pageStyles.ghost}
       trigger="Load draft…"
-      triggerTitle="Preview the draft written from this tooltip's Compendium entry, then load it into the editor"
+      triggerTitle={`Preview the draft written from this tooltip's ${
+        draft && manifestSourced(draft) ? 'in-game description' : 'Compendium entry'
+      }, then load it into the editor`}
     >
       {(close) =>
         !draft ? (
@@ -181,12 +193,19 @@ function DraftSummary({
   globals: MarkupGlobals;
   onLoad(): void;
 }) {
+  const manifest = manifestSourced(draft);
   const compendium = useCompendiumStore((state) => state.data);
-  // The change check needs the current sheet; the Compendium tab usually loaded it already.
+  const data = useDataStore((state) => state.data);
+  const perks = useSandboxPerkText();
+  // The change check needs the current source; the page usually loaded it already.
   useEffect(() => {
-    if (!compendium) void useCompendiumStore.getState().load();
-  }, [compendium]);
-  const changed = sourceChanged(draft, compendium);
+    if (manifest) void loadSandboxPerkText();
+    else if (!compendium) void useCompendiumStore.getState().load();
+  }, [manifest, compendium]);
+  const item = data ? itemFor(draft.hash, data) : undefined;
+  const changed = manifest
+    ? manifestSourceChanged(draft, manifestDescription(manifestText(item, perks)))
+    : sourceChanged(draft, compendium);
   const { tab, gid, range } = draft.source;
   return (
     <div className={styles.summary}>
@@ -200,10 +219,22 @@ function DraftSummary({
       />
       <div className={styles.side}>
         <div className={styles.source}>
-          <span className={styles.from}>From</span>
-          <SourceRef
-            location={{ tab, gid, range, label: `${tab} · ${range}`, href: sourceHref(gid, range) }}
-          />
+          {manifest ? (
+            <span className={styles.from}>Written from the in-game description</span>
+          ) : (
+            <>
+              <span className={styles.from}>From</span>
+              <SourceRef
+                location={{
+                  tab,
+                  gid,
+                  range,
+                  label: `${tab} · ${range}`,
+                  href: sourceHref(gid, range),
+                }}
+              />
+            </>
+          )}
         </div>
         {changed && (
           <p className={styles.changed} role="status">
