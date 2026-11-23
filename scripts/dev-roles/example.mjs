@@ -21,36 +21,40 @@ await new Promise((done) => socket.listen(0, '127.0.0.1', done));
 const { port } = socket.address();
 await new Promise((done) => socket.close(done));
 const app = await startRoleHarness({ port, prepareSandbox });
-const head = (branch) =>
-  execFileSync('git', ['--git-dir', app.dataGitDir, 'rev-parse', 'refs/heads/' + branch], {
+const git = (...args) =>
+  execFileSync('git', ['--git-dir', app.dataGitDir, ...args], {
     encoding: 'utf8',
   }).trim();
 const directory = app.origin + localPath;
 let browser;
 
 try {
-  const liveBefore = head('converter-v2-test');
-  const bundleResponse = await fetch(
+  const liveRef = 'refs/heads/converter-v2-test';
+  const liveBefore = git('rev-parse', liveRef);
+  const bundleUrl =
     directory +
-      '/upstream/raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/editor-data-bundle/bundle.json',
-  );
+    '/upstream/raw.githubusercontent.com/Database-Clarity/Live-Clarity-Database/editor-data-bundle/bundle.json';
+  const bundleResponse = await fetch(bundleUrl);
   assert.equal(bundleResponse.status, 200);
   const { tooltips, pushed, inactiveMoves } = await bundleResponse.json();
   const tooltip = process.argv[2]
     ? tooltips[process.argv[2]]
-    : Object.values(tooltips).find(
+    : (tooltips[935202422] ??
+      Object.values(tooltips).find(
         ({ hash, text, archive, custom }) =>
           hash > 3 &&
           pushed[hash] &&
           !inactiveMoves?.[hash] &&
           !archive &&
           !custom &&
-          text.en?.text &&
-          /^[^\n{}[\]<>]{20,300}$/.test(text.de?.text ?? ''),
-      );
+          /^[\p{L}\s'’,.:-]{20,160}$/u.test(text.en?.text ?? ''),
+      ));
   assert.ok(
-    tooltip?.text.de?.text && tooltip.text.en?.text,
-    'Choose a saved, publishable German tooltip',
+    tooltip?.text.en?.text &&
+      pushed[tooltip.hash] &&
+      !inactiveMoves?.[tooltip.hash] &&
+      !tooltip.archive,
+    'Choose an active tooltip with published English text',
   );
 
   browser = await chromium.launch({
@@ -80,12 +84,14 @@ try {
     .getByRole('region', { name: / editor \(German\)$/ })
     .locator('.cm-content[contenteditable="true"]:visible');
   await editable.waitFor();
-  const append = ' Lokaler Prüfsatz.';
-  const body = await editable.innerText();
-  assert.ok(body.trim().length, 'German text is loaded in the editor');
+  const german = tooltip.text.de?.text
+    ? ' Lokaler Prüfsatz.'
+    : tooltip.hash === 935202422
+      ? 'Offene Visierung. Beim Zielen bleibt das periphere Sichtfeld erhalten.'
+      : 'Deutscher Prüftext für den lokalen Test.';
   await editable.click();
   await page.keyboard.press('Control+End');
-  await page.keyboard.insertText(append);
+  await page.keyboard.insertText(german);
 
   await page.locator('[data-drafts-button]').click();
   await page.locator('[data-drafts-review]').click();
@@ -98,8 +104,11 @@ try {
   assert.equal(saved.status(), 200, await saved.text());
   const result = await saved.json();
   const current = result.tooltips.find(({ hash }) => hash === tooltip.hash);
-  assert.ok(current?.text.de.text.includes(append.trim()));
-  assert.equal(head('editor-data'), result.commit);
+  assert.ok(current?.text.de.text.includes(german.trim()));
+  git('merge-base', '--is-ancestor', result.commit, 'refs/heads/editor-data');
+  const stored = () => git('show', `refs/heads/editor-data:tooltips/${tooltip.hash}.json`);
+  const afterSave = stored();
+  assert.ok(JSON.parse(afterSave).text.de.text.includes(german.trim()));
   console.log(`PASS German save for ${tooltip.hash} at ${result.commit}`);
 
   const language = page.getByLabel('Language', { exact: true });
@@ -122,7 +131,7 @@ try {
   });
   assert.equal(denied.status(), 403, await denied.text());
   assert.match(await denied.text(), /assigned languages/);
-  assert.equal(head('editor-data'), result.commit);
+  assert.equal(stored(), afterSave);
   console.log('PASS English editor was read-only and the Worker refused the forced save (403)');
 
   await me('editor', async () => {
@@ -131,6 +140,16 @@ try {
     await dialog.getByRole('combobox').selectOption('editor');
     await dialog.getByRole('button', { name: 'Switch', exact: true }).click();
   });
+  await page.waitForFunction(
+    async ({ url, hash, text }) => {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) return false;
+      const bundle = await response.json();
+      return bundle.tooltips[hash]?.text.de?.text === text;
+    },
+    { url: bundleUrl, hash: tooltip.hash, text: current.text.de.text },
+    { polling: 1000, timeout: 120_000 },
+  );
   await page.goto(`${app.origin}/#/review?hash=${tooltip.hash}`);
   await page.getByRole('link', { name: 'Open in editor ↗' }).waitFor();
   assert.ok(
@@ -151,7 +170,7 @@ try {
   assert.equal(accepted.status(), 202, await accepted.text());
   const activity = page.getByRole('region', { name: 'Publish activity' });
   await activity.locator('li[data-status="done"]').waitFor({ timeout: 120_000 });
-  const liveAfter = head('converter-v2-test');
+  const liveAfter = git('rev-parse', liveRef);
   assert.notEqual(liveAfter, liveBefore);
   console.log(
     `PASS Editor published ${tooltip.hash}. Disposable live ref ${liveBefore} → ${liveAfter}`,

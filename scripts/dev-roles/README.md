@@ -47,9 +47,9 @@ projects, if present.
 Run `npm run test:dev-roles:browser` from the repository root. The script starts
 its own fresh instance and uses an installed Chromium browser. Set
 `PICKER_BROWSER` to the browser executable if it is outside the standard
-locations. Pass a tooltip hash after `--` to select an existing German tooltip.
+locations. Pass a tooltip hash after `--` to select another published tooltip.
 
-The script edits German, saves from the editor, checks the resulting data
+The script adds or edits German, saves from the editor, checks the resulting data
 commit, and verifies that English is read-only and a forced save returns
 HTTP 403. It switches to editor, publishes the same tooltip, waits for the
 published state, and verifies the disposable live ref advanced.
