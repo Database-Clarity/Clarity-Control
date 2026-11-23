@@ -77,6 +77,8 @@ for (const marker of [
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks schedule preparation (${marker}); refusing its PIN`);
+if (!runtime.includes('withUnpublishedRemovals('))
+  throw new Error('Publisher runtime lacks alias group removals; refusing its PIN');
 for (const marker of ['drainCurrentSaves(', 'Invalid staged Current save signature'])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks staged Current saves (${marker}); refusing its PIN`);
@@ -109,6 +111,8 @@ writeFileSync(
       // Prismatic joined do not; the Worker refuses Prismatic tags while the PIN lacks it).
       // arrowSymbol = retain <arrow/> in the intermediate; the separately installed converter engine lowers legacy files.
       // numberTokens = validate English maps and resolve translation tokens before export.
+      // aliasGroupRemovals = config/alias-groups.json may carry a `removed` map (members a
+      // maintainer took out of a group; the Worker refuses removeMember while the PIN lacks it).
       capabilities: [
         'elementTags',
         'sandboxPointers',
@@ -128,6 +132,7 @@ writeFileSync(
         'scheduledBatchStagingV1',
         'currentSaveStagingV1',
         'exoticTags',
+        'aliasGroupRemovals',
       ],
     },
     null,

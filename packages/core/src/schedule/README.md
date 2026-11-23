@@ -56,7 +56,7 @@ for every language but English.
 
 Checked in this order, `base` null included (a null base changes every field `proposed` has):
 
-- `overlay` (C1-C2): a snapshot at S exists: it, with every batch-changed field taken from
+- `overlay` (C1-C2): pushed and a snapshot at S exists: it, with every batch-changed field taken from
   `proposed` (absent there = removed), except `associated` with a non-null base: the batch's
   additions and removals apply to the snapshot by merge3's set rule, exactly as activation
   applies them to current (so live equals a manual publish of the activated tooltip, and
@@ -65,7 +65,8 @@ Checked in this order, `base` null included (a null base changes every field `pr
   of such a field also carries saved-but-unpublished work on it, or reverts a field live moved
   past base. P3 shows them to the approver; whether P4 refuses them is OPEN for root.
 - `stale` (C3): pushed but no snapshot; reason `missingSnapshotReason`.
-- `whole` (C4): never published (no pushed entry, no snapshot): the whole proposal.
+- `whole` (C4): not published (no pushed entry; a snapshot without one is ignored, as for a
+  member removed from an alias group): the whole proposal.
 
 ## Activation and resolution (`activate.ts`, I4, Q4, R12, R14)
 
