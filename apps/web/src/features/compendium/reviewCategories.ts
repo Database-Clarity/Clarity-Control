@@ -22,6 +22,8 @@ export type ReviewSample = ReviewEntry & {
   setBonus?: { setName: string; pieceCount: 2 | 4 };
   artifactSunset?: boolean;
   manifestFacts?: { item: ManifestFacts['items'][string]; version: string };
+  /** Keywords are trait definitions, so they do not have inventory manifest facts. */
+  manifestKeywordDescription?: string;
 };
 export const reasonLabels = {
   validated: 'Validated proposals',
@@ -128,6 +130,7 @@ export function reviewCategories(
     // or out must not rewrite an approval's fingerprint (root brief MATCHER-EVIDENCE-2,
     // 2026-11-19, porting the second run's self-identity rule).
     const ownManifest = evidenceManifest.filter((item) => item.hash === entry.hash);
+    const keyword = editor.items[entry.hash];
     // Accepted name groups only: those members' tooltips and catalog facts live here now.
     const groupMembers = incomingAliases(entry.hash, editor.aliases)
       .filter(([, kind]) => kind === 'name')
@@ -153,6 +156,11 @@ export function reviewCategories(
         ),
       ],
       ...(agreed ? { manifestFacts: { item: fact, version: facts.source.manifestVersion } } : {}),
+      ...(keyword?.categoryId === 'verbs' &&
+      keyword.definitionType === 'DestinyTraitDefinition' &&
+      keyword.inGameDescription.trim()
+        ? { manifestKeywordDescription: keyword.inGameDescription }
+        : {}),
       sampleEvidence: sourceFingerprint([
         entry.hash,
         entry.evidence,
