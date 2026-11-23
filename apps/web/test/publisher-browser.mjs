@@ -100,7 +100,7 @@ try {
     assert.deepEqual(before.tallControls, [], `${width}: tall controls`);
     // An unread receipt with every part finished: its real state, never a Retry that does nothing.
     assert.deepEqual(
-      before.rows.filter((r) => r.chip === 'Combining…').map((r) => r.action),
+      before.rows.filter((r) => r.chip === 'Checking…').map((r) => r.action),
       [''],
       `${width}: combining row`,
     );
@@ -126,8 +126,11 @@ try {
     assert.equal(after.top, before.top, `${width}: strip moved on status change`);
     assert.ok(after.docWidth <= width);
     // Confirm dialog wording (publisher flow) renders without overflow too.
-    await page.getByRole('button', { name: 'Select page' }).click();
-    await page.getByRole('button', { name: 'Publish selected' }).click();
+    await page
+      .getByRole('checkbox', { name: /^Include all .* in / })
+      .first()
+      .click();
+    await page.locator('[data-review-publish]').click();
     await page.waitForSelector('dialog[open]');
     const dialog = await page.evaluate(() => ({
       text: document.querySelector('dialog[open]').textContent,

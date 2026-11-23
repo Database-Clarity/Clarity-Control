@@ -1,5 +1,10 @@
 import { isTerminal, type PublishOp } from '../../services/publisher/opStore';
-import { needsPublishReceipt, publishTiming, regroupRefusals } from './publishDriver';
+import {
+  needsPublishReceipt,
+  publishProofWait,
+  publishTiming,
+  regroupRefusals,
+} from './publishDriver';
 
 export type Tone = 'busy' | 'ok' | 'warn' | 'bad';
 export interface OpView {
@@ -7,11 +12,11 @@ export interface OpView {
   tone: Tone;
   /** Short status chip, fixed width in the UI. */
   chip: string;
-  /** What the line says after the count and start time. */
+  /** What the line says after the count. */
   detail: string;
-  /** "3 tooltips · 14:05": the line's fixed lead-in. */
+  /** Tooltip count or confirmed progress. */
   lead: string;
-  /** A queued part has not been picked up for a while: Retry kicks it. */
+  /** A queued part still has no result after the Retry threshold. */
   waiting: boolean;
   /** Finished: can be dismissed. */
   finished: boolean;
@@ -19,6 +24,11 @@ export interface OpView {
 
 /** Formats a timestamp for display: the shared formatter with the user's date settings. */
 export type When = (ms: number) => string;
+
+function elapsed(start: number, end: number): string {
+  const seconds = Math.max(0, Math.floor((end - start) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
 
 /**
  * The one place statuses become words. Wording keeps "nothing went live" explicit when true.
@@ -31,43 +41,55 @@ export function describeOp(
   now: number,
   when: When,
   combining = false,
+  liveCount?: number,
 ): OpView {
   const count = op.hashes.length;
-  const lead = `${count} tooltip${count === 1 ? '' : 's'} · ${when(op.createdAt)}`;
+  const startedAt = op.groupCreatedAt ?? op.createdAt;
+  const tooltipCount = `${count} tooltip${count === 1 ? '' : 's'}`;
+  const lead =
+    liveCount !== undefined && !isTerminal(op.status)
+      ? `${liveCount} of ${count} tooltips live.`
+      : op.status === 'done'
+        ? tooltipCount
+        : `${tooltipCount} · ${when(startedAt)}`;
   const base = { opId: op.opId, lead, waiting: false, finished: isTerminal(op.status) };
   switch (op.status) {
     case 'created':
       return {
         ...base,
         tone: 'busy',
-        chip: 'Sending…',
+        chip: op.syncPendingSince === undefined ? 'Sending…' : 'Checking…',
         detail:
           note ??
-          (op.syncPendingSince === undefined
-            ? 'Saved on this device; sending to the publisher.'
-            : 'Sync pending. Publishing will continue automatically.'),
+          (op.syncPendingSince === undefined ? 'Sending the publish request.' : publishProofWait),
       };
     case 'pending': {
       if (combining)
-        return { ...base, tone: 'busy', chip: 'Combining…', detail: note ?? 'Combining parts…' };
-      const waiting = now - (op.acceptedAt ?? op.createdAt) >= publishTiming.waitingMs;
+        return { ...base, tone: 'busy', chip: 'Checking…', detail: note ?? 'Checking results.' };
+      const acceptedAt = op.acceptedAt ?? op.createdAt;
+      const waiting = now - acceptedAt >= publishTiming.waitingMs;
       return waiting
         ? {
             ...base,
             waiting,
             tone: 'warn',
             chip: 'Waiting',
-            detail: note ?? 'No publish run has started yet. Retry starts one.',
+            detail: note ?? `Queued ${when(acceptedAt)}.`,
           }
         : {
             ...base,
             tone: 'busy',
-            chip: 'Publishing…',
-            detail: note ?? 'Queued. A publish run goes live in a minute or two.',
+            chip: 'Queued',
+            detail: note ?? 'Waiting for confirmation.',
           };
     }
     case 'done':
-      return { ...base, tone: 'ok', chip: 'Published', detail: 'Live for everyone.' };
+      return {
+        ...base,
+        tone: 'ok',
+        chip: 'Published',
+        detail: `Confirmed live after ${elapsed(startedAt, op.updatedAt)}.`,
+      };
     case 'unchanged':
       return {
         ...base,
@@ -127,7 +149,7 @@ export function foreignWaiting(
  */
 export function groupPublishes(
   ops: readonly PublishOp[],
-): { op: PublishOp; members: PublishOp[]; combining?: boolean; checking?: boolean }[] {
+): { op: PublishOp; members: PublishOp[]; liveCount?: number; checking?: boolean }[] {
   const groups = new Map<string, PublishOp[]>();
   for (const op of ops) {
     const id = op.groupId ?? op.opId;
@@ -161,12 +183,15 @@ export function groupPublishes(
       .reduce((count, op) => count + op.hashes.length, 0);
     return {
       members,
-      combining,
+      liveCount: first.groupId ? successful : undefined,
       checking: combining && !unfinished,
       op: {
         ...first,
+        groupCreatedAt: Math.min(...members.map((op) => op.groupCreatedAt ?? op.createdAt)),
+        updatedAt: Math.max(...members.map((op) => op.updatedAt)),
         // Waiting (and Retry) is timed from the queued part, e.g. a resent combination.
         acceptedAt: unfinished ? (unfinished.acceptedAt ?? unfinished.createdAt) : first.acceptedAt,
+        syncPendingSince: unfinished?.syncPendingSince,
         hashes: members.flatMap((op) => op.hashes),
         status: missing
           ? 'failed'

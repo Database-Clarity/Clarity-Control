@@ -3,6 +3,7 @@ import { kickPublish, getPublishStatus, postPublish } from '../../services/publi
 import { publisherEnabled } from '../../services/publisher/flag';
 import { createIndexedDbOpStore } from '../../services/publisher/opStore';
 import { useAuthStore } from '../../stores/auth';
+import { useDataStore } from '../../stores/data';
 import { canPush } from './model';
 import { PublishDriver } from './publishDriver';
 import { useReviewSession } from './session';
@@ -17,6 +18,7 @@ export const publishDriver = new PublishDriver({
   setTimer: (run, ms) => setTimeout(run, ms),
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
+  bundleGeneratedAt: () => Date.parse(useDataStore.getState().data?.bundle.generatedAt ?? ''),
   broadcast: () => channel?.postMessage('changed'),
   acknowledge(op) {
     useReviewSession.setState((state) => ({

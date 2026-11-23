@@ -21,6 +21,8 @@ export interface PublishOp {
   /** Numeric account id the body was confirmed under; another account never resumes it. */
   userId: string;
   createdAt: number;
+  /** Original confirmation time when refused parts are replaced with new requests. */
+  groupCreatedAt?: number;
   hashes: number[];
   expected: Record<string, string>;
   /** The pushed marker each hash had when confirmed (null = none), for the acknowledgment overlay. */
@@ -31,7 +33,6 @@ export interface PublishOp {
   /** First proof wait for this request, shared across tabs and reloads. */
   syncPendingSince?: number;
   kickedAt?: number;
-  autoKicked?: boolean;
   polledAt?: number;
   /** Plain-language reason for `failed`/`stale`/`rejected` that originates in the client. */
   error?: string;
@@ -60,6 +61,12 @@ export interface OpStore {
     opId: string,
     change: (op: PublishOp) => PublishOp | undefined,
   ): Promise<PublishOp | undefined>;
+  /** Decide against a consistent view of the request and its siblings before kicking. */
+  claimKick(
+    opId: string,
+    kickedAt: number,
+    ready: (group: PublishOp[]) => boolean,
+  ): Promise<boolean>;
   remove(opIds: string[]): Promise<void>;
 }
 
@@ -139,6 +146,15 @@ export function createIndexedDbOpStore(): OpStore {
           done(guardTerminal(current, next));
         };
       }),
+    claimKick: (opId, kickedAt, ready) =>
+      run<boolean>('readwrite', (store, done) => {
+        const records = store.getAll();
+        records.onsuccess = () => {
+          const op = kickable(records.result as PublishOp[], opId, ready);
+          if (op) store.put({ ...op, kickedAt });
+          done(op !== undefined);
+        };
+      }),
     remove: (opIds) =>
       run<void>('readwrite', (store) => {
         for (const id of opIds) store.delete(id);
@@ -166,6 +182,7 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     consumers: current.consumers,
     userId: current.userId,
     createdAt: current.createdAt,
+    groupCreatedAt: current.groupCreatedAt,
     hashes: current.hashes,
     expected: current.expected,
     previous: current.previous,
@@ -177,6 +194,15 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     merged.receiptChecked = current.receiptChecked;
   }
   return merged;
+}
+
+function kickable(records: PublishOp[], opId: string, ready: (group: PublishOp[]) => boolean) {
+  const op = records.find((record) => record.opId === opId);
+  if (op?.status !== 'pending') return undefined;
+  const group = op.groupId
+    ? records.filter((record) => record.groupId === op.groupId && record.userId === op.userId)
+    : [op];
+  return ready(group) ? op : undefined;
 }
 
 /** In-memory store: tests, and the shape the IndexedDB one must keep. */
@@ -218,6 +244,12 @@ export function createMemoryOpStore(): OpStore & { records: Map<string, PublishO
       const stored = guardTerminal(current, next);
       records.set(opId, structuredClone(stored));
       return structuredClone(stored);
+    },
+    async claimKick(opId, kickedAt, ready) {
+      const op = kickable([...records.values()], opId, ready);
+      if (!op) return false;
+      records.set(opId, { ...op, kickedAt });
+      return true;
     },
     async remove(ids) {
       for (const id of ids) records.delete(id);
