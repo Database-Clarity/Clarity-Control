@@ -237,6 +237,10 @@ repeat.
 
 ## 11. Verification (required, not optional)
 
+For signed-in interaction checks, use `npm run dev:roles` and the **Dev role**
+control. The [local role guide](../../scripts/dev-roles/README.md) covers the
+disposable data, role query, and worked browser check.
+
 Render QA is mandatory: 390 / 768 / 1280, both themes, zero horizontal overflow,
 no clipped text, no wrapping inside controls. Phone layout is judged at 100%,
 checked at 120%, and checked for breakage at 150%. Also verify aligned control

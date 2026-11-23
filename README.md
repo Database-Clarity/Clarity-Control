@@ -15,6 +15,18 @@ The production editor remains unchanged on `main`.
 Stop the server with Ctrl+C. Changes to the web source appear automatically.
 If port 5173 is busy, stop your own old server or choose a different port.
 
+### Test signed-in roles locally
+
+Run `npm run dev:roles` after `npm ci`. Open `http://127.0.0.1:5187/` and select an
+identity using **Dev role**. Each launch fetches fresh public input refs into a
+disposable Git store and starts the actual API Worker in Miniflare with fresh D1
+databases. Edits and publications go to the local Git store. Use
+`npm run dev:roles -- --port 5188` to run a separate instance.
+
+Use `?dev-role=translator-de` before the hash route to start as a German translator.
+The [local role guide](scripts/dev-roles/README.md) lists identities, local
+stand-ins, and a worked Playwright flow.
+
 ## Where things live
 
 | Folder/file                       | Purpose                                                                                                                                                    |
