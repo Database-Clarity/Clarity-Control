@@ -14,6 +14,7 @@ const route = '/save/stage';
 
 export async function readCurrentSaveOutcome(requestId: string) {
   const response = await apiRequest(`${route}?requestId=${encodeURIComponent(requestId)}`);
+  if (response.status === 404) return null;
   if (!response.ok) return failure(response);
   return currentSaveOutcome.parse(await response.json());
 }
@@ -98,6 +99,7 @@ export async function stageCurrentSave(
     checkSession();
     const result = await readCurrentSaveOutcome(requestId);
     checkSession();
+    if (!result) throw new Error('The queued save could not be found. Your drafts are kept.');
     if (result.status === 'saved')
       return {
         kind: 'saved',

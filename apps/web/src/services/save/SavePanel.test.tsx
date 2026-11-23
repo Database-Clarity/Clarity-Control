@@ -22,6 +22,8 @@ vi.mock('./state', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./state')>();
   return {
     ...actual,
+    useDraftSaveStatus: () =>
+      actual.draftSaveStatus(useDraftStore.getState(), actual.useSaveState.getState()),
     useSaveState: Object.assign(
       (selector: (state: ReturnType<typeof actual.useSaveState.getState>) => unknown) =>
         selector(actual.useSaveState.getState()),
@@ -93,9 +95,30 @@ describe('SavePanel drafts summary', () => {
     useSaveNotice.setState({ notice: null });
   });
   afterEach(() => {
+    vi.unstubAllGlobals();
     useDraftStore.setState(originalDrafts);
     useAuthStore.setState(originalAuth);
-    useSaveState.setState({ locked: false, review: null });
+    useSaveState.setState({
+      locked: false,
+      review: null,
+      recoveryGeneration: null,
+      applyingDrafts: {},
+    });
+  });
+
+  it('shows Applying in place of the review action for a recovered staged save', () => {
+    vi.stubGlobal('indexedDB', {});
+    useDraftStore.setState({ owner: '1', generation: 7 });
+    expect(render()).toContain('>Checking save<');
+    expect(render()).not.toContain('data-drafts-review');
+    useSaveState.setState({ recoveryGeneration: 7, applyingDrafts: { 1: draft } });
+    expect(render()).toContain('>Applying<');
+    expect(render()).not.toContain('data-drafts-review');
+    useDraftStore.setState({
+      drafts: { 1: draft, 2: { base: tooltip(2, 'a'), next: tooltip(2, 'b') } },
+    });
+    expect(render()).toContain('data-drafts-review');
+    expect(render()).toContain('>Applying<');
   });
 
   it('shows the count and the review action', () => {

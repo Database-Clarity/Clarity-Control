@@ -1,5 +1,6 @@
 import {
   carryNumberTranslations,
+  currentSaveStageLifetime,
   languages,
   reconcileNumberMap,
   refreshNumberFallbacks,
@@ -9,7 +10,7 @@ import {
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { applySavedOverlay, rememberSaved } from '../../stores/savedOverlay';
-import { readSaveReceipts, writeSaveReceipt, type SaveReceipt } from '../draftStorage';
+import { readSaveReceipts, writeSaveReceipt, type Drafts, type SaveReceipt } from '../draftStorage';
 import { readCurrentSaveOutcome, readStagedSavedTooltips } from './stagedCurrentSave';
 import { useSaveState } from './state';
 
@@ -49,8 +50,61 @@ function expectedSubmission(base: Tooltip | null, sent: Tooltip): Tooltip {
 export function startSaveRecovery(): () => void {
   if (typeof indexedDB === 'undefined') return () => {};
   let stopped = false;
-  let generation = -1;
+  type Session = { generation: number; owner: string };
+  let active: Session | null = null;
   let receipts: SaveReceipt[] | null = null;
+  let pendingStages = new Set<string>();
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  const stillCurrent = (session: Session) =>
+    !stopped && active === session && useDraftStore.getState().generation === session.generation;
+
+  async function resolveStages(records: SaveReceipt[], session: Session) {
+    const pending: SaveReceipt[] = [];
+    const failed = new Set<string>();
+    for (const [index, receipt] of records.entries()) {
+      if (!stillCurrent(session)) return;
+      if (
+        !receipt.stageId ||
+        receipt.confirmed ||
+        Date.now() - receipt.at >= currentSaveStageLifetime
+      )
+        continue;
+      try {
+        const result = await readCurrentSaveOutcome(receipt.stageId);
+        if (!stillCurrent(session)) return;
+        if (result?.status === 'queued') {
+          pending.push(receipt);
+        } else if (result?.status === 'saved') {
+          const tooltips = await readStagedSavedTooltips(
+            result.commit,
+            receipt.tooltips.map(({ hash }) => hash),
+          );
+          if (!stillCurrent(session)) return;
+          const confirmed = { ...receipt, confirmed: true, tooltips, savedAt: result.savedAt };
+          await writeSaveReceipt(session.owner, receipt.id, confirmed);
+          records[index] = confirmed;
+        } else if (result) {
+          failed.add(receipt.id);
+        }
+      } catch {
+        // Keep waiting if either the receipt or the tooltips at its commit are temporarily unreadable.
+        pending.push(receipt);
+      }
+    }
+    if (!stillCurrent(session)) return;
+    pendingStages = new Set(pending.map(({ id }) => id));
+    const checked = new Set(records.map(({ id }) => id));
+    receipts = [
+      ...(receipts ?? []).filter(({ id }) => !checked.has(id)),
+      ...records.filter(({ id }) => !failed.has(id)),
+    ].sort((a, b) => a.at - b.at);
+    recover();
+    useSaveState.setState({
+      recoveryGeneration: session.generation,
+      applyingDrafts: Object.assign({} as Drafts, ...pending.map((receipt) => receipt.submitted)),
+    });
+    if (pending.length) retry = setTimeout(() => void resolveStages(pending, session), 4000);
+  }
 
   function recover() {
     const {
@@ -63,37 +117,17 @@ export function startSaveRecovery(): () => void {
     } = useDraftStore.getState();
     const { data } = useDataStore.getState();
     if (stopped || !hydrated || !owner || !data || useSaveState.getState().locked) return;
-    if (generation !== current) {
-      generation = current;
+    if (active?.generation !== current) {
+      const session = { generation: current, owner };
+      active = session;
       receipts = null;
+      clearTimeout(retry);
       void readSaveReceipts(owner)
-        .then(async (records) => {
-          const stillCurrent = () => !stopped && useDraftStore.getState().generation === current;
-          for (const [index, receipt] of records.entries()) {
-            if (!stillCurrent()) return;
-            if (!receipt.stageId || receipt.confirmed) continue;
-            try {
-              const result = await readCurrentSaveOutcome(receipt.stageId);
-              if (!stillCurrent()) return;
-              if (result.status !== 'saved') continue;
-              const tooltips = await readStagedSavedTooltips(
-                result.commit,
-                receipt.tooltips.map(({ hash }) => hash),
-              );
-              if (!stillCurrent()) return;
-              const confirmed = { ...receipt, confirmed: true, tooltips, savedAt: result.savedAt };
-              await writeSaveReceipt(owner, receipt.id, confirmed);
-              records[index] = confirmed;
-            } catch {
-              // The next bundle can confirm the original attempt when status or raw is unavailable.
-            }
-          }
-          if (stopped || useDraftStore.getState().generation !== current) return;
-          receipts = records.sort((a, b) => a.at - b.at);
-          recover();
-        })
+        .then((records) => resolveStages(records, session))
         .catch(() => {
           // A failed receipt read never removes a draft.
+          if (stillCurrent(session))
+            useSaveState.setState({ recoveryGeneration: current, applyingDrafts: {} });
         });
       return;
     }
@@ -113,6 +147,7 @@ export function startSaveRecovery(): () => void {
 
     let remaining = drafts;
     for (const receipt of records) {
+      if (pendingStages.has(receipt.id)) continue;
       for (const tooltip of receipt.tooltips) {
         const currentDraft = remaining[tooltip.hash];
         const submitted = receipt.submitted[tooltip.hash];
@@ -120,7 +155,8 @@ export function startSaveRecovery(): () => void {
           currentDraft &&
           submitted &&
           stableStringify(currentDraft) === stableStringify(submitted) &&
-          (sameSubmission(bundle.tooltips[tooltip.hash], tooltip) ||
+          ((receipt.stageId && receipt.confirmed) ||
+            sameSubmission(bundle.tooltips[tooltip.hash], tooltip) ||
             (!receipt.confirmed &&
               sameSubmission(
                 bundle.tooltips[tooltip.hash],
@@ -153,11 +189,22 @@ export function startSaveRecovery(): () => void {
       recover();
   });
   const stopSave = useSaveState.subscribe((value, old) => {
-    if (!value.locked && old.locked) recover();
+    if (!value.locked && old.locked) {
+      if (
+        old.progress.phase === 'failed' ||
+        old.progress.phase === 'landing' ||
+        old.progress.phase === 'staging'
+      ) {
+        active = null;
+        useSaveState.setState({ recoveryGeneration: null, applyingDrafts: {} });
+      }
+      recover();
+    }
   });
   recover();
   return () => {
     stopped = true;
+    clearTimeout(retry);
     stopData();
     stopDrafts();
     stopSave();

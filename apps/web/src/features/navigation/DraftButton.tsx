@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { resolveAlias, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { SavePanel } from '../../services/save/SavePanel';
-import { useSaveState } from '../../services/save/state';
+import { useDraftSaveStatus, useSaveState, visibleDrafts } from '../../services/save/state';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { useOpenConflicts } from '../../stores/conflicts';
@@ -35,10 +35,13 @@ export function RecoveredDrafts({
   onOpen(hash: number): void;
 }) {
   const drafts = useDraftStore((state) => state.drafts);
+  const applying = useSaveState((state) => state.applyingDrafts);
+  const status = useDraftSaveStatus();
+  const visible = status === 'Applying' ? visibleDrafts(drafts, applying) : drafts;
   const discard = useDraftStore((state) => state.discard);
   return (
     <>
-      {staleDraftHashes(drafts, data).map((hash) => {
+      {staleDraftHashes(visible, data).map((hash) => {
         const draft = drafts[Number(hash)];
         const canonical = resolveAlias(Number(hash), data.aliases);
         return (
@@ -81,7 +84,13 @@ export function RecoveredDrafts({
  */
 export function DraftsContent({ onClose }: { onClose(): void }) {
   const data = useDataStore((state) => state.data);
-  const drafts = useDraftStore((state) => state.drafts);
+  const allDrafts = useDraftStore((state) => state.drafts);
+  const applying = useSaveState((state) => state.applyingDrafts);
+  const status = useDraftSaveStatus();
+  const drafts = useMemo(
+    () => (status === 'Applying' ? visibleDrafts(allDrafts, applying) : allDrafts),
+    [allDrafts, applying, status],
+  );
   const discard = useDraftStore((state) => state.discard);
   const openConflicts = useOpenConflicts();
   const navigate = useNavigate();
@@ -111,12 +120,12 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
   return (
     <div className={styles.drafts}>
       <SavePanel className={styles.summary} onReview={onClose} onResolve={open}>
-        {data && stale.size > 0 && (
+        {status !== 'Checking save' && data && stale.size > 0 && (
           <div className={styles.recoveredBox}>
             <RecoveredDrafts data={data} onOpen={open} />
           </div>
         )}
-        {rows.length > 0 && (
+        {status !== 'Checking save' && rows.length > 0 && (
           <DraftList
             rows={rows}
             nameOf={name}

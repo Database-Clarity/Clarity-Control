@@ -27,7 +27,7 @@ import { permissionError, prepareChanges } from './pipeline';
 import { requestSaveValidation } from './validationWorker';
 import { liveFallback, noImpactAvailable } from './fallback';
 import type { TooltipValidationIssue } from '@clarity/core';
-import { useSaveProgress, useSaveState, type SaveReview } from './state';
+import { useDraftSaveStatus, useSaveProgress, useSaveState, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
 import { SaveSummary } from './SaveSummary';
@@ -84,9 +84,13 @@ export function SavePanel({
   const drafts = useDraftStore((state) => state.drafts);
   const user = useAuthStore((state) => state.user);
   const review = useSaveState((state) => state.review);
+  const status = useDraftSaveStatus();
+  const applying = useSaveState((state) => state.applyingDrafts);
   const notice = useSaveNotice((state) => state.notice);
   const dismiss = useSaveNotice((state) => state.dismiss);
-  const count = Object.keys(drafts).length;
+  const count = Object.keys(drafts).filter(
+    (hash) => status !== 'Applying' || !applying[hash],
+  ).length;
   const conflicts = useOpenConflicts();
   const paused = usePausedForOtherTab();
   const open = conflicts.reduce((sum, conflict) => sum + conflict.total, 0);
@@ -128,10 +132,13 @@ export function SavePanel({
   return (
     <section aria-label="Save drafts" className={className}>
       <div className={styles.head}>
-        <p data-summary>
-          {count === 0 ? 'No local drafts' : `${count} local ${count === 1 ? 'draft' : 'drafts'}`}
+        <p data-summary role={status ? 'status' : undefined}>
+          {status ??
+            (count === 0
+              ? 'No local drafts'
+              : `${count} local ${count === 1 ? 'draft' : 'drafts'}`)}
         </p>
-        {action}
+        {status !== 'Checking save' && (status !== 'Applying' || count > 0) && action}
       </div>
       {unpreviewed > 0 && (
         <p data-unpreviewed>

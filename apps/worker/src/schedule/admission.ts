@@ -460,7 +460,13 @@ export async function admitBatchRequest(
     if ('changes' in input) {
       if (state.access.role === 'translator' && input.changes.some(({ base }) => base === null))
         throw new HttpError(403, 'Translators may change only existing tooltips');
-      if (batch.status === 'draft' && submittedBody.size > preparedDraftSave.bytes)
+      // The client can split a part between changes, but a singleton is indivisible. Admission
+      // stores the raw body for the Action, which does the full validation and applies the edit.
+      if (
+        batch.status === 'draft' &&
+        input.changes.length > 1 &&
+        submittedBody.size > preparedDraftSave.bytes
+      )
         throw new HttpError(413, 'Invalid draft save part');
       if (batch.status === 'scheduled' && input.changes.length > scheduledSaveChangeCap)
         throw new HttpError(

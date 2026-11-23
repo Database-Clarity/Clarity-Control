@@ -6,12 +6,20 @@ import { clearSavedOverlay } from '../../stores/savedOverlay';
 import type { SaveReceipt } from '../draftStorage';
 import { editorData, tooltip } from './fixtures.testSupport';
 import { startSaveRecovery } from './recovery';
-import { useSaveState } from './state';
+import { draftSaveStatus, useSaveState, visibleDrafts } from './state';
+import { openDraftSaveReview } from './openReview';
 
 const read = vi.hoisted(() => vi.fn());
+const write = vi.hoisted(() => vi.fn());
+const stage = vi.hoisted(() => ({ outcome: vi.fn(), tooltips: vi.fn() }));
 vi.mock('../draftStorage', async (actual) => ({
   ...(await actual<typeof import('../draftStorage')>()),
   readSaveReceipts: read,
+  writeSaveReceipt: write,
+}));
+vi.mock('./stagedCurrentSave', () => ({
+  readCurrentSaveOutcome: stage.outcome,
+  readStagedSavedTooltips: stage.tooltips,
 }));
 
 const second = { ...tooltip, hash: 400 };
@@ -38,7 +46,12 @@ afterEach(() => {
   stop?.();
   clearSavedOverlay();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   read.mockReset();
+  write.mockReset();
+  stage.outcome.mockReset();
+  stage.tooltips.mockReset();
+  useSaveState.setState({ recoveryGeneration: null, applyingDrafts: {} });
 });
 
 function start(saved = records()) {
@@ -130,3 +143,70 @@ it('retains an edited draft even when its previously submitted content arrives',
   });
   expect(useDraftStore.getState().drafts[400]?.next).toEqual(editedLater);
 });
+
+it('keeps a reopened staged save applying until its immutable receipt confirms the merged tooltip', async () => {
+  vi.useFakeTimers();
+  const saved = records();
+  saved[1] = { ...saved[1], stageId: '01K95H00000000000000000A02' };
+  const merged = { ...ambiguous, associated: [123, 789] };
+  const commit = 'c'.repeat(40);
+  stage.outcome
+    .mockResolvedValueOnce({ status: 'queued' })
+    .mockResolvedValueOnce({ status: 'saved', commit, savedAt: Date.now() });
+  stage.tooltips.mockResolvedValueOnce([merged]);
+  start(saved);
+  const status = () => draftSaveStatus(useDraftStore.getState(), useSaveState.getState());
+  expect(status()).toBe('Checking save');
+  openDraftSaveReview();
+  expect(useSaveState.getState().review).toBeNull();
+
+  await vi.advanceTimersByTimeAsync(0);
+  expect(status()).toBe('Applying');
+  expect(
+    visibleDrafts(useDraftStore.getState().drafts, useSaveState.getState().applyingDrafts),
+  ).toEqual({});
+  expect(useDraftStore.getState().drafts[400]?.next).toEqual(ambiguous);
+  openDraftSaveReview();
+  expect(useSaveState.getState().review).toBeNull();
+
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(stage.tooltips).toHaveBeenCalledWith(commit, [400]);
+  expect(write).toHaveBeenCalledWith(
+    '1',
+    'ambiguous',
+    expect.objectContaining({ confirmed: true }),
+  );
+  expect(useDataStore.getState().data!.bundle.tooltips[400]).toEqual(merged);
+  expect(useDraftStore.getState().drafts).toEqual({});
+  expect(status()).toBeNull();
+});
+
+it.each(['saved', 'failed'])(
+  'keeps edits made while applying when the stage is %s',
+  async (status) => {
+    vi.useFakeTimers();
+    const saved = records();
+    saved[1] = { ...saved[1], stageId: '01K95H00000000000000000A02' };
+    stage.outcome
+      .mockResolvedValueOnce({ status: 'queued' })
+      .mockResolvedValueOnce(
+        status === 'saved'
+          ? { status, savedAt: Date.now(), commit: 'c'.repeat(40) }
+          : { status, error: 'Save failed' },
+      );
+    stage.tooltips.mockResolvedValueOnce([{ ...ambiguous, associated: [123, 456] }]);
+    start(saved);
+    await vi.advanceTimersByTimeAsync(0);
+    const next = { ...ambiguous, associated: [123, 789] };
+    useDraftStore.setState({ drafts: { 400: { base: second, next } } });
+    expect(
+      visibleDrafts(useDraftStore.getState().drafts, useSaveState.getState().applyingDrafts)[400]
+        ?.next,
+    ).toEqual(next);
+
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(draftSaveStatus(useDraftStore.getState(), useSaveState.getState())).toBeNull();
+    expect(useDraftStore.getState().drafts[400]?.next).toEqual(next);
+    expect(write).toHaveBeenCalledTimes(status === 'saved' ? 1 : 0);
+  },
+);
