@@ -139,6 +139,11 @@ it('bulk documents use one Git process to write and one to read, byte for byte',
     documents.map(([, text]) => text),
   );
   expect(reader.commands).toEqual(['ls-tree', 'cat-file', 'cat-file']);
+  // A step that needs no bulk document starts no bulk read.
+  const metadata = new CountingRepository(writer.path);
+  metadata.commands = [];
+  expect(metadata.blob(metadata.tree(head)['config/plain.json'])).toBe('not bulk');
+  expect(metadata.commands).toEqual(['ls-tree', 'cat-file']);
   expect(writer.git(['fsck', '--strict', '--no-dangling'])).toBe('');
 });
 it('batched reads decode invalid UTF-8 exactly like a single read', () => {
@@ -186,7 +191,8 @@ it('a missing object or a non-blob fails when it is read, exactly as a single re
     expect(() => damaged.blob(bad)).toThrow();
   }
 });
-it.each(['cut', 'renamed', 'extra', 'failed'])('a %s batch read yields no bytes', (fault) => {
+it.each(['cut', 'renamed', 'extra', 'failed'])('a %s batch read yields no bytes', (kind) => {
+  let fault: string | undefined = kind;
   const repo = new LocalRepository(bare());
   const head = repo.commit(
     undefined,
@@ -196,16 +202,28 @@ it.each(['cut', 'renamed', 'extra', 'failed'])('a %s batch read yields no bytes'
   class Faulty extends LocalRepository {
     protected override gitBytes(...args: Parameters<LocalRepository['gitBytes']>) {
       const output = super.gitBytes(...args);
-      if (!args[0].includes('--batch')) return output;
+      if (!fault || !args[0].includes('--batch')) return output;
       if (fault === 'failed') throw new Error('cat-file died');
       if (fault === 'cut') return output.subarray(0, output.length - 4);
       if (fault === 'extra') return Buffer.concat([output, Buffer.from('more\n')]);
       return Buffer.from(output.toString().replace(/^.{40}/, '0'.repeat(40)));
     }
   }
-  expect(() => new Faulty(repo.path).tree(head)).toThrow(
-    fault === 'failed' ? 'cat-file died' : 'Unexpected Git batch output',
-  );
+  const faulty = new Faulty(repo.path);
+  const tree = faulty.tree(head);
+  for (let attempt = 0; attempt < 2; attempt++)
+    for (const oid of Object.values(tree))
+      expect(() => faulty.blob(oid)).toThrow(
+        kind === 'failed' ? 'cat-file died' : 'Unexpected Git batch output',
+      );
+  fault = undefined;
+  expect(Object.values(tree).map((oid) => faulty.blob(oid))).toEqual(['doc 0', 'doc 1', 'doc 2']);
+});
+it('no Git process inherits the hosted token', () => {
+  vi.stubEnv('GITHUB_TOKEN', 'test-secret-token');
+  const repo = new LocalRepository(bare());
+  expect(repo.git(['-c', 'alias.show-env=!env', 'show-env'])).not.toContain('test-secret-token');
+  vi.unstubAllEnvs();
 });
 it('a failed or partial blob import commits nothing and can be retried', () => {
   let fault: 'dies' | 'skips' | undefined = 'dies';
@@ -224,10 +242,13 @@ it('a failed or partial blob import commits nothing and can be retried', () => {
   const head = repo.commit(undefined, tree, 'retry');
   expect(new LocalRepository(repo.path).blob(tree['tooltips/1.json'])).toBe('one');
   fault = 'skips';
-  expect(() =>
-    repo.commit(head, { ...tree, 'tooltips/2.json': repo.writeBlob('two') }, 'skips'),
-  ).toThrow(/invalid object|write-tree/);
+  const second = { ...tree, 'tooltips/2.json': repo.writeBlob('two') };
+  expect(() => repo.commit(head, second, 'skips')).toThrow('Unexpected Git import output');
   expect(repo.git(['for-each-ref'])).toBe('');
+  fault = undefined;
+  const retried = repo.commit(head, second, 'retry');
+  expect(new LocalRepository(repo.path).blob(second['tooltips/2.json'])).toBe('two');
+  expect(repo.git(['ls-tree', '-r', '--name-only', retried])).toContain('tooltips/2.json');
 });
 it('real receive-pack timeout remains unresolved and can reconcile the exact commit', async () => {
   const upstream = bare();
