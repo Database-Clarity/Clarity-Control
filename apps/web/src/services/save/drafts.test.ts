@@ -64,6 +64,16 @@ describe('save draft reconciliation', () => {
     expect(useDataStore.getState().data?.bundle.sourceCommit).toBe('saved-commit');
     expect(useDataStore.getState().data?.bundle.tooltips[123]).toEqual(next);
   });
+  it('clears a saved draft when only its local change time moved during the save', () => {
+    vi.useFakeTimers();
+    replaceDraft(tooltip, next);
+    const submitted = useDraftStore.getState().drafts;
+    vi.setSystemTime(Date.now() + 1000);
+    replaceDraft(tooltip, next);
+    expect(useDraftStore.getState().drafts[123].changedAt).not.toBe(submitted[123].changedAt);
+    acceptSaved(submitted, [next]);
+    expect(useDraftStore.getState().drafts).toEqual({});
+  });
   it('does not clear preexisting local work during an isolated metadata-only save', () => {
     replaceDraft(tooltip, next);
     const drafts = useDraftStore.getState().drafts;

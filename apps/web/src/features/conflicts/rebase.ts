@@ -9,7 +9,7 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import type { SaveConflict } from '../../services/api';
-import type { Drafts } from '../../services/draftStorage';
+import { sameDraftContent, type Drafts } from '../../services/draftStorage';
 import { resolveConflicts, resolutionKey, type Resolutions } from './reducer';
 
 /** "2026-11-03 18:02" in the viewer's local time: the stamp on the closing marker. */
@@ -97,10 +97,7 @@ export function rebaseConflict(
  */
 export function reconcileDrafts(ancestor: Drafts, mine: Drafts, theirs: Drafts): Drafts {
   const same = (a?: Drafts[string], b?: Drafts[string]) =>
-    a === undefined || b === undefined
-      ? a === b
-      : stableStringify(a.base) === stableStringify(b.base) &&
-        stableStringify(a.next) === stableStringify(b.next);
+    a === undefined || b === undefined ? a === b : sameDraftContent(a, b);
   const out: Drafts = {};
   for (const key of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
     const a = ancestor[key];

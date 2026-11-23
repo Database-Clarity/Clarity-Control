@@ -115,6 +115,18 @@ it('recognizes a lost response after the Worker carries numbered translations', 
   expect(useDraftStore.getState().drafts).toEqual({});
 });
 
+it('clears a confirmed draft when only its local change time changed', async () => {
+  start();
+  useDraftStore.setState(({ drafts }) => ({
+    drafts: {
+      ...drafts,
+      123: { ...drafts[123], changedAt: new Date().toISOString() },
+    },
+  }));
+  await Promise.resolve();
+  expect(useDraftStore.getState().drafts[123]).toBeUndefined();
+});
+
 it('retains an edited draft even when its previously submitted content arrives', async () => {
   const data = start();
   const editedLater = { ...ambiguous, associated: [123, 789] };

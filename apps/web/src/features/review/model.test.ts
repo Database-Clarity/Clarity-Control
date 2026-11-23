@@ -38,16 +38,22 @@ function data(tooltips: Tooltip[], pushed: Record<string, string> = {}): EditorD
 describe('review pending content', () => {
   it('labels the aggregate rows and their Review group Globals', async () => {
     const hashes = [1, 2, 3];
-    const state = data(hashes.map((hash) => ({ ...tooltip, hash })));
-    for (const hash of hashes)
+    const state = data([0, ...hashes].map((hash) => ({ ...tooltip, hash })));
+    for (const hash of [0, ...hashes])
       state.items[hash] = { ...state.items[123], hash, categoryId: 'none' };
     const entries = await pendingTooltips(state);
-    expect(entries.map((entry) => entry.category)).toEqual(['Globals', 'Globals', 'Globals']);
-    expect(queueView(entries, '', '', new Set(), 'hidden').items[0]).toMatchObject({
-      kind: 'group',
-      label: 'Globals',
-      count: 3,
-    });
+    expect(entries.map((entry) => entry.category)).toEqual([
+      'Globals',
+      'Globals',
+      'Globals',
+      'Other: none',
+    ]);
+    expect(
+      queueView(entries, '', '', new Set(), 'hidden').items.filter(({ kind }) => kind === 'group'),
+    ).toMatchObject([
+      { label: 'Globals', publishable: hashes },
+      { label: 'Other: none', publishable: [0] },
+    ]);
   });
   it('lists never-pushed and content changes, not metadata-only changes', async () => {
     const pushed = { 123: await publishableHash(tooltip) };

@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { type Lang, type Tooltip } from '@clarity/core';
-import { draftStorage, type Drafts, type DraftStorage } from '../services/draftStorage';
+import {
+  draftStorage,
+  sameDraftContent,
+  type Drafts,
+  type DraftStorage,
+} from '../services/draftStorage';
 import { errorMessage } from '../services/http';
 import { reconcileDrafts } from '../features/conflicts/rebase';
 
@@ -276,10 +281,7 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
           if (!existing) {
             moved[hash] = draft;
             adopted++;
-          } else if (
-            JSON.stringify(existing.base) === JSON.stringify(draft.base) &&
-            JSON.stringify(existing.next) === JSON.stringify(draft.next)
-          ) adopted++;
+          } else if (sameDraftContent(existing, draft)) adopted++;
           else left[hash] = draft; // The account already has its own draft: keep both.
         }
         const merged = Object.keys(moved).length ? { ...current, ...moved } : current;

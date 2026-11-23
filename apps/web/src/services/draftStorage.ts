@@ -1,4 +1,4 @@
-import { publishOpIdSchema, tooltipSchema } from '@clarity/core';
+import { publishOpIdSchema, stableStringify, tooltipSchema } from '@clarity/core';
 import { z } from 'zod';
 
 export const draftSchema = z.object({
@@ -17,6 +17,14 @@ export const draftsSchema = z
     'Draft keys and tooltip hashes must match',
   );
 export type Drafts = z.infer<typeof draftsSchema>;
+
+/** The local change time is display metadata, independent of the draft's content. */
+export function sameDraftContent(a: Drafts[string], b: Drafts[string]): boolean {
+  return (
+    stableStringify(a.base) === stableStringify(b.base) &&
+    stableStringify(a.next) === stableStringify(b.next)
+  );
+}
 
 const saveReceiptSchema = z.object({
   id: z.string(),

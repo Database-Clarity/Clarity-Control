@@ -39,11 +39,18 @@ function changedLanguages(draft: DraftPair) {
   );
 }
 
+function timeOf(value?: string): number {
+  const time = value ? Date.parse(value) : NaN;
+  return Number.isNaN(time) ? -Infinity : time;
+}
+
 function latest(draft: DraftPair, languages: string[]) {
-  return languages
-    .map((language) => draft.next.text[language as Lang]?.updatedAt ?? '')
-    .sort()
-    .at(-1);
+  let latestTime: string | undefined;
+  for (const language of languages) {
+    const time = draft.next.text[language as Lang]?.updatedAt;
+    if (timeOf(time) > timeOf(latestTime)) latestTime = time;
+  }
+  return latestTime;
 }
 
 function draftKind(draft: DraftPair, languages: string[]): DraftKind {
@@ -74,7 +81,7 @@ export function draftRows(drafts: Drafts): DraftRow[] {
         time: draft.changedAt ?? latest(draft, languages),
       };
     })
-    .sort((a, b) => (b.time ?? '').localeCompare(a.time ?? '') || a.hash - b.hash);
+    .sort((a, b) => timeOf(b.time) - timeOf(a.time) || a.hash - b.hash);
 }
 
 type Item =
