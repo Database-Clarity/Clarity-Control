@@ -103,4 +103,14 @@ for (const [name, make] of [
     await store.update('A', (o) => ({ ...o, status: 'done' }));
     expect(await store.claimKick('A', 200, () => true)).toBe(false);
   });
+
+  it(`${name}: the kick claim sees the newest bundle without listing it as an operation`, async () => {
+    await store.add(op('A', { status: 'pending' }));
+    await store.observeBundle(300, 350);
+    const reloaded = name === 'IndexedDB' ? make() : store;
+    await reloaded.observeBundle(100, 380);
+    await reloaded.observeBundle(300, 390);
+    expect(await reloaded.list('1')).toEqual([op('A', { status: 'pending' })]);
+    expect(await reloaded.claimKick('A', 400, (_, bundleAt) => bundleAt === 350)).toBe(true);
+  });
 }

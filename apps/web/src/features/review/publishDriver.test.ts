@@ -30,7 +30,6 @@ interface Harness {
   log: string[];
   acked: string[];
   visible: boolean;
-  bundleAt: number;
   make(userId?: string): PublishDriver;
 }
 
@@ -47,7 +46,6 @@ function harness(store = createMemoryOpStore()): Harness {
     log,
     acked: [],
     visible: true,
-    bundleAt: 0,
     make() {
       const tracked: OpStore = {
         ...store,
@@ -64,7 +62,6 @@ function harness(store = createMemoryOpStore()): Harness {
         setTimer: (run, ms) => setTimeout(run, ms),
         clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
         visible: () => h.visible,
-        bundleGeneratedAt: () => h.bundleAt,
         broadcast: () => undefined,
         acknowledge: (op) => h.acked.push(op.opId),
       };
@@ -731,7 +728,7 @@ it('waits five minutes after a new bundle or a part finishes, and requires a suc
     Array.from({ length: 51 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
   );
   await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs - 90_000);
-  h.bundleAt = Date.now();
+  await h.store.observeBundle(Date.now(), Date.now());
   await vi.advanceTimersByTimeAsync(120_000);
   expect(h.api.kick).not.toHaveBeenCalled();
   h.api.status.mockImplementation(async (id) => (id === head.opId ? 'done' : 'pending'));
@@ -767,6 +764,25 @@ it('two tabs share one poll stream and one auto-kick', async () => {
   await settle();
   await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs + 60_000);
   expect(together).toBeLessThanOrEqual(single.api.status.mock.calls.length + 2);
+});
+
+it('shares observed bundle progress with a stale tab after the observing tab closes', async () => {
+  const h = harness();
+  const tabA = h.make();
+  await tabA.start('1');
+  const created = await tabA.create(inputs);
+  await settle();
+  await vi.advanceTimersByTimeAsync(4 * 60_000);
+  await h.store.observeBundle(Date.now() - 30_000, Date.now());
+  tabA.stop();
+
+  const tabB = h.make();
+  await h.store.observeBundle(created.createdAt, Date.now());
+  await tabB.start('1');
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs - 1);
+  expect(h.api.kick).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(31_000);
+  expect(h.api.kick.mock.calls).toEqual([[created.opId]]);
 });
 
 it('manual Retry kicks, but not more than once per gap', async () => {

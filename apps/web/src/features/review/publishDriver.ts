@@ -60,8 +60,6 @@ export interface DriverDeps {
   clearTimer(handle: unknown): void;
   /** Polling and resends pause while the tab is hidden. */
   visible(): boolean;
-  /** Generation time of the latest bundle already loaded by the page. */
-  bundleGeneratedAt?(): number;
   /** Tells other tabs the store changed. */
   broadcast(): void;
   /** A publish finished with `done`/`unchanged`: mark its hashes pushed in the review overlay. */
@@ -504,11 +502,10 @@ export class PublishDriver {
   private async autoKick(opId: string, generation: number) {
     const now = this.deps.now();
     const claimed = await this.deps.store
-      .claimKick(opId, now, (members) => {
+      .claimKick(opId, now, (members, bundleAt) => {
         if (generation !== this.generation) return false;
         const first = members.sort(byAge).find((op) => !isTerminal(op.status));
         if (first?.opId !== opId) return false;
-        const bundleAt = this.deps.bundleGeneratedAt?.() || 0;
         return (
           now - bundleAt >= publishTiming.autoKickMs &&
           members.every(

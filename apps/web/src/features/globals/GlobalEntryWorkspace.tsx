@@ -680,7 +680,9 @@ function Workspace({
                 ? !snapshot.sync[entry.id]
                   ? 'Check status unavailable. Refresh to try again.'
                   : ownCauses.length && !renameQueued
-                    ? 'Saved. Waiting for affected tooltips to be checked.'
+                    ? dirty
+                      ? 'Waiting for checks on a saved version.'
+                      : 'Saved. Waiting for affected tooltips to be checked.'
                     : 'Waiting for global changes to be checked.'
                 : null}{' '}
             {blockedDestinations.length > 0 &&

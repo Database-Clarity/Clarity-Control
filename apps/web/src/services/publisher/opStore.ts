@@ -61,17 +61,28 @@ export interface OpStore {
     opId: string,
     change: (op: PublishOp) => PublishOp | undefined,
   ): Promise<PublishOp | undefined>;
-  /** Decide against a consistent view of the request and its siblings before kicking. */
+  /** Keep the newest bundle seen by any publisher tab, including after a reload. */
+  observeBundle(generatedAt: number, seenAt: number): Promise<void>;
+  /** Decide against a consistent view of the group and bundle progress before kicking. */
   claimKick(
     opId: string,
     kickedAt: number,
-    ready: (group: PublishOp[]) => boolean,
+    ready: (group: PublishOp[], bundleAt: number) => boolean,
   ): Promise<boolean>;
   remove(opIds: string[]): Promise<void>;
 }
 
 const dbName = 'clarity-publisher';
 const storeName = 'operations';
+// A non-ULID key keeps the metadata in the same transaction and remains invisible to older tabs.
+const bundleKey = 'bundle-progress';
+interface BundleObservation {
+  generatedAt: number;
+  seenAt: number;
+}
+type BundleProgress = BundleObservation & { opId: typeof bundleKey };
+type StoredRecord = PublishOp | BundleProgress;
+const isPublishOp = (record: StoredRecord): record is PublishOp => 'userId' in record;
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -110,8 +121,8 @@ export function createIndexedDbOpStore(): OpStore {
       run<PublishOp[]>('readonly', (store, done) => {
         store.getAll().onsuccess = (event) =>
           done(
-            ((event.target as IDBRequest<PublishOp[]>).result ?? []).filter(
-              (op) => op.userId === userId,
+            ((event.target as IDBRequest<StoredRecord[]>).result ?? []).filter(
+              (record): record is PublishOp => isPublishOp(record) && record.userId === userId,
             ),
           );
       }),
@@ -128,7 +139,9 @@ export function createIndexedDbOpStore(): OpStore {
       run<boolean>('readwrite', (store, done) => {
         const found = store.getAll();
         found.onsuccess = () => {
-          const current = new Map((found.result as PublishOp[]).map((op) => [op.opId, op]));
+          const current = new Map(
+            (found.result as StoredRecord[]).filter(isPublishOp).map((op) => [op.opId, op]),
+          );
           if (!sameRefusals(refused, current)) return done(false);
           for (const op of replacements) store.add(op);
           for (const op of refused) store.delete(op.opId);
@@ -146,11 +159,23 @@ export function createIndexedDbOpStore(): OpStore {
           done(guardTerminal(current, next));
         };
       }),
+    observeBundle: (generatedAt, seenAt) =>
+      run<void>('readwrite', (store) => {
+        const progress = store.get(bundleKey) as IDBRequest<BundleProgress | undefined>;
+        progress.onsuccess = () => {
+          if (generatedAt > (progress.result?.generatedAt ?? 0))
+            store.put({ opId: bundleKey, generatedAt, seenAt } satisfies BundleProgress);
+        };
+      }),
     claimKick: (opId, kickedAt, ready) =>
       run<boolean>('readwrite', (store, done) => {
         const records = store.getAll();
         records.onsuccess = () => {
-          const op = kickable(records.result as PublishOp[], opId, ready);
+          const stored = records.result as StoredRecord[];
+          const bundle = stored.find((record): record is BundleProgress => !isPublishOp(record));
+          const op = kickable(stored.filter(isPublishOp), opId, (group) =>
+            ready(group, bundle?.seenAt ?? 0),
+          );
           if (op) store.put({ ...op, kickedAt });
           done(op !== undefined);
         };
@@ -208,6 +233,7 @@ function kickable(records: PublishOp[], opId: string, ready: (group: PublishOp[]
 /** In-memory store: tests, and the shape the IndexedDB one must keep. */
 export function createMemoryOpStore(): OpStore & { records: Map<string, PublishOp> } {
   const records = new Map<string, PublishOp>();
+  let bundle: BundleObservation | undefined;
   return {
     records,
     async list(userId) {
@@ -245,8 +271,13 @@ export function createMemoryOpStore(): OpStore & { records: Map<string, PublishO
       records.set(opId, structuredClone(stored));
       return structuredClone(stored);
     },
+    async observeBundle(generatedAt, seenAt) {
+      if (generatedAt > (bundle?.generatedAt ?? 0)) bundle = { generatedAt, seenAt };
+    },
     async claimKick(opId, kickedAt, ready) {
-      const op = kickable([...records.values()], opId, ready);
+      const op = kickable([...records.values()], opId, (group) =>
+        ready(group, bundle?.seenAt ?? 0),
+      );
       if (!op) return false;
       records.set(opId, { ...op, kickedAt });
       return true;
