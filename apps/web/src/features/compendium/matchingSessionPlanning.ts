@@ -233,10 +233,16 @@ function competitorOwnership(
       if (hash === challenger) return false;
       if (!ownedMatches.has(hash)) ownedMatches.set(hash, independentMatch(hash));
       const resolved = ownedMatches.get(hash);
-      return (
-        !!resolved &&
-        resolved.tab.gid === match.tab.gid &&
-        (resolved.row === match.row || !!resolved.componentRows?.includes(match.row))
+      if (!resolved || resolved.tab.gid !== match.tab.gid) return false;
+      if (resolved.row === match.row || resolved.componentRows?.includes(match.row)) return true;
+      // The resolver copies the named row when it projects a manual cell selection.
+      const anchor = resolved.row.anchor;
+      return !!(
+        resolved.cells &&
+        anchor &&
+        resolved.row.name === match.row.name &&
+        anchor.row === match.row.anchor?.row &&
+        anchor.col === match.row.anchor.col
       );
     });
   };

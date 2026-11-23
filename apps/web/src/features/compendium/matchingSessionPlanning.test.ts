@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { resolveCompendiumLink } from '@clarity/core';
 import { guidedFixture } from '../../../test/guided-fixture';
 import { displayMatches } from './displayMatches';
 import {
@@ -14,7 +15,17 @@ import { guidedDecisions, guidedDecisionSteps } from './guidedDecisions';
 import { sampleReference } from './sampleReferences';
 import { loadManifestFacts } from './manifestFacts';
 
-it.each(['confident', 'saved', 'proposed', 'unowned', 'draft', 'revoked'] as const)(
+it.each([
+  'confident',
+  'saved',
+  'proposed',
+  'unowned',
+  'draft',
+  'revoked',
+  'selected-confident',
+  'selected-saved',
+  'selected-with-unowned-duplicate',
+] as const)(
   'matches Threadling only when its near-name row has an independent owner (%s)',
   async (ownership) => {
     const f = guidedFixture();
@@ -43,10 +54,17 @@ it.each(['confident', 'saved', 'proposed', 'unowned', 'draft', 'revoked'] as con
       plain: 'A Strand creature that seeks enemies.',
       runs: [{ text: 'A Strand creature that seeks enemies.' }],
     };
+    const grenadeCell = {
+      plain: 'Creates three Threadlings.',
+      runs: [{ text: 'Creates three Threadlings.' }],
+    };
     const tab = {
       gid: '1870531554',
       name: 'Strand',
-      grid: [{ row: 8, col: 3, cell }],
+      grid: [
+        { row: 8, col: 3, cell },
+        { row: 42, col: 3, cell: grenadeCell },
+      ],
       rows: [
         {
           name: 'Threadling',
@@ -61,13 +79,13 @@ it.each(['confident', 'saved', 'proposed', 'unowned', 'draft', 'revoked'] as con
           nameNorm: 'threadling grenade',
           rowIndex: 42,
           section: 'Fragments',
-          cell: {
-            plain: 'Creates three Threadlings.',
-            runs: [{ text: 'Creates three Threadlings.' }],
-          },
+          anchor: { row: 42, col: 1 },
+          cell: grenadeCell,
         },
       ],
     };
+    if (ownership === 'selected-with-unowned-duplicate')
+      tab.rows.push({ ...tab.rows[1], anchor: { row: 42, col: 7 } });
     f.source.tabs = [tab];
     const input: DisplayInput = { drafts: {}, progress: emptyProgress(), scope: f.scope };
     const guidance = { ...f.document, categories: {} };
@@ -93,7 +111,12 @@ it.each(['confident', 'saved', 'proposed', 'unowned', 'draft', 'revoked'] as con
     const proposal = proposalFor(keyword.base, f.editor, f.source);
     const proposals = new Map([[threadling, proposal]]);
     if (owner) {
-      const match = { tab, row: tab.rows[1] };
+      const selected = ownership.startsWith('selected-');
+      const match = {
+        tab,
+        row: tab.rows[1],
+        ...(selected ? { cells: [{ dRow: 0, dCol: 2 }], sourceAnchor: tab.rows[1].anchor } : {}),
+      };
       const reference = sampleReference(
         owner,
         'catalog:subclass-grenade',
@@ -103,8 +126,17 @@ it.each(['confident', 'saved', 'proposed', 'unowned', 'draft', 'revoked'] as con
         match,
         f.source,
       );
+      if (selected)
+        expect(resolveCompendiumLink(reference.link!, f.source)).toMatchObject({
+          status: 'ok',
+          row: { anchor: { row: 42, col: 1 } },
+        });
       proposals.set(grenade, { match, link: reference.link, candidates: [] });
-      if (ownership === 'confident' || ownership === 'revoked') {
+      if (
+        ownership === 'confident' ||
+        ownership === 'revoked' ||
+        ownership === 'selected-confident'
+      ) {
         document.categories['catalog:subclass-grenade'].references = { [grenade]: reference };
         if (ownership === 'revoked') {
           const category = document.categories['catalog:subclass-grenade'];
@@ -120,7 +152,7 @@ it.each(['confident', 'saved', 'proposed', 'unowned', 'draft', 'revoked'] as con
             },
           };
         }
-      } else if (ownership === 'saved') {
+      } else if (ownership === 'saved' || selected) {
         f.editor.bundle.tooltips[grenade] = { ...owner.base, compendium: reference.link };
       } else if (ownership === 'draft') {
         input.drafts[grenade] = {
@@ -129,7 +161,9 @@ it.each(['confident', 'saved', 'proposed', 'unowned', 'draft', 'revoked'] as con
         };
       }
     }
-    const expected = ownership === 'confident' || ownership === 'saved';
+    const expected = ['confident', 'saved', 'selected-confident', 'selected-saved'].includes(
+      ownership,
+    );
     const full = displayMatches(
       f.editor,
       f.source,
