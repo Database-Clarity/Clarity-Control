@@ -30,9 +30,7 @@ export function CompendiumPage() {
           {list === 'unlinked' ? 'Tooltips without links' : 'Source changes'}
           {label ? ` · ${label}` : ''}
         </h1>
-        <span className={styles.counts}>
-          {rows && `${number.format(shown.length)} shown`}
-        </span>
+        <span className={styles.counts}>{rows && `${number.format(shown.length)} shown`}</span>
       </header>
       <p className={styles.muted}>
         {list === 'unlinked'
