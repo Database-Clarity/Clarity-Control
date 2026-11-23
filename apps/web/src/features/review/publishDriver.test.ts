@@ -6,6 +6,7 @@ import { describeOp, groupPublishes } from './publishStatus';
 import {
   activeHashes,
   PublishDriver,
+  publishingAlready,
   publishChunks,
   publishTiming,
   usePublishState,
@@ -157,8 +158,8 @@ it('retries up to 500 proofs and stops with the refused hashes and reason once n
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
   const failed = groupPublishes(ops())[0]?.op;
   expect(failed?.status).toBe('failed');
-  expect(failed?.error).toContain(`1499: ${reason}`);
-  expect(failed?.error).toContain(`1549: ${reason}`);
+  expect(failed?.error).toContain(`1009 and 490 more: ${reason}`);
+  expect(failed?.error).toContain(`1509 and 40 more: ${reason}`);
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
   expect(h.api.post).toHaveBeenCalledTimes(26);
   driver.stop();
@@ -311,6 +312,64 @@ it('backs off receipt reads, and stops while signed out until the account signs 
   expect(reads()).toBe(signedOut + 1);
   expect(op()).toMatchObject({ status: 'rejected', receiptChecked: true });
   resumed.stop();
+});
+
+it('stores nothing for rows another publish already holds (a confirmation that outlived its list)', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const created = await first.create(inputs);
+  await settle();
+  first.stop();
+  // An older tab left this part refused with its receipt unread: the group still holds its rows.
+  await h.store.update(created.opId, (op) => ({ ...op, status: 'rejected' }));
+  const driver = h.make();
+  h.api.post.mockRejectedValue(new PublishHttpError(0, 'offline'));
+  await driver.start('1');
+  const posts = h.api.post.mock.calls.length;
+  await expect(driver.create([inputs[0]!])).rejects.toThrow(publishingAlready);
+  expect(await h.store.list('1')).toHaveLength(1);
+  expect(h.api.post.mock.calls.slice(posts).every(([body]) => body.opId === created.opId)).toBe(
+    true,
+  );
+  driver.stop();
+});
+
+it('stores a rejection seen by status polling as an unread receipt: no Retry, no kick', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  await driver.create(inputs);
+  await settle();
+  h.api.status.mockResolvedValue('rejected');
+  h.api.post.mockRejectedValue(new PublishHttpError(503, 'busy'));
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  expect(op()).toMatchObject({ status: 'rejected' });
+  expect(op().receiptChecked).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  const group = groupPublishes(ops())[0]!;
+  const view = describeOp(group.op, undefined, Date.now(), String, group.checking);
+  expect(view).toMatchObject({ chip: 'Combining…', waiting: false });
+  await driver.kickWaiting(op().opId);
+  expect(h.api.kick).not.toHaveBeenCalled();
+  // Reads back off like any receipt (first POST is the original send).
+  expect(h.api.post.mock.calls.length - 1).toBeLessThanOrEqual(40);
+
+  // A 401 pauses the reads; a definite 403 after signing in finishes the part with what is known.
+  h.api.post.mockRejectedValue(new PublishHttpError(401, 'expired'));
+  await vi.advanceTimersByTimeAsync(60_000);
+  const paused = h.api.post.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(h.api.post.mock.calls.length).toBe(paused);
+  h.api.post.mockRejectedValue(new PublishHttpError(403, 'Access revoked', true));
+  await driver.start('1');
+  expect(op()).toMatchObject({ status: 'rejected', receiptChecked: true });
+  expect(op().error).toContain('Its reason could not be read (HTTP 403: Access revoked)');
+  const finished = h.api.post.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(h.api.post.mock.calls.length).toBe(finished);
+  expect(h.api.kick).not.toHaveBeenCalled();
+  driver.stop();
 });
 
 it('retries 5xx and 429 with backoff, but gives up on a definite rejection', async () => {

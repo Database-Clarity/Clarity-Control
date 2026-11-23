@@ -5,7 +5,14 @@ import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { canPush, type PendingTooltip } from './model';
 import { publishDependencies } from './publishDependencies';
-import { publishChunks, PublishClosureLimitError, type PublishInput } from './publishDriver';
+import {
+  activeHashes,
+  publishChunks,
+  PublishClosureLimitError,
+  publishingAlready,
+  usePublishState,
+  type PublishInput,
+} from './publishDriver';
 import { publishedFor, usePublished } from './published';
 import { publishDriver } from './publisher';
 import { useReviewSession } from './session';
@@ -116,6 +123,9 @@ export async function queuePublish(
       useDataStore.getState().data !== data
     )
       return false;
+    // A confirmation can outlive the rows it listed: another publish may hold them by now.
+    const held = activeHashes(usePublishState.getState().ops);
+    if (reviewed.some(({ hash }) => held.has(hash))) throw new Error(publishingAlready);
     await publishDriver.create(reviewed);
     return true;
   } catch (reason) {

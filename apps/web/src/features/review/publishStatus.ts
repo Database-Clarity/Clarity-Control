@@ -20,11 +20,6 @@ export interface OpView {
 /** Formats a timestamp for display: the shared formatter with the user's date settings. */
 export type When = (ms: number) => string;
 
-/** Long final reasons (many hashes, converter messages) stay readable in one Activity line. */
-const reasonChars = 500;
-const clampReason = (text: string) =>
-  text.length <= reasonChars ? text : `${text.slice(0, reasonChars - 1).trimEnd()}…`;
-
 /**
  * The one place statuses become words. Wording keeps "nothing went live" explicit when true.
  * `combining`: every part has finished and the group is reading receipts or combining refusals, so
@@ -85,27 +80,25 @@ export function describeOp(
         ...base,
         tone: 'warn',
         chip: 'Changed',
-        detail: op.error
-          ? clampReason(op.error)
-          : 'Saved text changed since review. Nothing from this request went live; review and publish again.',
+        detail:
+          op.error ??
+          'Saved text changed since review. Nothing from this request went live; review and publish again.',
       };
     case 'rejected':
       return {
         ...base,
         tone: 'bad',
         chip: 'Rejected',
-        detail: op.error
-          ? clampReason(op.error)
-          : 'The publisher refused this request. Nothing went live; check the tooltips.',
+        detail:
+          op.error ?? 'The publisher refused this request. Nothing went live; check the tooltips.',
       };
     case 'failed':
       return {
         ...base,
         tone: 'bad',
         chip: 'Failed',
-        detail: op.error
-          ? clampReason(op.error)
-          : 'The publish run failed. Check live status before publishing these again.',
+        detail:
+          op.error ?? 'The publish run failed. Check live status before publishing these again.',
       };
   }
 }
@@ -192,8 +185,11 @@ export function groupPublishes(
             ? `Publish incomplete: ${successful} of ${count} tooltips confirmed live.${
                 // The first failed part's own reason (e.g. the Worker's error), so the grouped
                 // row still says why; it describes that part only, never the whole group.
+                // Each refusal names at most ten tooltips; list three parts, then count the rest.
                 refused.length
-                  ? ` ${refused.join(' ')}`
+                  ? ` ${refused.slice(0, 3).join(' ')}${
+                      refused.length > 3 ? ` ${refused.length - 3} more parts were refused.` : ''
+                    }`
                   : failed.error
                     ? ` First failed part (${failed.hashes.length} tooltips): ${failed.error}`
                     : ''

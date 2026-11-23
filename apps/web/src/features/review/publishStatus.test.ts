@@ -1,7 +1,7 @@
 import { groupPublishes } from './publishStatus';
 import { expect, it } from 'vitest';
 import type { PublishOp } from '../../services/publisher/opStore';
-import { publishTiming } from './publishDriver';
+import { hashList, publishTiming } from './publishDriver';
 import { describeOp, foreignWaiting } from './publishStatus';
 
 const base: PublishOp = {
@@ -112,7 +112,7 @@ it("PUBLISH-502: a grouped failure keeps the first failed part's own reason", ()
   );
 });
 
-it('offers Retry only for a queued part, and clamps long final reasons', () => {
+it('offers Retry only for a queued part, and keeps long final reasons whole', () => {
   const part = {
     opId: 'A',
     groupId: 'A',
@@ -144,15 +144,27 @@ it('offers Retry only for a queued part, and clamps long final reasons', () => {
   const unread = { ...part, opId: 'B', hashes: [2], status: 'rejected' as const };
   expect(describe([part, unread])).toMatchObject({ chip: 'Combining…', waiting: false });
 
-  const reason = `Tooltips ${Array.from({ length: 400 }, (_, i) => i).join(', ')}: Missing export`;
-  const detail = describeOp(
-    { ...base, status: 'failed', error: reason },
-    undefined,
-    now,
-    String,
-  ).detail;
-  expect(detail.length).toBeLessThanOrEqual(500);
-  expect(detail.endsWith('…')).toBe(true);
+  // Five refused 50-row parts with ten-digit hashes: every sentence and the reason survive.
+  const refusedParts = Array.from({ length: 5 }, (_, index) => {
+    const hashes = Array.from({ length: 50 }, (__, i) => 3_000_000_000 + index * 50 + i);
+    return {
+      ...part,
+      opId: `P${index}`,
+      hashes,
+      groupHashCount: 250,
+      consumers: 400,
+      status: 'rejected' as const,
+      receiptChecked: true as const,
+      refusal: 'Missing export "Charge"',
+      error: `Tooltips ${hashList(hashes)}: Missing export "Charge"`,
+    };
+  });
+  const final = describe(refusedParts);
+  expect(final.chip).toBe('Failed');
+  expect(final.detail).toContain('3000000009 and 40 more: Missing export "Charge"');
+  expect(final.detail).toContain('2 more parts were refused.');
+  expect(final.detail.endsWith('Check live status before publishing again.')).toBe(true);
+  expect(final.detail.length).toBeLessThan(800);
 });
 
 it('never labels an incomplete local group as published', () => {

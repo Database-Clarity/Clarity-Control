@@ -95,6 +95,9 @@ export interface PublishInput {
   dependencies?: readonly number[];
 }
 
+export const publishingAlready =
+  'Some of these tooltips are already being published. Nothing was sent; review the list and publish again.';
+
 export class PublishClosureLimitError extends Error {
   constructor(readonly groups: { hashes: number[]; consumers: number }[]) {
     super(
@@ -291,15 +294,22 @@ export class PublishDriver {
         throw new Error('This publish is too large to send. Nothing was sent.');
       chunks.push(op);
     }
+    let busy = false;
     try {
-      if (chunks.length === 1) await this.deps.store.add(chunks[0]!);
-      else await this.deps.store.addMany(chunks);
+      // A publish stored since Review listed these rows (or one still recovering) holds them.
+      const held = activeHashes(await this.deps.store.list(userId));
+      busy = inputs.some(({ hash }) => held.has(hash));
+      if (!busy) {
+        if (chunks.length === 1) await this.deps.store.add(chunks[0]!);
+        else await this.deps.store.addMany(chunks);
+      }
     } catch (reason) {
       const detail = reason instanceof Error ? reason.message : 'unknown error';
       throw new Error(
         `Publishing needs browser storage, which is unavailable (${detail}). Nothing was sent.`,
       );
     }
+    if (busy) throw new Error(publishingAlready);
     if (generation !== this.generation) return chunks[0]!;
     this.storedOps.push(...chunks);
     usePublishState.setState((state) => ({ ops: [...state.ops, ...chunks] }));
@@ -623,17 +633,36 @@ export class PublishDriver {
     const op = this.current(opId);
     if (!op) return;
     if (remote === 'rejected' && op.round !== undefined && !answer) {
+      const generation = this.generation;
+      if (op.status !== 'rejected') {
+        // Store the rejection first: a finished part is never kicked or retried, and if the
+        // receipt read below fails, the receipt scheduler (with back-off) takes over.
+        await this.settle(opId, {
+          status: 'rejected',
+          acceptedAt: op.acceptedAt ?? this.deps.now(),
+        });
+        if (generation !== this.generation) return;
+      }
       // The status projection omits the reason. Replaying the exact POST returns the terminal
       // receipt for this intent, with no new request or change to the original selection.
-      const generation = this.generation;
       try {
         answer = await this.deps.api.post({ opId, hashes: op.hashes, expected: op.expected });
       } catch (reason) {
         if (generation !== this.generation) return;
-        if (reason instanceof PublishHttpError && reason.status === 401) {
+        const status = reason instanceof PublishHttpError ? reason.status : 0;
+        if (status === 401) {
           // Signing in again restarts the driver, which clears the pause.
           this.paused.add(opId);
           this.note(opId, 'Sign in again to continue; nothing is lost.');
+        } else if (status === 403 || status === 409) {
+          // A definite answer: reading again will not help. Finish this part with what is known.
+          const detail =
+            reason instanceof PublishHttpError && reason.fromWorker ? reason.message.trim() : '';
+          return this.settle(opId, {
+            status: 'rejected',
+            receiptChecked: true,
+            error: `The publisher refused tooltips ${hashList(op.hashes)}. Its reason could not be read (HTTP ${status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`,
+          });
         } else this.note(opId, 'Checking why the publisher refused this part.');
         return;
       }
@@ -645,7 +674,7 @@ export class PublishDriver {
       acceptedAt: op.acceptedAt ?? this.deps.now(),
       ...(remote === 'rejected' && answer ? { receiptChecked: true } : {}),
       ...(refusal !== undefined
-        ? { refusal, error: `Tooltips ${op.hashes.join(', ')}: ${refusal}` }
+        ? { refusal, error: `Tooltips ${hashList(op.hashes)}: ${refusal}` }
         : {}),
     });
   }
@@ -972,6 +1001,13 @@ export class PublishDriver {
         );
     }
   }
+}
+
+/** Names up to ten tooltips, then "and N more", so the reason after the list is never lost. */
+export function hashList(hashes: readonly number[]): string {
+  return hashes.length <= 10
+    ? hashes.join(', ')
+    : `${hashes.slice(0, 10).join(', ')} and ${hashes.length - 10} more`;
 }
 
 function byAge(a: PublishOp, b: PublishOp) {
