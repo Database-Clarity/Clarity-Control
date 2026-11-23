@@ -3,6 +3,7 @@ import { globalsEnabled } from '../../services/globalsFlag';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
+import { unitNames } from './globalRows';
 import { canPush, type PendingTooltip } from './model';
 import { publishDependencies } from './publishDependencies';
 import {
@@ -67,7 +68,8 @@ export function planReviewedPublish(
   const missing = new Set([...dependencies.values()].flat());
   for (const { tooltip } of entries) missing.delete(tooltip.hash);
   if (missing.size) {
-    const names = [...missing].map((hash) => pendingByHash.get(hash)!.name);
+    const unitName = unitNames(pending, byHash);
+    const names = [...missing].map((hash) => unitName.get(hash)!);
     throw new Error(`Include ${new Intl.ListFormat('en').format(names)} before publishing.`);
   }
   const planned = inputs.map((input) => ({
@@ -78,7 +80,7 @@ export function planReviewedPublish(
     publishChunks(planned);
   } catch (reason) {
     if (reason instanceof PublishClosureLimitError) {
-      const names = new Map(entries.map(({ name, tooltip }) => [tooltip.hash, name]));
+      const names = unitNames(entries, byHash);
       const format = new Intl.ListFormat('en');
       const groups = reason.groups.map(
         ({ hashes, consumers }) =>

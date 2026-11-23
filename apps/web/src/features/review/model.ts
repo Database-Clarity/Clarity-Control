@@ -7,6 +7,7 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
+import type { GlobalPart } from './globalRows';
 import { heldSetBonus } from './setBonusHold';
 import { useReviewQueue } from './queueStore';
 import { useDataStore, type EditorData } from '../../stores/data';
@@ -38,6 +39,8 @@ export interface PendingTooltip {
   pushed?: string;
   inactiveChange?: 'remove' | 'restore';
   inactiveAliases?: number[];
+  /** Review's row for one entry of a globals file (`globalRows.ts`); never a publish unit. */
+  part?: GlobalPart;
 }
 
 const snapshots = new WeakMap<
@@ -241,7 +244,7 @@ export function publishSelection(
 
 /** What "Include all N" and group ticks pick: never the leftovers, which a data task clears. */
 export function publishableHashes(page: PendingTooltip[]): number[] {
-  return page
+  const hashes = page
     .filter(
       ({ tooltip, unpublishable, markerOnly, inactiveChange }) =>
         (!isTextlessDescription(tooltip) || inactiveChange === 'remove') &&
@@ -249,6 +252,7 @@ export function publishableHashes(page: PendingTooltip[]): number[] {
         !markerOnly,
     )
     .map(({ tooltip }) => tooltip.hash);
+  return [...new Set(hashes)];
 }
 
 export function stepIndex(index: number, delta: number, length: number): number {
