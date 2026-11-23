@@ -6,6 +6,7 @@ interface Dependent {
 interface ChunkLimits<T> {
   fits(items: readonly T[]): boolean;
   splitDependencies?: boolean;
+  order?(a: T, b: T): number;
   missing(hash: number): string;
   duplicate: string;
 }
@@ -46,16 +47,33 @@ export function dependencyChunks<T extends Dependent>(
     for (const { hash } of items) emitted.add(hash);
   }
 
-  for (const { hash } of [...inputs].sort((a, b) => a.hash - b.hash)) {
+  for (const { hash } of [...inputs].sort(limits.order ?? ((a, b) => a.hash - b.hash))) {
     const closure = collect(hash);
     if (!closure.items.length) continue;
     if (!limits.splitDependencies || limits.fits(closure.items)) append(closure.items);
     else {
-      for (const dependency of closure.finished) {
-        const { items } = collect(dependency);
-        if (!items.length) continue;
-        append(items);
+      // Walk the reversed edges in reverse finish order to find each cycle independently.
+      // A dependency outside a cycle must be able to publish before it.
+      const readers = new Map(closure.items.map((item) => [item.hash, [] as T[]]));
+      for (const item of closure.items)
+        for (const dependency of item.dependencies ?? []) readers.get(dependency)?.push(item);
+
+      const seen = new Set<number>();
+      const groups: T[][] = [];
+      for (const hash of closure.finished.reverse()) {
+        if (seen.has(hash)) continue;
+        const group: T[] = [];
+        const pending = [byHash.get(hash)!];
+        while (pending.length) {
+          const item = pending.pop()!;
+          if (seen.has(item.hash)) continue;
+          seen.add(item.hash);
+          group.push(item);
+          pending.push(...readers.get(item.hash)!);
+        }
+        groups.push(group);
       }
+      for (const group of groups.reverse()) append(group);
     }
   }
   if (chunk.length) chunks.push(chunk);

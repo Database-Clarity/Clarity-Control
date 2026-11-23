@@ -34,10 +34,10 @@ export const publishTiming = {
   ackWindowMs: 15 * 60_000,
   /** A pending operation older than this stops being polled; the line says to check live status. */
   pollGiveUpMs: 24 * 3_600_000,
-  /** Worker caps (core publishRequest.ts): at most 3,000 hashes, body at most 300 KB. */
-  maxHashes: 3000,
   /** Conservative local CPU measurement; deployed tail gate still required. */
   chunkHashes: 50,
+  /** Same ceiling as maxPublicationConsumers in the Worker globals reader. */
+  maxConsumers: 500,
   maxBodyBytes: 300 * 1024,
 } as const;
 
@@ -87,17 +87,45 @@ export interface PublishInput {
   hash: number;
   digest: string;
   previous: string | undefined;
-  /** Pending imports, resolved against the reviewed saved snapshot. */
+  /** Publication proofs required by this row, one per stored language or removal. */
+  consumers?: number;
+  /** An Inactive decision that removes this row or one of its stubs. */
+  removal?: boolean;
+  /** Reviewed imports and live readers that must publish ahead of a removal. */
   dependencies?: readonly number[];
 }
 
-/** Keep each not-yet-emitted transitive closure together, including cycles. */
-export function publishChunks(inputs: readonly PublishInput[]): PublishInput[][] {
-  return dependencyChunks(inputs, {
-    fits: (items) => items.length <= publishTiming.chunkHashes,
+export class PublishClosureLimitError extends Error {
+  constructor(
+    readonly hashes: number[],
+    consumers: number,
+  ) {
+    super(
+      `Review cannot safely split these changes into separate requests, and together they require ${consumers} tooltip languages. The publisher allows ${publishTiming.maxConsumers} per request.`,
+    );
+  }
+}
+
+/** Prefer one request per closure. Split larger closures in dependency order, keeping cycles. */
+export function publishChunks<T extends Omit<PublishInput, 'digest'>>(inputs: readonly T[]): T[][] {
+  const consumers = (items: readonly T[]) =>
+    items.reduce((total, item) => total + (item.consumers ?? 1), 0);
+  const chunks = dependencyChunks(inputs, {
+    fits: (items) =>
+      items.length <= publishTiming.chunkHashes && consumers(items) <= publishTiming.maxConsumers,
+    splitDependencies: true,
+    // Prefer publishing repairs ahead of removals when either order is valid.
+    order: (a, b) => Number(!!a.removal) - Number(!!b.removal) || a.hash - b.hash,
     missing: (hash) => `Select pending imported tooltip ${hash} as well. Nothing was sent.`,
     duplicate: 'Duplicate publish hash. Nothing was sent.',
   });
+  const oversized = chunks.find((chunk) => consumers(chunk) > publishTiming.maxConsumers);
+  if (oversized)
+    throw new PublishClosureLimitError(
+      oversized.map(({ hash }) => hash),
+      consumers(oversized),
+    );
+  return chunks;
 }
 
 /** Hashes covered by an operation that is still queued or being sent. */
@@ -171,10 +199,6 @@ export class PublishDriver {
     const generation = this.generation;
     if (!userId) throw new Error('Sign in to publish.');
     if (!inputs.length) throw new Error('Nothing to publish.');
-    if (inputs.length > publishTiming.maxHashes)
-      throw new Error(
-        `Too many tooltips for one publish (${inputs.length}; the limit is ${publishTiming.maxHashes}). Select fewer and publish in several steps. Nothing was sent.`,
-      );
     const now = this.deps.now();
     const planned = publishChunks(inputs);
     const groupId = newOpId(now);
@@ -377,7 +401,7 @@ export class PublishDriver {
             : { ...current, polledAt: at },
         );
         if (polled) await this.poll(op.opId);
-        if (now - accepted >= publishTiming.autoKickMs) {
+        if (now - accepted >= publishTiming.autoKickMs && !this.hasUnfinishedPredecessor(op)) {
           const kicked = await this.claim(op.opId, (current, at) =>
             current.autoKicked || isTerminal(current.status)
               ? undefined
@@ -414,7 +438,9 @@ export class PublishDriver {
         next = Math.min(
           next,
           (op.polledAt ?? 0) + publishTiming.pollMs(now - accepted),
-          op.autoKicked ? Infinity : accepted + publishTiming.autoKickMs,
+          op.autoKicked || this.hasUnfinishedPredecessor(op)
+            ? Infinity
+            : accepted + publishTiming.autoKickMs,
         );
       }
     }
@@ -479,6 +505,17 @@ export class PublishDriver {
 
   private current(opId: string) {
     return usePublishState.getState().ops.find((op) => op.opId === opId);
+  }
+
+  /** The publisher drains in queue order and can hit its per-run budget. Keep a kick for later work. */
+  private hasUnfinishedPredecessor(op: PublishOp): boolean {
+    return (
+      !!op.groupId &&
+      this.storedOps.some(
+        (earlier) =>
+          earlier.groupId === op.groupId && byAge(earlier, op) < 0 && !isTerminal(earlier.status),
+      )
+    );
   }
 
   private unacceptedPredecessors(op: PublishOp): PublishOp[] {

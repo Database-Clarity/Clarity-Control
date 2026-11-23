@@ -438,6 +438,30 @@ it('auto-kicks exactly once after three minutes, across reloads', async () => {
   expect(h.api.kick).toHaveBeenCalledTimes(1);
 });
 
+it('reserves automatic kicks for later queued chunks, including across a reload', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  await first.create(
+    Array.from({ length: 101 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs + 1000);
+  const [head, middle, last] = ops();
+  expect(h.api.post).toHaveBeenCalledTimes(3);
+  expect(h.api.kick.mock.calls).toEqual([[head!.opId]]);
+  first.stop();
+
+  const reloaded = h.make();
+  const finished = new Set([head!.opId]);
+  h.api.status.mockImplementation(async (id) => (finished.has(id) ? 'done' : 'pending'));
+  await reloaded.start('1');
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(h.api.kick.mock.calls).toEqual([[head!.opId], [middle!.opId]]);
+  finished.add(middle!.opId);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(h.api.kick.mock.calls).toEqual([[head!.opId], [middle!.opId], [last!.opId]]);
+});
+
 it('two tabs share one poll stream and one auto-kick', async () => {
   const h = harness();
   const tabA = h.make();
@@ -609,7 +633,7 @@ it('does not spin while a request hangs: no storage re-reads once a send is in f
   expect(h.api.post).toHaveBeenCalledTimes(1);
 });
 
-it('refuses selections over the Worker caps before storing or sending anything', async () => {
+it('stores selections over the Worker request size as one group of bounded chunks', async () => {
   const h = harness();
   const driver = h.make();
   await driver.start('1');
@@ -618,12 +642,11 @@ it('refuses selections over the Worker caps before storing or sending anything',
     digest: digest(1),
     previous: undefined,
   }));
-  await expect(driver.create(many)).rejects.toThrow(/limit is 3000.*Nothing was sent/);
-  expect(h.store.records.size).toBe(0);
-  expect(h.api.post).not.toHaveBeenCalled();
-  // At the cap exactly it is accepted.
-  await driver.create(many.slice(0, 3000));
-  expect(h.store.records.size).toBe(60);
+  await driver.create(many);
+  expect(h.store.records.size).toBe(61);
+  expect([...h.store.records.values()].flatMap((op) => op.hashes)).toEqual(
+    many.map((row) => row.hash),
+  );
 });
 
 it('only blames the clock for the creation-window rejection; 413 and 403 say what happened', async () => {
@@ -825,6 +848,30 @@ it('keeps transitive imports and cycles in one oversize closure, and refuses mis
   }));
   expect(publishChunks(many).map((chunk) => chunk.length)).toEqual([60]);
   expect(() => publishChunks(many.slice(0, 59))).toThrow(/Select pending imported tooltip 59/);
+  expect(() => publishChunks(many.map((row) => ({ ...row, consumers: 9 })))).toThrow(
+    /cannot safely split/,
+  );
+});
+
+it('splits a multilingual selection below the Worker publication proof limit', () => {
+  const many = Array.from({ length: 100 }, (_, hash) => ({
+    hash,
+    previous: undefined,
+    consumers: 13,
+    dependencies: hash === 0 ? [99] : [],
+  }));
+  const chunks = publishChunks(many);
+  expect(chunks.map((chunk) => chunk.length)).toEqual([38, 38, 24]);
+  expect(chunks[0]?.map(({ hash }) => hash).slice(0, 2)).toEqual([0, 99]);
+});
+
+it('sends an acyclic prerequisite before a cycle that fills the proof budget', () => {
+  const rows = [
+    { hash: 1, consumers: 250, dependencies: [2, 3] },
+    { hash: 2, consumers: 250, dependencies: [1] },
+    { hash: 3, consumers: 1 },
+  ].map((row) => ({ ...row, previous: undefined }));
+  expect(publishChunks(rows).map((chunk) => chunk.map(({ hash }) => hash))).toEqual([[3], [1, 2]]);
 });
 
 it('does not send later group chunks after a definite earlier POST failure, even after dismissal and reload', async () => {
