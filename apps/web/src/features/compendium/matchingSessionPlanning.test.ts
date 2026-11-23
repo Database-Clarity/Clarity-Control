@@ -5,6 +5,7 @@ import {
   prepareMatchingPlan,
   matchingPlanSteps,
   finishMatchingPlan,
+  completeMatchingSteps,
 } from './matchingSessionPlanning';
 import type { DisplayInput } from './matchingSession';
 import { emptyProgress } from './reviewProgress';
@@ -12,6 +13,155 @@ import { proposalFor } from './rapidReview';
 import { guidedDecisions, guidedDecisionSteps } from './guidedDecisions';
 import { sampleReference } from './sampleReferences';
 import { loadManifestFacts } from './manifestFacts';
+
+it.each(['confident', 'saved', 'proposed', 'unowned', 'draft', 'revoked'] as const)(
+  'matches Threadling only when its near-name row has an independent owner (%s)',
+  async (ownership) => {
+    const f = guidedFixture();
+    const threadling = 100,
+      grenade = 101;
+    f.editor.items = {
+      [threadling]: {
+        ...f.editor.items[threadling],
+        name: 'Threadling',
+        categoryId: 'verbs',
+        definitionType: 'DestinyTraitDefinition',
+        inGameDescription: 'A Strand creature that seeks enemies.',
+      },
+      ...(ownership !== 'unowned'
+        ? {
+            [grenade]: {
+              ...f.editor.items[grenade],
+              name: 'Threadling Grenade',
+              categoryId: 'subclass-grenade',
+              inGameDescription: 'A grenade that creates Threadlings.',
+            },
+          }
+        : {}),
+    };
+    const cell = {
+      plain: 'A Strand creature that seeks enemies.',
+      runs: [{ text: 'A Strand creature that seeks enemies.' }],
+    };
+    const tab = {
+      gid: '1870531554',
+      name: 'Strand',
+      grid: [{ row: 8, col: 3, cell }],
+      rows: [
+        {
+          name: 'Threadling',
+          nameNorm: 'threadling',
+          rowIndex: 8,
+          section: 'Glossary',
+          anchor: { row: 8, col: 1 },
+          cell,
+        },
+        {
+          name: 'Threadling Grenade',
+          nameNorm: 'threadling grenade',
+          rowIndex: 42,
+          section: 'Fragments',
+          cell: {
+            plain: 'Creates three Threadlings.',
+            runs: [{ text: 'Creates three Threadlings.' }],
+          },
+        },
+      ],
+    };
+    f.source.tabs = [tab];
+    const input: DisplayInput = { drafts: {}, progress: emptyProgress(), scope: f.scope };
+    const guidance = { ...f.document, categories: {} };
+    const initial = prepareMatchingPlan(f.editor, f.source, input, new Map(), guidance);
+    const [keyword] = initial.categories.find((c) => c.id === 'catalog:verbs')!.entries;
+    const owner = initial.categories.find((c) => c.id === 'catalog:subclass-grenade')?.entries[0];
+    const document = {
+      ...guidance,
+      baseline: initial.baseline,
+      categories: Object.fromEntries(
+        initial.categories.map((group) => [
+          group.id,
+          {
+            ...Object.values(f.document.categories)[0],
+            id: group.id,
+            count: group.entries.length,
+            hashes: group.entries.map((e) => e.hash),
+            references: {},
+          },
+        ]),
+      ),
+    };
+    const proposal = proposalFor(keyword.base, f.editor, f.source);
+    const proposals = new Map([[threadling, proposal]]);
+    if (owner) {
+      const match = { tab, row: tab.rows[1] };
+      const reference = sampleReference(
+        owner,
+        'catalog:subclass-grenade',
+        initial.baseline,
+        '',
+        'accepted',
+        match,
+        f.source,
+      );
+      proposals.set(grenade, { match, link: reference.link, candidates: [] });
+      if (ownership === 'confident' || ownership === 'revoked') {
+        document.categories['catalog:subclass-grenade'].references = { [grenade]: reference };
+        if (ownership === 'revoked') {
+          const category = document.categories['catalog:subclass-grenade'];
+          input.local = {
+            ...document,
+            categories: {
+              [category.id]: {
+                ...category,
+                references: {
+                  [grenade]: sampleReference(owner, category.id, initial.baseline, '', 'skipped'),
+                },
+              },
+            },
+          };
+        }
+      } else if (ownership === 'saved') {
+        f.editor.bundle.tooltips[grenade] = { ...owner.base, compendium: reference.link };
+      } else if (ownership === 'draft') {
+        input.drafts[grenade] = {
+          base: owner.base,
+          next: { ...owner.base, compendium: reference.link },
+        };
+      }
+    }
+    const expected = ownership === 'confident' || ownership === 'saved';
+    const full = displayMatches(
+      f.editor,
+      f.source,
+      input.drafts,
+      input.progress,
+      input.local,
+      input.scope,
+      proposals,
+      document,
+    );
+    expect(full.matches.has(threadling)).toBe(expected);
+    expect(full.decisions.find((decision) => decision.hash === threadling)).toMatchObject(
+      expected
+        ? { ruleId: 'sole-compendium-candidate', confidence: 'high' }
+        : { ruleId: 'uncovered-element-tab', confidence: 'medium' },
+    );
+    const priorityProposals = new Map([[threadling, proposal]]);
+    const targeted = prepareMatchingPlan(
+      f.editor,
+      f.source,
+      input,
+      priorityProposals,
+      document,
+      threadling,
+    );
+    const result = await completeMatchingSteps(
+      f.source,
+      matchingPlanSteps(targeted, f.source, priorityProposals, threadling),
+    );
+    expect(result.matches.get(threadling)).toEqual(full.matches.get(threadling));
+  },
+);
 
 it('returns exactly the full plan for each priority, including local overrides and preserved links', async () => {
   const f = guidedFixture();
