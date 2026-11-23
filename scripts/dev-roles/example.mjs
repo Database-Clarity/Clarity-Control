@@ -156,21 +156,43 @@ try {
     await dialog.getByRole('combobox').selectOption('editor');
     await dialog.getByRole('button', { name: 'Switch', exact: true }).click();
   });
-  await page.goto(`${app.origin}/#/review?hash=${tooltip.hash}`);
-  const target = page
-    .getByRole('link', { name: 'Open in editor ↗' })
-    .and(page.locator(`a[href$="/t/${tooltip.hash}"]`));
-  await target.waitFor();
-  await page.getByRole('button', { name: /^Include/ }).click();
-  await page.locator('[data-review-publish]').click();
-  const publish = page.waitForResponse(
-    (r) => r.url() === directory + '/api/publish' && r.request().method() === 'POST',
-  );
-  await page
-    .getByRole('dialog', { name: 'Publish to live' })
-    .getByRole('button', { name: 'Publish 1', exact: true })
-    .click();
-  const accepted = await publish;
+  const included = new Set();
+  async function include(hash) {
+    assert.ok(!included.has(hash), `Review still requires already included tooltip ${hash}`);
+    await page.goto(`${app.origin}/#/review?hash=${hash}`);
+    await page
+      .getByRole('link', { name: 'Open in editor ↗' })
+      .and(page.locator(`a[href$="/t/${hash}"]`))
+      .waitFor();
+    await page.getByRole('button', { name: /^Include/ }).click();
+    included.add(hash);
+  }
+  await include(tooltip.hash);
+  let accepted;
+  while (!accepted) {
+    await page.locator('[data-review-publish]').click();
+    const publish = page
+      .waitForResponse(
+        (r) => r.url() === directory + '/api/publish' && r.request().method() === 'POST',
+      )
+      .then((response) => ({ response }));
+    const missing = page
+      .getByRole('alert')
+      .filter({ hasText: /Select pending imported tooltip \d+ as well/ });
+    const requirement = missing.waitFor().then(async () => ({
+      dependency: Number((await missing.innerText()).match(/tooltip (\d+)/)?.[1]),
+    }));
+    await page
+      .getByRole('dialog', { name: 'Publish to live' })
+      .getByRole('button', { name: `Publish ${included.size}`, exact: true })
+      .click();
+    const attempt = await Promise.race([publish, requirement]);
+    if (attempt.response) accepted = attempt.response;
+    else {
+      console.log(`Review also requires pending tooltip ${attempt.dependency}`);
+      await include(attempt.dependency);
+    }
+  }
   assert.equal(accepted.status(), 202, await accepted.text());
   const { opId } = await accepted.json();
   console.log(`Accepted local publish ${opId}`);
