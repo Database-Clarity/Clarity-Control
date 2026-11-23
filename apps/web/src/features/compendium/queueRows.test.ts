@@ -95,6 +95,23 @@ describe('queue row kinds', () => {
     expect(kindOf({ ...repair, status: 'skipped' })).toBe('skipped');
   });
 
+  it('ends a skip at a confident match, and only marks an earlier Not needed choice', () => {
+    const confident = decision('link', 'high', link);
+    const skipped = entry(1, { status: 'skipped' });
+    expect(kindOf(skipped, confident)).toBe('matched');
+    expect(kindOf(skipped, decision('link', 'medium', link))).toBe('skipped');
+    const row = (d: typeof confident) =>
+      deriveQueueRow(entry(1, { status: 'no-equivalent' }), {
+        decisions: new Map([[1, d]]),
+        proposals: new Map(),
+        restored: new Set(),
+        shared: new Map(),
+        approvedChanged: () => false,
+      });
+    expect(row(confident)).toMatchObject({ kind: 'not-needed', excluded: 'local', matches: true });
+    expect(row(decision('owner', 'unresolved'))).not.toHaveProperty('matches');
+  });
+
   it('hides a maintainer decision for everyone, until a link or a confident match ends No match', () => {
     const open = decision('owner', 'unresolved');
     expect(kindOf(entry(1), open, proposal(true), [], 'not-needed')).toBe('not-needed');

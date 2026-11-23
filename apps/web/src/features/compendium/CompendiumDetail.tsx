@@ -336,7 +336,7 @@ export function CompendiumDetail({
                   : row.excluded === 'shared'
                     ? 'Not needed: this entry needs no tooltip text from the Compendium.'
                     : row.excluded === 'local'
-                      ? 'Marked not needed on this device only.'
+                      ? `Marked not needed on this device only.${row.matches ? ' It has a confident match now: re-include it to use the match.' : ''}`
                       : 'Not needed by rule: this entry needs no tooltip text from the Compendium.'}
               </p>
               {shared && (

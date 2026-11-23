@@ -7,6 +7,7 @@ import { emptyProgress, readProgress, reviewStorageKey, sourceFingerprint } from
 import {
   applyReviewProgress,
   entryEvidence,
+  matchingEntries,
   mayDraftLink,
   reviewEvidence,
   reviewQueue,
@@ -170,6 +171,12 @@ it('keeps decisions recorded with an earlier sheet, and never calls an unlinked 
       (entry) => entry.hash === 100,
     )!;
     expect(entry).toMatchObject({ status: kind, reason: 'Unlinked' });
+    // The matcher still looks for a match, whatever this device decided.
+    const matching = matchingEntries(reviewEvidence(editor, source, {}, fingerprint), progress);
+    expect(matching.find((entry) => entry.hash === 100)).toMatchObject({
+      status: 'open',
+      stale: false,
+    });
   }
 });
 it('isolates identity/data scopes and rejects corrupt/unavailable storage defensively', () => {

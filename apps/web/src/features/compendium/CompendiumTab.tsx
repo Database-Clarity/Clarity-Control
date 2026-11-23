@@ -287,9 +287,9 @@ function Workspace({
   const early = useMemo(
     () =>
       review && !rows
-        ? earlyEntry(review, editor, drafts, source, scope.hashes, shared)
+        ? earlyEntry(review, editor, drafts, source, scope.hashes, shared, progress)
         : undefined,
-    [review, rows, editor, drafts, source, scope.hashes, shared],
+    [review, rows, editor, drafts, source, scope.hashes, shared, progress],
   );
   // Without `hash`, the editor's tooltip is the current entry when it is open work; the URL
   // takes it (below), so the list highlights it once ready and nothing moves.

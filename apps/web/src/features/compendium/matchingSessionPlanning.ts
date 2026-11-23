@@ -18,7 +18,7 @@ import {
 } from './guidedDecisions';
 import { rebaselineGuidance } from './rebaselineGuidance';
 import { reviewCategories } from './reviewCategories';
-import { applyReviewProgress, reviewEvidence } from './reviewQueue';
+import { decisionHolds, matchingEntries, reviewEvidence } from './reviewQueue';
 import { matchingSessionFingerprint } from './matchingSessionFingerprint';
 import { classifyScope } from './reviewScope';
 
@@ -104,7 +104,7 @@ export function prepareMatchingPlan(
     : editor;
   const evidence = reviewEvidence(evidenceEditor, source, input.drafts, fingerprint);
   const categories = reviewCategories(
-    applyReviewProgress(evidence, input.progress),
+    matchingEntries(evidence, input.progress),
     editor,
     proposals,
     false,
@@ -199,7 +199,7 @@ function competitorOwnership(
       return;
     }
     const local = input.progress.decisions[hash];
-    if (local && local.fingerprint !== owner.evidence) return;
+    if (local && !decisionHolds(local.fingerprint, owner)) return;
     const ownerProposals = proposals.has(hash)
       ? proposals
       : new Map([[hash, proposalFor(owner.base, editor, source)]]);

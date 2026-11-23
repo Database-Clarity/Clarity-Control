@@ -2,7 +2,7 @@ import type { CompendiumData } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import type { displayMatches } from './displayMatches';
-import { applyReviewProgress, linkState, type reviewEvidence } from './reviewQueue';
+import { applyReviewProgress, decisionHolds, linkState, type reviewEvidence } from './reviewQueue';
 import type { ReviewProgress } from './reviewProgress';
 import type { ReviewProposal } from './rapidReview';
 import { deriveQueueRow, deriveQueueRows, type QueueRow } from './queueRows';
@@ -180,11 +180,16 @@ export function earlyEntry(
   source: CompendiumData,
   restored: ReadonlySet<number>,
   shared: SharedDecisions,
+  progress: ReviewProgress,
 ) {
   if (!review.entry) return undefined;
   const { hash, decision } = review;
   const base = editor.bundle.tooltips[hash] ?? review.entry.base;
   const entry = { ...review.entry, base, next: drafts[hash]?.next ?? base };
+  // The matcher's copy is open; this device's decision is the row's.
+  const local = progress.decisions[hash];
+  if (entry.status === 'open' && local && decisionHolds(local.fingerprint, entry))
+    entry.status = local.kind;
   const match = review.matches.get(hash);
   const proposal: ReviewProposal | undefined = match
     ? { match, link: decision?.link, candidates: review.proposal?.candidates ?? [] }

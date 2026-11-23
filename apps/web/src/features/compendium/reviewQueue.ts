@@ -87,7 +87,7 @@ export function reviewEvidence(
  * Earlier versions recorded the whole sheet with the entry in one digest, which cannot be told
  * apart again: those decisions stay as made. Newer ones hold until the entry itself changes.
  */
-function decisionHolds(fingerprint: string, entry: Parameters<typeof entryEvidence>[0]) {
+export function decisionHolds(fingerprint: string, entry: Parameters<typeof entryEvidence>[0]) {
   return /^\d+:\d+$/.test(fingerprint) || fingerprint === entryEvidence(entry);
 }
 
@@ -110,6 +110,21 @@ export function applyReviewProgress(
     // `stale`: the entry itself changed since its local decision, so the matcher stays cautious.
     return [{ ...entry, status, stale: !valid && !!decision && !holds }];
   });
+}
+
+/**
+ * The entries as the matcher sees them: a decision on this device hides a row, but never stops a
+ * confident match from being found.
+ */
+export function matchingEntries(
+  evidence: ReturnType<typeof reviewEvidence>,
+  progress: ReviewProgress,
+) {
+  return applyReviewProgress(evidence, progress).map((entry) =>
+    entry.status === 'skipped' || entry.status === 'no-equivalent'
+      ? { ...entry, status: 'open' as const }
+      : entry,
+  );
 }
 
 export function reviewQueue(

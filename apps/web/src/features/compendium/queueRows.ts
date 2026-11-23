@@ -7,7 +7,7 @@ import type { SharedDecisions } from './sharedDecisions';
  * What a Compendium-tab row needs from the user.
  * - proposal / candidates / none: open work without a link (the review queue)
  * - changed: open work; a saved, drafted, or owner-approved link whose source changed
- * - drafted / skipped: decided on this device
+ * - drafted / skipped: decided on this device; a confident match ends a skip
  * - no-match: a maintainer's "no match yet"; ends by itself at a confident match
  * - not-needed: a maintainer's "not needed", or out of scope by rule (re-includable)
  * - matched: a confident match shown automatically; not a queue row until `show=matched`
@@ -34,6 +34,8 @@ export interface QueueRow {
   kind: QueueKind;
   /** Why a not-needed row is excluded: a rule, a maintainer, or an earlier choice on this device. */
   excluded?: 'rule' | 'shared' | 'local';
+  /** An earlier Not needed choice on this device whose entry has a confident match now. */
+  matches?: true;
 }
 
 export interface QueueCounts {
@@ -81,8 +83,9 @@ export function deriveQueueRow(
   const mark = shared.get(entry.hash)?.kind;
   if (mark === 'not-needed') return row('not-needed', 'shared');
   if (mark === 'no-match' && entry.reason === 'Unlinked' && !confident) return row('no-match');
-  if (entry.status === 'skipped') return row('skipped');
-  if (entry.status === 'no-equivalent') return row('not-needed', 'local');
+  if (entry.status === 'skipped' && !confident) return row('skipped');
+  if (entry.status === 'no-equivalent')
+    return { ...row('not-needed', 'local'), ...(confident ? { matches: true } : {}) };
   if (entry.reason === 'Needs repair') return row('changed');
   const proposal = proposals.get(entry.hash);
   const reincluded = restored.has(entry.hash);

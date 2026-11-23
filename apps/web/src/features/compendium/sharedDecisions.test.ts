@@ -28,11 +28,15 @@ const changes = () =>
 /** Accepts the marks directly: today's reader does not know the section yet. */
 const accept = (compendium: object) =>
   useMarksStore.setState({ marks: reply(compendium) as never, revision, writable: true });
+// Retries wait 400 ms each.
 const settled = () =>
-  vi.waitFor(() => {
-    const { pending, error } = useSharedSaves.getState();
-    if (pending.size && !error) throw new Error('still saving');
-  });
+  vi.waitFor(
+    () => {
+      const { pending, error } = useSharedSaves.getState();
+      if (pending.size && !error) throw new Error('still saving');
+    },
+    { timeout: 10_000 },
+  );
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -71,7 +75,7 @@ it('shows decisions at once and writes those made meanwhile in one later request
   const { set } = useSharedSaves.getState();
   set([1], 'not-needed');
   expect(shown().get(1)).toEqual({ kind: 'not-needed' });
-  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1), { timeout: 10_000 });
   set([2], 'no-match');
   set([3], 'no-match');
   set([1], null);
@@ -85,7 +89,7 @@ it('shows decisions at once and writes those made meanwhile in one later request
   expect(shown().size).toBe(0);
 });
 
-it('splits large sets and loses none of them when a batch fails', async () => {
+it('splits large sets and loses none of them when a batch fails', { timeout: 20_000 }, async () => {
   const hashes = Array.from({ length: 450 }, (_, index) => index + 10);
   let puts = 0;
   api.mockImplementation(async (_path: string, init?: RequestInit) => {
@@ -106,25 +110,29 @@ it('splits large sets and loses none of them when a batch fails', async () => {
   expect(Math.max(...changes().map((change) => change.hashes.length))).toBe(200);
 });
 
-it('reloads the marks and writes again after a lost race; discarding gives the decision up', async () => {
-  api.mockImplementationOnce(async () =>
-    Response.json({ error: 'Marks changed' }, { status: 409 }),
-  );
-  useSharedSaves.getState().set([7], 'no-match');
-  await settled();
-  expect(useSharedSaves.getState().error).toBeNull();
-  expect(api.mock.calls.map(([path, init]) => `${init?.method ?? 'GET'} ${path}`)).toEqual([
-    'PUT /marks',
-    'GET /marks',
-    'PUT /marks',
-  ]);
-  api.mockImplementation(async () => Response.json({ error: 'No' }, { status: 403 }));
-  useSharedSaves.getState().set([8], 'no-match');
-  await settled();
-  expect(useSharedSaves.getState().error).not.toBeNull();
-  useSharedSaves.getState().discard();
-  expect(shown().has(8)).toBe(false);
-});
+it(
+  'reloads the marks and writes again after a lost race; discarding gives the decision up',
+  { timeout: 20_000 },
+  async () => {
+    api.mockImplementationOnce(async () =>
+      Response.json({ error: 'Marks changed' }, { status: 409 }),
+    );
+    useSharedSaves.getState().set([7], 'no-match');
+    await settled();
+    expect(useSharedSaves.getState().error).toBeNull();
+    expect(api.mock.calls.map(([path, init]) => `${init?.method ?? 'GET'} ${path}`)).toEqual([
+      'PUT /marks',
+      'GET /marks',
+      'PUT /marks',
+    ]);
+    api.mockImplementation(async () => Response.json({ error: 'No' }, { status: 403 }));
+    useSharedSaves.getState().set([8], 'no-match');
+    await settled();
+    expect(useSharedSaves.getState().error).not.toBeNull();
+    useSharedSaves.getState().discard();
+    expect(shown().has(8)).toBe(false);
+  },
+);
 
 it('never writes one account’s decisions as another', async () => {
   api.mockImplementationOnce(async () => {

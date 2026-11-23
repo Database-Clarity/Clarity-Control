@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { plainError } from '../../services/httpError';
 import { InlineAlert } from '../../ui/InlineAlert';
@@ -22,36 +23,54 @@ export function SharedSaveError() {
   );
 }
 
-/** A maintainer's Not needed choices from before they applied to everyone: one click shares them. */
+/**
+ * A maintainer's Not needed choices from before they applied to everyone: one click shares the
+ * ticked ones. Rows that have a confident match now start unticked, so none is hidden by accident.
+ */
 export function EarlierChoices({ rows }: { rows: readonly QueueRow[] }) {
   const [params] = useSearchParams();
+  const [flipped, setFlipped] = useState<ReadonlySet<number>>(new Set());
   if (!rows.length) return null;
+  const ticked = rows.filter((row) => flipped.has(row.hash) === !!row.matches);
   const to = (hash: number) => {
     const next = new URLSearchParams(params);
     next.set('hash', String(hash));
     return `?${next}`;
   };
+  const flip = (hash: number) =>
+    setFlipped((old) => {
+      const next = new Set(old);
+      if (!next.delete(hash)) next.add(hash);
+      return next;
+    });
   return (
     <section className={styles.earlier} aria-label="Earlier Not needed choices">
-      <p>
-        <span className={styles.muted}>Not needed on this device only: </span>
-        {rows.map((row, index) => (
-          <span key={row.hash}>
-            {index > 0 && ', '}
+      <div className={styles.earlierList}>
+        <span className={styles.muted}>Not needed on this device only:</span>
+        {rows.map((row) => (
+          <span key={row.hash} className={styles.earlierChoice}>
+            <input
+              type="checkbox"
+              aria-label={`Save ${row.name} for everyone`}
+              checked={ticked.includes(row)}
+              onChange={() => flip(row.hash)}
+            />
             <Link to={to(row.hash)}>{row.name}</Link>
+            {row.matches && <span className={styles.earlierMatch}>matched now</span>}
           </span>
         ))}
-      </p>
+      </div>
       <button
         type="button"
+        disabled={!ticked.length}
         onClick={() =>
           useSharedSaves.getState().set(
-            rows.map((row) => row.hash),
+            ticked.map((row) => row.hash),
             'not-needed',
           )
         }
       >
-        Save {rows.length} earlier Not needed {rows.length === 1 ? 'choice' : 'choices'} for
+        Save {ticked.length} earlier Not needed {ticked.length === 1 ? 'choice' : 'choices'} for
         everyone
       </button>
     </section>
