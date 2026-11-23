@@ -26888,6 +26888,7 @@ var envelope = external_exports.object({
 }).strict();
 var record2 = external_exports.object({ requester, updatedAt: timestampSchema }).strict();
 var outcome = external_exports.discriminatedUnion("status", [
+  external_exports.object({ status: external_exports.literal("uploading") }),
   external_exports.object({
     status: external_exports.literal("saved"),
     commit: currentSaveSha,
