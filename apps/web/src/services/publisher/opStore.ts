@@ -24,6 +24,8 @@ export interface PublishOp {
   status: OpStatus;
   /** When the Worker first said "queued"; drives the waiting threshold and the auto-kick. */
   acceptedAt?: number;
+  /** First proof wait for this request, shared across tabs and reloads. */
+  syncPendingSince?: number;
   kickedAt?: number;
   autoKicked?: boolean;
   polledAt?: number;

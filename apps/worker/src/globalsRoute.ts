@@ -1,11 +1,15 @@
 import { z } from 'zod';
 import {
   emptyGitTree,
+  globalConfigIdentity,
   globalSourcePaths,
+  globalsConfigWithoutMarks,
   langSchema,
   globalsReleasePaths,
   observeGlobalSources,
   permissionsSchema,
+  publicationSourcesPath,
+  publicationSyncPendingCode,
   type GlobalPublicationRead,
   type GlobalSources,
   type Permissions,
@@ -85,6 +89,7 @@ export async function observeGlobals(
       ],
       ['config/permissions.json', '.publisher/PIN', '.publisher/installed.json'],
       262_144,
+      globalSourcePaths.config,
     );
   } catch (error) {
     if (error instanceof HttpError && error.status === 503) throw error;
@@ -110,13 +115,18 @@ export async function observeGlobals(
   if (!installedFile || installedFile.bytes.byteLength > 1024) throw incomplete();
   const metadata = installedMetadataSchema.safeParse(parseRaw(installedFile.bytes));
   if (!metadata.success || metadata.data.configOid !== installed) throw incomplete();
+  const configIdentity = pin.data.capabilities.includes(globalsConfigWithoutMarks)
+    ? await globalConfigIdentity(observed.configEntries, config).catch(() => {
+        throw rawReadFailure();
+      })
+    : config;
   const sources = await observeGlobalSources({
     authored,
     definitions: definitions ?? emptyGitTree,
     projections: projections ?? emptyGitTree,
     layout,
     published,
-    config,
+    config: configIdentity,
     live: observed.live,
     upcoming: upcoming ?? emptyGitTree,
     aliasGroups,
@@ -277,9 +287,13 @@ export function globalPublicationRead(github: GitHub): GlobalPublicationRead {
         `Publish at most ${maxPublicationConsumers} tooltip languages at once while global entries are active`,
       );
     const observed = await observeGlobals(github);
-    if (observed.head !== head) throw new HttpError(409, 'Sync pending: source head changed');
+    if (observed.head !== head)
+      throw new HttpError(409, 'Sync pending: source head changed', {
+        code: publicationSyncPendingCode,
+      });
     const paths = [
       globalsReleasePaths.sync,
+      publicationSourcesPath(globalDestinations(github)[0]!),
       ...consumers.map((consumer) => {
         const parsed = consumerSchema.safeParse(consumer);
         if (!parsed.success || !globalDestinations(github).includes(parsed.data.destination))
@@ -303,8 +317,10 @@ export function globalPublicationRead(github: GitHub): GlobalPublicationRead {
         throw rawReadFailure();
       }
     }
-    const [sync, ...certificates] = files.map((file) => (file ? parseRaw(file.bytes) : null));
+    const [sync, materializedSources, ...certificates] = files.map((file) =>
+      file ? parseRaw(file.bytes) : null,
+    );
     if (sync === null) throw incomplete();
-    return { sources: observed.sources, sync, certificates };
+    return { sources: observed.sources, sync, materializedSources, certificates };
   };
 }

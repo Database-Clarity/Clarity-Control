@@ -12,6 +12,7 @@ export class PublishHttpError extends Error {
     message: string,
     /** The message is the Worker's own JSON `error`, not an edge page or a client-side reason. */
     readonly fromWorker = false,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -42,11 +43,13 @@ async function send(path: string, init?: RequestInit): Promise<{ status: number;
     value = null;
   }
   if (!response.ok) {
-    const error = z.object({ error: z.string() }).safeParse(value);
+    const error = z.object({ error: z.string(), details: z.unknown().optional() }).safeParse(value);
+    const details = z.object({ code: z.string() }).safeParse(error.data?.details);
     throw new PublishHttpError(
       response.status,
       error.success ? error.data.error : text.slice(0, 200),
       error.success,
+      details.data?.code,
     );
   }
   return { status: response.status, value };

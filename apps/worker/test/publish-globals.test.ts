@@ -1,6 +1,11 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
-import { inactiveRemovalHash, publishableHash, type GlobalPublicationRead } from '@clarity/core';
+import {
+  inactiveRemovalHash,
+  publicationSyncPendingCode,
+  publishableHash,
+  type GlobalPublicationRead,
+} from '@clarity/core';
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 import { GitHub } from '../src/github.js';
 import { publish } from '../src/publish.js';
@@ -87,19 +92,21 @@ it('requires the capability and an exact current certificate for each selected c
   };
   await expect(
     publish(request(), new GitHub(f.env), { id: 2, login: 'bob' }, stale),
-  ).rejects.toMatchObject({ status: 409 });
+  ).rejects.toMatchObject({ status: 409, details: { code: publicationSyncPendingCode } });
   expect((await publish(request(), new GitHub(f.env), { id: 2, login: 'bob' }, read)).status).toBe(
     202,
   );
 });
-it('admits an explicitly reviewed inactive removal without publishing a global body', async () => {
+it('requires a current proof for a moved-inactive hash with no tooltip in a mixed publish', async () => {
   const { f, value } = await fixture();
+  const moved = 3176795734;
   f.moveData({
     'globals/sync.json': {},
     '.publisher/PIN': { capabilities: ['globalsRelease', 'globalsExportsV1', 'inactiveMoves'] },
-    'config/inactive.json': { 123: { by: 1, at: new Date(now).toISOString() } },
+    'config/inactive.json': { [moved]: { by: 1, at: new Date(now).toISOString() } },
   });
-  value.expected[123] = await inactiveRemovalHash(123);
+  value.hashes.push(moved);
+  const expected = { ...value.expected, [moved]: await inactiveRemovalHash(moved) };
   const oid = 'a'.repeat(40),
     digest = 'b'.repeat(64);
   const sources = {
@@ -115,9 +122,12 @@ it('admits an explicitly reviewed inactive removal without publishing a global b
     resolver: digest,
   };
   const read: GlobalPublicationRead = async (_head, consumers) => {
-    expect(consumers).toEqual([{ hash: 123, lang: 'en', destination: f.env.LIVE_BRANCH }]);
+    expect(consumers).toEqual(
+      [123, moved].map((hash) => ({ hash, lang: 'en', destination: f.env.LIVE_BRANCH })),
+    );
     return {
       sources,
+      materializedSources: sources,
       sync: { version: 1, status: 'current', causeIds: [], causeEntries: {}, lastFailure: null },
       certificates: consumers.map((consumer) => ({
         version: 1,
@@ -130,12 +140,52 @@ it('admits an explicitly reviewed inactive removal without publishing a global b
       })),
     };
   };
-  const request = new Request('https://api.example/publish', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(value),
+  const submit = (reader: GlobalPublicationRead) =>
+    publish(
+      new Request('https://api.example/publish', {
+        method: 'POST',
+        body: JSON.stringify({ ...value, expected }),
+      }),
+      new GitHub(f.env),
+      { id: 2, login: 'bob' },
+      reader,
+    );
+  const missing: GlobalPublicationRead = async (head, consumers) => {
+    const proof = await read(head, consumers);
+    proof.certificates[1] = null;
+    return proof;
+  };
+  await expect(submit(missing)).rejects.toMatchObject({
+    status: 409,
+    message: expect.stringContaining(String(moved)),
+    details: { hashes: [moved] },
   });
-  expect((await publish(request, new GitHub(f.env), { id: 2, login: 'bob' }, read)).status).toBe(
-    202,
-  );
+  await expect(
+    submit(async (head, consumers) => ({
+      ...(await missing(head, consumers)),
+      materializedSources: { ...sources, config: '9'.repeat(40) },
+    })),
+  ).rejects.toMatchObject({ status: 409, details: { code: publicationSyncPendingCode } });
+  const pending = {
+    version: 1,
+    status: 'sync-pending',
+    causeIds: ['cause'],
+    causeEntries: { cause: 'g_fixture000' },
+    lastFailure: null,
+  };
+  await expect(
+    submit(async (head, consumers) => ({ ...(await missing(head, consumers)), sync: pending })),
+  ).rejects.toMatchObject({ status: 409, details: { code: publicationSyncPendingCode } });
+  await expect(
+    submit(async (head, consumers) => ({
+      ...(await missing(head, consumers)),
+      sync: { ...pending, status: 'sync-failed', lastFailure: 'internal failure' },
+    })),
+  ).rejects.toMatchObject({
+    status: 409,
+    message: expect.stringContaining('Global changes failed to sync'),
+    details: { hashes: [123, moved] },
+  });
+  expect(f.current()[`publish/requests/${opId}.json`]).toBeUndefined();
+  expect((await submit(read)).status).toBe(202);
 });

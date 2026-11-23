@@ -7,9 +7,11 @@ import { describe, expect, it } from 'vitest';
 import { inventoryGlobals, projectGlobals } from '../../packages/core/src/globals/projection.js';
 import {
   composeGlobalRelease,
+  globalsConfigWithoutMarks,
   observeGlobalSources,
 } from '../../packages/core/src/globalsRelease/index.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
+import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js';
 import { inactivePublishableHash } from '../../packages/core/src/inactiveMoves.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
@@ -261,7 +263,10 @@ async function fixture(titleSource = '', exports = false) {
       (payload) => sign(null, Buffer.from(payload), keys.privateKey).toString('base64'),
     );
   };
-  const tooltipSchemaRead = (hash: number) => read(`tooltips/${hash}.json`) as Tooltip;
+  const tooltipSchemaRead = (hash: number) =>
+    (current()[`tooltips/${hash}.json`]
+      ? read(`tooltips/${hash}.json`)
+      : { hash, text: {}, associated: [] }) as Tooltip;
   return { git, pub, globals, saved, published, options, current, read, change, approve, request };
 }
 
@@ -948,6 +953,49 @@ describe('dependency-safe global release', () => {
     const live = JSON.parse(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']));
     expect(live.perks[40]).toBeUndefined();
     expect(f.read('globals/live/converter-v2-test.json').store).toEqual(f.published);
+  });
+  it('refreshes proofs and drains a mixed publish with a removal that has no saved or live tooltip', async () => {
+    const f = await fixture();
+    const hash = 3176795734;
+    const moved = { by: 1, at: new Date(now).toISOString() };
+    f.options.aliases[140] = { to: 42, kind: 'sandbox' };
+    f.change({
+      '.publisher/PIN': {
+        ...f.read('.publisher/PIN'),
+        capabilities: ['globalsRelease', globalsConfigWithoutMarks],
+      },
+      'config/inactive.json': { [hash]: moved, 140: moved, 141: { ...moved, inactive: false } },
+    });
+    await f.globals.drain();
+    const proofPrefix = 'globals/proofs/publication/converter-v2-test';
+    expect(f.current()[`tooltips/${hash}.json`]).toBeUndefined();
+    expect(f.current()[`live/tooltips/${hash}.json`]).toBeUndefined();
+    expect(f.current()[`${proofPrefix}/140-en.json`]).toBeUndefined();
+    expect(f.current()[`${proofPrefix}/141-en.json`]).toBeUndefined();
+    expect(f.read(`${proofPrefix}/${hash}-en.json`)).toMatchObject({
+      complete: true,
+      approved: true,
+      independent: true,
+      sources: f.read(publicationSourcesPath('converter-v2-test')),
+      consumer: { hash, lang: 'en', destination: 'converter-v2-test' },
+    });
+    const before = await f.globals.sources(f.current(), f.git.head(L)!, f.git.head(D)!);
+    f.change({ 'config/marks.json': { editorialOnly: true } });
+    expect(await f.globals.sources(f.current(), f.git.head(L)!, f.git.head(D)!)).toEqual(before);
+    // A marks edit alone leaves the old certificates current, even without another sync.
+    await f.request([42, hash]);
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+    expect(f.read('live/pushed.json')[hash]).toBe(
+      await inactivePublishableHash(
+        { hash, text: {}, associated: [] },
+        {},
+        f.pub.movesAt(f.current()),
+      ),
+    );
+    const live = JSON.parse(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']));
+    expect(live.perks[42]).toBeDefined();
+    expect(live.perks[hash]).toBeUndefined();
   });
   it('uses real Git transactions locally and remotely, including lost acknowledgements', () => {
     mkdirSync('.agents', { recursive: true });

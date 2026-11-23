@@ -614,15 +614,19 @@ export class GitHub {
     blobs: readonly string[],
     texts: readonly string[],
     maxTextBytes: number,
+    configPath: string,
   ): Promise<{
     head: string;
     trees: (string | null)[];
+    configEntries: unknown;
     blobs: (string | null)[];
     texts: (RawBlob | null)[];
     live: string | null;
   }> {
     const all = [...trees, ...blobs, ...texts];
+    const configIndex = trees.indexOf(configPath);
     if (
+      configIndex < 0 ||
       all.length > 24 ||
       maxTextBytes > 1_048_576 ||
       all.some((path) => !pathPattern.test(path) || path.includes('..') || path.includes('//'))
@@ -635,9 +639,11 @@ export class GitHub {
     ];
     const selections = names
       .map((name) =>
-        name.startsWith('x')
-          ? `${name}:file(path:$${name}){object{... on Blob{oid byteSize isBinary isTruncated text}}}`
-          : `${name}:file(path:$${name}){type oid}`,
+        name === `t${configIndex}`
+          ? `${name}:file(path:$${name}){type oid object{... on Tree{entries{nameRaw mode oid}}}}`
+          : name.startsWith('x')
+            ? `${name}:file(path:$${name}){object{... on Blob{oid byteSize isBinary isTruncated text}}}`
+            : `${name}:file(path:$${name}){type oid}`,
       )
       .join(' ');
     const variables: Record<string, string> = {
@@ -665,11 +671,16 @@ export class GitHub {
       );
     if (!repository.success) throw rawReadFailure();
     const target = repository.data.ref.target as Record<string, unknown>;
+    const config = target[`t${configIndex}`];
     const entry = (name: string, type: 'tree' | 'blob') => {
       const value = target[name];
       if (value === null || value === undefined) return null;
       const parsed = z
-        .object({ type: z.string(), oid: z.string().regex(refPattern) })
+        .object({
+          type: z.string(),
+          oid: z.string().regex(refPattern),
+          ...(name === `t${configIndex}` ? { object: z.unknown().optional() } : {}),
+        })
         .strict()
         .safeParse(value);
       if (!parsed.success || parsed.data.type !== type) throw rawReadFailure();
@@ -689,6 +700,7 @@ export class GitHub {
     return {
       head: repository.data.ref.target.oid,
       trees: trees.map((_, i) => entry(`t${i}`, 'tree')),
+      configEntries: (config as { object?: { entries?: unknown } } | null)?.object?.entries,
       blobs: blobs.map((_, i) => entry(`b${i}`, 'blob')),
       texts: raw,
       live: repository.data.live?.target.oid ?? null,
@@ -697,7 +709,12 @@ export class GitHub {
 
   /** One exact Blob by OID (content-addressed), under a pinned cap; no fallback. */
   async globalBlobByOid(oid: string, maxBytes: number): Promise<RawBlob> {
-    if (!refPattern.test(oid) || !Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 8_388_608)
+    if (
+      !refPattern.test(oid) ||
+      !Number.isInteger(maxBytes) ||
+      maxBytes < 1 ||
+      maxBytes > 8_388_608
+    )
       throw rawReadFailure();
     // GraphQL truncates the real installed config (>2 MiB). Read the exact Git blob's raw
     // bytes directly instead: one authenticated request, no base64 or GraphQL text limit.

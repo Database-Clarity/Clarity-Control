@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import {
   emptyGitTree,
+  globalConfigIdentity,
   globalIdentityDigest,
   globalLayoutSchema,
   globalPublishedSchema,
   globalsReleasePaths,
+  globalsConfigWithoutMarks,
   observeGlobalSources,
   planGlobalRelease,
   reconcileGlobalStore,
@@ -114,14 +117,8 @@ export interface GlobalReleaseReceipt {
   batchSource?: string;
 }
 
-/** Exact Git tree OID from the repository's flat blob tree, without shelling out or reading blobs. */
-export function globalTreeOid(
-  tree: Tree,
-  prefix: string,
-  modes: Record<string, string> = {},
-): string {
+function globalTreeEntries(tree: Tree, prefix: string, modes: Record<string, string> = {}) {
   const entries = Object.entries(tree).filter(([path]) => path.startsWith(`${prefix}/`));
-  if (!entries.length) return emptyGitTree;
   const files = new Map<string, string>(),
     directories = new Set<string>();
   for (const [path, oid] of entries) {
@@ -130,25 +127,36 @@ export function globalTreeOid(
     if (slash < 0) files.set(rest, oid);
     else directories.add(rest.slice(0, slash));
   }
-  const parts = [
-    ...[...files].map(([name, oid]) => ({ name, oid, directory: false })),
+  return [
+    ...[...files].map(([name, oid]) => ({
+      name,
+      oid,
+      mode: modes[`${prefix}/${name}`] ?? '100644',
+    })),
     ...[...directories].map((name) => ({
       name,
       oid: globalTreeOid(tree, `${prefix}/${name}`, modes),
-      directory: true,
+      mode: '40000',
     })),
-  ].sort((a, b) =>
+  ];
+}
+
+/** Exact Git tree OID from the repository's flat blob tree, without shelling out or reading blobs. */
+export function globalTreeOid(
+  tree: Tree,
+  prefix: string,
+  modes: Record<string, string> = {},
+): string {
+  const parts = globalTreeEntries(tree, prefix, modes).sort((a, b) =>
     Buffer.compare(
-      Buffer.from(a.name + (a.directory ? '/' : '')),
-      Buffer.from(b.name + (b.directory ? '/' : '')),
+      Buffer.from(a.name + (a.mode === '40000' ? '/' : '')),
+      Buffer.from(b.name + (b.mode === '40000' ? '/' : '')),
     ),
   );
+  if (!parts.length) return emptyGitTree;
   const bytes = Buffer.concat(
-    parts.map(({ name, oid, directory }) =>
-      Buffer.concat([
-        Buffer.from(`${directory ? '40000' : (modes[`${prefix}/${name}`] ?? '100644')} ${name}\0`),
-        Buffer.from(oid, 'hex'),
-      ]),
+    parts.map(({ name, oid, mode }) =>
+      Buffer.concat([Buffer.from(`${mode} ${name}\0`), Buffer.from(oid, 'hex')]),
     ),
   );
   return createHash('sha1').update(`tree ${bytes.length}\0`).update(bytes).digest('hex');
@@ -207,13 +215,23 @@ export class GlobalsPublisher {
     )
       throw new Error('Installed publisher lacks globalsExportsV1');
     const modes = this.git.treeModes?.(head ?? this.publisher.head(this.options.dataBranch)) ?? {};
+    // Historical causes retain the config identity used by the publisher installed at that head.
+    const config = pin.capabilities.includes(globalsConfigWithoutMarks)
+      ? await globalConfigIdentity(
+          globalTreeEntries(tree, 'config', modes).map(({ name, oid, mode }) => ({
+            nameRaw: Buffer.from(name).toString('base64'),
+            oid,
+            mode: parseInt(mode, 8),
+          })),
+        )
+      : globalTreeOid(tree, 'config', modes);
     return observeGlobalSources({
       authored: globalTreeOid(tree, 'tooltips', modes),
       definitions: globalTreeOid(tree, 'globals/entries', modes),
       projections: globalTreeOid(tree, 'globals/projections', modes),
       layout: tree[globalsReleasePaths.layout],
       published: tree[globalsReleasePaths.published(this.options.liveBranch)],
-      config: globalTreeOid(tree, 'config', modes),
+      config,
       live,
       upcoming: globalTreeOid(tree, 'schedule', modes),
       aliasGroups: tree['config/alias-groups.json'] ?? null,
@@ -518,9 +536,8 @@ export class GlobalsPublisher {
     const captured = this.capture(tree, revision, live, batch?.documents),
       components = await this.plan(tree, revision, live, batch?.documents);
     const selected = roots.map((hash) => resolveAlias(hash, captured.authored.aliases));
-    const activeSelection = selected.filter(
-      (hash) => !isMovedInactive(hash, this.publisher.movesAt(tree)),
-    );
+    const moves = this.publisher.movesAt(tree);
+    const activeSelection = selected.filter((hash) => !isMovedInactive(hash, moves));
     const aggregateHashes = captured.saved.aggregates.map(({ document }) => document.hash);
     const aggregate = selected.some((hash) => aggregateHashes.includes(hash));
     const relevant = components.filter(
@@ -568,7 +585,6 @@ export class GlobalsPublisher {
     ].sort((a, b) => a - b);
     if (ids.length) {
       const markers = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
-      const moves = this.publisher.movesAt(tree);
       for (const hash of hashes) {
         const stored = this.read(tree, `live/tooltips/${hash}.json`);
         if (
@@ -588,7 +604,12 @@ export class GlobalsPublisher {
     hashes.sort((a, b) => a - b);
     const documents = hashes.map((hash) => {
       const document =
-        globals[hash] ?? captured.authored.tooltips[hash] ?? captured.live.tooltips[hash];
+        globals[hash] ??
+        captured.authored.tooltips[hash] ??
+        captured.live.tooltips[hash] ??
+        (!batch && selected.includes(hash) && isMovedInactive(hash, moves)
+          ? { hash, text: {}, associated: [] }
+          : undefined);
       if (!document) throw new Error('Deleted release dependency');
       return document;
     });
@@ -1193,40 +1214,42 @@ export class GlobalsPublisher {
     ))
       delete tree[path];
     const moves = this.publisher.movesAt(tree);
-    for (const document of Object.values(captured.authored.tooltips))
+    const hashes = new Set(Object.keys(captured.authored.tooltips).map(Number));
+    for (const key of Object.keys(moves)) {
+      const hash = Number(key);
+      if (isMovedInactive(hash, moves) && resolveAlias(hash, captured.authored.aliases) === hash)
+        hashes.add(hash);
+    }
+    for (const hash of hashes)
       for (const lang of [
         ...new Set([
-          ...Object.keys(document.text),
-          ...(isMovedInactive(document.hash, moves) ? ['en'] : []),
+          ...Object.keys(captured.authored.tooltips[hash]?.text ?? {}),
+          ...(isMovedInactive(hash, moves) ? ['en'] : []),
         ]),
       ]) {
         // A canonical removal exports no language body. This English-keyed
         // operation proof is pinned to the current inactive decision.
-        const relevant = isMovedInactive(document.hash, moves)
+        const aggregate = captured.saved.aggregates.some(({ document }) => document.hash === hash);
+        const relevant = isMovedInactive(hash, moves)
           ? []
           : components.filter(
               (component) =>
-                captured.saved.aggregates.some(
-                  (aggregate) => aggregate.document.hash === document.hash,
-                ) ||
+                aggregate ||
                 component.rows.some(
-                  (row) =>
-                    row.view.consumer.hash === document.hash && row.view.consumer.lang === lang,
+                  (row) => row.view.consumer.hash === hash && row.view.consumer.lang === lang,
                 ),
             );
         const ready = relevant.filter((component) =>
           component.rows.every((row) => this.approved(tree, row)),
         );
         if (
-          captured.saved.aggregates.some((aggregate) => aggregate.document.hash === document.hash)
-            ? relevant.length > 0 && ready.length === 0
-            : ready.length !== relevant.length
+          aggregate ? relevant.length > 0 && ready.length === 0 : ready.length !== relevant.length
         )
           continue;
-        const consumer = { hash: document.hash, lang, destination: this.options.liveBranch };
+        const consumer = { hash, lang, destination: this.options.liveBranch };
         this.write(
           tree,
-          `globals/proofs/publication/${this.options.liveBranch}/${document.hash}-${lang}.json`,
+          `globals/proofs/publication/${this.options.liveBranch}/${hash}-${lang}.json`,
           publicationSchema.parse({
             version: 1,
             complete: true,
@@ -1239,6 +1262,13 @@ export class GlobalsPublisher {
           limits.metadataBytes,
         );
       }
+    // A missing per-consumer proof is only a wait when this materialization is stale.
+    this.write(
+      tree,
+      publicationSourcesPath(this.options.liveBranch),
+      sources,
+      limits.metadataBytes,
+    );
     for (const request of requested.values()) {
       const owners = [...captured.saved.entries, ...captured.published.entries].filter(
         (entry) => !entry.tombstone && entry.kind === request.kind && entry.name === request.name,

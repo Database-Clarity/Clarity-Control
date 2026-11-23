@@ -60,6 +60,7 @@ for (const marker of [
   'planGlobalRelease(',
   'casMany(',
   'Sync pending: global dependency review required',
+  'globalsConfigWithoutMarksV1',
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks globals release (${marker}); refusing its PIN`);
@@ -120,6 +121,7 @@ writeFileSync(
         'aliasGroups',
         'globalsRelease',
         'globalsExportsV1',
+        'globalsConfigWithoutMarksV1',
         'scheduledGlobalsV1',
         'schedulePreparationV1',
         'draftBatchStagingV1',
